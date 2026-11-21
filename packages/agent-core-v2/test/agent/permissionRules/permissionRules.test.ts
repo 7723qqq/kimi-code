@@ -1,15 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IConfigService } from '#/app/config/config';
-import {
-  IAgentPermissionRulesService,
-  type PermissionApprovalResultRecord,
-  type PermissionRule,
-} from '#/agent/permissionRules/permissionRules';
+import { IAgentPermissionRulesService, type PermissionApprovalResultRecord, type PermissionRule } from '#/agent/permissionRules/permissionRules';
 import { AgentPermissionRulesService } from '#/agent/permissionRules/permissionRulesService';
 import { IProjectPermissionRulesService } from '#/agent/permissionRules/projectPermissionRules';
 import { ProjectPermissionRulesService } from '#/agent/permissionRules/projectPermissionRulesService';
@@ -41,11 +37,7 @@ import {
 const SCOPE = 'wire';
 const KEY = 'permission-rules-test';
 
-const allowRule: PermissionRule = {
-  decision: 'allow',
-  scope: 'session-runtime',
-  pattern: 'Read(**)',
-};
+const allowRule: PermissionRule = { decision: 'allow', scope: 'session-runtime', pattern: 'Read(**)' };
 const denyRule: PermissionRule = { decision: 'deny', scope: 'user', pattern: 'Bash(rm *)' };
 
 function sessionApproval(pattern: string): PermissionApprovalResultRecord {
@@ -151,10 +143,7 @@ afterEach(() => disposables.dispose());
 async function readRecords(): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(
-    testWireScope(SCOPE, KEY),
-    AGENT_WIRE_RECORD_KEY,
-  )) {
+  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, KEY), AGENT_WIRE_RECORD_KEY)) {
     out.push(record);
   }
   return out;
@@ -338,7 +327,7 @@ describe('AgentPermissionRulesService (wire-backed)', () => {
     config.permission = {
       rules: [{ ...runtimeRule, scope: 'invalid' }],
     } as unknown as PermissionConfig;
-    expect(() => readUserPermissionRules(config.asService())).toThrow();
+    expect(readUserPermissionRules(config.asService())).toEqual([]);
   });
 
   it('only persists approval records (permission.rules.add is live-only)', async () => {
@@ -392,10 +381,7 @@ describe('AgentPermissionRulesService (wire-backed)', () => {
       sessionApprovalRulePatterns: ['Bash(rm *)'],
     });
     const written: WireRecord[] = [];
-    for await (const record of log2.read<WireRecord>(
-      testWireScope(SCOPE, 'permission-rules-replay'),
-      AGENT_WIRE_RECORD_KEY,
-    )) {
+    for await (const record of log2.read<WireRecord>(testWireScope(SCOPE, 'permission-rules-replay'), AGENT_WIRE_RECORD_KEY)) {
       written.push(record);
     }
     expect(written[0]).toMatchObject({ type: 'metadata' });

@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { join } from 'node:path';
+
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   applyManagedKimiCodeConfig,
@@ -11,7 +12,6 @@ import {
   type TokenInfo,
   type TokenStorage,
 } from '../src';
-import { setGlobal, restoreGlobals } from './stubs';
 
 class MemoryTokenStorage implements TokenStorage {
   readonly tokens = new Map<string, TokenInfo>();
@@ -51,8 +51,8 @@ const TEST_IDENTITY = {
 } as const;
 
 afterEach(() => {
-  mock.restore();
-  restoreGlobals();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function managedModelsResponse(): Response {
@@ -86,9 +86,9 @@ describe('resolveKimiTokenStorageName', () => {
       }),
     ).toBe('kimi-code');
     expect(resolveKimiTokenStorageName({ oauthKey: 'kimi-code' })).toBe('kimi-code');
-    expect(resolveKimiTokenStorageName({ oauthKey: 'oauth/kimi-code-env-0123456789abcdef' })).toBe(
-      'kimi-code-env-0123456789abcdef',
-    );
+    expect(
+      resolveKimiTokenStorageName({ oauthKey: 'oauth/kimi-code-env-0123456789abcdef' }),
+    ).toBe('kimi-code-env-0123456789abcdef');
   });
 
   it('accepts non-managed providers with a valid key and rejects unsafe token keys', () => {
@@ -165,7 +165,7 @@ describe('KimiOAuthToolkit', () => {
       ...token('expired-dev-access'),
       expiresAt: 100,
     });
-    const fetchImpl = mock(async (input: unknown, init?: RequestInit) => {
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
       expect(fetchInputUrl(input)).toBe(`${oauthHost}/api/oauth/token`);
       if (typeof init?.body !== 'string') throw new TypeError('expected form body');
       expect(new URLSearchParams(init.body).get('grant_type')).toBe('refresh_token');
@@ -180,7 +180,7 @@ describe('KimiOAuthToolkit', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchImpl);
+    vi.stubGlobal('fetch', fetchImpl);
     const toolkit = new KimiOAuthToolkit({
       homeDir: join('/tmp', 'kimi-oauth-toolkit-test'),
       identity: TEST_IDENTITY,
@@ -194,7 +194,9 @@ describe('KimiOAuthToolkit', () => {
     });
 
     await expect(
-      toolkit.tokenProvider(KIMI_CODE_PROVIDER_NAME, { key: oauthKey, oauthHost }).getAccessToken(),
+      toolkit
+        .tokenProvider(KIMI_CODE_PROVIDER_NAME, { key: oauthKey, oauthHost })
+        .getAccessToken(),
     ).resolves.toBe('rotated-dev-access');
   });
 
@@ -205,7 +207,7 @@ describe('KimiOAuthToolkit', () => {
       expiresAt: 100,
     });
     const requests: string[] = [];
-    const fetchImpl = mock(async (input: unknown) => {
+    const fetchImpl = vi.fn(async (input: unknown) => {
       requests.push(fetchInputUrl(input));
       return new Response(
         JSON.stringify({
@@ -218,7 +220,7 @@ describe('KimiOAuthToolkit', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchImpl);
+    vi.stubGlobal('fetch', fetchImpl);
     const toolkit = new KimiOAuthToolkit({
       homeDir: join('/tmp', 'kimi-oauth-toolkit-test'),
       identity: TEST_IDENTITY,
@@ -298,8 +300,8 @@ describe('KimiOAuthToolkit', () => {
 
   it('provisions managed config after login when an adapter is configured', async () => {
     const storage = new MemoryTokenStorage();
-    const write = mock();
-    const fetchImpl = mock(async () => managedModelsResponse()) as unknown as typeof fetch;
+    const write = vi.fn();
+    const fetchImpl = vi.fn(async () => managedModelsResponse()) as unknown as typeof fetch;
     const config = { providers: {} };
     const toolkit = new KimiOAuthToolkit({
       homeDir: join('/tmp', 'kimi-oauth-toolkit-test'),
@@ -338,13 +340,14 @@ describe('KimiOAuthToolkit', () => {
     'force-refreshes a stored token when managed model provisioning rejects cached auth with HTTP %i',
     async (status) => {
       const storage = new MemoryTokenStorage();
-      const write = mock();
-      const onDeviceCode = mock();
+      const write = vi.fn();
+      const onDeviceCode = vi.fn();
       const config = { providers: {} };
       const oauthHost = 'https://auth.test';
       const oauthKey = resolveKimiCodeOAuthKey({ oauthHost });
       storage.tokens.set(resolveKimiTokenStorageName({ oauthKey }), token('stale-access'));
-      const fetchMock = mock()
+      const fetchMock = vi
+        .fn()
         .mockResolvedValueOnce(
           new Response(
             JSON.stringify({
@@ -355,7 +358,7 @@ describe('KimiOAuthToolkit', () => {
         )
         .mockResolvedValueOnce(managedModelsResponse());
       const fetchImpl = fetchMock as unknown as typeof fetch;
-      const oauthFetch = mock(async (_input: unknown, init?: RequestInit) => {
+      const oauthFetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
         if (typeof init?.body !== 'string') throw new TypeError('expected form body');
         const body = new URLSearchParams(init.body);
         if (body.get('grant_type') !== 'refresh_token') {
@@ -372,7 +375,7 @@ describe('KimiOAuthToolkit', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       });
-      setGlobal('fetch', oauthFetch);
+      vi.stubGlobal('fetch', oauthFetch);
       const toolkit = new KimiOAuthToolkit({
         homeDir: join('/tmp', 'kimi-oauth-toolkit-test'),
         identity: TEST_IDENTITY,
@@ -433,9 +436,11 @@ describe('KimiOAuthToolkit', () => {
       baseUrl: devBaseUrl,
     });
     const devStorageName = resolveKimiTokenStorageName({ oauthKey: devOauthKey });
-    const write = mock();
-    const fetchMock = mock(async (_input: unknown, _init?: RequestInit) => managedModelsResponse());
-    const oauthFetch = mock(async (_input: unknown, init?: RequestInit) => {
+    const write = vi.fn();
+    const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) =>
+      managedModelsResponse(),
+    );
+    const oauthFetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
       if (typeof init?.body !== 'string') throw new TypeError('expected form body');
       const body = new URLSearchParams(init.body);
       if (body.get('grant_type') === 'urn:ietf:params:oauth:grant-type:device_code') {
@@ -462,7 +467,7 @@ describe('KimiOAuthToolkit', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', oauthFetch);
+    vi.stubGlobal('fetch', oauthFetch);
     const toolkit = new KimiOAuthToolkit({
       homeDir: join('/tmp', 'kimi-oauth-toolkit-test'),
       identity: TEST_IDENTITY,
@@ -508,8 +513,8 @@ describe('KimiOAuthToolkit', () => {
       refreshToken: 'revoked-refresh',
       expiresAt: 101,
     });
-    const onDeviceCode = mock();
-    const fetchImpl = mock(async (_input: unknown, init?: RequestInit) => {
+    const onDeviceCode = vi.fn();
+    const fetchImpl = vi.fn(async (_input: unknown, init?: RequestInit) => {
       if (typeof init?.body !== 'string') throw new TypeError('expected form body');
       const body = new URLSearchParams(init.body);
       if (body.get('grant_type') === 'refresh_token') {
@@ -545,7 +550,7 @@ describe('KimiOAuthToolkit', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     }) as unknown as typeof fetch;
-    setGlobal('fetch', fetchImpl);
+    vi.stubGlobal('fetch', fetchImpl);
     const toolkit = new KimiOAuthToolkit({
       homeDir: join('/tmp', 'kimi-oauth-toolkit-test'),
       identity: TEST_IDENTITY,
@@ -569,30 +574,29 @@ describe('KimiOAuthToolkit', () => {
   it('propagates the managed quota response', async () => {
     const storage = new MemoryTokenStorage();
     storage.tokens.set('kimi-code', token('access-1'));
-    const fetchImpl = mock(
-      async (_input: unknown, _init?: RequestInit) =>
-        new Response(
-          JSON.stringify({
-            goods_version: 1,
-            usages: {
-              limit_5h: { used_ratio: 0.5, reset_time: '2026-09-11T18:00:00Z' },
-              limit_7d: { used_ratio: 0.1, reset_time: '2026-09-17T00:00:00Z' },
+    const fetchImpl = vi.fn(async (_input: unknown, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          goods_version: 1,
+          usages: {
+            limit_5h: { used_ratio: 0.5, reset_time: '2026-09-11T18:00:00Z' },
+            limit_7d: { used_ratio: 0.1, reset_time: '2026-09-17T00:00:00Z' },
+          },
+          boosterWallet: {
+            balance: {
+              type: 'BOOSTER',
+              amount: '20000000000',
+              amountLeft: '10000000000',
             },
-            boosterWallet: {
-              balance: {
-                type: 'BOOSTER',
-                amount: '20000000000',
-                amountLeft: '10000000000',
-              },
-              monthlyChargeLimitEnabled: true,
-              monthlyChargeLimit: { currency: 'USD', priceInCents: '20000' },
-              monthlyUsed: { currency: 'USD', priceInCents: '5000' },
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+            monthlyChargeLimitEnabled: true,
+            monthlyChargeLimit: { currency: 'USD', priceInCents: '20000' },
+            monthlyUsed: { currency: 'USD', priceInCents: '5000' },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     ) as unknown as typeof fetch;
-    setGlobal('fetch', fetchImpl);
+    vi.stubGlobal('fetch', fetchImpl);
     const toolkit = new KimiOAuthToolkit({
       homeDir: join('/tmp', 'kimi-oauth-toolkit-test'),
       identity: TEST_IDENTITY,
@@ -622,19 +626,18 @@ describe('KimiOAuthToolkit', () => {
   it('returns null extraUsage when the payload has no boosterWallet', async () => {
     const storage = new MemoryTokenStorage();
     storage.tokens.set('kimi-code', token('access-1'));
-    const fetchImpl = mock(
-      async (_input: unknown, _init?: RequestInit) =>
-        new Response(
-          JSON.stringify({
-            goods_version: 2,
-            usages: {
-              limit_month_total: { used_ratio: 0.4, reset_time: '2026-10-01T00:00:00Z' },
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+    const fetchImpl = vi.fn(async (_input: unknown, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          goods_version: 2,
+          usages: {
+            limit_month_total: { used_ratio: 0.4, reset_time: '2026-10-01T00:00:00Z' },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     ) as unknown as typeof fetch;
-    setGlobal('fetch', fetchImpl);
+    vi.stubGlobal('fetch', fetchImpl);
     const toolkit = new KimiOAuthToolkit({
       homeDir: join('/tmp', 'kimi-oauth-toolkit-test'),
       identity: TEST_IDENTITY,
@@ -656,25 +659,24 @@ describe('KimiOAuthToolkit', () => {
   it('propagates the managed profile response', async () => {
     const storage = new MemoryTokenStorage();
     storage.tokens.set('kimi-code', token('access-1'));
-    const fetchImpl = mock(
-      async (_input: unknown, _init?: RequestInit) =>
-        new Response(
-          JSON.stringify({
-            user_id: 'u_123',
-            global_id: 'u_123',
-            goods_version: 2,
-            nickname: 'moonwalker',
-            avatar: 'https://example.com/avatar.png',
-            phone: { country_code: '86', number: '176****0000' },
-            status: 'USER_STATUS_NORMAL',
-            region: 'REGION_CN',
-            created_time: '2026-06-11T13:26:47.561184Z',
-            last_login_time: '2026-07-16T03:12:03.033412Z',
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+    const fetchImpl = vi.fn(async (_input: unknown, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          user_id: 'u_123',
+          global_id: 'u_123',
+          goods_version: 2,
+          nickname: 'moonwalker',
+          avatar: 'https://example.com/avatar.png',
+          phone: { country_code: '86', number: '176****0000' },
+          status: 'USER_STATUS_NORMAL',
+          region: 'REGION_CN',
+          created_time: '2026-06-11T13:26:47.561184Z',
+          last_login_time: '2026-07-16T03:12:03.033412Z',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     ) as unknown as typeof fetch;
-    setGlobal('fetch', fetchImpl);
+    vi.stubGlobal('fetch', fetchImpl);
     const toolkit = new KimiOAuthToolkit({
       homeDir: join('/tmp', 'kimi-oauth-toolkit-test'),
       identity: TEST_IDENTITY,
@@ -702,10 +704,10 @@ describe('KimiOAuthToolkit', () => {
   it('normalizes managed profile fetch errors into the error result', async () => {
     const storage = new MemoryTokenStorage();
     storage.tokens.set('kimi-code', token('access-1'));
-    const fetchImpl = mock(
+    const fetchImpl = vi.fn(
       async () => new Response('', { status: 401 }),
     ) as unknown as typeof fetch;
-    setGlobal('fetch', fetchImpl);
+    vi.stubGlobal('fetch', fetchImpl);
     const toolkit = new KimiOAuthToolkit({
       homeDir: join('/tmp', 'kimi-oauth-toolkit-test'),
       identity: TEST_IDENTITY,
@@ -724,8 +726,8 @@ describe('KimiOAuthToolkit', () => {
     const storage = new MemoryTokenStorage();
     storage.tokens.set('kimi-code', token('access-1'));
     const config = { providers: { [KIMI_CODE_PROVIDER_NAME]: { type: 'kimi' } } };
-    const write = mock();
-    const remove = mock();
+    const write = vi.fn();
+    const remove = vi.fn();
     const toolkit = new KimiOAuthToolkit({
       homeDir: join('/tmp', 'kimi-oauth-toolkit-test'),
       identity: TEST_IDENTITY,

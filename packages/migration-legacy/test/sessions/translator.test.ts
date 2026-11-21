@@ -1,15 +1,14 @@
-import { describe, expect, it } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import { extractToolCallDisplays } from '../../src/sessions/tool-call-display.js';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 import {
   translateContextLines,
   containsUsableMessage,
   analyzeContextContent,
   extractLastUsageTokenCount,
 } from '../../src/sessions/translator.js';
+import { extractToolCallDisplays } from '../../src/sessions/tool-call-display.js';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures', import.meta.url));
 
@@ -50,9 +49,7 @@ describe('translateContextLines', () => {
     const line = JSON.stringify({
       role: 'assistant',
       content: [{ type: 'text', text: 'ok' }],
-      tool_calls: [
-        { type: 'function', id: 'Shell:0', function: { name: 'Shell', arguments: '{}' } },
-      ],
+      tool_calls: [{ type: 'function', id: 'Shell:0', function: { name: 'Shell', arguments: '{}' } }],
     });
     const [msg] = translateContextLines([line]);
     expect(msg!.role).toBe('assistant');
@@ -75,9 +72,6 @@ describe('translateContextLines', () => {
   });
 
   it('assistant message with null content yields an empty content list, not a phantom ""', () => {
-    // A tool-call-only assistant message legitimately has no text content.
-    // Stringifying nullish content would emit a text part holding the two
-    // literal quote characters, feeding phantom context back to the model.
     const line = JSON.stringify({
       role: 'assistant',
       content: null,
@@ -99,7 +93,10 @@ describe('translateContextLines', () => {
   });
 
   it('skips malformed JSON lines silently and continues', () => {
-    const out = translateContextLines(['not-json-here', '{"role":"user","content":"ok"}']);
+    const out = translateContextLines([
+      'not-json-here',
+      '{"role":"user","content":"ok"}',
+    ]);
     expect(out).toHaveLength(1);
     expect(out[0]!.role).toBe('user');
   });
@@ -158,7 +155,6 @@ describe('analyzeContextContent', () => {
   });
 
   it("'empty' when only markers are present — a cleared / unused session", () => {
-    // Parseable JSON, just no migratable conversation.
     expect(
       analyzeContextContent([
         '{"role":"_system_prompt","content":"x"}',
@@ -174,16 +170,16 @@ describe('analyzeContextContent', () => {
   });
 
   it("'corrupt' when every non-blank line fails to parse", () => {
-    // A truncated / disk-corrupted context.jsonl looks like this; we want
-    // these surfaced as failures rather than silently counted as skipped.
     expect(analyzeContextContent(['not-json', '{broken', '}}}'])).toBe('corrupt');
   });
 
   it("'empty' (not 'corrupt') when at least one line parses, even without a usable role", () => {
-    // A mostly-broken file that still has one well-formed marker line is not
-    // outright corrupt — treat it like an empty session.
     expect(
-      analyzeContextContent(['not-json', '{broken', '{"role":"_system_prompt","content":"x"}']),
+      analyzeContextContent([
+        'not-json',
+        '{broken',
+        '{"role":"_system_prompt","content":"x"}',
+      ]),
     ).toBe('empty');
   });
 });

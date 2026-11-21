@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { FiberState } from '#/_base/di/fiber';

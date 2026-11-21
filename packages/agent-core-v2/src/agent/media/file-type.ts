@@ -1,16 +1,10 @@
 import {
   AUDIO_MIME_BY_SUFFIX,
-  DOCUMENT_MIME_BY_SUFFIX,
   IMAGE_MIME_BY_SUFFIX,
   VIDEO_MIME_BY_SUFFIX,
 } from './mediaRef';
 
-export {
-  AUDIO_MIME_BY_SUFFIX,
-  DOCUMENT_MIME_BY_SUFFIX,
-  IMAGE_MIME_BY_SUFFIX,
-  VIDEO_MIME_BY_SUFFIX,
-};
+export { AUDIO_MIME_BY_SUFFIX, IMAGE_MIME_BY_SUFFIX, VIDEO_MIME_BY_SUFFIX };
 
 export const MEDIA_SNIFF_BYTES = 512;
 
@@ -21,6 +15,10 @@ export interface FileType {
 
 export type DetectFileTypeMode = 'text' | 'media';
 
+const DOCUMENT_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.freeze({
+  '.pdf': 'application/pdf',
+});
+
 const TEXT_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.freeze({
   '.svg': 'image/svg+xml',
 });
@@ -30,6 +28,7 @@ export const NON_TEXT_SUFFIXES: ReadonlySet<string> = new Set<string>([
   '.psd',
   '.ai',
   '.eps',
+  '.pdf',
   '.doc',
   '.docx',
   '.dot',
@@ -156,6 +155,9 @@ function sniffFtypBrand(header: Buffer): string | null {
 
 export function sniffMediaFromMagic(data: Buffer | Uint8Array): FileType | null {
   const buf = toBuffer(data);
+  if (buf.subarray(0, 5).toString('latin1') === '%PDF-') {
+    return { kind: 'document', mimeType: 'application/pdf' };
+  }
   const header = buf.length > MEDIA_SNIFF_BYTES ? buf.subarray(0, MEDIA_SNIFF_BYTES) : buf;
 
   if (startsWith(header, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
@@ -183,9 +185,6 @@ export function sniffMediaFromMagic(data: Buffer | Uint8Array): FileType | null 
     const chunk = header.subarray(8, 12).toString('latin1');
     if (chunk === 'WEBP') return { kind: 'image', mimeType: 'image/webp' };
     if (chunk === 'AVI ') return { kind: 'video', mimeType: 'video/x-msvideo' };
-  }
-  if (startsWith(header, Buffer.from('%PDF-'))) {
-    return { kind: 'document', mimeType: 'application/pdf' };
   }
   if (startsWith(header, Buffer.from('FLV'))) {
     return { kind: 'video', mimeType: 'video/x-flv' };
@@ -304,10 +303,8 @@ function readExifOrientation(buf: Buffer, start: number, end: number): number | 
   const byteOrder = buf.toString('latin1', tiff, tiff + 2);
   const le = byteOrder === 'II';
   if (!le && byteOrder !== 'MM') return null;
-  const u16 = (offset: number): number =>
-    le ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset);
-  const u32 = (offset: number): number =>
-    le ? buf.readUInt32LE(offset) : buf.readUInt32BE(offset);
+  const u16 = (offset: number): number => (le ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset));
+  const u32 = (offset: number): number => (le ? buf.readUInt32LE(offset) : buf.readUInt32BE(offset));
   if (u16(tiff + 2) !== 42) return null;
   const ifd = tiff + u32(tiff + 4);
   if (ifd + 2 > boundedEnd) return null;
@@ -365,9 +362,6 @@ export function detectFileType(
       return { kind: 'unknown', mimeType: '' };
     }
     if (type === 'media' && mediaHint?.kind === 'video') {
-      return mediaHint;
-    }
-    if (mediaHint?.kind === 'document' && startsWith(buf, Buffer.from('%PDF-'))) {
       return mediaHint;
     }
     if (buf.includes(0x00)) {

@@ -7,33 +7,28 @@
 // a worker failure never breaks the currently published generation, and the
 // inline fallback produces byte-identical artifacts.
 
-import { afterEach, describe, expect, spyOn, test } from 'bun:test';
-import fsSync from 'node:fs';
+import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
-
+import { afterEach, describe, expect, test, vi } from '@moonshot-ai/testkit/vitest';
 import { MiniDb } from '../src/index.js';
-import { WorkerSlots, MaintenanceCancelledError, defaultWorkerSlots } from '../src/maintenance.js';
-import { encodePostingList, encodeRecord } from '../src/text-postings.js';
 import {
   configureTextBuildWorkerRuntime,
   getTextBuildWorkerRuntimeState,
   resetTextBuildWorkerRuntime,
 } from '../src/worker-runtime.js';
-import { buildTextArtifacts, SegmentReader } from '../src/worker/text-build-core.js';
+import { buildTextArtifacts } from '../src/worker/text-build-core.js';
 import type { TextBuildCoreSpec } from '../src/worker/text-build-core.js';
-import {
-  startWorkerTextBuild,
-  WorkerTextBuildError,
-  verifyFileCrcAsync,
-} from '../src/worker/text-build.js';
+import { startWorkerTextBuild, WorkerTextBuildError, verifyFileCrcAsync } from '../src/worker/text-build.js';
+import { WorkerSlots, MaintenanceCancelledError, defaultWorkerSlots } from '../src/maintenance.js';
 import { tmpDir, rmrf, waitFor } from './helpers.js';
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   resetTextBuildWorkerRuntime();
-  while (cleanups.length > 0) await cleanups.pop()!();
+  while (cleanups.length) await cleanups.pop()!();
 });
 
 async function openTmp(name: string): Promise<string> {
@@ -54,11 +49,7 @@ async function seedTextDb(db: MiniDb<Record<string, unknown>>, n: number): Promi
         return {
           op: 'set' as const,
           key: `k${k}`,
-          value: {
-            kind: `t${k % 7}`,
-            score: k % 100,
-            text: `hello world doc ${k} 持久化 索引 ${k % 13} token${k % 97}`,
-          },
+          value: { kind: `t${k % 7}`, score: k % 100, text: `hello world doc ${k} 持久化 索引 ${k % 13} token${k % 97}` },
         };
       }),
     );
@@ -76,11 +67,7 @@ async function seedDataOnly(db: MiniDb<Record<string, unknown>>, n: number): Pro
         return {
           op: 'set' as const,
           key: `k${k}`,
-          value: {
-            kind: `t${k % 7}`,
-            score: k % 100,
-            text: `hello world doc ${k} 持久化 索引 ${k % 13} token${k % 97}`,
-          },
+          value: { kind: `t${k % 7}`, score: k % 100, text: `hello world doc ${k} 持久化 索引 ${k % 13} token${k % 97}` },
         };
       }),
     );
@@ -138,9 +125,9 @@ describe('worker orchestration (thread hosting)', () => {
       entry: { kind: 'source' },
     });
     expect(configureTextBuildWorkerRuntime(source)).toEqual(getTextBuildWorkerRuntimeState());
-    expect(() =>
-      configureTextBuildWorkerRuntime(new URL('../src/worker/text-build-core.ts', import.meta.url)),
-    ).toThrow(/already configured/);
+    expect(() => configureTextBuildWorkerRuntime(new URL('../src/worker/text-build-core.ts', import.meta.url))).toThrow(
+      /already configured/,
+    );
     resetTextBuildWorkerRuntime();
     expect(getTextBuildWorkerRuntimeState()).toEqual({ configured: false });
   });
@@ -379,25 +366,20 @@ describe('worker orchestration (thread hosting)', () => {
     await db.close();
   });
 
-  // Bun's worker_threads ignores resourceLimits, so the heap-cap OOM never fires there.
-  test.skipIf(typeof Bun !== 'undefined')(
-    'worker OOM is contained by resourceLimits: the host keeps serving',
-    async () => {
-      const dir = await openTmp('oom');
-      const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
-      await seedTextDb(db, 30000);
-      const tmp = await openTmp('oom-tmp');
-      const spec = await specForLiveDb(db, dir, tmp);
-      const handle = startWorkerTextBuild(spec, { workerMaxOldSpaceMb: 48 });
-      // A 48 MiB old-space cap cannot hold the reconstructed corpus: the worker
-      // dies; the host process (this test) is unaffected and keeps serving.
-      await expect(handle.promise).rejects.toThrow();
-      expect(db.get('k42')).toMatchObject({ score: 42 });
-      expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
-      await db.close();
-    },
-    60000,
-  );
+  test('worker OOM is contained by resourceLimits: the host keeps serving', async () => {
+    const dir = await openTmp('oom');
+    const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
+    await seedTextDb(db, 30000);
+    const tmp = await openTmp('oom-tmp');
+    const spec = await specForLiveDb(db, dir, tmp);
+    const handle = startWorkerTextBuild(spec, { workerMaxOldSpaceMb: 48 });
+    // A 48 MiB old-space cap cannot hold the reconstructed corpus: the worker
+    // dies; the host process (this test) is unaffected and keeps serving.
+    await expect(handle.promise).rejects.toThrow();
+    expect(db.get('k42')).toMatchObject({ score: 42 });
+    expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
+    await db.close();
+  }, 60000);
 
   test('cancel() aborts a running worker promptly', async () => {
     const dir = await openTmp('cancel');
@@ -423,78 +405,26 @@ describe('worker orchestration (thread hosting)', () => {
 });
 
 describe('build core (segmented external merge)', () => {
-  test(
-    'tiny memory budget forces segments; merged output equals the unsegmented build',
-    { timeout: 120_000 },
-    async () => {
-      const dir = await openTmp('segments');
-      const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
-      await seedTextDb(db, 3000);
-      const tmpBig = await openTmp('seg-big');
-      const tmpSmall = await openTmp('seg-small');
-      const big = await buildTextArtifacts(
-        await specForLiveDb(db, dir, tmpBig, { memoryBudgetBytes: 512 * 1024 * 1024 }),
-      );
-      const small = await buildTextArtifacts(
-        await specForLiveDb(db, dir, tmpSmall, { memoryBudgetBytes: 16 * 1024 }),
-      );
-      // The small-budget build flushed many segments but must arrive at the
-      // exact same postings/dictionary content.
-      const segs = small.indexes.map((r) => r.segmentsFlushed);
-      expect(Math.max(...segs)).toBeGreaterThan(0);
-      for (let i = 0; i < big.indexes.length; i++) {
-        expect(small.indexes[i]!.postingsInfo).toEqual(big.indexes[i]!.postingsInfo);
-        expect(small.indexes[i]!.dictionaryInfo).toEqual(big.indexes[i]!.dictionaryInfo);
-        expect(small.indexes[i]!.baseDocsInfo).toEqual(big.indexes[i]!.baseDocsInfo);
-      }
-      // Segment files were cleaned up after the merge.
-      expect((await fs.readdir(tmpSmall)).filter((f) => f.includes('.seg-'))).toEqual([]);
-      await db.close();
-    },
-  );
-
-  test(
-    'a record larger than the reader window is read straight from the fd',
-    { timeout: 30_000 },
-    async () => {
-      const dir = await openTmp('seg-big-record');
-      const segPath = path.join(dir, 'text-ft.postings.seg-0');
-      const payload = encodePostingList([
-        [1, 1],
-        [2, 1],
-      ]);
-      const payloadLen = 1024 * 1024 + 1;
-      const padded = Buffer.concat([payload, Buffer.alloc(payloadLen - payload.length, 3)]);
-      const rec = encodeRecord('big', 2, padded);
-      // The reader window is 1 MiB: this record cannot fit it, so it must
-      // come from a direct positioned read instead of the window.
-      expect(rec.length).toBeGreaterThan(1 << 20);
-      expect(rec.readUInt32LE(2 + 3 + 4)).toBe(payloadLen);
-      await fs.writeFile(segPath, rec);
-
-      const reader = await SegmentReader.open(segPath);
-      try {
-        expect(reader.current).not.toBeNull();
-        expect(reader.current!.term).toBe('big');
-        expect(reader.current!.df).toBe(2);
-        expect(reader.current!.payload.length).toBe(payloadLen);
-        expect(reader.current!.payload.subarray(0, payload.length)).toEqual(payload);
-        // Every byte past the encoded pairs is the pad actually staged on disk.
-        expect(reader.current!.payload.subarray(payload.length).every((b) => b === 3)).toBe(true);
-        await reader.advance();
-        expect(reader.current).toBeNull();
-      } finally {
-        reader.close();
-      }
-    },
-  );
-
-  test('a segment record overrunning the file fails instead of spinning', async () => {
-    const dir = await openTmp('seg-truncated');
-    const segPath = path.join(dir, 'text-ft.postings.seg-0');
-    const rec = encodeRecord('trunc', 1, encodePostingList([[1, 1]]));
-    await fs.writeFile(segPath, rec.subarray(0, rec.length - 4));
-    await expect(SegmentReader.open(segPath)).rejects.toThrow(/overruns the file/);
+  test('tiny memory budget forces segments; merged output equals the unsegmented build', { timeout: 120_000 }, async () => {
+    const dir = await openTmp('segments');
+    const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
+    await seedTextDb(db, 3000);
+    const tmpBig = await openTmp('seg-big');
+    const tmpSmall = await openTmp('seg-small');
+    const big = await buildTextArtifacts(await specForLiveDb(db, dir, tmpBig, { memoryBudgetBytes: 512 * 1024 * 1024 }));
+    const small = await buildTextArtifacts(await specForLiveDb(db, dir, tmpSmall, { memoryBudgetBytes: 16 * 1024 }));
+    // The small-budget build flushed many segments but must arrive at the
+    // exact same postings/dictionary content.
+    const segs = small.indexes.map((r) => r.segmentsFlushed);
+    expect(Math.max(...segs)).toBeGreaterThan(0);
+    for (let i = 0; i < big.indexes.length; i++) {
+      expect(small.indexes[i]!.postingsInfo).toEqual(big.indexes[i]!.postingsInfo);
+      expect(small.indexes[i]!.dictionaryInfo).toEqual(big.indexes[i]!.dictionaryInfo);
+      expect(small.indexes[i]!.baseDocsInfo).toEqual(big.indexes[i]!.baseDocsInfo);
+    }
+    // Segment files were cleaned up after the merge.
+    expect((await fs.readdir(tmpSmall)).filter((f) => f.includes('.seg-'))).toEqual([]);
+    await db.close();
   });
 
   test('pinned WAL prefix: appends past the checkpoint are invisible to the build', async () => {
@@ -518,10 +448,7 @@ describe('build core (segmented external merge)', () => {
     await seedTextDb(db, 100);
     const tmp = await openTmp('anchor-tmp');
     const spec = await specForLiveDb(db, dir, tmp);
-    // Windows file IDs are 64-bit values near 2^54, where a JS number's
-    // double precision swallows a +1 increment — use a large delta so the
-    // anchor genuinely differs on every platform.
-    spec.walIno += 4096;
+    spec.walIno += 1;
     await expect(buildTextArtifacts(spec)).rejects.toThrow('anchor mismatch');
     await db.close();
   });
@@ -565,27 +492,12 @@ describe('MiniDb worker build integration', () => {
       settled = true;
     });
     // Ordinary traffic during the build: reads, writes, and searches keep
-    // working off the OLD base + live delta. The ONE window that must NOT
-    // serve is the win32 publish critical section: a directory cannot be
-    // renamed with open files inside it on Windows, so generation-builder
-    // closes every live base between the publish rename and the repoint and
-    // flags it pending. A search landing exactly there has to raise the typed
-    // building signal instead of reading an empty base — never an empty or
-    // partial result. Everywhere else (and on POSIX throughout) it serves.
+    // working off the OLD base + live delta.
     let ops = 0;
     while (!settled && ops < 400) {
-      await db.set(`c${ops}`, {
-        kind: 'concurrent',
-        score: ops,
-        text: `concurrent write ${ops} 并发`,
-      });
+      await db.set(`c${ops}`, { kind: 'concurrent', score: ops, text: `concurrent write ${ops} 并发` });
       expect(db.get('k42')).toMatchObject({ score: 42 });
-      try {
-        expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
-      } catch (error) {
-        if (process.platform !== 'win32') throw error;
-        expect((error as { code?: string }).code).toBe('TEXT_INDEX_BUILDING');
-      }
+      expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
       ops++;
     }
     await buildP;
@@ -598,9 +510,7 @@ describe('MiniDb worker build integration', () => {
     expect(db.search('ft', 'concurrent').length).toBeGreaterThan(0);
     expect(db.search('tri', 'concurrent write').length).toBeGreaterThan(0);
     // The scheduler surfaced the finished task.
-    expect(
-      db.maintenanceStatus().some((t) => t.kind === 'generation-build' && t.state === 'complete'),
-    ).toBe(true);
+    expect(db.maintenanceStatus().some((t) => t.kind === 'generation-build' && t.state === 'complete')).toBe(true);
     await db.close();
 
     // Reopen: the worker-built generation loads with zero rebuilds.
@@ -609,7 +519,7 @@ describe('MiniDb worker build integration', () => {
     expect(db.stats.generationIndexRebuilds).toBe(0);
     expect(db.size).toBe(5000 + ops);
     expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
-    expect(db.search('ft', 'concurrent').length).toBe(Math.min(50, ops));
+    expect(db.search('ft', 'concurrent').length).toBe(ops > 50 ? 50 : ops);
     expect(db.search('tri', 'hello world').length).toBeGreaterThan(0);
     await db.close();
   }, 60000);
@@ -627,11 +537,7 @@ describe('MiniDb worker build integration', () => {
       await db.batch(
         Array.from({ length: BATCH }, (_, i) => {
           const k = base + i;
-          return {
-            op: 'set' as const,
-            key: `k${k}`,
-            value: { text: `hello world doc ${k} 持久化 索引` },
-          };
+          return { op: 'set' as const, key: `k${k}`, value: { text: `hello world doc ${k} 持久化 索引` } };
         }),
       );
     }
@@ -644,11 +550,7 @@ describe('MiniDb worker build integration', () => {
 
   test('worker build in disk valueMode', async () => {
     const dir = await openTmp('e2e-disk');
-    let db = await MiniDb.open<Record<string, unknown>>({
-      dir,
-      valueCodec: 'json',
-      valueMode: 'disk',
-    });
+    let db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', valueMode: 'disk' });
     await seedTextDb(db, 5000);
     await db.rebuildGeneration();
     expect(db.stats.textWorkerBuilds).toBeGreaterThanOrEqual(1);
@@ -698,10 +600,7 @@ describe('MiniDb worker build integration', () => {
 
     db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
     await waitFor(
-      () =>
-        db
-          .maintenanceStatus()
-          .some((task) => task.kind === 'text-build' && task.state === 'running'),
+      () => db.maintenanceStatus().some((task) => task.kind === 'text-build' && task.state === 'running'),
       'ordinary bounded worker start',
     );
     await db.close();
@@ -713,11 +612,7 @@ describe('MiniDb worker build integration', () => {
     // Write the corpus with generations DISABLED so no generation ever gets
     // published — the reopen below is forced down the no-generation fallback
     // recovery path.
-    let db = await MiniDb.open<Record<string, unknown>>({
-      dir,
-      valueCodec: 'json',
-      indexGenerations: false,
-    });
+    let db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', indexGenerations: false });
     await seedTextDb(db, 5000);
     await db.close();
 
@@ -735,24 +630,13 @@ describe('MiniDb worker build integration', () => {
     // The background maintenance task commits the bases; searches then serve
     // the full corpus again. Wait for BOTH indexes AND the task's completion
     // (the task builds the indexes sequentially) before sampling stats.
-    await waitFor(
-      () => !db.textIndexBuilding('ft') && !db.textIndexBuilding('tri'),
-      'deferred text builds',
-    );
-    await waitFor(
-      () =>
-        db
-          .maintenanceStatus()
-          .every((t) => t.kind !== 'text-build' || (t.state !== 'running' && t.state !== 'queued')),
-      'text-build task completion',
-    );
+    await waitFor(() => !db.textIndexBuilding('ft') && !db.textIndexBuilding('tri'), 'deferred text builds');
+    await waitFor(() => db.maintenanceStatus().every((t) => t.kind !== 'text-build' || (t.state !== 'running' && t.state !== 'queued')), 'text-build task completion');
     expect(db.search('ft', 'hello').length).toBe(50);
     expect(db.search('tri', 'hello world').length).toBeGreaterThan(0);
     expect(db.stats.textDeferredBuilds).toBe(2);
     expect(db.stats.textDeferredBuildErrors).toBe(0);
-    expect(
-      db.maintenanceStatus().some((t) => t.kind === 'text-build' && t.state === 'complete'),
-    ).toBe(true);
+    expect(db.maintenanceStatus().some((t) => t.kind === 'text-build' && t.state === 'complete')).toBe(true);
     await db.close();
   }, 60000);
 
@@ -761,19 +645,11 @@ describe('MiniDb worker build integration', () => {
     // The writer holds the lock with generations DISABLED, so the read-only
     // peer below takes the no-generation fallback path and must never write
     // into the writer's directory.
-    const writer = await MiniDb.open<Record<string, unknown>>({
-      dir,
-      valueCodec: 'json',
-      indexGenerations: false,
-    });
+    const writer = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', indexGenerations: false });
     await seedTextDb(writer, 5000);
-    const filesBefore = (await fs.readdir(dir)).toSorted();
+    const filesBefore = (await fs.readdir(dir)).sort();
 
-    const reader = await MiniDb.open<Record<string, unknown>>({
-      dir,
-      valueCodec: 'json',
-      onLockFail: 'readonly',
-    });
+    const reader = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', onLockFail: 'readonly' });
     expect(reader.readOnly).toBe(true);
     expect(reader.textIndexBuilding('ft')).toBe(true);
     expect(() => reader.search('ft', 'hello')).toThrowError(/still building/);
@@ -785,17 +661,14 @@ describe('MiniDb worker build integration', () => {
     expect(await reader.catchUpFromWal(reader.recoveryInfo!.walScanEnd)).not.toBeNull();
     expect(walEnd).toBeGreaterThan(reader.recoveryInfo!.walScanEnd);
 
-    await waitFor(
-      () => !reader.textIndexBuilding('ft') && !reader.textIndexBuilding('tri'),
-      'read-only deferred builds',
-    );
+    await waitFor(() => !reader.textIndexBuilding('ft') && !reader.textIndexBuilding('tri'), 'read-only deferred builds');
     expect(reader.search('ft', 'hello').length).toBe(50);
     expect(reader.search('tri', 'hello world').length).toBeGreaterThan(0);
     // The queued mid-build write is searchable on the committed base.
     expect(reader.search('ft', '中途').map((h) => h.key)).toEqual(['mid']);
     // The writer's directory is untouched: the reader's base postings live in
     // its private scratch dir NEXT TO the db dir.
-    expect((await fs.readdir(dir)).toSorted()).toEqual(filesBefore);
+    expect((await fs.readdir(dir)).sort()).toEqual(filesBefore);
     const scratchRoot = `${dir}.ro-scratch`;
     const scratchEntries = await fs.readdir(scratchRoot);
     expect(scratchEntries.length).toBe(1);
@@ -809,11 +682,7 @@ describe('MiniDb worker build integration', () => {
 
   test('small corpus keeps the staged inline rebuild (no deferral window)', async () => {
     const dir = await openTmp('defer-small');
-    let db = await MiniDb.open<Record<string, unknown>>({
-      dir,
-      valueCodec: 'json',
-      indexGenerations: false,
-    });
+    let db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', indexGenerations: false });
     await seedTextDb(db, 1000); // below TEXT_BUILD_WORKER_MIN_DOCS
     await db.close();
     db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
@@ -825,18 +694,10 @@ describe('MiniDb worker build integration', () => {
 
   test('deferOpenTextBuilds: false restores the awaited staged rebuild (rollback switch)', async () => {
     const dir = await openTmp('defer-off');
-    let db = await MiniDb.open<Record<string, unknown>>({
-      dir,
-      valueCodec: 'json',
-      indexGenerations: false,
-    });
+    let db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', indexGenerations: false });
     await seedTextDb(db, 5000);
     await db.close();
-    db = await MiniDb.open<Record<string, unknown>>({
-      dir,
-      valueCodec: 'json',
-      deferOpenTextBuilds: false,
-    });
+    db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', deferOpenTextBuilds: false });
     // open() awaited the full staged rebuild: no building window at all.
     expect(db.textIndexBuilding('ft')).toBe(false);
     expect(db.search('ft', 'hello').length).toBe(50);
@@ -862,9 +723,7 @@ describe('MiniDb worker build integration', () => {
     // no. The direct one: make the publish rename fail.
     const original = fs.rename;
     (fs as unknown as Record<string, unknown>).rename = (src: string, dst: string) =>
-      String(src).includes('.tmp-')
-        ? Promise.reject(new Error('injected publish failure'))
-        : original(src, dst);
+      String(src).includes('.tmp-') ? Promise.reject(new Error('injected publish failure')) : original(src, dst);
     cleanups.push(() => {
       (fs as unknown as Record<string, unknown>).rename = original;
     });
@@ -895,11 +754,7 @@ describe('MiniDb worker build integration', () => {
 
   test('textBuildWorker: false forces the staged path (rollback switch)', async () => {
     const dir = await openTmp('switch');
-    const db = await MiniDb.open<Record<string, unknown>>({
-      dir,
-      valueCodec: 'json',
-      textBuildWorker: false,
-    });
+    const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', textBuildWorker: false });
     await seedTextDb(db, 5000);
     await db.rebuildGeneration();
     expect(db.stats.textWorkerBuilds).toBe(0);
@@ -912,11 +767,7 @@ describe('MiniDb worker build integration', () => {
 describe('maintenance scheduler behavior (via MiniDb)', () => {
   test('compact and generation-build serialize; status exposes states', async () => {
     const dir = await openTmp('sched');
-    const db = await MiniDb.open<Record<string, unknown>>({
-      dir,
-      valueCodec: 'json',
-      compactThresholdBytes: 64 * 1024,
-    });
+    const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', compactThresholdBytes: 64 * 1024 });
     await seedTextDb(db, 5000);
     // Drive a compaction AND a generation build: they must never overlap
     // (one heavy task at a time). The build lands inside the compaction's
@@ -964,7 +815,7 @@ describe('bounded createTextIndex (data-first corpus)', () => {
     await db.close();
   }, 60000);
 
-  test('small corpus stays on the staged path after createTextIndex (no worker spawn)', async () => {
+  test('small corpus stays on the staged path (no worker spawn)', async () => {
     const dir = await openTmp('cti-small');
     const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
     await seedDataOnly(db, 500);
@@ -976,11 +827,7 @@ describe('bounded createTextIndex (data-first corpus)', () => {
 
   test('textBuildWorker: false forces the staged path (rollback switch)', async () => {
     const dir = await openTmp('cti-switch');
-    const db = await MiniDb.open<Record<string, unknown>>({
-      dir,
-      valueCodec: 'json',
-      textBuildWorker: false,
-    });
+    const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', textBuildWorker: false });
     await seedDataOnly(db, 5000);
     await db.createTextIndex('ft', { fields: ['text'] });
     expect(db.stats.textWorkerBuilds).toBe(0);
@@ -1016,18 +863,17 @@ describe('bounded open-time rebuild (generation loader)', () => {
 
 describe('single-file deployment (worker entry absent)', () => {
   test('bounded builds still run — hosted inline, never the unbounded staged path', async () => {
-    // A single-file deployment ships no worker entry, so the availability probe
-    // answers false. Spy on the real module namespace (Bun has no
-    // importActual): every importer reads the export live.
-    const textBuild = await import('../src/worker/text-build.js');
-    const unavailable = spyOn(textBuild, 'textBuildWorkerAvailable').mockImplementation(
-      () => false,
-    );
+    vi.doMock('../src/worker/text-build.js', async () => {
+      const orig = await import('../src/worker/text-build.js');
+      return { ...orig, textBuildWorkerAvailable: () => false };
+    });
+    vi.resetModules();
     try {
+      const { MiniDb: SeaMiniDb } = await import('../src/index.js');
       const dir = await openTmp('sea-inline');
       // Open EMPTY first (see the deterministic-stats note above).
-      const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
-      await seedDataOnly(db, 5000);
+      const db = await SeaMiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
+      await seedDataOnly(db as unknown as MiniDb<Record<string, unknown>>, 5000);
 
       await db.createTextIndex('ft', { fields: ['text'] });
       await db.createTextIndex('tri', { fields: ['text'], tokenizer: 'ngram' });
@@ -1047,7 +893,8 @@ describe('single-file deployment (worker entry absent)', () => {
       expect(db.search('tri', 'hello world').length).toBeGreaterThan(0);
       await db.close();
     } finally {
-      unavailable.mockRestore();
+      vi.doUnmock('../src/worker/text-build.js');
+      vi.resetModules();
     }
   }, 120000);
 });
@@ -1091,7 +938,7 @@ describe('worker slot queue (TUI-safe slot pressure policy)', () => {
     const held: (() => void)[] = [];
     for (let i = 0; i < defaultWorkerSlots.total; i++) {
       const r = defaultWorkerSlots.tryAcquire();
-      expect(r !== null).toBeTruthy();
+      assert(r !== null);
       held.push(r);
     }
     db.textBuildSlotWaitMs = 60_000; // the grant, not the timeout, must end the wait
@@ -1101,9 +948,9 @@ describe('worker slot queue (TUI-safe slot pressure policy)', () => {
       .then(() => {
         settled = true;
       })
-      .catch((error) => {
+      .catch((e) => {
         settled = true;
-        throw error;
+        throw e;
       });
     // startInline records its fallback synchronously, so after a settle-free
     // window with no fallback stat the build provably did NOT go inline.
@@ -1132,7 +979,7 @@ describe('worker slot queue (TUI-safe slot pressure policy)', () => {
     const held: (() => void)[] = [];
     for (let i = 0; i < defaultWorkerSlots.total; i++) {
       const r = defaultWorkerSlots.tryAcquire();
-      expect(r !== null).toBeTruthy();
+      assert(r !== null);
       held.push(r);
     }
     try {

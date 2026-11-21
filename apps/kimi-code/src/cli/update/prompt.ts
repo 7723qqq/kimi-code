@@ -11,12 +11,11 @@ import {
   UPDATE_PROMPT_TEXT_DIM,
   UPDATE_PROMPT_WARNING,
 } from '#/constant/update';
-import { t } from '#/i18n';
 
 import { type ActionableUpdatePlan, type InstallSource } from './types';
+import { t } from '#/i18n';
 
-export const CHANGELOG_URL =
-  'https://moonshotai.github.io/kimi-code/en/release-notes/changelog.html';
+export const CHANGELOG_URL = 'https://moonshotai.github.io/kimi-code/en/release-notes/changelog.html';
 
 export type InstallPromptChoiceValue = 'install' | 'skip';
 
@@ -34,34 +33,22 @@ export interface InstallPromptOptions {
   readonly output?: NodeJS.WriteStream;
 }
 
-function getInstallHint(): string {
-  return t('tui.statusMessages.updatePromptInstallNow');
-}
-function getSkipHint(): string {
-  return t('tui.statusMessages.updatePromptContinue');
-}
+const INSTALL_HINT = t('tui.statusMessages.updatePromptInstallNow');
+const SKIP_HINT = t('tui.statusMessages.updatePromptContinue');
+
 
 export function createInstallPromptChoices(
   plan: ActionableUpdatePlan,
 ): readonly InstallPromptChoice[] {
   if (plan.kind === 'switch-channel') {
     return [
-      {
-        value: 'install',
-        label: t('tui.statusMessages.updatePromptSwitchTo', {
-          channel: plan.target.channel,
-          version: plan.target.version,
-        }),
-      },
-      {
-        value: 'skip',
-        label: t('tui.statusMessages.updatePromptStayOn', { channel: plan.sourceChannel }),
-      },
+      { value: 'install', label: t('tui.statusMessages.updatePromptSwitchTo', { channel: plan.target.channel, version: plan.target.version }) },
+      { value: 'skip', label: t('tui.statusMessages.updatePromptStayOn', { channel: plan.sourceChannel }) },
     ];
   }
   return [
-    { value: 'install', label: `${getInstallHint()} (${plan.target.version})` },
-    { value: 'skip', label: getSkipHint() },
+    { value: 'install', label: `${INSTALL_HINT} (${plan.target.version})` },
+    { value: 'skip', label: SKIP_HINT },
   ];
 }
 
@@ -91,31 +78,23 @@ function renderInstallPrompt(
   const targetVersion = chalk.hex(UPDATE_PROMPT_SUCCESS).bold(options.plan.target.version);
   const sourceLabel = chalk.hex(UPDATE_PROMPT_PRIMARY).bold(options.installSource);
   const command = chalk.hex(UPDATE_PROMPT_PRIMARY)(options.installCommand);
-  const changelogText = chalk
-    .hex(UPDATE_PROMPT_PRIMARY)
-    .underline(t('tui.statusMessages.updatePromptChangelog', { url: CHANGELOG_URL }));
+  const changelogText = chalk.hex(UPDATE_PROMPT_PRIMARY).underline(`View changelog: ${CHANGELOG_URL}`);
   const switching = options.plan.kind === 'switch-channel';
   const channelSwitch = switching
     ? `${options.plan.sourceChannel} -> ${options.plan.target.channel}`
     : null;
   const lines = [
-    chalk
-      .hex(UPDATE_PROMPT_PRIMARY)
-      .bold(
-        switching
-          ? t('tui.statusMessages.updatePromptSwitchTitle')
-          : t('tui.statusMessages.updatePromptTitle'),
-      ),
+    chalk.hex(UPDATE_PROMPT_PRIMARY).bold(
+      switching ? t('tui.statusMessages.updatePromptSwitchTitle') : t('tui.statusMessages.updatePromptTitle'),
+    ),
     chalk.hex(UPDATE_PROMPT_MUTED)(
       switching
         ? t('tui.statusMessages.updatePromptSwitchNewer')
         : t('tui.statusMessages.updatePromptNewer', { name: PRODUCT_NAME }),
     ),
-    `\u001b]8;;${CHANGELOG_URL}\u001b\\${changelogText}\u001b]8;;\u001b\\`,
+    `]8;;${CHANGELOG_URL}\\${changelogText}]8;;\\`,
     '',
-    ...(channelSwitch === null
-      ? []
-      : [`${label(t('tui.statusMessages.updatePromptChannel'))}  ${channelSwitch}`]),
+    ...(channelSwitch === null ? [] : [`${label(t('tui.statusMessages.updatePromptChannel'))}  ${channelSwitch}`]),
     `${label(t('tui.statusMessages.updatePromptCurrent'))}  ${currentVersion}`,
     `${label(t('tui.statusMessages.updatePromptTarget'))}  ${targetVersion}`,
     `${label(t('tui.statusMessages.updatePromptSource'))}  ${sourceLabel}`,

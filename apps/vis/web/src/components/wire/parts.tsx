@@ -1,25 +1,19 @@
-// Shared presentational helpers for the wire renderer registry and its
-// consumers. Extracted into a standalone module so that `renderers.tsx`
-// (which holds the per-kind registry) and `WireHeadline.tsx` /
-// `WireRowDetail.tsx` (the thin dispatchers) can all import these without
-// forming an import cycle:
-//
-//   parts.tsx  ←  renderers.tsx  ←  WireHeadline.tsx / WireRowDetail.tsx
-//
-// Every symbol below is defined exactly once, here.
-
 import type { ReactNode } from 'react';
 
-import { t } from '../../i18n';
-import type { ContentPart, ContextMessage, LoopRecordedEvent, ToolCall } from '../../types';
+import {
+  mediaUrlOf,
+  type CoreContentPart as ContentPart,
+  type ContextMessage,
+  type LoopRecordedEvent,
+  type ToolCall,
+} from '../../types';
 import { ImagePreview } from '../shared/ImagePreview';
 import { JsonViewer } from '../shared/JsonViewer';
 import { SizePreview } from '../shared/SizePreview';
+import { t } from '../../i18n';
 
 export interface HeadlineRender {
-  /** Main headline content — rendered in the flex-grow slot of the row */
   main: ReactNode;
-  /** Right-side badges / pair refs */
   right?: ReactNode;
 }
 
@@ -40,7 +34,6 @@ export function truncate(s: unknown, n: number): string {
   return str.slice(0, n) + '…';
 }
 
-/** Pull the first text segment from a ContentPart[] for one-line preview. */
 export function firstText(parts: readonly ContentPart[]): string {
   for (const p of parts) {
     if (p.type === 'text' && typeof p.text === 'string') return p.text;
@@ -48,7 +41,6 @@ export function firstText(parts: readonly ContentPart[]): string {
   return t('wirePart.nonText');
 }
 
-/** One-line description of the embedded LoopRecordedEvent. */
 export function loopEventSummary(ev: LoopRecordedEvent): string {
   switch (ev.type) {
     case 'step.begin':
@@ -74,8 +66,6 @@ export function loopEventSummary(ev: LoopRecordedEvent): string {
     }
   }
 }
-
-// ─── tiny presentational helpers ───
 
 export function Mono({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <span className={`font-mono text-[12px] text-fg-0 ${className}`}>{children}</span>;
@@ -117,42 +107,31 @@ export function ContentPartView({ part }: { part: ContentPart }) {
     case 'text':
       return (
         <div className="border border-border bg-surface-0 p-2">
-          <div className="mb-1 text-fg-3">
-            {t('wirePart.textBytes', { count: part.text.length })}
-          </div>
+          <div className="mb-1 text-fg-3">text · {part.text.length}b</div>
           <pre className="whitespace-pre-wrap break-words text-fg-1">{part.text}</pre>
         </div>
       );
     case 'think':
       return (
         <div className="border border-[var(--color-cat-config)]/40 bg-surface-0 p-2">
-          <div className="mb-1 text-[var(--color-cat-config)]">
-            {t('wirePart.thinkBytes', { count: part.think.length })}
-          </div>
+          <div className="mb-1 text-[var(--color-cat-config)]">think · {part.think.length}b</div>
           <pre className="whitespace-pre-wrap break-words text-fg-1">{part.think}</pre>
         </div>
       );
     case 'image_url':
-      return <ImagePreview url={part.imageUrl.url} />;
+      return <ImagePreview url={mediaUrlOf(part)} />;
     case 'audio_url':
       return (
         <div className="border border-border bg-surface-0 p-2">
           <div className="mb-1 text-fg-3">audio_url</div>
-          <Mono className="break-all">{part.audioUrl.url}</Mono>
+          <Mono className="break-all">{mediaUrlOf(part)}</Mono>
         </div>
       );
     case 'video_url':
       return (
         <div className="border border-border bg-surface-0 p-2">
           <div className="mb-1 text-fg-3">video_url</div>
-          <Mono className="break-all">{part.videoUrl.url}</Mono>
-        </div>
-      );
-    case 'document_url':
-      return (
-        <div className="border border-border bg-surface-0 p-2">
-          <div className="mb-1 text-fg-3">document_url</div>
-          <Mono className="break-all">{part.documentUrl.url}</Mono>
+          <Mono className="break-all">{mediaUrlOf(part)}</Mono>
         </div>
       );
     default:
@@ -188,13 +167,14 @@ function ToolCallView({ call }: { call: ToolCall }) {
 }
 
 export function MessageDetail({ message }: { message: ContextMessage }) {
+  const toolCalls = message.role === 'assistant' ? message.toolCalls : [];
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-[2px]">
         <FieldRow label="role">
           <span className="text-[var(--color-cat-ephemeral)]">"{message.role}"</span>
         </FieldRow>
-        {message.toolCallId ? (
+        {message.role === 'tool' && message.toolCallId ? (
           <FieldRow label="toolCallId">
             <Mono>{message.toolCallId}</Mono>
           </FieldRow>
@@ -218,9 +198,7 @@ export function MessageDetail({ message }: { message: ContextMessage }) {
 
       {message.content.length > 0 ? (
         <div>
-          <div className="mb-1 text-fg-2">
-            {t('wirePart.contentParts', { count: message.content.length })}
-          </div>
+          <div className="mb-1 text-fg-2">content ({message.content.length} part{message.content.length === 1 ? '' : 's'})</div>
           <div className="space-y-1">
             {message.content.map((part, i) => (
               <ContentPartView key={i} part={part} />
@@ -229,13 +207,13 @@ export function MessageDetail({ message }: { message: ContextMessage }) {
         </div>
       ) : null}
 
-      {message.toolCalls.length > 0 ? (
+      {toolCalls.length > 0 ? (
         <div>
           <div className="mb-1 text-fg-2">
-            {t('wirePart.toolCalls', { count: message.toolCalls.length })}
+            toolCalls ({toolCalls.length})
           </div>
           <div className="space-y-1">
-            {message.toolCalls.map((tc) => (
+            {toolCalls.map((tc) => (
               <ToolCallView key={tc.id} call={tc} />
             ))}
           </div>
@@ -256,8 +234,6 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
           parsed = event.args;
         }
       }
-      // v2 no longer persists `description` / `display` on `tool.call`;
-      // read them tolerantly so v1 wires still render both.
       const legacy = event as { description?: string; display?: unknown };
       return (
         <div className="space-y-2">
@@ -298,7 +274,6 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
     case 'tool.result': {
       const isError = event.result.isError === true;
       const output = event.result.output;
-      // v1 persisted `truncated` / `message`; v2 persists `note` instead.
       const result = event.result as { truncated?: boolean; message?: string; note?: string };
       return (
         <div className="space-y-2">
@@ -321,13 +296,15 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
             {result.truncated === true ? (
               <FieldRow label="truncated">
                 <span className="text-[var(--color-sev-warning)]">
-                  {t('wirePart.truncatedHint')}
+                  true · output was paged or dropped before the model saw it
                 </span>
               </FieldRow>
             ) : null}
             {result.message !== undefined ? (
               <FieldRow label="message" wide>
-                <pre className="whitespace-pre-wrap break-words text-fg-1">{result.message}</pre>
+                <pre className="whitespace-pre-wrap break-words text-fg-1">
+                  {result.message}
+                </pre>
               </FieldRow>
             ) : null}
             {result.note !== undefined ? (
@@ -445,8 +422,6 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
   }
 }
 
-/** Fallback detail for any kind without a dedicated renderer: a full
- *  structured JSON dump of the record (type + time + payload). */
 export function GenericDetail({ value }: { value: unknown }) {
   return <JsonViewer value={value} defaultOpenDepth={2} />;
 }

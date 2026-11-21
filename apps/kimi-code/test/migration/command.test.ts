@@ -1,6 +1,5 @@
-import { describe, expect, it, mock } from 'bun:test';
-
 import { Command } from 'commander';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { registerMigrateCommand } from '#/migration/command';
 
@@ -10,14 +9,14 @@ describe('registerMigrateCommand', () => {
     registerMigrateCommand(program, () => {});
     const sub = program.commands.find((c) => c.name() === 'migrate');
     expect(sub).toBeDefined();
-    expect(sub!.description()).toMatch(/[Mm]igration|[Mm]igrate/);
+    expect(sub!.description()).toContain('Migrate');
     const flags = sub!.options.map((o) => o.long);
     expect(flags).toEqual(['--run', '--config-only']);
   });
 
   it('invokes the host handler with both flags false by default', () => {
     const program = new Command('kimi');
-    const onMigrate = mock();
+    const onMigrate = vi.fn();
     registerMigrateCommand(program, onMigrate);
     program.parse(['migrate'], { from: 'user' });
     expect(onMigrate).toHaveBeenCalledWith({ run: false, configOnly: false });
@@ -25,7 +24,7 @@ describe('registerMigrateCommand', () => {
 
   it('parses --run and --config-only', () => {
     const program = new Command('kimi');
-    const onMigrate = mock();
+    const onMigrate = vi.fn();
     registerMigrateCommand(program, onMigrate);
     program.parse(['migrate', '--run', '--config-only'], { from: 'user' });
     expect(onMigrate).toHaveBeenCalledWith({ run: true, configOnly: true });
@@ -35,7 +34,7 @@ describe('registerMigrateCommand', () => {
     const program = new Command('kimi');
     program.option('--yes', 'legacy alias', false);
     program.option('-y, --yolo', 'yolo', false);
-    const onMigrate = mock();
+    const onMigrate = vi.fn();
     registerMigrateCommand(program, onMigrate);
     program.parse(['migrate', '--run'], { from: 'user' });
     expect(onMigrate).toHaveBeenCalledWith({ run: true, configOnly: false });

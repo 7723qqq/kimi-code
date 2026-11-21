@@ -1,19 +1,4 @@
-/**
- * Self-tests for `DaemonClient` against a live server at
- * `process.env.KIMI_SERVER_URL ?? http://127.0.0.1:58627`.
- *
- * Every test gates on a `daemonReachable()` check so CI / dev machines
- * without a running server stay green. Run a server (`pnpm dev:server` from
- * repo root) to exercise these locally.
- *
- * Coverage:
- *   1. HTTP envelope unwrap throws on `code !== 0`.
- *   2. WS handshake completes (server_hello + client_hello ack).
- *   3. Subscribe ack succeeds for a real session id.
- *   4. `waitForFrame` times out cleanly (no zombie waiters).
- *   5. Created session is observable via `getSession`.
- */
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import type {
@@ -21,7 +6,7 @@ import type {
   ProviderCatalogItem,
 } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
 import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
-import type { Message } from '@moonshot-ai/kap-server/protocol/message';
+import type { ConversationTurn } from '@moonshot-ai/kap-server/protocol/conversation';
 import type { Session } from '@moonshot-ai/kap-server/protocol/session';
 
 import { DaemonClient, EnvelopeError } from '../harness/index.js';
@@ -45,21 +30,16 @@ async function daemonReachable(): Promise<boolean> {
 const reachable = await daemonReachable();
 const describeLive = reachable ? describe : describe.skip;
 
-let created: { client: DaemonClient; sid: string }[] = [];
+const created: { client: DaemonClient; sid: string }[] = [];
 
 afterEach(async () => {
-  // Best-effort cleanup so reruns don't accumulate phantom sessions.
   for (const { client, sid } of created.splice(0)) {
     try {
       await client.archiveSession(sid);
-    } catch {
-      // ignore
-    }
+    } catch {}
     try {
       await client.close();
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 });
 
@@ -134,7 +114,7 @@ describeLive('DaemonClient (live server required)', () => {
     const fetched = await client.getSession(session.id);
     log('fetched session', fetched);
     expect(fetched.id).toBe(session.id);
-    expect(fetched.metadata.cwd).toBe(process.cwd());
+    expect(fetched.cwd).toBe(process.cwd());
   });
 
   it('forks a session through the action-suffix route', async () => {
@@ -226,7 +206,7 @@ describeLive('DaemonClient (live server required)', () => {
             },
           ],
         },
-        { waitFor: 'prompt.completed', timeoutMs: PROMPT_TIMEOUT_MS },
+        { timeoutMs: PROMPT_TIMEOUT_MS },
       );
       successLog('seed prompt completed', {
         prompt_id: promptResult.prompt_id,
@@ -234,14 +214,12 @@ describeLive('DaemonClient (live server required)', () => {
         final_frame: frameForLog(promptResult.finalFrame),
       });
 
-      const beforeCompact = await client.listMessages(populated.id, { page_size: 100 });
-      successLog('messages before compact', beforeCompact);
-      expect(beforeCompact.items.some((m) => m.role === 'user')).toBe(true);
-      expect(beforeCompact.items.some((m) => m.role === 'assistant')).toBe(true);
+      const beforeCompact = await client.listTurns(populated.id);
+      successLog('turns before compact', beforeCompact);
+      expect(beforeCompact.turns.length).toBeGreaterThan(0);
 
       const populatedCompactRequest = {
-        instruction:
-          'Preserve the compact-test code word and the fact that the assistant replied OK.',
+        instruction: 'Preserve the compact-test code word and the fact that the assistant replied OK.',
       };
       successLog('request', {
         method: 'POST',
@@ -249,33 +227,28 @@ describeLive('DaemonClient (live server required)', () => {
         body: populatedCompactRequest,
       });
 
-      const completedPromise = client.waitForFrame(
-        (f) => f.type === 'compaction.completed' && f.session_id === populated.id,
+      const compaction = await client.runUntilIdle(
+        populated.id,
+        () => client.compactSession(populated.id, populatedCompactRequest),
         { timeoutMs: PROMPT_TIMEOUT_MS },
       );
-      const compactResponse = await client.compactSession(populated.id, populatedCompactRequest);
-      successLog('rest response', compactResponse);
-      const completedFrame = await completedPromise;
-      successLog('compaction completed frame', frameForLog(completedFrame));
+      successLog('rest response', compaction.result);
+      successLog('compaction idle frame', frameForLog(compaction.finalFrame));
 
-      const afterCompact = await client.listMessages(populated.id, { page_size: 100 });
-      successLog('messages after compact', afterCompact);
+      const afterCompact = await client.listTurns(populated.id);
+      successLog('turns after compact', afterCompact);
 
-      const compactedText = afterCompact.items
-        .flatMap((m) => m.content)
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text)
-        .join('\n');
+      const compactedText = textFromTurns(afterCompact.turns);
       successLog('compacted text content', { text: compactedText });
 
-      expect(afterCompact.items.length).toBeGreaterThan(0);
+      expect(afterCompact.turns.length).toBeGreaterThan(0);
       expect(compactedText.length).toBeGreaterThan(0);
     },
     PROMPT_TIMEOUT_MS + 30_000,
   );
 
   it(
-    'undoSession removes the named turn and keeps the earlier history',
+    'undoSession removes the latest prompt and returns refreshed turns plus status',
     async () => {
       const log = createCaseLogger('client: undo action');
       const client = new DaemonClient({ baseUrl: BASE_URL });
@@ -290,7 +263,7 @@ describeLive('DaemonClient (live server required)', () => {
       const keepPrompt = await client.submitAndWait(
         session.id,
         { content: [{ type: 'text', text: 'Remember KEEP. Reply with "OK".' }] },
-        { waitFor: 'prompt.completed', timeoutMs: PROMPT_TIMEOUT_MS },
+        { timeoutMs: PROMPT_TIMEOUT_MS },
       );
       log('keep prompt completed', {
         prompt_id: keepPrompt.prompt_id,
@@ -301,7 +274,7 @@ describeLive('DaemonClient (live server required)', () => {
       const undoPrompt = await client.submitAndWait(
         session.id,
         { content: [{ type: 'text', text: 'Remember UNDO-ME. Reply with "OK".' }] },
-        { waitFor: 'prompt.completed', timeoutMs: PROMPT_TIMEOUT_MS },
+        { timeoutMs: PROMPT_TIMEOUT_MS },
       );
       log('undo prompt completed', {
         prompt_id: undoPrompt.prompt_id,
@@ -309,21 +282,16 @@ describeLive('DaemonClient (live server required)', () => {
         final_frame: frameForLog(undoPrompt.finalFrame),
       });
 
-      const beforeUndo = await client.listMessages(session.id, { page_size: 100 });
-      log('messages before undo', beforeUndo);
-      expect(textFromMessages(beforeUndo.items)).toContain('UNDO-ME');
+      const beforeUndo = await client.listTurns(session.id);
+      log('turns before undo', beforeUndo);
+      expect(textFromTurns(beforeUndo.turns)).toContain('UNDO-ME');
 
-      const turns = await client.listTurns(session.id, 'main');
-      log('turns before undo', turns);
-      const undoable = turns.turns.filter((turn) => turn.kind === 'agent').at(-1);
-      expect(undoable, 'the session should record the turn it just finished').toBeDefined();
-
-      const result = await client.undoSession(session.id, { turn_id: undoable!.turn_id });
+      const undoTurn = beforeUndo.turns.at(-1)!;
+      const result = await client.undoSession(session.id, { turn_id: undoTurn.turn_id });
       log('undo response', result);
-      expect(result.removed_turn_ids).toEqual([undoable!.turn_id]);
+      expect(result.removed_turn_ids).toEqual([undoTurn.turn_id]);
 
-      const afterUndo = await client.listMessages(session.id, { page_size: 100 });
-      const afterText = textFromMessages(afterUndo.items);
+      const afterText = textFromTurns((await client.listTurns(session.id)).turns);
       expect(afterText).toContain('KEEP');
       expect(afterText).not.toContain('UNDO-ME');
     },
@@ -401,19 +369,16 @@ describe('DaemonClient session action helpers', () => {
     });
   });
 
-  it('undoSession posts the action-suffix route and unwraps removed turn ids', async () => {
+  it('undoSession posts the action-suffix route and unwraps the removed turns', async () => {
     const log = createCaseLogger('client helper: undoSession');
     const calls: FetchCall[] = [];
-    const undoResponse = { removed_turn_ids: ['turn_2'] };
+    const undoResponse = { removed_turn_ids: ['t_undone'] };
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
       fetchImpl: recordingFetch(okEnvelope(undoResponse), calls),
     });
 
-    const result = await client.undoSession('sess_source', {
-      turn_id: 'turn_2',
-      agent_id: 'main',
-    });
+    const result = await client.undoSession('sess_source', { turn_id: 't_undone', agent_id: 'main' });
 
     log('fetch calls', calls);
     log('unwrapped result', result);
@@ -421,10 +386,7 @@ describe('DaemonClient session action helpers', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe('http://server.example.test/api/v1/sessions/sess_source:undo');
     expect(calls[0]?.init.method).toBe('POST');
-    expect(parseRecordedJsonBody(calls[0])).toEqual({
-      turn_id: 'turn_2',
-      agent_id: 'main',
-    });
+    expect(parseRecordedJsonBody(calls[0])).toEqual({ turn_id: 't_undone', agent_id: 'main' });
   });
 
   it('model catalog helpers call the catalog and action-suffix routes', async () => {
@@ -470,16 +432,14 @@ describe('DaemonClient session action helpers', () => {
     expect(parseRecordedJsonBody(calls[2])).toEqual({});
   });
 
-  it('child-session and interaction helpers call recovery routes', async () => {
-    const log = createCaseLogger('client helper: children + interactions');
+  it('cancelSession and interaction helpers call session control routes', async () => {
+    const log = createCaseLogger('client helper: cancel + interactions');
     const calls: FetchCall[] = [];
-    const child = testSession({ id: 'sess_child', title: 'Child session' });
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
       fetchImpl: recordingFetchSequence(
         [
-          okEnvelope(child),
-          okEnvelope({ items: [child], has_more: false }),
+          okEnvelope({ cancelled: true }),
           okEnvelope({ outcome: 'dismissed', ended_at: '2026-06-09T00:00:00.000Z' }),
         ],
         calls,
@@ -487,14 +447,8 @@ describe('DaemonClient session action helpers', () => {
     });
 
     await expect(
-      client.createChild('sess_parent', {
-        title: 'Child session',
-        metadata: { topic: 'side-question' },
-      }),
-    ).resolves.toEqual(child);
-    await expect(
-      client.listChildren('sess_parent', { page_size: 5, busy: false }),
-    ).resolves.toEqual({ items: [child], has_more: false });
+      client.cancelSession('sess_parent', { include_background: true }),
+    ).resolves.toEqual({ cancelled: true });
     await expect(
       client.respondInteraction('sess_parent', 'question_1', { kind: 'question', dismissed: true }),
     ).resolves.toEqual({
@@ -504,18 +458,13 @@ describe('DaemonClient session action helpers', () => {
 
     log('fetch calls', calls);
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
-      ['POST', 'http://server.example.test/api/v1/sessions/sess_parent/children'],
-      [
-        'GET',
-        'http://server.example.test/api/v1/sessions/sess_parent/children?page_size=5&busy=false',
-      ],
+      ['POST', 'http://server.example.test/api/v1/sessions/sess_parent:cancel'],
       ['POST', 'http://server.example.test/api/v1/sessions/sess_parent/interactions/question_1'],
     ]);
     expect(parseRecordedJsonBody(calls[0])).toEqual({
-      title: 'Child session',
-      metadata: { topic: 'side-question' },
+      include_background: true,
     });
-    expect(parseRecordedJsonBody(calls[2])).toEqual({ kind: 'question', dismissed: true });
+    expect(parseRecordedJsonBody(calls[1])).toEqual({ kind: 'question', dismissed: true });
   });
 
   it('uploadFile posts multipart form data and deleteFile hits the file route', async () => {
@@ -524,7 +473,13 @@ describe('DaemonClient session action helpers', () => {
     const file = testFile({ id: 'file_png', name: 'tiny.png', media_type: 'image/png', size: 3 });
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
-      fetchImpl: recordingFetchSequence([okEnvelope(file), okEnvelope({ deleted: true })], calls),
+      fetchImpl: recordingFetchSequence(
+        [
+          okEnvelope(file),
+          okEnvelope({ deleted: true }),
+        ],
+        calls,
+      ),
     });
 
     await expect(
@@ -566,7 +521,7 @@ function recordingFetch(responseBody: unknown, calls: FetchCall[]): typeof fetch
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 function recordingFetchSequence(responseBodies: unknown[], calls: FetchCall[]): typeof fetch {
@@ -579,7 +534,7 @@ function recordingFetchSequence(responseBodies: unknown[], calls: FetchCall[]): 
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 function fetchInputUrl(input: Parameters<typeof fetch>[0]): string {
@@ -600,24 +555,8 @@ function okEnvelope<T>(data: T): { code: 0; msg: string; data: T; request_id: st
   return { code: 0, msg: 'success', data, request_id: 'req_test' };
 }
 
-function frameForLog(frame: {
-  type: string;
-  seq?: number;
-  session_id?: string;
-  request_id?: string;
-  code?: number;
-  msg?: string;
-  payload?: unknown;
-}): Record<string, unknown> {
-  return {
-    type: frame.type,
-    seq: frame.seq,
-    session_id: frame.session_id,
-    request_id: frame.request_id,
-    code: frame.code,
-    msg: frame.msg,
-    payload: frame.payload,
-  };
+function frameForLog(frame: Record<string, unknown> & { type: string }): Record<string, unknown> {
+  return { ...frame };
 }
 
 function testSession(overrides: Partial<Session> = {}): Session {
@@ -627,21 +566,8 @@ function testSession(overrides: Partial<Session> = {}): Session {
     title: 'Example session',
     created_at: '2026-06-09T00:00:00.000Z',
     updated_at: '2026-06-09T00:00:00.000Z',
-    busy: false,
-    metadata: { cwd: '/tmp/example-server-e2e' },
-    agent_config: { model: '' },
-    usage: {
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_read_tokens: 0,
-      cache_creation_tokens: 0,
-      total_cost_usd: 0,
-      context_tokens: 0,
-      context_limit: 0,
-      turn_count: 0,
-    },
-    permission_rules: [],
-    message_count: 0,
+    cwd: '/tmp/example-server-e2e',
+    activity: 'idle',
   };
   return {
     ...base,
@@ -684,23 +610,18 @@ function testFile(overrides: Partial<FileMeta> = {}): FileMeta {
   };
 }
 
-function testMessage(overrides: Partial<Message> = {}): Message {
-  return {
-    id: 'msg_example',
-    session_id: 'sess_example',
-    role: 'user',
-    content: [{ type: 'text', text: 'kept' }],
-    created_at: '2026-06-09T00:00:00.000Z',
-    ...overrides,
-  };
-}
-
-function textFromMessages(
-  messages: Array<{ content: Array<{ type: string; text?: string }> }>,
-): string {
-  return messages
-    .flatMap((message) => message.content)
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text ?? '')
+function textFromTurns(turns: readonly ConversationTurn[]): string {
+  return turns
+    .flatMap((turn) => turn.items)
+    .map((item) => {
+      if (item.type === 'user_message' || item.type === 'assistant_message') {
+        return item.text;
+      }
+      if (item.type === 'system' && item.kind === 'compaction') {
+        return item.summary ?? '';
+      }
+      return '';
+    })
+    .filter((text) => text.length > 0)
     .join('\n');
 }

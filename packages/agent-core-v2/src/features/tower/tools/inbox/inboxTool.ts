@@ -1,19 +1,17 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import type { ToolExecution } from '#/tool/toolContract';
 
 import { callerName, newTowerStore, runTowerTool } from '../support';
-import type { ITowerInboxTool } from './inbox';
-import { TowerInboxToolInputSchema, type TowerInboxToolInput } from './inbox';
 import DESCRIPTION from './inbox.md?raw';
+import { ITowerInboxTool, TowerInboxToolInputSchema, type TowerInboxToolInput } from './inbox';
 
 const DEFAULT_LIMIT = 20;
 
 export class TowerInboxTool implements ITowerInboxTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerInbox' as const;
-  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerInboxToolInputSchema);
 
@@ -58,7 +56,7 @@ export class TowerInboxTool implements ITowerInboxTool {
           );
           return {
             output: [
-              `${String(items.length)} message(s) for ${caller} (oldest first):`,
+              `${String(items.length)} message(s) for ${caller} (newest first):`,
               '',
               sections.join('\n\n---\n\n'),
               '',
@@ -69,3 +67,4 @@ export class TowerInboxTool implements ITowerInboxTool {
     };
   }
 }
+

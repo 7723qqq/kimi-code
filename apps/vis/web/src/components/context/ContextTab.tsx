@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 
 import { useContext } from '../../hooks/useContext';
 import { useSession } from '../../hooks/useSession';
-import { t } from '../../i18n';
 import type { TokenUsage } from '../../types';
 import { Pill } from '../shared/Pill';
 import { ClearRibbon } from './ClearRibbon';
@@ -12,15 +11,12 @@ import { UndoRibbon } from './UndoRibbon';
 
 interface ContextTabProps {
   sessionId: string;
-  /** Override starting agentId; defaults to 'main'. */
   initialAgentId?: string;
 }
 
 export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabProps) {
   const [agentId, setAgentId] = useState<string>(initialAgentId);
   const [history, setHistory] = useState<'model' | 'full'>('model');
-  // Re-sync on session OR agent id change — see WireTab for the same
-  // rationale (session navigation must reset a stale subagent pick).
   useEffect(() => {
     setAgentId(initialAgentId);
   }, [sessionId, initialAgentId]);
@@ -29,20 +25,21 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
 
   const agents = detail?.agents ?? [];
   const messages = ctx?.messages ?? [];
-  // Wire-reader / blob-resolver / projector caveats for this read (malformed
-  // records that were skipped). Projector-level ones arrive here too — see
-  // `context-projector.ts` (audit a37/F3+F4).
-  const warnings = ctx?.warnings ?? [];
   const sessionUsage = ctx?.usage.byScope.session ?? EMPTY_USAGE;
   const turnUsage = ctx?.usage.byScope.turn ?? EMPTY_USAGE;
+  const predictionUsage = ctx?.usage.byScope.prediction ?? EMPTY_USAGE;
   const cumulativeUsage: TokenUsage = {
-    inputOther: sessionUsage.inputOther + turnUsage.inputOther,
-    output: sessionUsage.output + turnUsage.output,
-    inputCacheRead: sessionUsage.inputCacheRead + turnUsage.inputCacheRead,
-    inputCacheCreation: sessionUsage.inputCacheCreation + turnUsage.inputCacheCreation,
+    inputOther: sessionUsage.inputOther + turnUsage.inputOther + predictionUsage.inputOther,
+    output: sessionUsage.output + turnUsage.output + predictionUsage.output,
+    inputCacheRead:
+      sessionUsage.inputCacheRead === undefined ||
+      turnUsage.inputCacheRead === undefined ||
+      predictionUsage.inputCacheRead === undefined
+        ? undefined
+        : sessionUsage.inputCacheRead + turnUsage.inputCacheRead + predictionUsage.inputCacheRead,
+    inputCacheCreation:
+      sessionUsage.inputCacheCreation + turnUsage.inputCacheCreation + predictionUsage.inputCacheCreation,
   };
-  // Live context-window fill (latest step.end usage), distinct from the
-  // cumulative session-scoped + turn-scoped spend the bar breaks down.
   const contextTokens = ctx?.contextTokens ?? 0;
   const config = ctx?.config ?? {};
   const permissionMode = ctx?.permission.mode ?? null;
@@ -52,10 +49,9 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Toolbar — agent selector + status pills */}
       <div className="flex shrink-0 items-center gap-3 border-b border-border bg-surface-1 px-3 py-2">
         <label className="flex items-center gap-2 font-mono text-[11px] text-fg-2">
-          <span className="text-fg-3">{t('context.agent')}</span>
+          <span className="text-fg-3">agent</span>
           <select
             value={agentId}
             onChange={(e) => {
@@ -75,20 +71,18 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
         </label>
         <span className="font-mono text-[11px] text-fg-2">
           <span className="tabular text-fg-0">{messages.length}</span>
-          <span className="ml-1 text-fg-3">{t('context.messages')}</span>
+          <span className="ml-1 text-fg-3">messages</span>
         </span>
         {config.modelAlias ? (
           <span className="font-mono text-[11px] text-fg-2">
-            <span className="text-fg-3">{t('context.model')}</span>{' '}
+            <span className="text-fg-3">model</span>{' '}
             <span className="text-fg-0">{config.modelAlias}</span>
           </span>
         ) : null}
         <div className="ml-auto flex items-center gap-2">
-          {/* History view toggle — 'model' (post-compaction, what the model
-              sees) vs 'full' (full reconstructed history for debugging). */}
           <div
             role="group"
-            aria-label={t('context.historyView')}
+            aria-label="history view"
             className="flex items-center overflow-hidden border border-border"
           >
             <button
@@ -104,7 +98,7 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
                   : 'bg-surface-0 text-fg-3 hover:text-fg-1',
               ].join(' ')}
             >
-              {t('context.modelView')}
+              model
             </button>
             <button
               type="button"
@@ -119,83 +113,55 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
                   : 'bg-surface-0 text-fg-3 hover:text-fg-1',
               ].join(' ')}
             >
-              {t('context.fullHistory')}
+              full history
             </button>
           </div>
           {permissionMode ? (
-            <Pill tone="approval" variant="outline">
-              {t('context.permission', { mode: permissionMode })}
-            </Pill>
+            <Pill tone="approval" variant="outline">permission: {permissionMode}</Pill>
           ) : null}
           {planActive ? (
-            <Pill tone="info" variant="solid">
-              {t('context.planMode')}
-            </Pill>
+            <Pill tone="info" variant="solid">plan mode</Pill>
           ) : null}
           {swarmActive ? (
-            <Pill tone="subagent" variant="solid">
-              {t('context.swarmMode')}
-            </Pill>
+            <Pill tone="subagent" variant="solid">swarm mode</Pill>
           ) : null}
         </div>
       </div>
 
-      {/* Full-history hint — clarifies that this is the reconstructed history
-          and the model itself only sees the compacted view. */}
       {history === 'full' ? (
         <div className="shrink-0 border-b border-border bg-surface-1 px-3 py-1 font-mono text-[10.5px] text-fg-3">
-          {t('context.fullHistoryHint')}
+          full reconstructed history — the model actually sees the compacted view
         </div>
       ) : null}
 
-      {/* Malformed-record caveats from the read (wire-reader, blob-resolver,
-          context-projector). Same strip as WireTab so both tabs read alike. */}
-      {warnings.length > 0 ? (
-        <div className="shrink-0 border-b border-[var(--color-sev-warning)] bg-[color-mix(in_oklab,var(--color-sev-warning)_8%,transparent)] px-3 py-1 font-mono text-[11px] text-[var(--color-sev-warning)]">
-          {t(warnings.length > 1 ? 'wire.warnings' : 'wire.warning', {
-            count: warnings.length,
-            first: warnings[0] ?? '',
-          })}
-        </div>
-      ) : null}
-
-      {/* Live context-window fill (contextTokens) + the 4-segment cumulative
-          session-scoped and turn-scoped usage breakdown. */}
       <TokenBar usage={cumulativeUsage} contextTokens={contextTokens} />
 
-      {/* Message stream */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-3 px-3 py-4">
           {goal ? (
             <div className="rounded border border-[var(--color-cat-lifecycle)]/40 bg-surface-0 p-2">
               <div className="mb-1 flex items-center gap-2">
-                <Pill tone="lifecycle" variant="soft">
-                  {t('context.goal')}
-                </Pill>
-                {goal.status ? (
-                  <Pill tone="info" variant="outline">
-                    {goal.status}
-                  </Pill>
-                ) : null}
+                <Pill tone="lifecycle" variant="soft">goal</Pill>
+                {goal.status ? <Pill tone="info" variant="outline">{goal.status}</Pill> : null}
               </div>
               <div className="font-mono text-[12px] text-fg-1">{goal.objective}</div>
               {goal.completionCriterion ? (
                 <div className="mt-1 font-mono text-[11px] text-fg-3">
-                  {t('context.doneWhen', { criterion: goal.completionCriterion })}
+                  done when: {goal.completionCriterion}
                 </div>
               ) : null}
             </div>
           ) : null}
           {config.systemPrompt ? <SystemPromptBubble text={config.systemPrompt} /> : null}
           {isLoading ? (
-            <div className="px-3 py-2 font-mono text-[12px] text-fg-3">{t('context.loading')}</div>
+            <div className="px-3 py-2 font-mono text-[12px] text-fg-3">loading context…</div>
           ) : error ? (
             <div className="px-3 py-2 font-mono text-[12px] text-[var(--color-sev-error)]">
               {(error as Error).message}
             </div>
           ) : messages.length === 0 ? (
             <div className="px-3 py-2 font-mono text-[12px] text-fg-3">
-              {t('context.noMessages')}
+              no messages — session has only lifecycle/config records so far.
             </div>
           ) : (
             messages.map((m) => {
@@ -224,12 +190,6 @@ const EMPTY_USAGE: TokenUsage = {
   inputCacheCreation: 0,
 };
 
-// Colors are chosen from the existing semantic palette so the bar reads
-// coherently with the rest of the app:
-//   inputCacheRead     = success   (cache hit — the "good" share)
-//   inputOther         = info      (billed input)
-//   output             = assistant (what the model produced)
-//   inputCacheCreation = warning   (billed once, amortised next call)
 const SEG_COLORS = {
   inputCacheRead: 'var(--color-sev-success)',
   inputOther: 'var(--color-sev-info)',
@@ -238,14 +198,18 @@ const SEG_COLORS = {
 } as const;
 
 function TokenBar({ usage, contextTokens }: { usage: TokenUsage; contextTokens: number }) {
-  const total = usage.inputOther + usage.output + usage.inputCacheRead + usage.inputCacheCreation;
+  if (usage.inputCacheRead === undefined) {
+    return <div className="px-3 py-1 font-mono text-[10px] text-fg-3">cache_read unknown</div>;
+  }
+  const total =
+    usage.inputOther + usage.output + usage.inputCacheRead + usage.inputCacheCreation;
   return (
     <div className="shrink-0">
       {contextTokens > 0 ? (
         <div className="flex items-center justify-end gap-1 border-b border-border bg-surface-1 px-3 py-1 font-mono text-[10px] text-fg-2">
-          <span className="text-fg-3">{t('context.context')}</span>
+          <span className="text-fg-3">context</span>
           <span className="tabular text-fg-0">{contextTokens.toLocaleString()}</span>
-          <span className="text-fg-3">{t('context.tok')}</span>
+          <span className="text-fg-3">tok</span>
         </div>
       ) : null}
       {total === 0 ? (
@@ -254,10 +218,10 @@ function TokenBar({ usage, contextTokens }: { usage: TokenUsage; contextTokens: 
         <div
           className="flex h-[3px] w-full"
           title={
-            `${t('context.cacheRead')} ${usage.inputCacheRead.toLocaleString()} · ` +
-            `${t('context.input')} ${usage.inputOther.toLocaleString()} · ` +
-            `${t('context.output')} ${usage.output.toLocaleString()} · ` +
-            `${t('context.cacheCreate')} ${usage.inputCacheCreation.toLocaleString()}`
+            `cache_read ${usage.inputCacheRead.toLocaleString()} · ` +
+            `input ${usage.inputOther.toLocaleString()} · ` +
+            `output ${usage.output.toLocaleString()} · ` +
+            `cache_create ${usage.inputCacheCreation.toLocaleString()}`
           }
         >
           {usage.inputCacheRead > 0 ? (
@@ -314,15 +278,13 @@ function SystemPromptBubble({ text }: { text: string }) {
         className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-surface-2"
       >
         <span className="flex items-center gap-2">
-          <Pill tone="config" variant="solid">
-            {t('context.system')}
-          </Pill>
+          <Pill tone="config" variant="solid">system</Pill>
           <span className="font-mono text-[10px] text-fg-3 tabular">
-            {t('context.chars', { count: text.length.toLocaleString() })}
+            {text.length.toLocaleString()} chars
           </span>
         </span>
         <span className="font-mono text-[11px] text-fg-1">
-          {open ? t('context.collapse') : t('context.showFull')}
+          {open ? '▾ collapse' : '▸ show full'}
         </span>
       </button>
       <div className="relative min-w-0 px-3 pb-2">

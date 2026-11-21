@@ -2,7 +2,8 @@ import { extname } from 'pathe';
 
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
-import { Error2, ErrorCodes } from '#/errors';
+import { Error2 } from '#/errors';
+import { LspErrors } from './errors';
 
 import {
   type ILspService as ILspServiceType,
@@ -21,7 +22,7 @@ export class LspService extends Service implements ILspServiceType {
     const extensions = Object.keys(provider.extensionToLanguage);
     if (this.providers.has(provider.id)) {
       throw new Error2(
-        ErrorCodes.LSP_CONFLICT,
+        LspErrors.codes.LSP_CONFLICT,
         `an LSP provider with id "${provider.id}" is already registered`,
       );
     }
@@ -29,7 +30,7 @@ export class LspService extends Service implements ILspServiceType {
       const owner = this.extensionToProvider.get(extension);
       if (owner !== undefined && owner !== provider.id) {
         throw new Error2(
-          ErrorCodes.LSP_CONFLICT,
+          LspErrors.codes.LSP_CONFLICT,
           `LSP provider "${owner}" already covers extension "${extension}"`,
         );
       }
@@ -54,7 +55,7 @@ export class LspService extends Service implements ILspServiceType {
     const providerId = this.extensionToProvider.get(extension);
     if (providerId === undefined) {
       throw new Error2(
-        ErrorCodes.LSP_UNAVAILABLE,
+        LspErrors.codes.LSP_UNAVAILABLE,
         `no LSP provider is configured for extension "${extension}" (file: ${request.filePath}). ` +
           'Configure one in the [lsp] config section, e.g. `servers.typescript = { command = "typescript-language-server", args = ["--stdio"], extensionToLanguage = { ts = "typescript" } }`.',
       );
@@ -62,14 +63,14 @@ export class LspService extends Service implements ILspServiceType {
     const provider = this.providers.get(providerId);
     if (provider === undefined) {
       throw new Error2(
-        ErrorCodes.LSP_UNAVAILABLE,
+        LspErrors.codes.LSP_UNAVAILABLE,
         `LSP provider "${providerId}" is registered for extension "${extension}" but missing from the provider table`,
       );
     }
     const languageId = provider.extensionToLanguage[extension];
     if (languageId === undefined) {
       throw new Error2(
-        ErrorCodes.LSP_UNAVAILABLE,
+        LspErrors.codes.LSP_UNAVAILABLE,
         `LSP provider "${providerId}" covers extension "${extension}" but does not map it to a language id`,
       );
     }

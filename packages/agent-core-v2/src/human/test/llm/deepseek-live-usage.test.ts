@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { parseOpenAIUsage } from '#/llm/requester/bases/openai/format';
+import { parseOpenAIUsage } from '#human/llm/requester/bases/openai/format';
 
 describe('deepseek-v4.1-flash payloads captured from the live endpoint', () => {
   it('prices a real cache-hit response through the deepseek fields', () => {

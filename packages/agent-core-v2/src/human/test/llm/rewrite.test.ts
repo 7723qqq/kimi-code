@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { applyPatterns, type Pattern, type Rewrite } from '#/llm/protocol/rewrite';
+import { applyPatterns, type Pattern, type Rewrite } from '#human/llm/protocol/rewrite';
 
 function pairToSum(name: string): Pattern<number> {
   return {

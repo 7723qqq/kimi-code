@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 
-import { classifyKimiQuotaError } from '#/llm-kimi/errors';
-import { KimiFiles, kimiFilesBaseUrl, type KimiFilesFetch } from '#/llm-kimi/files';
-import { kimiMediaContribution } from '#/llm-kimi/media';
-import { kimiProvider } from '#/llm-kimi/provider';
+import { classifyKimiQuotaError } from '#human/llm-kimi/errors';
+import { KimiFiles, kimiFilesBaseUrl, type KimiFilesFetch } from '#human/llm-kimi/files';
+import { kimiMediaContribution } from '#human/llm-kimi/media';
+import { kimiProvider } from '#human/llm-kimi/provider';
 import {
   KIMI_API_KEY_ENV,
   KIMI_BASE_URL_ENV,
@@ -11,12 +11,12 @@ import {
   kimiAnthropicTrait,
   kimiConnection,
   kimiOpenAITrait,
-} from '#/llm-kimi/trait';
-import { isUnknownCapability, UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
-import type { FinishInfo } from '#/llm/finish-reason';
-import { createMemoryMediaUploadCache } from '#/llm/media/cache';
-import { createMediaRefResolver } from '#/llm/media/resolver';
-import { createMemoryMediaSource } from '#/llm/media/source';
+} from '#human/llm-kimi/trait';
+import { isUnknownCapability, UNKNOWN_CAPABILITY, type ModelCapability } from '#human/llm/capability';
+import type { FinishInfo } from '#human/llm/finish-reason';
+import { createMemoryMediaUploadCache } from '#human/llm/media/cache';
+import { createMediaRefResolver } from '#human/llm/media/resolver';
+import { createMemoryMediaSource } from '#human/llm/media/source';
 import {
   createAssistantMessage,
   createToolMessage,
@@ -27,27 +27,27 @@ import {
   type StreamedMessagePart,
   type ToolDescription,
   type VideoURLPart,
-} from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import { createProvider } from '#/llm/provider/definition';
+} from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import { createProvider } from '#human/llm/provider/definition';
 import {
   anthropicProvider,
   googleGenAIConnection,
   openaiProvider,
-} from '#/llm/provider/providers/standard';
-import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
-import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
-import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';
-import { createOpenAIRequester, openAIBase } from '#/llm/requester/bases/openai/requester';
+} from '#human/llm/provider/providers/standard';
+import { createAnthropicRequester } from '#human/llm/requester/bases/anthropic/requester';
+import { createGoogleGenAIRequester } from '#human/llm/requester/bases/google-genai/requester';
+import { createOpenAIResponsesRequester } from '#human/llm/requester/bases/openai-responses/requester';
+import { createOpenAIRequester, openAIBase } from '#human/llm/requester/bases/openai/requester';
 import {
   normalizeToolCallIdsForProvider,
   sanitizeToolCallId,
-} from '#/llm/requester/bases/tool-call-id';
-import type { LlmClientContext, LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
-import type { TokenUsage } from '#/llm/usage';
+} from '#human/llm/requester/bases/tool-call-id';
+import type { LlmClientContext, LlmRequester, LlmRequestEvent } from '#human/llm/requester/requester';
+import type { TokenUsage } from '#human/llm/usage';
 
-import { startMockFilesApi } from '../../../../test/helpers/mockUpstream';
-import { setEnv, restoreEnvs } from '../../../../test/helpers/stubs';
+import { startMockFilesApi } from '../helpers/mockUpstream';
+import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 const model: LlmModel = {
   provider: 'test',
@@ -998,6 +998,44 @@ describe('withMaxCompletionTokens', () => {
     );
     expect(client.body()['max_tokens']).toBe(64000);
   });
+
+  it.each(['claude-opus-5-5', 'claude-haiku-5-5'])(
+    'clamps compaction-sized Anthropic budgets for %s',
+    async (name) => {
+      const client = stubAnthropicClient(anthropicStreamEvents);
+      const requester = createAnthropicRequester({ clientFactory: client.clientFactory });
+      const events: LlmRequestEvent[] = [];
+      await requester.generate(
+        {
+          model: { ...model, model: name, maxContextSize: 1_000_000 },
+          maxCompletionTokens: 131_072,
+        },
+        { messages, usedContextTokens: 869_827 },
+        { signal: new AbortController().signal, onEvent: (event) => events.push(event) },
+      );
+      expect(client.body()['max_tokens']).toBe(128_000);
+      expect(events.at(-1)?.type).toBe('llm.done');
+    },
+  );
+
+  it.each([
+    { name: 'claude-opus-5-5', cap: 64_000, expected: 64_000 },
+    { name: 'claude-haiku-5-5', cap: 64_000, expected: 64_000 },
+    { name: 'claude-unknown-5-5', cap: 130_173, expected: 130_173 },
+    { name: 'claude-unknown-5-5', cap: undefined, expected: 64_000 },
+  ])(
+    'preserves Anthropic explicit budgets and unknown-model behavior: $name / $cap',
+    async ({ name, cap, expected }) => {
+      const client = stubAnthropicClient(anthropicStreamEvents);
+      const requester = createAnthropicRequester({ clientFactory: client.clientFactory });
+      await requester.generate(
+        { model: { ...model, model: name }, maxCompletionTokens: cap },
+        { messages },
+        { signal: new AbortController().signal },
+      );
+      expect(client.body()['max_tokens']).toBe(expected);
+    },
+  );
 });
 
 describe('buildParams', () => {

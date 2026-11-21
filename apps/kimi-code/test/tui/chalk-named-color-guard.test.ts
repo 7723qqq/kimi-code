@@ -1,38 +1,20 @@
-import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, relative } from 'node:path';
+
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 const SRC_ROOT = join(__dirname, '..', '..', 'src');
 
 const NAMED_COLORS = [
-  'red',
-  'green',
-  'yellow',
-  'blue',
-  'magenta',
-  'cyan',
-  'white',
-  'gray',
-  'grey',
-  'black',
-  'blackBright',
-  'whiteBright',
-  'redBright',
-  'greenBright',
-  'yellowBright',
-  'blueBright',
-  'magentaBright',
-  'cyanBright',
-  'dim',
+  'red', 'green', 'yellow', 'blue', 'magenta', 'cyan',
+  'white', 'gray', 'grey', 'black',
+  'blackBright', 'whiteBright', 'redBright', 'greenBright',
+  'yellowBright', 'blueBright', 'magentaBright', 'cyanBright',
 ];
 
-// `chalk.red(` calls and bare references like `const dim = chalk.dim;` —
-// a cached styled function escapes theme switching just as much as a call.
-const CHALK_NAMED_PATTERN = new RegExp(`chalk\\.(${NAMED_COLORS.join('|')})(?!\\w)`);
-
-// The theme system is the sanctioned home for raw chalk styles, and
-// headless CLI printers (src/cli) never theme-switch.
-const EXEMPT_DIRS = [join('tui', 'theme'), 'cli'];
+const CHALK_NAMED_PATTERN = new RegExp(
+  `chalk\\.(${NAMED_COLORS.join('|')})\\(`,
+);
 
 function walk(dir: string, files: string[] = []): string[] {
   try {
@@ -40,29 +22,18 @@ function walk(dir: string, files: string[] = []): string[] {
       const p = join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(p, files);
-      } else if (
-        entry.name.endsWith('.ts') &&
-        !entry.name.endsWith('.test.ts') &&
-        !entry.name.endsWith('.spec.ts')
-      ) {
+      } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') && !entry.name.endsWith('.spec.ts')) {
         files.push(p);
       }
     }
-  } catch {
-    /* skip */
-  }
+  } catch {}
   return files;
 }
 
 describe('chalk named color guard', () => {
   it('forbids chalk named colors in production source code', () => {
     const offenders: { file: string; line: number; snippet: string }[] = [];
-    const files = walk(SRC_ROOT).filter((file) => {
-      const dir = relative(SRC_ROOT, file);
-      return !EXEMPT_DIRS.some(
-        (exempt) => dir.startsWith(exempt + sep) || dir === exempt || dir.startsWith(exempt),
-      );
-    });
+    const files = walk(SRC_ROOT);
     let inBlockComment = false;
     for (const file of files) {
       const content = readFileSync(file, 'utf8');

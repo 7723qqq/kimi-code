@@ -4,19 +4,8 @@ import { dirname } from 'node:path';
 
 import { syncDir } from '#/utils/fs';
 
-const failureListeners = new Set<(line: string) => void>();
-
-export function onDiagnosticLogFailure(listener: (line: string) => void): () => void {
-  failureListeners.add(listener);
-  return () => {
-    failureListeners.delete(listener);
-  };
-}
-
 export const PENDING_MAX = 1000;
 const STDERR_NOTICE_INTERVAL_MS = 30_000;
-const RETRY_BACKOFF_MIN_MS = 1_000;
-const RETRY_BACKOFF_MAX_MS = STDERR_NOTICE_INTERVAL_MS;
 
 class AsyncSerialQueue {
   private tail: Promise<unknown> = Promise.resolve();
@@ -39,25 +28,18 @@ interface RotatingFileSinkOptions {
   readonly path: string;
   readonly maxBytes: number;
   readonly files: number;
-  /** Clock behind the retry deadline and the stderr notice rate limit. */
-  readonly now?: () => number;
 }
 
 export class RotatingFileSink implements Sink {
   private readonly queue = new AsyncSerialQueue();
-  private readonly now: () => number;
   private pending: string[] = [];
   private dropped = 0;
   private closed = false;
   private lastStderrNotice = 0;
-  private nextAttemptAt = 0;
-  private backoffMs = 0;
   private currentBytes = -1;
   private directorySynced = false;
 
-  constructor(private readonly options: RotatingFileSinkOptions) {
-    this.now = options.now ?? Date.now;
-  }
+  constructor(private readonly options: RotatingFileSinkOptions) {}
 
   enqueue(line: string): void {
     if (this.closed) return;
@@ -75,22 +57,10 @@ export class RotatingFileSink implements Sink {
 
   async close(): Promise<void> {
     if (this.closed) return;
-    // The flag is set before the final flush so that a drain queued by a
-    // previous `enqueue` microtask cannot re-own the batch between
-    // `restorePending` and the drop report below; the final flush itself still
-    // runs because `drain` does not consult `closed`. New lines are refused
-    // from here on, which is the same guarantee `enqueue`/`flushSync` gave
-    // before.
     this.closed = true;
     try {
       await this.flush();
-    } catch {}
-    if (this.pending.length > 0) {
-      // Deliberately not rate-limited: a batch lost on close is the last
-      // chance to say those lines ever existed.
-      const dropped = this.pending.length;
-      this.pending = [];
-      this.writeStderr(`[logger] dropped ${dropped} buffered entries on close\n`);
+    } catch {
     }
   }
 
@@ -107,26 +77,11 @@ export class RotatingFileSink implements Sink {
   }
 
   private scheduleDrain(): void {
-    if (this.closed || this.suppressAutoDrain()) return;
+    if (this.closed) return;
     queueMicrotask(() => {
-      if (this.closed || this.pending.length === 0 || this.suppressAutoDrain()) return;
-      this.queue
-        // One `enqueue` schedules one of these, so a burst arriving while the
-        // sink is down queues N tasks before the first failure is observed: the
-        // deadline has to be re-read when the task reaches the queue head, not
-        // when it was scheduled. The `false` is never observed (the caller only
-        // rejects on failure) — it means the batch stayed buffered.
-        .run(() => (this.suppressAutoDrain() ? Promise.resolve(false) : this.drain()))
-        .catch(() => {});
+      if (this.closed || this.pending.length === 0) return;
+      this.queue.run(() => this.drain()).catch(() => {});
     });
-  }
-
-  // Only the automatic retry is gated: `flush`, `close` and `flushSync` must be
-  // able to report whether the pending buffer reached the file, so they always
-  // attempt.
-
-  private suppressAutoDrain(): boolean {
-    return this.now() < this.nextAttemptAt;
   }
 
   private async drain(): Promise<boolean> {
@@ -134,45 +89,24 @@ export class RotatingFileSink implements Sink {
     const droppedLine = this.takeDroppedNotice();
     const lines = droppedLine === '' ? [...this.pending] : [...this.pending, droppedLine];
     this.pending = [];
-    let appended = 0;
-    let failure: unknown;
     try {
       await mkdir(dirname(this.options.path), { recursive: true });
       if (this.currentBytes < 0) {
         this.currentBytes = await this.statSize(this.options.path);
       }
-      const result = await this.appendLines(lines);
-      appended = result.appended;
-      failure = result.error;
+      await this.appendLines(lines);
 
-      if (failure === undefined && !this.directorySynced) {
+      if (!this.directorySynced) {
         await syncDir(dirname(this.options.path));
         this.directorySynced = true;
       }
-    } catch (error) {
-      failure = error;
-    }
 
-    if (failure !== undefined) {
-      this.noteFailure(failure);
-      this.noteBackoff();
-      // Only the lines that never reached the file are put back: everything
-      // up to `appended` is already durable, and re-queuing it would write
-      // those lines a second time once the sink recovers.
-      this.restorePending(lines.slice(appended));
+      return true;
+    } catch (error) {
+      this.noteFailure(error);
+      this.restorePending(lines);
       return false;
     }
-    this.backoffMs = 0;
-    this.nextAttemptAt = 0;
-    return true;
-  }
-
-  private noteBackoff(): void {
-    this.backoffMs = Math.min(
-      this.backoffMs === 0 ? RETRY_BACKOFF_MIN_MS : this.backoffMs * 2,
-      RETRY_BACKOFF_MAX_MS,
-    );
-    this.nextAttemptAt = this.now() + this.backoffMs;
   }
 
   private restorePending(lines: readonly string[]): void {
@@ -186,50 +120,35 @@ export class RotatingFileSink implements Sink {
     this.pending = restored.slice(overflow);
   }
 
-  private async appendLines(
-    lines: readonly string[],
-  ): Promise<{ appended: number; error?: unknown }> {
-    let appended = 0;
+  private async appendLines(lines: readonly string[]): Promise<void> {
     let chunk = '';
     let chunkBytes = 0;
-    let chunkLines = 0;
-    try {
-      for (const line of lines) {
-        const lineBytes = Buffer.byteLength(line, 'utf-8');
-        if (
-          chunkBytes > 0 &&
-          (chunkBytes + lineBytes > this.options.maxBytes ||
-            this.currentBytes + chunkBytes + lineBytes > this.options.maxBytes)
-        ) {
-          await this.appendChunk(chunk);
-          appended += chunkLines;
-          await this.rotateIfFull();
-          chunk = '';
-          chunkBytes = 0;
-          chunkLines = 0;
-        }
-
-        if (
-          chunkBytes === 0 &&
-          this.currentBytes > 0 &&
-          this.currentBytes + lineBytes > this.options.maxBytes
-        ) {
-          await this.rotate();
-        }
-
-        chunk += line;
-        chunkBytes += lineBytes;
-        chunkLines += 1;
-      }
-      if (chunkBytes > 0) {
+    for (const line of lines) {
+      const lineBytes = Buffer.byteLength(line, 'utf-8');
+      if (
+        chunkBytes > 0 &&
+        (chunkBytes + lineBytes > this.options.maxBytes ||
+          this.currentBytes + chunkBytes + lineBytes > this.options.maxBytes)
+      ) {
         await this.appendChunk(chunk);
-        appended += chunkLines;
-        await this.rotateIfFull();
+        chunk = '';
+        chunkBytes = 0;
       }
-    } catch (error) {
-      return { appended, error };
+
+      if (
+        chunkBytes === 0 &&
+        this.currentBytes > 0 &&
+        this.currentBytes + lineBytes > this.options.maxBytes
+      ) {
+        await this.rotate();
+      }
+
+      chunk += line;
+      chunkBytes += lineBytes;
     }
-    return { appended };
+    if (chunkBytes > 0) {
+      await this.appendChunk(chunk);
+    }
   }
 
   private async appendChunk(chunk: string): Promise<void> {
@@ -241,9 +160,6 @@ export class RotatingFileSink implements Sink {
       await fh.close();
     }
     this.currentBytes += Buffer.byteLength(chunk, 'utf-8');
-  }
-
-  private async rotateIfFull(): Promise<void> {
     if (this.currentBytes >= this.options.maxBytes) {
       await this.rotate();
     }
@@ -292,26 +208,12 @@ export class RotatingFileSink implements Sink {
   }
 
   private noteFailure(error: unknown): void {
-    const now = this.now();
+    const now = Date.now();
     if (now - this.lastStderrNotice < STDERR_NOTICE_INTERVAL_MS) return;
     this.lastStderrNotice = now;
     const code = (error as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
-    this.writeStderr(`[logger] write failed: ${code}\n`);
-  }
-
-  private writeStderr(line: string): void {
-    let handled = false;
-    for (const listener of failureListeners) {
-      try {
-        listener(line);
-        handled = true;
-      } catch {
-        continue;
-      }
-    }
-    if (handled) return;
     try {
-      process.stderr.write(line);
+      process.stderr.write(`[logger] write failed: ${code}\n`);
     } catch {}
   }
 }

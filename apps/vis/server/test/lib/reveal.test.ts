@@ -1,5 +1,4 @@
-import { describe, expect, it } from 'bun:test';
-
+import { describe, it, expect } from '@moonshot-ai/testkit/vitest';
 import { revealCommandFor } from '../../src/lib/reveal';
 
 describe('reveal', () => {

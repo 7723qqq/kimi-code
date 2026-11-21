@@ -1,10 +1,9 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { describe, it, expect, afterEach } from '@moonshot-ai/testkit/vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { readAgentWire } from '../../src/lib/wire-reader';
 import { buildSessionFixture } from '../fixtures/build';
+import { readAgentWire } from '../../src/lib/wire-reader';
 
 describe('wire-reader', () => {
   let cleanup: (() => Promise<void>) | null = null;
@@ -18,7 +17,7 @@ describe('wire-reader', () => {
     cleanup = c;
     const result = await readAgentWire(join(sessionDir, 'agents', 'main', 'wire.jsonl'));
     expect(result.metadata.protocolVersion).toBe('1.1');
-    expect(result.records[0]!.lineNo).toBe(2); // metadata is line 1, first record is line 2
+    expect(result.records[0]!.lineNo).toBe(2);
     expect(result.records.at(-1)!.lineNo).toBe(10);
     expect(result.records.map((r) => r.data.type)).toEqual([
       'config.update',
@@ -31,7 +30,6 @@ describe('wire-reader', () => {
       'context.append_loop_event',
       'usage.record',
     ]);
-    // No vis annotation should leak into the data/raw bodies.
     for (const entry of result.records) {
       expect(entry.data).not.toHaveProperty('_lineNo');
       expect(entry.raw as object).not.toHaveProperty('_lineNo');
@@ -65,7 +63,6 @@ describe('wire-reader', () => {
       const entry = result.records[0]!;
       expect(entry.data.type).toBe('context.append_message');
 
-      // `data` carries the migrated (flat) shape.
       const dataMsg = (entry.data as { message: { toolCalls: unknown[] } }).message;
       expect(dataMsg.toolCalls[0]).toEqual({
         type: 'function',
@@ -75,11 +72,7 @@ describe('wire-reader', () => {
       });
       expect(dataMsg.toolCalls[0]).not.toHaveProperty('function');
 
-      // `raw` keeps the on-disk (nested) shape — this is what the "as
-      // written" view in the detail panel relies on.
-      const rawMsg = (
-        entry.raw as { message: { toolCalls: Array<{ function: unknown; name?: unknown }> } }
-      ).message;
+      const rawMsg = (entry.raw as { message: { toolCalls: Array<{ function: unknown; name?: unknown }> } }).message;
       expect(rawMsg.toolCalls[0]).toHaveProperty('function');
       expect(rawMsg.toolCalls[0]!.function).toEqual({ name: 'Read', arguments: '{"path":"/x"}' });
       expect(rawMsg.toolCalls[0]).not.toHaveProperty('name');
@@ -99,10 +92,12 @@ describe('wire-reader', () => {
     const result = await readAgentWire(path);
     expect(result.metadata.protocolVersion).toBe('0.9');
     expect(result.records.length).toBeGreaterThan(0);
-    expect(result.warnings.some((w) => /unrecognised protocol_version.*0\.9/i.test(w))).toBe(true);
+    expect(result.warnings.some((w) => /unrecognised protocol_version.*0\.9/i.test(w))).toBe(
+      true,
+    );
   });
 
-  it('passes v1.5 records through unchanged with no warnings', async () => {
+  it('decodes v1.5 context records while preserving raw messages', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'vis-v15-'));
     const path = join(dir, 'wire.jsonl');
     const records = [
@@ -114,18 +109,58 @@ describe('wire-reader', () => {
         task: { id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', cron: '* * * * *', prompt: 'p', createdAt: 3 },
         time: 3,
       },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'legacy' },
+            { type: 'image_url', imageUrl: { url: 'https://example.com/legacy.png' } },
+          ],
+          toolCalls: [],
+        },
+        time: 4,
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'current' },
+            { type: 'video_url', videoUrl: { url: 'https://example.com/current.mp4' } },
+          ],
+        },
+        time: 5,
+      },
     ];
     await writeFile(path, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
     try {
       const result = await readAgentWire(path);
       expect(result.metadata.protocolVersion).toBe('1.5');
       expect(result.warnings).toEqual([]);
-      expect(result.records).toHaveLength(2);
-      // data === raw for current-protocol records (no migration applied).
-      // `data` is model-typed while `raw` stays the unvalidated JSON value, so
-      // Bun's `toEqual` overloads cannot infer one shared expected type.
-      expect(result.records[0]!.data as unknown).toEqual(result.records[0]!.raw);
-      expect(result.records[1]!.data as unknown).toEqual(result.records[1]!.raw);
+      expect(result.records).toHaveLength(4);
+      expect(result.records[0]!.data).toEqual(result.records[0]!.raw);
+      expect(result.records[1]!.data).toEqual(result.records[1]!.raw);
+      expect(result.records[2]!.data).toMatchObject({
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'legacy' },
+            { type: 'image_url', imageUrl: { url: 'https://example.com/legacy.png' } },
+          ],
+        },
+      });
+      expect(result.records[2]!.data).not.toHaveProperty('message.toolCalls');
+      expect(result.records[2]!.raw).toMatchObject({
+        message: {
+          content: [
+            { type: 'text', text: 'legacy' },
+            { type: 'image_url', imageUrl: { url: 'https://example.com/legacy.png' } },
+          ],
+          toolCalls: [],
+        },
+      });
+      expect(result.records[3]!.data).toEqual(result.records[3]!.raw);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   createShellPathBridge,
@@ -30,7 +30,7 @@ interface StubOpts {
 
 function stubDeps(opts: StubOpts = {}) {
   const existing = new Set(opts.existingPaths ?? []);
-  const execFileSync = mock(
+  const execFileSync = vi.fn(
     opts.execFileSync ??
       ((file: string, args: readonly string[]): string => {
         const result = opts.execFileResults?.[[file, ...args].join(' ')];
@@ -116,7 +116,13 @@ describe('fromShellPath cygpath resolution', () => {
     expect(bridge.fromShellPath('/tmp/other')).toBe('C:/Users/me/AppData/Local/Temp/other');
     expect(bridge.fromShellPath('/tmp')).toBe('C:/Users/me/AppData/Local/Temp');
     expect(execFileSync).toHaveBeenCalledTimes(1);
-    expect(execFileSync).toHaveBeenCalledWith(USR_BIN_CYGPATH, ['-w', '-C', 'UTF8', '--', '/tmp']);
+    expect(execFileSync).toHaveBeenCalledWith(USR_BIN_CYGPATH, [
+      '-w',
+      '-C',
+      'UTF8',
+      '--',
+      '/tmp',
+    ]);
   });
 
   it('folds dot segments before resolving the mount segment', () => {
@@ -129,7 +135,9 @@ describe('fromShellPath cygpath resolution', () => {
     });
     const bridge = createShellPathBridge(WINDOWS_ENV, deps);
 
-    expect(bridge.fromShellPath('/./tmp/note.txt')).toBe('C:/Users/me/AppData/Local/Temp/note.txt');
+    expect(bridge.fromShellPath('/./tmp/note.txt')).toBe(
+      'C:/Users/me/AppData/Local/Temp/note.txt',
+    );
     expect(bridge.fromShellPath('/../tmp/note.txt')).toBe(
       'C:/Users/me/AppData/Local/Temp/note.txt',
     );

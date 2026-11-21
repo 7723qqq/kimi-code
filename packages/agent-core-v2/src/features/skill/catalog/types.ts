@@ -1,16 +1,5 @@
 export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
 
-export const SKILL_SOURCE_RANK: Readonly<Record<SkillSource, number>> = {
-  project: 400,
-  user: 300,
-  extra: 200,
-  builtin: 100,
-};
-
-export function skillSourceRank(source: SkillSource): number {
-  return SKILL_SOURCE_RANK[source];
-}
-
 export type SkillScope = 'tui' | 'web';
 
 export interface SkillMetadata {
@@ -21,7 +10,6 @@ export interface SkillMetadata {
   readonly disableModelInvocation?: boolean | undefined;
   readonly isSubSkill?: boolean | undefined;
   readonly safe?: boolean | undefined;
-  readonly verify?: readonly string[] | undefined;
   readonly arguments?: readonly unknown[] | string | undefined;
   readonly [key: string]: unknown;
 }

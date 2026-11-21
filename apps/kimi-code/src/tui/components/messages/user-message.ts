@@ -1,11 +1,6 @@
-/**
- * Renders a user message in the transcript.
- */
-
 import {
   Spacer,
   Text,
-  isImageLine,
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
@@ -57,11 +52,7 @@ export class UserMessageComponent implements Component {
     this.skillNames = skillNames;
     this.steerPending = steerPending;
     this.spacerComponent = new Spacer(1);
-    // The thumbnails are rendered manually inside render(), so their async
-    // sixel pixel swap must poke this component's render cache — a child
-    // invalidate() alone never reaches it.
-    this.imageThumbnails =
-      images?.map((img) => new ImageThumbnail(img, () => this.markRenderDirty())) ?? [];
+    this.imageThumbnails = images?.map((img) => new ImageThumbnail(img)) ?? [];
   }
 
   private markRenderDirty(): void {
@@ -132,7 +123,6 @@ export class UserMessageComponent implements Component {
 
     const lines: string[] = [];
 
-    // Spacer
     for (const line of this.spacerComponent.render(safeWidth)) {
       lines.push(line);
     }
@@ -144,7 +134,6 @@ export class UserMessageComponent implements Component {
       lines.push(this.steerPending ? currentTheme.fade(line) : line);
     }
 
-    // Images — indented to align with text after the bullet
     for (const thumbnail of this.imageThumbnails) {
       const imageLines = thumbnail.render(contentWidth);
       for (const line of imageLines) {
@@ -154,12 +143,6 @@ export class UserMessageComponent implements Component {
 
     const rendered = markOsc133Zone(
       lines.map((line) => {
-        // Inline image sequences (Kitty / iTerm2 / sixel) carry their own
-        // placement information and have zero visible width, but pi-tui's
-        // truncateToWidth treats the embedded base64 payload as visible text
-        // and would chop the escape sequence in half, leaving garbage like
-        // "0m...". Skip truncation for those lines; the image itself already
-        // respects maxWidthCells.
         if (isImageLine(line)) return line;
         return truncateToWidth(line, safeWidth, '…');
       }),
@@ -175,13 +158,10 @@ function normalizeSkillTokenName(name: string): string {
   return name.startsWith('skill:') ? name.slice('skill:'.length) : name;
 }
 
-/**
- * Invisible turn-boundary marker for replay. Some replayed records start a
- * new turn without anything to show — the goal driver's synthetic
- * continuation prompt is model-facing and never rendered live — but the
- * transcript still needs a mounted boundary component so step/assistant
- * folding (and window trimming) can find the turn edges. Renders zero lines.
- */
+function isImageLine(line: string): boolean {
+  return line.includes('\u001B_G') || line.includes('\u001B]1337;File=');
+}
+
 export class ReplayTurnBoundaryComponent implements Component {
   invalidate(): void {}
   render(_width: number): string[] {

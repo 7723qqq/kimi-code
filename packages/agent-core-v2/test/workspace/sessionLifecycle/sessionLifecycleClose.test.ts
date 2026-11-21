@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import type { IEnvironmentService } from '#/app/environment/environment';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
@@ -67,22 +67,5 @@ describe('SessionLifecycleService environment cleanup', () => {
     expect(killed).toEqual(['a']);
     leaseA.dispose();
     leaseB.dispose();
-  });
-});
-
-describe('SessionLifecycleService primary workdir', () => {
-  it('keeps remote resume cwd independent from the local primary', () => {
-    const service = Object.assign(Object.create(SessionLifecycleService.prototype), {
-      workspaceContext: { workspaceId: 'workspace', meta: { root: '/new-primary' } },
-    }) as unknown as {
-      sessionWorkDir(
-        fallbackCwd: string,
-        environment: { environmentId: string; cwd?: string } | undefined,
-      ): string;
-    };
-
-    expect(service.sessionWorkDir('/local-anchor', { environmentId: 'ssh-dev', cwd: '/srv/app' })).toBe('/local-anchor');
-    expect(service.sessionWorkDir('/old', undefined)).toBe('/new-primary');
-    expect(service.sessionWorkDir('/old', { environmentId: 'local', cwd: '/explicit' })).toBe('/explicit');
   });
 });

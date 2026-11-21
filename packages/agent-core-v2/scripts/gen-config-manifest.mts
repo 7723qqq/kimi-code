@@ -2,10 +2,10 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { getConfigOverlayContributions } from '#/app/config/configOverlayContributions';
-import type { ConfigSectionContribution } from '#/app/config/configSectionContributions';
-import { getConfigSectionContributions } from '#/app/config/configSectionContributions';
-import { camelToSnake } from '#/app/config/toml';
+import { getConfigOverlayContributions } from '../src/app/config/configOverlayContributions';
+import type { ConfigSectionContribution } from '../src/app/config/configSectionContributions';
+import { getConfigSectionContributions } from '../src/app/config/configSectionContributions';
+import { camelToSnake } from '../src/app/config/toml';
 
 import {
   asJsonSchema,

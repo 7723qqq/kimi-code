@@ -1,23 +1,5 @@
-/**
- * ACP interaction bridge — forwards the engine's blocking human-in-the-loop
- * requests (approval + ask-user) to the ACP client via
- * `session/request_permission`, and relays the client's decision back to the
- * `interaction` kernel.
- *
- * The engine's `AgentPermissionGate` and `AskUserQuestionTool` park requests on
- * the process-global interaction kernel and block on their response. This
- * bridge is a pure edge observer driven entirely by the klient facade: it
- * subscribes to the session's `interactions.changed` event (which pushes the
- * full pending set on every change), and for every newly-pending `approval` /
- * `question` interaction it calls `conn.requestPermission(...)`, maps the
- * response through the pure mappers in `./approval` / `./question`, and
- * settles the parked request via `session.interactions.respond(id, ...)`.
- */
-
-import { RequestError } from '@agentclientprotocol/sdk';
 import type {
   Interaction,
-  InteractionCancellation,
   QuestionAnswers,
   QuestionRequest,
   SessionApprovalRequest as ApprovalRequest,
@@ -26,6 +8,7 @@ import type {
 import type { IDisposable, SessionHandle } from '@moonshot-ai/klient';
 
 import type { AcpClient } from './acp-client';
+
 import {
   approvalRequestToPermissionOptions,
   attachSelectedLabel,
@@ -41,27 +24,8 @@ import {
   questionRequestToElicitationParams,
 } from './question';
 
-const METHOD_NOT_FOUND = -32601;
-
-const UNSUPPORTED_QUESTION_RESPONSE: InteractionCancellation = {
-  cancelled: true,
-  reason: 'unsupported',
-};
-
-function isMethodNotFound(error: unknown): boolean {
-  return error instanceof RequestError && error.code === METHOD_NOT_FOUND;
-}
-
 export class AcpInteractionBridge {
-  /** Ids the bridge has already begun handling — guards against re-entry. */
   private readonly inFlight = new Set<string>();
-  /**
-   * Dispatch attempts per interaction id. `dispatch` releases the id from
-   * {@link inFlight} when it settles, so a pending id that failed to settle is
-   * retried on the next `interactions.changed` — this counter is what stops
-   * that retry from livelocking against a client that keeps failing.
-   */
-  private readonly attempts = new Map<string, number>();
   private readonly subscription: IDisposable;
   private disposed = false;
 
@@ -69,18 +33,11 @@ export class AcpInteractionBridge {
     private readonly conn: AcpClient,
     private readonly session: SessionHandle,
     private readonly sessionId: string,
-    /**
-     * Whether the client advertised `elicitation.form` at `initialize`. When
-     * true, ask-user questions go through `elicitation/create` (native
-     * multi-question + multi-select); otherwise they degrade to the
-     * `request_permission` single-select bridge.
-     */
     private readonly elicitationForm = false,
   ) {
     this.subscription = session.events.on('interactions.changed', (pending) => {
       this.onPendingChanged(pending);
-    }); // The event stream only fires on change — sweep anything parked before the
-    // subscription attached (matches the old direct `listPending()` sweep).
+    });
     void this.session.interactions.list().then(
       (pending) => {
         this.onPendingChanged(pending);
@@ -99,7 +56,6 @@ export class AcpInteractionBridge {
     this.disposed = true;
     this.subscription.dispose();
     this.inFlight.clear();
-    this.attempts.clear();
   }
 
   private onPendingChanged(pending: readonly Interaction[]): void {
@@ -107,17 +63,6 @@ export class AcpInteractionBridge {
     for (const interaction of pending) {
       if (this.inFlight.has(interaction.id)) continue;
       if (interaction.kind !== 'approval' && interaction.kind !== 'question') continue;
-      const attempts = this.attempts.get(interaction.id) ?? 0;
-      if (attempts >= 2) {
-        this.inFlight.add(interaction.id);
-        log.warn('acp: interaction still pending after repeated dispatch failures', {
-          sessionId: this.sessionId,
-          interactionId: interaction.id,
-          kind: interaction.kind,
-        });
-        continue;
-      }
-      this.attempts.set(interaction.id, attempts + 1);
       this.inFlight.add(interaction.id);
       void this.dispatch(interaction);
     }
@@ -126,24 +71,17 @@ export class AcpInteractionBridge {
   private async dispatch(interaction: Interaction): Promise<void> {
     const respond = (response: unknown): Promise<void> =>
       this.session.interactions.respond(interaction.id, response);
-    let settled = false;
     try {
       if (interaction.kind === 'approval') {
         const response = await this.handleApproval(interaction.payload as ApprovalRequest);
         await respond(response);
-        settled = true;
         return;
       }
       if (interaction.kind === 'question') {
         const result = await this.handleQuestion(interaction.payload as QuestionRequest);
         await respond(result);
-        settled = true;
       }
     } catch (error) {
-      // `respond` itself never throws for a still-pending id, and the handlers
-      // already swallow RPC failures into a safe response — so reaching here
-      // means something unexpected broke. Log and settle with the safest
-      // default so the gate/tool does not park forever.
       log.warn('acp: interaction bridge dispatch failed', {
         sessionId: this.sessionId,
         interactionId: interaction.id,
@@ -154,29 +92,16 @@ export class AcpInteractionBridge {
         interaction.kind === 'approval'
           ? ({ decision: 'rejected' } satisfies ApprovalResponse)
           : null;
-      await respond(fallback).then(
-        () => {
-          settled = true;
-        },
-        (respondError: unknown) => {
-          log.warn('acp: interaction bridge fallback respond failed', {
-            sessionId: this.sessionId,
-            interactionId: interaction.id,
-            error: respondError instanceof Error ? respondError.message : String(respondError),
-          });
-        },
-      );
-    } finally {
-      if (settled) this.attempts.delete(interaction.id);
-      this.inFlight.delete(interaction.id);
+      await respond(fallback).catch((respondError: unknown) => {
+        log.warn('acp: interaction bridge fallback respond failed', {
+          sessionId: this.sessionId,
+          interactionId: interaction.id,
+          error: respondError instanceof Error ? respondError.message : String(respondError),
+        });
+      });
     }
   }
 
-  /**
-   * Bridge an engine {@link ApprovalRequest} to the ACP client and back. Any
-   * RPC failure resolves with `decision: 'rejected'` — rejecting on failure is
-   * strictly safer than approving when the client cannot confirm intent.
-   */
   private async handleApproval(req: ApprovalRequest): Promise<ApprovalResponse> {
     const toolCall = buildPermissionToolCallUpdate(req);
     const options = approvalRequestToPermissionOptions(req);
@@ -202,28 +127,7 @@ export class AcpInteractionBridge {
     }
   }
 
-  /**
-   * Bridge an engine {@link QuestionRequest} (the AskUserQuestion tool) to the
-   * client. Form-capable clients get the full question set through
-   * `elicitation/create` (native multi-question + multi-select); everyone
-   * else falls back to the `session/request_permission` surface approvals
-   * use, with its degradation rules:
-   *  - `questions.length > 1` → only the first question is asked (logged).
-   *  - `multiSelect === true` → still asked as single-select; the engine's
-   *    ask-user tool tolerates a single-key answer for a multi-select prompt.
-   *
-   * An `elicitation/create` RPC failure (e.g. a client that advertises the
-   * capability but rejects the method) falls back to the permission bridge
-   * for the same request. A method-not-found failure with no other usable
-   * question surface resolves with `{ cancelled: true, reason: 'unsupported' }`
-   * so the tool reports an unsupported host rather than a user dismissal;
-   * any other failure of the final attempt resolves with `null` so the tool
-   * takes its canonical "user dismissed" branch — strictly safer than
-   * fabricating an answer.
-   */
-  private async handleQuestion(
-    req: QuestionRequest,
-  ): Promise<QuestionAnswers | InteractionCancellation | null> {
+  private async handleQuestion(req: QuestionRequest): Promise<QuestionAnswers | null> {
     const questions = req.questions;
     if (questions.length === 0) {
       log.warn('acp: handleQuestion received empty questions array', {
@@ -234,7 +138,6 @@ export class AcpInteractionBridge {
     const rawToolCallId = req.toolCallId ?? 'ask-user';
     const toolCallId =
       req.turnId !== undefined ? acpToolCallId(req.turnId, rawToolCallId) : rawToolCallId;
-    let elicitationUnavailable = false;
     if (this.elicitationForm) {
       try {
         const response = await this.conn.createElicitation(
@@ -242,7 +145,6 @@ export class AcpInteractionBridge {
         );
         return elicitationResponseToQuestionAnswers(questions, response);
       } catch (error) {
-        elicitationUnavailable = true;
         log.warn('acp: elicitation/create failed; falling back to request_permission', {
           sessionId: this.sessionId,
           toolCallId: req.toolCallId,
@@ -270,13 +172,6 @@ export class AcpInteractionBridge {
       });
       return outcomeToQuestionAnswer(q, response);
     } catch (error) {
-      if (isMethodNotFound(error) && (!this.elicitationForm || elicitationUnavailable)) {
-        log.warn('acp: client has no interactive question surface; reporting unsupported', {
-          sessionId: this.sessionId,
-          toolCallId: req.toolCallId,
-        });
-        return UNSUPPORTED_QUESTION_RESPONSE;
-      }
       log.warn('acp: requestPermission (question) failed; dismissing', {
         sessionId: this.sessionId,
         toolCallId: req.toolCallId,

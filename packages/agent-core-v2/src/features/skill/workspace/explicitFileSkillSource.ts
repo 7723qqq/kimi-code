@@ -3,8 +3,8 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import type { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import { configuredRoots } from '#/features/skill/catalog/skillRoots';
+import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import {
   SKILL_SOURCE_PRIORITY,
   type ISkillSource,
@@ -39,21 +39,16 @@ export class ExplicitFileSkillSource extends Disposable implements IExplicitFile
     log?: ILogService,
   ) {
     super();
-    this.watcher = this._register(
-      new ConfiguredSkillRootWatcher(
-        {
-          dirs: bootstrap.args.skillDirs ?? [],
-          cwd: workspace.cwd,
-          osHomeDir: bootstrap.osHomeDir,
-          source: this.id,
-          fs,
-          log,
-        },
-        () => {
-          this.onDidChangeEmitter.fire();
-        },
-      ),
-    );
+    this.watcher = this._register(new ConfiguredSkillRootWatcher({
+      dirs: bootstrap.args.skillDirs ?? [],
+      cwd: workspace.cwd,
+      osHomeDir: bootstrap.osHomeDir,
+      source: this.id,
+      fs,
+      log,
+    }, () => {
+      this.onDidChangeEmitter.fire();
+    }));
   }
 
   async load(): Promise<SkillContribution> {
@@ -63,13 +58,7 @@ export class ExplicitFileSkillSource extends Disposable implements IExplicitFile
     }
     await this.watcher.registered;
     return this.discovery.discover(
-      await configuredRoots(
-        explicitDirs,
-        this.workspace.cwd,
-        this.bootstrap.osHomeDir,
-        'user',
-        this.fs,
-      ),
+      await configuredRoots(explicitDirs, this.workspace.cwd, this.bootstrap.osHomeDir, 'user', this.fs),
     );
   }
 }

@@ -46,7 +46,7 @@ Use `offset` (default 0) and `head_limit` (default 100) to page through matching
 
 - `write` — record a note. It is split into atomic units and associated with whatever it resembles.
 - `recall` — return the atoms and concepts related to a `query` cue.
-- `pin` / `forget` — mark an atom or concept as important so it does not fade, or remove it from recall along with its associations (a forgotten atom keeps a tombstone for history recall).
+- `pin` / `forget` — protect an atom or concept from capacity eviction, or remove it and its associations from recall. Forgotten atoms retain a deletion record on disk, but do not return in history recall or after a rebuild.
 - `list` / `export` — inspect what the memory holds, or write everything to `memory-export.json` in the working directory.
 - `replay` — re-consolidate memories that were contradicted, highest priority first.
 - `propose` / `approve` — suggest a memory-code rule, then accept it into the code file.
@@ -55,13 +55,25 @@ Use `offset` (default 0) and `head_limit` (default 100) to page through matching
 - `audit` / `stats` / `explain` — show the audit log, the counts, and why a cue recalled what it did.
 - `rebuild` — replay every note to rebuild the graph from scratch.
 
-Writes default to the current project; `scope: "global"` records something that should hold across projects, and reads search both scopes by default. The tool is only available when the `associative_memory` experimental flag is enabled.
+Writes default to the current project; `scope: "global"` records something that should hold across projects. Reads default to `scope: "all"`: global, the current project, and any migrated memory belonging to this session. `project` and `global` restrict reads to that scope. The tool is only available when the `associative_memory` experimental flag is enabled; it remains off by default.
+
+Existing Markdown memory is imported on demand without changing the source files. Only global, the current project (including recognized old project IDs), and the current session are imported into their respective stores. Imports are recorded per source version, so retries and restarts do not duplicate completed imports; failures remain retryable. Other projects and sessions remain untouched, and a local import does not make the old store read-only. Memory already mixed without reliable provenance cannot be automatically reassigned by this upgrade.
+
+The normal working set contains up to 4,000 non-pinned active atoms and a target of 8,000 recent notes per store. Pins and notes required by active atoms or procedures are additional retained items. Pinning an already suppressed or forgotten item does not reactivate it. Retired history stays on disk rather than in the normal recall cache. `list` (subject to `limit`), `stats`, and `export` include cold history; `rebuild` reads all notes while preserving deletion and retirement state. Full-history service queries can use temporary memory proportional to the history examined, and disk indexes still grow with retained records.
+
+Automatic injection uses eligible user-authored and imported notes, not tool- or external-source notes. Git and associative memory share duplicate suppression within one agent, not across independent agents; a context clear or compaction permits the required memories to be injected again.
 
 **`Memory`** searches and manages the markdown memory under `~/.kimi-code/memory/`, organized by scope: `global` (cross-project knowledge), `project` (keyed by the repository, so it survives a re-clone or a move) and `session`. Actions: `search` (full-text; every project and session unless `scope` is given), `read`, `write` (defaults to `project`, never writes outside the scope you name), `list`, `delete`, `log` (the memory repository's recent commits, newest first) and `revert` (roll one commit back by the full `sha` that `log` reports; a short sha is rejected, and the search index is resynchronised before the call returns).
 
 When the `git_memory` experimental flag is enabled, `write` additionally requires the content to cite a real commit — a 7–40 character hex string that `git cat-file` resolves in the working directory or in the memory repository — and both writes and deletes are committed to that repository, which is what makes `log` and `revert` meaningful. The tool is available while the `associative_memory` experimental flag is off.
 
+Automatic Git memory projection is narrower than an explicit `Memory` search: it accepts only global, current-project, and current-session records, and checks that boundary before matching `applies_to`. A matching filename or glob does not make another project's memory eligible. Project identity retains the existing rule that checkouts of the same remote repository share a project identity.
+
+Git memory checks HEAD at each new user turn; repeated file reads may reuse a successful check for up to two seconds. The initial system prompt is a repository snapshot, not a live view. New-turn reminders announce changed snapshots. If an older usable index is temporarily served during refresh, `snapshot-head` identifies that index and `observed-head` identifies the HEAD actually observed. This experimental feature remains off by default.
+
 **`Knowledge`** works on the local knowledge base for the current project — coding standards, pitfalls, architecture decisions and workflow rules. It is queried automatically before each turn to inject the relevant standards, and its actions work it directly: `search` (by query, file path or tags), `add` (record a standard or pitfall you discovered), `confirm` (promote an AI-learned entry to confirmed) and `reject` (drop an incorrect or outdated one). Use it for project-specific rules, not general knowledge, per-session preferences, or anything already in `AGENTS.md`.
+
+Each agent owns its knowledge database connection. Without a `KIMI_KNOWLEDGE_DB` override, it reads the database in the session working directory (`.kimi-code/knowledge.db`) if present, otherwise the user database. Searching an absent database does not create it. Automatic path, full-text, and tag searches all enforce scope before ranking and limiting candidates; with no file cue, only global and project-root rules apply. Explicit `search` keeps its broader behavior within the selected database. Automatic retrieval uses the actual user input, not text added by another reminder.
 
 **`Workflow`** runs multi-phase orchestrated agent workflows. `run` launches one — by `name` for a registered workflow, or by an inline `script` — and returns a `run_id` immediately, with the result delivered as a notification when the workflow ends; the script runs under a 30-minute default deadline counted from launch across the whole script, and `deadline_ms` raises or lowers it for a single run. `status` checks progress, `wait` blocks until the run finishes, and `cancel` stops it.
 

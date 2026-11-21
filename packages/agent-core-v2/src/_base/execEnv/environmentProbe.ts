@@ -1,9 +1,8 @@
+import { execFile as nodeExecFile } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { access } from 'node:fs/promises';
 import * as nodeOs from 'node:os';
 import * as nodePath from 'node:path';
-
-import { findShellPayloadPin, resolveShellPayloadHome, shellPayloadExePath } from './shellPayload';
 
 export type OsKind = string;
 export type ShellName = 'bash' | 'sh';
@@ -20,9 +19,9 @@ export class ProbeShellNotFoundError extends Error {
 }
 
 export interface JsRuntimeInfo {
-  readonly name: 'bun' | 'node';
-  readonly version: string;
-  readonly path: string;
+  readonly name: string;
+  readonly version?: string;
+  readonly path?: string;
 }
 
 export interface HostEnvironmentInfo {
@@ -35,7 +34,8 @@ export interface HostEnvironmentInfo {
   readonly homeDir: string;
   readonly cwd?: string;
   readonly tempDir?: string;
-  readonly jsRuntimes?: ReadonlyArray<JsRuntimeInfo>;}
+  readonly jsRuntimes?: readonly JsRuntimeInfo[];
+}
 
 export interface HostEnvironmentProbeDeps {
   readonly platform: string;
@@ -78,17 +78,6 @@ export async function probeHostEnvironment(
   deps: HostEnvironmentProbeDeps,
 ): Promise<HostEnvironmentInfo> {
   const osKind = resolveOsKind(deps.platform);
-  const [base, jsRuntimes] = await Promise.all([
-    probeBaseEnvironment(deps, osKind),
-    probeJsRuntimes(deps),
-  ]);
-  return jsRuntimes.length > 0 ? { ...base, jsRuntimes } : base;
-}
-
-async function probeBaseEnvironment(
-  deps: HostEnvironmentProbeDeps,
-  osKind: OsKind,
-): Promise<HostEnvironmentInfo> {
   const osArch = deps.arch;
   const osVersion = deps.release;
   const pathClass: PathClass = deps.platform === 'win32' ? 'win32' : 'posix';
@@ -147,13 +136,6 @@ async function locateWindowsGitBash(deps: HostEnvironmentProbeDeps): Promise<str
     }
   }
 
-  for (const candidate of provisionedBashCandidates(deps)) {
-    checked.push(candidate);
-    if (await deps.isFile(candidate)) {
-      return candidate;
-    }
-  }
-
   const gitExecutables = await findExecutablesOnPath(
     'git.exe',
     deps.env['PATH'],
@@ -203,16 +185,9 @@ async function locateWindowsGitBash(deps: HostEnvironmentProbeDeps): Promise<str
   }
 
   throw new ProbeShellNotFoundError(
-    'Git Bash was not found on this Windows host. Run `kimi shells provision --bash` to install the bundled bash payload, install Git for Windows from https://gitforwindows.org/, or set KIMI_SHELL_PATH to a bash.exe.',
+    'Git Bash was not found on this Windows host. Install Git for Windows from https://gitforwindows.org/ or set KIMI_SHELL_PATH to a bash.exe.',
     checked,
   );
-}
-
-function provisionedBashCandidates(deps: HostEnvironmentProbeDeps): readonly string[] {
-  const pin = findShellPayloadPin('bash');
-  if (pin === undefined) return [];
-  const kimiHome = resolveShellPayloadHome(deps.env, deps.homeDir);
-  return [shellPayloadExePath(kimiHome, pin)];
 }
 
 async function readGitExecPath(
@@ -334,56 +309,23 @@ async function findExecutablesOnPath(
   return platform === 'win32' ? dedupeWindowsPaths(paths) : paths;
 }
 
-const JS_RUNTIME_PROBE_TIMEOUT_MS = 3_000;
-
-async function probeJsRuntimes(
-  deps: HostEnvironmentProbeDeps,
-): Promise<ReadonlyArray<JsRuntimeInfo>> {
-  const runtimes = await Promise.all(
-    [
-      { name: 'bun' as const, binary: deps.platform === 'win32' ? 'bun.exe' : 'bun' },
-      { name: 'node' as const, binary: deps.platform === 'win32' ? 'node.exe' : 'node' },
-    ].map(async ({ name, binary }) => {
-      const executable = (
-        await findExecutablesOnPath(binary, deps.env['PATH'], deps.platform, deps.isFile)
-      )[0];
-      if (executable === undefined) return;
-      const version = parseRuntimeVersion(
-        await deps.execFileText(executable, ['--version'], JS_RUNTIME_PROBE_TIMEOUT_MS),
-      );
-      if (version === undefined) return;
-      return { name, version, path: executable };
-    }),
-  );
-  return runtimes.filter((runtime) => runtime !== undefined);
-}
-
-function parseRuntimeVersion(stdout: string | undefined): string | undefined {
-  if (stdout === undefined) return undefined;
-  for (const line of stdout.split(/\r?\n/)) {
-    const match = /^v?(\d+\.\d+\.\d+(?:[-+][^\s]+)?)/.exec(line.trim());
-    if (match?.[1] !== undefined) return match[1];
-  }
-  return undefined;
-}
-
 export async function execFileText(
   file: string,
   args: readonly string[],
   timeoutMs: number,
 ): Promise<string | undefined> {
-  try {
-    const proc = Bun.spawn([file, ...args], {
-      stdout: 'pipe',
-      stderr: 'ignore',
-      timeout: timeoutMs,
-      windowsHide: true,
-    });
-    const stdout = await new Response(proc.stdout).text();
-    const code = await proc.exited;
-    if (code !== 0) return undefined;
-    return stdout;
-  } catch {
-    return undefined;
-  }
+  return new Promise((resolve) => {
+    nodeExecFile(
+      file,
+      [...args],
+      { encoding: 'utf8', timeout: timeoutMs, windowsHide: true },
+      (error, stdout) => {
+        if (error !== null) {
+          resolve(undefined);
+          return;
+        }
+        resolve(stdout);
+      },
+    );
+  });
 }

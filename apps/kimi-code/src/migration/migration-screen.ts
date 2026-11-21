@@ -1,3 +1,8 @@
+import { Container, matchesKey, Key, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
+
+import type { ColorPalette } from '#/tui/theme/colors';
+import { currentTheme } from '#/tui/theme';
 import {
   resolveMigrationScope,
   runMigration as realRunMigration,
@@ -10,74 +15,35 @@ import {
   type Prompt2Choice,
   type RunMigrationInput,
 } from '@moonshot-ai/migration-legacy';
-/**
- * MigrationScreenComponent — native pi-tui first-launch migration experience.
- *
- * A single mounted Container & Focusable that runs a 3-phase state machine:
- *   ask (2-step choice wizard) -> progress -> result
- *
- * Pure decision mapping (choices -> MigrationScope) is delegated to the
- * package's `resolveMigrationScope`. Rendering follows the `ChoicePicker`
- * conventions in `apps/kimi-code/src/tui/components/dialogs/choice-picker.ts`.
- *
- * This file implements the ask, progress, and result phases. `beginMigration`
- * drives the real runMigration flow (injectable for tests).
- */
-import { Container, matchesKey, Key, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
-import chalk from 'chalk';
-
 import { t } from '#/i18n';
-import { currentTheme } from '#/tui/theme';
-import type { ColorPalette } from '#/tui/theme/colors';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '#/utils/render-clock';
 
 type Phase = 'ask1' | 'ask2' | 'progress' | 'result';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
 
-/** Spinner frame cadence — one full braille cycle every ~800ms. */
 const SPINNER_INTERVAL_MS = 80;
 
-function stepLabels(): ReadonlyArray<readonly [string, string]> {
-  return [
-    ['config', t('tui.migration.stepLabelConfig')],
-    ['mcp', t('tui.migration.stepLabelMcp')],
-    ['user-history', t('tui.migration.stepLabelReplHistory')],
-    ['sessions', t('tui.migration.stepLabelSessions')],
-  ];
-}
+const STEP_LABELS: ReadonlyArray<readonly [string, string]> = [
+  ['config', t('tui.migration.stepLabelConfig')],
+  ['mcp', t('tui.migration.stepLabelMcp')],
+  ['user-history', t('tui.migration.stepLabelReplHistory')],
+  ['sessions', t('tui.migration.stepLabelSessions')],
+];
 
 export interface MigrationScreenOptions {
   readonly plan: MigrationPlan;
   readonly sourceHome: string;
   readonly targetHome: string;
   readonly colors?: ColorPalette;
-  /** Called once the screen is finished; the host then restores the editor. */
   readonly onComplete: (result: MigrationScreenResult) => void;
-  /** Triggers a re-render; the host wires this to `ui.requestRender()`. */
   readonly requestRender?: () => void;
-  /** Injectable for tests; defaults to the package's runMigration. */
   readonly runMigration?: (input: RunMigrationInput) => Promise<MigrationReport>;
-  /**
-   * When true, the screen starts at the scope question and skips the
-   * now/later/never gate — used by the explicit `kimi migrate` command, where
-   * invoking the command is itself the decision to migrate.
-   */
   readonly skipDecisionStep?: boolean;
-  /** Timer source for the progress spinner; defaults to the system clock. */
-  readonly clock?: Pick<RenderClock, 'setInterval' | 'clearInterval'>;
 }
 
-/** What the screen reports back to the host when finished. */
 export interface MigrationScreenResult {
   readonly decision: 'now' | 'later' | 'never';
-  /** Resolved migration scope; present only when decision === 'now'. */
   readonly scope?: MigrationScope;
-  // present only when decision === 'now' and migration ran
   readonly migrated?: boolean;
 }
 
@@ -101,7 +67,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
     ['sessions', 'pending'],
   ]);
   private spinnerFrame = 0;
-  private spinnerTimer: RenderTimerHandle | undefined;
+  private spinnerTimer: ReturnType<typeof setInterval> | undefined;
   private report: MigrationReport | undefined;
   private migrationFailed = false;
   private migrationFailureReason: string | undefined;
@@ -110,21 +76,17 @@ export class MigrationScreenComponent extends Container implements Focusable {
     super();
     this.opts = opts;
     if (opts.skipDecisionStep === true) {
-      // Explicit `kimi migrate`: the now/later/never gate is meaningless, so
-      // start at the scope question with the decision already fixed to 'now'.
       this.phase = 'ask2';
       this.choices.push('now');
     }
   }
 
-  /** Host calls this once runMigration resolves. */
   showResult(report: MigrationReport): void {
     this.report = report;
     this.phase = 'result';
     this.stopSpinner();
   }
 
-  /** Host calls this if runMigration threw. */
   showFailure(error?: unknown): void {
     this.migrationFailed = true;
     this.migrationFailureReason = formatMigrationFailureReason(error);
@@ -132,47 +94,36 @@ export class MigrationScreenComponent extends Container implements Focusable {
     this.stopSpinner();
   }
 
-  /** Host calls this when migration starts. */
   enterProgress(): void {
     this.phase = 'progress';
   }
 
-  /** Host wires this to runMigration's onProgress (step-level messages). */
   reportStep(msg: string): void {
-    // msg is like 'config done', 'mcp done', 'sessions done'
     const key = msg.replace(/ done$/, '');
     if (this.stepStatus.has(key)) this.stepStatus.set(key, 'done');
   }
 
-  /** Host wires this to runMigration's onSessionProgress. */
   reportSessionProgress(done: number, total: number): void {
     this.progressDone = done;
     this.progressTotal = total;
   }
 
-  // The braille spinner advances on its own timer so the progress screen stays
-  // visibly alive even while a single step (e.g. session translation) runs for
-  // a while without emitting progress events. Runs only for the progress
-  // phase: started on entering it, stopped the moment it ends.
   private startSpinner(): void {
     this.stopSpinner();
-    const clock = this.opts.clock ?? SYSTEM_RENDER_CLOCK;
-    this.spinnerTimer = clock.setInterval(() => {
+    this.spinnerTimer = setInterval(() => {
       this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
       this.opts.requestRender?.();
     }, SPINNER_INTERVAL_MS);
-    // A decorative timer must never keep the process alive on its own.
-    this.spinnerTimer.unref?.();
+    this.spinnerTimer.unref();
   }
 
   private stopSpinner(): void {
     if (this.spinnerTimer !== undefined) {
-      (this.opts.clock ?? SYSTEM_RENDER_CLOCK).clearInterval(this.spinnerTimer);
+      clearInterval(this.spinnerTimer);
       this.spinnerTimer = undefined;
     }
   }
 
-  // test hooks (thin aliases so tests don't depend on host wiring)
   _testEnterProgress(): void {
     this.enterProgress();
   }
@@ -197,7 +148,6 @@ export class MigrationScreenComponent extends Container implements Focusable {
       }
       return;
     }
-    // progress phase: ignore input
   }
 
   private currentStep(): StepDef {
@@ -215,7 +165,6 @@ export class MigrationScreenComponent extends Container implements Focusable {
       return;
     }
     if (matchesKey(data, Key.escape)) {
-      // Esc anywhere in ask == "later"
       this.opts.onComplete({ decision: 'later' });
       return;
     }
@@ -227,7 +176,6 @@ export class MigrationScreenComponent extends Container implements Focusable {
     }
   }
 
-  /** Apply a chosen value and move the state machine forward. */
   private advance(value: AnyChoice): void {
     this.choices.push(value);
     this.selectedIndex = 0;
@@ -238,15 +186,12 @@ export class MigrationScreenComponent extends Container implements Focusable {
         this.phase = 'ask2';
         return;
       }
-      // 'later' | 'never'
       this.opts.onComplete({ decision: value as 'later' | 'never' });
       return;
     }
-    // ask2 — either choice resolves the full scope; run migration immediately.
     this.beginMigration(result);
   }
 
-  /** Enter the progress phase and run the migration to completion. */
   private beginMigration(result: MigrationPromptResult): void {
     if (result.decision !== 'now' || result.scope === undefined) {
       this.opts.onComplete({ decision: 'later' });
@@ -296,11 +241,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
       lines.push(chalk.hex(colors.error).bold(t('tui.migration.failed')));
       if (this.migrationFailureReason !== undefined) {
         lines.push('');
-        lines.push(
-          chalk.hex(colors.text)(
-            t('tui.migration.reason', { reason: this.migrationFailureReason }),
-          ),
-        );
+        lines.push(chalk.hex(colors.text)(` Reason: ${this.migrationFailureReason}`));
       }
       lines.push('');
       lines.push(chalk.hex(colors.text)(t('tui.migration.retryHint')));
@@ -316,20 +257,12 @@ export class MigrationScreenComponent extends Container implements Focusable {
       const sum = r.summary;
       if (sum.sessions.sessionsMigrated > 0) {
         lines.push(
-          chalk.hex(colors.success)(
-            t('tui.migration.sessionsMigrated', { count: String(sum.sessions.sessionsMigrated) }),
-          ),
+          chalk.hex(colors.success)(t('tui.migration.sessionsMigrated', { count: sum.sessions.sessionsMigrated })),
         );
       }
       if (sum.plans.copied > 0) {
-        lines.push(
-          chalk.hex(colors.success)(
-            t('tui.migration.plansMigrated', { count: String(sum.plans.copied) }),
-          ),
-        );
+        lines.push(chalk.hex(colors.success)(t('tui.migration.plansMigrated', { count: sum.plans.copied })));
       }
-      // Only claim a data class was migrated when the summary says it was —
-      // a skipped/failed step (e.g. malformed config.toml) must not show ✓.
       const migratedKinds: string[] = [];
       if (sum.config.migrated) migratedKinds.push('config');
       if (sum.config.migratedHooks > 0) migratedKinds.push('hooks');
@@ -337,11 +270,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (sum.userHistory.copied > 0) migratedKinds.push(t('tui.migration.stepLabelReplHistory'));
       if (sum.skills.copied > 0) migratedKinds.push('skills');
       if (migratedKinds.length > 0) {
-        lines.push(
-          chalk.hex(colors.success)(
-            t('tui.migration.kindsMigrated', { kinds: migratedKinds.join(' · ') }),
-          ),
-        );
+        lines.push(chalk.hex(colors.success)(`  ✓ ${migratedKinds.join(' · ')}`));
       }
       if (
         sum.sessions.sessionsMigrated === 0 &&
@@ -353,125 +282,87 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (r.notices.detectedPlugins.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            t('tui.migration.pluginsNotSupported', {
-              count: String(r.notices.detectedPlugins.length),
-            }),
+            t('tui.migration.pluginsNotSupported', { count: r.notices.detectedPlugins.length }),
           ),
         );
       }
-      if (r.notices.plansCopied !== null) {
-        const { count, directory } = r.notices.plansCopied;
-        lines.push(
-          chalk.hex(colors.textMuted)(
-            t(count === 1 ? 'tui.migration.plansCopied_one' : 'tui.migration.plansCopied_other', {
-              count: String(count),
-              path: directory,
-            }),
-          ),
-        );
+      if (r.notices.plansCopiedNotice !== null) {
+        lines.push(chalk.hex(colors.textMuted)(`  ⓘ ${r.notices.plansCopiedNotice}`));
       }
       if (sum.config.droppedHooks > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            t('tui.migration.hooksDropped', { count: String(sum.config.droppedHooks) }),
+            t('tui.migration.hooksDropped', { count: sum.config.droppedHooks }),
           ),
         );
       }
       if (sum.config.configConflicts.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            t('tui.migration.configConflicts', {
-              count: String(sum.config.configConflicts.length),
-              keys: sum.config.configConflicts.join(' · '),
-            }),
+            t('tui.migration.configConflicts', { count: sum.config.configConflicts.length, keys: sum.config.configConflicts.join(' · ') }),
           ),
         );
       }
       if (sum.config.wroteSiblingDueToConflict) {
-        lines.push(chalk.hex(colors.warning)(t('tui.migration.configParseError')));
+        lines.push(
+          chalk.hex(colors.warning)(
+            t('tui.migration.configParseError'),
+          ),
+        );
         const sc = sum.config.siblingContents;
         const items: string[] = [];
         if (sc.providers.length > 0) {
-          items.push(
-            t(
-              sc.providers.length === 1
-                ? 'tui.migration.containsProviders_one'
-                : 'tui.migration.containsProviders_other',
-              { count: String(sc.providers.length) },
-            ),
-          );
+          items.push(`${sc.providers.length} provider${sc.providers.length === 1 ? '' : 's'}`);
         }
         if (sc.models.length > 0) {
-          items.push(
-            t(
-              sc.models.length === 1
-                ? 'tui.migration.containsModels_one'
-                : 'tui.migration.containsModels_other',
-              { count: String(sc.models.length) },
-            ),
-          );
+          items.push(`${sc.models.length} model${sc.models.length === 1 ? '' : 's'}`);
         }
         if (sc.hooks > 0) {
-          items.push(
-            t(
-              sc.hooks === 1
-                ? 'tui.migration.containsHooks_one'
-                : 'tui.migration.containsHooks_other',
-              { count: String(sc.hooks) },
-            ),
-          );
+          items.push(`${sc.hooks} hook${sc.hooks === 1 ? '' : 's'}`);
         }
         if (items.length > 0) {
-          lines.push(
-            chalk.hex(colors.warning)(
-              t('tui.migration.contains', {
-                items: items.join(t('tui.migration.listSeparator')),
-              }),
-            ),
-          );
+          lines.push(chalk.hex(colors.warning)(`     contains: ${items.join(t('tui.migration.listSeparator'))}`));
         }
       }
       if (sum.config.wroteTuiSibling) {
-        lines.push(chalk.hex(colors.warning)(t('tui.migration.tuiConflict')));
+        lines.push(
+          chalk.hex(colors.warning)(
+            t('tui.migration.tuiConflict'),
+          ),
+        );
       }
       if (sum.mcp.wroteSiblingDueToConflict) {
-        lines.push(chalk.hex(colors.warning)(t('tui.migration.mcpUnreadable')));
+        lines.push(
+          chalk.hex(colors.warning)(
+            t('tui.migration.mcpUnreadable'),
+          ),
+        );
       }
       if (r.notices.mcpOauthServersRequiringReauth.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            t('tui.migration.mcpNeedsAuth', {
-              count: String(r.notices.mcpOauthServersRequiringReauth.length),
-            }),
+            t('tui.migration.mcpNeedsAuth', { count: r.notices.mcpOauthServersRequiringReauth.length }),
           ),
         );
       }
       if (sum.sessions.sessionsFailed.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            t('tui.migration.sessionsFailed', {
-              count: String(sum.sessions.sessionsFailed.length),
-            }),
+            t('tui.migration.sessionsFailed', { count: sum.sessions.sessionsFailed.length }),
           ),
         );
       }
       if (sum.sessions.sessionsConflicts.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            t('tui.migration.sessionsSkipped', {
-              count: String(sum.sessions.sessionsConflicts.length),
-            }),
+            t('tui.migration.sessionsSkipped', { count: sum.sessions.sessionsConflicts.length }),
           ),
         );
       }
-      // Empty / user-cleared sessions carry no conversation — neutral info,
-      // not a failure, so it is shown muted rather than as a ⚠ warning.
       if (sum.sessions.sessionsSkippedEmpty > 0) {
         lines.push(
           chalk.hex(colors.textMuted)(
-            t('tui.migration.emptySessionsSkipped', {
-              count: String(sum.sessions.sessionsSkippedEmpty),
-            }),
+            t('tui.migration.emptySessionsSkipped', { count: sum.sessions.sessionsSkippedEmpty }),
           ),
         );
       }
@@ -498,18 +389,17 @@ export class MigrationScreenComponent extends Container implements Focusable {
       lines.push(
         chalk.hex(colors.accent)(`  ${spinner}  `) +
           chalk.hex(colors.text)(
-            t('tui.migration.progressTranslating', {
-              done: String(this.progressDone),
-              total: String(this.progressTotal),
-            }),
+            t('tui.migration.progressTranslating', { done: this.progressDone, total: this.progressTotal }),
           ),
       );
       lines.push('');
     }
-    for (const [key, label] of stepLabels()) {
+    for (const [key, label] of STEP_LABELS) {
       const status = this.stepStatus.get(key) ?? 'pending';
       const mark =
-        status === 'done' ? chalk.hex(colors.success)('✓') : chalk.hex(colors.textDim)('◐');
+        status === 'done'
+          ? chalk.hex(colors.success)('✓')
+          : chalk.hex(colors.textDim)('◐');
       lines.push(`  ${mark} ${chalk.hex(colors.text)(label)}`);
     }
     lines.push('');
@@ -538,15 +428,14 @@ export class MigrationScreenComponent extends Container implements Focusable {
       const pointer = isSel ? '❯' : ' ';
       const labelStyle = isSel ? chalk.hex(colors.primary).bold : chalk.hex(colors.text);
       lines.push(
-        chalk.hex(isSel ? colors.primary : colors.textDim)(`  ${pointer} `) + labelStyle(opt.label),
+        chalk.hex(isSel ? colors.primary : colors.textDim)(`  ${pointer} `) +
+          labelStyle(opt.label),
       );
     }
     lines.push('');
     lines.push(
       chalk.hex(colors.textMuted)(
-        t('tui.migration.navHintAsk', {
-          action: this.opts.skipDecisionStep === true ? 'cancel' : 'later',
-        }),
+        t('tui.migration.navHintAsk', { action: this.opts.skipDecisionStep === true ? 'cancel' : 'later' }),
       ),
     );
     lines.push(chalk.hex(colors.primary)('─'.repeat(width)));
@@ -575,13 +464,10 @@ function formatMigrationFailureReason(error: unknown): string | undefined {
         break;
       case 'symbol':
         reason =
-          error.description !== undefined
-            ? `Symbol(${error.description})`
-            : t('tui.migration.reasonSymbolRejection');
+          error.description !== undefined ? `Symbol(${error.description})` : t('tui.migration.reasonSymbolRejection');
         break;
       case 'function':
-        reason =
-          error.name !== '' ? `Function ${error.name}` : t('tui.migration.reasonFunctionRejection');
+        reason = error.name !== '' ? `Function ${error.name}` : t('tui.migration.reasonFunctionRejection');
         break;
       case 'object':
         if (error !== null) reason = t('tui.migration.reasonObjectRejection');
@@ -599,7 +485,7 @@ function formatMigrationFailureReason(error: unknown): string | undefined {
 function summarizePlan(plan: MigrationPlan): string {
   const parts: string[] = [];
   if (plan.totalSessions > 0) parts.push(`${plan.totalSessions} sessions`);
-  if (plan.hasConfig) parts.push('config.toml');
+  if (plan.hasConfig) parts.push('config');
   if (plan.hasMcp) parts.push('mcp.json');
   if (plan.hasUserHistory) parts.push(t('tui.migration.stepLabelReplHistory'));
   if (plan.hasSkills) parts.push('skills');
@@ -619,12 +505,9 @@ function stepFor(phase: Phase, plan: MigrationPlan): StepDef {
       ],
     };
   }
-  // ask2 — the second option carries the actual session count so users can see
-  // the cost they are signing up for. Falls back to the singular "sessions"
-  // word only (no count) when no sessions were detected.
   const sessionsLabel =
     plan.totalSessions > 0
-      ? t('tui.migration.configPlusSessions', { count: String(plan.totalSessions) })
+      ? t('tui.migration.configPlusSessions', { count: plan.totalSessions })
       : t('tui.migration.configPlusAllSessions');
   return {
     title: t('tui.migration.ask2Title'),

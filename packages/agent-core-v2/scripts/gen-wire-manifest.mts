@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from '
 import { dirname, join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { EVENT2_REGISTRY } from '#/app/event/event2';
+import { EVENT2_REGISTRY } from '../src/app/event/event2';
 
 import {
   asJsonSchema,
@@ -18,12 +18,8 @@ const PKG = join(import.meta.dirname, '..');
 const SRC = join(PKG, 'src');
 export const MANIFEST_PATH = join(PKG, 'docs', 'wire-manifest.d.ts');
 
-function posixRelPath(from: string, to: string): string {
-  return relative(from, to).replaceAll('\\', '/');
-}
-
 function walk(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir).sort()) {
+  for (const entry of readdirSync(dir)) {
     const p = join(dir, entry);
     if (statSync(p).isDirectory()) walk(p, out);
     else if (entry.endsWith('.ts')) out.push(p);
@@ -53,7 +49,7 @@ function scanEventDeclarations(): {
     for (const [i, match] of matches.entries()) {
       const type = match[1];
       if (type === undefined) continue;
-      owners.set(type, posixRelPath(PKG, file));
+      owners.set(type, relative(PKG, file));
       const windowEnd = i + 1 < matches.length ? matches[i + 1]!.index : source.length;
       if (DURABLE_DECL_RE.test(source.slice(match.index, windowEnd))) durableTypes.add(type);
     }
@@ -71,31 +67,20 @@ function scanEventDeclarations(): {
   return { owners, importFiles, durableTypes, classTypes };
 }
 
-async function scanMigrationChain(protocolVersion: string): Promise<string> {
-  const { MIGRATIONS } = (await import('#/wire/migration/migration')) as {
-    MIGRATIONS: readonly { readonly sourceVersion: string; readonly targetVersion: string }[];
-  };
-  if (MIGRATIONS.length === 0) {
-    throw new Error('gen-wire-manifest: MIGRATIONS is empty; expected at least one migration');
-  }
-  const chain: string[] = [MIGRATIONS[0]!.sourceVersion];
-  for (const [i, migration] of MIGRATIONS.entries()) {
-    const previous = chain[chain.length - 1];
-    if (previous !== migration.sourceVersion) {
-      throw new Error(
-        `gen-wire-manifest: migration chain is broken at index ${String(i)}: ` +
-          `expected sourceVersion "${String(previous)}", got "${migration.sourceVersion}"`,
-      );
+function scanMigrationChain(): string {
+  const dir = join(SRC, 'wire', 'migration');
+  const pairs: { source: string; target: string }[] = [];
+  for (const entry of readdirSync(dir)) {
+    if (!/^v[\d.]+\.ts$/.test(entry)) continue;
+    const source = readFileSync(join(dir, entry), 'utf-8');
+    const sourceVersion = /sourceVersion:\s*'([^']+)'/.exec(source)?.[1];
+    const targetVersion = /targetVersion:\s*'([^']+)'/.exec(source)?.[1];
+    if (sourceVersion !== undefined && targetVersion !== undefined) {
+      pairs.push({ source: sourceVersion, target: targetVersion });
     }
-    chain.push(migration.targetVersion);
   }
-  const tail = chain[chain.length - 1];
-  if (tail !== protocolVersion) {
-    throw new Error(
-      `gen-wire-manifest: WIRE_PROTOCOL_VERSION is "${protocolVersion}" but the migration ` +
-        `chain ends at "${String(tail)}"; register the migration or bump the constant`,
-    );
-  }
+  pairs.sort((a, b) => a.source.localeCompare(b.source, undefined, { numeric: true }));
+  const chain = pairs.flatMap((p, i) => (i === 0 ? [p.source, p.target] : [p.target]));
   return chain.join(' -> ');
 }
 
@@ -109,7 +94,7 @@ interface ReplayableStateScan {
 
 const ON_FOLD_RE = /\.on\(\s*([A-Za-z_$][\w$]*)/g;
 const KEY_ON_RE = /\b([A-Za-z_$][\w$]*)\.on\(\s*([A-Za-z_$][\w$]*)/g;
-const PROTOCOL_EVENT_RE = /(?:appendMessage|applyCompaction|clear|undo):\s*([A-Za-z_$][\w$]*)/g;
+const PROTOCOL_EVENT_RE = /(?:appendLoopEvent|turnPrompt|turnSteer|turnEnded|applyCompaction|clear|undo):\s*([A-Za-z_$][\w$]*)/g;
 
 function readCallArguments(text: string, parenIndex: number): string {
   let depth = 0;
@@ -157,7 +142,8 @@ function readChain(source: string, start: number): string {
 function scanReplayableStates(): ReplayableStateScan[] {
   const states: ReplayableStateScan[] = [];
   const byConst = new Map<string, ReplayableStateScan>();
-  const constChainRe = /(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*defineState\(\s*'([^']+)'/g;
+  const constChainRe =
+    /(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*defineState\(\s*'([^']+)'/g;
   for (const file of walk(SRC)) {
     const source = readFileSync(file, 'utf-8');
     if (!source.includes('.replayable(') && !source.includes('.on(')) continue;
@@ -196,7 +182,7 @@ function scanReplayableStates(): ReplayableStateScan[] {
 function scanUndoableProtocolTypes(classTypes: ReadonlyMap<string, string>): string[] {
   for (const file of walk(SRC)) {
     const source = readFileSync(file, 'utf-8');
-    const index = source.search(/registerUndoableProtocol\(\s*\{/);
+    const index = source.indexOf('registerUndoableProtocol(');
     if (index === -1) continue;
     const window = readChain(source, index);
     const types: string[] = [];
@@ -251,7 +237,10 @@ function sketchFromJsonSchema(schema: unknown, root: JsonSchema, depth: number):
   return describeType(resolved, tsQuote);
 }
 
-function buildPayloadSketch(schema: unknown, staticSketch?: string | Map<string, Sketch>): Sketch {
+function buildPayloadSketch(
+  schema: unknown,
+  staticSketch?: string | Map<string, Sketch>,
+): Sketch {
   const jsonSchema = toJsonSchema(schema);
   if (jsonSchema === undefined) {
     if (typeof staticSketch === 'string') return staticSketch;
@@ -316,9 +305,7 @@ function renderTsType(sketch: Sketch, indent: string): { doc?: string; lines: st
   if (Array.isArray(sketch)) {
     const inner = renderTsType(sketch[0], indent);
     const lines = [...inner.lines];
-    const last = lines[lines.length - 1]!;
-    lines[lines.length - 1] =
-      lines.length === 1 && splitTopLevel(last, ['|']).length > 1 ? `(${last})[]` : `${last}[]`;
+    lines[lines.length - 1] += '[]';
     return { doc: inner.doc, lines };
   }
   const doc = typeof sketch[TYPE_KEY] === 'string' ? sketch[TYPE_KEY] : undefined;
@@ -339,9 +326,7 @@ function emitTsDict(lines: string[], dict: SketchDict, indent: string): void {
     const fieldKey = tsFieldKey(optional ? key.slice(0, -1) : key);
     const { doc, lines: typeLines } = renderTsType(sketch, indent);
     if (doc !== undefined) lines.push(`${indent}/** ${doc} */`);
-    lines.push(
-      `${indent}${fieldKey}${optional ? '?' : ''}: ${typeLines[0]}${typeLines.length === 1 ? ';' : ''}`,
-    );
+    lines.push(`${indent}${fieldKey}${optional ? '?' : ''}: ${typeLines[0]}${typeLines.length === 1 ? ';' : ''}`);
     if (typeLines.length > 1) {
       lines.push(...typeLines.slice(1, -1));
       lines.push(`${typeLines.at(-1)};`);
@@ -377,9 +362,7 @@ function renderPayloadDecl(
   if (Array.isArray(sketch)) {
     const inner = renderTsType(sketch[0], '  ');
     const lines = [...inner.lines];
-    const last = lines[lines.length - 1]!;
-    lines[lines.length - 1] =
-      lines.length === 1 && splitTopLevel(last, ['|']).length > 1 ? `(${last})[]` : `${last}[]`;
+    lines[lines.length - 1] += '[]';
     header.push(' */');
     if (lines.length === 1) {
       return [...header, `type ${name} = { ${nameField} } & (${lines[0]});`, ''];
@@ -577,16 +560,7 @@ function splitTsTypeFields(body: string): Map<string, TsField> {
   return fields;
 }
 
-const TS_PRIMITIVES = new Set([
-  'string',
-  'number',
-  'boolean',
-  'unknown',
-  'any',
-  'null',
-  'undefined',
-  'void',
-]);
+const TS_PRIMITIVES = new Set(['string', 'number', 'boolean', 'unknown', 'any', 'null', 'undefined', 'void']);
 
 function renderTsFields(
   fields: Map<string, TsField>,
@@ -613,9 +587,7 @@ function findTsTypeDef(name: string, file: string): string | undefined {
   const typeRe = new RegExp(`(?:export\\s+)?type\\s+${name}(?:<[^>;=]*>)?\\s*=\\s*`);
   const m = typeRe.exec(source);
   if (m !== null) return readExpression(source, m.index + m[0].length).trim();
-  const ifaceRe = new RegExp(
-    `(?:export\\s+)?interface\\s+${name}(?:<[^>]*>)?(?:\\s+extends[^{]+)?\\s*\\{`,
-  );
+  const ifaceRe = new RegExp(`(?:export\\s+)?interface\\s+${name}(?:<[^>]*>)?(?:\\s+extends[^{]+)?\\s*\\{`);
   const im = ifaceRe.exec(source);
   if (im !== null) {
     const body = objectBody(source, im.index + im[0].length - 1);
@@ -663,9 +635,7 @@ function summarizeTsUnion(
     }
     return t;
   });
-  const bodies = resolved.map((m) =>
-    m.trim().startsWith('{') ? objectBody(m.trim(), 0) : undefined,
-  );
+  const bodies = resolved.map((m) => (m.trim().startsWith('{') ? objectBody(m.trim(), 0) : undefined));
   if (bodies.length > 0 && bodies.every((b) => b !== undefined)) {
     const fieldMaps = bodies.map((b) => splitTsTypeFields(b!));
     for (const [name, info] of fieldMaps[0]!) {
@@ -704,9 +674,6 @@ function summarizeTsTypeExpr(
   const literal = /^'([^']*)'$/.exec(text);
   if (literal?.[1] !== undefined) return tsQuote(literal[1]);
   if (TS_PRIMITIVES.has(text)) return text;
-  if (text.startsWith('(') && matchDelimiter(text, 0, '(', ')') === text.length - 1) {
-    return summarizeTsTypeExpr(text.slice(1, -1), file, budget, charBudget, depth);
-  }
   if (text.endsWith('[]')) {
     const inner = summarizeTsTypeExpr(text.slice(0, -2), file, budget, charBudget, depth + 1);
     if (typeof inner !== 'string') return [inner];
@@ -721,9 +688,7 @@ function summarizeTsTypeExpr(
   const intersections = splitTopLevel(text, ['&']);
   if (intersections.length > 1) {
     if (!spend(budget)) return truncate(text, 80);
-    const sides = intersections.map((m) =>
-      summarizeTsTypeExpr(m, file, budget, charBudget, depth + 1),
-    );
+    const sides = intersections.map((m) => summarizeTsTypeExpr(m, file, budget, charBudget, depth + 1));
     if (sides.every((side) => typeof side !== 'string' && !Array.isArray(side))) {
       return Object.assign({}, ...sides) as SketchDict;
     }
@@ -761,19 +726,8 @@ function summarizeTsType(name: string, fromFile: string, budget: Budget): Sketch
   return undefined;
 }
 
-function appendArraySuffix(text: string): string {
-  const named = /^([A-Z][$\w]*) = ([\s\S]+)$/.exec(text);
-  if (named?.[1] !== undefined && named[2] !== undefined) {
-    return `${named[1]} = ${appendArraySuffix(named[2].trim())}`;
-  }
-  return splitTopLevel(text, ['|']).length > 1 ? `(${text})[]` : `${text}[]`;
-}
-
 function friendlyZodExpr(expr: string, ownerFile: string, depth = 0): Sketch {
-  let text = expr
-    .replaceAll(/\s+/g, ' ')
-    .replaceAll(/\s*\.\s*/g, '.')
-    .trim();
+  let text = expr.replaceAll(/\s+/g, ' ').trim();
   let stripped = true;
   while (stripped) {
     stripped = false;
@@ -790,7 +744,9 @@ function friendlyZodExpr(expr: string, ownerFile: string, depth = 0): Sketch {
   if (custom?.[1] !== undefined) {
     const typeName = custom[1].trim();
     if (depth > 1) return typeName;
-    const summary = summarizeTsType(typeName, ownerFile, TS_BUDGET());
+    const summary = typeName === 'ContextMessage'
+      ? summarizeTsType('PersistentContextMessage', join(PKG, 'src/wire/record.ts'), TS_BUDGET())
+      : summarizeTsType(typeName, ownerFile, TS_BUDGET());
     if (summary === undefined) return typeName;
     if (typeof summary !== 'string' && !Array.isArray(summary)) {
       return { [TYPE_KEY]: typeName, ...summary };
@@ -805,7 +761,7 @@ function friendlyZodExpr(expr: string, ownerFile: string, depth = 0): Sketch {
   if (array?.[1] !== undefined) {
     const inner = friendlyZodExpr(array[1], ownerFile, depth + 1);
     if (typeof inner !== 'string') return [inner];
-    return appendArraySuffix(inner);
+    return `${inner}[]`;
   }
   const literal = /^z\.literal\((.+)\)$/.exec(text);
   if (literal?.[1] !== undefined) return friendlyZodExpr(literal[1], ownerFile, depth + 1);
@@ -906,7 +862,10 @@ function sketchPayloadFromSource(
   const classWindow = nextType === null ? rest : rest.slice(0, nextType.index);
   const schemaMatch = /static\s+override\s+readonly\s+schema\s*=\s*/.exec(classWindow);
   if (schemaMatch === null) return undefined;
-  const schemaExpr = readExpression(classWindow, schemaMatch.index + schemaMatch[0].length).trim();
+  const schemaExpr = readExpression(
+    classWindow,
+    schemaMatch.index + schemaMatch[0].length,
+  ).trim();
   if (schemaExpr === '') return undefined;
   const literal = resolveSchemaLiteral(schemaExpr, source);
   if (literal === undefined) {
@@ -931,17 +890,22 @@ export async function buildWireManifest(): Promise<string> {
   const { owners, importFiles, durableTypes, classTypes } = scanEventDeclarations();
   await import('../src/index.ts');
   for (const file of importFiles) {
-    await import(pathToFileURL(file).href);
+    await import(relative(join(PKG, 'scripts'), file));
   }
-  const { WIRE_PROTOCOL_VERSION } = (await import('#/wire/migration/migration')) as {
+  const { WIRE_MIN_READER_VERSION, WIRE_PROTOCOL_VERSION } = (await import(
+    '#/wire/migration/migration'
+  )) as {
+    WIRE_MIN_READER_VERSION: string;
     WIRE_PROTOCOL_VERSION: string;
   };
 
-  const entries = [...EVENT2_REGISTRY.values()].toSorted((a, b) => a.type.localeCompare(b.type));
-  const migrationChain = await scanMigrationChain(WIRE_PROTOCOL_VERSION);
+  const protocolTypes = scanUndoableProtocolTypes(classTypes);
+  const entries = [...EVENT2_REGISTRY.values()]
+    .filter((cls) => cls.durable || protocolTypes.includes(cls.type))
+    .toSorted((a, b) => a.type.localeCompare(b.type));
+  const migrationChain = scanMigrationChain();
 
   const folding = new Map<string, { states: string[]; blobs: string[] }>();
-  const protocolTypes = scanUndoableProtocolTypes(classTypes);
   for (const state of scanReplayableStates()) {
     const eventTypes = new Set<string>();
     for (const cls of state.foldClasses) {
@@ -982,24 +946,26 @@ export async function buildWireManifest(): Promise<string> {
     '// Wire Protocol Manifest',
     '//',
     '// Generated by scripts/gen-wire-manifest.mts — do not edit by hand.',
-    '// Regenerate with: (cd packages/agent-core-v2 && bun run gen:wire-manifest)',
+    '// Regenerate with: pnpm --filter @moonshot-ai/agent-core-v2 gen:wire-manifest',
     '//',
     `// protocol_version: "${WIRE_PROTOCOL_VERSION}" (migrations: ${migrationChain})`,
+    `// min_protocol_version: "${WIRE_MIN_READER_VERSION}"`,
     '//',
-    '// One declaration per durable record type — an Event2 subclass declaring',
-    '// `static type` + `static durable = true` + `static schema` — drained from the',
-    '// runtime EVENT2_REGISTRY ("import = register"). Every payload declaration',
+    '// One declaration per persisted record type — durable Event2 classes and',
+    '// manually persisted undoable protocol events — drained from the runtime',
+    '// EVENT2_REGISTRY ("import = register"). Every payload declaration',
     '// carries its record type in a `_name` field. Payload sketches use TypeScript',
     '// type syntax; when a named type is expanded inline, its name appears as a doc',
     '// comment (`/** ContextMessage */`). Bare type names (ContentPart,',
     '// ContextMessage, …) refer to the real types in src/ — they are intentionally',
     '// not resolved here. On disk (wire.jsonl)',
     '// the journal opens with a metadata line {"type": "metadata",',
-    '// "protocol_version", "created_at"}; each record is {"type", ...payload,',
+    '// "protocol_version", "min_protocol_version", "created_at"}; each record is',
+    '// {"type", ...payload,',
     '// "time"} — object payloads spread at the top level.',
     '//',
-    '// Every listed type is durable by construction — transient Event2 classes',
-    '// never enter EVENT2_REGISTRY, so there is no persisted flag. Declaration',
+    '// Every listed type is persisted by the dispatcher or a journal adapter;',
+    '// transient Event2 classes outside that protocol are excluded. Declaration',
     '// header lines: states (every state folding this record type on dispatch and',
     '// replay; any state beyond the first is what the retired format listed as',
     '// cross-reducers), blobs (the folding states whose blob codec offloads inline',
@@ -1055,7 +1021,7 @@ async function main(): Promise<void> {
     if (current !== manifest) {
       console.error(
         `[gen-wire-manifest] ${relative(process.cwd(), MANIFEST_PATH)} is stale. ` +
-          'Regenerate from packages/agent-core-v2 with `bun run gen:wire-manifest`.',
+          'Regenerate with `pnpm --filter @moonshot-ai/agent-core-v2 gen:wire-manifest`.',
       );
       process.exit(1);
     }

@@ -1,12 +1,13 @@
+import * as vscode from "vscode";
+
 import {
   createKimiRegionResolver,
   KIMI_CODE_PROVIDER_NAME,
   type KimiRegionAuthRead,
   type KimiRegionResolution,
   type KimiRegionResolver,
-} from '@moonshot-ai/kimi-code-oauth';
-import { loadRuntimeConfigSafe, resolveConfigPath } from '@moonshot-ai/kimi-code-sdk';
-import * as vscode from 'vscode';
+} from "@moonshot-ai/kimi-code-oauth";
+import { loadRuntimeConfigSafe, resolveConfigPath } from "@moonshot-ai/kimi-code-sdk";
 
 export interface ExtensionRegionOptions {
   readonly homeDir: string;
@@ -24,11 +25,11 @@ export function readPersistedKimiOAuthRef(
 function readAuth(homeDir: string): KimiRegionAuthRead {
   try {
     const result = loadRuntimeConfigSafe(resolveConfigPath({ homeDir }));
-    if (result.fileError !== undefined) return { status: 'unreadable' };
+    if (result.fileError !== undefined) return { status: "unreadable" };
     const ref = result.config.providers?.[KIMI_CODE_PROVIDER_NAME]?.oauth;
-    return ref === undefined ? { status: 'logged-out' } : { status: 'logged-in', ref };
+    return ref === undefined ? { status: "logged-out" } : { status: "logged-in", ref };
   } catch {
-    return { status: 'unreadable' };
+    return { status: "unreadable" };
   }
 }
 
@@ -41,7 +42,7 @@ export function resolveExtensionRegion(options: ExtensionRegionOptions): KimiReg
       homeDir: options.homeDir,
       readAuth: () => readAuth(options.homeDir),
       authFilePath: resolveConfigPath({ homeDir: options.homeDir }),
-      readMarker: process.env['KIMI_CODE_REGION_MARKER'] !== 'off',
+      readMarker: process.env["KIMI_CODE_REGION_MARKER"] !== "off",
       allowLocalInference: vscode.env.remoteName === undefined,
     });
     resolvers.set(options.homeDir, resolver);

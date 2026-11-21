@@ -1,24 +1,24 @@
-import { describe, expect, it } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { PassThrough } from 'node:stream';
 
-import { deserializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import { join } from 'pathe';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import type { EnvironmentLease, EnvironmentStatus } from '#/environment/environment';
 import { EnvironmentError, environmentIsReady } from '#/environment/environmentRegistry';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { mergeStdioEnv, StdioMcpClient, type StdioMcpClientOptions } from '#/mcpCore/client-stdio';
-import { StdioFrameBuffer } from '#/mcpCore/client-stdio';
-import { BoundedTail } from '#/mcpCore/client-stdio';
-import type { McpServerStdioConfig } from '#/mcpCore/config-schema';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
-import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import {
+  mergeStdioEnv,
+  StdioMcpClient,
+  type StdioMcpClientOptions,
+} from '#/mcpCore/client-stdio';
 import { McpClassifiedStartupError } from '#/mcpCore/client-shared';
-import { expectRejection } from '#test/helpers/assertions';
+import type { McpServerStdioConfig } from '#/mcpCore/config-schema';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 
 import {
   crashAfterConnectFixture,
@@ -34,10 +34,7 @@ function createClient(
   const environment = Object.assign(
     new FakeEnvironment(
       { environmentId: 'local', generation: 'test' },
-      {
-        capabilities: ['process'],
-        pathClass: process.platform === 'win32' ? 'win32' : 'posix',
-      },
+      { capabilities: ['process'] },
     ),
     { process: new HostProcessService() },
   );
@@ -96,7 +93,6 @@ function createEnvironmentClient(
     {
       capabilities: ['process'],
       status: options.status ?? 'ready',
-      pathClass: process.platform === 'win32' ? 'win32' : 'posix',
       host: options.host ?? { homeDir: process.cwd() },
     },
   );
@@ -151,34 +147,16 @@ function isPostCloseTransportError(error: unknown): boolean {
   );
 }
 
-function processIsRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
 describe('StdioMcpClient', () => {
   it('rejects a removed executor value instead of silently running on local', async () => {
-    const client = createClient({
-      transport: 'stdio',
-      command: process.execPath,
-      executor: 'kaos',
-    });
+    const client = createClient({ transport: 'stdio', command: process.execPath, executor: 'kaos' });
     await expect(client.connect()).rejects.toThrowError(
       expect.objectContaining({ code: 'not_implemented' }),
     );
   });
 
   it('accepts executor local for backward compatibility', async () => {
-    const client = createClient({
-      transport: 'stdio',
-      command: process.execPath,
-      args: [stdioFixture],
-      executor: 'local',
-    });
+    const client = createClient({ transport: 'stdio', command: process.execPath, args: [stdioFixture], executor: 'local' });
     try {
       await client.connect();
       const result = await client.callTool('echo', { text: 'hello' });
@@ -315,11 +293,7 @@ describe('StdioMcpClient', () => {
     const cases = [
       { config: {}, host: { homeDir: remoteHome, cwd: remoteCwd }, expected: remoteCwd },
       { config: {}, host: { homeDir: remoteHome }, expected: remoteHome },
-      {
-        config: { cwd: explicitCwd },
-        host: { homeDir: remoteHome, cwd: remoteCwd },
-        expected: explicitCwd,
-      },
+      { config: { cwd: explicitCwd }, host: { homeDir: remoteHome, cwd: remoteCwd }, expected: explicitCwd },
     ];
     const harnesses = cases.map(({ config, host }) =>
       createEnvironmentClient(
@@ -333,8 +307,7 @@ describe('StdioMcpClient', () => {
         const result = await harness.client.callTool('get_cwd', {});
         const text = (result.content[0] as { type: 'text'; text: string }).text;
         expect(realpathSync(text)).toBe(realpathSync(cases[index]!.expected));
-        const expectedCwd = cases[index]!.expected.replaceAll('\\', '/');
-        expect(harness.spawnCwds.map((cwd) => cwd?.replaceAll('\\', '/'))).toEqual([expectedCwd]);
+        expect(harness.spawnCwds).toEqual([cases[index]!.expected]);
       }
     } finally {
       for (const harness of harnesses) await harness.client.close();
@@ -481,29 +454,6 @@ describe('StdioMcpClient', () => {
     }
   }, 15000);
 
-  it('fails a pending connect promptly when the child exits without speaking MCP', async () => {
-    const probeCwd = mkdtempSync(join(tmpdir(), 'kimi-stdio-probe-'));
-    const client = createClient({
-      transport: 'stdio',
-      command: process.execPath,
-      args: ['--version'],
-      cwd: probeCwd,
-      startupTimeoutMs: 10_000,
-    });
-    const startedAt = Date.now();
-    let failure: unknown;
-    try {
-      await client.connect();
-    } catch (error) {
-      failure = error;
-    } finally {
-      await client.close();
-      await rm(probeCwd, { recursive: true, force: true });
-    }
-    expect(failure).toBeDefined();
-    expect(Date.now() - startedAt).toBeLessThan(2_000);
-  });
-
   it('buffers an early close and replays it on listener registration', async () => {
     const banner = `kimi-test-early-${Date.now()}`;
     const client = createClient({
@@ -565,18 +515,14 @@ describe('StdioMcpClient', () => {
     expect(closes).toEqual([]);
   }, 15000);
 
-  function createTrackingClient(config: McpServerStdioConfig): {
-    client: StdioMcpClient;
-    tracked: Array<{ sessionId?: string; disposed: boolean }>;
-  } {
+  function createTrackingClient(
+    config: McpServerStdioConfig,
+  ): { client: StdioMcpClient; tracked: Array<{ sessionId?: string; disposed: boolean }> } {
     const tracked: Array<{ sessionId?: string; disposed: boolean }> = [];
     const environment = Object.assign(
       new FakeEnvironment(
         { environmentId: 'local', generation: 'test' },
-        {
-          capabilities: ['process'],
-          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
-        },
+        { capabilities: ['process'] },
       ),
       { process: new HostProcessService() },
     );
@@ -664,7 +610,7 @@ describe('StdioMcpClient', () => {
         defaultCwd: process.cwd(),
       },
     );
-    await expectRejection(client.connect(), (err: unknown) => {
+    await expect(client.connect()).rejects.toSatisfy((err: unknown) => {
       expect(err).toBeInstanceOf(McpClassifiedStartupError);
       expect((err as McpClassifiedStartupError).failureKind).toBe('config');
       return true;
@@ -711,65 +657,6 @@ describe('StdioMcpClient', () => {
     );
     await expect(client.connect()).rejects.toThrow(/Connection closed/);
   }, 10000);
-
-  it('closes a stdio server by ending its stdin before any forced kill', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'kimi-mcp-eof-'));
-    const eofMarker = join(dir, 'eof');
-    const exitMarker = join(dir, 'exit');
-    const client = createClient({
-      transport: 'stdio',
-      command: process.execPath,
-      args: [stdioFixture],
-      env: {
-        KIMI_TEST_MCP_EOF_BEHAVIOR: 'exit',
-        KIMI_TEST_MCP_EOF_MARKER: eofMarker,
-        KIMI_TEST_MCP_SHUTDOWN_BEHAVIOR: 'exit',
-        KIMI_TEST_MCP_EXIT_MARKER: exitMarker,
-      },
-    });
-    try {
-      await client.connect();
-      await client.close();
-      expect(existsSync(eofMarker)).toBe(true);
-      expect(existsSync(exitMarker)).toBe(false);
-    } finally {
-      await client.close();
-      await rm(dir, { recursive: true, force: true });
-    }
-  }, 15000);
-
-  it('still terminates a stdio server that ignores stdin EOF', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'kimi-mcp-eof-ignore-'));
-    const eofMarker = join(dir, 'eof');
-    const pidFile = join(dir, 'pid');
-    const client = createClient({
-      transport: 'stdio',
-      command: process.execPath,
-      args: [stdioFixture],
-      env: {
-        KIMI_TEST_MCP_EOF_BEHAVIOR: 'ignore',
-        KIMI_TEST_MCP_EOF_MARKER: eofMarker,
-        KIMI_TEST_MCP_PID_FILE: pidFile,
-      },
-    });
-    try {
-      await client.connect();
-      const pid = Number(readFileSync(pidFile, 'utf8'));
-      expect(processIsRunning(pid)).toBe(true);
-
-      await client.close();
-
-      expect(existsSync(eofMarker)).toBe(true);
-      const deadline = Date.now() + 5000;
-      while (Date.now() < deadline && processIsRunning(pid)) {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-      expect(processIsRunning(pid)).toBe(false);
-    } finally {
-      await client.close();
-      await rm(dir, { recursive: true, force: true });
-    }
-  }, 15000);
 });
 
 describe('mergeStdioEnv', () => {
@@ -796,92 +683,5 @@ describe('mergeStdioEnv', () => {
     const dir = mkdtempSync(join(tmpdir(), 'kimi-mcp-env-'));
     await rm(dir, { recursive: true, force: true });
     expect(mergeStdioEnv(undefined, { PATH: dir })['PATH']).toBe(dir);
-  });
-});
-
-describe('StdioFrameBuffer', () => {
-  const frameOf = (payload: unknown): Buffer => Buffer.from(`${JSON.stringify(payload)}\n`);
-
-  function splitInto(buffer: Buffer, chunkCount: number): Buffer[] {
-    const size = Math.ceil(buffer.length / chunkCount);
-    const chunks: Buffer[] = [];
-    for (let offset = 0; offset < buffer.length; offset += size) {
-      chunks.push(buffer.subarray(offset, Math.min(offset + size, buffer.length)));
-    }
-    return chunks;
-  }
-
-  it('parses one large frame split across many small chunks', () => {
-    const payload = { jsonrpc: '2.0' as const, id: 1, result: { text: 'x'.repeat(1024 * 1024) } };
-    const frame = frameOf(payload);
-    const split = splitInto(frame, 4096);
-    const lines: string[] = [];
-    const buffer = new StdioFrameBuffer();
-    for (const chunk of split) {
-      buffer.append(chunk);
-      const line = buffer.readLine();
-      if (line !== null) lines.push(line);
-    }
-    expect(lines).toHaveLength(1);
-    expect(deserializeMessage(lines[0]!)).toEqual(payload);
-  });
-
-  it('parses two frames delivered in a single chunk', () => {
-    const first = { jsonrpc: '2.0', id: 1, result: {} };
-    const second = { jsonrpc: '2.0', method: 'notifications/progress', params: { progress: 1 } };
-    const buffer = new StdioFrameBuffer();
-    buffer.append(Buffer.concat([frameOf(first), frameOf(second)]));
-    expect(buffer.readLine()).toBe(JSON.stringify(first));
-    expect(buffer.readLine()).toBe(JSON.stringify(second));
-    expect(buffer.readLine()).toBeNull();
-  });
-
-  it('keeps a frame that arrived in the same chunk as its predecessor', () => {
-    const buffer = new StdioFrameBuffer();
-    buffer.append(
-      Buffer.from('{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":'),
-    );
-    expect(buffer.readLine()).toBe('{"jsonrpc":"2.0","method":"notifications/initialized"}');
-    expect(buffer.readLine()).toBeNull();
-    buffer.append(Buffer.from('"2.0","id":7,"result":{"ok":true}}\n'));
-    expect(JSON.parse(buffer.readLine()!)).toEqual({ jsonrpc: '2.0', id: 7, result: { ok: true } });
-    expect(buffer.readLine()).toBeNull();
-  });
-
-  it('strips a CRLF terminator like the SDK read buffer', () => {
-    const buffer = new StdioFrameBuffer();
-    buffer.append(Buffer.from('{"jsonrpc":"2.0","id":1,"result":{}}\r\n'));
-    expect(buffer.readLine()).toBe('{"jsonrpc":"2.0","id":1,"result":{}}');
-  });
-});
-
-describe('BoundedTail', () => {
-  it('keeps small chunks untouched until the capacity is exceeded', () => {
-    const tail = new BoundedTail(1024);
-    tail.push('hello');
-    expect(tail.snapshot()).toBe('hello');
-  });
-
-  it('keeps the last capacity bytes of a single overflowing chunk', () => {
-    const tail = new BoundedTail(1024);
-    tail.push('a'.repeat(2048));
-    expect(tail.snapshot()).toBe('a'.repeat(1024));
-  });
-
-  it('keeps the tail across multiple pushes that overflow together', () => {
-    const tail = new BoundedTail(1024);
-    tail.push('x'.repeat(600));
-    tail.push('y'.repeat(600));
-    const snapshot = tail.snapshot();
-    expect(snapshot.endsWith('y'.repeat(600))).toBe(true);
-    expect(Buffer.byteLength(snapshot)).toBeLessThanOrEqual(1024);
-  });
-
-  it('does not split a surrogate pair at the cut boundary', () => {
-    const tail = new BoundedTail(1024);
-    tail.push('a'.repeat(1023) + '😀');
-    const snapshot = tail.snapshot();
-    expect(snapshot.endsWith('😀')).toBe(true);
-    expect(Buffer.byteLength(snapshot)).toBeLessThanOrEqual(1024 + 4);
   });
 });

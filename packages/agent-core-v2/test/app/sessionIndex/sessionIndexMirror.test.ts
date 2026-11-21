@@ -1,8 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
+import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -12,32 +14,28 @@ import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import {
-  drainSessionIndexMirror,
-  SessionIndexMirror,
-} from '#/app/sessionIndex/sessionIndexMirrorService';
 import {
   SESSION_INDEX_MANIFEST,
   sessionCollection,
   sessionCountersCollection,
   type SessionWorkspaceCounts,
 } from '#/app/sessionIndex/sessionIndexModel';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import {
-  drainQueryStoreDisposals,
-  MiniDbQueryStore,
-} from '#/persistence/backends/minidb/miniDbQueryStore';
+  drainSessionIndexMirror,
+  SessionIndexMirror,
+} from '#/app/sessionIndex/sessionIndexMirrorService';
+import { drainQueryStoreDisposals, MiniDbQueryStore } from '#/persistence/backends/minidb/miniDbQueryStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { DATABASE_SECTION } from '#/persistence/configSection';
 import { IQueryStore } from '#/persistence/interface/queryStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-import { stubLog } from '../../_base/log/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubConfigService } from '../config/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
+import { stubLog } from '../../_base/log/stubs';
 
 const WORKSPACE = 'wd_test';
 const GENERATION = 1;
@@ -116,12 +114,7 @@ describe('SessionIndexMirror', () => {
     mirror.record(summary('a', { title: 'first', updatedAt: 1 }));
     mirror.record(summary('a', { title: 'latest', updatedAt: 5 }));
     mirror.record(summary('b', { archived: true, updatedAt: 3 }));
-    expect(
-      mirror
-        .pending()
-        .map((s) => s.id)
-        .sort(),
-    ).toEqual(['a', 'b']);
+    expect(mirror.pending().map((s) => s.id).sort()).toEqual(['a', 'b']);
 
     await mirror.drain();
     expect(mirror.pending()).toEqual([]);

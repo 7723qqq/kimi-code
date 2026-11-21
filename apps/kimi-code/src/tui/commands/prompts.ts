@@ -1,8 +1,3 @@
-import { capabilitiesForModel } from '@moonshot-ai/kimi-code-oauth';
-import type {
-  ManagedKimiCodeModelInfo,
-  OpenPlatformDefinition,
-} from '@moonshot-ai/kimi-code-oauth';
 import {
   catalogModelToAlias,
   resolveCatalogImport,
@@ -11,21 +6,28 @@ import {
   type ModelAlias,
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-import { t } from '#/i18n';
+import { capabilitiesForModel } from '@moonshot-ai/kimi-code-oauth';
+import type {
+  ManagedKimiCodeModelInfo,
+  OpenPlatformDefinition,
+} from '@moonshot-ai/kimi-code-oauth';
 
+import { ApiKeyInputDialogComponent, type ApiKeyInputResult } from '../components/dialogs/api-key-input-dialog';
 import {
-  ApiKeyInputDialogComponent,
-  type ApiKeyInputResult,
-} from '../components/dialogs/api-key-input-dialog';
-import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/choice-picker';
-import {
-  FeedbackInputDialogComponent,
-  type FeedbackInputDialogResult,
-} from '../components/dialogs/feedback-input-dialog';
+  ChoicePickerComponent,
+  PreviewChoicePickerComponent,
+  type ChoiceOption,
+} from '../components/dialogs/choice-picker';
+import { FeedbackInputDialogComponent, type FeedbackInputDialogResult } from '../components/dialogs/feedback-input-dialog';
 import { ModelSelectorComponent } from '../components/dialogs/model-selector';
 import { PlatformSelectorComponent } from '../components/dialogs/platform-selector';
+import { DOCK_PREVIEW_ROWS } from '../constant/rendering';
+import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 import type { SlashCommandHost } from './dispatch';
+import { t } from '#/i18n';
 
 export function promptPlatformSelection(host: SlashCommandHost): Promise<string | undefined> {
   return new Promise((resolve) => {
@@ -39,7 +41,9 @@ export function promptPlatformSelection(host: SlashCommandHost): Promise<string 
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(selector);
+    host.mountEditorReplacement(selector, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -70,11 +74,9 @@ export interface FeedbackPromptResult {
   readonly value: string;
 }
 
-export function promptFeedbackInput(
-  host: SlashCommandHost,
-): Promise<FeedbackPromptResult | undefined> {
+export function promptFeedbackInput(host: SlashCommandHost): Promise<FeedbackPromptResult | undefined> {
   return new Promise((resolve) => {
-    const dialog = new FeedbackInputDialogComponent((result: FeedbackInputDialogResult) => {
+    const dialog = new FeedbackInputDialogComponent(host.state.ui, (result: FeedbackInputDialogResult) => {
       host.restoreEditor();
       resolve(result.kind === 'ok' ? { value: result.value } : undefined);
     });
@@ -84,33 +86,86 @@ export function promptFeedbackInput(
 
 export type FeedbackAttachmentLevel = 'logs' | 'logs+codebase';
 
-function getFeedbackAttachmentOptions(): readonly ChoiceOption[] {
-  return [
-    {
-      value: 'logs',
-      label: t('tui.statusMessages.feedbackLogsOnly'),
-      description: t('tui.statusMessages.feedbackLogsOnlyDesc'),
-    },
-    {
-      value: 'logs+codebase',
-      label: t('tui.statusMessages.feedbackLogsAndCodebase'),
-      description: t('tui.statusMessages.feedbackLogsAndCodebaseDesc'),
-      descriptionTone: 'warning',
-    },
-  ];
+const FEEDBACK_ATTACHMENT_OPTIONS: readonly ChoiceOption[] = [
+  {
+    value: 'logs',
+    label: t('tui.commands.prompts.currentSessionLogs'),
+    description: t('tui.commands.prompts.uploadListedFiles'),
+  },
+  {
+    value: 'logs+codebase',
+    label: t('tui.commands.prompts.logsPlusCode'),
+    description:
+      t('tui.commands.prompts.alsoUploadSources'),
+    descriptionTone: 'warning',
+  },
+];
+
+export interface FeedbackSessionPreview {
+  readonly sessionId: string;
+  readonly sessionDir: string;
+  readonly files: readonly string[];
 }
 
 export function promptFeedbackAttachment(
   host: SlashCommandHost,
   excludeCodebase = false,
+  session?: FeedbackSessionPreview,
 ): Promise<FeedbackAttachmentLevel | undefined> {
   const options = excludeCodebase
-    ? getFeedbackAttachmentOptions().filter((option) => option.value !== 'logs+codebase')
-    : getFeedbackAttachmentOptions();
+    ? FEEDBACK_ATTACHMENT_OPTIONS.filter((option) => option.value !== 'logs+codebase')
+    : FEEDBACK_ATTACHMENT_OPTIONS;
+  let scroll = 0;
+  const maxScroll = session === undefined ? 0 : Math.max(0, session.files.length - 5);
   return new Promise((resolve) => {
-    const picker = new ChoicePickerComponent({
-      title: t('tui.statusMessages.shareDiagnosticInfo'),
+    const picker = new PreviewChoicePickerComponent({
+      title: t('tui.commands.prompts.chooseIncluded'),
+      notice:
+        t('tui.commands.prompts.alwaysIncluded'),
       options,
+      layout:
+        host.state.dockContainer === undefined ? undefined : { maxBodyRows: DOCK_PREVIEW_ROWS },
+      previewLabel:
+        session === undefined
+          ? t('tui.commands.prompts.sessionFilesHeading')
+          : t('tui.commands.prompts.currentSessionLine', { p1: session.sessionId }),
+      onPreviewScroll:
+        session === undefined
+          ? undefined
+          : (direction) => {
+              scroll = Math.max(0, Math.min(maxScroll, scroll + direction * 5));
+            },
+      preview: {
+        render: () => {
+          if (session === undefined) {
+            return [t('tui.commands.prompts.fileListUnavailable')];
+          }
+          if (session.files.length === 0) {
+            return [
+              t('tui.commands.prompts.noSessionFiles'),
+              '',
+              t('tui.commands.prompts.zipIncludesLog'),
+            ];
+          }
+          const shown = session.files.slice(scroll, scroll + 5);
+          const last = scroll + shown.length;
+          return [
+            t('tui.commands.prompts.fileListRange', { p1: String(session.files.length), p2: String(scroll + 1), p3: String(last) }),
+            ...shown.map((entry) => {
+              const absolute = join(session.sessionDir, entry);
+              return `  ${toTerminalHyperlink(absolute, pathToFileURL(absolute).href)}`;
+            }),
+            ...(last < session.files.length
+              ? [t('tui.commands.prompts.moreFilesNextPage', { p1: String(session.files.length - last) })]
+              : []),
+            ...(scroll > 0 ? [t('tui.commands.prompts.previousPage')] : []),
+            '',
+            t('tui.commands.prompts.zipIncludesLog'),
+          ];
+        },
+        invalidate: () => {},
+        dispose: () => {},
+      },
       onSelect: (value) => {
         host.restoreEditor();
         resolve(value as FeedbackAttachmentLevel);
@@ -127,9 +182,10 @@ export function promptFeedbackAttachment(
 export function promptApiKey(
   host: SlashCommandHost,
   platformName: string,
-  subtitleLines: readonly string[] = [t('tui.statusMessages.apiKeySavedTo')],
+  subtitleLines: readonly string[] = [t('tui.commands.prompts.keySavedTo')],
 ): Promise<string | undefined> {
-  return new Promise((resolve) => {
+  const releaseAuthBlock = host.beginAuthBlock();
+  return new Promise<string | undefined>((resolve) => {
     const dialog = new ApiKeyInputDialogComponent(
       platformName,
       subtitleLines,
@@ -138,20 +194,35 @@ export function promptApiKey(
         resolve(result.kind === 'ok' ? result.value : undefined);
       },
     );
-    host.mountEditorReplacement(dialog);
-  });
+    host.mountEditorReplacement(dialog, undefined, () => {
+      resolve(undefined);
+    });
+  }).finally(releaseAuthBlock);
 }
 
-/**
- * Asks for the provider endpoint the catalog did not declare (or declared
- * only as an env placeholder) — required for catalog imports whose protocol
- * was guessed, where the built-in default endpoint would point at the wrong
- * host. Esc cancels the import.
- */
-export function promptBaseUrl(
-  host: SlashCommandHost,
-  platformName: string,
-): Promise<string | undefined> {
+export function promptSshPassword(host: SlashCommandHost, environmentId: string): Promise<string | undefined> {
+  const releaseAuthBlock = host.beginAuthBlock();
+  return new Promise<string | undefined>((resolve) => {
+    const dialog = new ApiKeyInputDialogComponent(
+      environmentId,
+      [t('tui.commands.prompts.passwordNotSaved')],
+      (result: ApiKeyInputResult) => {
+        host.restoreEditor();
+        resolve(result.kind === 'ok' ? result.value : undefined);
+      },
+      {
+        title: t('tui.commands.prompts.sshPasswordPrompt', { p1: environmentId }),
+        emptyHint: t('tui.commands.prompts.sshPasswordEmpty'),
+        trimValue: false,
+      },
+    );
+    host.mountEditorReplacement(dialog, undefined, () => {
+      resolve(undefined);
+    });
+  }).finally(releaseAuthBlock);
+}
+
+export function promptBaseUrl(host: SlashCommandHost, platformName: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     const dialog = new ApiKeyInputDialogComponent(
       platformName,
@@ -170,22 +241,20 @@ export function promptBaseUrl(
   });
 }
 
-export function promptCatalogProviderSelection(
-  host: SlashCommandHost,
-  catalog: Catalog,
-): Promise<string | undefined> {
+export function promptCatalogProviderSelection(host: SlashCommandHost, catalog: Catalog): Promise<string | undefined> {
   return new Promise((resolve) => {
     const options: ChoiceOption[] = Object.entries(catalog)
       .filter(([, entry]) => resolveCatalogImport(entry).kind !== 'invalid')
       .map(([id, entry]) => ({
         value: id,
         label: entry.name ?? id,
-        description: typeof entry.api === 'string' && entry.api.length > 0 ? entry.api : undefined,
+        description:
+          typeof entry.api === 'string' && entry.api.length > 0 ? entry.api : undefined,
       }))
       .toSorted((a, b) => a.label.localeCompare(b.label));
 
     if (options.length === 0) {
-      host.showError(t('tui.statusMessages.catalogNoSupportedProviders'));
+      host.showError(t('tui.commands.prompts.noSupportedProviders'));
       resolve(undefined);
       return;
     }

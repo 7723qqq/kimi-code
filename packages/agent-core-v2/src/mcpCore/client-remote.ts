@@ -1,15 +1,14 @@
+import type { McpRemoteServerConfig, McpServerConfig } from './config-schema';
+import { ErrorCodes, Error2 } from '#/errors';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { SseError } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-
-import { ErrorCodes, Error2 } from '#/errors';
 
 import {
   classifyMcpDiscoveryError,
   McpClassifiedStartupError,
   type McpFailureKind,
 } from './client-shared';
-import type { McpRemoteServerConfig, McpServerConfig } from './config-schema';
 
 export function buildMcpRemoteHeaders(
   config: McpRemoteServerConfig,
@@ -44,10 +43,7 @@ export function classifyRemoteStartupError(config: McpRemoteServerConfig, error:
   return new McpClassifiedStartupError(kind, errorMessage(error), { cause: error });
 }
 
-export function classifyRemoteDiscoveryError(
-  config: McpRemoteServerConfig,
-  error: unknown,
-): unknown {
+export function classifyRemoteDiscoveryError(config: McpRemoteServerConfig, error: unknown): unknown {
   const classified = classifyRemoteStartupError(config, error);
   return classified === error ? classifyMcpDiscoveryError(error) : classified;
 }

@@ -1,15 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 
 import { pino, type Logger } from 'pino';
+import { afterAll, beforeAll, assert, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { extractEnvelopeCode } from '../src/requestLogging';
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { removeTempHome } from './helpers/tempHome';
 
 function captureLogger(): { logger: Logger; lines: string[] } {
   const lines: string[] = [];
@@ -43,13 +42,7 @@ describe('requestLogging', () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-request-log-'));
     const captured = captureLogger();
     lines = captured.lines;
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logger: captured.logger,
-    });
+    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logger: captured.logger });
   });
 
   afterAll(async () => {
@@ -58,7 +51,7 @@ describe('requestLogging', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });
@@ -73,7 +66,7 @@ describe('requestLogging', () => {
     const completed = parseEntries(lines).filter((entry) => entry['msg'] === 'request completed');
     expect(completed.length).toBeGreaterThanOrEqual(1);
     const entry = completed[completed.length - 1];
-    if (entry === undefined) throw new Error('expected at least one completed request entry');
+    assert(entry !== undefined);
 
     expect(entry['code']).toBe(0);
     expect(entry).not.toHaveProperty('statusCode');

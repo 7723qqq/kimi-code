@@ -2,11 +2,7 @@ import { PassThrough, Readable, Writable } from 'node:stream';
 
 import { ndJsonStream } from '@agentclientprotocol/sdk';
 
-import {
-  runAcpServerWithStream,
-  type RunningAcpServer,
-  type RunAcpServerOptions,
-} from '../../src/start';
+import { runAcpServerWithStream, type RunningAcpServer, type RunAcpServerOptions } from '../../src/start';
 
 interface RpcMessage {
   readonly id?: number;
@@ -16,47 +12,25 @@ interface RpcMessage {
   readonly params?: unknown;
 }
 
-/** Handler for an agent-initiated JSON-RPC request (reverse-RPC). */
 export type RequestHandler = (params: unknown) => unknown | Promise<unknown>;
 
 export interface TestClient {
-  /** Send a JSON-RPC request and resolve with the `result` (rejects on `error`). */
   send(method: string, params?: unknown): Promise<unknown>;
-  /** Send a JSON-RPC notification (no id — no response is expected). */
   notify(method: string, params?: unknown): void;
-  /** All messages received from the agent so far (responses + notifications + requests). */
   readonly received: readonly RpcMessage[];
-  /** `session/update` notifications received so far. */
   sessionUpdates(): readonly RpcMessage[];
-  /** Resolve once a `session/update` whose `update.sessionUpdate` matches arrives. */
   waitForSessionUpdate(sessionUpdate: string, timeoutMs?: number): Promise<RpcMessage>;
-  /**
-   * Register a handler for an agent-initiated request method (e.g.
-   * `session/request_permission`). The handler's return value is sent back as
-   * the JSON-RPC `result`; a thrown error is sent as a JSON-RPC `error`.
-   */
   onRequest(method: string, handler: RequestHandler): void;
   readonly server: RunningAcpServer;
   close(): Promise<void>;
 }
 
-/**
- * Build an in-memory ACP client/server pair for tests. The server boots a real
- * `agent-core-v2` rooted at `homeDir`; the client speaks raw ND-JSON JSON-RPC
- * over a `PassThrough` stream pair.
- */
 export async function createTestClient(opts: {
   homeDir: string;
   disableAuth?: boolean;
   extraSeeds?: RunAcpServerOptions['extraSeeds'];
   slashCommands?: RunAcpServerOptions['slashCommands'];
 }): Promise<TestClient> {
-  // The engine's chokidar watchers are disposed synchronously but closed
-  // asynchronously, so a teardown `rm(homeDir)` would race a live `fs.watch`.
-  // Bun turns that race into an uncaught EPERM; the supported switch keeps the
-  // watchers out of these ACP-surface tests (fs-watch behaviour is covered by
-  // agent-core-v2's `human/test/utils/watch.test.ts`).
-  process.env['KIMI_CODE_WATCH'] ??= '0';
   const toAgent = new PassThrough();
   const toClient = new PassThrough();
   const stream = ndJsonStream(Writable.toWeb(toClient), Readable.toWeb(toAgent));
@@ -81,7 +55,11 @@ export async function createTestClient(opts: {
   }> = [];
   let buffer = '';
 
-  async function handleIncomingRequest(id: number, method: string, params: unknown): Promise<void> {
+  async function handleIncomingRequest(
+    id: number,
+    method: string,
+    params: unknown,
+  ): Promise<void> {
     const handler = requestHandlers.get(method);
     try {
       if (handler === undefined) {
@@ -99,12 +77,10 @@ export async function createTestClient(opts: {
 
   function dispatch(msg: RpcMessage): void {
     received.push(msg);
-    // Incoming request from the agent (reverse-RPC): has both id and method.
     if (msg.id !== undefined && msg.method !== undefined) {
       void handleIncomingRequest(msg.id, msg.method, msg.params);
       return;
     }
-    // Notification (no id): check session/update waiters first.
     if (msg.id === undefined && msg.method === 'session/update') {
       const update = (msg.params as { update?: { sessionUpdate?: string } } | undefined)?.update;
       const kind = update?.sessionUpdate;
@@ -116,7 +92,6 @@ export async function createTestClient(opts: {
       }
       return;
     }
-    // Response: resolve the pending request by id.
     if (msg.id !== undefined && pending.has(msg.id)) {
       const entry = pending.get(msg.id)!;
       pending.delete(msg.id);

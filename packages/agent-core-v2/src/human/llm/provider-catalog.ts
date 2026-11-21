@@ -1,9 +1,9 @@
-import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
-import type { LlmErrorMessage } from '#/llm/errors';
-import type { LlmModel } from '#/llm/model';
-import type { ProtocolName } from '#/llm/protocol/base';
-import type { Provider } from '#/llm/provider/definition';
-import type { LlmRequester } from '#/llm/requester/requester';
+import { UNKNOWN_CAPABILITY, type ModelCapability } from '#human/llm/capability';
+import type { LlmErrorMessage } from '#human/llm/errors';
+import type { LlmModel } from '#human/llm/model';
+import type { ProtocolName } from '#human/llm/protocol/base';
+import type { Provider } from '#human/llm/provider/definition';
+import type { LlmRequester } from '#human/llm/requester/requester';
 import {
   assign,
   createActor,
@@ -12,7 +12,7 @@ import {
   fromPromise,
   setup,
   type Actor,
-} from '#/xstate2';
+} from '#human/xstate2';
 
 export interface CatalogOAuthRef {
   readonly storage: 'file' | 'keyring';

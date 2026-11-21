@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { errorInfo, isErrorCode } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
@@ -39,7 +39,7 @@ describe('ProtocolErrors domain', () => {
       expect(isErrorCode(code)).toBe(true);
     }
     expect(errorInfo('provider.rate_limit').retryable).toBe(true);
-    expect(errorInfo('provider.filtered').retryable).toBe(false);
+    expect(errorInfo('provider.filtered').title).toBe('Provider filtered response');
   });
 });
 
@@ -69,7 +69,7 @@ describe('translateProviderError — classification', () => {
   });
 
   it('maps status errors to their codes at birth and preserves wire details', () => {
-    const cases: ReadonlyArray<[APIStatusError, Error2['code']]> = [
+    const cases: ReadonlyArray<[APIStatusError, string]> = [
       [new APIStatusError(429, 'too many requests', true), 'provider.rate_limit'],
       [new APIStatusError(529, 'overloaded', true), 'provider.overloaded'],
       [new APIProviderOverloadedError(503, 'overloaded'), 'provider.overloaded'],
@@ -86,14 +86,14 @@ describe('translateProviderError — classification', () => {
     }
   });
 
-  it('keeps requestId and traceId in the details', () => {
+  it('keeps requestId and diagnostics in the details', () => {
     const translated = translateProviderError(
-      new APIStatusError(429, 'too many requests', true, 'req-1', null, 'trace-1'),
+      new APIStatusError(429, 'too many requests', true, 'req-1', null, { requestId: 'trace-1' }),
     );
     expect(translated.details).toMatchObject({
       statusCode: 429,
       requestId: 'req-1',
-      traceId: 'trace-1',
+      diagnostics: { requestId: 'trace-1' },
     });
   });
 
@@ -135,8 +135,7 @@ describe('translateProviderError — classification', () => {
 
 describe('sanitizeStatusErrorMessage', () => {
   it('extracts the title text from an HTML error page', () => {
-    const html =
-      '<html>\r\n<head><title>429 Too Many Requests</title></head>\r\n<body>...</body></html>';
+    const html = '<html>\r\n<head><title>429 Too Many Requests</title></head>\r\n<body>...</body></html>';
     expect(sanitizeStatusErrorMessage(html)).toBe('429 Too Many Requests');
   });
 

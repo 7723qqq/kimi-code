@@ -18,7 +18,7 @@ Kimi Code 把 Agent 循环、模型请求、凭据、审批和会话状态全部
 支持 POSIX 与 Windows 目标。Windows 目标需要 Git for Windows（Git Bash），支持 SSH 与自定义 command 启动器，不支持 Docker 启动器。
 
 ::: info 远程环境 vs. 远程控制
-[远程控制](./remote-control.md) 是相反方向：它让另一台设备（比如手机）查看和操控运行在**本机**的会话。远程环境则相反——由本机的 CLI 驱动工具在**另一台**机器或容器里执行。
+[远程控制](./web.md#远程控制) 是相反方向：它让另一台设备（比如手机）查看和操控运行在**本机**的会话。远程环境则相反——由本机的 CLI 驱动工具在**另一台**机器或容器里执行。
 :::
 
 ## 快速开始
@@ -223,4 +223,4 @@ Kimi Code 不会自动安装执行器。连接在预期路径上找不到执行�
 ## 下一步
 
 - [`environments` 配置参考](../configuration/config-files.md#environments)——`[environments]` 节的全部字段
-- [远程控制](./remote-control.md)——相反方向：从另一台设备操控本机的会话
+- [在网页中使用（远程控制）](./web.md#远程控制)：从另一台设备操控本机会话。

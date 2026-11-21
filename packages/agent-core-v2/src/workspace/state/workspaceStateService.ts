@@ -1,7 +1,7 @@
 import { StateRegistry } from '#/_base/state/stateRegistry';
 import { IAppStateService } from '#/app/state/appState';
 
-import type { IWorkspaceStateService } from './workspaceState';
+import { IWorkspaceStateService } from './workspaceState';
 
 export class WorkspaceStateService extends StateRegistry implements IWorkspaceStateService {
   declare readonly _serviceBrand: undefined;
@@ -12,3 +12,4 @@ export class WorkspaceStateService extends StateRegistry implements IWorkspaceSt
     this.inspectParent = appState;
   }
 }
+

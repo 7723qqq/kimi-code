@@ -1,15 +1,13 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { type CollectionToken, type CollectionView } from '#/_base/di/collection';
 import { ScopeUnits } from '#/_base/di/fiber';
 import { ScopeActivation } from '#/_base/di/instantiation';
 import { type InstantiationService } from '#/_base/di/instantiationService';
 import { _clearScopedRegistryForTests, registerScopedService, type Scope } from '#/_base/di/scope';
-import { ILogService } from '#/_base/log/log';
-
-import { stubLog } from '../../_base/log/stubs';
 import { createScopedTestHost } from '#/_base/di/test';
 import { Event } from '#/_base/event';
+import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IFeatureManager } from '#/app/feature/featureManager';
@@ -17,17 +15,17 @@ import { FeatureManagerService } from '#/app/feature/featureManagerService';
 import { IPluginService } from '#/app/plugin/plugin';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { IFeatureAssemblyService } from '#/features/featureAssembly';
+import { FeatureAssemblyService } from '#/features/featureAssemblyService';
 import { IAgentExternalHooksService } from '#/features/externalHooks/agent/agentExternalHooks';
 import { IExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunner';
 import { ExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunnerService';
-import { HookDefSchema } from '#/features/externalHooks/configSection';
-import { ISessionExternalHooksService } from '#/features/externalHooks/session/sessionExternalHooks';
-import { IFeatureAssemblyService } from '#/features/featureAssembly';
 import '#/features/externalHooks/externalHooksFeature';
-import { FeatureAssemblyService } from '#/features/featureAssemblyService';
+import { ISessionExternalHooksService } from '#/features/externalHooks/session/sessionExternalHooks';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
+import { stubLog } from '../../_base/log/stubs';
 
 function collectionViewOf<T>(scope: Scope, token: CollectionToken<T>): CollectionView<T> {
   return (scope.instantiation as InstantiationService).fiberHost.collectionView(token);
@@ -55,6 +53,7 @@ describe('ExternalHooksFeature — assembly (src/features/externalHooks)', () =>
   it('assembles the feature and retracts all contributions on unprovide', async () => {
     const host = createScopedTestHost([
       [IBootstrapService, stubBootstrap()],
+      [ILogService, stubLog()],
       [
         IConfigService,
         { _serviceBrand: undefined, ready: Promise.resolve(), get: () => undefined },
@@ -65,7 +64,6 @@ describe('ExternalHooksFeature — assembly (src/features/externalHooks)', () =>
       ],
       [IHostProcessService, { _serviceBrand: undefined }],
       [ITelemetryService, noopTelemetryService],
-      [ILogService, stubLog()],
     ]);
     const manager = host.app.accessor.get(IFeatureManager);
     expect(manager.units().map((unit) => unit.name)).toContain('externalHooks');
@@ -92,28 +90,5 @@ describe('ExternalHooksFeature — assembly (src/features/externalHooks)', () =>
     expect(agentUnits.items).toHaveLength(0);
 
     host.dispose();
-  });
-});
-
-describe('hook rule schema (config.toml [[hooks]])', () => {
-  it('accepts the per-rule cwd and env the runner honours', () => {
-    const parsed = HookDefSchema.safeParse({
-      event: 'PreToolUse',
-      command: 'echo hi',
-      timeout: 5,
-      cwd: '/tmp',
-      env: { FOO: 'bar' },
-    });
-
-    expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.cwd).toBe('/tmp');
-    expect(parsed.success && parsed.data.env).toEqual({ FOO: 'bar' });
-  });
-
-  it('still rejects a misspelled field', () => {
-    const parsed = HookDefSchema.safeParse({ event: 'PreToolUse', command: 'echo', matcherx: 'x' });
-
-    expect(parsed.success).toBe(false);
-    expect(parsed.success || parsed.error.issues[0]?.code).toBe('unrecognized_keys');
   });
 });

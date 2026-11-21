@@ -1,8 +1,6 @@
 import type { PluginInfo, PluginSummary } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-
 import {
   CURATED_BADGE,
   OFFICIAL_BADGE,
@@ -11,7 +9,7 @@ import {
   formatPluginSourceLabel,
   pluginTrustLabel,
 } from '../../utils/plugin-source-label';
-import { foldToSingleLine } from './usage-panel';
+import { t } from '#/i18n';
 
 export interface PluginsListPanelInput {
   readonly plugins: readonly PluginSummary[];
@@ -37,14 +35,10 @@ export function buildPluginsListLines(input: PluginsListPanelInput): readonly st
   };
   const lines: string[] = [];
   for (const plugin of input.plugins) {
-    const enabled = plugin.enabled
-      ? success(t('tui.messages.pluginsStatusPanel.enabled'))
-      : muted(t('tui.messages.pluginsStatusPanel.disabled'));
+    const enabled = plugin.enabled ? success(t('tui.messages.pluginsStatusPanel.enabled')) : muted(t('tui.messages.pluginsStatusPanel.disabled'));
     const state = plugin.state === 'ok' ? '' : ` [${plugin.state}]`;
     const version = plugin.version ?? '-';
-    const diagnostics = plugin.hasErrors
-      ? warning(t('tui.messages.pluginsStatusPanel.diagnosticsHint'))
-      : '';
+    const diagnostics = plugin.hasErrors ? warning(t('tui.messages.pluginsStatusPanel.diagnosticsHint')) : '';
     const sourceTag = muted(`[${formatPluginSourceLabel(plugin)}]`);
     const trustBadge = ` ${renderTrustBadge(pluginTrustLabel(plugin))}`;
     lines.push(
@@ -52,17 +46,13 @@ export function buildPluginsListLines(input: PluginsListPanelInput): readonly st
     );
     const mcp =
       plugin.mcpServerCount > 0
-        ? ` | ${t('tui.messages.pluginsStatusPanel.mcpCount', {
-            enabled: plugin.enabledMcpServerCount,
-            total: plugin.mcpServerCount,
-          })}`
+        ? ` | ${plugin.enabledMcpServerCount}/${plugin.mcpServerCount} mcp`
         : '';
-    lines.push(
-      `  ${muted(t('tui.messages.pluginsStatusPanel.skillsLabel'))} ${value(String(plugin.skillCount))}${muted(mcp)}${diagnostics}`,
-    );
+    lines.push(`  ${muted(t('tui.messages.pluginsStatusPanel.skillsLabel'))} ${value(String(plugin.skillCount))}${muted(mcp)}${diagnostics}`);
   }
   return lines;
 }
+
 
 export interface PluginsInfoPanelInput {
   readonly info: PluginInfo;
@@ -76,9 +66,7 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
   const warning = (text: string) => currentTheme.fg('warning', text);
   const error = (text: string) => currentTheme.fg('error', text);
   const primary = (text: string) => currentTheme.fg('primary', text);
-  const status = info.enabled
-    ? success(t('tui.messages.pluginsStatusPanel.enabled'))
-    : muted(t('tui.messages.pluginsStatusPanel.disabled'));
+  const status = info.enabled ? success(t('tui.messages.pluginsStatusPanel.enabled')) : muted(t('tui.messages.pluginsStatusPanel.disabled'));
   const trustLine = (() => {
     const label = pluginTrustLabel(info);
     if (label === 'official') {
@@ -91,112 +79,59 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
   })();
   const lines: string[] = [
     `${value(info.displayName)} (${muted(info.id)}) ${muted(info.version ?? '')}`.trim(),
-    `${muted(t('tui.messages.pluginsStatusPanel.status'))} ${status}${muted(t('tui.messages.pluginsStatusPanel.statePrefix'))}${stateText(info.state)}`,
+    `${muted(t('tui.messages.pluginsStatusPanel.status'))} ${status} | ${muted('state:')} ${stateText(info.state)}`,
     trustLine,
     `${muted(t('tui.messages.pluginsStatusPanel.source'))} ${value(info.source)}`,
     `${muted(t('tui.messages.pluginsStatusPanel.root'))}   ${value(info.root)}`,
   ];
   if (info.source === 'github' && info.github !== undefined) {
     const refLabel = `${info.github.ref.kind}:${info.github.ref.value}`;
-    lines.push(
-      `${muted(t('tui.messages.pluginsStatusPanel.github'))} ${value(`${info.github.owner}/${info.github.repo}`)} ${muted(`@${refLabel}`)}`,
-    );
+    lines.push(`${muted(t('tui.messages.pluginsStatusPanel.github'))} ${value(`${info.github.owner}/${info.github.repo}`)} ${muted(`@${refLabel}`)}`);
     if (info.github.installedSha !== undefined) {
-      lines.push(
-        `${muted(t('tui.messages.pluginsStatusPanel.installedSha'))} ${value(info.github.installedSha)}`,
-      );
+      lines.push(`${muted(t('tui.messages.pluginsStatusPanel.installedSha'))} ${value(info.github.installedSha)}`);
     }
   }
-  if (info.originalSource !== undefined) {
-    lines.push(
-      `${muted(t('tui.messages.pluginsStatusPanel.originalSource'))} ${value(info.originalSource)}`,
-    );
-  }
-  lines.push(
-    `${muted(t('tui.messages.pluginsStatusPanel.installedAt'))} ${value(info.installedAt)}`,
-  );
+  if (info.originalSource !== undefined) lines.push(`${muted(t('tui.messages.pluginsStatusPanel.originalSource'))} ${value(info.originalSource)}`);
+  lines.push(`${muted(t('tui.messages.pluginsStatusPanel.installedAt'))} ${value(info.installedAt)}`);
   if (info.updatedAt !== undefined && info.updatedAt !== info.installedAt) {
-    lines.push(
-      `${muted(t('tui.messages.pluginsStatusPanel.lastUpdated'))} ${value(info.updatedAt)}`,
-    );
+    lines.push(`${muted(t('tui.messages.pluginsStatusPanel.lastUpdated'))} ${value(info.updatedAt)}`);
   }
   if (info.manifestPath !== undefined) {
-    const kindSuffix =
-      info.manifestKind !== undefined
-        ? ` ${muted(t('tui.messages.pluginsStatusPanel.manifestKind', { kind: info.manifestKind }))}`
-        : '';
-    lines.push(
-      `${muted(t('tui.messages.pluginsStatusPanel.manifest'))} ${value(info.manifestPath)}${kindSuffix}`,
-    );
+    const kindSuffix = info.manifestKind !== undefined ? ` ${muted(`(${info.manifestKind})`)}` : '';
+    lines.push(`${muted(t('tui.messages.pluginsStatusPanel.manifest'))} ${value(info.manifestPath)}${kindSuffix}`);
   }
   if (info.shadowedManifestPath !== undefined) {
-    lines.push(
-      `${muted(t('tui.messages.pluginsStatusPanel.shadowed'))} ${value(info.shadowedManifestPath)}`,
-    );
+    lines.push(`${muted(t('tui.messages.pluginsStatusPanel.shadowed'))} ${value(info.shadowedManifestPath)}`);
   }
   const sessionStartSkill = info.manifest?.sessionStart?.skill;
   if (sessionStartSkill !== undefined) {
-    lines.push(
-      `${muted(t('tui.messages.pluginsStatusPanel.sessionStart'))} ${value(sessionStartSkill)}`,
-    );
+    lines.push(`${muted(t('tui.messages.pluginsStatusPanel.sessionStart'))} ${value(sessionStartSkill)}`);
   }
   if (info.manifest?.skillInstructions !== undefined) {
-    lines.push(
-      `${muted(t('tui.messages.pluginsStatusPanel.skillInstructions'))} ${value(t('tui.messages.pluginsStatusPanel.skillInstructionsPresent'))}`,
-    );
+    lines.push(`${muted(t('tui.messages.pluginsStatusPanel.skillInstructions'))} ${value(t('tui.messages.pluginsStatusPanel.skillInstructionsPresent'))}`);
   }
   lines.push('');
-  lines.push(
-    value(
-      t('tui.messages.pluginsStatusPanel.skills', {
-        count: info.manifest?.skills?.length ?? 0,
-      }),
-    ),
-  );
+  lines.push(value(`Skills (${info.manifest?.skills?.length ?? 0}):`));
   for (const dir of info.manifest?.skills ?? []) lines.push(`  ${muted('-')} ${value(dir)}`);
 
   if (info.mcpServers.length > 0) {
     lines.push('');
-    lines.push(
-      value(
-        t('tui.messages.pluginsStatusPanel.mcpServers', {
-          enabled: info.enabledMcpServerCount,
-          total: info.mcpServerCount,
-        }),
-      ),
-    );
-    lines.push(muted(`  ${t('tui.messages.pluginsStatusPanel.mcpHint', { id: info.id })}`));
+    lines.push(value(t('tui.messages.pluginsStatusPanel.mcpServers', { enabled: info.enabledMcpServerCount, total: info.mcpServerCount })));
+    lines.push(muted(`  Enabled by default; disable with /plugins mcp disable ${info.id} <server>.`));
     for (const server of info.mcpServers) {
-      const enabled = server.enabled
-        ? success(t('tui.messages.pluginsStatusPanel.enabled'))
-        : muted(t('tui.messages.pluginsStatusPanel.disabled'));
-      lines.push(
-        `  ${muted('-')} ${value(server.name)} ${enabled} ${muted(`(${server.runtimeName})`)}`,
-      );
+      const enabled = server.enabled ? success(t('tui.messages.pluginsStatusPanel.enabled')) : muted(t('tui.messages.pluginsStatusPanel.disabled'));
+      lines.push(`  ${muted('-')} ${value(server.name)} ${enabled} ${muted(`(${server.runtimeName})`)}`);
       if (server.transport === 'stdio') {
-        const args =
-          server.args !== undefined && server.args.length > 0 ? ` ${server.args.join(' ')}` : '';
-        lines.push(
-          `    ${muted(t('tui.messages.pluginsStatusPanel.command'))} ${value(
-            foldToSingleLine(`${server.command ?? ''}${args}`),
-          )}`,
-        );
-        if (server.cwd !== undefined) {
-          lines.push(`    ${muted(t('tui.messages.pluginsStatusPanel.cwd'))} ${value(server.cwd)}`);
-        }
+        const args = server.args !== undefined && server.args.length > 0 ? ` ${server.args.join(' ')}` : '';
+        lines.push(`    ${muted(t('tui.messages.pluginsStatusPanel.command'))} ${value(`${server.command ?? ''}${args}`.trim())}`);
+        if (server.cwd !== undefined) lines.push(`    ${muted(t('tui.messages.pluginsStatusPanel.cwd'))} ${value(server.cwd)}`);
         if (server.envKeys !== undefined && server.envKeys.length > 0) {
-          lines.push(
-            `    ${muted(t('tui.messages.pluginsStatusPanel.env'))} ${value(server.envKeys.join(', '))}`,
-          );
+          lines.push(`    ${muted(t('tui.messages.pluginsStatusPanel.env'))} ${value(server.envKeys.join(', '))}`);
         }
       } else {
-        lines.push(
-          `    ${muted(t('tui.messages.pluginsStatusPanel.url'))} ${value(server.url ?? '')}`,
-        );
+        lines.push(`    ${muted(t('tui.messages.pluginsStatusPanel.url'))} ${value(server.url ?? '')}`);
         if (server.headerKeys !== undefined && server.headerKeys.length > 0) {
-          lines.push(
-            `    ${muted(t('tui.messages.pluginsStatusPanel.headers'))} ${value(server.headerKeys.join(', '))}`,
-          );
+          lines.push(`    ${muted(t('tui.messages.pluginsStatusPanel.headers'))} ${value(server.headerKeys.join(', '))}`);
         }
       }
     }
@@ -206,26 +141,14 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
   if (iface !== undefined) {
     lines.push('');
     lines.push(value(t('tui.messages.pluginsStatusPanel.display')));
-    if (iface.shortDescription !== undefined) {
-      lines.push(`  ${muted('-')} ${value(iface.shortDescription)}`);
-    }
-    if (iface.developerName !== undefined) {
-      lines.push(
-        `  ${muted('-')} ${value(t('tui.messages.pluginsStatusPanel.by', { name: iface.developerName }))}`,
-      );
-    }
+    if (iface.shortDescription !== undefined) lines.push(`  ${muted('-')} ${value(iface.shortDescription)}`);
+    if (iface.developerName !== undefined) lines.push(`  ${muted('-')} ${value(`by ${iface.developerName}`)}`);
     if (iface.websiteURL !== undefined) lines.push(`  ${muted('-')} ${value(iface.websiteURL)}`);
   }
 
   if (info.manifest?.keywords !== undefined && info.manifest.keywords.length > 0) {
     lines.push('');
-    lines.push(
-      muted(
-        t('tui.messages.pluginsStatusPanel.keywords', {
-          keywords: info.manifest.keywords.join(', '),
-        }),
-      ),
-    );
+    lines.push(muted(`Keywords: ${info.manifest.keywords.join(', ')}`));
   }
 
   if (info.diagnostics.length > 0) {
@@ -233,7 +156,7 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
     lines.push(value(t('tui.messages.pluginsStatusPanel.diagnostics')));
     for (const d of info.diagnostics) {
       const paint = d.severity === 'error' ? error : d.severity === 'warn' ? warning : muted;
-      lines.push(`  ${paint(`[${d.severity}]`)} ${value(foldToSingleLine(d.message))}`);
+      lines.push(`  ${paint(`[${d.severity}]`)} ${value(d.message)}`);
     }
   }
   return lines;

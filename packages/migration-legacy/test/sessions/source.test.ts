@@ -1,13 +1,12 @@
-import { describe, expect, it } from 'bun:test';
-
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 import { mergeLegacyMetadata } from '../../src/sessions/source.js';
 
 describe('mergeLegacyMetadata', () => {
   it('fills a missing custom title from metadata, skipping "Untitled"', () => {
     expect(mergeLegacyMetadata({}, { title: 'Legacy Title' }).custom_title).toBe('Legacy Title');
-    expect(mergeLegacyMetadata({ custom_title: null }, { title: 'Untitled' }).custom_title).toBe(
-      null,
-    );
+    expect(
+      mergeLegacyMetadata({ custom_title: null }, { title: 'Untitled' }).custom_title,
+    ).toBe(null);
     expect(mergeLegacyMetadata({}, { title: 'Untitled' }).custom_title).toBeUndefined();
   });
 

@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { createProgram } from '#/cli/commands';
 import type { CLIOptions } from '#/cli/options';
-import { validateOptions } from '#/cli/options';
+import { OptionConflictError, validateOptions } from '#/cli/options';
 
 function parse(argv: string[]): CLIOptions {
   let captured: CLIOptions | undefined;
@@ -66,11 +66,7 @@ describe('--session / -r / -S picker routing', () => {
       expect(uiMode).toBe('shell');
       expect(options.session).toBe('');
     });
-
-    // Note: --print / --wire are still unregistered, so the
-    // "picker + print/wire" combinations cannot be constructed through
-    // Commander here. The options suite's removed-flags list asserts both
-    // stay unknown.
   });
 
+  void OptionConflictError;
 });

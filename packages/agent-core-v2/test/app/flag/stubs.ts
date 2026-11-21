@@ -1,4 +1,4 @@
-import type { IFlagService } from '#/app/flag/flag';
+import { IFlagService } from '#/app/flag/flag';
 import type {
   ExperimentalFeatureState,
   ExperimentalFlagConfig,

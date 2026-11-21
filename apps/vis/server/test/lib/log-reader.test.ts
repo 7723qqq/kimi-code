@@ -1,11 +1,10 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, it, expect } from '@moonshot-ai/testkit/vitest';
 
 import { parseLogLine } from '../../src/lib/log-reader';
 
 describe('parseLogLine', () => {
   it('parses time, level, message, and trailing key=value fields', () => {
-    const line =
-      '2026-06-15T05:32:08.722Z INFO  llm config  turnStep=0.1 provider=openai model=coding-model-okapi thinkingEffort=high';
+    const line = '2026-06-15T05:32:08.722Z INFO  llm config  turnStep=0.1 provider=openai model=coding-model-okapi thinkingEffort=high';
     const parsed = parseLogLine(line, 7);
     expect(parsed.lineNo).toBe(7);
     expect(parsed.time).toBe('2026-06-15T05:32:08.722Z');

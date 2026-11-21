@@ -1,5 +1,5 @@
-import type { SurveyPopupConfig } from './survey-popup-config';
 import type { SurveyKind } from './types';
+import type { SurveyPopupConfig } from './survey-popup-config';
 
 export type SurveyGateSkipReason =
   | 'mount-roll-consumed'
@@ -32,7 +32,7 @@ export interface SessionArmGateInput extends SharedArmGateInput {
 }
 
 export interface LongContextArmGateInput extends SharedArmGateInput {
-  readonly cumulativeTokens: number;
+  readonly cumulativeTokens: number | undefined;
   readonly virtualContextTokens: number;
   readonly mountRollConsumed: boolean;
   readonly mountSurveyShown: boolean;
@@ -115,7 +115,7 @@ export function evaluateLongContextArm(input: SurveyGateInput): SurveyGateVerdic
     config.long_context_trigger_mode === 'cumulative'
       ? longContext.cumulativeTokens
       : longContext.virtualContextTokens;
-  if (counter < config.long_context_survey_threshold) {
+  if (counter === undefined || counter < config.long_context_survey_threshold) {
     return { show: false, reason: 'below-threshold' };
   }
   if (

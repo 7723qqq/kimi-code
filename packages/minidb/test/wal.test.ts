@@ -1,11 +1,11 @@
-// test/wal.test.ts
-import { expect, test } from 'bun:test';
+// test/wal.test.js
+import { test } from '@moonshot-ai/testkit/vitest';
+import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-import { encodeFrame, FrameParser, CorruptFrameError, TYPE_SET, TYPE_DEL } from '../src/codec.js';
 import { WAL } from '../src/wal.js';
+import { encodeFrame, FrameParser, CorruptFrameError, TYPE_SET, TYPE_DEL } from '../src/codec.js';
 import { barrier } from './helpers.js';
 
 const B = (s) => Buffer.from(s);
@@ -60,10 +60,10 @@ test('append then read back preserves frames and order', async () => {
     await wal.close();
 
     const frames = parseAll(await fs.readFile(file));
-    expect(frames.length).toBe(3);
-    expect(frames[0].key.toString()).toBe('a');
-    expect(frames[1].key.toString()).toBe('b');
-    expect(frames[2].type).toBe(TYPE_DEL);
+    assert.equal(frames.length, 3);
+    assert.equal(frames[0].key.toString(), 'a');
+    assert.equal(frames[1].key.toString(), 'b');
+    assert.equal(frames[2].type, TYPE_DEL);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -83,10 +83,10 @@ test('group commit: many concurrent appends all land in order', async () => {
     await wal.close();
 
     const frames = parseAll(await fs.readFile(file));
-    expect(frames.length).toBe(N);
+    assert.equal(frames.length, N);
     // Spot-check ordering.
-    expect(frames[0].key.toString()).toBe('k0');
-    expect(frames[N - 1].key.toString()).toBe(`k${N - 1}`);
+    assert.equal(frames[0].key.toString(), 'k0');
+    assert.equal(frames[N - 1].key.toString(), `k${N - 1}`);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -100,7 +100,7 @@ test("fsyncPolicy 'always' works", async () => {
     await wal.append(encodeFrame({ type: TYPE_SET, key: B('durable'), value: B('yes') }));
     await wal.close();
     const frames = parseAll(await fs.readFile(file));
-    expect(frames[0].key.toString()).toBe('durable');
+    assert.equal(frames[0].key.toString(), 'durable');
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -119,11 +119,7 @@ test('recovery truncates a torn/corrupt tail at the error offset', async () => {
 
     const validSize = (await fs.stat(file)).size;
     // Simulate a crash that left a half-written frame at the end.
-    const partial = encodeFrame({
-      type: TYPE_SET,
-      key: B('torn'),
-      value: B('x'.repeat(100)),
-    }).subarray(0, 13);
+    const partial = encodeFrame({ type: TYPE_SET, key: B('torn'), value: B('x'.repeat(100)) }).subarray(0, 13);
     await fs.appendFile(file, partial);
 
     const buf = await fs.readFile(file);
@@ -133,17 +129,17 @@ test('recovery truncates a torn/corrupt tail at the error offset', async () => {
     try {
       for (const f of parser.feed(buf)) frames.push(f);
       parser.finish();
-    } catch (error) {
-      err = error;
+    } catch (e) {
+      err = e;
     }
-    expect(err instanceof CorruptFrameError, 'expected a corrupt-frame error').toBeTruthy();
-    expect(err.offset, 'error offset should equal end of valid data').toBe(validSize);
-    expect(frames.length, 'all valid frames before the tail are recovered').toBe(N);
+    assert.ok(err instanceof CorruptFrameError, 'expected a corrupt-frame error');
+    assert.equal(err.offset, validSize, 'error offset should equal end of valid data');
+    assert.equal(frames.length, N, 'all valid frames before the tail are recovered');
 
     // Truncate at the error offset and verify the file is clean again.
     await fs.truncate(file, err.offset);
     const after = parseAll(await fs.readFile(file));
-    expect(after.length).toBe(N);
+    assert.equal(after.length, N);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -157,27 +153,22 @@ test('seal(): rejects new appends with WAL_SEALED, queued frames stay flushable'
     await wal.append(encodeFrame({ type: TYPE_SET, key: B('a'), value: B('1') }));
     wal.seal();
     wal.seal(); // idempotent
-    const sealedError = await wal
-      .append(encodeFrame({ type: TYPE_SET, key: B('b'), value: B('2') }))
-      .then(
-        () => undefined,
-        (error: unknown) => error as { code?: string },
-      );
-    expect(sealedError?.code).toBe('WAL_SEALED');
+    await assert.rejects(wal.append(encodeFrame({ type: TYPE_SET, key: B('b'), value: B('2') })), (err) => {
+      assert.equal(err.code, 'WAL_SEALED');
+      return true;
+    });
     await wal.close(); // flushes the pre-seal frame
     const frames = parseAll(await fs.readFile(file));
-    expect(frames.length).toBe(1);
-    expect(frames[0].key.toString()).toBe('a');
+    assert.equal(frames.length, 1);
+    assert.equal(frames[0].key.toString(), 'a');
     // after close the legacy "WAL is closed" rejection is preserved
-    await expect(
-      wal.append(encodeFrame({ type: TYPE_SET, key: B('c'), value: B('3') })),
-    ).rejects.toThrow(/WAL is closed/);
+    await assert.rejects(wal.append(encodeFrame({ type: TYPE_SET, key: B('c'), value: B('3') })), /WAL is closed/);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
 
-test('everysec: idle WAL performs zero background fsyncs; only dirty intervals sync', async () => {
+test("everysec: idle WAL performs zero background fsyncs; only dirty intervals sync", async () => {
   const { dir, file } = await tmpWalPath();
   try {
     const stats = freshStats();
@@ -188,26 +179,26 @@ test('everysec: idle WAL performs zero background fsyncs; only dirty intervals s
     await wal.open();
 
     // Idle ticks are skipped without an fsync.
-    expect(await tick(wal), 'an idle tick is skipped').toBe(null);
-    expect(await tick(wal)).toBe(null);
-    expect(stats.walFsyncs, 'idle everysec WAL must not fsync').toBe(0);
+    assert.equal(await tick(wal), null, 'an idle tick is skipped');
+    assert.equal(await tick(wal), null);
+    assert.equal(stats.walFsyncs, 0, 'idle everysec WAL must not fsync');
 
     // A write dirties the WAL: exactly one background fsync, then quiet again.
     await wal.append(encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v') }));
     await tick(wal);
-    expect(stats.walFsyncs, 'one background fsync per dirty window').toBe(1);
-    expect(await tick(wal), 'clean again: the next tick is skipped').toBe(null);
-    expect(stats.walFsyncs, 'fsync count does not grow once synced').toBe(1);
+    assert.equal(stats.walFsyncs, 1, 'one background fsync per dirty window');
+    assert.equal(await tick(wal), null, 'clean again: the next tick is skipped');
+    assert.equal(stats.walFsyncs, 1, 'fsync count does not grow once synced');
 
     // Another write: one more fsync, no burst.
     await wal.append(encodeFrame({ type: TYPE_SET, key: B('k2'), value: B('v2') }));
     await tick(wal);
-    expect(stats.walFsyncs).toBe(2);
+    assert.equal(stats.walFsyncs, 2);
 
     // close() keeps its unconditional final sync even though the WAL is clean.
     await wal.close();
-    expect(stats.walFsyncs, 'close() always performs the final sync').toBe(3);
-    expect(stats.walFsyncErrors).toBe(0);
+    assert.equal(stats.walFsyncs, 3, 'close() always performs the final sync');
+    assert.equal(stats.walFsyncErrors, 0);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -220,7 +211,7 @@ test('close() performs a final fsync even when there were no writes at all', asy
     const wal = new WAL(file, { fsyncPolicy: 'everysec', syncIntervalMs: 25, stats });
     await wal.open();
     await wal.close();
-    expect(stats.walFsyncs).toBe(1);
+    assert.equal(stats.walFsyncs, 1);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -244,21 +235,21 @@ test('background sync failure is recorded but neither rejects writes nor clears 
     // fsync never rejects them.
     await wal.append(encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v') }));
     await tick(wal);
-    expect(stats.walFsyncErrors, 'the failing tick records exactly one error').toBe(1);
-    expect(stats.lastWalFsyncError, 'sticky error is observable').toBe(boom);
-    expect(stats.walFsyncs, 'no successful fsync meanwhile').toBe(0);
+    assert.equal(stats.walFsyncErrors, 1, 'the failing tick records exactly one error');
+    assert.equal(stats.lastWalFsyncError, boom, 'sticky error is observable');
+    assert.equal(stats.walFsyncs, 0, 'no successful fsync meanwhile');
 
     // A failed sync must not clear the dirty mark: once the failure goes away
     // the next tick retries and the WAL converges to synced.
     fh.sync = orig;
     await tick(wal);
-    expect(stats.walFsyncs, 'sync retried after the failure').toBe(1);
-    expect(stats.lastWalFsyncError, 'sticky error is not cleared by a later success').toBe(boom);
-    expect(wal.poison, 'a background sync failure must never poison the WAL').toBe(null);
+    assert.equal(stats.walFsyncs, 1, 'sync retried after the failure');
+    assert.equal(stats.lastWalFsyncError, boom, 'sticky error is not cleared by a later success');
+    assert.equal(wal.poison, null, 'a background sync failure must never poison the WAL');
 
     // Clean again: no more background fsyncs.
-    expect(await tick(wal), 'synced: the next tick is skipped').toBe(null);
-    expect(stats.walFsyncs).toBe(1);
+    assert.equal(await tick(wal), null, 'synced: the next tick is skipped');
+    assert.equal(stats.walFsyncs, 1);
     await wal.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -296,16 +287,13 @@ test('close() waits for an in-flight background sync before closing the fd (revi
     // close()'s only path to resolution goes through the parked tracker
     // drain, so no amount of yielding can settle it here.
     for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
-    expect(closed, 'close() must wait for the in-flight background sync').toBe(false);
+    assert.equal(closed, false, 'close() must wait for the in-flight background sync');
 
     gate.release();
     await bg;
     await closing;
-    expect(events, 'the fd closes only after the background sync settled').toStrictEqual([
-      'bg-sync-settled',
-      'fd-close',
-    ]);
-    expect(stats.walFsyncs, 'the background sync plus close() final sync').toBe(2);
+    assert.deepEqual(events, ['bg-sync-settled', 'fd-close'], 'the fd closes only after the background sync settled');
+    assert.equal(stats.walFsyncs, 2, 'the background sync plus close() final sync');
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -322,9 +310,9 @@ test('queue depth and group-commit counters track the append buffer', async () =
     for (let i = 0; i < 5; i++) {
       await wal.append(encodeFrame({ type: TYPE_SET, key: B(`s${i}`), value: B('v') }));
     }
-    expect(stats.walGroupCommits).toBe(5);
-    expect(stats.walGroupCommitFrames).toBe(5);
-    expect(stats.walQueuedBytes, 'queue drains after each flush').toBe(0);
+    assert.equal(stats.walGroupCommits, 5);
+    assert.equal(stats.walGroupCommitFrames, 5);
+    assert.equal(stats.walQueuedBytes, 0, 'queue drains after each flush');
 
     // Concurrent appends coalesce: fewer commits than frames.
     const N = 200;
@@ -333,13 +321,10 @@ test('queue depth and group-commit counters track the append buffer', async () =
       ops.push(wal.append(encodeFrame({ type: TYPE_SET, key: B(`c${i}`), value: B('v') })));
     }
     await Promise.all(ops);
-    expect(stats.walGroupCommitFrames).toBe(5 + N);
-    expect(
-      stats.walGroupCommits < 5 + N,
-      `expected coalescing, got ${stats.walGroupCommits} commits`,
-    ).toBeTruthy();
-    expect(stats.walMaxQueuedBytes > 0, 'high-water mark recorded the burst').toBeTruthy();
-    expect(stats.walQueuedBytes).toBe(0);
+    assert.equal(stats.walGroupCommitFrames, 5 + N);
+    assert.ok(stats.walGroupCommits < 5 + N, `expected coalescing, got ${stats.walGroupCommits} commits`);
+    assert.ok(stats.walMaxQueuedBytes > 0, 'high-water mark recorded the burst');
+    assert.equal(stats.walQueuedBytes, 0);
     await wal.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -353,11 +338,11 @@ test('appendLoc stamps frames with the id of the flush batch carrying them', asy
     await wal.open();
     const a = wal.appendLoc(encodeFrame({ type: TYPE_SET, key: B('a'), value: B('1') }));
     const b = wal.appendLoc(encodeFrame({ type: TYPE_SET, key: B('b'), value: B('2') }));
-    expect(a.batchId, 'same-tick appends share the next batch id').toBe(b.batchId);
-    expect(a.batchId > 0).toBeTruthy();
+    assert.equal(a.batchId, b.batchId, 'same-tick appends share the next batch id');
+    assert.ok(a.batchId > 0);
     await Promise.all([a.done, b.done]);
     const c = wal.appendLoc(encodeFrame({ type: TYPE_SET, key: B('c'), value: B('3') }));
-    expect(c.batchId > a.batchId, 'the id advances once a batch drained').toBeTruthy();
+    assert.ok(c.batchId > a.batchId, 'the id advances once a batch drained');
     await c.done;
     await wal.close();
   } finally {
@@ -392,72 +377,57 @@ test('a failed flush poisons the WAL: WAL_POISONED rejections until truncate + r
 
     const batchFrame = wal.append(encodeFrame({ type: TYPE_SET, key: B('bad'), value: B('x') }));
     await waitFor(() => calls === 1, 'the failing writev to be in flight');
-    const queuedFrame = wal.append(
-      encodeFrame({ type: TYPE_SET, key: B('queued'), value: B('y') }),
-    );
+    const queuedFrame = wal.append(encodeFrame({ type: TYPE_SET, key: B('queued'), value: B('y') }));
     releaseWritev();
 
     const order: string[] = [];
     await Promise.all([
-      batchFrame.catch((error) => {
-        order.push('batch');
-        throw error;
-      }),
-      queuedFrame.catch((error) => {
-        order.push('queued');
-        throw error;
-      }),
+      batchFrame.catch((e) => { order.push('batch'); throw e; }),
+      queuedFrame.catch((e) => { order.push('queued'); throw e; }),
     ]).then(
-      () => {
-        throw new Error('expected both frames to reject');
-      },
+      () => { throw new Error('expected both frames to reject'); },
       () => {},
     );
-    expect(
-      order,
-      'queued frames reject first so group rollbacks unwind newest-first',
-    ).toStrictEqual(['queued', 'batch']);
-    expect(stats.walWriteErrors, 'writev-class failure counted').toBe(1);
-    expect(stats.walFsyncErrors, 'not an fsync-class failure').toBe(0);
+    assert.deepEqual(order, ['queued', 'batch'], 'queued frames reject first so group rollbacks unwind newest-first');
+    assert.equal(stats.walWriteErrors, 1, 'writev-class failure counted');
+    assert.equal(stats.walFsyncErrors, 0, 'not an fsync-class failure');
 
     const poison = wal.poison;
-    expect(poison, 'WAL is poisoned').toBeTruthy();
-    expect(String(String(poison.error))).toMatch(/injected writev failure/);
+    assert.ok(poison, 'WAL is poisoned');
+    assert.match(String(poison.error), /injected writev failure/);
 
     // While poisoned: appends reject WAL_POISONED (distinct from WAL_SEALED),
     // flush() throws, sync() is a silent no-op.
-    const poisonedAppend = await wal
-      .append(encodeFrame({ type: TYPE_SET, key: B('later'), value: B('z') }))
-      .then(
-        () => undefined,
-        (error: unknown) => error as { code?: string },
-      );
-    expect(poisonedAppend?.code).toBe('WAL_POISONED');
-    const poisonedFlush = await wal.flush().then(
-      () => undefined,
-      (error: unknown) => error as { code?: string },
+    await assert.rejects(
+      wal.append(encodeFrame({ type: TYPE_SET, key: B('later'), value: B('z') })),
+      (err) => {
+        assert.equal((err as { code?: string }).code, 'WAL_POISONED');
+        return true;
+      },
     );
-    expect(poisonedFlush?.code).toBe('WAL_POISONED');
+    await assert.rejects(wal.flush(), (err) => {
+      assert.equal((err as { code?: string }).code, 'WAL_POISONED');
+      return true;
+    });
     await wal.sync();
 
     // In-place recovery (what MiniDb does): truncate the un-acked tail,
     // re-sync bookkeeping, clear the poison — then the write path resumes.
     const sizeBefore = (await fs.stat(file)).size;
-    expect(poison.failedAtOffset, 'the injected writev threw before writing a byte').toBe(
-      sizeBefore,
-    );
+    assert.equal(poison.failedAtOffset, sizeBefore, 'the injected writev threw before writing a byte');
     await fs.truncate(file, poison.failedAtOffset);
     await wal.refreshSize();
     wal.clearPoison();
-    expect(wal.poison).toBe(null);
+    assert.equal(wal.poison, null);
     await wal.append(encodeFrame({ type: TYPE_SET, key: B('c'), value: B('3') }));
     await wal.close();
 
     const frames = parseAll(await fs.readFile(file));
-    expect(
+    assert.deepEqual(
       frames.map((f) => f.key.toString()),
+      ['ok', 'c'],
       'rejected frames never reach the file',
-    ).toStrictEqual(['ok', 'c']);
+    );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -472,16 +442,14 @@ test("an fsync failure with fsyncPolicy 'always' poisons the WAL and counts as w
     const fh = (wal as unknown as { fh: { sync: () => Promise<void> } }).fh;
     fh.sync = () => Promise.reject(new Error('injected fsync failure'));
 
-    await expect(
-      wal.append(encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v') })),
-    ).rejects.toThrow(/injected fsync failure/);
-    expect(stats.walFsyncErrors, 'fsync-class failure counted by sync() itself').toBe(1);
-    expect(stats.walWriteErrors, 'not a writev-class failure').toBe(0);
-    expect(wal.poison, 'an unacknowledged batch poisons even though its bytes landed').toBeTruthy();
+    await assert.rejects(wal.append(encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v') })), /injected fsync failure/);
+    assert.equal(stats.walFsyncErrors, 1, 'fsync-class failure counted by sync() itself');
+    assert.equal(stats.walWriteErrors, 0, 'not a writev-class failure');
+    assert.ok(wal.poison, 'an unacknowledged batch poisons even though its bytes landed');
 
     // A poisoned close() does not throw and skips the final flush/fsync.
     await wal.close();
-    expect((wal as unknown as { fh: unknown }).fh, 'the handle is still released').toBe(null);
+    assert.equal((wal as unknown as { fh: unknown }).fh, null, 'the handle is still released');
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

@@ -1,15 +1,19 @@
+import type { TowerMission, TowerRosterEntry } from '#/features/tower/protocol/index';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentTaskService } from '#/agent/task/task';
-import type { TowerMission, TowerRosterEntry } from '#/features/tower/protocol/index';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { RepoMutations, ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import type { ToolExecution } from '#/tool/toolContract';
 
 import { runTowerTool } from '../support';
-import { ITowerStatusTool, TowerStatusToolInputSchema, type TowerStatusToolInput } from './status';
 import DESCRIPTION from './status.md?raw';
+import {
+  ITowerStatusTool,
+  TowerStatusToolInputSchema,
+  type TowerStatusToolInput,
+} from './status';
 import {
   readTowerStatus,
   type TowerStatusConcurrency,
@@ -30,8 +34,6 @@ const STATUS_EMOJI: Record<TowerMission['status'], string> = {
 export class TowerStatusTool implements ITowerStatusTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerStatus' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerStatusToolInputSchema);
 
@@ -39,7 +41,7 @@ export class TowerStatusTool implements ITowerStatusTool {
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @ITowerRateLimitService private readonly rateLimit: ITowerRateLimitService,
-    @IAgentTaskService private readonly tasks: IAgentTaskService,
+    @IAgentToolExecutorService private readonly tasks: IAgentToolExecutorService,
   ) {}
 
   resolveExecution(args: TowerStatusToolInput): ToolExecution {
@@ -53,7 +55,7 @@ export class TowerStatusTool implements ITowerStatusTool {
             active: true,
             cwd: this.sessionContext.cwd,
             agentId: this.scopeContext.agentId,
-            tasks: this.tasks,
+            toolExecutor: this.tasks,
             concurrency: () => this.rateLimit.snapshot(),
           });
           if (!status.initialized) {
@@ -179,7 +181,10 @@ function renderReviewGate(
       `- ${missionGate.branch} (${missionGate.missionId}): BLOCKED reasons=${reasons}; ${details}${reviewText}`,
     );
   }
-  return [...lines, ...renderOmission(pending.length - visible.length, 'review gate entries')];
+  return [
+    ...lines,
+    ...renderOmission(pending.length - visible.length, 'review gate entries'),
+  ];
 }
 
 function renderConcurrency(snapshot: TowerStatusConcurrency): string {
@@ -204,7 +209,9 @@ function renderMissions(state: TowerStatusState, limit: number): string[] {
   for (const mission of state.missions) {
     counts.set(mission.status, (counts.get(mission.status) ?? 0) + 1);
   }
-  const totals = [...counts].map(([status, count]) => `${String(count)} ${status}`).join(', ');
+  const totals = [...counts]
+    .map(([status, count]) => `${String(count)} ${status}`)
+    .join(', ');
   const visible = state.missions.slice(-limit).toReversed();
   return [
     `Showing ${String(visible.length)} of ${String(state.missions.length)} mission(s), newest first.`,
@@ -306,3 +313,4 @@ function renderOmission(omitted: number, noun: string): string[] {
 function isStoppedByUser(entry: TowerRosterEntry): boolean {
   return entry.deathReason?.trim() === userCancellationReason().message;
 }
+

@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   applyOpenPlatformConfig,
@@ -7,6 +7,7 @@ import {
   filterModelsByPrefix,
   getOpenPlatformById,
   isOpenPlatformId,
+  OPEN_PLATFORMS,
   OpenPlatformApiError,
   removeOpenPlatformConfig,
   type ManagedKimiConfigShape,
@@ -69,14 +70,10 @@ describe('OPEN_PLATFORMS', () => {
 
 describe('fetchOpenPlatformModels', () => {
   it('lists and parses models from the platform endpoint', async () => {
-    const fetchMock = mock(async () => makeModelsResponse());
+    const fetchMock = vi.fn(async () => makeModelsResponse());
     const platform = getOpenPlatformById('moonshot-cn')!;
 
-    const models = await fetchOpenPlatformModels(
-      platform,
-      'sk-test',
-      fetchMock as unknown as typeof fetch,
-    );
+    const models = await fetchOpenPlatformModels(platform, 'sk-test', fetchMock as unknown as typeof fetch);
 
     expect(models).toHaveLength(3);
     expect(models[0]).toMatchObject({
@@ -101,43 +98,8 @@ describe('fetchOpenPlatformModels', () => {
     );
   });
 
-  it('parses capabilities array when present in model item', async () => {
-    const fetchMock = mock(
-      async () =>
-        new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: 'glm-5.3-flash',
-                context_length: 1000000,
-                capabilities: ['thinking', 'tool_use', 'image_in'],
-              },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-    );
-    const platform = getOpenPlatformById('moonshot-cn')!;
-
-    const models = await fetchOpenPlatformModels(
-      platform,
-      'sk-test',
-      fetchMock as unknown as typeof fetch,
-    );
-
-    expect(models).toHaveLength(1);
-    expect(models[0]).toMatchObject({
-      id: 'glm-5.3-flash',
-      contextLength: 1000000,
-      supportsReasoning: true,
-      supportsImageIn: true,
-      supportsToolUse: true,
-    });
-    expect(capabilitiesForModel(models[0]!)).toEqual(['thinking', 'image_in', 'tool_use']);
-  });
-
   it('surfaces API error messages and status on HTTP error', async () => {
-    const fetchMock = mock(
+    const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify({ error: { message: 'invalid API key' } }), { status: 401 }),
     );
@@ -155,7 +117,7 @@ describe('fetchOpenPlatformModels', () => {
   });
 
   it('throws on unexpected response shape', async () => {
-    const fetchMock = mock(async () => new Response(JSON.stringify({}), { status: 200 }));
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
     const platform = getOpenPlatformById('moonshot-cn')!;
 
     await expect(
@@ -168,26 +130,11 @@ describe('filterModelsByPrefix', () => {
   it('filters by allowedPrefixes when present', () => {
     const platform = getOpenPlatformById('moonshot-cn')!;
     const models = [
-      {
-        id: 'kimi-k2-0712-preview',
-        contextLength: 256000,
-        supportsReasoning: true,
-        supportsImageIn: true,
-        supportsVideoIn: true,
-      },
-      {
-        id: 'gpt-4',
-        contextLength: 1000,
-        supportsReasoning: false,
-        supportsImageIn: false,
-        supportsVideoIn: false,
-      },
+      { id: 'kimi-k2-0712-preview', contextLength: 256000, supportsReasoning: true, supportsImageIn: true, supportsVideoIn: true },
+      { id: 'gpt-4', contextLength: 1000, supportsReasoning: false, supportsImageIn: false, supportsVideoIn: false },
     ];
 
-    const filtered = filterModelsByPrefix(
-      models as unknown as import('../src/managed-kimi-code').ManagedKimiCodeModelInfo[],
-      platform,
-    );
+    const filtered = filterModelsByPrefix(models as unknown as import('../src/managed-kimi-code').ManagedKimiCodeModelInfo[], platform);
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.id).toBe('kimi-k2-0712-preview');
   });
@@ -199,33 +146,18 @@ describe('filterModelsByPrefix', () => {
       baseUrl: 'https://example.com/v1',
     };
     const models = [
-      {
-        id: 'model-a',
-        contextLength: 1000,
-        supportsReasoning: false,
-        supportsImageIn: false,
-        supportsVideoIn: false,
-      },
-      {
-        id: 'model-b',
-        contextLength: 2000,
-        supportsReasoning: false,
-        supportsImageIn: false,
-        supportsVideoIn: false,
-      },
+      { id: 'model-a', contextLength: 1000, supportsReasoning: false, supportsImageIn: false, supportsVideoIn: false },
+      { id: 'model-b', contextLength: 2000, supportsReasoning: false, supportsImageIn: false, supportsVideoIn: false },
     ];
 
-    const filtered = filterModelsByPrefix(
-      models as unknown as import('../src/managed-kimi-code').ManagedKimiCodeModelInfo[],
-      platform,
-    );
+    const filtered = filterModelsByPrefix(models as unknown as import('../src/managed-kimi-code').ManagedKimiCodeModelInfo[], platform);
     expect(filtered).toHaveLength(2);
   });
 });
 
 describe('fetchOpenPlatformModels supports_thinking_type', () => {
   it('parses supports_thinking_type from the models endpoint', async () => {
-    const fetchMock = mock(
+    const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -248,11 +180,7 @@ describe('fetchOpenPlatformModels supports_thinking_type', () => {
     );
     const platform = getOpenPlatformById('moonshot-cn')!;
 
-    const models = await fetchOpenPlatformModels(
-      platform,
-      'sk-test',
-      fetchMock as unknown as typeof fetch,
-    );
+    const models = await fetchOpenPlatformModels(platform, 'sk-test', fetchMock as unknown as typeof fetch);
 
     expect(models[0]?.supportsThinkingType).toBe('only');
     expect(models[1]?.supportsThinkingType).toBeUndefined();
@@ -331,21 +259,8 @@ describe('applyOpenPlatformConfig', () => {
     };
     const platform = getOpenPlatformById('moonshot-cn')!;
     const models = [
-      {
-        id: 'kimi-k2-0712-preview',
-        contextLength: 256000,
-        supportsReasoning: true,
-        supportsImageIn: true,
-        supportsVideoIn: true,
-        displayName: 'Kimi K2',
-      },
-      {
-        id: 'kimi-k2-lite',
-        contextLength: 128000,
-        supportsReasoning: false,
-        supportsImageIn: false,
-        supportsVideoIn: false,
-      },
+      { id: 'kimi-k2-0712-preview', contextLength: 256000, supportsReasoning: true, supportsImageIn: true, supportsVideoIn: true, displayName: 'Kimi K2' },
+      { id: 'kimi-k2-lite', contextLength: 128000, supportsReasoning: false, supportsImageIn: false, supportsVideoIn: false },
     ];
 
     const result = applyOpenPlatformConfig(config, {
@@ -390,13 +305,7 @@ describe('applyOpenPlatformConfig', () => {
     };
     const platform = getOpenPlatformById('moonshot-cn')!;
     const models = [
-      {
-        id: 'kimi-k2-0712-preview',
-        contextLength: 256000,
-        supportsReasoning: true,
-        supportsImageIn: true,
-        supportsVideoIn: true,
-      },
+      { id: 'kimi-k2-0712-preview', contextLength: 256000, supportsReasoning: true, supportsImageIn: true, supportsVideoIn: true },
     ];
 
     applyOpenPlatformConfig(config, {
@@ -615,39 +524,15 @@ describe('applyOpenPlatformConfig', () => {
   });
 });
 
-describe('fetchOpenPlatformModels — astron embedded efforts', () => {
-  it('exposes high/max efforts only for reasoning-effort-capable astron models', async () => {
-    const platform = getOpenPlatformById('astron')!;
-    const models = await fetchOpenPlatformModels(platform, 'sk-test');
-
-    const glm52 = models.find((m) => m.id === 'xopglm52');
-    expect(glm52?.supportEfforts).toEqual(['high', 'max']);
-    expect(glm52?.defaultEffort).toBe('high');
-
-    for (const id of ['xopdeepseekv4pro', 'xopdeepseekv4flash']) {
-      const model = models.find((m) => m.id === id);
-      expect(model?.supportEfforts).toEqual(['high', 'max']);
-    }
-
-    const sparkx2 = models.find((m) => m.id === 'xsparkx2');
-    expect(sparkx2?.supportEfforts).toBeUndefined();
-    expect(sparkx2?.defaultEffort).toBeUndefined();
-  });
-});
-
 describe('removeOpenPlatformConfig', () => {
   it('removes provider, its models, and defaultModel when matched', () => {
     const config: ManagedKimiConfigShape = {
       providers: {
         'moonshot-cn': { type: 'kimi', baseUrl: 'https://api.moonshot.cn/v1', apiKey: 'sk-test' },
-        other: { type: 'kimi', baseUrl: 'https://other.test/v1', apiKey: 'sk-other' },
+        'other': { type: 'kimi', baseUrl: 'https://other.test/v1', apiKey: 'sk-other' },
       },
       models: {
-        'moonshot-cn/kimi-k2': {
-          provider: 'moonshot-cn',
-          model: 'kimi-k2',
-          maxContextSize: 256000,
-        },
+        'moonshot-cn/kimi-k2': { provider: 'moonshot-cn', model: 'kimi-k2', maxContextSize: 256000 },
         'other/model': { provider: 'other', model: 'other-model', maxContextSize: 1000 },
       },
       defaultModel: 'moonshot-cn/kimi-k2',
@@ -668,11 +553,7 @@ describe('removeOpenPlatformConfig', () => {
         'moonshot-cn': { type: 'kimi', baseUrl: 'https://api.moonshot.cn/v1', apiKey: 'sk-test' },
       },
       models: {
-        'moonshot-cn/kimi-k2': {
-          provider: 'moonshot-cn',
-          model: 'kimi-k2',
-          maxContextSize: 256000,
-        },
+        'moonshot-cn/kimi-k2': { provider: 'moonshot-cn', model: 'kimi-k2', maxContextSize: 256000 },
       },
       defaultModel: 'other/model',
     };

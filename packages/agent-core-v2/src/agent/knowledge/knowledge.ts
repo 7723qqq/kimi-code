@@ -48,6 +48,13 @@ export interface IAgentKnowledgeService {
     limit?: number,
   ): KnowledgeSearchResult[];
 
+  searchForInjection(
+    query: string,
+    scopePath?: string,
+    tags?: string[],
+    limit?: number,
+  ): KnowledgeSearchResult[];
+
   add(input: KnowledgeAddInput): KnowledgeEntry | null;
 
   confirm(id: string): boolean;

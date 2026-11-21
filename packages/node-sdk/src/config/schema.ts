@@ -1,18 +1,8 @@
-/**
- * Localized port of the v1 config document schema
- * (`agent-core/src/config/schema.ts`) — the `KimiConfig` TOML document shape
- * plus the section schemas, the `McpServerConfigSchema` used by the
- * user-global `mcp.json` store, and the default/validate helpers. Copied so
- * the SDK keeps the v1 document contract without importing `agent-core`;
- * keep it byte-identical to the v1 original.
- *
- * Import adaptations: errors come from the SDK's own `#/errors`, the hook
- * schema is defined locally, and `parsePattern` comes from agent-core-v2's
- * permission-rule matcher.
- */
 import { parsePattern } from '@moonshot-ai/agent-core-v2/agent/permissionRules/matchesRule';
 import { EnvironmentsSectionSchema } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
+
+import { ErrorCodes, KimiError } from '#/errors';
 
 const HOOK_EVENT_TYPES = [
   'PreToolUse',
@@ -21,24 +11,17 @@ const HOOK_EVENT_TYPES = [
   'PermissionRequest',
   'PermissionResult',
   'UserPromptSubmit',
-  'UserPromptQueued',
-  'TurnStarted',
   'Stop',
   'StopFailure',
   'Interrupt',
   'SessionStart',
   'SessionEnd',
-  'SessionHeartbeat',
   'SubagentStart',
   'SubagentStop',
-  'TaskStarted',
   'PreCompact',
   'PostCompact',
   'Notification',
 ] as const;
-
-
-import { ErrorCodes, KimiError } from '#/errors';
 
 export const ProviderTypeSchema = z.enum([
   'anthropic',
@@ -48,7 +31,6 @@ export const ProviderTypeSchema = z.enum([
   'openai_responses',
   'bedrock',
   'vertexai',
-  'astron',
 ]);
 
 export type ProviderType = z.infer<typeof ProviderTypeSchema>;
@@ -75,13 +57,6 @@ export const ProviderConfigSchema = z.object({
   env: StringRecordSchema.optional(),
   customHeaders: StringRecordSchema.optional(),
   source: z.record(z.string(), z.unknown()).optional(),
-  // Astron (xunfei Coding Plan) runtime knobs, edited via the TUI Astron
-  // settings panel and forwarded to the OpenAI-legacy transport. Ignored by
-  // other provider types.
-  stream: z.boolean().optional(),
-  temperature: z.number().optional(),
-  maxTokens: z.number().int().min(1).optional(),
-  searchDisable: z.boolean().optional(),
 });
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
@@ -96,37 +71,17 @@ const ModelAliasBaseSchema = z.object({
   provider: z.string(),
   model: z.string(),
   maxContextSize: z.number().int().min(1),
-  // Declared prompt/input cap when below the total window (e.g. gpt-5: 400k
-  // window, 272k input). Compaction and other prompt-budget checks prefer it
-  // over max_context_size; completion budgeting keeps the total window.
   maxInputSize: z.number().int().min(1).optional(),
   maxOutputSize: z.number().int().min(1).optional(),
   capabilities: z.array(z.string()).optional(),
   displayName: z.string().optional(),
   reasoningKey: z.string().optional(),
   protocol: z.enum(['anthropic', 'openai', 'openai_responses']).optional(),
-  // Explicitly declare adaptive-thinking support, overriding the kosong
-  // model-name version inference. Needed for custom-named Anthropic endpoints
-  // whose model name does not encode a parseable Claude version.
   adaptiveThinking: z.boolean().optional(),
-  // Efforts (e.g. ["low", "high", "max"]) the model supports for
-  // extended thinking, plus the catalog default. Generic to any provider:
-  // managed models fill these from the catalog, others can be set by hand in
-  // config.toml. The user's chosen effort is stored globally in thinking.effort.
   supportEfforts: z.array(z.string()).optional(),
   defaultEffort: z.string().optional(),
-  // The effort value that encodes "thinking off" on the wire for this model
-  // (models.dev declares it as the "none" entry, e.g. xai grok). When set,
-  // turning thinking off sends this value instead of omitting the effort
-  // field — required by models whose default is to reason.
   offEffort: z.string().optional(),
-  // Route the Anthropic transport through the beta Messages API
-  // (`POST /v1/messages?beta=true`) instead of the standard endpoint. Used by
-  // managed Kimi Code models that declare `protocol: 'anthropic'`.
   betaApi: z.boolean().optional(),
-  // Per-model endpoint override, paired with `protocol`. Catalog imports set
-  // it when a gateway provider serves this model over a different endpoint
-  // than the provider default.
   baseUrl: z.string().optional(),
   upgrade: ModelUpgradeSchema.optional(),
 });
@@ -160,9 +115,6 @@ export type SecondaryModelConfig = z.infer<typeof SecondaryModelConfigSchema>;
 export const ThinkingConfigSchema = z.object({
   enabled: z.boolean().optional(),
   effort: z.string().optional(),
-  // Moonshot Preserved Thinking passthrough (`thinking.keep`). The value is
-  // forwarded verbatim to the wire; "all" enables it, an off-value
-  // (false/0/no/off/none/null) disables it. Defaults to "all" when unset.
   keep: z.string().optional(),
 });
 
@@ -196,7 +148,7 @@ export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;
 export const LoopControlSchema = z.object({
   maxStepsPerTurn: z.number().int().min(0).optional(),
   maxRetriesPerStep: z.number().int().min(0).optional(),
-  maxRalphIterations: z.number().int().min(-1).optional(), // -1 means unlimited
+  maxRalphIterations: z.number().int().min(-1).optional(),
   reservedContextSize: z.number().int().min(0).optional(),
   compactionTriggerRatio: z.number().min(0.5).max(0.99).optional(),
   compactionMaxAttempts: z.number().int().min(1).optional(),
@@ -207,17 +159,7 @@ export type LoopControl = z.infer<typeof LoopControlSchema>;
 export const BackgroundConfigSchema = z.object({
   maxRunningTasks: z.number().int().min(1).optional(),
   keepAliveOnExit: z.boolean().optional(),
-  /**
-   * When a foreground Bash command times out, move it to the background
-   * instead of killing it. Defaults to true when unset.
-   */
   bashAutoBackgroundOnTimeout: z.boolean().optional(),
-  /**
-   * Default timeout (seconds) for background Bash tasks when the call omits
-   * `timeout`, also used to re-arm foreground commands moved to the
-   * background. `0` means no timeout. Explicit per-call `timeout` values are
-   * unaffected. Defaults to the Bash tool's built-in 600s when unset.
-   */
   bashTaskTimeoutS: z.number().int().min(0).optional(),
   killGracePeriodMs: z.number().int().min(0).optional(),
   printWaitCeilingS: z.number().int().min(1).optional(),
@@ -228,46 +170,16 @@ export const BackgroundConfigSchema = z.object({
 export type BackgroundConfig = z.infer<typeof BackgroundConfigSchema>;
 
 export const SubagentConfigSchema = z.object({
-  /**
-   * Per-subagent (`Agent` / `AgentSwarm`, foreground and background) timeout
-   * in milliseconds. `0` means no timeout. Defaults to 2 hours when unset.
-   */
   timeoutMs: z.number().int().min(0).optional(),
 });
 
 export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
 
-export const PromptOptimizerConfigSchema = z.object({
-  /**
-   * Whole-rewrite deadline in milliseconds. Defaults to 180s when unset.
-   */
-  timeoutMs: z.number().int().positive().optional(),
-  /**
-   * Thinking effort for the rewriter's fork. Absent means the fork follows
-   * the main agent's level.
-   */
-  effort: z.string().optional(),
-});
-
-export type PromptOptimizerConfig = z.infer<typeof PromptOptimizerConfigSchema>;
-
 export const MAX_MCP_TIMEOUT_MS = 2_147_483_647;
 const McpTimeoutMsSchema = z.number().int().min(1).max(MAX_MCP_TIMEOUT_MS);
 
 export const McpConfigSchema = z.object({
-  /**
-   * Global default MCP server startup (connect + tool discovery) timeout in
-   * milliseconds. A per-server `startupTimeoutMs` in `mcp.json` and the
-   * KIMI_MCP_STARTUP_TIMEOUT_MS env var both win over this value. Defaults
-   * to 30s when unset.
-   */
   startupTimeoutMs: McpTimeoutMsSchema.optional(),
-  /**
-   * Global default single MCP tool-call timeout in milliseconds. A
-   * per-server `toolTimeoutMs` in `mcp.json` and the
-   * KIMI_MCP_TOOL_TIMEOUT_MS env var both win over this value. Falls back to
-   * the client built-in default when unset.
-   */
   toolTimeoutMs: McpTimeoutMsSchema.optional(),
   reconnectInitialDelayMs: McpTimeoutMsSchema.optional(),
   reconnectMaxDelayMs: McpTimeoutMsSchema.optional(),
@@ -276,34 +188,20 @@ export const McpConfigSchema = z.object({
 export type McpConfig = z.infer<typeof McpConfigSchema>;
 
 export const ImageConfigSchema = z.object({
-  /**
-   * Longest-edge ceiling (px) applied when compressing images for the model.
-   * Overrides the built-in default; the KIMI_IMAGE_MAX_EDGE_PX env var wins
-   * over this value.
-   */
   maxEdgePx: z.number().int().min(1).optional(),
-  /**
-   * Raw-byte budget for images the model reads for itself (the Read tool's
-   * default path). Overrides the built-in default; the
-   * KIMI_IMAGE_READ_BYTE_BUDGET env var wins over this value. Explicit
-   * region / full_resolution reads use the provider-scale per-image limit
-   * instead.
-   */
   readByteBudget: z.number().int().min(1).optional(),
 });
 
 export type ImageConfig = z.infer<typeof ImageConfigSchema>;
 
 export const ModelCatalogConfigSchema = z.object({
-  /** Interval (ms) between automatic provider-model refreshes. `0` disables. */
   refreshIntervalMs: z.number().int().min(0).optional(),
-  /** Refresh once shortly after the daemon starts. */
   refreshOnStart: z.boolean().optional(),
 });
 
 export type ModelCatalogConfig = z.infer<typeof ModelCatalogConfigSchema>;
 
-export const ExperimentalConfigSchema = z.record(z.string(), z.union([z.boolean(), z.string()]));
+export const ExperimentalConfigSchema = z.record(z.string(), z.boolean());
 
 export type ExperimentalConfig = z.infer<typeof ExperimentalConfigSchema>;
 
@@ -326,7 +224,6 @@ export const MoonshotServiceConfigSchema = z.object({
   baseUrl: z.string().optional(),
   apiKey: z.string().optional(),
   oauth: OAuthRefSchema.optional(),
-  env: StringRecordSchema.optional(),
   customHeaders: StringRecordSchema.optional(),
 });
 
@@ -338,13 +235,6 @@ export const ServicesConfigSchema = z.object({
 });
 
 export type ServicesConfig = z.infer<typeof ServicesConfigSchema>;
-
-export const GithubConfigSchema = z.object({
-  token: z.string().optional(),
-  baseUrl: z.string().optional(),
-});
-
-export type GithubConfig = z.infer<typeof GithubConfigSchema>;
 
 const McpServerCommonFields = {
   enabled: z.boolean().optional(),
@@ -369,14 +259,8 @@ export const McpServerHttpConfigSchema = z.object({
   transport: z.literal('http'),
   url: z.string().url(),
   headers: StringRecordSchema.optional(),
-  // Backward-compatible UI marker. OAuth is still discovered from a remote
-  // server's 401 response; this flag only records that the user explicitly
-  // chose OAuth and lets hosts expose login/reset controls before connecting.
   auth: z.literal('oauth').optional(),
-  // Indirect secret reference: the bearer token is looked up from
-  // `process.env[bearerTokenEnvVar]` at connection time, never committed.
   bearerTokenEnvVar: z.string().min(1).optional(),
-  env: StringRecordSchema.optional(),
   ...McpServerCommonFields,
 });
 
@@ -387,10 +271,7 @@ export const McpServerSseConfigSchema = z.object({
   url: z.string().url(),
   headers: StringRecordSchema.optional(),
   auth: z.literal('oauth').optional(),
-  // Indirect secret reference: the bearer token is looked up from
-  // `process.env[bearerTokenEnvVar]` at connection time, never committed.
   bearerTokenEnvVar: z.string().min(1).optional(),
-  env: StringRecordSchema.optional(),
   ...McpServerCommonFields,
 });
 
@@ -408,16 +289,12 @@ export const McpServerConfigSchema = z.preprocess((raw) => {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return raw;
   const obj = raw as Record<string, unknown>;
   if ('transport' in obj) return obj;
-  if (typeof obj['command'] === 'string' && typeof obj['url'] === 'string') return obj;
   if (typeof obj['command'] === 'string') return { ...obj, transport: 'stdio' };
   if (typeof obj['url'] === 'string') return { ...obj, transport: 'http' };
   return obj;
 }, McpServerConfigDiscriminatedSchema);
 
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
-
-/** A named entry of the user-global `<KIMI_CODE_HOME>/mcp.json` store. */
-export type GlobalMcpServerConfig = McpServerConfig & { readonly name: string };
 
 export const KimiConfigSchema = z.object({
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
@@ -433,7 +310,6 @@ export const KimiConfigSchema = z.object({
   permission: PermissionConfigSchema.optional(),
   hooks: z.array(HookDefSchema).optional(),
   services: ServicesConfigSchema.optional(),
-  github: GithubConfigSchema.optional(),
   mergeAllAvailableSkills: z.boolean().optional(),
   extraSkillDirs: z.array(z.string()).optional(),
   extraAgentDirs: z.array(z.string()).optional(),
@@ -441,7 +317,6 @@ export const KimiConfigSchema = z.object({
   background: BackgroundConfigSchema.optional(),
   subagent: SubagentConfigSchema.optional(),
   secondaryModel: SecondaryModelConfigSchema.optional(),
-  promptOptimizer: PromptOptimizerConfigSchema.optional(),
   mcp: McpConfigSchema.optional(),
   image: ImageConfigSchema.optional(),
   modelCatalog: ModelCatalogConfigSchema.optional(),
@@ -462,13 +337,11 @@ const LoopControlPatchSchema = LoopControlSchema.partial();
 const BackgroundConfigPatchSchema = BackgroundConfigSchema.partial();
 const SubagentConfigPatchSchema = SubagentConfigSchema.partial();
 const SecondaryModelConfigPatchSchema = SecondaryModelConfigSchema.partial();
-const PromptOptimizerConfigPatchSchema = PromptOptimizerConfigSchema.partial();
 const McpConfigPatchSchema = McpConfigSchema.partial();
 const ImageConfigPatchSchema = ImageConfigSchema.partial();
 const ModelCatalogConfigPatchSchema = ModelCatalogConfigSchema.partial();
 const ExperimentalConfigPatchSchema = ExperimentalConfigSchema;
 const MoonshotServiceConfigPatchSchema = MoonshotServiceConfigSchema.partial();
-const GithubConfigPatchSchema = GithubConfigSchema.partial();
 const ServicesConfigPatchSchema = z.object({
   moonshotSearch: MoonshotServiceConfigPatchSchema.optional(),
   moonshotFetch: MoonshotServiceConfigPatchSchema.optional(),
@@ -489,7 +362,6 @@ export const KimiConfigPatchSchema = z
     permission: PermissionConfigPatchSchema.optional(),
     hooks: z.array(HookDefSchema).optional(),
     services: ServicesConfigPatchSchema.optional(),
-    github: GithubConfigPatchSchema.optional(),
     mergeAllAvailableSkills: z.boolean().optional(),
     extraSkillDirs: z.array(z.string()).optional(),
     extraAgentDirs: z.array(z.string()).optional(),
@@ -497,7 +369,6 @@ export const KimiConfigPatchSchema = z
     background: BackgroundConfigPatchSchema.optional(),
     subagent: SubagentConfigPatchSchema.optional(),
     secondaryModel: SecondaryModelConfigPatchSchema.optional(),
-    promptOptimizer: PromptOptimizerConfigPatchSchema.optional(),
     mcp: McpConfigPatchSchema.optional(),
     image: ImageConfigPatchSchema.optional(),
     modelCatalog: ModelCatalogConfigPatchSchema.optional(),
@@ -520,13 +391,9 @@ export function validateConfig(config: unknown): KimiConfig {
   try {
     return KimiConfigSchema.parse(config);
   } catch (error) {
-    throw new KimiError(
-      ErrorCodes.CONFIG_INVALID,
-      `Invalid configuration: ${formatConfigValidationError(error)}`,
-      {
-        cause: error,
-      },
-    );
+    throw new KimiError(ErrorCodes.CONFIG_INVALID, `Invalid configuration: ${formatConfigValidationError(error)}`, {
+      cause: error,
+    });
   }
 }
 

@@ -1,0 +1,18 @@
+commit 4d38c0080f
+Author:     qer <wbxl2000@outlook.com>
+AuthorDate: Thu Nov 19 14:03:59 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 19 14:03:59 2026 +0800
+
+    docs: rename other-agents guide title to include (Agent to Agent) (#5060)
+
+ docs/.vitepress/config.ts         | 4 ++--
+ docs/en/guides/other-agents.md    | 2 +-
+ docs/en/guides/print.md           | 2 +-
+ docs/en/guides/web.md             | 2 +-
+ docs/en/reference/kimi-command.md | 2 +-
+ docs/zh/guides/other-agents.md    | 2 +-
+ docs/zh/guides/print.md           | 2 +-
+ docs/zh/guides/web.md             | 2 +-
+ docs/zh/reference/kimi-command.md | 2 +-
+ 9 files changed, 10 insertions(+), 10 deletions(-)

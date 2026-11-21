@@ -2,7 +2,6 @@ import path from 'pathe';
 
 import { Error2 } from '#/_base/errors/errors';
 import { FrontmatterError, parseFrontmatter } from '#/_base/text/frontmatter';
-import { isRecord } from '#/_base/utils/guards';
 
 import { SkillErrors } from './errors';
 import type { SkillDefinition, SkillMetadata, SkillSource } from './types';
@@ -48,12 +47,7 @@ const METADATA_ALIASES: Readonly<Record<string, string>> = {
   when_to_use: 'whenToUse',
   'disable-model-invocation': 'disableModelInvocation',
   disable_model_invocation: 'disableModelInvocation',
-  verification: 'verify',
-  'verify-command': 'verify',
 };
-
-const VERIFY_MAX_COMMANDS = 5;
-const VERIFY_MAX_COMMAND_CHARS = 500;
 
 export function parseSkillText(options: ParseSkillTextOptions): SkillDefinition {
   const isDirectorySkill = path.basename(options.skillMdPath) === 'SKILL.md';
@@ -120,7 +114,8 @@ export function parseD2Flowchart(markdown: string): string | undefined {
 
 export function skillArgumentNames(metadata: SkillMetadata): readonly string[] {
   const value = metadata.arguments;
-  const isValidName = (name: string): boolean => name.trim() !== '' && !/^\d+$/.test(name);
+  const isValidName = (name: string): boolean =>
+    name.trim() !== '' && !/^\d+$/.test(name);
   if (typeof value === 'string') return value.split(/\s+/).filter(isValidName);
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && isValidName(item));
@@ -142,21 +137,7 @@ function normalizeMetadata(raw: Record<string, unknown>): SkillMetadata {
   const description = nonEmptyString(out['description']);
   if (description !== undefined) out['description'] = description;
 
-  const verify = normalizeVerify(out['verify']);
-  if (verify === undefined) delete out['verify'];
-  else out['verify'] = verify;
-
   return out as SkillMetadata;
-}
-
-function normalizeVerify(value: unknown): readonly string[] | undefined {
-  const raw = typeof value === 'string' ? [value] : Array.isArray(value) ? value : [];
-  const commands = raw
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim().slice(0, VERIFY_MAX_COMMAND_CHARS))
-    .filter((item) => item.length > 0)
-    .slice(0, VERIFY_MAX_COMMANDS);
-  return commands.length === 0 ? undefined : commands;
 }
 
 function descriptionFromBody(body: string): string {
@@ -170,4 +151,8 @@ function descriptionFromBody(body: string): string {
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

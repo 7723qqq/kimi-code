@@ -1,6 +1,5 @@
-import { describe, expect, it, mock, spyOn } from 'bun:test';
-
 import type { ApprovalRequest } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { ApprovalController } from '#/tui/reverse-rpc/approval/controller';
 import { createApprovalRequestHandler } from '#/tui/reverse-rpc/approval/handler';
@@ -53,12 +52,8 @@ describe('approval reverse-rpc', () => {
       scope: 'session',
       feedback: 'ok',
     });
-    // Queued same-action requests inherit a session-scoped approval without
-    // surfacing another panel. The user's feedback is not carried over —
-    // it described the first request only.
     await expect(second).resolves.toEqual({ decision: 'approved', scope: 'session' });
     await expect(fourth).resolves.toEqual({ decision: 'approved', scope: 'session' });
-    // A different-action request still waits for an explicit decision.
     expect(controller.hasPending()).toBe(true);
 
     controller.respond({ decision: 'rejected' });
@@ -83,8 +78,6 @@ describe('approval reverse-rpc', () => {
     controller.respond({ decision: 'approved' });
 
     await expect(first).resolves.toEqual({ decision: 'approved' });
-    // The second same-action request must NOT be auto-resolved — approve-once
-    // is a one-shot decision, not a session rule.
     expect(controller.hasPending()).toBe(true);
     controller.respond({ decision: 'approved' });
     await expect(second).resolves.toEqual({ decision: 'approved' });
@@ -112,7 +105,7 @@ describe('approval reverse-rpc', () => {
 
   it('adapts approval payloads through the handler and falls back on failure', async () => {
     const controller = new ApprovalController();
-    const show = spyOn(controller, 'show').mockResolvedValue({
+    const show = vi.spyOn(controller, 'show').mockResolvedValue({
       decision: 'approved',
       scope: 'session',
       feedback: 'looks good',
@@ -149,11 +142,11 @@ describe('approval reverse-rpc', () => {
 
   it('shows the panel without a badge when the environment lookup fails', async () => {
     const controller = new ApprovalController();
-    const show = spyOn(controller, 'show').mockResolvedValue({ decision: 'approved' });
+    const show = vi.spyOn(controller, 'show').mockResolvedValue({ decision: 'approved' });
     const handler = createApprovalRequestHandler(
       controller,
       undefined,
-      mock(() => {
+      vi.fn(() => {
         throw new Error('environment gone');
       }),
     );
@@ -166,11 +159,11 @@ describe('approval reverse-rpc', () => {
 
   it('tracks the requesting agent until approval settles or fails', async () => {
     const controller = new ApprovalController();
-    const show = spyOn(controller, 'show').mockResolvedValue({ decision: 'approved' });
+    const show = vi.spyOn(controller, 'show').mockResolvedValue({ decision: 'approved' });
     const token = Symbol('permission');
     const tracker = {
-      startInteraction: mock(() => token),
-      endInteraction: mock(),
+      startInteraction: vi.fn(() => token),
+      endInteraction: vi.fn(),
     };
     const handler = createApprovalRequestHandler(controller, undefined, undefined, tracker);
 
@@ -193,7 +186,7 @@ describe('approval reverse-rpc', () => {
 
   it('ends the argument stream of a main-agent call when its approval arrives', async () => {
     const controller = new ApprovalController();
-    spyOn(controller, 'show').mockResolvedValue({ decision: 'approved' });
+    vi.spyOn(controller, 'show').mockResolvedValue({ decision: 'approved' });
     let now = 0;
     const timeline = new TurnTimeline(() => instant(now));
     const handler = createApprovalRequestHandler(controller, undefined, undefined, undefined, timeline);
@@ -210,10 +203,9 @@ describe('approval reverse-rpc', () => {
     ];
 
     expect(facts('tc-main')).toMatchObject({ start: 100, argsEnd: 400 });
-    expect(phaseAt(facts('tc-main'), instant(400))).toEqual({ kind: 'queued', since: instant(400) });
+    expect(phaseAt(facts('tc-main'), instant(400))).toEqual({ kind: 'queued', since: 400 });
     expect(facts('tc-unattributed')).toMatchObject({ start: 400, name: 'Bash', argsEnd: 400 });
     expect(facts('tc-child')).toBeUndefined();
-    const responses = await Promise.all(approvals);
-    expect(responses).toEqual(approvals.map(() => ({ decision: 'approved' })));
+    await Promise.all(approvals.map((approval) => expect(approval).resolves.toEqual({ decision: 'approved' })));
   });
 });

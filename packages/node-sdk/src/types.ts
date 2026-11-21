@@ -1,4 +1,4 @@
-import type { HostUiCapability, PluginNodeRunner, ScopeSeed } from '@moonshot-ai/agent-core-v2';
+import type { HostUiCapability, ContentPart } from '@moonshot-ai/agent-core-v2';
 import type {
   ExportSessionManifest,
   ShellEnvironment,
@@ -6,11 +6,14 @@ import type {
 import type { EnvironmentStatus as SessionEnvironmentStatus } from '@moonshot-ai/agent-core-v2/environment/environment';
 import type { RemoteEnvironmentEntry } from '@moonshot-ai/agent-core-v2/remote/declaration/remoteEnvironmentDeclaration';
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
-import type { ContentPart } from '@moonshot-ai/kosong';
 
-import type { PermissionMode } from '#/permission';
 import type { ResumeSessionResult } from '#/replay';
-import type { TelemetryClient, TelemetryContextPatch, TelemetryProperties } from '#/telemetry';
+import type { PermissionMode } from '#/permission';
+import type {
+  TelemetryClient,
+  TelemetryContextPatch,
+  TelemetryProperties,
+} from '#/telemetry';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -51,15 +54,13 @@ export interface SessionEnvironmentsInfo {
 }
 
 export type { RemoteEnvironmentEntry };
-export type {
-  OperationKind,
-  OperationOrigin,
-  OperationRecord,
-} from '@moonshot-ai/agent-core-v2/features/operationLog/operationLog';
 
 export type { CapabilityInstallOptions, CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
 
-export type { AgentReplayRecord, ResumedAgentState } from '#/replay';
+export type {
+  AgentReplayRecord,
+  ResumedAgentState,
+} from '#/replay';
 export type {
   AgentBackgroundTaskInfo,
   BackgroundTaskInfo,
@@ -102,7 +103,7 @@ export type {
   ExperimentalFeatureState,
   ExperimentalFlagMap,
   ExperimentalFlagSource,
-} from '@moonshot-ai/agent-core-v2';
+} from '@moonshot-ai/agent-core-v2/app/flag/flag';
 export type {
   GoalBudgetLimits,
   GoalBudgetReport,
@@ -111,7 +112,7 @@ export type {
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
-} from '@moonshot-ai/agent-core-v2/contract';
+} from '@moonshot-ai/agent-core-v2/features/goal/types';
 export type {
   PluginCommandDef,
   PluginGithubMetadata,
@@ -122,12 +123,12 @@ export type {
   PluginSource,
   PluginSummary,
   ReloadSummary,
-} from '@moonshot-ai/agent-core-v2';
+} from '@moonshot-ai/agent-core-v2/app/plugin/types';
 export type {
   MarketplaceLocation,
   MarketplaceUpdateStatus,
-  PluginClient,
   PluginMarketplace,
+  PluginClient,
   PluginMarketplaceClassification,
   PluginMarketplaceDistribution,
   PluginMarketplaceEntry,
@@ -136,10 +137,14 @@ export type {
   PluginMarketplacePlatform,
   PluginMarketplaceTier,
   ReadPluginMarketplaceOptions,
-} from '@moonshot-ai/agent-core-v2';
-export type { SkillSummary } from '@moonshot-ai/agent-core-v2';
+} from '@moonshot-ai/agent-core-v2/app/plugin/marketplace';
+export type { InstallPluginInput } from '@moonshot-ai/agent-core-v2/app/plugin/plugin';
+export type { SkillSummary } from '@moonshot-ai/agent-core-v2/features/skill/catalog/types';
 export type { ToolInfo } from '#/tool';
-export type { ExportSessionManifest, ShellEnvironment } from '@moonshot-ai/agent-core-v2';
+export type {
+  ExportSessionManifest,
+  ShellEnvironment,
+} from '@moonshot-ai/agent-core-v2/app/sessionExport/sessionExport';
 
 export interface CronTaskSnapshot {
   readonly id: string;
@@ -155,14 +160,10 @@ export interface GetCronTasksResult {
 }
 
 export type { KimiHostIdentity, OAuthRefreshOutcome };
-// Host UI capabilities are an agent-core-v2 seam (`BootstrapInput.args.uiCapabilities`);
-// hosts name them through `KimiHarnessOptions.uiCapabilities`, so the type is public here.
-export type { HostUiCapability, PluginNodeRunner };
+export type { HostUiCapability };
 export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };
-export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@moonshot-ai/kosong';
-// Contributed commands are an agent-core-v2 seam; the type is re-exported
-// from the v2 engine (v1 sessions report an empty command set).
-export type { AgentCommandInfo } from '@moonshot-ai/agent-core-v2';
+export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@moonshot-ai/agent-core-v2';
+export type { AgentCommandInfo } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
 
 export type { PermissionMode };
 
@@ -191,11 +192,6 @@ export interface WorkspaceTrustInstructionSources {
 }
 
 /** Trust state of a workspace directory, plus everything trusting it would activate. */
-export interface WorkspaceTrustInfoOptions {
-  /** Directories the caller is about to add to the workspace, disclosed before they are registered. */
-  readonly additionalDirs?: readonly string[];
-}
-
 export interface WorkspaceTrustInfo {
   readonly trusted: boolean;
   /** Project-level MCP servers that trusting would start. */
@@ -207,8 +203,16 @@ export interface WorkspaceTrustInfo {
   readonly instructionSources: WorkspaceTrustInstructionSources;
 }
 
+export interface WorkspaceTrustInfoOptions {
+  readonly additionalDirs?: readonly string[];
+  readonly environmentId?: string;
+  readonly environmentCwd?: string;
+}
+
 /**
- * File-suggestion query against a workspace root, no session required.
+ * File-suggestion query against a workspace root, no session required. Only
+ * meaningful on the agent-core-v2 engine; the v1 engine has no equivalent
+ * and reports `undefined`.
  */
 export interface SuggestFilesInput {
   readonly query: string;
@@ -254,7 +258,7 @@ export interface GitStatusSummary {
 export type { FsPullRequest as GitPullRequest } from '@moonshot-ai/agent-core-v2/app/git/git';
 
 /** Metadata of one upload in the engine's daemon file store. */
-export type { FileMeta } from '@moonshot-ai/agent-core-v2';
+export type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 
 /** Input for `uploadFile`: the upload's display name and MIME type. */
 export interface UploadFileOptions {
@@ -264,20 +268,17 @@ export interface UploadFileOptions {
   readonly expiresInSec?: number;
 }
 
+export interface EditGoalObjectiveInput {
+  readonly objective: string;
+}
+
 export interface CreateGoalInput {
   readonly objective: string;
   readonly replace?: boolean;
 }
 
-export interface EditGoalObjectiveInput {
-  readonly objective: string;
-}
-
 export type TextPromptPart = Extract<ContentPart, { type: 'text' }>;
-export type PromptPart = Extract<
-  ContentPart,
-  { type: 'text' | 'image_url' | 'video_url' | 'document_url' }
->;
+export type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'video_url' }>;
 
 export type PromptInput = readonly PromptPart[];
 
@@ -302,7 +303,6 @@ export interface KimiHarnessOptions {
   readonly autoLoadConfig?: boolean | undefined;
   readonly uiMode?: string;
   readonly skillDirs?: readonly string[];
-  readonly serviceSeeds?: ScopeSeed;
   /**
    * UI surfaces this host can render, declared once per process and passed
    * into the engine through `BootstrapInput.args.uiCapabilities`. Engine
@@ -311,14 +311,6 @@ export interface KimiHarnessOptions {
    * offer the dependent tool.
    */
   readonly uiCapabilities?: readonly HostUiCapability[];
-  /**
-   * How this host runs a plugin's `command: "node"` server under its own
-   * runtime, when it implements the hidden `__plugin_run_node` entry: the
-   * command and the arguments that precede the plugin entry. Forwarded as
-   * `BootstrapInput.args.pluginNodeRunner`; hosts that do not set it keep the
-   * existing detection (packaged CLI binary or Electron).
-   */
-  readonly pluginNodeRunner?: PluginNodeRunner;
   readonly telemetry?: TelemetryClient | undefined;
   readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
   /**
@@ -342,7 +334,6 @@ export interface CreateSessionOptions {
   readonly thinking?: string | undefined;
   readonly permission?: PermissionMode | undefined;
   readonly planMode?: boolean;
-  readonly specMode?: boolean;
   readonly metadata?: JsonObject | undefined;
   readonly additionalDirs?: readonly string[];
   /**
@@ -420,7 +411,7 @@ export interface AddAdditionalDirInput {
 }
 
 export interface AddAdditionalDirOptions {
-  /** When true, share the directory through workspace local config. When false,
+  /** When true, remember the directory in the workspace registry. When false,
    * keep it scoped to this session while still restoring it on session resume. */
   readonly persist: boolean;
 }
@@ -483,7 +474,9 @@ export interface GetConfigOptions {
 }
 
 export interface AuthenticateMcpServerOptions {
-  readonly onAuthorizationUrl: (url: string) => void | boolean | PromiseLike<void | boolean>;
+  readonly onAuthorizationUrl: (
+    url: string,
+  ) => void | boolean | PromiseLike<void | boolean>;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   readonly cwd?: string;
@@ -509,25 +502,6 @@ export interface PlanInfo {
 
 export type SessionPlan = PlanInfo | null;
 
-export interface SpecDocument {
-  readonly name: string;
-  readonly content: string;
-}
-
-export interface SpecSnapshot {
-  readonly id: string;
-  readonly dir: string;
-  readonly documents: readonly SpecDocument[];
-  /**
-   * Contents of the spec's `progress.md` working note, or the empty string when
-   * it has not been written. Never gates completion.
-   */
-  readonly progress?: string;
-  readonly missing: readonly string[];
-  readonly complete: boolean;
-  readonly stage: SpecStage;
-}
-
 export type SessionTodoStatus = 'pending' | 'in_progress' | 'done';
 
 export interface SessionTodoItem {
@@ -538,7 +512,7 @@ export interface SessionTodoItem {
 export interface TokenUsage {
   readonly inputOther: number;
   readonly output: number;
-  readonly inputCacheRead: number;
+  readonly inputCacheRead?: number;
   readonly inputCacheCreation: number;
 }
 
@@ -548,29 +522,12 @@ export interface SessionUsage {
   readonly total?: TokenUsage | undefined;
 }
 
-export type SpecStage = 'specify' | 'plan' | 'tasks' | 'implement';
-
 export interface SessionStatus {
   readonly model?: string;
   readonly thinkingEffort: string;
   readonly permission: PermissionMode;
   readonly planMode: boolean;
-  readonly specMode?: boolean;
-  /** Which spec stage is in progress, when spec mode is active. */
-  readonly specStage?: SpecStage;
   readonly swarmMode?: boolean;
-  readonly helloWorldMode?: boolean;
-  readonly helloWorldStage?: string;
-  readonly helloWorldRun?: {
-    readonly stage: string;
-    readonly task?: string;
-    readonly items: readonly {
-      readonly id: string;
-      readonly done: boolean;
-      readonly evidence?: string;
-    }[];
-    readonly waivers: readonly string[];
-  };
   readonly towerMode?: boolean;
   readonly contextTokens: number;
   readonly maxContextTokens: number;
@@ -606,14 +563,9 @@ export interface SessionSummary {
 
 export interface AddAdditionalDirResult {
   readonly additionalDirs: readonly string[];
-  readonly projectRoot: string;
-  readonly configPath: string;
   readonly persisted: boolean;
 }
 
-export type ResumedSessionState = Pick<
-  ResumeSessionResult,
-  'sessionMetadata' | 'agents' | 'warning'
->;
+export type ResumedSessionState = Pick<ResumeSessionResult, 'sessionMetadata' | 'agents' | 'warning'>;
 
-export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState {}
+export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState { }

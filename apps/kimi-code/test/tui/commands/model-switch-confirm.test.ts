@@ -1,22 +1,24 @@
-import { afterEach, describe, expect, it, jest } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import type { Session } from '@moonshot-ai/kimi-code-sdk';
+import type { Session, ThinkingEffort } from '@moonshot-ai/kimi-code-sdk';
 
-import { compactForModelSwitch, confirmThenPerformModelSwitch } from '#/tui/commands/config';
+import { compactForModelSwitch, confirmThenPerformModelSwitch, handleEffortCommand, showModelPicker } from '#/tui/commands/config';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import {
   refreshModelSwitchConfirmConfig,
   resetModelSwitchConfirmConfigCache,
   type ModelSwitchAction,
 } from '#/utils/model-switch-confirm-config';
-
-import { waitForAssertion } from '../../helpers/waitFor';
+import {
+  refreshEffortSwitchConfig,
+  resetEffortSwitchConfigCache,
+} from '#/utils/effort-switch-config';
 
 type TestEvent = { type: string; code?: string; agentId?: string };
 
 function fakeSession() {
   const listeners = new Set<(event: TestEvent) => void>();
-  const compact = jest.fn(async () => undefined);
+  const compact = vi.fn(async () => undefined);
   const session = {
     onEvent: (listener: (event: TestEvent) => void) => {
       listeners.add(listener);
@@ -39,13 +41,14 @@ function fakeSession() {
 function fakeHost(session: Session) {
   return {
     session,
-    showError: jest.fn(),
-    showNotice: jest.fn(),
+    showError: vi.fn(),
+    showNotice: vi.fn(),
   } as unknown as SlashCommandHost;
 }
 
 afterEach(() => {
-  jest.useRealTimers();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('compactForModelSwitch', () => {
@@ -110,21 +113,6 @@ describe('compactForModelSwitch', () => {
     expect(host.showError).toHaveBeenCalledWith('Failed to compact: engine busy. Model unchanged.');
   });
 
-  it('explains a compaction the running agent refuses instead of blaming the engine', async () => {
-    const { session, compact } = fakeSession();
-    const refusal = Object.assign(new Error('cannot compact'), { code: 'compaction.unable' });
-    compact.mockRejectedValue(refusal);
-    const host = fakeHost(session);
-
-    await expect(compactForModelSwitch(host, session)).resolves.toBe(false);
-    expect(host.showError).toHaveBeenCalledWith(
-      "Couldn't compact while the agent is still running — model unchanged. Pause the goal or switch with Continue as-is.",
-    );
-    expect(host.showError).not.toHaveBeenCalledWith(
-      'Failed to compact: cannot compact. Model unchanged.',
-    );
-  });
-
   it('aborts when the session changed while waiting', async () => {
     const { session, emit } = fakeSession();
     const { session: otherSession } = fakeSession();
@@ -138,26 +126,33 @@ describe('compactForModelSwitch', () => {
   });
 
   it('aborts with an error when the compaction never settles', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     const { session } = fakeSession();
     const host = fakeHost(session);
 
     const pending = compactForModelSwitch(host, session);
-    await jest.advanceTimersByTime(10 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
 
     await expect(pending).resolves.toBe(false);
-    expect(host.showError).toHaveBeenCalledWith(
-      'Timed out waiting for compaction — model unchanged.',
-    );
+    expect(host.showError).toHaveBeenCalledWith('Timed out waiting for compaction — model unchanged.');
   });
 });
 
 type MountedDialog = {
-  opts: { onSelect: (action: ModelSwitchAction) => void; onCancel: () => void };
+  opts: {
+    sessionType: 'old' | 'new';
+    kind?: 'model' | 'effort';
+    fromModel: string;
+    toModel: string;
+    hint?: string;
+    warning?: string;
+    onSelect: (action: ModelSwitchAction) => void;
+    onCancel: () => void;
+  };
 };
 
-function makeSwitchHost() {
-  const turnContext: { turnId: string | undefined; step: number } = { turnId: undefined, step: 0 };
+function makeSwitchHost(provider = 'custom') {
+  const listeners = new Set<(event: TestEvent) => void>();
   const appState = {
     model: 'old-alias',
     thinkingEffort: 'off',
@@ -165,28 +160,47 @@ function makeSwitchHost() {
     isCompacting: false,
     sessionId: 'ses-old',
     availableModels: {
-      'old-alias': { model: 'upstream-old', displayName: 'Old' },
-      'new-alias': { model: 'upstream-new', displayName: 'New' },
+      'old-alias': {
+        provider,
+        model: 'upstream-old',
+        displayName: 'Old',
+        capabilities: ['thinking'],
+        supportEfforts: ['low', 'high', 'max'],
+        defaultEffort: 'high',
+      },
+      'new-alias': {
+        provider,
+        model: 'upstream-new',
+        displayName: 'New',
+        capabilities: ['thinking'],
+        supportEfforts: ['low', 'high', 'max'],
+        defaultEffort: 'high',
+      },
     },
+    availableProviders: {},
   };
   let currentModel = 'old-alias';
-  let currentEffort = 'off';
+  let currentEffort: ThinkingEffort = 'off';
   const session = {
-    setModel: jest.fn(async (alias: string) => {
+    setModel: vi.fn(async (alias: string) => {
       currentModel = alias;
     }),
-    setThinking: jest.fn(async (effort: string) => {
+    setThinking: vi.fn(async (effort: ThinkingEffort) => {
       currentEffort = effort;
     }),
-    getStatus: jest.fn(async () => ({ model: currentModel, thinkingEffort: currentEffort })),
-    onEvent: () => () => {},
-    compact: jest.fn(async () => undefined),
+    getStatus: vi.fn(async () => ({ model: currentModel, thinkingEffort: currentEffort })),
+    getResumeState: () => ({ agents: { main: { userTurnCount: 0 } } }),
+    onEvent: (listener: (event: TestEvent) => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    compact: vi.fn(async () => undefined),
   } as unknown as Session;
-  const mountEditorReplacement = jest.fn();
-  const restoreEditor = jest.fn();
-  const createNewSession = jest.fn(async () => {});
-  const activateModelAfterLogin = jest.fn(async () => true);
-  const enqueueModelSwitch = jest.fn();
+  const mountEditorReplacement = vi.fn();
+  const restoreEditor = vi.fn();
+  const turnContext: { turnId: string | undefined; step: number } = { turnId: undefined, step: 0 };
   const host = {
     state: {
       appState,
@@ -196,139 +210,165 @@ function makeSwitchHost() {
     },
     session,
     streamingUI: {
-      hasActiveTurn: jest.fn(() => turnContext.turnId !== undefined),
-      getTurnContext: jest.fn(() => turnContext),
+      hasActiveTurn: vi.fn(() => turnContext.turnId !== undefined),
+      getTurnContext: vi.fn(() => turnContext),
     },
-    completedCompactionSerial: 0,
-    resetLivePane: jest.fn(),
-    drainQueueIfIdle: jest.fn(),
-    enqueueModelSwitch,
-    authFlow: { activateModelAfterLogin },
-    createNewSession,
-    waitForLazyCreation: jest.fn(async () => {}),
-    setAppState: jest.fn((patch: Record<string, unknown>) => Object.assign(appState, patch)),
+    resetLivePane: vi.fn(),
+    drainQueueIfIdle: vi.fn(),
+    enqueueModelSwitch: vi.fn(),
+    harness: { auth: { getCachedAccessToken: vi.fn(async () => 'test-token') } },
+    authFlow: { activateModelAfterLogin: vi.fn(async () => true) },
+    waitForSessionAssembly: vi.fn(async () => {}),
+    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(appState, patch)),
     mountEditorReplacement,
     restoreEditor,
-    showError: jest.fn(),
-    showNotice: jest.fn(),
-    showStatus: jest.fn(),
-    track: jest.fn(),
+    showError: vi.fn(),
+    showNotice: vi.fn(),
+    showStatus: vi.fn(),
+    track: vi.fn(),
   } as unknown as SlashCommandHost;
-  return {
-    host,
-    session,
-    appState,
-    turnContext,
-    mountEditorReplacement,
-    restoreEditor,
-    createNewSession,
-    activateModelAfterLogin,
-    enqueueModelSwitch,
+  const emit = (event: TestEvent): void => {
+    for (const listener of [...listeners]) listener(event);
   };
+  return { host, session, appState, mountEditorReplacement, restoreEditor, emit, turnContext };
 }
 
-function mountedDialog(mountEditorReplacement: ReturnType<typeof jest.fn>): MountedDialog {
+function mountedDialog(mountEditorReplacement: ReturnType<typeof vi.fn>): MountedDialog {
   return mountEditorReplacement.mock.calls[0]?.[0] as unknown as MountedDialog;
 }
 
-async function enableRule(): Promise<void> {
+async function enableEffortConfig(sessionType: 'old' | 'new' | 'all' = 'all'): Promise<void> {
+  await refreshEffortSwitchConfig({
+    fetchImpl: vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          name: 'effort_switch_confirm',
+          config: {
+            descriptions: {
+              enable: true,
+              items: {
+                low: { en: 'Light reasoning.' },
+                high: { en: 'Deeper reasoning.' },
+                max: { en: 'Maximum reasoning.' },
+              },
+            },
+            confirm: {
+              enable: true,
+              rules: [
+                {
+                  from: '*',
+                  to: '*',
+                  session_type: sessionType,
+                  hint: { en: 'Effort hint' },
+                  warning: { en: 'Effort warning' },
+                },
+              ],
+            },
+          },
+        }),
+      ),
+    ) as unknown as typeof fetch,
+  });
+}
+
+async function enableRule(sessionType: 'old' | 'new' | 'all' = 'old'): Promise<void> {
   await refreshModelSwitchConfirmConfig({
-    fetchImpl: jest.fn(
+    fetchImpl: vi.fn(
       async () =>
         new Response(
           JSON.stringify({
             name: 'model_switch_confirm',
-            config: { enable: true, rules: [{ from: 'upstream-old', to: 'upstream-new' }] },
+            config: {
+              enable: true,
+              rules: [
+                {
+                  from: 'upstream-old',
+                  to: 'upstream-new',
+                  session_type: sessionType,
+                  hint: { en: 'Switch hint' },
+                  warning: { en: 'Switch warning' },
+                },
+              ],
+            },
           }),
         ),
     ) as unknown as typeof fetch,
   });
 }
 
-describe('confirmThenPerformModelSwitch new-session action', () => {
+describe('confirmThenPerformModelSwitch', () => {
   afterEach(() => {
     resetModelSwitchConfirmConfigCache();
+    resetEffortSwitchConfigCache();
   });
 
-  it('does not switch when the new session fails to be created', async () => {
-    const { host, session, mountEditorReplacement, activateModelAfterLogin } = makeSwitchHost();
-    await enableRule();
+  it('passes old-session actions and both rule texts to the dialog', async () => {
+    const { host, session, mountEditorReplacement } = makeSwitchHost();
+    await enableRule('old');
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
 
-    mountedDialog(mountEditorReplacement).opts.onSelect('new');
-    await waitForAssertion(() => expect(host.restoreEditor).toHaveBeenCalled());
-
-    expect(session.setModel).not.toHaveBeenCalled();
-    expect(activateModelAfterLogin).not.toHaveBeenCalled();
-  });
-
-  it('switches only after the new session is ready, keeping the dialog locked meanwhile', async () => {
-    const { host, session, appState, mountEditorReplacement, restoreEditor, createNewSession } =
-      makeSwitchHost();
-    await enableRule();
-    let releaseCreation!: () => void;
-    createNewSession.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseCreation = resolve;
-        }),
-    );
-    confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
     const dialog = mountedDialog(mountEditorReplacement);
-
-    dialog.opts.onSelect('new');
-    dialog.opts.onSelect('new');
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(createNewSession).toHaveBeenCalledTimes(1);
-    expect(restoreEditor).not.toHaveBeenCalled();
-
-    releaseCreation();
-    await waitForAssertion(() => expect(restoreEditor).toHaveBeenCalled());
-    expect(session.setModel).not.toHaveBeenCalled();
-    expect(appState.sessionId).toBe('ses-old');
-  });
-
-  it('switches the model once the new session exists', async () => {
-    const { host, session, appState, mountEditorReplacement, createNewSession } = makeSwitchHost();
-    await enableRule();
-    createNewSession.mockImplementation(async () => {
-      appState.sessionId = 'ses-new';
+    expect(dialog.opts).toMatchObject({
+      sessionType: 'old',
+      hint: 'Switch hint',
+      warning: 'Switch warning',
     });
-    confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
-
-    mountedDialog(mountEditorReplacement).opts.onSelect('new');
-    await waitForAssertion(() => expect(host.restoreEditor).toHaveBeenCalled());
-
-    expect(session.setModel).toHaveBeenCalledWith('new-alias');
-  });
-
-  it('queues the compact-then-switch action while the agent is busy', async () => {
-    const { host, session, appState, mountEditorReplacement, enqueueModelSwitch } = makeSwitchHost();
-    appState.streamingPhase = 'waiting';
-    await enableRule();
-    confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
-
-    mountedDialog(mountEditorReplacement).opts.onSelect('compact');
-    await waitForAssertion(() =>
-      expect(enqueueModelSwitch).toHaveBeenCalledWith('new-alias', 'high', 'session'),
-    );
-    expect(session.compact).not.toHaveBeenCalled();
     expect(session.setModel).not.toHaveBeenCalled();
   });
 
-  it('still switches immediately on continue while busy', async () => {
-    const { host, session, appState, mountEditorReplacement } = makeSwitchHost();
-    appState.streamingPhase = 'waiting';
-    await enableRule();
+  it('switches directly on new-session confirm without compacting', async () => {
+    const { host, session, mountEditorReplacement } = makeSwitchHost();
+    host.state.transcriptEntries = [];
+    await enableRule('new');
+    confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
+
+    const dialog = mountedDialog(mountEditorReplacement);
+    expect(dialog.opts).toMatchObject({ sessionType: 'new', hint: 'Switch hint', warning: 'Switch warning' });
+    dialog.opts.onSelect('continue');
+    await vi.waitFor(() => {
+      expect(session.setModel).toHaveBeenCalledWith('new-alias');
+    });
+    expect(session.compact).not.toHaveBeenCalled();
+  });
+
+  it('switches directly on old-session continue', async () => {
+    const { host, session, mountEditorReplacement } = makeSwitchHost();
+    await enableRule('old');
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
 
     mountedDialog(mountEditorReplacement).opts.onSelect('continue');
-    await waitForAssertion(() => expect(session.setModel).toHaveBeenCalledWith('new-alias'));
+    await vi.waitFor(() => {
+      expect(session.setModel).toHaveBeenCalledWith('new-alias');
+    });
+    expect(session.compact).not.toHaveBeenCalled();
   });
 
-  it('dismisses on Escape before any action is chosen', async () => {
+  it('keeps streamingPhase idle during an old-session continue switch', async () => {
+    const { host, session, appState, mountEditorReplacement } = makeSwitchHost();
+    let finishSwitch!: () => void;
+    const switchPending = new Promise<void>((resolve) => {
+      finishSwitch = resolve;
+    });
+    vi.mocked(session.setModel).mockImplementationOnce(() => switchPending);
+    await enableRule('old');
+    confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
+
+    mountedDialog(mountEditorReplacement).opts.onSelect('continue');
+    await vi.waitFor(() => {
+      expect(session.setModel).toHaveBeenCalledWith('new-alias');
+    });
+
+    expect(appState.streamingPhase).toBe('idle');
+    expect(host.resetLivePane).not.toHaveBeenCalled();
+    finishSwitch();
+    await vi.waitFor(() => {
+      expect(host.showStatus).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('does not switch on cancel', async () => {
     const { host, session, mountEditorReplacement, restoreEditor } = makeSwitchHost();
-    await enableRule();
+    await enableRule('old');
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
 
     mountedDialog(mountEditorReplacement).opts.onCancel();
@@ -337,64 +377,207 @@ describe('confirmThenPerformModelSwitch new-session action', () => {
     expect(session.setModel).not.toHaveBeenCalled();
   });
 
-  it('ignores Escape once an action has been chosen', async () => {
-    const { host, mountEditorReplacement, restoreEditor, createNewSession } = makeSwitchHost();
-    await enableRule();
-    let releaseCreation!: () => void;
-    createNewSession.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseCreation = resolve;
-        }),
-    );
+  it('ignores duplicate actions and Escape after the first choice', async () => {
+    const { host, session, mountEditorReplacement, restoreEditor } = makeSwitchHost();
+    await enableRule('old');
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
     const dialog = mountedDialog(mountEditorReplacement);
 
-    dialog.opts.onSelect('new');
+    dialog.opts.onSelect('continue');
+    dialog.opts.onSelect('compact');
     dialog.opts.onCancel();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(restoreEditor).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(session.setModel).toHaveBeenCalledTimes(1);
+    });
 
-    releaseCreation();
-    await waitForAssertion(() => expect(restoreEditor).toHaveBeenCalled());
+    expect(session.compact).not.toHaveBeenCalled();
+    expect(restoreEditor).toHaveBeenCalledTimes(1);
   });
 
-  it('does not dismiss a panel that displaced the dialog when creation settles', async () => {
-    const { host, mountEditorReplacement, restoreEditor } = makeSwitchHost();
-    await enableRule();
+  it('switches without a dialog when the rule session type does not match', async () => {
+    const { host, session, mountEditorReplacement } = makeSwitchHost();
+    host.state.transcriptEntries = [];
+    await enableRule('old');
+    confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
+
+    await vi.waitFor(() => {
+      expect(session.setModel).toHaveBeenCalledWith('new-alias');
+    });
+    expect(mountEditorReplacement).not.toHaveBeenCalled();
+  });
+
+  it('gates a pure effort switch for an OAuth subscription model', async () => {
+    const { host, session, mountEditorReplacement } = makeSwitchHost('managed:kimi-code');
+    await enableEffortConfig();
+
+    confirmThenPerformModelSwitch(host, 'old-alias', 'high', 'session');
+
+    const dialog = mountedDialog(mountEditorReplacement);
+    expect(dialog.opts).toMatchObject({
+      kind: 'effort',
+      fromModel: 'off',
+      toModel: 'high',
+      sessionType: 'old',
+      hint: 'Effort hint',
+      warning: 'Effort warning',
+    });
+    expect(session.setThinking).not.toHaveBeenCalled();
+    dialog.opts.onSelect('continue');
+    await vi.waitFor(() => expect(session.setThinking).toHaveBeenCalledWith('high'));
+    expect(session.compact).not.toHaveBeenCalled();
+  });
+
+  it('shows hint and warning for a new-session effort switch and keeps effort on cancel', async () => {
+    const { host, session, mountEditorReplacement } = makeSwitchHost('managed:kimi-code');
+    host.state.transcriptEntries = [];
+    await enableEffortConfig('new');
+
+    confirmThenPerformModelSwitch(host, 'old-alias', 'high', 'session');
+
+    const dialog = mountedDialog(mountEditorReplacement);
+    expect(dialog.opts).toMatchObject({
+      kind: 'effort',
+      sessionType: 'new',
+      hint: 'Effort hint',
+      warning: 'Effort warning',
+    });
+    dialog.opts.onCancel();
+    expect(session.setThinking).not.toHaveBeenCalled();
+  });
+
+  it('switches effort directly for a non-OAuth model', async () => {
+    const { host, session, mountEditorReplacement } = makeSwitchHost('custom');
+    await enableEffortConfig();
+
+    await handleEffortCommand(host, 'high');
+
+    expect(session.setThinking).toHaveBeenCalledWith('high');
+    expect(mountEditorReplacement).not.toHaveBeenCalled();
+  });
+
+  it('ignores effort rules when the model changes at the same time', async () => {
+    const { host, session, mountEditorReplacement } = makeSwitchHost('managed:kimi-code');
+    await enableEffortConfig();
+
+    confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
+
+    await vi.waitFor(() => expect(session.setModel).toHaveBeenCalledWith('new-alias'));
+    expect(mountEditorReplacement).not.toHaveBeenCalled();
+  });
+
+  it('gates a direct /effort argument before applying the new effort', async () => {
+    const { host, session, mountEditorReplacement } = makeSwitchHost('managed:kimi-code');
+    await enableEffortConfig();
+
+    await handleEffortCommand(host, 'high');
+
+    const dialog = mountedDialog(mountEditorReplacement);
+    expect(dialog.opts).toMatchObject({ kind: 'effort', fromModel: 'off', toModel: 'high' });
+    expect(session.setThinking).not.toHaveBeenCalled();
+    dialog.opts.onSelect('continue');
+    await vi.waitFor(() => expect(session.setThinking).toHaveBeenCalledWith('high'));
+  });
+
+  it('shows cloud descriptions and gates Alt+S while preserving session-only scope', async () => {
+    const { host, session, mountEditorReplacement } = makeSwitchHost('managed:kimi-code');
+    await enableEffortConfig();
+
+    await handleEffortCommand(host, '');
+
+    const selector = mountEditorReplacement.mock.calls[0]?.[0] as unknown as {
+      opts: {
+        descriptions: Record<string, string>;
+        onSessionOnlySelect: (effort: string) => void;
+      };
+    };
+    expect(selector.opts.descriptions).toEqual({
+      low: 'Light reasoning.',
+      high: 'Deeper reasoning.',
+      max: 'Maximum reasoning.',
+    });
+    selector.opts.onSessionOnlySelect('high');
+    await vi.waitFor(() => expect(mountEditorReplacement).toHaveBeenCalledTimes(2));
+    const dialog = mountEditorReplacement.mock.calls[1]?.[0] as unknown as MountedDialog;
+    dialog.opts.onSelect('continue');
+    await vi.waitFor(() => expect(session.setThinking).toHaveBeenCalledWith('high'));
+    expect(session.compact).not.toHaveBeenCalled();
+  });
+
+  it('shows the model confirmation while busy and queues Compact and continue', async () => {
+    const { host, session, appState, mountEditorReplacement } = makeSwitchHost('managed:kimi-code');
+    appState.streamingPhase = 'waiting';
+    await enableRule('old');
+
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
     const dialog = mountedDialog(mountEditorReplacement);
+    expect(dialog.opts.sessionType).toBe('old');
+    expect(session.setModel).not.toHaveBeenCalled();
 
-    dialog.opts.onSelect('new');
-    (host.state as unknown as { activeDialog: string | null }).activeDialog = null;
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    dialog.opts.onSelect('compact');
 
-    expect(restoreEditor).not.toHaveBeenCalled();
-  });
-});
-
-describe('model switch while the agent is busy', () => {
-  afterEach(() => {
-    resetModelSwitchConfirmConfigCache();
+    await vi.waitFor(() => {
+      expect(host.enqueueModelSwitch).toHaveBeenCalledWith('new-alias', 'high', 'session');
+    });
+    expect(session.compact).not.toHaveBeenCalled();
+    expect(session.setModel).not.toHaveBeenCalled();
   });
 
-  it('switches directly once the running turn has sent its first request and says so', async () => {
-    const { host, session, appState, turnContext, mountEditorReplacement } = makeSwitchHost();
+  it('shows the effort confirmation while compacting and switches immediately on continue', async () => {
+    const { host, session, appState, mountEditorReplacement } = makeSwitchHost('managed:kimi-code');
+    appState.isCompacting = true;
+    await enableEffortConfig();
+
+    confirmThenPerformModelSwitch(host, 'old-alias', 'high', 'session');
+    const dialog = mountedDialog(mountEditorReplacement);
+    expect(dialog.opts.kind).toBe('effort');
+    expect(session.setThinking).not.toHaveBeenCalled();
+
+    dialog.opts.onSelect('continue');
+
+    await vi.waitFor(() => {
+      expect(session.setThinking).toHaveBeenCalledWith('high');
+      expect(host.showStatus).toHaveBeenCalledWith(
+        'Thinking set to high for this session only. Takes effect from the next turn.',
+        'success',
+      );
+    });
+  });
+
+  it('switches directly once the turn has sent a request when no cloud rule matches', async () => {
+    const { host, session, appState, mountEditorReplacement, turnContext } = makeSwitchHost();
     appState.streamingPhase = 'waiting';
     turnContext.turnId = '4';
     turnContext.step = 1;
 
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
 
-    await waitForAssertion(() => expect(session.setModel).toHaveBeenCalledWith('new-alias'));
+    await vi.waitFor(() => {
+      expect(session.setModel).toHaveBeenCalledWith('new-alias');
+      expect(host.showStatus).toHaveBeenCalledWith(
+        'Switched to New with thinking high for this session only. Takes effect from the next turn.',
+        'success',
+      );
+    });
     expect(mountEditorReplacement).not.toHaveBeenCalled();
-    expect(host.showStatus).toHaveBeenCalledWith(
-      'Switched to New with thinking high for this session only. Takes effect from the next turn.',
-      'success',
-    );
   });
 
   it('does not promise a next-turn switch after submit and before the first request', async () => {
+    const { host, session, appState, turnContext } = makeSwitchHost();
+    appState.streamingPhase = 'waiting';
+    turnContext.step = 3;
+
+    confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
+
+    await vi.waitFor(() => {
+      expect(session.setModel).toHaveBeenCalledWith('new-alias');
+      expect(host.showStatus).toHaveBeenCalledWith(
+        'Switched to New with thinking high for this session only.',
+        'success',
+      );
+    });
+  });
+
+  it('does not promise a next-turn switch after the turn starts and before its first step', async () => {
     const { host, session, appState, turnContext } = makeSwitchHost();
     appState.streamingPhase = 'waiting';
     turnContext.turnId = '7';
@@ -402,11 +585,13 @@ describe('model switch while the agent is busy', () => {
 
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
 
-    await waitForAssertion(() => expect(session.setModel).toHaveBeenCalledWith('new-alias'));
-    expect(host.showStatus).toHaveBeenCalledWith(
-      'Switched to New with thinking high for this session only.',
-      'success',
-    );
+    await vi.waitFor(() => {
+      expect(session.setModel).toHaveBeenCalledWith('new-alias');
+      expect(host.showStatus).toHaveBeenCalledWith(
+        'Switched to New with thinking high for this session only.',
+        'success',
+      );
+    });
   });
 
   it('promises a next-turn switch while a shell command is running', async () => {
@@ -415,24 +600,13 @@ describe('model switch while the agent is busy', () => {
 
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
 
-    await waitForAssertion(() => expect(session.setModel).toHaveBeenCalledWith('new-alias'));
-    expect(host.showStatus).toHaveBeenCalledWith(
-      'Switched to New with thinking high for this session only. Takes effect from the next turn.',
-      'success',
-    );
-  });
-
-  it('promises a next-turn switch while a compaction is running', async () => {
-    const { host, session, appState } = makeSwitchHost();
-    appState.isCompacting = true;
-
-    confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
-
-    await waitForAssertion(() => expect(session.setModel).toHaveBeenCalledWith('new-alias'));
-    expect(host.showStatus).toHaveBeenCalledWith(
-      'Switched to New with thinking high for this session only. Takes effect from the next turn.',
-      'success',
-    );
+    await vi.waitFor(() => {
+      expect(session.setModel).toHaveBeenCalledWith('new-alias');
+      expect(host.showStatus).toHaveBeenCalledWith(
+        'Switched to New with thinking high for this session only. Takes effect from the next turn.',
+        'success',
+      );
+    });
   });
 
   it('keeps an idle switch notice unchanged when replay left a started step', async () => {
@@ -442,10 +616,65 @@ describe('model switch while the agent is busy', () => {
 
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
 
-    await waitForAssertion(() => expect(session.setModel).toHaveBeenCalledWith('new-alias'));
-    expect(host.showStatus).toHaveBeenCalledWith(
-      'Switched to New with thinking high for this session only.',
-      'success',
-    );
+    await vi.waitFor(() => {
+      expect(session.setModel).toHaveBeenCalledWith('new-alias');
+      expect(host.showStatus).toHaveBeenCalledWith(
+        'Switched to New with thinking high for this session only.',
+        'success',
+      );
+    });
+  });
+
+  it('keeps the already-using notice unchanged while busy', async () => {
+    const { host, appState } = makeSwitchHost();
+    appState.streamingPhase = 'waiting';
+
+    confirmThenPerformModelSwitch(host, 'old-alias', 'off', 'session');
+
+    await vi.waitFor(() => {
+      expect(host.showStatus).toHaveBeenCalledWith(
+        'Already using Old with thinking off.',
+        'success',
+      );
+    });
+  });
+
+  it('compacts then switches without a next-turn notice when idle', async () => {
+    const { host, session, mountEditorReplacement, emit } = makeSwitchHost('managed:kimi-code');
+    await enableRule('old');
+    confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
+
+    mountedDialog(mountEditorReplacement).opts.onSelect('compact');
+    await vi.waitFor(() => {
+      expect(session.compact).toHaveBeenCalledWith({});
+    });
+    expect(session.setModel).not.toHaveBeenCalled();
+
+    emit({ type: 'compaction.completed', agentId: 'main' });
+
+    await vi.waitFor(() => {
+      expect(session.setModel).toHaveBeenCalledWith('new-alias');
+      expect(host.showStatus).toHaveBeenCalledWith(
+        'Switched to New with thinking high for this session only.',
+        'success',
+      );
+      expect(host.drainQueueIfIdle).toHaveBeenCalled();
+    });
+    expect(host.state.queuedMessageDispatchPending).toBe(false);
+  });
+
+  it('does not refetch failed configs every time the model picker opens', async () => {
+    const { host } = makeSwitchHost();
+    host.setAppState({ availableModels: {} });
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    vi.stubGlobal('fetch', fetchImpl);
+
+    await showModelPicker(host);
+    await showModelPicker(host);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(host.showNotice).toHaveBeenCalledTimes(2);
   });
 });

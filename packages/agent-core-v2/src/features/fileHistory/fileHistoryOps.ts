@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { isDraft, original, type Draft } from 'immer';
 import { z } from 'zod';
 
@@ -134,10 +134,10 @@ function checkpointIndexOf(
   return index;
 }
 
-export const fileHistoryKey = defineState('fileHistory', (): FileHistoryState => ({
-  checkpoints: [],
-  tracked: [],
-}))
+export const fileHistoryKey = defineState(
+  'fileHistory',
+  (): FileHistoryState => ({ checkpoints: [], tracked: [] }),
+)
   .replayable({ schema: z.custom<FileHistoryState>() })
   .on(FileHistoryCheckpointed, (s, e) => {
     const phase = checkpointPhaseOf(e);

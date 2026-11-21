@@ -1,14 +1,14 @@
-import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
-import type { ProviderMediaContribution } from '#/llm/media/upload';
-import type { LlmConnection, LlmModel } from '#/llm/model';
-import type { ProtocolBase, ProtocolName } from '#/llm/protocol/base';
-import type { ProviderConnection } from '#/llm/protocol/connection';
-import type { AnthropicTrait } from '#/llm/requester/bases/anthropic/trait';
-import type { AntigravityTrait } from '#/llm/requester/bases/antigravity/trait';
-import type { GoogleGenAITrait } from '#/llm/requester/bases/google-genai/trait';
-import type { OpenAIResponsesTrait } from '#/llm/requester/bases/openai-responses/trait';
-import type { OpenAITrait } from '#/llm/requester/bases/openai/trait';
-import type { LlmErrorClassifier, LlmRequester } from '#/llm/requester/requester';
+import { UNKNOWN_CAPABILITY, type ModelCapability } from '#human/llm/capability';
+import type { ProviderMediaContribution } from '#human/llm/media/upload';
+import type { LlmConnection, LlmModel } from '#human/llm/model';
+import type { ProtocolBase, ProtocolName } from '#human/llm/protocol/base';
+import type { ProviderConnection } from '#human/llm/protocol/connection';
+import type { AnthropicTrait } from '#human/llm/requester/bases/anthropic/trait';
+import type { AntigravityTrait } from '#human/llm/requester/bases/antigravity/trait';
+import type { GoogleGenAITrait } from '#human/llm/requester/bases/google-genai/trait';
+import type { OpenAIResponsesTrait } from '#human/llm/requester/bases/openai-responses/trait';
+import type { OpenAITrait } from '#human/llm/requester/bases/openai/trait';
+import type { LlmErrorClassifier, LlmRequester } from '#human/llm/requester/requester';
 
 interface ProtocolTraitsByName {
   readonly openai: OpenAITrait;

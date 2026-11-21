@@ -1,19 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentStateService } from '#/agent/state/agentState';
-import type { AgentTaskInfo } from '#/agent/task/task';
-import { taskKey, TaskOutput, TaskStarted, TaskTerminated } from '#/agent/task/taskOps';
-import { EVENT2_REGISTRY } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import type { AgentTaskInfo } from '#/agent/task/task';
+import { taskKey, TaskStarted, TaskTerminated } from '#/agent/task/taskOps';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import type { IEventDispatcher } from '#/state/eventDispatcher';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import {
@@ -30,7 +29,6 @@ let disposables: DisposableStore;
 let dispatcher: IEventDispatcher;
 let agentState: IAgentStateService;
 let log: IAppendLogStore;
-let eventBus: IEventBus;
 
 function buildHost(key: string): {
   dispatcher: IEventDispatcher;
@@ -58,7 +56,6 @@ beforeEach(() => {
   dispatcher = host.dispatcher;
   agentState = host.agentState;
   log = host.log;
-  eventBus = host.eventBus;
 });
 
 afterEach(() => disposables.dispose());
@@ -66,10 +63,7 @@ afterEach(() => disposables.dispose());
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(
-    testWireScope(SCOPE, key),
-    AGENT_WIRE_RECORD_KEY,
-  )) {
+  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
     out.push(record);
   }
   return out;
@@ -91,19 +85,13 @@ describe('task ops (wire-backed)', () => {
   it('started/terminated fold into the task map by id and persist to the journal', async () => {
     expect(agentState.get(taskKey).size).toBe(0);
 
-    await dispatcher.dispatch(
-      new TaskStarted({ agentId: 'test-agent', info: info('t1', 'running') }),
-    );
+    await dispatcher.dispatch(new TaskStarted({ agentId: 'test-agent', info: info('t1', 'running') }));
     expect(agentState.get(taskKey).get('t1')?.status).toBe('running');
 
-    await dispatcher.dispatch(
-      new TaskTerminated({ agentId: 'test-agent', info: info('t1', 'completed') }),
-    );
+    await dispatcher.dispatch(new TaskTerminated({ agentId: 'test-agent', info: info('t1', 'completed') }));
     expect(agentState.get(taskKey).get('t1')?.status).toBe('completed');
 
-    await dispatcher.dispatch(
-      new TaskStarted({ agentId: 'test-agent', info: info('t2', 'running') }),
-    );
+    await dispatcher.dispatch(new TaskStarted({ agentId: 'test-agent', info: info('t2', 'running') }));
     expect(agentState.get(taskKey).size).toBe(2);
 
     expect(await readRecords()).toEqual([
@@ -128,71 +116,9 @@ describe('task ops (wire-backed)', () => {
     ]);
   });
 
-  it('task.terminated persists the optional outputTail snapshot (record-only, never in the state or the bus)', async () => {
-    const published: Record<string, unknown>[] = [];
-    disposables.add(
-      eventBus.subscribe((e) => {
-        published.push(Object.assign({}, e) as unknown as Record<string, unknown>);
-      }),
-    );
-    await dispatcher.dispatch(
-      new TaskTerminated({
-        agentId: 'test-agent',
-        info: info('t1', 'completed'),
-        outputTail: 'last lines',
-      }),
-    );
-
-    expect(await readRecords()).toEqual([
-      {
-        type: 'task.terminated',
-        agentId: 'test-agent',
-        info: info('t1', 'completed'),
-        outputTail: 'last lines',
-        time: expect.any(Number),
-      },
-    ]);
-    expect(agentState.get(taskKey).get('t1')).toEqual(info('t1', 'completed'));
-    expect(published).toEqual([
-      {
-        type: 'task.terminated',
-        agentId: 'test-agent',
-        info: info('t1', 'completed'),
-        time: expect.any(Number),
-      },
-    ]);
-  });
-
-  it('task.output is an observable, non-durable event that never reaches the wire', async () => {
-    expect(TaskOutput.type).toBe('task.output');
-    expect(TaskOutput.observable).toBe(true);
-    expect(TaskOutput.durable).toBe(false);
-    expect(EVENT2_REGISTRY.has(TaskOutput.type)).toBe(false);
-
-    const published: string[] = [];
-    disposables.add(
-      eventBus.subscribe((e) => {
-        published.push(e.type);
-      }),
-    );
-    await dispatcher.dispatch(
-      new TaskOutput({
-        agentId: 'test-agent',
-        taskId: 't1',
-        chunk: 'hello\n',
-        outputSizeBytes: 6,
-      }),
-    );
-
-    expect(published).toEqual(['task.output']);
-    expect(await readRecords()).toEqual([]);
-  });
-
   it('apply returns a new Map on change (the model is the restore seed)', async () => {
     const before = agentState.get(taskKey);
-    await dispatcher.dispatch(
-      new TaskStarted({ agentId: 'test-agent', info: info('t1', 'running') }),
-    );
+    await dispatcher.dispatch(new TaskStarted({ agentId: 'test-agent', info: info('t1', 'running') }));
     const after = agentState.get(taskKey);
     expect(after).not.toBe(before);
     expect(after.get('t1')?.status).toBe('running');

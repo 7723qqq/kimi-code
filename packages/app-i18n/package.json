@@ -1,0 +1,26 @@
+{
+  "name": "@moonshot-ai/app-i18n",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./browser": "./src/browser.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun ../../scripts/run-package-tests.mjs --root=test"
+  },
+  "dependencies": {
+    "vue-i18n": "^11.4.5"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.35"
+  },
+  "devDependencies": {
+    "typescript": "6.0.2",
+    "vue": "^3.5.35",
+    "vue-i18n": "^11.4.5",
+    "vue-tsc": "~3.2.0"
+  }
+}

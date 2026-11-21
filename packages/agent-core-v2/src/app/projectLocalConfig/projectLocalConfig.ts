@@ -16,12 +16,7 @@ export interface IProjectLocalConfigService {
   readonly _serviceBrand: undefined;
 
   readAdditionalDirs(workDir: string): Promise<ProjectAdditionalDirsLoadResult>;
-  resolveAdditionalDirs(
-    baseDir: string,
-    additionalDirs: readonly string[],
-    source?: 'session' | 'config',
-  ): Promise<string[]>;
-  appendAdditionalDir(workDir: string, inputPath: string): Promise<ProjectAdditionalDirsLoadResult>;
+  resolveAdditionalDirs(baseDir: string, additionalDirs: readonly string[]): Promise<string[]>;
   readPermissionRules(workDir: string): Promise<ProjectPermissionRulesLoadResult>;
   appendPermissionRules(
     workDir: string,

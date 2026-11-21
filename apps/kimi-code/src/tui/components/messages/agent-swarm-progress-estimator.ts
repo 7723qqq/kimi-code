@@ -1,8 +1,3 @@
-import {
-  MAX_ESTIMATOR_SEEN_TOOL_CALLS,
-  MAX_ESTIMATOR_TOOL_CALL_SAMPLES,
-} from '#/tui/constant/rendering';
-
 const DEFAULT_RATE_WINDOW_MS = 45_000;
 const DEFAULT_CATCHUP_TIME_MS = 1_500;
 const DEFAULT_WORKLOAD_SPREAD_FACTOR = 1.5;
@@ -57,8 +52,6 @@ interface MemberProgressState {
   terminalKind?: 'completed' | 'failed' | 'cancelled';
   rawTicks: number;
   readonly seenToolCallIds: Set<string>;
-  /** Insertion order of `seenToolCallIds`, so the oldest id can be evicted. */
-  seenToolCallOrder: string[];
   toolCallActiveTimesMs: number[];
   displayTicks: number;
   lastEstimateAtMs?: number;
@@ -86,9 +79,7 @@ export class AgentSwarmProgressEstimator {
   private readonly unfinishedProgressCap: number;
   private readonly maxBoostGain: number;
   private samplesVersion = 0;
-  private priorCache:
-    | { readonly version: number; readonly prior: EstimatePrior | undefined }
-    | undefined;
+  private priorCache: { readonly version: number; readonly prior: EstimatePrior | undefined } | undefined;
 
   constructor(options: AgentSwarmProgressEstimatorOptions = {}) {
     this.rateWindowMs = positiveOrDefault(options.rateWindowMs, DEFAULT_RATE_WINDOW_MS);
@@ -108,6 +99,16 @@ export class AgentSwarmProgressEstimator {
   ensureMember(memberKey: string, nowMs: number): void {
     void nowMs;
     this.getOrCreateMember(memberKey);
+  }
+
+  removeMissingMembers(memberKeys: readonly string[]): void {
+    const live = new Set(memberKeys);
+    for (const memberKey of this.members.keys()) {
+      if (!live.has(memberKey)) {
+        this.members.delete(memberKey);
+        this.samplesVersion += 1;
+      }
+    }
   }
 
   markStarted(memberKey: string, nowMs: number): void {
@@ -140,22 +141,8 @@ export class AgentSwarmProgressEstimator {
     if (state.seenToolCallIds.has(input.toolCallId)) {
       return { accepted: false, rawTicks: state.rawTicks };
     }
-    // Both histories are unbounded in principle (a long-running member can see
-    // thousands of tool calls), so each keeps only a recent window: the rate
-    // kernel only reads the recent past, and the seen-id set only dedupes
-    // repeated or replayed records. Evicting an old id can let a very late
-    // duplicate through, which is preferable to retaining every id forever.
     state.seenToolCallIds.add(input.toolCallId);
-    state.seenToolCallOrder.push(input.toolCallId);
-    if (state.seenToolCallOrder.length > MAX_ESTIMATOR_SEEN_TOOL_CALLS) {
-      const evictedId = state.seenToolCallOrder.shift();
-      if (evictedId !== undefined) state.seenToolCallIds.delete(evictedId);
-    }
-    const activeTimesMs = state.toolCallActiveTimesMs;
-    activeTimesMs.push(this.activeElapsedMs(state, input.nowMs));
-    if (activeTimesMs.length > MAX_ESTIMATOR_TOOL_CALL_SAMPLES) {
-      activeTimesMs.splice(0, activeTimesMs.length - MAX_ESTIMATOR_TOOL_CALL_SAMPLES);
-    }
+    state.toolCallActiveTimesMs.push(this.activeElapsedMs(state, input.nowMs));
     state.rawTicks += 1;
     state.displayTicks = Math.max(state.displayTicks + 1, state.rawTicks);
     delete state.terminalAtMs;
@@ -247,10 +234,19 @@ export class AgentSwarmProgressEstimator {
     };
   }
 
+  estimateAll(
+    inputs: readonly AgentSwarmProgressEstimateInput[],
+  ): Map<string, AgentSwarmProgressEstimate> {
+    const estimates = new Map<string, AgentSwarmProgressEstimate>();
+    for (const input of inputs) {
+      estimates.set(input.memberKey, this.estimate(input));
+    }
+    return estimates;
+  }
+
   hasPendingCatchup(): boolean {
     return Array.from(this.members.values()).some(
-      (state) =>
-        state.lastTargetTicks !== undefined && state.lastTargetTicks > state.displayTicks + 0.1,
+      (state) => state.lastTargetTicks !== undefined && state.lastTargetTicks > state.displayTicks + 0.1,
     );
   }
 
@@ -295,7 +291,6 @@ export class AgentSwarmProgressEstimator {
       pausedDurationMs: 0,
       rawTicks: 0,
       seenToolCallIds: new Set(),
-      seenToolCallOrder: [],
       toolCallActiveTimesMs: [],
       displayTicks: 0,
     };
@@ -306,9 +301,6 @@ export class AgentSwarmProgressEstimator {
   private buildPrior(): EstimatePrior | undefined {
     const cache = this.priorCache;
     if (cache !== undefined && cache.version === this.samplesVersion) return cache.prior;
-    // The prior depends only on completed members' terminal samples, so it is
-    // reused across every estimate until a mutation bumps the sample version
-    // instead of being rebuilt per running cell per frame.
     const prior = this.computePrior();
     this.priorCache = { version: this.samplesVersion, prior };
     return prior;
@@ -365,7 +357,11 @@ export class AgentSwarmProgressEstimator {
       prior,
       completedConfidence,
     );
-    return Math.max(boundedTotalToolCalls, state.rawTicks / this.unfinishedProgressCap, 1);
+    return Math.max(
+      boundedTotalToolCalls,
+      state.rawTicks / this.unfinishedProgressCap,
+      1,
+    );
   }
 
   private softBoundTotalToolCalls(
@@ -380,7 +376,10 @@ export class AgentSwarmProgressEstimator {
     return geometricInterpolate(totalToolCalls, bounded, completedConfidence);
   }
 
-  private estimateLocalRatePerMs(state: MemberProgressState, elapsedMs: number): number {
+  private estimateLocalRatePerMs(
+    state: MemberProgressState,
+    elapsedMs: number,
+  ): number {
     if (elapsedMs <= 0 || state.toolCallActiveTimesMs.length === 0) return 0;
     let decayedToolCalls = 0;
     for (const timeMs of state.toolCallActiveTimesMs) {

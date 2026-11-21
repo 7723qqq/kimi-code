@@ -1,17 +1,6 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { formatSessionLabel } from '#/migration/badge';
-
-void mock.module('#/i18n', () => ({
-  t: (key: string) => {
-    const translations: Record<string, string> = {
-      'tui.migration.badgeImported': '[imported]',
-    };
-    return translations[key] ?? key;
-  },
-  setLocale: mock(),
-  getLocale: () => 'en',
-}));
 
 describe('formatSessionLabel', () => {
   it('prepends [imported] when metadata.imported_from_kimi_cli === true', () => {
@@ -54,5 +43,15 @@ describe('formatSessionLabel', () => {
       metadata: { imported_from_kimi_cli: true },
     });
     expect(label).toBe('[imported] ');
+  });
+
+  it('prepends the source tool for sessions imported from Claude Code or Codex', () => {
+    expect(formatSessionLabel({ title: 'Fix login', metadata: { imported_from: 'claude-code' } })).toBe(
+      '[Claude Code] Fix login',
+    );
+    expect(formatSessionLabel({ title: 'Add tests', metadata: { imported_from: 'codex' } })).toBe('[Codex] Add tests');
+    expect(formatSessionLabel({ title: 'Unknown source', metadata: { imported_from: 'other' } })).toBe(
+      'Unknown source',
+    );
   });
 });

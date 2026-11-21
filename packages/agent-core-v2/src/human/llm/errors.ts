@@ -1,4 +1,3 @@
-import type { FinishReason } from '#/llm/finish-reason';
 
 export function sanitizeStatusErrorMessage(message: string): string {
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(message);
@@ -26,60 +25,22 @@ export function errorStatusCode(error: unknown): number | undefined {
   return typeof status === 'number' ? status : undefined;
 }
 
-export type LlmErrorKind =
-  | 'syntax'
-  | 'abort'
-  | 'connection'
-  | 'timeout'
-  | 'status'
-  | 'rate_limit'
-  | 'quota_exhausted'
-  | 'overloaded'
-  | 'context_overflow'
-  | 'request_too_large'
-  | 'request_structure'
-  | 'image_format'
-  | 'empty_response'
-  | 'provider'
-  | 'unknown';
+import type {
+  LlmErrorMessage,
+  LlmRemoteErrorMessage,
+  LlmStatusErrorInfo,
+  LlmStatusErrorKind,
+} from '@moonshot-ai/core/llm/response';
 
-export type LlmRemoteErrorKind = Exclude<LlmErrorKind, 'syntax'>;
-
-export type LlmSyntaxErrorCode = 'request_format' | 'thinking_config' | 'internal';
-
-export type LlmStatusErrorKind =
-  | 'status'
-  | 'rate_limit'
-  | 'quota_exhausted'
-  | 'overloaded'
-  | 'context_overflow'
-  | 'request_too_large'
-  | 'request_structure'
-  | 'image_format';
-
-export interface LlmStatusErrorInfo {
-  readonly statusCode?: number;
-  readonly requestId: string | null;
-  readonly retryAfterMs: number | null;
-  readonly headers: Record<string, string> | null;
-  readonly retryable: boolean;
-}
-
-export type LlmErrorMessage<T extends LlmErrorKind = LlmErrorKind> = T extends LlmStatusErrorKind
-  ? { readonly kind: T; readonly message: string } & LlmStatusErrorInfo
-  : T extends 'syntax'
-    ? { readonly kind: T; readonly message: string; readonly code: LlmSyntaxErrorCode }
-    : T extends 'empty_response'
-      ? {
-          readonly kind: T;
-          readonly message: string;
-          readonly finishReason: FinishReason | null;
-          readonly rawFinishReason: string | null;
-          readonly retryable: boolean;
-        }
-      : { readonly kind: T; readonly message: string; readonly retryable: boolean };
-
-export type LlmRemoteErrorMessage = LlmErrorMessage<LlmRemoteErrorKind>;
+export type {
+  LlmErrorKind,
+  LlmErrorMessage,
+  LlmRemoteErrorKind,
+  LlmRemoteErrorMessage,
+  LlmStatusErrorInfo,
+  LlmStatusErrorKind,
+  LlmSyntaxErrorCode,
+} from '@moonshot-ai/core/llm/response';
 
 export function llmStatusErrorMessage(
   error: LlmErrorMessage,

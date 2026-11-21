@@ -1,6 +1,7 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { type IDisposable } from '#/_base/di/lifecycle';
 import type { Event } from '#/_base/event';
+
 import { StorageError, StorageErrors } from '#/persistence/interface/storage';
 
 export class AppendLogCorruptedError extends StorageError {
@@ -47,12 +48,7 @@ export interface IAppendLogStore {
 
   append<R>(scope: string, key: string, record: R, options?: AppendLogOptions): void;
   read<R>(scope: string, key: string, options?: AppendLogReadOptions): AsyncIterable<R>;
-  rewrite<R>(
-    scope: string,
-    key: string,
-    records: readonly R[],
-    options?: AppendLogRewriteOptions,
-  ): Promise<void>;
+  rewrite<R>(scope: string, key: string, records: readonly R[], options?: AppendLogRewriteOptions): Promise<void>;
   flush(): Promise<void>;
   flushLog(scope: string, key: string): Promise<void>;
   close(): Promise<void>;

@@ -1,7 +1,3 @@
-import { ERROR_CODE_UNION } from './errorCode.generated';
-
-export type ErrorCode = (typeof ERROR_CODE_UNION)[number];
-
 export interface ErrorInfo {
   readonly title?: string;
   readonly retryable: boolean;
@@ -56,12 +52,16 @@ export const CoreErrors = {
   },
   info: {
     internal: {
+      title: 'Internal error',
       retryable: false,
       public: true,
+      action: 'Inspect logs or report the issue with diagnostics.',
     },
     not_implemented: {
+      title: 'Not implemented',
       retryable: false,
       public: true,
+      action: 'This feature is not implemented yet.',
     },
   },
 } as const satisfies ErrorDomain;

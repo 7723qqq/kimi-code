@@ -33,17 +33,9 @@ export function readRetryAfterMs(error: unknown): number | null {
   return typeof value === 'number' && value > 0 ? value : null;
 }
 
-export interface RetrySleepTimers {
-  setTimeout(callback: () => void, timeoutMs: number): unknown;
-}
-
-export async function sleepForRetry(
-  delayMs: number,
-  signal?: AbortSignal,
-  timers?: RetrySleepTimers,
-): Promise<void> {
+export async function sleepForRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();
-  const sleepPromise = sleep(delayMs, timers);
+  const sleepPromise = sleep(delayMs);
   if (signal === undefined) {
     await sleepPromise;
     return;
@@ -52,65 +44,29 @@ export async function sleepForRetry(
 }
 
 export function retryErrorFields(error: unknown): RetryErrorFields {
+  const structured = typeof error === 'object' && error !== null
+    ? error as { kind?: unknown; name?: unknown; message?: unknown }
+    : undefined;
   return {
-    errorName: error instanceof Error ? error.name : typeof error,
-    errorMessage: messageWithCause(error),
+    errorName: error instanceof Error
+      ? error.name
+      : typeof structured?.name === 'string'
+        ? structured.name
+        : typeof structured?.kind === 'string'
+          ? structured.kind
+          : typeof error,
+    errorMessage: error instanceof Error
+      ? error.message
+      : typeof structured?.message === 'string'
+        ? structured.message
+        : String(error),
     statusCode: maybeStatusCode(error),
   };
 }
 
-const MAX_CAUSE_DEPTH = 3;
-
-function messageWithCause(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const cause = describeCauseChain(error, message);
-  if (cause === undefined) return message;
-  return message.length === 0 ? cause : `${message} (${cause})`;
-}
-
-function describeCauseChain(error: unknown, message: string): string | undefined {
-  const parts: string[] = [];
-  let current = causeOf(error);
-  while (parts.length < MAX_CAUSE_DEPTH && current !== undefined && current !== null) {
-    const part = describeCause(current);
-    if (part !== undefined && !message.includes(part.message) && !parts.includes(part.text)) {
-      parts.push(part.text);
-    }
-    current = causeOf(current);
-  }
-  return parts.length === 0 ? undefined : parts.join('; ');
-}
-
-function causeOf(value: unknown): unknown {
-  if (typeof value !== 'object' || value === null) return undefined;
-  return (value as { cause?: unknown }).cause;
-}
-
-function describeCause(
-  value: unknown,
-): { readonly text: string; readonly message: string } | undefined {
-  if (!(value instanceof Error)) {
-    const text = String(value);
-    return text.length === 0 ? undefined : { text, message: text };
-  }
-  if (value.message.length === 0) return undefined;
-  const code = (value as { code?: unknown }).code;
-  return {
-    text:
-      typeof code === 'string' && code.length > 0
-        ? `${code}: ${value.message}`
-        : `${value.name}: ${value.message}`,
-    message: value.message,
-  };
-}
-
-function sleep(delayMs: number, timers?: RetrySleepTimers): Promise<void> {
+function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => {
-    if (timers === undefined) {
-      setTimeout(resolve, delayMs);
-      return;
-    }
-    timers.setTimeout(resolve, delayMs);
+    setTimeout(resolve, delayMs);
   });
 }
 

@@ -6,6 +6,41 @@ outline: 2
 
 本页记录 Kimi Code CLI 每个版本的变更内容。
 
+## 2.7.0（2026-11-19）
+
+### 新功能
+
+- 支持 Amazon Bedrock 供应商，通过 `type = "bedrock"` 和 `AWS_REGION` 配置。
+- 在 `/settings` 中新增后续消息行为（Follow-up behavior）设置；选择 Steer 后，按 Enter 提交的消息会插入当前运行轮次，而非排队等待。
+- 在 `/tasks` 中查看运行中的前台 Agent 及其实时活动。
+- 使用 `kimi server` 启动本地服务而不打开浏览器；添加 `--open` 可打开 Web 界面。
+- 支持为项目配置 SSH 主机，每台主机使用各自的 Kimi 登录状态，并可选择复制自定义模型供应商。
+- 新增 `kimi web --json`，以及查看待处理交互、等待会话完成和读取 `kap.md` 的 HTTP 接口，支持通过 HTTP 自动化操作 KAP。
+
+### 优化
+
+- 设置 `KIMI_CODE_EXPERIMENTAL_PROMPT_PREDICTION=1` 后，可在轮次结束时启用实验性的下一条提示预测；按 Tab 或右方向键接受建议。
+- `/feedback` 支持输入多行反馈。
+- Bash 工具的子进程可读取 `KIMI_CODE_SESSION_ID` 和 `KIMI_CODE_WORKSPACE_ID`。
+
+### 修复
+
+- MCP 服务器和 OAuth 管理接口从 `/api/v2/mcp/*` 迁移到 `/api/v1/mcp/*`；移除 `POST /api/v1/mcp/servers/{id}:restart`，替换旧的实时会话服务器列表。
+- 会话接口从 `/api/v2/sessions*` 迁移到 `/api/v1/sessions*`，包括分组视图、Git 元数据、ID 投影和批量归档/恢复；使用 `archived` 和 `has_prompt` 替代 `include_archive`、`archived_only` 和 `exclude_empty`。
+- 修复设置 `[subagent] timeout_ms = 0` 时子 Agent 立即超时的问题，`kimi -p` 同样适用。
+- 修复了一些已知问题，并做了若干细节优化。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+
+## 2.6.3（2026-11-17）
+
+### 修复
+
+- 修复前台 Shell 命令输出重复且加载状态不消失的问题。
+- 修复了若干已知的问题。
+- 修复 Windows 上 WebBridge 守护进程运行时无法更新的问题。
+- 修复每轮回复完成后外部 Stop 钩子未执行的问题。
+- 修复恢复或创建会话分支时后台任务通知意外触发新回复的问题。
+- 修复后台通知导致 Tower 任务意外停止的问题。
+
 ## 2.6.2（2026-11-14）
 
 ### 新功能

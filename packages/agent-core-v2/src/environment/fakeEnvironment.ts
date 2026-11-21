@@ -55,9 +55,7 @@ export class FakeEnvironment implements Environment {
     this.workspace = {
       mapRoots: options.mapWorkspaceRoots ?? ((roots) => ({
         workDir: path.resolve(roots.workDir),
-        primaryDir: roots.primaryDir === undefined ? undefined : path.resolve(roots.primaryDir),
         additionalDirs: roots.additionalDirs?.map((root) => path.resolve(root)),
-        followsPrimary: roots.followsPrimary,
       })),
     };
   }

@@ -1,31 +1,30 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 
+import type { ToolCall } from '#human/message';
 import { dirname, join } from 'pathe';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from '@moonshot-ai/testkit/vitest';
 
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IHostProcessService } from '#/os/interface/hostProcess';
-import { IBlobStore } from '#/persistence/interface/blobStore';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import type { ToolCall } from '#human/llm/message';
-
 import { runWillBeginStepHooks, type StubLoop } from '../../agent/loop/stubs';
+import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
+import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IBlobStore } from '#/persistence/interface/blobStore';
+import type { IHostProcessService } from '#/os/interface/hostProcess';
+import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
+import { createMapFs, stubPlanEnvironment } from './stubs';
 import {
+  agentService,
   createCommandRunner,
   createTestAgent,
   execEnvServices,
-  renderSnapshot,
   type TestAgentContext,
 } from '../../harness';
-import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 
 interface PlanFakes {
   readonly fs: IHostFileSystem;
@@ -34,8 +33,8 @@ interface PlanFakes {
 
 function createPlanFakes(overrides: Partial<IHostFileSystem> = {}): PlanFakes {
   const fs = createFakeHostFs({
-    mkdir: jest.fn().mockResolvedValue(undefined),
-    readText: jest.fn().mockResolvedValue(''),
+    mkdir: vi.fn().mockResolvedValue(undefined),
+    readText: vi.fn().mockResolvedValue(''),
     ...overrides,
   });
   const runner = createFakeProcessRunner();
@@ -54,12 +53,12 @@ function createPlanFileFakes(
   overrides: Partial<IHostFileSystem> = {},
 ): {
   readonly files: Map<string, string>;
-  readonly readText: ReturnType<typeof jest.fn>;
-  readonly writeText: ReturnType<typeof jest.fn>;
+  readonly readText: ReturnType<typeof vi.fn>;
+  readonly writeText: ReturnType<typeof vi.fn>;
   readonly fakes: PlanFakes;
 } {
-  const readText = jest.fn(async (path: string) => files.get(path) ?? '');
-  const writeText = jest.fn(async (path: string, content: string) => {
+  const readText = vi.fn(async (path: string) => files.get(path) ?? '');
+  const writeText = vi.fn(async (path: string, content: string) => {
     files.set(path, content);
   });
   return {
@@ -76,11 +75,11 @@ function createPlanFileFakes(
 
 describe('Plan service', () => {
   let activeFakes: PlanFakes;
-  let context: IAgentContextMemoryService;
+  let context: IAgentLoopService;
   let ctx: TestAgentContext;
   let permissionRules: IAgentPermissionRulesService;
   let plan: IAgentPlanService;
-  let profile: IAgentProfileService;
+  let profile: IAgentLoopService;
   let tempDirs: string[];
 
   beforeEach(async () => {
@@ -92,10 +91,10 @@ describe('Plan service', () => {
         processRunner: delegatingRunner(),
       }),
     );
-    context = ctx.get(IAgentContextMemoryService);
+    context = ctx.get(IAgentLoopService);
     permissionRules = ctx.get(IAgentPermissionRulesService);
     plan = ctx.get(IAgentPlanService);
-    profile = ctx.get(IAgentProfileService);
+    profile = ctx.get(IAgentLoopService);
     await ctx.restorePersisted();
   });
 
@@ -153,14 +152,13 @@ describe('Plan service', () => {
 
   async function expectActivePlanPath(): Promise<string> {
     const path = (await expectActivePlan()).path;
-    if (path === null) throw new Error('expected active plan file');
+    if (path === null) throw new Error('expected plan file path');
     return path;
   }
 
   function expectedPlanPath(id: string): string {
-    const session = ctx.get(ISessionContext);
     const agent = ctx.get(IAgentScopeContext);
-    return join(session.sessionDir, 'agents', agent.agentId, 'plans', `${id}.md`);
+    return join(ctx.get(ISessionContext).sessionDir, 'agents', agent.agentId, 'plans', `${id}.md`);
   }
 
   async function expectPlanActive(active: boolean): Promise<void> {
@@ -173,8 +171,8 @@ describe('Plan service', () => {
     });
 
     it('enters plan mode without starting a model turn and prepares the plan directory', async () => {
-      const mkdir = jest.fn().mockResolvedValue(undefined);
-      const writeText = jest.fn().mockResolvedValue(0);
+      const mkdir = vi.fn().mockResolvedValue(undefined);
+      const writeText = vi.fn().mockResolvedValue(0);
       useFakes(createPlanFakes({ mkdir, writeText }));
 
       await ctx.rpc.enterPlan({});
@@ -189,12 +187,22 @@ describe('Plan service', () => {
       expect(ctx.llmCalls).toHaveLength(0);
     });
 
-    it('derives the plan path from the agent homedir on enter and restore', async () => {
-      useFakes(
-        createPlanFakes({
-          writeText: jest.fn(async (_path: string, _content: string): Promise<void> => {}),
-        }),
-      );
+    it('restores plan content from the persistent path written by previous versions', async () => {
+      const session = ctx.get(ISessionContext);
+      const path = join(session.sessionDir, 'agents', ctx.get(IAgentScopeContext).agentId, 'plans', 'existing-plan.md');
+      const content = '# Existing plan\n\n- Keep the saved work';
+      const { fakes } = createPlanFileFakes(new Map([[path, content]]));
+      useFakes(fakes);
+
+      await ctx.dispatch({ type: 'plan_mode.enter', id: 'existing-plan' });
+
+      expect(await plan.status()).toEqual({ id: 'existing-plan', path, content });
+    });
+
+    it('keeps the local persistent plan path on enter and restore', async () => {
+      useFakes(createPlanFakes({
+        writeText: vi.fn(async (_path: string, _content: string): Promise<void> => {}),
+      }));
       await plan.enter('stable-plan');
 
       const livePath = await expectActivePlanPath();
@@ -240,6 +248,63 @@ describe('Plan service', () => {
       expect(ctx.llmCalls).toHaveLength(2);
       expect(ctx.llmCalls[0]!.tools.map((tool) => tool.name)).not.toContain('EnterPlanMode');
       expect(toolResultText(ctx.llmCalls[1]!.history)).not.toContain('Plan mode is now active');
+    });
+  });
+
+  describe('remote environment binding', () => {
+    const remoteTempDir = '/remote/tmp';
+    let remoteCtx: TestAgentContext;
+    let remotePlan: IAgentPlanService;
+    let localFiles: Map<string, string>;
+    let remoteFiles: Map<string, string>;
+    let remoteMkdir: Mock<IHostFileSystem['mkdir']>;
+
+    beforeEach(async () => {
+      localFiles = new Map();
+      remoteFiles = new Map();
+      remoteMkdir = vi.fn<IHostFileSystem['mkdir']>().mockResolvedValue(undefined);
+      remoteCtx = createTestAgent([
+        execEnvServices({ hostFs: createMapFs(localFiles) }),
+        agentService(
+          IAgentEnvironmentService,
+          stubPlanEnvironment({
+            fs: createMapFs(remoteFiles, { mkdir: remoteMkdir }),
+            tempDir: remoteTempDir,
+          }),
+        ),
+      ]);
+      remotePlan = remoteCtx.get(IAgentPlanService);
+      await remoteCtx.restorePersisted();
+    });
+
+    afterEach(async () => {
+      await remoteCtx.dispose();
+    });
+
+    function useRemoteTools(tools: readonly string[]): void {
+      remoteCtx.get(IAgentLoopService).update({ activeToolNames: [...tools] });
+      remoteCtx.newEvents();
+    }
+
+    it('keeps denying writes to non-plan files on a remote binding', async () => {
+      useRemoteTools(['Write']);
+      await remotePlan.enter('remote-plan', false);
+
+      const otherPath = '/remote/work/src/main.ts';
+      const writeCall: ToolCall = {
+        type: 'function',
+        id: 'call_write_other',
+        name: 'Write',
+        arguments: JSON.stringify({ path: otherPath, content: 'nope' }),
+      };
+      remoteCtx.mockNextResponse({ type: 'text', text: 'I will edit the source.' }, writeCall);
+      remoteCtx.mockNextResponse({ type: 'text', text: 'Understood.' });
+      await remoteCtx.rpc.prompt({ input: [{ type: 'text', text: 'Edit the source file' }] });
+
+      await remoteCtx.untilTurnEnd();
+
+      expect(remoteFiles.has(otherPath)).toBe(false);
+      expect(toolResultText(remoteCtx.llmCalls[1]!.history)).toContain('Plan mode is active');
     });
   });
 
@@ -559,17 +624,16 @@ describe('Plan service', () => {
       await ctx.untilTurnEnd();
       await expectPlanActive(true);
       expect(ctx.llmCalls).toHaveLength(1);
-      expect(toolResultText(context.get())).toContain('Plan rejected by user');
+      expect(toolResultText(context.history())).toContain('Plan rejected by user');
     });
 
-    it('does not execute later tool calls in the same batch after plan rejection', async () => {
-      const exec = jest.fn(() => {
-        throw new Error('Bash should not execute after plan rejection');
-      });
+    it('executes later tool calls in the same batch after plan rejection', async () => {
+      const runner = createCommandRunner('continued');
+      const exec = vi.spyOn(runner, 'spawn');
       const { files, fakes: baseFakes } = createPlanFileFakes(undefined);
       const fakes: PlanFakes = {
         fs: baseFakes.fs,
-        runner: createFakeProcessRunner({ spawn: exec }),
+        runner,
       };
       useFakes(fakes);
       useTools(['ExitPlanMode', 'Bash']);
@@ -589,7 +653,7 @@ describe('Plan service', () => {
         type: 'function',
         id: 'call_bash_after_reject',
         name: 'Bash',
-        arguments: '{"command":"touch should-not-run","timeout":60}',
+        arguments: '{"command":"printf continued","timeout":60}',
       };
       ctx.mockNextResponse(
         { type: 'text', text: 'I will present the plan and then run a command.' },
@@ -603,10 +667,11 @@ describe('Plan service', () => {
 
       await ctx.untilTurnEnd();
       await expectPlanActive(true);
-      expect(exec).not.toHaveBeenCalled();
+      expect(exec).toHaveBeenCalledTimes(1);
       expect(ctx.llmCalls).toHaveLength(1);
-      expect(toolResultText(context.get())).toContain('Plan rejected by user');
-      expect(toolResultText(context.get())).toContain(
+      expect(toolResultText(context.history())).toContain('Plan rejected by user');
+      expect(toolResultText(context.history())).toContain('continued');
+      expect(toolResultText(context.history())).not.toContain(
         'Tool skipped because a previous tool call stopped the turn.',
       );
     });
@@ -686,8 +751,8 @@ describe('Plan service', () => {
       'runs %s on the active plan file without approval in manual mode',
       async (toolName) => {
         const files = new Map<string, string>();
-        const readText = jest.fn(async (path: string) => files.get(path) ?? '');
-        const writeText = jest.fn(async (path: string, content: string): Promise<void> => {
+        const readText = vi.fn(async (path: string) => files.get(path) ?? '');
+        const writeText = vi.fn(async (path: string, content: string): Promise<void> => {
           files.set(path, content);
         });
         useFakes(createPlanFakes({ readText, writeText }));
@@ -719,16 +784,14 @@ describe('Plan service', () => {
         expect(files.get(planPath)).toBe(expectedContent);
         expect(writeText).toHaveBeenCalledWith(planPath, expectedContent);
         expect(
-          ctx.allEvents.some(
-            (event) => event.type === '[rpc]' && event.event === 'requestApproval',
-          ),
+          ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
         ).toBe(false);
       },
     );
 
     it('short-circuits active plan file writes ahead of explicit deny rules', async () => {
       const files = new Map<string, string>();
-      const writeText = jest.fn(async (path: string, content: string): Promise<void> => {
+      const writeText = vi.fn(async (path: string, content: string): Promise<void> => {
         files.set(path, content);
       });
       useFakes(createPlanFakes({ writeText }));
@@ -760,7 +823,7 @@ describe('Plan service', () => {
 
       expect(files.get(planPath)).toBe(content);
       expect(writeText).toHaveBeenCalledWith(planPath, content);
-      expect(toolResultText(context.get())).not.toContain('denied by permission rule');
+      expect(toolResultText(context.history())).not.toContain('denied by permission rule');
       expect(
         ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
       ).toBe(false);
@@ -782,65 +845,61 @@ describe('Plan service', () => {
       ctx.mockNextResponse({ type: 'text', text: 'The safe command printed plan-safe.' });
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Inspect without mutating files' }] });
 
-      expect(renderSnapshot(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
-        "[wire] permission.set_mode         { "agentId": "main", "mode": "yolo", "time": "<time>" }
+      expect(String(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
+        [wire] permission.set_mode         { "agentId": "main", "mode": "yolo", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "permission": "yolo" }
         [wire] plan_mode.enter             { "agentId": "main", "id": "test-plan", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "planMode": true }
-        [emit] prompt.submitted            { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Inspect without mutating files" } ], "createdAt": "<time>" }
-        [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Inspect without mutating files" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "time": "<time>" }
-        [emit] turn.prompt                 { "time": "<time>", "agentId": "main", "input": [ { "type": "text", "text": "Inspect without mutating files" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0 }
+        [emit] prompt.submitted            { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Inspect without mutating files" } ], "origin": { "kind": "user" }, "createdAt": "<time>" }
+        [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Inspect without mutating files" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "trigger": "normal", "time": "<time>" }
+        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Inspect without mutating files" } ], "id": "<msg-1>", "origin": { "kind": "user" } } ] }
+        [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Inspect without mutating files" } ], "toolCalls": [], "id": "<msg-1>", "origin": { "kind": "user" } }, "time": "<time>" }
+        [emit] turn.prompt                 { "time": "<time>", "agentId": "main", "input": [ { "type": "text", "text": "Inspect without mutating files" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "trigger": "normal" }
         [emit] turn.started                { "time": "<time>", "agentId": "main", "turnId": 0, "promptId": "<msg-1>", "origin": { "kind": "user" }, "prompt": "Inspect without mutating files" }
-        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Inspect without mutating files" } ], "id": "<msg-1>", "toolCalls": [], "origin": { "kind": "user" } } ] }
         [emit] prompt.started              { "time": "<time>", "agentId": "main", "promptId": "<msg-1>" }
-        [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Inspect without mutating files" } ], "id": "<msg-1>", "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-        [wire] agent.message.appended      { "message": { "message": { "role": "user", "content": [ { "type": "text", "text": "Inspect without mutating files" } ] }, "meta": { "source": "input", "promptId": "<msg-1>", "origin": { "kind": "user" }, "tracked": true, "createdAt": "<time>", "userMessageId": "<msg-1>" } }, "time": "<time>", "kind": "event" }
-        [wire] agent.turn.started          { "turnId": 0, "queueItemId": "<msg-1>", "time": "<time>", "kind": "event" }
-        [wire] tool_select.initialized     { "agentId": "main", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "EnterSpecMode", "ExitPlanMode", "ExitSpecMode", "FetchURL", "GetGoal", "Glob", "Grep", "Knowledge", "Memory", "Read", "run_code", "select_tools", "session_query", "SetGoalBudget", "Skill", "SnapshotList", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "WebSearch", "Workflow", "Write" ], "time": "<time>" }
-        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<system-reminder>\\nNo tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable.\\n</system-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } } ] }
-        [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "<system-reminder>\\nNo tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable.\\n</system-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } }, "time": "<time>" }
-        [wire] plugin.session_start        { "agentId": "main", "content": null, "time": "<time>" }
-        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 2, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" } } ] }
-        [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" } }, "time": "<time>" }
         [emit] turn.step.started           { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
-        [wire] llm.tools_snapshot          { "agentId": "main", "hash": "<tools-hash>", "tools": [ "Bash" ], "time": "<time>" }
-        [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 2, "turnStep": "0.1", "time": "<time>" }
+        [wire] plugin.session_start        { "agentId": "main", "content": null, "time": "<time>" }
+        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "origin": { "kind": "injection", "variant": "plan_mode" } } ] }
+        [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" } }, "time": "<time>" }
+        [wire] tool_select.initialized     { "agentId": "main", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "ExitPlanMode", "FetchURL", "GetGoal", "Glob", "Grep", "Read", "ReadMediaFile", "select_tools", "SetGoalBudget", "Skill", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "Write" ], "time": "<time>" }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-2>", "turnId": "0", "step": 1 }, "time": "<time>" }
+        [wire] llm.tools_snapshot          { "agentId": "main", "hash": "<tools-hash>", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "ExitPlanMode", "FetchURL", "GetGoal", "Glob", "Grep", "Read", "SetGoalBudget", "Skill", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "Write" ], "time": "<time>" }
         [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "I will inspect safely.", "block": 0 }
-        [emit] tool.call.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf plan-safe\\",\\"timeout\\":60}", "block": 1 }
-        [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 766, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+        [emit] tool.call.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf plan-safe\\",\\"timeout\\":60}" }
+        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 2, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will inspect safely." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf plan-safe\\",\\"timeout\\":60}" } ], "providerMessageId": "mock-1", "usage": { "inputOther": 766, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } } ] }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 766, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 766, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 766, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [wire] token_counting.measured     { "agentId": "main", "length": 4, "tokens": 789, "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 789 }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will inspect safely." }, "block": 0, "startedAt": "<time>" }, "time": "<time>" }
-        [emit] tool.call.started           { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf plan-safe", "timeout": 60 }, "description": "Running: printf plan-safe", "display": { "kind": "command", "command": "printf plan-safe", "cwd": "<cwd>", "language": "bash" } }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.call", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf plan-safe", "timeout": 60 }, "display": { "kind": "command", "command": "printf plan-safe", "cwd": "<cwd>", "language": "bash" } }, "time": "<time>" }
-        [emit] tool.progress               { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "plan-safe" } }
-        [emit] tool.result                 { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_bash", "output": "plan-safe" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.result", "parentUuid": "<uuid-3>", "toolCallId": "call_bash", "result": { "output": "plan-safe" } }, "time": "<time>" }
-        [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 766, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "cache": { "modelAlias": "mock-model", "protocol": "openai", "providerType": "kimi", "messageCount": 2, "historyHash": "<fingerprint>", "thinkingEffort": "off", "inputTokens": 766, "cacheRead": 0, "cacheCreation": 0, "outputTokens": 23 }, "finishReason": "tool_use", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 766, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "time": "<time>" }
-        [emit] turn.step.started           { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-4>" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-4>", "turnId": "0", "step": 2 }, "time": "<time>" }
-        [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 4, "turnStep": "0.2", "time": "<time>" }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-2>", "block": 0, "part": { "type": "text", "text": "I will inspect safely." }, "startedAt": "<time>" }, "time": "<time>" }
+        [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 766, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+        [wire] token_counting.measured     { "agentId": "main", "length": 3, "tokens": 789, "time": "<time>" }
+        [emit] tool.call.started           { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf plan-safe", "timeout": 60 }, "description": "Running: printf plan-safe", "display": { "kind": "command", "command": "printf plan-safe", "cwd": "<cwd>", "language": "bash" } }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "running", "detached": false, "fields": {} }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.call", "uuid": "<uuid-4>", "turnId": "0", "step": 1, "stepUuid": "<uuid-2>", "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf plan-safe", "timeout": 60 }, "display": { "kind": "command", "command": "printf plan-safe", "cwd": "<cwd>", "language": "bash" } }, "time": "<time>" }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "running", "detached": false, "fields": { "task": { "kind": "process", "description": "Bash: printf plan-safe", "command": "printf plan-safe", "pid": 42, "exitCode": null, "parentToolCallId": "call_bash", "timeoutMs": 60000 } } }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "running", "detached": false, "fields": { "task": { "kind": "process", "description": "Bash: printf plan-safe", "command": "printf plan-safe", "pid": 42, "exitCode": null, "parentToolCallId": "call_bash", "timeoutMs": 60000 } }, "output": { "offset": 0, "text": "plan-safe" } }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "running", "detached": false, "fields": { "task": { "kind": "process", "description": "Bash: printf plan-safe", "command": "printf plan-safe", "pid": 42, "exitCode": 0, "parentToolCallId": "call_bash", "timeoutMs": 60000 } } }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "running", "detached": false, "fields": { "task": { "kind": "process", "description": "Bash: printf plan-safe", "command": "printf plan-safe", "pid": 42, "exitCode": 0, "parentToolCallId": "call_bash", "timeoutMs": 60000 } } }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "success", "detached": false, "fields": { "task": { "kind": "process", "description": "Bash: printf plan-safe", "command": "printf plan-safe", "pid": 42, "exitCode": 0, "parentToolCallId": "call_bash", "timeoutMs": 60000 } } }
+        [emit] tool.result                 { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "output": "plan-safe" }
+        [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 766, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }
+        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "plan-safe" } ], "toolCallId": "call_bash" } ] }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.result", "parentUuid": "<uuid-4>", "toolCallId": "call_bash", "result": { "output": "plan-safe", "isError": false } }, "time": "<time>" }
+        [emit] turn.step.started           { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-5>" }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 766, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "time": "<time>" }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-6>", "turnId": "0", "step": 2 }, "time": "<time>" }
         [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "The safe command printed plan-safe.", "block": 0 }
-        [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 799, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-        [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 1565, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 1565, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 1565, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [wire] token_counting.measured     { "agentId": "main", "length": 6, "tokens": 811, "time": "<time>" }
-        [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 811 }
-        [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-4>", "usage": { "inputOther": 799, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "cache": { "modelAlias": "mock-model", "protocol": "openai", "providerType": "kimi", "messageCount": 4, "historyHash": "<fingerprint>", "thinkingEffort": "off", "inputTokens": 799, "cacheRead": 0, "cacheCreation": 0, "outputTokens": 12 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-5>", "turnId": "0", "step": 2, "stepUuid": "<uuid-4>", "part": { "type": "text", "text": "The safe command printed plan-safe." }, "block": 0, "startedAt": "<time>" }, "time": "<time>" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "finishReason": "end_turn", "usage": { "inputOther": 799, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-2", "providerFinishReason": "completed", "rawFinishReason": "stop" }, "time": "<time>" }
-        [wire] agent.message.appended      { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "I will inspect safely." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf plan-safe\\",\\"timeout\\":60}" } ] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 766, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "messageId": "mock-1" } }, "time": "<time>", "kind": "event" }
-        [wire] agent.message.appended      { "message": { "message": { "role": "tool", "content": [ { "type": "text", "text": "plan-safe" } ], "toolCallId": "call_bash" }, "meta": { "source": "tool" } }, "time": "<time>", "kind": "event" }
-        [wire] agent.message.appended      { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "The safe command printed plan-safe." } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 799, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "completed", "rawFinishReason": "stop" }, "messageId": "mock-2" } }, "time": "<time>", "kind": "event" }
-        [wire] agent.turn.ended            { "turnId": 0, "outcome": "done", "time": "<time>", "kind": "event" }
-        [wire] turn.ended                  { "agentId": "main", "turnId": 0, "reason": "completed", "time": "<time>" }
-        [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }"
+        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The safe command printed plan-safe." } ], "toolCalls": [], "providerMessageId": "mock-2", "usage": { "inputOther": 793, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 } } ] }
+        [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-5>", "usage": { "inputOther": 793, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
+        [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 1559, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 1559, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 1559, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+        [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 805 }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-7>", "turnId": "0", "step": 2, "stepUuid": "<uuid-6>", "block": 0, "part": { "type": "text", "text": "The safe command printed plan-safe." }, "startedAt": "<time>" }, "time": "<time>" }
+        [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 793, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+        [wire] token_counting.measured     { "agentId": "main", "length": 5, "tokens": 805, "time": "<time>" }
+        [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }
       `);
 
       expect(ctx.llmCalls).toHaveLength(2);
-      expect(toolResultText(context.get())).toContain('plan-safe');
+      expect(toolResultText(context.history())).toContain('plan-safe');
       await expectPlanActive(true);
       expect(
         ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
@@ -865,63 +924,59 @@ describe('Plan service', () => {
       ctx.mockNextResponse({ type: 'text', text: 'The command completed.' });
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Remove forbidden.txt' }] });
 
-      expect(renderSnapshot(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
-        "[wire] permission.set_mode         { "agentId": "main", "mode": "yolo", "time": "<time>" }
+      expect(String(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
+        [wire] permission.set_mode         { "agentId": "main", "mode": "yolo", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "permission": "yolo" }
         [wire] plan_mode.enter             { "agentId": "main", "id": "test-plan", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "planMode": true }
-        [emit] prompt.submitted            { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ], "createdAt": "<time>" }
-        [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Remove forbidden.txt" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "time": "<time>" }
-        [emit] turn.prompt                 { "time": "<time>", "agentId": "main", "input": [ { "type": "text", "text": "Remove forbidden.txt" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0 }
+        [emit] prompt.submitted            { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ], "origin": { "kind": "user" }, "createdAt": "<time>" }
+        [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Remove forbidden.txt" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "trigger": "normal", "time": "<time>" }
+        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ], "id": "<msg-1>", "origin": { "kind": "user" } } ] }
+        [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ], "toolCalls": [], "id": "<msg-1>", "origin": { "kind": "user" } }, "time": "<time>" }
+        [emit] turn.prompt                 { "time": "<time>", "agentId": "main", "input": [ { "type": "text", "text": "Remove forbidden.txt" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "trigger": "normal" }
         [emit] turn.started                { "time": "<time>", "agentId": "main", "turnId": 0, "promptId": "<msg-1>", "origin": { "kind": "user" }, "prompt": "Remove forbidden.txt" }
-        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ], "id": "<msg-1>", "toolCalls": [], "origin": { "kind": "user" } } ] }
         [emit] prompt.started              { "time": "<time>", "agentId": "main", "promptId": "<msg-1>" }
-        [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ], "id": "<msg-1>", "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-        [wire] agent.message.appended      { "message": { "message": { "role": "user", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ] }, "meta": { "source": "input", "promptId": "<msg-1>", "origin": { "kind": "user" }, "tracked": true, "createdAt": "<time>", "userMessageId": "<msg-1>" } }, "time": "<time>", "kind": "event" }
-        [wire] agent.turn.started          { "turnId": 0, "queueItemId": "<msg-1>", "time": "<time>", "kind": "event" }
-        [wire] tool_select.initialized     { "agentId": "main", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "EnterSpecMode", "ExitPlanMode", "ExitSpecMode", "FetchURL", "GetGoal", "Glob", "Grep", "Knowledge", "Memory", "Read", "run_code", "select_tools", "session_query", "SetGoalBudget", "Skill", "SnapshotList", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "WebSearch", "Workflow", "Write" ], "time": "<time>" }
-        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<system-reminder>\\nNo tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable.\\n</system-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } } ] }
-        [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "<system-reminder>\\nNo tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable.\\n</system-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } }, "time": "<time>" }
-        [wire] plugin.session_start        { "agentId": "main", "content": null, "time": "<time>" }
-        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 2, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" } } ] }
-        [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" } }, "time": "<time>" }
         [emit] turn.step.started           { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
-        [wire] llm.tools_snapshot          { "agentId": "main", "hash": "<tools-hash>", "tools": [ "Bash" ], "time": "<time>" }
-        [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 2, "turnStep": "0.1", "time": "<time>" }
+        [wire] plugin.session_start        { "agentId": "main", "content": null, "time": "<time>" }
+        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "origin": { "kind": "injection", "variant": "plan_mode" } } ] }
+        [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" } }, "time": "<time>" }
+        [wire] tool_select.initialized     { "agentId": "main", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "ExitPlanMode", "FetchURL", "GetGoal", "Glob", "Grep", "Read", "ReadMediaFile", "select_tools", "SetGoalBudget", "Skill", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "Write" ], "time": "<time>" }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-2>", "turnId": "0", "step": 1 }, "time": "<time>" }
+        [wire] llm.tools_snapshot          { "agentId": "main", "hash": "<tools-hash>", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "ExitPlanMode", "FetchURL", "GetGoal", "Glob", "Grep", "Read", "SetGoalBudget", "Skill", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "Write" ], "time": "<time>" }
         [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "I will mutate a file.", "block": 0 }
-        [emit] tool.call.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"rm forbidden.txt\\",\\"timeout\\":60}", "block": 1 }
-        [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 763, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+        [emit] tool.call.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"rm forbidden.txt\\",\\"timeout\\":60}" }
+        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 2, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "I will mutate a file." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"rm forbidden.txt\\",\\"timeout\\":60}" } ], "providerMessageId": "mock-1", "usage": { "inputOther": 763, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } } ] }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 763, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 763, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 763, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [wire] token_counting.measured     { "agentId": "main", "length": 4, "tokens": 786, "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 786 }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will mutate a file." }, "block": 0, "startedAt": "<time>" }, "time": "<time>" }
-        [emit] tool.call.started           { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "rm forbidden.txt", "timeout": 60 }, "description": "Running: rm forbidden.txt", "display": { "kind": "command", "command": "rm forbidden.txt", "cwd": "<cwd>", "language": "bash" } }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.call", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_bash", "name": "Bash", "args": { "command": "rm forbidden.txt", "timeout": 60 }, "display": { "kind": "command", "command": "rm forbidden.txt", "cwd": "<cwd>", "language": "bash" } }, "time": "<time>" }
-        [emit] tool.progress               { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "removed" } }
-        [emit] tool.result                 { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_bash", "output": "removed" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.result", "parentUuid": "<uuid-3>", "toolCallId": "call_bash", "result": { "output": "removed" } }, "time": "<time>" }
-        [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 763, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "cache": { "modelAlias": "mock-model", "protocol": "openai", "providerType": "kimi", "messageCount": 2, "historyHash": "<fingerprint>", "thinkingEffort": "off", "inputTokens": 763, "cacheRead": 0, "cacheCreation": 0, "outputTokens": 23 }, "finishReason": "tool_use", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 763, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "time": "<time>" }
-        [emit] turn.step.started           { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-4>" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-4>", "turnId": "0", "step": 2 }, "time": "<time>" }
-        [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 4, "turnStep": "0.2", "time": "<time>" }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-2>", "block": 0, "part": { "type": "text", "text": "I will mutate a file." }, "startedAt": "<time>" }, "time": "<time>" }
+        [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 763, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+        [wire] token_counting.measured     { "agentId": "main", "length": 3, "tokens": 786, "time": "<time>" }
+        [emit] tool.call.started           { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "rm forbidden.txt", "timeout": 60 }, "description": "Running: rm forbidden.txt", "display": { "kind": "command", "command": "rm forbidden.txt", "cwd": "<cwd>", "language": "bash" } }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "running", "detached": false, "fields": {} }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.call", "uuid": "<uuid-4>", "turnId": "0", "step": 1, "stepUuid": "<uuid-2>", "toolCallId": "call_bash", "name": "Bash", "args": { "command": "rm forbidden.txt", "timeout": 60 }, "display": { "kind": "command", "command": "rm forbidden.txt", "cwd": "<cwd>", "language": "bash" } }, "time": "<time>" }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "running", "detached": false, "fields": { "task": { "kind": "process", "description": "Bash: rm forbidden.txt", "command": "rm forbidden.txt", "pid": 42, "exitCode": null, "parentToolCallId": "call_bash", "timeoutMs": 60000 } } }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "running", "detached": false, "fields": { "task": { "kind": "process", "description": "Bash: rm forbidden.txt", "command": "rm forbidden.txt", "pid": 42, "exitCode": null, "parentToolCallId": "call_bash", "timeoutMs": 60000 } }, "output": { "offset": 0, "text": "removed" } }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "running", "detached": false, "fields": { "task": { "kind": "process", "description": "Bash: rm forbidden.txt", "command": "rm forbidden.txt", "pid": 42, "exitCode": 0, "parentToolCallId": "call_bash", "timeoutMs": 60000 } } }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "running", "detached": false, "fields": { "task": { "kind": "process", "description": "Bash: rm forbidden.txt", "command": "rm forbidden.txt", "pid": 42, "exitCode": 0, "parentToolCallId": "call_bash", "timeoutMs": 60000 } } }
+        [emit] tool.updated                { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "taskId": "<taskId>", "status": "success", "detached": false, "fields": { "task": { "kind": "process", "description": "Bash: rm forbidden.txt", "command": "rm forbidden.txt", "pid": 42, "exitCode": 0, "parentToolCallId": "call_bash", "timeoutMs": 60000 } } }
+        [emit] tool.result                 { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_bash", "output": "removed" }
+        [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 763, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }
+        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "removed" } ], "toolCallId": "call_bash" } ] }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.result", "parentUuid": "<uuid-4>", "toolCallId": "call_bash", "result": { "output": "removed", "isError": false } }, "time": "<time>" }
+        [emit] turn.step.started           { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-5>" }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 763, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "time": "<time>" }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-6>", "turnId": "0", "step": 2 }, "time": "<time>" }
         [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "The command completed.", "block": 0 }
-        [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 795, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-        [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 1558, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 1558, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 1558, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [wire] token_counting.measured     { "agentId": "main", "length": 6, "tokens": 804, "time": "<time>" }
-        [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 804 }
-        [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-4>", "usage": { "inputOther": 795, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "cache": { "modelAlias": "mock-model", "protocol": "openai", "providerType": "kimi", "messageCount": 4, "historyHash": "<fingerprint>", "thinkingEffort": "off", "inputTokens": 795, "cacheRead": 0, "cacheCreation": 0, "outputTokens": 9 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-5>", "turnId": "0", "step": 2, "stepUuid": "<uuid-4>", "part": { "type": "text", "text": "The command completed." }, "block": 0, "startedAt": "<time>" }, "time": "<time>" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "finishReason": "end_turn", "usage": { "inputOther": 795, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-2", "providerFinishReason": "completed", "rawFinishReason": "stop" }, "time": "<time>" }
-        [wire] agent.message.appended      { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "I will mutate a file." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"rm forbidden.txt\\",\\"timeout\\":60}" } ] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 763, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "messageId": "mock-1" } }, "time": "<time>", "kind": "event" }
-        [wire] agent.message.appended      { "message": { "message": { "role": "tool", "content": [ { "type": "text", "text": "removed" } ], "toolCallId": "call_bash" }, "meta": { "source": "tool" } }, "time": "<time>", "kind": "event" }
-        [wire] agent.message.appended      { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "The command completed." } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 795, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "completed", "rawFinishReason": "stop" }, "messageId": "mock-2" } }, "time": "<time>", "kind": "event" }
-        [wire] agent.turn.ended            { "turnId": 0, "outcome": "done", "time": "<time>", "kind": "event" }
-        [wire] turn.ended                  { "agentId": "main", "turnId": 0, "reason": "completed", "time": "<time>" }
-        [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }"
+        [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The command completed." } ], "toolCalls": [], "providerMessageId": "mock-2", "usage": { "inputOther": 789, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } } ] }
+        [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-5>", "usage": { "inputOther": 789, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
+        [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 1552, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 1552, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 1552, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+        [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 798 }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-7>", "turnId": "0", "step": 2, "stepUuid": "<uuid-6>", "block": 0, "part": { "type": "text", "text": "The command completed." }, "startedAt": "<time>" }, "time": "<time>" }
+        [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 789, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+        [wire] token_counting.measured     { "agentId": "main", "length": 5, "tokens": 798, "time": "<time>" }
+        [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }
       `);
-      expect(toolResultText(context.get())).toContain('removed');
+      expect(toolResultText(context.history())).toContain('removed');
     });
   });
 
@@ -930,27 +985,25 @@ describe('Plan service', () => {
       await plan.enter('test-plan', false);
 
       await injectDynamic();
-      const afterFull = context.get().length;
-      expect(lastUserText(context.get())).toContain('Plan mode is active');
-      expect(lastUserText(context.get())).toContain('Plan file:');
+      const afterFull = context.history().length;
+      expect(lastUserText(context.history())).toContain('Plan mode is active');
+      expect(lastUserText(context.history())).toContain('Plan file:');
 
       await injectDynamic();
-      expect(context.get()).toHaveLength(afterFull);
+      expect(context.history()).toHaveLength(afterFull);
 
       ctx.appendAssistantTurn(1, 'assistant one');
       ctx.appendAssistantTurn(2, 'assistant two');
       await injectDynamic();
 
-      expect(lastUserText(context.get())).toContain('Plan mode still active');
-      expect(lastUserText(context.get())).toContain('Plan file:');
+      expect(lastUserText(context.history())).toContain('Plan mode still active');
+      expect(lastUserText(context.history())).toContain('Plan file:');
     });
 
     it('emits a reentry reminder when restored plan mode already has plan content', async () => {
-      useFakes(
-        createPlanFakes({
-          readText: jest.fn(async () => '# Existing Plan\n\n- Keep this context'),
-        }),
-      );
+      useFakes(createPlanFakes({
+        readText: vi.fn(async () => '# Existing Plan\n\n- Keep this context'),
+      }));
       await ctx.dispatch({
         type: 'plan_mode.enter',
         id: 'restored-plan',
@@ -958,8 +1011,8 @@ describe('Plan service', () => {
 
       await injectDynamic();
 
-      expect(lastUserText(context.get())).toContain('Re-entering Plan Mode');
-      expect(lastUserText(context.get())).toContain('Read the existing plan file');
+      expect(lastUserText(context.history())).toContain('Re-entering Plan Mode');
+      expect(lastUserText(context.history())).toContain('Read the existing plan file');
     });
 
     it('emits one exit reminder after leaving plan mode', async () => {
@@ -968,11 +1021,11 @@ describe('Plan service', () => {
 
       plan.exit();
       await injectDynamic();
-      const afterExit = context.get().length;
-      expect(lastUserText(context.get())).toContain('Plan mode is no longer active');
+      const afterExit = context.history().length;
+      expect(lastUserText(context.history())).toContain('Plan mode is no longer active');
 
       await injectDynamic();
-      expect(context.get()).toHaveLength(afterExit);
+      expect(context.history()).toHaveLength(afterExit);
     });
 
     it('keeps the preserved injection index aligned after undo removes earlier messages', async () => {
@@ -986,7 +1039,7 @@ describe('Plan service', () => {
       ctx.appendUserMessage([{ type: 'text', text: 'new plan request' }]);
       await injectDynamic();
 
-      expect(lastUserText(context.get())).toContain('Plan mode is active');
+      expect(lastUserText(context.history())).toContain('Plan mode is active');
     });
   });
 

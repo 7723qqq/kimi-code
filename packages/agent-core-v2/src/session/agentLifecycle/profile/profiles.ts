@@ -1,7 +1,4 @@
-import {
-  GITHUB_MUTATING_TOOL_NAMES,
-  GITHUB_READONLY_TOOL_NAMES,
-} from '#/agent/tools/github/github-tools';
+import { collectGitContext } from './gitContext';
 import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 import {
   renderSystemPromptResult,
@@ -10,7 +7,6 @@ import {
 } from '#/app/agentProfileCatalog/profile-shared';
 
 import EXPLORE_ROLE from './explore-overlay.md?raw';
-import { collectGitContext } from './gitContext';
 
 const AGENT_TOOLS = [
   'Read',
@@ -26,9 +22,9 @@ const AGENT_TOOLS = [
   'CronCreate',
   'CronList',
   'CronDelete',
+  'ReadMediaFile',
   'TodoList',
   'Skill',
-  'SnapshotList',
   'WebSearch',
   'Agent',
   'AgentSwarm',
@@ -36,8 +32,6 @@ const AGENT_TOOLS = [
   'AskUserQuestion',
   'NotifyUser',
   'ExitPlanMode',
-  'EnterSpecMode',
-  'ExitSpecMode',
   'CreateGoal',
   'GetGoal',
   'SetGoalBudget',
@@ -45,11 +39,6 @@ const AGENT_TOOLS = [
   'TowerInit',
   'TowerStatus',
   'TowerTeardown',
-  'RepoMap',
-  'run_code',
-  'lsp',
-  ...GITHUB_READONLY_TOOL_NAMES,
-  ...GITHUB_MUTATING_TOOL_NAMES,
   'mcp__*',
 ] as const;
 
@@ -60,15 +49,11 @@ const CODER_TOOLS = [
   'CronDelete',
   'CronList',
   'Edit',
-  'ExitSpecMode',
   'Glob',
   'Grep',
   'Read',
-  'RepoMap',
-  'run_code',
-  'lsp',
+  'ReadMediaFile',
   'Skill',
-  'SnapshotList',
   'TaskList',
   'TaskOutput',
   'TaskStop',
@@ -84,6 +69,7 @@ const EXPLORE_TOOLS = [
   'NotifyUser',
   'Bash',
   'Read',
+  'ReadMediaFile',
   'Glob',
   'Grep',
   'WebSearch',

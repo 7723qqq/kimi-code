@@ -1,19 +1,18 @@
-import { beforeAll, describe, expect, it } from 'bun:test';
-
 import { CURSOR_MARKER } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
+import { beforeAll, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { QuestionDialogComponent } from '#/tui/components/dialogs/question-dialog';
+import {
+  QuestionDialogComponent,
+  type QuestionDialogOptions,
+} from '#/tui/components/dialogs/question-dialog';
 import type { PendingQuestion } from '#/tui/reverse-rpc/types';
 import { currentTheme } from '#/tui/theme';
-import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
 }
 
-// Collapse all whitespace runs so wrapped content can be matched against its
-// original (single-line) form without caring where the line break landed.
 function flatten(text: string): string {
   return strip(text).replaceAll(/\s+/g, ' ').trim();
 }
@@ -38,6 +37,7 @@ function makePending(
 function makeDialog(
   pending: PendingQuestion,
   onToggleToolOutput?: () => void,
+  options?: QuestionDialogOptions,
 ): {
   dialog: QuestionDialogComponent;
   collected: string[][];
@@ -53,9 +53,8 @@ function makeDialog(
     },
     6,
     onToggleToolOutput,
+    options,
   );
-  // The dialog fades while it is not focused, so the assertions below that
-  // compare exact ANSI need a focused dialog.
   dialog.focused = true;
   return { dialog, collected, methods };
 }
@@ -89,7 +88,9 @@ describe('QuestionDialogComponent', () => {
     expect(review).toContain('Ready to submit your answers?');
     expect(review).not.toContain('? Ready to submit your answers?');
     expect(review).not.toContain('Please answer all questions before submitting.');
-    expect(reviewRaw).toContain(currentTheme.boldFg('text', ' Review your answer before submit'));
+    expect(reviewRaw).toContain(
+      currentTheme.boldFg('text', ' Review your answer before submit'),
+    );
     expect(reviewRaw).toContain(currentTheme.fg('text', ' Ready to submit your answers?'));
     expect(review).toContain('B1');
     expect(review).toContain('A2');
@@ -188,7 +189,7 @@ describe('QuestionDialogComponent', () => {
 
     dialog.handleInput('\r');
     expect(collected).toHaveLength(1);
-    expect(collected[0]?.[0]).toBe('');
+    expect(collected[0]?.[0]).toBeUndefined();
     expect(collected[0]?.[1]).toBe('B2');
   });
 
@@ -274,7 +275,6 @@ describe('QuestionDialogComponent', () => {
     ]);
     const { dialog } = makeDialog(pending);
 
-    dialog.focused = true;
     dialog.handleInput('3');
 
     const out = dialog.render(80).join('\n');
@@ -407,7 +407,6 @@ describe('QuestionDialogComponent', () => {
     ]);
     const { dialog, collected } = makeDialog(pending);
 
-    // Select Other and commit a custom value.
     dialog.handleInput('3');
     dialog.handleInput('M');
     dialog.handleInput('u');
@@ -419,9 +418,7 @@ describe('QuestionDialogComponent', () => {
     dialog.handleInput('m');
     dialog.handleInput('\r');
 
-    // Toggle it off using the same key.
     dialog.handleInput('3');
-    // Select a preset option to confirm the answer still builds correctly.
     dialog.handleInput('1');
     dialog.handleInput('\t');
 
@@ -458,31 +455,41 @@ describe('QuestionDialogComponent', () => {
     dialog.handleInput(key);
     expect(collected).toEqual([[]]);
   });
-  it('fades while it does not hold the keyboard or the terminal window is inactive', () => {
+  it('lends the keyboard to Updates on ctrl+n and fades until it comes back', () => {
     const pending = makePending([
       { question: 'Pick one?', multi_select: false, options: [{ label: 'A' }, { label: 'B' }] },
     ]);
+    let updatesReady = false;
     let terminalFocused = true;
-    const dialog = new QuestionDialogComponent(pending, () => undefined, 6, undefined, {
+    const lent: string[] = [];
+    const { dialog, collected } = makeDialog(pending, undefined, {
       isTerminalFocused: () => terminalFocused,
+      onFocusUpdates: () => {
+        lent.push('ctrl+n');
+        return updatesReady;
+      },
     });
-    const faint = '[2m';
+    const faint = '\u001B[2m';
 
-    dialog.focused = true;
-    expect(dialog.render(80).every((line) => line.length === 0 || !line.startsWith(faint))).toBe(
-      true,
-    );
+    dialog.handleInput('\u000E');
+    expect(lent).toEqual(['ctrl+n']);
+    expect(dialog.render(80).join('\n')).not.toContain(faint);
+
+    updatesReady = true;
+    dialog.handleInput('\u001B[78;69u');
+    expect(lent).toEqual(['ctrl+n', 'ctrl+n']);
+    expect(collected).toEqual([]);
 
     dialog.focused = false;
-    expect(dialog.render(80).every((line) => line.length === 0 || line.startsWith(faint))).toBe(
-      true,
-    );
+    const faded = dialog.render(80);
+    expect(faded.every((line) => line.length === 0 || line.startsWith(faint))).toBe(true);
+    expect(faded.map(strip).at(-2)).toBe('  esc back to question');
 
     dialog.focused = true;
     terminalFocused = false;
-    expect(dialog.render(80).every((line) => line.length === 0 || line.startsWith(faint))).toBe(
-      true,
-    );
+    const away = dialog.render(80);
+    expect(away.every((line) => line.length === 0 || line.startsWith(faint))).toBe(true);
+    expect(away.map(strip).at(-2)).toContain('esc cancel');
   });
 
   it('forwards ctrl+o to the global tool-output toggle without answering', () => {
@@ -491,7 +498,7 @@ describe('QuestionDialogComponent', () => {
       { question: 'Q?', multi_select: false, options: [{ label: 'A' }] },
     ]);
     const { dialog, collected } = makeDialog(pending, () => toggles++);
-    dialog.handleInput('\u000F'); // Ctrl+O
+    dialog.handleInput('\u000F');
     expect(toggles).toBe(1);
     expect(collected).toEqual([]);
   });
@@ -520,11 +527,7 @@ describe('QuestionDialogComponent', () => {
       const flat = flatten(rendered.join('\n'));
 
       expect(joined).not.toContain('…');
-      // Question text should span multiple physical lines.
-      expect(
-        joined.split('\n').filter((l) => l.includes('?') || /Please|workspace|side/.test(l)).length,
-      ).toBeGreaterThan(1);
-      // And the full content should still be reconstructable.
+      expect(joined.split('\n').filter((l) => l.includes('?') || /Please|workspace|side/.test(l)).length).toBeGreaterThan(1);
       expect(flat).toContain(longQuestion);
     });
 
@@ -589,164 +592,4 @@ describe('QuestionDialogComponent', () => {
     });
   });
 
-  describe('mouse', () => {
-    function rowOf(dialog: QuestionDialogComponent, text: string, width = 80): number {
-      const row = dialog.render(width).findIndex((line) => strip(line).includes(text));
-      if (row < 0) throw new Error(`no rendered row contains ${text}`);
-      return row;
-    }
-
-    it('picks the clicked option the way Enter does', () => {
-      const pending = makePending([
-        { question: 'Q1?', multi_select: false, options: [{ label: 'A1' }, { label: 'B1' }] },
-        { question: 'Q2?', multi_select: false, options: [{ label: 'A2' }, { label: 'B2' }] },
-      ]);
-      const { dialog, collected } = makeDialog(pending);
-      pastSettlingWindow();
-
-      const result = dialog.handleMouse(mouse('click', rowOf(dialog, '[2] B1')));
-
-      expect(result?.handled).toBe(true);
-      // Single-select answers advance, exactly as they do from the keyboard.
-      expect(strip(dialog.render(80).join('\n'))).toContain('Q2?');
-      expect(collected).toEqual([]);
-
-      dialog.handleInput('1');
-      dialog.handleInput('1');
-      expect(collected).toEqual([['B1', 'A2']]);
-    });
-
-    it('toggles a multi-select option on each click', () => {
-      const pending = makePending([
-        { question: 'Q?', multi_select: true, options: [{ label: 'A' }, { label: 'B' }] },
-      ]);
-      const { dialog } = makeDialog(pending);
-      pastSettlingWindow();
-
-      const row = rowOf(dialog, '[ ] A');
-      dialog.handleMouse(mouse('click', row));
-      expect(strip(dialog.render(80)[row]!)).toContain('[✓] A');
-
-      dialog.handleMouse(mouse('click', row));
-      expect(strip(dialog.render(80)[row]!)).toContain('[ ] A');
-    });
-
-    it('enters the Other editor when its row is clicked and takes typed text', () => {
-      const pending = makePending([
-        { question: 'Q?', multi_select: false, options: [{ label: 'A' }] },
-      ]);
-      const { dialog, collected } = makeDialog(pending);
-      pastSettlingWindow();
-
-      dialog.handleMouse(mouse('click', rowOf(dialog, '[2] Other')));
-      expect(strip(dialog.render(80).join('\n'))).toContain('Type your answer, then press Enter');
-
-      dialog.handleInput('custom answer');
-      dialog.handleInput('\r');
-      dialog.handleInput('1');
-
-      expect(collected).toEqual([['custom answer']]);
-    });
-
-    it('hovers an option without choosing it', () => {
-      const pending = makePending([
-        { question: 'Q1?', multi_select: false, options: [{ label: 'A1' }, { label: 'B1' }] },
-        { question: 'Q2?', multi_select: false, options: [{ label: 'A2' }] },
-      ]);
-      const { dialog } = makeDialog(pending);
-      pastSettlingWindow();
-
-      dialog.handleMouse(mouse('move', rowOf(dialog, '[2] B1')));
-      const rendered = strip(dialog.render(80).join('\n'));
-
-      expect(rendered).toContain('→ [2] B1');
-      expect(rendered).toContain('Q1?');
-    });
-
-    it('turns the wheel into a cursor step', () => {
-      const pending = makePending([
-        { question: 'Q?', multi_select: false, options: [{ label: 'A' }, { label: 'B' }] },
-      ]);
-      const { dialog } = makeDialog(pending);
-      pastSettlingWindow();
-
-      // A downward notch arrives as a positive delta (see tui-alt-screen's
-      // SGR wheel mapping), so it moves the cursor the way ↓ does.
-      dialog.handleMouse(mouse('wheel', 0, 1));
-
-      expect(strip(dialog.render(80).join('\n'))).toContain('→ [2] B');
-    });
-
-    it('switches tabs when the tab strip is clicked', () => {
-      const pending = makePending([
-        { question: 'Q1?', multi_select: false, options: [{ label: 'A1' }] },
-        {
-          question: 'Q2?',
-          header: 'SecondTab',
-          multi_select: false,
-          options: [{ label: 'A2' }],
-        },
-      ]);
-      const { dialog } = makeDialog(pending);
-      pastSettlingWindow();
-
-      const rows = dialog.render(80).map(strip);
-      const tabRow = rows.findIndex((line) => line.includes('(○) SecondTab'));
-      const column = rows[tabRow]!.indexOf('SecondTab');
-      dialog.handleMouse(mouse('click', tabRow, undefined, column + 1));
-
-      expect(strip(dialog.render(80).join('\n'))).toContain('Q2?');
-    });
-
-    it('runs a submit action when its row is clicked', () => {
-      const pending = makePending([
-        { question: 'Q?', multi_select: false, options: [{ label: 'A' }] },
-      ]);
-      const { dialog, collected, methods } = makeDialog(pending);
-      pastSettlingWindow();
-
-      dialog.handleMouse(mouse('click', rowOf(dialog, '[1] A')));
-      dialog.handleMouse(mouse('click', rowOf(dialog, '[1] Submit')));
-
-      expect(collected).toEqual([['A']]);
-      expect(methods).toEqual(['enter']);
-    });
-
-    it('only takes the keyboard on the first click while unfocused', () => {
-      const pending = makePending([
-        { question: 'Q1?', multi_select: false, options: [{ label: 'A1' }, { label: 'B1' }] },
-        { question: 'Q2?', multi_select: false, options: [{ label: 'A2' }] },
-      ]);
-      const collected: string[][] = [];
-      const dialog = new QuestionDialogComponent(pending, (response) => {
-        collected.push(response.answers);
-      });
-      pastSettlingWindow();
-      const row = rowOf(dialog, '[2] B1');
-
-      const first = dialog.handleMouse(mouse('click', row));
-      expect(first?.focus).toBe(true);
-      expect(strip(dialog.render(80).join('\n'))).toContain('Q1?');
-
-      dialog.focused = true;
-      dialog.handleMouse(mouse('click', row));
-      expect(strip(dialog.render(80).join('\n'))).toContain('Q2?');
-      expect(collected).toEqual([]);
-    });
-
-    it('ignores a click inside the settling window', () => {
-      const pending = makePending([
-        { question: 'Q?', multi_select: false, options: [{ label: 'A' }] },
-      ]);
-      const { dialog } = makeDialog(pending);
-      const row = rowOf(dialog, '[1] A');
-
-      dialog.handleMouse(mouse('click', row));
-      expect(strip(dialog.render(80).join('\n'))).not.toContain('Review your answer');
-
-      pastSettlingWindow();
-      dialog.handleMouse(mouse('click', row));
-      expect(strip(dialog.render(80).join('\n'))).toContain('Review your answer');
-    });
-  });
 });

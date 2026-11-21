@@ -1,8 +1,25 @@
+import type { Message } from '#/llm-adapter/contract/message';
+import type { ContextMessageTiming, PromptOrigin } from '#/agent/contextMemory/types';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+
 import {
   assertWireReaderVersion,
   WIRE_MIN_READER_VERSION,
   WIRE_PROTOCOL_VERSION,
 } from './migration/migration';
+
+export type PersistentContextMessage = Message & {
+  readonly id?: string;
+  readonly providerMessageId?: string;
+  readonly origin?: PromptOrigin | undefined;
+  readonly isError?: boolean;
+  readonly toolCallDisplays?: Record<string, ToolInputDisplay>;
+  readonly note?: string;
+  readonly usage?: TokenUsage;
+  readonly llmTiming?: ContextMessageTiming;
+  readonly durationMs?: number;
+};
 
 export const AGENT_WIRE_RECORD_KEY = 'wire.jsonl';
 
@@ -44,8 +61,8 @@ export function createWireMetadataRecord(now = Date.now()): WireMetadataRecord {
   return {
     type: 'metadata',
     protocol_version: WIRE_PROTOCOL_VERSION,
-    min_protocol_version: WIRE_MIN_READER_VERSION,
     created_at: now,
+    min_protocol_version: WIRE_MIN_READER_VERSION,
   };
 }
 

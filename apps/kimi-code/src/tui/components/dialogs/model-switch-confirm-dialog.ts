@@ -1,17 +1,3 @@
-/**
- * ModelSwitchConfirmDialog — cloud-gated confirmation shown when switching
- * models in a session that already has conversation history: the accumulated
- * context will be re-sent to a different model, so the prompt cache is lost
- * and output quality may vary. Offers new session / compact / continue /
- * cancel.
- *
- * The body hint comes from the matched `model_switch_confirm` rule (English
- * arm over the built-in default); the title, option labels, and keyboard hint
- * stay local per the DESIGN.md vocabulary. Layout mirrors the list-dialog
- * spec: top border, title, hint, body line, then options with right-column
- * descriptions.
- */
-
 import {
   Container,
   matchesKey,
@@ -19,21 +5,14 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
-
-import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import {
-  mouseDispatch,
-  ListMouseRouter,
-  type ListRowRegion,
-  searchableListCursor,
-} from '#/tui/utils/mouse';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import type { ModelSwitchAction } from '#/utils/model-switch-confirm-config';
+import { t } from '#/i18n';
+
+const MODEL_TITLE = t('tui.dialogs.modelSwitchConfirm.title');
 
 interface ModelSwitchOption {
   readonly value: ModelSwitchAction;
@@ -41,45 +20,37 @@ interface ModelSwitchOption {
   readonly description?: string;
 }
 
-/**
- * Labels resolve at call time rather than at module load: a `t()` captured in a
- * module-level constant would pin the locale that happened to be active when
- * the module was first imported, so switching language mid-session would leave
- * this dialog untranslated.
- */
-function modelSwitchOptions(): readonly ModelSwitchOption[] {
-  return [
-    {
-      value: 'new',
-      label: t('tui.dialogs.modelSwitchConfirm.newSessionLabel'),
-      description: t('tui.dialogs.modelSwitchConfirm.newSessionDescription'),
-    },
-    {
-      value: 'compact',
-      label: t('tui.dialogs.modelSwitchConfirm.compactLabel'),
-      description: t('tui.dialogs.modelSwitchConfirm.compactDescription'),
-    },
-    {
-      value: 'continue',
-      label: t('tui.dialogs.modelSwitchConfirm.continueLabel'),
-      description: t('tui.dialogs.modelSwitchConfirm.continueDescription'),
-    },
-    {
-      value: 'cancel',
-      label: t('tui.dialogs.modelSwitchConfirm.cancelLabel'),
-      description: t('tui.dialogs.modelSwitchConfirm.cancelDescription'),
-    },
-  ];
-}
+const OLD_SESSION_OPTIONS: readonly ModelSwitchOption[] = [
+  {
+    value: 'compact',
+    label: t('tui.dialogs.modelSwitchConfirm.compactLabel'),
+    description: t('tui.dialogs.modelSwitchConfirm.compactDescription'),
+  },
+  {
+    value: 'continue',
+    label: t('tui.dialogs.modelSwitchConfirm.continueLabel'),
+    description: t('tui.dialogs.modelSwitchConfirm.continueDescription'),
+  },
+  { value: 'cancel', label: t('tui.dialogs.modelSwitchConfirm.cancelLabel'), description: t('tui.dialogs.modelSwitchConfirm.cancelDescription') },
+];
+
+const NEW_SESSION_OPTIONS: readonly ModelSwitchOption[] = [
+  { value: 'continue', label: 'Confirm switch' },
+  { value: 'cancel', label: t('tui.dialogs.modelSwitchConfirm.cancelLabel'), description: t('tui.dialogs.modelSwitchConfirm.cancelDescription') },
+];
+
+const EFFORT_SESSION_OPTIONS: readonly ModelSwitchOption[] = [
+  { value: 'continue', label: 'Confirm switch' },
+  { value: 'cancel', label: t('tui.dialogs.modelSwitchConfirm.cancelLabel'), description: 'Stay on the current effort' },
+];
 
 export interface ModelSwitchConfirmDialogOptions {
-  /** Display name of the model in effect before the switch. */
   readonly fromModel: string;
-  /** Display name of the model the user is switching to. */
   readonly toModel: string;
-  /** Body text explaining the consequences of the switch; no body line when
-   *  absent. */
+  readonly sessionType: 'old' | 'new';
+  readonly kind?: 'model' | 'effort';
   readonly hint?: string;
+  readonly warning?: string;
   readonly onSelect: (action: ModelSwitchAction) => void;
   readonly onCancel: () => void;
 }
@@ -88,22 +59,21 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
   focused = false;
   private readonly opts: ModelSwitchConfirmDialogOptions;
   private readonly list: SearchableList<ModelSwitchOption>;
-  private readonly mouse: ListMouseRouter<ModelSwitchOption>;
 
   constructor(opts: ModelSwitchConfirmDialogOptions) {
     super();
     this.opts = opts;
     this.list = new SearchableList({
-      items: modelSwitchOptions(),
+      items:
+        opts.kind === 'effort'
+          ? EFFORT_SESSION_OPTIONS
+          : opts.sessionType === 'old'
+            ? OLD_SESSION_OPTIONS
+            : NEW_SESSION_OPTIONS,
       toSearchText: (o) => o.label,
       initialIndex: 0,
       searchable: false,
     });
-    this.mouse = new ListMouseRouter(
-      searchableListCursor(() => this.list),
-      (option) => this.opts.onSelect(option.value),
-      { isFocused: () => this.focused },
-    );
   }
 
   handleInput(data: string): void {
@@ -119,18 +89,20 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
     this.list.handleKey(data);
   }
 
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouse.handleMouse(event));
-  }
-
   override render(width: number): string[] {
     const view = this.list.view();
-    const modelSuffix = `${this.opts.fromModel} → ${this.opts.toModel}`;
+    const title =
+      this.opts.kind === 'effort'
+        ? `Switch effort from ${this.opts.fromModel} to ${this.opts.toModel}?`
+        : MODEL_TITLE;
+    const titleSuffix =
+      this.opts.kind === 'effort'
+        ? ''
+        : currentTheme.fg('textMuted', `  ${this.opts.fromModel} → ${this.opts.toModel}`);
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ` ${t('tui.dialogs.modelSwitchConfirm.title')}`) +
-        currentTheme.fg('textMuted', `  ${modelSuffix}`),
-      currentTheme.fg('textMuted', ` ${t('tui.dialogs.modelSwitchConfirm.keyboardHint')}`),
+      currentTheme.boldFg('primary', ` ${title}`) + titleSuffix,
+      currentTheme.fg('textMuted', ' ↑↓ navigate · Enter select · Esc cancel'),
       '',
     ];
     if (this.opts.hint !== undefined) {
@@ -138,9 +110,13 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
         lines.push(currentTheme.fg('text', ` ${hintLine}`));
       }
     }
+    if (this.opts.warning !== undefined) {
+      for (const warningLine of this.opts.warning.split(/\r\n|\r|\n/)) {
+        lines.push(currentTheme.boldFg('warning', ` ${warningLine}`));
+      }
+    }
 
     const maxLabelWidth = Math.max(...view.items.map((o) => visibleWidth(o.label)));
-    const regions: ListRowRegion[] = [];
     for (let i = view.page.start; i < view.page.end; i++) {
       const opt = view.items[i]!;
       const isSelected = i === view.selectedIndex;
@@ -153,11 +129,8 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
         const gap = maxLabelWidth - visibleWidth(opt.label) + 4;
         line += ' '.repeat(gap) + currentTheme.fg('textMuted', opt.description);
       }
-      const start = lines.length;
       lines.push(line);
-      regions.push({ start, end: lines.length, index: i });
     }
-    this.mouse.setRegions(regions);
 
     lines.push('');
     lines.push(currentTheme.fg('primary', '─'.repeat(width)));

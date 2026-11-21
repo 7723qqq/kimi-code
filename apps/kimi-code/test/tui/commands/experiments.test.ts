@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, it, mock, type Mock } from 'bun:test';
-
 import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { SlashCommandHost } from '#/tui/commands';
 import { applyExperimentalFeatureChanges } from '#/tui/commands/config';
@@ -9,25 +8,6 @@ import {
   setExperimentalFeatures,
 } from '#/tui/commands/experimental-flags';
 import { darkColors } from '#/tui/theme/colors';
-
-void mock.module('#/i18n', () => ({
-  t: (key: string) => {
-    const translations: Record<string, string> = {
-      'tui.messages.configNoExperimentalChanges': 'No experimental feature changes to apply.',
-      'tui.statusMessages.experimentalUpdatedSessionReloaded':
-        'Experimental features updated. Session reloaded.',
-      'tui.statusMessages.experimentalUpdated': 'Experimental features updated.',
-      'tui.messages.experimentalTowerRestart':
-        'Tower mode takes effect after restarting Kimi Code.',
-      'tui.messages.experimentalLspRestart': 'LSP setting changes take effect after restarting Kimi Code.',
-      'tui.messages.experimentalNotifyUserNewSession':
-        'Start a new session to use Updates if this session was created with the feature disabled.',
-    };
-    return translations[key] ?? key;
-  },
-  setLocale: mock(),
-  getLocale: () => 'en',
-}));
 
 function feature(overrides: Partial<ExperimentalFeatureState> = {}): ExperimentalFeatureState {
   return {
@@ -46,42 +26,42 @@ function feature(overrides: Partial<ExperimentalFeatureState> = {}): Experimenta
 function makeHost() {
   const session = {
     id: 'ses-experiments',
-    reloadSession: mock(async () => ({})),
+    reloadSession: vi.fn(async () => ({})),
   };
   const host = {
     state: {
       theme: { palette: darkColors },
-      ui: { requestRender: mock() },
+      ui: { requestRender: vi.fn() },
     },
     harness: {
-      setConfig: mock(async () => ({ providers: {} })),
-      getExperimentalFeatures: mock(async () => [
+      setConfig: vi.fn(async () => ({ providers: {} })),
+      getExperimentalFeatures: vi.fn(async () => [
         feature({ enabled: false, source: 'config', configValue: false }),
       ]),
-      reloadSession: mock(async () => session),
+      reloadSession: vi.fn(async () => session),
     },
     session,
-    refreshSlashCommandAutocomplete: mock(),
-    reloadCurrentSessionView: mock(async () => {}),
-    mountEditorReplacement: mock(),
-    restoreEditor: mock(),
-    showStatus: mock(),
-    showError: mock(),
-    showNotice: mock(),
-    track: mock(),
+    refreshSlashCommandAutocomplete: vi.fn(),
+    reloadCurrentSessionView: vi.fn(async () => {}),
+    mountEditorReplacement: vi.fn(),
+    restoreEditor: vi.fn(),
+    showStatus: vi.fn(),
+    showError: vi.fn(),
+    showNotice: vi.fn(),
+    track: vi.fn(),
   } as unknown as SlashCommandHost & {
     harness: {
-      setConfig: Mock<(...args: any[]) => any>;
-      getExperimentalFeatures: Mock<(...args: any[]) => any>;
-      reloadSession: Mock<(...args: any[]) => any>;
+      setConfig: ReturnType<typeof vi.fn>;
+      getExperimentalFeatures: ReturnType<typeof vi.fn>;
+      reloadSession: ReturnType<typeof vi.fn>;
     };
-    refreshSlashCommandAutocomplete: Mock<(...args: any[]) => any>;
-    reloadCurrentSessionView: Mock<(...args: any[]) => any>;
-    mountEditorReplacement: Mock<(...args: any[]) => any>;
-    restoreEditor: Mock<(...args: any[]) => any>;
-    showStatus: Mock<(...args: any[]) => any>;
-    showError: Mock<(...args: any[]) => any>;
-    track: Mock<(...args: any[]) => any>;
+    refreshSlashCommandAutocomplete: ReturnType<typeof vi.fn>;
+    reloadCurrentSessionView: ReturnType<typeof vi.fn>;
+    mountEditorReplacement: ReturnType<typeof vi.fn>;
+    restoreEditor: ReturnType<typeof vi.fn>;
+    showStatus: ReturnType<typeof vi.fn>;
+    showError: ReturnType<typeof vi.fn>;
+    track: ReturnType<typeof vi.fn>;
     session: typeof session;
   };
   return host;
@@ -100,7 +80,7 @@ describe('experimental feature command handlers', () => {
     expect(host.harness.setConfig).toHaveBeenCalledWith({
       experimental: { micro_compaction: false },
     });
-    expect(host.harness.getExperimentalFeatures).toHaveBeenCalledTimes(1);
+    expect(host.harness.getExperimentalFeatures).toHaveBeenCalledOnce();
     expect(isExperimentalFlagEnabled('micro_compaction')).toBe(false);
     expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalled();
     expect(host.restoreEditor).toHaveBeenCalled();
@@ -133,7 +113,7 @@ describe('experimental feature command handlers', () => {
         experimental: { notify_user: enabled },
       });
       expect(isExperimentalFlagEnabled('notify_user')).toBe(enabled);
-      expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledTimes(1);
+      expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledOnce();
       expect(host.harness.reloadSession).not.toHaveBeenCalled();
       expect(host.reloadCurrentSessionView).not.toHaveBeenCalled();
       expect(host.showError).not.toHaveBeenCalled();
@@ -146,7 +126,7 @@ describe('experimental feature command handlers', () => {
       { id: 'notify_user', enabled: false },
       { id: 'micro_compaction', enabled: false },
     ]);
-    expect(host.harness.reloadSession).toHaveBeenCalledTimes(1);
+    expect(host.harness.reloadSession).toHaveBeenCalledOnce();
   });
 
   it('reports the post-apply enabled flag set in telemetry', async () => {
@@ -187,57 +167,7 @@ describe('experimental feature command handlers', () => {
     );
   });
 
-  it.each([true, false])(
-    'notices that LSP support needs a restart when the lsp flag changes: %s',
-    async (enabled) => {
-      const host = makeHost();
-
-      await applyExperimentalFeatureChanges(host, [{ id: 'lsp', enabled }]);
-
-      expect(host.harness.setConfig).toHaveBeenCalledWith({
-        experimental: { lsp: enabled },
-      });
-      expect(host.harness.reloadSession).toHaveBeenCalledWith({ id: host.session.id });
-      expect(host.showNotice).toHaveBeenCalledWith(
-        'LSP setting changes take effect after restarting Kimi Code.',
-      );
-    },
-  );
-
-  it('still notices that LSP needs a restart when reload fails after the config write', async () => {
-    const host = makeHost();
-    host.harness.reloadSession.mockRejectedValue(new Error('session reload failed'));
-
-    await applyExperimentalFeatureChanges(host, [{ id: 'lsp', enabled: true }]);
-
-    expect(host.harness.setConfig).toHaveBeenCalledWith({ experimental: { lsp: true } });
-    expect(host.showNotice).toHaveBeenCalledWith(
-      'LSP setting changes take effect after restarting Kimi Code.',
-    );
-    expect(host.showError).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not show the LSP restart notice when the config write fails', async () => {
-    const host = makeHost();
-    host.harness.setConfig.mockRejectedValue(new Error('config write failed'));
-
-    await applyExperimentalFeatureChanges(host, [{ id: 'lsp', enabled: true }]);
-
-    expect(host.showNotice).not.toHaveBeenCalled();
-    expect(host.showError).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not show the LSP restart notice for an unrelated flag whose reload fails', async () => {
-    const host = makeHost();
-    host.harness.reloadSession.mockRejectedValue(new Error('session reload failed'));
-
-    await applyExperimentalFeatureChanges(host, [{ id: 'micro_compaction', enabled: false }]);
-
-    expect(host.showNotice).not.toHaveBeenCalled();
-    expect(host.showError).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not show the restart notice for unrelated flag changes', async () => {
+  it('does not show the restart notice for non-tower changes', async () => {
     const host = makeHost();
 
     await applyExperimentalFeatureChanges(host, [{ id: 'micro_compaction', enabled: false }]);

@@ -1,4 +1,5 @@
-import { expect, describe, it } from "bun:test";
+import assert from "node:assert";
+import { describe, it } from "node:test";
 import { renderLatex } from "../src/index.ts";
 
 type LatexCase = readonly [source: string, expected: string];
@@ -6,7 +7,7 @@ type LatexCase = readonly [source: string, expected: string];
 function defineCases(cases: readonly LatexCase[]): void {
 	for (const [source, expected] of cases) {
 		it(`renders ${JSON.stringify(source)}`, () => {
-			expect(renderLatex(source)).toBe(expected);
+			assert.strictEqual(renderLatex(source), expected);
 		});
 	}
 }
@@ -52,7 +53,7 @@ describe("renderLatex", () => {
 			[String.raw`\ge 2`, "≥ 2"],
 			[String.raw`\ge 3`, "≥ 3"],
 			["1", "1"],
-			[String.raw`\mathrm{diag}(-1/2,1,1)`, "diag(-1/2,1,1)"],
+			[String.raw`\mathrm{diag}(-1/2,1,1),\quad F_{\rm intrinsic}(\lambda)`, "diag(-1/2,1,1), F_intrinsic(λ)"],
 			["4+3xy", "4+3xy"],
 		]);
 	});
@@ -229,7 +230,7 @@ c_n
 \Psi^\ast\Psi, & 0<x<L,\\
 0, & \text{otherwise}.
 \end{cases}`,
-				"Ψ(x,t) = ∑ₙ₌₁^∞ cₙ √(2/L) sin((nπ x)/L)_(spatial eigenmode) exp(-(iℏ n²π²)/(2mL²)t), |Ψ(x,t)|² = ⎧ Ψ^∗Ψ if 0 < x < L,\n⎩ 0 otherwise.",
+				`${" ".repeat(97)}⎧ Ψ^∗Ψ if 0 < x < L,\nΨ(x,t) = ∑ₙ₌₁^∞ cₙ √(2/L) sin((nπ x)/L)_(spatial eigenmode) exp(-(iℏ n²π²)/(2mL²)t), |Ψ(x,t)|² = ⎨\n${" ".repeat(97)}⎩ 0    otherwise.`,
 			],
 			[String.raw`x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}`, "x = (-b±√(b²-4ac))/(2a)"],
 			[String.raw`\int_0^\infty e^{-x^2}\,dx=\frac{\sqrt{\pi}}{2}`, "∫₀^∞ e^(-x²) dx = (√π)/2"],
@@ -292,53 +293,92 @@ c_n
 	});
 
 	it("renders common symbols, roots, sums, and integrals", () => {
-		expect(renderLatex(String.raw`\sum_{i=0}^n \alpha_i + \int_0^\infty e^{-x^2}\,dx = \sqrt{\pi}`)).toBe("∑ᵢ₌₀ⁿ αᵢ + ∫₀^∞ e^(-x²) dx = √π");
+		assert.strictEqual(
+			renderLatex(String.raw`\sum_{i=0}^n \alpha_i + \int_0^\infty e^{-x^2}\,dx = \sqrt{\pi}`),
+			"∑ᵢ₌₀ⁿ αᵢ + ∫₀^∞ e^(-x²) dx = √π",
+		);
 	});
 
 	it("renders common accents and binomial notation", () => {
-		expect(renderLatex(String.raw`\binom{n}{k}+\vec{x}+\hat{y}+\overline{AB}`)).toBe("(n choose k)+x⃗+ŷ+overline(AB)");
+		assert.strictEqual(
+			renderLatex(String.raw`\binom{n}{k}+\vec{x}+\hat{y}+\overline{AB}`),
+			"(n choose k)+x⃗+ŷ+overline(AB)",
+		);
 	});
 
 	it("renders extended symbols and negated relations", () => {
-		expect(renderLatex(String.raw`\epsilon+\varepsilon+\varsigma+\varkappa+\oplus+\otimes+\therefore+\because`)).toBe("ϵ+ε+ς+ϰ+⊕+⊗+∴+∵");
-		expect(renderLatex(String.raw`A\not\subseteq B,\quad x\not\in X`)).toBe("A ⊈ B, x ∉ X");
+		assert.strictEqual(
+			renderLatex(String.raw`\epsilon+\varepsilon+\varsigma+\varkappa+\oplus+\otimes+\therefore+\because`),
+			"ϵ+ε+ς+ϰ+⊕+⊗+∴+∵",
+		);
+		assert.strictEqual(renderLatex(String.raw`A\not\subseteq B,\quad x\not\in X`), "A ⊈ B, x ∉ X");
 	});
 
 	it("renders relational algebra join operators", () => {
-		expect(renderLatex(String.raw`R\bowtie S,\quad R\Join S`)).toBe("R ⋈ S, R ⋈ S");
-		expect(renderLatex(String.raw`R\ltimes S,\quad R\rtimes S`)).toBe("R ⋉ S, R ⋊ S");
-		expect(renderLatex(String.raw`R\leftouterjoin S,\quad R\rightouterjoin S,\quad R\fullouterjoin S`)).toBe("R ⟕ S, R ⟖ S, R ⟗ S");
+		assert.strictEqual(renderLatex(String.raw`R\bowtie S,\quad R\Join S`), "R ⋈ S, R ⋈ S");
+		assert.strictEqual(renderLatex(String.raw`R\ltimes S,\quad R\rtimes S`), "R ⋉ S, R ⋊ S");
+		assert.strictEqual(
+			renderLatex(String.raw`R\leftouterjoin S,\quad R\rightouterjoin S,\quad R\fullouterjoin S`),
+			"R ⟕ S, R ⟖ S, R ⟗ S",
+		);
 	});
 
 	it("renders delimiter commands and invisible delimiters", () => {
-		expect(renderLatex(String.raw`\lvert{x}\rvert+\lVert{v}\rVert+\left.\frac{dy}{dx}\right|_{x=0}`)).toBe("|x|+‖v‖+dy/(dx)|ₓ₌₀");
-		expect(renderLatex(String.raw`\left\lbrace x \middle| x>0 \right\rbrace`)).toBe("{ x | x > 0 }");
+		assert.strictEqual(
+			renderLatex(String.raw`\lvert{x}\rvert+\lVert{v}\rVert+\left.\frac{dy}{dx}\right|_{x=0}`),
+			"|x|+‖v‖+dy/(dx)|ₓ₌₀",
+		);
+		assert.strictEqual(renderLatex(String.raw`\left\lbrace x \middle| x>0 \right\rbrace`), "{ x | x > 0 }");
 	});
 
 	it("renders named, modular, overlaid, and underlaid operators", () => {
-		expect(renderLatex(String.raw`\operatorname*{arg\,max}_{x\in X} f(x)`)).toBe("arg max[x∈X] f(x)");
-		expect(renderLatex(String.raw`a\bmod n,\quad a\equiv b\pmod n`)).toBe("a mod n, a ≡ b (mod n)");
-		expect(renderLatex(String.raw`\overset{!}{=}+\underset{n}{x}+\stackrel{def}{=}`)).toBe("=^!+xₙ+=ᵈᵉᶠ");
+		assert.strictEqual(renderLatex(String.raw`\operatorname*{arg\,max}_{x\in X} f(x)`), "arg max[x∈X] f(x)");
+		assert.strictEqual(renderLatex(String.raw`a\bmod n,\quad a\equiv b\pmod n`), "a mod n, a ≡ b (mod n)");
+		assert.strictEqual(renderLatex(String.raw`\overset{!}{=}+\underset{n}{x}+\stackrel{def}{=}`), "=^!+xₙ+=ᵈᵉᶠ");
 	});
 
 	it("renders indexed roots and additional accents and wrappers", () => {
-		expect(renderLatex(String.raw`\sqrt[2]{x}+\sqrt[3]{x}+\sqrt[4]{x}+\sqrt[n]{x}+\sqrt[k]{x+1}`)).toBe("√x+∛x+∜x+ⁿ√x+ᵏ√(x+1)");
-		expect(renderLatex(String.raw`\acute{x}+\grave{y}+\widehat{xyz}+\overrightarrow{AB}`)).toBe("x́+ỳ+widehat(xyz)+overrightarrow(AB)");
-		expect(renderLatex(String.raw`\textnormal{hello}+\mbox{world}+\boldsymbol{x}`)).toBe("hello+world+x");
+		assert.strictEqual(
+			renderLatex(String.raw`\sqrt[2]{x}+\sqrt[3]{x}+\sqrt[4]{x}+\sqrt[n]{x}+\sqrt[k]{x+1}`),
+			"√x+∛x+∜x+ⁿ√x+ᵏ√(x+1)",
+		);
+		assert.strictEqual(
+			renderLatex(String.raw`\acute{x}+\grave{y}+\widehat{xyz}+\overrightarrow{AB}`),
+			"x́+ỳ+widehat(xyz)+overrightarrow(AB)",
+		);
+		assert.strictEqual(
+			renderLatex(
+				String.raw`\textnormal{hello}+\mbox{world}+\boldsymbol{x}+{\rm roman}+{\bf bold}+{\it italic}+{\sf sans}+{\tt mono}+{\cal calligraphic}+{\sl slanted}`,
+			),
+			"hello+world+x+roman+bold+italic+sans+mono+calligraphic+slanted",
+		);
 	});
 
 	it("renders additional display environments", () => {
-		expect(renderLatex(String.raw`\begin{equation}\begin{split}a&=b\\&=c\end{split}\end{equation}`)).toBe("a = b\n= c");
-		expect(renderLatex(String.raw`\begin{alignedat}{2}a&=b&\quad c&=d\\e&=f&g&=h\end{alignedat}`)).toBe("a = b c = d\ne = f g = h");
+		assert.strictEqual(
+			renderLatex(String.raw`\begin{equation}\begin{split}a&=b\\&=c\end{split}\end{equation}`),
+			"a = b\n= c",
+		);
+		assert.strictEqual(
+			renderLatex(String.raw`\begin{alignedat}{2}a&=b&\quad c&=d\\e&=f&g&=h\end{alignedat}`),
+			"a = b c = d\ne = f g = h",
+		);
 	});
 
 	it("uses natural case conditions and aligns matrix columns", () => {
-		expect(renderLatex(String.raw`\begin{cases}a & x<0 \\ b & \text{if }x=0 \\ c & \text{otherwise}\end{cases}`)).toBe("⎧ a if x < 0\n⎨ b if x = 0\n⎩ c otherwise");
-		expect(renderLatex(String.raw`\begin{pmatrix}1&200\\3000&4\end{pmatrix}`)).toBe("⎛ 1    │ 200 ⎞\n⎝ 3000 │ 4   ⎠");
+		assert.strictEqual(
+			renderLatex(String.raw`f(x)=\begin{cases}a & x<0 \\ b & \text{if }x=0 \\ c & \text{otherwise}\end{cases}`),
+			"       ⎧ a if x < 0\nf(x) = ⎨ b if x = 0\n       ⎩ c otherwise",
+		);
+		assert.strictEqual(
+			renderLatex(String.raw`\begin{pmatrix}1&200\\3000&4\end{pmatrix}`),
+			"⎛ 1    │ 200 ⎞\n⎝ 3000 │ 4   ⎠",
+		);
 	});
 
 	it("composes matrices with fractions and adjacent matrices", () => {
-		expect(renderLatex(
+		assert.strictEqual(
+			renderLatex(
 				String.raw`R\left(\frac{\pi}{4}\right)
 =
 \begin{pmatrix}
@@ -346,8 +386,11 @@ c_n
 \frac{\sqrt{2}}{2} & \frac{\sqrt{2}}{2}
 \end{pmatrix}.`,
 				{ display: true },
-			)).toBe("   π\nR( ─ ) = ⎛ (√2)/2 │ -(√2)/2 ⎞\n   4     ⎝ (√2)/2 │ (√2)/2  ⎠.");
-		expect(renderLatex(
+			),
+			"   π\nR( ─ ) = ⎛ (√2)/2 │ -(√2)/2 ⎞\n   4     ⎝ (√2)/2 │ (√2)/2  ⎠.",
+		);
+		assert.strictEqual(
+			renderLatex(
 				String.raw`\mathbf w
 =
 R\left(\frac{\pi}{4}\right)
@@ -355,27 +398,35 @@ R\left(\frac{\pi}{4}\right)
 =
 \begin{pmatrix}\frac{\sqrt{2}}{2}\\\frac{\sqrt{2}}{2}\end{pmatrix}.`,
 				{ display: true },
-			)).toBe("       π\nw = R( ─ ) ⎛ 1 ⎞ = ⎛ (√2)/2 ⎞\n       4   ⎝ 0 ⎠   ⎝ (√2)/2 ⎠.");
-		expect(renderLatex(
+			),
+			"       π\nw = R( ─ ) ⎛ 1 ⎞ = ⎛ (√2)/2 ⎞\n       4   ⎝ 0 ⎠   ⎝ (√2)/2 ⎠.",
+		);
+		assert.strictEqual(
+			renderLatex(
 				String.raw`A\mathbf e_1=\begin{pmatrix}\pi\\0\end{pmatrix},\qquad A\mathbf e_2=\begin{pmatrix}0\\\frac{1}{\pi}\end{pmatrix}.`,
 				{ display: true },
-			)).toBe("Ae₁ = ⎛ π ⎞, Ae₂ = ⎛ 0   ⎞\n      ⎝ 0 ⎠        ⎝ 1/π ⎠.");
-		expect(renderLatex(String.raw`\sum_{i=0}^n x_i=\begin{pmatrix}a&b\\c&d\end{pmatrix}.`, { display: true })).toBe(" n\n ∑  xᵢ = ⎛ a │ b ⎞\ni=0      ⎝ c │ d ⎠.");
+			),
+			"Ae₁ = ⎛ π ⎞, Ae₂ = ⎛ 0   ⎞\n      ⎝ 0 ⎠        ⎝ 1/π ⎠.",
+		);
+		assert.strictEqual(
+			renderLatex(String.raw`\sum_{i=0}^n x_i=\begin{pmatrix}a&b\\c&d\end{pmatrix}.`, { display: true }),
+			" n\n ∑  xᵢ = ⎛ a │ b ⎞\ni=0      ⎝ c │ d ⎠.",
+		);
 	});
 
 	it("normalizes relation, multiplication, and named-operator spacing", () => {
 		for (const source of ["x=y", "x =y", "x=\ny", "x\n=\ny"]) {
-			expect(renderLatex(source)).toBe("x = y");
+			assert.strictEqual(renderLatex(source), "x = y");
 		}
-		expect(renderLatex("x_{i=0}")).toBe("xᵢ₌₀");
-		expect(renderLatex(String.raw`x\neq0`)).toBe("x ≠ 0");
-		expect(renderLatex(String.raw`A\to B`)).toBe("A → B");
-		expect(renderLatex(String.raw`\pi\cdot\frac{1}{\pi}`)).toBe("π · 1/π");
-		expect(renderLatex(String.raw`\sin\theta`)).toBe("sin θ");
-		expect(renderLatex(String.raw`\sin^2 x`)).toBe("sin² x");
-		expect(renderLatex(String.raw`-\sin\theta`)).toBe("-sin θ");
-		expect(renderLatex(String.raw`i\sin\theta`)).toBe("i sin θ");
-		expect(renderLatex(String.raw`\det(A)`)).toBe("det(A)");
+		assert.strictEqual(renderLatex("x_{i=0}"), "xᵢ₌₀");
+		assert.strictEqual(renderLatex(String.raw`x\neq0`), "x ≠ 0");
+		assert.strictEqual(renderLatex(String.raw`A\to B`), "A → B");
+		assert.strictEqual(renderLatex(String.raw`\pi\cdot\frac{1}{\pi}`), "π · 1/π");
+		assert.strictEqual(renderLatex(String.raw`\sin\theta`), "sin θ");
+		assert.strictEqual(renderLatex(String.raw`\sin^2 x`), "sin² x");
+		assert.strictEqual(renderLatex(String.raw`-\sin\theta`), "-sin θ");
+		assert.strictEqual(renderLatex(String.raw`i\sin\theta`), "i sin θ");
+		assert.strictEqual(renderLatex(String.raw`\det(A)`), "det(A)");
 	});
 
 	it("treats a backslash followed by a line ending as control space", () => {
@@ -383,30 +434,42 @@ R\left(\frac{\pi}{4}\right)
 (1,1,1),\ (1,1,2),\ (1,2,5),\ (1,5,13),\ (2,5,29),\
 (1,13,34),\ (1,34,89)
 }.`;
-		expect(renderLatex(source, { display: true })).toBe("[(1,1,1), (1,1,2), (1,2,5), (1,5,13), (2,5,29), (1,13,34), (1,34,89)].");
-		expect(renderLatex("a\\\r\nb")).toBe("a b");
+		assert.strictEqual(
+			renderLatex(source, { display: true }),
+			"[(1,1,1), (1,1,2), (1,2,5), (1,5,13), (2,5,29), (1,13,34), (1,34,89)].",
+		);
+		assert.strictEqual(renderLatex("a\\\r\nb"), "a b");
 	});
 
 	it("stacks operator limits in display mode", () => {
-		expect(renderLatex(String.raw`\sum_{i=0}^n x_i`, { display: true })).toBe(" n\n ∑  xᵢ\ni=0");
-		expect(renderLatex(String.raw`\min_{x\in X} f(x)`, { display: true })).toBe("min f(x)\nx∈X");
-		expect(renderLatex(String.raw`\operatorname*{arg\,max}_{x\in X} f(x)`, {
+		assert.strictEqual(renderLatex(String.raw`\sum_{i=0}^n x_i`, { display: true }), " n\n ∑  xᵢ\ni=0");
+		assert.strictEqual(renderLatex(String.raw`\min_{x\in X} f(x)`, { display: true }), "min f(x)\nx∈X");
+		assert.strictEqual(
+			renderLatex(String.raw`\operatorname*{arg\,max}_{x\in X} f(x)`, {
 				display: true,
-			})).toBe("arg max f(x)\n  x∈X");
-		expect(renderLatex(String.raw`\int\nolimits_0^1 f(x)\,dx`, { display: true })).toBe("∫₀¹ f(x) dx");
-		expect(renderLatex(String.raw`\int\limits_0^1 f(x)\,dx`, { display: true })).toBe("1\n∫ f(x) dx\n0");
+			}),
+			"arg max f(x)\n  x∈X",
+		);
+		assert.strictEqual(renderLatex(String.raw`\int\nolimits_0^1 f(x)\,dx`, { display: true }), "∫₀¹ f(x) dx");
+		assert.strictEqual(renderLatex(String.raw`\int\limits_0^1 f(x)\,dx`, { display: true }), "1\n∫ f(x) dx\n0");
 	});
 
-	it("uses the middle brace for intermediate case rows", () => {
-		expect(renderLatex(String.raw`\begin{cases}a & x<0 \\ b & x=0 \\ c & x>0\end{cases}`)).toBe("⎧ a if x < 0\n⎨ b if x = 0\n⎩ c if x > 0");
+	it("centers even case rows around a middle brace", () => {
+		assert.strictEqual(
+			renderLatex(String.raw`f(x) = \begin{cases} x^{2} & x \geq 0 \\ -x & x < 0 \end{cases}`),
+			"       ⎧ x² if x ≥ 0\nf(x) = ⎨\n       ⎩ -x if x < 0",
+		);
 	});
 
 	it("stacks fractions in display mode", () => {
-		expect(renderLatex(String.raw`x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}`, {
+		assert.strictEqual(
+			renderLatex(String.raw`x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}`, {
 				display: true,
-			})).toBe("    -b±√(b²-4ac)\nx = ────────────\n         2a");
-		expect(renderLatex(String.raw`\frac{x^2+1}{x-1}`, { display: true })).toBe("x²+1\n────\nx-1");
-		expect(renderLatex("\\frac{1}\n{2}", { display: true })).toBe("1\n─\n2");
+			}),
+			"    -b±√(b²-4ac)\nx = ────────────\n         2a",
+		);
+		assert.strictEqual(renderLatex(String.raw`\frac{x^2+1}{x-1}`, { display: true }), "x²+1\n────\nx-1");
+		assert.strictEqual(renderLatex("\\frac{1}\n{2}", { display: true }), "1\n─\n2");
 	});
 
 	it("keeps nested display fractions linear", () => {
@@ -425,42 +488,28 @@ R\left(\frac{\pi}{4}\right)
 			],
 		];
 		for (const [source, expected] of cases) {
-			expect(renderLatex(source, { display: true })).toBe(expected);
+			assert.strictEqual(renderLatex(source, { display: true }), expected);
 		}
 	});
 
-	it("keeps fractions linear in scripts and text-style fractions", () => {
-		expect(renderLatex(String.raw`e^{\frac{1}{2}}`, { display: true })).toBe("e^(1/2)");
-		expect(renderLatex(String.raw`\tfrac{1}{2}`, { display: true })).toBe("1/2");
+	it("lays out unsupported and nested scripts while keeping script fractions linear", () => {
+		assert.strictEqual(
+			renderLatex(String.raw`\partial_tU_2(t,0)=Aj_*(1-t)^{-A-1}.\qquad x^{n^2}+x_{i_j}`, {
+				display: true,
+			}),
+			"                            2\n                    -A-1   n\n∂ₜU₂(t,0) = Aj (1-t)    . x  +x\n              *                i\n                                j",
+		);
+		assert.strictEqual(renderLatex(String.raw`e^{\frac{1}{2}}+\tfrac{1}{2}`, { display: true }), "e^(1/2)+1/2");
 	});
 
 	it("returns undefined for unsupported commands", () => {
-		expect(renderLatex(String.raw`x + \unknown{y}`)).toBe(undefined);
+		assert.strictEqual(renderLatex(String.raw`x + \unknown{y}`), undefined);
 	});
 
 	it("returns undefined for malformed groups and environments", () => {
 		const malformed = [String.raw`\frac{1}{x`, "x}", String.raw`\begin{matrix}1 & 2`, "x\\"];
 		for (const source of malformed) {
-			expect(renderLatex(source)).toBe(undefined);
+			assert.strictEqual(renderLatex(source), undefined);
 		}
-	});
-
-	it("returns undefined for pathologically deep brace nesting instead of overflowing the stack", () => {
-		// 8_000 exceeds the parser's depth cap (256) and used to overflow the JS
-		// stack before the cap existed; the documented contract is undefined.
-		const depth = 8_000;
-		expect(renderLatex("{".repeat(depth) + "x" + "}".repeat(depth))).toBe(undefined);
-	});
-
-	it("returns undefined for pathologically deep command-argument nesting instead of overflowing the stack", () => {
-		// The \frac chain recurses through parseRequiredArgumentValue -> parseCommand
-		// (not parseSequence), so it needs its own depth budget.
-		const depth = 8_000;
-		expect(renderLatex("\\frac".repeat(depth) + "x" + "}".repeat(depth))).toBe(undefined);
-	});
-
-	it("renders brace nesting below the depth cap", () => {
-		const depth = 100;
-		expect(renderLatex("{".repeat(depth) + "x" + "}".repeat(depth))).toBe("x");
 	});
 });

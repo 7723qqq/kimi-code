@@ -4,74 +4,39 @@ import { createDecorator } from '#/_base/di/instantiation';
 import { type AgentTool } from '#/tool/toolContract';
 
 export const DEFAULT_MAX_CHARS = 100_000;
-export const DEFAULT_MAX_CHARS_LIMIT = 500_000;
+export const DEFAULT_MAX_CHARS_LIMIT = 100_000;
 
 export const TRANSCODE_MAX_BYTES: number = 10 * 1024 * 1024;
+
+const PositiveLineOffsetSchema = z.number().int().min(1);
+const TailLineOffsetSchema = z.number().int().negative();
 
 export const ReadInputSchema = z.object({
   path: z
     .string()
     .describe(
-      'Path to a file or a kimi-file:// attachment reference in the current session. Text files ' +
-        'are read as text; image and video files are sent to the model as multimodal content ' +
-        '(requires a model with the matching vision capability). Relative filesystem paths ' +
-        'resolve against the working directory; a path outside the working directory must be ' +
-        'absolute. Directories are not supported; use `ls` via Bash for a known directory, or ' +
-        'Glob for pattern search.',
+      'Path to a text file or a kimi-file:// attachment reference in the current session. Relative filesystem paths resolve against the working directory; a path outside the working directory must be absolute. Directories are not supported; use `ls` via Bash for a known directory, or Glob for pattern search.',
     ),
   line_offset: z
-    .number()
-    .int()
-    .refine((value) => value !== 0, 'line_offset must not be 0')
+    .union([PositiveLineOffsetSchema, TailLineOffsetSchema])
     .optional()
     .describe(
-      'One-based file line number to start reading from, unlike the offset used by Grep and Glob to skip result entries. Omit to start at line 1; 0 is invalid. Negative values select a tail window: with -100, reading starts at the 100th line from the end, and n_lines can limit how many lines are returned from that point; without n_lines, it returns the last 100 lines.',
+      'The line number to start reading from. Omit to start at line 1. Negative values read from the end of the file (for example, -100 reads the last 100 lines).',
     ),
-  column_offset: z
-    .number()
-    .int()
-    .nonnegative()
-    .optional()
-    .describe(
-      'Zero-based character offset within the first line of a forward read, excluding its line-number prefix. Uses JavaScript string length in the displayed text. Copy continuation arguments from the previous result to resume a long line.',
-    ),
+  column_offset: z.number().int().nonnegative().optional().describe(
+    'Zero-based character offset within the first line of a forward read, excluding its line-number prefix. Uses JavaScript string length in the displayed text. Copy continuation arguments from the previous result to resume a long line.',
+  ),
   n_lines: z
     .number()
     .int()
     .positive()
     .optional()
     .describe(
-      'Maximum number of lines to return, counted forward from line_offset; with a negative line_offset, counting starts at the computed tail-window start. Omit to read toward the end of the file. This limits line count only: max_chars can further shorten the selected range or a long line. Incomplete ranges include continuation arguments.',
+      'The number of lines to read. Omit to read toward the end of the file. Results are bounded by max_chars, with continuation arguments when the requested range is incomplete.',
     ),
-  region: z
-    .object({
-      x: z.number().int().min(0).describe('Left edge of the crop, in original-image pixels.'),
-      y: z.number().int().min(0).describe('Top edge of the crop, in original-image pixels.'),
-      width: z.number().int().min(1).describe('Crop width, in original-image pixels.'),
-      height: z.number().int().min(1).describe('Crop height, in original-image pixels.'),
-    })
-    .optional()
-    .describe(
-      'Images only: view just this rectangle of the image (original-image pixel coordinates). ' +
-        'Use after a downsampled full view to inspect fine detail — a region within the size ' +
-        'limits is delivered at full fidelity.',
-    ),
-  full_resolution: z
-    .boolean()
-    .optional()
-    .describe(
-      'Images only: skip the default downscaling and view at native resolution. Fails with an ' +
-        'explicit error when the payload would exceed the per-image byte limit; use region for ' +
-        'files that large.',
-    ),
-  max_chars: z
-    .number()
-    .int()
-    .positive()
-    .optional()
-    .describe(
-      'Maximum rendered characters, including line-number prefixes and the Read status; this is not a line count. It bounds the range selected by line_offset and n_lines and can shorten that range or a long line. Incomplete ranges include continuation arguments. Omit for the configured default; requests above the configured maximum are capped.',
-    ),
+  max_chars: z.number().int().positive().optional().describe(
+    'Maximum characters in the returned text, including line numbers and status. Omit for the configured default; requests above the configured maximum are capped.',
+  ),
 });
 
 export const ReadOutputSchema = z.object({
@@ -82,7 +47,5 @@ export const ReadOutputSchema = z.object({
 export type ReadInput = z.infer<typeof ReadInputSchema>;
 export type ReadOutput = z.infer<typeof ReadOutputSchema>;
 
-export interface IReadTool extends AgentTool<ReadInput> {
-  readonly _serviceBrand: undefined;
-}
+export interface IReadTool extends AgentTool<ReadInput> { readonly _serviceBrand: undefined }
 export const IReadTool = createDecorator<IReadTool>('readTool');

@@ -1,18 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { IConfigService } from '@moonshot-ai/agent-core-v2';
-import {
-  authSummarySchema,
-  type AuthSummary,
-} from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
+import { authSummarySchema, type AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
+import { afterAll, beforeAll, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { removeTempHome } from './helpers/tempHome';
+import { authedFetch } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -44,7 +40,7 @@ describe('server-v2 GET /api/v1/auth', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
       home = undefined;
     }
   });

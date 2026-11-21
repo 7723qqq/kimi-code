@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import type { ChatProviderError } from '#/llm-adapter/contract/errors';
 import {
   APIConnectionError,
   APIContextOverflowError,
@@ -10,16 +9,17 @@ import {
   APIProviderRateLimitError,
   APIStatusError,
   APITimeoutError,
+  ChatProviderError,
   classifyApiError,
   createAbortError,
+  errorFromLlmMessage,
   isAbortError,
   isImageFormatError,
   isRecoverableRequestStructureError,
   isRetryableGenerateError,
+  llmMessageFromError,
   normalizeAPIStatusError,
   throwIfAbortError,
-  errorFromLlmMessage,
-  llmMessageFromError,
 } from '#/llm-adapter/contract/errors';
 
 class APIUserAbortError extends Error {
@@ -111,8 +111,12 @@ describe('isRetryableGenerateError', () => {
   it('retries transient failures', () => {
     expect(isRetryableGenerateError(new APIConnectionError('Connection error.'))).toBe(true);
     expect(isRetryableGenerateError(new APITimeoutError('Request timed out.'))).toBe(true);
-    expect(isRetryableGenerateError(new APIProviderRateLimitError('Too many requests'))).toBe(true);
-    expect(isRetryableGenerateError(new APIProviderOverloadedError(529, 'Overloaded'))).toBe(true);
+    expect(isRetryableGenerateError(new APIProviderRateLimitError('Too many requests'))).toBe(
+      true,
+    );
+    expect(isRetryableGenerateError(new APIProviderOverloadedError(529, 'Overloaded'))).toBe(
+      true,
+    );
     expect(isRetryableGenerateError(new APIStatusError(503, 'Service unavailable', true))).toBe(true);
   });
 
@@ -183,52 +187,42 @@ describe('classifyApiError', () => {
   });
 });
 
-describe('model error retryability', () => {
-  it('never retries aborts and retries transient failures', () => {
-    expect(isRetryableGenerateError(createAbortError())).toBe(false);
-    expect(isRetryableGenerateError(new APIConnectionError('Connection error.'))).toBe(true);
-    expect(isRetryableGenerateError(new APITimeoutError('Request timed out.'))).toBe(true);
-    expect(isRetryableGenerateError(new APIProviderRateLimitError('Too many requests'))).toBe(true);
-    expect(isRetryableGenerateError(new APIProviderOverloadedError(529, 'Overloaded'))).toBe(true);
-    expect(isRetryableGenerateError(new APIStatusError(503, 'Service unavailable', true))).toBe(true);
-    expect(isRetryableGenerateError(new APIStatusError(400, 'Bad request', false))).toBe(false);
-    expect(isRetryableGenerateError(new APIStatusError(401, 'Unauthorized', false))).toBe(false);
+describe('model error HTTP status source', () => {
+  it('uses normalized retryability instead of HTTP status when deciding whether to retry', () => {
+    const retryableClientError = new APIStatusError(400, 'retry this', true);
+    const deterministicServerError = new APIStatusError(503, 'do not retry this', false);
+
+    expect(isRetryableGenerateError(retryableClientError)).toBe(true);
+    expect(isRetryableGenerateError(deterministicServerError)).toBe(false);
   });
 
-  it('does not retry provider-filtered empty responses', () => {
-    expect(
-      isRetryableGenerateError(new APIEmptyResponseError('filtered', { finishReason: 'filtered' })),
-    ).toBe(false);
-    expect(
-      isRetryableGenerateError(new APIEmptyResponseError('empty', { finishReason: 'completed' })),
-    ).toBe(true);
-    expect(isRetryableGenerateError(new APIEmptyResponseError('empty'))).toBe(true);
-  });
+  it('keeps rate-limit semantics without synthesizing HTTP 429', () => {
+    const error = errorFromLlmMessage(
+      {
+        kind: 'rate_limit',
+        message: 'backend stream rate limit',
+        requestId: 'req-stream',
+        retryAfterMs: null,
+        headers: { 'x-trace-id': 'trace-stream' },
+        retryable: true,
+      },
+      { requestId: 'req-stream' },
+    );
 
-  it('honors an explicit non-retryable status error', () => {
-    const deterministic = new APIStatusError(503, 'do not retry this', false);
-    expect(isRetryableGenerateError(deterministic)).toBe(false);
-  });
-
-  it('keeps a status-less rate limit retryable without synthesizing HTTP 429', () => {
-    const error = errorFromLlmMessage({
-      kind: 'rate_limit',
-      message: 'backend stream rate limit',
-      requestId: 'req-stream',
-      retryAfterMs: null,
-      headers: { 'x-trace-id': 'trace-stream' },
-      retryable: true,
-    });
     expect(error).toBeInstanceOf(APIProviderRateLimitError);
     expect(error).toMatchObject({
+      code: 'provider.rate_limit',
+      message: 'backend stream rate limit',
       statusCode: undefined,
       requestId: 'req-stream',
       traceId: 'trace-stream',
+      diagnostics: { requestId: 'req-stream' },
       retryable: true,
     });
     expect(isRetryableGenerateError(error)).toBe(true);
     expect(llmMessageFromError(error)).toMatchObject({
       kind: 'rate_limit',
+      message: 'backend stream rate limit',
       statusCode: undefined,
       headers: { 'x-trace-id': 'trace-stream' },
       retryable: true,
@@ -244,37 +238,38 @@ describe('model error retryability', () => {
       headers: null,
       retryable: false,
     });
+
     expect(error).toBeInstanceOf(APIProviderQuotaExhaustedError);
     expect(error).toMatchObject({ statusCode: undefined, retryable: false });
     expect(isRetryableGenerateError(error)).toBe(false);
-    expect(llmMessageFromError(error)).toMatchObject({
-      kind: 'quota_exhausted',
-      retryable: false,
-    });
   });
 
-  it('carries an explicit retryability through the reverse mapping', () => {
+  it('preserves explicit retryability for a status-less stream failure', () => {
     const transient = errorFromLlmMessage({
       kind: 'status',
-      message: 'stream failure',
-      statusCode: undefined,
+      message: 'backend stream 503',
       requestId: null,
       retryAfterMs: null,
       headers: null,
       retryable: true,
     });
-    expect(transient).toMatchObject({ retryable: true });
-    expect(llmMessageFromError(transient)).toMatchObject({ kind: 'status', retryable: true });
-  });
-});
+    const deterministic = errorFromLlmMessage({
+      kind: 'status',
+      message: 'backend stream 400',
+      requestId: null,
+      retryAfterMs: null,
+      headers: null,
+      retryable: false,
+    });
 
-describe('model error HTTP status source', () => {
-  it('uses explicit retryability instead of the HTTP status class', () => {
-    const retryableClientError = new APIStatusError(400, 'retry this', true);
-    const deterministicServerError = new APIStatusError(503, 'do not retry this', false);
-
-    expect(isRetryableGenerateError(retryableClientError)).toBe(true);
-    expect(isRetryableGenerateError(deterministicServerError)).toBe(false);
+    expect(transient).toBeInstanceOf(APIStatusError);
+    expect(isRetryableGenerateError(transient)).toBe(true);
+    expect(isRetryableGenerateError(deterministic)).toBe(false);
+    expect(llmMessageFromError(transient)).toMatchObject({
+      kind: 'status',
+      statusCode: undefined,
+      retryable: true,
+    });
   });
 
   it('preserves a real model HTTP status', () => {
@@ -301,20 +296,22 @@ describe('model error HTTP status source', () => {
     });
   });
 
-  it('preserves a provider error code with its status and trace id', () => {
+  it('preserves a provider error code in the seventh constructor argument', () => {
     const error = new APIStatusError(
       403,
-      'Forbidden', false,
-      'req-http',
+      'Forbidden',
+      false,
       null,
-      'trace-http',
+      null,
+      { requestId: 'req-diagnostics' },
       'provider.auth_error',
     );
 
     expect(error).toMatchObject({
       code: 'provider.auth_error',
       statusCode: 403,
-      traceId: 'trace-http',
+      traceId: null,
+      diagnostics: { requestId: 'req-diagnostics' },
     });
     expect(isRetryableGenerateError(error)).toBe(false);
   });

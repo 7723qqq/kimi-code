@@ -1,6 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
 import Fastify, { type FastifyInstance } from 'fastify';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   createOriginHook,
@@ -41,9 +40,7 @@ describe('isOriginAllowed', () => {
   });
 
   it('allows cross-origin that is whitelisted', () => {
-    expect(
-      isOriginAllowed('https://foo.example.com', 'localhost:80', ['https://foo.example.com']),
-    ).toBe(true);
+    expect(isOriginAllowed('https://foo.example.com', 'localhost:80', ['https://foo.example.com'])).toBe(true);
   });
 
   it('allows an absent origin', () => {

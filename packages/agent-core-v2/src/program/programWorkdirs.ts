@@ -41,6 +41,7 @@ export interface ProgramHarness {
 export interface ProgramView {
   readonly state: IWorkspaceStateService;
   readonly localConfig: FileProjectLocalConfigService;
+  readonly hostFs: IHostFileSystem;
   readonly dirs: IWorkspaceDirs;
   readonly git: IWorkspaceGitService;
   readonly fs: IWorkspaceFsService;
@@ -51,6 +52,7 @@ export interface ProgramView {
 
 export interface ProgramWorkdir {
   readonly contextKey: string;
+  readonly hostFs: IHostFileSystem;
   readonly localConfig: FileProjectLocalConfigService;
   readonly dirs: IWorkspaceDirs;
   readonly fs: IWorkspaceFsService;
@@ -97,18 +99,10 @@ export class ProgramWorkdirs {
     ownRoot: Own,
   ) {
     this.root = this.build(ownRoot, LOCAL_ENVIRONMENT_ID, context.cwd, true);
-    this.entries.set(workdirContextKey(LOCAL_ENVIRONMENT_ID, context.cwd, true), {
-      view: this.root,
-      disposables: [],
-      references: 1,
-    });
+    this.entries.set(workdirContextKey(LOCAL_ENVIRONMENT_ID, context.cwd, true), { view: this.root, disposables: [], references: 1 });
   }
 
-  async acquire(
-    environmentId: string,
-    cwd: string,
-    followsPrimary = environmentId === LOCAL_ENVIRONMENT_ID,
-  ): Promise<ProgramWorkdir> {
+  async acquire(environmentId: string, cwd: string, followsPrimary = environmentId === LOCAL_ENVIRONMENT_ID): Promise<ProgramWorkdir> {
     const contextKey = workdirContextKey(environmentId, cwd, followsPrimary);
     let entry = this.entries.get(contextKey);
     const stale = entry !== undefined && !watchable(environmentId);
@@ -119,11 +113,7 @@ export class ProgramWorkdirs {
         return value;
       };
       try {
-        entry = {
-          view: this.build(own, environmentId, cwd, followsPrimary),
-          disposables,
-          references: 0,
-        };
+        entry = { view: this.build(own, environmentId, cwd, followsPrimary), disposables, references: 0 };
       } catch (error) {
         disposeAll(disposables);
         throw error;
@@ -135,6 +125,7 @@ export class ProgramWorkdirs {
     let released = false;
     const workdir: ProgramWorkdir = {
       contextKey,
+      hostFs: acquired.view.hostFs,
       localConfig: acquired.view.localConfig,
       dirs: acquired.view.dirs,
       fs: acquired.view.fs,
@@ -170,12 +161,7 @@ export class ProgramWorkdirs {
     this.entries.clear();
   }
 
-  private build(
-    own: Own,
-    environmentId: string,
-    cwd: string,
-    followsPrimary: boolean,
-  ): ProgramView {
+  private build(own: Own, environmentId: string, cwd: string, followsPrimary: boolean): ProgramView {
     const lease = this.environments.acquire({ environmentId }, PROGRAM_CAPABILITIES);
     try {
       const hostFs = lease.environment.fs!;
@@ -209,16 +195,16 @@ export class ProgramWorkdirs {
   private buildView(own: Own, input: ProgramViewInput): ProgramView {
     const state = own(new WorkspaceStateService(this.dependencies.appState));
     const localConfig = new FileProjectLocalConfigService(this.dependencies.bootstrap, input.hostFs, input.homeDir);
-    const dirs = own(new WorkspaceDirsService(input.context, localConfig, this.dependencies.log, state, this.dependencies.workspaces, this.dependencies.workspaceStore, input.environmentId, input.followsPrimary));
+    const dirs = own(new WorkspaceDirsService(input.context, localConfig, this.dependencies.workspaces, this.dependencies.workspaceStore, this.dependencies.log, state, input.environmentId, input.followsPrimary));
     const git = new WorkspaceGitService(dirs, input.git);
     const fs = new WorkspaceFsService(input.context, dirs, input.hostFs, this.environments, this.dependencies.telemetry, git, input.environmentId);
     const instructions = own(new WorkspaceInstructionsService(dirs, input.hostFs, input.instructionsHost, this.dependencies.bootstrap, this.dependencies.log, state, input.personalFs, input.watch));
     const agentProfiles: IWorkspaceAgentProfileLoader = input.projectAgentProfiles
       ? own(new WorkspaceAgentProfileLoaderService(input.context, input.hostFs, dirs, this.dependencies.log, input.userAgentProfiles, this.dependencies.agentProfiles, input.contextKey, input.watch))
       : { _serviceBrand: undefined, ready: Promise.resolve(), reload: () => Promise.resolve() };
-    const workspaceSkills = own(new WorkspaceRootSkillSource(new EnvironmentSkillDiscovery(this.dependencies.log, input.hostFs), input.context, this.dependencies.config, this.dependencies.bootstrap, dirs, input.hostFs, input.watch));
-    const skills = own(new WorkspaceSkillCatalogService(this.dependencies.builtinSkills, this.dependencies.userSkills, input.explicitSkills, input.extraSkills, workspaceSkills, input.pluginSkills, state, this.dependencies.config));
-    return { state, localConfig, dirs, git, fs, instructions, skills, agentProfiles };
+    const workspaceSkills = own(new WorkspaceRootSkillSource(new EnvironmentSkillDiscovery(this.dependencies.log, input.hostFs), input.context, this.dependencies.config, this.dependencies.bootstrap, dirs, input.hostFs, this.dependencies.log, input.watch));
+    const skills = own(new WorkspaceSkillCatalogService(this.dependencies.builtinSkills, this.dependencies.userSkills, input.explicitSkills, input.extraSkills, workspaceSkills, input.pluginSkills, state));
+    return { state, localConfig, hostFs: input.hostFs, dirs, git, fs, instructions, skills, agentProfiles };
   }
 }
 

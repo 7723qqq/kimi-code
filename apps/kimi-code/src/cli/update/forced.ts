@@ -6,10 +6,8 @@ import {
 } from '@moonshot-ai/kimi-code-product/client-configs/node';
 
 import { INTERACTIVE_UPDATE_CHECK_TIMEOUT_MS, NPM_PACKAGE_NAME } from '#/constant/app';
-import { t } from '#/i18n';
 import { clientConfigs } from '#/utils/client-configs';
 
-import { promptForForcedUpgradeChoice } from './forced-prompt';
 import {
   canAutoInstall,
   installCommandFor,
@@ -17,10 +15,12 @@ import {
   renderInstallSuccessMessage,
   renderManualUpdateMessage,
 } from './preflight';
+import { promptForForcedUpgradeChoice } from './forced-prompt';
 import { refreshUpdateCache } from './refresh';
 import { decideUpdate, updateChannelForVersion } from './select';
 import { detectInstallSource } from './source';
 import type { UpgradePlan } from './types';
+import { t } from '#/i18n';
 
 export type ForcedUpgradePreflightResult = 'continue' | 'skip-passive' | 'exit' | 'interrupt';
 
@@ -31,7 +31,6 @@ export interface RunForcedUpgradePreflightOptions {
 }
 
 const SKIP_DELAY_MS = 10_000;
-const POLICY_TIMEOUT_MS = 2_000;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -43,23 +42,15 @@ export async function runForcedUpgradePreflight(
 ): Promise<ForcedUpgradePreflightResult> {
   const isInteractive = options.isTTY ?? (process.stdin.isTTY && process.stdout.isTTY);
   if (!isInteractive) return 'continue';
-
-  const policy = await clientConfigs.fetch(
-    CLIENT_UPGRADE_POLICY_CONFIG_NAME,
-    clientUpgradePolicySchema,
-    { timeoutMs: POLICY_TIMEOUT_MS },
-  );
+  const policy = await clientConfigs.fetch(CLIENT_UPGRADE_POLICY_CONFIG_NAME, clientUpgradePolicySchema, { timeoutMs: 2_000 });
   const minimumVersion = policy?.cliMinVersion ?? null;
-  if (minimumVersion === null || !isUpgradeRequired(currentVersion, minimumVersion)) {
-    return 'continue';
-  }
+  if (!isUpgradeRequired(currentVersion, minimumVersion) || minimumVersion === null) return 'continue';
 
   const stdout = options.stdout ?? process.stdout;
   const channel = updateChannelForVersion(currentVersion);
   const platform = process.platform;
-  const detected = await detectInstallSource().catch(() => null);
-  if (detected === null || detected === 'unsupported') return 'continue';
-  const source = detected;
+  const source = await detectInstallSource().catch(() => 'unsupported' as const);
+  if (source === 'unsupported') return 'continue';
   const baseProperties = {
     client: 'cli',
     current_version: currentVersion,
@@ -91,11 +82,6 @@ export async function runForcedUpgradePreflight(
       error_class: errorClass ?? null,
     });
   };
-  const targetUnavailableMessage = (): string =>
-    t('tui.statusMessages.updateForcedTargetUnavailable', {
-      minimum: minimumVersion,
-      channel,
-    });
 
   let skipAvailableAt: number | null = null;
   let promptShown = false;
@@ -107,27 +93,22 @@ export async function runForcedUpgradePreflight(
     if (lastError === undefined) {
       transition('checking', attempt);
       try {
-        const feed = await refreshUpdateCache({
-          channel,
-          timeoutMs: INTERACTIVE_UPDATE_CHECK_TIMEOUT_MS,
-        });
+        const feed = await refreshUpdateCache({ channel, timeoutMs: INTERACTIVE_UPDATE_CHECK_TIMEOUT_MS });
         const candidate = decideUpdate(currentVersion, feed);
         if (candidate.kind === 'upgrade') {
           targetVersion = candidate.target.version;
           if (isUpgradeRequired(candidate.target.version, minimumVersion)) {
-            lastError = targetUnavailableMessage();
+            lastError = t('tui.statusMessages.updateForcedTargetUnavailable', { minimum: minimumVersion, channel: channel });
             transition('error', attempt, 'check', 'target_below_minimum');
           } else {
             plan = candidate;
           }
         } else {
-          lastError = targetUnavailableMessage();
+          lastError = t('tui.statusMessages.updateForcedTargetUnavailable', { minimum: minimumVersion, channel: channel });
           transition('error', attempt, 'check', 'target_unavailable');
         }
       } catch (error) {
-        lastError = t('tui.statusMessages.updateForcedCheckFailed', {
-          message: errorMessage(error),
-        });
+        lastError = t('tui.statusMessages.updateForcedCheckFailed', { message: errorMessage(error) });
         transition('error', attempt, 'check', 'check_failed');
       }
     }
@@ -139,14 +120,12 @@ export async function runForcedUpgradePreflight(
     }
     const canInstall = lastError !== undefined || (plan !== null && canAutoInstall(source, platform));
     if (plan !== null && !canInstall) {
-      stdout.write(
-        renderManualUpdateMessage(
-          currentVersion,
-          plan,
-          source,
-          installCommandFor(source, plan.target.version, platform, channel),
-        ),
-      );
+      stdout.write(renderManualUpdateMessage(
+        currentVersion,
+        plan,
+        source,
+        installCommandFor(source, plan.target.version, platform, channel),
+      ));
     }
     const action = await promptForForcedUpgradeChoice({
       currentVersion,
@@ -193,11 +172,7 @@ export async function runForcedUpgradePreflight(
       stdout.write(renderInstallSuccessMessage(plan));
       return 'exit';
     } catch (error) {
-      lastError = t('tui.statusMessages.updateForcedInstallFailed', {
-        package: NPM_PACKAGE_NAME,
-        version: plan.target.version,
-        message: errorMessage(error),
-      });
+      lastError = t('tui.statusMessages.updateForcedInstallFailed', { package: NPM_PACKAGE_NAME, version: plan.target.version, message: errorMessage(error) });
       transition('error', attempt, 'download', 'install_failed');
     }
   }

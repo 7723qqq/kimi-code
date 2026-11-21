@@ -1,15 +1,6 @@
-/**
- * `kimi vis`
- *
- * Verifies the CLI layer for the session visualizer: home + auto-port
- * resolution, browser open vs `--no-open`, and the session deep-link path.
- * Uses injected deps so no real port is bound and the real vis server is
- * never started.
- */
+import { describe, it, expect, vi } from '@moonshot-ai/testkit/vitest';
 
-import { describe, expect, it, mock } from 'bun:test';
-
-import { handleVis, parsePortOption, type VisDeps } from '#/cli/sub/vis';
+import { handleVis, type VisDeps } from '#/cli/sub/vis';
 
 function makeDeps(over: Partial<VisDeps> = {}): {
   deps: VisDeps;
@@ -20,7 +11,7 @@ function makeDeps(over: Partial<VisDeps> = {}): {
   const out: string[] = [];
   const deps: VisDeps = {
     getHomeDir: () => '/home/k',
-    startVisServer: mock(async (o) => ({
+    startVisServer: vi.fn(async (o) => ({
       port: 41234,
       host: '127.0.0.1',
       url: 'http://127.0.0.1:41234/',
@@ -38,7 +29,7 @@ function makeDeps(over: Partial<VisDeps> = {}): {
       },
     },
     stderr: { write: () => true },
-    exit: mock() as unknown as VisDeps['exit'],
+    exit: vi.fn() as unknown as VisDeps['exit'],
     ...over,
   };
   return { deps, opened, out };
@@ -76,9 +67,9 @@ describe('handleVis', () => {
   });
 
   it('closes the server after shutdown', async () => {
-    const close = mock(async () => {});
+    const close = vi.fn(async () => {});
     const { deps } = makeDeps({
-      startVisServer: mock(async () => ({
+      startVisServer: vi.fn(async () => ({
         port: 41234,
         host: '127.0.0.1',
         url: 'http://127.0.0.1:41234/',
@@ -86,25 +77,13 @@ describe('handleVis', () => {
       })) as unknown as VisDeps['startVisServer'],
     });
     await handleVis(deps, { open: false });
-    expect(close).toHaveBeenCalledTimes(1);
-  });
-
-  it('rejects an unparsable or out-of-range --port instead of silently auto-picking', () => {
-    for (const bad of ['abc', '8080abc', '-5', '99999', '65536', '']) {
-      expect(() => parsePortOption(bad), `--port ${bad} must be rejected`).toThrow();
-    }
-  });
-
-  it('accepts a valid --port, including 0 for auto-pick', () => {
-    expect(parsePortOption('8080')).toBe(8080);
-    expect(parsePortOption('0')).toBe(0);
-    expect(parsePortOption('65535')).toBe(65535);
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it('reports a clean error and exits when the server fails to start', async () => {
     const errored: string[] = [];
     const { deps, opened } = makeDeps({
-      startVisServer: mock(async () => {
+      startVisServer: vi.fn(async () => {
         throw new Error('listen EADDRINUSE: address already in use 127.0.0.1:4321');
       }) as unknown as VisDeps['startVisServer'],
       stderr: {
@@ -113,13 +92,12 @@ describe('handleVis', () => {
           return true;
         },
       },
-      waitForShutdown: mock(async () => {}),
+      waitForShutdown: vi.fn(async () => {}),
     });
     await handleVis(deps, { open: true, port: 4321 });
     expect(errored.join('')).toContain('Failed to start kimi vis');
     expect(errored.join('')).toContain('EADDRINUSE');
     expect(deps.exit).toHaveBeenCalledWith(1);
-    // Nothing past the failed start should run.
     expect(opened).toEqual([]);
     expect(deps.waitForShutdown).not.toHaveBeenCalled();
   });

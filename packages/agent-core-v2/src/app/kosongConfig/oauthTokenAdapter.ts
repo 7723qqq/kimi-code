@@ -1,8 +1,10 @@
+import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
+
 import { IOAuthService } from '#/app/auth/auth';
 import { AuthErrors } from '#/app/auth/errors';
-import { LifecycleScope } from '#/app/scopes';
 import { nonEmpty } from '#/llm-adapter/model/model-auth';
 import { IModelOAuthTokens } from '#/llm-adapter/model/model-oauth';
 import type { OAuthRef } from '#/llm-adapter/provider/provider';
@@ -44,7 +46,7 @@ function loginRequired(providerKey: string): Error2 {
 }
 
 registerScopedService(
-  LifecycleScope.App,
+LifecycleScope.App,
   IModelOAuthTokens,
   ModelOAuthTokenAdapter,
   ScopeActivation.OnScopeCreated,

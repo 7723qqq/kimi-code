@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'bun:test';
-
 import type { Component } from '@moonshot-ai/pi-tui';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   parseReadMediaOutput,
@@ -29,7 +28,6 @@ function result(output: string, isError = false): ToolResultBlockData {
 const ctx = { expanded: false, colors: darkColors };
 const expandedCtx = { expanded: true, colors: darkColors };
 
-// 1x1 transparent png base64 (≈70 bytes once decoded)
 const PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const PNG_DATA_URL = `data:image/png;base64,${PNG_B64}`;
@@ -50,17 +48,6 @@ function videoOutput(path: string, mime = 'video/mp4'): string {
   ]);
 }
 
-function documentOutput(path: string, b64 = 'JVBERi0xLjQK', mime = 'application/pdf'): string {
-  return JSON.stringify([
-    { type: 'text', text: `<document path="${path}">` },
-    {
-      type: 'document_url',
-      documentUrl: { url: `data:${mime};base64,${b64}`, mimeType: mime, name: path },
-    },
-    { type: 'text', text: '</document>' },
-  ]);
-}
-
 describe('parseReadMediaOutput', () => {
   it('extracts kind, path, mime type, and bytes from an image data URL', () => {
     const m = parseReadMediaOutput(imageOutput('/tmp/a.png'));
@@ -69,21 +56,6 @@ describe('parseReadMediaOutput', () => {
     expect(m?.path).toBe('/tmp/a.png');
     expect(m?.mimeType).toBe('image/png');
     expect(m?.bytes).toBeGreaterThan(0);
-  });
-
-  it('carries the inline base64 payload for image data URLs', () => {
-    const m = parseReadMediaOutput(imageOutput('/tmp/a.png'));
-    expect(m?.base64).toBe(PNG_B64);
-  });
-
-  it('does not carry base64 for videos or remote URLs', () => {
-    expect(parseReadMediaOutput(videoOutput('/tmp/a.mp4'))?.base64).toBeUndefined();
-    const remote = JSON.stringify([
-      { type: 'text', text: `<image path="/tmp/a.png">` },
-      { type: 'image_url', imageUrl: { url: 'https://cdn.example/i/abc' } },
-      { type: 'text', text: '</image>' },
-    ]);
-    expect(parseReadMediaOutput(remote)?.base64).toBeUndefined();
   });
 
   it('extracts video kind and mime', () => {
@@ -146,7 +118,6 @@ describe('readMediaSummary renderer', () => {
     );
     expect(out).toContain('/tmp/a.png');
     expect(out).toContain('image/png');
-    // Crucially: the base64 must never reach the screen.
     expect(out).not.toContain(PNG_B64);
     expect(out).not.toContain(PNG_DATA_URL);
   });
@@ -165,7 +136,6 @@ describe('readMediaSummary renderer', () => {
   });
 
   it('falls back to truncated renderer when the output is not the media envelope', () => {
-    // Collapsed: the fallback renderer's outcome row is the first output line.
     const collapsed = strip(
       joinRender(
         readMediaSummary(call('ReadMediaFile'), result('"some plain string output"'), ctx),
@@ -181,72 +151,5 @@ describe('readMediaSummary renderer', () => {
       ),
     );
     expect(out).toContain('some plain string output');
-  });
-});
-
-describe('parseReadMediaOutput memo', () => {
-  it('returns the same parse to the chip, the header and the glance', () => {
-    const output = imageOutput('/tmp/memo.png');
-    const first = parseReadMediaOutput(output);
-    expect(first).not.toBeNull();
-    expect(parseReadMediaOutput(output)).toBe(first);
-    expect(strip(readMediaChip(call('ReadMediaFile'), result(output)))).toContain('image/png');
-    expect(parseReadMediaOutput(output)).toBe(first);
-  });
-
-  it('stays bounded so a long session cannot hold every payload', () => {
-    const first = parseReadMediaOutput(imageOutput('/tmp/memo-bound-0.png'));
-    for (let i = 1; i <= 9; i++) {
-      parseReadMediaOutput(imageOutput(`/tmp/memo-bound-${String(i)}.png`));
-    }
-    expect(parseReadMediaOutput(imageOutput('/tmp/memo-bound-0.png'))).not.toBe(first);
-  });
-});
-
-describe('parseReadMediaOutput: documents', () => {
-  it('extracts kind, path, mime type and size from a document_url part', () => {
-    const m = parseReadMediaOutput(documentOutput('/tmp/report.pdf'));
-    expect(m).not.toBeNull();
-    expect(m?.kind).toBe('document');
-    expect(m?.path).toBe('/tmp/report.pdf');
-    expect(m?.mimeType).toBe('application/pdf');
-    expect(m?.bytes).toBeGreaterThan(0);
-  });
-
-  it('never carries the document payload — a PDF has no inline render', () => {
-    const m = parseReadMediaOutput(documentOutput('/tmp/report.pdf'));
-    expect(m?.base64).toBeUndefined();
-    expect(m?.url).toBeUndefined();
-  });
-
-  it('measures a large document payload without copying it', () => {
-    const big = 'A'.repeat(400_000);
-    const m = parseReadMediaOutput(documentOutput('/tmp/big.pdf', big));
-    expect(m?.bytes).toBe(300_000);
-  });
-});
-
-describe('readMediaChip/summary: documents', () => {
-  it('names the document and its meta on the chip', () => {
-    const text = strip(
-      readMediaChip(call('ReadMediaFile'), result(documentOutput('/tmp/report.pdf'))),
-    );
-    expect(text).toContain('document');
-    expect(text).toContain('application/pdf');
-  });
-
-  it('renders path + meta when expanded, never the base64 blob', () => {
-    const out = strip(
-      joinRender(
-        readMediaSummary(
-          call('ReadMediaFile'),
-          result(documentOutput('/tmp/report.pdf')),
-          expandedCtx,
-        ),
-      ),
-    );
-    expect(out).toContain('/tmp/report.pdf');
-    expect(out).toContain('application/pdf');
-    expect(out).not.toContain('JVBERi0xLjQK');
   });
 });

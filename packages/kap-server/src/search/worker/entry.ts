@@ -1,10 +1,13 @@
-import { writeSync } from 'node:fs';
 import { parentPort, workerData } from 'node:worker_threads';
 
 import { configureTextBuildWorkerRuntime } from '@moonshot-ai/minidb/worker-runtime';
 
 import { GlobalSearchError, type GlobalSearchErrorReason } from '../contract.ts';
-import { SearchIndexCore, type CoreSearchParams, type SyncSessionInput } from '../indexCore.ts';
+import {
+  SearchIndexCore,
+  type CoreSearchParams,
+  type SyncSessionInput,
+} from '../indexCore.ts';
 import {
   SEARCH_WORKER_PROTOCOL_VERSION,
   type SearchWorkerData,
@@ -15,63 +18,22 @@ import {
   type SearchWorkerRequest,
 } from './protocol.ts';
 
-const scope = globalThis as unknown as {
-  postMessage: (value: unknown) => void;
-  getEnvironmentData?: (key?: string) => unknown;
-  onmessage: ((event: { data: unknown }) => void) | null;
-};
-
-const port = parentPort;
-
-const queued: unknown[] = [];
-
-let deliver: (message: unknown) => void = (message) => {
-  queued.push(message);
-};
-
-if (port === null) {
-  scope.onmessage = (event) => {
-    deliver(event.data);
-  };
-} else {
-  port.on('message', (message: unknown) => {
-    deliver(message);
-  });
-}
-
-const initial = (scope.getEnvironmentData?.() ?? workerData) as SearchWorkerData | undefined;
-
-const data = await (initial ??
-  new Promise<SearchWorkerData>((resolve) => {
-    deliver = (message) => {
-      const value = message as { type?: string; params?: unknown } | null;
-      if (value !== null && typeof value === 'object' && value.type === 'init') {
-        resolve(value.params as SearchWorkerData);
-        return;
-      }
-      queued.push(value);
-    };
-  }));
-
-if (data === undefined || data === null) {
-  throw new Error('search worker entry is missing its bootstrap data');
-}
+const data = workerData as SearchWorkerData;
 
 if (typeof data.textBuildWorkerPath === 'string') {
   try {
     configureTextBuildWorkerRuntime(data.textBuildWorkerPath);
-  } catch {}
+  } catch {
+  }
+}
+
+const port = parentPort;
+if (port === null) {
+  throw new Error('search worker entry must run inside a worker thread');
 }
 
 const post = (event: SearchWorkerEvent): void => {
-  try {
-    if (port === null) scope.postMessage(event);
-    else port.postMessage(event);
-  } catch (error) {
-    const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
-    writeSync(2, `search worker failed to deliver a ${event.type} event: ${detail}\n`);
-    process.exit(1);
-  }
+  port.postMessage(event);
 };
 
 const core = new SearchIndexCore({
@@ -141,24 +103,6 @@ async function dispatch(request: SearchWorkerCall): Promise<unknown> {
 const inFlight = new Set<Promise<void>>();
 let closing = false;
 
-const CLOSE_DRAIN_BUDGET_MS = 2_000;
-
-async function settleInFlight(budgetMs: number): Promise<void> {
-  if (inFlight.size === 0) return;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      Promise.all(inFlight),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, budgetMs);
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
-
 async function handle(request: SearchWorkerCall): Promise<void> {
   if (request.v !== SEARCH_WORKER_PROTOCOL_VERSION) {
     post({
@@ -173,7 +117,7 @@ async function handle(request: SearchWorkerCall): Promise<void> {
   if (request.type === 'close') {
     closing = true;
     core.beginClose();
-    await settleInFlight(CLOSE_DRAIN_BUDGET_MS);
+    await Promise.all(inFlight);
     let error: SearchWorkerErrorPayload | null = null;
     try {
       await core.close();
@@ -182,7 +126,8 @@ async function handle(request: SearchWorkerCall): Promise<void> {
     }
     if (error !== null) post({ id: request.id, type: 'error', error });
     else post({ id: request.id, type: 'result', result: null });
-    process.exit(0);
+    port!.close();
+    return;
   }
   if (closing) {
     post({
@@ -200,7 +145,7 @@ async function handle(request: SearchWorkerCall): Promise<void> {
   }
 }
 
-const accept = (value: unknown): void => {
+port.on('message', (value: unknown) => {
   const request = value as SearchWorkerRequest;
   if (request === null || typeof request !== 'object') return;
   if (request.type === 'beginClose') {
@@ -209,19 +154,11 @@ const accept = (value: unknown): void => {
     return;
   }
   if (typeof request.id !== 'number' || typeof request.type !== 'string') return;
-  if (request.type === 'close') {
-    void handle(request).catch(() => {});
-    return;
-  }
   const tracked = handle(request);
   inFlight.add(tracked);
   void tracked.finally(() => {
     inFlight.delete(tracked);
   });
-};
-
-deliver = accept;
+});
 
 post({ type: 'ready', v: SEARCH_WORKER_PROTOCOL_VERSION });
-
-for (const message of queued.splice(0)) accept(message);

@@ -9,4 +9,3 @@ The applicable `AGENTS.md` instructions are:
 ```````
 ${agents_md}
 ```````
-${repo_memory}

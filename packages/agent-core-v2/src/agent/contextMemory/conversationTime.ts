@@ -1,11 +1,3 @@
-import { registerUndoableProtocol } from '#/state/state';
-
-import {
-  ContextAppendMessage,
-  ContextApplyCompaction,
-  ContextClear,
-  ContextUndo,
-} from './contextEvents';
 import type { ContextMessage } from './types';
 
 export function markInTurnOrigin<T extends { readonly kind: string }>(
@@ -40,14 +32,3 @@ export function isPromptOwnedInjection(message: ContextMessage, prompt: ContextM
 export function isValidUndoCount(count: number): boolean {
   return Number.isSafeInteger(count) && count > 0;
 }
-
-registerUndoableProtocol({
-  events: {
-    appendMessage: ContextAppendMessage,
-    applyCompaction: ContextApplyCompaction,
-    clear: ContextClear,
-    undo: ContextUndo,
-  },
-  isUndoAnchor: (message) => isUndoAnchor(message as ContextMessage),
-  isValidUndoCount,
-});

@@ -1,9 +1,6 @@
-import { describe, expect, expectTypeOf, it } from 'bun:test';
-
-import { TaskOutput } from '@moonshot-ai/agent-core-v2';
+import { describe, expectTypeOf, it } from '@moonshot-ai/testkit/vitest';
 
 import type { ApprovalRequest, ApprovalResponse, Event, QuestionRequest } from '#/index';
-import { translateDomainEvent } from '#/v2/event-mapper';
 
 type EventByType<T extends Event['type']> = Extract<Event, { readonly type: T }>;
 
@@ -22,6 +19,13 @@ describe('Event public types', () => {
     expectTypeOf<EventByType<'tool.call.started'>['toolCallId']>().toEqualTypeOf<string>();
     expectTypeOf<EventByType<'tool.call.started'>['name']>().toEqualTypeOf<string>();
     expectTypeOf<EventByType<'tool.call.started'>['args']>().toEqualTypeOf<unknown>();
+    expectTypeOf<EventByType<'tool.updated'>['taskId']>().toEqualTypeOf<string>();
+    expectTypeOf<EventByType<'tool.updated'>['fields']>().toEqualTypeOf<
+      Readonly<Record<string, unknown>>
+    >();
+    expectTypeOf<EventByType<'tool.updated'>['output']>().toEqualTypeOf<
+      { readonly offset: number; readonly text: string } | undefined
+    >();
     expectTypeOf<EventByType<'mcp.server.status'>['server']['nextRetryAt']>().toEqualTypeOf<
       number | undefined
     >();
@@ -65,31 +69,13 @@ describe('Event public types', () => {
   it('exposes approval and question reverse-RPC requests', () => {
     expectTypeOf<ApprovalRequest['turnId']>().toEqualTypeOf<number | undefined>();
     expectTypeOf<ApprovalRequest['toolName']>().toEqualTypeOf<string>();
+    expectTypeOf<ApprovalRequest['agentId']>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<QuestionRequest['agentId']>().toEqualTypeOf<string | undefined>();
     expectTypeOf<QuestionRequest['questions'][number]['question']>().toEqualTypeOf<string>();
   });
 
   it('exposes optional session scope on approval responses', () => {
     expectTypeOf<ApprovalResponse['scope']>().toEqualTypeOf<'session' | undefined>();
-  });
-
-  it('maps the v2 task.output event onto the v1 background.task.output name', () => {
-    const event = new TaskOutput({
-      agentId: 'main',
-      taskId: 'bash-12345678',
-      chunk: 'hello\n',
-      outputSizeBytes: 6,
-    });
-
-    const translated = translateDomainEvent(event, 's1', 'main');
-
-    expect(translated).toMatchObject({
-      type: 'background.task.output',
-      sessionId: 's1',
-      agentId: 'main',
-      taskId: 'bash-12345678',
-      chunk: 'hello\n',
-      outputSizeBytes: 6,
-    });
   });
 
   it('covers every event in exhaustive switches', () => {
@@ -125,7 +111,7 @@ describe('Event public types', () => {
         case 'thinking.delta':
         case 'tool.call.delta':
         case 'tool.call.started':
-        case 'tool.progress':
+        case 'tool.updated':
         case 'shell.output':
         case 'shell.started':
         case 'shell.completed':
@@ -146,13 +132,11 @@ describe('Event public types', () => {
         case 'task.terminated':
         case 'background.task.started':
         case 'background.task.terminated':
-        case 'background.task.output':
         case 'cron.fired':
         case 'prompt.submitted':
         case 'prompt.completed':
         case 'prompt.aborted':
         case 'prompt.steered':
-        case 'todo.updated':
           return;
         default:
           assertNever(event);

@@ -1,0 +1,961 @@
+commit 0ea324cafb4b1754ae5b1737147a141a618d4a4e
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Fri Nov 13 02:01:55 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Fri Nov 13 02:01:55 2026 +0800
+
+    fix(tui): preserve transcript history across trimming, folding, and replay (#4866)
+    
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+
+diff --git a/.changeset/fix-tui-transcript-history.md b/.changeset/fix-tui-transcript-history.md
+new file mode 100644
+index 0000000000..fb2baeb6c7
+--- /dev/null
++++ b/.changeset/fix-tui-transcript-history.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/kimi-code": patch
++---
++
++Fix conversation history disappearing during live trimming, long-turn folding, and replay of damaged session journals.
+diff --git a/apps/kimi-code/src/tui/controllers/session-replay.ts b/apps/kimi-code/src/tui/controllers/session-replay.ts
+index d550ef4459..15986e063d 100644
+--- a/apps/kimi-code/src/tui/controllers/session-replay.ts
++++ b/apps/kimi-code/src/tui/controllers/session-replay.ts
+@@ -70,6 +70,7 @@ export interface SessionReplayHost {
+   readonly sessionEventHandler: SessionEventHandler;
+   setAppState(patch: Partial<AppState>): void;
+   showError(msg: string): void;
++  showStatus?(message: string, color?: 'warning'): void;
+   appendTranscriptEntry(entry: TranscriptEntry): void;
+   mergeAllTurnSteps(): void;
+   restoreProgramStatusBackground?(tasks: readonly BackgroundTaskInfo[]): void;
+@@ -129,6 +130,13 @@ export class SessionReplayRenderer {
+         this.host.showError('Session history is unavailable for this session.');
+         return false;
+       }
++      if (main.replayError !== undefined) {
++        this.host.showError(`Failed to replay session history: ${main.replayError}`);
++        return false;
++      }
++      if (main.replayWarning !== undefined) {
++        this.host.showStatus?.(`Warning: ${main.replayWarning}`, 'warning');
++      }
+ 
+       this.hydrateSnapshot(main);
+       this.renderRecords(main);
+diff --git a/apps/kimi-code/src/tui/controllers/streaming-ui.ts b/apps/kimi-code/src/tui/controllers/streaming-ui.ts
+index 3273438cf7..4443f45e1b 100644
+--- a/apps/kimi-code/src/tui/controllers/streaming-ui.ts
++++ b/apps/kimi-code/src/tui/controllers/streaming-ui.ts
+@@ -10,6 +10,11 @@ import { STREAMING_UI_FLUSH_MS, UNNAMED_TOOL_CALL_NAME } from '../constant/strea
+ import { hasDispose } from '../utils/component-capabilities';
+ import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-payload';
+ import { notifyTerminalOnce } from '../utils/terminal-notification';
++import {
++  getTranscriptComponentTurnId,
++  markTranscriptComponent,
++  markTranscriptComponentTurnId,
++} from '../utils/transcript-component-metadata';
+ import { nextTranscriptId } from '../utils/transcript-id';
+ import { TurnTimeline } from '../utils/turn-timeline';
+ import type {
+@@ -634,8 +639,9 @@ export class StreamingUIController {
+     };
+     const component = new AssistantMessageComponent();
+     this._streamingBlock = { component, entry };
+-    this.host.pushTranscriptEntry(entry);
++    markTranscriptComponent(component, entry);
+     state.transcriptContainer.addChild(component);
++    this.host.pushTranscriptEntry(entry);
+     state.ui.requestRender();
+   }
+ 
+@@ -673,6 +679,7 @@ export class StreamingUIController {
+         state.ui,
+       );
+       if (state.transcriptContainer.toolOutputExpanded) this._activeThinkingComponent.setExpanded(true);
++      markTranscriptComponentTurnId(this._activeThinkingComponent, this._currentTurnId);
+       state.transcriptContainer.addChild(this._activeThinkingComponent);
+     } else {
+       this._activeThinkingComponent.setText(fullText);
+@@ -700,6 +707,7 @@ export class StreamingUIController {
+       state.appState.workDir,
+     );
+     if (state.transcriptContainer.toolOutputExpanded) tc.setExpanded(true);
++    markTranscriptComponentTurnId(tc, toolCall.turnId ?? this._currentTurnId);
+     this._pendingToolComponents.set(toolCall.id, tc);
+ 
+     if (toolCall.name !== 'Agent') this._pendingAgentGroup = null;
+@@ -747,6 +755,7 @@ export class StreamingUIController {
+         state.appState.workDir,
+       );
+       if (state.transcriptContainer.toolOutputExpanded) completed.setExpanded(true);
++      markTranscriptComponentTurnId(completed, matchedCall.turnId ?? this._currentTurnId);
+       state.transcriptContainer.addChild(completed);
+       state.ui.requestRender();
+     }
+@@ -783,6 +792,7 @@ export class StreamingUIController {
+ 
+   private mountCompactionBlock(block: CompactionComponent): void {
+     const { state } = this.host;
++    markTranscriptComponentTurnId(block, this._currentTurnId);
+     state.transcriptContainer.addChild(block);
+     if (state.transcriptContainer.toolOutputExpanded) block.setExpanded(true);
+   }
+@@ -862,6 +872,7 @@ export class StreamingUIController {
+   private upgradeSoloAgentToGroup(solo: ToolCallComponent): AgentGroupComponent {
+     const { state } = this.host;
+     const group = new AgentGroupComponent(state.ui);
++    markTranscriptComponentTurnId(group, getTranscriptComponentTurnId(solo) ?? this._currentTurnId);
+     if (state.transcriptContainer.children.includes(solo)) {
+       state.transcriptContainer.replaceChild(solo, group);
+     } else {
+@@ -916,6 +927,7 @@ export class StreamingUIController {
+   private upgradeSoloReadToGroup(solo: ToolCallComponent): ReadGroupComponent {
+     const { state } = this.host;
+     const group = new ReadGroupComponent(state.ui);
++    markTranscriptComponentTurnId(group, getTranscriptComponentTurnId(solo) ?? this._currentTurnId);
+     if (state.transcriptContainer.toolOutputExpanded) group.setExpanded(true);
+     if (state.transcriptContainer.children.includes(solo)) {
+       state.transcriptContainer.replaceChild(solo, group);
+diff --git a/apps/kimi-code/src/tui/controllers/subagent-event-handler.ts b/apps/kimi-code/src/tui/controllers/subagent-event-handler.ts
+index c84ac20c5d..d2c89fe093 100644
+--- a/apps/kimi-code/src/tui/controllers/subagent-event-handler.ts
++++ b/apps/kimi-code/src/tui/controllers/subagent-event-handler.ts
+@@ -22,6 +22,7 @@ import type {
+ import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
+ import { argsRecord, serializeToolResultOutput } from '../utils/event-payload';
+ import { formatHookResultPlain } from '../utils/hook-result-format';
++import { markTranscriptComponentTurnId } from '../utils/transcript-component-metadata';
+ import { nextTranscriptId } from '../utils/transcript-id';
+ import type { SessionEventHost } from './session-event-handler';
+ import { SubagentActivityStore } from './subagent-activity-store';
+@@ -746,6 +747,7 @@ export class SubAgentEventHandler {
+     progress.updateArgs(args, options);
+     this.agentSwarmProgress.set(toolCallId, progress);
+     this.host.streamingUI.finalizeLiveTextBuffers('tool');
++    markTranscriptComponentTurnId(progress, this.host.streamingUI.getTurnContext().turnId);
+     this.host.state.transcriptContainer.addChild(progress);
+     this.host.updateActivityPane();
+     this.requestRender();
+diff --git a/apps/kimi-code/src/tui/kimi-tui.ts b/apps/kimi-code/src/tui/kimi-tui.ts
+index 21d6c15617..cabb9817b2 100644
+--- a/apps/kimi-code/src/tui/kimi-tui.ts
++++ b/apps/kimi-code/src/tui/kimi-tui.ts
+@@ -224,9 +224,12 @@ import { installTerminalThemeTracking } from './utils/terminal-theme';
+ import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
+ import {
+   getTranscriptComponentEntry,
++  getTranscriptComponentTurnId,
+   markTranscriptComponent,
++  markTranscriptComponentTurnId,
+ } from './utils/transcript-component-metadata';
+ import { isTurnBoundaryComponent } from './utils/transcript-turns';
++import { isPinnedToolCallComponent } from './utils/transcript-items';
+ import { nextTranscriptId } from './utils/transcript-id';
+ import { instant } from './utils/turn-timeline';
+ import {
+@@ -3175,6 +3178,7 @@ export class KimiTUI {
+ 
+   pushTranscriptEntry(entry: TranscriptEntry): void {
+     this.state.transcriptEntries.push(entry);
++    this.trimTranscriptWindow();
+   }
+ 
+   setExternalEditorRunning(running: boolean): void {
+@@ -4148,12 +4152,14 @@ export class KimiTUI {
+     const entries = this.state.transcriptEntries;
+     const entryIndex = entries.indexOf(entry);
+     if (entryIndex < 0) return false;
++    entry.turnId = this.streamingUI.getTurnContext().turnId;
+     entries.splice(entryIndex, 1);
+     entries.push(entry);
+     const component = this.state.transcriptContainer.children.find(
+       (child) => getTranscriptComponentEntry(child) === entry,
+     );
+     if (component !== undefined) this.state.transcriptContainer.moveChildToEnd(component);
++    this.trimTranscriptWindow();
+     this.state.ui.requestRender();
+     return true;
+   }
+@@ -4274,15 +4280,6 @@ export class KimiTUI {
+     if (this.state.appState.isReplaying) return false;
+ 
+     const children = this.state.transcriptContainer.children;
+-
+-    // Trim whole turns by *position* in the child list rather than by entry
+-    // lookup — otherwise only the (registered) user message would be removed and
+-    // the rest of the turn would be left behind.
+-    const boundaries: number[] = [];
+-    for (let i = 0; i < children.length; i++) {
+-      if (isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
+-    }
+-
+     const turns = groupTurns(this.state.transcriptEntries);
+ 
+     const toRemove = turnsToTrim(turns, TRANSCRIPT_MAX_TURNS, TRANSCRIPT_HYSTERESIS);
+@@ -4298,40 +4295,36 @@ export class KimiTUI {
+       }
+     }
+ 
+-    let boundariesToRemove = 0;
+-    for (const entry of toRemove) {
+-      if (
+-        (entry.kind === 'user' ||
+-          entry.kind === 'skill_activation' ||
+-          entry.kind === 'plugin_command') &&
+-        entry.turnId === undefined
+-      ) {
+-        boundariesToRemove++;
++    const retainedTurnIds = new Set<string>();
++    const trimmedTurnIds = new Set<string>();
++    for (const turn of turns) {
++      if (turn.turnId === undefined) continue;
++      if (turn.entries.some((entry) => toRemove.has(entry))) {
++        trimmedTurnIds.add(turn.turnId);
++      } else {
++        retainedTurnIds.add(turn.turnId);
+       }
+     }
+-    if (boundariesToRemove === 0) {
+-      this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !toRemove.has(e));
+-      return true;
+-    }
++    for (const turnId of retainedTurnIds) trimmedTurnIds.delete(turnId);
+ 
+-    let boundariesSeen = 0;
+-    let cutoff = 0;
+-    for (let i = 0; i < children.length; i++) {
+-      if (isTurnBoundaryComponent(children[i]!)) {
+-        if (boundariesSeen === boundariesToRemove) {
+-          cutoff = i;
+-          break;
+-        }
+-        boundariesSeen++;
++    const firstRetainedIndex = children.findIndex((child) => {
++      const entry = getTranscriptComponentEntry(child);
++      if (entry !== undefined) return !toRemove.has(entry);
++      const turnId = getTranscriptComponentTurnId(child);
++      return turnId !== undefined && retainedTurnIds.has(turnId);
++    });
++    const unmarkedCutoff = firstRetainedIndex < 0 ? children.length : firstRetainedIndex;
++    const componentsToRemove = children.filter((child, index) => {
++      if (child instanceof WelcomeComponent) return false;
++      const entry = getTranscriptComponentEntry(child);
++      if (entry !== undefined) return toRemove.has(entry);
++      const turnId = getTranscriptComponentTurnId(child);
++      if (turnId !== undefined) {
++        if (retainedTurnIds.has(turnId)) return false;
++        if (trimmedTurnIds.has(turnId)) return true;
+       }
+-    }
+-
+-    const componentsToRemove: Component[] = [];
+-    for (let i = 0; i < cutoff; i++) {
+-      const child = children[i]!;
+-      if (child instanceof WelcomeComponent) continue;
+-      componentsToRemove.push(child);
+-    }
++      return index < unmarkedCutoff;
++    });
+     for (const child of componentsToRemove) {
+       // pi-tui Container.removeChild (not a DOM node); `child.remove()` does not exist.
+       // oxlint-disable-next-line unicorn/prefer-dom-node-remove
+@@ -4395,7 +4388,7 @@ export class KimiTUI {
+         assistantIndices.push(i);
+         continue;
+       }
+-      stepIndices.push(i);
++      if (!isPinnedToolCallComponent(child)) stepIndices.push(i);
+     }
+ 
+     // Fold the oldest steps / assistant messages beyond their respective caps;
+@@ -4429,6 +4422,10 @@ export class KimiTUI {
+       summary = new StepSummaryComponent();
+       summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
+     }
++    markTranscriptComponentTurnId(
++      summary,
++      this.streamingUI.getTurnContext().turnId ?? getTranscriptComponentTurnId(children[turnStart]!),
++    );
+ 
+     // Rebuild children: keep everything except the merged steps, with the summary
+     // sitting right after the user message.
+@@ -4478,7 +4475,7 @@ export class KimiTUI {
+         const child = children[i]!;
+         if (child instanceof StepSummaryComponent) summaryIndex = i;
+         else if (child instanceof AssistantMessageComponent) assistantIndices.push(i);
+-        else stepIndices.push(i);
++        else if (!isPinnedToolCallComponent(child)) stepIndices.push(i);
+       }
+ 
+       const stepMergeCount =
+@@ -4511,6 +4508,7 @@ export class KimiTUI {
+           summary = new StepSummaryComponent();
+           summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
+         }
++        markTranscriptComponentTurnId(summary, getTranscriptComponentTurnId(children[turnStart]!));
+         newChildren.push(summary);
+         for (const idx of toMergeIndices) toDispose.push(children[idx]!);
+         const toMergeSet = new Set(toMergeIndices);
+diff --git a/apps/kimi-code/src/tui/utils/transcript-component-metadata.ts b/apps/kimi-code/src/tui/utils/transcript-component-metadata.ts
+index 94cb45693d..425de0eea2 100644
+--- a/apps/kimi-code/src/tui/utils/transcript-component-metadata.ts
++++ b/apps/kimi-code/src/tui/utils/transcript-component-metadata.ts
+@@ -3,6 +3,7 @@ import type { Component } from '@moonshot-ai/pi-tui';
+ import type { TranscriptEntry } from '../types';
+ 
+ const componentEntries = new WeakMap<Component, TranscriptEntry>();
++const componentTurnIds = new WeakMap<Component, string>();
+ 
+ export function markTranscriptComponent(component: Component, entry: TranscriptEntry): void {
+   componentEntries.set(component, entry);
+@@ -13,3 +14,14 @@ export function getTranscriptComponentEntry(
+ ): TranscriptEntry | undefined {
+   return componentEntries.get(component);
+ }
++
++export function markTranscriptComponentTurnId(
++  component: Component,
++  turnId: string | undefined,
++): void {
++  if (turnId !== undefined) componentTurnIds.set(component, turnId);
++}
++
++export function getTranscriptComponentTurnId(component: Component): string | undefined {
++  return componentEntries.get(component)?.turnId ?? componentTurnIds.get(component);
++}
+diff --git a/apps/kimi-code/src/tui/utils/transcript-items.ts b/apps/kimi-code/src/tui/utils/transcript-items.ts
+index a3db91b06e..11918ad218 100644
+--- a/apps/kimi-code/src/tui/utils/transcript-items.ts
++++ b/apps/kimi-code/src/tui/utils/transcript-items.ts
+@@ -139,6 +139,13 @@ const TOOL_BOUNDARY_ROLES: Readonly<Record<string, BoundaryRole>> = {
+   ExitPlanMode: 'pinned',
+ };
+ 
++export function isPinnedToolCallComponent(component: Component): boolean {
++  return (
++    component instanceof ToolCallComponent &&
++    TOOL_BOUNDARY_ROLES[component.toolCallView.name] === 'pinned'
++  );
++}
++
+ const TOOL_PROFILES: Readonly<Record<string, ToolProfile>> = {
+   Think: { foldClass: 'thinking', event: 'thought' },
+   Read: { foldClass: 'explore', event: 'read' },
+diff --git a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
+index 9e2fc11d2b..f676f99e55 100644
+--- a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
++++ b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
+@@ -1750,6 +1750,77 @@ describe('KimiTUI message flow', () => {
+     expect(stripSgr(renderTranscript(driver))).not.toContain('skill card');
+   });
+ 
++  it('surfaces a warning when replay preserved history around corrupt records', async () => {
++    const session = makeSession({
++      getResumeState: vi.fn(() => ({
++        sessionMetadata: {},
++        agents: {
++          main: {
++            config: { modelCapabilities: { max_context_tokens: 100 }, modelAlias: 'k2' },
++            plan: null,
++            permission: { mode: 'manual' },
++            swarmMode: false,
++            context: { history: [], tokenCount: 0 },
++            background: [],
++            toolStore: {},
++            replayWarning: 'Skipped 1 corrupt record while replaying session history (line 3).',
++            replay: [
++              {
++                type: 'message',
++                time: 1,
++                message: {
++                  role: 'user',
++                  content: [{ type: 'text', text: 'preserved question' }],
++                  toolCalls: [],
++                  origin: { kind: 'user' },
++                },
++              },
++            ],
++          },
++        },
++      })),
++    });
++    const { driver } = await makeDriver(session);
++
++    const replayed = await driver.sessionReplay.hydrateFromReplay(session as unknown as Session);
++
++    expect(replayed).toBe(true);
++    const transcript = stripSgr(renderTranscript(driver));
++    expect(transcript).toContain('preserved question');
++    expect(transcript).toContain(
++      'Warning: Skipped 1 corrupt record while replaying session history (line 3).',
++    );
++  });
++
++  it('reports a replay error instead of treating a failed wire fold as empty history', async () => {
++    const session = makeSession({
++      getResumeState: vi.fn(() => ({
++        sessionMetadata: {},
++        agents: {
++          main: {
++            config: { modelCapabilities: { max_context_tokens: 100 }, modelAlias: 'k2' },
++            plan: null,
++            permission: { mode: 'manual' },
++            swarmMode: false,
++            context: { history: [], tokenCount: 0 },
++            background: [],
++            toolStore: {},
++            replayError: 'Agent wire metadata is malformed',
++            replay: [],
++          },
++        },
++      })),
++    });
++    const { driver } = await makeDriver(session);
++
++    const replayed = await driver.sessionReplay.hydrateFromReplay(session as unknown as Session);
++
++    expect(replayed).toBe(false);
++    expect(stripSgr(renderTranscript(driver))).toContain(
++      'Error: Failed to replay session history: Agent wire metadata is malformed',
++    );
++  });
++
+   it('focuses Updates with Ctrl+N, pages with Shift+arrows, and returns focus to the editor on Esc', async () => {
+     const { driver } = await makeDriver(makeSession());
+     const notifications = driver.sessionEventHandler.notifications;
+@@ -4066,6 +4137,120 @@ command = "vim"
+     expect(facts(`call_${turns}`)?.settle?.kind).toBe('result');
+   });
+ 
++  it('keeps mixed normal, worker and cron turns aligned through live trimming', async () => {
++    const { driver } = await makeDriver();
++    const emit = (event: Record<string, unknown>): void => {
++      driver.sessionEventHandler.handleEvent({ agentId: 'main', sessionId: 'ses-1', ...event } as Event, () => {});
++    };
++    let turnId = 0;
++    let entryId = 0;
++    let boundaryWorkerCard: TranscriptEntry | undefined;
++    const append = (
++      kind: TranscriptEntry['kind'],
++      content: string,
++      entryTurnId?: string,
++    ): TranscriptEntry => {
++      const entry: TranscriptEntry = {
++        id: `mixed-${++entryId}`,
++        kind,
++        turnId: entryTurnId,
++        renderMode: kind === 'assistant' ? 'markdown' : 'plain',
++        content,
++      };
++      driver.appendTranscriptEntry(entry);
++      return entry;
++    };
++    const streamReply = (text: string) => {
++      emit({ type: 'assistant.delta', turnId, delta: text });
++      emit({ type: 'turn.ended', turnId, reason: 'completed' });
++    };
++    const normalTurn = (withSkill = false) => {
++      turnId++;
++      append('user', `question ${turnId}`);
++      if (withSkill) append('skill_activation', 'review');
++      emit({ type: 'turn.started', turnId, origin: { kind: 'user' } });
++      streamReply(`NORMAL-ANSWER-${turnId}`);
++    };
++    const workerTurn = (captureBoundary = false) => {
++      const previousTurnId = String(turnId);
++      const workerNumber = turnId + 1;
++      emit({
++        type: 'background.task.started',
++        info: {
++          taskId: `task-${workerNumber}`,
++          kind: 'agent',
++          agentId: `agent-${workerNumber}`,
++          description: 'worker',
++          status: 'running',
++          startedAt: 0,
++        },
++      });
++      const card: TranscriptEntry = {
++        id: `mixed-${++entryId}`,
++        kind: 'status',
++        turnId: previousTurnId,
++        renderMode: 'plain',
++        content: `WORKER-CARD-${workerNumber}`,
++        backgroundAgentStatus: {
++          phase: 'completed',
++          headline: `WORKER-CARD-${workerNumber}`,
++          agentId: `agent-${workerNumber}`,
++        },
++      };
++      driver.appendTranscriptEntry(card);
++      if (captureBoundary) boundaryWorkerCard = card;
++      turnId++;
++      emit({
++        type: 'turn.started',
++        turnId,
++        origin: {
++          kind: 'task',
++          taskId: `task-${workerNumber}`,
++          status: 'completed',
++          notificationId: `notification-${workerNumber}`,
++        },
++      });
++      emit({ type: 'tool.call.started', turnId, toolCallId: `worker_call_${turnId}`, name: 'Bash', args: { command: 'echo ok' } });
++      emit({ type: 'tool.result', turnId, toolCallId: `worker_call_${turnId}`, output: 'ok' });
++      streamReply(`WORKER-ANSWER-${turnId}`);
++    };
++    const cronTurn = () => {
++      turnId++;
++      const origin = {
++        kind: 'cron_job',
++        jobId: `job-${turnId}`,
++        cron: '*/5 * * * *',
++        recurring: true,
++        coalescedCount: 1,
++        stale: false,
++      };
++      emit({ type: 'turn.started', turnId, origin });
++      emit({ type: 'cron.fired', origin, prompt: `cron ${turnId}` });
++      streamReply(`CRON-ANSWER-${turnId}`);
++    };
++
++    normalTurn(true);
++    for (let index = 0; index < 5; index++) normalTurn();
++    workerTurn(true);
++    cronTurn();
++    while (turnId < TRANSCRIPT_MAX_TURNS + TRANSCRIPT_HYSTERESIS + 1) {
++      normalTurn();
++      workerTurn();
++      cronTurn();
++    }
++
++    const transcript = stripSgr(renderTranscript(driver));
++    expect(boundaryWorkerCard?.turnId).toBe('7');
++    expect(transcript).toContain('WORKER-CARD-7');
++    expect(transcript).toContain('WORKER-ANSWER-7');
++    expect(transcript).toContain('CRON-ANSWER-8');
++    expect(transcript).not.toContain('NORMAL-ANSWER-6');
++    expect(transcript).not.toContain('question 1\n');
++    for (const entry of driver.state.transcriptEntries) {
++      if (entry.kind === 'assistant') expect(transcript).toContain(entry.content);
++    }
++  });
++
+   it.each(['new', 'switch'] as const)('forgets recorded turns when the session changes (%s)', async (action) => {
+     const nextSession = makeSession({ id: 'ses-next' });
+     const { driver } = await makeDriver(makeSession(), { createSession: vi.fn(async () => nextSession) });
+@@ -14376,6 +14561,46 @@ describe('transcript step and assistant folding', () => {
+     expect(children.filter((child) => child instanceof StepSummaryComponent)).toHaveLength(0);
+   });
+ 
++  it('keeps AskUserQuestion mounted after more than thirty later tool calls', async () => {
++    const { driver } = await makeDriver();
++    driver.handleUserInput('keep the question');
++    driver.sessionEventHandler.handleEvent(
++      {
++        type: 'tool.call.started',
++        agentId: 'main',
++        sessionId: 'ses-1',
++        turnId: 1,
++        toolCallId: 'call_question',
++        name: 'AskUserQuestion',
++        args: { questions: [{ question: 'Which option?', options: ['A', 'B'] }] },
++      } as Event,
++      vi.fn(),
++    );
++    driver.sessionEventHandler.handleEvent(
++      {
++        type: 'tool.result',
++        agentId: 'main',
++        sessionId: 'ses-1',
++        turnId: 1,
++        toolCallId: 'call_question',
++        output: JSON.stringify({ answers: { 'Which option?': 'Option A' } }),
++        isError: false,
++      } as Event,
++      vi.fn(),
++    );
++
++    driveSteps(driver, TRANSCRIPT_KEEP_RECENT_STEPS + 5);
++
++    const question = driver.state.transcriptContainer.children.find(
++      (child) => child instanceof ToolCallComponent && child.toolCallView.id === 'call_question',
++    );
++    expect(question).toBeInstanceOf(ToolCallComponent);
++    const rendered = stripSgr(question!.render(120).join('\n'));
++    expect(rendered).toContain('Collected your answers');
++    expect(rendered).toContain('Which option?');
++    expect(rendered).toContain('Option A');
++  });
++
+   it('folds a completed turn down to its conclusion tail on turn end', async () => {
+     const { driver } = await makeDriver();
+     driver.handleUserInput('round one');
+diff --git a/packages/node-sdk/src/replay.ts b/packages/node-sdk/src/replay.ts
+index 424c0db907..0cbc10e464 100644
+--- a/packages/node-sdk/src/replay.ts
++++ b/packages/node-sdk/src/replay.ts
+@@ -80,6 +80,8 @@ export interface ResumedAgentState {
+   readonly context: AgentContextData;
+   readonly replay: readonly AgentReplayRecord[];
+   readonly userTurnCount?: number;
++  readonly replayWarning?: string;
++  readonly replayError?: string;
+   readonly permission: PermissionData;
+   readonly plan: PlanData;
+   readonly swarmMode?: boolean | undefined;
+diff --git a/packages/node-sdk/src/sdk-rpc-client-v2.ts b/packages/node-sdk/src/sdk-rpc-client-v2.ts
+index b151a24554..840b90af7c 100644
+--- a/packages/node-sdk/src/sdk-rpc-client-v2.ts
++++ b/packages/node-sdk/src/sdk-rpc-client-v2.ts
+@@ -1445,6 +1445,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
+       context: context as AgentContextData,
+       replay: folded.replay,
+       userTurnCount: type === 'main' ? folded.userTurnCount : undefined,
++      replayWarning: folded.warning,
++      replayError: folded.error,
+       permission: {
+         mode: agent.accessor.get(IAgentPermissionModeService).mode,
+         rules: [...agent.accessor.get(IAgentPermissionRulesService).rules],
+diff --git a/packages/node-sdk/src/v2/resume-replay.ts b/packages/node-sdk/src/v2/resume-replay.ts
+index 8a3dbf5641..d46cd214ee 100644
+--- a/packages/node-sdk/src/v2/resume-replay.ts
++++ b/packages/node-sdk/src/v2/resume-replay.ts
+@@ -25,6 +25,8 @@ export interface FoldedAgentReplay {
+   readonly replay: readonly AgentReplayRecord[];
+   readonly toolStore: Readonly<Record<string, unknown>>;
+   readonly userTurnCount?: number;
++  readonly warning?: string;
++  readonly error?: string;
+ }
+ 
+ const EMPTY_FOLD: FoldedAgentReplay = { replay: [], toolStore: {} };
+@@ -45,23 +47,87 @@ export async function foldAgentWireReplay(
+     replay: limitAgentReplayByTurns(full.replay, turnLimit),
+     toolStore: full.toolStore,
+     userTurnCount: full.userTurnCount,
++    warning: full.warning,
++    error: full.error,
+   };
+ }
+ 
+ async function foldAgentWireReplayFull(wirePath: string): Promise<FoldedAgentReplay> {
++  let content: string;
+   try {
+-    const userTurns = new SurveyTurnCounter();
+-    const records = parseWireRecords(await readFile(wirePath, 'utf-8'), userTurns);
+-    if (records.length === 0) return { ...EMPTY_FOLD, userTurnCount: userTurns.count };
+-    const folded = foldWireRecords(records, fromPersistentWireRecord);
++    content = await readFile(wirePath, 'utf-8');
++  } catch (error) {
++    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return EMPTY_FOLD;
++    return { ...EMPTY_FOLD, error: formatReplayError(error) };
++  }
++  const userTurns = new SurveyTurnCounter();
++  const { entries, skippedLines } = parseWireRecords(content, userTurns);
++  if (entries.length === 0) {
++    if (skippedLines.length > 0) {
++      return { ...EMPTY_FOLD, error: formatSkippedRecordsWarning(skippedLines) };
++    }
++    return { ...EMPTY_FOLD, userTurnCount: userTurns.count };
++  }
++  try {
++    const folded = foldWireRecords(
++      entries.map((entry) => entry.record),
++      fromPersistentWireRecord,
++    );
+     return {
+       replay: folded.replay.map(mapReplayRecord),
+       toolStore: folded.toolStore,
+       userTurnCount: userTurns.count,
++      warning: formatSkippedRecordsWarning(skippedLines),
+     };
+-  } catch {
+-    return EMPTY_FOLD;
++  } catch (error) {
++    return salvageFoldedReplay(entries, skippedLines, error);
++  }
++}
++
++function salvageFoldedReplay(
++  entries: readonly ParsedWireEntry[],
++  initialSkippedLines: readonly number[],
++  initialError: unknown,
++): FoldedAgentReplay {
++  const header = entries[0]?.record.type === 'metadata' ? entries[0] : undefined;
++  if (header !== undefined) {
++    try {
++      foldWireRecords([header.record], fromPersistentWireRecord);
++    } catch (error) {
++      return { ...EMPTY_FOLD, error: formatReplayError(error) };
++    }
+   }
++  const kept: WireRecord[] = header === undefined ? [] : [header.record];
++  const skippedLines = [...initialSkippedLines];
++  for (const entry of header === undefined ? entries : entries.slice(1)) {
++    const probe = header === undefined ? [entry.record] : [header.record, entry.record];
++    try {
++      const probed = foldWireRecords(probe, fromPersistentWireRecord);
++      probed.replay.map(mapReplayRecord);
++      kept.push(entry.record);
++    } catch {
++      skippedLines.push(entry.lineNumber);
++    }
++  }
++  const hasContent = kept.length > (header === undefined ? 0 : 1);
++  if (!hasContent) {
++    return { ...EMPTY_FOLD, error: formatReplayError(initialError) };
++  }
++  try {
++    const folded = foldWireRecords(kept, fromPersistentWireRecord);
++    const sortedLines = skippedLines.toSorted((a, b) => a - b);
++    return {
++      replay: folded.replay.map(mapReplayRecord),
++      toolStore: folded.toolStore,
++      warning: formatSkippedRecordsWarning(sortedLines),
++    };
++  } catch (error) {
++    return { ...EMPTY_FOLD, error: formatReplayError(error) };
++  }
++}
++
++function formatReplayError(error: unknown): string {
++  return error instanceof Error ? error.message : String(error);
+ }
+ 
+ function mapReplayRecord(record: V2AgentReplayRecord): AgentReplayRecord {
+@@ -91,25 +157,49 @@ function mapReplayRecord(record: V2AgentReplayRecord): AgentReplayRecord {
+   return record as unknown as AgentReplayRecord;
+ }
+ 
+-function parseWireRecords(content: string, userTurns: SurveyTurnCounter): WireRecord[] {
++interface ParsedWireEntry {
++  readonly lineNumber: number;
++  readonly record: WireRecord;
++}
++
++function parseWireRecords(
++  content: string,
++  userTurns: SurveyTurnCounter,
++): { entries: ParsedWireEntry[]; skippedLines: number[] } {
+   const lines = content.split('\n');
+-  const records: WireRecord[] = [];
++  const entries: ParsedWireEntry[] = [];
++  const skippedLines: number[] = [];
+   for (const [index, rawLine] of lines.entries()) {
+     const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+     if (line.length === 0) continue;
+     try {
+-      const record = JSON.parse(line) as WireRecord;
+-      userTurns.observe(record, index);
+-      records.push(record);
+-    } catch (error) {
+-      if (index === lines.length - 1) {
+-        userTurns.invalidate();
+-        break;
+-      }
+-      throw error;
++      const parsed: unknown = JSON.parse(line);
++      if (!isWireRecordObject(parsed)) throw new SyntaxError('Malformed wire record');
++      userTurns.observe(parsed, index);
++      entries.push({ lineNumber: index + 1, record: parsed });
++    } catch {
++      userTurns.invalidate();
++      if (index === lines.length - 1) break;
++      skippedLines.push(index + 1);
+     }
+   }
+-  return records;
++  return { entries, skippedLines };
++}
++
++function formatSkippedRecordsWarning(skippedLines: readonly number[]): string | undefined {
++  if (skippedLines.length === 0) return undefined;
++  const noun = skippedLines.length === 1 ? 'record' : 'records';
++  const label = skippedLines.length === 1 ? 'line' : 'lines';
++  return `Skipped ${skippedLines.length} corrupt ${noun} while replaying session history (${label} ${skippedLines.join(', ')}).`;
++}
++
++function isWireRecordObject(value: unknown): value is WireRecord {
++  return (
++    typeof value === 'object' &&
++    value !== null &&
++    !Array.isArray(value) &&
++    typeof (value as Record<string, unknown>)['type'] === 'string'
++  );
+ }
+ 
+ const SCAN_CHUNK_BYTES = 4 * 1024 * 1024;
+@@ -117,13 +207,6 @@ const TYPE_PREFIX = '{"type":"';
+ const TYPE_MARKER = '"type"';
+ const TYPE_MARKER_BYTES = Buffer.from(TYPE_MARKER);
+ const CARRYOVER_TYPE_PREFIXES = ['goal.', 'tools.update_store', 'forked'];
+-const FATAL_SCAN_TYPE_PREFIXES = [
+-  ...CARRYOVER_TYPE_PREFIXES,
+-  'context.undo',
+-  'context.clear',
+-  'context.apply_compaction',
+-  'turn.cancel',
+-];
+ const HEAD_TYPE_PREFIXES = [
+   ...CARRYOVER_TYPE_PREFIXES,
+   'context.undo',
+@@ -164,7 +247,9 @@ async function foldAgentWireReplayWindowed(
+ ): Promise<FoldedAgentReplay | undefined> {
+   const handle = await open(wirePath, 'r');
+   try {
+-    const { size } = await handle.stat();
++    const stats = await handle.stat();
++    if (stats.isDirectory()) return undefined;
++    const { size } = stats;
+     if (size === 0) return { ...EMPTY_FOLD, userTurnCount: 0 };
+     const scan = new WireReplayScan(turnLimit);
+     let carry = Buffer.alloc(0);
+@@ -260,9 +345,11 @@ class WireReplayScan {
+     if (firstLine.length === 0) return undefined;
+     let firstRecord: WireRecord;
+     try {
+-      firstRecord = JSON.parse(firstLine) as WireRecord;
++      const parsed: unknown = JSON.parse(firstLine);
++      if (!isWireRecordObject(parsed)) return undefined;
++      firstRecord = parsed;
+     } catch {
+-      return EMPTY_FOLD;
++      return undefined;
+     }
+     this.userTurns.observe(firstRecord, 0);
+     const boundaryFound = this.boundaryStart >= 0;
+@@ -327,18 +414,7 @@ class WireReplayScan {
+       if (tolerate) observeSurveyLine(this.userTurns, joined, start);
+       return;
+     }
+-    let record: WireRecord | undefined;
+-    try {
+-      record = parseJsonLine(line, tolerate);
+-    } catch (error) {
+-      const recoverable =
+-        sniffed === undefined &&
+-        hasTypeMarker(joined, 0, joined.length, HEAD_TYPE_PREFIXES) &&
+-        !hasTypeMarker(joined, 0, joined.length, FATAL_SCAN_TYPE_PREFIXES);
+-      if (!recoverable) throw error;
+-      this.userTurns.invalidate();
+-      return;
+-    }
++    const record = parseJsonLine(line, tolerate);
+     if (record === undefined) {
+       this.userTurns.invalidate();
+       return;
+@@ -474,16 +550,13 @@ class WireReplayScan {
+         }
+         let record: WireRecord;
+         try {
+-          record = JSON.parse(line) as WireRecord;
++          const parsed: unknown = JSON.parse(line);
++          if (!isWireRecordObject(parsed)) throw new SyntaxError('Malformed wire record');
++          record = parsed;
+         } catch (error) {
+-          const fatal = startsWithTypePrefix(bytes, 0)
+-            ? hasTypePrefixAt(bytes, TYPE_PREFIX.length, FATAL_SCAN_TYPE_PREFIXES)
+-            : hasTypeMarker(bytes, 0, bytes.length, FATAL_SCAN_TYPE_PREFIXES);
+-          if (fatal || (!selected && (!lastLine || !tolerateTailLine))) throw error;
++          if (!lastLine || !tolerateTailLine) throw error;
+           this.userTurns.invalidate();
+-          if (lastLine) return;
+-          lineStart = lineEnd + 1;
+-          continue;
++          return;
+         }
+         this.userTurns.observe(record, dataFileStart + lineStart);
+         const recordType = record['type'];
+@@ -525,7 +598,9 @@ function decodeLine(bytes: Buffer): string {
+ 
+ function parseJsonLine(line: string, tolerate: boolean): WireRecord | undefined {
+   try {
+-    return JSON.parse(line) as WireRecord;
++    const parsed: unknown = JSON.parse(line);
++    if (!isWireRecordObject(parsed)) throw new SyntaxError('Malformed wire record');
++    return parsed;
+   } catch (error) {
+     if (tolerate) return undefined;
+     throw error;
+diff --git a/packages/node-sdk/test/sdk-rpc-client-v2.test.ts b/packages/node-sdk/test/sdk-rpc-client-v2.test.ts
+index 105e845710..788d500cc4 100644
+--- a/packages/node-sdk/test/sdk-rpc-client-v2.test.ts
++++ b/packages/node-sdk/test/sdk-rpc-client-v2.test.ts
+@@ -3204,21 +3204,24 @@ describe('foldAgentWireReplay', () => {
+     }
+   });
+ 
+-  it('degrades to an empty fold on a missing or corrupt journal', async () => {
++  it('degrades to an empty fold on a missing journal and tolerates a truncated tail', async () => {
+     const dir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-fold-'));
+     tempDirs.push(dir);
+     const empty = { replay: [], toolStore: {} };
+     await expect(foldAgentWireReplay(join(dir, 'missing.jsonl'))).resolves.toEqual(empty);
++    await expect(foldAgentWireReplay(dir)).resolves.toMatchObject({
++      ...empty,
++      error: expect.stringMatching(/EISDIR/i),
++    });
++    const unrecoverable = join(dir, 'unrecoverable.jsonl');
++    await writeFile(unrecoverable, '{not json\n', 'utf-8');
++    await expect(foldAgentWireReplay(unrecoverable)).resolves.toMatchObject({
++      ...empty,
++      error: expect.stringContaining('line 1'),
++    });
+     const emptyFile = join(dir, 'empty.jsonl');
+     await writeFile(emptyFile, '', 'utf-8');
+     await expect(foldAgentWireReplay(emptyFile)).resolves.toEqual({ ...empty, userTurnCount: 0 });
+-    const corrupt = join(dir, 'corrupt.jsonl');
+-    await writeFile(
+-      corrupt,
+-      '{"type":"metadata","protocol_version":"1.5","created_at":1}\n{not json\n{"type":"permission.set_mode","mode":"auto"}\n',
+-      'utf-8',
+-    );
+-    await expect(foldAgentWireReplay(corrupt)).resolves.toEqual(empty);
+     // A truncated TAIL line is tolerated: everything before it still folds.
+     const truncatedTail = join(dir, 'truncated.jsonl');
+     await writeFile(
+@@ -3229,6 +3232,39 @@ describe('foldAgentWireReplay', () => {
+     const folded = await foldAgentWireReplay(truncatedTail);
+     expect(folded.replay).toEqual([{ type: 'permission_updated', mode: 'auto', time: 2 }]);
+   });
++
++  it('preserves valid history and reports corrupt records in the middle of a journal', async () => {
++    const dir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-fold-'));
++    tempDirs.push(dir);
++    const wirePath = join(dir, 'corrupt.jsonl');
++    await writeFile(
++      wirePath,
++      '{"type":"metadata","protocol_version":"1.5","created_at":1}\n' +
++        '{"type":"permission.set_mode","mode":"auto","time":2}\n' +
++        '{not json\n' +
++        '{"type":"context.append_message","message":null,"time":3}\n' +
++        '{"type":"context.append_message","message":{"role":"user","content":[{"type":"text","text":"still here"}]},"time":4}\n',
++      'utf-8',
++    );
++
++    for (const turnLimit of [undefined, 1]) {
++      const folded = await foldAgentWireReplay(wirePath, turnLimit);
++      expect(folded.replay).toEqual([
++        { type: 'permission_updated', mode: 'auto', time: 2 },
++        {
++          type: 'message',
++          message: {
++            role: 'user',
++            content: [{ type: 'text', text: 'still here' }],
++            toolCalls: [],
++          },
++          time: 4,
++        },
++      ]);
++      expect(folded.warning).toContain('lines 3, 4');
++      expect(folded.error).toBeUndefined();
++    }
++  });
+ });
+ 
+ describe('foldAgentWireReplay turn limiting', () => {

@@ -9,10 +9,9 @@ import {
   type MigrationScope,
 } from '@moonshot-ai/migration-legacy';
 
-import { t } from '#/i18n';
-
 import { detectPendingMigration } from './detect-pending';
 import { resolveLegacySourceHome, sameLegacyPath } from './legacy-source';
+import { t } from '#/i18n';
 
 export const MIGRATE_HEADLESS_EXIT = {
   success: 0,
@@ -56,16 +55,11 @@ export async function runHeadlessMigrate(
   };
 
   const source = resolveLegacySourceHome(resolved.env, resolved.userHome, resolved.cwd);
-  log(
-    t('tui.migration.headlessSource', {
-      path: source.sourceHome,
-      origin: source.origin === 'share-dir' ? 'KIMI_SHARE_DIR' : 'default ~/.kimi',
-    }),
-  );
+  log(`source: ${source.sourceHome} (${source.origin === 'share-dir' ? 'KIMI_SHARE_DIR' : 'default ~/.kimi'})`);
   if (source.skillsSourceHome !== undefined) {
     log(t('tui.migration.headlessSkillsSource', { path: source.skillsSourceHome }));
   }
-  log(t('tui.migration.headlessTarget', { path: resolved.targetHome }));
+  log(`target: ${resolved.targetHome}`);
 
   if (sameLegacyPath(source.sourceHome, resolved.targetHome)) {
     log(t('tui.migration.headlessSameSourceTarget'));
@@ -79,13 +73,7 @@ export async function runHeadlessMigrate(
     skills: true,
     sessions: !input.configOnly,
   };
-  log(
-    t(
-      input.configOnly
-        ? 'tui.migration.headlessScopeConfigOnly'
-        : 'tui.migration.headlessScopeFull',
-    ),
-  );
+  log(`scope: ${input.configOnly ? 'config-only (config, mcp, user-history, skills)' : 'full (config, mcp, user-history, skills, sessions)'}`);
 
   log(t('tui.migration.headlessDetecting'));
   const plansSourceHome = join(resolved.userHome, '.kimi', 'plans');
@@ -110,31 +98,17 @@ export async function runHeadlessMigrate(
       source: source.sourceHome,
       target: resolved.targetHome,
       plansSourceDir: plansSourceHome,
-      onProgress: (msg) => log(t('tui.migration.headlessStep', { message: msg })),
-      onSessionProgress: (done, total) =>
-        log(
-          t('tui.migration.headlessSessionsTranslating', {
-            done: String(done),
-            total: String(total),
-          }),
-        ),
+      onProgress: (msg) => log(`step: ${msg}`),
+      onSessionProgress: (done, total) => log(t('tui.migration.headlessSessionsTranslating', { done: done, total: total })),
     });
   } catch (error) {
-    log(
-      t('tui.migration.headlessCrashed', {
-        message: error instanceof Error ? error.message : String(error),
-      }),
-    );
+    log(`error: migration crashed: ${error instanceof Error ? error.message : String(error)}`);
     return MIGRATE_HEADLESS_EXIT.error;
   }
 
   const complete = logReport(report, scope, log);
-  log(
-    t('tui.migration.headlessReportWritten', {
-      path: `${resolved.targetHome}/migration-report.json`,
-    }),
-  );
-  log(t('tui.migration.headlessRunLog', { path: `${resolved.targetHome}/migration-errors.log` }));
+  log(`report written to ${resolved.targetHome}/migration-report.json`);
+  log(`run log appended to ${resolved.targetHome}/migration-errors.log`);
   if (complete) {
     log(t('tui.migration.headlessResultComplete'));
     return MIGRATE_HEADLESS_EXIT.success;
@@ -146,34 +120,21 @@ export async function runHeadlessMigrate(
 function logPlan(plan: MigrationPlan, log: (msg: string) => void): void {
   const scanFailures = plan.sessionScanFailures?.length ?? 0;
   log(
-    t('tui.migration.headlessDetected', {
-      sessions: String(plan.totalSessions),
-      workdirs: String(plan.workdirs.length),
-      config: String(plan.hasConfig),
-      mcp: String(plan.hasMcp),
-      userHistory: String(plan.hasUserHistory),
-      skills: String(plan.hasSkills),
-    }) +
-      (scanFailures > 0
-        ? t('tui.migration.headlessDetectedUnreadable', { count: String(scanFailures) })
-        : ''),
+    `detected: ${plan.totalSessions} sessions across ${plan.workdirs.length} workdirs` +
+      ` · config=${plan.hasConfig} · mcp=${plan.hasMcp} · user-history=${plan.hasUserHistory} · skills=${plan.hasSkills}` +
+      (scanFailures > 0 ? t('tui.migration.headlessDetectedUnreadable', { count: scanFailures }) : ''),
   );
   for (const failure of plan.sessionScanFailures ?? []) {
-    log(
-      t('tui.migration.headlessUnreadableStore', {
-        path: failure.sourcePath,
-        reason: failure.reason,
-      }),
-    );
+    log(`  unreadable: ${failure.sourcePath} — ${failure.reason}`);
   }
   if (plan.oauthCredentials.length > 0) {
-    log(t('tui.migration.headlessRelogin', { names: plan.oauthCredentials.join(', ') }));
+    log(`oauth logins requiring re-login after migration: ${plan.oauthCredentials.join(', ')}`);
   }
   if (plan.detectedMcpOauthServers.length > 0) {
-    log(t('tui.migration.headlessMcpReauth', { names: plan.detectedMcpOauthServers.join(', ') }));
+    log(`MCP servers requiring re-authentication: ${plan.detectedMcpOauthServers.join(', ')}`);
   }
   if (plan.detectedPlugins.length > 0) {
-    log(t('tui.migration.headlessPluginsNotMigrated', { names: plan.detectedPlugins.join(', ') }));
+    log(`kimi-cli plugins (not migrated): ${plan.detectedPlugins.join(', ')}`);
   }
 }
 
@@ -187,24 +148,14 @@ function logReport(
   log(
     `config: migrated=${c.migrated} tui-extracted=${c.tuiExtracted}` +
       ` hooks-migrated=${c.migratedHooks} hooks-dropped=${c.droppedHooks}` +
-      (c.droppedProviders.length > 0
-        ? ` dropped-providers=[${c.droppedProviders.join(', ')}]`
-        : '') +
+      (c.droppedProviders.length > 0 ? ` dropped-providers=[${c.droppedProviders.join(', ')}]` : '') +
       (c.droppedModels.length > 0 ? ` dropped-models=[${c.droppedModels.join(', ')}]` : '') +
       (c.droppedKeys.length > 0 ? ` dropped-keys=[${c.droppedKeys.join(', ')}]` : '') +
-      (c.configConflicts.length > 0
-        ? ` conflicts-kept-yours=[${c.configConflicts.join(', ')}]`
-        : '') +
+      (c.configConflicts.length > 0 ? ` conflicts-kept-yours=[${c.configConflicts.join(', ')}]` : '') +
       (c.sourceUnreadable ? ' SOURCE-UNREADABLE' : ''),
   );
   if (c.wroteSiblingDueToConflict) {
-    log(
-      t('tui.migration.headlessConfigSibling', {
-        providers: String(c.siblingContents.providers.length),
-        models: String(c.siblingContents.models.length),
-        hooks: String(c.siblingContents.hooks),
-      }),
-    );
+    log(t('tui.migration.headlessConfigSibling', { providers: c.siblingContents.providers.length, models: c.siblingContents.models.length, hooks: c.siblingContents.hooks }));
   }
   if (c.wroteTuiSibling) {
     log(t('tui.migration.headlessTuiSibling'));
@@ -212,16 +163,12 @@ function logReport(
   const m = sum.mcp;
   log(
     `mcp: merged=[${m.mergedServers.join(', ')}]` +
-      (m.keptNewForConflicts.length > 0
-        ? ` kept-existing=[${m.keptNewForConflicts.join(', ')}]`
-        : '') +
+      (m.keptNewForConflicts.length > 0 ? ` kept-existing=[${m.keptNewForConflicts.join(', ')}]` : '') +
       (m.droppedServers.length > 0 ? ` dropped=[${m.droppedServers.join(', ')}]` : '') +
       (m.wroteSiblingDueToConflict ? ' wrote mcp.migrated-from-kimi-cli.json' : '') +
       (m.sourceUnreadable ? ' SOURCE-UNREADABLE' : ''),
   );
-  log(
-    `user-history: copied=${sum.userHistory.copied} skipped-existing=${sum.userHistory.skippedExisting}`,
-  );
+  log(`user-history: copied=${sum.userHistory.copied} skipped-existing=${sum.userHistory.skippedExisting}`);
   log(`skills: copied=${sum.skills.copied} skipped-existing=${sum.skills.skippedExisting}`);
   log(`plans: copied=${sum.plans.copied} skipped-existing=${sum.plans.skippedExisting}`);
   const s = sum.sessions;
@@ -229,62 +176,32 @@ function logReport(
     log(
       `sessions: scanned=${s.bucketsScanned} attempted=${s.sessionsAttempted} migrated=${s.sessionsMigrated}` +
         ` already-migrated=${s.sessionsAlreadyMigrated} skipped-empty=${s.sessionsSkippedEmpty}` +
-        ` skipped-placeholder=${s.sessionsSkippedPlaceholder}` +
+        ` skipped-malformed=${s.sessionsSkippedMalformed} skipped-placeholder=${s.sessionsSkippedPlaceholder}` +
         ` failed=${s.sessionsFailed.length} conflicts=${s.sessionsConflicts.length}` +
-        (s.bucketsSkippedNonlocalKaos > 0
-          ? ` buckets-skipped-nonlocal-kaos=${s.bucketsSkippedNonlocalKaos}`
-          : '') +
-        (s.bucketsSkippedNoWorkdirFound > 0
-          ? ` buckets-skipped-no-workdir=${s.bucketsSkippedNoWorkdirFound}`
-          : ''),
+        (s.bucketsSkippedNonlocalKaos > 0 ? ` buckets-skipped-nonlocal-kaos=${s.bucketsSkippedNonlocalKaos}` : '') +
+        (s.bucketsSkippedNoWorkdirFound > 0 ? ` buckets-skipped-no-workdir=${s.bucketsSkippedNoWorkdirFound}` : ''),
     );
     for (const failure of s.sessionsFailed) {
-      log(
-        t('tui.migration.headlessFailedSession', {
-          path: failure.sourcePath,
-          reason: failure.reason,
-        }),
-      );
+      log(`  failed: ${failure.sourcePath} — ${failure.reason}`);
     }
     for (const conflict of s.sessionsConflicts) {
-      log(
-        t('tui.migration.headlessConflictSession', {
-          path: conflict.sourcePath,
-          target: conflict.targetPath,
-        }),
-      );
+      log(t('tui.migration.headlessConflictSession', { path: conflict.sourcePath, target: conflict.targetPath }));
     }
   }
   if (report.notices.oauthLoginsRequiringRelogin.length > 0) {
-    log(
-      t('tui.migration.headlessRelogin', {
-        names: report.notices.oauthLoginsRequiringRelogin.join(', '),
-      }),
-    );
+    log(`notice: run /login for: ${report.notices.oauthLoginsRequiringRelogin.join(', ')}`);
   }
   if (report.notices.mcpOauthServersRequiringReauth.length > 0) {
-    log(
-      t('tui.migration.headlessMcpReauth', {
-        names: report.notices.mcpOauthServersRequiringReauth.join(', '),
-      }),
-    );
+    log(`notice: re-authenticate MCP servers: ${report.notices.mcpOauthServersRequiringReauth.join(', ')}`);
   }
-  if (report.notices.configConflictSibling !== null) {
-    log(t('tui.migration.headlessConfigConflict', { path: report.notices.configConflictSibling }));
+  if (report.notices.configConflictNotice !== null) {
+    log(`notice: ${report.notices.configConflictNotice}`);
   }
-  if (report.notices.tuiConflictSibling !== null) {
-    log(t('tui.migration.headlessTuiConflict', { path: report.notices.tuiConflictSibling }));
+  if (report.notices.tuiConflictNotice !== null) {
+    log(`notice: ${report.notices.tuiConflictNotice}`);
   }
-  const plansCopied = report.notices.plansCopied;
-  if (plansCopied !== null) {
-    log(
-      t(
-        plansCopied.count === 1
-          ? 'tui.migration.headlessPlansCopied_one'
-          : 'tui.migration.headlessPlansCopied_other',
-        { count: String(plansCopied.count), path: plansCopied.directory },
-      ),
-    );
+  if (report.notices.plansCopiedNotice !== null) {
+    log(`notice: ${report.notices.plansCopiedNotice}`);
   }
   return (
     s.sessionsFailed.length === 0 &&

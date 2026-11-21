@@ -1,9 +1,9 @@
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { CRON_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
-import { IAgentCronService } from '#/features/cron/cronService';
+import { type ToolExecution } from '#/tool/toolContract';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { RepoMutations, ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentCronService } from '#/features/cron/cronService';
 
+import { CRON_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
 import { ICronDeleteTool, CronDeleteInputSchema, type CronDeleteInput } from './cron-delete';
 import CRON_DELETE_DESCRIPTION from './cron-delete.md?raw';
 
@@ -13,10 +13,10 @@ export class CronDeleteTool implements ICronDeleteTool {
   declare readonly _serviceBrand: undefined;
 
   readonly name = 'CronDelete' as const;
-  readonly sideEffect = ToolSideEffects.write;
-  readonly repoMutation = RepoMutations.none;
   readonly description = CRON_DELETE_DESCRIPTION;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(CronDeleteInputSchema);
+  readonly parameters: Record<string, unknown> = toInputJsonSchema(
+    CronDeleteInputSchema,
+  );
 
   constructor(
     @IAgentCronService private readonly cron: IAgentCronService,
@@ -29,7 +29,9 @@ export class CronDeleteTool implements ICronDeleteTool {
     if (!ID_PATTERN.test(args.id)) {
       return {
         isError: true,
-        output: `Invalid cron job id ${JSON.stringify(args.id)} — must be a ULID.`,
+        output: `Invalid cron job id ${JSON.stringify(
+          args.id,
+        )} — must be a ULID.`,
       };
     }
 

@@ -1,5 +1,5 @@
-import type { ContentPart, ToolCall, ToolDescription } from '#/llm/message';
-import type { ImageTokenPricing } from '#/llm/modelFamily';
+import type { ContentPart, ToolCall, ToolDescription } from '#human/message';
+import type { ImageTokenPricing } from '#human/llm/modelFamily';
 
 export interface EstimableMessage {
   readonly role: string;

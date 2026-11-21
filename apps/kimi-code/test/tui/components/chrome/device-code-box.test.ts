@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'bun:test';
-
 import { visibleWidth } from '@moonshot-ai/pi-tui';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { DeviceCodeBoxComponent } from '#/tui/components/chrome/device-code-box';
+import { darkColors } from '#/tui/theme/colors';
 
 function strip(text: string): string {
   return text.replaceAll(/\[[0-9;]*m/g, '');
@@ -25,12 +25,9 @@ describe('DeviceCodeBoxComponent', () => {
     const lines = component.render(80).map(strip);
     const joined = lines.join('\n');
 
-    // Transcript panels align their box's left edge with message body text
-    // (two-cell indent), and the title sits on the top border after `╭ `.
-    expect(lines[1]?.startsWith('  ╭')).toBe(true);
+    expect(lines[1]?.startsWith('╭')).toBe(true);
     expect(lines[1]?.endsWith('╮')).toBe(true);
-    expect(lines[1]).toContain(` ${title} `);
-    expect(lines.at(-2)?.startsWith('  ╰')).toBe(true);
+    expect(lines.at(-2)?.startsWith('╰')).toBe(true);
     expect(lines.at(-2)?.endsWith('╯')).toBe(true);
 
     expect(joined).toContain(title);

@@ -1,15 +1,14 @@
 import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
 import { TuiAltScreen } from '@moonshot-ai/pi-tui';
 
-import { setLocale, t } from '#/i18n';
 import { currentTheme, lightColors } from '#/tui/theme';
-
 import { DEFAULT_MARKDOWN_CONFIG, loadTuiConfig, resolveTuiMode, type TuiConfig } from '../config';
-import { getTuiModeRestartNotice } from '../constant/kimi-tui';
+import { TUI_MODE_RESTART_NOTICE } from '../constant/kimi-tui';
 import { setMarkdownMermaidMode, setMarkdownRenderLatex } from '../utils/markdown-options';
 import type { SlashCommandHost } from './dispatch';
 import { applyTranscriptPresentation } from './config';
 import { setExperimentalFeatures } from './experimental-flags';
+import { t } from '#/i18n';
 
 export async function handleReloadTuiCommand(host: SlashCommandHost): Promise<void> {
   const tuiConfig = await loadTuiConfig(undefined, (message) =>
@@ -36,8 +35,6 @@ export async function handleReloadCommand(host: SlashCommandHost): Promise<void>
   const config = await host.harness.getConfig({ reload: true });
   setExperimentalFeatures(await host.harness.getExperimentalFeatures());
   if (session === undefined) {
-    // Session-less v2: rebuild the workspace-level dynamic commands too, so
-    // skill/plugin changes apply before the first session exists.
     await host.refreshSkillCommands();
     await host.refreshPluginCommands();
   }
@@ -49,11 +46,11 @@ export async function handleReloadCommand(host: SlashCommandHost): Promise<void>
   await applyReloadedTuiConfig(host, tuiConfig);
 
   if (session === undefined) {
-    // Still session-less on the v2 engine: refresh the lazy defaults too, so
-    // defaults edited externally (config.toml, a newly added default model)
-    // reach the first lazy-created session instead of staying stale.
     await host.hydrateLazyConfigDefaults();
-    host.showStatus(t('tui.statusMessages.reloadNoActiveSession'), 'success');
+    host.showStatus(
+      t('tui.statusMessages.reloadNoActiveSession'),
+      'success',
+    );
   }
 }
 
@@ -61,20 +58,18 @@ export async function applyReloadedTuiConfig(
   host: SlashCommandHost,
   config: TuiConfig,
 ): Promise<void> {
-  // Set the LaTeX toggle before applyTheme: theme application invalidates the
-  // transcript components, which rebuild their Markdown children and copy the
-  // options at construction — so the new value must be live by then.
   setMarkdownRenderLatex(config.renderLatex ?? true);
   setMarkdownMermaidMode(config.markdown?.mermaid ?? DEFAULT_MARKDOWN_CONFIG.mermaid);
-  const resolved =
-    config.theme === 'auto' ? (currentTheme.palette === lightColors ? 'light' : 'dark') : undefined;
+  const resolved = config.theme === 'auto'
+    ? (currentTheme.palette === lightColors ? 'light' : 'dark')
+    : undefined;
   await host.applyTheme(config.theme, resolved);
   host.refreshTerminalThemeTracking();
   host.setAppState({
     editorCommand: config.editorCommand,
     tuiMode: config.tuiMode,
-    copyOnSelect: config.copyOnSelect,
     disablePasteBurst: config.disablePasteBurst,
+    copyOnSelect: config.copyOnSelect,
     renderLatex: config.renderLatex,
     cacheExpiryHint: config.cacheExpiryHint,
     autoSessionTitle: config.autoSessionTitle,
@@ -86,21 +81,12 @@ export async function applyReloadedTuiConfig(
     transcript: config.transcript,
   });
   applyTranscriptPresentation(host);
-  // Exact shape of `applyLocaleChoice` (commands/config.ts): the UI locale only
-  // takes effect when the i18n engine, the engine-side translator and appState
-  // all move together — keeping the field list here in sync with that one
-  // avoids a reload that reports success while the language stays put.
-  if (config.locale !== host.state.appState.locale) {
-    setLocale(config.locale);
-    host.harness.setEngineLocale(config.locale);
-    host.setAppState({ locale: config.locale });
-  }
   host.state.editor.setDisablePasteBurst(config.disablePasteBurst);
   if (host.state.ui instanceof TuiAltScreen) {
     host.state.ui.setCopyOnSelect(config.copyOnSelect !== false);
   }
   if (resolveTuiMode(config.tuiMode).mode !== host.state.ui.mode) {
-    host.showNotice(getTuiModeRestartNotice());
+    host.showNotice(TUI_MODE_RESTART_NOTICE);
   }
 }
 

@@ -1,16 +1,12 @@
-/**
- * `kimi session list`
- *
- * Verifies the CLI layer: scope option handling (--cwd/--all), archived
- * pass-through, --limit, --json, and the empty state.
- */
-
-import { describe, expect, it } from 'bun:test';
-
-import type { ListSessionsOptions, SessionSummary } from '@moonshot-ai/kimi-code-sdk';
 import { Command } from 'commander';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { handleSessionList, registerSessionCommand, type SessionListDeps } from '#/cli/sub/session';
+import {
+  handleSessionList,
+  registerSessionCommand,
+  type SessionListDeps,
+} from '#/cli/sub/session';
+import type { ListSessionsOptions, SessionSummary } from '@moonshot-ai/kimi-code-sdk';
 
 function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {

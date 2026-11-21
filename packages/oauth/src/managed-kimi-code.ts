@@ -392,9 +392,9 @@ export function resolveKimiCodeLoginAuth(options: {
   readonly configuredOAuthRef?: ManagedKimiOAuthRefInput | undefined;
   readonly requestedBaseUrl?: string | undefined;
   readonly requestedOAuthHost?: string | undefined;
-  readonly env?: ManagedKimiEnv | undefined;
+  readonly env?: ManagedKimiEnv | NodeJS.ProcessEnv | undefined;
 }): ManagedKimiLoginAuth {
-  const env = options.env ?? process.env;
+  const env = (options.env ?? process.env) as ManagedKimiEnv;
   const envBaseUrl = kimiCodeEnvBaseUrl(env);
   const envOAuthHost = kimiCodeEnvOAuthHost(env);
   const hasOverride =

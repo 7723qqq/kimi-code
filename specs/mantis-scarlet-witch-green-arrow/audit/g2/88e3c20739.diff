@@ -1,0 +1,1917 @@
+commit 88e3c20739a20a9a4003e366db7ecad9b88e10bd
+Author:     Haozhe <yanghaozhe@moonshot.ai>
+AuthorDate: Fri Nov 13 16:20:37 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Fri Nov 13 16:20:37 2026 +0800
+
+    feat(core): add Amazon Bedrock provider with AWS credential chain auth (#4895)
+    
+    * feat(core): add Bedrock provider with isolated Anthropic auth
+    
+    * fix(core): preserve model input cap behavior
+    
+    * docs: refine Bedrock changeset
+    
+    * fix(build): update pnpm deps hash
+
+diff --git a/.changeset/bedrock-provider.md b/.changeset/bedrock-provider.md
+new file mode 100644
+index 0000000000..ae2bc286f7
+--- /dev/null
++++ b/.changeset/bedrock-provider.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/kimi-code": minor
++---
++
++Add support for Amazon Bedrock providers, configured with `type = "bedrock"` and `AWS_REGION`.
+diff --git a/apps/kimi-code/scripts/native/check-bundle.mjs b/apps/kimi-code/scripts/native/check-bundle.mjs
+index 8b3519db73..77c405d5e3 100644
+--- a/apps/kimi-code/scripts/native/check-bundle.mjs
++++ b/apps/kimi-code/scripts/native/check-bundle.mjs
+@@ -10,6 +10,7 @@ const builtins = new Set([
+ ]);
+ 
+ const optionalRuntimeRequires = new Set([
++  '@aws-sdk/signature-v4a',
+   'ajv-formats/dist/formats',
+   'ajv/dist/runtime/validation_error',
+   'bufferutil',
+diff --git a/docs/en/configuration/config-files.md b/docs/en/configuration/config-files.md
+index 7f56cf230f..232480acc7 100644
+--- a/docs/en/configuration/config-files.md
++++ b/docs/en/configuration/config-files.md
+@@ -124,7 +124,7 @@ Each entry in the `providers` table defines an API provider, keyed by a unique n
+ 
+ | Field | Type | Required | Description |
+ | --- | --- | --- | --- |
+-| `type` | `string` | Yes | Provider type: `kimi`, `anthropic`, `openai`, `openai_responses`, `google-genai`, `vertexai` |
++| `type` | `string` | Yes | Provider type: `kimi`, `anthropic`, `openai`, `openai_responses`, `bedrock`, `google-genai`, `vertexai` |
+ | `api_key` | `string` | No | API key, written in plain text in the config file |
+ | `api_key_env` | `string` | No | Name of a shell environment variable to read the API key from instead of storing it in the config file; re-read on every request. Mutually exclusive with `api_key` and `oauth`; an unset or empty variable fails the request with an error naming the variable |
+ | `base_url` | `string` | No | API base URL |
+diff --git a/docs/en/configuration/env-vars.md b/docs/en/configuration/env-vars.md
+index 9fb37b8859..0fd7b1a977 100644
+--- a/docs/en/configuration/env-vars.md
++++ b/docs/en/configuration/env-vars.md
+@@ -5,7 +5,7 @@ Kimi Code CLI uses environment variables to control a small number of runtime be
+ ::: warning Important: API keys are not configured here
+ Credential variables such as `KIMI_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` are **not** read automatically from shell environment variables. Running `export KIMI_API_KEY=xxx` in the terminal does not give any provider its key. They must be written in `config.toml` under `[providers.<name>]` or the `[providers.<name>.env]` sub-table.
+ 
+-The only exceptions are the `KIMI_MODEL_*` family and a provider's `api_key_env` field, two explicit channels that *do* read credentials from the shell. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi_model_) and [Provider credential key names](#provider-credential-key-names-written-in-configtoml).
++The exceptions are the `KIMI_MODEL_*` family, a provider's `api_key_env` field, and a small set of credentials read from the shell directly by the vendor SDKs (`GOOGLE_APPLICATION_CREDENTIALS`, and the AWS credential chain for Amazon Bedrock). See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi_model_) and [Provider credential key names](#provider-credential-key-names-written-in-configtoml).
+ 
+ For background, see [Config overrides: provider credentials](./overrides.md#provider-credentials).
+ :::
+@@ -54,7 +54,7 @@ The format mirrors `ANTHROPIC_CUSTOM_HEADERS`: newline-separated `Name: Value` l
+ 
+ ## Provider credential key names (written in config.toml)
+ 
+-The key names below are not read directly from the shell. They are key names written inside the `[providers.<name>.env]` sub-table of `config.toml`, serving as fallback values for `api_key` / `base_url`. The CLI reads only from the config file, not from `process.env`.
++The key names below are written inside the `[providers.<name>.env]` sub-table of `config.toml`, serving as fallback values for `api_key` / `base_url`. Unless a row notes otherwise, the CLI reads them only from the config file, not from `process.env`.
+ 
+ These conventional names are fixed per provider type. If you would rather keep the key in the shell environment under a name of your choosing, set [`api_key_env`](./config-files.md#providers) on the provider instead: the CLI then reads the key from that variable on every request.
+ 
+@@ -76,13 +76,23 @@ Key names per provider:
+ | `ANTHROPIC_BASE_URL` | Anthropic | Follows Anthropic SDK default |
+ | `OPENAI_API_KEY` | OpenAI (`openai` and `openai_responses`) | None |
+ | `OPENAI_BASE_URL` | OpenAI (`openai` and `openai_responses`) | `https://api.openai.com/v1` |
++| `AWS_BEARER_TOKEN_BEDROCK` | Amazon Bedrock | None |
++| `AWS_DEFAULT_REGION` | Amazon Bedrock | Shell value, if present |
++| `AWS_REGION` | Amazon Bedrock | Configured `AWS_DEFAULT_REGION` or shell value |
++| `AWS_BEDROCK_BASE_URL` | Amazon Bedrock | Derived from the region as `bedrock-runtime.<region>.amazonaws.com` |
++| `AWS_PROFILE` | Amazon Bedrock | Falls back to the shell value |
+ | `GOOGLE_API_KEY` | Google GenAI, Vertex AI | None |
+ | `VERTEXAI_API_KEY` | Vertex AI | None |
+ | `GOOGLE_CLOUD_PROJECT` | Vertex AI | None |
+ | `GOOGLE_CLOUD_LOCATION` | Vertex AI | None |
+ 
+ ::: warning
+-`GOOGLE_APPLICATION_CREDENTIALS` (path to a service account JSON file) is the only exception that goes through the system environment variable mechanism. It is read by the Google SDK directly via the standard ADC flow; the CLI does not participate. All other key names must be placed in the `[providers.<name>.env]` sub-table to take effect.
++Two credential mechanisms bypass the config table and read from the system environment directly:
++
++- `GOOGLE_APPLICATION_CREDENTIALS` (path to a service account JSON file) is read by the Google SDK via the standard ADC flow; the CLI does not participate.
++- For Amazon Bedrock, the AWS secret credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, SSO, or `~/.aws/credentials`) are read from the shell by the AWS SDK's standard credential chain. Writing them in `[providers.<name>.env]` is not supported and has no effect — the CLI only passes the region and profile to the token generator, which resolves the credentials itself.
++
++All other key names must be placed in the `[providers.<name>.env]` sub-table to take effect.
+ :::
+ 
+ For the full provider type and field reference, see [Providers and models](./providers.md).
+diff --git a/docs/en/configuration/providers.md b/docs/en/configuration/providers.md
+index c8224e7db2..ae32fa132c 100644
+--- a/docs/en/configuration/providers.md
++++ b/docs/en/configuration/providers.md
+@@ -12,6 +12,7 @@ The `type` field in the `providers` table determines which protocol implementati
+ | [`anthropic`](#anthropic) | Anthropic Messages | Claude model family |
+ | [`openai`](#openai) | OpenAI Chat Completions | OpenAI and compatible services, DeepSeek, Qwen, etc. |
+ | [`openai_responses`](#openai_responses) | OpenAI Responses API | OpenAI's newer Responses interface |
++| [`bedrock`](#bedrock) | Anthropic Messages / OpenAI-compatible (per model) | Amazon Bedrock |
+ | [`google-genai`](#google-genai) | Google GenAI | Gemini API |
+ | [`vertexai`](#vertexai) | Google GenAI on Vertex | Google Cloud Vertex AI |
+ 
+@@ -150,6 +151,67 @@ api_key = "xxxxx"
+ base_url = "https://your-gateway.example"
+ ```
+ 
++## `bedrock`
++
++For connecting to Amazon Bedrock. One `bedrock` provider can serve models over the Anthropic Messages API or the OpenAI-compatible APIs — the wire protocol is inferred per model from the Bedrock model ID, so Claude, GPT, and Kimi models can share a single provider entry.
++
++### Authentication
++
++Providers with `type = "bedrock"` can use the standard [AWS CLI credential chain](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html) to generate short-lived bearer tokens from your ambient AWS credentials (from SSO, instance roles, environment variables, shared config, and so on). Just specify your AWS region and optionally a named [profile](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html#cli-configure-files-using-profiles):
++
++```toml
++[providers.bedrock]
++type = "bedrock"
++
++[providers.bedrock.env]
++AWS_REGION = "us-east-1"
++# AWS_PROFILE = "my-profile"   # optional named AWS CLI profile
++```
++
++Alternatively, you can use an [Amazon Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html) instead by configuring it through `api_key`, `api_key_env`, or the `AWS_BEARER_TOKEN_BEDROCK` key in the `[providers.bedrock.env]` sub-table. However, for security AWS generally advises against using long-lived API keys. A configured key always takes precedence over the ambient credential chain.
++
++The region must be resolvable from `AWS_REGION` or `AWS_DEFAULT_REGION` (in the sub-table or exported in the shell). Inferring a default region from `~/.aws/config` is not currently supported.
++
++### Endpoint URLs
++
++The base URL defaults to the regional `bedrock-runtime.<region>.amazonaws.com` endpoint — set `base_url` (or the `AWS_BEDROCK_BASE_URL` env key) only when you need a custom endpoint such as `bedrock-mantle`, a proxy, or a FIPS/dual-stack hostname. A custom `base_url` is the complete URL: it must include the wire path (`/anthropic` or `/openai/v1`) of the protocol your models serve, and the CLI uses it verbatim without appending a protocol suffix.
++
++### Models and wire protocol
++
++Bedrock model IDs use the form `<vendor>.<model>`, optionally with a cross-region inference profile prefix (`global.`, `us.`, `eu.`, …). The CLI infers the wire protocol from the model ID after stripping that prefix, choosing the API each model family actually serves on `bedrock-runtime`:
++
++- `anthropic.*` → Anthropic Messages API
++- `openai.gpt-oss*` → OpenAI Chat Completions API (the only OpenAI API these open-weight models serve on `bedrock-runtime`)
++- other `openai.*` → OpenAI Responses API (the only API GPT-6 / GPT-5.6 models serve; OpenAI's preferred direction)
++- `moonshotai.*` / `moonshot.*` → OpenAI Chat Completions API (recommended on the Kimi model cards)
++
++Any other prefix defaults to the OpenAI Chat Completions API. To pick a different API for a model that serves more than one, set `protocol` on the model alias explicitly:
++
++```toml
++[models."sonnet"]
++provider = "bedrock"
++model = "global.anthropic.claude-sonnet-4-6"
++max_context_size = 200000
++
++[models."gpt-6"]
++provider = "bedrock"
++model = "global.openai.gpt-6-astra"   # infers the OpenAI Responses API
++max_context_size = 1050000
++
++[models."gpt-oss"]
++provider = "bedrock"
++model = "openai.gpt-oss-120b-1:0"     # infers the OpenAI Chat Completions API
++max_context_size = 128000
++
++[models."kimi-k3-responses"]
++provider = "bedrock"
++model = "global.moonshotai.kimi-k3"
++protocol = "openai_responses"         # explicit override: Kimi K3 also serves the Responses API
++max_context_size = 1000000
++```
++
++Most current Bedrock models require an inference profile ID (the `global.` / `us.` / … prefix) rather than the base model ID; check the [model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards.html) for your target models for full details of supported APIs and inference profiles.
++
+ ## `vertexai`
+ 
+ Shares the same implementation as `google-genai`; setting `type = "vertexai"` switches to the Vertex AI access path.
+diff --git a/docs/en/reference/server-api-service.md b/docs/en/reference/server-api-service.md
+index 58144c1bfd..7594a348a7 100644
+--- a/docs/en/reference/server-api-service.md
++++ b/docs/en/reference/server-api-service.md
+@@ -442,7 +442,7 @@ Credentials are one of two forms: `api_key` stores the key directly, while `api_
+ | Parameter | In | Type | Description |
+ | --- | --- | --- | --- |
+ | `id` | body | string | Required. Provider id. Only letters, digits, `-`, `_`, and spaces; must start with a letter or digit |
+-| `type` | body | string | Required. Wire protocol: `kimi` / `openai` / `openai_responses` / `anthropic` / `google-genai` / `vertexai` |
++| `type` | body | string | Required. Wire protocol: `kimi` / `openai` / `openai_responses` / `anthropic` / `bedrock` / `google-genai` / `vertexai` |
+ | `api_key` | body | string | API key, stored in `config.toml` |
+ | `api_key_env` | body | string | Name of the environment variable to read the API key from. The server stores only the variable name, not the key |
+ | `base_url` | body | string | API base URL; must not contain an environment variable placeholder (`${...}`) |
+@@ -457,6 +457,7 @@ Each `models[]` entry declares one alias whose id is `id/model`:
+ | `max_context_size` | integer | Required. Context window in tokens, ≥ 1 |
+ | `display_name` | string | Display name |
+ | `capabilities` | array | Capability flags such as `thinking` or `image_in` |
++| `protocol` | string | Wire-protocol override: `anthropic`, `openai`, or `openai_responses`; inferred from the model ID when omitted |
+ | `max_output_size` | integer | Max output tokens, ≥ 1 |
+ | `support_efforts` | array | Supported Thinking mode effort levels |
+ | `adaptive_thinking` | boolean | Adaptive thinking switch |
+@@ -488,7 +489,7 @@ Replaces a provider in one save. `type`, `base_url`, and the model list are rewr
+ | --- | --- | --- | --- |
+ | `provider_id` | path | string | Required. Current provider id |
+ | `new_id` | body | string | Rename the provider. The providers key, model aliases, `default_provider`, a `default_model` pointing at an old alias, and the subagent secondary model pool all migrate. Same id rules as `POST /api/v1/providers` |
+-| `type` | body | string | Required. Wire protocol: `kimi` / `openai` / `openai_responses` / `anthropic` / `google-genai` / `vertexai` |
++| `type` | body | string | Required. Wire protocol: `kimi` / `openai` / `openai_responses` / `anthropic` / `bedrock` / `google-genai` / `vertexai` |
+ | `api_key` | body | string | API key; three forms, see above |
+ | `api_key_env` | body | string | Name of the environment variable to read the API key from; three forms, see above |
+ | `base_url` | body | string | API base URL; must not contain an environment variable placeholder (`${...}`) |
+diff --git a/docs/zh/configuration/config-files.md b/docs/zh/configuration/config-files.md
+index e3f35e5232..475e5ce34f 100644
+--- a/docs/zh/configuration/config-files.md
++++ b/docs/zh/configuration/config-files.md
+@@ -124,7 +124,7 @@ timeout = 5
+ 
+ | 字段 | 类型 | 必填 | 说明 |
+ | --- | --- | --- | --- |
+-| `type` | `string` | 是 | 供应商类型：`kimi`、`anthropic`、`openai`、`openai_responses`、`google-genai`、`vertexai` |
++| `type` | `string` | 是 | 供应商类型：`kimi`、`anthropic`、`openai`、`openai_responses`、`bedrock`、`google-genai`、`vertexai` |
+ | `api_key` | `string` | 否 | API 密钥，明文写在配置文件里 |
+ | `api_key_env` | `string` | 否 | 指定一个 shell 环境变量名，从该变量读取 API 密钥，密钥不写入配置文件；每次请求时读取。与 `api_key`、`oauth` 互斥；变量未设置或为空时请求报错并指明变量名 |
+ | `base_url` | `string` | 否 | API 基础 URL |
+diff --git a/docs/zh/configuration/env-vars.md b/docs/zh/configuration/env-vars.md
+index 3fc4f2c6bb..94fb00249c 100644
+--- a/docs/zh/configuration/env-vars.md
++++ b/docs/zh/configuration/env-vars.md
+@@ -5,7 +5,7 @@ Kimi Code CLI 通过环境变量控制少数运行时行为：迁移数据目录
+ ::: warning 重要：API 密钥不在这里配置
+ `KIMI_API_KEY`、`ANTHROPIC_API_KEY`、`OPENAI_API_KEY` 等密钥变量**不会**从 shell 环境变量自动读取。在终端里 `export KIMI_API_KEY=xxx` 不会让任何供应商获得密钥。密钥必须写在 `config.toml` 的 `[providers.<name>]` 段或 `[providers.<name>.env]` 子表里。
+ 
+-例外有两处：`KIMI_MODEL_*` 系列和供应商的 `api_key_env` 字段，这两个显式通道*确实*会从 shell 读取凭证。详见[用环境变量定义模型](#用环境变量定义模型kimi_model_)和[供应商凭证键](#供应商凭证键写在-configtoml-里)。
++例外包括：`KIMI_MODEL_*` 系列、供应商的 `api_key_env` 字段，以及少数由厂商 SDK 直接从 shell 读取的凭证（`GOOGLE_APPLICATION_CREDENTIALS`，以及 Amazon Bedrock 的 AWS 凭证链）。详见[用环境变量定义模型](#用环境变量定义模型kimi_model_)和[供应商凭证键](#供应商凭证键写在-configtoml-里)。
+ 
+ 背景说明见[配置覆盖：供应商凭证](./overrides.md#供应商凭证)。
+ :::
+@@ -54,7 +54,7 @@ export KIMI_CODE_CUSTOM_HEADERS=$'X-Gateway-Cluster: my-cluster\nX-Custom-Tag: d
+ 
+ ## 供应商凭证键（写在 config.toml 里）
+ 
+-下面这些键名不是直接从 shell 读取的。它们是写在 `config.toml` 的 `[providers.<name>.env]` 子表里、作为 `api_key` / `base_url` 备用来源的键名。CLI 只从配置文件读取，不从 `process.env` 读取。
++下面这些键名写在 `config.toml` 的 `[providers.<name>.env]` 子表里，作为 `api_key` / `base_url` 的备用来源。除非某一行另有说明，CLI 只从配置文件读取这些键名，不从 `process.env` 读取。
+ 
+ 上面的惯用键名是按供应商类型固定的。如果更希望把密钥放在 shell 环境里并使用自定义变量名，可以在供应商上设置 [`api_key_env`](./config-files.md#providers)：CLI 会在每次请求时从该变量读取密钥。
+ 
+@@ -76,13 +76,23 @@ KIMI_BASE_URL = "https://api.moonshot.ai/v1"
+ | `ANTHROPIC_BASE_URL` | Anthropic | Anthropic SDK 默认值 |
+ | `OPENAI_API_KEY` | OpenAI（`openai` 和 `openai_responses`） | 无 |
+ | `OPENAI_BASE_URL` | OpenAI（`openai` 和 `openai_responses`） | `https://api.openai.com/v1` |
++| `AWS_BEARER_TOKEN_BEDROCK` | Amazon Bedrock | 无 |
++| `AWS_DEFAULT_REGION` | Amazon Bedrock | shell 中的值（如有） |
++| `AWS_REGION` | Amazon Bedrock | 已配置的 `AWS_DEFAULT_REGION` 或 shell 中的值 |
++| `AWS_BEDROCK_BASE_URL` | Amazon Bedrock | 按区域推导为 `bedrock-runtime.<region>.amazonaws.com` |
++| `AWS_PROFILE` | Amazon Bedrock | 回退到 shell 中的值 |
+ | `GOOGLE_API_KEY` | Google GenAI、Vertex AI | 无 |
+ | `VERTEXAI_API_KEY` | Vertex AI | 无 |
+ | `GOOGLE_CLOUD_PROJECT` | Vertex AI | 无 |
+ | `GOOGLE_CLOUD_LOCATION` | Vertex AI | 无 |
+ 
+ ::: warning
+-`GOOGLE_APPLICATION_CREDENTIALS`（服务账号 JSON 路径）是唯一走系统环境变量的例外。它由 Google SDK 自身通过 ADC 流程读取，CLI 不参与。其他所有键名都必须写在 `[providers.<name>.env]` 子表里。
++有两类凭证机制绕过配置表，直接从系统环境读取：
++
++- `GOOGLE_APPLICATION_CREDENTIALS`（服务账号 JSON 路径）由 Google SDK 通过 ADC 流程读取，CLI 不参与。
++- 对于 Amazon Bedrock，AWS 秘密凭证（`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_SESSION_TOKEN`、SSO 或 `~/.aws/credentials`）由 AWS SDK 的标准凭证链从 shell 读取。把它们写进 `[providers.<name>.env]` 不受支持、也不生效——CLI 只把区域和 profile 传给令牌生成器，由令牌生成器自行解析凭证。
++
++其他所有键名都必须写在 `[providers.<name>.env]` 子表里。
+ :::
+ 
+ 供应商类型与字段的完整说明见[平台与模型](./providers.md)。
+diff --git a/docs/zh/configuration/providers.md b/docs/zh/configuration/providers.md
+index 5285d4115f..fccf1f6d67 100644
+--- a/docs/zh/configuration/providers.md
++++ b/docs/zh/configuration/providers.md
+@@ -12,6 +12,7 @@ Kimi Code CLI 支持同时接入多家模型供应商服务，模型在供应商
+ | [`anthropic`](#anthropic) | Anthropic Messages | Claude 系列模型 |
+ | [`openai`](#openai) | OpenAI Chat Completions | OpenAI 及兼容服务、DeepSeek、Qwen 等 |
+ | [`openai_responses`](#openai_responses) | OpenAI Responses API | OpenAI 较新的 Responses 接口 |
++| [`bedrock`](#bedrock) | Anthropic Messages / OpenAI 兼容（按模型区分） | Amazon Bedrock |
+ | [`google-genai`](#google-genai) | Google GenAI | Gemini API |
+ | [`vertexai`](#vertexai) | Google GenAI on Vertex | Google Cloud Vertex AI |
+ 
+@@ -150,6 +151,67 @@ api_key = "xxxxx"
+ base_url = "https://your-gateway.example"
+ ```
+ 
++## `bedrock`
++
++用于接入 Amazon Bedrock。一个 `bedrock` 供应商可以承载 Anthropic Messages API 或 OpenAI 兼容 API 的模型——CLI 会按 Bedrock 模型 ID 逐个推断线路协议，因此 Claude、GPT 和 Kimi 模型可以共用同一个供应商条目。
++
++### 认证
++
++`type = "bedrock"` 的供应商可以使用标准 [AWS CLI 凭证链](https://docs.aws.amazon.com/zh_cn/cli/latest/userguide/cli-chap-configure.html)，基于你的 AWS 环境凭证（来自 SSO、实例角色、环境变量、共享配置等）生成短期持有者令牌（bearer token）。只需指定 AWS 区域，可选地再指定一个命名 [profile](https://docs.aws.amazon.com/zh_cn/cli/latest/userguide/cli-configure-files.html#cli-configure-files-using-profiles)：
++
++```toml
++[providers.bedrock]
++type = "bedrock"
++
++[providers.bedrock.env]
++AWS_REGION = "us-east-1"
++# AWS_PROFILE = "my-profile"   # 可选的 AWS CLI 命名 profile
++```
++
++另外，也可以改用 [Amazon Bedrock API 密钥](https://docs.aws.amazon.com/zh_cn/bedrock/latest/userguide/api-keys.html)，通过 `api_key`、`api_key_env` 或 `[providers.bedrock.env]` 子表中的 `AWS_BEARER_TOKEN_BEDROCK` 键来配置。不过出于安全考虑，AWS 一般不建议使用长期 API 密钥。已配置的密钥始终优先于环境凭证链。
++
++区域必须能从 `AWS_REGION` 或 `AWS_DEFAULT_REGION`（写在子表里或在 shell 中导出）解析出来；目前不支持从 `~/.aws/config` 推断默认区域。
++
++### 端点 URL
++
++base URL 默认取区域化的 `bedrock-runtime.<region>.amazonaws.com` 端点——只有当你需要自定义端点（如 `bedrock-mantle`、代理或 FIPS/双栈主机名）时才设置 `base_url`（或 `AWS_BEDROCK_BASE_URL` 环境键）。自定义 `base_url` 是完整 URL：必须包含模型所用协议的线路路径（`/anthropic` 或 `/openai/v1`），CLI 会原样使用它，不会追加协议后缀。
++
++### 模型与线路协议
++
++Bedrock 模型 ID 形如 `<vendor>.<model>`，并可带有跨区域推理 profile 前缀（`global.`、`us.`、`eu.` 等）。CLI 会在去掉该前缀后按模型 ID 推断线路协议，选择各模型系列在 `bedrock-runtime` 上实际提供的 API：
++
++- `anthropic.*` → Anthropic Messages API
++- `openai.gpt-oss*` → OpenAI Chat Completions API（这些开放权重模型在 `bedrock-runtime` 上仅提供此 API）
++- 其他 `openai.*` → OpenAI Responses API（GPT-6 / GPT-5.6 系列仅提供此 API，也是 OpenAI 推荐的方向）
++- `moonshotai.*` / `moonshot.*` → OpenAI Chat Completions API（Kimi 模型卡片推荐）
++
++其他前缀默认使用 OpenAI Chat Completions API。要为同时提供多种 API 的模型另行选择时，请在模型别名上显式设置 `protocol`：
++
++```toml
++[models."sonnet"]
++provider = "bedrock"
++model = "global.anthropic.claude-sonnet-4-6"
++max_context_size = 200000
++
++[models."gpt-6"]
++provider = "bedrock"
++model = "global.openai.gpt-6-astra"   # 推断为 OpenAI Responses API
++max_context_size = 1050000
++
++[models."gpt-oss"]
++provider = "bedrock"
++model = "openai.gpt-oss-120b-1:0"     # 推断为 OpenAI Chat Completions API
++max_context_size = 128000
++
++[models."kimi-k3-responses"]
++provider = "bedrock"
++model = "global.moonshotai.kimi-k3"
++protocol = "openai_responses"         # 显式覆盖：Kimi K3 同时提供 Responses API
++max_context_size = 1000000
++```
++
++当前大多数 Bedrock 模型要求使用推理 profile ID（即 `global.` / `us.` 等前缀），而不是基础模型 ID；请查阅目标模型的[模型卡片](https://docs.aws.amazon.com/zh_cn/bedrock/latest/userguide/model-cards.html)，了解所支持的 API 与推理 profile 的完整信息。
++
+ ## `vertexai`
+ 
+ 与 `google-genai` 共用实现，`type = "vertexai"` 时切换到 Vertex AI 访问路径。
+diff --git a/docs/zh/reference/server-api-service.md b/docs/zh/reference/server-api-service.md
+index 108b1a095a..a4cf3ea700 100644
+--- a/docs/zh/reference/server-api-service.md
++++ b/docs/zh/reference/server-api-service.md
+@@ -442,7 +442,7 @@
+ | 参数 | 位置 | 类型 | 说明 |
+ | --- | --- | --- | --- |
+ | `id` | body | string | 必填。供应商 id，只能包含字母、数字、`-`、`_` 和空格，必须以字母或数字开头 |
+-| `type` | body | string | 必填。通信协议：`kimi` / `openai` / `openai_responses` / `anthropic` / `google-genai` / `vertexai` |
++| `type` | body | string | 必填。通信协议：`kimi` / `openai` / `openai_responses` / `anthropic` / `bedrock` / `google-genai` / `vertexai` |
+ | `api_key` | body | string | API 密钥，存储在 `config.toml` 中 |
+ | `api_key_env` | body | string | 读取 API 密钥的环境变量名。服务端只存储变量名，不存储密钥 |
+ | `base_url` | body | string | API 基础 URL，不能包含环境变量占位符（`${...}`） |
+@@ -457,6 +457,7 @@
+ | `max_context_size` | integer | 必填。上下文窗口，单位 token，≥ 1 |
+ | `display_name` | string | 显示名 |
+ | `capabilities` | array | 能力标志，如 `thinking` 或 `image_in` |
++| `protocol` | string | 线路协议覆盖：`anthropic`、`openai` 或 `openai_responses`；省略时按模型 ID 推断 |
+ | `max_output_size` | integer | 最大输出 token 数，≥ 1 |
+ | `support_efforts` | array | 支持的 Thinking 模式 effort 档位 |
+ | `adaptive_thinking` | boolean | 自适应 thinking 开关 |
+@@ -488,7 +489,7 @@
+ | --- | --- | --- | --- |
+ | `provider_id` | path | string | 必填。当前供应商 id |
+ | `new_id` | body | string | 重命名供应商。providers 键、模型别名、`default_provider`、指向旧别名的 `default_model` 以及 subagent 次级模型池都随之迁移。id 规则与 `POST /api/v1/providers` 相同 |
+-| `type` | body | string | 必填。通信协议：`kimi` / `openai` / `openai_responses` / `anthropic` / `google-genai` / `vertexai` |
++| `type` | body | string | 必填。通信协议：`kimi` / `openai` / `openai_responses` / `anthropic` / `bedrock` / `google-genai` / `vertexai` |
+ | `api_key` | body | string | API 密钥，三种写法见上文 |
+ | `api_key_env` | body | string | 读取 API 密钥的环境变量名，三种写法见上文 |
+ | `base_url` | body | string | API 基础 URL，不能包含环境变量占位符（`${...}`） |
+diff --git a/flake.nix b/flake.nix
+index 470a45ef24..227fa56a21 100644
+--- a/flake.nix
++++ b/flake.nix
+@@ -155,7 +155,7 @@
+               inherit (finalAttrs) pname version src pnpmWorkspaces;
+               inherit pnpm;
+               fetcherVersion = 5;
+-              hash = "sha256-Jo/qTBS8SwKNTmSnwTjxBjlwmJ6GpnfyzB6r0iiihSY=";
++              hash = "sha256-QOHwKZaAAU4OG9MEvNEWh0DViOvkAaqlVSlYMHUltbE=";
+             };
+ 
+             nativeBuildInputs = [
+diff --git a/packages/agent-core-v2/src/app/auth/authService.ts b/packages/agent-core-v2/src/app/auth/authService.ts
+index 72a25f3a1f..12c25dda06 100644
+--- a/packages/agent-core-v2/src/app/auth/authService.ts
++++ b/packages/agent-core-v2/src/app/auth/authService.ts
+@@ -725,6 +725,7 @@ export class AuthSummaryService implements IAuthSummaryService {
+         providerName,
+       });
+       if (auth.apiKey !== undefined) return;
++      if (auth.aws !== undefined) return;
+       if (auth.apiKeyEnv !== undefined) {
+         if (nonEmpty(process.env[auth.apiKeyEnv]) !== undefined) return;
+         throw new AuthCredentialEnvMissingError(providerName, auth.apiKeyEnv);
+diff --git a/packages/agent-core-v2/src/llm-adapter/model/catalog-service.ts b/packages/agent-core-v2/src/llm-adapter/model/catalog-service.ts
+index 64dfb723f3..19ee3a6ab3 100644
+--- a/packages/agent-core-v2/src/llm-adapter/model/catalog-service.ts
++++ b/packages/agent-core-v2/src/llm-adapter/model/catalog-service.ts
+@@ -15,6 +15,7 @@ import {
+   createStaticCredentialProvider,
+ } from '#human/credentials/credentials';
+ import type { LlmCredentialProvider, ModelCapability } from '@moonshot-ai/core/llm/request';
++import { createBedrockTokenProvider } from '@moonshot-ai/core/llm/builtin/provider/bedrock/credentials';
+ import { CONFIG_INVALID_ERROR_CODE } from '../contract/errors';
+ import {
+   IProtocolAdapterRegistry,
+@@ -204,9 +205,12 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
+     provider: CatalogProviderInfo,
+   ): Promise<ProviderCredentialState> {
+     const declared = declaredProviderCredential(provider, providerId);
++    const hasApiKey = hasConfiguredApiKey(provider);
++    const hasOAuthToken = await this.hasCachedToken(providerId, provider);
+     return {
+-      hasApiKey: hasConfiguredApiKey(provider),
+-      hasOAuthToken: await this.hasCachedToken(providerId, provider),
++      hasApiKey,
++      hasOAuthToken,
++      supportsAmbientCredential: provider.type === 'bedrock' && !hasApiKey && !hasOAuthToken,
+       hasCredentialConflict: declared.kind === 'conflict',
+     };
+   }
+@@ -340,7 +344,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
+       return {
+         providerConfig,
+         providerName: providerId,
+-        resolvedBaseUrl: resolveEndpointBaseUrl(model, providerConfig),
++        resolvedBaseUrl: resolveEndpointBaseUrl(model, providerConfig, providerId),
+       };
+     }
+ 
+@@ -403,6 +407,12 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
+         tokens.getAccessToken(providerKey, oauthRef, { force: options?.force === true }),
+       );
+     }
++    if (auth.aws !== undefined) {
++      return createBedrockTokenProvider({
++        region: auth.aws.region,
++        profile: auth.aws.profile,
++      });
++    }
+     return createStaticCredentialProvider(undefined);
+   }
+ }
+diff --git a/packages/agent-core-v2/src/llm-adapter/model/catalog.ts b/packages/agent-core-v2/src/llm-adapter/model/catalog.ts
+index 7197255496..cefb6d0c16 100644
+--- a/packages/agent-core-v2/src/llm-adapter/model/catalog.ts
++++ b/packages/agent-core-v2/src/llm-adapter/model/catalog.ts
+@@ -69,6 +69,7 @@ export type SetDefaultModelResponse = z.infer<typeof setDefaultModelResponseSche
+ export interface ProviderCredentialState {
+   readonly hasApiKey: boolean;
+   readonly hasOAuthToken: boolean;
++  readonly supportsAmbientCredential: boolean;
+   readonly hasCredentialConflict: boolean;
+ }
+ 
+@@ -138,7 +139,7 @@ export function toProtocolProvider(
+     has_api_key: credential.hasApiKey,
+     status: credential.hasCredentialConflict
+       ? 'error'
+-      : credential.hasApiKey || credential.hasOAuthToken
++      : credential.hasApiKey || credential.hasOAuthToken || credential.supportsAmbientCredential
+         ? 'connected'
+         : 'unconfigured',
+     models: providerModels,
+diff --git a/packages/agent-core-v2/src/llm-adapter/model/model-auth.ts b/packages/agent-core-v2/src/llm-adapter/model/model-auth.ts
+index d907bfc4f1..d8b1bb75d0 100644
+--- a/packages/agent-core-v2/src/llm-adapter/model/model-auth.ts
++++ b/packages/agent-core-v2/src/llm-adapter/model/model-auth.ts
+@@ -8,6 +8,12 @@ import {
+   matchKnownAnthropicModelProfile,
+   matchUnknownClaudeProfile,
+ } from '@moonshot-ai/core/llm/builtin/protocol/anthropic/legalize';
++import {
++  bedrockWireProtocolOf,
++  inferBedrockProtocol,
++  resolveBedrockBaseUrl,
++  stripBedrockInferenceProfilePrefix,
++} from '@moonshot-ai/core/llm/builtin/provider/bedrock/routing';
+ 
+ import { CONFIG_INVALID_ERROR_CODE } from '../contract/errors';
+ import { ProtocolSchema, type Protocol } from '../protocol/protocol';
+@@ -45,7 +51,11 @@ export function resolveModelAuthMaterial(args: {
+   const providerEndpoint =
+     providerAuthType === undefined
+       ? {}
+-      : explainProviderEndpoint(providerAuthType, args.provider?.env ?? {});
++      : explainProviderEndpoint(
++          providerAuthType,
++          args.provider?.env ?? {},
++          resolveModelProtocol(args.model, args.provider),
++        );
+   const declared = declaredProviderCredential(args.provider ?? {}, args.providerName);
+   if (declared.kind === 'conflict') {
+     throw new Error2(CONFIG_INVALID_ERROR_CODE, declared.message);
+@@ -72,6 +82,17 @@ export function resolveModelAuthMaterial(args: {
+       oauthProviderKey: args.model.providerId ?? args.model.provider,
+     };
+   }
++  if (args.provider?.type === 'bedrock') {
++    const env = args.provider.env ?? {};
++    const region = nonEmpty(env['AWS_REGION']) ?? nonEmpty(env['AWS_DEFAULT_REGION']);
++    const profile = nonEmpty(env['AWS_PROFILE']);
++    return {
++      aws: {
++        region: region ?? process.env['AWS_REGION'] ?? process.env['AWS_DEFAULT_REGION'],
++        profile: profile ?? process.env['AWS_PROFILE'],
++      },
++    };
++  }
+   return {};
+ }
+ 
+@@ -99,7 +120,11 @@ export function effectiveModelConfig(
+ }
+ 
+ export function withAnthropicProfile(model: ModelRecord, providerType?: string): ModelRecord {
+-  const wireName = model.name ?? model.model;
++  const rawWireName = model.name ?? model.model;
++  const wireName =
++    providerType === 'bedrock' && rawWireName !== undefined
++      ? stripBedrockInferenceProfilePrefix(rawWireName)
++      : rawWireName;
+   const protocol = model.protocol ?? providerType;
+   const profile =
+     wireName === undefined
+@@ -154,6 +179,11 @@ export function resolveModelProtocol(
+     }
+     const definition = getProviderDefinition(providerType);
+     if (definition !== undefined) {
++      if (providerType === 'bedrock') {
++        const wireName = model.name ?? model.model;
++        const inferred = wireName === undefined ? undefined : inferBedrockProtocol(wireName);
++        if (inferred !== undefined) return inferred;
++      }
+       return definition.baseProtocol;
+     }
+   }
+@@ -163,6 +193,7 @@ export function resolveModelProtocol(
+ export function resolveEndpointBaseUrl(
+   model: ModelRecord,
+   provider: ProviderConfig,
++  providerId?: string,
+ ): string | undefined {
+   const fromModel = nonEmpty(model.baseUrl);
+   if (fromModel !== undefined) {
+@@ -174,8 +205,29 @@ export function resolveEndpointBaseUrl(
+   }
+   const endpointType = provider.type ?? model.protocol;
+   const endpoint =
+-    endpointType === undefined ? {} : explainProviderEndpoint(endpointType, provider.env ?? {});
+-  return nonEmpty(endpoint.baseUrl);
++    endpointType === undefined
++      ? {}
++      : explainProviderEndpoint(endpointType, provider.env ?? {}, resolveModelProtocol(model, provider));
++  const fromEndpoint = nonEmpty(endpoint.baseUrl);
++  if (fromEndpoint !== undefined) return fromEndpoint;
++  if (provider.type === 'bedrock') {
++    const wireName = nonEmpty(model.name ?? model.model);
++    const protocol =
++      bedrockWireProtocolOf(model.protocol) ??
++      (wireName === undefined ? undefined : inferBedrockProtocol(wireName)) ??
++      'openai';
++    const env = { ...process.env, ...provider.env };
++    const baseUrl = resolveBedrockBaseUrl(protocol, env);
++    if (baseUrl === undefined) {
++      const id = providerId ?? 'bedrock';
++      throw new Error2(
++        CONFIG_INVALID_ERROR_CODE,
++        `Provider "${id}" could not resolve an AWS region to build the endpoint URL. Set AWS_REGION (or AWS_DEFAULT_REGION) in the provider's [providers.${id}.env] sub-table, or export it in the environment.`,
++      );
++    }
++    return baseUrl;
++  }
++  return undefined;
+ }
+ 
+ export type ModelReadyFailureReason =
+diff --git a/packages/agent-core-v2/src/llm-adapter/model/model.types.ts b/packages/agent-core-v2/src/llm-adapter/model/model.types.ts
+index 77c80c994c..128464471a 100644
+--- a/packages/agent-core-v2/src/llm-adapter/model/model.types.ts
++++ b/packages/agent-core-v2/src/llm-adapter/model/model.types.ts
+@@ -12,4 +12,10 @@ export interface ResolvedModelAuthMaterial {
+   readonly apiKeyEnv?: string;
+   readonly oauth?: OAuthRef;
+   readonly oauthProviderKey?: string;
++  readonly aws?: AwsAuthMaterial;
++}
++
++export interface AwsAuthMaterial {
++  readonly region?: string;
++  readonly profile?: string;
+ }
+diff --git a/packages/agent-core-v2/src/llm-adapter/provider/provider-definition.ts b/packages/agent-core-v2/src/llm-adapter/provider/provider-definition.ts
+index 6888ea2636..1f6a9a52be 100644
+--- a/packages/agent-core-v2/src/llm-adapter/provider/provider-definition.ts
++++ b/packages/agent-core-v2/src/llm-adapter/provider/provider-definition.ts
+@@ -6,14 +6,17 @@ import {
+ } from '@moonshot-ai/core/llm/endpoint';
+ import {
+   anthropicEndpoint,
++  bedrockEndpoint,
+   geminiEndpoint,
+   kimiEndpoint,
+   openAIEndpoint,
+   vertexEndpoint,
+ } from '@moonshot-ai/core/llm/builtin/provider/endpoints';
++import { bedrockAnthropicRequester } from '@moonshot-ai/core/llm/builtin/provider/bedrock/anthropic';
++import { bedrockModelCapability } from '@moonshot-ai/core/llm/builtin/provider/bedrock/routing';
++import { kimiRequesters } from '@moonshot-ai/core/llm/builtin/provider/kimi/index';
+ import type { ModelCapability } from '@moonshot-ai/core/llm/request';
+ import type { LlmRequester } from '@moonshot-ai/core/llm/requester';
+-import { kimiRequesters } from '@moonshot-ai/core/llm/builtin/provider/kimi/index';
+ 
+ import type { Protocol } from '../protocol/protocol';
+ import type { ModelSource } from './provider';
+@@ -90,8 +93,11 @@ export type ExplainedProviderEndpoint = ResolvedLlmEndpointDeclaration;
+ export function explainProviderEndpoint(
+   providerType: string,
+   env: Readonly<Record<string, string | undefined>> = process.env,
++  protocol?: Protocol,
+ ): ExplainedProviderEndpoint {
+-  const definition = getProviderDefinition(providerType);
++  const definition =
++    getProviderDefinition(providerType, protocol) ??
++    (protocol === undefined ? undefined : getProviderDefinition(providerType));
+   return resolveEndpointDeclaration(definition?.endpoint ?? definition?.endpoints, env);
+ }
+ 
+@@ -121,6 +127,28 @@ registerProviderDefinition({
+   endpoint: openAIEndpoint,
+ });
+ 
++registerProviderDefinition({
++  id: 'bedrock',
++  baseProtocol: 'openai',
++  endpoint: bedrockEndpoint,
++  capability: bedrockModelCapability,
++});
++
++registerProviderDefinition({
++  id: 'bedrock',
++  baseProtocol: 'openai_responses',
++  endpoint: bedrockEndpoint,
++  capability: bedrockModelCapability,
++});
++
++registerProviderDefinition({
++  id: 'bedrock',
++  baseProtocol: 'anthropic',
++  requester: bedrockAnthropicRequester,
++  endpoint: bedrockEndpoint,
++  capability: bedrockModelCapability,
++});
++
+ registerProviderDefinition({
+   id: 'google-genai',
+   baseProtocol: 'google-genai',
+diff --git a/packages/agent-core-v2/test/app/auth/auth.test.ts b/packages/agent-core-v2/test/app/auth/auth.test.ts
+index 6650982e7a..76ea28c2bf 100644
+--- a/packages/agent-core-v2/test/app/auth/auth.test.ts
++++ b/packages/agent-core-v2/test/app/auth/auth.test.ts
+@@ -1743,8 +1743,15 @@ describe('AuthSummaryService', () => {
+     });
+   });
+ 
+-  it('ensureReady accepts provider api keys', async () => {
++  it('ensureReady accepts provider api keys and ambient AWS credentials', async () => {
++    providers['bedrock-main'] = { type: 'bedrock', env: { AWS_REGION: 'us-east-1' } };
++    models['bedrock'] = {
++      provider: 'bedrock-main',
++      model: 'global.moonshotai.kimi-k3.1',
++      maxContextSize: 128000,
++    };
+     await expect(createSummary().ensureReady('openai')).resolves.toBeUndefined();
++    await expect(createSummary().ensureReady('bedrock')).resolves.toBeUndefined();
+     expect(getCachedAccessToken).not.toHaveBeenCalled();
+   });
+ 
+diff --git a/packages/agent-core-v2/test/llm-adapter/model/catalog.test.ts b/packages/agent-core-v2/test/llm-adapter/model/catalog.test.ts
+index 9fa8f86689..489aa200e6 100644
+--- a/packages/agent-core-v2/test/llm-adapter/model/catalog.test.ts
++++ b/packages/agent-core-v2/test/llm-adapter/model/catalog.test.ts
+@@ -813,6 +813,7 @@ describe('wire projection (pure)', () => {
+       toProtocolProvider('p1', provider, models, 'a', {
+         hasApiKey: true,
+         hasOAuthToken: false,
++        supportsAmbientCredential: false,
+         hasCredentialConflict: false,
+       }),
+     ).toEqual({
+@@ -834,13 +835,19 @@ describe('wire projection (pure)', () => {
+         },
+         models,
+         'a',
+-        { hasApiKey: true, hasOAuthToken: true, hasCredentialConflict: true },
++        {
++          hasApiKey: true,
++          hasOAuthToken: true,
++          supportsAmbientCredential: false,
++          hasCredentialConflict: true,
++        },
+       ),
+     ).toMatchObject({ status: 'error', has_api_key: true });
+     expect(
+       toProtocolProvider('p1', { ...provider, defaultModel: 'own' }, models, 'a', {
+         hasApiKey: false,
+         hasOAuthToken: false,
++        supportsAmbientCredential: false,
+         hasCredentialConflict: false,
+       }).default_model,
+     ).toBe('own');
+@@ -848,9 +855,18 @@ describe('wire projection (pure)', () => {
+       toProtocolProvider('p1', { ...provider, type: undefined }, models, undefined, {
+         hasApiKey: false,
+         hasOAuthToken: false,
++        supportsAmbientCredential: false,
+         hasCredentialConflict: false,
+       }),
+     ).toMatchObject({ type: 'openai', status: 'unconfigured', default_model: undefined });
++    expect(
++      toProtocolProvider('bedrock', { type: 'bedrock' }, models, undefined, {
++        hasApiKey: false,
++        hasOAuthToken: false,
++        supportsAmbientCredential: true,
++        hasCredentialConflict: false,
++      }),
++    ).toMatchObject({ type: 'bedrock', status: 'connected' });
+   });
+ });
+ 
+diff --git a/packages/agent-core-v2/test/llm-adapter/model/modelAuth.test.ts b/packages/agent-core-v2/test/llm-adapter/model/modelAuth.test.ts
+index e1bd1d2a1d..113213ad12 100644
+--- a/packages/agent-core-v2/test/llm-adapter/model/modelAuth.test.ts
++++ b/packages/agent-core-v2/test/llm-adapter/model/modelAuth.test.ts
+@@ -6,8 +6,10 @@ import type { ModelRecord } from '#/llm-adapter/model/model';
+ import {
+   deriveProviderId,
+   effectiveModelConfig,
++  resolveEndpointBaseUrl,
+   resolveModelAuthMaterial,
+   resolveModelForReady,
++  resolveModelProtocol,
+ } from '#/llm-adapter/model/model-auth';
+ 
+ function authMaterial(args: {
+@@ -117,6 +119,27 @@ describe('resolveModelAuthMaterial', () => {
+         },
+       }),
+     ).toEqual({ apiKey: 'vertex-env-key' });
++    expect(
++      authMaterial({
++        model: { model: 'global.moonshotai.kimi-k3' },
++        provider: {
++          type: 'bedrock',
++          env: {
++            AWS_BEARER_TOKEN_BEDROCK: 'bedrock-static-key',
++            AWS_REGION: 'us-west-2',
++          },
++        },
++      }),
++    ).toEqual({ apiKey: 'bedrock-static-key' });
++    expect(
++      authMaterial({
++        model: { model: 'global.moonshotai.kimi-k3' },
++        provider: {
++          type: 'bedrock',
++          env: { AWS_REGION: 'us-west-2', AWS_PROFILE: 'bedrock-test' },
++        },
++      }),
++    ).toEqual({ aws: { region: 'us-west-2', profile: 'bedrock-test' } });
+   });
+ 
+   it('returns empty material when nothing is configured', () => {
+@@ -157,13 +180,66 @@ describe('effectiveModelConfig', () => {
+     const kimiRouted = effectiveModelConfig({ model: 'kimi-k2', protocol: 'anthropic' }, 'kimi');
+     expect(kimiRouted.supportEfforts).toBeUndefined();
+     expect(kimiRouted.capabilities).toBeUndefined();
++
++    const bedrockRouted = effectiveModelConfig(
++      { model: 'global.anthropic.claude-sonnet-4-5' },
++      'bedrock',
++    );
++    expect(bedrockRouted.supportEfforts).toEqual(['low', 'medium', 'high']);
++    expect(bedrockRouted.capabilities).toContain('thinking');
+   });
+ });
+ 
+ describe('deriveProviderId', () => {
+-  it('keys flat providers by the baseUrl origin', () => {
++  it('keys flat providers by the baseUrl origin and resolves Bedrock routes', () => {
+     expect(deriveProviderId('https://api.example.test/v1')).toBe('api.example.test');
+     expect(deriveProviderId('not-a-url')).toBe('not-a-url');
++
++    const provider: ProviderConfig = {
++      type: 'bedrock',
++      env: { AWS_REGION: 'us-west-2' },
++    };
++    expect(resolveModelProtocol({ model: 'global.anthropic.claude-sonnet-4-6' }, provider)).toBe(
++      'anthropic',
++    );
++    expect(resolveModelProtocol({ model: 'global.openai.gpt-6-astra' }, provider)).toBe(
++      'openai_responses',
++    );
++    expect(resolveModelProtocol({ model: 'global.moonshotai.kimi-k3' }, provider)).toBe('openai');
++    expect(
++      resolveModelProtocol(
++        { model: 'global.moonshotai.kimi-k3', protocol: 'openai_responses' },
++        provider,
++      ),
++    ).toBe('openai_responses');
++    expect(
++      resolveEndpointBaseUrl({ model: 'global.anthropic.claude-sonnet-4-6' }, provider, 'aws-prod'),
++    ).toBe('https://bedrock-runtime.us-west-2.amazonaws.com/anthropic');
++    const region = process.env['AWS_REGION'];
++    const defaultRegion = process.env['AWS_DEFAULT_REGION'];
++    delete process.env['AWS_REGION'];
++    delete process.env['AWS_DEFAULT_REGION'];
++    try {
++      expect(() =>
++        resolveEndpointBaseUrl(
++          { model: 'global.moonshotai.kimi-k3' },
++          { type: 'bedrock', env: {} },
++          'aws-prod',
++        ),
++      ).toThrowError(/providers\.aws-prod\.env/);
++    } finally {
++      if (region !== undefined) process.env['AWS_REGION'] = region;
++      if (defaultRegion !== undefined) process.env['AWS_DEFAULT_REGION'] = defaultRegion;
++    }
++    expect(
++      resolveEndpointBaseUrl(
++        { model: 'm', protocol: 'openai_responses' },
++        {
++          type: 'openai',
++          env: { OPENAI_BASE_URL: 'https://compatible.example.test/v1' },
++        },
++      ),
++    ).toBe('https://compatible.example.test/v1');
+   });
+ });
+ 
+@@ -173,7 +249,7 @@ describe('resolveModelForReady', () => {
+     '__kimi_env__': { type: 'kimi', baseUrl: 'https://api.example.test/coding/v1' },
+   };
+ 
+-  it('reports no-default when the model id is missing or empty', () => {
++  it('reports no-default and dangling-alias before resolving a model', () => {
+     expect(resolveModelForReady(undefined, {}, providers)).toEqual({
+       resolved: false,
+       reason: 'no-default',
+@@ -186,9 +262,6 @@ describe('resolveModelForReady', () => {
+       resolved: false,
+       reason: 'no-default',
+     });
+-  });
+-
+-  it('reports dangling-alias when the alias is absent from the models table', () => {
+     expect(resolveModelForReady('ghost', {}, providers)).toEqual({
+       resolved: false,
+       reason: 'dangling-alias',
+diff --git a/packages/core/package.json b/packages/core/package.json
+index 78145a88cf..62c8bbd3f3 100644
+--- a/packages/core/package.json
++++ b/packages/core/package.json
+@@ -38,6 +38,7 @@
+   },
+   "dependencies": {
+     "@anthropic-ai/sdk": "^0.95.2",
++    "@aws/bedrock-token-generator": "^1.1.0",
+     "@google/genai": "^1.49.0",
+     "@noble/hashes": "^2.0.0",
+     "ajv": "^8.18.0",
+diff --git a/packages/core/src/llm/builtin/protocol/anthropic/index.ts b/packages/core/src/llm/builtin/protocol/anthropic/index.ts
+index 7f8cb7d1e8..506d99c4f8 100644
+--- a/packages/core/src/llm/builtin/protocol/anthropic/index.ts
++++ b/packages/core/src/llm/builtin/protocol/anthropic/index.ts
+@@ -55,7 +55,7 @@ function anthropicCustomHeaderEnvNames(): string[] {
+   return names;
+ }
+ 
+-function buildDefaultHeaders(
++export function buildDefaultHeaders(
+   headers: Record<string, string> | undefined,
+ ): Record<string, string | null> {
+   const defaultHeaders: Record<string, string | null> = { authorization: null };
+diff --git a/packages/core/src/llm/builtin/provider/bedrock/anthropic.ts b/packages/core/src/llm/builtin/provider/bedrock/anthropic.ts
+new file mode 100644
+index 0000000000..ed7ecff3fa
+--- /dev/null
++++ b/packages/core/src/llm/builtin/provider/bedrock/anthropic.ts
+@@ -0,0 +1,29 @@
++import Anthropic from '@anthropic-ai/sdk';
++
++import type { ResolvedEndpoint } from '#/llm/endpoint';
++import {
++  anthropicProtocol,
++  buildDefaultHeaders,
++} from '#/llm/builtin/protocol/anthropic/index';
++import { createRequester } from '#/llm/requester';
++
++function createClient(endpoint: ResolvedEndpoint): Anthropic {
++  const defaultHeaders = buildDefaultHeaders(endpoint.headers);
++  if (defaultHeaders['authorization'] === null) delete defaultHeaders['authorization'];
++  return new Anthropic({
++    apiKey: null,
++    authToken: endpoint.apiKey ?? null,
++    baseURL: endpoint.baseUrl ?? null,
++    defaultHeaders,
++    maxRetries: 0,
++    fetch: endpoint.fetch,
++  });
++}
++
++export const bedrockAnthropicProtocol = anthropicProtocol.with({
++  client: createClient,
++});
++
++export const bedrockAnthropicRequester = createRequester().with({
++  protocol: { base: bedrockAnthropicProtocol },
++});
+diff --git a/packages/core/src/llm/builtin/provider/bedrock/credentials.ts b/packages/core/src/llm/builtin/provider/bedrock/credentials.ts
+new file mode 100644
+index 0000000000..2daab3058d
+--- /dev/null
++++ b/packages/core/src/llm/builtin/provider/bedrock/credentials.ts
+@@ -0,0 +1,76 @@
++import { getTokenProvider } from '@aws/bedrock-token-generator';
++
++import { errorStatusCode } from '#/llm/protocol/errors';
++import type { LlmCredential, LlmCredentialProvider } from '#/llm/request';
++
++export interface BedrockTokenProviderOptions {
++  readonly region?: string;
++  readonly profile?: string;
++  readonly expiresInSeconds?: number;
++  readonly now?: () => number;
++  readonly createProvideToken?: (config: {
++    readonly region?: string;
++    readonly profile?: string;
++    readonly expiresInSeconds?: number;
++  }) => () => Promise<string>;
++}
++
++const DEFAULT_TTL_SECONDS = 43_200;
++const EXPIRY_MARGIN_MS = 15 * 60 * 1000;
++
++export function createBedrockTokenProvider(
++  options: BedrockTokenProviderOptions = {},
++): LlmCredentialProvider {
++  const now = options.now ?? (() => Date.now());
++  const ttlMs = (options.expiresInSeconds ?? DEFAULT_TTL_SECONDS) * 1000;
++  const provideToken = (options.createProvideToken ?? defaultProvideToken)({
++    region: options.region,
++    profile: options.profile,
++    expiresInSeconds: options.expiresInSeconds,
++  });
++  let cached: { readonly token: string; readonly expiresAt: number } | undefined;
++  let pending: Promise<string> | undefined;
++  let refreshed: Promise<string> | undefined;
++
++  const acquire = (): Promise<string> => {
++    pending ??= provideToken().finally(() => {
++      pending = undefined;
++    });
++    return pending;
++  };
++
++  return {
++    resolve: async (): Promise<LlmCredential> => {
++      const forced = refreshed;
++      refreshed = undefined;
++      if (forced !== undefined) {
++        const token = await forced;
++        cached = { token, expiresAt: now() + ttlMs - EXPIRY_MARGIN_MS };
++        return { apiKey: token };
++      }
++      if (cached === undefined || now() >= cached.expiresAt) {
++        const token = await acquire();
++        cached = { token, expiresAt: now() + ttlMs - EXPIRY_MARGIN_MS };
++      }
++      return { apiKey: cached.token };
++    },
++    canRecover: (error) => errorStatusCode(error) === 401,
++    invalidate: () => {
++      cached = undefined;
++      refreshed ??= acquire();
++      refreshed.catch(() => undefined);
++    },
++  };
++}
++
++function defaultProvideToken(config: {
++  readonly region?: string;
++  readonly profile?: string;
++  readonly expiresInSeconds?: number;
++}): () => Promise<string> {
++  return getTokenProvider({
++    region: config.region,
++    profile: config.profile,
++    expiresInSeconds: config.expiresInSeconds,
++  });
++}
+diff --git a/packages/core/src/llm/builtin/provider/bedrock/index.ts b/packages/core/src/llm/builtin/provider/bedrock/index.ts
+new file mode 100644
+index 0000000000..c332b5e4ce
+--- /dev/null
++++ b/packages/core/src/llm/builtin/provider/bedrock/index.ts
+@@ -0,0 +1,3 @@
++export * from './anthropic';
++export * from './credentials';
++export * from './routing';
+diff --git a/packages/core/src/llm/builtin/provider/bedrock/routing.ts b/packages/core/src/llm/builtin/provider/bedrock/routing.ts
+new file mode 100644
+index 0000000000..3f0d0b89b4
+--- /dev/null
++++ b/packages/core/src/llm/builtin/provider/bedrock/routing.ts
+@@ -0,0 +1,74 @@
++import { getAnthropicModelCapability } from '#/llm/builtin/protocol/anthropic/capability';
++import { getOpenAILegacyModelCapability } from '#/llm/builtin/protocol/openai/capability';
++import { getOpenAIResponsesModelCapability } from '#/llm/builtin/protocol/openai-responses/capability';
++import type { ModelCapability } from '#/llm/request';
++
++export type BedrockWireProtocol = 'anthropic' | 'openai' | 'openai_responses';
++
++const GEO_INFERENCE_PROFILE_PREFIX_RE = /^(?:[a-z]{2}|apac|global)$/;
++
++export function stripBedrockInferenceProfilePrefix(model: string): string {
++  const separator = model.indexOf('.');
++  if (separator <= 0) return model;
++  return GEO_INFERENCE_PROFILE_PREFIX_RE.test(model.slice(0, separator))
++    ? model.slice(separator + 1)
++    : model;
++}
++
++function stripBedrockVendorNamespace(model: string): string {
++  const separator = model.indexOf('.');
++  return separator <= 0 ? model : model.slice(separator + 1);
++}
++
++export function bedrockModelCapability(model: string): ModelCapability | undefined {
++  const withoutGeo = stripBedrockInferenceProfilePrefix(model);
++  const vendorModel = stripBedrockVendorNamespace(withoutGeo);
++  const protocol = inferBedrockProtocol(withoutGeo);
++  if (protocol === undefined) return undefined;
++  switch (protocol) {
++    case 'anthropic':
++      return getAnthropicModelCapability(vendorModel);
++    case 'openai':
++      return getOpenAILegacyModelCapability(vendorModel);
++    case 'openai_responses':
++      return getOpenAIResponsesModelCapability(vendorModel);
++    default:
++      return undefined;
++  }
++}
++
++export function bedrockWireProtocolOf(value: string | undefined): BedrockWireProtocol | undefined {
++  return value === 'anthropic' || value === 'openai' || value === 'openai_responses'
++    ? value
++    : undefined;
++}
++
++export function inferBedrockProtocol(model: string): BedrockWireProtocol | undefined {
++  const unprefixed = stripBedrockInferenceProfilePrefix(model).toLowerCase();
++  if (unprefixed.startsWith('anthropic.')) return 'anthropic';
++  if (unprefixed.startsWith('openai.gpt-oss')) return 'openai';
++  if (unprefixed.startsWith('openai.')) return 'openai_responses';
++  if (unprefixed.startsWith('moonshotai.') || unprefixed.startsWith('moonshot.')) return 'openai';
++  return undefined;
++}
++
++export function bedrockRegionOf(
++  env: Readonly<Record<string, string | undefined>>,
++): string | undefined {
++  return nonEmpty(env['AWS_REGION']) ?? nonEmpty(env['AWS_DEFAULT_REGION']);
++}
++
++export function resolveBedrockBaseUrl(
++  protocol: BedrockWireProtocol,
++  env: Readonly<Record<string, string | undefined>>,
++): string | undefined {
++  const region = bedrockRegionOf(env);
++  if (region === undefined) return undefined;
++  const suffix = protocol === 'anthropic' ? '/anthropic' : '/openai/v1';
++  return `https://bedrock-runtime.${region}.amazonaws.com${suffix}`;
++}
++
++function nonEmpty(value: string | undefined): string | undefined {
++  const trimmed = value?.trim();
++  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
++}
+diff --git a/packages/core/src/llm/builtin/provider/endpoints.ts b/packages/core/src/llm/builtin/provider/endpoints.ts
+index b9a8a61994..b32907b3f7 100644
+--- a/packages/core/src/llm/builtin/provider/endpoints.ts
++++ b/packages/core/src/llm/builtin/provider/endpoints.ts
+@@ -25,6 +25,11 @@ export const vertexEndpoint: LlmEndpointDeclaration = {
+   baseUrlEnv: 'GOOGLE_VERTEX_BASE_URL',
+ };
+ 
++export const bedrockEndpoint: LlmEndpointDeclaration = {
++  apiKeyEnv: 'AWS_BEARER_TOKEN_BEDROCK',
++  baseUrlEnv: 'AWS_BEDROCK_BASE_URL',
++};
++
+ export const KIMI_API_KEY_ENV = 'KIMI_API_KEY';
+ export const KIMI_BASE_URL_ENV = 'KIMI_BASE_URL';
+ 
+diff --git a/packages/core/src/llm/builtin/provider/index.ts b/packages/core/src/llm/builtin/provider/index.ts
+index 9117782dc5..74a4144ac2 100644
+--- a/packages/core/src/llm/builtin/provider/index.ts
++++ b/packages/core/src/llm/builtin/provider/index.ts
+@@ -2,6 +2,7 @@
+  * Entry for the built-in provider requester presets.
+  */
+ export { anthropicRequester } from './anthropic';
++export { bedrockAnthropicRequester } from './bedrock/anthropic';
+ export { googleGenAIRequester, googleVertexRequester } from './google';
+ export { openAIRequester, openAIResponsesRequester } from './openai';
+ export { KIMI_DEFAULT_BASE_URL, kimiAnthropicRequester, kimiRequester, kimiResponsesRequester } from './kimi/index';
+diff --git a/packages/core/test/llm/bedrock.test.ts b/packages/core/test/llm/bedrock.test.ts
+new file mode 100644
+index 0000000000..5a26b9af42
+--- /dev/null
++++ b/packages/core/test/llm/bedrock.test.ts
+@@ -0,0 +1,132 @@
++import { describe, expect, it } from 'vitest';
++
++import { getAnthropicModelCapability } from '#/llm/builtin/protocol/anthropic/capability';
++import { anthropicProtocol } from '#/llm/builtin/protocol/anthropic/index';
++import { bedrockAnthropicProtocol } from '#/llm/builtin/provider/bedrock/anthropic';
++import { createBedrockTokenProvider } from '#/llm/builtin/provider/bedrock/credentials';
++import {
++  bedrockModelCapability,
++  inferBedrockProtocol,
++  resolveBedrockBaseUrl,
++  stripBedrockInferenceProfilePrefix,
++} from '#/llm/builtin/provider/bedrock/routing';
++
++describe('Bedrock provider', () => {
++  it('keeps token lifecycle, routing, and Anthropic authentication provider-local', async () => {
++    expect(
++      [
++        'global.anthropic.claude-sonnet-4-6',
++        'openai.gpt-oss-120b-1:0',
++        'global.openai.gpt-6-astra',
++        'global.moonshotai.kimi-k3',
++        'meta.llama-4',
++      ].map(inferBedrockProtocol),
++    ).toEqual(['anthropic', 'openai', 'openai_responses', 'openai', undefined]);
++    expect(stripBedrockInferenceProfilePrefix('apac.moonshotai.kimi-k3')).toBe(
++      'moonshotai.kimi-k3',
++    );
++    expect(resolveBedrockBaseUrl('anthropic', { AWS_REGION: 'us-west-2' })).toBe(
++      'https://bedrock-runtime.us-west-2.amazonaws.com/anthropic',
++    );
++    expect(resolveBedrockBaseUrl('openai', { AWS_DEFAULT_REGION: 'us-east-1' })).toBe(
++      'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1',
++    );
++    expect(bedrockModelCapability('global.anthropic.claude-sonnet-4-6')).toEqual(
++      getAnthropicModelCapability('claude-sonnet-4-6'),
++    );
++
++    let now = 1_000_000;
++    let calls = 0;
++    let tokenConfig: unknown;
++    const provider = createBedrockTokenProvider({
++      region: 'us-west-2',
++      profile: 'bedrock-test',
++      now: () => now,
++      createProvideToken: (config) => {
++        tokenConfig = config;
++        return async () => {
++          calls += 1;
++          return `bedrock-api-key-${calls}`;
++        };
++      },
++    });
++    const [first, concurrent] = await Promise.all([provider.resolve(), provider.resolve()]);
++    expect(first).toEqual({ apiKey: 'bedrock-api-key-1' });
++    expect(concurrent).toEqual(first);
++    expect(calls).toBe(1);
++    expect(tokenConfig).toEqual({
++      region: 'us-west-2',
++      profile: 'bedrock-test',
++      expiresInSeconds: undefined,
++    });
++    now += 12 * 60 * 60 * 1000;
++    await expect(provider.resolve()).resolves.toEqual({ apiKey: 'bedrock-api-key-2' });
++    expect(provider.canRecover?.({ status: 401 })).toBe(true);
++    expect(provider.canRecover?.({ status: 500 })).toBe(false);
++    provider.invalidate?.();
++    await expect(provider.resolve()).resolves.toEqual({ apiKey: 'bedrock-api-key-3' });
++    expect(calls).toBe(3);
++
++    let unavailable = true;
++    const recovering = createBedrockTokenProvider({
++      createProvideToken: () => async () => {
++        if (unavailable) throw new Error('run aws sso login');
++        return 'bedrock-api-key-recovered';
++      },
++    });
++    await expect(recovering.resolve()).rejects.toThrow('run aws sso login');
++    unavailable = false;
++    await expect(recovering.resolve()).resolves.toEqual({
++      apiKey: 'bedrock-api-key-recovered',
++    });
++
++    const requests: RequestInit[] = [];
++    const fetchStub: typeof fetch = async (_input, init) => {
++      requests.push(init ?? {});
++      return new Response(
++        JSON.stringify({
++          id: 'msg_test',
++          type: 'message',
++          role: 'assistant',
++          model: 'claude-test',
++          content: [{ type: 'text', text: 'PONG' }],
++          stop_reason: 'end_turn',
++          stop_sequence: null,
++          usage: { input_tokens: 1, output_tokens: 1 },
++        }),
++        { status: 200, headers: { 'content-type': 'application/json' } },
++      );
++    };
++    const input = {
++      model: 'claude-test',
++      max_tokens: 1,
++      messages: [{ role: 'user' as const, content: 'Reply with PONG' }],
++    };
++    const bedrock = bedrockAnthropicProtocol.client(
++      {
++        apiKey: 'bedrock-api-key-transport',
++        baseUrl: 'https://bedrock-runtime.us-west-2.amazonaws.com/anthropic',
++        fetch: fetchStub,
++      },
++      undefined,
++    );
++    await bedrock.messages.create(input);
++    const bedrockHeaders = new Headers(requests[0]?.headers);
++    expect(bedrockHeaders.get('authorization')).toBe('Bearer bedrock-api-key-transport');
++    expect(bedrockHeaders.get('x-api-key')).toBeNull();
++
++    const native = anthropicProtocol.client(
++      {
++        apiKey: 'upstream-key',
++        baseUrl: 'https://example.test/anthropic',
++        headers: { Authorization: 'Bearer gateway-token' },
++        fetch: fetchStub,
++      },
++      undefined,
++    );
++    await native.messages.create(input);
++    const nativeHeaders = new Headers(requests[1]?.headers);
++    expect(nativeHeaders.get('x-api-key')).toBe('upstream-key');
++    expect(nativeHeaders.get('authorization')).toBe('Bearer gateway-token');
++  });
++});
+diff --git a/packages/kap-server/src/protocol/rest-modelCatalog.ts b/packages/kap-server/src/protocol/rest-modelCatalog.ts
+index 42c7a93e4b..0edebcb19f 100644
+--- a/packages/kap-server/src/protocol/rest-modelCatalog.ts
++++ b/packages/kap-server/src/protocol/rest-modelCatalog.ts
+@@ -26,6 +26,7 @@ export const providerWireTypeSchema = z.enum([
+   'openai',
+   'openai_responses',
+   'anthropic',
++  'bedrock',
+   'google-genai',
+   'vertexai',
+ ]);
+@@ -36,6 +37,7 @@ export const createProviderModelSchema = z.object({
+   max_context_size: z.number().int().min(1),
+   display_name: z.string().min(1).optional(),
+   capabilities: z.array(z.string()).optional(),
++  protocol: z.enum(['anthropic', 'openai', 'openai_responses']).optional(),
+   max_output_size: z.number().int().min(1).optional(),
+   support_efforts: z.array(z.string().min(1)).optional(),
+   adaptive_thinking: z.boolean().optional(),
+diff --git a/packages/kap-server/src/routes/modelCatalog.ts b/packages/kap-server/src/routes/modelCatalog.ts
+index 3f7e14b3e3..d7361c2633 100644
+--- a/packages/kap-server/src/routes/modelCatalog.ts
++++ b/packages/kap-server/src/routes/modelCatalog.ts
+@@ -283,6 +283,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
+           };
+           if (entry.display_name !== undefined) alias.displayName = entry.display_name;
+           if (entry.capabilities !== undefined) alias.capabilities = [...entry.capabilities];
++          if (entry.protocol !== undefined) alias.protocol = entry.protocol;
+           if (entry.max_output_size !== undefined) alias.maxOutputSize = entry.max_output_size;
+           if (entry.support_efforts !== undefined)
+             alias.supportEfforts = [...entry.support_efforts];
+@@ -447,6 +448,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
+           alias.displayName = entry.display_name !== undefined ? entry.display_name : undefined;
+           alias.capabilities =
+             entry.capabilities !== undefined ? [...entry.capabilities] : undefined;
++          alias.protocol = entry.protocol;
+           alias.maxOutputSize = entry.max_output_size !== undefined ? entry.max_output_size : undefined;
+           alias.supportEfforts =
+             entry.support_efforts !== undefined ? [...entry.support_efforts] : undefined;
+diff --git a/packages/kap-server/test/modelCatalogProviderWrite.test.ts b/packages/kap-server/test/modelCatalogProviderWrite.test.ts
+index 11f73c681e..0a47ac7785 100644
+--- a/packages/kap-server/test/modelCatalogProviderWrite.test.ts
++++ b/packages/kap-server/test/modelCatalogProviderWrite.test.ts
+@@ -371,6 +371,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
+           max_context_size: 1047576,
+           support_efforts: ['low', 'max'],
+           adaptive_thinking: true,
++          protocol: 'openai_responses',
+         },
+       ],
+     });
+@@ -381,6 +382,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
+       'my-openai/gpt-4.1': {
+         support_efforts: ['low', 'max'],
+         adaptive_thinking: true,
++        protocol: 'openai_responses',
+       },
+     });
+   });
+@@ -509,7 +511,13 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
+     await boot(KEEP_DEFAULT_TOML);
+     const { status, body } = await putJson<{
+       provider: Record<string, unknown>;
+-    }>('/api/v1/providers/openai', REPLACE_BODY);
++    }>('/api/v1/providers/openai', {
++      ...REPLACE_BODY,
++      models: [
++        { ...REPLACE_BODY.models[0], protocol: 'openai' },
++        REPLACE_BODY.models[1],
++      ],
++    });
+     expect(status).toBe(200);
+     expect(body.code).toBe(0);
+     expect(body.data.provider).toEqual({
+@@ -539,6 +547,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
+         model: 'gpt-4.1',
+         max_context_size: 1047576,
+         display_name: 'GPT-4.1',
++        protocol: 'openai',
+       },
+       'openai/gpt-4o-mini': {
+         provider: 'openai',
+diff --git a/packages/migration-legacy/src/steps/config.ts b/packages/migration-legacy/src/steps/config.ts
+index 196b9098c7..d626f74012 100644
+--- a/packages/migration-legacy/src/steps/config.ts
++++ b/packages/migration-legacy/src/steps/config.ts
+@@ -62,6 +62,7 @@ const SUPPORTED_PROVIDER_TYPES: ReadonlySet<string> = new Set([
+   'kimi',
+   'google-genai',
+   'openai_responses',
++  'bedrock',
+   'vertexai',
+ ]);
+ 
+diff --git a/packages/node-sdk/src/config/schema.ts b/packages/node-sdk/src/config/schema.ts
+index 7211b41919..3ec6e312ca 100644
+--- a/packages/node-sdk/src/config/schema.ts
++++ b/packages/node-sdk/src/config/schema.ts
+@@ -29,6 +29,7 @@ export const ProviderTypeSchema = z.enum([
+   'kimi',
+   'google-genai',
+   'openai_responses',
++  'bedrock',
+   'vertexai',
+ ]);
+ 
+@@ -73,7 +74,7 @@ const ModelAliasBaseSchema = z.object({
+   capabilities: z.array(z.string()).optional(),
+   displayName: z.string().optional(),
+   reasoningKey: z.string().optional(),
+-  protocol: z.enum(['anthropic', 'openai_responses']).optional(),
++  protocol: z.enum(['anthropic', 'openai', 'openai_responses']).optional(),
+   adaptiveThinking: z.boolean().optional(),
+   supportEfforts: z.array(z.string()).optional(),
+   defaultEffort: z.string().optional(),
+diff --git a/packages/node-sdk/test/config.test.ts b/packages/node-sdk/test/config.test.ts
+index 7ba675dfea..683d3d1cf6 100644
+--- a/packages/node-sdk/test/config.test.ts
++++ b/packages/node-sdk/test/config.test.ts
+@@ -64,10 +64,28 @@ max_context_size = "large"
+ [providers.acme]
+ type = "openai"
+ api_key_env = "ACME_API_KEY"
++
++[providers.bedrock]
++type = "bedrock"
++
++[providers.bedrock.env]
++AWS_REGION = "us-east-1"
++
++[models."bedrock/kimi"]
++provider = "bedrock"
++model = "global.moonshotai.kimi-k3"
++protocol = "openai"
++max_context_size = 1000000
+ `;
+ 
+     await expect(rpc.validateConfigToml({ text })).resolves.toBeUndefined();
+-    expect(parseConfigString(text).providers['acme']?.apiKeyEnv).toBe('ACME_API_KEY');
++    const config = parseConfigString(text);
++    expect(config.providers['acme']?.apiKeyEnv).toBe('ACME_API_KEY');
++    expect(config.providers['bedrock']).toMatchObject({
++      type: 'bedrock',
++      env: { AWS_REGION: 'us-east-1' },
++    });
++    expect(config.models?.['bedrock/kimi']?.protocol).toBe('openai');
+   });
+ 
+   it('keeps a valid [environments] section through parseConfigString', () => {
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 16b78a6e57..dee0995c21 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -59,7 +59,7 @@ importers:
+         version: 1.11.1
+       tsdown:
+         specifier: 0.23.1
+-        version: 0.23.1(@arethetypeswrong/core@0.18.2)(@volar/typescript@2.4.28)(@vue/language-core@3.2.9)(publint@0.3.18)(tsx@4.21.0)(typescript@7.0.2)(unrun@0.2.34(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0))(vue-tsc@3.2.9(typescript@7.0.2))
++        version: 0.23.1(@arethetypeswrong/core@0.18.2)(@volar/typescript@2.4.28)(@vue/language-core@3.2.9)(publint@0.3.18)(tsx@4.21.0)(typescript@7.0.2)(unrun@0.2.34(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2))(vue-tsc@3.2.9(typescript@7.0.2))
+       tsx:
+         specifier: ^4.21.0
+         version: 4.21.0
+@@ -625,6 +625,9 @@ importers:
+       '@anthropic-ai/sdk':
+         specifier: ^0.95.2
+         version: 0.95.2(zod@4.3.6)
++      '@aws/bedrock-token-generator':
++        specifier: ^1.1.0
++        version: 1.1.0
+       '@google/genai':
+         specifier: ^1.49.0
+         version: 1.49.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))
+@@ -998,6 +1001,82 @@ packages:
+     resolution: {integrity: sha512-93Z1N+BQNXysodoicpOIyNh2drHfz/CTf9nnT0FEx72GJcIiwgydD7tGAr78j41LsYn3hlRn+LdGPuBLn1Bl8Q==}
+     engines: {node: ^22.13.0 || >=24.0.0}
+ 
++  '@aws-sdk/core@3.981.0':
++    resolution: {integrity: sha512-Mnu7gaDrC5UCdyH8uLxLfB2eWbjE/HbjKX1U1J2VQxG3TTATUDObW2wU3I8iH3e9YH5NN2CY6w1mlAIe2XJ3jg==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/credential-provider-cognito-identity@3.972.83':
++    resolution: {integrity: sha512-yaHdWS2q6N2eKG9yNftDB/W7uG0OqfViXBihZwb5XPyVIMXYffpEgWp/4haIURrMSCYkLfmfMrHZhFSoPKgmQA==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/credential-provider-env@3.972.84':
++    resolution: {integrity: sha512-akZJetiMVeLRHsKzYh3LamDCo74ZUCeo0XoyRKMEMZT5qP7ReM6LhpioBCyuqKP5Vav5gEOeCmaQV0VVQr1Meg==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/credential-provider-http@3.972.86':
++    resolution: {integrity: sha512-U4mHaDRPWAn63yhl7FXIzbppNmW1F+4dSLeuiUpej2v3Xb6rGwvayEJ8SdlrdMV+/mZtd+GStTEP2HqurEzXtw==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/credential-provider-ini@3.973.30':
++    resolution: {integrity: sha512-r6r6499GWoGN943NA5YEhBEQ6TEOGTf7tTOBhHd/zw0UbNvSzd1/zPCNcDkPmRarA+e24X7KgxutqxjoWcskBg==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/credential-provider-login@3.972.92':
++    resolution: {integrity: sha512-96bcp9Pe/Xd60OEwncZ+kAQTQSu+fJnpUGz1qE6ghF5jnETmrk8XMU86mIP3lolvnCgR61XbZ+Ht6hdBjiQOmQ==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/credential-provider-node@3.972.97':
++    resolution: {integrity: sha512-E4a0IXXJVsIdo/K9roX4JAEfI0JJr7KTPymkbKgETRDqEcLygE4ZlLTe24+7Qkh8Dl5YpnPd+Tt0DOPJDFXIwA==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/credential-provider-process@3.972.84':
++    resolution: {integrity: sha512-199C6OpNejd0nq9GFAkEFIKids1FL0R6LJtL9c1OTiDOXki7S1OduuPxW4+hE0LwndcYJ7YHOuYTlqScfpCocA==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/credential-provider-sso@3.973.28':
++    resolution: {integrity: sha512-bGg7wH8wVDJQIcJggO9lg1ZYbG7l+PbLwHuM3Bi/e1TlCZhU712JS1W3tdRpyptdJD1UGyhBNGO/YrhrQCHKbg==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/credential-provider-web-identity@3.972.90':
++    resolution: {integrity: sha512-duLeE3xlf0viHeH+1RM4z5duR3b32BCZTWVMu+MbxFPjQBxy7hmIGEqt5hekuFPRuXoyhMovjNl+PNNsb5oiGQ==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/credential-providers@3.1167.0':
++    resolution: {integrity: sha512-ehfJtcSzLQt+/ELLCQ7B6TyJ9hPjaOlcxYJsCnAb2aTHG5UBuxrs4waCAejNNztA9AdME+ziRucCCIiG5y7WhQ==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/nested-clients@3.998.3':
++    resolution: {integrity: sha512-acHTTzMB13CU6dU4sxABYExMI3PQM2zStWH2MiUwJp/7QKTrLg2f7mbzSXoegW2kYOk2tdqQYagsZrWB8Xv7eA==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/signature-v4-multi-region@3.996.52':
++    resolution: {integrity: sha512-6W6SjGc8OXUhMzNxU1X922ghD+PP1XvzmCk5Scui0jaYsLezycMYR1RaLp5xTIOUrhTXyb4DnAbPr3fBgmdnzg==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/token-providers@3.1166.0':
++    resolution: {integrity: sha512-ngJ8mxXqtQ9mnp7QV6TWKJCxkpjVfPWxKQSc2FYhCyCfOVFIGdFv7P+/RqVffFrJAorwBPpktnv32gNlcEgF4g==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/types@3.975.1':
++    resolution: {integrity: sha512-7rGxUkCB2QPoQOeJmonmAICTN2zrH+fpmi1p4Iwu72lnxNaMhOgqcbpyddifnM1DBb19TWQ1u6z/XjkaFNEDWw==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/util-format-url@3.972.60':
++    resolution: {integrity: sha512-KprsbbznMF3rtQeaiNZ6MZXXa72bf0S5etjHZMp2TK49rLn8Y0EqsDqp3rFGvTNPxzQSBxKGQDH4xep4skuUGQ==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws-sdk/xml-builder@3.972.43':
++    resolution: {integrity: sha512-rG8QVx4DOrJWptsogu1Aq+CDsnPKaBrAlJpKLxrJrIDXAq1ElnW0yQjjBnlWSXll0cDakCG6UDvaqwz0A9d9Og==}
++    engines: {node: '>=20.0.0'}
++
++  '@aws/bedrock-token-generator@1.1.0':
++    resolution: {integrity: sha512-i+DkWnfdA4j4sffy9dI4k3OGoOWqN8CTGdtO4IZ3c0kpKYFr6KyqzqLQmoRNrF3ACFcWj6u+J6cbBQ97j9wx5w==}
++    engines: {node: '>=16.0.0'}
++
++  '@aws/lambda-invoke-store@0.3.0':
++    resolution: {integrity: sha512-sl4Bm6yiMNYrZKkqqDFWN0UfnWhlS8ivKxrYl+6t0gCLrqr8y3B2IqZZbFRkfaVVp7C/baApyh71P+LeE1A2sQ==}
++    engines: {node: '>=18.0.0'}
++
+   '@azu/format-text@1.0.2':
+     resolution: {integrity: sha512-Swi4N7Edy1Eqq82GxgEECXSSLyn6GOb5htRFPzBDdUkECGXtlf12ynO5oJSpWKPwCaUssOu7NfhDcCWpIC6Ywg==}
+ 
+@@ -3903,6 +3982,50 @@ packages:
+   '@sinonjs/samsam@10.0.2':
+     resolution: {integrity: sha512-8lVwD1Df1BmzoaOLhMcGGcz/Jyr5QY2KSB75/YK1QgKzoabTeLdIVyhXNZK9ojfSKSdirbXqdbsXXqP9/Ve8+A==}
+ 
++  '@smithy/config-resolver@4.7.2':
++    resolution: {integrity: sha512-Y1XfSefHIOub9762qm3ShafdlEE/Va8h3kLUeMq765fNeWeNLcOP2YUPr86H1SlyGwZTOqQ67RlBZPZ3k9Djgg==}
++    engines: {node: '>=18.0.0'}
++
++  '@smithy/core@3.40.0':
++    resolution: {integrity: sha512-DssGno52pzZ5m6RlDtyKuBIpZNPg9pqgs0CnNDKz9IatxCsmvNmJNn5Zn6rf77MthZo9wf89OvZFhTY/RwxhxQ==}
++    engines: {node: '>=18.0.0'}
++
++  '@smithy/credential-provider-imds@4.5.2':
++    resolution: {integrity: sha512-A9uSdn72ozbRUSit0eib0TW7nXuNPlaeM0zcGkJ+nE6tFcSDbnmtwoxbTCFBukVQcszDAyvsd7+rTduPTXpygg==}
++    engines: {node: '>=18.0.0'}
++
++  '@smithy/fetch-http-handler@5.8.1':
++    resolution: {integrity: sha512-h8BdMUrUBhMhMaeK7QqAdINRZezCGuYOCpcOZZ1ewxbHST9rdTd09xwNpvLTYfzDRehxQiReK4SKbdYZxBA+ew==}
++    engines: {node: '>=18.0.0'}
++
++  '@smithy/hash-node@4.5.2':
++    resolution: {integrity: sha512-OcD8fGClTkP0BWHVEAgUp1RZyCw8cKfqTPQ+DgrSF5jvR8zKkw2Aud79L4G/1Fu3QKLcsHExxRIPQCcKx7+xkg==}
++    engines: {node: '>=18.0.0'}
++
++  '@smithy/invalid-dependency@4.5.2':
++    resolution: {integrity: sha512-VONOgtCxIXtwXrLVZPUdxOELYpkFzNizkpbQE5CrJ/OEh12Osx+LVXsLEAF+JcvVqPODmUoOUaovlOjCQHTOow==}
++    engines: {node: '>=18.0.0'}
++
++  '@smithy/node-config-provider@4.6.2':
++    resolution: {integrity: sha512-zMrXu/O5tPa7GLtra8L4wFG6DACcXT9QV4Ay+WEAjUhXm1dVq7c/q9Qv9gkJZNLY8hmQKg08778kDcxpKNMqOA==}
++    engines: {node: '>=18.0.0'}
++
++  '@smithy/node-http-handler@4.14.2':
++    resolution: {integrity: sha512-i1uORV1v3qBqP43ayRKzIdm1q5x14tf8N4Dd06/QUX1Szm6VxHMrTsu20X5E63UFsaNZCRjI4SXG0jDmqYa+3w==}
++    engines: {node: '>=18.0.0'}
++
++  '@smithy/protocol-http@5.6.2':
++    resolution: {integrity: sha512-Asd04MaxODN6FNY8EPTeCAM4kPNi3jDUAjZU0Y4F9rHvpLUrrUo7KLcxFgSthywFr6dZfIyDLIJda6jxmVTk5w==}
++    engines: {node: '>=18.0.0'}
++
++  '@smithy/signature-v4@5.7.5':
++    resolution: {integrity: sha512-WPjdr5oWOk1LArpI4pavu+fSo+/evi0Re1olxGvqwuZopd4gYR1UGCi+Soyn/IjmafqbWs+ZC+3AKxJS3ZpwUg==}
++    engines: {node: '>=18.0.0'}
++
++  '@smithy/types@4.20.0':
++    resolution: {integrity: sha512-lCA6QG22dPk9ecHbv91jDQZsmtPUjdS1aE2Il6NNPqe7DrYc0dZQi6DhcESk2KYXH2sp5xbAcGdYMZDFnuzA2A==}
++    engines: {node: '>=18.0.0'}
++
+   '@stablelib/base64@1.0.1':
+     resolution: {integrity: sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==}
+ 
+@@ -5062,6 +5185,9 @@ packages:
+   boundary@2.0.0:
+     resolution: {integrity: sha512-rJKn5ooC9u8q13IMCrW0RSp31pxBCHE3y9V/tp3TdWSLf8Em3p6Di4NBpfzbJge9YjjFEsD0RtFEjtvHL5VyEA==}
+ 
++  bowser@2.15.0:
++    resolution: {integrity: sha512-xic6KSZglg/I4ymp45fdM4GWfYpBK79Fxd/TOvJktlaPgQqqDxvmGwOPZl2V0dyeS3Lj5c180bLhXF43iyAjZQ==}
++
+   brace-expansion@1.1.15:
+     resolution: {integrity: sha512-EwOCDEex4quD37XhqM3omwtMoJjr//isUZz1JopUNWms+4Z2ViyM/k1YIRePpoVNnQhENnxtFjLaxNHrT7xIUg==}
+ 
+@@ -9758,6 +9884,184 @@ snapshots:
+       is-potential-custom-element-name: 1.0.1
+       lru-cache: 11.5.2
+ 
++  '@aws-sdk/core@3.981.0':
++    dependencies:
++      '@aws-sdk/types': 3.975.1
++      '@aws-sdk/xml-builder': 3.972.43
++      '@aws/lambda-invoke-store': 0.3.0
++      '@smithy/core': 3.40.0
++      '@smithy/signature-v4': 5.7.5
++      '@smithy/types': 4.20.0
++      bowser: 2.15.0
++      tslib: 2.8.1
++
++  '@aws-sdk/credential-provider-cognito-identity@3.972.83':
++    dependencies:
++      '@aws-sdk/nested-clients': 3.998.3
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/credential-provider-env@3.972.84':
++    dependencies:
++      '@aws-sdk/core': 3.981.0
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/credential-provider-http@3.972.86':
++    dependencies:
++      '@aws-sdk/core': 3.981.0
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/fetch-http-handler': 5.8.1
++      '@smithy/node-http-handler': 4.14.2
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/credential-provider-ini@3.973.30':
++    dependencies:
++      '@aws-sdk/core': 3.981.0
++      '@aws-sdk/credential-provider-env': 3.972.84
++      '@aws-sdk/credential-provider-http': 3.972.86
++      '@aws-sdk/credential-provider-login': 3.972.92
++      '@aws-sdk/credential-provider-process': 3.972.84
++      '@aws-sdk/credential-provider-sso': 3.973.28
++      '@aws-sdk/credential-provider-web-identity': 3.972.90
++      '@aws-sdk/nested-clients': 3.998.3
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/credential-provider-imds': 4.5.2
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/credential-provider-login@3.972.92':
++    dependencies:
++      '@aws-sdk/core': 3.981.0
++      '@aws-sdk/nested-clients': 3.998.3
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/credential-provider-node@3.972.97':
++    dependencies:
++      '@aws-sdk/credential-provider-env': 3.972.84
++      '@aws-sdk/credential-provider-http': 3.972.86
++      '@aws-sdk/credential-provider-ini': 3.973.30
++      '@aws-sdk/credential-provider-process': 3.972.84
++      '@aws-sdk/credential-provider-sso': 3.973.28
++      '@aws-sdk/credential-provider-web-identity': 3.972.90
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/credential-provider-imds': 4.5.2
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/credential-provider-process@3.972.84':
++    dependencies:
++      '@aws-sdk/core': 3.981.0
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/credential-provider-sso@3.973.28':
++    dependencies:
++      '@aws-sdk/core': 3.981.0
++      '@aws-sdk/nested-clients': 3.998.3
++      '@aws-sdk/token-providers': 3.1166.0
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/credential-provider-web-identity@3.972.90':
++    dependencies:
++      '@aws-sdk/core': 3.981.0
++      '@aws-sdk/nested-clients': 3.998.3
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/credential-providers@3.1167.0':
++    dependencies:
++      '@aws-sdk/core': 3.981.0
++      '@aws-sdk/credential-provider-cognito-identity': 3.972.83
++      '@aws-sdk/credential-provider-env': 3.972.84
++      '@aws-sdk/credential-provider-http': 3.972.86
++      '@aws-sdk/credential-provider-ini': 3.973.30
++      '@aws-sdk/credential-provider-login': 3.972.92
++      '@aws-sdk/credential-provider-node': 3.972.97
++      '@aws-sdk/credential-provider-process': 3.972.84
++      '@aws-sdk/credential-provider-sso': 3.973.28
++      '@aws-sdk/credential-provider-web-identity': 3.972.90
++      '@aws-sdk/nested-clients': 3.998.3
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/credential-provider-imds': 4.5.2
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/nested-clients@3.998.3':
++    dependencies:
++      '@aws-sdk/core': 3.981.0
++      '@aws-sdk/signature-v4-multi-region': 3.996.52
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/fetch-http-handler': 5.8.1
++      '@smithy/node-http-handler': 4.14.2
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/signature-v4-multi-region@3.996.52':
++    dependencies:
++      '@aws-sdk/types': 3.975.1
++      '@smithy/signature-v4': 5.7.5
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/token-providers@3.1166.0':
++    dependencies:
++      '@aws-sdk/core': 3.981.0
++      '@aws-sdk/nested-clients': 3.998.3
++      '@aws-sdk/types': 3.975.1
++      '@smithy/core': 3.40.0
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/types@3.975.1':
++    dependencies:
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws-sdk/util-format-url@3.972.60':
++    dependencies:
++      '@aws-sdk/core': 3.981.0
++      tslib: 2.8.1
++
++  '@aws-sdk/xml-builder@3.972.43':
++    dependencies:
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@aws/bedrock-token-generator@1.1.0':
++    dependencies:
++      '@aws-sdk/credential-providers': 3.1167.0
++      '@aws-sdk/util-format-url': 3.972.60
++      '@smithy/config-resolver': 4.7.2
++      '@smithy/hash-node': 4.5.2
++      '@smithy/invalid-dependency': 4.5.2
++      '@smithy/node-config-provider': 4.6.2
++      '@smithy/protocol-http': 5.6.2
++      '@smithy/signature-v4': 5.7.5
++      '@smithy/types': 4.20.0
++
++  '@aws/lambda-invoke-store@0.3.0': {}
++
+   '@azu/format-text@1.0.2': {}
+ 
+   '@azu/style-format@1.0.1':
+@@ -11265,13 +11569,6 @@ snapshots:
+       '@tybys/wasm-util': 0.10.1
+     optional: true
+ 
+-  '@napi-rs/wasm-runtime@1.1.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)':
+-    dependencies:
+-      '@emnapi/core': 1.10.0
+-      '@emnapi/runtime': 1.10.0
+-      '@tybys/wasm-util': 0.10.1
+-    optional: true
+-
+   '@napi-rs/wasm-runtime@1.1.4(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)':
+     dependencies:
+       '@emnapi/core': 1.9.2
+@@ -12338,9 +12635,9 @@ snapshots:
+   '@rolldown/binding-openharmony-arm64@1.2.15':
+     optional: true
+ 
+-  '@rolldown/binding-wasm32-wasi@1.0.0-rc.12(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)':
++  '@rolldown/binding-wasm32-wasi@1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)':
+     dependencies:
+-      '@napi-rs/wasm-runtime': 1.1.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
++      '@napi-rs/wasm-runtime': 1.1.4(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
+     transitivePeerDependencies:
+       - '@emnapi/core'
+       - '@emnapi/runtime'
+@@ -12629,6 +12926,64 @@ snapshots:
+       '@sinonjs/commons': 3.0.1
+       type-detect: 4.1.0
+ 
++  '@smithy/config-resolver@4.7.2':
++    dependencies:
++      '@smithy/core': 3.40.0
++      tslib: 2.8.1
++
++  '@smithy/core@3.40.0':
++    dependencies:
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@smithy/credential-provider-imds@4.5.2':
++    dependencies:
++      '@smithy/core': 3.40.0
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@smithy/fetch-http-handler@5.8.1':
++    dependencies:
++      '@smithy/core': 3.40.0
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@smithy/hash-node@4.5.2':
++    dependencies:
++      '@smithy/core': 3.40.0
++      tslib: 2.8.1
++
++  '@smithy/invalid-dependency@4.5.2':
++    dependencies:
++      '@smithy/core': 3.40.0
++      tslib: 2.8.1
++
++  '@smithy/node-config-provider@4.6.2':
++    dependencies:
++      '@smithy/core': 3.40.0
++      tslib: 2.8.1
++
++  '@smithy/node-http-handler@4.14.2':
++    dependencies:
++      '@smithy/core': 3.40.0
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@smithy/protocol-http@5.6.2':
++    dependencies:
++      '@smithy/core': 3.40.0
++      tslib: 2.8.1
++
++  '@smithy/signature-v4@5.7.5':
++    dependencies:
++      '@smithy/core': 3.40.0
++      '@smithy/types': 4.20.0
++      tslib: 2.8.1
++
++  '@smithy/types@4.20.0':
++    dependencies:
++      tslib: 2.8.1
++
+   '@stablelib/base64@1.0.1': {}
+ 
+   '@standard-schema/spec@1.1.0': {}
+@@ -13767,6 +14122,8 @@ snapshots:
+ 
+   boundary@2.0.0: {}
+ 
++  bowser@2.15.0: {}
++
+   brace-expansion@1.1.15:
+     dependencies:
+       balanced-match: 1.0.2
+@@ -17419,7 +17776,7 @@ snapshots:
+     transitivePeerDependencies:
+       - oxc-resolver
+ 
+-  rolldown@1.0.0-rc.12(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0):
++  rolldown@1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2):
+     dependencies:
+       '@oxc-project/types': 0.122.0
+       '@rolldown/pluginutils': 1.0.0-rc.12
+@@ -17436,7 +17793,7 @@ snapshots:
+       '@rolldown/binding-linux-x64-gnu': 1.0.0-rc.12
+       '@rolldown/binding-linux-x64-musl': 1.0.0-rc.12
+       '@rolldown/binding-openharmony-arm64': 1.0.0-rc.12
+-      '@rolldown/binding-wasm32-wasi': 1.0.0-rc.12(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
++      '@rolldown/binding-wasm32-wasi': 1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
+       '@rolldown/binding-win32-arm64-msvc': 1.0.0-rc.12
+       '@rolldown/binding-win32-x64-msvc': 1.0.0-rc.12
+     transitivePeerDependencies:
+@@ -18159,7 +18516,7 @@ snapshots:
+       minimist: 1.2.8
+       strip-bom: 3.0.0
+ 
+-  tsdown@0.23.1(@arethetypeswrong/core@0.18.2)(@volar/typescript@2.4.28)(@vue/language-core@3.2.9)(publint@0.3.18)(tsx@4.21.0)(typescript@7.0.2)(unrun@0.2.34(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0))(vue-tsc@3.2.9(typescript@7.0.2)):
++  tsdown@0.23.1(@arethetypeswrong/core@0.18.2)(@volar/typescript@2.4.28)(@vue/language-core@3.2.9)(publint@0.3.18)(tsx@4.21.0)(typescript@7.0.2)(unrun@0.2.34(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2))(vue-tsc@3.2.9(typescript@7.0.2)):
+     dependencies:
+       cac: 7.1.0
+       defu: 6.1.7
+@@ -18180,7 +18537,7 @@ snapshots:
+       publint: 0.3.18
+       tsx: 4.21.0
+       typescript: 7.0.2
+-      unrun: 0.2.34(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
++      unrun: 0.2.34(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
+     transitivePeerDependencies:
+       - '@typescript/native-preview'
+       - '@volar/typescript'
+@@ -18339,9 +18696,9 @@ snapshots:
+ 
+   unpipe@1.0.0: {}
+ 
+-  unrun@0.2.34(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0):
++  unrun@0.2.34(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2):
+     dependencies:
+-      rolldown: 1.0.0-rc.12(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
++      rolldown: 1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
+     transitivePeerDependencies:
+       - '@emnapi/core'
+       - '@emnapi/runtime'

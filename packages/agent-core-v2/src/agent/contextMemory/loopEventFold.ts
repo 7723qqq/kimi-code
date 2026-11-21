@@ -1,13 +1,11 @@
 import { freeze, isDraft, original } from 'immer';
 
-import { createToolMessage } from '#/llm-adapter/contract/message';
+import type { FinishReason } from '@moonshot-ai/core/llm/response';
+import { createToolMessage, type ContentPart, type ToolCall } from '@moonshot-ai/core/llm/message';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { FinishReason } from '#human/llm/finish-reason';
-import type { ContentPart, ToolCall } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
 
-import { shouldRenderWallTime } from './toolResultRender';
-import type { ContextMessage, ContextContentTiming, ContextMessageTiming } from './types';
+import type { ContextMessage, ContextMessageTiming } from './types';
 import { isVacuousContentPart } from './vacuousContent';
 
 const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
@@ -16,6 +14,7 @@ const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
 export interface AssistantSealMeta {
   readonly usage?: TokenUsage;
   readonly llmTiming?: ContextMessageTiming;
+  readonly providerMessageId?: string;
 }
 
 export type LoopRecordedEvent =
@@ -39,9 +38,6 @@ export type LoopRecordedEvent =
       readonly llmServerDecodeMs?: number;
       readonly llmClientConsumeMs?: number;
       readonly llmClientBlockedMs?: number;
-      readonly llmFirstTokenOffsetMs?: number;
-      readonly llmLastTokenOffsetMs?: number;
-      readonly llmWindowOnFrameClock?: boolean;
       readonly messageId?: string;
       readonly providerFinishReason?: FinishReason;
       readonly rawFinishReason?: string;
@@ -84,7 +80,7 @@ export type LoopRecordedEvent =
 
 export interface LoopEventFoldSink {
   openAssistant(time: number | undefined): void;
-  appendOpenContent(part: ContentPart, timing?: ContextContentTiming): void;
+  appendOpenContent(part: ContentPart): void;
   appendOpenToolCall(call: ToolCall, display?: ToolInputDisplay): void;
   dropOpenAssistant(): void;
   sealOpenAssistant(meta?: AssistantSealMeta): void;
@@ -129,7 +125,10 @@ function createLoopEventFoldWithState(
   const closePending = (time: number | undefined): void => {
     if (pending.size === 0) return;
     for (const toolCallId of pending.keys()) {
-      sink.pushToolMessage(interruptedToolMessage(toolCallId), time);
+      const hasRecordedResult = deferred.some(
+        (entry) => entry.message.role === 'tool' && entry.message.toolCallId === toolCallId,
+      );
+      if (!hasRecordedResult) sink.pushToolMessage(interruptedToolMessage(toolCallId), time);
     }
     pending.clear();
     flushDeferred();
@@ -172,18 +171,13 @@ function createLoopEventFoldWithState(
           return;
         }
         case 'step.end': {
-          if (event.finishReason === 'interrupted' || event.finishReason === 'error') return;
           settleOpen(time, stepEndSealMeta(event));
           flushDeferred();
           return;
         }
         case 'content.part': {
           if (!acceptsOpenStep(event.stepUuid)) return;
-          const timing =
-            event.startedAt === undefined && event.durationMs === undefined
-              ? undefined
-              : { startedAt: event.startedAt, durationMs: event.durationMs };
-          sink.appendOpenContent(event.part, timing);
+          sink.appendOpenContent(event.part);
           openVacuous = openVacuous && isVacuousContentPart(event.part);
           return;
         }
@@ -192,10 +186,10 @@ function createLoopEventFoldWithState(
           const call: ToolCall = {
             type: 'function',
             id: event.toolCallId,
-            rawId: event.rawId,
             name: event.name,
             arguments: event.args === undefined ? null : JSON.stringify(event.args),
-            ...(event.extras !== undefined ? { extras: event.extras } : {}),
+            extras: event.extras,
+            rawId: event.rawId,
           };
           sink.appendOpenToolCall(call, event.display);
           pending.set(event.toolCallId, event.name);
@@ -204,7 +198,6 @@ function createLoopEventFoldWithState(
         }
         case 'tool.result': {
           if (!pending.has(event.toolCallId)) return;
-          const toolName = pending.get(event.toolCallId)!;
           pending.delete(event.toolCallId);
           const output = event.result.output;
           sink.pushToolMessage(
@@ -215,7 +208,7 @@ function createLoopEventFoldWithState(
               ),
               isError: event.result.isError,
               note: event.result.note,
-              durationMs: shouldRenderWallTime(toolName) ? event.result.durationMs : undefined,
+              durationMs: event.result.durationMs,
             },
             time,
           );
@@ -272,6 +265,12 @@ export function foldLoopEvent(
   return bind(bound, bound.sink.current());
 }
 
+export function foldSettle(state: readonly ContextMessage[]): readonly ContextMessage[] {
+  const bound = boundOf(state, false);
+  bound.fold.settle(undefined);
+  return bind(bound, bound.sink.current());
+}
+
 export function resetFold(state: readonly ContextMessage[]): readonly ContextMessage[] {
   const sink = createFoldSink(state, false);
   boundFoldMap.set(state, { fold: createLoopEventFold(sink), sink });
@@ -323,43 +322,30 @@ function createFoldSink(initial: readonly ContextMessage[], initialMutable: bool
     setMutable,
     openAssistant: () => {
       if (mutable) {
-        (current as ContextMessage[]).push({
-          role: 'assistant',
-          content: [],
-          toolCalls: [],
-          partial: true,
-        });
+        (current as ContextMessage[]).push({ role: 'assistant', content: [], toolCalls: [], partial: true });
       } else {
         current = Object.freeze([
           ...current,
-          freeze<ContextMessage>(
-            { role: 'assistant', content: [], toolCalls: [], partial: true },
-            true,
-          ),
+          freeze<ContextMessage>({ role: 'assistant', content: [], toolCalls: [], partial: true }, true),
         ]);
       }
       openIndex = current.length - 1;
     },
-    appendOpenContent: (part, timing) => {
-      updateOpen((message) => {
-        const content = [...message.content, part];
-        if (timing === undefined && message.contentTimings === undefined) return { ...message, content };
-        const timings: (ContextContentTiming | undefined)[] = message.contentTimings === undefined
-          ? Array.from({ length: message.content.length })
-          : [...message.contentTimings];
-        timings[message.content.length] = timing;
-        return { ...message, content, contentTimings: timings };
-      });
+    appendOpenContent: (part) => {
+      updateOpen((message) => ({ ...message, content: [...message.content, part] }));
     },
     appendOpenToolCall: (call, display) => {
-      updateOpen((message) => ({
-        ...message,
-        toolCalls: [...message.toolCalls, call],
-        toolCallDisplays:
-          display === undefined
-            ? message.toolCallDisplays
-            : { ...message.toolCallDisplays, [call.id]: display },
-      }));
+      updateOpen((message) => {
+        if (message.role !== 'assistant') return message;
+        return {
+          ...message,
+          toolCalls: [...message.toolCalls, call],
+          toolCallDisplays:
+            display === undefined
+              ? message.toolCallDisplays
+              : { ...message.toolCallDisplays, [call.id]: display },
+        };
+      });
     },
     dropOpenAssistant: () => {
       if (openIndex === -1) return;
@@ -375,6 +361,7 @@ function createFoldSink(initial: readonly ContextMessage[], initialMutable: bool
         ...message,
         usage: meta?.usage,
         llmTiming: meta?.llmTiming,
+        providerMessageId: meta?.providerMessageId,
         partial: undefined,
       }));
       openIndex = -1;
@@ -407,6 +394,7 @@ function recoverFoldState(state: readonly ContextMessage[]): InitialFoldState | 
   const openIndex = findOpenAssistantIndex(state);
   if (openIndex === -1) return undefined;
   const open = state[openIndex]!;
+  if (open.role !== 'assistant') return undefined;
   const resolvedToolCallIds = new Set<string>();
   for (let i = openIndex + 1; i < state.length; i++) {
     const message = state[i]!;
@@ -438,6 +426,10 @@ function stepEndSealMeta(
     llmStreamDurationMs: event.llmStreamDurationMs,
   };
   const hasTiming = Object.values(timing).some((value) => value !== undefined);
-  if (event.usage === undefined && !hasTiming) return undefined;
-  return { usage: event.usage, llmTiming: hasTiming ? timing : undefined };
+  if (event.usage === undefined && !hasTiming && event.messageId === undefined) return undefined;
+  return {
+    usage: event.usage,
+    llmTiming: hasTiming ? timing : undefined,
+    providerMessageId: event.messageId,
+  };
 }

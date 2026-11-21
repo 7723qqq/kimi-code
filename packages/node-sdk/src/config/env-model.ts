@@ -1,8 +1,3 @@
-/**
- * Localized port of v1's env-model overlay (`agent-core/src/config/env-model.ts`).
- */
-import { KIMI_OPEN_PLATFORM_API_BASE_GLOBAL } from '@moonshot-ai/runtime-shared';
-
 import { ErrorCodes, KimiError } from '#/errors';
 
 import { parseBooleanEnv } from './resolve';
@@ -15,22 +10,18 @@ import {
   type ThinkingConfig,
 } from './schema';
 
-/** Reserved keys for the env-driven synthetic provider / model alias. */
 export const ENV_MODEL_PROVIDER_KEY = '__kimi_env__';
 export const ENV_MODEL_ALIAS_KEY = '__kimi_env_model__';
 
 const ALLOWED_TYPES: readonly ProviderType[] = ['kimi', 'anthropic', 'openai'];
 
 const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
-  kimi: KIMI_OPEN_PLATFORM_API_BASE_GLOBAL,
+  kimi: 'https://api.moonshot.ai/v1',
   openai: 'https://api.openai.com/v1',
-  // anthropic: omitted -> let the Anthropic SDK pick its default
 };
 
-/** Default context window (256K) used when KIMI_MODEL_MAX_CONTEXT_SIZE is unset. */
 const DEFAULT_MAX_CONTEXT_SIZE = 262144;
 
-/** Default capabilities when KIMI_MODEL_CAPABILITIES is unset (kimi models support both). */
 const DEFAULT_CAPABILITIES = ['image_in', 'thinking'];
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -45,7 +36,7 @@ function fail(message: string): never {
 }
 
 function parsePositiveInt(raw: string, varName: string): number {
-  if (!/^[1-9]\d*$/.test(raw)) {
+  if (!/^\d+$/.test(raw) || Number(raw) <= 0) {
     fail(`${varName} must be a positive integer, got "${raw}".`);
   }
   return Number(raw);
@@ -55,7 +46,9 @@ function parseProviderType(raw: string | undefined): ProviderType {
   if (raw === undefined) return 'kimi';
   const normalized = raw.toLowerCase() as ProviderType;
   if (!ALLOWED_TYPES.includes(normalized)) {
-    fail(`KIMI_MODEL_PROVIDER_TYPE must be one of ${ALLOWED_TYPES.join(', ')}, got "${raw}".`);
+    fail(
+      `KIMI_MODEL_PROVIDER_TYPE must be one of ${ALLOWED_TYPES.join(', ')}, got "${raw}".`,
+    );
   }
   return normalized;
 }
@@ -69,10 +62,6 @@ function parseCapabilities(raw: string | undefined): string[] | undefined {
   return caps.length === 0 ? undefined : caps;
 }
 
-// `parseBooleanEnv` returns undefined for unrecognized input. Treat a non-empty
-// but unparseable value (e.g. a typo like `flase`) as a config error so it
-// fails fast like the other KIMI_MODEL_* values, instead of silently keeping
-// config.toml's existing value.
 function parseBooleanVar(raw: string | undefined, varName: string): boolean | undefined {
   const value = trimmed(raw);
   if (value === undefined) return undefined;
@@ -83,24 +72,9 @@ function parseBooleanVar(raw: string | undefined, varName: string): boolean | un
   return parsed;
 }
 
-/**
- * When `KIMI_MODEL_NAME` is set, synthesize one provider + one model alias from
- * the `KIMI_MODEL_*` environment variables and make it the default model.
- * Returns the config unchanged when the trigger variable is absent.
- *
- * IMPORTANT: the synthesized provider/model/default_model exist ONLY in the
- * in-memory runtime config and must never be serialized back to config.toml.
- * Two layers enforce this: write paths read the raw config via `readConfigFile`,
- * and `writeConfigFile` strips the reserved entries via `stripEnvModelConfig` as
- * a final guard against patch round-trips (getConfig -> setConfig).
- */
 export function applyEnvModelConfig(config: KimiConfig, env: Env = process.env): KimiConfig {
-  const modelRaw = env['KIMI_MODEL_NAME'];
-  if (modelRaw === undefined) return config;
-  const model = trimmed(modelRaw);
-  if (model === undefined) {
-    fail('KIMI_MODEL_NAME must not be empty.');
-  }
+  const model = trimmed(env['KIMI_MODEL_NAME']);
+  if (model === undefined) return config;
 
   const apiKey = trimmed(env['KIMI_MODEL_API_KEY']);
   if (apiKey === undefined) {
@@ -158,23 +132,9 @@ export function applyEnvModelConfig(config: KimiConfig, env: Env = process.env):
     ...(thinking !== undefined ? { thinking } : {}),
   };
 
-  // Re-validate so the synthesized entries honor the same schema constraints.
-  // `validateConfig` throws KimiError(CONFIG_INVALID) on violation, matching
-  // the explicit checks above.
   return validateConfig(merged);
 }
 
-/**
- * Remove the env-synthesized provider/model before a config is persisted to
- * disk. Mirror of {@link applyEnvModelConfig}: that injects the reserved entries
- * into the in-memory runtime config; this guarantees they never reach
- * config.toml — including via a `getConfig` -> `setConfig` patch round-trip,
- * where the runtime config (carrying the env provider and its shell API key)
- * would otherwise be merged back and written out. Every env-injected top-level
- * field (default_model, thinking) is restored to its on-disk
- * value from `config.raw` rather than erased, so real values already in
- * config.toml survive the round-trip.
- */
 export function stripEnvModelConfig(config: KimiConfig): KimiConfig {
   const hasProvider = ENV_MODEL_PROVIDER_KEY in config.providers;
   const hasModel = config.models !== undefined && ENV_MODEL_ALIAS_KEY in config.models;
@@ -188,27 +148,12 @@ export function stripEnvModelConfig(config: KimiConfig): KimiConfig {
   if (models !== undefined && ENV_MODEL_ALIAS_KEY in models) {
     models = { ...models };
     delete models[ENV_MODEL_ALIAS_KEY];
-    if (Object.keys(models).length === 0) {
-      models = undefined;
-    }
   }
 
   return {
     ...config,
     providers,
-    models,
-    // Restore env-injected top-level fields from raw instead of persisting the
-    // shell overrides: the env default_model (when it points at the env alias),
-    // and the env thinking. Reaching here means env-model mode is active (the
-    // synthetic provider/model exist), so these may be env values; an unset raw
-    // field restores to undefined (i.e. drops it).
-    //
-    // Note: `config.raw` is a snapshot from the initial TOML load and is not
-    // updated on programmatic config mutations (e.g. `/config set`). When the
-    // env alias was active at load time, stripping restores the on-disk value
-    // that was in place before the env override — the env-alias-aware round-trip
-    // is therefore correct so long as no in-memory mutation changed the field
-    // that the env alias shadowed.
+    ...(models !== undefined ? { models } : {}),
     ...(defaultIsEnv ? { defaultModel: rawDefaultModel(config) } : {}),
     thinking: rawThinking(config),
   };

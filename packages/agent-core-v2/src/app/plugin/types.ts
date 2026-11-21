@@ -41,21 +41,6 @@ export interface PluginInterface {
   readonly skillOverrides?: Readonly<Record<string, PluginInterfaceOverride>>;
 }
 
-export interface PluginSkillInfo {
-  readonly name: string;
-  readonly displayName?: string;
-  readonly description?: string;
-}
-
-export interface PluginSkillRecord extends PluginSkillInfo {
-  readonly overrideKey: string;
-}
-
-export interface PluginCapabilities {
-  readonly skills: readonly PluginSkillInfo[];
-  readonly mcpServers: readonly PluginMcpServerInfo[];
-}
-
 export interface PluginManifest {
   readonly name: string;
   readonly version?: string;
@@ -82,6 +67,21 @@ export interface PluginMcpServerState {
 
 export interface PluginCapabilityState {
   readonly mcpServers?: Readonly<Record<string, PluginMcpServerState>>;
+}
+
+export interface PluginSkillInfo {
+  readonly name: string;
+  readonly displayName?: string;
+  readonly description?: string;
+}
+
+export interface PluginSkillRecord extends PluginSkillInfo {
+  readonly overrideKey: string;
+}
+
+export interface PluginCapabilities {
+  readonly skills: readonly PluginSkillInfo[];
+  readonly mcpServers: readonly PluginMcpServerInfo[];
 }
 
 export interface PluginMcpServerInfo {
@@ -181,7 +181,6 @@ export interface PluginSummary {
   readonly origin: PluginOrigin;
   readonly catalogId?: string;
   readonly installedAt: string;
-  readonly marketplaceSource?: string;
   readonly originalSource?: string;
   readonly github?: PluginGithubMetadata;
 }
@@ -230,8 +229,6 @@ export interface PluginUpdateStatus {
   readonly latest: PluginGithubRef;
   readonly displayVersion: string;
   readonly updateAvailable: boolean;
-  readonly checkFailed?: boolean;
-  readonly errorMessage?: string;
 }
 
 export const PLUGIN_NAME_REGEX = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*(?:@[A-Za-z0-9_-]+)?$/;

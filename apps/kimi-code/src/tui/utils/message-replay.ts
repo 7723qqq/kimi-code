@@ -9,12 +9,7 @@ import type {
   ToolCall,
   ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
-import {
-  limitAgentReplayByTurns,
-  normalizeThinkingTags,
-  SKILL_ACTIVATION_PART_SOURCE,
-  USER_PROMPT_SUBMIT_HOOK_SOURCE,
-} from '@moonshot-ai/kimi-code-sdk';
+import { limitAgentReplayByTurns } from '@moonshot-ai/kimi-code-sdk';
 
 import type {
   AppState,
@@ -30,16 +25,16 @@ import { nextTranscriptId } from './transcript-id';
 
 export const REPLAY_TURN_LIMIT = 10;
 
-type ReplayAssistantBlock = {
-  readonly kind: 'assistant' | 'thinking';
-  readonly fragments: string[];
-};
+export const REPLAY_FETCH_TURN_LIMIT = REPLAY_TURN_LIMIT + 1;
 
 export interface ReplayRenderContext {
   turnIndex: number;
   stepIndex: number;
   currentTurnId: string | undefined;
-  assistant: ReplayAssistantBlock[];
+  assistant: {
+    thinking: string[];
+    text: string[];
+  };
   toolCalls: Map<string, ToolCallBlockData>;
   completedToolCallIds: Set<string>;
   skillActivationIds: Set<string>;
@@ -54,6 +49,7 @@ export interface SkillActivationProjection {
   readonly skillArgs?: string;
   readonly skillSource?: string;
   readonly trigger: SkillActivationTrigger;
+  readonly bundled?: boolean;
 }
 
 export interface PluginCommandProjection {
@@ -69,7 +65,8 @@ export interface ReplayBackgroundProjection {
 }
 
 export function appStateFromResumeAgent(agent: ResumedAgentState): Partial<AppState> {
-  const maxContextTokens = agent.config.modelCapabilities?.max_context_tokens ?? 0;
+  const maxContextTokens =
+    agent.config.model?.maxInputSize ?? agent.config.model?.maxContextSize ?? 0;
   const contextTokens = agent.context.tokenCount;
   const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
   return {
@@ -79,8 +76,6 @@ export function appStateFromResumeAgent(agent: ResumedAgentState): Partial<AppSt
     contextUsage,
     planMode: agent.plan !== null,
     swarmMode: agent.swarmMode ?? false,
-    helloWorldMode: agent.helloWorldMode ?? false,
-    helloWorldStage: agent.helloWorldStage,
     permissionMode: agent.permission.mode,
   };
 }
@@ -125,10 +120,6 @@ export function replayBackgroundProjection(
       agentId,
       parentToolCallId: info.taskId,
       description: info.description,
-      // The persisted task record carries the spawn-time model/effort (v2);
-      // keep them across a resume so the terminal transcript entry can show
-      // them. Model maps through the catalog like the live path; boolean
-      // effort states carry no level and are dropped.
       model:
         info.model === undefined
           ? undefined
@@ -149,7 +140,7 @@ export function createReplayRenderContext(): ReplayRenderContext {
     turnIndex: 0,
     stepIndex: 0,
     currentTurnId: undefined,
-    assistant: [],
+    assistant: { thinking: [], text: [] },
     toolCalls: new Map(),
     completedToolCallIds: new Set(),
     skillActivationIds: new Set(),
@@ -162,9 +153,6 @@ export function limitReplayRecordsByTurn(
   records: readonly AgentReplayRecord[],
   maxTurns: number,
 ): readonly AgentReplayRecord[] {
-  // Defensive slice — the core already trims the replay when the caller passes
-  // `replayTurnLimit` on resume; the boundary predicate lives in the SDK
-  // (`limitAgentReplayByTurns`).
   return limitAgentReplayByTurns(records, maxTurns);
 }
 
@@ -190,14 +178,21 @@ export function collectReplayMessageContent(
   target: ReplayRenderContext['assistant'],
   content: readonly ContentPart[],
 ): void {
-  for (const part of normalizeThinkingTags(content)) {
-    if (part.type !== 'text' && (part.type !== 'think' || part.hidden === true)) continue;
-    const kind = part.type === 'text' ? 'assistant' : 'thinking';
-    const fragment = part.type === 'text' ? part.text : part.think;
-    if (fragment.length === 0) continue;
-    const current = target.at(-1);
-    if (current?.kind === kind) current.fragments.push(fragment);
-    else target.push({ kind, fragments: [fragment] });
+  for (const part of content) {
+    switch (part.type) {
+      case 'think':
+        if (part.hidden !== true) {
+          target.thinking.push(part.think);
+        }
+        break;
+      case 'text':
+        target.text.push(part.text);
+        break;
+      case 'audio_url':
+      case 'image_url':
+      case 'video_url':
+        break;
+    }
   }
 }
 
@@ -235,9 +230,11 @@ export function isUserPromptSubmitHookPart(
 ): part is Extract<ContentPart, { type: 'text' }> {
   return (
     part.type === 'text' &&
-    (part as { meta?: { source?: unknown } }).meta?.source === USER_PROMPT_SUBMIT_HOOK_SOURCE
+    (part as { meta?: { source?: unknown } }).meta?.source === 'user prompt submit hook'
   );
 }
+
+const SKILL_ACTIVATION_PART_SOURCE = 'skill activation';
 
 export function isSkillActivationPart(part: ContentPart): boolean {
   return (
@@ -275,14 +272,12 @@ interface BundledSkillActivationRef {
   readonly activationId: string;
 }
 
-export function withoutUserPromptSubmitHookParts(content: readonly ContentPart[]): ContentPart[] {
+export function withoutUserPromptSubmitHookParts(
+  content: readonly ContentPart[],
+): ContentPart[] {
   return content.filter((part) => !isUserPromptSubmitHookPart(part));
 }
 
-/**
- * agent-core-v2's task domain persists the terminal notification under the
- * 'task' spelling (v1 used 'background_task'); both reach replay verbatim.
- */
 export interface TaskNotificationOrigin {
   readonly kind: 'task';
   readonly taskId: string;
@@ -315,14 +310,6 @@ export function skillActivationFromOrigin(
   };
 }
 
-/**
- * The engine bundles a prompt's inline skill activations into the prompt
- * message itself: the rendered skill blocks precede the caller's parts in
- * the content, and this origin field carries every activation's metadata so
- * replay can rebuild the per-skill cards from the single message. Read it
- * defensively — a message replayed from an older session may carry a `user`
- * origin without the field.
- */
 export function bundledSkillsFromOrigin(
   origin: PromptOrigin | undefined,
 ): readonly SkillActivationProjection[] {
@@ -348,15 +335,11 @@ export function bundledSkillsFromOrigin(
   }));
 }
 
-/**
- * Content parts the caller actually typed: skill blocks are meta-marked at
- * construction; legacy wires carry no marks, so the leading unmarked parts
- * (one per bundled activation) are annotated first, then filtered out.
- */
 export function stripBundledSkillParts(message: ContextMessage): readonly ContentPart[] {
-  return annotateBundledSkillParts(message.content, bundledSkillsFromOrigin(message.origin)).filter(
-    (part) => !isSkillActivationPart(part),
-  );
+  return annotateBundledSkillParts(
+    message.content,
+    bundledSkillsFromOrigin(message.origin),
+  ).filter((part) => !isSkillActivationPart(part));
 }
 
 export function userSlashSkillPromptText(
@@ -369,9 +352,6 @@ export function userSlashSkillPromptText(
   const name = skill.skillSource === 'builtin' ? skill.skillName : `skill:${skill.skillName}`;
   const args = skill.skillArgs ?? '';
   const command = args.trim().length > 0 ? `/${name} ${args}` : `/${name}`;
-  // Media parts mean the caller content came from an external activation with
-  // attachments (e.g. kap-server), never from a typed command: keep the
-  // command identity and show the attachment rendering alongside it.
   if (callerParts.some((part) => part.type !== 'text')) {
     const attachmentText = contentPartsToText(callerParts).trim();
     return attachmentText.length > 0 ? `${command} ${attachmentText}` : command;
@@ -379,11 +359,6 @@ export function userSlashSkillPromptText(
   const callerText = contentPartsToText(callerParts);
   const trimmed = callerText.trim();
   if (trimmed.length === 0) return command;
-  // Text-only caller content is ambiguous: a saved typed command always
-  // starts with the slash mention, while external text attachments (the
-  // kap-server activation API accepts text attachments) are arbitrary prose
-  // — prepend the reconstructed command for the latter so the activated
-  // skill stays identifiable.
   if (trimmed.startsWith('/')) return callerText;
   return `${command} ${trimmed}`;
 }
@@ -456,7 +431,8 @@ function contentPartToText(part: ContentPart): string {
   }
 }
 
-const HOOK_RESULT_RE = /<hook_result\s+hook_event="([^"]+)">\n?([\s\S]*?)\n?<\/hook_result>/g;
+const HOOK_RESULT_RE =
+  /<hook_result\s+hook_event="([^"]+)">\n?([\s\S]*?)\n?<\/hook_result>/g;
 
 function formatHookResultBlock(event: string, body: string, blocked: boolean): string {
   return `*${event} hook${blocked ? ' blocked' : ''}*\n\n${body.trim() || '(empty)'}`;

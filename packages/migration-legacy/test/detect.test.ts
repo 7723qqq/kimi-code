@@ -1,10 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it, beforeEach, afterEach } from '@moonshot-ai/testkit/vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { detectMigration } from '../src/detect.js';
 import { oldMd5BucketName } from '../src/sessions/workdir-bucket.js';
+import { detectMigration } from '../src/detect.js';
 
 let src: string;
 beforeEach(async () => {
@@ -93,10 +92,7 @@ describe('detectMigration', () => {
       await writeFile(join(plansDir, 'hero.md'), '# plan');
       const plan = await detectMigration({ sourcePath: src, plansSourcePath: plansDir });
       expect(plan.hasPlans).toBe(true);
-      const empty = await detectMigration({
-        sourcePath: src,
-        plansSourcePath: join(plansDir, 'nope'),
-      });
+      const empty = await detectMigration({ sourcePath: src, plansSourcePath: join(plansDir, 'nope') });
       expect(empty.hasPlans).toBe(false);
     } finally {
       await rm(plansDir, { recursive: true, force: true });
@@ -121,4 +117,5 @@ describe('detectMigration', () => {
       },
     ]);
   });
+
 });

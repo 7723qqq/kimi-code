@@ -1,20 +1,14 @@
-/**
- * AgentActivityViewer — renders a background agent task's in-memory activity
- * record as embeddable content lines.
- *
- * The record is assembled from the `SubagentActivityRecord` the session event
- * handler keeps: recent steps with their assistant text (Markdown, same as the
- * main transcript) and tool calls rendered through the main-flow result
- * renderers (`pickResultRenderer` / `pickChip` / `extractKeyArgument`).
- * `ToolCallComponent` itself is not reused — it is a live, event-driven
- * component, while this renders a snapshot.
- *
- * The viewer is embedded in the tasks panel rather than owning a screen of
- * its own: it takes an explicit height and returns exactly that many lines,
- * so the panel decides how much room the activity gets.
- */
+import {
+  Container,
+  Key,
+  matchesKey,
+  type Focusable,
+  type Terminal,
+  truncateToWidth,
+  visibleWidth,
+} from '@moonshot-ai/pi-tui';
+import type { BackgroundTaskInfo } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import { MESSAGE_INDENT } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import type {
@@ -23,101 +17,148 @@ import type {
 } from '#/tui/controllers/subagent-activity-store';
 import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData } from '#/tui/types';
-
+import { printableChar } from '#/tui/utils/printable-key';
 import { AssistantMessageComponent } from '../messages/assistant-message';
+import { ThinkingComponent } from '../messages/thinking';
 import { extractKeyArgument } from '../messages/tool-call';
 import { pickChip } from '../messages/tool-renderers/chip';
-import { parseReadMediaOutput } from '../messages/tool-renderers/media';
 import { pickResultRenderer } from '../messages/tool-renderers/registry';
+import { STATUS_LABEL, statusColor } from './task-output-viewer';
+import { t } from '#/i18n';
+
+const ELLIPSIS = '…';
 
 export interface AgentActivityViewerProps {
-  /** The activity record, or undefined when the session holds none. */
+  readonly taskId: string;
+  readonly info: BackgroundTaskInfo | undefined;
   readonly record: SubagentActivityRecord | undefined;
-  /** Session work dir, used to desensitize Read/Write/Edit paths. */
-  readonly workspaceDir?: string | undefined;
-  /** Expand every tool result (mirrors the transcript's global expand). */
-  readonly expanded: boolean;
+  readonly onClose: () => void;
 }
 
-export class AgentActivityViewer {
+function padToWidth(line: string, width: number): string {
+  const w = visibleWidth(line);
+  if (w === width) return line;
+  if (w > width) return truncateToWidth(line, width, ELLIPSIS);
+  return line + ' '.repeat(width - w);
+}
+
+function fitExactly(line: string, width: number): string {
+  let s = line;
+  if (visibleWidth(s) > width) s = truncateToWidth(s, width, ELLIPSIS);
+  return padToWidth(s, width);
+}
+
+export class AgentActivityViewer extends Container implements Focusable {
+  focused = false;
+
   private props: AgentActivityViewerProps;
+  private readonly terminal: Terminal;
+  private expanded = false;
+  private scrollTop = 0;
+  private followTail = true;
   private lines: string[] = [];
   private lastCacheKey = '';
 
-  constructor(props: AgentActivityViewerProps) {
+  constructor(props: AgentActivityViewerProps, terminal: Terminal) {
+    super();
     this.props = props;
+    this.terminal = terminal;
   }
 
   setProps(next: AgentActivityViewerProps): void {
-    const prev = this.props;
     this.props = next;
-    // The styled body lines are cached against cacheKey() (width, expanded,
-    // agentId, version) — only a record change may invalidate them. The tasks
-    // panel polls once per second and every tick would otherwise rebuild all
-    // body Markdown.
-    if (
-      next.record !== prev.record ||
-      next.record?.version !== prev.record?.version ||
-      next.expanded !== prev.expanded ||
-      next.workspaceDir !== prev.workspaceDir
-    ) {
+    this.invalidate();
+  }
+
+  override invalidate(): void {
+    this.lastCacheKey = '';
+    super.invalidate();
+  }
+
+  handleInput(data: string): void {
+    const visible = this.viewableRows();
+    const k = printableChar(data);
+
+    if (matchesKey(data, Key.escape) || k === 'q' || k === 'Q') {
+      this.props.onClose();
+      return;
+    }
+    if (matchesKey(data, Key.ctrl('o'))) {
+      this.expanded = !this.expanded;
       this.lastCacheKey = '';
+      this.invalidate();
+      return;
+    }
+    if (matchesKey(data, Key.up) || k === 'k') {
+      this.scrollBy(-1);
+      return;
+    }
+    if (matchesKey(data, Key.down) || k === 'j') {
+      this.scrollBy(1);
+      return;
+    }
+    if (
+      matchesKey(data, Key.pageUp) ||
+      matchesKey(data, Key.ctrl('u')) ||
+      k === ' ' ||
+      data === '\u0002'
+    ) {
+      this.scrollBy(-Math.max(1, visible - 1));
+      return;
+    }
+    if (
+      matchesKey(data, Key.pageDown) ||
+      matchesKey(data, Key.ctrl('d')) ||
+      data === '\u0006'
+    ) {
+      this.scrollBy(Math.max(1, visible - 1));
+      return;
+    }
+    if (matchesKey(data, Key.home) || k === 'g') {
+      this.scrollTo(0);
+      return;
+    }
+    if (matchesKey(data, Key.end) || k === 'G') {
+      this.scrollTo(this.maxScroll());
+      return;
     }
   }
 
-  /**
-   * The activity as `height` lines: a header line with the agent label and
-   * step range, then the tail of the body. The tail is what the user cares
-   * about — the earliest steps are the least relevant once an agent has run
-   * for a while.
-   */
-  renderLines(width: number, height: number): string[] {
-    if (height <= 0) return [];
-    const innerWidth = Math.max(1, width);
-    const key = this.cacheKey(innerWidth);
-    if (key !== this.lastCacheKey) {
-      this.lines = this.buildLines(innerWidth);
-      this.lastCacheKey = key;
-    }
-    const header = this.buildHeader();
-    const body = this.lines.slice(Math.max(0, this.lines.length - (height - 1)));
-    const out = [header, ...body];
-    while (out.length < height) out.push('');
-    return out.slice(0, height);
+  private scrollBy(delta: number): void {
+    this.scrollTo(this.scrollTop + delta);
+  }
+
+  private scrollTo(target: number): void {
+    this.scrollTop = Math.max(0, Math.min(target, this.maxScroll()));
+    this.followTail = this.scrollTop >= this.maxScroll();
+    this.invalidate();
+  }
+
+  private maxScroll(): number {
+    return Math.max(0, this.lines.length - this.viewableRows());
+  }
+
+  private viewableRows(): number {
+    return Math.max(1, this.terminal.rows - 4);
   }
 
   private cacheKey(innerWidth: number): string {
     const record = this.props.record;
     return [
       String(innerWidth),
-      this.props.expanded ? 'x' : 'c',
+      this.expanded ? 'x' : 'c',
       record?.agentId ?? '',
       String(record?.version ?? -1),
     ].join('|');
   }
 
-  private buildHeader(): string {
-    const record = this.props.record;
-    if (record === undefined) {
-      return currentTheme.fg('textMuted', '—');
-    }
-    const label =
-      record.description !== undefined && record.description.length > 0
-        ? `${record.agentName} › ${record.description}`
-        : record.agentName;
-    const parts = [currentTheme.boldFg('text', label)];
-    if (record.steps.length > 0) {
-      const from = record.steps[0]!.step;
-      const to = record.steps.at(-1)!.step;
-      parts.push(currentTheme.fg('textMuted', `step ${String(from)}–${String(to)}`));
-    }
-    return parts.join(' · ');
-  }
-
   private buildLines(innerWidth: number): string[] {
     const record = this.props.record;
     if (record === undefined) {
-      return [];
+      const message = this.props.info?.detached === false
+        ? 'Waiting for activity…'
+        : '[no activity recorded]';
+      return [currentTheme.dim(`${MESSAGE_INDENT}${message}`)];
     }
 
     const out: string[] = [];
@@ -125,6 +166,10 @@ export class AgentActivityViewer {
       out.push(currentTheme.dim(`── step ${String(step.step)} ──`));
       if (step.retrying !== undefined) {
         out.push(currentTheme.fg('warning', `${MESSAGE_INDENT}↻ ${step.retrying}`));
+      }
+      if (step.thinkingTail !== undefined && step.thinkingTail.trim().length > 0) {
+        const thinking = new ThinkingComponent(step.thinkingTail);
+        out.push(currentTheme.dim(`${MESSAGE_INDENT}Thinking`), ...thinking.renderRowDetail(innerWidth));
       }
       if (step.textTail.trim().length > 0) {
         const message = new AssistantMessageComponent();
@@ -150,13 +195,12 @@ export class AgentActivityViewer {
       out.push(...message.render(innerWidth));
     }
 
+    if (out.length === 0 && record.status === 'running') {
+      out.push(currentTheme.dim(`${MESSAGE_INDENT}Waiting for activity…`));
+    }
     return out;
   }
 
-  /** Same shape as the main flow's generic header (`tool-call.ts`
-   *  `buildHeader`): bullet + verb + name + key argument + chip. Custom
-   *  per-tool label wording (e.g. "Ran a command") is intentionally not
-   *  mirrored — the per-tool *body* renderers carry the specialization. */
   private buildToolCallHeader(call: SubToolCallActivity): string {
     let bullet: string;
     if (call.status === 'error') {
@@ -166,12 +210,9 @@ export class AgentActivityViewer {
     } else {
       bullet = currentTheme.fg('text', STATUS_BULLET);
     }
-    const verb =
-      call.status === 'running'
-        ? t('tui.dialogs.agentActivityViewer.using')
-        : t('tui.dialogs.agentActivityViewer.used');
+    const verb = call.status === 'running' ? t('tui.dialogs.agentActivityViewer.using') : t('tui.dialogs.agentActivityViewer.used');
     const name = currentTheme.boldFg('primary', call.name);
-    const keyArg = extractKeyArgument(call.name, call.args, this.props.workspaceDir);
+    const keyArg = extractKeyArgument(call.name, call.args);
     const argStr = keyArg === null || keyArg.length === 0 ? '' : currentTheme.dim(` (${keyArg})`);
 
     let chipStr = '';
@@ -192,25 +233,16 @@ export class AgentActivityViewer {
     if (call.result === undefined) {
       return call.liveOutputTail === undefined || call.liveOutputTail.length === 0
         ? []
-        : [currentTheme.dim(`${MESSAGE_INDENT}│ ${sanitizeLiveOutput(call.liveOutputTail)}`)];
+        : [currentTheme.dim(`${MESSAGE_INDENT}│ ${call.liveOutputTail}`)];
     }
-    // The store caps retained output, which cannot survive as a parseable
-    // media envelope (base64) — show a marker instead of dumping the blob.
-    const isMediaResult =
-      call.name === 'ReadMediaFile' ||
-      (call.name === 'Read' &&
-        call.result.output.startsWith('[') &&
-        parseReadMediaOutput(call.result.output) !== null);
-    if (isMediaResult && call.result.is_error !== true) {
-      return [
-        currentTheme.dim(
-          `${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.mediaOutputOmitted')}`,
-        ),
-      ];
+    if (call.name === 'ReadMediaFile' && call.result.is_error !== true) {
+      return [currentTheme.dim(`${MESSAGE_INDENT}[media output omitted]`)];
     }
-    const components = pickResultRenderer(call.name)(this.toToolCallBlockData(call), call.result, {
-      expanded: this.props.expanded,
-    });
+    const components = pickResultRenderer(call.name)(
+      this.toToolCallBlockData(call),
+      call.result,
+      { expanded: this.expanded },
+    );
     const out: string[] = [];
     for (const component of components) {
       out.push(...component.render(innerWidth));
@@ -221,61 +253,155 @@ export class AgentActivityViewer {
   private toToolCallBlockData(call: SubToolCallActivity): ToolCallBlockData {
     return { id: call.id, name: call.name, args: call.args };
   }
+
+  override render(width: number): string[] {
+    const rows = Math.max(3, this.terminal.rows);
+    const bodyHeight = rows - 2;
+    const innerWidth = Math.max(1, width - 4);
+
+    const key = this.cacheKey(innerWidth);
+    if (key !== this.lastCacheKey) {
+      this.lines = this.buildLines(innerWidth);
+      this.lastCacheKey = key;
+    }
+    if (this.followTail) this.scrollTop = this.maxScroll();
+
+    const header = this.renderHeader(width);
+    const body = this.renderBody(width, bodyHeight);
+    const footer = this.renderFooter(width, bodyHeight);
+
+    const out: string[] = [header];
+    for (const line of body) out.push(line);
+    out.push(footer);
+    return out;
+  }
+
+  private renderHeader(width: number): string {
+    const title = currentTheme.boldFg('primary', ' Agent activity ');
+    const record = this.props.record;
+    const info = this.props.info;
+    const segments: string[] = [];
+
+    if (record !== undefined) {
+      const label =
+        record.description !== undefined && record.description.length > 0
+          ? `${record.agentName} › ${record.description}`
+          : record.agentName;
+      segments.push(currentTheme.boldFg('text', label));
+    } else {
+      segments.push(currentTheme.boldFg('text', this.props.taskId));
+    }
+    const status = info?.status ?? record?.status;
+    if (status === 'cancelled') {
+      segments.push(currentTheme.fg('error', 'cancelled'));
+    } else if (status !== undefined) {
+      segments.push(currentTheme.fg(statusColor(status), STATUS_LABEL[status]));
+    }
+    if (record !== undefined && record.steps.length > 0) {
+      const from = record.steps[0]!.step;
+      const to = record.steps.at(-1)!.step;
+      let range = `step ${String(from)}–${String(to)} / ${String(record.totalSteps)}`;
+      if (record.totalSteps > record.steps.length) range += ' · earlier steps discarded';
+      segments.push(currentTheme.fg('textMuted', range));
+    }
+
+    const composed = title + segments.join('  ');
+    return fitExactly(composed, width);
+  }
+
+  private renderBody(width: number, bodyHeight: number): string[] {
+    const innerWidth = Math.max(1, width - 4);
+
+    const max = this.maxScroll();
+    if (this.scrollTop > max) this.scrollTop = max;
+    if (this.scrollTop < 0) this.scrollTop = 0;
+
+    const viewRows = Math.max(1, bodyHeight - 2);
+    const top = currentTheme.fg('primary', '┌' + '─'.repeat(Math.max(0, width - 2)) + '┐');
+    const bottom = currentTheme.fg('primary', '└' + '─'.repeat(Math.max(0, width - 2)) + '┘');
+
+    const out: string[] = [top];
+    for (let i = 0; i < viewRows; i++) {
+      const lineIndex = this.scrollTop + i;
+      const raw = this.lines[lineIndex] ?? '';
+      const inner = fitExactly(raw, innerWidth);
+      out.push(currentTheme.fg('primary', '│ ') + inner + currentTheme.fg('primary', ' │'));
+    }
+    out.push(bottom);
+    return out;
+  }
+
+  private renderFooter(width: number, bodyHeight: number): string {
+    const key = (text: string): string => currentTheme.boldFg('primary', text);
+    const dim = (text: string): string => currentTheme.fg('textMuted', text);
+
+    const total = this.lines.length;
+    const viewRows = Math.max(1, bodyHeight - 2);
+    const maxScroll = Math.max(0, total - viewRows);
+    const percent =
+      maxScroll === 0 ? 100 : Math.round((this.scrollTop / maxScroll) * 100);
+    const lineFrom = total === 0 ? 0 : this.scrollTop + 1;
+    const lineTo = Math.min(total, this.scrollTop + viewRows);
+
+    const position = currentTheme.fg(
+      'textMuted',
+      ` ${String(lineFrom)}-${String(lineTo)} / ${String(total)} (${String(percent)}%) `,
+    );
+    const keys =
+      `${key('↑↓')} ${dim('line')}  ` +
+      `${key('PgUp/PgDn')} ${dim('page')}  ` +
+      `${key('g/G')} ${dim('top/bot')}  ` +
+      `${key('Ctrl+O')} ${dim(this.expanded ? 'collapse' : 'expand')}  ` +
+      `${key('Q/Esc')} ${dim('cancel')}`;
+    const left = ` ${keys}`;
+    const leftW = visibleWidth(left);
+    const rightW = visibleWidth(position);
+    if (leftW + 2 + rightW <= width) {
+      return left + ' '.repeat(width - leftW - rightW) + position;
+    }
+    return fitExactly(left, width);
+  }
 }
 
-/**
- * Strips terminal control sequences from subagent live output tails before
- * they enter the ANSI render stream. `liveOutputTail` is the raw last line of
- * a command's stdout/stderr, so a command can emit CSI cursor/color sequences
- * or OSC hyperlinks (progress bars, prompts, links) that would corrupt the
- * frame's color state or its layout. C0/C1 control characters (including lone
- * ESC) and CSI (`ESC [ … final`) / OSC (`ESC ] … BEL|ST`) sequences are
- * dropped; all other content is preserved verbatim.
- */
-function sanitizeLiveOutput(value: string): string {
-  let result = '';
-  let i = 0;
-  while (i < value.length) {
-    const code = value.codePointAt(i)!;
-    if (code === 0x1b) {
-      const next = value.codePointAt(i + 1);
-      if (next === 0x5b /* '[' */) {
-        // CSI: ESC [ … final byte in 0x40–0x7e. Unterminated sequences are
-        // consumed to the end of the string.
-        i += 2;
-        while (
-          i < value.length &&
-          !(value.codePointAt(i)! >= 0x40 && value.codePointAt(i)! <= 0x7e)
-        ) {
-          i += 1;
-        }
-        if (i < value.length) i += 1;
-        continue;
+export function formatSubagentActivityPreview(record: SubagentActivityRecord): string {
+  const lines: string[] = [];
+  for (const step of record.steps) {
+    lines.push(`── step ${String(step.step)} ──`);
+    if (step.retrying !== undefined) lines.push(`${MESSAGE_INDENT}↻ ${step.retrying}`);
+    if (step.textTail.trim().length > 0) lines.push(...step.textTail.trimEnd().split('\n'));
+    for (const call of step.toolCalls) {
+      lines.push(formatPreviewToolCall(call));
+      if (
+        call.result === undefined &&
+        call.liveOutputTail !== undefined &&
+        call.liveOutputTail.length > 0
+      ) {
+        lines.push(`${MESSAGE_INDENT}│ ${call.liveOutputTail}`);
       }
-      if (next === 0x5d /* ']' */) {
-        // OSC: ESC ] … terminated by BEL or ST (ESC \).
-        i += 2;
-        while (i < value.length) {
-          const c = value.codePointAt(i);
-          i += 1;
-          if (c === 0x07) break;
-          if (c === 0x1b && value.codePointAt(i) === 0x5c) {
-            i += 1;
-            break;
-          }
-        }
-        continue;
-      }
-      // A lone ESC not opening a recognized sequence is a control char.
-      i += 1;
-      continue;
     }
-    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
-      i += 1;
-      continue;
-    }
-    result += value[i]!;
-    i += 1;
   }
-  return result;
+  if (record.error !== undefined && record.error.length > 0) {
+    lines.push('Failed:', ...record.error.trimEnd().split('\n'));
+  } else if (record.resultSummary !== undefined && record.resultSummary.length > 0) {
+    lines.push('Result:', ...record.resultSummary.trimEnd().split('\n'));
+  }
+  if (lines.length === 0) {
+    return record.status === 'running' ? 'Waiting for activity…' : '';
+  }
+  return lines.join('\n');
+}
+
+function formatPreviewToolCall(call: SubToolCallActivity): string {
+  const mark = call.status === 'done' ? '✓' : call.status === 'error' ? '✗' : '●';
+  const verb = call.status === 'running' ? 'Using' : 'Used';
+  const keyArg = extractKeyArgument(call.name, call.args);
+  const argStr = keyArg === null || keyArg.length === 0 ? '' : ` (${keyArg})`;
+
+  let chip = '';
+  if (call.result !== undefined) {
+    const callData: ToolCallBlockData = { id: call.id, name: call.name, args: call.args };
+    const text = pickChip(call.name)?.(callData, call.result) ?? '';
+    if (text.length > 0) chip = ` · ${text}`;
+  }
+  return `${mark} ${verb} ${call.name}${argStr}${chip}`;
 }

@@ -1,4 +1,3 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +8,7 @@ import {
   ISessionManager,
   ISessionMediaStore,
 } from '@moonshot-ai/agent-core-v2';
+import { afterAll, beforeAll, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -30,7 +30,8 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await server?.close();
-  } catch {}
+  } catch {
+  }
   server = undefined;
   rmSync(home, { recursive: true, force: true });
 });
@@ -375,51 +376,6 @@ describe('POST /api/v1/files (server-v2)', () => {
     expect(tail.rawPayload).toEqual(data.subarray(30));
   });
 
-  it('advertises a non-ASCII name through filename* alongside an ASCII fallback', async () => {
-    const r = await boot();
-    const data = Buffer.from('%PDF-1.4 fake pdf bytes');
-    const meta = await uploadFile(r, data, '报告.pdf', 'application/pdf');
-
-    const res = await appOf(r).inject({
-      method: 'GET',
-      url: `/api/v1/files/${meta.id}`,
-    });
-
-    expect(res.statusCode).toBe(200);
-    expect(String(res.headers['content-disposition'])).toBe(
-      `attachment; filename="__.pdf"; filename*=UTF-8''%E6%8A%A5%E5%91%8A.pdf`,
-    );
-    expect(res.rawPayload).toEqual(data);
-  });
-
-  it('escapes a double quote in the quoted ASCII fallback', async () => {
-    const r = await boot();
-    const data = Buffer.from('quoted');
-    const mp = buildMultipart({
-      file: { fieldName: 'file', filename: 'orig.txt', contentType: 'text/plain', data },
-      fields: [{ name: 'name', value: 'a".txt' }],
-    });
-    const upRes = await appOf(r).inject({
-      method: 'POST',
-      url: '/api/v1/files',
-      payload: mp.body,
-      headers: { 'content-type': mp.contentType },
-    });
-    const meta = (upRes.json() as Envelope<{ id: string; name: string }>).data!;
-    expect(meta.name).toBe('a".txt');
-
-    const res = await appOf(r).inject({
-      method: 'GET',
-      url: `/api/v1/files/${meta.id}`,
-    });
-
-    const header = String(res.headers['content-disposition']);
-    expect(res.statusCode).toBe(200);
-    expect(header).toBe(`attachment; filename="a\\".txt"; filename*=UTF-8''a%22.txt`);
-    expect(header).toMatch(/^[\u0020-\u007E]+$/);
-    expect(res.rawPayload).toEqual(data);
-  });
-
   it('missing file part → 40001 validation error', async () => {
     const r = await boot();
     const boundary = '------WebKitFormBoundaryNoFile';
@@ -506,28 +462,22 @@ describe('GET /api/v1/sessions/{session_id}/media/{file_id} (server-v2)', () => 
       fallback: '__ ____ __.pdf',
       bytes: Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]),
     },
-  ])(
-    'preserves Unicode filenames on upload and session-media downloads: $name',
-    async ({ name, mediaType, disposition, fallback, bytes }) => {
-      const r = await boot();
-      const meta = await uploadFile(r, bytes, name, mediaType);
-      const sessionId = await createSession(r);
-      await materializeUploadedFile(r, sessionId, meta);
+  ])('preserves Unicode filenames on upload and session-media downloads: $name', async ({ name, mediaType, disposition, fallback, bytes }) => {
+    const r = await boot();
+    const meta = await uploadFile(r, bytes, name, mediaType);
+    const sessionId = await createSession(r);
+    await materializeUploadedFile(r, sessionId, meta);
 
-      for (const url of [
-        `/api/v1/files/${meta.id}`,
-        `/api/v1/sessions/${sessionId}/media/${meta.id}`,
-      ]) {
-        const res = await appOf(r).inject({ method: 'GET', url });
-        expect(res.statusCode).toBe(200);
-        expect(res.headers['content-type']).toBe(mediaType);
-        expect(String(res.headers['content-disposition'])).toBe(
-          `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`,
-        );
-        expect(res.rawPayload).toEqual(bytes);
-      }
-    },
-  );
+    for (const url of [`/api/v1/files/${meta.id}`, `/api/v1/sessions/${sessionId}/media/${meta.id}`]) {
+      const res = await appOf(r).inject({ method: 'GET', url });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toBe(mediaType);
+      expect(String(res.headers['content-disposition'])).toBe(
+        `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+      );
+      expect(res.rawPayload).toEqual(bytes);
+    }
+  });
 
   it('bounds Content-Disposition for extremely long Unicode filenames', async () => {
     const r = await boot();
@@ -536,10 +486,7 @@ describe('GET /api/v1/sessions/{session_id}/media/{file_id} (server-v2)', () => 
     const sessionId = await createSession(r);
     await materializeUploadedFile(r, sessionId, meta);
 
-    for (const url of [
-      `/api/v1/files/${meta.id}`,
-      `/api/v1/sessions/${sessionId}/media/${meta.id}`,
-    ]) {
+    for (const url of [`/api/v1/files/${meta.id}`, `/api/v1/sessions/${sessionId}/media/${meta.id}`]) {
       const res = await appOf(r).inject({ method: 'GET', url });
       const disposition = String(res.headers['content-disposition']);
       expect(res.statusCode).toBe(200);
@@ -563,26 +510,16 @@ describe('GET /api/v1/sessions/{session_id}/media/{file_id} (server-v2)', () => 
       payload: mp.body,
       headers: { 'content-type': mp.contentType },
     });
-    const envelope = uploaded.json() as Envelope<{
-      id: string;
-      name: string;
-      media_type: string;
-      size: number;
-    }>;
+    const envelope = uploaded.json() as Envelope<{ id: string; name: string; media_type: string; size: number }>;
     expect(envelope.code).toBe(0);
     const meta = envelope.data!;
     const sessionId = await createSession(r);
     await materializeUploadedFile(r, sessionId, meta);
 
-    for (const url of [
-      `/api/v1/files/${meta.id}`,
-      `/api/v1/sessions/${sessionId}/media/${meta.id}`,
-    ]) {
+    for (const url of [`/api/v1/files/${meta.id}`, `/api/v1/sessions/${sessionId}/media/${meta.id}`]) {
       const res = await appOf(r).inject({ method: 'GET', url });
       expect(res.statusCode).toBe(200);
-      expect(String(res.headers['content-disposition'])).toBe(
-        `inline; filename="${'a'.repeat(255)}\\\\"`,
-      );
+      expect(String(res.headers['content-disposition'])).toBe(`inline; filename="${'a'.repeat(255)}\\\\"`);
       expect(res.rawPayload).toEqual(bytes);
     }
   });

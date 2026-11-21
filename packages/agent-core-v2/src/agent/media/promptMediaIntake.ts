@@ -1,9 +1,9 @@
-import { abortable } from '#/_base/utils/abort';
 import type { IFileService } from '#/app/file/fileService';
-import type { ContentPart } from '#human/llm/message';
+import { abortable } from '#/_base/utils/abort';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 import { daemonFileRefFromPart } from './mediaRef';
-import type { ISessionMediaStore } from './sessionMediaStore';
+import { ISessionMediaStore } from './sessionMediaStore';
 
 export interface PromptMediaIntakeDeps {
   readonly files: IFileService;

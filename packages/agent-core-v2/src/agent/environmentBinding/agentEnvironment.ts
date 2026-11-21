@@ -1,30 +1,19 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IEnvironmentService } from '#/app/environment/environment';
+import type { IDisposable } from '#/_base/di/lifecycle';
 import { ISessionEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
-import type {
-  Environment,
-  EnvironmentBinding,
-  EnvironmentCapability,
-  EnvironmentLease,
-  EnvironmentPath,
-  EnvironmentWorkspaceRoots,
-} from '#/environment/environment';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import type { Environment, EnvironmentBinding, EnvironmentCapability, EnvironmentLease, EnvironmentPath, EnvironmentWorkspaceRoots } from '#/environment/environment';
 import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
-import {
-  environmentIsReady,
-  type EnvironmentGenerationSnapshot,
-  type EnvironmentRegistryChange,
-} from '#/environment/environmentRegistry';
+import { environmentIsReady, type EnvironmentGenerationSnapshot, type EnvironmentRegistryChange } from '#/environment/environmentRegistry';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
 import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
+import { IEnvironmentService } from '#/app/environment/environment';
 
 import { IAgentEnvironmentBindingService } from './environmentBinding';
 import { EnvironmentStatusChanged } from './environmentEvents';
@@ -44,6 +33,14 @@ export interface IAgentEnvironmentService {
   acquireWhenReady(required?: readonly EnvironmentCapability[]): Promise<EnvironmentLease>;
   workspaceRoots(): EnvironmentWorkspaceRoots;
 }
+
+export interface IAgentEnvironmentOverlay {
+  readonly _serviceBrand: undefined;
+  decorate(lease: EnvironmentLease): EnvironmentLease;
+}
+
+export const IAgentEnvironmentOverlay: ServiceIdentifier<IAgentEnvironmentOverlay> =
+  createDecorator<IAgentEnvironmentOverlay>('agentEnvironmentOverlay');
 
 export const IAgentEnvironmentService: ServiceIdentifier<IAgentEnvironmentService> =
   createDecorator<IAgentEnvironmentService>('agentEnvironmentService');
@@ -128,15 +125,12 @@ export class AgentEnvironmentService implements IAgentEnvironmentService {
     @ISessionEventBus private readonly eventBus: ISessionEventBus,
     @ISessionContext private readonly session: ISessionContext,
     @ISessionWorkspaceInfo private readonly workspaceInfo: ISessionWorkspaceInfo,
+    @IAgentEnvironmentOverlay private readonly overlay: IAgentEnvironmentOverlay,
   ) {
     this.bindingSubscription = this.binding.onDidChange(() => this.changeEmitter.fire());
     this.registrySubscription = this.resolver.onDidChange((change) => {
       if (change.environmentId !== this.binding.current.environmentId) return;
-      if (
-        change.current !== undefined &&
-        change.current !== this.resolver.current(change.environmentId)
-      )
-        return;
+      if (change.current !== undefined && change.current !== this.resolver.current(change.environmentId)) return;
       this.changeEmitter.fire();
       this.publishEnvironmentStatus(change);
     });
@@ -162,23 +156,18 @@ export class AgentEnvironmentService implements IAgentEnvironmentService {
   isAvailable(required: readonly EnvironmentCapability[] = []): boolean {
     try {
       const environment = this.inspect();
-      return (
-        environmentIsReady(environment) &&
-        required.every((capability) => environment.capabilities.has(capability))
-      );
+      return environmentIsReady(environment) && required.every((capability) => environment.capabilities.has(capability));
     } catch {
       return false;
     }
   }
 
   acquire(required: readonly EnvironmentCapability[] = []): EnvironmentLease {
-    return this.resolver.acquire(this.binding.current, required);
+    return this.overlay.decorate(this.resolver.acquire(this.binding.current, required));
   }
 
-  async acquireWhenReady(
-    required: readonly EnvironmentCapability[] = [],
-  ): Promise<EnvironmentLease> {
-    return this.resolver.acquireWhenReady(this.binding.current, required);
+  async acquireWhenReady(required: readonly EnvironmentCapability[] = []): Promise<EnvironmentLease> {
+    return this.overlay.decorate(await this.resolver.acquireWhenReady(this.binding.current, required));
   }
 
   dispose(): void {
@@ -191,11 +180,7 @@ export class AgentEnvironmentService implements IAgentEnvironmentService {
     const agent = this.scopeContext.agentContext;
     if (this.scopeContext.agentId !== MAIN_AGENT_ID || !this.eventBus.isAgentActive(agent)) return;
     this.eventBus.publish(
-      new EnvironmentStatusChanged({
-        agentId: agent.agentId,
-        environmentId: change.environmentId,
-        status: change.status,
-      }),
+      new EnvironmentStatusChanged({ agentId: agent.agentId, environmentId: change.environmentId, status: change.status }),
       agent,
     );
   }
@@ -205,6 +190,21 @@ registerScopedService(
   LifecycleScope.Agent,
   IAgentEnvironmentService,
   AgentEnvironmentService,
+  ScopeActivation.OnDemand,
+  'agentEnvironmentBinding',
+);
+
+class DefaultAgentEnvironmentOverlay implements IAgentEnvironmentOverlay {
+  declare readonly _serviceBrand: undefined;
+  decorate(lease: EnvironmentLease): EnvironmentLease {
+    return lease;
+  }
+}
+
+registerScopedService(
+  LifecycleScope.Session,
+  IAgentEnvironmentOverlay,
+  DefaultAgentEnvironmentOverlay,
   ScopeActivation.OnDemand,
   'agentEnvironmentBinding',
 );

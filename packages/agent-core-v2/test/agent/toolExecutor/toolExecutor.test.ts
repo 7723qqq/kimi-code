@@ -1,64 +1,20 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
-
 import { Jimp } from 'jimp';
+
+import type { ToolCall } from '#human/message';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
+import { setClock } from '@moonshot-ai/core/utils/clock';
+import { setNow } from '@moonshot-ai/core/utils/now';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, TestInstantiationService } from '#/_base/di/test';
-import { ILogService } from '#/_base/log/log';
-import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
-import { createMcpTool } from '#/agent/mcp/tools/mcp';
-import type { IMediaReadContext } from '#/agent/media/mediaReadContext';
-import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
-import type { IAgentProfileService } from '#/agent/profile/profile';
-import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
-import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { IAgentTaskService } from '#/agent/task/task';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import {
-  ToolCallStarted,
-  ToolProgress,
-  ToolResultEvent,
-} from '#/agent/toolExecutor/toolExecutorEvents';
-import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
-import type { BeforeToolExecuteEvent, ToolExecutionOutcome } from '#/agent/toolExecutor/toolHooks';
-import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
-import { GlobTool } from '#/agent/tools/os/glob/globTool';
-import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
-import { WaitForTool } from '#/agent/tools/task/task-wait/taskWaitTool';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
-import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { SnapshotService } from '#/features/snapshot/snapshotService';
-import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import type { IHostClock } from '#/os/interface/hostClock';
-import { hostWorkspacePathSemantics } from '#/session/workspaceContext/workspacePaths';
-import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
-import { stubAgentEnvironment } from '../../environment/stubs';
-import { ConfigRegistry, ConfigService } from '#/app/config/configService';
-import { IConfigRegistry, IConfigService } from '#/app/config/config';
-import { IEventBus } from '#/app/event/eventBus';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import type { MCPClient } from '#/mcpCore/types';
-import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolOutputAccumulator } from '#/tool/output-accumulator';
-import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import {
   ToolAccesses,
   type ExecutableTool,
@@ -68,26 +24,88 @@ import {
   type ToolResult,
   type ToolUpdate,
 } from '#/tool/toolContract';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ToolCall } from '#human/llm/message';
-
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
+import { createMcpTool } from '#/agent/mcp/tools/mcp';
+import type { MCPClient } from '#/mcpCore/types';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import type {
+  BeforeToolExecuteEvent,
+  ToolDidExecuteContext,
+  ToolExecutionOutcome,
+  WillExecuteToolEvent,
+} from '#/agent/toolExecutor/toolHooks';
+import {
+  ToolCallStarted,
+  ToolUpdated,
+  ToolResultEvent,
+} from '#/agent/toolExecutor/toolExecutorEvents';
+import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import {
+  legacyDidExecuteContext,
+  runLegacyStarting,
+  runLegacyBeforeExecute,
+} from '#/agent/toolExecutor/legacyHooks';
+import {
+  LegacyExecutableToolAdapter,
+  ToolExecutor as HandlerToolExecutor,
+  composeToolExecutorHooks,
+  fileOutputStore,
+  isToolDetachAck,
+  legacyToolDurationMs,
+  memoryOutputStore,
+  textToolContent,
+  toLegacyToolReturn,
+  type ExecutableTool as HandlerExecutableTool,
+  type LegacyToolPreparation,
+  type ToolResult as HandlerToolResult,
+} from '#/tool/executor';
+import { parseToolCallArguments } from '#/tool/tool-args-parse';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { IAgentTaskOutputService } from '#/agent/task/taskOutput';
+import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
+import { ReadTool } from '#/agent/tools/os/read/readTool';
+import type { IAgentLoopService } from '#/agent/loop/loop';
+import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { ReadMediaFileTool } from '#/agent/tools/read-media-file/readMediaFileTool';
+import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
+import {
+  JsonAtomicDocumentStore,
+  TomlAtomicDocumentStore,
+} from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { makeSessionContext } from '#/session/sessionContext/sessionContext';
+import { GlobTool } from '#/agent/tools/os/glob/globTool';
+import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
+import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
+import { stubAgentEnvironment } from '../../environment/stubs';
+import { ConfigRegistry, ConfigService } from '#/app/config/configService';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
+import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { ILogService } from '#/_base/log/log';
+import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { IEventBus } from '#/app/event/eventBus';
+import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { registerLogServices, stubLog } from '../../_base/log/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
-import { stubFlag } from '../../app/flag/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
-import { stubGoal } from '../../features/goal/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { ReadTool } from '#/agent/tools/os/read/readTool';
 
-type ToolExecutorEvent = {
-  readonly type: 'tool.result';
-  readonly toolCallId: string;
-  readonly result: ToolResult;
-};
+type ToolExecutorEvent =
+  | { readonly type: 'tool.result'; readonly toolCallId: string; readonly result: ToolResult };
 
-type ProtocolEvent = ToolCallStarted | ToolProgress | ToolResultEvent;
+type ProtocolEvent = ToolCallStarted | ToolUpdated | ToolResultEvent;
 
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
@@ -113,10 +131,8 @@ beforeEach(() => {
       registerTestAgentWireServices(reg, 'wire/tool-executor');
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
-      reg.defineInstance(
-        IAgentScopeContext,
-        makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
-      );
+      reg.defineInstance(IAgentTaskOutputService, { open: memoryOutputStore().open } as unknown as IAgentTaskOutputService);
+      reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
       reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryEvents));
       reg.defineInstance(IAgentToolResultTruncationService, {
         _serviceBrand: undefined,
@@ -146,46 +162,117 @@ afterEach(() => {
 
 describe('AgentToolExecutorService', () => {
   it('resolves by interface and routes a successful tool call through execute', async () => {
-    const tool = new TestTool('echo');
-    registry.register(tool);
+    vi.useFakeTimers();
+    try {
+      const detach = vi.fn();
+      const tool = new TestTool('echo', {
+        execute: async (ctx, args) => {
+          ctx.detach?.('background task_id=task-echo');
+          await new Promise<void>((resolve) => setTimeout(resolve, 25));
+          return { output: String(args['text']) };
+        },
+      });
+      registry.register(tool);
+      const starting = executor.registerLegacyStarting((event) => {
+        event.waitUntil(async () => {
+          await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        });
+      });
+      truncateForModel = async (input) => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 500));
+        return input.result;
+      };
 
-    const results = await execute([toolCall('call_echo', 'echo', { text: 'hi' })]);
+      const pending = execute([toolCall('call_echo', 'echo', { text: 'hi' })], undefined, undefined, detach);
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(25);
+      await vi.advanceTimersByTimeAsync(500);
+      const results = await pending;
 
-    expect(results).toEqual([
-      expect.objectContaining({
-        output: 'hi',
-        stopTurn: false,
-      }),
-    ]);
-    expect(durations).toEqual([expect.any(Number)]);
-    expect(tool.calls).toEqual([
-      expect.objectContaining({
-        toolCallId: 'call_echo',
-        turnId: 0,
-        args: { text: 'hi' },
-      }),
-    ]);
-    expect(eventTypes()).toEqual(['tool.result']);
-    expect(protocolEventTypes()).toEqual(['tool.call.started', 'tool.result']);
-    expect(telemetryEvents).toContainEqual({
-      event: 'tool_call',
-      properties: expect.objectContaining({
-        turn_id: 0,
-        tool_call_id: 'call_echo',
-        tool_name: 'echo',
-        outcome: 'success',
-        duration_ms: expect.any(Number),
-      }),
-    });
+      expect(results).toEqual([
+        expect.objectContaining({
+          output: 'hi',
+        }),
+      ]);
+      expect(results[0]).not.toHaveProperty('stopTurn');
+      expect(durations).toEqual([25]);
+      expect(detach).toHaveBeenCalledWith('call_echo', 'background task_id=task-echo');
+      expect(tool.calls).toEqual([
+        expect.objectContaining({
+          origin: 'loop',
+          toolCallId: 'call_echo',
+          turnId: 0,
+          args: { text: 'hi' },
+        }),
+      ]);
+      expect(eventTypes()).toEqual(['tool.result']);
+      expect(protocolEventTypes()).toEqual([
+        'tool.call.started',
+        'tool.updated',
+        'tool.updated',
+        'tool.updated',
+        'tool.updated',
+        'tool.result',
+      ]);
+      expect(protocolEvents[0]).toMatchObject({ origin: 'loop' });
+      expect(telemetryEvents).toContainEqual({
+        event: 'tool_call',
+        properties: expect.objectContaining({
+          turn_id: 0,
+          tool_call_id: 'call_echo',
+          tool_name: 'echo',
+          outcome: 'success',
+          duration_ms: 25,
+        }),
+      });
+
+      starting.dispose();
+      truncateForModel = async (input) => input.result;
+      const firstStarted = deferred();
+      const secondStarted = deferred();
+      const accesses = ToolAccesses.writeFile('/repo/leased.ts');
+      const firstTool = new TestTool('lease-first', {
+        accesses,
+        execute: async () => {
+          firstStarted.resolve();
+          await new Promise<void>((resolve) => setTimeout(resolve, 200));
+          return { output: 'first' };
+        },
+      });
+      const secondTool = new TestTool('lease-second', {
+        accesses,
+        execute: async () => {
+          secondStarted.resolve();
+          await new Promise<void>((resolve) => setTimeout(resolve, 25));
+          return { output: 'second' };
+        },
+      });
+      registry.register(firstTool);
+      registry.register(secondTool);
+      const first = executor.executor.execute(toolCall('lease-first-1', 'lease-first', {}), { origin: 'loop', turnId: 1, step: 0 });
+      const second = executor.executor.execute(toolCall('lease-second-1', 'lease-second', {}), { origin: 'loop', turnId: 1, step: 0 });
+      await firstStarted.promise;
+      expect(secondTool.calls).toEqual([]);
+      await vi.advanceTimersByTimeAsync(200);
+      await secondStarted.promise;
+      await vi.advanceTimersByTimeAsync(25);
+      await Promise.all([first.wait(), second.wait()]);
+      expect(legacyToolDurationMs(first.snapshot())).toBe(200);
+      expect(legacyToolDurationMs(second.snapshot())).toBe(25);
+      executor.release(first.taskId);
+      executor.release(second.taskId);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects by policy before dynamic availability when a tool-call guard denies it', async () => {
     const tool = new TestTool('blocked');
     registry.register(tool, { source: 'mcp' });
-    executor.registerUnavailableToolDescriber(() => 'Tool "blocked" is not loaded');
-    executor.registerToolCallGuard(({ name, source }) =>
+    registerGuard(executor, ({ name, source }) =>
       name === 'blocked' && source === 'mcp' ? 'Tool "blocked" is disabled' : undefined,
     );
+    registerUnavailable(executor, () => 'Tool "blocked" is not loaded');
 
     const results = await execute([toolCall('call_blocked', 'blocked', {})]);
 
@@ -202,7 +289,7 @@ describe('AgentToolExecutorService', () => {
     const tool = new TestTool('echo');
     registry.register(tool);
     let tag = true;
-    executor.onBeforeExecuteTool((event) => {
+    executor.registerLegacyStarting((event) => {
       if (tag && event.toolCall.id === 'call_dup') executor.recordDupType('call_dup', 'cross_step');
     });
 
@@ -221,69 +308,48 @@ describe('AgentToolExecutorService', () => {
     });
 
     tag = false;
-    await execute([toolCall('call_dup', 'echo', { text: 'c' })]);
-    expect(telemetryEvents).toContainEqual({
-      event: 'tool_call',
-      properties: expect.objectContaining({ tool_call_id: 'call_dup', dup_type: 'normal' }),
-    });
-  });
-
-  it('merges the request trace id into tool_call telemetry', async () => {
-    const tool = new TestTool('echo');
-    registry.register(tool);
-
-    await execute([toolCall('call_traced', 'echo', { text: 'hi' })], undefined, {
-      traceId: 'trace-tool-1',
-    });
-
+    await execute(
+      [toolCall('call_dup', 'echo', { text: 'c' })],
+      undefined,
+      { requestId: 'trace-tool-1' },
+    );
     expect(telemetryEvents).toContainEqual({
       event: 'tool_call',
       properties: expect.objectContaining({
-        tool_call_id: 'call_traced',
-        trace_id: 'trace-tool-1',
+        tool_call_id: 'call_dup',
+        dup_type: 'normal',
+        request_id: 'trace-tool-1',
       }),
     });
   });
 
-  it('truncates final tool results before publishing protocol events', async () => {
-    truncateForModel = async (input) => ({
-      ...input.result,
-      output: 'truncated output',
-      truncated: true,
-    });
-    const tool = new TestTool('large', { result: { output: 'raw output' } });
-    registry.register(tool);
-
-    const results = await execute([toolCall('call_large', 'large', {})]);
-
-    expect(results[0]).toMatchObject({
-      output: 'truncated output',
-      truncated: true,
-    });
-    expect(protocolEvents).toContainEqual(
-      expect.objectContaining({
-        type: 'tool.result',
-        toolCallId: 'call_large',
-        output: 'truncated output',
-      }),
-    );
-  });
-
-  it('preserves internal result notes without exposing them on protocol tool.result events', async () => {
-    const tool = new TestTool('captioned', {
+  it('preserves valid internal notes and drops malformed result metadata', async () => {
+    registry.register(new TestTool('captioned', {
       result: {
         output: 'image sent',
         note: '<system>Image compressed.</system>',
       },
-    });
-    registry.register(tool);
+    }));
+    registry.register(new TestTool('malformed-meta', {
+      result: {
+        output: 'image sent',
+        note: 123,
+        truncated: false,
+      } as unknown as ExecutableToolResult,
+    }));
 
-    const results = await execute([toolCall('call_captioned', 'captioned', {})]);
+    const results = await execute([
+      toolCall('call_captioned', 'captioned', {}),
+      toolCall('call_malformed_meta', 'malformed-meta', {}),
+    ]);
 
     expect(results[0]).toMatchObject({
       output: 'image sent',
       note: '<system>Image compressed.</system>',
     });
+    expect(results[1]).toMatchObject({ output: 'image sent' });
+    expect(results[1] as unknown as Record<string, unknown>).not.toHaveProperty('note');
+    expect(results[1] as unknown as Record<string, unknown>).not.toHaveProperty('truncated');
     const protocolResult = protocolEvents.find(
       (event): event is ToolResultEvent => event.type === 'tool.result',
     );
@@ -295,25 +361,8 @@ describe('AgentToolExecutorService', () => {
     expect(protocolResult as unknown as Record<string, unknown>).not.toHaveProperty('note');
   });
 
-  it('drops malformed notes and non-true truncated flags from internal results', async () => {
-    const tool = new TestTool('malformed-meta', {
-      result: {
-        output: 'image sent',
-        note: 123,
-        truncated: false,
-      } as unknown as ExecutableToolResult,
-    });
-    registry.register(tool);
-
-    const results = await execute([toolCall('call_malformed_meta', 'malformed-meta', {})]);
-
-    expect(results[0]).toMatchObject({ output: 'image sent' });
-    expect(results[0] as unknown as Record<string, unknown>).not.toHaveProperty('note');
-    expect(results[0] as unknown as Record<string, unknown>).not.toHaveProperty('truncated');
-  });
-
-  it('records an error tool.result when the tool name is unknown', async () => {
-    const results = await execute([toolCall('call_missing', 'missing', { text: 'hi' })]);
+  it('records an unknown tool error and preserves its valid args in tool.call.started', async () => {
+    const results = await execute([toolCall('call_missing', 'missing', { x: 1 })]);
 
     expect(results).toEqual([
       expect.objectContaining({
@@ -325,6 +374,10 @@ describe('AgentToolExecutorService', () => {
       calls: ['call_missing'],
       results: ['call_missing'],
     });
+    const toolCallEvent = protocolEvents.find(
+      (event): event is ToolCallStarted => event.type === 'tool.call.started',
+    );
+    expect(toolCallEvent?.args).toEqual({ x: 1 });
     expect(telemetryEvents).toContainEqual({
       event: 'tool_call',
       properties: expect.objectContaining({
@@ -332,7 +385,7 @@ describe('AgentToolExecutorService', () => {
         tool_call_id: 'call_missing',
         tool_name: 'missing',
         outcome: 'error',
-        duration_ms: expect.any(Number),
+        duration_ms: 0,
         error_type: 'error',
       }),
     });
@@ -362,46 +415,6 @@ describe('AgentToolExecutorService', () => {
       calls: ['call_strict'],
       results: ['call_strict'],
     });
-  });
-
-  it('rejects a WaitFor timeout above 90 seconds before the tool body runs', async () => {
-    const tool = new WaitForTool(
-      { list: () => [] } as unknown as IAgentTaskService,
-      ix.get(ITelemetryService),
-      stubFlag(true),
-      stubGoal(),
-      makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
-    );
-    registry.register(tool);
-    const resolveExecution = spyOn(tool, 'resolveExecution');
-
-    const results = await execute([toolCall('call_wait_over_cap', 'WaitFor', { timeout: 91 })]);
-
-    expect(results).toEqual([
-      expect.objectContaining({
-        output: 'Invalid args for tool "WaitFor": /timeout must be <= 90',
-        isError: true,
-      }),
-    ]);
-    expect(resolveExecution).not.toHaveBeenCalled();
-  });
-
-  it('lists valid Read parameter names when offset is used instead of line_offset', async () => {
-    const tool = new TestTool('Read', { parameters: toInputJsonSchema(ReadInputSchema) });
-    registry.register(tool);
-
-    const results = await execute([
-      toolCall('call_read_offset', 'Read', { path: '/tmp/a.txt', offset: 10 }),
-    ]);
-
-    expect(results).toEqual([
-      expect.objectContaining({
-        output:
-          'Invalid args for tool "Read": must NOT have additional property \'offset\'; valid parameters: path, line_offset, column_offset, n_lines, region, full_resolution, max_chars',
-        isError: true,
-      }),
-    ]);
-    expect(tool.calls).toEqual([]);
   });
 
   it('recompiles the cached args validator when a tool advertises a different schema object', async () => {
@@ -440,9 +453,12 @@ describe('AgentToolExecutorService', () => {
       required: ['value'],
       additionalProperties: false,
     };
-    const accepted = await execute([toolCall('call_open', 'dynamic', { value: 1, model: 'fast' })]);
+    const accepted = await execute([
+      toolCall('call_open', 'dynamic', { value: 1, model: 'fast' }),
+    ]);
 
-    expect(accepted).toEqual([expect.objectContaining({ stopTurn: false })]);
+    expect(accepted).toEqual([expect.objectContaining({ output: 'dynamic result' })]);
+    expect(accepted[0]).not.toHaveProperty('stopTurn');
     expect(inner.calls).toHaveLength(1);
     expect(inner.calls[0]?.args).toEqual({ value: 1, model: 'fast' });
   });
@@ -513,64 +529,59 @@ describe('AgentToolExecutorService', () => {
     });
   });
 
-  it("preserves an unknown tool's valid args in the tool.call.started event", async () => {
-    const results = await execute([toolCall('call_unknown', 'missing', { x: 1 })]);
-
-    expect(results).toEqual([
-      expect.objectContaining({
-        output: 'Tool "missing" not found',
-        isError: true,
-      }),
-    ]);
-    const toolCallEvent = protocolEvents.find(
-      (event): event is ToolCallStarted => event.type === 'tool.call.started',
-    );
-    expect(toolCallEvent?.args).toEqual({ x: 1 });
-  });
-
-  it('onBeforeExecuteTool veto with an error result does not invoke execute', async () => {
-    const tool = new TestTool('echo');
-    registry.register(tool);
-    executor.onBeforeExecuteTool((event) => {
-      event.veto({ output: 'forbidden', isError: true });
-    });
-
-    const results = await execute([toolCall('call_echo', 'echo', { text: 'hi' })]);
-
-    expect(results).toEqual([
-      expect.objectContaining({
-        output: 'forbidden',
-        isError: true,
-      }),
-    ]);
-    expect(tool.calls).toEqual([]);
-  });
-
-  it('onBeforeExecuteTool veto with a plain result bypasses execute', async () => {
+  it('onBeforeExecuteTool veto bypasses execute with synthetic results while hook errors emit no tool events', async () => {
+    vi.useFakeTimers();
     const first = new TestTool('first');
     const second = new TestTool('second');
+    const third = new TestTool('third');
+    const fourth = new TestTool('fourth');
     registry.register(first);
     registry.register(second);
-    executor.onBeforeExecuteTool((event) => {
-      if (event.toolCall.id !== 'call_first') return;
-      event.veto({ output: 'synthetic' });
+    registry.register(third);
+    registry.register(fourth);
+    executor.registerLegacyStarting((event) => {
+      if (event.toolCall.id === 'call_first') event.veto({ output: 'forbidden', isError: true });
+      if (event.toolCall.id === 'call_second') event.veto({ output: 'synthetic' });
     });
 
-    const results = await execute([
-      toolCall('call_first', 'first', {}),
-      toolCall('call_second', 'second', {}),
-    ]);
+    try {
+      const results = await execute([
+        toolCall('call_first', 'first', {}),
+        toolCall('call_second', 'second', {}),
+        toolCall('call_third', 'third', {}),
+      ]);
 
-    expect(results).toEqual([
-      expect.objectContaining({ output: 'synthetic' }),
-      expect.objectContaining({ output: 'second result' }),
-    ]);
-    expect(first.calls).toEqual([]);
-    expect(second.calls).toHaveLength(1);
+      expect(results).toEqual([
+        expect.objectContaining({ output: 'forbidden', isError: true }),
+        expect.objectContaining({ output: 'synthetic' }),
+        expect.objectContaining({ output: 'third result' }),
+      ]);
+      expect(first.calls).toEqual([]);
+      expect(second.calls).toEqual([]);
+      expect(third.calls).toHaveLength(1);
+      expect(durations).toEqual([0, 0, 0]);
+      expect(pairedToolCallIds()).toEqual({
+        calls: ['call_first', 'call_second', 'call_third'],
+        results: ['call_first', 'call_second', 'call_third'],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const subscription = executor.registerHook({
+      beforeExecute: () => {
+        throw new Error('beforeExecute blew up');
+      },
+    });
+    await expect(execute([toolCall('call_fourth', 'fourth', {})])).rejects.toThrow('beforeExecute blew up');
+    subscription.dispose();
+    expect(fourth.calls).toEqual([]);
+    expect(protocolEvents.filter((event) => event.toolCallId === 'call_fourth')).toEqual([]);
+    expect(events.filter((event) => event.toolCallId === 'call_fourth')).toEqual([]);
   });
 
-  it('skips later tool calls after an execution requests stopBatchAfterThis', async () => {
-    const first = new TestTool('first', { stopBatchAfterThis: true });
+  it('executes later tool calls instead of stopping the batch', async () => {
+    const first = new TestTool('first');
     const second = new TestTool('second');
     registry.register(first);
     registry.register(second);
@@ -581,17 +592,12 @@ describe('AgentToolExecutorService', () => {
     ]);
 
     expect(results).toHaveLength(2);
-    expect(results).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
-        expect.objectContaining({
-          output: 'Tool skipped because a previous tool call stopped the turn.',
-          isError: true,
-        }),
-      ]),
-    );
+    expect(results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ output: 'first result' }),
+      expect.objectContaining({ output: 'second result' }),
+    ]));
     expect(first.calls).toHaveLength(1);
-    expect(second.calls).toEqual([]);
+    expect(second.calls).toHaveLength(1);
   });
 
   it('yields independent tool results as each call finishes', async () => {
@@ -599,7 +605,6 @@ describe('AgentToolExecutorService', () => {
     const fastRelease = deferred();
     const slowStarted = deferred();
     const fastStarted = deferred();
-    const firstYielded = deferred();
     const slow = new TestTool('slow', {
       accesses: ToolAccesses.readFile('/repo/slow.txt'),
       execute: async () => {
@@ -609,7 +614,7 @@ describe('AgentToolExecutorService', () => {
       },
     });
     const fast = new TestTool('fast', {
-      accesses: ToolAccesses.readFile('/repo/fast.txt'),
+      accesses: ToolAccesses.readFile('/repo/slow.txt'),
       execute: async () => {
         fastStarted.resolve();
         await fastRelease.promise;
@@ -619,28 +624,85 @@ describe('AgentToolExecutorService', () => {
     registry.register(slow);
     registry.register(fast);
 
+    const slowHandler = executor.executor.execute(toolCall('call_slow', 'slow', {}), { origin: 'loop', turnId: 0 });
+    const fastHandler = executor.executor.execute(toolCall('call_fast', 'fast', {}), { origin: 'loop', turnId: 0 });
     const yielded: string[] = [];
-    const execution = (async () => {
-      for await (const item of executor.execute(
-        [toolCall('call_slow', 'slow', {}), toolCall('call_fast', 'fast', {})],
-        { turnId: 0, signal: new AbortController().signal },
-      )) {
-        const output = item.result.output;
-        yielded.push(typeof output === 'string' ? output : JSON.stringify(output));
-        if (yielded.length === 1) firstYielded.resolve();
-      }
-    })();
+    const slowResult = slowHandler.wait().then(() => {
+      yielded.push('slow');
+    });
+    const fastResult = fastHandler.wait().then(() => {
+      yielded.push('fast');
+    });
 
     await Promise.all([slowStarted.promise, fastStarted.promise]);
     fastRelease.resolve();
-    await firstYielded.promise;
-
+    await fastResult;
     expect(yielded).toEqual(['fast']);
 
     slowRelease.resolve();
-    await execution;
-
+    await slowResult;
     expect(yielded).toEqual(['fast', 'slow']);
+    executor.release(slowHandler.taskId);
+    executor.release(fastHandler.taskId);
+
+    const detachedRelease = deferred();
+    const detachedStarted = deferred();
+    const detachedFinalizerStarted = deferred();
+    const detachedFinalizerRelease = deferred();
+    const conflictingStarted = deferred();
+    const nextBatchStarted = deferred();
+    const accesses = ToolAccesses.writeFile('/repo/shared.ts');
+    const detachedTool = new TestTool('detached', {
+      accesses,
+      execute: async () => {
+        detachedStarted.resolve();
+        await detachedRelease.promise;
+        return { output: 'detached done' };
+      },
+    });
+    const conflictingTool = new TestTool('conflicting', {
+      accesses,
+      execute: async () => {
+        conflictingStarted.resolve();
+        return { output: 'conflicting done' };
+      },
+    });
+    const nextBatchTool = new TestTool('next-batch', {
+      accesses,
+      execute: async () => {
+        nextBatchStarted.resolve();
+        return { output: 'next batch done' };
+      },
+    });
+    registry.register(detachedTool);
+    registry.register(conflictingTool);
+    registry.register(nextBatchTool);
+
+    truncateForModel = async (input) => {
+      if (input.toolCallId === 'call_detached') {
+        detachedFinalizerStarted.resolve();
+        await detachedFinalizerRelease.promise;
+      }
+      return input.result;
+    };
+    const detached = executor.executor.execute(toolCall('call_detached', 'detached', {}), { origin: 'loop', turnId: 1, step: 0 });
+    const conflicting = executor.executor.execute(toolCall('call_conflicting', 'conflicting', {}), { origin: 'loop', turnId: 1, step: 0 });
+    const nextBatch = executor.executor.execute(toolCall('call_next_batch', 'next-batch', {}), { origin: 'loop', turnId: 1, step: 1 });
+    await detachedStarted.promise;
+    expect(detached.detach('background')).toBeDefined();
+    await Promise.all([conflictingStarted.promise, nextBatchStarted.promise]);
+    expect(conflictingTool.calls).toHaveLength(1);
+    expect(nextBatchTool.calls).toHaveLength(1);
+    expect(detached.snapshot().status).toBe('running');
+
+    detachedRelease.resolve();
+    await detachedFinalizerStarted.promise;
+    detachedFinalizerRelease.resolve();
+    await detached.wait();
+    await Promise.all([conflicting.wait(), nextBatch.wait()]);
+    executor.release(detached.taskId);
+    executor.release(conflicting.taskId);
+    executor.release(nextBatch.taskId);
   });
 
   it('writes resolveExecution description and display onto tool.call.started events', async () => {
@@ -705,13 +767,15 @@ describe('AgentToolExecutorService', () => {
     });
   });
 
-  it('forwards onUpdate calls as tool.progress events', async () => {
+  it('publishes handler fields and output as tool.updated events', async () => {
     const updates: ToolUpdate[] = [
       { kind: 'stdout', text: 'working' },
-      { kind: 'progress', percent: 50 },
+      { kind: 'progress', text: 'half', percent: 50 },
     ];
+    let created: readonly unknown[] = [];
     const tool = new TestTool('progress', {
       execute: async (ctx) => {
+        created = executor.handlers();
         for (const update of updates) ctx.onUpdate?.(update);
         return { output: 'done' };
       },
@@ -720,109 +784,72 @@ describe('AgentToolExecutorService', () => {
 
     await execute([toolCall('call_progress', 'progress', {})]);
 
-    expect(protocolEvents.filter((event) => event.type === 'tool.progress')).toEqual([
-      expect.objectContaining({
-        type: 'tool.progress',
-        turnId: 0,
-        toolCallId: 'call_progress',
-        update: updates[0],
-      }),
-      expect.objectContaining({
-        type: 'tool.progress',
-        turnId: 0,
-        toolCallId: 'call_progress',
-        update: updates[1],
-      }),
-    ]);
+    expect(created).toHaveLength(1);
+    const events = protocolEvents.filter((event): event is ToolUpdated => event.type === 'tool.updated');
+    const output = events.find((event) => event.output !== undefined);
+    expect(output).toMatchObject({
+      type: 'tool.updated',
+      turnId: 0,
+      toolCallId: 'call_progress',
+      taskId: (created[0] as { taskId: string }).taskId,
+      status: 'running',
+      detached: false,
+      fields: {},
+      output: { offset: 0, text: 'working' },
+    });
+    expect(events.find((event) => event.fields['progress'] !== undefined)).toMatchObject({
+      fields: { progress: { text: 'half', percent: 50 } },
+      output: undefined,
+    });
+    expect(events.at(-1)).toMatchObject({
+      status: 'success',
+      detached: false,
+      output: undefined,
+    });
+    expect(events.at(-1)?.fields).not.toHaveProperty('result');
+    expect(events.at(-1)).not.toHaveProperty('args');
+    expect(events.at(-1)).not.toHaveProperty('prepared');
   });
 
   it('does not start a queued conflicting tool after abort', async () => {
-    const controller = new AbortController();
-    const first = new ControlledTool('first', ToolAccesses.writeFile('/repo/a.ts'));
-    const second = new ControlledTool('second', ToolAccesses.writeFile('/repo/a.ts'));
-    const outcomes = new Map<string, ToolExecutionOutcome>();
-    registry.register(first);
-    registry.register(second);
-    executor.hooks.onDidExecuteTool.register('capture-outcomes', async (ctx, next) => {
-      outcomes.set(ctx.toolCall.id, ctx.outcome);
-      await next();
-    });
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const first = new ControlledTool('first', ToolAccesses.writeFile('/repo/a.ts'));
+      const second = new ControlledTool('second', ToolAccesses.writeFile('/repo/a.ts'));
+      const outcomes = new Map<string, ToolExecutionOutcome>();
+      registry.register(first);
+      registry.register(second);
+      registerLegacyDid(executor, 'capture-outcomes', async (ctx, next) => {
+        outcomes.set(ctx.toolCall.id, ctx.outcome);
+        await next();
+      });
 
-    const execution = execute(
-      [toolCall('call_first', 'first', {}), toolCall('call_second', 'second', {})],
-      controller.signal,
-    );
-    await first.started;
-    controller.abort();
-    const results = await execution;
+      const execution = execute(
+        [toolCall('call_first', 'first', {}), toolCall('call_second', 'second', {})],
+        controller.signal,
+      );
+      await first.started;
+      await vi.advanceTimersByTimeAsync(25);
+      controller.abort();
+      const results = await execution;
 
-    expect(first.calls).toHaveLength(1);
-    expect(second.calls).toHaveLength(0);
-    expect(outcomes).toEqual(
-      new Map([
-        ['call_first', 'executed'],
-        ['call_second', 'aborted'],
-      ]),
-    );
-    expect(results).toEqual([
-      expect.objectContaining({ output: 'Tool "first" was aborted', isError: true }),
-      expect.objectContaining({ output: 'Tool "second" was aborted', isError: true }),
-    ]);
-  });
-
-  it('runs a same-path batch while the snapshot hook is holding that path', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'tool-executor-snapshot-'));
-    const target = join(root, 'same.ts');
-    let current = new TextEncoder().encode('version zero');
-    const environment = {
-      acquireWhenReady: () =>
-        Promise.resolve({
-          environment: {
-            fs: {
-              stat: () =>
-                Promise.resolve({ isFile: true, isDirectory: false, size: current.byteLength }),
-              readBytes: () => Promise.resolve(current),
-            },
-            path: hostWorkspacePathSemantics,
-          },
-          dispose: () => {},
-        }),
-    } as unknown as IAgentEnvironmentService;
-    new SnapshotService(
-      ix.get(IAgentScopeContext),
-      makeSessionContext({
-        sessionId: 'ses_snapshot',
-        workspaceId: 'ws',
-        sessionDir: root,
-        sessionScope: 'ses_snapshot',
-        cwd: root,
-      }),
-      stubBootstrap(root),
-      environment,
-      stubWorkspaceContext(root),
-      { now: () => new Date(5_000), timeZone: () => 'UTC' } as unknown as IHostClock,
-      executor,
-      ix.get(IEventBus),
-    );
-    const edit = new TestTool('edit', {
-      accesses: ToolAccesses.readWriteFile(target),
-      display: { kind: 'file_io', operation: 'edit', path: target },
-      execute: async (_ctx, args) => {
-        current = new TextEncoder().encode(String(args['version']));
-        return { output: `edited ${String(args['version'])}` };
-      },
-    });
-    registry.register(edit);
-
-    const results = await execute([
-      toolCall('call_first', 'edit', { version: 'version a' }),
-      toolCall('call_second', 'edit', { version: 'version b' }),
-    ]);
-
-    expect(results.map((result) => result.output)).toEqual([
-      'edited version a',
-      'edited version b',
-    ]);
+      expect(first.calls).toHaveLength(1);
+      expect(second.calls).toHaveLength(0);
+      expect(outcomes).toEqual(
+        new Map([
+          ['call_first', 'aborted'],
+          ['call_second', 'aborted'],
+        ]),
+      );
+      expect(results).toEqual([
+        expect.objectContaining({ output: 'Tool "first" was aborted', isError: true }),
+        expect.objectContaining({ output: 'Tool "second" was aborted', isError: true }),
+      ]);
+      expect([...durations].sort((a, b) => a - b)).toEqual([0, 25]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('every tool.call.started still has a matching tool.result when aborted mid-batch', async () => {
@@ -847,7 +874,7 @@ describe('AgentToolExecutorService', () => {
     await execution;
 
     const paired = pairedToolCallIds();
-    expect(paired.calls).toEqual(['call_first', 'call_second', 'call_third']);
+    expect(paired.calls.toSorted()).toEqual(['call_first', 'call_second', 'call_third']);
     expect(paired.results).toHaveLength(3);
     expect(paired.results).toEqual(
       expect.arrayContaining(['call_first', 'call_second', 'call_third']),
@@ -874,49 +901,10 @@ describe('AgentToolExecutorService', () => {
     ]);
   });
 
-  it('onExecuteTool wraps the actual tool execution', async () => {
-    const order: string[] = [];
-    const tool = new TestTool('echo', {
-      execute: async () => {
-        order.push('execute');
-        return { output: 'done' };
-      },
-    });
-    registry.register(tool);
-    executor.hooks.onExecuteTool.register('capture', async (_ctx, next) => {
-      order.push('before');
-      await next();
-      order.push('after');
-    });
-
-    const results = await execute([toolCall('call_echo', 'echo', {})]);
-
-    expect(results).toEqual([expect.objectContaining({ output: 'done' })]);
-    expect(order).toEqual(['before', 'execute', 'after']);
-  });
-
-  it('onExecuteTool failure before execution blocks the tool with an explicit error', async () => {
-    const tool = new TestTool('echo');
-    registry.register(tool);
-    executor.hooks.onExecuteTool.register('capture', async () => {
-      throw new Error('capture crashed');
-    });
-
-    const results = await execute([toolCall('call_echo', 'echo', {})]);
-
-    expect(results).toEqual([
-      expect.objectContaining({
-        output: 'onExecuteTool hook failed for "echo": capture crashed',
-        isError: true,
-      }),
-    ]);
-    expect(tool.calls).toEqual([]);
-  });
-
   it('onDidExecuteTool failures replace the raw output with a hook error', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    executor.hooks.onDidExecuteTool.register('fail-finalize', async () => {
+    registerLegacyDid(executor, 'fail-finalize', async () => {
       throw new Error('finalize crashed');
     });
 
@@ -924,7 +912,7 @@ describe('AgentToolExecutorService', () => {
 
     expect(results).toEqual([
       expect.objectContaining({
-        output: 'onDidExecuteTool hook failed for "echo": finalize crashed',
+        output: 'after-execute hook failed for "echo": finalize crashed',
         isError: true,
       }),
     ]);
@@ -932,27 +920,27 @@ describe('AgentToolExecutorService', () => {
     expect(JSON.stringify(toolResultEvents)).not.toContain('raw output');
   });
 
-  it('onDidExecuteTool can stop the turn without marking the tool failed', async () => {
-    const tool = new TestTool('echo');
-    registry.register(tool);
-    executor.hooks.onDidExecuteTool.register('stop', async (ctx) => {
-      ctx.stopTurn = true;
-    });
+  it('stops one handler without aborting another handler', async () => {
+    const first = new ControlledTool('first', ToolAccesses.readFile('/repo/first.ts'));
+    const second = new ControlledTool('second', ToolAccesses.readFile('/repo/second.ts'));
+    registry.register(first);
+    registry.register(second);
+    const firstHandler = executor.executor.execute(toolCall('call_first', 'first', {}), { origin: 'loop', turnId: 0 });
+    const secondHandler = executor.executor.execute(toolCall('call_second', 'second', {}), { origin: 'loop', turnId: 0 });
+    await Promise.all([first.started, second.started]);
 
-    const results = await execute([toolCall('call_echo', 'echo', { text: 'done' })]);
-
-    expect(results).toEqual([
-      expect.objectContaining({
-        output: 'done',
-        stopTurn: true,
-      }),
-    ]);
+    const stopped = await firstHandler.stop('cancel first');
+    expect(stopped.outcome.type).toBe('aborted');
+    expect(secondHandler.snapshot().status).toBe('running');
+    expect((await secondHandler.wait()).outcome.type).toBe('success');
+    executor.release(firstHandler.taskId);
+    executor.release(secondHandler.taskId);
   });
 
   it('onDidExecuteTool can replace the final tool result', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    executor.hooks.onDidExecuteTool.register('replace-result', async (ctx) => {
+    registerLegacyDid(executor, 'replace-result', async (ctx) => {
       ctx.result = { output: 'hook output', isError: true };
     });
 
@@ -973,38 +961,17 @@ describe('AgentToolExecutorService', () => {
       }),
     });
   });
-  it('threads a declared delivery onto the yielded result for the agent layer to consume', async () => {
-    const message = {
-      role: 'user' as const,
-      content: [{ type: 'text' as const, text: 'injected' }],
-      toolCalls: [],
-      origin: { kind: 'skill_activation', skillName: 'commit', trigger: 'model-tool' },
-    };
-    const tool = new TestTool('skillish', {
-      result: { output: 'ack', delivery: { kind: 'steer', message } },
-    });
-    registry.register(tool);
-
-    const results = await execute([toolCall('call_skillish', 'skillish', {})]);
-
-    expect(results).toHaveLength(1);
-    expect(results[0]!.output).toBe('ack');
-    expect(results[0]!.delivery).toMatchObject({
-      kind: 'steer',
-      message: { content: [{ type: 'text', text: 'injected' }] },
-    });
-  });
 });
 
 describe('onBeforeExecuteTool veto semantics', () => {
   it('applies the first veto and does not run later listeners', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    const later = mock();
-    executor.onBeforeExecuteTool((event) => {
+    const later = vi.fn();
+    executor.registerLegacyStarting((event) => {
       event.veto({ output: 'first', isError: true });
     });
-    executor.onBeforeExecuteTool((event) => {
+    executor.registerLegacyStarting((event) => {
       later();
       event.veto({ output: 'second', isError: true });
     });
@@ -1019,11 +986,11 @@ describe('onBeforeExecuteTool veto semantics', () => {
   it('lets an allow end adjudication before later listeners run', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    const later = mock();
-    executor.onBeforeExecuteTool((event) => {
+    const later = vi.fn();
+    executor.registerLegacyStarting((event) => {
       event.allow();
     });
-    executor.onBeforeExecuteTool((event) => {
+    executor.registerLegacyStarting((event) => {
       later();
       event.veto({ output: 'denied', isError: true });
     });
@@ -1039,7 +1006,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
     const tool = new TestTool('echo');
     registry.register(tool);
     const metadata = { marker: true };
-    executor.onBeforeExecuteTool((event) => {
+    executor.registerLegacyStarting((event) => {
       event.pass(metadata);
     });
 
@@ -1051,11 +1018,11 @@ describe('onBeforeExecuteTool veto semantics', () => {
   it('never invokes waitUntil factories when an immediate veto decides the call', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    const askFactory = mock(async () => undefined);
-    executor.onBeforeExecuteTool((event) => {
+    const askFactory = vi.fn(async () => undefined);
+    executor.registerLegacyStarting((event) => {
       event.waitUntil(askFactory);
     });
-    executor.onBeforeExecuteTool((event) => {
+    executor.registerLegacyStarting((event) => {
       event.veto({ output: 'disabled', isError: true });
     });
 
@@ -1070,19 +1037,19 @@ describe('onBeforeExecuteTool veto semantics', () => {
     const tool = new TestTool('echo');
     registry.register(tool);
     const fulfilled: string[] = [];
-    executor.onBeforeExecuteTool((event) => {
+    executor.registerLegacyStarting((event) => {
       event.waitUntil(async () => {
         fulfilled.push('first');
         return undefined;
       });
     });
-    executor.onBeforeExecuteTool((event) => {
+    executor.registerLegacyStarting((event) => {
       event.waitUntil(async () => {
         fulfilled.push('second');
         return { veto: { output: 'second-denied', isError: true } };
       });
     });
-    executor.onBeforeExecuteTool((event) => {
+    executor.registerLegacyStarting((event) => {
       event.waitUntil(async () => {
         fulfilled.push('third');
         return undefined;
@@ -1092,28 +1059,17 @@ describe('onBeforeExecuteTool veto semantics', () => {
     const results = await execute([toolCall('call_echo', 'echo', { text: 'hi' })]);
 
     expect(fulfilled).toEqual(['first', 'second']);
-    expect(results).toEqual([expect.objectContaining({ output: 'second-denied', isError: true })]);
+    expect(results).toEqual([
+      expect.objectContaining({ output: 'second-denied', isError: true }),
+    ]);
     expect(tool.calls).toEqual([]);
-  });
-
-  it('lets a call through when every waitUntil factory returns undefined', async () => {
-    const tool = new TestTool('echo');
-    registry.register(tool);
-    executor.onBeforeExecuteTool((event) => {
-      event.waitUntil(async () => undefined);
-    });
-
-    const results = await execute([toolCall('call_echo', 'echo', { text: 'hi' })]);
-
-    expect(results).toEqual([expect.objectContaining({ output: 'hi' })]);
-    expect(tool.calls).toHaveLength(1);
   });
 
   it('throws when a statement is made after the statement window closed', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
     let captured: BeforeToolExecuteEvent | undefined;
-    executor.onBeforeExecuteTool((event) => {
+    executor.registerLegacyStarting((event) => {
       captured = event;
     });
 
@@ -1131,11 +1087,11 @@ describe('onBeforeExecuteTool veto semantics', () => {
 });
 
 describe('onWillExecuteTool', () => {
-  it('awaits registered waitUntil work before executing the tool', async () => {
+  it('awaits waitUntil work and lets calls through when it returns undefined', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    const gate = deferred<void>();
-    executor.onWillExecuteTool((event) => {
+    const gate = deferred();
+    registerLegacyWill(executor, (event) => {
       event.waitUntil(gate.promise);
     });
 
@@ -1147,14 +1103,18 @@ describe('onWillExecuteTool', () => {
     const results = await pending;
     expect(results).toEqual([expect.objectContaining({ output: 'hi' })]);
     expect(tool.calls).toHaveLength(1);
+
+    const passed = await execute([toolCall('call_passed', 'echo', { text: 'passed' })]);
+    expect(passed).toEqual([expect.objectContaining({ output: 'passed' })]);
+    expect(tool.calls).toHaveLength(2);
   });
 
   it('does not fire for a vetoed call', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    const willListener = mock();
-    executor.onWillExecuteTool(willListener);
-    executor.onBeforeExecuteTool((event) => {
+    const willListener = vi.fn();
+    registerLegacyWill(executor, willListener);
+    executor.registerLegacyStarting((event) => {
       event.veto({ output: 'nope', isError: true });
     });
 
@@ -1166,27 +1126,21 @@ describe('onWillExecuteTool', () => {
 });
 
 describe('parseToolCallArguments', () => {
-  it('treats null or empty arguments as an empty object', () => {
+  it('parses valid JSON and treats null or empty arguments as an empty object', () => {
     expect(parseToolCallArguments(null)).toEqual({ data: {}, parseFailed: false });
     expect(parseToolCallArguments('')).toEqual({ data: {}, parseFailed: false });
-  });
-
-  it('parses valid JSON', () => {
     expect(parseToolCallArguments('{"text":"hi"}')).toEqual({
       data: { text: 'hi' },
       parseFailed: false,
     });
   });
 
-  it('falls back to an empty object when JSON is malformed', () => {
+  it('falls back to an empty object for malformed and unrecoverable JSON', () => {
     expect(parseToolCallArguments('{"text":"hi",}')).toEqual({
       data: {},
       parseFailed: true,
       error: expect.any(String),
     });
-  });
-
-  it('falls back to an empty object for unrecoverable JSON', () => {
     expect(parseToolCallArguments('{}{')).toEqual({
       data: {},
       parseFailed: true,
@@ -1198,7 +1152,6 @@ describe('parseToolCallArguments', () => {
 describe('truncation pipeline', () => {
   let homeDir: string;
   let readConfig: IConfigService;
-  let truncation: IAgentToolResultTruncationService;
   let globProcess: HostProcessService;
   let attachmentStore: SessionMediaStoreService;
   let mediaEnvironment: IAgentEnvironmentService;
@@ -1216,22 +1169,16 @@ describe('truncation pipeline', () => {
     );
     const storage = new FileStorageService(homeDir);
     truncationContainer.stub(IFileSystemStorageService, storage);
-    attachmentStore = new SessionMediaStoreService(
-      makeSessionContext({
-        sessionId: 'session',
-        workspaceId: 'workspace',
-        cwd: homeDir,
-        sessionDir: join(homeDir, 'sessions/workspace/session'),
-        sessionScope: 'sessions/workspace/session',
-      }),
-      storage,
-      new JsonAtomicDocumentStore(storage),
-    );
+    attachmentStore = new SessionMediaStoreService(makeSessionContext({
+      sessionId: 'session', workspaceId: 'workspace', cwd: homeDir,
+      sessionDir: join(homeDir, 'sessions/workspace/session'),
+      sessionScope: 'sessions/workspace/session',
+    }), storage, new JsonAtomicDocumentStore(storage));
     truncationContainer.set(
       IAgentToolResultTruncationService,
       new SyncDescriptor(ToolResultTruncationService),
     );
-    truncation = truncationContainer.get(IAgentToolResultTruncationService);
+    const truncation = truncationContainer.get(IAgentToolResultTruncationService);
     truncateForModel = (input) => truncation.truncateForModel(input);
     truncationContainer.stub(ILogService, stubLog());
     truncationContainer.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1240,34 +1187,21 @@ describe('truncation pipeline', () => {
     readConfig = truncationContainer.get(IConfigService);
     await readConfig.ready;
     globProcess = new HostProcessService();
-    const environment = Object.assign(
-      new FakeEnvironment(
-        { environmentId: 'local', generation: 'test' },
-        {
-          capabilities: ['fs', 'process'],
-          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
-        },
-      ),
-      { fs: new HostFileSystem(), process: globProcess },
-    );
+    const environment = Object.assign(new FakeEnvironment(
+      { environmentId: 'local', generation: 'test' },
+      { capabilities: ['fs', 'process'] },
+    ), { fs: new HostFileSystem(), process: globProcess });
     const binding = stubAgentEnvironment(environment);
     mediaEnvironment = binding;
     registry.register(new ReadTool(
       binding,
       stubWorkspaceContext(homeDir),
       { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
-      {
-        _serviceBrand: undefined,
-        getMediaReadContext: () => ({
-          capabilities: { image_in: true, video_in: true, audio_in: false, thinking: false, tool_use: true, max_context_tokens: 128_000 },
-          inlineVideoSupported: false,
-        }),
-      },
       truncation,
       readConfig,
       {
         getModelCapabilities: () => ({ image_in: true, video_in: true }),
-      } as unknown as IAgentProfileService,
+      } as unknown as IAgentLoopService,
       { isToolActive: () => true } as unknown as IAgentToolPolicyService,
       { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
       attachmentStore,
@@ -1309,24 +1243,19 @@ describe('truncation pipeline', () => {
     expect(rendered).toMatch(/\[elided: chars \[4096, \d+\)\]/);
 
     const outputPath = renderedOutputPath(rendered);
-    expect(slashPath(outputPath)).toContain(
-      slashPath(
-        join(homeDir, 'sessions/workspace/session/agents/main/tool-results/noisy-call_noisy-'),
-      ),
+    expect(outputPath).toContain(
+      join(homeDir, 'sessions/workspace/session/agents/main/tool-results/noisy-call_noisy-'),
     );
     expect(readFileSync(outputPath, 'utf8')).toBe(fullOutput);
   });
 
   it('recovers every Glob match through spill and Read when the match limit is disabled', async () => {
-    const expected = Array.from(
-      { length: 500 },
-      (_, index) => `file-${String(index).padStart(3, '0')}-${'x'.repeat(100)}.ts`,
+    const expected = Array.from({ length: 500 }, (_, index) =>
+      `file-${String(index).padStart(3, '0')}-${'x'.repeat(100)}.ts`,
     );
     await Promise.all(expected.map((name) => writeFile(join(homeDir, name), '')));
 
-    const [result] = await execute([
-      toolCall('glob_all', 'Glob', { pattern: '*.ts', head_limit: 0 }),
-    ]);
+    const [result] = await execute([toolCall('glob_all', 'Glob', { pattern: '*.ts', head_limit: 0 })]);
 
     expect(result?.isError).not.toBe(true);
     expect(result?.truncated).toBe(true);
@@ -1339,12 +1268,7 @@ describe('truncation pipeline', () => {
       const [page] = await execute([toolCall(`read_glob_${String(pages++)}`, 'Read', args)]);
       expect(page?.isError).not.toBe(true);
       if (typeof page?.output !== 'string') throw new Error('expected Read text');
-      recovered.push(
-        ...page.output
-          .replaceAll(/^\d+\t/gm, '')
-          .split('\n')
-          .filter(Boolean),
-      );
+      recovered.push(...page.output.replaceAll(/^\d+\t/gm, '').split('\n').filter(Boolean));
       const next = /Next Read: (\{[^\n]*\})/.exec(page.note ?? '')?.[1];
       args = next === undefined ? undefined : ReadInputSchema.parse(JSON.parse(next));
     }
@@ -1357,14 +1281,10 @@ describe('truncation pipeline', () => {
     await readConfig.set('read', { maxChars: 500_000 });
     await readConfig.reload();
     const root = await mkdtemp(join(tmpdir(), 'r'.repeat(180)));
-    const rootSlash = slashPath(root);
     try {
-      const names = Array.from(
-        { length: 60_000 },
-        (_, i) => `file-${String(i).padStart(6, '0')}.ts`,
-      );
+      const names = Array.from({ length: 60_000 }, (_, i) => `file-${String(i).padStart(6, '0')}.ts`);
       const stdout = names.map((name) => `./${name}`).join('\n') + '\n';
-      spyOn(globProcess, 'spawn').mockImplementation(async () => ({
+      vi.spyOn(globProcess, 'spawn').mockImplementation(async () => ({
         _serviceBrand: undefined,
         pid: 123,
         exitCode: 0,
@@ -1379,39 +1299,22 @@ describe('truncation pipeline', () => {
       let offset = 0;
       let globPages = 0;
       do {
-        const [page] = await execute([
-          toolCall(`glob_large_${String(globPages++)}`, 'Glob', {
-            pattern: '*.ts',
-            path: root,
-            head_limit: 0,
-            offset,
-          }),
-        ]);
+        const [page] = await execute([toolCall(`glob_large_${String(globPages++)}`, 'Glob', {
+          pattern: '*.ts', path: root, head_limit: 0, offset,
+        })]);
         expect(page?.isError).not.toBe(true);
         if (typeof page?.output !== 'string') throw new Error('expected Glob output');
         expect(page.output).toContain('the full output was saved to a file');
-        const continuation = /Continue with the same search arguments and offset=(\d+)\./.exec(
-          page.output,
-        )?.[1];
+        const continuation = /Continue with the same search arguments and offset=(\d+)\./.exec(page.output)?.[1];
         if (continuation !== undefined) expect(Number(continuation)).toBeGreaterThan(offset);
         offset = continuation === undefined ? 0 : Number(continuation);
-        let args: ReadInput | undefined = {
-          path: renderedOutputPath(page.output),
-          max_chars: 500_000,
-        };
+        let args: ReadInput | undefined = { path: renderedOutputPath(page.output), max_chars: 500_000 };
         let reads = 0;
         while (args !== undefined && reads < 40) {
-          const [read] = await execute([
-            toolCall(`read_large_${String(globPages)}_${String(reads++)}`, 'Read', args),
-          ]);
+          const [read] = await execute([toolCall(`read_large_${String(globPages)}_${String(reads++)}`, 'Read', args)]);
           expect(read?.isError).not.toBe(true);
           if (typeof read?.output !== 'string') throw new Error('expected Read output');
-          recovered.push(
-            ...read.output
-              .replaceAll(/^\d+\t/gm, '')
-              .split('\n')
-              .filter((line) => line.startsWith(`${rootSlash}/`)),
-          );
+          recovered.push(...read.output.replaceAll(/^\d+\t/gm, '').split('\n').filter((line) => line.startsWith(root + '/')));
           const next = /Next Read: (\{[^\n]*\})/.exec(read.note ?? '')?.[1];
           args = next === undefined ? undefined : ReadInputSchema.parse(JSON.parse(next));
         }
@@ -1419,7 +1322,7 @@ describe('truncation pipeline', () => {
       } while (offset > 0 && globPages < 5);
       expect(offset).toBe(0);
       expect(globPages).toBe(2);
-      expect(recovered).toEqual(names.map((name) => `${rootSlash}/${name}`));
+      expect(recovered).toEqual(names.map((name) => `${root}/${name}`));
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1428,44 +1331,25 @@ describe('truncation pipeline', () => {
   it('keeps the MCP attachment path visible after text spill without repeating the remote call', async () => {
     const bytes = Buffer.from('%PDF-1.4\nexample report\n%%EOF');
     const client = {
-      async listTools() {
-        return [];
-      },
-      callTool: mock(async () => ({
+      async listTools() { return []; },
+      callTool: vi.fn(async () => ({
         isError: false,
         content: [
           { type: 'text', text: 'x'.repeat(100_000) },
-          {
-            type: 'resource',
-            resource: {
-              uri: 'example://report',
-              mimeType: 'application/pdf',
-              blob: bytes.toString('base64'),
-            },
-          },
+          { type: 'resource', resource: {
+            uri: 'example://report', mimeType: 'application/pdf', blob: bytes.toString('base64'),
+          } },
         ],
       })),
       async ping() {},
     } satisfies MCPClient;
-    registry.register(
-      createMcpTool(
-        'mcp__example__report',
-        {
-          name: 'report',
-          description: 'Example report',
-          parameters: {},
-        },
-        client,
-        { attachmentStore },
-      ),
-      { source: 'mcp' },
-    );
+    registry.register(createMcpTool('mcp__example__report', {
+      name: 'report', description: 'Example report', parameters: {},
+    }, client, { attachmentStore }), { source: 'mcp' });
     const [result] = await execute([toolCall('report', 'mcp__example__report', {})]);
     expect(result?.isError).not.toBe(true);
     if (result === undefined) throw new Error('expected MCP result');
-    const visible = renderToolResultForModel(result)
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n');
+    const visible = renderToolResultForModel(result).map((part) => part.type === 'text' ? part.text : '').join('\n');
     expect(visible).toContain('output_path:');
     expect(visible.length).toBeLessThan(50_000);
     const encodedPath = /Original attachment saved at: ("[^\n]+")/.exec(visible)?.[1];
@@ -1474,165 +1358,82 @@ describe('truncation pipeline', () => {
     expect(client.callTool).toHaveBeenCalledTimes(1);
   });
 
-  it.each([0, 100_000])(
-    'bounds batch attachment notices and recovers every reference with %s text characters',
-    async (textSize) => {
-      const originals = Array.from({ length: 150 }, (_, i) =>
-        Buffer.from(`%PDF-1.4\nreport ${String(i)}\n%%EOF`),
-      );
-      const client: MCPClient = {
-        async listTools() {
-          return [];
-        },
-        async callTool() {
-          return {
-            isError: false,
-            content: [
-              { type: 'text', text: `${'x'.repeat(100)}\n`.repeat(Math.ceil(textSize / 101)) },
-              ...originals.map((bytes, i) => ({
-                type: 'resource',
-                resource: {
-                  uri: `example://report/${String(i)}`,
-                  mimeType: 'application/pdf',
-                  blob: bytes.toString('base64'),
-                },
-              })),
-            ],
-          };
-        },
-        async ping() {},
-      };
-      registry.register(
-        createMcpTool(
-          'mcp__example__batch',
-          {
-            name: 'batch',
-            description: 'Example reports',
-            parameters: {},
-          },
-          client,
-          { attachmentStore },
-        ),
-        { source: 'mcp' },
-      );
-      const [result] = await execute([toolCall('batch', 'mcp__example__batch', {})]);
-      if (result === undefined) throw new Error('expected batch output');
-      const visible = renderToolResultForModel(result)
-        .map((part) => (part.type === 'text' ? part.text : ''))
-        .join('\n');
-      expect(visible.length).toBeLessThan(50_000);
-      const encodedPath = /Attachment details reference: ("[^\n]+")/.exec(visible)?.[1];
-      expect(encodedPath).toBeDefined();
-      let args: ReadInput | undefined = {
-        path: JSON.parse(encodedPath!) as string,
-        max_chars: 8000,
-      };
-      let recovered = '';
-      let pages = 0;
-      while (args !== undefined && pages < 30) {
-        const [read] = await execute([toolCall(`read_batch_${String(pages++)}`, 'Read', args)]);
-        expect(read?.isError).not.toBe(true);
-        if (typeof read?.output !== 'string') throw new Error('expected Read output');
-        recovered += read.output.replaceAll(/^\d+\t/gm, '') + '\n';
-        const next = /Next Read: (\{[^\n]*\})/.exec(read.note ?? '')?.[1];
-        args = next === undefined ? undefined : ReadInputSchema.parse(JSON.parse(next));
-      }
-      expect(args).toBeUndefined();
-      expect(pages).toBeGreaterThan(1);
-      const paths = [...recovered.matchAll(/Original attachment saved at: ("[^\n]+")/g)].map(
-        (match) => JSON.parse(match[1]!) as string,
-      );
-      expect(paths).toHaveLength(150);
-      for (const [i, path] of paths.entries())
-        expect(readFileSync(path).equals(originals[i]!)).toBe(true);
-    },
-  );
+  it.each([0, 100_000])('bounds batch attachment notices and recovers every reference with %s text characters', async (textSize) => {
+    const originals = Array.from({ length: 150 }, (_, i) => Buffer.from(`%PDF-1.4\nreport ${String(i)}\n%%EOF`));
+    const client: MCPClient = {
+      async listTools() { return []; },
+      async callTool() { return {
+        isError: false,
+        content: [
+          { type: 'text', text: `${'x'.repeat(100)}\n`.repeat(Math.ceil(textSize / 101)) },
+          ...originals.map((bytes, i) => ({ type: 'resource', resource: {
+            uri: `example://report/${String(i)}`, mimeType: 'application/pdf', blob: bytes.toString('base64'),
+          } })),
+        ],
+      }; },
+      async ping() {},
+    };
+    registry.register(createMcpTool('mcp__example__batch', {
+      name: 'batch', description: 'Example reports', parameters: {},
+    }, client, { attachmentStore }), { source: 'mcp' });
+    const [result] = await execute([toolCall('batch', 'mcp__example__batch', {})]);
+    if (result === undefined) throw new Error('expected batch output');
+    const visible = renderToolResultForModel(result).map((part) => part.type === 'text' ? part.text : '').join('\n');
+    expect(visible.length).toBeLessThan(50_000);
+    const encodedPath = /Attachment details reference: ("[^\n]+")/.exec(visible)?.[1];
+    expect(encodedPath).toBeDefined();
+    let args: ReadInput | undefined = { path: JSON.parse(encodedPath!) as string, max_chars: 8000 };
+    let recovered = '';
+    let pages = 0;
+    while (args !== undefined && pages < 30) {
+      const [read] = await execute([toolCall(`read_batch_${String(pages++)}`, 'Read', args)]);
+      expect(read?.isError).not.toBe(true);
+      if (typeof read?.output !== 'string') throw new Error('expected Read output');
+      recovered += read.output.replaceAll(/^\d+\t/gm, '') + '\n';
+      const next = /Next Read: (\{[^\n]*\})/.exec(read.note ?? '')?.[1];
+      args = next === undefined ? undefined : ReadInputSchema.parse(JSON.parse(next));
+    }
+    expect(args).toBeUndefined();
+    expect(pages).toBeGreaterThan(1);
+    const paths = [...recovered.matchAll(/Original attachment saved at: ("[^\n]+")/g)].map((match) => JSON.parse(match[1]!) as string);
+    expect(paths).toHaveLength(150);
+    for (const [i, path] of paths.entries()) expect(readFileSync(path).equals(originals[i]!)).toBe(true);
+  });
 
   it('resolves attachment references for media reads and exposes binary paths for converters', async () => {
     const environmentFs = mediaEnvironment.inspect().fs!;
-    spyOn(environmentFs, 'stat').mockRejectedValue(new Error('client cannot access daemon storage'));
-    spyOn(environmentFs, 'readBytes').mockRejectedValue(new Error('client cannot access daemon storage'));
-    spyOn(environmentFs, 'readLines').mockImplementation(() => {
+    vi.spyOn(environmentFs, 'stat').mockRejectedValue(new Error('client cannot access daemon storage'));
+    vi.spyOn(environmentFs, 'readBytes').mockRejectedValue(new Error('client cannot access daemon storage'));
+    vi.spyOn(environmentFs, 'readLines').mockImplementation(() => {
       throw new Error('client cannot access daemon storage');
     });
-    registry.register(new ReadTool(
-      mediaEnvironment,
-      stubWorkspaceContext(homeDir),
-      { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
-      {
-        _serviceBrand: undefined,
-        getMediaReadContext: () => ({
-          capabilities: { image_in: true, video_in: false, audio_in: false, thinking: false, tool_use: true, max_context_tokens: 128_000 },
-          inlineVideoSupported: false,
-        }),
-      },
-      truncation,
-      readConfig,
-      {
-        getModelCapabilities: () => ({ image_in: true, video_in: true }),
-      } as unknown as IAgentProfileService,
-      { isToolActive: () => true } as unknown as IAgentToolPolicyService,
-      { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
-      attachmentStore,
-    ));
+    registry.register(new ReadMediaFileTool(mediaEnvironment, { workspaceDir: homeDir, additionalDirs: [] }, attachmentStore));
     const png = Buffer.from(await new Jimp({ width: 32, height: 32, color: 0x3366ccff }).getBuffer('image/png'));
     const bytes = [png, Buffer.from('%PDF-1.4\nexample\n%%EOF')];
     const client: MCPClient = {
-      async listTools() {
-        return [];
-      },
-      async callTool() {
-        return {
-          isError: false,
-          content: bytes.map((data, i) => ({
-            type: 'resource',
-            resource: {
-              uri: `example://file/${String(i)}`,
-              mimeType: 'application/octet-stream',
-              blob: data.toString('base64'),
-            },
-          })),
-        };
-      },
+      async listTools() { return []; },
+      async callTool() { return { isError: false, content: bytes.map((data, i) => ({ type: 'resource', resource: {
+        uri: `example://file/${String(i)}`, mimeType: 'application/octet-stream', blob: data.toString('base64'),
+      } })) }; },
       async ping() {},
     };
-    registry.register(
-      createMcpTool(
-        'mcp__example__binary',
-        { name: 'binary', description: 'Example files', parameters: {} },
-        client,
-        { attachmentStore },
-      ),
-      { source: 'mcp' },
-    );
+    registry.register(createMcpTool('mcp__example__binary', { name: 'binary', description: 'Example files', parameters: {} }, client, { attachmentStore }), { source: 'mcp' });
     const [result] = await execute([toolCall('binary', 'mcp__example__binary', {})]);
     if (result === undefined) throw new Error('expected MCP output');
-    const text = renderToolResultForModel(result)
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n');
-    const refs = [...text.matchAll(/Attachment reference: ("[^\n]+")/g)].map(
-      (match) => JSON.parse(match[1]!) as string,
-    );
-    const paths = [...text.matchAll(/Original attachment saved at: ("[^\n]+")/g)].map(
-      (match) => JSON.parse(match[1]!) as string,
-    );
+    const text = renderToolResultForModel(result).map((part) => part.type === 'text' ? part.text : '').join('\n');
+    const refs = [...text.matchAll(/Attachment reference: ("[^\n]+")/g)].map((match) => JSON.parse(match[1]!) as string);
+    const paths = [...text.matchAll(/Original attachment saved at: ("[^\n]+")/g)].map((match) => JSON.parse(match[1]!) as string);
     expect(refs).toHaveLength(2);
-    const [image] = await execute([toolCall('read_image', 'Read', { path: refs[0] })]);
+    const [image] = await execute([toolCall('read_image', 'ReadMediaFile', { path: refs[0] })]);
     expect(image?.isError).not.toBe(true);
-    expect(
-      Array.isArray(image?.output) && image.output.some((part) => part.type === 'image_url'),
-    ).toBe(true);
+    expect(Array.isArray(image?.output) && image.output.some((part) => part.type === 'image_url')).toBe(true);
     if (image === undefined) throw new Error('expected image output');
-    const imageText = renderToolResultForModel(image)
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n');
-    expect(imageText).toContain('<image path="attachment.bin">');
-    const [crop] = await execute([
-      toolCall('read_crop', 'Read', {
-        path: refs[0],
-        region: { x: 0, y: 0, width: 16, height: 16 },
-      }),
-    ]);
+    const imageText = renderToolResultForModel(image).map((part) => part.type === 'text' ? part.text : '').join('\n');
+    const tagPath = /<image path="([^"]+)">/.exec(imageText)?.[1];
+    expect(tagPath).toBe(refs[0]);
+    const [crop] = await execute([toolCall('read_crop', 'ReadMediaFile', {
+      path: tagPath, region: { x: 0, y: 0, width: 16, height: 16 },
+    })]);
     expect(crop?.isError).not.toBe(true);
     const [pdf] = await execute([toolCall('read_pdf', 'Read', { path: refs[1] })]);
     expect(pdf?.isError).toBe(true);
@@ -1642,54 +1443,28 @@ describe('truncation pipeline', () => {
 
   it('reads session text from its owner while workspace text still uses the environment buffer', async () => {
     const environmentFs = mediaEnvironment.inspect().fs!;
-    const clientRead = spyOn(environmentFs, 'readLines').mockImplementation(async function* () {
+    const clientRead = vi.spyOn(environmentFs, 'readLines').mockImplementation(async function* () {
       yield 'unsaved client buffer\n';
     });
     const workspaceFile = join(homeDir, 'workspace.txt');
     await writeFile(workspaceFile, 'disk content\n');
     const bytes = Buffer.from('session attachment\n');
     const client: MCPClient = {
-      async listTools() {
-        return [];
-      },
-      async callTool() {
-        return {
-          isError: false,
-          content: [
-            {
-              type: 'resource',
-              resource: {
-                uri: 'example://text',
-                mimeType: 'text/plain',
-                blob: bytes.toString('base64'),
-              },
-            },
-          ],
-        };
-      },
+      async listTools() { return []; },
+      async callTool() { return { isError: false, content: [{ type: 'resource', resource: {
+        uri: 'example://text', mimeType: 'text/plain', blob: bytes.toString('base64'),
+      } }] }; },
       async ping() {},
     };
-    registry.register(
-      createMcpTool(
-        'mcp__example__text',
-        { name: 'text', description: 'Example text', parameters: {} },
-        client,
-        { attachmentStore },
-      ),
-      { source: 'mcp' },
-    );
+    registry.register(createMcpTool('mcp__example__text', { name: 'text', description: 'Example text', parameters: {} }, client, { attachmentStore }), { source: 'mcp' });
     const [result] = await execute([toolCall('text', 'mcp__example__text', {})]);
     if (result === undefined) throw new Error('expected MCP output');
-    const text = renderToolResultForModel(result)
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n');
+    const text = renderToolResultForModel(result).map((part) => part.type === 'text' ? part.text : '').join('\n');
     const reference = JSON.parse(/Attachment reference: ("[^\n]+")/.exec(text)![1]!) as string;
     const [attachment] = await execute([toolCall('read_attachment', 'Read', { path: reference })]);
     expect(attachment?.output).toBe('1\tsession attachment');
     expect(clientRead).not.toHaveBeenCalled();
-    const [workspace] = await execute([
-      toolCall('read_workspace', 'Read', { path: workspaceFile }),
-    ]);
+    const [workspace] = await execute([toolCall('read_workspace', 'Read', { path: workspaceFile })]);
     expect(workspace?.output).toBe('1\tunsaved client buffer');
     expect(clientRead).toHaveBeenCalledTimes(1);
   });
@@ -1703,24 +1478,19 @@ describe('truncation pipeline', () => {
       literal: 'a</mcp-result-extras>b',
     };
     const client = {
-      async listTools() {
-        return [];
-      },
-      callTool: mock(async () => ({
+      async listTools() { return []; },
+      callTool: vi.fn(async () => ({
         content: [{ type: 'text', text: 'Found 1200 rows.' }],
         isError: false,
         structuredContent,
       })),
       async ping() {},
     } satisfies MCPClient;
-    registry.register(
-      createMcpTool(
-        'mcp__example__rows',
-        { name: 'rows', description: 'Example records', parameters: {} },
-        client,
-      ),
-      { source: 'mcp' },
-    );
+    registry.register(createMcpTool(
+      'mcp__example__rows',
+      { name: 'rows', description: 'Example records', parameters: {} },
+      client,
+    ), { source: 'mcp' });
 
     const [result] = await execute([toolCall('call_rows', 'mcp__example__rows', {})]);
 
@@ -1728,8 +1498,7 @@ describe('truncation pipeline', () => {
     expect(result?.truncated).toBe(true);
     if (result === undefined) throw new Error('expected MCP result');
     const visible = renderToolResultForModel(result)
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n');
+      .map((part) => part.type === 'text' ? part.text : '').join('\n');
     expect(visible.length).toBeLessThan(50_000);
     const path = renderedOutputPath(visible);
     let args: ReadInput | undefined = { path, max_chars: 16_000 };
@@ -1740,8 +1509,7 @@ describe('truncation pipeline', () => {
       expect(page?.isError).not.toBe(true);
       if (typeof page?.output !== 'string') throw new Error('expected Read text');
       const pageText = renderToolResultForModel(page)
-        .map((part) => (part.type === 'text' ? part.text : ''))
-        .join('\n');
+        .map((part) => part.type === 'text' ? part.text : '').join('\n');
       expect(pageText.length).toBeLessThanOrEqual(16_000);
       if (recovered.length > 0 && (args.column_offset ?? 0) === 0) recovered += '\n';
       recovered += page.output.replaceAll(/^\d+\t/gm, '');
@@ -1852,7 +1620,7 @@ describe('truncation pipeline', () => {
     expect(result.output.length).toBeGreaterThan(50_000);
     expect(result.output.replaceAll(/^\d+\t/gm, '')).toBe(content.trimEnd());
     expect(result.truncated).toBeUndefined();
-    expect(result.note).toContain('<system>650 lines read from file starting from line 1.');
+    expect(result.note).toBeUndefined();
     expect(result.output).not.toContain('output_path:');
   });
 
@@ -1869,16 +1637,12 @@ describe('truncation pipeline', () => {
       if (typeof result?.output !== 'string') throw new TypeError('expected Read text');
       expect(result.output.startsWith('1\t')).toBe(true);
       const visible = renderToolResultForModel(result)
-        .map((part) => (part.type === 'text' ? part.text : ''))
-        .join('');
+        .map((part) => part.type === 'text' ? part.text : '').join('');
       expect(visible.length).toBeLessThanOrEqual(100_000);
       if (page === 0) expect(result.output.length).toBeGreaterThan(50_000);
       fragments.push(result.output.slice(2));
       const next = result.note?.match(/Next Read: (\{[^\n]*\})/);
-      args =
-        next === undefined || next === null
-          ? undefined
-          : ReadInputSchema.parse(JSON.parse(next[1]!));
+      args = next === undefined || next === null ? undefined : ReadInputSchema.parse(JSON.parse(next[1]!));
     }
 
     expect(args).toBeUndefined();
@@ -1888,25 +1652,19 @@ describe('truncation pipeline', () => {
 
   it('keeps valid lines readable and exposes the warning when later UTF-16 bytes are malformed', async () => {
     const path = join(homeDir, 'malformed.txt');
-    await writeFile(
-      path,
-      Buffer.concat([
-        Buffer.from([0xff, 0xfe]),
-        Buffer.from('good\n', 'utf16le'),
-        Buffer.from([0x00, 0xd8]),
-      ]),
-    );
+    await writeFile(path, Buffer.concat([
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from('good\n', 'utf16le'),
+      Buffer.from([0x00, 0xd8]),
+    ]));
 
-    const [result] = await execute([
-      toolCall('read_lossy', 'Read', { path, n_lines: 1, max_chars: 1200 }),
-    ]);
+    const [result] = await execute([toolCall('read_lossy', 'Read', { path, n_lines: 1, max_chars: 1200 })]);
 
     expect(result?.isError).not.toBe(true);
     expect(result?.output).toBe('1\tgood');
     if (result === undefined) throw new Error('expected a Read result');
     const visible = renderToolResultForModel(result)
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('');
+      .map((part) => part.type === 'text' ? part.text : '').join('');
     expect(visible).toContain('Lossy UTF-16 decoding');
     expect(visible).toContain('may differ from the original file');
     expect(visible.length).toBeLessThanOrEqual(1200);
@@ -1919,28 +1677,18 @@ describe('truncation pipeline', () => {
     await writeFile(path, `${'x'.repeat(100)}\n`.repeat(100));
 
     const [defaultResult] = await execute([toolCall('read_default', 'Read', { path })]);
-    const [largerResult] = await execute([
-      toolCall('read_larger', 'Read', { path, max_chars: 10_000 }),
-    ]);
+    const [largerResult] = await execute([toolCall('read_larger', 'Read', { path, max_chars: 10_000 })]);
 
     expect(defaultResult?.isError).not.toBe(true);
     expect(largerResult?.isError).not.toBe(true);
     if (typeof defaultResult?.output !== 'string' || typeof largerResult?.output !== 'string') {
       throw new TypeError('expected Read text');
     }
-    expect(defaultResult.output.length + 1 + (defaultResult.note?.length ?? 0)).toBeLessThanOrEqual(
-      1500,
-    );
-    expect(largerResult.output.length + 1 + (largerResult.note?.length ?? 0)).toBeLessThanOrEqual(
-      3000,
-    );
+    expect(defaultResult.output.length + 1 + (defaultResult.note?.length ?? 0)).toBeLessThanOrEqual(1500);
+    expect(largerResult.output.length + 1 + (largerResult.note?.length ?? 0)).toBeLessThanOrEqual(3000);
     expect(largerResult.output.length).toBeGreaterThan(defaultResult.output.length);
-    expect(largerResult.note).toContain(
-      'Requested max_chars=10000 was capped at the configured maximum 3000.',
-    );
-    expect(readFileSync(join(homeDir, 'config.toml'), 'utf8')).toContain(
-      'default_max_chars = 1500',
-    );
+    expect(largerResult.note).toContain('Requested max_chars=10000 was capped at the configured maximum 3000.');
+    expect(readFileSync(join(homeDir, 'config.toml'), 'utf8')).toContain('default_max_chars = 1500');
   });
 });
 
@@ -1950,26 +1698,122 @@ function renderedOutputPath(output: string): string {
   return match[1]!;
 }
 
-function slashPath(value: string): string {
-  return value.split(sep).join('/');
+function registerLegacyWill(
+  executor: IAgentToolExecutorService,
+  listener: (event: WillExecuteToolEvent) => void,
+) {
+  return executor.registerHook({
+    beforeExecute: (context) => runLegacyBeforeExecute(context, listener),
+  });
+}
+
+function registerLegacyDid(
+  executor: IAgentToolExecutorService,
+  idOrListener: string | ((context: ToolDidExecuteContext, next: () => Promise<void>) => Promise<void>),
+  maybeListener?: (context: ToolDidExecuteContext, next: () => Promise<void>) => Promise<void>,
+) {
+  const listener = typeof idOrListener === 'string' ? maybeListener! : idOrListener;
+  return executor.registerHook({
+    afterExecute: async (context) => {
+      const legacy = legacyDidExecuteContext(context);
+      await listener(legacy, async () => {});
+      const converted = toLegacyToolReturn(legacy.result, context.call.name);
+      if (converted.outcome === 'failed') {
+        return {
+          ...context.result,
+          content: converted.content,
+          outcome: {
+            type: 'failed' as const,
+            error: {
+              outcome: 'failed' as const,
+              type: 'error' as const,
+              phase: 'after-execute' as const,
+              reason: converted.reason,
+              data: converted.data,
+            },
+          },
+        };
+      }
+      return { ...context.result, content: converted.content, outcome: { type: 'success' as const } };
+    },
+  });
+}
+
+function registerUnavailable(
+  executor: IAgentToolExecutorService,
+  describer: (toolName: string) => string | undefined,
+) {
+  return executor.registerHook({
+    starting: (context) => {
+      const text = describer(context.call.name);
+      return text === undefined
+        ? undefined
+        : runLegacyStarting(context, (event) => event.veto({ output: text, isError: true }));
+    },
+  });
+}
+
+function registerGuard(
+  executor: IAgentToolExecutorService,
+  guard: (tool: { readonly name: string; readonly source: 'builtin' | 'user' | 'mcp' }) => string | undefined,
+) {
+  return executor.registerHook({
+    starting: (context) => {
+      const text = guard({ name: context.call.name, source: registry.listReferences().find((entry) => entry.name === context.call.name)?.source ?? 'builtin' });
+      return text === undefined
+        ? undefined
+        : runLegacyStarting(context, (event) => event.veto({ output: text, isError: true }));
+    },
+  });
 }
 
 async function execute(
   calls: ToolCall[],
   signal?: AbortSignal,
   trace?: LLMRequestTrace,
+  detach?: (toolCallId: string, text: string) => void,
 ): Promise<ToolResult[]> {
-  const results: ToolResult[] = [];
-  for await (const item of executor.execute(calls, {
-    turnId: 0,
-    signal: signal ?? new AbortController().signal,
-    trace,
-  })) {
-    results.push(item.result);
-    durations.push(item.durationMs);
-    events.push({ type: 'tool.result', toolCallId: item.toolCallId, result: item.result });
-  }
-  return results;
+  return Promise.all(calls.map(async (call) => {
+    const handler = executor.executor.execute(call, { origin: 'loop', turnId: 0, step: 0, trace });
+    const onAbort = (): void => {
+      void handler.stop(signal?.reason);
+    };
+    if (signal?.aborted === true) onAbort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      const response = await handler;
+      if (isToolDetachAck(response)) {
+        const text = response.content.map((part) => part.type === 'text' ? part.text : '').join('\n');
+        detach?.(call.id, text);
+      }
+      const final = await handler.wait();
+      const snapshot = handler.snapshot();
+      const prepared = snapshot.prepared;
+      const legacy = prepared?.kind === 'execute' || prepared?.kind === 'synthetic'
+        ? prepared.result
+        : undefined;
+      const result: ToolResult = {
+        ...legacy,
+        output: final.outcome.type !== 'success'
+          ? final.content.every((part) => part.type === 'text')
+            ? final.content.map((part) => part.type === 'text' ? part.text : '').join('')
+            : final.content
+          : (legacy?.output ?? (final.content.every((part) => part.type === 'text')
+            ? final.content.map((part) => part.type === 'text' ? part.text : '').join('')
+            : final.content)),
+        isError: final.outcome.type === 'success' ? legacy?.isError : true,
+        description: prepared?.kind === 'execute' ? prepared.description : undefined,
+        display: prepared?.kind === 'execute' ? prepared.display : undefined,
+        approvalRule: prepared?.kind === 'execute' ? prepared.approvalRule : undefined,
+      };
+      durations.push(legacyToolDurationMs(snapshot));
+      events.push({ type: 'tool.result', toolCallId: call.id, result });
+      return result;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+      executor.release(handler.taskId);
+    }
+  }));
 }
 
 function toolCall(id: string, name: string, args: unknown): ToolCall {
@@ -1992,10 +1836,16 @@ function protocolEventTypes(): string[] {
 function pairedToolCallIds(): { readonly calls: string[]; readonly results: string[] } {
   return {
     calls: protocolEvents
-      .filter((event): event is ToolCallStarted => event.type === 'tool.call.started')
+      .filter(
+        (event): event is ToolCallStarted =>
+          event.type === 'tool.call.started',
+      )
       .map((event) => event.toolCallId),
     results: protocolEvents
-      .filter((event): event is ToolResultEvent => event.type === 'tool.result')
+      .filter(
+        (event): event is ToolResultEvent =>
+          event.type === 'tool.result',
+      )
       .map((event) => event.toolCallId),
   };
 }
@@ -2024,7 +1874,6 @@ class TestTool implements ExecutableTool<Record<string, unknown>> {
     private readonly options: {
       readonly parameters?: Record<string, unknown>;
       readonly accesses?: ToolAccesses;
-      readonly stopBatchAfterThis?: boolean;
       readonly description?: string;
       readonly display?: ToolInputDisplay;
       readonly result?: ExecutableToolResult;
@@ -2041,7 +1890,6 @@ class TestTool implements ExecutableTool<Record<string, unknown>> {
     return {
       approvalRule: this.name,
       accesses: this.options.accesses,
-      stopBatchAfterThis: this.options.stopBatchAfterThis,
       description: this.options.description,
       display: this.options.display,
       execute: async (ctx) => {
@@ -2049,11 +1897,9 @@ class TestTool implements ExecutableTool<Record<string, unknown>> {
         if (this.options.execute !== undefined) {
           return this.options.execute(ctx, args);
         }
-        return (
-          this.options.result ?? {
-            output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
-          }
-        );
+        return this.options.result ?? {
+          output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
+        };
       },
     };
   }
@@ -2103,3 +1949,810 @@ class ControlledTool implements ExecutableTool<Record<string, unknown>> {
     };
   }
 }
+
+describe('ToolExecutor handler kernel', () => {
+  afterEach(() => {
+    setNow();
+    setClock();
+  });
+
+  it('settles success, business failure and invalid args with distinct outcomes and clocks', async () => {
+    let wall = 1_000;
+    let monotonic = 100;
+    setNow(() => (wall += 1_000));
+    setClock(() => (monotonic += 5));
+    const invalidExecute = vi.fn(() => ({ content: textToolContent('must not run') }));
+    const executor = new HandlerToolExecutor([
+      {
+        name: 'success',
+        description: 'success',
+        parameters: { type: 'object' },
+        execute: () => ({ content: textToolContent('done') }),
+      },
+      {
+        name: 'failure',
+        description: 'failure',
+        parameters: { type: 'object' },
+        execute: () => ({
+          content: textToolContent('business failure'),
+          outcome: 'failed',
+          subtype: 'timeout',
+          reason: 'invalid business state',
+        }),
+      },
+      {
+        name: 'strict',
+        description: 'strict',
+        parameters: {
+          type: 'object',
+          properties: { value: { type: 'number' } },
+          required: ['value'],
+          additionalProperties: false,
+        },
+        execute: invalidExecute,
+      },
+    ]);
+
+    const succeeded = executor.execute(toolCall('success-1', 'success', {}), undefined);
+    const successResult = await succeeded.wait();
+    expect(successResult).toMatchObject({
+      toolCallId: 'success-1',
+      content: textToolContent('done'),
+      outcome: { type: 'success' },
+    });
+    const successTiming = succeeded.snapshot().timing;
+    expect(successTiming.total.endedAt).not.toBeNull();
+    expect(successTiming.total.elapsedMs).toBeGreaterThan(0);
+    expect(successTiming.execute?.endedAt).not.toBeNull();
+    expect(successTiming.execute?.elapsedMs).toBeGreaterThan(0);
+
+    const failed = executor.execute(toolCall('failure-1', 'failure', {}), undefined);
+    expect(failed.taskId).not.toBe(succeeded.taskId);
+    expect(await failed.wait()).toMatchObject({
+      content: textToolContent('business failure'),
+      outcome: {
+        type: 'failed',
+        error: { type: 'timeout', phase: 'execute', reason: 'invalid business state' },
+      },
+    });
+    expect(failed.snapshot().error).toMatchObject({ outcome: 'failed', type: 'timeout' });
+
+    const invalid = executor.execute(toolCall('strict-1', 'strict', { value: 'bad' }), undefined);
+    expect(await invalid.wait()).toMatchObject({
+      outcome: { type: 'failed', error: { type: 'invalid', phase: 'validate' } },
+    });
+    expect(invalidExecute).not.toHaveBeenCalled();
+  });
+
+  it('returns a detach ack while wait continues to the real final result', async () => {
+    const started = deferred();
+    const release = deferred();
+    const executor = new HandlerToolExecutor([{
+      name: 'background',
+      description: 'background',
+      parameters: { type: 'object' },
+      execute: async (context) => {
+        context.onDetach((reason) => ({ content: textToolContent(`background: ${String(reason)}`) }));
+        started.resolve();
+        await release.promise;
+        return { content: textToolContent('finished') };
+      },
+    }]);
+    const handler = executor.execute(toolCall('background-1', 'background', {}), undefined);
+    const response = Promise.resolve(handler);
+    await started.promise;
+
+    const ack = handler.detach('later');
+    expect(ack).toBeDefined();
+    expect(isToolDetachAck(ack!)).toBe(true);
+    expect(ack).toMatchObject({
+      detached: true,
+      taskId: handler.taskId,
+      content: textToolContent('background: later'),
+    });
+    expect(await response).toEqual(ack);
+    await expect(Promise.race([
+      handler.wait(5),
+      new Promise((resolve) => setTimeout(() => resolve('still pending'), 25)),
+    ])).rejects.toMatchObject({ name: 'ToolTimeoutError' });
+    await expect(Promise.race([
+      handler.wait(5),
+      new Promise((resolve) => setTimeout(() => resolve('still pending'), 25)),
+    ])).rejects.toMatchObject({ name: 'ToolTimeoutError' });
+    const controller = new AbortController();
+    const reason = new Error('stop waiting only');
+    const aborted = Promise.race([
+      handler.wait(undefined, controller.signal),
+      new Promise((resolve) => setTimeout(() => resolve('still pending'), 25)),
+    ]);
+    controller.abort(reason);
+    await expect(aborted).rejects.toBe(reason);
+    expect(handler.snapshot()).toMatchObject({ status: 'running', detached: true });
+    let completed = false;
+    void handler.wait().then(() => {
+      completed = true;
+    });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+
+    release.resolve();
+    expect(await handler.wait(1_000)).toMatchObject({
+      content: textToolContent('finished'),
+      outcome: { type: 'success' },
+    });
+    expect(handler.snapshot()).toMatchObject({ detached: true, status: 'success' });
+  });
+
+  it('stops one execution through its internal signal without aborting another', async () => {
+    const firstStarted = deferred();
+    const secondStarted = deferred();
+    const secondRelease = deferred();
+    let secondSignal: AbortSignal | undefined;
+    const executor = new HandlerToolExecutor([
+      {
+        name: 'first',
+        description: 'first',
+        parameters: { type: 'object' },
+        execute: async (context) => {
+          firstStarted.resolve();
+          return new Promise((resolve) => {
+            context.signal.addEventListener('abort', () => {
+              resolve({ content: textToolContent('first stopped') });
+            }, { once: true });
+          });
+        },
+      },
+      {
+        name: 'second',
+        description: 'second',
+        parameters: { type: 'object' },
+        execute: async (context) => {
+          secondSignal = context.signal;
+          secondStarted.resolve();
+          await secondRelease.promise;
+          return { content: textToolContent('second finished') };
+        },
+      },
+    ]);
+    const first = executor.execute(toolCall('first-1', 'first', {}), undefined);
+    const second = executor.execute(toolCall('second-1', 'second', {}), undefined);
+    await Promise.all([firstStarted.promise, secondStarted.promise]);
+
+    expect(await first.stop('cancel first')).toMatchObject({
+      content: textToolContent('first stopped'),
+      outcome: { type: 'aborted', error: { type: 'stopped', reason: 'cancel first' } },
+    });
+    expect(secondSignal?.aborted).toBe(false);
+    expect(second.snapshot().status).toBe('running');
+    expect((await first.stop('already stopped')).outcome).toMatchObject({ type: 'aborted' });
+    expect(secondSignal?.aborted).toBe(false);
+
+    secondRelease.resolve();
+    expect((await second.wait()).outcome.type).toBe('success');
+  });
+
+  it('calls stopping once and uses asynchronous abandon as its final fallback', async () => {
+    const started = deferred();
+    const abandon = deferred();
+    let stoppingCalls = 0;
+    const executor = new HandlerToolExecutor([{
+      name: 'hanging',
+      description: 'hanging',
+      parameters: { type: 'object' },
+      execute: async () => {
+        started.resolve();
+        return new Promise<never>(() => {});
+      },
+      stopping: (context) => {
+        stoppingCalls += 1;
+        void abandon.promise.then(() => {
+          context.abandon({ content: textToolContent('abandoned fallback') });
+          context.abandon({ content: textToolContent('duplicate abandon') });
+        });
+      },
+    }]);
+    const handler = executor.execute(toolCall('hanging-1', 'hanging', {}), undefined);
+    let finalChanges = 0;
+    handler.observe((event) => {
+      if (event.type === 'change' && event.snapshot.status === 'aborted') finalChanges += 1;
+    });
+    await started.promise;
+
+    const stopping = handler.stop('halt');
+    const repeatedStop = handler.stop('halt again');
+    let settled = false;
+    void stopping.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(stoppingCalls).toBe(1);
+    expect(repeatedStop).toBe(stopping);
+
+    abandon.resolve();
+    expect(await stopping).toMatchObject({
+      content: textToolContent('abandoned fallback'),
+      outcome: { type: 'aborted', error: { type: 'abandoned', reason: 'halt' } },
+    });
+    expect(await repeatedStop).toMatchObject({
+      outcome: { type: 'aborted', error: { type: 'abandoned' } },
+    });
+    expect(stoppingCalls).toBe(1);
+    expect(finalChanges).toBe(1);
+  });
+
+  it('composes hooks in order and seals responses after execute settles', async () => {
+    const events: string[] = [];
+    let prepareCalls = 0;
+    const afterEntered = deferred();
+    const afterRelease = deferred();
+    const first = {
+      label: 'first',
+      validating() {
+        events.push(`${this.label}:validating`);
+        return { args: { rewritten: true } };
+      },
+      starting() {
+        events.push(`${this.label}:starting`);
+        return { skipPermitting: true as const };
+      },
+      beforeExecute() {
+        events.push(`${this.label}:before`);
+      },
+      afterExecute(context: { result: HandlerToolResult }) {
+        events.push(`${this.label}:after`);
+        return { ...context.result, content: textToolContent('first rewrite') };
+      },
+      observe(event: { type: string }) {
+        if (event.type === 'created') events.push(`${this.label}:observe`);
+      },
+    };
+    const second = {
+      label: 'second',
+      validating() {
+        events.push(`${this.label}:validating`);
+      },
+      starting() {
+        events.push(`${this.label}:starting`);
+      },
+      permitting() {
+        events.push(`${this.label}:permitting`);
+      },
+      beforeExecute() {
+        events.push(`${this.label}:before`);
+      },
+      async afterExecute(context: { result: HandlerToolResult }) {
+        expect(context.result.content).toEqual(textToolContent('first rewrite'));
+        events.push(`${this.label}:after`);
+        afterEntered.resolve();
+        await afterRelease.promise;
+        return { ...context.result, content: textToolContent('second rewrite') };
+      },
+      observe(event: { type: string }) {
+        if (event.type === 'created') events.push(`${this.label}:observe`);
+      },
+    };
+    let executionSignal: AbortSignal | undefined;
+    const executor = new HandlerToolExecutor([{
+      name: 'hooked',
+      description: 'hooked',
+      parameters: { type: 'object' },
+      prepare: () => {
+        prepareCalls += 1;
+        return { type: 'execute' as const, prepared: {} };
+      },
+      execute: (context) => {
+        executionSignal = context.signal;
+        events.push('execute');
+        return { content: textToolContent('raw') };
+      },
+    }], { hook: composeToolExecutorHooks([first, second]) });
+
+    const handler = executor.execute(toolCall('hooked-1', 'hooked', {}), undefined);
+    const response = Promise.resolve(handler);
+    await afterEntered.promise;
+    const lateStop = handler.stop('late stop');
+    expect(handler.detach('late detach')).toBeUndefined();
+    expect(executionSignal?.aborted).toBe(false);
+    expect(handler.snapshot().stopReason).toBeUndefined();
+    afterRelease.resolve();
+    expect(await lateStop).toMatchObject({
+      content: textToolContent('second rewrite'),
+      outcome: { type: 'success' },
+    });
+    const final = await response;
+    expect(isToolDetachAck(final)).toBe(false);
+    expect(final).toMatchObject({
+      content: textToolContent('second rewrite'),
+      outcome: { type: 'success' },
+    });
+    expect(events).toEqual([
+      'first:validating',
+      'second:validating',
+      'first:observe',
+      'second:observe',
+      'first:starting',
+      'first:before',
+      'second:before',
+      'execute',
+      'first:after',
+      'second:after',
+    ]);
+    expect(prepareCalls).toBe(1);
+
+    const preHookEvents: string[] = [];
+    const execute = vi.fn(() => ({ content: textToolContent('must not run') }));
+    const rawHook = {
+      label: 'raw-hook',
+      validating() {
+        expect(this.label).toBe('raw-hook');
+        preHookEvents.push('validating');
+      },
+      afterExecute: () => {
+        preHookEvents.push('after');
+      },
+    };
+    const prepare = vi.fn(() => ({ type: 'execute' as const, prepared: {} }));
+    const stoppedExecutor = new HandlerToolExecutor([{
+      name: 'pre-hook-stop',
+      description: 'pre-hook-stop',
+      parameters: { type: 'object' },
+      prepare,
+      execute,
+    }], { hook: rawHook });
+    const stoppedHandler = stoppedExecutor.execute(
+      toolCall('pre-hook-stop-1', 'pre-hook-stop', {}),
+      undefined,
+    );
+    const stopping = stoppedHandler.stop('stop before execute');
+    expect(preHookEvents).toEqual(['validating']);
+    expect((await stopping).outcome.type).toBe('aborted');
+    expect(preHookEvents).toEqual(['validating', 'after']);
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('reads fields and output mid-run and surfaces flush and close errors', async () => {
+    const started = deferred();
+    const release = deferred();
+    const store = memoryOutputStore();
+    const outputStore = {
+      open(taskId: string) {
+        const output = store.open(taskId);
+        return {
+          append: (chunk: string) => output.append(chunk),
+          preview: (maxBytes?: number) => output.preview(maxBytes),
+          read: (offset: number, maxBytes: number) => output.read(offset, maxBytes),
+          flush: async () => {
+            await output.flush();
+            throw new Error('flush failed');
+          },
+          close: async () => {
+            await output.close();
+            throw new Error('close failed');
+          },
+          error: () => output.error(),
+        };
+      },
+    };
+    const executor = new HandlerToolExecutor([{
+      name: 'output',
+      description: 'output',
+      parameters: { type: 'object' },
+      execute: async (context) => {
+        expect(context.write('abc')).toBe(0);
+        expect(context.write('def')).toBe(3);
+        context.set({ status: 'working', progress: { percent: 50 } });
+        started.resolve();
+        await release.promise;
+        try {
+          await context.flush();
+        } catch (error) {
+          context.set({ flushError: error instanceof Error ? error.message : String(error) });
+        }
+        return { content: textToolContent('done') };
+      },
+    }], { outputStore });
+    const handler = executor.execute(toolCall('output-1', 'output', {}), undefined);
+    const offsets: number[] = [];
+    handler.observe((event) => {
+      if (event.type === 'output') offsets.push(event.offset);
+    });
+    await started.promise;
+
+    expect(handler.output()).toMatchObject({ totalBytes: 6, preview: 'abcdef' });
+    expect(handler.fields()).toMatchObject({ status: 'working', progress: { percent: 50 } });
+    release.resolve();
+    expect(await handler.wait()).toMatchObject({
+      outcome: { type: 'failed', error: { type: 'output', data: 'close failed' } },
+    });
+    expect(handler.fields()).toMatchObject({ flushError: 'flush failed' });
+    expect(handler.snapshot().outputError).toBe('close failed');
+    expect(offsets).toEqual([0, 3]);
+  });
+
+  it('reopens file output after close with restored bytes, offsets, preview and reads', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'tool-output-store-'));
+    try {
+      const initial = fileOutputStore(directory).open('restart-task');
+      expect(initial.append('hello ')).toBe(0);
+      expect(initial.append('世界')).toBe(6);
+      await initial.close();
+
+      const reopened = fileOutputStore(directory).open('restart-task');
+      expect(reopened.preview()).toMatchObject({
+        totalBytes: 12,
+        preview: 'hello 世界',
+        path: join(directory, 'restart-task.log'),
+      });
+      expect(await reopened.read(0, 5)).toBe('hello');
+      expect(reopened.append('!')).toBe(12);
+      await reopened.close();
+
+      const reader = fileOutputStore(directory).open('restart-task');
+      expect(reader.preview()).toMatchObject({ totalBytes: 13, preview: 'hello 世界!' });
+      expect(await reader.read(6, 6)).toBe('世界');
+      expect(await reader.read(12, 1)).toBe('!');
+      await reader.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('runs legacy preparation, finalization, synthetic short-circuiting and updates', async () => {
+    const started = deferred();
+    const release = deferred();
+    const steerSignal = new AbortController().signal;
+    const remind = vi.fn();
+    const legacy: ExecutableTool<Record<string, unknown>> = {
+      name: 'legacy',
+      description: 'legacy',
+      parameters: { type: 'object', additionalProperties: true },
+      resolveExecution(args) {
+        if (args['synthetic'] === 'success') {
+          return {
+            output: 'synthetic success',
+            note: 'success note',
+            spill: { outputPath: '/unused' },
+          } as unknown as ToolExecution;
+        }
+        if (args['synthetic'] === true) {
+          return {
+            output: 'synthetic failure',
+            isError: true,
+            stopTurn: true,
+            note: 'legacy note',
+            spill: { outputPath: '/unused' },
+          };
+        }
+        return {
+          approvalRule: 'legacy-rule',
+          description: 'prepared description',
+          display: { kind: 'generic', summary: 'legacy summary' },
+          accesses: ToolAccesses.readFile('/repo'),
+          matchesRule: (rule) => rule === 'yes',
+          execute: async (context) => {
+            expect(context.turnId).toBe(9);
+            expect(context.trace).toEqual({ requestId: 'trace-legacy' });
+            expect(context.metadata).toEqual({ source: 'test' });
+            expect(context.steerSignal).toBe(steerSignal);
+            expect(context.remind).toBe(remind);
+            context.onUpdate?.({ kind: 'stdout', text: 'out-' });
+            context.onUpdate?.({ kind: 'stderr', text: 'err' });
+            context.onUpdate?.({ kind: 'status', text: 'working' });
+            context.onUpdate?.({ kind: 'progress', text: 'half', percent: 50 });
+            context.onUpdate?.({
+              kind: 'custom',
+              fields: { oauth: { url: 'https://example.com' } },
+            });
+            context.detach?.('legacy background');
+            started.resolve();
+            await release.promise;
+            return {
+              output: [{ type: 'text', text: 'legacy final' }],
+              stopTurn: true,
+              note: 'legacy note',
+              spill: { outputPath: '/unused' },
+            };
+          },
+        };
+      },
+    };
+    const finalizerCalls: string[] = [];
+    const adapter = new LegacyExecutableToolAdapter(legacy, async ({ toolName, toolCallId, result }) => {
+      expect(toolName).toBe('legacy');
+      expect(result.spill?.outputPath).toBe('/unused');
+      finalizerCalls.push(toolCallId);
+      if (result.isError === true) {
+        return {
+          ...result,
+          output: 'finalized synthetic failure',
+          note: 'finalized note',
+          truncated: true,
+        };
+      }
+      return result;
+    });
+    const preparations: LegacyToolPreparation[] = [];
+    const afterPrepared: LegacyToolPreparation[] = [];
+    let startingCalls = 0;
+    let permittingCalls = 0;
+    const executor = new HandlerToolExecutor([adapter], {
+      hook: {
+        starting: () => {
+          startingCalls += 1;
+        },
+        permitting: () => {
+          permittingCalls += 1;
+        },
+        beforeExecute: (context) => {
+          preparations.push(context.prepared as LegacyToolPreparation);
+        },
+        afterExecute: (context) => {
+          afterPrepared.push(context.prepared as LegacyToolPreparation);
+        },
+      },
+    });
+    const agentContext = {
+      origin: 'loop' as const,
+      turnId: 9,
+      trace: { requestId: 'trace-legacy' },
+      metadata: { source: 'test' },
+      steerSignal,
+      remind,
+    };
+    const handler = executor.execute(toolCall('legacy-1', 'legacy', {}), agentContext);
+    await started.promise;
+
+    const prepared = preparations[0];
+    expect(prepared).toMatchObject({
+      kind: 'execute',
+      approvalRule: 'legacy-rule',
+      description: 'prepared description',
+      display: { kind: 'generic', summary: 'legacy summary' },
+      accesses: ToolAccesses.readFile('/repo'),
+    });
+    if (prepared?.kind !== 'execute') throw new Error('expected runnable legacy preparation');
+    expect(prepared.execution.execute).toBeTypeOf('function');
+    expect(prepared.matchesRule?.('yes')).toBe(true);
+    expect(handler.output()).toMatchObject({ totalBytes: 7, preview: 'out-err' });
+    expect(handler.fields()).toMatchObject({
+      status: 'working',
+      progress: { text: 'half', percent: 50 },
+      oauth: { url: 'https://example.com' },
+    });
+    const ack = await handler;
+    expect(isToolDetachAck(ack)).toBe(true);
+    expect(ack).toMatchObject({ content: textToolContent('legacy background') });
+
+    release.resolve();
+    const final = await handler.wait();
+    expect(final).toMatchObject({
+      content: [
+        ...textToolContent('legacy final'),
+        ...textToolContent('legacy note'),
+      ],
+      outcome: { type: 'success' },
+    });
+    expect(final).not.toHaveProperty('stopTurn');
+    expect(final).not.toHaveProperty('note');
+    expect(final).not.toHaveProperty('spill');
+
+    const synthetic = executor.execute(
+      toolCall('legacy-2', 'legacy', { synthetic: true }),
+      agentContext,
+    );
+    expect(await synthetic.wait()).toMatchObject({
+      content: [
+        ...textToolContent('finalized synthetic failure'),
+        ...textToolContent('finalized note'),
+      ],
+      outcome: { type: 'failed', error: { type: 'error' } },
+    });
+    const successfulSynthetic = executor.execute(
+      toolCall('legacy-3', 'legacy', { synthetic: 'success' }),
+      agentContext,
+    );
+    expect(await successfulSynthetic.wait()).toMatchObject({
+      content: [
+        ...textToolContent('synthetic success'),
+        ...textToolContent('success note'),
+      ],
+      outcome: { type: 'success' },
+    });
+    expect(startingCalls).toBe(1);
+    expect(permittingCalls).toBe(1);
+    expect(preparations).toHaveLength(1);
+    expect(afterPrepared.map((item) => item.kind)).toEqual(['execute', 'synthetic', 'synthetic']);
+    expect(finalizerCalls).toEqual(['legacy-1', 'legacy-2', 'legacy-3']);
+
+    const replacement = new LegacyExecutableToolAdapter(legacy);
+    executor.addExecute(replacement);
+    expect(executor.removeExecute(adapter)).toBe(false);
+    expect(executor.list()).toEqual([replacement]);
+    expect(executor.removeExecute(replacement)).toBe(true);
+    expect(executor.list()).toEqual([]);
+
+    const slowResolve = deferred();
+    const slowFinalize = deferred();
+    const slowFinalizerEntered = deferred();
+    let syntheticNow = 0;
+    const slowSyntheticExecutor = new HandlerToolExecutor([
+      new LegacyExecutableToolAdapter({
+        name: 'slow-synthetic',
+        description: 'slow-synthetic',
+        parameters: { type: 'object' },
+        resolveExecution: async () => {
+          await slowResolve.promise;
+          return { output: 'slow synthetic' } as unknown as ToolExecution;
+        },
+      }, async ({ result }) => {
+        slowFinalizerEntered.resolve();
+        await slowFinalize.promise;
+        return result;
+      }, () => syntheticNow),
+    ]);
+    const slowSynthetic = slowSyntheticExecutor.execute(
+      toolCall('slow-synthetic-1', 'slow-synthetic', {}),
+      agentContext,
+    );
+    syntheticNow = 100;
+    slowResolve.resolve();
+    await slowFinalizerEntered.promise;
+    syntheticNow = 200;
+    slowFinalize.resolve();
+    await slowSynthetic.wait();
+    expect(legacyToolDurationMs(slowSynthetic.snapshot())).toBe(0);
+    expect(slowSynthetic.snapshot().timing.execute).toBeNull();
+
+    vi.useFakeTimers();
+    let legacyNow = 0;
+    const advance = async (ms: number): Promise<void> => {
+      legacyNow += ms;
+      await vi.advanceTimersByTimeAsync(ms);
+    };
+    try {
+      const cooperativeStarted = deferred();
+      const cooperativeFinalizerStarted = deferred();
+      const hangingStarted = deferred();
+      const slowExecutionStarted = deferred();
+      const slowFinalizerStarted = deferred();
+      const finalizerRelease = deferred();
+      const slowFinalizerRelease = deferred();
+      const cancellable: ExecutableTool<Record<string, unknown>> = {
+        name: 'cancellable',
+        description: 'cancellable',
+        parameters: { type: 'object', additionalProperties: true },
+        resolveExecution: (args) => ({
+          approvalRule: 'cancellable',
+          execute: async ({ signal, toolCallId }) => {
+            if (toolCallId === 'slow-finalizer-1') slowExecutionStarted.resolve();
+            if (args['hang'] === true) {
+              hangingStarted.resolve();
+              return new Promise<never>(() => {});
+            }
+            cooperativeStarted.resolve();
+            await new Promise<void>((resolve) => {
+              if (signal.aborted) resolve();
+              else signal.addEventListener('abort', () => resolve(), { once: true });
+            });
+            return { output: 'cooperative output' };
+          },
+        }),
+      };
+      const finalizerCalls: string[] = [];
+      const afterExecuteCalls: string[] = [];
+      const cancellingExecutor = new HandlerToolExecutor([
+        new LegacyExecutableToolAdapter(cancellable, async ({ toolCallId, result }) => {
+          finalizerCalls.push(toolCallId);
+          if (toolCallId === 'slow-finalizer-1') {
+            slowFinalizerStarted.resolve();
+            await slowFinalizerRelease.promise;
+          } else {
+            if (toolCallId === 'cooperative-1') cooperativeFinalizerStarted.resolve();
+            await finalizerRelease.promise;
+          }
+          return { ...result, output: 'finalized cooperative output' };
+        }, () => legacyNow),
+      ], {
+        hook: {
+          afterExecute: (context) => {
+            afterExecuteCalls.push(context.call.id);
+          },
+        },
+      });
+      const cooperative = cancellingExecutor.execute(
+        toolCall('cooperative-1', 'cancellable', {}),
+        agentContext,
+      );
+      const hanging = cancellingExecutor.execute(
+        toolCall('hanging-1', 'cancellable', { hang: true }),
+        agentContext,
+      );
+      await Promise.all([cooperativeStarted.promise, hangingStarted.promise]);
+
+      const stopping = cooperative.stop('stop cooperative');
+      const repeatedStop = cooperative.stop('stop cooperative again');
+      const hangingStop = hanging.stop('stop hanging');
+      const repeatedHangingStop = hanging.stop('stop hanging again');
+      let cooperativeSettled = false;
+      let hangingSettled = false;
+      void stopping.then(() => {
+        cooperativeSettled = true;
+      });
+      void hangingStop.then(() => {
+        hangingSettled = true;
+      });
+      await Promise.resolve();
+      expect(cooperativeSettled).toBe(false);
+      expect(hangingSettled).toBe(false);
+      expect(repeatedStop).toBe(stopping);
+      expect(repeatedHangingStop).toBe(hangingStop);
+      await cooperativeFinalizerStarted.promise;
+
+      await advance(1_999);
+      expect(cooperativeSettled).toBe(false);
+      expect(hangingSettled).toBe(false);
+      finalizerRelease.resolve();
+      await expect(stopping).resolves.toMatchObject({
+        content: textToolContent('finalized cooperative output'),
+        outcome: { type: 'aborted', error: { type: 'stopped', reason: 'stop cooperative' } },
+      });
+      expect(finalizerCalls).toEqual(['cooperative-1']);
+      expect(legacyToolDurationMs(cooperative.snapshot())).toBe(0);
+
+      await advance(1);
+      await expect(hangingStop).resolves.toMatchObject({
+        outcome: { type: 'aborted', error: { type: 'abandoned', reason: 'stop hanging' } },
+      });
+      expect(cooperative.snapshot().error).toMatchObject({ type: 'stopped' });
+      expect(hanging.snapshot().error).toMatchObject({ type: 'abandoned' });
+      expect(legacyToolDurationMs(hanging.snapshot())).toBe(2_000);
+
+      const slowFinalizer = cancellingExecutor.execute(
+        toolCall('slow-finalizer-1', 'cancellable', {}),
+        agentContext,
+      );
+      await slowExecutionStarted.promise;
+      let slowSettlements = 0;
+      let slowAbandons = 0;
+      slowFinalizer.observe((event) => {
+        if (
+          event.type === 'change' &&
+          event.previous.error?.type !== 'abandoned' &&
+          event.snapshot.error?.type === 'abandoned'
+        ) slowAbandons += 1;
+      });
+      const slowSettled = slowFinalizer.wait().then((result) => {
+        slowSettlements += 1;
+        return result;
+      });
+      await advance(100);
+      const slowStopping = slowFinalizer.stop('stop slow finalizer');
+      await slowFinalizerStarted.promise;
+      await advance(1_999);
+      expect(slowSettlements).toBe(0);
+      expect(slowAbandons).toBe(0);
+      await advance(1);
+      await expect(slowSettled).resolves.toMatchObject({
+        outcome: { type: 'aborted', error: { type: 'abandoned', reason: 'stop slow finalizer' } },
+      });
+      await expect(slowStopping).resolves.toMatchObject({
+        outcome: { type: 'aborted', error: { type: 'abandoned' } },
+      });
+      expect(slowAbandons).toBe(1);
+      expect(legacyToolDurationMs(slowFinalizer.snapshot())).toBe(100);
+      expect(afterExecuteCalls.filter((id) => id === 'slow-finalizer-1')).toHaveLength(1);
+
+      slowFinalizerRelease.resolve();
+      await advance(100);
+      expect(slowSettlements).toBe(1);
+      expect(slowAbandons).toBe(1);
+      expect(legacyToolDurationMs(slowFinalizer.snapshot())).toBe(100);
+      expect(afterExecuteCalls.filter((id) => id === 'slow-finalizer-1')).toHaveLength(1);
+      expect(finalizerCalls.filter((id) => id === 'slow-finalizer-1')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

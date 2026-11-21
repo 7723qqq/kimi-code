@@ -4,23 +4,31 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { AsyncEmitter, Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import type { HookDef } from '#/features/externalHooks/internal/types';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
 import { IRegionService } from '#/app/region/region';
 import { LifecycleScope } from '#/app/scopes';
 import type { PluginToggleEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { BugIndicatingError, Error2, ErrorCodes, PluginErrors } from '#/errors';
-import type { HookDef } from '#/features/externalHooks/internal/types';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import type { SkillRoot } from '#/features/skill/catalog/types';
+import { BugIndicatingError, Error2, ErrorCodes, PluginErrors } from '#/errors';
 import { IProviderService } from '#/llm-adapter/provider/provider';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
+import type { McpOAuthService } from '#/mcpCore/oauth/service';
 
 import { PluginAvailabilityStore, pluginAvailabilitySourceKey } from './availability';
 import { PluginManager } from './manager';
-import { pluginClientForIdentity, type PluginClient, type PluginMarketplace } from './marketplace';
-import { PluginMarketplaceService } from './marketplaceService';
-import type { MarketplacePluginInstall } from './marketplaceService';
+import {
+  pluginClientForIdentity,
+  type PluginClient,
+  type PluginMarketplace,
+} from './marketplace';
+import {
+  type MarketplacePluginInstall,
+  PluginMarketplaceService,
+} from './marketplaceService';
 import {
   type GetPluginInfoInput,
   type InstallPluginInput,
@@ -96,6 +104,7 @@ export class PluginService extends Service implements IPluginService {
     @IProviderService private readonly providers: IProviderService,
     @IRegionService regions: IRegionService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IMcpOAuthService private readonly oauth: McpOAuthService,
     @ILogService private readonly log: ILogService,
   ) {
     super();
@@ -103,35 +112,21 @@ export class PluginService extends Service implements IPluginService {
     this.envBaseUrl = bootstrap.getEnv(KIMI_CODE_BASE_URL_ENV);
     this.envOAuthHost =
       bootstrap.getEnv(KIMI_CODE_OAUTH_HOST_ENV) ?? bootstrap.getEnv(KIMI_OAUTH_HOST_ENV);
-    this.manager = new PluginManager({
-      kimiHomeDir: this.homeDir,
-      discoverSkills: (roots) => discovery.discover(roots),
-      log: this.log,
-      pluginNodeRunner: bootstrap.args.pluginNodeRunner,
-    });
     this.availability = new PluginAvailabilityStore(this.homeDir);
     this.client = pluginClientForIdentity(bootstrap.clientIdentity.platform);
     this.platform = bootstrap.platform;
-    this.marketplace = new PluginMarketplaceService(
-      bootstrap,
-      providers,
-      regions,
-      this.availability,
-    );
+    this.manager = new PluginManager({
+      kimiHomeDir: this.homeDir,
+      client: this.client,
+      platform: this.platform,
+      availability: this.availability,
+      discoverSkills: (roots) => discovery.discover(roots),
+    });
+    this.marketplace = new PluginMarketplaceService(bootstrap, providers, regions, this.availability);
   }
 
   listPlugins(): Promise<readonly PluginSummary[]> {
-    return this.runManagementRead(async () => {
-      const records = this.manager.list();
-      const summaries = this.manager.summaries();
-      await this.availability.refresh().catch(() => undefined);
-      const visible = new Set(
-        records
-          .filter((record) => this.availability.supports(record, this.client, this.platform))
-          .map((record) => record.id),
-      );
-      return summaries.filter((summary) => visible.has(summary.id));
-    });
+    return this.runManagementRead(async () => this.manager.summaries());
   }
 
   async withMcpServersSuspended<T>(id: string, task: () => Promise<T>): Promise<T> {
@@ -178,22 +173,15 @@ export class PluginService extends Service implements IPluginService {
                 id: resolved.expectedPluginId,
                 origin: 'marketplace' as const,
                 catalogId: resolved.catalogId,
-                marketplaceSource:
-                  resolved.marketplaceSource === undefined
-                    ? undefined
-                    : pluginAvailabilitySourceKey(resolved.marketplaceSource),
+                marketplaceSource: resolved.marketplaceSource === undefined
+                  ? undefined
+                  : pluginAvailabilitySourceKey(resolved.marketplaceSource),
               };
               if (!this.availability.supports(installation, this.client, this.platform)) {
                 throw new Error2(
                   ErrorCodes.VALIDATION_FAILED,
                   `Marketplace plugin "${resolved.catalogId}" does not support ${this.client} on ${this.platform}`,
-                  {
-                    details: {
-                      marketplaceId: resolved.catalogId,
-                      client: this.client,
-                      platform: this.platform,
-                    },
-                  },
+                  { details: { marketplaceId: resolved.catalogId, client: this.client, platform: this.platform } },
                 );
               }
               return this.manager.installAndReload(resolved.source, {
@@ -201,10 +189,9 @@ export class PluginService extends Service implements IPluginService {
                 expectedPluginId: resolved.expectedPluginId,
                 origin: resolved.origin,
                 catalogId: resolved.catalogId,
-                marketplaceSource:
-                  resolved.marketplaceSource === undefined
-                    ? undefined
-                    : pluginAvailabilitySourceKey(resolved.marketplaceSource),
+                marketplaceSource: resolved.marketplaceSource === undefined
+                  ? undefined
+                  : pluginAvailabilitySourceKey(resolved.marketplaceSource),
                 migrateFrom: input.migrateFrom,
                 requiredSkill: resolvedInstall?.requiredSkill,
                 fetchImpl: resolved.fetchImpl,
@@ -247,14 +234,30 @@ export class PluginService extends Service implements IPluginService {
     });
   }
 
-  removePlugin(input: RemovePluginInput): Promise<void> {
-    return this.runNotifiedMutation(async () => {
+  async removePlugin(input: RemovePluginInput): Promise<void> {
+    const id = normalizePluginId(input.id);
+    let removedServers: readonly PluginMcpServerEntry[] = [];
+    await this.runNotifiedMutation(async () => {
+      removedServers = this.manager.mcpServerEntries().filter((entry) => entry.pluginId === id);
       await this.manager.remove(input.id);
       const notification = await this.reloadAndNotify({
         mutation: { kind: 'remove', id: input.id },
       });
       return { result: undefined, notification };
     });
+    for (const entry of removedServers) {
+      if (!('url' in entry.config)) continue;
+      try {
+        await this.oauth.cancelAuthorizationFromConfiguration(undefined, entry.name, entry.config.url);
+        await this.oauth.invalidateFromConfiguration(undefined, entry.name, entry.config.url);
+      } catch (error) {
+        this.log.warn('plugin oauth credential cleanup failed', {
+          pluginId: id,
+          name: entry.name,
+          error,
+        });
+      }
+    }
   }
 
   reloadPlugins(): Promise<ReloadSummary> {
@@ -347,6 +350,13 @@ export class PluginService extends Service implements IPluginService {
         input.expectedVersion,
         input.expectedSha256,
       );
+      if (resolved.sha256sum === undefined) {
+        throw new Error2(
+          ErrorCodes.VALIDATION_FAILED,
+          `Marketplace plugin "${input.marketplaceId}" preview requires a SHA-256 digest`,
+          { details: { marketplaceId: input.marketplaceId } },
+        );
+      }
       return this.manager.inspect(resolved.source, {
         expectedSha256: resolved.sha256sum,
         expectedPluginId: resolved.expectedPluginId,
@@ -396,13 +406,11 @@ export class PluginService extends Service implements IPluginService {
 
   mcpServerEntries(): Promise<readonly PluginMcpServerEntry[]> {
     return this.runManagementRead(async () => {
-      const entries = this.manager
-        .mcpServerEntries()
-        .map((entry) =>
-          this.mcpSuspensions.has(entry.pluginId)
-            ? { ...entry, config: { ...entry.config, enabled: false } }
-            : entry,
-        );
+      const entries = this.manager.mcpServerEntries().map((entry) =>
+        this.mcpSuspensions.has(entry.pluginId)
+          ? { ...entry, config: { ...entry.config, enabled: false } }
+          : entry,
+      );
       if (!entries.some((entry) => entry.config.transport === 'stdio')) {
         return entries;
       }

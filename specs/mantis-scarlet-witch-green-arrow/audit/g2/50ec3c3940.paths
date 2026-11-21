@@ -1,0 +1,5 @@
+A	.changeset/bash-session-workspace-env.md
+M	docs/en/reference/tools.md
+M	docs/zh/reference/tools.md
+M	packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts
+M	packages/agent-core-v2/test/os/backends/node-local/tools/bash.test.ts

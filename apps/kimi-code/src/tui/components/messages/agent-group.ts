@@ -1,33 +1,13 @@
-/**
- * AgentGroupComponent renders 2+ Agent tool calls from the same step as one group.
- *
- * Design:
- * - State container: each child Agent keeps its real state in its
- *   `ToolCallComponent` (subagent meta, phase, sub-tool calls, tokens, text).
- *   AgentGroup only stores references and does not copy state. Event handlers
- *   still route through `state.pendingToolComponents.get(parent_tool_call_id)`.
- * - Subscription: `attach` registers a snapshot listener on each child so the
- *   group can refresh when child state changes.
- * - Throttling: normal changes are coalesced into one render every 200ms.
- *   Phase transitions (spawning -> running -> done/failed) flush immediately.
- * - Mounting: `KimiTUI` attaches the group to the transcript at the
- *   right time; the group handles `invalidate` plus `ui.requestRender`.
- * - Ungrouping is not implemented. Once formed, a group stays grouped.
- */
-
 import type { TUI } from '@moonshot-ai/pi-tui';
 import { Container, Spacer, Text } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
+import { DETACH_HINT_TEXT } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '#/utils/render-clock';
+import { formatTokenCount } from '#/utils/usage/usage-format';
 
 import type { ToolCallComponent, ToolCallSubagentSnapshot } from './tool-call';
+import { t } from '#/i18n';
 
 const THROTTLE_MS = 200;
 
@@ -50,16 +30,12 @@ export class AgentGroupComponent extends Container {
   private readonly entries: AgentEntry[] = [];
   private readonly headerText: Text;
   private readonly bodyContainer: Container;
-  private throttleTimer: RenderTimerHandle | null = null;
+  private throttleTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFlushPhases = new Map<string, ToolCallSubagentSnapshot['phase']>();
   private _invalidating = false;
-  private disposed = false;
   private projectionVersion = 0;
 
-  constructor(
-    private readonly ui: TUI | undefined,
-    private readonly clock: RenderClock = SYSTEM_RENDER_CLOCK,
-  ) {
+  constructor(private readonly ui: TUI | undefined) {
     super();
     this.addChild(new Spacer(1));
     this.headerText = new Text('', 0, 0);
@@ -72,18 +48,10 @@ export class AgentGroupComponent extends Container {
     return this.entries.length;
   }
 
-  /**
-   * Exposes the borrowed tool call components so external code (e.g.
-   * routing background task terminal events back to the corresponding
-   * Agent card) can reach them — the group renders the tcs' snapshots
-   * but never mounts the tcs as Container children, so a plain tree
-   * walk of `transcriptContainer` cannot discover them.
-   */
   getToolComponents(): readonly ToolCallComponent[] {
     return this.entries.map((entry) => entry.tc);
   }
 
-  /** Changes whenever the borrowed cards change what a transcript projection draws. */
   get transcriptProjectionVersion(): number {
     return this.projectionVersion + this.entries.reduce(
       (version, entry) => version + entry.tc.transcriptProjectionVersion,
@@ -91,11 +59,6 @@ export class AgentGroupComponent extends Container {
     );
   }
 
-  /**
-   * Borrows a standalone `ToolCallComponent` into the group as a hidden state
-   * container. Snapshot changes trigger throttled refreshes. Re-attaching the
-   * same toolCallId is a no-op.
-   */
   attach(toolCallId: string, tc: ToolCallComponent): void {
     if (this.entries.some((e) => e.toolCallId === toolCallId)) return;
     this.entries.push({ toolCallId, tc });
@@ -106,34 +69,22 @@ export class AgentGroupComponent extends Container {
     this.flushRender();
   }
 
-  /**
-   * Schedules a repaint. Real phase transitions force an immediate refresh;
-   * other changes such as latestActivity, tokens, or toolCount are throttled.
-   */
   private scheduleRender(): void {
     if (this.detectPhaseTransition()) {
       this.flushRender();
       return;
     }
     if (this.throttleTimer !== null) return;
-    this.throttleTimer = this.clock.setTimeout(() => {
+    this.throttleTimer = setTimeout(() => {
       this.throttleTimer = null;
       this.flushRender();
     }, THROTTLE_MS);
   }
 
-  /**
-   * Compares each child's current phase with the phase captured at the last
-   * flush. Any change is treated as a phase transition.
-   */
   private detectPhaseTransition(): boolean {
     let changed = false;
     for (const e of this.entries) {
-      // Phase-only read: this runs on *every* card snapshot notification
-      // (before the 200ms throttle below ever applies), so building a full
-      // snapshot per card here made every card's tick cost a full sweep of
-      // all the others.
-      const phase = e.tc.getSubagentPhase();
+      const phase = e.tc.getSubagentSnapshot().phase;
       if (this.lastFlushPhases.get(e.toolCallId) !== phase) {
         changed = true;
         break;
@@ -144,7 +95,7 @@ export class AgentGroupComponent extends Container {
 
   private flushRender(): void {
     if (this.throttleTimer !== null) {
-      this.clock.clearTimeout(this.throttleTimer);
+      clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
     }
 
@@ -156,9 +107,7 @@ export class AgentGroupComponent extends Container {
       this.appendLines(snap, isLast);
     });
     if (this.shouldShowDetachHint(snapshots)) {
-      this.bodyContainer.addChild(
-        new Text(currentTheme.dim(t('tui.messages.agentGroup.detachHint')), 2, 0),
-      );
+      this.bodyContainer.addChild(new Text(currentTheme.dim(DETACH_HINT_TEXT), 2, 0));
     }
 
     this.lastFlushPhases.clear();
@@ -167,10 +116,7 @@ export class AgentGroupComponent extends Container {
       if (snap !== undefined) this.lastFlushPhases.set(entry.toolCallId, snap.phase);
     });
 
-    // Invalidate the container's caches directly: calling the `invalidate()`
-    // override here would re-enter `flushRender()` and rebuild the whole body
-    // (plus request a second render) on every throttle tick.
-    super.invalidate();
+    this.invalidate();
     this.ui?.requestRender();
   }
 
@@ -187,11 +133,8 @@ export class AgentGroupComponent extends Container {
       const types = new Set(snapshots.map((s) => s.agentName).filter((n) => n !== undefined));
       const headerLabel =
         types.size === 1
-          ? t('tui.messages.agentGroup.finishedWithType', {
-              count: total,
-              type: [...types][0] ?? '',
-            })
-          : t('tui.messages.agentGroup.finished', { count: total });
+          ? t('tui.messages.agentGroup.finishedWithType', { count: String(total), type: [...types][0] ?? '' })
+          : t('tui.messages.agentGroup.finished', { count: String(total) });
       const totalTools = snapshots.reduce((acc, s) => acc + s.toolCount, 0);
       const totalTokens = snapshots.reduce((acc, s) => acc + s.tokens, 0);
       const tail = formatHeaderTail({ toolCount: totalTools, tokens: totalTokens, elapsedSeconds });
@@ -199,13 +142,9 @@ export class AgentGroupComponent extends Container {
     }
 
     const parts = formatBreakdownParts(counts);
-    const headerText =
-      parts.length > 0
-        ? t('tui.messages.agentGroup.runningWithBreakdown', {
-            count: total,
-            breakdown: parts.join(', '),
-          })
-        : t('tui.messages.agentGroup.running', { count: total });
+    const headerText = parts.length > 0
+      ? t('tui.messages.agentGroup.runningWithBreakdown', { count: String(total), breakdown: parts.join(', ') })
+      : t('tui.messages.agentGroup.running', { count: String(total) });
     const tail = formatHeaderTail({ toolCount: 0, tokens: 0, elapsedSeconds });
     return `${bullet}${currentTheme.boldFg('primary', headerText)}${tail}`;
   }
@@ -213,7 +152,6 @@ export class AgentGroupComponent extends Container {
   private appendLines(snap: ToolCallSubagentSnapshot, isLast: boolean): void {
     const dim = (text: string) => currentTheme.dim(text);
 
-    // First-level branch line.
     const branch1 = isLast ? '└─' : '├─';
     const agentType = snap.agentName ?? t('tui.messages.agentGroup.agentDefault');
     const desc = snap.toolCallDescription || t('tui.messages.agentGroup.noDescription');
@@ -224,34 +162,20 @@ export class AgentGroupComponent extends Container {
     const line1 = `  ${branch1} ${namePart} ${descPart}${stats}${tail}`;
     this.bodyContainer.addChild(new Text(line1, 0, 0));
 
-    // Second-level line: latest activity, or Error for failures.
     const branch2 = isLast ? '   ' : '│  ';
     if (snap.phase === 'failed') {
-      // Show one error line; error messages can be long.
-      const errLine =
-        (snap.errorText ?? t('tui.messages.agentGroup.failed')).split('\n').at(0) ??
-        t('tui.messages.agentGroup.failed');
-      const errStr = currentTheme.fg(
-        'error',
-        t('tui.messages.agentGroup.errorPrefix', { error: errLine }),
-      );
+      const errLine = (snap.errorText ?? 'Failed').split('\n').at(0) ?? 'Failed';
+      const errStr = currentTheme.fg('error', `Error: ${errLine}`);
       this.bodyContainer.addChild(new Text(`  ${branch2}    ${errStr}`, 0, 0));
       return;
     }
     if (snap.phase === 'done' || snap.phase === 'backgrounded') {
-      // Terminal states omit the second line.
       return;
     }
-    // Running or not-yet-started agents show latest activity, with a fallback.
     const activity = snap.latestActivity ?? fallbackActivityForPhase(snap.phase);
     this.bodyContainer.addChild(new Text(`  ${branch2}    ${dim(activity)}`, 0, 0));
   }
 
-  /**
-   * Show the Ctrl+B hint while at least one agent in the group is still
-   * running in the foreground (i.e. can be detached). Hide it once every
-   * agent is done, failed, or already backgrounded.
-   */
   private shouldShowDetachHint(snapshots: readonly ToolCallSubagentSnapshot[]): boolean {
     return snapshots.some(
       (s) =>
@@ -262,7 +186,6 @@ export class AgentGroupComponent extends Container {
     );
   }
 
-  /** Releases throttle timers so destroyed components cannot refresh later. */
   override invalidate(): void {
     if (this._invalidating) {
       super.invalidate();
@@ -273,25 +196,13 @@ export class AgentGroupComponent extends Container {
     this._invalidating = false;
   }
 
-  /**
-   * Releases throttle timers so destroyed components cannot refresh later.
-   * Disposing also cascades into the borrowed cards: a running Agent card
-   * drives its own elapsed-spinner interval (80ms) and would otherwise keep
-   * calling `requestRender()` after `/clear`, a session switch, or a
-   * transcript fold. `stopTimers()` and `dispose()` are both idempotent, so a
-   * second `dispose()` is harmless.
-   */
   dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
     if (this.throttleTimer !== null) {
-      this.clock.clearTimeout(this.throttleTimer);
+      clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
     }
     for (const e of this.entries) {
       e.tc.setSnapshotListener(undefined);
-      e.tc.stopTimers();
-      e.tc.dispose();
     }
   }
 }
@@ -335,25 +246,18 @@ function countPhases(snapshots: readonly ToolCallSubagentSnapshot[]): PhaseCount
     running,
     waiting,
     starting,
-    // `backgrounded` members are still running remotely, so they count as
-    // active: only done/failed members make the "finished" header truthful.
-    terminal: done + failed,
+    terminal: done + failed + backgrounded,
   };
 }
 
 function formatBreakdownParts(counts: PhaseCounts): string[] {
   const parts: string[] = [];
-  if (counts.done > 0) parts.push(t('tui.messages.agentGroup.breakdown.done', { n: counts.done }));
-  if (counts.failed > 0)
-    parts.push(t('tui.messages.agentGroup.breakdown.failed', { n: counts.failed }));
-  if (counts.backgrounded > 0)
-    parts.push(t('tui.messages.agentGroup.breakdown.backgrounded', { n: counts.backgrounded }));
-  if (counts.running > 0)
-    parts.push(t('tui.messages.agentGroup.breakdown.running', { n: counts.running }));
-  if (counts.waiting > 0)
-    parts.push(t('tui.messages.agentGroup.breakdown.waiting', { n: counts.waiting }));
-  if (counts.starting > 0)
-    parts.push(t('tui.messages.agentGroup.breakdown.starting', { n: counts.starting }));
+  if (counts.done > 0) parts.push(`${String(counts.done)} done`);
+  if (counts.failed > 0) parts.push(`${String(counts.failed)} failed`);
+  if (counts.backgrounded > 0) parts.push(`${String(counts.backgrounded)} backgrounded`);
+  if (counts.running > 0) parts.push(`${String(counts.running)} running`);
+  if (counts.waiting > 0) parts.push(`${String(counts.waiting)} waiting`);
+  if (counts.starting > 0) parts.push(`${String(counts.starting)} starting`);
   return parts;
 }
 
@@ -361,11 +265,7 @@ function formatStats(snap: ToolCallSubagentSnapshot): string {
   const parts: string[] = [];
   if (snap.model !== undefined) parts.push(snap.model);
   if (snap.effort !== undefined) parts.push(snap.effort);
-  parts.push(
-    snap.toolCount === 1
-      ? t('tui.messages.agentGroup.tool_one', { count: snap.toolCount })
-      : t('tui.messages.agentGroup.tool_other', { count: snap.toolCount }),
-  );
+  parts.push(`${String(snap.toolCount)} tool${snap.toolCount === 1 ? '' : 's'}`);
   if (snap.elapsedSeconds !== undefined) parts.push(formatElapsed(snap.elapsedSeconds));
   if (snap.tokens > 0) parts.push(formatTokens(snap.tokens));
   return currentTheme.dim(` · ${parts.join(' · ')}`);
@@ -412,13 +312,7 @@ function formatHeaderTail(args: {
   readonly elapsedSeconds: number | undefined;
 }): string {
   const parts: string[] = [];
-  if (args.toolCount > 0) {
-    parts.push(
-      args.toolCount === 1
-        ? t('tui.messages.agentGroup.tool_one', { count: args.toolCount })
-        : t('tui.messages.agentGroup.tool_other', { count: args.toolCount }),
-    );
-  }
+  if (args.toolCount > 0) parts.push(`${String(args.toolCount)} tool${args.toolCount === 1 ? '' : 's'}`);
   if (args.tokens > 0) parts.push(formatTokens(args.tokens));
   if (args.elapsedSeconds !== undefined) parts.push(formatElapsed(args.elapsedSeconds));
   return parts.length > 0 ? currentTheme.dim(` · ${parts.join(' · ')}`) : '';
@@ -435,28 +329,12 @@ function maxElapsedSeconds(snapshots: readonly ToolCallSubagentSnapshot[]): numb
 }
 
 function formatElapsed(seconds: number): string {
-  if (seconds < 60) return t('tui.messages.agentGroup.elapsedSeconds', { count: seconds });
+  if (seconds < 60) return `${String(seconds)}s`;
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
-  return t('tui.messages.agentGroup.elapsedMinutes', { minutes, seconds: remainder });
+  return `${String(minutes)}m ${String(remainder)}s`;
 }
 
 function formatTokens(n: number): string {
-  if (!Number.isFinite(n) || n < 0) return t('tui.messages.agentGroup.tokens', { count: 0 });
-  if (n >= 1024 * 1024) {
-    const m = n / (1024 * 1024);
-    const count = m >= 100 ? Math.round(m) : Number(trimTokenDecimal(m));
-    return t('tui.messages.agentGroup.tokensM', { count });
-  }
-  if (n >= 1024) {
-    const k = n / 1024;
-    const count = k >= 100 ? Math.round(k) : Number(trimTokenDecimal(k));
-    return t('tui.messages.agentGroup.tokensK', { count });
-  }
-  return t('tui.messages.agentGroup.tokens', { count: n });
-}
-
-function trimTokenDecimal(v: number): string {
-  const s = v.toFixed(1);
-  return s.endsWith('.0') ? s.slice(0, -2) : s;
+  return `${formatTokenCount(n)} tok`;
 }

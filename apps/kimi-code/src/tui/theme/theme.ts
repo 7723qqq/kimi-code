@@ -1,79 +1,52 @@
-/**
- * Theme class + global singleton.
- *
- * Components import `currentTheme` and call methods like
- * `currentTheme.fg('primary', text)` at render time.  When the user switches
- * themes we call `currentTheme.setPalette(newPalette, family)` — the same
- * singleton
- * instance stays alive, so every component (including already-rendered
- * transcript entries) sees the new colours on the next render frame.
- */
-
 import chalk from 'chalk';
 
 import { SGR_FAINT, SGR_NORMAL_INTENSITY, SGR_SEQUENCE } from '#/tui/constant/terminal';
 
-import type { ColorPalette, ResolvedTheme } from './colors';
+import type { ColorPalette } from './colors';
 import { darkColors } from './colors';
+import { colorDistance } from './color-mix';
 import { deriveHoverBackground } from './hover-color';
 
 export type ColorToken = keyof ColorPalette;
 
 export class Theme {
   private _palette: ColorPalette;
-  private _resolved: ResolvedTheme;
   private _terminalBackground: string | undefined;
 
-  constructor(palette: ColorPalette, resolved: ResolvedTheme = 'dark') {
+  constructor(palette: ColorPalette) {
     this._palette = palette;
-    this._resolved = resolved;
   }
 
   get palette(): ColorPalette {
     return this._palette;
   }
 
-  /** Whether the active palette belongs to the light built-in family. */
-  get isLight(): boolean {
-    return this._resolved === 'light';
-  }
-
-  /**
-   * Apply a palette together with the built-in family (`'dark' | 'light'`) it
-   * was resolved from — the authoritative source for `isLight`.
-   */
-  setPalette(palette: ColorPalette, resolved: ResolvedTheme): void {
+  setPalette(palette: ColorPalette): void {
     this._palette = palette;
-    this._resolved = resolved;
   }
 
   color(token: ColorToken): string {
     return this._palette[token];
   }
 
-  /** The terminal's own background colour, once the OSC 11 query answered. */
   setTerminalBackground(background: string | undefined): void {
     this._terminalBackground = background;
   }
 
-  /** The background colour to paint against: the reported one, else the palette family's. */
   terminalBackground(): string {
-    return this._terminalBackground ?? (this.isLight ? '#FFFFFF' : '#000000');
+    return this._terminalBackground ?? (this.isLight() ? '#FFFFFF' : '#000000');
   }
 
-  /**
-   * The background a hovered row is painted with: the terminal background
-   * nudged until the foreground keeps its contrast. Undefined until the
-   * terminal answered the OSC 11 query, so a row is never painted with a
-   * colour derived from a background nobody reported.
-   */
+  isLight(): boolean {
+    const strong = this.color('textStrong');
+    return colorDistance(strong, '#000000') < colorDistance(strong, '#FFFFFF');
+  }
+
   hoverBackground(): string | undefined {
     return this._terminalBackground === undefined
       ? undefined
       : deriveHoverBackground(this._terminalBackground, this.color('textStrong'));
   }
-
-  /* ── Foreground helpers ── */
 
   fg(token: ColorToken, text: string): string {
     return chalk.hex(this._palette[token])(text);
@@ -99,13 +72,9 @@ export class Theme {
     return chalk.hex(this._palette[token]).strikethrough(text);
   }
 
-  /* ── Background helpers ── */
-
   bg(token: ColorToken, text: string): string {
     return chalk.bgHex(this._palette[token])(text);
   }
-
-  /* ── Standalone style helpers ── */
 
   bold(text: string): string {
     return chalk.bold(text);
@@ -127,11 +96,6 @@ export class Theme {
     return chalk.strikethrough(text);
   }
 
-  /**
-   * Fade an already styled line, keeping its hues: faint from start to end,
-   * re-entered after every reset inside it that would end faint early.
-   * Unlike `dim`, a bold segment inside cannot cut the fade short.
-   */
   fade(text: string): string {
     if (chalk.level === 0 || text.length === 0) return text;
     const faded = text.replaceAll(SGR_SEQUENCE, (sequence: string, params: string) =>
@@ -141,7 +105,6 @@ export class Theme {
   }
 }
 
-/** Whether an SGR parameter list resets intensity; extended color arguments are skipped, not read as codes. */
 function endsFaint(params: string): boolean {
   const codes = params.split(';');
   for (let index = 0; index < codes.length; index += 1) {
@@ -156,5 +119,4 @@ function endsFaint(params: string): boolean {
   return false;
 }
 
-/** Global singleton.  Initialise with dark palette; switch via `setPalette`. */
 export const currentTheme = new Theme(darkColors);

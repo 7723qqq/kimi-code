@@ -1,0 +1,54 @@
+commit 7052fbbefd515d8e2aef27b60709965e59c4b687
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Wed Nov 18 01:04:29 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Wed Nov 18 01:04:29 2026 +0800
+
+    docs(changelog): sync 2.6.3 from apps/kimi-code/CHANGELOG.md (#5022)
+    
+    Co-authored-by: kimi-agent-bot <317908118+kimi-agent-bot@users.noreply.github.com>
+
+diff --git a/docs/en/release-notes/changelog.md b/docs/en/release-notes/changelog.md
+index b39253919e..b121195785 100644
+--- a/docs/en/release-notes/changelog.md
++++ b/docs/en/release-notes/changelog.md
+@@ -6,6 +6,17 @@ outline: 2
+ 
+ This page documents the changes in each Kimi Code CLI release.
+ 
++## 2.6.3 (2026-11-17)
++
++### Bug Fixes
++
++- Fix duplicate output and a lingering loading spinner after foreground shell commands.
++- Fix background notifications incorrectly stopping Tower tasks.
++- Fix external Stop hooks not running after each completed turn.
++- Prevent restored background task notifications from starting model requests when sessions are resumed or forked.
++- Fix Windows WebBridge updates failing while the daemon is running.
++- Fix several known issues.
++
+ ## 2.6.2 (2026-11-14)
+ 
+ ### Features
+diff --git a/docs/zh/release-notes/changelog.md b/docs/zh/release-notes/changelog.md
+index 52f22a6211..98b407886b 100644
+--- a/docs/zh/release-notes/changelog.md
++++ b/docs/zh/release-notes/changelog.md
+@@ -6,6 +6,17 @@ outline: 2
+ 
+ 本页记录 Kimi Code CLI 每个版本的变更内容。
+ 
++## 2.6.3（2026-11-17）
++
++### 修复
++
++- 修复前台 Shell 命令输出重复且加载状态不消失的问题。
++- 修复后台通知导致 Tower 任务意外停止的问题。
++- 修复每轮回复完成后外部 Stop 钩子未执行的问题。
++- 修复恢复或创建会话分支时后台任务通知意外触发新回复的问题。
++- 修复 Windows 上 WebBridge 守护进程运行时无法更新的问题。
++- 修复了若干已知的问题。
++
+ ## 2.6.2（2026-11-14）
+ 
+ ### 新功能

@@ -1,19 +1,23 @@
-import { describe, expect, it, mock, spyOn } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import * as environmentProbe from '#/_base/execEnv/environmentProbe';
 import { ProbeShellNotFoundError } from '#/_base/execEnv/environmentProbe';
-import { HostEnvironmentService } from '#/os/backends/host/hostEnvironmentService';
+import { HostEnvironmentService } from '#/os/backends/node-local/hostEnvironmentService';
 import { HostProcessError, OsProcessErrors } from '#/os/interface/hostProcess';
 
-spyOn(environmentProbe, 'probeHostEnvironmentFromNode').mockImplementation(() =>
-  Promise.reject(
-    new ProbeShellNotFoundError('Git Bash missing (stubbed)', [
-      'C:\\Program Files\\Git\\bin\\bash.exe',
-    ]),
-  ),
-);
+void vi.mock('#/_base/execEnv/environmentProbe', async () => {
+  const actual = await import('#/_base/execEnv/environmentProbe');
+  return {
+    ...actual,
+    probeHostEnvironmentFromNode: () =>
+      Promise.reject(
+        new actual.ProbeShellNotFoundError('Git Bash missing (stubbed)', [
+          'C:\\Program Files\\Git\\bin\\bash.exe',
+        ]),
+      ),
+  };
+});
 
-void mock.module('#/_base/execEnv/loginShellPath', () => ({
+void vi.mock('#/_base/execEnv/loginShellPath', () => ({
   applyLoginShellPathFromNode: () => Promise.resolve(),
 }));
 

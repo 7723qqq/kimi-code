@@ -1,11 +1,11 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { SDKRpcClientBase } from '../src/rpc';
 import { Session } from '../src/session';
 
 describe('Session.prompt input normalization', () => {
   it('passes multimodal prompt parts through to the core RPC client', async () => {
-    const prompt = mock(async () => {});
+    const prompt = vi.fn(async () => {});
     const session = new Session({
       id: 'ses_multimodal_prompt',
       workDir: '/tmp/work',
@@ -15,10 +15,6 @@ describe('Session.prompt input normalization', () => {
       { type: 'text', text: 'describe these' },
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
       { type: 'video_url', videoUrl: { url: 'ms://file-123', id: 'file-123' } },
-      {
-        type: 'document_url',
-        documentUrl: { url: 'kimi-file://file-456', mimeType: 'application/pdf' },
-      },
     ] as const;
 
     await session.prompt(input);
@@ -29,27 +25,8 @@ describe('Session.prompt input normalization', () => {
     });
   });
 
-  it('rejects an empty document URL before calling RPC', async () => {
-    const prompt = mock(async () => {});
-    const session = new Session({
-      id: 'ses_empty_document_url',
-      workDir: '/tmp/work',
-      rpc: { prompt } as unknown as SDKRpcClientBase,
-    });
-
-    await expect(
-      session.prompt([
-        {
-          type: 'document_url',
-          documentUrl: { url: '', mimeType: 'application/pdf' },
-        },
-      ]),
-    ).rejects.toThrow('Prompt input cannot contain empty document URLs');
-    expect(prompt).not.toHaveBeenCalled();
-  });
-
   it('forwards a caller-chosen promptId to the core RPC client', async () => {
-    const prompt = mock(async () => {});
+    const prompt = vi.fn(async () => {});
     const session = new Session({
       id: 'ses_prompt_id',
       workDir: '/tmp/work',
@@ -66,7 +43,7 @@ describe('Session.prompt input normalization', () => {
   });
 
   it('rejects an empty caller-chosen promptId before calling RPC', async () => {
-    const prompt = mock(async () => {});
+    const prompt = vi.fn(async () => {});
     const session = new Session({
       id: 'ses_prompt_id',
       workDir: '/tmp/work',
@@ -87,7 +64,7 @@ describe('Session.prompt input normalization', () => {
       steered: true,
       turnId: 4,
     } as const;
-    const steer = mock(async () => submission);
+    const steer = vi.fn(async () => submission);
     const session = new Session({
       id: 'ses_steer_result',
       workDir: '/tmp/work',
@@ -102,7 +79,7 @@ describe('Session.prompt input normalization', () => {
   });
 
   it('starts btw and returns the forked agent id', async () => {
-    const startBtw = mock(async () => 'agent-btw');
+    const startBtw = vi.fn(async () => 'agent-btw');
     const session = new Session({
       id: 'ses_btw_start',
       workDir: '/tmp/work',

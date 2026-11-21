@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
@@ -32,7 +32,9 @@ export const refreshProviderModelsResponseSchema = z.object({
   failed: z.array(providerRefreshFailureSchema),
   retired_default: retiredDefaultSchema.optional(),
 });
-export type RefreshProviderModelsResponse = z.infer<typeof refreshProviderModelsResponseSchema>;
+export type RefreshProviderModelsResponse = z.infer<
+  typeof refreshProviderModelsResponseSchema
+>;
 
 export type RefreshProviderModelsScope = 'all' | 'oauth';
 

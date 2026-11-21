@@ -1,7 +1,6 @@
-import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 import { z } from 'zod';
 
-import { goalBudgetReportSchema } from './goal';
+import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 
 const agentFrameFields = {
   session_id: z.string().min(1),
@@ -10,7 +9,7 @@ const agentFrameFields = {
 };
 
 export const agentStateSchema = z.object({
-  status: z.enum(['idle', 'running']),
+  status: z.enum(['idle', 'running', 'ended']),
   compacting: z.boolean(),
   model: z.string().optional(),
   thinking: z.string().optional(),
@@ -27,24 +26,21 @@ export const agentEventMessageSchema = agentStateSchema.extend({
 });
 export type AgentEventMessage = z.infer<typeof agentEventMessageSchema>;
 
-export const usageStateSchema = z.object({
+export const contextStateSchema = z.object({
   context_tokens: z.number().int().nonnegative(),
   max_context_tokens: z.number().int().positive().optional(),
 });
-export type UsageState = z.infer<typeof usageStateSchema>;
+export type ContextState = z.infer<typeof contextStateSchema>;
 
-export const usageEventMessageSchema = usageStateSchema.extend({
-  type: z.literal('usage'),
+export const contextEventMessageSchema = contextStateSchema.extend({
+  type: z.literal('context'),
   ...agentFrameFields,
 });
-export type UsageEventMessage = z.infer<typeof usageEventMessageSchema>;
+export type ContextEventMessage = z.infer<typeof contextEventMessageSchema>;
 
 export const goalStateSchema = z.object({
-  goal_id: z.string().optional(),
-  budget: goalBudgetReportSchema.optional(),
-  terminal_reason: z.string().optional(),
   objective: z.string(),
-  status: z.enum(['active', 'paused', 'blocked', 'complete', 'budget_limited', 'usage_limited']),
+  status: z.enum(['active', 'paused', 'blocked', 'complete']),
   completion_criterion: z.string().optional(),
   turns_used: z.number().int().nonnegative(),
   tokens_used: z.number().int().nonnegative(),
@@ -74,6 +70,6 @@ export type TodoEventMessage = z.infer<typeof todoEventMessageSchema>;
 
 export type AgentFeedMessage =
   | AgentEventMessage
-  | UsageEventMessage
+  | ContextEventMessage
   | GoalEventMessage
   | TodoEventMessage;

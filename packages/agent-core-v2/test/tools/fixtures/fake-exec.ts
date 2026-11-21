@@ -32,7 +32,7 @@ export function createFakeHostFs(overrides: Partial<IHostFileSystem> = {}): IHos
     walk: () => notImplemented('FakeHostFs.walk'),
     mkdir: () => notImplemented('FakeHostFs.mkdir'),
     remove: () => notImplemented('FakeHostFs.remove'),
-    realpath: (path) => Promise.resolve(path),
+    realpath: () => notImplemented('FakeHostFs.realpath'),
   };
   const merged: IHostFileSystem = { ...fs, ...overrides };
   if (overrides.readFileHead === undefined) {

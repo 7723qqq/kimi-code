@@ -1,7 +1,6 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { CacheHintDialogComponent } from '#/tui/components/dialogs/cache-hint-dialog';
-import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
 
@@ -10,8 +9,8 @@ function strip(text: string): string {
 }
 
 function renderDialog(idleSeconds = (26 * 24 + 22) * 3600, totalTokens = 293000) {
-  const onSelect = mock();
-  const onCancel = mock();
+  const onSelect = vi.fn();
+  const onCancel = vi.fn();
   const dialog = new CacheHintDialogComponent({ idleSeconds, totalTokens, onSelect, onCancel });
   return { dialog, onSelect, onCancel, lines: dialog.render(120).map(strip) };
 }
@@ -73,8 +72,8 @@ describe('CacheHintDialogComponent', () => {
 
   it('navigates with arrows before selecting', () => {
     const { dialog, onSelect } = renderDialog();
-    dialog.handleInput('\u001B[B'); // down
-    dialog.handleInput('\u001B[B'); // down
+    dialog.handleInput('\u001B[B');
+    dialog.handleInput('\u001B[B');
     dialog.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith('continue');
   });
@@ -84,25 +83,5 @@ describe('CacheHintDialogComponent', () => {
     dialog.handleInput('\u001B');
     expect(onCancel).toHaveBeenCalled();
     expect(onSelect).not.toHaveBeenCalled();
-  });
-});
-
-describe('CacheHintDialogComponent — mouse', () => {
-  it('picks the option the pointer is over', () => {
-    const onSelect = mock();
-    const dialog = new CacheHintDialogComponent({
-      idleSeconds: 60,
-      totalTokens: 1000,
-      onSelect,
-      onCancel: mock(),
-    });
-    pastSettlingWindow();
-    dialog.focused = true;
-    const rows = dialog.render(120).map(strip);
-    const row = rows.findIndex((line) => line.includes('Compact'));
-    expect(row).toBeGreaterThan(0);
-
-    for (const type of ['press', 'release', 'click'] as const) dialog.handleMouse(mouse(type, row));
-    expect(onSelect).toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   createProxyDispatcher,
@@ -27,7 +27,9 @@ describe('proxy utilities', () => {
     expect(resolveNoProxy({ NO_PROXY: 'example.com, 127.0.0.1' })).toBe(
       'example.com,127.0.0.1,localhost,::1,[::1]',
     );
-    expect(resolveNoProxy({ no_proxy: 'internal' })).toBe('internal,localhost,127.0.0.1,::1,[::1]');
+    expect(resolveNoProxy({ no_proxy: 'internal' })).toBe(
+      'internal,localhost,127.0.0.1,::1,[::1]',
+    );
     expect(resolveNoProxy({ NO_PROXY: '*' })).toBe('*');
   });
 
@@ -71,8 +73,8 @@ describe('proxy utilities', () => {
   it('builds dispatchers for HTTP and SOCKS proxy configurations', () => {
     const http = { id: 'http' } as never;
     const socks = { id: 'socks' } as never;
-    const makeHttpAgent = mock().mockReturnValue(http);
-    const makeSocksAgent = mock().mockReturnValue(socks);
+    const makeHttpAgent = vi.fn().mockReturnValue(http);
+    const makeSocksAgent = vi.fn().mockReturnValue(socks);
 
     expect(
       createProxyDispatcher(
@@ -101,8 +103,8 @@ describe('proxy utilities', () => {
 
   it('installs the global dispatcher only when a proxy dispatcher exists', () => {
     const dispatcher = { id: 'dispatcher' } as never;
-    const setGlobalDispatcher = mock();
-    const createDispatcher = mock().mockReturnValue(dispatcher);
+    const setGlobalDispatcher = vi.fn();
+    const createDispatcher = vi.fn().mockReturnValue(dispatcher);
 
     expect(
       installGlobalProxyDispatcher(

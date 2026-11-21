@@ -1,7 +1,7 @@
-import { createProvider } from '#/llm/provider/definition';
-import { anthropicBetaBase } from '#/llm/requester/bases/anthropic/requester';
-import { openAIResponsesBase } from '#/llm/requester/bases/openai-responses/requester';
-import { openAIBase } from '#/llm/requester/bases/openai/requester';
+import { createProvider } from '#human/llm/provider/definition';
+import { anthropicBetaBase } from '#human/llm/requester/bases/anthropic/requester';
+import { openAIResponsesBase } from '#human/llm/requester/bases/openai-responses/requester';
+import { openAIBase } from '#human/llm/requester/bases/openai/requester';
 
 import { classifyKimiQuotaError } from './errors';
 import { kimiMediaContribution } from './media';

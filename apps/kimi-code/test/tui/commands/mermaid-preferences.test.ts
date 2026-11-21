@@ -1,13 +1,22 @@
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it, vi, requireActual } from '@moonshot-ai/testkit/vitest';
 
 import { applyMermaidPreferenceChoice } from '#/tui/commands/config';
-import * as tuiConfig from '#/tui/config';
 import { darkColors } from '#/tui/theme/colors';
 import { getMarkdownMermaidMode, setMarkdownMermaidMode } from '#/tui/utils/markdown-options';
 
-const mocks = {
-  saveTuiConfig: spyOn(tuiConfig, 'saveTuiConfig').mockImplementation(async () => {}),
-};
+const mocks = vi.hoisted(() => ({
+  saveTuiConfig: vi.fn(),
+}));
+
+void vi.mock('../../../src/tui/config', () => {
+  const actual = requireActual(
+    '../../../src/tui/config.js',
+  );
+  return {
+    ...actual,
+    saveTuiConfig: mocks.saveTuiConfig,
+  };
+});
 
 function makeHost(mermaid: 'off' | 'final') {
   return {
@@ -20,11 +29,11 @@ function makeHost(mermaid: 'off' | 'final') {
         markdown: { mermaid },
       },
       theme: { palette: darkColors },
-      transcriptContainer: { invalidate: mock() },
-      ui: { requestRender: mock() },
+      transcriptContainer: { invalidate: vi.fn() },
+      ui: { requestRender: vi.fn() },
     },
-    setAppState: mock(),
-    showStatus: mock(),
+    setAppState: vi.fn(),
+    showStatus: vi.fn(),
   };
 }
 

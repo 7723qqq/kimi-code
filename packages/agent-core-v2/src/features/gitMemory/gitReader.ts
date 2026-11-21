@@ -240,6 +240,7 @@ export async function readGitHistory(
       `-${window}`,
       '--date=short',
       `--format=${LOG_FORMAT}`,
+      headSha,
     ],
     timers,
   );
@@ -261,6 +262,7 @@ export async function readGitHistory(
       '--name-only',
       '--no-renames',
       '--format=%H',
+      headSha,
     ],
     timers,
   );
@@ -280,11 +282,12 @@ export async function readRepoTree(
   process: IHostProcessService,
   cwd: string,
   timers?: IHostTimers,
+  headSha = 'HEAD',
 ): Promise<readonly string[] | undefined> {
   const tree = await runGit(
     process,
     cwd,
-    ['-c', 'core.quotePath=false', '-C', cwd, 'ls-tree', '-d', '-r', '--name-only', 'HEAD'],
+    ['-c', 'core.quotePath=false', '-C', cwd, 'ls-tree', '-d', '-r', '--name-only', headSha],
     timers,
   );
   if (!tree.ok) return undefined;

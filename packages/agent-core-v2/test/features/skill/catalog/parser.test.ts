@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   SkillParseError,
@@ -29,44 +29,6 @@ describe('parseSkillText', () => {
     });
     expect(skill.metadata.whenToUse).toBe('when X');
     expect(skill.metadata.disableModelInvocation).toBe(true);
-  });
-
-  it('normalizes verify commands and rejects empty ones', () => {
-    const single = parseSkillText({
-      skillMdPath: '/skills/x/SKILL.md',
-      skillDirName: 'x',
-      source: 'user',
-      text: '---\nname: x\ndescription: d\nverify: pnpm test\n---\nbody',
-    });
-    expect(single.metadata.verify).toEqual(['pnpm test']);
-
-    const list = parseSkillText({
-      skillMdPath: '/skills/y/SKILL.md',
-      skillDirName: 'y',
-      source: 'user',
-      text: '---\nname: y\ndescription: d\nverification: ["pnpm lint", "", "   ", "pnpm typecheck"]\n---\nbody',
-    });
-    expect(list.metadata.verify).toEqual(['pnpm lint', 'pnpm typecheck']);
-
-    const missing = parseSkillText({
-      skillMdPath: '/skills/z/SKILL.md',
-      skillDirName: 'z',
-      source: 'user',
-      text: '---\nname: z\ndescription: d\nverify: []\n---\nbody',
-    });
-    expect(missing.metadata.verify).toBeUndefined();
-  });
-
-  it('caps verify commands at five entries of five hundred characters', () => {
-    const long = 'x'.repeat(600);
-    const skill = parseSkillText({
-      skillMdPath: '/skills/x/SKILL.md',
-      skillDirName: 'x',
-      source: 'user',
-      text: `---\nname: x\ndescription: d\nverify: [${JSON.stringify(long)}, "a", "b", "c", "d", "e"]\n---\nbody`,
-    });
-    expect(skill.metadata.verify).toHaveLength(5);
-    expect(skill.metadata.verify?.[0]).toHaveLength(500);
   });
 
   it('throws when a directory skill misses a required field', () => {

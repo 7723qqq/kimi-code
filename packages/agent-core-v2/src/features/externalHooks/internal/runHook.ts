@@ -2,10 +2,7 @@ import { type SpawnOptionsWithoutStdio } from 'node:child_process';
 
 import { z } from 'zod';
 
-import { errorMessage } from '#/_base/utils/errorMessage';
-import { isRecord } from '#/_base/utils/guards';
-import type { IHostProcessService } from '#/os/interface/hostProcess';
-import { type IHostProcess } from '#/os/interface/hostProcess';
+import { type IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 
 import type { HookResult } from './types';
 
@@ -14,7 +11,6 @@ export interface RunHookOptions {
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly signal?: AbortSignal;
-  readonly failClosed?: boolean;
 }
 
 export function buildHookSpawnOptions(options: {
@@ -33,30 +29,17 @@ export function buildHookSpawnOptions(options: {
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
 const KILL_GRACE_MS = 100;
-const MAX_HOOK_OUTPUT_CHARS = 64 * 1024;
-const OUTPUT_TRUNCATED_MARKER = '\n[hook output truncated]';
-
-function appendCapped(current: string, chunk: string): { text: string; truncated: boolean } {
-  const remaining = MAX_HOOK_OUTPUT_CHARS - current.length;
-  if (remaining <= 0) {
-    if (chunk.length === 0) return { text: current, truncated: false };
-    const text = current.endsWith(OUTPUT_TRUNCATED_MARKER)
-      ? current
-      : current + OUTPUT_TRUNCATED_MARKER;
-    return { text, truncated: true };
-  }
-  if (chunk.length <= remaining) return { text: current + chunk, truncated: false };
-  return { text: current + chunk.slice(0, remaining) + OUTPUT_TRUNCATED_MARKER, truncated: true };
-}
-
-const OptionalStringSchema = z.preprocess((value) => {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-    return String(value);
-  }
-  return undefined;
-}, z.string().optional());
+const OptionalStringSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+      return String(value);
+    }
+    return undefined;
+  },
+  z.string().optional(),
+);
 const HookSpecificOutputSchema = z.preprocess(
   (value) => (isRecord(value) ? value : undefined),
   z
@@ -92,7 +75,6 @@ export async function runHook(
   return new Promise<HookResult>((resolve) => {
     let stdout = '';
     let stderr = '';
-    let truncated = false;
     let settled = false;
     const timeoutMs = timeoutSeconds(options.timeout) * 1000;
 
@@ -111,14 +93,10 @@ export async function runHook(
     proc.stdout.setEncoding('utf8');
     proc.stderr.setEncoding('utf8');
     proc.stdout.on('data', (chunk: string) => {
-      const appended = appendCapped(stdout, chunk);
-      stdout = appended.text;
-      truncated ||= appended.truncated;
+      stdout += chunk;
     });
     proc.stderr.on('data', (chunk: string) => {
-      const appended = appendCapped(stderr, chunk);
-      stderr = appended.text;
-      truncated ||= appended.truncated;
+      stderr += chunk;
     });
 
     const stdoutDone = new Promise<void>((done) => proc.stdout.once('end', done));
@@ -126,7 +104,7 @@ export async function runHook(
     void Promise.all([proc.wait(), stdoutDone, stderrDone]).then(
       ([code]) => {
         void proc.dispose();
-        settle(resultFromExitCode(code, stdout, stderr, truncated));
+        settle(resultFromExitCode(code, stdout, stderr));
       },
       (error) => {
         void proc.dispose();
@@ -136,18 +114,12 @@ export async function runHook(
 
     const timeout = setTimeout(() => {
       killProcess(proc);
-      if (options.failClosed === true) {
-        settle(
-          blockResult('Permission hook timed out', undefined, `${stderr} (timed out)`, truncated),
-        );
-        return;
-      }
-      settle(allowResult({ stdout, stderr, timedOut: true, outputTruncated: truncated }));
+      settle(allowResult({ stdout, stderr, timedOut: true }));
     }, timeoutMs);
 
     const onAbort = (): void => {
       killProcess(proc);
-      settle(allowResult({ stdout, stderr, outputTruncated: truncated }));
+      settle(allowResult({ stdout, stderr }));
     };
 
     options.signal?.addEventListener('abort', onAbort, { once: true });
@@ -165,12 +137,7 @@ function timeoutSeconds(timeout: number): number {
   return Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_TIMEOUT_SECONDS;
 }
 
-function resultFromExitCode(
-  exitCode: number,
-  stdout: string,
-  stderr: string,
-  outputTruncated: boolean,
-): HookResult {
+function resultFromExitCode(exitCode: number, stdout: string, stderr: string): HookResult {
   if (exitCode === 2) {
     const message = stderr.trim();
     return {
@@ -180,7 +147,6 @@ function resultFromExitCode(
       stdout,
       stderr,
       exitCode,
-      outputTruncated,
     };
   }
 
@@ -194,7 +160,6 @@ function resultFromExitCode(
       stderr,
       exitCode,
       structuredOutput: structured.structuredOutput,
-      outputTruncated,
     };
   }
 
@@ -204,7 +169,6 @@ function resultFromExitCode(
     stderr,
     exitCode,
     structuredOutput: structured?.structuredOutput,
-    outputTruncated,
   });
 }
 
@@ -250,7 +214,6 @@ function allowResult(input: {
   readonly errored?: boolean;
   readonly structuredOutput?: boolean;
   readonly error?: string;
-  readonly outputTruncated?: boolean;
 }): HookResult {
   return {
     action: 'allow',
@@ -261,7 +224,6 @@ function allowResult(input: {
     timedOut: input.timedOut,
     errored: input.errored,
     structuredOutput: input.structuredOutput,
-    outputTruncated: input.outputTruncated,
     error: input.error,
   };
 }
@@ -274,18 +236,10 @@ function killProcess(proc: IHostProcess): void {
   killTimer.unref();
 }
 
-function blockResult(
-  reason: string,
-  stdout: string | undefined,
-  stderr: string | undefined,
-  outputTruncated?: boolean,
-): HookResult {
-  return {
-    action: 'block',
-    message: reason,
-    reason,
-    stdout,
-    stderr,
-    outputTruncated,
-  };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

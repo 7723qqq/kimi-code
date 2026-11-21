@@ -1,6 +1,6 @@
 {
   "name": "@moonshot-ai/remote-control",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "description": "Kimi Remote Control tunnel client: registers this machine with the relay and forwards HTTP/WebSocket traffic to the local server.",
   "keywords": [
@@ -44,9 +44,11 @@
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-i18n": "workspace:^",
     "@moonshot-ai/runtime-shared": "workspace:^",
+    "https-proxy-agent": "^7.0.6",
     "ws": "catalog:"
   },
   "devDependencies": {
+    "@moonshot-ai/testkit": "workspace:*",
     "@types/ws": "^8.18.0"
   }
 }

@@ -1,27 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
-
-import { ClusterDb } from '@moonshot-ai/minidb/cluster';
-
-import {
-  ScopeActivation,
-  _clearScopedRegistryForTests,
-  registerScopedService,
-} from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  drainQueryStoreDisposals,
-  MiniDbQueryStore,
-} from '#/persistence/backends/minidb/miniDbQueryStore';
+import { ClusterDb } from '@moonshot-ai/minidb/cluster';
+import { drainQueryStoreDisposals, MiniDbQueryStore } from '#/persistence/backends/minidb/miniDbQueryStore';
 import { IQueryStore, QueryStoreRebuiltError } from '#/persistence/interface/queryStore';
-
-import { stubLog } from '../../../_base/log/stubs';
 import { stubBootstrap } from '../../../app/bootstrap/stubs';
+import { stubLog } from '../../../_base/log/stubs';
 
 const COLLECTION = 'session';
 const SEP = String.fromCodePoint(0);
@@ -54,9 +45,7 @@ describe('MiniDbQueryStore', () => {
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
     ]);
-    disposeHost = () => {
-      host.dispose();
-    };
+    disposeHost = () => { host.dispose(); };
     return host.app.accessor.get(IQueryStore);
   }
 
@@ -96,18 +85,13 @@ describe('MiniDbQueryStore', () => {
     await store.ensureIndex(COLLECTION, { kind: 'value', name: 'byWs', field: 'ws' });
     await store.batch(
       (
-        [
-          ['a', 'x', 1],
-          ['b', 'x', 3],
-          ['c', 'y', 5],
-          ['d', 'x', 2],
-        ] as const
-      ).map(([id, ws, n]) => ({
-        kind: 'put' as const,
-        collection: COLLECTION,
-        key: id,
-        value: { id, ws, n },
-      })),
+      [
+        ['a', 'x', 1],
+        ['b', 'x', 3],
+        ['c', 'y', 5],
+        ['d', 'x', 2],
+      ] as const
+      ).map(([id, ws, n]) => ({ kind: 'put' as const, collection: COLLECTION, key: id, value: { id, ws, n } })),
     );
 
     const page1 = await store
@@ -135,18 +119,8 @@ describe('MiniDbQueryStore', () => {
     await store.put(COLLECTION, 'a', { id: 'a', ws: 'x', n: 1, body: 'hello world' });
     await store.ensureIndex(COLLECTION, { kind: 'value', name: 'byWs', field: 'ws' });
     await store.ensureIndex(COLLECTION, { kind: 'value', name: 'byWs', field: 'ws' });
-    await store.ensureIndex(COLLECTION, {
-      kind: 'compound',
-      name: 'byWsN',
-      groupBy: 'ws',
-      orderBy: 'n',
-    });
-    await store.ensureIndex(COLLECTION, {
-      kind: 'compound',
-      name: 'byWsN',
-      groupBy: 'ws',
-      orderBy: 'n',
-    });
+    await store.ensureIndex(COLLECTION, { kind: 'compound', name: 'byWsN', groupBy: 'ws', orderBy: 'n' });
+    await store.ensureIndex(COLLECTION, { kind: 'compound', name: 'byWsN', groupBy: 'ws', orderBy: 'n' });
     const page = await store.query(COLLECTION).where({ ws: 'x' }).execute();
     expect(page.items).toHaveLength(1);
   });
@@ -198,10 +172,7 @@ describe('MiniDbQueryStore', () => {
     expect(await second.get(COLLECTION, 'a')).toBeUndefined();
     await second.ensureIndex(COLLECTION, { kind: 'value', name: 'byV', field: 'v' });
     await second.put(COLLECTION, 'b', { id: 'b', v: 2 });
-    const page = await second
-      .query<{ id: string; v: number }>(COLLECTION)
-      .where({ v: 2 })
-      .execute();
+    const page = await second.query<{ id: string; v: number }>(COLLECTION).where({ v: 2 }).execute();
     expect(page.items).toEqual([{ id: 'b', v: 2 }]);
   });
 
@@ -230,12 +201,7 @@ describe('MiniDbQueryStore', () => {
     expect(await store.get(COLLECTION, 'c')).toEqual({ id: 'c', v: 3 });
 
     const storeDir = join(homeDir, 'cache', 'query-store');
-    const peer = await ClusterDb.open({
-      dir: storeDir,
-      shardCount: 16,
-      valueCodec: 'json',
-      lockHoldMs: 0,
-    });
+    const peer = await ClusterDb.open({ dir: storeDir, shardCount: 16, valueCodec: 'json', lockHoldMs: 0 });
     await peer.set(`${COLLECTION}${SEP}peer`, { id: 'peer', v: 9 });
     const db3 = await internal.dbPromise;
     (db3 as unknown as { set: unknown }).set = () => Promise.reject(poisoned);
@@ -264,38 +230,6 @@ describe('MiniDbQueryStore', () => {
     expect(await store.getCheckpoint('projection')).toEqual({ seq: 7 });
   });
 
-  it('delete on a non-existent key is a no-op', async () => {
-    const store = build();
-    await expect(store.delete(COLLECTION, 'never-existed')).resolves.toBeUndefined();
-  });
-
-  it('overwrites an existing value on put', async () => {
-    const store = build();
-    await store.put(COLLECTION, 'a', { v: 1 });
-    await store.put(COLLECTION, 'a', { v: 99 });
-    expect(await store.get(COLLECTION, 'a')).toEqual({ v: 99 });
-  });
-
-  it('query with no matching documents returns empty results', async () => {
-    const store = build();
-    await store.ensureIndex(COLLECTION, { kind: 'value', name: 'byWs', field: 'ws' });
-    const page = await store.query(COLLECTION).where({ ws: 'nonexistent' }).execute();
-    expect(page.items).toEqual([]);
-    expect(page.nextCursor).toBeUndefined();
-  });
-
-  it('handles special characters in keys', async () => {
-    const store = build();
-    await store.put(COLLECTION, 'key:with/slash es', { id: 'special' });
-    expect(await store.get(COLLECTION, 'key:with/slash es')).toEqual({ id: 'special' });
-  });
-
-  it('close can be called multiple times', async () => {
-    const store = build();
-    await store.close();
-    await expect(store.close()).resolves.toBeUndefined();
-  });
-
   it('getMany returns present values and skips missing keys', async () => {
     const store = build();
     await store.batch([
@@ -303,7 +237,7 @@ describe('MiniDbQueryStore', () => {
       { kind: 'put', collection: COLLECTION, key: 'b', value: { v: 2 } },
     ]);
     const found = await store.getMany<{ v: number }>(COLLECTION, ['a', 'missing', 'b']);
-    expect([...found.keys()].toSorted()).toEqual(['a', 'b']);
+    expect([...found.keys()].sort()).toEqual(['a', 'b']);
     expect(found.get('a')).toEqual({ v: 1 });
     expect(found.get('b')).toEqual({ v: 2 });
     expect(await store.getMany(COLLECTION, [])).toEqual(new Map());

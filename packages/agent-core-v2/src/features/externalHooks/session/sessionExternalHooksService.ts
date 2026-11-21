@@ -1,9 +1,10 @@
-import { toDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
+import { IntervalTimer } from '#/_base/utils/timer';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { IModelService } from '#/llm-adapter/model/model';
-import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import {
+  ISessionAgentProfileCatalog,
+} from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import {
@@ -17,14 +18,17 @@ import {
 } from '#/workspace/sessionLifecycle/sessionLifecycle';
 
 import { IExternalHooksRunnerService } from '../app/externalHooksRunner';
-import type { ISessionExternalHooksService } from './sessionExternalHooks';
+import { ISessionExternalHooksService } from './sessionExternalHooks';
 
 type SessionStartHookSource = Exclude<SessionCreateSource, 'fork' | 'reclaimed'>;
 type SessionEndHookReason = Exclude<SessionCloseReason, 'reclaim'>;
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
-export class SessionExternalHooksService extends Service implements ISessionExternalHooksService {
+export class SessionExternalHooksService
+  extends Service
+  implements ISessionExternalHooksService
+{
   declare readonly _serviceBrand: undefined;
 
   private sessionTitle: string | undefined;
@@ -38,7 +42,6 @@ export class SessionExternalHooksService extends Service implements ISessionExte
     @ISessionAgentProfileCatalog private readonly profiles: ISessionAgentProfileCatalog,
     @IModelService private readonly models: IModelService,
     @IExternalHooksRunnerService private readonly runner: IExternalHooksRunnerService,
-    @IHostTimers private readonly timers: IHostTimers,
   ) {
     super();
     void this.metadata
@@ -86,36 +89,22 @@ export class SessionExternalHooksService extends Service implements ISessionExte
     );
     this._register(subagents.onDidStopAgentTask((ctx) => this.notifySubagentStop(ctx)));
 
-    void this.runner.ready.then(() => this.syncHeartbeat()).catch(() => undefined);
+    void this.runner.ready
+      .then(() => this.syncHeartbeat())
+      .catch(() => undefined);
     this._register(this.runner.onDidReload(() => this.syncHeartbeat()));
-    this._register(toDisposable(() => this.disarmHeartbeat()));
   }
 
-  private heartbeat: IHostTimerHandle | undefined;
+  private readonly heartbeat = this._register(new IntervalTimer({ unref: true }));
 
   private syncHeartbeat(): void {
     try {
       if (this.runner.hasHooksFor('SessionHeartbeat')) {
-        this.armHeartbeat();
+        this.heartbeat.cancelAndSet(() => this.tickHeartbeat(), HEARTBEAT_INTERVAL_MS);
       } else {
-        this.disarmHeartbeat();
+        this.heartbeat.cancel();
       }
     } catch {}
-  }
-
-  private armHeartbeat(): void {
-    this.disarmHeartbeat();
-    this.heartbeat = this.timers.setTimeout(() => {
-      this.heartbeat = undefined;
-      this.tickHeartbeat();
-      if (this.runner.hasHooksFor('SessionHeartbeat')) this.armHeartbeat();
-    }, HEARTBEAT_INTERVAL_MS);
-  }
-
-  private disarmHeartbeat(): void {
-    if (this.heartbeat === undefined) return;
-    this.timers.clearTimeout(this.heartbeat);
-    this.heartbeat = undefined;
   }
 
   private async hookCwd(): Promise<string> {

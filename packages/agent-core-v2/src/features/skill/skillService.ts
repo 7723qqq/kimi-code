@@ -12,13 +12,13 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventService } from '#/app/event/event';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import { skillActivationPart } from '@moonshot-ai/core/llm/origin';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { skillActivationPart } from '#human/agent/origin';
-import type { ContentPart } from '#human/llm/message';
 
 import { isUserActivatableSkillType, type SkillDefinition } from './catalog/types';
 import { promptMetadataTextFromSkill, renderUserSlashSkillPrompt } from './prompt';
@@ -134,7 +134,10 @@ export class AgentSkillService implements IAgentSkillService {
       throw new Error2(ErrorCodes.REQUEST_INVALID, 'promptWithSkills requires a non-empty prompt');
     }
     if (input.skills.length === 0) {
-      throw new Error2(ErrorCodes.REQUEST_INVALID, 'promptWithSkills requires at least one skill');
+      throw new Error2(
+        ErrorCodes.REQUEST_INVALID,
+        'promptWithSkills requires at least one skill',
+      );
     }
     const catalog = this.catalog;
     await catalog.ready;
@@ -153,26 +156,21 @@ export class AgentSkillService implements IAgentSkillService {
       void this.recordActivation(activation.origin);
     }
     const status = this.loop.snapshot();
-    const steerable = input.steerIfActive === true && status.activeTurnId !== undefined;
-    const { id } = this.loop.submit(
-      {
-        message: {
-          role: 'user',
-          content: [...prepared.map((activation) => activation.part), ...input.input],
-        },
-        meta: {
-          promptId: input.promptId,
-          origin: {
-            kind: 'user',
-            skillActivations: prepared.map((activation) => activation.entry),
-            clientMetadata: input.clientMetadata,
-            attachments: input.attachments,
-          } as PromptOrigin,
-          tracked: true,
-        },
+    const steerable = input.steerIfActive === true && status.state === 'running';
+    const submission = {
+      role: 'user' as const,
+      content: [...prepared.map((activation) => activation.part), ...input.input],
+      attributes: {
+        promptId: input.promptId,
+        origin: {
+          kind: 'user',
+          skillActivations: prepared.map((activation) => activation.entry),
+          clientMetadata: input.clientMetadata,
+          attachments: input.attachments,
+        } as PromptOrigin,
       },
-      { steerIfActive: input.steerIfActive },
-    );
+    };
+    const { id } = steerable ? this.loop.sendNow(submission) : this.loop.submit(submission);
     const handle = this.loop.promptHandle(id)!;
     if (!steerable && (status.state === 'running' || status.paused || status.queue.length > 0)) {
       if (prepared.length === 1) {
@@ -197,7 +195,7 @@ export class AgentSkillService implements IAgentSkillService {
       prompt_id: id,
       created_at: handle.createdAt,
       state: handle.state === 'blocked' ? 'blocked' : 'running',
-      steered: steerable && turn?.id === status.activeTurnId,
+      steered: steerable,
     };
   }
 
@@ -209,11 +207,7 @@ export class AgentSkillService implements IAgentSkillService {
 
   modelToolContext(): ModelToolSkillContext {
     const status = this.loop.snapshot();
-    if (
-      status.state !== 'running' ||
-      status.activeTurnId === undefined ||
-      this.modelToolParent?.turnId !== status.activeTurnId
-    ) {
+    if (status.state !== 'running' || status.activeTurnId === undefined || this.modelToolParent?.turnId !== status.activeTurnId) {
       return { queryDepth: 0 };
     }
     return {
@@ -222,28 +216,16 @@ export class AgentSkillService implements IAgentSkillService {
     };
   }
 
-  private rememberModelToolParent(
-    origin: SkillActivationOrigin,
-    turnId: number,
-    resolvedQueryDepth?: number,
-  ): void {
+  private rememberModelToolParent(origin: SkillActivationOrigin, turnId: number, resolvedQueryDepth?: number): void {
     if (this.ambiguousModelToolTurnId === turnId) return;
     const parent = this.modelToolParent?.turnId === turnId ? this.modelToolParent : undefined;
-    const workspaceDir = this.catalog.catalog
-      .listSkills()
-      .find((skill) => skill.path === origin.skillPath)?.workspaceDir;
-    if (
-      origin.trigger === 'model-tool' &&
-      parent !== undefined &&
-      parent.workspaceDir !== workspaceDir
-    ) {
+    const workspaceDir = this.catalog.catalog.listSkills().find((skill) => skill.path === origin.skillPath)?.workspaceDir;
+    if (origin.trigger === 'model-tool' && parent !== undefined && parent.workspaceDir !== workspaceDir) {
       this.modelToolParent = undefined;
       this.ambiguousModelToolTurnId = turnId;
       return;
     }
-    const queryDepth =
-      resolvedQueryDepth ??
-      (origin.trigger === 'nested-skill' ? (parent?.queryDepth ?? 0) + 1 : 1);
+    const queryDepth = resolvedQueryDepth ?? (origin.trigger === 'nested-skill' ? (parent?.queryDepth ?? 0) + 1 : 1);
     this.modelToolParent = { turnId, queryDepth, workspaceDir };
   }
 
@@ -319,14 +301,14 @@ export class AgentSkillService implements IAgentSkillService {
     this.publishActivation(origin);
 
     if (input === undefined) return undefined;
-    const steer = this.loop.snapshot().state === 'running';
-    const { id } = this.loop.submit(
-      {
-        message: { role: 'user', content: [...input] },
-        meta: { promptId, origin, tracked: !steer },
-      },
-      { steerIfActive: steer },
-    );
+    const status = this.loop.snapshot();
+    const running = status.state === 'running';
+    const submission = {
+      role: 'user' as const,
+      content: [...input],
+      attributes: { promptId, origin },
+    };
+    const { id } = running ? this.loop.sendNow(submission) : this.loop.submit(submission);
     return this.loop.promptHandle(id)!.launched;
   }
 

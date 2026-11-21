@@ -1,19 +1,30 @@
-import { errorStatusCode } from '#/llm/errors';
-import type { LlmModel } from '#/llm/model';
-import type { LlmRecovery } from '#/llm/requester/recovery';
+import { errorStatusCode } from '@moonshot-ai/core/llm/protocol/errors';
+import type { LlmCredentialProvider } from '@moonshot-ai/core/llm/request';
+import type { LlmModel } from '#human/llm/model';
 import {
   mergeRequestHeaders,
   type LlmCredential,
-  type LlmCredentialProvider,
-} from '#/llm/requester/requester';
+} from '#human/llm/requester/requester';
 
 export interface AccessTokenResolver {
   (options?: { readonly force?: boolean }): Promise<string | undefined>;
 }
 
+export function applyCredential(model: LlmModel, credential: LlmCredential | undefined): LlmModel {
+  if (credential === undefined) {
+    return model;
+  }
+  return {
+    ...model,
+    apiKey: credential.apiKey ?? model.apiKey,
+    defaultHeaders: mergeRequestHeaders(model.defaultHeaders, credential.headers),
+  };
+}
+
 export function createStaticCredentialProvider(apiKey?: string): LlmCredentialProvider {
   return {
-    resolve: () => (apiKey === undefined || apiKey.trim().length === 0 ? undefined : { apiKey }),
+    resolve: () =>
+      apiKey === undefined || apiKey.trim().length === 0 ? undefined : { apiKey },
   };
 }
 
@@ -35,32 +46,3 @@ export function createOAuthCredentialProvider(
     },
   };
 }
-
-export function applyCredential(model: LlmModel, credential: LlmCredential | undefined): LlmModel {
-  if (credential === undefined) {
-    return model;
-  }
-  return {
-    ...model,
-    apiKey: credential.apiKey ?? model.apiKey,
-    defaultHeaders: mergeRequestHeaders(model.defaultHeaders, credential.headers),
-  };
-}
-
-const CREDENTIALS_RECOVERY_ID = 'credentials';
-
-export const credentialsRecovery: LlmRecovery = {
-  propose: ({ error, appliedRecoveries, credentialProvider }) => {
-    if (
-      credentialProvider?.canRecover?.(error) !== true ||
-      appliedRecoveries.some((record) => record.strategy === CREDENTIALS_RECOVERY_ID)
-    ) {
-      return undefined;
-    }
-    return {
-      strategy: CREDENTIALS_RECOVERY_ID,
-      action: 'refresh',
-      beforeNextAttempt: () => credentialProvider?.invalidate?.(),
-    };
-  },
-};

@@ -4,10 +4,10 @@ import {
   createMessageAccumulator,
   type ContentPart,
   type StreamedMessagePart,
-} from '#/llm/message';
-import type { LlmRequestEvent } from '#/llm/requester/requester';
-import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
-import { createThinkingTagParser, normalizeThinkingTags } from '#/llm/thinking-tags';
+} from '#human/message';
+import type { LlmRequestEvent } from '#human/llm/requester/requester';
+import { createThinkingTagEventHandler } from '#human/llm/requester/thinking-tags';
+import { createThinkingTagParser, normalizeThinkingTags } from '#human/llm/thinking-tags';
 
 function parse(chunks: readonly string[]): ContentPart[] {
   const parser = createThinkingTagParser();

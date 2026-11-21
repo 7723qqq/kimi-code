@@ -1,7 +1,5 @@
 import type { PermissionMode } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
-
 import {
   SwarmStartPermissionPromptComponent,
   type SwarmStartPermissionChoice,
@@ -10,15 +8,18 @@ import {
   SwarmModeMarkerComponent,
   type SwarmModeMarkerState,
 } from '../components/messages/swarm-markers';
-import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
+import { LLM_NOT_SET_MESSAGE, NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
-import { nextTranscriptId } from '../utils/transcript-id';
+import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import type { SlashCommandHost } from './dispatch';
+import { t } from '#/i18n';
+
+const SWARM_USAGE_NOTICE =
+  "High usage: Swarm is built for large parallel jobs and can use many times the tokens of a normal task. Start small, and run /swarm off when you're done.";
 
 export async function handleSwarmCommand(host: SlashCommandHost, args: string): Promise<void> {
   if (host.session === undefined) {
-    host.showError(getNoActiveSessionMessage());
+    host.showError(NO_ACTIVE_SESSION_MESSAGE);
     return;
   }
 
@@ -35,16 +36,13 @@ export async function handleSwarmCommand(host: SlashCommandHost, args: string): 
   }
 
   if (host.state.appState.model.trim().length === 0) {
-    host.showError(getLlmNotSetMessage());
+    host.showError(LLM_NOT_SET_MESSAGE);
     return;
   }
 
   if (host.state.appState.permissionMode === 'manual') {
-    showSwarmStartPermissionPrompt(
-      host,
-      `/swarm ${prompt}`,
-      t('tui.statusMessages.swarmTaskNotStarted'),
-      (choice) => startSwarmWithPermission(host, prompt, choice),
+    showSwarmStartPermissionPrompt(host, `/swarm ${prompt}`, t('tui.statusMessages.swarmTaskNotStarted'), (choice) =>
+      startSwarmWithPermission(host, prompt, choice),
     );
     return;
   }
@@ -78,45 +76,31 @@ async function startSwarmWithPermission(
   prompt: string,
   choice: SwarmStartPermissionChoice,
 ): Promise<void> {
-  const previousMode = host.state.appState.permissionMode;
-  const switched = choice !== previousMode && (choice === 'auto' || choice === 'yolo');
-  if (switched) {
+  if (choice === 'auto' || choice === 'yolo') {
     if (!(await setPermissionForSwarm(host, choice))) return;
   }
-  const started = await startSwarmTask(host, prompt);
-  // The permission switch only exists to run this swarm task. If the task
-  // never starts (e.g. setSwarmMode failed), restore the previous mode so
-  // the session is not left more permissive than before.
-  if (!started && switched) {
-    await setPermissionForSwarm(host, previousMode);
-  }
+  await startSwarmTask(host, prompt);
 }
 
-async function setPermissionForSwarm(
-  host: SlashCommandHost,
-  mode: PermissionMode,
-): Promise<boolean> {
+async function setPermissionForSwarm(host: SlashCommandHost, mode: PermissionMode): Promise<boolean> {
   try {
     await host.requireSession().setPermission(mode);
   } catch (error) {
-    host.showError(t('tui.messages.swarmPermissionFailed', { error: formatErrorMessage(error) }));
+    host.showError(`Failed to set permission mode: ${formatErrorMessage(error)}`);
     return false;
   }
   host.setAppState({ permissionMode: mode });
-  host.showNotice(
-    t('tui.statusMessages.permissionModeChanged', { mode: permissionModeDisplayName(mode) }),
-  );
-  host.showStatus(permissionModeDescription(mode), 'warning');
+  host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`);
+  host.showStatus(PERMISSION_MODE_DESCRIPTIONS[mode], 'warning');
   return true;
 }
 
-async function startSwarmTask(host: SlashCommandHost, prompt: string): Promise<boolean> {
+async function startSwarmTask(host: SlashCommandHost, prompt: string): Promise<void> {
   if (!host.state.appState.swarmMode && !(await setSwarmMode(host, true, 'task'))) {
-    return false;
+    return;
   }
-  renderSwarmModeMarker(host, 'active');
+  renderSwarmActivated(host);
   host.sendNormalUserInput(prompt);
-  return true;
 }
 
 async function applySwarmMode(
@@ -133,25 +117,18 @@ async function applySwarmMode(
     return;
   }
   if (enabled && host.state.appState.permissionMode === 'manual') {
-    showSwarmStartPermissionPrompt(
-      host,
-      commandText,
-      t('tui.statusMessages.swarmModeNotEnabled'),
-      async (choice) => {
-        if (
-          (choice === 'auto' || choice === 'yolo') &&
-          !(await setPermissionForSwarm(host, choice))
-        ) {
-          return;
-        }
-        if (!(await setSwarmMode(host, true, 'manual'))) return;
-        renderSwarmModeMarker(host, 'active');
-      },
-    );
+    showSwarmStartPermissionPrompt(host, commandText, t('tui.statusMessages.swarmModeNotEnabled'), async (choice) => {
+      if ((choice === 'auto' || choice === 'yolo') && !(await setPermissionForSwarm(host, choice))) {
+        return;
+      }
+      if (!(await setSwarmMode(host, true, 'manual'))) return;
+      renderSwarmActivated(host);
+    });
     return;
   }
   if (!(await setSwarmMode(host, enabled, 'manual'))) return;
-  renderSwarmModeMarker(host, enabled ? 'active' : 'inactive');
+  if (enabled) renderSwarmActivated(host);
+  else renderSwarmModeMarker(host, 'inactive');
 }
 
 async function setSwarmMode(
@@ -159,35 +136,11 @@ async function setSwarmMode(
   enabled: boolean,
   trigger: 'manual' | 'task',
 ): Promise<boolean> {
-  const session = host.requireSession();
   try {
-    await session.setSwarmMode(enabled, trigger);
-    // The engine may refuse (a conflicting mode it cannot leave), so confirm
-    // the mode actually took before reporting success, like `/tower` does. The
-    // read must not *gate* the state write: a failed read is not evidence of
-    // success, and reconciling to a value we could not read would strand the
-    // UI on a mode the engine may already have left.
-    const status = await session.getStatus().catch(() => null);
-    // Only a *reported* disagreement is evidence the engine refused. A missing
-    // field means this view does not carry the flag, not that the mode is off.
-    const reported = status?.swarmMode;
-    if (reported !== undefined && reported !== enabled) {
-      host.setAppState({ swarmMode: reported });
-      host.state.swarmModeEntry = reported ? trigger : undefined;
-      host.showError(
-        t('tui.messages.swarmToggleFailed', {
-          action: enabled ? t('tui.messages.swarmEnable') : t('tui.messages.swarmDisable'),
-          error: t('tui.messages.swarmModeDidNotChange'),
-        }),
-      );
-      return false;
-    }
+    await host.requireSession().setSwarmMode(enabled, trigger);
   } catch (error) {
     host.showError(
-      t('tui.messages.swarmToggleFailed', {
-        action: enabled ? t('tui.messages.swarmEnable') : t('tui.messages.swarmDisable'),
-        error: formatErrorMessage(error),
-      }),
+      t('tui.messages.swarmToggleFailed', { action: enabled ? t('tui.messages.swarmEnable') : t('tui.messages.swarmDisable'), error: formatErrorMessage(error) }),
     );
     return false;
   }
@@ -203,15 +156,14 @@ function swarmModeSubcommand(input: string): boolean | undefined {
   return undefined;
 }
 
+function renderSwarmActivated(host: SlashCommandHost): void {
+  renderSwarmModeMarker(host, 'active');
+  host.showStatus(SWARM_USAGE_NOTICE, 'warning');
+}
+
 function renderSwarmModeMarker(host: SlashCommandHost, state: SwarmModeMarkerState): void {
-  host.appendTranscriptEntry(
-    {
-      id: nextTranscriptId(),
-      kind: 'status',
-      turnId: undefined,
-      renderMode: 'plain',
-      content: state,
-    },
+  host.state.transcriptContainer.addChild(
     new SwarmModeMarkerComponent(state),
   );
+  host.state.ui.requestRender();
 }

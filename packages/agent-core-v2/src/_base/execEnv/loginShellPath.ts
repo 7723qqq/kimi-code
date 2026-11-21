@@ -21,11 +21,7 @@ export async function probeLoginShellPath(deps: LoginShellPathDeps): Promise<str
   const shell = envShell === undefined || envShell.length === 0 ? deps.userShell() : envShell;
   if (shell === undefined || shell.length === 0) return undefined;
 
-  const stdout = await deps.execFileText(
-    shell,
-    ['-l', '-c', '/usr/bin/env'],
-    LOGIN_SHELL_ENV_TIMEOUT_MS,
-  );
+  const stdout = await deps.execFileText(shell, ['-l', '-c', '/usr/bin/env'], LOGIN_SHELL_ENV_TIMEOUT_MS);
   if (stdout === undefined) return undefined;
 
   let path: string | undefined;
@@ -38,10 +34,7 @@ export async function probeLoginShellPath(deps: LoginShellPathDeps): Promise<str
   return path;
 }
 
-export function mergeLoginShellPath(
-  currentPath: string | undefined,
-  loginShellPath: string,
-): string {
+export function mergeLoginShellPath(currentPath: string | undefined, loginShellPath: string): string {
   const current = currentPath ?? '';
   const seen = new Set(current.split(':').filter((entry) => entry.length > 0));
   const additions: string[] = [];

@@ -1,6 +1,9 @@
-Execute a `${SHELL_NAME}` command. Use this for shell semantics — pipes, env, and anything the dedicated tools do not cover.
+Execute a `${SHELL_NAME}` command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.
 
-- `ls` / `find` (list files) → `Glob`
+**Translate these to a dedicated tool instead:**
+- `cat` / `head` / `tail` (known path) → `Read`
+- `echo > file` / `cat <<EOF` → `Write`
+- `find` / recursive `ls` to locate files by name pattern → `Glob` (plain `ls <known-directory>` is fine for listing a directory)
 - `grep` / `rg` (search file contents) → `Grep`
 - `echo` / `printf` (talk to the user) → just output text directly
 

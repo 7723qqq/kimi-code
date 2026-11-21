@@ -6,36 +6,40 @@ import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import { GoalUpdated } from '#/features/goal/goalOps';
 import { IAgentGoalService } from '#/features/goal/goalService';
-import { IAgentHelloWorldService } from '#/features/helloWorld/agent/helloWorld';
-import { HelloWorldModeEnter } from '#/features/helloWorld/helloWorldOps';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { PlanModeEnter, planKey } from '#/features/plan/planOps';
-import { IAgentSpecService } from '#/features/spec/spec';
-import { SpecModeEnter, specKey } from '#/features/spec/specOps';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { SwarmModeEnter } from '#/features/swarm/swarmOps';
 import { IAgentTowerService } from '#/features/tower/tower';
 import { TowerModeEnter } from '#/features/tower/towerOps';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import { IAgentModeMutexService, type ExclusiveReviewMode } from './modeMutex';
-
-const CONFLICTS: Record<ExclusiveReviewMode, readonly ExclusiveReviewMode[]> = {
-  'hello-world': ['spec', 'swarm', 'tower'],
-  plan: ['spec', 'tower'],
-  spec: ['hello-world', 'plan', 'swarm', 'tower'],
-  swarm: ['hello-world', 'spec', 'tower'],
-  tower: ['hello-world', 'plan', 'spec', 'swarm'],
-};
+import { specKey } from '#/features/spec/specOps';
+import { IAgentModeMutexService, type AgentModeName } from './modeMutex';
 
 export class AgentModeMutexService extends Disposable implements IAgentModeMutexService {
   declare readonly _serviceBrand: undefined;
 
+  activeMode(): AgentModeName {
+    if (this.tower.isActive) return 'tower';
+    if (this.swarm.isActive) return 'swarm';
+    if (this.agentState.get(planKey).active) return 'plan';
+    if (this.agentState.get(specKey).active) return 'spec';
+    return 'agent';
+  }
+
+  async switchTo(mode: AgentModeName): Promise<void> {
+    if (mode !== 'tower' && this.tower.isActive) await this.tower.exit('mode-mutex');
+    if (mode !== 'swarm' && this.swarm.isActive) this.swarm.exit();
+    if (mode !== 'plan' && this.agentState.get(planKey).active) this.plan.exit();
+    if (mode !== 'spec' && this.agentState.get(specKey).active) {
+      this.agentState.set(specKey, { active: false });
+    }
+  }
+
   constructor(
     @IAgentPlanService private readonly plan: IAgentPlanService,
-    @IAgentSpecService private readonly spec: IAgentSpecService,
     @IAgentSwarmService private readonly swarm: IAgentSwarmService,
-    @IAgentHelloWorldService private readonly helloWorld: IAgentHelloWorldService,
     @IAgentTowerService private readonly tower: IAgentTowerService,
     @IAgentGoalService private readonly goal: IAgentGoalService | undefined,
     @IAgentStateService private readonly agentState: IAgentStateService,
@@ -45,27 +49,18 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
     super();
     this._register(
       eventBus.subscribe(PlanModeEnter, () => {
-        this.evictConflictsOf('plan');
+        if (this.tower.isActive) void this.tower.exit('mode-mutex');
       }),
     );
     this._register(
       eventBus.subscribe(SwarmModeEnter, () => {
-        this.evictConflictsOf('swarm');
-      }),
-    );
-    this._register(
-      eventBus.subscribe(HelloWorldModeEnter, () => {
-        this.evictConflictsOf('hello-world');
-      }),
-    );
-    this._register(
-      eventBus.subscribe(SpecModeEnter, () => {
-        this.evictConflictsOf('spec');
+        if (this.tower.isActive) void this.tower.exit('mode-mutex');
       }),
     );
     this._register(
       eventBus.subscribe(TowerModeEnter, () => {
-        this.evictConflictsOf('tower');
+        if (this.agentState.get(planKey).active) this.plan.exit();
+        if (this.swarm.isActive) this.swarm.exit();
         if (this.goal?.getGoal().goal?.status === 'active') {
           void this.goal.pauseGoal({ reason: 'Paused after tower mode entered' }, 'system');
         }
@@ -86,104 +81,6 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
       }),
     );
   }
-
-  activeMode(): ExclusiveReviewMode | null {
-    if (this.agentState.get(planKey).active) return 'plan';
-    if (this.agentState.get(specKey).active) return 'spec';
-    if (this.swarm.isActive) return 'swarm';
-    if (this.helloWorld.isActive) return 'hello-world';
-    if (this.tower.isActive) return 'tower';
-    return null;
-  }
-
-  async switchTo(target: ExclusiveReviewMode): Promise<void> {
-    const previous = this.activeMode();
-    if (previous === target) return;
-
-    if (previous !== null && !isAllowedPair(previous, target)) {
-      await this.leave(previous);
-    }
-
-    try {
-      await this.enter(target);
-    } catch (error) {
-      if (previous !== null) {
-        try {
-          await this.enter(previous);
-        } catch {}
-      }
-      throw error;
-    }
-  }
-
-  async leave(target: ExclusiveReviewMode): Promise<void> {
-    switch (target) {
-      case 'hello-world':
-        if (this.helloWorld.isActive) this.helloWorld.exit();
-        return;
-      case 'plan':
-        if (this.agentState.get(planKey).active) this.plan.exit();
-        return;
-      case 'spec':
-        if (this.agentState.get(specKey).active) this.spec.exit();
-        return;
-      case 'swarm':
-        if (this.swarm.isActive) this.swarm.exit();
-        return;
-      case 'tower':
-        if (this.tower.isActive) await this.tower.exit();
-        return;
-    }
-  }
-
-  private async enter(target: ExclusiveReviewMode): Promise<void> {
-    switch (target) {
-      case 'hello-world':
-        if (!this.helloWorld.isActive) this.helloWorld.enter('manual');
-        return;
-      case 'plan':
-        if (!this.agentState.get(planKey).active) await this.plan.enter();
-        return;
-      case 'spec':
-        if (!this.agentState.get(specKey).active) await this.spec.enter();
-        return;
-      case 'swarm':
-        if (!this.swarm.isActive) this.swarm.enter('manual');
-        return;
-      case 'tower':
-        if (!this.tower.isActive) await this.tower.enter();
-        return;
-    }
-  }
-
-  private evictConflictsOf(entered: ExclusiveReviewMode): void {
-    for (const conflicting of CONFLICTS[entered]) {
-      switch (conflicting) {
-        case 'hello-world':
-          if (this.helloWorld.isActive) this.helloWorld.exit();
-          break;
-        case 'plan':
-          if (this.agentState.get(planKey).active) this.plan.exit();
-          break;
-        case 'spec':
-          if (this.agentState.get(specKey).active) this.spec.exit();
-          break;
-        case 'swarm':
-          if (this.swarm.isActive) this.swarm.exit();
-          break;
-        case 'tower':
-          if (this.tower.isActive) void this.tower.exit('mode-mutex');
-          break;
-      }
-    }
-  }
-}
-
-function isAllowedPair(a: ExclusiveReviewMode, b: ExclusiveReviewMode): boolean {
-  return (
-    (a === 'plan' && (b === 'swarm' || b === 'hello-world')) ||
-    ((a === 'swarm' || a === 'hello-world') && b === 'plan')
-  );
 }
 
 registerScopedService(

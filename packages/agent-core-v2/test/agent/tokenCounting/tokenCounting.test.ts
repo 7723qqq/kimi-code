@@ -1,5 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
+import {
+  IAgentLoopService,
+  IAgentToolRegistryService,
+  type ExecutableTool,
+} from '#/index';
+import { appendContext, compactContext } from '../contextMemory/stubs';
+import { project } from '#/agent/loop/projection';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import {
   anchorsEqual,
@@ -11,21 +18,21 @@ import {
   type TokenAnchor,
   type TokenCountingState,
 } from '#/agent/tokenCounting/tokenCountingOps';
-import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
-import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import { TokenCountingAgentModelDefinition } from '#/session/tokenCounting/tokenCountingAgentModel';
+import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import { grandTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 import { IWireService } from '#/wire/wire';
-import type { TokenUsage } from '#human/llm/usage';
 
 import {
+  createMockProvider,
   createTestAgent,
   InMemoryWireRecordPersistence,
+  llmGenerateServices,
   type TestAgentContext,
 } from '../../harness';
 
 function totalOf(usage: TokenUsage | undefined): number {
-  if (usage === undefined) return 0;
-  return usage.inputOther + usage.output + usage.inputCacheRead + usage.inputCacheCreation;
+  return usage === undefined ? 0 : (grandTotal(usage) ?? 0);
 }
 
 function tokenCountingState(ctx: TestAgentContext) {
@@ -63,9 +70,9 @@ function referenceFold(events: readonly ReferenceEvent[]): TokenCountingState {
         next = anchors.some((anchor) => anchor.length === length)
           ? anchors
           : [
-              ...anchors.filter((anchor) => anchor.length < length),
-              { length, tokens: clamped, measured: false },
-            ];
+            ...anchors.filter((anchor) => anchor.length < length),
+            { length, tokens: clamped, measured: false },
+          ];
         break;
     }
     if (!(tokens === clamped && anchorsEqual(anchors, next))) {
@@ -113,16 +120,16 @@ async function dispatchReference(ctx: TestAgentContext, event: ReferenceEvent): 
 
 describe('Agent token counting', () => {
   let ctx: TestAgentContext;
-  let context: IAgentContextMemoryService;
+  let context: IAgentLoopService;
   let tokenCounting: TestAgentContext['tokenCounting'];
-  let profile: IAgentProfileService;
+  let profile: IAgentLoopService;
   let usage: TestAgentContext['usage'];
 
   beforeEach(async () => {
-    ctx = createTestAgent({ initialConfig: { experimental: { tool_select: false } } });
-    context = ctx.get(IAgentContextMemoryService);
+    ctx = createTestAgent();
+    context = ctx.get(IAgentLoopService);
     tokenCounting = ctx.tokenCounting;
-    profile = ctx.get(IAgentProfileService);
+    profile = ctx.get(IAgentLoopService);
     usage = ctx.usage;
     await ctx.restorePersisted();
   });
@@ -144,10 +151,10 @@ describe('Agent token counting', () => {
 
     const exchangeTotal = totalOf(usage.status().total);
     expect(exchangeTotal).toBeGreaterThan(0);
-    expect(context.get()).toHaveLength(2);
+    expect(context.history()).toHaveLength(2);
 
     expect(tokenCountingState(ctx)).toEqual({
-      anchors: [{ length: context.get().length, tokens: exchangeTotal, measured: true }],
+      anchors: [{ length: context.history().length, tokens: exchangeTotal, measured: true }],
       tokens: exchangeTotal,
     });
 
@@ -171,11 +178,11 @@ describe('Agent token counting', () => {
 
     const lastExchangeTotal = totalOf(usage.status().currentTurn);
     expect(lastExchangeTotal).toBeGreaterThan(0);
-    expect(context.get()).toHaveLength(4);
+    expect(context.history()).toHaveLength(4);
 
     expect(tokenCountingState(ctx).anchors).toHaveLength(2);
     expect(tokenCountingState(ctx).anchors[1]).toEqual({
-      length: context.get().length,
+      length: context.history().length,
       tokens: lastExchangeTotal,
       measured: true,
     });
@@ -190,17 +197,23 @@ describe('Agent token counting', () => {
     expect(size.measured).toBe(0);
     expect(size.estimated).toBeGreaterThan(0);
     expect(size.size).toBe(size.estimated);
+
+    tokenCounting.measured(context.history(), [], {
+      inputOther: 10,
+      output: 2,
+      inputCacheRead: undefined,
+      inputCacheCreation: 0,
+    });
+    expect(tokenCountingState(ctx)).toEqual({ anchors: [], tokens: 0 });
   });
 
   it('ignores a stored anchor that overshoots the live context', async () => {
     ctx.appendUserMessage([{ type: 'text', text: 'only one message' }]);
 
-    await ctx.dispatcher.dispatch(
-      new TokenCountingMeasured({ agentId: 'main', length: 5, tokens: 1234 }),
-    );
+    await ctx.dispatcher.dispatch(new TokenCountingMeasured({ agentId: 'main', length: 5, tokens: 1234 }));
     const size = tokenCounting.get();
     expect(size.measured).toBe(0);
-    expect(size.size).toBe(estimateTokensForMessages(context.get()));
+    expect(size.size).toBe(estimateTokensForMessages(context.history()));
   });
 
   it('restores the REAL size of the surviving prefix when undo truncates the ledger', async () => {
@@ -210,7 +223,7 @@ describe('Agent token counting', () => {
 
     await ctx.undoHistory(1);
 
-    expect(context.get().map((m) => m.role)).toEqual(['user', 'assistant']);
+    expect(context.history().map((m) => m.role)).toEqual(['user', 'assistant']);
     expect(tokenCounting.get()).toEqual({ size: 1_000, measured: 1_000, estimated: 0 });
     expect(tokenCounting.latestMeasured()).toBe(1_000);
   });
@@ -218,17 +231,15 @@ describe('Agent token counting', () => {
   it('rebases the ledger on compaction and blends in the measured summary tokens', () => {
     ctx.appendTurnExchange('u1', 'a1', 1_000);
 
-    context.applyCompaction({
+    compactContext(context,{
       summary: 'summary of u1',
       compactedCount: 2,
       tokensBefore: 1_000,
       summaryOutputTokens: 500,
-    });
+    }, { dispatcher: ctx.dispatcher });
 
-    const history = context.get();
-    const kept = estimateTokensForMessages(
-      history.filter((m) => m.origin?.kind !== 'compaction_summary'),
-    );
+    const history = context.history();
+    const kept = estimateTokensForMessages(history.filter((m) => m.origin?.kind !== 'compaction_summary'));
     const expected = 500 + kept;
     expect(tokenCountingState(ctx).anchors).toEqual([
       { length: history.length, tokens: expected, measured: false },
@@ -240,24 +251,25 @@ describe('Agent token counting', () => {
     ctx.appendAssistantTextWithUsage(1, 'answer', 1_000);
     expect(tokenCounting.get().measured).toBe(1_000);
 
-    context.clear();
+    context.replaceHistory([], 'clear');
 
     expect(tokenCounting.get()).toEqual({ size: 0, measured: 0, estimated: 0 });
-    expect(tokenCountingState(ctx).anchors).toEqual([{ length: 0, tokens: 0, measured: true }]);
+    expect(tokenCountingState(ctx).anchors).toEqual([
+      { length: 0, tokens: 0, measured: true },
+    ]);
   });
 
-  it('keeps estimates and anchors live for internal reads under the measured strategy', () => {
-    const measured = createTestAgent({
-      initialConfig: { tokenCounting: { strategy: 'measured' } },
-    });
+  it('keeps estimates and anchors live for internal reads under the measured strategy', async () => {
+    const measured = createTestAgent({ initialConfig: { tokenCounting: { strategy: 'measured' } } });
     try {
+      await measured.restorePersisted();
       const counting = measured.tokenCounting;
       expect(counting.strategy).toBe('measured');
       expect(counting.estimateText('abcd')).toBeGreaterThan(0);
 
       measured.appendUserMessage([{ type: 'text', text: 'hello world, not measured yet' }]);
       const tailEstimate = estimateTokensForMessages(
-        measured.get(IAgentContextMemoryService).get(),
+        measured.get(IAgentLoopService).history(),
       );
       expect(tailEstimate).toBeGreaterThan(0);
       expect(counting.get()).toEqual({ size: tailEstimate, measured: 0, estimated: tailEstimate });
@@ -269,11 +281,12 @@ describe('Agent token counting', () => {
     }
   });
 
-  it('keeps anchors in internal reads under the estimated strategy', () => {
+  it('keeps anchors in internal reads under the estimated strategy', async () => {
     const estimated = createTestAgent({
       initialConfig: { tokenCounting: { strategy: 'estimated' } },
     });
     try {
+      await estimated.restorePersisted();
       const counting = estimated.tokenCounting;
       expect(counting.strategy).toBe('estimated');
 
@@ -311,11 +324,10 @@ describe('Agent token counting', () => {
     }
   });
 
-  it('statusSize reports the strategy-selected reading', () => {
-    const measured = createTestAgent({
-      initialConfig: { tokenCounting: { strategy: 'measured' } },
-    });
+  it('statusSize reports the strategy-selected reading', async () => {
+    const measured = createTestAgent({ initialConfig: { tokenCounting: { strategy: 'measured' } } });
     try {
+      await measured.restorePersisted();
       const counting = measured.tokenCounting;
       expect(counting.statusSize()).toBe(0);
 
@@ -330,9 +342,10 @@ describe('Agent token counting', () => {
       initialConfig: { tokenCounting: { strategy: 'estimated' } },
     });
     try {
+      await estimated.restorePersisted();
       const counting = estimated.tokenCounting;
       estimated.appendTurnExchange('u1', 'a1', 1_000_000);
-      const estimate = estimateTokensForMessages(estimated.get(IAgentContextMemoryService).get());
+      const estimate = estimateTokensForMessages(estimated.get(IAgentLoopService).history());
       expect(counting.latestMeasured()).toBe(1_000_000);
       expect(counting.statusSize()).toBe(estimate);
     } finally {
@@ -349,7 +362,7 @@ describe('Agent token counting', () => {
     const persistence = new InMemoryWireRecordPersistence();
     const live = createTestAgent({ persistence });
     try {
-      live.get(IAgentProfileService).update({ activeToolNames: [] });
+      live.get(IAgentLoopService).update({ activeToolNames: [] });
 
       live.mockNextResponse({ type: 'text', text: 'Hi there!' });
       await live.rpc.prompt({ input: [{ type: 'text', text: 'hi' }] });
@@ -366,7 +379,7 @@ describe('Agent token counting', () => {
       expect(records).toHaveLength(1);
       expect(records[0]).toMatchObject({
         agentId: 'main',
-        length: live.get(IAgentContextMemoryService).get().length,
+        length: live.get(IAgentLoopService).history().length,
         tokens: reported,
       });
       expect(tokenCountingState(live).anchors).toEqual([
@@ -400,14 +413,14 @@ describe('Agent token counting', () => {
     );
     expect(tokenCountingState(ctx).anchors).toHaveLength(1);
 
-    context.applyCompaction({
+    compactContext(context,{
       summary: 'summary of the tail',
       compactedCount: 1,
       tokensBefore: 100,
       summaryOutputTokens: 50,
-    });
+    }, { dispatcher: ctx.dispatcher });
 
-    const history = context.get();
+    const history = context.history();
     const anchors = tokenCountingState(ctx).anchors;
     expect(anchors).toHaveLength(1);
     expect(anchors[0]).toEqual({
@@ -556,5 +569,223 @@ describe('Agent token counting', () => {
     } finally {
       await live.dispose();
     }
+  });
+
+  it('continues recording measured anchors across live and resumed turns after tool notes, errors, wall times, and empty outputs', async () => {
+    const persistence = new InMemoryWireRecordPersistence();
+    const makeTools = (): readonly ExecutableTool[] => [
+      {
+        name: 'PagedRead',
+        description: 'Reads a page with a pagination note',
+        parameters: { type: 'object', properties: {} },
+        resolveExecution: () => ({
+          approvalRule: 'PagedRead',
+          execute: async () => ({
+            output: '1\talpha\n2\tbeta',
+            note: 'Lines 1-2 of 200; read next page from offset 3.',
+          }),
+        }),
+      },
+      {
+        name: 'FailingCheck',
+        description: 'Returns a tool error with a note',
+        parameters: { type: 'object', properties: {} },
+        resolveExecution: () => ({
+          approvalRule: 'FailingCheck',
+          execute: async () => ({
+            output: 'permission denied',
+            isError: true,
+            note: 'exit code 1',
+          }),
+        }),
+      },
+      {
+        name: 'QuietStep',
+        description: 'Returns empty output',
+        parameters: { type: 'object', properties: {} },
+        resolveExecution: () => ({
+          approvalRule: 'QuietStep',
+          execute: async () => ({ output: '' }),
+        }),
+      },
+      {
+        name: 'mcp__srv__timed',
+        description: 'Renders wall time in projected requests',
+        parameters: { type: 'object', properties: {} },
+        resolveExecution: () => ({
+          approvalRule: 'mcp__srv__timed',
+          execute: async () => ({ output: 'timed ok' }),
+        }),
+      },
+    ];
+
+    let stepNo = 0;
+    const stepTotals = [12_000, 24_000, 36_000, 48_000, 60_000, 75_000];
+    const makeProvider = () =>
+      llmGenerateServices(
+        createMockProvider(async () => {
+          const index = stepNo;
+          stepNo += 1;
+          const total = stepTotals[index] ?? 90_000;
+          const usage: TokenUsage = {
+            inputOther: total - 10,
+            output: 10,
+            inputCacheRead: 0,
+            inputCacheCreation: 0,
+          };
+          const callsByStep = [
+            { id: 'call_paged', name: 'PagedRead' },
+            { id: 'call_fail', name: 'FailingCheck' },
+            { id: 'call_empty', name: 'QuietStep' },
+            { id: 'call_timed', name: 'mcp__srv__timed' },
+          ] as const;
+          const call = callsByStep[index];
+          if (call !== undefined) {
+            return {
+              id: `resp-${String(index)}`,
+              message: {
+                role: 'assistant',
+                content: [],
+                toolCalls: [{ type: 'function', id: call.id, name: call.name, arguments: '{}' }],
+              },
+              usage,
+              finishReason: 'tool_calls',
+              rawFinishReason: 'tool_calls',
+            };
+          }
+          return {
+            id: `resp-${String(index)}`,
+            message: {
+              role: 'assistant',
+              content: [{ type: 'text', text: `done-${String(index)}` }],
+              toolCalls: [],
+            },
+            usage,
+            finishReason: 'completed',
+            rawFinishReason: 'stop',
+          };
+        }),
+      );
+
+    const live = createTestAgent({ persistence }, makeProvider());
+    try {
+      await live.restorePersisted();
+      await live.rpc.setPermission({ mode: 'yolo' });
+      const registry = live.get(IAgentToolRegistryService);
+      for (const tool of makeTools()) {
+        registry.register(tool, { source: tool.name.startsWith('mcp__') ? 'mcp' : 'builtin' });
+      }
+
+      await live.rpc.prompt({ input: [{ type: 'text', text: 'run all four tools' }] });
+      await live.untilTurnEnd();
+
+      expect(stepNo).toBe(5);
+      expect(live.tokenCounting.latestMeasured()).toBe(60_000);
+      expect(tokenCountingState(live).anchors.at(-1)).toEqual({
+        length: live.get(IAgentLoopService).history().length,
+        tokens: 60_000,
+        measured: true,
+      });
+      await live.get(IWireService).flush();
+    } finally {
+      await live.dispose();
+    }
+
+    const resumed = createTestAgent({ persistence }, makeProvider());
+    try {
+      await resumed.restorePersisted();
+      await resumed.rpc.setPermission({ mode: 'yolo' });
+      const registry = resumed.get(IAgentToolRegistryService);
+      for (const tool of makeTools()) {
+        registry.register(tool, { source: tool.name.startsWith('mcp__') ? 'mcp' : 'builtin' });
+      }
+
+      await resumed.rpc.prompt({ input: [{ type: 'text', text: 'follow up after resume' }] });
+      await resumed.untilTurnEnd();
+
+      expect(stepNo).toBe(6);
+      expect(resumed.tokenCounting.latestMeasured()).toBe(75_000);
+      expect(tokenCountingState(resumed).anchors.at(-1)).toEqual({
+        length: resumed.get(IAgentLoopService).history().length,
+        tokens: 75_000,
+        measured: true,
+      });
+    } finally {
+      await resumed.dispose();
+    }
+  });
+
+  it('matches projected tool messages and rejects mismatched note or error metadata', () => {
+    appendContext(
+      context,
+      { role: 'user', content: [{ type: 'text', text: 'inspect files' }] },
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [
+          { type: 'function', id: 'call_read', name: 'Read', arguments: '{}' },
+          { type: 'function', id: 'call_bash', name: 'Bash', arguments: '{}' },
+          { type: 'function', id: 'call_err', name: 'Write', arguments: '{}' },
+        ],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'call_read',
+        content: [{ type: 'text', text: '1\thello' }],
+        note: 'More lines follow from offset 2.',
+        durationMs: 12,
+      },
+      {
+        role: 'tool',
+        toolCallId: 'call_bash',
+        content: [{ type: 'text', text: 'Tool output is empty.' }],
+        durationMs: 250,
+      },
+      {
+        role: 'tool',
+        toolCallId: 'call_err',
+        content: [{ type: 'text', text: 'disk full' }],
+        isError: true,
+        note: 'errno ENOSPC',
+      },
+    );
+
+    const history = context.history();
+    const projected = project(history);
+    const mismatchedNote = projected.map((msg) =>
+      msg.role === 'tool' && msg.toolCallId === 'call_read'
+        ? { ...msg, content: [{ type: 'text' as const, text: '1\thello\nWrong note.' }] }
+        : msg,
+    );
+    tokenCounting.measured(mismatchedNote, [], {
+      inputOther: 4_000,
+      output: 10,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+    });
+    expect(tokenCountingState(ctx).anchors).toEqual([]);
+
+    const missingError = history.map((msg) =>
+      msg.role === 'tool' && msg.toolCallId === 'call_err'
+        ? { role: 'tool' as const, toolCallId: 'call_err', content: msg.content }
+        : msg,
+    );
+    tokenCounting.measured(missingError, [], {
+      inputOther: 4_000,
+      output: 10,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+    });
+    expect(tokenCountingState(ctx).anchors).toEqual([]);
+
+    tokenCounting.measured(projected, [], {
+      inputOther: 8_990,
+      output: 10,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+    });
+    expect(tokenCountingState(ctx).anchors).toEqual([
+      { length: history.length, tokens: 9_000, measured: true },
+    ]);
   });
 });

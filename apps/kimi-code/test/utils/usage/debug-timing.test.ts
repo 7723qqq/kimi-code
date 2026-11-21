@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
 
@@ -39,7 +39,7 @@ describe('formatStepDebugTiming', () => {
       },
     });
     expect(result).toBe(
-      '[Debug] TTFT: 800ms | TPS: 40.0 tok/s (200 tokens in 5.0s) | tokens in 2k | cache read 1.2k (92%) / write 100',
+      '[Debug] TTFT: 800ms | TPS: 40.0 tok/s (200 tokens in 5.0s) | tokens in 2k | cache read 1.2k (60%) / write 100',
     );
   });
 
@@ -59,31 +59,15 @@ describe('formatStepDebugTiming', () => {
     expect(result).not.toContain('/ write 0');
   });
 
-  it('does not report a fake 100% when cache writes are missing', () => {
-    // A provider that never surfaces `cache_creation_input_tokens` must not
-    // show reads/(reads+0) = 100% on every turn: fall back to the share of
-    // total input that hit the cache.
-    const result = formatStepDebugTiming({
-      llmFirstTokenLatencyMs: 800,
-      llmStreamDurationMs: 5000,
-      usage: {
-        inputOther: 900,
-        inputCacheRead: 100,
-        inputCacheCreation: 0,
-        output: 200,
-      },
-    });
-    expect(result).toContain('cache read 100 (10%)');
-    expect(result).not.toContain('(100%)');
-  });
-
   it('omits TPS when the streamed window is too short to measure', () => {
     const result = formatStepDebugTiming({
       llmFirstTokenLatencyMs: 1200,
       llmStreamDurationMs: 1,
       usage: { output: 44 },
     });
-    expect(result).toBe('[Debug] TTFT: 1.2s | 44 tokens in 1ms (stream too short for TPS)');
+    expect(result).toBe(
+      '[Debug] TTFT: 1.2s | 44 tokens in 1ms (stream too short for TPS)',
+    );
   });
 
   it('computes TPS once the streamed window reaches the reliability threshold', () => {

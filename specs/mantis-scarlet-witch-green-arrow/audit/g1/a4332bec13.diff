@@ -1,0 +1,22 @@
+commit a4332bec13bd32fd0d7e1da7482bda1bd53a94fe
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Thu Nov 19 16:06:44 2026 +0800
+Commit:     Mira <317908118+kimi-agent-bot@users.noreply.github.com>
+CommitDate: Thu Nov 19 08:08:49 2026 +0000
+
+    ci: fix desktop release workflow permissions (#5092)
+    
+    Co-authored-by: kimi-agent-bot <317908118+kimi-agent-bot@users.noreply.github.com>
+
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index d43390db06..707c6116df 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -107,6 +107,7 @@ jobs:
+     permissions:
+       contents: write
+       pull-requests: read
++      actions: read
+     uses: ./.github/workflows/desktop-build.yml
+     with:
+       retention-days: 7

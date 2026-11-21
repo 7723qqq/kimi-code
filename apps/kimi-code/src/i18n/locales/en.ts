@@ -412,6 +412,10 @@ export default {
     close: 'Close',
     submit: 'Submit',
     loading: 'Loading…',
+    enabled: 'enabled',
+    disabled: 'disabled',
+    on: 'on',
+    off: 'off',
   },
   cli: {
     program: {
@@ -636,6 +640,29 @@ export default {
       environmentCwdRequiresEnvironment: '--environment-cwd requires --environment.',
       cannotCombineEnvironmentAndSession:
         'Cannot combine --environment with --session/--continue: the environment is bound at session creation and the bound environment is restored automatically on resume.',
+    },
+    sub: {
+      export: {
+        noPreviousSession: 'No previous session found to export.\n',
+      },
+      pluginRunNode: {
+        entryOutsideRoot: 'Plugin node entry must be inside KIMI_PLUGIN_ROOT: {{p1}}',
+      },
+      session: {
+        noSessions: 'No sessions found.\n',
+      },
+      web: {
+        runWithoutBrowser: 'Run the local Kimi server without opening a browser.',
+      },
+    },
+    version: {
+      packageJsonNotFound: 'Could not locate package.json near {{p1}}',
+    },
+    migration: {
+      commandDescription: 'Migrate data from a legacy kimi-cli installation into kimi-code.',
+    },
+    sessionImport: {
+      needsInteractiveTerminal: 'kimi import-sessions needs an interactive terminal.\n',
     },
   },
   startup: {
@@ -895,6 +922,17 @@ export default {
         reloadSummary: 'Reload: +{{added}} -{{removed}}',
         reloadErrors: ' ({{count}} errors)',
         inlineChangeHint: 'run /reload or /new to apply',
+        mcpServersLoadFailed: 'Failed to load plugin MCP servers: {{error}}',
+        mcpSubcommandFailed: '/plugins mcp failed: {{error}}',
+        installFailedWithLabel: 'Failed to install {{label}}: {{error}}',
+        installIncompleteProcesses: '{{label}} installation did not complete. Processes are still running; install again from /plugins.',
+        installIncompleteCheckLogs: '{{label}} installation did not complete. Check the logs and install again from /plugins.',
+        installCancelledWithLabel: 'Install cancelled: {{label}}.',
+        declaresMcp: ' Declares {{count}} MCP {{serverWord}}; enabled by default and configurable from /plugins.',
+        toggleEnabled: 'Enabled',
+        toggleDisabled: 'Disabled',
+        mcpServerToggled: '{{state}} MCP server {{server}} for {{id}}. Run /reload or /new to apply.',
+        toggledHint: '{{state}} {{id}}. Run /reload or /new to apply.',
       },
       auth: {
         loggedIn: 'Logged in.',
@@ -938,6 +976,46 @@ export default {
         registryAuthRequired: 'This registry requires authentication — paste its Bearer token.',
         importedOne: 'Imported 1 provider from registry.',
         importedMany: 'Imported {{count}} providers from registry.',
+      },
+      btw: {
+        failedToStart: 'Failed to start /btw: {{p1}}',
+      },
+      desktop: {
+        openedInBrowser: '{{p1}} — opened in your browser',
+      },
+      prompts: {
+        currentSessionLogs: 'Current session logs',
+        uploadListedFiles: 'Upload the files listed below with your feedback',
+        logsPlusCode: 'Session logs + project code',
+        alsoUploadSources: 'Also upload source files from this workspace to help reproduce the issue. Secrets, dependencies, and build outputs are excluded.',
+        chooseIncluded: 'Choose what to include with your feedback',
+        alwaysIncluded: 'Your note, session ID, request ID, model, CLI version, OS, and shell are always included. Choose whether to add diagnostics below.',
+        currentSessionLine: ' Session files',
+        sessionFilesHeading: 'Session files',
+        fileListUnavailable: '  Session file list unavailable. session.zip is still uploaded on submit.',
+        noSessionFiles: '  No session files yet.',
+        fileListRange: '  {{p1}} session files · showing {{p2}}–{{p3}}',
+        moreFilesNextPage: '  {{p1}} more files · → next page',
+        previousPage: '  ← previous page',
+        zipIncludesLog: '  session.zip also includes the application log, which may mention other sessions.',
+        keySavedTo: 'Your key will be saved to ~/.kimi-code/config.toml',
+        passwordNotSaved: 'The password is used only in this process and is never saved.',
+        sshPasswordPrompt: 'Enter SSH password for {{p1}}',
+        sshPasswordEmpty: 'SSH password cannot be empty.',
+        noSupportedProviders: 'Catalog has no providers with supported wire types.',
+      },
+      config: {
+        feedbackSurveyAlready: 'Feedback survey already {{state}}.',
+        feedbackSurveySet: 'Feedback survey {{state}}.',
+        mermaidAlready: 'Mermaid diagrams already {{state}}.',
+        mermaidSet: 'Mermaid diagrams {{state}}.',
+        copyOnSelectAlready: 'Copy on select already {{state}}.',
+        copyOnSelectSet: 'Copy on select {{state}}.',
+        skippedRefresh: 'Skipped refreshing {{p1}}: {{p2}}',
+        skippedCompaction: 'Skipped compaction — context was already compacted. Switching model.',
+        permissionModeFailed: 'Failed to set permission mode: {{p1}}',
+        tuiModeAlready: 'TUI mode already {{p1}}.',
+        tuiModeSet: 'TUI mode set to {{p1}}.',
       },
     },
     approvalLabels: {
@@ -1499,6 +1577,10 @@ export default {
         moreLoading: 'loading more…',
         moreSearching: 'searching all…',
         moreScroll: 'scroll for more',
+        resuming: '{{p1}} Resuming session…',
+        loadingMore: ' · loading more…',
+        searchingAll: ' · searching all…',
+        scrollForMore: ' · scroll for more',
       },
       goalStartPermissionPrompt: {
         titleYolo: 'Start a goal in Ask When Needed mode?',
@@ -1787,6 +1869,11 @@ export default {
         durationSeconds: '{{seconds}}s',
         durationMinutes: '{{minutes}}m {{seconds}}s',
         durationHours: '{{hours}}h {{minutes}}m',
+        panelHeader: ' TASK BROWSER ',
+        noActiveTasks: 'No active tasks. Tab = show all.',
+        noTasksInSession: 'No tasks in this session.',
+        selectTask: 'Select a task from the list.',
+        previewOutput: 'Preview Output',
       },
       undoSelector: {
         navHint: '↑↓ navigate · Enter select · Esc cancel',

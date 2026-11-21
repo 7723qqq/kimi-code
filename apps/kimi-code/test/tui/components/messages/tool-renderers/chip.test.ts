@@ -1,14 +1,10 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   computeEditStats,
   computeWriteStats,
   pickChip,
 } from '#/tui/components/messages/tool-renderers/chip';
-import {
-  parseGrepOutput,
-  searchNoticeOnly,
-} from '#/tui/components/messages/tool-renderers/grep-output';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
 function strip(text: string): string {
@@ -70,7 +66,6 @@ describe('chip registry', () => {
     expect(chipFor('Grep', content, result('src/a.ts:1:foo\nsrc/a.ts:9:foo'))).toBe(
       '2 matches in 1 file',
     );
-    // Context lines and group separators are not matches.
     expect(
       chipFor('Grep', content, result('src/a.ts-1-import x\nsrc/a.ts:2:foo\n--\nsrc/b.ts:5:foo')),
     ).toBe('2 matches across 2 files');
@@ -87,14 +82,10 @@ describe('chip registry', () => {
   });
 
   it('Grep chip counts files only when unnumbered content rows can be context', () => {
-    // `-n: false` with context flags: match and context rows are both
-    // `path:text` (the backend separates fields with ':' unconditionally),
-    // so an exact match count is unknowable and the chip falls back to files.
     const unnumberedContext = { pattern: 'foo', output_mode: 'content', '-n': false, '-C': 1 };
     expect(
       chipFor('Grep', unnumberedContext, result('src/a.ts:import x\nsrc/a.ts:foo\nsrc/b.ts:foo')),
     ).toBe('2 files');
-    // Without context flags every row is a match, so the count stays exact.
     const unnumbered = { pattern: 'foo', output_mode: 'content', '-n': false };
     expect(chipFor('Grep', unnumbered, result('src/a.ts:foo\nsrc/a.ts:bar\nsrc/b.ts:foo'))).toBe(
       '3 matches across 2 files',
@@ -135,7 +126,6 @@ describe('chip registry', () => {
           ].join('\n'),
         ),
       ),
-      // The timeout and cap notices mark the set incomplete: the count is a lower bound.
     ).toBe('2+ files');
   });
 
@@ -165,19 +155,11 @@ describe('chip registry', () => {
 
   it('distinguishes the last Glob page from incomplete search results', () => {
     expect(chipFor('Glob', {}, result('Showing matches 3–4 of 4.\nc.ts\nd.ts'))).toBe('2 files');
-    expect(
-      chipFor(
-        'Glob',
-        {},
-        result('Showing matches 3–4 of 4 collected matches (partial result set).\nc.ts\nd.ts'),
-      ),
-    ).toBe('2+ files');
+    expect(chipFor('Glob', {}, result('Showing matches 3–4 of 4 collected matches (partial result set).\nc.ts\nd.ts'))).toBe('2+ files');
   });
 
   it('keeps notice-like file names and leaves Grep interpretation unchanged', () => {
-    expect(
-      chipFor('Glob', {}, result('Showing matches.ts\nContinue with.txt\nNo more matches.ts')),
-    ).toBe('3 files');
+    expect(chipFor('Glob', {}, result('Showing matches.ts\nContinue with.txt\nNo more matches.ts'))).toBe('3 files');
     expect(chipFor('Grep', {}, result('Showing matches 1–2 of 3.'))).toBe('1 file');
   });
 
@@ -205,13 +187,7 @@ describe('chip registry', () => {
   });
 
   it('CreateGoal chip shows the created status', () => {
-    expect(
-      chipFor(
-        'CreateGoal',
-        { objective: 'Ship feature X' },
-        result('{"goal":{"status":"active"}}'),
-      ),
-    ).toBe('active');
+    expect(chipFor('CreateGoal', { objective: 'Ship feature X' }, result('{"goal":{"status":"active"}}'))).toBe('active');
   });
 
   it('SetGoalBudget has no chip because the budget is in the header argument', () => {
@@ -269,14 +245,8 @@ describe('Bash chip', () => {
   it('counts the hidden output lines once they outgrow the collapsed card', () => {
     const chip = pickChip('Bash')!;
     const call = { id: 'tc', name: 'Bash', args: { command: 'ls' } };
-    // One outcome line stands in for the rest, so the chip counts what is hidden.
-    expect(chip(call, { tool_call_id: 'tc', output: 'a\n\nb\nc\nd\n', is_error: false })).toBe(
-      '3 more lines',
-    );
-    expect(chip(call, { tool_call_id: 'tc', output: 'a\nb\nc\nd\ne', is_error: false })).toBe(
-      '4 more lines',
-    );
-    // Up to three lines are shown whole on the collapsed card, so no chip.
+    expect(chip(call, { tool_call_id: 'tc', output: 'a\n\nb\nc\nd\n', is_error: false })).toBe('3 more lines');
+    expect(chip(call, { tool_call_id: 'tc', output: 'a\nb\nc\nd\ne', is_error: false })).toBe('4 more lines');
     expect(chip(call, { tool_call_id: 'tc', output: 'a\n\nb\nc\n', is_error: false })).toBe('');
     expect(chip(call, { tool_call_id: 'tc', output: 'only', is_error: false })).toBe('');
     expect(chip(call, { tool_call_id: 'tc', output: '', is_error: false })).toBe('');
@@ -335,7 +305,7 @@ describe('Grep chip on paginated and unusual output', () => {
           'Glob completed with warnings; some directories could not be read: rg: /x: Permission denied (os error 13)\nrg: /y: Permission denied (os error 13)\na.ts\nb.ts',
         ),
       ),
-    ).toBe('2+ files'); // unreadable directories make the count a lower bound
+    ).toBe('2+ files');
   });
 });
 
@@ -368,11 +338,7 @@ describe('Grep chip on paginated content results', () => {
 
   it('reports the tool total and leaves the files out, since only the page is known', () => {
     expect(
-      chipFor(
-        'Grep',
-        { pattern: 'foo', output_mode: 'content', head_limit: 3 },
-        result(`${page}\n${notice}`),
-      ),
+      chipFor('Grep', { pattern: 'foo', output_mode: 'content', head_limit: 3 }, result(`${page}\n${notice}`)),
     ).toBe('1000 matches');
   });
 
@@ -487,9 +453,7 @@ describe('Glob chip with unreadable directories', () => {
       chipFor(
         'Glob',
         { pattern: '**/*.ts' },
-        result(
-          'Glob completed with warnings; some directories could not be read: rg: /x: Permission denied\na.ts\nb.ts',
-        ),
+        result('Glob completed with warnings; some directories could not be read: rg: /x: Permission denied\na.ts\nb.ts'),
       ),
     ).toBe('2+ files');
   });
@@ -502,88 +466,18 @@ describe('chips and the per-line spill pointer', () => {
   it('leave the appended pointer out of line and file counts', () => {
     const chip = pickChip('Bash')!;
     const call = { id: 'tc', name: 'Bash', args: { command: 'cat x' } };
-    expect(
-      chip(call, { tool_call_id: 'tc', output: `a\nb\nc\nd\n${pointer}`, is_error: false }),
-    ).toBe('3 more lines');
+    expect(chip(call, { tool_call_id: 'tc', output: `a\nb\nc\nd\n${pointer}`, is_error: false })).toBe('3 more lines');
     expect(chipFor('Grep', { pattern: 'foo' }, result(`a.ts\nb.ts\n${pointer}`))).toBe('2 files');
-  });
-
-  it('counts a line that merely quotes the marker as output', () => {
-    const chip = pickChip('Bash')!;
-    const call = { id: 'tc', name: 'Bash', args: { command: 'cat x' } };
-    // No `output_path:` line under the marker: this is the command's own text,
-    // so the line and everything behind it stay in the count.
-    const quoted = 'a\nb\nc\nd\n[Per-line truncation occurred; but this is not a pointer';
-    expect(chip(call, { tool_call_id: 'tc', output: quoted, is_error: false })).toBe(
-      '4 more lines',
-    );
-  });
-
-  it('keeps a quoted-pointer line in a Grep file count', () => {
-    expect(
-      chipFor(
-        'Grep',
-        { pattern: 'foo' },
-        result('a.ts\nb.ts\n[Per-line truncation occurred; not a pointer]'),
-      ),
-    ).toBe('3 files');
-  });
-});
-
-describe('Grep parse memo', () => {
-  const call = { id: 'tc', name: 'Grep', args: { pattern: 'foo' } };
-
-  it('parses one result once and hands the same stats to every reader', () => {
-    const output = 'memo/a.ts\nmemo/b.ts';
-    const first = parseGrepOutput(call, output);
-    expect(parseGrepOutput(call, output)).toBe(first);
-    // The chip's notice probe and the chip itself read that same parse.
-    expect(searchNoticeOnly(call, output)).toBe(false);
-    expect(parseGrepOutput(call, output)).toBe(first);
-  });
-
-  it('never reuses a parse across modes or context flags that share a text', () => {
-    const shared = 'src/memo.ts:1:foo';
-    expect(parseGrepOutput(call, shared).mode).toBe('files_with_matches');
-
-    const content = parseGrepOutput(
-      { ...call, args: { ...call.args, output_mode: 'content' } },
-      shared,
-    );
-    expect(content.mode).toBe('content');
-    expect(content.matches).toBe(1);
-
-    const withContext = parseGrepOutput(
-      { ...call, args: { ...call.args, output_mode: 'content', '-C': 2 } },
-      shared,
-    );
-    expect(withContext.mode).toBe('content');
-    // The different flag set is its own key, so it parses on its own.
-    expect(withContext).not.toBe(content);
-  });
-
-  it('stays bounded so a long session cannot hold every result forever', () => {
-    const first = parseGrepOutput(call, 'memo-bound-0');
-    for (let i = 1; i <= 9; i++) parseGrepOutput(call, `memo-bound-${String(i)}`);
-    expect(parseGrepOutput(call, 'memo-bound-0')).not.toBe(first);
   });
 });
 
 describe('chips when every match was a filtered sensitive file', () => {
   it('stay silent so the notice row explains the empty listing', () => {
     expect(
-      chipFor(
-        'Grep',
-        { pattern: 'secret' },
-        result('No non-sensitive matches found\nFiltered 2 sensitive file(s): .env, secrets.json'),
-      ),
+      chipFor('Grep', { pattern: 'secret' }, result('No non-sensitive matches found\nFiltered 2 sensitive file(s): .env, secrets.json')),
     ).toBe('');
     expect(
-      chipFor(
-        'Glob',
-        { pattern: '**/.env*' },
-        result('No non-sensitive matches found (2 sensitive file(s) filtered).'),
-      ),
+      chipFor('Glob', { pattern: '**/.env*' }, result('No non-sensitive matches found (2 sensitive file(s) filtered).')),
     ).toBe('');
   });
 });

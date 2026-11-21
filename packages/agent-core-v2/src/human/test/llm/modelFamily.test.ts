@@ -5,7 +5,7 @@ import {
   imagePricingForModel,
   reasoningEffortForModel,
   resolveModelFamily,
-} from '#/llm/modelFamily';
+} from '#human/llm/modelFamily';
 
 describe('resolveModelFamily', () => {
   it('resolves the deepseek family from a bare model id', () => {

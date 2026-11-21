@@ -1,34 +1,30 @@
-export interface TokenUsage {
-  inputOther: number;
-  output: number;
-  inputCacheRead: number;
-  inputCacheCreation: number;
-  raw?: Record<string, unknown>;
-}
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+
+export type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 export function emptyUsage(): TokenUsage {
   return { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 };
 }
 
 export function inputTotal(usage: TokenUsage): number {
-  return usage.inputOther + usage.inputCacheRead + usage.inputCacheCreation;
+  return usage.inputOther + (usage.inputCacheRead ?? 0) + usage.inputCacheCreation;
 }
 
 export function grandTotal(usage: TokenUsage): number {
   return inputTotal(usage) + usage.output;
 }
 
-export function chargeableTokens(usage: TokenUsage): number {
-  return usage.inputOther + usage.inputCacheCreation + usage.output;
-}
-
 export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   return {
     inputOther: a.inputOther + b.inputOther,
     output: a.output + b.output,
-    inputCacheRead: a.inputCacheRead + b.inputCacheRead,
+    inputCacheRead: (a.inputCacheRead ?? 0) + (b.inputCacheRead ?? 0),
     inputCacheCreation: a.inputCacheCreation + b.inputCacheCreation,
   };
+}
+
+export function chargeableTokens(usage: TokenUsage): number {
+  return usage.inputOther + usage.inputCacheCreation + usage.output;
 }
 
 export function mergeUsagePatch(

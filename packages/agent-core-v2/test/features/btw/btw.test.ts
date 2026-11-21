@@ -1,11 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import {
@@ -17,24 +16,22 @@ import {
 } from '#/features/btw/btw';
 import { SessionBtwService } from '#/features/btw/btwService';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
+import type { ToolCall } from '#human/message';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import {
   IAgentLifecycleService,
   type AgentScopeCreatedEvent,
 } from '#/session/agentLifecycle/agentLifecycle';
-import type { ToolCall } from '#human/llm/message';
 
+import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
-import {
-  stubToolExecutorEvents,
-  type ToolExecutorEventStubs,
-} from '../../agent/toolExecutor/stubs';
 
 describe('SessionBtwService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let fork: ReturnType<typeof jest.fn>;
-  let appendReminder: ReturnType<typeof jest.fn>;
-  let formatDenyMessage: ReturnType<typeof jest.fn>;
+  let fork: ReturnType<typeof vi.fn>;
+  let appendReminder: ReturnType<typeof vi.fn>;
+  let formatDenyMessage: ReturnType<typeof vi.fn>;
   let executorEvents: ToolExecutorEventStubs;
   let onDidCreateScope: Emitter<AgentScopeCreatedEvent>;
   let childContext: AgentContext;
@@ -66,8 +63,8 @@ describe('SessionBtwService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    appendReminder = jest.fn(() => 'reminder-id');
-    formatDenyMessage = jest.fn((message: string) => `${message} [worker guidance]`);
+    appendReminder = vi.fn(() => 'reminder-id');
+    formatDenyMessage = vi.fn((message: string) => `${message} [worker guidance]`);
     executorEvents = stubToolExecutorEvents();
     onDidCreateScope = disposables.add(new Emitter<AgentScopeCreatedEvent>());
     childContext = stubAgentContext('agent-btw-1', 2);
@@ -99,12 +96,10 @@ describe('SessionBtwService', () => {
         },
       },
     };
-    fork = jest.fn(
-      async (_source: unknown, opts?: { labels?: Readonly<Record<string, string>> }) => {
-        fireScopeCreated(child, opts?.labels);
-        return childContext;
-      },
-    );
+    fork = vi.fn(async (_source: unknown, opts?: { labels?: Readonly<Record<string, string>> }) => {
+      fireScopeCreated(child, opts?.labels);
+      return childContext;
+    });
     ix.stub(IAgentLifecycleService, {
       _serviceBrand: undefined,
       fork,

@@ -6,42 +6,40 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
-  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { DialogMouse, inputPressAt, mouseDispatch, type InputFrame } from '#/tui/utils/mouse';
+import { t } from '#/i18n';
 
 export type ApiKeyInputResult =
   | { readonly kind: 'ok'; readonly value: string }
   | { readonly kind: 'cancel' };
 
-function maskInputLine(raw: string): string {
+const FOOTER = 'Enter to submit  ·  Esc to cancel';
+
+function maskInputLine(raw: string, fakeCursorIndex: number): string {
   const prefix = '> ';
   if (!raw.startsWith(prefix)) return raw;
 
-  // Strip trailing padding spaces so they stay as spaces.
-  let end = raw.length;
-  while (end > prefix.length && raw[end - 1] === ' ') {
-    end--;
-  }
-  const padding = raw.slice(end);
-  const content = raw.slice(prefix.length, end);
+  const content = raw.slice(prefix.length);
 
-  // Protect ANSI escape sequences (reverse-video cursor, IME marker, etc.)
-  // while masking every other visible character.
-  const parts = content.split(/(\u001B(?:\[[0-9;]*m|_pi:c\u0007))/);
-  const maskedContent = parts
+  const parts = content.split(/(\u001B(?:\[[0-9;]*m|_pi:[^\u0007]+\u0007))/);
+  const lastTextIndex = parts.findLastIndex((part) => part.length > 0 && !part.startsWith('\u001B'));
+  if (lastTextIndex >= 0) parts[lastTextIndex] = parts[lastTextIndex]!.replace(/\s+$/u, '');
+  let maskedContent = parts
     .map((part, index) => {
-      if (index % 2 === 1) return part; // ANSI sequence
+      if (index % 2 === 1) return part;
       return part.replaceAll(/./g, '•');
     })
     .join('');
 
-  return prefix + maskedContent + padding;
+  const fakeCursorMarker = '\u001B_pi:fc\u0007';
+  const markerIndex = content.indexOf(fakeCursorMarker);
+  const cursorIndex = markerIndex >= 0 ? markerIndex + fakeCursorMarker.length : fakeCursorIndex;
+  if (maskedContent[cursorIndex] === '•') {
+    maskedContent = maskedContent.slice(0, cursorIndex) + ' ' + maskedContent.slice(cursorIndex + 1);
+  }
+  return prefix + maskedContent;
 }
 
 export class ApiKeyInputDialogComponent extends Container implements Focusable {
@@ -55,15 +53,12 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
   private readonly emptyHint: string;
   private done = false;
   private emptyHinted = false;
-  /** Where the last render put the input line, in the dialog's own frame. */
-  private inputFrame: InputFrame = { row: -1, column: 0 };
-  private readonly mouse = new DialogMouse(() => this.focused);
 
   constructor(
     platformName: string,
     subtitleLines: readonly string[],
     onDone: (result: ApiKeyInputResult) => void,
-    options?: { title?: string; mask?: boolean; emptyHint?: string },
+    private readonly options?: { title?: string; mask?: boolean; emptyHint?: string; trimValue?: boolean },
   ) {
     super();
     this.onDone = onDone;
@@ -92,17 +87,6 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
     this.input.handleInput(data);
   }
 
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouseEvent(event));
-  }
-
-  private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (this.done) return undefined;
-    const handoff = this.mouse.handoff(event);
-    if (handoff !== undefined) return handoff;
-    return inputPressAt(this.input, event, this.inputFrame);
-  }
-
   override invalidate(): void {
     super.invalidate();
     this.input.invalidate();
@@ -122,22 +106,27 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
     const subtitleLines = subtitleSource.map((line) =>
       truncateToWidth(currentTheme.fg('textDim', line), innerWidth, '…'),
     );
-    const footerStyled = currentTheme.fg('textDim', t('tui.dialogs.apiKeyInput.footer'));
+    const footerStyled = currentTheme.fg('textDim', FOOTER);
 
     const titleLine = truncateToWidth(titleStyled, innerWidth, '…');
     const footerLine = truncateToWidth(footerStyled, innerWidth, '…');
     const rawInputLine = this.input.render(innerWidth)[0] ?? '> ';
     const inputLine =
-      this.mask && this.input.getValue() !== '' ? maskInputLine(rawInputLine) : rawInputLine;
+      this.mask && this.input.getValue() !== '' ? maskInputLine(rawInputLine, this.input.getValue().length) : rawInputLine;
 
-    const contentLines: string[] = [titleLine, '', ...subtitleLines, '', inputLine, '', footerLine];
-    const inputIndex = contentLines.indexOf(inputLine);
+    const contentLines: string[] = [
+      titleLine,
+      '',
+      ...subtitleLines,
+      '',
+      inputLine,
+      '',
+      footerLine,
+    ];
 
     if (safeWidth < 4) {
-      this.inputFrame = { row: 1 + inputIndex, column: 0 };
       return ['', ...contentLines.map((line) => truncateToWidth(line, safeWidth, '…'))];
     }
-    this.inputFrame = { row: 3 + inputIndex, column: 3 };
 
     const lines: string[] = [
       '',
@@ -166,7 +155,7 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
       return;
     }
     this.done = true;
-    this.onDone({ kind: 'ok', value: trimmed });
+    this.onDone({ kind: 'ok', value: this.options?.trimValue === false ? value : trimmed });
   }
 
   private cancel(): void {

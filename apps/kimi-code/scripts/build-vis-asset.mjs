@@ -1,33 +1,24 @@
-// Builds the vis web single-file bundle, gzips it, and writes a generated
-// TS module that embeds it as base64 so tsdown can later bundle it into
-// dist/main.mjs (works identically for the npm package and the compiled
-// Bun binary).
 import { execFileSync } from 'node:child_process';
+import { gzipSync } from 'node:zlib';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { gzipSync } from 'node:zlib';
 
-const here = import.meta.dirname;
+
+const here = dirname(Bun.fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..', '..');
 const visWeb = join(repoRoot, 'apps', 'vis', 'web');
 const out = join(here, '..', 'src', 'generated', 'vis-web-asset.ts');
 
 console.log('[build-vis-asset] building vis web single-file bundle…');
 try {
-  // Run vite from vis-web's package dir so it picks up vis-web's
-  // vite.config.ts, which gates the single-file output on
-  // `process.env.VIS_SINGLEFILE === '1'`. Absolute paths + argv form (no
-  // shell, no cd): bin-shim resolution and relative traversal differ
-  // between dev trees and the Nix sandbox.
-  const viteEntry = join(repoRoot, 'node_modules', 'vite', 'bin', 'vite.js');
-  execFileSync(process.execPath, [viteEntry, 'build'], {
+  execFileSync(process.execPath, ['run', 'build'], {
     stdio: 'inherit',
     cwd: visWeb,
     env: { ...process.env, VIS_SINGLEFILE: '1' },
   });
 } catch (err) {
   throw new Error(
-    `[build-vis-asset] failed to run the vis-web single-file build: ${err instanceof Error ? err.message : String(err)}`,
+    `[build-vis-asset] failed to run the vis-web single-file build via bun: ${err instanceof Error ? err.message : String(err)}`,
   );
 }
 

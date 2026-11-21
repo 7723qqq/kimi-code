@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
 
-import { t } from '../../i18n';
 import type { ImportInfo } from '../../types';
 import { formatAbsoluteTime, formatRelativeTime, parseTimestamp } from '../../util/time';
 import { CopyButton } from '../shared/CopyButton';
 import { JsonViewer } from '../shared/JsonViewer';
 import { Pill } from '../shared/Pill';
+import { t } from '../../i18n';
 
 interface StateTabProps {
   state: unknown;
@@ -23,11 +23,6 @@ interface StateJsonShape {
   custom?: Record<string, unknown> & { imported_from_kimi_cli?: boolean };
 }
 
-/** State tab — renders the raw `state.json` blob from session detail.
- *  At the top, a handful of highlight cards surface the most-asked fields
- *  (title / lastPrompt / created / updated / agent count). Below that, the
- *  full JSON is shown via the shared JsonViewer so any custom fields the
- *  upstream writer adds remain readable without code changes. */
 export function StateTab({ state, importMeta }: StateTabProps) {
   const s = useMemo<StateJsonShape>(() => {
     return (state ?? {}) as StateJsonShape;
@@ -44,63 +39,67 @@ export function StateTab({ state, importMeta }: StateTabProps) {
 
       <div className="flex items-center justify-between">
         <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">
-          {t('state.stateJson')}
+          state.json
         </div>
-        <CopyButton value={JSON.stringify(s, null, 2)} label={t('state.copyJson')} />
+        <CopyButton value={JSON.stringify(s, null, 2)} label="copy json" />
       </div>
 
       {importedFromKimiCli ? (
         <div className="mt-3 border border-[var(--color-sev-warning)] bg-[color-mix(in_oklab,var(--color-sev-warning)_10%,transparent)] px-3 py-2 font-mono text-[11px] text-[var(--color-sev-warning)]">
-          {t('state.importedFromCliWarning')}
+          warning · this session is marked
           <code className="mx-1 px-1 bg-surface-0">imported_from_kimi_cli</code>
-          {t('state.importedFromCliWarning2')}
+          and would normally be filtered out of the list.
         </div>
       ) : null}
 
-      {/* Highlight cards */}
       <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-        <Card label={t('state.title')}>
+        <Card label="title">
           {s.title !== undefined && s.title !== '' ? (
             <span className="font-mono text-[12px] text-fg-0">"{s.title}"</span>
           ) : (
-            <span className="font-mono text-[12px] text-fg-3">{t('shared.none')}</span>
+            <span className="font-mono text-[12px] text-fg-3">(none)</span>
           )}
           {s.isCustomTitle === true ? (
             <Pill tone="config" variant="outline">
-              {t('state.custom')}
+              custom
             </Pill>
           ) : null}
         </Card>
 
-        <Card label={t('state.forkedFrom')}>
+        <Card label="forkedFrom">
           {s.forkedFrom !== undefined && s.forkedFrom !== '' ? (
-            <span className="font-mono text-[12px] text-fg-0 break-all">{s.forkedFrom}</span>
+            <span className="font-mono text-[12px] text-fg-0 break-all">
+              {s.forkedFrom}
+            </span>
           ) : (
-            <span className="font-mono text-[12px] text-fg-3">{t('shared.none')}</span>
+            <span className="font-mono text-[12px] text-fg-3">(none)</span>
           )}
         </Card>
 
-        <Card label={t('state.createdAt')}>
+        <Card label="createdAt">
           <TsValue ms={createdMs} raw={s.createdAt} />
         </Card>
 
-        <Card label={t('state.updatedAt')}>
+        <Card label="updatedAt">
           <TsValue ms={updatedMs} raw={s.updatedAt} />
         </Card>
 
-        <Card label={t('state.lastPrompt')}>
+        <Card label="lastPrompt">
           {s.lastPrompt !== undefined && s.lastPrompt !== '' ? (
-            <span className="font-mono text-[12px] text-fg-0 line-clamp-3" title={s.lastPrompt}>
+            <span
+              className="font-mono text-[12px] text-fg-0 line-clamp-3"
+              title={s.lastPrompt}
+            >
               {s.lastPrompt}
             </span>
           ) : (
-            <span className="font-mono text-[12px] text-fg-3">{t('shared.none')}</span>
+            <span className="font-mono text-[12px] text-fg-3">(none)</span>
           )}
         </Card>
 
-        <Card label={t('state.agents', { count: agentIds.length })}>
+        <Card label={`agents (${agentIds.length})`}>
           {agentIds.length === 0 ? (
-            <span className="font-mono text-[12px] text-fg-3">{t('shared.none')}</span>
+            <span className="font-mono text-[12px] text-fg-3">(none)</span>
           ) : (
             <span className="flex flex-wrap items-center gap-1">
               {agentIds.map((id) => (
@@ -116,24 +115,22 @@ export function StateTab({ state, importMeta }: StateTabProps) {
         </Card>
       </div>
 
-      {/* Custom blob */}
       <section className="mt-6">
         <h3 className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">
-          {t('state.customSection')}
+          custom
         </h3>
         <div className="mt-2 border border-border bg-surface-0 p-3">
           {s.custom === undefined || Object.keys(s.custom).length === 0 ? (
-            <span className="font-mono text-[11px] text-fg-3">{t('shared.empty')}</span>
+            <span className="font-mono text-[11px] text-fg-3">(empty)</span>
           ) : (
             <JsonViewer value={s.custom} defaultOpenDepth={2} />
           )}
         </div>
       </section>
 
-      {/* Raw JSON */}
       <section className="mt-6">
         <h3 className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">
-          {t('state.rawStateJson')}
+          raw state.json
         </h3>
         <div className="mt-2 border border-border bg-surface-0 p-3">
           <JsonViewer value={s} defaultOpenDepth={2} />
@@ -146,13 +143,14 @@ export function StateTab({ state, importMeta }: StateTabProps) {
 function Card({ label, children }: { label: string; children: import('react').ReactNode }) {
   return (
     <div className="border border-border bg-surface-0 px-3 py-2">
-      <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-fg-3">{label}</div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-fg-3">
+        {label}
+      </div>
       <div className="mt-1 flex flex-wrap items-center gap-2">{children}</div>
     </div>
   );
 }
 
-/** Export-bundle provenance, shown above state.json for imported sessions. */
 function ManifestCard({ meta }: { meta: ImportInfo }) {
   const m = meta.manifest;
   const candidates: [string, string | undefined][] = [
@@ -163,24 +161,10 @@ function ManifestCard({ meta }: { meta: ImportInfo }) {
     [t('state.node'), m?.nodejsVersion],
     [t('state.installSource'), m?.installSource],
     [t('state.workspace'), m?.workspaceDir],
-    [
-      t('state.exportedAt'),
-      m?.exportedAt
-        ? `${formatAbsoluteTime(Date.parse(m.exportedAt))} (${formatRelativeTime(Date.parse(m.exportedAt))})`
-        : undefined,
-    ],
-    [
-      t('state.firstActivity'),
-      m?.sessionFirstActivity ? formatAbsoluteTime(Date.parse(m.sessionFirstActivity)) : undefined,
-    ],
-    [
-      t('state.lastActivity'),
-      m?.sessionLastActivity ? formatAbsoluteTime(Date.parse(m.sessionLastActivity)) : undefined,
-    ],
-    [
-      t('state.importedAt'),
-      `${formatAbsoluteTime(Date.parse(meta.importedAt))} (${formatRelativeTime(Date.parse(meta.importedAt))})`,
-    ],
+    [t('state.exportedAt'), m?.exportedAt ? `${formatAbsoluteTime(Date.parse(m.exportedAt))} (${formatRelativeTime(Date.parse(m.exportedAt))})` : undefined],
+    [t('state.firstActivity'), m?.sessionFirstActivity ? formatAbsoluteTime(Date.parse(m.sessionFirstActivity)) : undefined],
+    [t('state.lastActivity'), m?.sessionLastActivity ? formatAbsoluteTime(Date.parse(m.sessionLastActivity)) : undefined],
+    [t('state.importedAt'), `${formatAbsoluteTime(Date.parse(meta.importedAt))} (${formatRelativeTime(Date.parse(meta.importedAt))})`],
     [t('state.originalFile'), meta.originalName ?? undefined],
   ];
   const rows = candidates
@@ -190,29 +174,21 @@ function ManifestCard({ meta }: { meta: ImportInfo }) {
   return (
     <section className="mb-5 border border-[var(--color-cat-subagent)] bg-[color-mix(in_oklab,var(--color-cat-subagent)_8%,transparent)] p-3">
       <div className="flex items-center gap-2">
-        <Pill tone="subagent" variant="outline">
-          {t('state.importedBundle')}
-        </Pill>
-        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">
-          {t('state.manifest')}
-        </span>
-        <span className="ml-auto">
-          <CopyButton value={JSON.stringify(meta, null, 2)} label={t('state.copyManifest')} />
-        </span>
+        <Pill tone="subagent" variant="outline">imported bundle</Pill>
+        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">manifest</span>
+        <span className="ml-auto"><CopyButton value={JSON.stringify(meta, null, 2)} label="copy manifest" /></span>
       </div>
       <div className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 md:grid-cols-2">
         {rows.map((r) => (
           <div key={r.label} className="flex items-baseline gap-2 font-mono text-[11px]">
-            <span className="w-32 shrink-0 text-[10px] uppercase tracking-[0.1em] text-fg-3">
-              {r.label}
-            </span>
+            <span className="w-32 shrink-0 text-[10px] uppercase tracking-[0.1em] text-fg-3">{r.label}</span>
             <span className="min-w-0 break-all text-fg-1">{r.value}</span>
           </div>
         ))}
       </div>
       {m === null ? (
         <div className="mt-2 font-mono text-[11px] text-[var(--color-sev-warning)]">
-          {t('state.manifestMissing')}
+          manifest.json was missing or unreadable in this bundle
         </div>
       ) : null}
     </section>
@@ -224,13 +200,17 @@ function TsValue({ ms, raw }: { ms: number | null; raw: string | number | undefi
     return raw !== undefined && raw !== '' ? (
       <span className="font-mono text-[12px] text-fg-3 break-all">{raw}</span>
     ) : (
-      <span className="font-mono text-[12px] text-fg-3">{t('shared.none')}</span>
+      <span className="font-mono text-[12px] text-fg-3">(none)</span>
     );
   }
   return (
     <span className="flex flex-wrap items-center gap-2">
-      <span className="font-mono text-[12px] text-fg-0 tabular">{formatAbsoluteTime(ms)}</span>
-      <span className="font-mono text-[11px] text-fg-3">({formatRelativeTime(ms)})</span>
+      <span className="font-mono text-[12px] text-fg-0 tabular">
+        {formatAbsoluteTime(ms)}
+      </span>
+      <span className="font-mono text-[11px] text-fg-3">
+        ({formatRelativeTime(ms)})
+      </span>
     </span>
   );
 }

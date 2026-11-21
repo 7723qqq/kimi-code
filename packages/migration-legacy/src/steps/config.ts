@@ -1,10 +1,7 @@
-import { existsSync } from 'node:fs';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-
-import { getContributedFlags } from '@moonshot-ai/agent-core-v2';
-import { getConfigSectionContributions } from '@moonshot-ai/agent-core-v2/app/config/configSectionContributions';
-import { camelToSnake } from '@moonshot-ai/agent-core-v2/app/config/toml';
+import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import {
   ModelRecordSchema,
   ProviderConfigSchema,
@@ -12,7 +9,10 @@ import {
   providersFromToml,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/configSection';
 import { HookDefSchema } from '@moonshot-ai/agent-core-v2/features/externalHooks/configSection';
-import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
+import { getConfigSectionContributions } from '@moonshot-ai/agent-core-v2/app/config/configSectionContributions';
+import { getContributedFlags } from '@moonshot-ai/agent-core-v2';
+import { camelToSnake } from '@moonshot-ai/agent-core-v2/app/config/toml';
+
 import '@moonshot-ai/agent-core-v2/agent/loop/configSection';
 import '@moonshot-ai/agent-core-v2/agent/task/configSection';
 import '@moonshot-ai/agent-core-v2/agent/permissionMode/configSection';
@@ -20,25 +20,36 @@ import '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
 import '@moonshot-ai/agent-core-v2/app/auth/configSection';
 import '@moonshot-ai/agent-core-v2/app/flag/flag';
 import '@moonshot-ai/agent-core-v2/features/skill/catalog/configSection';
+
+import '@moonshot-ai/agent-core-v2/session/subagent/flag';
+import '@moonshot-ai/agent-core-v2';
+import '@moonshot-ai/agent-core-v2/agent/toolSelect/flag';
+import '@moonshot-ai/agent-core-v2/agent/tools/task/task-wait/flag';
 import '@moonshot-ai/agent-core-v2/persistence/configSection';
 
 import { atomicWrite } from '../atomic-write.js';
-import { targetConfigFile, targetTuiFile, siblingConfigToml, siblingTuiToml } from '../paths.js';
-import { readSourceConfig } from '../source-config.js';
 import { DEFAULT_CONFIG_FILE_TEXT, isTuiStubOrMissing } from '../stub-detect.js';
+import { readSourceConfig } from '../source-config.js';
+import {
+  targetConfigFile,
+  targetTuiFile,
+  siblingConfigToml,
+  siblingTuiToml,
+} from '../paths.js';
 
-// `theme` / `default_editor` belong in tui.toml, not config.toml.
 const TUI_TOP_LEVEL_KEYS = new Set(['theme', 'default_editor']);
 const TOP_LEVEL_KEYS_TO_DROP = new Set(['plan_mode', 'yolo']);
-const LOOP_CONTROL_FIELDS_TO_KEEP = new Set(['reserved_context_size']);
-const BACKGROUND_FIELDS_TO_KEEP = new Set(['max_running_tasks', 'keep_alive_on_exit']);
+const LOOP_CONTROL_FIELDS_TO_KEEP = new Set([
+  'reserved_context_size',
+]);
+const BACKGROUND_FIELDS_TO_KEEP = new Set([
+  'max_running_tasks',
+  'keep_alive_on_exit',
+]);
 const REGISTERED_EXPERIMENTAL_FLAGS: ReadonlySet<string> = new Set(
   getContributedFlags().map((definition) => definition.id),
 );
 
-// kimi-code's tui.toml `theme` enum (mirrors apps/kimi-code TuiThemeSchema).
-// A legacy theme outside this set would fail loadTuiConfig()'s whole-file
-// validation, taking the migrated editor command down with it — so drop it.
 const TUI_THEMES: ReadonlySet<string> = new Set(['dark', 'light', 'auto']);
 
 const SUPPORTED_PROVIDER_TYPES: ReadonlySet<string> = new Set([
@@ -51,12 +62,6 @@ const SUPPORTED_PROVIDER_TYPES: ReadonlySet<string> = new Set([
   'vertexai',
 ]);
 
-// The config.toml top-level keys kimi-code understands, derived from the v2
-// config-section registry so the set tracks the v2 runtime. `providers` /
-// `models` / `hooks` are filtered per-entry, not via this set. `default_model`
-// / `default_provider` are unregistered-but-preserved v2 keys (the v2
-// ConfigRegistry passes unregistered domains through unchanged), so they are
-// kept explicitly.
 const SUPPORTED_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   ...getConfigSectionContributions()
     .map((contribution) => contribution.domain)
@@ -76,30 +81,14 @@ export interface ConfigStepResult {
   readonly tuiExtracted: boolean;
   readonly droppedProviders: readonly string[];
   readonly droppedModels: readonly string[];
-  /** Top-level keys dropped because kimi-code's config schema lacks them. */
   readonly droppedKeys: readonly string[];
-  /**
-   * Keys/sections the existing target config and the kimi-cli config both set
-   * to a different value — the target's value was kept.
-   */
   readonly configConflicts: readonly string[];
-  /** A `config.toml` conflict forced a `config.migrated-from-kimi-cli.toml` sibling. */
   readonly wroteSiblingDueToConflict: boolean;
-  /** A `tui.toml` conflict forced a `tui.migrated-from-kimi-cli.toml` sibling. */
   readonly wroteTuiSibling: boolean;
-  /** Count of kimi-cli hook entries written into the LIVE target config. */
   readonly migratedHooks: number;
-  /** Count of kimi-cli hook entries dropped because kimi-code's schema rejects them. */
   readonly droppedHooks: number;
   readonly sourceUnreadable: boolean;
-  /** Legacy `device_id` was copied because the target had none of its own. */
   readonly deviceIdCopied: boolean;
-  /**
-   * When sibling mode kicks in (`wroteSiblingDueToConflict === true`), the
-   * content that landed in `config.migrated-from-kimi-cli.toml` instead of
-   * the live `config.toml`. Surfaced by the result screen so the user knows
-   * what they need to merge by hand. Empty in `overwrite` / `merge` modes.
-   */
   readonly siblingContents: {
     readonly providers: readonly string[];
     readonly models: readonly string[];
@@ -146,8 +135,6 @@ function filterRegisteredExperimentalFlags(
   return keptEntries.length > 0 ? Object.fromEntries(keptEntries) : undefined;
 }
 
-/** True when the kimi-cli provider entry validates against kimi-code's v2 schema
- * and its (already type-mapped) `type` is one the kosong runtime can construct. */
 function providerIsSupported(prov: Record<string, unknown>): boolean {
   const transformed = providersFromToml({ x: prov });
   const entry = isRecord(transformed) ? transformed['x'] : undefined;
@@ -161,7 +148,6 @@ function providerIsSupported(prov: Record<string, unknown>): boolean {
   return typeof type === 'string' && SUPPORTED_PROVIDER_TYPES.has(type);
 }
 
-/** True when the kimi-cli model entry validates against kimi-code's v2 schema. */
 function modelIsSupported(mod: Record<string, unknown>): boolean {
   const transformed = modelsFromToml({ x: mod });
   const entry = isRecord(transformed) ? transformed['x'] : undefined;
@@ -174,7 +160,6 @@ function modelIsSupported(mod: Record<string, unknown>): boolean {
   }
 }
 
-/** Order-insensitive deep-equality key, so re-ordered tables are not conflicts. */
 function stableKey(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableKey).join(',')}]`;
   if (isRecord(value)) {
@@ -218,11 +203,6 @@ function mapLegacyProviderTypes(parsed: Record<string, unknown>): Record<string,
   return changed ? { ...parsed, providers: mapped } : parsed;
 }
 
-/**
- * Additively merge the kimi-cli config into the existing target config: add
- * keys/providers/models the target lacks, keep the target's value on a real
- * conflict, and record those conflicts. A target value is never overwritten.
- */
 function mergeConfig(
   target: Record<string, unknown>,
   migrated: Record<string, unknown>,
@@ -230,7 +210,7 @@ function mergeConfig(
   const merged: Record<string, unknown> = { ...target };
   const conflicts: string[] = [];
   for (const [key, value] of Object.entries(migrated)) {
-    if ((key === 'providers' || key === 'models' || key === 'experimental') && isRecord(value)) {
+    if ((key === 'providers' || key === 'models') && isRecord(value)) {
       const section: Record<string, unknown> = isRecord(merged[key]) ? { ...merged[key] } : {};
       for (const [name, entry] of Object.entries(value)) {
         if (section[name] === undefined) {
@@ -260,9 +240,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
   const deviceIdCopied = await copyDeviceId(input.sourceHome, input.targetHome);
   const parsed: Record<string, unknown> = mapLegacyProviderTypes(source.parsed);
 
-  // Decide how the target config.toml is handled: a missing or pristine-stub
-  // target is overwritten; a parseable user config is merged into; an
-  // unparseable target falls back to a side file (it cannot be merged).
   const configPath = targetConfigFile(input.targetHome);
   let targetText: string | undefined;
   try {
@@ -284,19 +261,14 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     }
   }
 
-  // Provider names available to migrated models: those kept by this run, plus
-  // any already present in the target config being merged into.
   const availableProviderNames = new Set<string>(
     isRecord(targetParsed['providers']) ? Object.keys(targetParsed['providers']) : [],
   );
 
-  // Model alias names already present in the target config being merged into —
-  // a migrated `default_model` may legitimately point at one of these.
   const availableModelNames = new Set<string>(
     isRecord(targetParsed['models']) ? Object.keys(targetParsed['models']) : [],
   );
 
-  // 1) Providers — keep only those kimi-code's schema accepts.
   const droppedProviders: string[] = [];
   const keptProviders: Record<string, Record<string, unknown>> = {};
   if (isRecord(parsed['providers'])) {
@@ -309,11 +281,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     }
   }
 
-  // Provider names the merge resolves to a DIFFERENT entry than the kimi-cli
-  // one: the target already defines a same-named provider with other settings,
-  // so `mergeConfig` keeps the target's. A migrated model bound to such a name
-  // would silently run against the target's endpoint/credentials, not the
-  // legacy ones it was configured for — so treat the name as unavailable.
   const targetProviders: Record<string, unknown> = isRecord(targetParsed['providers'])
     ? targetParsed['providers']
     : {};
@@ -325,8 +292,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     }
   }
 
-  // 2) Models — keep only those kimi-code's schema accepts, and not those
-  //    whose provider was dropped as unsupported (they could never resolve).
   const droppedModels: string[] = [];
   const keptModels: Record<string, Record<string, unknown>> = {};
   if (isRecord(parsed['models'])) {
@@ -335,10 +300,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
         droppedModels.push(name);
         continue;
       }
-      // `modelIsSupported` guarantees `provider` is a string. Keep the model
-      // only if that provider is available — kept by this run or already in
-      // the target config — and is not a name whose merged entry will differ
-      // from the legacy provider this model was configured against.
       const provider = mod['provider'];
       if (
         typeof provider !== 'string' ||
@@ -363,12 +324,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     }
   }
 
-  // 2b) Hooks — keep only entries kimi-code's HookDefSchema accepts. kimi-cli
-  //     and kimi-code share an identical hook shape, so a valid legacy hook
-  //     passes straight through; the per-entry filter only guards against
-  //     future schema drift (an event type / field kimi-code does not know).
-  //     Hook fields are all single lowercase words, so — unlike providers /
-  //     models — no `transformTomlData` snake→camel pass is needed first.
   let droppedHooks = 0;
   const keptHooks: unknown[] = [];
   if (Array.isArray(parsed['hooks'])) {
@@ -381,7 +336,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     }
   }
 
-  // 3) Split out the keys that belong in tui.toml.
   const tuiEditor: Record<string, unknown> = {};
   const tuiOut: Record<string, unknown> = {
     editor: tuiEditor,
@@ -396,7 +350,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     tuiEditor['command'] = editorVal;
   }
 
-  // 4) Build the migrated top-level — only keys kimi-code's schema supports.
   const droppedKeys: string[] = [];
   const migratedTop: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(parsed)) {
@@ -404,7 +357,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     if (TUI_TOP_LEVEL_KEYS.has(k)) continue;
     if (TOP_LEVEL_KEYS_TO_DROP.has(k)) continue;
     if (k === 'default_yolo') {
-      // kimi-cli's `default_yolo` maps to kimi-code's `default_permission_mode`.
       if (v === true) migratedTop['default_permission_mode'] = 'yolo';
       continue;
     }
@@ -412,10 +364,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
       droppedKeys.push(k);
       continue;
     }
-    // Drop default_model unless it points at a model that will exist in the
-    // written config — one kept from kimi-cli, or already in the target being
-    // merged into. A dangling alias (dropped, stale, or never present) would
-    // fail the next session-create.
     if (
       k === 'default_model' &&
       typeof v === 'string' &&
@@ -451,11 +399,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
   if (Object.keys(keptModels).length > 0) migratedTop['models'] = keptModels;
   if (keptHooks.length > 0) migratedTop['hooks'] = keptHooks;
 
-  // 4b) Drop any supported top-level key whose VALUE the v2 config section
-  //     rejects (e.g. `merge_all_available_skills = "yes"`). Providers/models
-  //     are already validated per-entry above, so section failures here can
-  //     only come from plain top-level keys. Unregistered-but-preserved keys
-  //     (default_model / default_provider) have no section schema and pass.
   const sectionsBySnake = new Map(
     getConfigSectionContributions().map((contribution) => [
       camelToSnake(contribution.domain),
@@ -466,7 +409,8 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     if (k === 'providers' || k === 'models' || k === 'hooks') continue;
     const section = sectionsBySnake.get(k);
     if (section === undefined) continue;
-    const transformed = section.options.fromToml === undefined ? v : section.options.fromToml(v);
+    const transformed =
+      section.options.fromToml === undefined ? v : section.options.fromToml(v);
     try {
       section.schema.parse(transformed);
     } catch {
@@ -475,7 +419,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     }
   }
 
-  // 5) Write config.toml per the target mode.
   await mkdir(input.targetHome, { recursive: true, mode: 0o700 });
   let wroteConfigSibling = false;
   let configConflicts: readonly string[] = [];
@@ -490,7 +433,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     await atomicWrite(configPath, stringifyToml(migratedTop));
   }
 
-  // 6) Write tui.toml (or a sibling if the target tui.toml is user-modified).
   const tuiPath = targetTuiFile(input.targetHome);
   const canOverwriteTui = await isTuiStubOrMissing(tuiPath);
   const renderedTui = stringifyToml(tuiOut);
@@ -508,23 +450,12 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     tuiExtracted = true;
   }
 
-  // `migratedHooks` counts hooks the runtime will actually see — i.e. hooks
-  // we wrote into the LIVE `config.toml`. That happens only when:
-  //  - overwrite mode (target was missing / pristine stub, we wrote fresh), or
-  //  - merge mode AND the target had no `hooks` key (mergeConfig added ours).
-  // In merge mode where target already declares `hooks` (any value: empty,
-  // identical, different, or even non-array invalid), `mergeConfig` keeps
-  // the target's value, so the source hooks never land in the live config.
-  // In sibling mode the source hooks land in `config.migrated-from-kimi-cli.toml`,
-  // which the runtime never reads — they're accounted for via `siblingContents`,
-  // not `migratedHooks`.
   const hooksLandedInLiveConfig =
     keptHooks.length > 0 &&
-    (targetMode === 'overwrite' || (targetMode === 'merge' && targetParsed['hooks'] === undefined));
+    (targetMode === 'overwrite' ||
+      (targetMode === 'merge' && targetParsed['hooks'] === undefined));
   const migratedHooks = hooksLandedInLiveConfig ? keptHooks.length : 0;
 
-  // In sibling mode, enumerate what landed in the sibling file so the result
-  // screen can tell the user exactly what is awaiting manual merge.
   const siblingContents =
     targetMode === 'sibling'
       ? {
@@ -551,9 +482,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
   };
 }
 
-// Telemetry identity continuity: kimi-cli and kimi-code share the same
-// `device_id` concept (uuid hex, `kfc_device_id_` user-id prefix). Copy it only
-// when the target has none — a target that already launched once keeps its own.
 async function copyDeviceId(sourceHome: string, targetHome: string): Promise<boolean> {
   const targetPath = join(targetHome, 'device_id');
   if (existsSync(targetPath)) return false;

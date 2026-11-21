@@ -6,18 +6,6 @@ function isInsideTmux(): boolean {
   return (process.env['TMUX'] ?? '').length > 0;
 }
 
-/**
- * Build an OSC 52 sequence that asks the terminal emulator to put `text` on
- * the system clipboard. The sequence reaches the *local* clipboard through
- * stdout alone, so it keeps working over SSH and inside containers where no
- * native clipboard tool exists. Terminals without OSC 52 support silently
- * ignore it.
- *
- * Inside tmux the bare sequence reaches the outer terminal only with
- * `set-clipboard on`, and the DCS passthrough form (doubled ESC bytes, same
- * convention as `buildTerminalNotificationSequences`) only with
- * `allow-passthrough on`, so both are sent.
- */
 export function buildClipboardOSC52(text: string, insideTmux = isInsideTmux()): string {
   const payload = Buffer.from(text, 'utf8').toString('base64');
   const sequence = `${ESC}]52;c;${payload}${BEL}`;
@@ -26,21 +14,10 @@ export function buildClipboardOSC52(text: string, insideTmux = isInsideTmux()): 
   return `${sequence}${ESC}Ptmux;${escaped}${ESC}${ST}`;
 }
 
-/** Where an OSC 52 sequence is written; defaults to `process.stdout`. */
-export interface Osc52Sink {
-  readonly isTTY?: boolean;
-  write(data: string): unknown;
-}
-
-/**
- * Write the OSC 52 sequence to `sink` (stdout by default). Returns false when
- * the sink is not a terminal (the sequence would pollute piped output) or the
- * write failed.
- */
-export function writeClipboardOSC52(text: string, sink: Osc52Sink = process.stdout): boolean {
-  if (!sink.isTTY) return false;
+export function writeClipboardOSC52(text: string): boolean {
+  if (!process.stdout.isTTY) return false;
   try {
-    sink.write(buildClipboardOSC52(text));
+    process.stdout.write(buildClipboardOSC52(text));
     return true;
   } catch {
     return false;

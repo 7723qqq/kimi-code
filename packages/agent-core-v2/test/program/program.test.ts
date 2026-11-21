@@ -4,15 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { Event } from '#/_base/event';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
 import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IEnvironmentService } from '#/app/environment/environment';
@@ -27,8 +27,6 @@ import { fakeEnvironment } from '../environment/stubs';
 import { noopLogger } from '../wire/stubs';
 import type { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { writeWorkspaceTrust } from '#/workspace/workspaceTrust/trustRecord';
-import { restoreEnvs, setEnv } from '../helpers/stubs';
-import { waitForAssertion } from '../helpers/waitFor';
 import { WorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
 import type { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import type { IWorkspaceFsService } from '#/workspace/workspaceFs/fs';
@@ -39,8 +37,8 @@ import type { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileL
 import type { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
 import type { IWorkspaceSkillCatalog } from '#/features/skill/workspace/workspaceSkillCatalog';
 
-beforeEach(() => { setEnv('KIMI_CODE_WATCH', 'false'); });
-afterEach(() => { restoreEnvs(); });
+beforeEach(() => { vi.stubEnv('KIMI_CODE_WATCH', 'false'); });
+afterEach(() => { vi.unstubAllEnvs(); });
 
 function deferred(): { readonly promise: Promise<void>; resolve(): void; reject(error: Error): void } {
   let resolve!: () => void;
@@ -62,6 +60,7 @@ function programWorkspace(cwd: string): IWorkspaceContext {
       id: 'workspace',
       name: 'workspace',
       root: cwd,
+      kind: 'implicit',
       createdAt: 0,
       lastOpenedAt: 0,
     },
@@ -73,7 +72,7 @@ function setup(readiness = new Map<string, Promise<void>>(), order: string[] = [
   const registry = Object.assign(new EnvironmentRegistry(), {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    addProvider: jest.fn(async () => ({ dispose: async () => {} })),
+    addProvider: vi.fn(async () => ({ dispose: async () => {} })),
   });
   const controllerInputs: ProgramSessionControllerInput[] = [];
   const program = new Program(
@@ -88,7 +87,7 @@ function setup(readiness = new Map<string, Promise<void>>(), order: string[] = [
       },
     } as never,
   );
-  const create = jest.fn(() => {
+  const create = vi.fn(() => {
     const lease = registry.acquire({ environmentId: 'local' }, ['fs', 'process']);
     const id = lease.environment.identity.generation;
     lease.dispose();
@@ -201,7 +200,7 @@ describe('Program', () => {
     expect(order).toEqual([]);
 
     second.setStatus('ready');
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(program.sessionControllerGeneration).toBe('two');
     });
     const next = program.createSessionController();
@@ -240,10 +239,10 @@ describe('Program', () => {
     await program.ready;
     await Promise.resolve();
 
-    expect(program.skills as unknown).toBe(generation.workdirs.root.skills);
-    expect(program.instructions as unknown).toBe(generation.workdirs.root.instructions);
-    expect(program.mcpConfig as unknown).toBe(generation.mcpConfig);
-    expect(program.mcp as unknown).toBe(generation.mcp);
+    expect(program.skills).toBe(generation.workdirs.root.skills);
+    expect(program.instructions).toBe(generation.workdirs.root.instructions);
+    expect(program.mcpConfig).toBe(generation.mcpConfig);
+    expect(program.mcp).toBe(generation.mcp);
     expect(program.snapshot()).toMatchObject({
       workspaceId: 'workspace',
       binding: { environmentId: 'local' },
@@ -279,7 +278,7 @@ describe('Program', () => {
     registry.register(fakeEnvironment('local', 'two'));
     await Promise.resolve();
     expect(program.sessionControllerGeneration).toBe('two');
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(program.status).toBe('ready');
     });
     expect(order).toEqual(['behavior:one']);
@@ -322,11 +321,7 @@ interface LocalityFixture {
   readonly registry: EnvironmentRegistry;
   readonly program: Program;
   readonly local: () => GenerationAccess;
-  readonly workdir: (
-    cwd: string,
-    environmentId?: string,
-    followsPrimary?: boolean,
-  ) => Promise<ProgramWorkdir>;
+  readonly workdir: (cwd: string, environmentId?: string, followsPrimary?: boolean) => Promise<ProgramWorkdir>;
   readonly controllerInputs: ProgramSessionControllerInput[];
   readonly profileRegistry: AgentProfileRegistryService;
   readonly profileRegistrations: { readonly sourceId: string; readonly profiles: readonly string[] }[];
@@ -340,19 +335,9 @@ interface LocalityFixture {
   readonly cleanup: () => Promise<void>;
 }
 
-const slashedPath = (value: string): string => value.replaceAll(String.fromCharCode(92), '/');
-
-const HOST_PATH_CLASS: 'posix' | 'win32' = process.platform === 'win32' ? 'win32' : 'posix';
-
 function scopedFs(base: string, realBase: string, inner: IHostFileSystem, additionalRoots: readonly string[] = []): IHostFileSystem {
-  const slashed = (value: string): string => value.replaceAll(String.fromCharCode(92), '/');
-  const within = (path: string): boolean => {
-    const target = slashed(path);
-    return [base, realBase, ...additionalRoots].some((root) => {
-      const normalized = slashed(root);
-      return target === normalized || target.startsWith(`${normalized}/`);
-    });
-  };
+  const within = (path: string): boolean =>
+    [base, realBase, ...additionalRoots].some((root) => path === root || path.startsWith(`${root}/`));
   const assert = (path: string): void => {
     if (!within(path)) throw new HostFsError(OsFsErrors.codes.OS_FS_NOT_FOUND, `not found: ${path}`);
   };
@@ -372,7 +357,7 @@ function scopedFs(base: string, realBase: string, inner: IHostFileSystem, additi
     walk: (path, options, visit) => { assert(path); return inner.walk(path, options, visit); },
     mkdir: (path, options) => { assert(path); return inner.mkdir(path, options); },
     remove: (path) => { assert(path); return inner.remove(path); },
-    realpath: (path) => inner.realpath(path).then(slashedPath),
+    realpath: inner.realpath.bind(inner),
   };
 }
 
@@ -483,10 +468,15 @@ async function localityFixture(options: { readonly remoteCwd?: string } = {}): P
         resolved: async () => ({ slug: 'kimi-code' }),
       },
       log: noopLogger,
-      oauth: { onEvent: () => () => {} },
+      oauth: {
+        onEvent: () => () => {},
+        setConfigurationSource: () => {},
+        removeConfigurationSource: () => {},
+      },
       configStore: { onDidWrite: () => ({ dispose: () => {} }) },
       plugins: {
         enabledMcpServers: async () => ({}),
+        mcpServerEntries: async () => [],
         onDidReload: () => ({ dispose: () => {} }),
         pluginAgentRoots: async () => [],
         pluginSkillRoots: async () => [],
@@ -536,11 +526,7 @@ async function localityFixture(options: { readonly remoteCwd?: string } = {}): P
   const remoteRegistration = registry.register(Object.assign(
     new FakeEnvironment(
       { environmentId: 'remote', generation: 'remote-one' },
-      {
-        capabilities: ['fs', 'process'],
-        host: { homeDir: remoteHomeDir },
-        pathClass: HOST_PATH_CLASS,
-      },
+      { capabilities: ['fs', 'process'], host: { homeDir: remoteHomeDir } },
     ),
     remoteCwd === undefined
       ? { fs: realFs, process: new HostProcessService() }
@@ -555,11 +541,7 @@ async function localityFixture(options: { readonly remoteCwd?: string } = {}): P
   };
   const workdirs: ProgramWorkdir[] = [];
   let controller: { dispose(): void } | undefined;
-  const workdir = async (
-    cwd: string,
-    environmentId = 'remote',
-    followsPrimary?: boolean,
-  ): Promise<ProgramWorkdir> => {
+  const workdir = async (cwd: string, environmentId = 'remote', followsPrimary?: boolean): Promise<ProgramWorkdir> => {
     controller ??= program.createSessionController();
     const created = await controllerInputs[0]!.acquireWorkdir(environmentId, cwd, followsPrimary);
     workdirs.push(created);
@@ -631,7 +613,7 @@ describe('Program local generation and remote workdirs', () => {
       expect(local.instructions.snapshot.agentsMd).not.toContain('remote user instructions');
 
       expect(local.skills.catalog.listSkills().map((skill) => skill.name)).toEqual(['local-skill', 'user-skill']);
-      expect(local.dirs.additionalDirs.map(slashedPath)).toEqual([slashedPath(join(fixture.localRoot, 'localextra'))]);
+      expect(local.dirs.additionalDirs).toEqual([join(fixture.localRoot, 'localextra')]);
       expect(Object.keys(local.mcpConfig.servers()).toSorted()).toEqual(['local-project-server', 'user-server']);
       expect(fixture.profileRegistrations.filter((entry) => entry.sourceId === 'workspace')).toEqual([
         { sourceId: 'workspace', profiles: ['local-agent'] },
@@ -642,10 +624,8 @@ describe('Program local generation and remote workdirs', () => {
       await local.git.status();
       expect(fixture.localGitCalls).toEqual([fixture.localRoot]);
 
-      if (process.platform !== 'win32') {
-        const listed = await local.fs.list({ path: '.', depth: 1, limit: 100, show_hidden: false, follow_gitignore: false, sort: 'name_asc', include_git_status: false });
-        expect(listed.items.map((entry) => entry.name)).toContain('AGENTS.md');
-      }
+      const listed = await local.fs.list({ path: '.', depth: 1, limit: 100, show_hidden: false, follow_gitignore: false, sort: 'name_asc', include_git_status: false });
+      expect(listed.items.map((entry) => entry.name)).toContain('AGENTS.md');
     } finally {
       await fixture.cleanup();
     }
@@ -665,18 +645,14 @@ describe('Program local generation and remote workdirs', () => {
       expect(agentsMd).toContain('user instructions');
       expect(agentsMd).not.toContain('local project instructions');
       expect(agentsMd).not.toContain('remote user instructions');
-      const instructionPaths = (remote.instructions.snapshot.agentsMdPaths ?? []).map(slashedPath);
-      expect(instructionPaths).toContain(slashedPath(join(fixture.remoteRoot, 'AGENTS.md')));
-      expect(instructionPaths).not.toContain(slashedPath(join(fixture.localRoot, 'AGENTS.md')));
+      const instructionPaths = remote.instructions.snapshot.agentsMdPaths ?? [];
+      expect(instructionPaths).toContain(join(fixture.remoteRoot, 'AGENTS.md'));
+      expect(instructionPaths).not.toContain(join(fixture.localRoot, 'AGENTS.md'));
 
       expect(remote.skills.catalog.listSkills().map((skill) => skill.name)).toEqual(['target-skill', 'user-skill']);
-      expect(remote.dirs.additionalDirs.map(slashedPath)).toEqual([
-        slashedPath(join(fixture.remoteRoot, 'targetextra')),
-      ]);
+      expect(remote.dirs.additionalDirs).toEqual([join(fixture.remoteRoot, 'targetextra')]);
       expect(remoteProfiles).toEqual([]);
-      expect(slashedPath(remote.contextKey)).toBe(
-        slashedPath(environmentBindingId('remote', fixture.remoteRoot)),
-      );
+      expect(remote.contextKey).toBe(environmentBindingId('remote', fixture.remoteRoot));
       expect(fixture.profileRegistry.entries().some((entry) => entry.contextKey === remote.contextKey)).toBe(false);
 
       const listed = await remote.fs.list({ path: '.', depth: 1, limit: 100, show_hidden: false, follow_gitignore: false, sort: 'name_asc', include_git_status: false });
@@ -698,9 +674,7 @@ describe('Program local generation and remote workdirs', () => {
       expect(instructions.agentsMd).toContain('target project instructions');
       expect(instructions.agentsMd).toContain('user instructions');
       expect(instructions.agentsMd).not.toContain('local project instructions');
-      expect((instructions.agentsMdPaths ?? []).map(slashedPath)).toContain(
-        slashedPath(join(fixture.remoteRoot, 'AGENTS.md')),
-      );
+      expect(instructions.agentsMdPaths).toContain(join(fixture.remoteRoot, 'AGENTS.md'));
     } finally {
       await fixture.cleanup();
     }
@@ -717,7 +691,7 @@ describe('Program local generation and remote workdirs', () => {
       );
       const remote = await fixture.workdir(fixture.remoteRoot);
       await awaitWorkdir(remote);
-      expect(remote.dirs.additionalDirs.map(slashedPath)).toEqual([slashedPath(join(fixture.remoteHomeDir, 'shared'))]);
+      expect(remote.dirs.additionalDirs).toEqual([join(fixture.remoteHomeDir, 'shared')]);
     } finally {
       await fixture.cleanup();
     }
@@ -759,11 +733,11 @@ describe('Program local generation and remote workdirs', () => {
       expect(alt.instructions).not.toBe(target.instructions);
       expect(target.instructions.snapshot.agentsMd).toContain('target project instructions');
       expect(target.instructions.snapshot.agentsMd).not.toContain('alt project instructions');
-      expect(target.dirs.additionalDirs.map(slashedPath)).toEqual([slashedPath(join(fixture.remoteRoot, 'targetextra'))]);
+      expect(target.dirs.additionalDirs).toEqual([join(fixture.remoteRoot, 'targetextra')]);
 
       expect(alt.instructions.snapshot.agentsMd).toContain('alt project instructions');
       expect(alt.instructions.snapshot.agentsMd).not.toContain('target project instructions');
-      expect(alt.dirs.additionalDirs.map(slashedPath)).toEqual([slashedPath(join(fixture.remoteAltRoot, 'altextra'))]);
+      expect(alt.dirs.additionalDirs).toEqual([join(fixture.remoteAltRoot, 'altextra')]);
 
       target.dispose();
       expect((await fixture.workdir(fixture.remoteRoot)).instructions).toBe(shared.instructions);

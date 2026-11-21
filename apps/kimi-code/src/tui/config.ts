@@ -1,27 +1,19 @@
-/**
- * Client-owned preferences.
- *
- * Agent/runtime settings live in core's `config.toml`; this file owns
- * kimi-code client preferences such as terminal UI and update behavior.
- */
-
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { MAX_ANIMATION_FRAME_RATE } from '@moonshot-ai/pi-tui';
 import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 
-import { t } from '#/i18n';
 import type { MermaidRenderMode } from '#/tui/utils/markdown-options';
 import { getDataDir } from '#/utils/paths';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
+import { t } from '#/i18n';
 
-export function getInvalidTuiConfigMessage(): string {
-  return t('tui.statusMessages.invalidTuiConfig');
-}
+export const INVALID_TUI_CONFIG_MESSAGE =
+  t('tui.statusMessages.invalidTuiConfig');
 
 const TRUE_BOOLEAN_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const FALSE_BOOLEAN_ENV_VALUES = new Set(['0', 'false', 'no', 'off']);
@@ -121,10 +113,7 @@ export function resolveAnimationFrameRate(
   const fps = Number(value);
   if (/^\d+$/.test(value) && fps >= 1 && fps <= MAX_ANIMATION_FRAME_RATE) return { fps };
   return {
-    warning: t('tui.statusMessages.invalidAnimationFrameRate', {
-      value: JSON.stringify(value),
-      max: String(MAX_ANIMATION_FRAME_RATE),
-    }),
+    warning: t('tui.statusMessages.invalidAnimationFrameRate', { value: JSON.stringify(value), max: String(MAX_ANIMATION_FRAME_RATE) }),
   };
 }
 
@@ -150,9 +139,7 @@ export const StatusLineFileConfigSchema = z.object({
 });
 
 export const StatusLineConfigSchema = z.object({
-  /** Ordered built-in slots for footer line 1; null means the default layout. */
   items: z.array(z.enum(STATUS_LINE_ITEMS)).nullable(),
-  /** User command whose first stdout line replaces footer line 1; null disables. */
   command: z.string().nullable(),
 });
 export type StatusLineConfig = z.infer<typeof StatusLineConfigSchema>;
@@ -237,7 +224,6 @@ export const TuiConfigFileSchema = z.object({
   copy_on_select: z.boolean().optional(),
   render_latex: z.boolean().optional(),
   disable_paste_burst: z.boolean().optional(),
-  locale: z.enum(['en', 'zh']).optional(),
   cache_expiry_hint: z.boolean().optional(),
   disable_feedback_survey: z.boolean().optional(),
   auto_session_title: z.boolean().optional(),
@@ -258,14 +244,6 @@ export const TuiConfigFileSchema = z.object({
       auto_install: z.boolean().optional(),
     })
     .optional(),
-  astron: z
-    .object({
-      stream: z.boolean().optional(),
-      temperature: z.number().optional(),
-      max_tokens: z.number().optional(),
-      search_disable: z.boolean().optional(),
-    })
-    .optional(),
   status_line: StatusLineFileConfigSchema.optional(),
   markdown: z
     .object({
@@ -283,29 +261,17 @@ export const TuiConfigFileSchema = z.object({
 export const TuiConfigSchema = z.object({
   theme: TuiThemeSchema,
   tuiMode: TuiModeSchema.optional(),
-  /** Fullscreen selection copy; defaults to true when absent from older fixtures. */
   copyOnSelect: z.boolean().optional(),
-  /** LaTeX math rendering in Markdown; optional only so older hand-built test
-   * fixtures still typecheck. */
   renderLatex: z.boolean().optional(),
   disablePasteBurst: z.boolean(),
-  locale: z.enum(['en', 'zh']),
-  /** Present in every normalized config; optional only so hand-built test
-   * fixtures from before this field existed still typecheck. */
   cacheExpiryHint: z.boolean().optional(),
   disableFeedbackSurvey: z.boolean().optional(),
-  /** Present in every normalized config; optional only so hand-built test
-   * fixtures from before this field existed still typecheck. */
   autoSessionTitle: z.boolean().optional(),
   followUpBehavior: FollowUpBehaviorSchema.optional(),
   editorCommand: z.string().nullable(),
   notifications: NotificationsConfigSchema,
   upgrade: UpgradePreferencesSchema,
-  /** Present in every normalized config; optional only so hand-built test
-   * fixtures from before this field existed still typecheck. */
   statusLine: StatusLineConfigSchema.optional(),
-  /** Present in every normalized config; optional only so hand-built test
-   * fixtures from before this field existed still typecheck. */
   markdown: MarkdownConfigSchema.optional(),
   transcript: TranscriptConfigSchema,
 });
@@ -329,7 +295,6 @@ export const DEFAULT_TUI_CONFIG: TuiConfig = TuiConfigSchema.parse({
   copyOnSelect: true,
   renderLatex: true,
   disablePasteBurst: false,
-  locale: 'en',
   cacheExpiryHint: true,
   autoSessionTitle: true,
   editorCommand: null,
@@ -340,17 +305,11 @@ export const DEFAULT_TUI_CONFIG: TuiConfig = TuiConfigSchema.parse({
   transcript: DEFAULT_TRANSCRIPT_CONFIG,
 });
 
-/**
- * Thrown by `loadTuiConfig` when the on-disk TOML cannot be parsed.
- * Carries `fallback` so the caller can recover without re-running the
- * I/O, and use `message` (== `getInvalidTuiConfigMessage()`) as a
- * user-facing notice.
- */
 export class TuiConfigParseError extends Error {
   override readonly name = 'TuiConfigParseError';
   readonly fallback: TuiConfig;
   constructor(fallback: TuiConfig) {
-    super(getInvalidTuiConfigMessage());
+    super(INVALID_TUI_CONFIG_MESSAGE);
     this.fallback = fallback;
   }
 }
@@ -373,7 +332,7 @@ export async function loadTuiConfig(
   }
 
   try {
-    const text = await readFile(filePath, 'utf-8');
+    const text = await Bun.file(filePath).text();
     const shape = parseTuiConfigShape(text);
     return normalizeTuiConfig(shape, warn);
   } catch {
@@ -386,7 +345,10 @@ function parseTuiConfigShape(tomlText: string): TuiConfigFileShape {
   return TuiConfigFileSchema.parse(raw);
 }
 
-export function parseTuiConfig(tomlText: string, warn?: (message: string) => void): TuiConfig {
+export function parseTuiConfig(
+  tomlText: string,
+  warn?: (message: string) => void,
+): TuiConfig {
   return normalizeTuiConfig(parseTuiConfigShape(tomlText), warn);
 }
 
@@ -396,7 +358,7 @@ export async function saveTuiConfig(
 ): Promise<void> {
   let legacyValue = config.disableFeedbackSurvey;
   if (legacyValue === undefined && existsSync(filePath)) {
-    const source = await readFile(filePath, 'utf-8');
+    const source = await Bun.file(filePath).text();
     try {
       const value = parseToml(source)['disable_feedback_survey'];
       if (typeof value === 'boolean') legacyValue = value;
@@ -405,20 +367,14 @@ export async function saveTuiConfig(
     }
   }
   await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(
-    filePath,
-    renderTuiConfig({
-      ...config,
-      disableFeedbackSurvey: legacyValue,
-    }),
-    'utf-8',
-  );
+  await writeFile(filePath, renderTuiConfig({
+    ...config,
+    disableFeedbackSurvey: legacyValue,
+  }), 'utf-8');
 }
 
-export async function removeLegacySurveySetting(
-  filePath: string = getTuiConfigPath(),
-): Promise<void> {
-  const lines = (await readFile(filePath, 'utf-8')).split('\n');
+export async function removeLegacySurveySetting(filePath: string = getTuiConfigPath()): Promise<void> {
+  const lines = (await Bun.file(filePath).text()).split('\n');
   let inTable = false;
   let removed = false;
   const kept = lines.filter((line) => {
@@ -440,11 +396,6 @@ export function normalizeTuiConfig(
     console.warn(message);
   },
 ): TuiConfig {
-  if (config.astron !== undefined) {
-    warn(
-      '[tui.toml] [astron] is ignored; the Astron panel writes [providers.astron] in config.toml',
-    );
-  }
   const command = config.editor?.command?.trim();
   const statusLineCommand = config.status_line?.command?.trim();
   const knownItems = new Set<string>(STATUS_LINE_ITEMS);
@@ -482,8 +433,7 @@ export function normalizeTuiConfig(
     if (parsed.success) {
       followUpBehavior = parsed.data;
     } else {
-      const shown =
-        typeof followUpValue === 'string' ? followUpValue : JSON.stringify(followUpValue);
+      const shown = typeof followUpValue === 'string' ? followUpValue : JSON.stringify(followUpValue);
       warn(`[tui.toml] ignoring unknown follow_up_behavior value: ${shown}`);
     }
   }
@@ -499,10 +449,10 @@ export function normalizeTuiConfig(
   return TuiConfigSchema.parse({
     theme: config.theme ?? DEFAULT_TUI_CONFIG.theme,
     tuiMode,
-    copyOnSelect: config.copy_on_select ?? DEFAULT_TUI_CONFIG.copyOnSelect,
+    copyOnSelect:
+      config.copy_on_select ?? DEFAULT_TUI_CONFIG.copyOnSelect,
     renderLatex: config.render_latex ?? DEFAULT_TUI_CONFIG.renderLatex,
     disablePasteBurst: config.disable_paste_burst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
-    locale: config.locale ?? DEFAULT_TUI_CONFIG.locale,
     cacheExpiryHint: config.cache_expiry_hint ?? DEFAULT_TUI_CONFIG.cacheExpiryHint,
     disableFeedbackSurvey: config.disable_feedback_survey,
     autoSessionTitle: config.auto_session_title ?? DEFAULT_TUI_CONFIG.autoSessionTitle,
@@ -544,11 +494,6 @@ export function normalizeTuiConfig(
 }
 
 export function renderTuiConfig(config: TuiConfig): string {
-  // An active status_line must round-trip: any preference save rewrites the
-  // whole file, so the section is emitted live when set and left as a
-  // commented-out guide when unset. The [markdown] section follows the same
-  // pattern: live when mermaid rendering is turned off, commented guide at
-  // the default.
   const statusItems = config.statusLine?.items;
   const statusCommand = config.statusLine?.command;
   const statusLines: string[] = [];
@@ -558,28 +503,17 @@ export function renderTuiConfig(config: TuiConfig): string {
   if (statusCommand) {
     statusLines.push(`command = "${escapeTomlBasicString(statusCommand)}"`);
   }
+  const followUpLine = `follow_up_behavior = "${resolveFollowUpBehavior(config.followUpBehavior)}" # "queue" | "steer"`;
   const tuiModeLine =
     config.tuiMode === undefined
       ? '# tui_mode = "regular" # "regular" | "fullscreen" ("fullscreen" is experimental)'
       : `tui_mode = "${config.tuiMode}" # "regular" | "fullscreen" ("fullscreen" is experimental)`;
-  const followUpLine = `follow_up_behavior = "${resolveFollowUpBehavior(config.followUpBehavior)}" # "queue" | "steer"`;
   const markdownSection =
     config.markdown?.mermaid === 'off'
       ? `[markdown]\nmermaid = "off" # "final" | "off"\n`
       : `# [markdown]
 # Draw mermaid code blocks as diagrams in the terminal; "off" keeps highlighted source.
 # mermaid = "final" # "final" | "off"
-`;
-  const statusSection =
-    statusLines.length > 0
-      ? `[status_line]\n${statusLines.join('\n')}\n`
-      : `# [status_line]
-# Pick and order the built-in footer slots: ${STATUS_LINE_ITEMS.join(', ')}
-# items = ${JSON.stringify([...STATUS_LINE_ITEMS])}
-# Or render your own: a command whose first stdout line replaces footer line 1.
-# It receives a JSON snapshot (model, cwd, git branch, permission mode, plan mode,
-# context usage, context tokens, max context tokens, session id, version) on stdin.
-# command = "~/.kimi-code/statusline.sh"
 `;
   const transcript = config.transcript;
   const densityLine = `tool_call_density = "${transcript.toolCallDensity}" # "compact" | "balanced" | "detailed"`;
@@ -588,21 +522,30 @@ export function renderTuiConfig(config: TuiConfig): string {
     transcript.toolCallDensity === DEFAULT_TRANSCRIPT_CONFIG.toolCallDensity &&
     transcript.thinking === DEFAULT_TRANSCRIPT_CONFIG.thinking
       ? `# [transcript]
-# ${t('tui.configFile.transcriptSectionComment')}
+# Fullscreen transcript display preferences.
 # ${densityLine}
 # ${thinkingLine}
 `
       : `[transcript]\n${densityLine}\n${thinkingLine}\n`;
+  const statusSection =
+    statusLines.length > 0
+      ? `[status_line]\n${statusLines.join('\n')}\n`
+      : `# [status_line]
+# Pick and order the built-in footer slots: ${STATUS_LINE_ITEMS.join(t('tui.migration.listSeparator'))}
+# items = ${JSON.stringify([...STATUS_LINE_ITEMS])}
+# Or render your own: a command whose first stdout line replaces footer line 1.
+# It receives a JSON snapshot (model, cwd, git, usage, mode) on stdin.
+# command = "~/.kimi-code/statusline.sh"
+`;
   return `# ~/.kimi-code/tui.toml
 # Client preferences for kimi-code.
 # Agent/runtime settings stay in ~/.kimi-code/config.toml.
 
 theme = "${escapeTomlBasicString(config.theme)}" # "auto" | "dark" | "light" | custom theme name
 ${tuiModeLine}
-copy_on_select = ${String(config.copyOnSelect !== false)} # ${t('tui.configFile.copyOnSelectComment')}
+copy_on_select = ${String(config.copyOnSelect !== false)} # fullscreen only: false copies only when you press Ctrl-C
 render_latex = ${String(config.renderLatex !== false)} # false keeps LaTeX math in assistant messages as raw source
 disable_paste_burst = ${String(config.disablePasteBurst)} # true disables non-bracketed paste-burst fallback
-locale = "${config.locale ?? DEFAULT_TUI_CONFIG.locale}" # "en" | "zh"
 cache_expiry_hint = ${String(config.cacheExpiryHint !== false)} # false disables the "cache expired" dialog on resume / idle submit
 ${config.disableFeedbackSurvey === undefined ? '' : `disable_feedback_survey = ${String(config.disableFeedbackSurvey)}\n`}auto_session_title = ${String(config.autoSessionTitle !== false)} # false stops the TUI from auto-generating a session title after the first turn
 ${config.followUpBehavior === undefined ? `# ${followUpLine}` : followUpLine}

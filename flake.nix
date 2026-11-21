@@ -166,6 +166,16 @@
       workspacePaths = [
         ./packages/acp-server
         ./packages/agent-core-v2
+        ./packages/app-client
+        ./packages/app-components
+        ./packages/app-composer
+        ./packages/app-core
+        ./packages/app-i18n
+        ./packages/app-markdown
+        ./packages/app-ui
+        ./packages/core
+        ./packages/testkit
+        ./packages/vite-preset
         ./packages/i18n
         ./packages/i18n-shared
         ./packages/kap-server
@@ -183,12 +193,15 @@
         ./packages/telemetry
         ./packages/transcript
         ./packages/tree-sitter-bash
+        ./apps/desktop
         ./apps/kimi-code
         ./apps/vscode
         ./apps/vis
         ./apps/vis/server
         ./apps/vis/web
         ./docs
+        ./tests/scenarios
+        ./scripts/icon-tools
       ];
     in
     {
@@ -220,6 +233,7 @@
                 ./bun.lock
                 ./bunfig.toml
                 ./tsconfig.json
+                ./tsconfig.base.json
                 ./LICENSE
               ]
               ++ workspacePaths
@@ -327,7 +341,7 @@
               # apps/kimi-code/dist-web and fails if that directory is
               # missing. The bundle is committed (synced from the code-app
               # repo) — verify it is in place before producing the binary.
-              node apps/kimi-code/scripts/check-web-assets.mjs
+              bun apps/kimi-code/scripts/check-web-assets.mjs
               (cd apps/kimi-code && bun run build:native:bun)
               runHook postBuild
             '';

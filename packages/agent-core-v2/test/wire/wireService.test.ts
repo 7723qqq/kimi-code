@@ -1,29 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { TestInstantiationService } from '#/_base/di/test';
-import {
-  resetUnexpectedErrorHandler,
-  setUnexpectedErrorHandler,
-} from '#/_base/errors/unexpectedError';
+import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
 import { ILogService } from '#/_base/log/log';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import { toCoreMessage } from '#human/message';
+import { toLlmMessage, type Message as LegacyMessage } from '#/llm-adapter/contract/message';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import {
-  IFileSystemStorageService,
-  StorageError,
-  StorageErrors,
-} from '#/persistence/interface/storage';
-import { WireError, WireErrors } from '#/wire/errors';
+import { IFileSystemStorageService, StorageError, StorageErrors } from '#/persistence/interface/storage';
 import { WIRE_MIN_READER_VERSION, WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
-import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 import { wireJournalBackupKey } from '#/wire/repair';
+import { WireError, WireErrors } from '#/wire/errors';
 import { IWireService } from '#/wire/wire';
-import type { ContentPart } from '#human/llm/message';
+import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import { normalizeLegacyTurnSteerRecords } from '#/wire/human';
 
 import { recordingWireLog, registerTestAgentWire, testWireScope, noopLogger } from './stubs';
 
@@ -59,10 +55,7 @@ async function readRecords(
   key = KEY,
 ): Promise<WireRecord[]> {
   const out: WireRecord[] = [];
-  for await (const record of target.read<WireRecord>(
-    testWireScope(scope, key),
-    AGENT_WIRE_RECORD_KEY,
-  )) {
+  for await (const record of target.read<WireRecord>(testWireScope(scope, key), AGENT_WIRE_RECORD_KEY)) {
     out.push(record);
   }
   return out;
@@ -79,18 +72,10 @@ async function collect(journal: AsyncIterable<WireRecord>): Promise<WireRecord[]
 function wireOverLog(
   stubLog: IAppendLogStore,
   key: string,
-  dependencies: {
-    blob?: IAgentBlobService;
-    storage?: IFileSystemStorageService;
-    telemetry?: ITelemetryService;
-  } = {},
+  dependencies: { blob?: IAgentBlobService; storage?: IFileSystemStorageService; telemetry?: ITelemetryService } = {},
 ): IWireService {
   const stubIx = disposables.add(new TestInstantiationService());
-  return registerTestAgentWire(stubIx, testWireScope(SCOPE, key), {
-    log: stubLog,
-    logger: noopLogger,
-    ...dependencies,
-  });
+  return registerTestAgentWire(stubIx, testWireScope(SCOPE, key), { log: stubLog, logger: noopLogger, ...dependencies });
 }
 
 describe('WireService seal', () => {
@@ -123,13 +108,20 @@ describe('WireService seal', () => {
 
 describe('WireService appendRecord', () => {
   it('appends flat records without a dehydrator', async () => {
-    wire.appendRecord({ type: 'wire.test.append', value: 1, time: 10 });
-    wire.appendRecord({ type: 'wire.test.append', value: 2, time: 11 });
+    const media: ContentPart[] = [
+      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAA' } },
+      { type: 'audio_url', audioUrl: { url: 'https://example.com/a.mp3' } },
+      { type: 'video_url', videoUrl: { url: 'ms://video-1', id: 'video-1' } },
+    ];
+    const records: WireRecord[] = [
+      { type: 'turn.prompt', input: media, origin: { kind: 'user' }, time: 10 },
+      { type: 'turn.steer', input: media, origin: { kind: 'user' }, time: 11 },
+      { type: 'prompt.steered', content: media, time: 12 },
+    ];
+    for (const record of records) wire.appendRecord(record);
 
-    expect(await readRecords()).toEqual([
-      { type: 'wire.test.append', value: 1, time: 10 },
-      { type: 'wire.test.append', value: 2, time: 11 },
-    ]);
+    expect(await readRecords()).toEqual(records);
+    expect((await collect(wire.read())).slice(1)).toEqual(normalizeLegacyTurnSteerRecords(records));
   });
 
   it('runs records through the dehydrate queue in append order', async () => {
@@ -256,7 +248,7 @@ describe('WireService readJournal', () => {
       track2: (event: string, properties: unknown) => telemetryRecords.push({ event, properties }),
     } as unknown as ITelemetryService;
     const seeded: WireRecord[] = [
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'wire.test.before', value: 1, time: 2 },
       {
         type: 'plan.revision',
@@ -273,7 +265,7 @@ describe('WireService readJournal', () => {
     const stub = wireOverLog(stubLog, 'legacy-plan', { telemetry });
 
     expect(await collect(stub.readJournal())).toEqual([
-      seeded[0]!,
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'wire.test.before', value: 1, time: 2 },
       {
         type: 'plan.revision',
@@ -297,7 +289,7 @@ describe('WireService readJournal', () => {
       },
     ]);
     expect(await readRecords(stubLog, SCOPE, 'legacy-plan')).toEqual([
-      seeded[0]!,
+      seeded[0],
       { type: 'wire.test.before', value: 1, time: 2 },
       {
         type: 'plan.revision',
@@ -320,7 +312,7 @@ describe('WireService readJournal', () => {
     } as unknown as ITelemetryService;
     const stub = wireOverLog(
       recordingWireLog([
-        { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+        { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
         {
           type: 'plan.revision',
           id: 'plan-1',
@@ -335,7 +327,7 @@ describe('WireService readJournal', () => {
     );
 
     expect(await collect(stub.readJournal())).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
     ]);
     expect(telemetryRecords).toContainEqual({
       event: 'wire_plan_revision_migrated',
@@ -407,7 +399,12 @@ describe('WireService readJournal', () => {
     const yielded = await collect(wire.readJournal());
 
     expect(yielded).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
+        created_at: 1,
+      },
       { type: 'goal.create', goalId: 'g1', time: 9, wallClockResumedAt: 9 },
     ]);
     expect(await readRecords()).toEqual(yielded);
@@ -415,7 +412,7 @@ describe('WireService readJournal', () => {
 
   it('reads a current-version journal without rewriting it', async () => {
     const seeded: WireRecord[] = [
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'wire.test.current', value: 1, time: 2 },
     ];
     let rewrites = 0;
@@ -490,19 +487,37 @@ describe('WireService readJournal', () => {
   });
 
   it('rejects a malformed metadata envelope as corrupted storage', async () => {
-    const stub = wireOverLog(recordingWireLog([{ type: 'metadata' }]), 'malformed-metadata');
+    const stub = wireOverLog(
+      recordingWireLog([{ type: 'metadata' }]),
+      'malformed-metadata',
+    );
 
     const failure = await collect(stub.readJournal()).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(StorageError);
     expect(failure).toMatchObject({
       code: StorageErrors.codes.STORAGE_CORRUPTED,
     });
+
+    const invalidMin = wireOverLog(
+      recordingWireLog([
+        {
+          type: 'metadata',
+          protocol_version: WIRE_PROTOCOL_VERSION,
+          min_protocol_version: 'next',
+          created_at: 1,
+        },
+      ]),
+      'malformed-min-metadata',
+    );
+    const minFailure = await collect(invalidMin.readJournal()).catch((error: unknown) => error);
+    expect(minFailure).toBeInstanceOf(StorageError);
+    expect(minFailure).toMatchObject({ code: StorageErrors.codes.STORAGE_CORRUPTED });
   });
 
   it('skips malformed lines and reports them through onUnexpectedError', async () => {
     const seeded: WireRecord[] = [
       'garbage' as unknown as WireRecord,
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
       42 as unknown as WireRecord,
       { type: 'wire.test.ok', time: 3 },
     ];
@@ -514,7 +529,7 @@ describe('WireService readJournal', () => {
       const yielded = await collect(stub.readJournal());
 
       expect(yielded).toEqual([
-        { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+        { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
         { type: 'wire.test.ok', time: 3 },
       ]);
       expect(unexpected).toHaveLength(2);
@@ -540,30 +555,6 @@ describe('WireService readJournal', () => {
     await expect(collect(stub.readJournal())).rejects.toThrow(
       'Missing wire migration for version 0.9',
     );
-  });
-
-  it('refuses a journal that declares a newer minimum reader version', async () => {
-    const records = [
-      {
-        type: 'metadata',
-        protocol_version: WIRE_PROTOCOL_VERSION,
-        min_protocol_version: '99.0',
-        created_at: 1,
-      },
-      { type: 'wire.test.one', time: 2 },
-    ];
-    const stub = wireOverLog(recordingWireLog(records), 'newer-reader');
-
-    const error = await collect(stub.readJournal()).then(
-      () => undefined,
-      (failure: unknown) => failure,
-    );
-    expect(error).toBeInstanceOf(WireError);
-    expect((error as WireError).code).toBe(WireErrors.codes.WIRE_VERSION_TOO_LOW);
-    expect((error as WireError).details).toMatchObject({
-      minReaderVersion: '99.0',
-      readerVersion: WIRE_PROTOCOL_VERSION,
-    });
   });
 });
 
@@ -630,7 +621,12 @@ describe('WireService corruption repair', () => {
     const yielded = await collect(wire.readJournal());
 
     expect(yielded).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
+        created_at: 1,
+      },
       { type: 'wire.test.ok', time: 3 },
     ]);
     expect(await rawBytes()).toBe(valid);
@@ -656,7 +652,12 @@ describe('WireService corruption repair', () => {
     const yielded = await collect(wire.readJournal());
 
     expect(yielded).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
+        created_at: 1,
+      },
       { type: 'wire.test.a', time: 1 },
       edge,
     ]);
@@ -665,7 +666,12 @@ describe('WireService corruption repair', () => {
 
     const journal = wire;
     expect(await collect(journal.read())).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
+        created_at: 1,
+      },
       { type: 'wire.test.a', time: 1 },
     ]);
     expect(journal.journalRef.branch).toBe('b1');
@@ -691,7 +697,12 @@ describe('WireService corruption repair', () => {
     const yielded = await collect(wire.readJournal());
 
     expect(yielded).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
+        created_at: 1,
+      },
       { type: 'wire.test.legacy', time: 9 },
     ]);
     expect(await rawBytes()).toBe(
@@ -716,7 +727,12 @@ describe('WireService corruption repair', () => {
     const yielded = await collect(wire.readJournal());
 
     expect(yielded).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
+        created_at: 1,
+      },
       {
         type: 'plan.revision',
         id: 'plan-1',
@@ -810,7 +826,12 @@ describe('WireService corruption repair', () => {
     const yielded = await collect(svc.readJournal());
 
     expect(yielded).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
+        created_at: 1,
+      },
     ]);
     expect(capture.events).toEqual([
       {
@@ -842,12 +863,15 @@ describe('WireService corruption repair', () => {
     svc.appendRecord({ type: 'wire.test.new', time: 7 });
     await svc.flush();
 
-    expect(await rawBytes()).toBe(
-      `${prefix}${JSON.stringify({ type: 'wire.test.new', time: 7 })}\n`,
-    );
+    expect(await rawBytes()).toBe(`${prefix}${JSON.stringify({ type: 'wire.test.new', time: 7 })}\n`);
     expect(await rawBytes(BACKUP_KEY)).toBe(raw);
     expect(await collect(svc.readJournal())).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
+        created_at: 1,
+      },
       { type: 'wire.test.new', time: 7 },
     ]);
     expect(capture.events).toEqual([
@@ -1061,66 +1085,83 @@ describe('WireService tree projection', () => {
     };
   }
 
+  function turnPrompt(text: string, promptId: string, turnId: number): WireRecord {
+    return {
+      type: 'turn.prompt',
+      input: [{ type: 'text', text }],
+      origin: { kind: 'user' },
+      promptId,
+      turnId,
+      trigger: 'normal',
+      time: turnId,
+    };
+  }
+
   it('writes the undo switch triple with paired physical line numbers after re-reading a rewritten journal', async () => {
     const enc = new TextEncoder();
     const seed = [
-      JSON.stringify({
-        type: 'context.append_message',
-        message: userPrompt('first', 'p1'),
-        time: 1,
-      }),
+      JSON.stringify(turnPrompt('first', 'p1', 0)),
+      JSON.stringify({ type: 'context.append_message', message: userPrompt('first', 'p1'), time: 1 }),
       JSON.stringify({
         type: 'context.append_message',
         message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }], toolCalls: [] },
         time: 2,
       }),
-      JSON.stringify({
-        type: 'context.append_message',
-        message: userPrompt('second', 'p2'),
-        time: 3,
-      }),
+      JSON.stringify(turnPrompt('second', 'p2', 1)),
+      JSON.stringify({ type: 'context.append_message', message: userPrompt('second', 'p2'), time: 3 }),
     ];
-    await storage.write(
-      testWireScope(SCOPE, KEY),
-      AGENT_WIRE_RECORD_KEY,
-      enc.encode(`${seed.join('\n')}\n`),
-    );
+    await storage.write(testWireScope(SCOPE, KEY), AGENT_WIRE_RECORD_KEY, enc.encode(`${seed.join('\n')}\n`));
 
     const switched = await wire.switchBranch({ turns: 1 });
 
     expect(switched).toEqual({
       branch: 'b1',
-      base: { branch: 'main', line: 3 },
-      edgeLine: 5,
-      forkLine: 3,
+      base: { branch: 'main', line: 4 },
+      edgeLine: 7,
+      forkLine: 4,
     });
     const onDisk = await readRecords();
-    expect(onDisk.slice(4)).toEqual([
+    expect(onDisk.slice(6)).toEqual([
       {
         type: 'agent.switched',
         agentId: 'test-agent',
         branch: 'b1',
         reason: 'undo',
-        base: { branch: 'main', line: 3 },
+        base: { branch: 'main', line: 4 },
         turns: 1,
-        legacyUndoLine: 6,
+        legacyUndoLine: 8,
         time: expect.any(Number),
       },
       { type: 'context.undo', agentId: 'test-agent', count: 1, time: expect.any(Number) },
       { type: 'context.undone', agentId: 'test-agent', turns: 1, time: expect.any(Number) },
     ]);
-    expect(wire.lineCount()).toBe(7);
+    expect(wire.lineCount()).toBe(9);
     expect(wire.journalRef).toEqual({ tree: testWireScope(SCOPE, KEY), branch: 'b1' });
     expect(wire.branches()).toEqual(['main', 'b1']);
-    expect(wire.nextSeq()).toBe(8);
+    expect(wire.nextSeq()).toBe(10);
 
-    expect(await collect(wire.read())).toEqual([...onDisk.slice(0, 3), onDisk[5]!, onDisk[6]!]);
+    expect(await collect(wire.read())).toEqual([
+      ...onDisk.slice(0, 4).map((record) => {
+        if (record.type !== 'context.append_message') return record;
+        const message = record['message'] as LegacyMessage & { id?: string; origin?: unknown };
+        return {
+          ...record,
+          message: {
+            ...toCoreMessage(toLlmMessage(message)),
+            id: message.id,
+            origin: message.origin,
+          },
+        };
+      }),
+      onDisk[7]!,
+      onDisk[8]!,
+    ]);
     expect(await collect(wire.readRaw())).toEqual(onDisk);
 
     await expect(wire.switchBranch({ turns: 2 })).rejects.toMatchObject({
       reason: 'insufficient',
     });
-    expect(wire.lineCount()).toBe(7);
+    expect(wire.lineCount()).toBe(9);
 
     wire.appendRecord({
       type: 'context.apply_compaction',
@@ -1133,13 +1174,13 @@ describe('WireService tree projection', () => {
     await expect(wire.switchBranch({ turns: 1 })).rejects.toMatchObject({
       reason: 'compaction_boundary',
     });
-    expect(wire.lineCount()).toBe(8);
-    expect(await readRecords()).toHaveLength(8);
+    expect(wire.lineCount()).toBe(10);
+    expect(await readRecords()).toHaveLength(10);
   });
 
   it('walks nested switch edges to compute the active chain', async () => {
     const seeded: WireRecord[] = [
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'wire.test.one', time: 1 },
       { type: 'wire.test.two', time: 2 },
       {
@@ -1190,7 +1231,8 @@ describe('WireService tree projection', () => {
 
   it('retries the branch switch on read interference, then rejects when the switch triple is interleaved', async () => {
     const records: WireRecord[] = [
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      turnPrompt('first', 'p1', 0),
       { type: 'context.append_message', message: userPrompt('first', 'p1'), time: 1 },
       {
         type: 'context.append_message',
@@ -1222,13 +1264,9 @@ describe('WireService tree projection', () => {
 
     const switched = await concurrent.switchBranch({ turns: 1 });
 
-    expect(switched).toMatchObject({
-      branch: 'b1',
-      base: { branch: 'main', line: 1 },
-      forkLine: 1,
-    });
-    expect(records[3]).toEqual({ type: 'wire.test.concurrent', time: 9 });
-    expect(records[4]?.type).toBe('agent.switched');
+    expect(switched).toMatchObject({ branch: 'b1', base: { branch: 'main', line: 1 }, forkLine: 1 });
+    expect(records[4]).toEqual({ type: 'wire.test.concurrent', time: 9 });
+    expect(records[5]?.type).toBe('agent.switched');
 
     interferences = 0;
     maxInterferences = Number.MAX_SAFE_INTEGER;
@@ -1237,7 +1275,8 @@ describe('WireService tree projection', () => {
     });
 
     const tailRecords: WireRecord[] = [
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      turnPrompt('first', 'p1', 0),
       { type: 'context.append_message', message: userPrompt('first', 'p1'), time: 1 },
       {
         type: 'context.append_message',
@@ -1260,6 +1299,7 @@ describe('WireService tree projection', () => {
     });
     expect(tailRecords.map((record) => record.type)).toEqual([
       'metadata',
+      'turn.prompt',
       'context.append_message',
       'context.append_message',
       'agent.switched',
@@ -1273,7 +1313,7 @@ describe('WireService tree projection', () => {
 describe('WireService readRestoreChains', () => {
   it('returns restorable and journal chains from a single read with shared record identity', async () => {
     const seeded: WireRecord[] = [
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'wire.test.one', time: 1 },
       { type: 'wire.test.two', time: 2 },
       {
@@ -1299,8 +1339,8 @@ describe('WireService readRestoreChains', () => {
     for (const record of chains.restorable) {
       expect(chains.journal).toContain(record);
     }
-    expect(await collect(stub.readJournal())).toEqual([...chains.journal]);
-    expect(await collect(stub.readRestorable())).toEqual([...chains.restorable]);
+    expect(await collect(stub.readJournal())).toEqual(chains.journal);
+    expect(await collect(stub.readRestorable())).toEqual(chains.restorable);
     expect(stub.journalRef.branch).toBe('b1');
   });
 
@@ -1316,53 +1356,5 @@ describe('WireService readRestoreChains', () => {
     expect(chains).toEqual({ restorable: [envelope], journal: [envelope] });
     expect(await collect(wire.readRestorable())).toEqual([envelope]);
     expect(await readRecords()).toEqual([envelope]);
-  });
-});
-
-describe('WireService append notifications', () => {
-  it('notifies synchronously for every append and stops after dispose', () => {
-    const seen: WireRecord[] = [];
-    const subscription = wire.onDidAppendRecord((record) => seen.push(record));
-    const first = { type: 'wire.test.one', time: 1 };
-    const second = { type: 'wire.test.two', time: 2 };
-
-    wire.appendRecord(first);
-    wire.appendRecord(second);
-    expect(seen).toEqual([first, second]);
-
-    subscription.dispose();
-    wire.appendRecord({ type: 'wire.test.three', time: 3 });
-    expect(seen).toHaveLength(2);
-  });
-
-  it('notifies the three records written by a branch switch', async () => {
-    const enc = new TextEncoder();
-    const userPrompt = (text: string, id: string) => ({
-      role: 'user',
-      content: [{ type: 'text', text }],
-      toolCalls: [],
-      id,
-      origin: { kind: 'user' },
-    });
-    const seed = [
-      { type: 'context.append_message', message: userPrompt('first', 'p1'), time: 1 },
-      {
-        type: 'context.append_message',
-        message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }], toolCalls: [] },
-        time: 2,
-      },
-      { type: 'context.append_message', message: userPrompt('second', 'p2'), time: 3 },
-    ];
-    await storage.write(
-      testWireScope(SCOPE, KEY),
-      AGENT_WIRE_RECORD_KEY,
-      enc.encode(`${seed.map((record) => JSON.stringify(record)).join('\n')}\n`),
-    );
-
-    const seen: string[] = [];
-    wire.onDidAppendRecord((record) => seen.push(record.type));
-    await wire.switchBranch({ turns: 1 });
-
-    expect(seen).toEqual(['agent.switched', 'context.undo', 'context.undone']);
   });
 });

@@ -1,5 +1,5 @@
-import type { ImageURLPart, VideoURLPart } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
+import type { ImageURLPart, VideoURLPart } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
 
 export interface VideoUploadInput {
   readonly data: Uint8Array;

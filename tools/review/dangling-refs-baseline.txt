@@ -12,3 +12,11 @@
 # legacy wire events, and old sessions still carry tool calls under it, so the
 # approve list keeps it on purpose.
 SetTodoList
+
+# Computer Use tools. The MCP plugin registers them as
+# `mcp__<plugin>__<tool>`, so the static registry cannot match these base
+# names. COMPUTER_USE_SILENT_TOOLS keeps them so a plugin call does not add a
+# transcript row for every step.
+list_apps
+js_reset
+js_add_node_module_dir

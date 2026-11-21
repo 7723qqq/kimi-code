@@ -1,10 +1,9 @@
-import { useMemo, useState, useCallback } from 'react';
-import type { SlashCommandInfo } from 'shared/legacy-sdk';
-
-import { useSettingsStore } from '@/stores';
+import { useMemo, useState, useCallback } from "react";
+import { useSettingsStore } from "@/stores";
+import type { SlashCommandInfo } from "shared/legacy-sdk";
 
 interface ActiveToken {
-  trigger: '/' | '@';
+  trigger: "/" | "@";
   start: number;
   query: string;
 }
@@ -26,19 +25,14 @@ function fuzzyMatch(text: string, query: string): boolean {
 
 export function findActiveToken(text: string, cursorPos: number): ActiveToken | null {
   const beforeCursor = text.slice(0, cursorPos);
-  const lastSpace = Math.max(
-    beforeCursor.lastIndexOf(' '),
-    beforeCursor.lastIndexOf('\n'),
-    beforeCursor.lastIndexOf('\t'),
-    -1,
-  );
+  const lastSpace = Math.max(beforeCursor.lastIndexOf(" "), beforeCursor.lastIndexOf("\n"), beforeCursor.lastIndexOf("\t"), -1);
   const currentWord = beforeCursor.slice(lastSpace + 1);
 
-  if (currentWord.startsWith('@')) {
-    return { trigger: '@', start: lastSpace + 1, query: currentWord.slice(1) };
+  if (currentWord.startsWith("@")) {
+    return { trigger: "@", start: lastSpace + 1, query: currentWord.slice(1) };
   }
-  if (currentWord.startsWith('/')) {
-    return { trigger: '/', start: lastSpace + 1, query: currentWord.slice(1) };
+  if (currentWord.startsWith("/")) {
+    return { trigger: "/", start: lastSpace + 1, query: currentWord.slice(1) };
   }
   return null;
 }
@@ -52,15 +46,11 @@ interface UseSlashMenuResult {
   resetSlashMenu: () => void;
 }
 
-export function useSlashMenu(
-  activeToken: ActiveToken | null,
-  onSelectCommand: (name: string) => void,
-  onCancel: () => void,
-): UseSlashMenuResult {
+export function useSlashMenu(activeToken: ActiveToken | null, onSelectCommand: (name: string) => void, onCancel: () => void): UseSlashMenuResult {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const { slashCommands } = useSettingsStore();
 
-  const showSlashMenu = activeToken?.trigger === '/';
+  const showSlashMenu = activeToken?.trigger === "/";
 
   const filteredCommands = useMemo(() => {
     if (!showSlashMenu) {
@@ -84,16 +74,16 @@ export function useSlashMenu(
       }
 
       switch (e.key) {
-        case 'ArrowDown':
+        case "ArrowDown":
           e.preventDefault();
           setSelectedIndex((i) => Math.min(i + 1, filteredCommands.length - 1));
           return true;
-        case 'ArrowUp':
+        case "ArrowUp":
           e.preventDefault();
           setSelectedIndex((i) => Math.max(i - 1, 0));
           return true;
-        case 'Tab':
-        case 'Enter': {
+        case "Tab":
+        case "Enter": {
           e.preventDefault();
           const cmd = filteredCommands[selectedIndex];
           if (cmd) {
@@ -101,7 +91,7 @@ export function useSlashMenu(
           }
           return true;
         }
-        case 'Escape':
+        case "Escape":
           e.preventDefault();
           onCancel();
           return true;

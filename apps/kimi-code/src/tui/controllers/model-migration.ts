@@ -4,27 +4,27 @@ import type {
   ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
-import {
-  acknowledgeModelMigration,
-  readModelMigrationAcknowledgements,
-} from '#/utils/model-migration-state';
-
-import type { SlashCommandHost } from '../commands/dispatch';
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import {
   defaultThinkingEffortFor,
   modelDisplayName,
   segmentsFor,
-  thinkingAvailabilityKind,
+  thinkingAvailability,
 } from '../components/dialogs/model-selector';
+import type { SlashCommandHost } from '../commands/dispatch';
 import {
   effectiveModelForHost,
   hasConversationHistory,
   lazyModelSelection,
+  MODEL_SWITCH_CACHE_WARNING,
   performModelSwitch,
 } from '../utils/model-switch';
 import { sanitizeShellOutput } from '../utils/shell-output';
+import {
+  acknowledgeModelMigration,
+  readModelMigrationAcknowledgements,
+} from '#/utils/model-migration-state';
+import { t } from '#/i18n';
 
 interface ModelMigration {
   readonly fromAlias: string;
@@ -40,12 +40,10 @@ interface ModelMigration {
 
 type RetiredDefault = NonNullable<RefreshProviderModelsResponse['retired_default']>;
 
-// The live effort is a user choice only when the source model can think at
-// all; keep it when the target supports it, else use the target's default.
 function migrationEffort(host: SlashCommandHost, from: ModelAlias, to: ModelAlias): ThinkingEffort {
   const targetModel = effectiveModelForHost(host, to);
   const liveEffort = host.state.appState.thinkingEffort;
-  return thinkingAvailabilityKind(effectiveModelForHost(host, from)) !== 'unsupported' &&
+  return thinkingAvailability(effectiveModelForHost(host, from)) !== 'unsupported' &&
     segmentsFor(targetModel).includes(liveEffort)
     ? liveEffort
     : defaultThinkingEffortFor(targetModel);
@@ -70,8 +68,6 @@ function findModelMigration(
   const targetModel = effectiveModelForHost(host, to);
   const effort = migrationEffort(host, from, to);
   const migrationMarkdown = upgrade.migrationMarkdown.trim();
-  // Registry-supplied text reaches the terminal verbatim through pi-tui, so
-  // strip control sequences the same way captured command output is.
   return {
     fromAlias,
     fromModel: from.model,
@@ -80,7 +76,7 @@ function findModelMigration(
     displayName: sanitizeShellOutput(modelDisplayName(toAlias, targetModel)),
     effort,
     effortHint:
-      thinkingAvailabilityKind(targetModel) === 'unsupported' ? undefined : `thinking ${effort}`,
+      thinkingAvailability(targetModel) === 'unsupported' ? undefined : `thinking ${effort}`,
     migrationMarkdown: sanitizeShellOutput(
       migrationMarkdown.length > 0
         ? migrationMarkdown
@@ -90,9 +86,6 @@ function findModelMigration(
   };
 }
 
-// Accepting switches models, which needs an idle session and no open dialog
-// (the startup session picker may still resume a different session); the
-// prompt also waits for an empty, idle editor.
 function canShowModelMigrationPrompt(host: SlashCommandHost): boolean {
   return (
     host.state.activeDialog === null &&
@@ -112,8 +105,6 @@ export class ModelMigrationController {
   private pending = false;
   private scheduled = false;
   private retired: RetiredDefault | undefined;
-  // Read once per request rather than on every retry, which runs on each state
-  // change while a prompt is pending.
   private acknowledged: Promise<Readonly<Record<string, string>>> = Promise.resolve({});
 
   constructor(private readonly host: SlashCommandHost & { readonly aborted: boolean }) {}
@@ -124,13 +115,6 @@ export class ModelMigrationController {
     this.retry();
   }
 
-  /**
-   * Reflects a default model that a refresh found dropped by its registry. The
-   * engine already moved the default (keeping the configured thinking) and
-   * every live agent bound to it, so only a session-less selection can still
-   * point at it: it follows the new default the way startup hydration would,
-   * keeping a session-only effort picked before the first prompt.
-   */
   async retire(retired: RetiredDefault): Promise<void> {
     this.retired = retired;
     this.request();
@@ -151,15 +135,12 @@ export class ModelMigrationController {
   retry(): void {
     if (!this.pending || this.scheduled) return;
     this.scheduled = true;
-    // Defer past editor submission and its lazy-session dispatch continuations.
     queueMicrotask(() => {
       void Promise.all([this.host.waitForSessionAssembly(), this.acknowledged])
         .then(([, acknowledged]) => {
           setImmediate(() => {
             this.scheduled = false;
             if (this.host.aborted || this.host.state.appState.model.length === 0) return;
-            // The retirement notice waits only for the startup session picker
-            // or another dialog to close, not for an empty editor.
             const retired = this.retired;
             if (
               retired !== undefined &&
@@ -229,7 +210,7 @@ export async function maybeShowModelMigrationPrompt(
         title: t('tui.messages.configModelMigrationAvailable'),
         notice: {
           markdown: hasConversationHistory(host)
-            ? `${notice}\n\n${t('tui.messages.configModelCachedWarning')}`
+            ? `${notice}\n\n${MODEL_SWITCH_CACHE_WARNING}`
             : notice,
         },
         options: [

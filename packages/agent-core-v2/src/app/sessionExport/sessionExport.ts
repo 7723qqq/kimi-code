@@ -23,6 +23,7 @@ export interface ExportSessionPreview {
   readonly sessionId: string;
   readonly sessionDir: string;
   readonly files: readonly string[];
+  readonly requestId?: string;
 }
 
 export interface ExportSessionManifest {
@@ -60,7 +61,10 @@ export interface ExportSessionOptions {
 export interface ISessionExportService {
   readonly _serviceBrand: undefined;
 
-  export(input: ExportSessionPayload, options?: ExportSessionOptions): Promise<ExportSessionResult>;
+  export(
+    input: ExportSessionPayload,
+    options?: ExportSessionOptions,
+  ): Promise<ExportSessionResult>;
   preview?(sessionId: string): Promise<ExportSessionPreview | undefined>;
 }
 

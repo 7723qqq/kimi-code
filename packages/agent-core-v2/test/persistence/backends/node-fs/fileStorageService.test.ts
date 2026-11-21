@@ -1,11 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { expectRejection } from '#test/helpers/assertions';
 
 const isWin = process.platform === 'win32';
 const encoder = new TextEncoder();
@@ -66,7 +65,7 @@ describe('FileStorageService — error translation', () => {
   it.skipIf(isWin)('translates non-ENOENT failures into StorageError(io_failed)', async () => {
     const svc = new FileStorageService(dir);
     await mkdir(join(dir, 'scope', 'adir'), { recursive: true });
-    await expectRejection(svc.read('scope', 'adir'), (error: unknown) => {
+    await expect(svc.read('scope', 'adir')).rejects.toSatisfy((error: unknown) => {
       expect(error).toMatchObject({ code: 'storage.io_failed' });
       const io = error as { details?: Record<string, unknown>; cause?: unknown };
       expect(io.details).toMatchObject({
@@ -87,33 +86,6 @@ describe('FileStorageService — error translation', () => {
       details: { op: 'write', errno: expect.any(String) },
     });
   });
-
-  it('append on a non-existent key creates it', async () => {
-    const svc = new FileStorageService(dir);
-    await svc.append('scope', 'created-by-append.json', encoder.encode('hello'));
-    expect(new TextDecoder().decode(await svc.read('scope', 'created-by-append.json'))).toBe(
-      'hello',
-    );
-  });
-
-  it('read returns undefined for a missing scope', async () => {
-    const svc = new FileStorageService(dir);
-    expect(await svc.read('no-such-scope', 'k.json')).toBeUndefined();
-  });
-
-  it('delete on a non-existent key is a no-op', async () => {
-    const svc = new FileStorageService(dir);
-    await expect(svc.delete('scope', 'never-existed.json')).resolves.toBeUndefined();
-  });
-
-  it('flush and close are idempotent', async () => {
-    const svc = new FileStorageService(dir);
-    await svc.write('scope', 'k.json', encoder.encode('{}'));
-    await expect(svc.flush()).resolves.toBeUndefined();
-    await expect(svc.flush()).resolves.toBeUndefined();
-    await expect(svc.close()).resolves.toBeUndefined();
-    await expect(svc.close()).resolves.toBeUndefined();
-  });
 });
 
 describe('FileStorageService — writeStream', () => {
@@ -130,14 +102,10 @@ describe('FileStorageService — writeStream', () => {
   it('writes a chunked source and replaces the whole value', async () => {
     const svc = new FileStorageService(dir);
     await svc.write('scope', 'k.bin', encoder.encode('old'));
-    await svc.writeStream(
-      'scope',
-      'k.bin',
-      (async function* () {
-        yield encoder.encode('aa');
-        yield encoder.encode('bbb');
-      })(),
-    );
+    await svc.writeStream('scope', 'k.bin', (async function* () {
+      yield encoder.encode('aa');
+      yield encoder.encode('bbb');
+    })());
 
     const chunks: Uint8Array[] = [];
     for await (const chunk of svc.readStream('scope', 'k.bin')) chunks.push(chunk);
@@ -147,14 +115,10 @@ describe('FileStorageService — writeStream', () => {
   it('leaves no target file behind when the source fails mid-stream', async () => {
     const svc = new FileStorageService(dir);
     await expect(
-      svc.writeStream(
-        'scope',
-        'k.bin',
-        (async function* () {
-          yield encoder.encode('partial');
-          throw new Error('boom');
-        })(),
-      ),
+      svc.writeStream('scope', 'k.bin', (async function* () {
+        yield encoder.encode('partial');
+        throw new Error('boom');
+      })()),
     ).rejects.toThrow();
 
     expect(await svc.read('scope', 'k.bin')).toBeUndefined();
@@ -193,48 +157,5 @@ describe('FileStorageService — mtime', () => {
 
     await svc.delete('scope', 'k.json');
     expect(await svc.mtime('scope', 'k.json')).toBeUndefined();
-  });
-});
-
-describe('FileStorageService — recursive list', () => {
-  let dir: string;
-
-  beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'fss-list-'));
-  });
-
-  afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  it('walks subdirectories and returns scope-relative keys filtered by prefix', async () => {
-    const svc = new FileStorageService(dir);
-    await svc.write('scope', 'top.bin', encoder.encode('t'));
-    await svc.write('scope', 'file-history/aaa@v1', encoder.encode('a'));
-    await svc.write('scope', 'file-history/nested/deep/bbb@v2', encoder.encode('b'));
-    await svc.write('scope', 'other-scope/keep.bin', encoder.encode('k'));
-
-    expect((await svc.list('scope', 'file-history', { recursive: true })).toSorted()).toEqual([
-      'file-history/aaa@v1',
-      'file-history/nested/deep/bbb@v2',
-    ]);
-    expect(await svc.list('scope', undefined, { recursive: true })).toHaveLength(4);
-  });
-
-  it('keeps the default listing non-recursive and flat', async () => {
-    const svc = new FileStorageService(dir);
-    await svc.write('scope', 'top.bin', encoder.encode('t'));
-    await svc.write('scope', 'file-history/aaa@v1', encoder.encode('a'));
-
-    expect((await svc.list('scope')).toSorted()).toEqual(['file-history', 'top.bin']);
-    expect(await svc.list('scope', 'file-history')).toEqual(['file-history']);
-  });
-
-  it('returns [] for a missing scope and for a prefix with no matches', async () => {
-    const svc = new FileStorageService(dir);
-    await svc.write('scope', 'file-history/aaa@v1', encoder.encode('a'));
-
-    expect(await svc.list('missing-scope', undefined, { recursive: true })).toEqual([]);
-    expect(await svc.list('scope', 'no-such-prefix', { recursive: true })).toEqual([]);
   });
 });

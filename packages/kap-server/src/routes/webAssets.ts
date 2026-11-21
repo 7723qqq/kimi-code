@@ -2,13 +2,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { extname, join, normalize, relative, resolve, sep } from 'node:path';
 
-import {
-  REMOTE_CONTROL_ORIGIN_FIX_PATH,
-  REMOTE_CONTROL_ORIGIN_FIX_SCRIPT,
-} from '@moonshot-ai/remote-control';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-
-import { t } from '../i18n';
 
 interface WebAssetRouteHost {
   get(
@@ -23,12 +17,6 @@ export async function registerWebAssetRoutes(
 ): Promise<void> {
   await assertWebAssets(assetsDir);
 
-  app.get(REMOTE_CONTROL_ORIGIN_FIX_PATH, async (_req, reply) =>
-    reply
-      .type('text/javascript; charset=utf-8')
-      .header('Cache-Control', 'no-cache')
-      .send(REMOTE_CONTROL_ORIGIN_FIX_SCRIPT),
-  );
   app.get('/', async (req, reply) => serveWebAsset(req, reply, assetsDir));
   app.get('/*', async (req, reply) => serveWebAsset(req, reply, assetsDir));
 }
@@ -37,7 +25,7 @@ async function assertWebAssets(assetsDir: string): Promise<void> {
   try {
     const info = await stat(join(assetsDir, 'index.html'));
     if (!info.isFile()) {
-      throw new Error(t('errors.indexHtmlNotAFile'));
+      throw new Error('index.html is not a file');
     }
   } catch {
     throw new Error(
@@ -61,7 +49,7 @@ async function serveWebAsset(
     return reply.code(404).type('text/plain; charset=utf-8').send('Not found');
   }
 
-  const fileInfo = await stat(filePath).catch(() => {});
+  const fileInfo = await stat(filePath).catch(() => undefined);
   if (fileInfo === undefined || !fileInfo.isFile()) {
     return reply.code(404).type('text/plain; charset=utf-8').send('Not found');
   }
@@ -82,7 +70,10 @@ function cacheControl(assetsDir: string, filePath: string): string {
   return 'no-cache';
 }
 
-async function resolveStaticFile(assetsDir: string, pathname: string): Promise<string | undefined> {
+async function resolveStaticFile(
+  assetsDir: string,
+  pathname: string,
+): Promise<string | undefined> {
   let decoded: string;
   try {
     decoded = decodeURIComponent(pathname);
@@ -93,12 +84,15 @@ async function resolveStaticFile(assetsDir: string, pathname: string): Promise<s
   const normalized = normalize(decoded).replace(/^(\.\.(?:[/\\]|$))+/, '');
   const relative = normalized === sep ? 'index.html' : normalized.replace(/^[/\\]/, '');
   const root = resolve(assetsDir);
-  const candidate = resolve(root, relative.endsWith(sep) ? join(relative, 'index.html') : relative);
+  const candidate = resolve(
+    root,
+    relative.endsWith(sep) ? join(relative, 'index.html') : relative,
+  );
   if (candidate !== root && !candidate.startsWith(`${root}${sep}`)) {
     return undefined;
   }
 
-  const info = await stat(candidate).catch(() => {});
+  const info = await stat(candidate).catch(() => undefined);
   if (info?.isFile() === true) {
     return candidate;
   }

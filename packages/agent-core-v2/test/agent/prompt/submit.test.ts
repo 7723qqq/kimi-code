@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { IEventService } from '#/app/event/event';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';

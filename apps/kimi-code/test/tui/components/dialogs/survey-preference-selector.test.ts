@@ -1,24 +1,6 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SurveyPreferenceSelectorComponent } from '#/tui/components/dialogs/survey-preference-selector';
-
-// The real `t` resolves against the bundled locale trees, which tests do not
-// load, so it would hand back raw keys. Stub the strings this file asserts on.
-void mock.module('#/i18n', () => ({
-  t: (key: string) =>
-    (
-      ({
-        'tui.dialogs.surveyPreferenceSelector.title': 'Feedback survey',
-        'tui.dialogs.surveyPreferenceSelector.on': 'On',
-        'tui.dialogs.surveyPreferenceSelector.off': 'Off',
-        'tui.dialogs.surveyPreferenceSelector.onDescription':
-          'Show the occasional rating prompt above the editor.',
-        'tui.dialogs.surveyPreferenceSelector.offDescription': 'Never show the rating prompt.',
-      }) as Record<string, string>
-    )[key] ?? key,
-  setLocale: mock(),
-  getLocale: () => 'en',
-}));
 
 const ANSI = /\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');

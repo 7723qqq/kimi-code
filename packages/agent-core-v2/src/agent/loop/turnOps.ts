@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import type { KimiErrorPayload } from '#/_base/errors/serialize';
@@ -8,11 +8,11 @@ import {
   ContextClear,
   ContextUndo,
 } from '#/agent/contextMemory/contextEvents';
-import { isUndoAnchorOrigin } from '#/agent/contextMemory/conversationTime';
+import { isUndoAnchorTurnPrompt, isValidUndoCount } from '#/agent/undo/turnUndo';
 import type { PromptOrigin } from '#/agent/contextMemory/types';
 import { AgentEvent2, type SerializedEvent2 } from '#/app/event/event2';
-import { defineState } from '#/state/state';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import { defineState, registerUndoableProtocol } from '#/state/state';
 
 import type { TurnEndReason, TurnInterruptReason } from './turnEvents';
 
@@ -33,12 +33,12 @@ const turnPromptSchema = z.object({
   origin: z.custom<PromptOrigin>(),
   promptId: z.string().optional(),
   turnId: z.number().optional(),
+  trigger: z.enum(['normal', 'notify', 'continue']).optional(),
 });
 
 export class TurnPrompt extends AgentEvent2<z.infer<typeof turnPromptSchema>> {
   static override readonly type = 'turn.prompt';
   static override readonly durable = true;
-  static override readonly observable = true;
   static override readonly schema = turnPromptSchema;
 }
 export interface TurnPrompt {
@@ -47,6 +47,7 @@ export interface TurnPrompt {
   readonly origin: PromptOrigin;
   readonly promptId?: string;
   readonly turnId?: number;
+  readonly trigger?: 'normal' | 'notify' | 'continue';
 }
 
 const turnSteerSchema = z.object({
@@ -98,11 +99,8 @@ const turnEndedSchema = z.object({
   reason: z.enum(['completed', 'cancelled', 'failed', 'blocked']),
   error: z.custom<KimiErrorPayload>().optional(),
   durationMs: z.number().optional(),
-  interruptReason: z
-    .enum(['user_cancelled', 'aborted', 'max_steps', 'error', 'filtered', 'blocked'])
-    .optional(),
   stopReason: z.string().optional(),
-  traceId: z.string().optional(),
+  requestId: z.string().optional(),
 });
 
 export interface TurnEndedPayload {
@@ -113,7 +111,7 @@ export interface TurnEndedPayload {
   readonly durationMs?: number;
   readonly interruptReason?: TurnInterruptReason;
   readonly stopReason?: string;
-  readonly traceId?: string;
+  readonly requestId?: string;
 }
 
 export class TurnEnded extends AgentEvent2<TurnEndedPayload> {
@@ -131,21 +129,18 @@ export class TurnEnded extends AgentEvent2<TurnEndedPayload> {
     };
     if (this.error !== undefined) record['error'] = this.error;
     if (this.durationMs !== undefined) record['durationMs'] = this.durationMs;
-    if (this.interruptReason !== undefined) record['interruptReason'] = this.interruptReason;
     if (this.stopReason !== undefined) record['stopReason'] = this.stopReason;
-    if (this.traceId !== undefined) record['traceId'] = this.traceId;
+    if (this.requestId !== undefined) record['requestId'] = this.requestId;
     record['time'] = this.time;
     return record as SerializedEvent2;
   }
 }
 export interface TurnEnded extends TurnEndedPayload {}
 
-export const turnKey = defineState('turn', (): TurnModelState => ({
-  nextTurnId: 0,
-  cancelledTurnIds: [],
-  anchorTurnIds: [],
-}))
-  .replayable({ schema: z.custom<TurnModelState>() })
+export const turnKey = defineState(
+  'turn',
+  (): TurnModelState => ({ nextTurnId: 0, cancelledTurnIds: [], anchorTurnIds: [] }),
+).replayable({ schema: z.custom<TurnModelState>() })
   .on(ContextAppendLoopEvent, (s, e) => {
     const { event } = e;
     if (event.type === 'tool.result' || event.turnId === undefined) return;
@@ -161,7 +156,7 @@ export const turnKey = defineState('turn', (): TurnModelState => ({
   .on(TurnPrompt, (s, e) => {
     const assigned = e.turnId ?? s.nextTurnId;
     const next = advanceTurnClock(s, assigned + 1);
-    if (!isUndoAnchorOrigin(e.origin)) return next;
+    if (!isUndoAnchorTurnPrompt(e)) return next;
     return { ...next, anchorTurnIds: [...s.anchorTurnIds, assigned] };
   })
   .on(TurnSteer, () => {})
@@ -172,7 +167,8 @@ export const turnKey = defineState('turn', (): TurnModelState => ({
       ...s,
       anchorTurnIds: s.anchorTurnIds.slice(0, Math.max(0, s.anchorTurnIds.length - e.count)),
       lastEnded:
-        lastEnded !== undefined && (firstRemoved === undefined || lastEnded.turnId >= firstRemoved)
+        lastEnded !== undefined &&
+        (firstRemoved === undefined || lastEnded.turnId >= firstRemoved)
           ? undefined
           : lastEnded,
     };
@@ -197,7 +193,7 @@ export interface TurnEndedEvent {
   readonly error?: KimiErrorPayload;
   readonly durationMs?: number;
   readonly interruptReason?: TurnInterruptReason;
-  readonly traceId?: string;
+  readonly requestId?: string;
 }
 
 function advanceTurnClock(
@@ -205,7 +201,9 @@ function advanceTurnClock(
   nextTurnId: number,
   cancelledTurnIds: readonly number[] = state.cancelledTurnIds,
 ): TurnModelState {
-  const pendingCancellations = new Set(cancelledTurnIds.filter((turnId) => turnId >= nextTurnId));
+  const pendingCancellations = new Set(
+    cancelledTurnIds.filter((turnId) => turnId >= nextTurnId),
+  );
   while (pendingCancellations.delete(nextTurnId)) nextTurnId += 1;
   return {
     ...state,
@@ -213,3 +211,17 @@ function advanceTurnClock(
     cancelledTurnIds: [...pendingCancellations].toSorted((a, b) => a - b),
   };
 }
+
+registerUndoableProtocol({
+  events: {
+    appendLoopEvent: ContextAppendLoopEvent,
+    turnPrompt: TurnPrompt,
+    turnSteer: TurnSteer,
+    turnEnded: TurnEnded,
+    applyCompaction: ContextApplyCompaction,
+    clear: ContextClear,
+    undo: ContextUndo,
+  },
+  isUndoAnchor: (prompt) => isUndoAnchorTurnPrompt(prompt as TurnPrompt),
+  isValidUndoCount,
+});

@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, type Mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { IFileEditService } from '#/app/edit/fileEdit';
 import { REMOTE_SHELL_PATH_BRIDGE } from '#/_base/execEnv/shellPathBridge';
@@ -12,32 +12,33 @@ import {
 } from '#/environment/environmentRegistry';
 import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { ModelCapability } from '#/llm-adapter/contract/capability';
+import type { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import type { IAgentProfileService } from '#/agent/profile/profile';
+import type { IAgentLoopService } from '#/agent/loop/loop';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import type { WorkspaceConfig } from '#/tool/path-access';
 import { ToolAccesses, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
-import { ensureRgPath, rgUnavailableMessage } from '#/os/backends/host/tools/rgLocator';
+import { ensureRgPath } from '#/os/backends/node-local/tools/rgLocator';
 import { EditTool } from '#/agent/tools/edit/editTool';
 import { BashTool } from '#/agent/tools/os/bash/bashTool';
 import { GlobTool } from '#/agent/tools/os/glob/globTool';
 import { GrepTool } from '#/agent/tools/os/grep/grepTool';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
 import { WriteTool } from '#/agent/tools/os/write/writeTool';
+import { ReadMediaFileTool } from '#/agent/tools/read-media-file/readMediaFileTool';
 import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 import { stubConfigService } from '../../../app/config/stubs';
 import { stubToolResultTruncationService } from '../../toolResultTruncation/stubs';
 import { makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 
-void mock.module('#/os/backends/host/tools/rgLocator', () => ({
-  ensureRgPath: mock(),
-  rgUnavailableMessage,
-}));
+void vi.mock('#/os/backends/node-local/tools/rgLocator', async () => {
+  const original = await import('#/os/backends/node-local/tools/rgLocator');
+  return { ...original, ensureRgPath: vi.fn() };
+});
 
-const ensureRgPathMock = ensureRgPath as unknown as Mock<typeof ensureRgPath>;
+const ensureRgPathMock = vi.mocked(ensureRgPath);
 
 const ENVIRONMENT_CHANGED_OUTPUT = 'Environment changed before execution. Retry the tool call.';
 const BINDING: EnvironmentBinding = { environmentId: 'remote' };
@@ -46,20 +47,11 @@ const WORKSPACE: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs:
 const skillCatalog = { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog;
 const profile = {
   getModelCapabilities: () => ({ image_in: true, video_in: true }),
-} as unknown as IAgentProfileService;
+} as unknown as IAgentLoopService;
 const toolPolicy = { isToolActive: () => true } as unknown as IAgentToolPolicyService;
 const toolRegistry = { resolve: () => ({}) } as unknown as IAgentToolRegistryService;
 
-function modelCapabilities(): ModelCapability {
-  return {
-    image_in: true,
-    video_in: true,
-    audio_in: false,
-    thinking: false,
-    tool_use: true,
-    max_context_tokens: 128_000,
-  };
-}
+const attachmentStore = { put: async () => 'kimi-file://a' } as unknown as ISessionMediaStore;
 
 function registryBackedService(registry: EnvironmentRegistry): IAgentEnvironmentService {
   return {
@@ -196,10 +188,6 @@ function toolCases(): readonly ToolCase[] {
           service,
           workspace,
           skillCatalog,
-          {
-            _serviceBrand: undefined,
-            getMediaReadContext: () => undefined,
-          },
           stubToolResultTruncationService(),
           stubConfigService(),
           profile,
@@ -254,26 +242,12 @@ function toolCases(): readonly ToolCase[] {
       },
     },
     {
-      name: 'ReadImage',
+      name: 'ReadMediaFile',
       fs: pngFs(),
       resolve: (service) =>
-        new ReadTool(
-          service,
-          workspace,
-          skillCatalog,
-          {
-            _serviceBrand: undefined,
-            getMediaReadContext: () => ({
-              capabilities: modelCapabilities(),
-              inlineVideoSupported: false,
-            }),
-          },
-          stubToolResultTruncationService(),
-          stubConfigService(),
-          profile,
-          toolPolicy,
-          toolRegistry,
-        ).resolveExecution({ path: '/workspace/a.png' }),
+        new ReadMediaFileTool(service, WORKSPACE, attachmentStore, noopTelemetryService).resolveExecution({
+          path: '/workspace/a.png',
+        }),
       expectOutcome: () => {},
     },
   ];
@@ -412,6 +386,7 @@ describe('Bash environment generation guard', () => {
       }),
       stubWorkspaceContext('/workspace'),
       {} as never,
+      {} as never,
       toolPolicy,
       stubConfigService(),
     );
@@ -440,7 +415,7 @@ describe('Bash environment generation guard', () => {
   it('fails the call and releases the lease when the cwd cannot be resolved on the target', async () => {
     const harness = readyHarness(createFakeHostFs());
     Object.assign(harness.registry.inspect(BINDING), { shellPathBridge: REMOTE_SHELL_PATH_BRIDGE });
-    const release = mock(() => {});
+    const release = vi.fn();
     const service: IAgentEnvironmentService = {
       ...harness.service,
       acquire: (required) => {
@@ -460,6 +435,6 @@ describe('Bash environment generation guard', () => {
 
     expect(result.isError).toBe(true);
     expect(outputText(result)).toContain('cannot be resolved on the target');
-    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledOnce();
   });
 });

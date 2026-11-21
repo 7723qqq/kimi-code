@@ -2,47 +2,35 @@ import { release as osRelease, type as osType } from 'node:os';
 
 import type { McpServerInfo, SessionStatus, SessionUsage } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
-import { detectInstallSource } from '#/cli/update/source';
-import { openUrl } from '#/utils/open-url';
-import { detectShellEnvironment } from '#/utils/process/shell-env';
-import { quotaUsageRows } from '#/utils/usage/usage-format';
-
 import { buildMcpStatusReportLines } from '../components/messages/mcp-status-panel';
 import { buildStatusReportLines } from '../components/messages/status-panel';
-import {
-  buildUsageReportLines,
-  UsagePanelComponent,
-  type ManagedUsageReport,
-} from '../components/messages/usage-panel';
+import { buildUsageReportLines, UsagePanelComponent, type ManagedUsageReport } from '../components/messages/usage-panel';
+import { isExperimentalFlagEnabled } from './experimental-flags';
+import { quotaUsageRows } from '#/utils/usage/usage-format';
 import {
   FEEDBACK_ISSUE_URL,
+  FEEDBACK_STATUS_CANCELLED,
+  FEEDBACK_STATUS_FALLBACK,
+  FEEDBACK_STATUS_NETWORK_ERROR,
+  FEEDBACK_STATUS_NOT_SIGNED_IN,
+  FEEDBACK_STATUS_SUBMITTING,
+  FEEDBACK_STATUS_SUCCESS,
+  FEEDBACK_STATUS_UPLOAD_FAILED,
   FEEDBACK_TELEMETRY_EVENT,
   feedbackIdLine,
   feedbackSessionLine,
-  getFeedbackStatusCancelled,
-  getFeedbackStatusFallback,
-  getFeedbackStatusNetworkError,
-  getFeedbackStatusNotSignedIn,
-  getFeedbackStatusRemoteCodebaseUnsupported,
-  getFeedbackStatusSubmitting,
-  getFeedbackStatusSuccess,
-  getFeedbackStatusCodebaseTruncated,
-  getFeedbackStatusUploadFailed,
   kimiCodeSignupUrl,
   withFeedbackVersionPrefix,
 } from '../constant/feedback';
+import { detectInstallSource } from '#/cli/update/source';
 import { isManagedUsageProvider } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { sessionWorkDir } from '../utils/session-work-dir';
-import { nextTranscriptId } from '../utils/transcript-id';
-import type { SlashCommandHost } from './dispatch';
-import { isExperimentalFlagEnabled } from './experimental-flags';
+import { openUrl } from '#/utils/open-url';
+import { detectShellEnvironment } from '#/utils/process/shell-env';
 import { promptFeedbackAttachment, promptFeedbackInput } from './prompts';
-
-// ---------------------------------------------------------------------------
-// Feedback
-// ---------------------------------------------------------------------------
+import type { SlashCommandHost } from './dispatch';
+import { t } from '#/i18n';
 
 export async function handleFeedbackCommand(host: SlashCommandHost): Promise<void> {
   const fallback = (reason: string): void => {
@@ -59,51 +47,43 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
       host.state.appState.sessionId,
     );
   } catch {
-    // The sign-in state is unreadable — keep the feedback entry usable by
-    // falling back to GitHub Issues instead of failing the command.
-    fallback(getFeedbackStatusFallback());
+    fallback(FEEDBACK_STATUS_FALLBACK);
     return;
   }
   if (availability.kind === 'needs-login') {
-    host.showStatus(getFeedbackStatusNotSignedIn());
+    host.showStatus(FEEDBACK_STATUS_NOT_SIGNED_IN);
     host.showStatus(kimiCodeSignupUrl());
     host.showStatus(FEEDBACK_ISSUE_URL);
     return;
   }
   if (availability.kind === 'error') {
     host.showStatus(availability.message);
-    fallback(getFeedbackStatusFallback());
+    fallback(FEEDBACK_STATUS_FALLBACK);
     return;
   }
 
-  // Stage 1: collect the free-form feedback text.
   const input = await promptFeedbackInput(host);
   if (input === undefined) {
-    host.showStatus(getFeedbackStatusCancelled());
+    host.showStatus(FEEDBACK_STATUS_CANCELLED);
     return;
   }
 
-  // Stage 2: ask whether to attach diagnostics (logs / codebase).
-  // The codebase scanner reads the local filesystem, so a remote-bound
-  // session cannot package its codebase — drop the option with a hint
-  // instead of scanning the wrong machine.
   const remoteSession =
     host.state.appState.environment !== undefined &&
     host.state.appState.environment.environmentId !== 'local';
   if (remoteSession) {
-    host.showStatus(getFeedbackStatusRemoteCodebaseUnsupported());
+    host.showStatus(
+      t('tui.messages.feedbackRemoteCodebaseUnsupported'),
+    );
   }
-  const level = await promptFeedbackAttachment(host, remoteSession);
+  const level = await promptFeedbackAttachment(host, remoteSession, availability.session);
   if (level === undefined) {
-    host.showStatus(getFeedbackStatusCancelled());
+    host.showStatus(FEEDBACK_STATUS_CANCELLED);
     return;
   }
 
   const version = withFeedbackVersionPrefix(host.state.appState.version);
-  const spinner = host.showLoginProgressSpinner(getFeedbackStatusSubmitting());
-  // Guarantee the spinner's underlying setInterval is always cleared, even when
-  // submitFeedback throws — otherwise the interval (and its per-frame
-  // requestRender) leaks for the rest of the session.
+  const spinner = host.showLoginProgressSpinner(FEEDBACK_STATUS_SUBMITTING);
   let stopped = false;
   const stopSpinner = (opts: { ok: boolean; label: string }): void => {
     if (stopped) return;
@@ -125,40 +105,30 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
     const res = await host.harness.submitFeedback(body, modelAlias);
 
     if (res.kind === 'needs-login') {
-      stopSpinner({ ok: false, label: getFeedbackStatusNotSignedIn() });
+      stopSpinner({ ok: false, label: FEEDBACK_STATUS_NOT_SIGNED_IN });
       host.showStatus(kimiCodeSignupUrl());
       host.showStatus(FEEDBACK_ISSUE_URL);
       return;
     }
     if (res.kind !== 'ok') {
       stopSpinner({ ok: false, label: res.message });
-      fallback(getFeedbackStatusFallback());
+      fallback(FEEDBACK_STATUS_FALLBACK);
       return;
     }
 
-    stopSpinner({ ok: true, label: getFeedbackStatusSuccess() });
+    stopSpinner({ ok: true, label: FEEDBACK_STATUS_SUCCESS });
     host.showStatus(feedbackSessionLine(host.state.appState.sessionId));
     host.showStatus(feedbackIdLine(res.feedbackId));
     host.track(FEEDBACK_TELEMETRY_EVENT);
     if (res.attachmentFailed === true) {
-      host.showStatus(getFeedbackStatusUploadFailed());
-    }
-    // A truncated codebase archive is not a failure (the upload succeeded) but
-    // it is also not a full attachment: say so instead of implying the whole
-    // repository was sent.
-    if (res.codebaseTruncated !== undefined) {
-      host.showStatus(getFeedbackStatusCodebaseTruncated(res.codebaseTruncated));
+      host.showStatus(FEEDBACK_STATUS_UPLOAD_FAILED);
     }
   } catch (error) {
-    stopSpinner({ ok: false, label: getFeedbackStatusNetworkError() });
-    fallback(getFeedbackStatusFallback());
+    stopSpinner({ ok: false, label: FEEDBACK_STATUS_NETWORK_ERROR });
+    fallback(FEEDBACK_STATUS_FALLBACK);
     throw error;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Info commands
-// ---------------------------------------------------------------------------
 
 interface SessionUsageResult {
   readonly usage?: SessionUsage;
@@ -188,16 +158,8 @@ export async function showUsage(host: SlashCommandHost): Promise<void> {
     managedUsageError: managedUsage?.error,
   };
   const panel = new UsagePanelComponent(() => buildUsageReportLines(reportArgs), 'primary');
-  host.appendTranscriptEntry(
-    {
-      id: nextTranscriptId(),
-      kind: 'status',
-      turnId: undefined,
-      renderMode: 'plain',
-      content: '',
-    },
-    panel,
-  );
+  host.state.transcriptContainer.addChild(panel);
+  host.state.ui.requestRender();
 }
 
 export async function showStatusReport(host: SlashCommandHost): Promise<void> {
@@ -216,9 +178,6 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     permissionMode: appState.permissionMode,
     planMode: appState.planMode,
     towerMode: appState.towerMode,
-    specMode: appState.specMode,
-    swarmMode: appState.swarmMode,
-    helloWorldMode: appState.helloWorldMode,
     towerAvailable: isExperimentalFlagEnabled('tower'),
     contextUsage: appState.contextUsage,
     contextTokens: appState.contextTokens,
@@ -229,21 +188,9 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     managedUsage: managedUsage?.usage,
     managedUsageError: managedUsage?.error,
   };
-  const panel = new UsagePanelComponent(
-    () => buildStatusReportLines(reportArgs),
-    'primary',
-    ' Status ',
-  );
-  host.appendTranscriptEntry(
-    {
-      id: nextTranscriptId(),
-      kind: 'status',
-      turnId: undefined,
-      renderMode: 'plain',
-      content: '',
-    },
-    panel,
-  );
+  const panel = new UsagePanelComponent(() => buildStatusReportLines(reportArgs), 'primary', ' Status ');
+  host.state.transcriptContainer.addChild(panel);
+  host.state.ui.requestRender();
 }
 
 export async function showMcpServers(host: SlashCommandHost): Promise<void> {
@@ -252,8 +199,6 @@ export async function showMcpServers(host: SlashCommandHost): Promise<void> {
     if (host.session !== undefined) {
       servers = await host.session.listMcpServers();
     } else {
-      // v2 session-less: the MCP connection set is workspace-scoped, so it is
-      // inspectable before the first session exists.
       servers = await host.harness.listWorkspaceMcpServers(host.state.appState.workDir);
     }
   } catch (error) {
@@ -267,16 +212,8 @@ export async function showMcpServers(host: SlashCommandHost): Promise<void> {
     'primary',
     title,
   );
-  host.appendTranscriptEntry(
-    {
-      id: nextTranscriptId(),
-      kind: 'status',
-      turnId: undefined,
-      renderMode: 'plain',
-      content: '',
-    },
-    panel,
-  );
+  host.state.transcriptContainer.addChild(panel);
+  host.state.ui.requestRender();
 }
 
 async function loadSessionUsageReport(host: SlashCommandHost): Promise<SessionUsageResult> {
@@ -297,9 +234,7 @@ async function loadRuntimeStatusReport(host: SlashCommandHost): Promise<RuntimeS
   }
 }
 
-async function loadManagedUsageReport(
-  host: SlashCommandHost,
-): Promise<ManagedUsageResult | undefined> {
+async function loadManagedUsageReport(host: SlashCommandHost): Promise<ManagedUsageResult | undefined> {
   const alias = host.state.appState.model;
   const providerKey = host.state.appState.availableModels[alias]?.provider;
   if (!isManagedUsageProvider(providerKey)) return undefined;

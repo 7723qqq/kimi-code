@@ -85,9 +85,9 @@ function buildMessages(): Record<string, unknown> {
 function operationMessageRefs(
   direction: WsOperationDefinition['direction'],
 ): Array<{ $ref: string }> {
-  return ASYNCAPI_OPERATIONS.filter((operation) => operation.direction === direction).map(
-    (operation) => ({ $ref: `#/components/messages/${messageId(operation.type)}` }),
-  );
+  return ASYNCAPI_OPERATIONS
+    .filter((operation) => operation.direction === direction)
+    .map((operation) => ({ $ref: `#/components/messages/${messageId(operation.type)}` }));
 }
 
 function asyncApiMessage(

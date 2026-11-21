@@ -1,0 +1,12 @@
+commit a4332bec13
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Thu Nov 19 16:06:44 2026 +0800
+Commit:     Mira <317908118+kimi-agent-bot@users.noreply.github.com>
+CommitDate: Thu Nov 19 08:08:49 2026 +0000
+
+    ci: fix desktop release workflow permissions (#5092)
+    
+    Co-authored-by: kimi-agent-bot <317908118+kimi-agent-bot@users.noreply.github.com>
+
+ .github/workflows/release.yml | 1 +
+ 1 file changed, 1 insertion(+)

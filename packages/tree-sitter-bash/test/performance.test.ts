@@ -1,15 +1,7 @@
-// test/performance.test.ts
-//
-// Performance smoke tests — order-of-magnitude guards only (no absolute
-// timing assertions beyond the documented abort path), meant to catch
-// accidental quadratic complexity in future changes.
-
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { parse } from '#/parse';
 
-/** ~100 KB of realistic script-shaped text (functions, loops, redirects,
- *  expansions, heredocs — not a pathological single construct). */
 function realisticScript(): string {
   const block = `deploy() {
   local version="$1"
@@ -48,21 +40,16 @@ describe('performance smoke', () => {
     const result = parse(source);
     const elapsed = performance.now() - start;
     if (!result.ok) {
-      // An abort is acceptable only when it is prompt (< 100 ms).
       expect(result).toEqual({ ok: false, reason: 'aborted' });
       expect(elapsed).toBeLessThan(100);
       return;
     }
-    // Completed within the default 50 ms budget; re-parse unbounded and
-    // assert the order of magnitude (< 1 s for 100KB) as a quadratic guard.
     const restart = performance.now();
     const full = parse(source, { timeoutMs: Number.POSITIVE_INFINITY });
     const fullElapsed = performance.now() - restart;
     expect(full.ok).toBe(true);
     expect(fullElapsed).toBeLessThan(1000);
-    console.log(
-      `100KB realistic script: default-budget parse ${elapsed.toFixed(1)}ms, unbounded ${fullElapsed.toFixed(1)}ms`,
-    );
+    console.log(`100KB realistic script: default-budget parse ${elapsed.toFixed(1)}ms, unbounded ${fullElapsed.toFixed(1)}ms`);
   });
 
   it('the abort path is prompt (< 100 ms) on a node-budget bomb', () => {
@@ -76,7 +63,6 @@ describe('performance smoke', () => {
   });
 
   it('typical one-line commands parse in well under a millisecond', () => {
-    // Warm up.
     parse('git status && rm -rf /');
     const iterations = 200;
     const start = performance.now();
@@ -91,26 +77,7 @@ describe('performance smoke', () => {
   it('a 500KB heredoc body parses within the default budget (few nodes)', () => {
     const source = `cat <<EOF\n${'line of text\n'.repeat(40_000)}EOF`;
     expect(source.length).toBeGreaterThan(500_000);
-    const start = performance.now();
     const result = parse(source);
-    const elapsed = performance.now() - start;
-    if (!result.ok) {
-      // The wall-clock budget can be blown by a starved event loop on any
-      // input; what must never happen is a slow abort or a genuinely slow
-      // parse. Require the abort to be prompt, then prove the input itself
-      // is cheap by re-parsing it unbounded.
-      expect(result).toEqual({ ok: false, reason: 'aborted' });
-      expect(elapsed).toBeLessThan(100);
-      const restart = performance.now();
-      const full = parse(source, { timeoutMs: Number.POSITIVE_INFINITY });
-      const fullElapsed = performance.now() - restart;
-      expect(full.ok).toBe(true);
-      expect(fullElapsed).toBeLessThan(1000);
-      console.log(
-        `500KB heredoc: default-budget parse starved after ${elapsed.toFixed(1)}ms, unbounded ${fullElapsed.toFixed(1)}ms`,
-      );
-      return;
-    }
-    console.log(`500KB heredoc: default-budget parse ${elapsed.toFixed(1)}ms`);
+    expect(result.ok).toBe(true);
   });
 });

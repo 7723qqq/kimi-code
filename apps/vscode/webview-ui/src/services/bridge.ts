@@ -1,15 +1,14 @@
-import { Methods, Events } from 'shared/bridge';
+import { Methods, Events } from "shared/bridge";
 import type {
   ApprovalResponse,
   ContentPart,
-  MCPServerCatalog,
   MCPServerConfig,
   SessionInfo,
   KimiConfig,
   MCPTestResult,
   LoginResult,
   UpdateMCPServerRequest,
-} from 'shared/legacy-sdk';
+} from "shared/legacy-sdk";
 import type {
   FileChange,
   SessionConfig,
@@ -17,7 +16,7 @@ import type {
   WorkspaceStatus,
   LoginStatus,
   UIStreamEvent,
-} from 'shared/types';
+} from "shared/types";
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -28,7 +27,7 @@ interface PendingRequest {
 const DEFAULT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const OAUTH_REQUEST_TIMEOUT_MS = 16 * 60 * 1000;
 
-export interface VSCodeAPI {
+interface VSCodeAPI {
   postMessage(message: unknown): void;
   getState(): unknown;
   setState(state: unknown): void;
@@ -36,34 +35,28 @@ export interface VSCodeAPI {
 
 declare function acquireVsCodeApi(): VSCodeAPI;
 
-/**
- * The Webview's only host dependency is `acquireVsCodeApi`, which the generated
- * Webview HTML defines. Tests pass their own implementation instead of relying
- * on the global; production keeps calling the global.
- */
-export class Bridge {
+class Bridge {
   private vscode: VSCodeAPI;
   private pending = new Map<string, PendingRequest>();
   private eventHandlers = new Map<string, Set<(data: unknown) => void>>();
   private requestId = 0;
   private webviewId: string;
 
-  constructor(acquireApi?: () => VSCodeAPI) {
-    this.webviewId = document.body.getAttribute('data-webviewid') || `unknown_${Date.now()}`;
+  constructor() {
+    this.webviewId = document.body.getAttribute("data-webviewid") || `unknown_${Date.now()}`;
 
-    const acquire = acquireApi ?? (typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi : undefined);
-    if (acquire !== undefined) {
-      this.vscode = acquire();
+    if (typeof acquireVsCodeApi === "function") {
+      this.vscode = acquireVsCodeApi();
     } else {
-      console.warn('[Kimi Bridge] Running outside VS Code, using mock');
+      console.warn("[Kimi Bridge] Running outside VS Code, using mock");
       this.vscode = {
-        postMessage: (msg) => console.log('[Kimi Mock]', msg),
+        postMessage: (msg) => console.log("[Kimi Mock]", msg),
         getState: () => undefined,
         setState: () => {},
       };
     }
 
-    window.addEventListener('message', this.handleMessage);
+    window.addEventListener("message", this.handleMessage);
   }
 
   private handleMessage = (event: MessageEvent) => {
@@ -88,11 +81,7 @@ export class Bridge {
     }
   };
 
-  private call<T>(
-    method: string,
-    params?: unknown,
-    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
-  ): Promise<T> {
+  private call<T>(method: string, params?: unknown, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<T> {
     const id = `${++this.requestId}_${Date.now()}`;
 
     return new Promise((resolve, reject) => {
@@ -130,7 +119,7 @@ export class Bridge {
   }
 
   getSlashCommands() {
-    return this.call<import('shared/legacy-sdk').SlashCommandInfo[]>(Methods.GetSlashCommands);
+    return this.call<import("shared/legacy-sdk").SlashCommandInfo[]>(Methods.GetSlashCommands);
   }
 
   checkLoginStatus() {
@@ -166,20 +155,20 @@ export class Bridge {
   }
 
   getMCPServers() {
-    return this.call<MCPServerCatalog>(Methods.GetMCPServers);
+    return this.call<MCPServerConfig[]>(Methods.GetMCPServers);
   }
 
   addMCPServer(serverConfig: MCPServerConfig) {
-    return this.call<MCPServerCatalog>(Methods.AddMCPServer, serverConfig);
+    return this.call<MCPServerConfig[]>(Methods.AddMCPServer, serverConfig);
   }
 
   updateMCPServer(originalName: string, serverConfig: MCPServerConfig) {
     const request: UpdateMCPServerRequest = { originalName, server: serverConfig };
-    return this.call<MCPServerCatalog>(Methods.UpdateMCPServer, request);
+    return this.call<MCPServerConfig[]>(Methods.UpdateMCPServer, request);
   }
 
   removeMCPServer(name: string) {
-    return this.call<MCPServerCatalog>(Methods.RemoveMCPServer, { name });
+    return this.call<MCPServerConfig[]>(Methods.RemoveMCPServer, { name });
   }
 
   authMCP(name: string) {
@@ -194,20 +183,8 @@ export class Bridge {
     return this.call<MCPTestResult>(Methods.TestMCP, { name });
   }
 
-  streamChat(
-    content: string | ContentPart[],
-    model: string,
-    effort: string,
-    planMode: boolean,
-    sessionId?: string,
-  ) {
-    return this.call<{ done: boolean }>(Methods.StreamChat, {
-      content,
-      model,
-      effort,
-      planMode,
-      sessionId,
-    });
+  streamChat(content: string | ContentPart[], model: string, effort: string, planMode: boolean, sessionId?: string) {
+    return this.call<{ done: boolean }>(Methods.StreamChat, { content, model, effort, planMode, sessionId });
   }
 
   abortChat() {
@@ -219,23 +196,15 @@ export class Bridge {
   }
 
   getProjectFiles(params?: { query?: string; directory?: string }) {
-    return this.call<import('shared/types').ProjectFile[]>(Methods.GetProjectFiles, params);
+    return this.call<import("shared/types").ProjectFile[]>(Methods.GetProjectFiles, params);
   }
 
   respondApproval(requestId: string, response: ApprovalResponse) {
     return this.call<{ ok: boolean }>(Methods.RespondApproval, { requestId, response });
   }
 
-  respondQuestion(
-    rpcRequestId: string,
-    questionRequestId: string,
-    answers: Record<string, string>,
-  ) {
-    return this.call<{ ok: boolean }>(Methods.RespondQuestion, {
-      rpcRequestId,
-      questionRequestId,
-      answers,
-    });
+  respondQuestion(rpcRequestId: string, questionRequestId: string, answers: Record<string, string>) {
+    return this.call<{ ok: boolean }>(Methods.RespondQuestion, { rpcRequestId, questionRequestId, answers });
   }
 
   getKimiSessions() {
@@ -267,10 +236,7 @@ export class Bridge {
   }
 
   forkSession(sessionId: string, turnIndex: number) {
-    return this.call<{ sessionId: string } | null>(Methods.ForkKimiSession, {
-      sessionId,
-      turnIndex,
-    });
+    return this.call<{ sessionId: string } | null>(Methods.ForkKimiSession, { sessionId, turnIndex });
   }
 
   pickMedia(maxCount: number, includeVideo = true) {

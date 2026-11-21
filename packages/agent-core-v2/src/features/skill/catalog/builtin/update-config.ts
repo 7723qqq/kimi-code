@@ -1,6 +1,5 @@
-import { parseSkillText } from '#/features/skill/catalog/parser';
 import type { SkillDefinition } from '#/features/skill/catalog/types';
-
+import { parseSkillText } from '#/features/skill/catalog/parser';
 import UPDATE_CONFIG_BODY from './update-config.md?raw';
 
 const PSEUDO_PATH = 'builtin://update-config';

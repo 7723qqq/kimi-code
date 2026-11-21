@@ -1,6 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPlanService } from '#/features/plan/plan';
@@ -24,19 +23,19 @@ async function injectDynamic(ctx: TestAgentContext): Promise<void> {
 
 function appendAssistantTurn(
   ctx: TestAgentContext,
-  context: IAgentContextMemoryService,
+  context: IAgentLoopService,
   text: string,
 ): void {
-  ctx.appendAssistantTurn(context.get().length, text);
+  ctx.appendAssistantTurn(context.history().length, text);
 }
 
-function planReminderMessages(context: IAgentContextMemoryService): readonly ContextMessage[] {
-  return context.get().filter((message) => {
+function planReminderMessages(context: IAgentLoopService): readonly ContextMessage[] {
+  return context.history().filter((message) => {
     return message.origin?.kind === 'injection' && message.origin.variant === 'plan_mode';
   });
 }
 
-function lastPlanReminder(context: IAgentContextMemoryService): string {
+function lastPlanReminder(context: IAgentLoopService): string {
   const message = planReminderMessages(context).at(-1);
   if (message === undefined) return '';
   return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
@@ -44,23 +43,22 @@ function lastPlanReminder(context: IAgentContextMemoryService): string {
 
 describe('PlanModeService dynamic injection content', () => {
   let ctx: TestAgentContext;
-  let context: IAgentContextMemoryService;
+  let context: IAgentLoopService;
   let plan: IAgentPlanService;
   let readText: (path: string) => Promise<string>;
 
   beforeEach(async () => {
     readText = async () => '';
     ctx = createTestAgent(
-      { initialConfig: { experimental: { tool_select: false } } },
       execEnvServices({
         hostFs: createFakeHostFs({
-          mkdir: mock().mockResolvedValue(undefined),
+          mkdir: vi.fn().mockResolvedValue(undefined),
           readText: (path: string) => readText(path),
-          writeText: mock(async () => undefined),
+          writeText: vi.fn(async () => undefined),
         }),
       }),
     );
-    context = ctx.get(IAgentContextMemoryService);
+    context = ctx.get(IAgentLoopService);
     plan = ctx.get(IAgentPlanService);
     await ctx.restorePersisted();
   });
@@ -122,11 +120,11 @@ describe('PlanModeService dynamic injection content', () => {
     await injectDynamic(ctx);
 
     expect(planReminderMessages(context)).toHaveLength(0);
-    expect(context.get()).toHaveLength(0);
+    expect(context.history()).toHaveLength(0);
   });
 
   it('injects a reentry reminder when restored plan mode already has plan content', async () => {
-    readText = mock(async () => '# Existing Plan\n\n- Keep this context');
+    readText = vi.fn(async () => '# Existing Plan\n\n- Keep this context');
     await ctx.dispatch({
       type: 'plan_mode.enter',
       id: 'restored-plan',
@@ -140,20 +138,20 @@ describe('PlanModeService dynamic injection content', () => {
 
 describe('PlanModeService dynamic injection cadence', () => {
   let ctx: TestAgentContext;
-  let context: IAgentContextMemoryService;
+  let context: IAgentLoopService;
   let plan: IAgentPlanService;
 
   beforeEach(async () => {
     ctx = createTestAgent(
       execEnvServices({
         hostFs: createFakeHostFs({
-          mkdir: mock().mockResolvedValue(undefined),
+          mkdir: vi.fn().mockResolvedValue(undefined),
           readText: async () => '',
-          writeText: mock(async () => undefined),
+          writeText: vi.fn(async () => undefined),
         }),
       }),
     );
-    context = ctx.get(IAgentContextMemoryService);
+    context = ctx.get(IAgentLoopService);
     plan = ctx.get(IAgentPlanService);
     await ctx.restorePersisted();
   });
@@ -187,7 +185,21 @@ describe('PlanModeService dynamic injection cadence', () => {
     const text = lastPlanReminder(context);
     expect(text).toContain('Plan mode still active');
     expect(text).toContain('see full instructions earlier');
+    expect(text).toContain('Stay read-only except the plan file');
+    expect(text).toContain('AskUserQuestion');
+    expect(text).toContain('ExitPlanMode');
+    expect(text).not.toContain('Bash follows the normal permission mode');
     expect(text).toContain(`Plan file: ${planFilePath}`);
+  });
+
+  it('does not refresh the full reminder for another system injection', async () => {
+    await enterPlan(plan);
+
+    await injectDynamic(ctx);
+    ctx.appendSystemReminder('AGENTS.md changed', { kind: 'injection', variant: 'agents_md' });
+    await injectDynamic(ctx);
+
+    expect(planReminderMessages(context)).toHaveLength(1);
   });
 
   it('refreshes the full reminder after the long assistant-turn threshold', async () => {
@@ -208,6 +220,19 @@ describe('PlanModeService dynamic injection cadence', () => {
     await enterPlan(plan);
 
     await injectDynamic(ctx);
+    ctx.appendUserMessage([{ type: 'text', text: 'next task' }]);
+    await injectDynamic(ctx);
+
+    const text = lastPlanReminder(context);
+    expect(text).toContain('Plan mode is active');
+    expect(text).not.toContain('Plan mode still active');
+  });
+
+  it('refreshes the full reminder if a user message follows another injection', async () => {
+    await enterPlan(plan);
+
+    await injectDynamic(ctx);
+    ctx.appendSystemReminder('AGENTS.md changed', { kind: 'injection', variant: 'agents_md' });
     ctx.appendUserMessage([{ type: 'text', text: 'next task' }]);
     await injectDynamic(ctx);
 

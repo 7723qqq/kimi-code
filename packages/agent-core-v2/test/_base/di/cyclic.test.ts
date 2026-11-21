@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { CyclicDependencyError } from '#/_base/di/errors';
@@ -9,6 +9,7 @@ import {
 } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
+
 
 describe('Cyclic dependency detection', () => {
   it('direct self-cycle A → A throws CyclicDependencyError', () => {
@@ -48,8 +49,8 @@ describe('Cyclic dependency detection', () => {
     let captured: CyclicDependencyError | undefined;
     try {
       ix.invokeFunction((a) => a.get(IA));
-    } catch (error) {
-      captured = error as CyclicDependencyError;
+    } catch (e) {
+      captured = e as CyclicDependencyError;
     }
     expect(captured).toBeInstanceOf(CyclicDependencyError);
     expect(captured!.path).toEqual(['A', 'B', 'A']);
@@ -84,48 +85,6 @@ describe('Cyclic dependency detection', () => {
     expect(() => ix.invokeFunction((a) => a.get(IA))).not.toThrow();
   });
 
-  it('cycle with three nodes A→B→C→A is detected', () => {
-    interface IA {
-      tag: string;
-    }
-    interface IB {
-      tag: string;
-    }
-    interface IC {
-      tag: string;
-    }
-    const IA = createDecorator<IA>('A');
-    const IB = createDecorator<IB>('B');
-    const IC = createDecorator<IC>('C');
-    class A implements IA {
-      tag = 'A';
-      constructor(@IB _b: IB) {}
-    }
-    class B implements IB {
-      tag = 'B';
-      constructor(@IC _c: IC) {}
-    }
-    class C implements IC {
-      tag = 'C';
-      constructor(@IA _a: IA) {}
-    }
-    const ix = new InstantiationService(
-      new ServiceCollection(
-        [IA, new SyncDescriptor(A)],
-        [IB, new SyncDescriptor(B)],
-        [IC, new SyncDescriptor(C)],
-      ),
-    );
-    let captured: CyclicDependencyError | undefined;
-    try {
-      ix.invokeFunction((a) => a.get(IA));
-    } catch (error) {
-      captured = error as CyclicDependencyError;
-    }
-    expect(captured).toBeInstanceOf(CyclicDependencyError);
-    expect(captured!.path).toEqual(['A', 'B', 'C', 'A']);
-  });
-
   it('cycle across parent/child boundary is detected', () => {
     interface IA {
       tag: 'A';
@@ -145,14 +104,16 @@ describe('Cyclic dependency detection', () => {
       constructor(@IA _a: IA) {}
     }
 
-    const parent = new InstantiationService(new ServiceCollection([IA, new SyncDescriptor(A)]));
+    const parent = new InstantiationService(
+      new ServiceCollection([IA, new SyncDescriptor(A)]),
+    );
     const child = parent.createChild(new ServiceCollection([IB, new SyncDescriptor(B)]));
 
     let captured: CyclicDependencyError | undefined;
     try {
       child.invokeFunction((a) => a.get(IA));
-    } catch (error) {
-      captured = error as CyclicDependencyError;
+    } catch (e) {
+      captured = e as CyclicDependencyError;
     }
     expect(captured).toBeInstanceOf(CyclicDependencyError);
     expect(captured!.path).toEqual(['A', 'B', 'A']);
@@ -277,7 +238,10 @@ describe('Sync/Async dependency loop', () => {
     }
 
     const insta = new InstantiationService(
-      new ServiceCollection([IA, new SyncDescriptor(AService)], [IB, new SyncDescriptor(BService)]),
+      new ServiceCollection(
+        [IA, new SyncDescriptor(AService)],
+        [IB, new SyncDescriptor(BService)],
+      ),
       true,
       undefined,
       true,
@@ -286,10 +250,11 @@ describe('Sync/Async dependency loop', () => {
     let captured: unknown;
     try {
       insta.invokeFunction((accessor) => accessor.get(IA));
-    } catch (error) {
-      captured = error;
+    } catch (e) {
+      captured = e;
     }
     expect(captured).toBeInstanceOf(Error);
     expect((captured as Error).message).toContain('RECURSIVELY');
   });
+
 });

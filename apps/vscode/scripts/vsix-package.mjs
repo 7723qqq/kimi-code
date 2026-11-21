@@ -1,6 +1,6 @@
-#!/usr/bin/env bun
-import { mkdir } from 'node:fs/promises';
+#!/usr/bin/env node
 import { createRequire } from 'node:module';
+import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { runLocalCli } from './local-cli.mjs';
@@ -118,8 +118,6 @@ function buildExtension() {
 
 function loadVscePack() {
   try {
-    // VSCE's public API always runs vscode:prepublish. We build once above and pin VSCE,
-    // so use its package phase directly instead of rebuilding for every target.
     const module = require('@vscode/vsce/out/package.js');
     if (typeof module.pack !== 'function') {
       throw new TypeError('the installed package does not expose pack()');
@@ -127,7 +125,7 @@ function loadVscePack() {
     return module.pack;
   } catch (error) {
     throw new Error(
-      'The workspace @vscode/vsce package API is unavailable. Run bun install; runtime CLI downloads are disabled.',
+      'The workspace @vscode/vsce package API is unavailable. Run pnpm install; runtime CLI downloads are disabled.',
       { cause: error },
     );
   }
@@ -135,9 +133,7 @@ function loadVscePack() {
 
 if (isMainModule(import.meta.url)) {
   main().catch((error) => {
-    console.error(
-      `VSIX packaging failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`VSIX packaging failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 }

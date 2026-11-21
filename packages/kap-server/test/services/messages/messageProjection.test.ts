@@ -1,17 +1,14 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import type { ContextMessage } from '@moonshot-ai/agent-core-v2';
 
-import {
-  projectPromptContentParts,
-  toProtocolMessage,
-} from '../../../src/services/messages/messageProjection';
+import { projectPromptContentParts, toProtocolMessage } from '../../../src/services/messages/messageProjection';
 
 const SESSION_ID = 'session_1';
 const CREATED_AT = 1_700_000_000_000;
 
 function userText(text: string): ContextMessage {
-  return { role: 'user', content: [{ type: 'text', text }], toolCalls: [] };
+  return { role: 'user', content: [{ type: 'text', text }] };
 }
 
 describe('toProtocolMessage', () => {
@@ -25,7 +22,6 @@ describe('toProtocolMessage', () => {
         { type: 'audio_url', audioUrl: { url: 'https://example.com/a.mp3' } },
         { type: 'video_url', videoUrl: { url: 'https://example.com/a.mp4' } },
       ],
-      toolCalls: [],
     };
 
     expect(toProtocolMessage(SESSION_ID, 0, msg, CREATED_AT).content).toEqual([
@@ -44,7 +40,6 @@ describe('toProtocolMessage', () => {
         { type: 'text', text: 'what is this?' },
         { type: 'image_url', imageUrl: { url: 'kimi-file://file_9?path=%2Fcache%2Fpic.png' } },
       ],
-      toolCalls: [],
     };
 
     expect(toProtocolMessage(SESSION_ID, 0, msg, CREATED_AT).content).toEqual([
@@ -58,7 +53,7 @@ describe('toProtocolMessage', () => {
       type: 'image_url' as const,
       imageUrl: { url: 'kimi-file://file_9', id: 'file_9', name: 'photo.png' },
     };
-    const msg: ContextMessage = { role: 'user', content: [part], toolCalls: [] };
+    const msg: ContextMessage = { role: 'user', content: [part] };
 
     expect(toProtocolMessage(SESSION_ID, 0, msg, CREATED_AT).content).toEqual([
       { type: 'image', source: { kind: 'session_media', file_id: 'file_9' }, name: 'photo.png' },
@@ -75,7 +70,6 @@ describe('toProtocolMessage', () => {
         { type: 'text', text: '<image path="/cache/pic.png"></image>' },
         { type: 'image_url', imageUrl: { url: 'kimi-file://file_9?path=%2Fcache%2Fpic.png' } },
       ],
-      toolCalls: [],
     };
 
     expect(toProtocolMessage(SESSION_ID, 0, msg, CREATED_AT).content).toEqual([
@@ -91,7 +85,6 @@ describe('toProtocolMessage', () => {
         { type: 'text', text: '<video path="/cache/clip.mp4">' },
         { type: 'text', text: 'watch this' },
       ],
-      toolCalls: [],
     };
 
     expect(toProtocolMessage(SESSION_ID, 0, msg, CREATED_AT).content).toEqual([
@@ -118,7 +111,6 @@ describe('toProtocolMessage', () => {
       content: [
         { type: 'video_url', videoUrl: { url: 'kimi-file://file_9?path=%2Fcache%2Fclip.mp4' } },
       ],
-      toolCalls: [],
     };
 
     expect(toProtocolMessage(SESSION_ID, 0, msg, CREATED_AT).content).toEqual([
@@ -130,7 +122,6 @@ describe('toProtocolMessage', () => {
     const msg: ContextMessage = {
       role: 'user',
       content: [{ type: 'video_url', videoUrl: { url: 'ms://prov-7', id: 'prov-7' } }],
-      toolCalls: [],
     };
 
     expect(toProtocolMessage(SESSION_ID, 0, msg, CREATED_AT).content).toEqual([
@@ -159,7 +150,6 @@ describe('toProtocolMessage', () => {
     const result: ContextMessage = {
       role: 'tool',
       content: [{ type: 'text', text: 'image result' }],
-      toolCalls: [],
       toolCallId: 'call_image',
       note: '<system>Image compressed.</system>',
     };
@@ -175,19 +165,11 @@ describe('toProtocolMessage', () => {
       content: [
         { type: 'text', text: 'image result' },
         { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
-        {
-          type: 'image_url',
-          imageUrl: { url: 'kimi-file://file_9?path=%2Fcache%2Fpic.png', name: 'pic.png' },
-        },
+        { type: 'image_url', imageUrl: { url: 'kimi-file://file_9?path=%2Fcache%2Fpic.png', name: 'pic.png' } },
         { type: 'audio_url', audioUrl: { url: 'https://example.com/audio.mp3' } },
         { type: 'video_url', videoUrl: { url: 'ms://video-1', id: 'video-1' } },
-        {
-          type: 'video_url',
-          source: { kind: 'url', url: 'kimi-file://file_10' },
-          name: 'clip.mp4',
-        } as unknown as ContextMessage['content'][number],
+        { type: 'video_url', source: { kind: 'url', url: 'kimi-file://file_10' }, name: 'clip.mp4' } as unknown as ContextMessage['content'][number],
       ],
-      toolCalls: [],
       toolCallId: 'call_media',
     };
 
@@ -228,7 +210,6 @@ describe('toProtocolMessage', () => {
     const result: ContextMessage = {
       role: 'tool',
       content: [{ type: 'text', text: 'boom' }],
-      toolCalls: [],
       toolCallId: 'call_err',
       isError: true,
     };
@@ -268,10 +249,7 @@ describe('toProtocolMessage', () => {
 
   it('retains composer metadata separately from the projected model content', () => {
     const clientMetadata = [{ composer: { version: 1, refs: ['example-ref'] } }];
-    const msg: ContextMessage = {
-      ...userText('visible'),
-      origin: { kind: 'user', clientMetadata },
-    };
+    const msg: ContextMessage = { ...userText('visible'), origin: { kind: 'user', clientMetadata } };
     const projected = toProtocolMessage(SESSION_ID, 0, msg, CREATED_AT);
     expect(projected.content).toEqual([{ type: 'text', text: 'visible' }]);
     expect(projected.metadata).toEqual({ origin: { kind: 'user', clientMetadata } });

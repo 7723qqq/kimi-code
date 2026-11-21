@@ -1,8 +1,8 @@
-import { applyCredential } from '#/credentials/credentials';
-import { isAbortError, toLlmErrorMessage } from '#/llm/errors';
-import type { Message } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import { fromCallback } from '#/xstate2';
+import { applyCredential } from '#human/credentials/credentials';
+import { isAbortError, toLlmErrorMessage } from '#human/llm/errors';
+import type { Message } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import { fromCallback } from '#human/xstate2';
 
 import type { LlmRecoveryRecord } from './recovery';
 import type {

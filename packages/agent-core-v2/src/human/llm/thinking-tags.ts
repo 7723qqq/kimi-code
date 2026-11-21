@@ -1,4 +1,4 @@
-import type { ContentPart, StreamedMessagePart } from './message';
+import type { ContentPart, StreamedMessagePart } from '../message';
 type Tag = 'think' | 'thinking';
 
 const TAG_NAMES: readonly Tag[] = ['think', 'thinking'];

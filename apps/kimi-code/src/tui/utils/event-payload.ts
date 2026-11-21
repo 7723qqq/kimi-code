@@ -4,7 +4,6 @@ import {
   STREAMING_ARGS_FIELD_RE,
   STREAMING_ARGS_PREVIEW_MAX_CHARS,
 } from '#/tui/constant/streaming';
-import { formatLocalizedError } from '#/tui/utils/error-display';
 
 export function appendStreamingArgsPreview(
   current: string | undefined,
@@ -54,9 +53,7 @@ export function parseStreamingArgs(argumentsText: string): Record<string, unknow
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         return parsed as Record<string, unknown>;
       }
-    } catch {
-      // fall through to partial scan
-    }
+    } catch {}
   }
   const result: Record<string, unknown> = {};
   for (const match of previewText.matchAll(STREAMING_ARGS_FIELD_RE)) {
@@ -81,9 +78,18 @@ export function serializeToolResultOutput(output: unknown): string {
   return JSON.stringify(output, null, 2);
 }
 
+export function isTodoItemShape(
+  value: unknown,
+): value is { title: string; status: 'pending' | 'in_progress' | 'done' } {
+  if (typeof value !== 'object' || value === null) return false;
+  const rec = value as { title?: unknown; status?: unknown };
+  if (typeof rec.title !== 'string' || rec.title.length === 0) return false;
+  return rec.status === 'pending' || rec.status === 'in_progress' || rec.status === 'done';
+}
+
 export function formatErrorMessage(error: unknown): string {
   if (isKimiError(error)) {
-    return formatLocalizedError({
+    return formatErrorPayload({
       code: error.code,
       message: error.message,
       details: error.details,
@@ -92,7 +98,37 @@ export function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export { formatErrorPayload } from '#/tui/utils/error-display';
+interface ErrorPayloadLike {
+  readonly code: string;
+  readonly message: string;
+  readonly details?: Record<string, unknown>;
+}
+
+export function formatErrorPayload(error: ErrorPayloadLike): string {
+  const filteredMessage = formatProviderFilteredMessage(error.details);
+  if (filteredMessage !== undefined) return `[${error.code}] ${filteredMessage}`;
+  return `[${error.code}] ${error.message}`;
+}
+
+function formatProviderFilteredMessage(
+  details: Record<string, unknown> | undefined,
+): string | undefined {
+  const finishReason = stringDetail(details, 'finishReason');
+  const rawFinishReason = stringDetail(details, 'rawFinishReason');
+  if (finishReason !== 'filtered' && rawFinishReason !== 'content_filter') return undefined;
+
+  const normalizedFinishReason = finishReason ?? 'filtered';
+  const raw = rawFinishReason === undefined ? '' : `, rawFinishReason=${rawFinishReason}`;
+  return `Provider filtered the response before visible output (finishReason=${normalizedFinishReason}${raw}).`;
+}
+
+function stringDetail(
+  details: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = details?.[key];
+  return typeof value === 'string' ? value : undefined;
+}
 
 export function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;

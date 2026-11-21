@@ -6,6 +6,41 @@ outline: 2
 
 This page documents the changes in each Kimi Code CLI release.
 
+## 2.7.0 (2026-11-19)
+
+### Features
+
+- Support Amazon Bedrock providers, configured with `type = "bedrock"` and `AWS_REGION`.
+- Add a Follow-up behavior setting under `/settings`; choose Steer to send Enter-submitted messages into the running turn instead of queueing them.
+- View running foreground agents and their activity in `/tasks`.
+- Run the local server without opening a browser with `kimi server`; pass `--open` to open the Web UI.
+- Support configuring SSH hosts for projects, with each host using its own Kimi login and optional copied custom model providers.
+- Add `kimi web --json` and HTTP endpoints for inspecting pending interactions, waiting for a session, and reading `kap.md`, enabling HTTP-driven KAP automation.
+
+### Polish
+
+- Enable experimental next-prompt predictions after completed turns with `KIMI_CODE_EXPERIMENTAL_PROMPT_PREDICTION=1`; press Tab or Right Arrow to accept.
+- Write multiline feedback in `/feedback`.
+- Read `KIMI_CODE_SESSION_ID` and `KIMI_CODE_WORKSPACE_ID` from Bash tool child processes.
+
+### Bug Fixes
+
+- Move MCP server and OAuth management from `/api/v2/mcp/*` to `/api/v1/mcp/*`; remove `POST /api/v1/mcp/servers/{id}:restart` and replace the old live-session server list.
+- Move session APIs from `/api/v2/sessions*` to `/api/v1/sessions*`, including grouped views, Git metadata, ID projections, and batch archive/restore; replace `include_archive`, `archived_only`, and `exclude_empty` with `archived` and `has_prompt`.
+- Honor `[subagent] timeout_ms = 0` without immediately timing out subagents, including in `kimi -p`.
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+
+## 2.6.3 (2026-11-17)
+
+### Bug Fixes
+
+- Fix duplicated foreground Shell command output and loading indicators that do not disappear.
+- Fix several known issues.
+- Fix WebBridge updates failing on Windows while its daemon is running.
+- Fix external Stop hooks not running after each completed reply.
+- Fix background task notifications unexpectedly triggering new replies when resuming or forking sessions.
+- Fix background notifications unexpectedly stopping Tower tasks.
+
 ## 2.6.2 (2026-11-14)
 
 ### Features

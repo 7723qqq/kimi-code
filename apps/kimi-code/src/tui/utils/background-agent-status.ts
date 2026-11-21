@@ -1,4 +1,3 @@
-import { t } from '#/i18n';
 import type {
   BackgroundAgentMetadata,
   BackgroundAgentStatusData,
@@ -24,16 +23,12 @@ export function formatBackgroundAgentTranscript(
   const subject = normalizedAgentName !== undefined ? `${normalizedAgentName} agent` : 'agent';
   const headline =
     phase === 'started'
-      ? t('tui.messages.bgAgentStarted', { subject })
+      ? `${subject} started in background`
       : phase === 'completed'
-        ? t('tui.messages.bgAgentCompleted', { subject })
-        : phase === 'lost'
-          ? t('tui.messages.bgAgentLost', { subject })
-          : phase === 'killed'
-            ? t('tui.messages.bgAgentKilled', { subject })
-            : phase === 'timed_out'
-              ? t('tui.messages.bgAgentTimedOut', { subject })
-              : t('tui.messages.bgAgentFailed', { subject });
+        ? `${subject} completed in background`
+        : phase === 'killed'
+          ? `${subject} stopped`
+          : `${subject} failed in background`;
   const tail = phase === 'failed' ? normalizeBackgroundField(extras?.error) : undefined;
   const detailParts = [
     normalizeBackgroundField(meta.model),

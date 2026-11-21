@@ -1,0 +1,4 @@
+M	apps/kimi-code/src/tui/components/editor/custom-editor.ts
+M	apps/kimi-code/src/tui/controllers/prompt-prediction.ts
+M	apps/kimi-code/test/tui/components/editor/custom-editor.test.ts
+M	apps/kimi-code/test/tui/controllers/prompt-prediction.test.ts

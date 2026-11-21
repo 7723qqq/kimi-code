@@ -1,15 +1,14 @@
+import { type ContentPart, type ToolCall } from '@moonshot-ai/core/llm/message';
 import type { WireRecord } from '#/wire/record';
-import { type ContentPart, type ToolCall } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
 
 import {
   COMPACT_USER_MESSAGE_MAX_TOKENS,
   collectCompactableUserMessages,
   selectRecentUserMessages,
 } from './compactionHandoff';
-import { isPromptOwnedInjection, isUndoAnchor } from './conversationTime';
+import { cutTurnUndo, wireLinesOf } from '#/agent/undo/turnUndo';
 import { createLoopEventFold, type LoopRecordedEvent } from './loopEventFold';
-import type { ContextMessage, ContextMessageTiming } from './types';
+import type { ContextMessage } from './types';
 
 export interface ContextTranscript {
   readonly entries: readonly ContextMessage[];
@@ -22,18 +21,7 @@ export interface ContextTranscriptReducer {
   result(): ContextTranscript;
 }
 
-interface MutableMessage {
-  id?: string;
-  role: ContextMessage['role'];
-  content: ContentPart[];
-  toolCalls: ToolCall[];
-  toolCallId?: string;
-  isError?: boolean;
-  note?: string;
-  origin?: ContextMessage['origin'];
-  usage?: TokenUsage;
-  llmTiming?: ContextMessageTiming;
-}
+type MutableMessage = ContextMessage & { toolCalls: ToolCall[] };
 
 interface MutableEntry {
   message: MutableMessage;
@@ -66,7 +54,7 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
       openEntry?.message.content.push(part);
     },
     appendOpenToolCall: (call) => {
-      openEntry?.message.toolCalls.push(call);
+      if (openEntry?.message.role === 'assistant') openEntry.message.toolCalls.push(call);
     },
     dropOpenAssistant: () => {
       if (openEntry === undefined) return;
@@ -78,13 +66,16 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
     },
     sealOpenAssistant: (meta) => {
       if (openEntry !== undefined) {
-        openEntry.message.usage = meta?.usage;
-        openEntry.message.llmTiming = meta?.llmTiming;
+        openEntry.message = {
+          ...openEntry.message,
+          ...(meta?.usage === undefined ? {} : { usage: meta.usage }),
+          ...(meta?.llmTiming === undefined ? {} : { llmTiming: meta.llmTiming }),
+        };
       }
       openEntry = undefined;
     },
     pushToolMessage: (message, time) => {
-      push({ message: message as MutableMessage, time });
+      push({ message: { ...message, toolCalls: [] }, time });
     },
     pushMessage: (message, time) => {
       push(toMutableEntry(message, time));
@@ -96,29 +87,9 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
     openEntry = undefined;
   };
 
-  const applyUndo = (count: number): void => {
-    if (count <= 0) return;
-    let removedUserCount = 0;
-    for (let i = transcript.length - 1; i >= clearFloor; i--) {
-      const message = transcript[i]!.message;
-      if (message.origin?.kind === 'injection') continue;
-      if (message.origin?.kind === 'compaction_summary') break;
-      transcript.splice(i, 1);
-      foldedLength = Math.max(0, foldedLength - 1);
-      if (isUndoAnchor(message)) {
-        removedUserCount++;
-        while (i > clearFloor && isPromptOwnedInjection(transcript[i - 1]!.message, message)) {
-          transcript.splice(i - 1, 1);
-          i--;
-          foldedLength = Math.max(0, foldedLength - 1);
-        }
-        if (removedUserCount >= count) break;
-      }
-    }
-    resetOpenState();
-  };
+  const records: WireRecord[] = [];
 
-  const add = (record: WireRecord): void => {
+  const appendRecord = (record: WireRecord): void => {
     switch (record.type) {
       case 'context.append_message': {
         fold.appendMessage(record['message'] as ContextMessage, record.time);
@@ -146,9 +117,6 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
         foldedLength = recoverFoldedLength(record, transcript, clearFloor, foldedLength);
         break;
       }
-      case 'context.undo':
-        applyUndo(record['count'] as number);
-        break;
       case 'context.clear':
         clearFloor = transcript.length;
         foldedLength = 0;
@@ -157,6 +125,26 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
       default:
         break;
     }
+  };
+
+  const applyUndo = (count: number): void => {
+    const result = cutTurnUndo(wireLinesOf(records), new Set(), count);
+    if (result.cut === undefined) return;
+    records.splice(result.cut.index);
+    transcript.length = 0;
+    foldedLength = 0;
+    clearFloor = 0;
+    resetOpenState();
+    for (const record of records) appendRecord(record);
+  };
+
+  const add = (record: WireRecord): void => {
+    if (record.type === 'context.undo') {
+      applyUndo(record['count'] as number);
+      return;
+    }
+    records.push(record);
+    appendRecord(record);
   };
 
   return {
@@ -170,20 +158,35 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
 }
 
 function toMutableEntry(message: ContextMessage, time: number | undefined): MutableEntry {
-  return {
-    message: {
-      ...(message.id !== undefined ? { id: message.id } : {}),
-      role: message.role,
-      content: [...message.content],
-      toolCalls: [...message.toolCalls],
-      ...(message.toolCallId !== undefined ? { toolCallId: message.toolCallId } : {}),
-      ...(message.isError !== undefined ? { isError: message.isError } : {}),
-      ...(message.origin !== undefined ? { origin: message.origin } : {}),
-      usage: message.usage,
-      llmTiming: message.llmTiming,
-    },
-    time,
+  const base = {
+    ...(message.id !== undefined ? { id: message.id } : {}),
+    content: [...message.content],
+    toolCalls: [],
+    ...(message.isError !== undefined ? { isError: message.isError } : {}),
+    ...(message.origin !== undefined ? { origin: message.origin } : {}),
+    ...(message.usage === undefined ? {} : { usage: message.usage }),
+    ...(message.llmTiming === undefined ? {} : { llmTiming: message.llmTiming }),
   };
+  switch (message.role) {
+    case 'system':
+      return {
+        message: {
+          ...base,
+          role: 'system',
+          ...(message.tools === undefined ? {} : { tools: message.tools }),
+        },
+        time,
+      };
+    case 'user':
+      return { message: { ...base, role: 'user' }, time };
+    case 'assistant':
+      return {
+        message: { ...base, role: 'assistant', toolCalls: [...message.toolCalls] },
+        time,
+      };
+    case 'tool':
+      return { message: { ...base, role: 'tool', toolCallId: message.toolCallId }, time };
+  }
 }
 
 function recoverFoldedLength(
@@ -196,11 +199,8 @@ function recoverFoldedLength(
   const keptHeadUserMessageCount = readNumber(record, 'keptHeadUserMessageCount');
   const compactedCount = readNumber(record, 'compactedCount');
   if (keptUserMessageCount !== undefined) {
-    return (
-      keptUserMessageCount +
-      (keptHeadUserMessageCount === undefined ? 2 : 3) +
-      (readNumber(record, 'appendedInjectionCount') ?? 0)
-    );
+    return keptUserMessageCount + (keptHeadUserMessageCount === undefined ? 2 : 3) +
+      (readNumber(record, 'appendedInjectionCount') ?? 0);
   }
   if (compactedCount !== undefined && compactedCount < foldedLength) {
     return 1 + (foldedLength - compactedCount);

@@ -42,6 +42,10 @@ const ROOT =
   rootArg !== undefined ? resolve(process.cwd(), rootArg) : join(import.meta.dirname, '..');
 
 const TEST_FILE = /\.(test|spec|e2e|integration)\.(ts|tsx|mts|cts|js|mjs|cjs)$/;
+// Playwright specs are a third runner: they import @playwright/test, whose own
+// `expect.poll` and assertions are not the vitest APIs these runner rules name.
+const PLAYWRIGHT_SPEC = /(?:from\s*|require\(\s*)['"]@playwright\/test['"]/;
+const PLAYWRIGHT_SPEC_PATH = /(^|\/)e2e\/[^/]+\.spec\.(?:ts|tsx|js|mjs|cjs)$/;
 const SOURCE_FILE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'dist-web', 'coverage', '.tmp']);
 
@@ -374,6 +378,7 @@ for (const rule of RULES) {
     if (rule.scope === 'source' && isTest) continue;
     if (!SOURCE_FILE.test(file) && !(rule.files?.test(rel) ?? false)) continue;
     const raw = readFileSync(file, 'utf8');
+    if (rule.scope === 'test' && (PLAYWRIGHT_SPEC.test(raw) || PLAYWRIGHT_SPEC_PATH.test(rel))) continue;
     const code = strip(raw, {
       keepComments: rule.keepComments === true,
       keepStrings: rule.keepStrings === true,

@@ -1,6 +1,5 @@
-import { useWelcomeHint } from '@/hooks/useWelcomeHint';
-
-import { KimiMascot } from './KimiMascot';
+import { KimiMascot } from "./KimiMascot";
+import { useWelcomeHint } from "@/hooks/useWelcomeHint";
 
 export function WelcomeScreen() {
   const hint = useWelcomeHint();

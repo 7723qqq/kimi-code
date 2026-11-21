@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -11,10 +11,17 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
 import { ConsoleLogWriter, MemoryLogWriter } from '#/_base/log/fileLog';
-import { ILogService, type LogEntry, levelEnabled } from '#/_base/log/log';
-import { logSeed, resolveGlobalLogPath, resolveLoggingConfig } from '#/_base/log/logConfig';
+import {
+  ILogService,
+  type LogEntry,
+  levelEnabled,
+} from '#/_base/log/log';
+import {
+  logSeed,
+  resolveGlobalLogPath,
+  resolveLoggingConfig,
+} from '#/_base/log/logConfig';
 import { AppLogService, BoundLogger } from '#/_base/log/logService';
-import { LifecycleScope } from '#/app/scopes';
 
 describe('BoundLogger', () => {
   let sink: MemoryLogWriter;
@@ -117,7 +124,7 @@ describe('levelEnabled', () => {
 
 describe('ConsoleLogWriter', () => {
   it('redacts secret-shaped ctx through the formatter', () => {
-    const spy = spyOn(console, 'log').mockImplementation(() => {});
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
       const writer = new ConsoleLogWriter();
       const entry: LogEntry = {

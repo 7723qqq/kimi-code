@@ -1,21 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
-import { jest } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
 
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import type { ToolCall } from '#human/message';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IEventBus } from '#/app/event/eventBus';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import { executeModelSkill } from '#/features/skill/tools/skillTool';
 import { type SkillCatalog, type SkillDefinition } from '#/features/skill/catalog/types';
-import type { ToolCall } from '#human/llm/message';
-
-import { recordingTelemetry } from '../../../app/telemetry/stubs';
-import { stubToolResultTruncationService } from '../../../agent/toolResultTruncation/stubs';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,
@@ -24,6 +19,8 @@ import {
   wireRecordPersistenceServices,
   type TestAgentContext,
 } from '../../../harness';
+import { recordingTelemetry } from '../../../app/telemetry/stubs';
+import { stubToolResultTruncationService } from '../../../agent/toolResultTruncation/stubs';
 import { stubSkill } from './stubs';
 
 function makeSkill(name: string, metadata: SkillDefinition['metadata'] = {}): SkillDefinition {
@@ -43,7 +40,9 @@ function recordContainsSkillLoaded(record: unknown, skillName: string): boolean 
   );
 }
 
-function isRecordWithMessage(record: unknown): record is {
+function isRecordWithMessage(
+  record: unknown,
+): record is {
   readonly type: string;
   readonly message: {
     readonly content?: readonly { readonly type?: string; readonly text?: string }[];
@@ -60,12 +59,12 @@ function isRecordWithMessage(record: unknown): record is {
 
 describe('ToolManager SkillTool registration', () => {
   let ctx: TestAgentContext;
-  let profile: IAgentProfileService;
+  let profile: IAgentLoopService;
   let tools: IAgentToolRegistryService;
 
   beforeEach(() => {
     ctx = createTestAgent();
-    profile = ctx.get(IAgentProfileService);
+    profile = ctx.get(IAgentLoopService);
     tools = ctx.get(IAgentToolRegistryService);
   });
 
@@ -89,7 +88,7 @@ describe('ToolManager SkillTool registration', () => {
 
 describe('ToolManager SkillTool registration with an empty model skill catalog', () => {
   let ctx: TestAgentContext;
-  let profile: IAgentProfileService;
+  let profile: IAgentLoopService;
   let tools: IAgentToolRegistryService;
   let skills: InMemorySkillCatalog;
 
@@ -97,7 +96,7 @@ describe('ToolManager SkillTool registration with an empty model skill catalog',
     skills = new InMemorySkillCatalog();
     skills.register(makeSkill('private', { disableModelInvocation: true }));
     ctx = createTestAgent(skillServices(skills));
-    profile = ctx.get(IAgentProfileService);
+    profile = ctx.get(IAgentLoopService);
     tools = ctx.get(IAgentToolRegistryService);
   });
 
@@ -121,7 +120,7 @@ describe('ToolManager SkillTool registration with an empty model skill catalog',
 
 describe('ToolManager SkillTool registration with inline skills', () => {
   let ctx: TestAgentContext;
-  let profile: IAgentProfileService;
+  let profile: IAgentLoopService;
   let tools: IAgentToolRegistryService;
   let skills: InMemorySkillCatalog;
 
@@ -130,7 +129,7 @@ describe('ToolManager SkillTool registration with inline skills', () => {
     skills.register(makeSkill('review'));
     skills.register(makeSkill('flow-only', { type: 'flow' }));
     ctx = createTestAgent(skillServices(skills));
-    profile = ctx.get(IAgentProfileService);
+    profile = ctx.get(IAgentLoopService);
     tools = ctx.get(IAgentToolRegistryService);
   });
 
@@ -158,7 +157,7 @@ describe('ToolManager SkillTool registration with inline skills', () => {
 
 describe('ToolManager SkillTool registration with a structural catalog', () => {
   let ctx: TestAgentContext;
-  let profile: IAgentProfileService;
+  let profile: IAgentLoopService;
   let tools: IAgentToolRegistryService;
   let skills: SkillCatalog;
 
@@ -177,7 +176,7 @@ describe('ToolManager SkillTool registration with a structural catalog', () => {
       getModelSkillListing: () => '- review: desc for review',
     };
     ctx = createTestAgent(skillServices(skills));
-    profile = ctx.get(IAgentProfileService);
+    profile = ctx.get(IAgentLoopService);
     tools = ctx.get(IAgentToolRegistryService);
   });
 
@@ -227,15 +226,17 @@ describe('SkillTool nested variants', () => {
     };
     const skillService: Parameters<typeof executeModelSkill>[1] = {
       _serviceBrand: undefined,
-      activate: jest.fn(),
-      promptWithSkills: jest.fn(),
-      recordModelToolActivation: jest.fn(),
+      activate: vi.fn(),
+      promptWithSkills: vi.fn(),
+      recordModelToolActivation: vi.fn(),
       modelToolContext: () => ({ queryDepth: 0 }),
     };
 
-    const result = await executeModelSkill(
+    const reminders: unknown[] = [];
+    await executeModelSkill(
       sessionCatalog,
       skillService,
+      { remind: (...entries: unknown[]) => reminders.push(...entries) } as unknown as IAgentLoopService,
       stubToolResultTruncationService(),
       { skill: 'parent.child' },
       1,
@@ -244,15 +245,15 @@ describe('SkillTool nested variants', () => {
       '/work/B',
     );
 
-    expect(JSON.stringify(result.delivery)).toContain('from B');
-    expect(JSON.stringify(result.delivery)).toContain('/work/B/parent/child/SKILL.md');
+    expect(JSON.stringify(reminders)).toContain('from B');
+    expect(JSON.stringify(reminders)).toContain('/work/B/parent/child/SKILL.md');
   });
 });
 
 describe('ToolManager SkillTool wire behavior', () => {
   let ctx: TestAgentContext;
-  let context: IAgentContextMemoryService;
-  let profile: IAgentProfileService;
+  let context: IAgentLoopService;
+  let profile: IAgentLoopService;
   let persistence: InMemoryWireRecordPersistence;
   let skills: InMemorySkillCatalog;
 
@@ -260,9 +261,12 @@ describe('ToolManager SkillTool wire behavior', () => {
     skills = new InMemorySkillCatalog();
     skills.register(makeSkill('review'));
     persistence = new InMemoryWireRecordPersistence();
-    ctx = createTestAgent(skillServices(skills), wireRecordPersistenceServices(persistence));
-    context = ctx.get(IAgentContextMemoryService);
-    profile = ctx.get(IAgentProfileService);
+    ctx = createTestAgent(
+      skillServices(skills),
+      wireRecordPersistenceServices(persistence),
+    );
+    context = ctx.get(IAgentLoopService);
+    profile = ctx.get(IAgentLoopService);
     profile.update({ activeToolNames: ['Skill'] });
   });
 
@@ -286,39 +290,40 @@ describe('ToolManager SkillTool wire behavior', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Review this change' }] });
     await ctx.untilTurnEnd();
 
-    const skillSplice = persistence.records.find((record) =>
-      recordContainsSkillLoaded(record, 'review'),
+    const skillSplice = persistence.records.find(
+      (record) => recordContainsSkillLoaded(record, 'review'),
     );
-    const skillSpliceSnapshot = structuredClone(skillSplice);
-    expect(skillSpliceSnapshot).toMatchObject({
-      type: 'context.append_message',
-      message: expect.objectContaining({
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: [
-              'Skill tool loaded instructions for this request. Follow them.',
-              '',
-              '<skill-loaded name="review" trigger="model-tool" source="user" dir="/skills/review" args="">',
-              'body of review',
-              '</skill-loaded>',
-            ].join('\n'),
-          },
-        ],
-        origin: expect.objectContaining({
-          kind: 'skill_activation',
-          skillName: 'review',
-          trigger: 'model-tool',
-        }),
+    if (skillSplice === undefined || !isRecordWithMessage(skillSplice)) {
+      throw new Error('expected skill activation record');
+    }
+    expect(skillSplice.type).toBe('context.append_message');
+    expect(skillSplice.message).toMatchObject({
+      role: 'user',
+      toolCalls: [],
+      origin: expect.objectContaining({
+        kind: 'skill_activation',
+        skillName: 'review',
+        trigger: 'model-tool',
       }),
     });
+    expect(skillSplice.message.content).toEqual([
+      {
+        type: 'text',
+        text: [
+          'Skill tool loaded instructions for this request. Follow them.',
+          '',
+          '<skill-loaded name="review" trigger="model-tool" source="user" dir="/skills/review" args="">',
+          'body of review',
+          '</skill-loaded>',
+        ].join('\n'),
+      },
+    ]);
     expect(persistence.records.some((record) => record.type === 'skill.activate')).toBe(false);
-    expect(context.get().at(-1)).toMatchObject({
+    expect(context.history().at(-1)).toMatchObject({
       role: 'assistant',
       content: [{ type: 'text', text: 'Review skill loaded.' }],
     });
-    expect(context.get().at(-2)).toMatchObject({
+    expect(context.history().at(-2)).toMatchObject({
       role: 'user',
       origin: {
         kind: 'skill_activation',
@@ -550,20 +555,23 @@ describe('ToolManager SkillTool wire behavior', () => {
 
 describe('ToolManager SkillTool restore behavior', () => {
   let ctx: TestAgentContext;
-  let context: IAgentContextMemoryService;
+  let context: IAgentLoopService;
   let skills: InMemorySkillCatalog;
-  let emit: ReturnType<typeof spyOn>;
-  let track: ReturnType<typeof spyOn>;
+  let emit: ReturnType<typeof vi.spyOn>;
+  let track: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     skills = new InMemorySkillCatalog();
     skills.register(makeSkill('review'));
     const telemetry = recordingTelemetry([]);
-    track = spyOn(telemetry, 'track2');
-    ctx = createTestAgent(skillServices(skills), telemetryServices(telemetry));
-    context = ctx.get(IAgentContextMemoryService);
+    track = vi.spyOn(telemetry, 'track2');
+    ctx = createTestAgent(
+      skillServices(skills),
+      telemetryServices(telemetry),
+    );
+    context = ctx.get(IAgentLoopService);
     const events = ctx.get(IEventBus);
-    emit = spyOn(events, 'publish');
+    emit = vi.spyOn(events, 'publish');
   });
 
   afterEach(async () => {
@@ -587,7 +595,6 @@ describe('ToolManager SkillTool restore behavior', () => {
     const message = {
       role: 'user' as const,
       content: [{ type: 'text' as const, text: 'restored skill body' }],
-      toolCalls: [],
       origin,
     };
 
@@ -596,18 +603,20 @@ describe('ToolManager SkillTool restore behavior', () => {
       { type: 'context.append_message', message },
     ]);
 
-    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'skill.activated' }));
+    expect(emit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'skill.activated' }),
+    );
     expect(ctx.allEvents).not.toContainEqual(
       expect.objectContaining({ type: '[rpc]', event: 'skill.activated' }),
     );
     expect(track).not.toHaveBeenCalledWith('skill_invoked', expect.anything());
-    expect(context.get()).toMatchObject([message]);
+    expect(context.history()).toMatchObject([message]);
   });
 });
 
 describe('ToolManager SkillTool workspace refresh', () => {
   let ctx: TestAgentContext;
-  let profile: IAgentProfileService;
+  let profile: IAgentLoopService;
   let tmp: string;
   let tools: IAgentToolRegistryService;
 
@@ -631,8 +640,11 @@ describe('ToolManager SkillTool workspace refresh', () => {
     };
     skills.register(skill);
 
-    ctx = createTestAgent({ cwd: workDir }, skillServices(skills));
-    profile = ctx.get(IAgentProfileService);
+    ctx = createTestAgent(
+      { cwd: workDir },
+      skillServices(skills),
+    );
+    profile = ctx.get(IAgentLoopService);
     tools = ctx.get(IAgentToolRegistryService);
     profile.update({ activeToolNames: ['Skill'] });
   });

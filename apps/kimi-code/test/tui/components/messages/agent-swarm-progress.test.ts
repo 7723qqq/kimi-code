@@ -1,5 +1,4 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
@@ -12,15 +11,11 @@ import {
   agentSwarmPartialItemsCountFromArguments,
   agentSwarmPartialItemsFromArguments,
   calculateAgentSwarmGridLayout,
+  isAgentSwarmRejection,
 } from '#/tui/components/messages/agent-swarm-progress';
 import { AgentSwarmProgressEstimator } from '#/tui/components/messages/agent-swarm-progress-estimator';
-import {
-  MAX_ESTIMATOR_SEEN_TOOL_CALLS,
-  MAX_ESTIMATOR_TOOL_CALL_SAMPLES,
-} from '#/tui/constant/rendering';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 import { setRenderCacheEnabled } from '#/tui/utils/render-cache';
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 const DEFAULT_DESCRIPTION = 'Review changed files';
 
@@ -35,17 +30,7 @@ function createComponent(
     description: options.description ?? DEFAULT_DESCRIPTION,
     requestRender: options.requestRender,
     availableGridHeight: options.availableGridHeight,
-    clock: options.clock,
   });
-}
-
-/** A component plus the fake clock driving its time and frame timer. */
-function createClockedComponent(options: Partial<AgentSwarmProgressOptions> = {}): {
-  readonly component: AgentSwarmProgressComponent;
-  readonly clock: FakeClock;
-} {
-  const clock = createFakeClock();
-  return { component: createComponent({ ...options, clock }), clock };
 }
 
 function renderText(component: AgentSwarmProgressComponent, width = 100): string {
@@ -72,30 +57,9 @@ function startSubagents(component: AgentSwarmProgressComponent, count: number): 
   }
 }
 
-interface EstimatorMemberHistory {
-  readonly seenToolCallIds: Set<string>;
-  readonly seenToolCallOrder: string[];
-  readonly toolCallActiveTimesMs: number[];
-}
-
-/**
- * The retention caps are internal state, so the bounds test reads the member
- * record directly rather than trying to infer it from an estimate.
- */
-function estimatorMemberHistory(
-  estimator: AgentSwarmProgressEstimator,
-  memberKey: string,
-): EstimatorMemberHistory {
-  const members = (
-    estimator as unknown as { readonly members: Map<string, EstimatorMemberHistory> }
-  ).members;
-  const history = members.get(memberKey);
-  if (history === undefined) throw new Error(`unknown estimator member: ${memberKey}`);
-  return history;
-}
-
 afterEach(() => {
-  currentTheme.setPalette(darkColors, 'dark');
+  vi.useRealTimers();
+  currentTheme.setPalette(darkColors);
 });
 
 describe('calculateAgentSwarmGridLayout', () => {
@@ -193,6 +157,28 @@ describe('calculateAgentSwarmGridLayout', () => {
   });
 });
 
+describe('isAgentSwarmRejection', () => {
+  it('matches failures that ended the call before any subagent started', () => {
+    expect(isAgentSwarmRejection(
+      'Swarm mode is off, so AgentSwarm did not run and no subagents were started.',
+    )).toBe(true);
+    expect(isAgentSwarmRejection(
+      'AgentSwarm requires at least 2 items unless resume_agent_ids is provided.',
+    )).toBe(true);
+  });
+
+  it('does not match per-subagent results or cancellations', () => {
+    expect(isAgentSwarmRejection([
+      '<agent_swarm_result>',
+      '<summary>failed: 1</summary>',
+      '<subagent index="1" outcome="failed">Agent timed out.</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'))).toBe(false);
+    expect(isAgentSwarmRejection('Aborted by the user')).toBe(false);
+    expect(isAgentSwarmRejection('The user manually interrupted this subagent batch.')).toBe(false);
+  });
+});
+
 describe('AgentSwarmProgressComponent', () => {
   it('renders an orchestrating panel before subagents spawn', () => {
     const component = createComponent();
@@ -231,7 +217,7 @@ describe('AgentSwarmProgressComponent', () => {
 
   it('repaints from the active palette when the theme changes', () => {
     const previousLevel = chalk.level;
-    chalk.level = 3; // force truecolor so palette differences surface as ANSI
+    chalk.level = 3;
     try {
       const component = createComponent();
       const titleOf = (): string => {
@@ -241,10 +227,9 @@ describe('AgentSwarmProgressComponent', () => {
       };
       const before = titleOf();
 
-      currentTheme.setPalette(lightColors, 'light');
+      currentTheme.setPalette(lightColors);
       const after = titleOf();
 
-      // Same visible text, different ANSI colours (reads currentTheme live).
       expect(strip(after)).toBe(strip(before));
       expect(after).not.toBe(before);
     } finally {
@@ -473,7 +458,8 @@ describe('AgentSwarmProgressComponent', () => {
     });
     component.markCancelled('agent-1');
 
-    const cellLine = renderLines(component).find((line) => line.includes('001 ['));
+    const cellLine = renderLines(component)
+      .find((line) => line.includes('001 ['));
 
     expect(cellLine).toBeDefined();
     expect(cellLine).toContain('⊘ Cancelled.');
@@ -487,14 +473,12 @@ describe('AgentSwarmProgressComponent', () => {
       description: 'Review changed files',
       items: ['src/a.ts'],
     });
-    component.applyResult(
-      [
-        '<agent_swarm_result>',
-        '<summary>failed: 1</summary>',
-        '<subagent index="1" agent_id="agent-1" outcome="failed">Agent timed out after 30s.</subagent>',
-        '</agent_swarm_result>',
-      ].join('\n'),
-    );
+    component.applyResult([
+      '<agent_swarm_result>',
+      '<summary>failed: 1</summary>',
+      '<subagent index="1" agent_id="agent-1" outcome="failed">Agent timed out after 30s.</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'));
 
     const output = renderText(component);
 
@@ -509,17 +493,15 @@ describe('AgentSwarmProgressComponent', () => {
       description: 'Review changed files',
       items: ['src/a.ts', 'src/b.ts'],
     });
-    const applied = component.applyResult(
-      [
-        '<agent_swarm_result>',
-        '<summary>failed: 1, aborted: 1</summary>',
-        '<subagent agent_id="agent-1" item="src/a.ts" outcome="failed">' +
-          'Agent timed out after 30s.</subagent>',
-        '<subagent agent_id="agent-2" item="src/b.ts" outcome="aborted">' +
-          'User interrupted.</subagent>',
-        '</agent_swarm_result>',
-      ].join('\n'),
-    );
+    const applied = component.applyResult([
+      '<agent_swarm_result>',
+      '<summary>failed: 1, aborted: 1</summary>',
+      '<subagent agent_id="agent-1" item="src/a.ts" outcome="failed">' +
+        'Agent timed out after 30s.</subagent>',
+      '<subagent agent_id="agent-2" item="src/b.ts" outcome="aborted">' +
+        'User interrupted.</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'));
 
     const output = renderText(component, 120);
 
@@ -537,23 +519,21 @@ describe('AgentSwarmProgressComponent', () => {
       description: 'Review changed files',
       items: ['src/a.ts'],
     });
-    component.applyResult(
-      [
-        '<agent_swarm_result>',
-        '<summary>failed: 1</summary>',
-        '<subagent index="1" agent_id="agent-1" outcome="failed">agent_swarm: failed',
-        'description: Nested review',
-        'items: 1',
-        'completed: 0',
-        'failed: 1',
-        '',
-        '[agent 1]',
-        'status: failed',
-        '',
-        'subagent error: [provider.rate_limit] 429 request reached user+model max RPM.</subagent>',
-        '</agent_swarm_result>',
-      ].join('\n'),
-    );
+    component.applyResult([
+      '<agent_swarm_result>',
+      '<summary>failed: 1</summary>',
+      '<subagent index="1" agent_id="agent-1" outcome="failed">agent_swarm: failed',
+      'description: Nested review',
+      'items: 1',
+      'completed: 0',
+      'failed: 1',
+      '',
+      '[agent 1]',
+      'status: failed',
+      '',
+      'subagent error: [provider.rate_limit] 429 request reached user+model max RPM.</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'));
 
     const output = renderText(component, 120);
 
@@ -569,14 +549,12 @@ describe('AgentSwarmProgressComponent', () => {
       description: 'Review changed files',
       items: ['src/a.ts'],
     });
-    component.applyResult(
-      [
-        '<agent_swarm_result>',
-        '<summary>completed: 1</summary>',
-        '<subagent index="1" agent_id="agent-1" outcome="completed">Reviewed src/a.ts and confirmed imports are stable.</subagent>',
-        '</agent_swarm_result>',
-      ].join('\n'),
-    );
+    component.applyResult([
+      '<agent_swarm_result>',
+      '<summary>completed: 1</summary>',
+      '<subagent index="1" agent_id="agent-1" outcome="completed">Reviewed src/a.ts and confirmed imports are stable.</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'));
 
     const output = renderText(component);
 
@@ -591,15 +569,13 @@ describe('AgentSwarmProgressComponent', () => {
       description: 'Review changed files',
       items: ['src/a.ts', 'src/b.ts'],
     });
-    component.applyResult(
-      [
-        '<agent_swarm_result>',
-        '<summary>completed: 1, failed: 1</summary>',
-        '<subagent index="1" agent_id="agent-1" outcome="completed">Reviewed src/a.ts and confirmed imports are stable.</subagent>',
-        '<subagent index="2" agent_id="agent-2" outcome="failed">Agent timed out after 30s.</subagent>',
-        '</agent_swarm_result>',
-      ].join('\n'),
-    );
+    component.applyResult([
+      '<agent_swarm_result>',
+      '<summary>completed: 1, failed: 1</summary>',
+      '<subagent index="1" agent_id="agent-1" outcome="completed">Reviewed src/a.ts and confirmed imports are stable.</subagent>',
+      '<subagent index="2" agent_id="agent-2" outcome="failed">Agent timed out after 30s.</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'));
 
     const output = renderText(component, 120);
     const totalStatusLine = output.split('\n').find((line) => line.includes('Completed.'));
@@ -608,25 +584,6 @@ describe('AgentSwarmProgressComponent', () => {
     expect(totalStatusLine).not.toContain('Failed.');
     expect(output).toContain('✓ Reviewed src/a.ts');
     expect(output).toContain('✗ Agent timed out after 30s.');
-  });
-
-  it('reports the swarm itself as failed even after a member completed', () => {
-    // The whole-swarm failure outranks the members' own phases: `markSwarmFailed`
-    // is what a non-parsable error result turns into, and it leaves the members
-    // that already finished as `completed`. Reading the phases first reported
-    // "Completed." for a swarm whose cells were all ✗, so the header and the
-    // cells disagreed and neither the user nor the summary learned it had failed.
-    const component = createComponent();
-
-    registerSubagents(component, 2);
-    component.markCompleted('agent-1', 'Imports are stable');
-    component.markToolCallEnded();
-    component.markSwarmFailed('boom');
-
-    const output = renderText(component, 120);
-
-    expect(output).toContain('Failed.');
-    expect(output).not.toContain('Completed.');
   });
 
   it('uses the latest assistant line as completed output when no summary is available', () => {
@@ -666,21 +623,20 @@ describe('AgentSwarmProgressComponent', () => {
     const prompting = createComponent({
       description: '',
     });
-    prompting.updateArgs(
-      {},
-      {
-        streamingArguments: '{"prompt_template":"Review the changed TypeScript files carefully',
-      },
-    );
+    prompting.updateArgs({}, {
+      streamingArguments: '{"prompt_template":"Review the changed TypeScript files carefully',
+    });
 
-    const promptLine = renderLines(prompting, 80).find((line) => line.includes('Prompting…'));
+    const promptLine = renderLines(prompting, 80)
+      .find((line) => line.includes('Prompting…'));
     expect(promptLine).toBeDefined();
 
     const working = createComponent();
     registerSubagents(working, 1);
     startSubagents(working, 1);
 
-    const workingLine = renderLines(working, 80).find((line) => line.includes('Working…'));
+    const workingLine = renderLines(working, 80)
+      .find((line) => line.includes('Working…'));
     expect(workingLine).toBeDefined();
 
     const promptTextIndex = promptLine?.indexOf('Review the changed') ?? -1;
@@ -698,7 +654,8 @@ describe('AgentSwarmProgressComponent', () => {
     startSubagents(component, 1);
     component.setActivitySpinnerText(() => '🌗');
 
-    const statusLine = renderLines(component, 80).find((line) => line.includes('Working…'));
+    const statusLine = renderLines(component, 80)
+      .find((line) => line.includes('Working…'));
 
     expect(statusLine).toBeDefined();
     expect(statusLine?.startsWith(' 🌗 Working…')).toBe(true);
@@ -713,7 +670,8 @@ describe('AgentSwarmProgressComponent', () => {
     component.markToolCallEnded();
     component.setActivitySpinnerText(() => '🌘');
 
-    const statusLine = renderLines(component, 80).find((line) => line.includes('Working…'));
+    const statusLine = renderLines(component, 80)
+      .find((line) => line.includes('Working…'));
 
     expect(statusLine).toBeDefined();
     expect(statusLine?.startsWith('    Working…')).toBe(true);
@@ -754,31 +712,29 @@ describe('AgentSwarmProgressComponent', () => {
     const prompting = createComponent({
       description: '',
     });
-    prompting.updateArgs(
-      {},
-      {
-        streamingArguments:
-          '{"prompt_template":"Review every changed TypeScript file and summarize regressions carefully before reporting',
-      },
-    );
+    prompting.updateArgs({}, {
+      streamingArguments: '{"prompt_template":"Review every changed TypeScript file and summarize regressions carefully before reporting',
+    });
 
-    const promptLine = renderLines(prompting, 50).find((line) => line.includes('Prompting…'));
+    const promptLine = renderLines(prompting, 50)
+      .find((line) => line.includes('Prompting…'));
 
     expect(promptLine).toBeDefined();
     expect(visibleWidth(promptLine ?? '')).toBeLessThan(50);
   });
 
   it('renders boosted fractional progress ticks without leaking undefined cells', () => {
-    const { component, clock } = createClockedComponent();
+    vi.useFakeTimers();
+    const component = createComponent();
 
-    clock.set(0);
+    vi.setSystemTime(0);
     registerSubagents(component, 1);
     component.markStarted('agent-1');
     for (let index = 0; index < 10; index += 1) {
-      clock.set(1_000 + index * 1_000);
+      vi.setSystemTime(1_000 + index * 1_000);
       component.recordToolCall({ agentId: 'agent-1', toolCallId: `done-${index}` });
     }
-    clock.set(40_000);
+    vi.setSystemTime(40_000);
     component.markCompleted('agent-1');
 
     component.registerSubagent({
@@ -787,13 +743,13 @@ describe('AgentSwarmProgressComponent', () => {
     });
     component.markStarted('agent-2');
     for (let index = 0; index < 3; index += 1) {
-      clock.set(45_000 + index * 5_000);
+      vi.setSystemTime(45_000 + index * 5_000);
       component.recordToolCall({ agentId: 'agent-2', toolCallId: `running-${index}` });
     }
 
-    clock.set(60_000);
+    vi.setSystemTime(60_000);
     component.render(100);
-    clock.set(61_000);
+    vi.setSystemTime(61_000);
     const output = renderText(component);
 
     expect(output).toContain('002 [');
@@ -839,7 +795,9 @@ describe('AgentSwarmProgressComponent', () => {
   });
 
   it('counts partial items before each string is complete', () => {
-    expect(agentSwarmPartialItemsCountFromArguments('{"items":["src/a.ts","src/b')).toBe(2);
+    expect(
+      agentSwarmPartialItemsCountFromArguments('{"items":["src/a.ts","src/b'),
+    ).toBe(2);
     expect(
       agentSwarmPartialItemsCountFromArguments('{"items":["src/a.ts","src/\\"b.ts","src/c'),
     ).toBe(3);
@@ -853,12 +811,9 @@ describe('AgentSwarmProgressComponent', () => {
       description: '',
     });
 
-    component.updateArgs(
-      {},
-      {
-        streamingArguments: '{"description":"Review changed files","items":["src/a.ts","src/b',
-      },
-    );
+    component.updateArgs({}, {
+      streamingArguments: '{"description":"Review changed files","items":["src/a.ts","src/b',
+    });
     const output = renderText(component);
 
     expect(output).toContain('001 src/a.ts');
@@ -870,13 +825,10 @@ describe('AgentSwarmProgressComponent', () => {
       description: '',
     });
 
-    component.updateArgs(
-      {},
-      {
-        streamingArguments:
-          '{"description":"Resume reviews","resume_agent_ids":{"agent-old-1":"continue","agent-old-2":"cont',
-      },
-    );
+    component.updateArgs({}, {
+      streamingArguments:
+        '{"description":"Resume reviews","resume_agent_ids":{"agent-old-1":"continue","agent-old-2":"cont',
+    });
     const output = renderText(component);
 
     expect(output).toContain('001 (resumed)');
@@ -946,15 +898,16 @@ describe('AgentSwarmProgressComponent', () => {
 
 describe('AgentSwarmProgressComponent render caching', () => {
   function createTerminalComponent(): AgentSwarmProgressComponent {
-    const { component, clock } = createClockedComponent();
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const component = createComponent();
     registerSubagents(component, 2);
     startSubagents(component, 2);
-    clock.set(1_000);
+    vi.setSystemTime(1_000);
     component.markCompleted('agent-1', 'done one');
     component.markCompleted('agent-2', 'done two');
     component.markToolCallEnded();
-    // Past the 360ms completion fill window, so the panel is fully static.
-    clock.set(2_000);
+    vi.setSystemTime(2_000);
     return component;
   }
 
@@ -985,16 +938,16 @@ describe('AgentSwarmProgressComponent render caching', () => {
   });
 
   it('re-renders when the available grid height changes', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
     let gridHeight: number | undefined = 10;
-    const { component, clock } = createClockedComponent({
-      availableGridHeight: () => gridHeight,
-    });
+    const component = createComponent({ availableGridHeight: () => gridHeight });
     registerSubagents(component, 1);
     startSubagents(component, 1);
-    clock.set(1_000);
+    vi.setSystemTime(1_000);
     component.markCompleted('agent-1', 'done');
     component.markToolCallEnded();
-    clock.set(2_000);
+    vi.setSystemTime(2_000);
     const before = component.render(100);
 
     gridHeight = 1;
@@ -1042,7 +995,7 @@ describe('AgentSwarmProgressComponent render caching', () => {
       };
       const before = cellLineOf();
 
-      currentTheme.setPalette(lightColors, 'light');
+      currentTheme.setPalette(lightColors);
       const after = cellLineOf();
 
       expect(strip(after)).toBe(strip(before));
@@ -1053,7 +1006,8 @@ describe('AgentSwarmProgressComponent render caching', () => {
   });
 
   it('does not cache while a member is still running', () => {
-    const { component } = createClockedComponent();
+    vi.useFakeTimers();
+    const component = createComponent();
     registerSubagents(component, 1);
     startSubagents(component, 1);
 
@@ -1061,16 +1015,18 @@ describe('AgentSwarmProgressComponent render caching', () => {
   });
 
   it('does not cache during the completion fill window', () => {
-    const { component, clock } = createClockedComponent();
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const component = createComponent();
     registerSubagents(component, 1);
     startSubagents(component, 1);
-    clock.set(1_000);
+    vi.setSystemTime(1_000);
     component.markCompleted('agent-1', 'done');
     component.markToolCallEnded();
 
     expect(component.render(100)).not.toBe(component.render(100));
 
-    clock.set(2_000);
+    vi.setSystemTime(2_000);
     const settled = component.render(100);
     expect(component.render(100)).toBe(settled);
   });
@@ -1143,13 +1099,15 @@ describe('AgentSwarmProgressComponent terminal state memory', () => {
   });
 
   it('re-renders a member cell with its terminal label after completing', () => {
-    const { component, clock } = createClockedComponent();
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const component = createComponent();
     registerSubagents(component, 1);
     startSubagents(component, 1);
     component.appendModelDelta({ agentId: 'agent-1', delta: 'working on it' });
     expect(renderText(component)).toContain('working on it');
 
-    clock.set(1_000);
+    vi.setSystemTime(1_000);
     component.markCompleted('agent-1', 'done');
 
     const output = renderText(component);
@@ -1215,7 +1173,10 @@ describe('AgentSwarmProgressComponent terminal state memory', () => {
     const component = createComponent();
     registerSubagents(component, 1);
 
-    component.markCompleted('agent-1', `\u001B[1m\u001B[31mx${'\u0301'.repeat(5_000)}\u001B[0m`);
+    component.markCompleted(
+      'agent-1',
+      `\u001B[1m\u001B[31mx${'\u0301'.repeat(5_000)}\u001B[0m`,
+    );
 
     expect(rawCellLine(component)).toContain('\u001B[0m');
   });
@@ -1250,8 +1211,9 @@ describe('AgentSwarmProgressComponent terminal state memory', () => {
 
 describe('AgentSwarmProgressComponent frame timer', () => {
   it('batches model deltas onto the frame timer instead of rendering per delta', () => {
-    const requestRender = mock();
-    const { component, clock } = createClockedComponent({ requestRender });
+    vi.useFakeTimers();
+    const requestRender = vi.fn();
+    const component = createComponent({ requestRender });
     registerSubagents(component, 1);
     startSubagents(component, 1);
     requestRender.mockClear();
@@ -1262,94 +1224,69 @@ describe('AgentSwarmProgressComponent frame timer', () => {
 
     expect(requestRender).not.toHaveBeenCalled();
 
-    clock.advance(80);
+    vi.advanceTimersByTime(80);
     expect(requestRender).toHaveBeenCalledTimes(1);
   });
 
   it('starts the frame timer when a delta arrives for a queued member', () => {
-    const requestRender = mock();
-    const { component, clock } = createClockedComponent({ requestRender });
+    vi.useFakeTimers();
+    const requestRender = vi.fn();
+    const component = createComponent({ requestRender });
     registerSubagents(component, 1);
     requestRender.mockClear();
 
     component.appendModelDelta({ agentId: 'agent-1', delta: 'hello' });
 
     expect(requestRender).not.toHaveBeenCalled();
-    clock.advance(80);
+    vi.advanceTimersByTime(80);
     expect(requestRender).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the frame timer alive while members are running', () => {
-    const requestRender = mock();
-    const { component, clock } = createClockedComponent({ requestRender });
+    vi.useFakeTimers();
+    const requestRender = vi.fn();
+    const component = createComponent({ requestRender });
     registerSubagents(component, 1);
     startSubagents(component, 1);
     requestRender.mockClear();
 
-    clock.advance(80 * 3);
+    vi.advanceTimersByTime(80 * 3);
 
     expect(requestRender.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 
   it('stops the frame timer after the completion fill animation ends', () => {
-    const requestRender = mock();
-    const { component, clock } = createClockedComponent({ requestRender });
+    vi.useFakeTimers();
+    const requestRender = vi.fn();
+    const component = createComponent({ requestRender });
     registerSubagents(component, 1);
     startSubagents(component, 1);
     requestRender.mockClear();
 
     component.markCompleted('agent-1', 'done');
-    clock.advance(80 * 10);
+    vi.advanceTimersByTime(80 * 10);
     const callsAfterSettled = requestRender.mock.calls.length;
     expect(callsAfterSettled).toBeGreaterThan(0);
 
-    clock.advance(80 * 5);
+    vi.advanceTimersByTime(80 * 5);
     expect(requestRender.mock.calls.length).toBe(callsAfterSettled);
   });
 
   it('stops the frame timer when the tool call ends with an unparsable result', () => {
-    const requestRender = mock();
-    const { component, clock } = createClockedComponent({ requestRender });
+    vi.useFakeTimers();
+    const requestRender = vi.fn();
+    const component = createComponent({ requestRender });
     registerSubagents(component, 1);
     startSubagents(component, 1);
     requestRender.mockClear();
 
     component.markToolCallEnded();
     expect(component.applyResult('Done')).toBe(false);
-    clock.advance(80 * 10);
+    vi.advanceTimersByTime(80 * 10);
     const callsAfterSettled = requestRender.mock.calls.length;
 
-    clock.advance(80 * 5);
+    vi.advanceTimersByTime(80 * 5);
     expect(requestRender.mock.calls.length).toBe(callsAfterSettled);
-  });
-
-  it('does not re-arm the frame timer after dispose', () => {
-    const requestRender = mock();
-    const { component, clock } = createClockedComponent({ requestRender });
-    registerSubagents(component, 1);
-    startSubagents(component, 1);
-
-    clock.advance(80);
-    expect(requestRender).toHaveBeenCalled();
-
-    component.dispose();
-    clock.advance(80 * 4);
-    requestRender.mockClear();
-
-    // Every mutator re-arms the animation through startAnimationIfNeeded(), so
-    // a late event after dispose must not resurrect the interval.
-    component.markStarted('agent-1');
-    component.recordToolCall({ agentId: 'agent-1', toolCallId: 'late-call' });
-    component.applyResult(
-      [
-        '<agent_swarm_result>',
-        '<subagent index="1" agent_id="agent-1" outcome="completed">done</subagent>',
-        '</agent_swarm_result>',
-      ].join('\n'),
-    );
-    clock.advance(80 * 10);
-
-    expect(requestRender).not.toHaveBeenCalled();
   });
 });
 
@@ -1536,81 +1473,5 @@ describe('AgentSwarmProgressEstimator', () => {
       nowMs: 20_000,
     });
     expect(repeat.estimatedTotalToolCalls).toBe(after.estimatedTotalToolCalls);
-  });
-
-  it('keeps the tool-call sample and seen-id history bounded', () => {
-    const estimator = new AgentSwarmProgressEstimator();
-    estimator.markStarted('001', 0);
-    const recorded = MAX_ESTIMATOR_SEEN_TOOL_CALLS + 512;
-    for (let index = 0; index < recorded; index += 1) {
-      estimator.recordToolCall({
-        memberKey: '001',
-        toolCallId: `call-${String(index)}`,
-        nowMs: 1_000 + index,
-      });
-    }
-
-    const history = estimatorMemberHistory(estimator, '001');
-    expect(history.toolCallActiveTimesMs).toHaveLength(MAX_ESTIMATOR_TOOL_CALL_SAMPLES);
-    expect(history.seenToolCallOrder).toHaveLength(MAX_ESTIMATOR_SEEN_TOOL_CALLS);
-    expect(history.seenToolCallIds.size).toBe(MAX_ESTIMATOR_SEEN_TOOL_CALLS);
-    // FIFO eviction drops the oldest ids while the newest ones stay deduped.
-    expect(history.seenToolCallIds.has('call-0')).toBe(false);
-    expect(history.seenToolCallIds.has(`call-${String(recorded - 1)}`)).toBe(true);
-    expect(
-      estimator.recordToolCall({
-        memberKey: '001',
-        toolCallId: `call-${String(recorded - 1)}`,
-        nowMs: 2_000 + recorded,
-      }).accepted,
-    ).toBe(false);
-  });
-
-  it('keeps the rate estimate finite and non-decreasing with a capped sample window', () => {
-    const estimator = new AgentSwarmProgressEstimator({
-      catchupTimeMs: 1_000,
-      maxCatchupTicksPerSecond: 100,
-    });
-
-    estimator.markStarted('001', 0);
-    for (let index = 0; index < 10; index += 1) {
-      estimator.recordToolCall({
-        memberKey: '001',
-        toolCallId: `seed-${String(index)}`,
-        nowMs: 1_000 + index * 1_000,
-      });
-    }
-    estimator.markCompleted('001', 40_000);
-
-    estimator.markStarted('002', 0);
-    const recorded = MAX_ESTIMATOR_TOOL_CALL_SAMPLES * 4;
-    for (let index = 0; index < recorded; index += 1) {
-      estimator.recordToolCall({
-        memberKey: '002',
-        toolCallId: `running-${String(index)}`,
-        nowMs: 1_000 + index * 10,
-      });
-    }
-    const lastNowMs = 2_000 + recorded * 10;
-
-    const first = estimator.estimate({
-      memberKey: '002',
-      phase: 'running',
-      capacityTicks: 10_000,
-      nowMs: lastNowMs,
-    });
-    const later = estimator.estimate({
-      memberKey: '002',
-      phase: 'running',
-      capacityTicks: 10_000,
-      nowMs: lastNowMs + 1_000,
-    });
-
-    expect(Number.isFinite(first.estimatedTotalToolCalls)).toBe(true);
-    // The estimate can never imply more progress than the recorded ticks.
-    expect(first.estimatedTotalToolCalls ?? 0).toBeGreaterThanOrEqual(recorded + 1);
-    expect(first.boosted).toBe(false);
-    expect(later.boosted).toBe(true);
-    expect(later.displayTicks).toBeGreaterThanOrEqual(first.displayTicks);
   });
 });

@@ -1,4 +1,5 @@
-import { expect, describe, it } from "bun:test";
+import assert from "node:assert";
+import { describe, it } from "node:test";
 import type { Component, TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
@@ -26,18 +27,18 @@ describe("TUI shrinking content", () => {
 		tui.start();
 		await terminal.waitForRender();
 
-		expect(terminal.getViewport().some((line) => line.includes("first"))).toBeTruthy();
-		expect(terminal.getViewport().some((line) => line.includes("second"))).toBeTruthy();
-		expect(terminal.getViewport().some((line) => line.includes("third"))).toBeTruthy();
+		assert.ok(terminal.getViewport().some((line) => line.includes("first")));
+		assert.ok(terminal.getViewport().some((line) => line.includes("second")));
+		assert.ok(terminal.getViewport().some((line) => line.includes("third")));
 
 		tui.clear();
 		tui.requestRender();
 		await terminal.waitForRender();
 
 		const viewport = terminal.getViewport();
-		expect(!viewport.some((line) => line.includes("first")), "first line should be cleared").toBeTruthy();
-		expect(!viewport.some((line) => line.includes("second")), "second line should be cleared").toBeTruthy();
-		expect(!viewport.some((line) => line.includes("third")), "third line should be cleared").toBeTruthy();
+		assert.ok(!viewport.some((line) => line.includes("first")), "first line should be cleared");
+		assert.ok(!viewport.some((line) => line.includes("second")), "second line should be cleared");
+		assert.ok(!viewport.some((line) => line.includes("third")), "third line should be cleared");
 
 		tui.stop();
 	});

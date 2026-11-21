@@ -8,7 +8,7 @@ import type {
   SkillSource,
   SkippedSkill,
 } from './types';
-import { isInlineSkillType, normalizeSkillName, skillSourceRank } from './types';
+import { isInlineSkillType, normalizeSkillName } from './types';
 
 const LISTING_DESC_MAX = 250;
 
@@ -40,12 +40,7 @@ export class InMemorySkillCatalog implements SkillCatalog {
       return;
     }
     const key = normalizeSkillName(skill.name);
-    const existing = this.byName.get(key);
-    if (
-      options.replace === true ||
-      existing === undefined ||
-      skillSourceRank(skill.source) > skillSourceRank(existing.source)
-    ) {
+    if (options.replace === true || !this.byName.has(key)) {
       this.byName.set(key, skill);
       this.variantsByName.set(key, [skill]);
     }
@@ -100,17 +95,14 @@ export class InMemorySkillCatalog implements SkillCatalog {
       sessionId: context?.sessionId,
       argumentNames,
     });
-    const verification = renderVerification(skill);
     const plugin = skill.plugin;
-    if (plugin === undefined) return `${content}${verification}`;
+    if (plugin === undefined) return content;
     const instructions = plugin.instructions;
-    if (instructions === undefined || instructions.trim().length === 0) {
-      return `${content}${verification}`;
-    }
+    if (instructions === undefined || instructions.trim().length === 0) return content;
     return (
       `<plugin-instructions plugin="${escapeXmlAttr(plugin.id)}">\n` +
       `${instructions}\n` +
-      `</plugin-instructions>\n\n${content}${verification}`
+      `</plugin-instructions>\n\n${content}`
     );
   }
 
@@ -119,9 +111,7 @@ export class InMemorySkillCatalog implements SkillCatalog {
   }
 
   listSkills(): readonly SkillDefinition[] {
-    return [...this.variantsByName.values()]
-      .flat()
-      .toSorted((a, b) => a.name.localeCompare(b.name));
+    return [...this.variantsByName.values()].flat().toSorted((a, b) => a.name.localeCompare(b.name));
   }
 
   listInvocableSkills(): readonly SkillDefinition[] {
@@ -198,7 +188,11 @@ interface SkillExpandContext {
   readonly argumentNames?: readonly string[];
 }
 
-function expandSkillParameters(body: string, rawArgs: string, context: SkillExpandContext): string {
+function expandSkillParameters(
+  body: string,
+  rawArgs: string,
+  context: SkillExpandContext,
+): string {
   const tokens = tokenizeArgs(rawArgs);
   let content = body;
 
@@ -236,7 +230,8 @@ function expandSkillParameters(body: string, rawArgs: string, context: SkillExpa
 
 function skillArgumentNames(metadata: SkillMetadata): readonly string[] {
   const value = metadata.arguments;
-  const isValidName = (name: string): boolean => name.trim() !== '' && !/^\d+$/.test(name);
+  const isValidName = (name: string): boolean =>
+    name.trim() !== '' && !/^\d+$/.test(name);
   if (typeof value === 'string') return value.split(/\s+/).filter(isValidName);
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && isValidName(item));
@@ -280,17 +275,6 @@ function formatModelSkill(skill: SkillDefinition): readonly string[] {
   }
   if (skill.workspaceDir !== undefined) lines.push(`  Workspace: ${skill.workspaceDir}`);
   return lines;
-}
-
-const VERIFY_GUIDANCE =
-  'Do not report this skill as complete until every command below has passed. ' +
-  'Running the commands is the check; reviewing your own output is not a substitute.';
-
-function renderVerification(skill: SkillDefinition): string {
-  const commands = skill.metadata.verify;
-  if (commands === undefined || commands.length === 0) return '';
-  const lines = commands.map((command) => `- \`${command.replaceAll('`', "'")}\``);
-  return `\n\n## Verification (required)\n\n${VERIFY_GUIDANCE}\n${lines.join('\n')}`;
 }
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });

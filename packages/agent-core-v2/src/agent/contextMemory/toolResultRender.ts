@@ -1,5 +1,6 @@
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
+
 import { isMcpToolName } from '#/tool/toolContract';
-import type { ContentPart } from '#human/llm/message';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
@@ -52,7 +53,7 @@ function renderStatus(result: RenderableToolResult): ContentPart[] {
   const single = typeof output === 'string' ? output : singleTextPart(output);
   if (single !== undefined) {
     if (result.isError === true) {
-      if (isEmptyOutputText(single)) return [textPart(TOOL_EMPTY_ERROR_STATUS)];
+      if (single.length === 0) return [textPart(TOOL_EMPTY_ERROR_STATUS)];
       return [textPart(TOOL_ERROR_STATUS + '\n' + single)];
     }
     return isEmptyOutputText(single) ? [textPart(TOOL_EMPTY_STATUS)] : [textPart(single)];

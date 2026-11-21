@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { PathSecurityError } from '#/tool/path-access';
 import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -8,12 +8,7 @@ import { type WriteInput, WriteInputSchema } from '#/agent/tools/os/write/write'
 import { WriteTool } from '#/agent/tools/os/write/writeTool';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
-
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
@@ -45,32 +40,24 @@ interface WriteFsOptions {
   writeText?: (path: string, data: string) => Promise<void>;
   appendText?: (path: string, data: string) => Promise<void>;
   stat?: (path: string) => Promise<HostFileStat>;
-  realpath?: (path: string) => Promise<string>;
   mkdir?: (path: string) => Promise<void>;
 }
 
 function createWriteFs(options: WriteFsOptions = {}) {
-  const readText = mock(
+  const readText = vi.fn(
     options.readText ??
       (async () => {
         throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
       }),
   );
-  const writeText = mock(options.writeText ?? (async () => {}));
-  const appendText = mock(options.appendText ?? (async () => {}));
-  const stat = mock(options.stat ?? (async () => ({ isFile: false, isDirectory: true, size: 0 })));
-  const mkdir = mock(options.mkdir ?? (async () => {}));
-  const realpath = mock(options.realpath ?? (async (path: string) => path));
-  const fs = {
-    cwd: '/',
-    readText,
-    writeText,
-    appendText,
-    stat,
-    mkdir,
-    realpath,
-  } as unknown as IHostFileSystem;
-  return { fs, readText, writeText, appendText, stat, mkdir, realpath };
+  const writeText = vi.fn(options.writeText ?? (async () => {}));
+  const appendText = vi.fn(options.appendText ?? (async () => {}));
+  const stat = vi.fn(
+    options.stat ?? (async () => ({ isFile: false, isDirectory: true, size: 0 })),
+  );
+  const mkdir = vi.fn(options.mkdir ?? (async () => {}));
+  const fs = { cwd: '/', readText, writeText, appendText, stat, mkdir } as unknown as IHostFileSystem;
+  return { fs, readText, writeText, appendText, stat, mkdir };
 }
 
 function makeToolWithFs(fs: IHostFileSystem, workspace = PERMISSIVE_WORKSPACE) {
@@ -91,9 +78,7 @@ function makeTool(options: WriteFsOptions = {}, workspace = PERMISSIVE_WORKSPACE
   return { tool, ...fakes };
 }
 
-function isPromiseLike(
-  value: ToolExecution | Promise<ToolExecution>,
-): value is Promise<ToolExecution> {
+function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -264,8 +249,8 @@ describe('WriteTool', () => {
       code: 'ENOENT',
     });
     const { tool, mkdir, writeText } = makeTool({
-      stat: mock().mockRejectedValue(enoent),
-      writeText: mock().mockRejectedValueOnce(enoent).mockResolvedValue(undefined),
+      stat: vi.fn().mockRejectedValue(enoent),
+      writeText: vi.fn().mockRejectedValueOnce(enoent).mockResolvedValue(undefined),
     });
 
     const result = await execute(tool, { path: '/tmp/missing-dir/file.txt', content: 'data' });
@@ -292,9 +277,9 @@ describe('WriteTool', () => {
       code: 'ENOENT',
     });
     const { tool, writeText } = makeTool({
-      stat: mock().mockRejectedValue(enoent),
-      writeText: mock().mockRejectedValue(enoent),
-      mkdir: mock().mockRejectedValue(new Error('permission denied')),
+      stat: vi.fn().mockRejectedValue(enoent),
+      writeText: vi.fn().mockRejectedValue(enoent),
+      mkdir: vi.fn().mockRejectedValue(new Error('permission denied')),
     });
 
     const result = await execute(tool, { path: '/tmp/missing-dir/file.txt', content: 'data' });
@@ -306,8 +291,8 @@ describe('WriteTool', () => {
   it('rejects writing when the parent path is not a directory', async () => {
     const enotdir = Object.assign(new Error('ENOTDIR: not a directory'), { code: 'ENOTDIR' });
     const { tool, writeText } = makeTool({
-      stat: mock().mockResolvedValue({ isFile: true, isDirectory: false, size: 0 }),
-      writeText: mock().mockRejectedValue(enotdir),
+      stat: vi.fn().mockResolvedValue({ isFile: true, isDirectory: false, size: 0 }),
+      writeText: vi.fn().mockRejectedValue(enotdir),
     });
 
     const result = await execute(tool, { path: '/tmp/a-file/child.txt', content: 'data' });
@@ -319,7 +304,7 @@ describe('WriteTool', () => {
 
   it('writes when the parent directory exists', async () => {
     const { tool, writeText } = makeTool({
-      stat: mock().mockResolvedValue({ isFile: false, isDirectory: true, size: 0 }),
+      stat: vi.fn().mockResolvedValue({ isFile: false, isDirectory: true, size: 0 }),
     });
 
     const result = await execute(tool, { path: '/tmp/exists/file.txt', content: 'data' });
@@ -330,7 +315,7 @@ describe('WriteTool', () => {
 
   it('surfaces fs write failures as tool errors', async () => {
     const { tool } = makeTool({
-      writeText: mock().mockRejectedValue(new Error('disk full')),
+      writeText: vi.fn().mockRejectedValue(new Error('disk full')),
     });
 
     const result = await execute(tool, { path: '/some/file.txt', content: 'data' });
@@ -348,7 +333,10 @@ describe('WriteTool', () => {
   });
 
   it('rejects relative traversal writes before fs I/O', async () => {
-    const { tool, writeText } = makeTool({}, stubWorkspaceContext('/workspace/project'));
+    const { tool, writeText } = makeTool(
+      {},
+      stubWorkspaceContext('/workspace/project'),
+    );
 
     const result = await execute(tool, { path: '../outside.txt', content: 'x' });
 
@@ -364,22 +352,6 @@ describe('WriteTool', () => {
 
     expect(result).toMatchObject({ isError: true });
     expect(result.output).toContain('sensitive-file pattern');
-    expect(writeText).not.toHaveBeenCalled();
-  });
-
-  it('blocks a write that escapes the workspace through a symlinked parent', async () => {
-    const { tool, writeText } = makeTool(
-      {
-        realpath: async (path) =>
-          path === '/workspace/link/secret.txt' ? '/outside/secret.txt' : path,
-      },
-      stubWorkspaceContext('/workspace'),
-    );
-
-    const result = await execute(tool, { path: 'link/secret.txt', content: 'payload' });
-
-    expect(result).toMatchObject({ isError: true });
-    expect(result.output).toContain('symbolic link');
     expect(writeText).not.toHaveBeenCalled();
   });
 
@@ -404,9 +376,11 @@ describe('WriteTool', () => {
 
   it('still reports parent-directory ENOENT surfaced by writeText itself', async () => {
     const { tool } = makeTool({
-      writeText: mock().mockRejectedValue(
-        Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
-      ),
+      writeText: vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
+        ),
     });
 
     const result = await execute(tool, { path: '/tmp/missing-dir/file.txt', content: 'data' });

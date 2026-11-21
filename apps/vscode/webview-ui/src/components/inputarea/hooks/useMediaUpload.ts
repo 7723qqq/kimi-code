@@ -1,15 +1,9 @@
-import { useCallback, useEffect } from 'react';
-
-import { toast } from '@/components/ui/sonner';
-import {
-  validateMediaFile,
-  validateTotalSize,
-  processMediaFile,
-  getMediaType,
-} from '@/lib/media-utils';
-import { bridge } from '@/services';
-import { MEDIA_CONFIG } from '@/services/config';
-import { useChatStore } from '@/stores';
+import { useCallback, useEffect } from "react";
+import { toast } from "@/components/ui/sonner";
+import { bridge } from "@/services";
+import { validateMediaFile, validateTotalSize, processMediaFile, getMediaType } from "@/lib/media-utils";
+import { useChatStore } from "@/stores";
+import { MEDIA_CONFIG } from "@/services/config";
 
 interface UseMediaUploadResult {
   canAddMedia: boolean;
@@ -50,7 +44,7 @@ export function useMediaUpload(): UseMediaUploadResult {
         updateDraftMedia(id, dataUri);
       } catch {
         removeDraftMedia(id);
-        toast.error('Failed to process media file');
+        toast.error("Failed to process media file");
       }
     },
     [draftMedia.length, addDraftMedia, updateDraftMedia, removeDraftMedia, getExistingDataUris],
@@ -71,7 +65,7 @@ export function useMediaUpload(): UseMediaUploadResult {
       const mediaFiles: File[] = [];
 
       for (const item of items) {
-        if (item.type.startsWith('image/') || item.type.startsWith('video/')) {
+        if (item.type.startsWith("image/") || item.type.startsWith("video/")) {
           const file = item.getAsFile();
           if (file) {
             mediaFiles.push(file);
@@ -108,7 +102,7 @@ export function useMediaUpload(): UseMediaUploadResult {
         addDraftMedia(crypto.randomUUID(), dataUri);
       }
     } catch {
-      toast.error('Failed to pick media');
+      toast.error("Failed to pick media");
     }
   }, [hasProcessing, draftMedia.length, addDraftMedia, getExistingDataUris]);
 
@@ -124,7 +118,7 @@ export function useMediaUpload(): UseMediaUploadResult {
       e.preventDefault();
       e.stopPropagation();
       if (e.dataTransfer) {
-        e.dataTransfer.dropEffect = 'copy';
+        e.dataTransfer.dropEffect = "copy";
       }
     };
 
@@ -146,14 +140,14 @@ export function useMediaUpload(): UseMediaUploadResult {
       addMediaFiles(files);
     };
 
-    document.addEventListener('dragenter', handleDocDragEnter);
-    document.addEventListener('dragover', handleDocDragOver);
-    document.addEventListener('drop', handleDocDrop);
+    document.addEventListener("dragenter", handleDocDragEnter);
+    document.addEventListener("dragover", handleDocDragOver);
+    document.addEventListener("drop", handleDocDrop);
 
     return () => {
-      document.removeEventListener('dragenter', handleDocDragEnter);
-      document.removeEventListener('dragover', handleDocDragOver);
-      document.removeEventListener('drop', handleDocDrop);
+      document.removeEventListener("dragenter", handleDocDragEnter);
+      document.removeEventListener("dragover", handleDocDragOver);
+      document.removeEventListener("drop", handleDocDrop);
     };
   }, [hasProcessing, draftMedia.length, addMediaFiles]);
 

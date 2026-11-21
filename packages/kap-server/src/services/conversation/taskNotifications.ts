@@ -1,8 +1,3 @@
-import {
-  NOTIFICATION_SEVERITY_LABEL,
-  NOTIFICATION_TITLE_LABEL,
-} from '@moonshot-ai/agent-core-v2';
-
 export interface TaskNotificationOutput {
   readonly file?: string;
   readonly preview?: string;
@@ -33,8 +28,8 @@ interface XmlElement {
   readonly content: string;
 }
 
-const TITLE_RE = new RegExp(`^${NOTIFICATION_TITLE_LABEL}(.*)$`, 'm');
-const SEVERITY_RE = new RegExp(`^${NOTIFICATION_SEVERITY_LABEL}(.*)$`, 'm');
+const TITLE_RE = /^Title: (.*)$/m;
+const SEVERITY_RE = /^Severity: (.*)$/m;
 const ATTRIBUTE_NAME_RE = /[\w-]/;
 
 export function parseTaskNotifications(text: string): TaskNotification[] {
@@ -92,11 +87,7 @@ function taskAnswerOf(text: string): TaskAnswer | undefined {
 function bodyOf(content: string): string {
   const body = content
     .split('\n')
-    .filter(
-      (line) =>
-        !line.startsWith(NOTIFICATION_TITLE_LABEL) &&
-        !line.startsWith(NOTIFICATION_SEVERITY_LABEL),
-    )
+    .filter((line) => !line.startsWith('Title: ') && !line.startsWith('Severity: '))
     .join('\n');
   const childAt = body.search(/^<\w/m);
   return (childAt === -1 ? body : body.slice(0, childAt)).trim();

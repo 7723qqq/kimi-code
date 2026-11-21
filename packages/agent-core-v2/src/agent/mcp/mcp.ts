@@ -1,11 +1,10 @@
-import { createDecorator } from '#/_base/di/instantiation';
-import { type IDisposable } from '#/_base/di/lifecycle';
+import type { ToolDescription as KosongTool } from '@moonshot-ai/core/llm/message';
+
+import { createDecorator } from "#/_base/di/instantiation";
+import { type IDisposable } from "#/_base/di/lifecycle";
 import type { McpServerEntry } from '#/mcpCore/connection-manager';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
-import type { ToolDescription as KosongTool } from '#human/llm/message';
-
-export const MCP_INITIAL_LOAD_WAIT_MS = 2000;
 
 export interface McpResolvedServer {
   readonly client: MCPClient;
@@ -18,9 +17,8 @@ export interface McpResolvedServer {
 export interface IAgentMcpService {
   readonly _serviceBrand: undefined;
 
-  register(): void;
   readonly oauthService: McpOAuthService | undefined;
-  waitForInitialLoad(signal?: AbortSignal, budgetMs?: number): Promise<void>;
+  waitForInitialLoad(signal?: AbortSignal): Promise<void>;
   initialLoadDurationMs(): number;
   list(): readonly McpServerEntry[];
   resolved(name: string): McpResolvedServer | undefined;

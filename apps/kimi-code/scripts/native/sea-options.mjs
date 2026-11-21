@@ -1,4 +1,5 @@
-// Runtime options baked into the single-executable binary (see 02-sea-blob.mjs).
+// Runtime options a Node single-executable build would bake in. The fork ships
+// `bun build --compile` instead, so this module only backs its unit test.
 
 // Node flags applied when the binary starts (`process.execArgv` at runtime).
 // V8 sizes the young generation from the machine's physical memory, which on

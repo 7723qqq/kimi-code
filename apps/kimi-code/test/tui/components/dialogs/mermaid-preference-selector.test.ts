@@ -1,6 +1,6 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { describe, expect, it, mock, onTestFinished, spyOn } from 'bun:test';
+import { describe, expect, it, onTestFinished, vi } from '@moonshot-ai/testkit/vitest';
 
 import { MermaidPreferenceSelectorComponent } from '#/tui/components/dialogs/mermaid-preference-selector';
 import {
@@ -74,7 +74,7 @@ describe('transcript display selectors', () => {
   });
 
   it('offers compact, balanced, and detailed tool calls with the current marker', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ToolCallDensitySelectorComponent({
       current: { toolCallDensity: 'balanced', thinking: 'grouped' },
       onSelect,
@@ -98,10 +98,9 @@ describe('transcript display selectors', () => {
   it('repaints an open preview when the palette changes', () => {
     const level = chalk.level;
     const palette = currentTheme.palette;
-    const family = currentTheme.isLight ? 'light' : 'dark';
     onTestFinished(() => {
       chalk.level = level;
-      currentTheme.setPalette(palette, family);
+      currentTheme.setPalette(palette);
     });
     chalk.level = 3;
     const open = (): ToolCallDensitySelectorComponent => new ToolCallDensitySelectorComponent({
@@ -109,18 +108,18 @@ describe('transcript display selectors', () => {
       onSelect: () => {},
       onCancel: () => {},
     });
-    currentTheme.setPalette(darkColors, 'dark');
+    currentTheme.setPalette(darkColors);
     const picker = open();
     const dark = picker.render(100);
 
-    currentTheme.setPalette(lightColors, 'light');
+    currentTheme.setPalette(lightColors);
     const light = picker.render(100);
     expect(light).not.toEqual(dark);
     expect(light).toEqual(open().render(100));
   });
 
   it('marks no tool call row as current while the file holds ungrouped', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ToolCallDensitySelectorComponent({
       current: { toolCallDensity: 'ungrouped', thinking: 'grouped' },
       onSelect,
@@ -135,7 +134,7 @@ describe('transcript display selectors', () => {
   });
 
   it('offers folding and not folding thinking with the current marker', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ThinkingDisplaySelectorComponent({
       current: { toolCallDensity: 'compact', thinking: 'grouped' },
       onSelect,
@@ -250,10 +249,12 @@ describe('transcript display previews', () => {
     }
   });
 
-  it('draws the previews without arming frames and releases them when the picker closes', () => {
-    const dispose = spyOn(TranscriptContainer.prototype, 'dispose');
+  it('draws the previews without timers and releases them when the picker closes', () => {
+    vi.useFakeTimers();
+    const dispose = vi.spyOn(TranscriptContainer.prototype, 'dispose');
     onTestFinished(() => {
       dispose.mockRestore();
+      vi.useRealTimers();
     });
     const picker = new ToolCallDensitySelectorComponent({
       current: { toolCallDensity: 'compact', thinking: 'grouped' },
@@ -261,6 +262,7 @@ describe('transcript display previews', () => {
       onCancel: () => {},
     });
     picker.render(100);
+    expect(vi.getTimerCount()).toBe(0);
     expect(dispose).not.toHaveBeenCalled();
 
     picker.dispose();
@@ -270,7 +272,7 @@ describe('transcript display previews', () => {
 
 describe('CopyOnSelectSelectorComponent', () => {
   it('marks the current choice and maps the options back to the boolean', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new CopyOnSelectSelectorComponent({
       currentValue: false,
       onSelect,

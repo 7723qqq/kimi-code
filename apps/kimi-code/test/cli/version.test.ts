@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { createKimiCodeUserAgent } from '#/cli/host-identity';
 import { getHostPackageJsonPath, getHostPackageRoot, getVersion } from '#/cli/version';

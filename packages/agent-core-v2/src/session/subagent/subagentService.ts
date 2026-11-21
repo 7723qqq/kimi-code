@@ -1,51 +1,36 @@
-import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
-import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { Emitter } from '#/_base/event';
-import { ILogService } from '#/_base/log/log';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
-import { agentContextOf } from '#/agent/scopeContext/scopeContext';
-import { IAgentUserToolService } from '#/agent/userTool/userTool';
+import { Error2, ErrorCodes } from '#/errors';
+import { LifecycleScope } from '#/app/scopes';
+import {
+  type IAgentScopeHandle,
+  ScopeActivation,
+  registerScopedService,
+} from '#/_base/di/scope';
+import { Emitter } from '#/_base/event';
+import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import {
   subagentAllowlistFor,
   subagentTypeNotAllowedMessage,
   withoutDelegatingTargets,
 } from '#/app/agentProfileCatalog/profile-shared';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import type { Environment } from '#/environment/environment';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
-import { Error2, ErrorCodes } from '#/errors';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { createHooks } from '#/hooks';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
+import { ILogService } from '#/_base/log/log';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
+import { createHooks } from '#/hooks';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import {
-  assertSubagentDepthAllowed,
-  subagentLabels,
-} from '#/session/agentLifecycle/subagentMetadata';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { agentContextOf } from '#/agent/scopeContext/scopeContext';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 
-import {
-  resolveSubagentBinding,
-  resolveSubagentThinking,
-  wrapSubagentModelError,
-} from './configSection';
-import { runAgentTurn } from './runAgentTurn';
-import {
-  DEFAULT_PROFILE_NAME,
-  FORK_CONTEXT_NOTICE,
-  type SpawnSubagentOptions,
-  type SpawnedSubagent,
-  type SubagentSpawnPlan,
-  type SubagentSpawnPlanInput,
-} from './spawn';
 import {
   type AgentRunHandle,
   type AgentRunRequest,
@@ -54,6 +39,20 @@ import {
   ISessionSubagentService,
   type RunAgentOptions,
 } from './subagent';
+import { runAgentTurn } from './runAgentTurn';
+import {
+  resolveSubagentBinding,
+  resolveSubagentThinking,
+  wrapSubagentModelError,
+} from './configSection';
+import {
+  DEFAULT_PROFILE_NAME,
+  FORK_CONTEXT_NOTICE,
+  type SpawnSubagentOptions,
+  type SpawnedSubagent,
+  type SubagentSpawnPlan,
+  type SubagentSpawnPlanInput,
+} from './spawn';
 
 export class SessionSubagentService extends Service implements ISessionSubagentService {
   declare readonly _serviceBrand: undefined;
@@ -74,16 +73,11 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @ILogService private readonly log: ILogService,
-    @ISessionMetadata private readonly sessionMetadata: ISessionMetadata,
   ) {
     super();
   }
 
-  run(
-    agent: AgentContext,
-    request: AgentRunRequest,
-    opts: RunAgentOptions,
-  ): Promise<AgentRunHandle> {
+  run(agent: AgentContext, request: AgentRunRequest, opts: RunAgentOptions): Promise<AgentRunHandle> {
     const handle = this.agentLifecycle.handleOf(agent.agentId);
     if (handle === undefined) {
       throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `Agent "${agent.agentId}" does not exist`, {
@@ -97,11 +91,10 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
     const caller = this.requireCaller(input.callerAgentId);
     const fork = input.fork === true;
     await this.catalog.ready;
-    const own = caller.accessor.get(IAgentProfileService).data();
-    const requested =
-      input.profileName !== undefined && input.profileName.length > 0
-        ? input.profileName
-        : undefined;
+    const own = caller.accessor.get(IAgentLoopService).data();
+    const requested = input.profileName !== undefined && input.profileName.length > 0
+      ? input.profileName
+      : undefined;
     const requestedProfileName =
       requested ?? (fork ? (own.profileName ?? DEFAULT_PROFILE_NAME) : DEFAULT_PROFILE_NAME);
     let allowlist = subagentAllowlistFor(this.catalog, own);
@@ -117,13 +110,9 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
     }
     const profile = this.catalog.get(requestedProfileName);
     if (!fork && profile === undefined) {
-      throw new Error2(
-        ErrorCodes.PROFILE_UNKNOWN,
-        `Unknown agent type: "${requestedProfileName}"`,
-        {
-          details: { profileName: requestedProfileName },
-        },
-      );
+      throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${requestedProfileName}"`, {
+        details: { profileName: requestedProfileName },
+      });
     }
     if (own.modelAlias === undefined) {
       throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, 'Caller agent has no model bound', {
@@ -154,9 +143,6 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
 
   async spawn(opts: SpawnSubagentOptions): Promise<SpawnedSubagent> {
     const caller = this.requireCaller(opts.callerAgentId);
-    const parentMeta = (await this.sessionMetadata.read()).agents?.[opts.callerAgentId];
-    const depth = assertSubagentDepthAllowed(parentMeta);
-    const labels = { ...opts.labels, ...subagentLabels(opts.callerAgentId, { depth }) };
     const { plan } = opts;
     const callerBinding = caller.accessor.get(IAgentEnvironmentBindingService).current;
     const lease = plan.fork
@@ -167,7 +153,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
       try {
         if (plan.fork) {
           const forked = await this.agentLifecycle.fork(agentContextOf(caller), {
-            labels,
+            labels: opts.labels,
           });
           created = this.agentLifecycle.handleOf(forked.agentId)!;
           created.accessor
@@ -180,7 +166,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
               model: plan.model,
               thinking: plan.thinking,
             },
-            labels,
+            labels: opts.labels,
             environmentId: callerBinding.environmentId,
             environmentCwd: callerBinding.cwd,
           });
@@ -190,7 +176,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
         throw wrapSubagentModelError(
           error,
           plan.model,
-          caller.accessor.get(IAgentProfileService).data().modelAlias,
+          caller.accessor.get(IAgentLoopService).data().modelAlias,
         );
       }
       created.accessor
@@ -199,7 +185,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
       const createdUserTools = created.accessor.get(IAgentUserToolService);
       const callerUserTools = caller.accessor.get(IAgentUserToolService);
       if (plan.fork) {
-        const activeToolNames = created.accessor.get(IAgentProfileService).getActiveToolNames();
+        const activeToolNames = created.accessor.get(IAgentLoopService).getActiveToolNames();
         createdUserTools.inheritUserTools(callerUserTools, activeToolNames);
       } else {
         createdUserTools.inheritUserTools(callerUserTools);

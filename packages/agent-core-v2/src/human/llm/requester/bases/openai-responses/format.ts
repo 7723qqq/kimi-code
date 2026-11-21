@@ -1,15 +1,15 @@
 import type OpenAI from 'openai';
 
-import type { LlmRemoteErrorMessage } from '#/llm/errors';
-import { NO_FINISH, type FinishInfo } from '#/llm/finish-reason';
-import type { StreamedMessagePart, ToolDescription } from '#/llm/message';
+import type { LlmRemoteErrorMessage } from '#human/llm/errors';
+import { NO_FINISH, type FinishInfo } from '#human/llm/finish-reason';
+import type { StreamedMessagePart, ToolDescription } from '#human/message';
 import type {
   FormatRequestInput,
   ProtocolFormat,
   StreamParserOptions,
-} from '#/llm/protocol/format';
-import type { ResponseFormat } from '#/llm/response-format';
-import type { TokenUsage } from '#/llm/usage';
+} from '#human/llm/protocol/format';
+import type { ResponseFormat } from '#human/llm/response-format';
+import type { TokenUsage } from '#human/llm/usage';
 
 import { isContextOverflowErrorCode, isOpenAIInsufficientQuotaCode } from '../openai/format';
 import { classifyDeepSeekCacheSplit } from '../openai/usage';

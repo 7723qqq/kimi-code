@@ -1,0 +1,5 @@
+M	.github/workflows/canary-release.yml
+M	.github/workflows/desktop-build.yml
+M	.github/workflows/release.yml
+M	scripts/release.mjs
+M	scripts/release.test.mjs

@@ -1,7 +1,5 @@
 import { join } from 'node:path';
 
-type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-
 import { KIMI_REGION_PROFILES, type KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 import { z } from 'zod';
 
@@ -22,7 +20,7 @@ export interface ClientConfigEnvironment {
 export interface ClientConfigFetchOptions {
   readonly path?: string;
   readonly accessToken?: string;
-  readonly fetchImpl?: FetchLike;
+  readonly fetchImpl?: typeof fetch;
   readonly now?: number;
   readonly timeoutMs?: number;
   readonly cacheFile?: string | null;
@@ -100,12 +98,15 @@ export class ClientConfigClient {
       headers['authorization'] = `Bearer ${options.accessToken}`;
     }
     try {
-      const response = await fetchFn(`${this.baseUrl()}${options.path ?? CLIENT_CONFIGS_PATH}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ name }),
-        signal: AbortSignal.timeout(options.timeoutMs ?? FETCH_TIMEOUT_MS),
-      });
+      const response = await fetchFn(
+        `${this.baseUrl()}${options.path ?? CLIENT_CONFIGS_PATH}`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ name }),
+          signal: AbortSignal.timeout(options.timeoutMs ?? FETCH_TIMEOUT_MS),
+        },
+      );
       if (!response.ok) return undefined;
       const body: unknown = await response.json();
       if (typeof body !== 'object' || body === null) return undefined;
@@ -127,7 +128,8 @@ export class ClientConfigClient {
   }
 
   private baseUrl(): string {
-    const base = this.environment.baseUrlOverride() ?? KIMI_REGION_PROFILES[this.region()].baseUrl;
+    const base =
+      this.environment.baseUrlOverride() ?? KIMI_REGION_PROFILES[this.region()].baseUrl;
     return base.replace(/\/+$/, '');
   }
 
@@ -162,10 +164,6 @@ async function readDiskCache(
 
 async function writeDiskCache(file: string, data: unknown, now: number): Promise<void> {
   try {
-    await writeJsonFile(file, cacheFileEnvelopeSchema, {
-      version: 1,
-      fetchedAt: now,
-      config: data,
-    });
+    await writeJsonFile(file, cacheFileEnvelopeSchema, { version: 1, fetchedAt: now, config: data });
   } catch {}
 }

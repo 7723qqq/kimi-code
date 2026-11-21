@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { createSecurityHeadersHook } from '../src/middleware/securityHeaders';
 
@@ -16,10 +16,7 @@ function captureHeaders() {
 function parseCsp(csp: string): Map<string, string[]> {
   const directives = new Map<string, string[]>();
   for (const part of csp.split(';')) {
-    const tokens = part
-      .trim()
-      .split(/\s+/)
-      .filter((t) => t.length > 0);
+    const tokens = part.trim().split(/\s+/).filter((t) => t.length > 0);
     if (tokens.length === 0) continue;
     directives.set(tokens[0] as string, tokens.slice(1));
   }

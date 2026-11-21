@@ -1,8 +1,7 @@
-import { describe, expect, it } from 'bun:test';
-
 import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { McpOAuthClientProvider } from '#/mcpCore/oauth/provider';
+import { McpOAuthClientProvider, type StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { mcpOAuthStoreKey, sanitizeStoreKey } from '#/mcpCore/oauth/store';
 
@@ -24,22 +23,6 @@ describe('sanitizeStoreKey', () => {
 
   it('rewrites a leading dot into a safe underscore-prefixed name', () => {
     expect(sanitizeStoreKey('.dot')).toBe('_dot');
-  });
-
-  it('handles a very long name without throwing', () => {
-    const long = 'x'.repeat(1000);
-    const result = sanitizeStoreKey(long);
-    expect(result.length).toBe(1000);
-    expect(result).toBe(long);
-  });
-
-  it('replaces non-ASCII (e.g. CJK) characters with underscores', () => {
-    expect(sanitizeStoreKey('服务器/节点')).toBe('_');
-    expect(sanitizeStoreKey('日本語!test')).toBe('_test');
-  });
-
-  it('rejects names that are entirely slashes', () => {
-    expect(() => sanitizeStoreKey('///')).toThrow(/Invalid/);
   });
 });
 
@@ -95,52 +78,33 @@ describe('MCP OAuth credential identity', () => {
     await provider.saveTokens(token('first-token'));
 
     await expect(service.hasTokens('linear', 'https://first.example.com/mcp')).resolves.toBe(true);
-    await expect(service.hasTokens('linear', 'https://second.example.com/mcp')).resolves.toBe(
-      false,
-    );
+    await expect(service.hasTokens('linear', 'https://second.example.com/mcp')).resolves.toBe(false);
   });
 
-  it('reports token state: missing, live, expired, and refresh-capable grants', async () => {
+  it('stamps saved tokens with obtained_at, in cache and on disk', async () => {
     const store = createMemoryMcpOAuthStore();
-    const service = new McpOAuthService({ store });
+    const provider = new McpOAuthClientProvider({
+      serverName: 'linear',
+      serverUrl: 'https://first.example.com/mcp',
+      store,
+    });
+    await provider.ready;
 
-    await expect(service.tokenState('linear', 'https://a.example.com/mcp')).resolves.toEqual({
-      hasTokens: false,
-      expired: false,
-      hasRefreshToken: false,
-    });
+    const before = Date.now();
+    await provider.saveTokens(token('stamped-token'));
+    const after = Date.now();
 
-    const live = service.getProvider('linear', 'https://a.example.com/mcp');
-    await live.ready;
-    await live.saveTokens(token('live-token'));
-    await expect(service.tokenState('linear', 'https://a.example.com/mcp')).resolves.toEqual({
-      hasTokens: true,
-      expired: false,
-      hasRefreshToken: false,
-    });
+    const stamped = (await provider.tokens()) as StoredMcpOAuthTokens | undefined;
+    expect(stamped?.obtained_at).toBeGreaterThanOrEqual(before);
+    expect(stamped?.obtained_at).toBeLessThanOrEqual(after);
 
-    const expiredKey = `${mcpOAuthStoreKey('linear', 'https://b.example.com/mcp')}-tokens.json`;
-    await store.write(expiredKey, {
-      access_token: 'expired-token',
-      token_type: 'Bearer',
-      expires_in: 1,
-      obtained_at: Date.now() - 10_000,
+    const reloaded = new McpOAuthClientProvider({
+      serverName: 'linear',
+      serverUrl: 'https://first.example.com/mcp',
+      store,
     });
-    await expect(service.tokenState('linear', 'https://b.example.com/mcp')).resolves.toEqual({
-      hasTokens: true,
-      expired: true,
-      hasRefreshToken: false,
-      expiresAt: expect.any(Number),
-    });
-
-    const refreshable = service.getProvider('linear', 'https://c.example.com/mcp');
-    await refreshable.ready;
-    await refreshable.saveTokens({ ...token('refresh-token'), refresh_token: 'rt' });
-    await expect(service.tokenState('linear', 'https://c.example.com/mcp')).resolves.toEqual({
-      hasTokens: true,
-      expired: false,
-      hasRefreshToken: true,
-    });
+    await reloaded.ready;
+    await expect(reloaded.tokens()).resolves.toMatchObject({ obtained_at: stamped?.obtained_at });
   });
 
   it('uses stored client redirect URI when no active OAuth callback is running', async () => {

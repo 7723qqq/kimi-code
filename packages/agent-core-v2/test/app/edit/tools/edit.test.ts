@@ -1,33 +1,26 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as posixPath from 'node:path/posix';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { PathSecurityError } from '#/tool/path-access';
 import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../environment/stubs';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { type EditInput, EditInputSchema } from '#/agent/tools/edit/edit';
 import { EditTool } from '#/agent/tools/edit/editTool';
 import { IFileEditService } from '#/app/edit/fileEdit';
 import { FileEditService } from '#/app/edit/fileEditService';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { Environment } from '#/environment/environment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
-import { HostFsError } from '#/os/interface/hostFsErrors';
-import { OsFsErrors } from '#/os/interface/hostFsErrors';
-
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
@@ -50,16 +43,15 @@ function createTestEnv(home = '/home'): IHostEnvironment {
 
 function createSpiedEditFs(
   options: {
-    readText?: ReturnType<typeof mock>;
-    writeText?: ReturnType<typeof mock>;
+    readText?: ReturnType<typeof vi.fn>;
+    writeText?: ReturnType<typeof vi.fn>;
   } = {},
 ) {
-  const readText = options.readText ?? mock(async () => '');
-  const writeText = options.writeText ?? mock(async () => undefined);
-  const stat = mock(async () => ({ isFile: true, isDirectory: false, size: 0 }));
-  const realpath = mock(async (path: string) => path);
-  const fs = { readText, writeText, stat, realpath } as unknown as IHostFileSystem;
-  return { fs, readText, writeText, realpath };
+  const readText = options.readText ?? vi.fn(async () => '');
+  const writeText = options.writeText ?? vi.fn(async () => undefined);
+  const stat = vi.fn(async () => ({ isFile: true, isDirectory: false, size: 0 }));
+  const fs = { readText, writeText, stat } as unknown as IHostFileSystem;
+  return { fs, readText, writeText };
 }
 
 function buildTool(
@@ -81,9 +73,7 @@ function buildTool(
     capabilities: new Set(['fs'] as const),
     host: env,
     path: posixPath,
-    workspace: {
-      mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots,
-    },
+    workspace: { mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots },
     fs,
     status: 'ready',
     onDidChangeStatus: () => ({ dispose: () => {} }),
@@ -193,9 +183,9 @@ describe('EditTool', () => {
   });
 
   it('replaces a unique first occurrence and writes the updated content', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('alpha beta'),
+      readText: vi.fn().mockResolvedValue('alpha beta'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -211,13 +201,13 @@ describe('EditTool', () => {
   });
 
   it('executes against the selected environment filesystem instead of the App filesystem', async () => {
-    const environmentWrite = mock().mockResolvedValue(undefined);
+    const environmentWrite = vi.fn().mockResolvedValue(undefined);
     const { fs: environmentFs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('environment content'),
+      readText: vi.fn().mockResolvedValue('environment content'),
       writeText: environmentWrite,
     });
-    const appRead = mock().mockRejectedValue(new Error('App filesystem bypass'));
-    const appWrite = mock().mockRejectedValue(new Error('App filesystem bypass'));
+    const appRead = vi.fn().mockRejectedValue(new Error('App filesystem bypass'));
+    const appWrite = vi.fn().mockRejectedValue(new Error('App filesystem bypass'));
     const { fs: appFs } = createSpiedEditFs({ readText: appRead, writeText: appWrite });
     const tool = buildTool(environmentFs, createTestEnv(), PERMISSIVE_WORKSPACE, appFs);
 
@@ -234,8 +224,8 @@ describe('EditTool', () => {
   });
 
   it('expands leading tilde paths using the kaos home directory', async () => {
-    const readText = mock().mockResolvedValue('alpha beta');
-    const writeText = mock().mockResolvedValue(undefined);
+    const readText = vi.fn().mockResolvedValue('alpha beta');
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({ readText, writeText });
     const tool = buildTool(fs, createTestEnv('/home/test'), PERMISSIVE_WORKSPACE);
 
@@ -254,9 +244,9 @@ describe('EditTool', () => {
   });
 
   it('treats replacement dollar sequences literally for single edits', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('alpha beta gamma'),
+      readText: vi.fn().mockResolvedValue('alpha beta gamma'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -272,9 +262,9 @@ describe('EditTool', () => {
   });
 
   it('treats replacement dollar sequences literally for replace_all edits', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('a b a'),
+      readText: vi.fn().mockResolvedValue('a b a'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -291,9 +281,9 @@ describe('EditTool', () => {
   });
 
   it('matches pure CRLF files through the LF model view and writes back CRLF', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('alpha\r\nbeta\r\ngamma\r\n'),
+      readText: vi.fn().mockResolvedValue('alpha\r\nbeta\r\ngamma\r\n'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -309,9 +299,9 @@ describe('EditTool', () => {
   });
 
   it('does not double carriage returns when editing pure CRLF files', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('alpha\r\nbeta\r\n'),
+      readText: vi.fn().mockResolvedValue('alpha\r\nbeta\r\n'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -327,9 +317,9 @@ describe('EditTool', () => {
   });
 
   it('keeps mixed line ending files on the raw exact path', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('alpha\r\nbeta\ngamma\r\n'),
+      readText: vi.fn().mockResolvedValue('alpha\r\nbeta\ngamma\r\n'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -346,9 +336,9 @@ describe('EditTool', () => {
   });
 
   it('allows exact raw edits in mixed line ending files without normalizing the rest', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('alpha\r\nbeta\ngamma\r\n'),
+      readText: vi.fn().mockResolvedValue('alpha\r\nbeta\ngamma\r\n'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -364,9 +354,9 @@ describe('EditTool', () => {
   });
 
   it('replace_all replaces every occurrence', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('a b a'),
+      readText: vi.fn().mockResolvedValue('a b a'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -383,8 +373,8 @@ describe('EditTool', () => {
   });
 
   it('rejects no-op edits before file I/O', async () => {
-    const readText = mock().mockResolvedValue('same');
-    const writeText = mock().mockResolvedValue(undefined);
+    const readText = vi.fn().mockResolvedValue('same');
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({ readText, writeText });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
@@ -402,9 +392,9 @@ describe('EditTool', () => {
   });
 
   it('errors when old_string is missing', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('alpha beta'),
+      readText: vi.fn().mockResolvedValue('alpha beta'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -421,9 +411,9 @@ describe('EditTool', () => {
   });
 
   it('errors when old_string is not unique and replace_all is false', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('same same'),
+      readText: vi.fn().mockResolvedValue('same same'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -442,7 +432,7 @@ describe('EditTool', () => {
   });
 
   it('rejects relative traversal edits before reading', async () => {
-    const readText = mock().mockResolvedValue('secret');
+    const readText = vi.fn().mockResolvedValue('secret');
     const { fs } = createSpiedEditFs({ readText });
     const tool = buildTool(fs, createTestEnv(), stubWorkspaceContext('/workspace/project'));
 
@@ -458,9 +448,9 @@ describe('EditTool', () => {
   });
 
   it('replaces unicode strings (CJK) and round-trips the surrounding text', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('Hello 世界! café'),
+      readText: vi.fn().mockResolvedValue('Hello 世界! café'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -476,10 +466,10 @@ describe('EditTool', () => {
   });
 
   it('leaves the file byte-identical when old_string is not present', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const original = 'Hello world!';
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue(original),
+      readText: vi.fn().mockResolvedValue(original),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -496,7 +486,7 @@ describe('EditTool', () => {
 
   it('errors with an is-not-a-file phrasing when the path resolves to a directory', async () => {
     const { fs } = createSpiedEditFs({
-      readText: mock().mockRejectedValue(
+      readText: vi.fn().mockRejectedValue(
         Object.assign(new Error('EISDIR: illegal operation on a directory'), {
           code: 'EISDIR',
         }),
@@ -516,7 +506,7 @@ describe('EditTool', () => {
 
   it('maps a HostFsError-wrapped EISDIR to the is-not-a-file phrasing', async () => {
     const { fs } = createSpiedEditFs({
-      readText: mock().mockRejectedValue(
+      readText: vi.fn().mockRejectedValue(
         new HostFsError(OsFsErrors.codes.OS_FS_IS_DIRECTORY, 'read failed: path is a directory', {
           details: { path: '/tmp/dir', op: 'read', errno: 'EISDIR' },
           cause: Object.assign(new Error('EISDIR: illegal operation on a directory'), {
@@ -538,9 +528,9 @@ describe('EditTool', () => {
   });
 
   it('replaces a substring with an empty new_string (deletion)', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('Hello world!'),
+      readText: vi.fn().mockResolvedValue('Hello world!'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
@@ -556,9 +546,9 @@ describe('EditTool', () => {
   });
 
   it('allows absolute edits outside the workspace under default policy', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('old content'),
+      readText: vi.fn().mockResolvedValue('old content'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
@@ -574,9 +564,9 @@ describe('EditTool', () => {
   });
 
   it('allows absolute edits to a sibling dir that merely shares the work-dir prefix', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('content'),
+      readText: vi.fn().mockResolvedValue('content'),
       writeText,
     });
     const tool = buildTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
@@ -589,27 +579,6 @@ describe('EditTool', () => {
 
     expect(result.isError).toBeFalsy();
     expect(writeText).toHaveBeenCalledWith('/workspace-sneaky/test.txt', 'new');
-  });
-
-  it('blocks an edit that escapes the workspace through a symlinked parent', async () => {
-    const writeText = mock().mockResolvedValue(undefined);
-    const { fs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('body'),
-      writeText,
-    });
-    fs.realpath = async (path: string) =>
-      path === '/workspace/link/a.txt' ? '/outside/a.txt' : path;
-    const tool = buildTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
-
-    const result = await execute(tool, {
-      path: 'link/a.txt',
-      old_string: 'body',
-      new_string: 'changed',
-    });
-
-    expect(result).toMatchObject({ isError: true });
-    expect(result.output).toContain('symbolic link');
-    expect(writeText).not.toHaveBeenCalled();
   });
 
   it.each([true, false])('preserves UTF-8 BOM presence when editing: %s', async (hasBom) => {

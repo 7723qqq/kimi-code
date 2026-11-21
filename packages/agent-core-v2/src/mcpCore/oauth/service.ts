@@ -7,12 +7,11 @@ import {
 } from '@modelcontextprotocol/sdk/client/auth.js';
 import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 
-import { abortable, createDeadlineAbortSignal } from '#/_base/utils/abort';
 import type { ILogger as Logger } from '#/_base/log/log';
+import { abortable, createDeadlineAbortSignal } from '#/_base/utils/abort';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
 
 import { startCallbackServer, type CallbackServer } from './callback-server';
-import type { McpOAuthCredentialsCoordinator } from './coordinator';
 import {
   META_SUFFIX,
   McpOAuthClientProvider,
@@ -33,7 +32,6 @@ export interface McpOAuthServiceOptions {
   readonly store: McpOAuthStore;
   readonly clientLabel?: string;
   readonly resolveClientName?: () => string | undefined;
-  readonly coordinator?: McpOAuthCredentialsCoordinator;
   readonly log?: Logger;
   readonly scheduler?: McpOAuthScheduler;
   readonly authRequestTimeoutMs?: number;
@@ -118,7 +116,6 @@ export class McpOAuthService {
   private readonly store: McpOAuthStore;
   private readonly clientLabel: string | undefined;
   private readonly resolveClientName: (() => string | undefined) | undefined;
-  private readonly coordinator: McpOAuthCredentialsCoordinator | undefined;
   private readonly log: Logger;
   private readonly scheduler: McpOAuthScheduler;
   private readonly authRequestTimeoutMs: number;
@@ -130,6 +127,7 @@ export class McpOAuthService {
   private readonly activeAuthorizations = new Map<string, ActiveAuthorization>();
   private readonly authorizationWaits = new Map<string, () => Promise<void>>();
   private readonly backgroundTasks = new Set<Promise<unknown>>();
+  private readonly configurationSources = new Map<object, Set<string>>();
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | undefined;
 
@@ -137,12 +135,10 @@ export class McpOAuthService {
     this.store = options.store;
     this.clientLabel = options.clientLabel;
     this.resolveClientName = options.resolveClientName;
-    this.coordinator = options.coordinator;
     this.log = options.log ?? defaultLog;
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.authRequestTimeoutMs = options.authRequestTimeoutMs ?? DEFAULT_AUTH_REQUEST_TIMEOUT_MS;
-    this.shutdownDrainTimeoutMs =
-      options.shutdownDrainTimeoutMs ?? DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_MS;
+    this.shutdownDrainTimeoutMs = options.shutdownDrainTimeoutMs ?? DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_MS;
   }
 
   dispose(): Promise<void> {
@@ -187,6 +183,45 @@ export class McpOAuthService {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  setConfigurationSource(
+    source: object,
+    entries: Iterable<readonly [string, string | URL]>,
+  ): void {
+    const keys = new Set<string>();
+    for (const [name, url] of entries) keys.add(mcpOAuthStoreKey(name, url));
+    this.configurationSources.set(source, keys);
+  }
+
+  removeConfigurationSource(source: object): void {
+    this.configurationSources.delete(source);
+  }
+
+  async cancelAuthorizationFromConfiguration(
+    source: object | undefined,
+    serverName: string,
+    serverUrl: string | URL,
+  ): Promise<void> {
+    const storeKey = mcpOAuthStoreKey(serverName, serverUrl);
+    if (source !== undefined) this.configurationSources.get(source)?.delete(storeKey);
+    for (const keys of this.configurationSources.values()) {
+      if (keys.has(storeKey)) return;
+    }
+    await this.cancelAuthorization(serverName, serverUrl);
+  }
+
+  async invalidateFromConfiguration(
+    source: object | undefined,
+    serverName: string,
+    serverUrl: string | URL,
+  ): Promise<void> {
+    const storeKey = mcpOAuthStoreKey(serverName, serverUrl);
+    if (source !== undefined) this.configurationSources.get(source)?.delete(storeKey);
+    for (const keys of this.configurationSources.values()) {
+      if (keys.has(storeKey)) return;
+    }
+    await this.invalidate(serverName, serverUrl);
   }
 
   protected trackBackgroundTask(task: Promise<unknown>): void {
@@ -266,6 +301,7 @@ export class McpOAuthService {
         deadline.cancel();
         this.listeners.clear();
         this.providers.clear();
+        this.configurationSources.clear();
       }
     })();
     return this.shutdownPromise;
@@ -302,7 +338,7 @@ export class McpOAuthService {
       const combined: AbortSignal[] = [AbortSignal.timeout(timeoutMs), ...signals];
       if (init?.signal !== undefined && init.signal !== null) combined.push(init.signal);
       return fetchFn(input, { ...init, signal: AbortSignal.any(combined) });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
   }
 
   private async resolveRequestScope(
@@ -370,10 +406,23 @@ export class McpOAuthService {
     try {
       flow = await started;
     } catch (error) {
-      this.activeAuthorizations.delete(storeKey);
+      if (this.activeAuthorizations.get(storeKey)?.serverRef === serverRef) {
+        this.activeAuthorizations.delete(storeKey);
+      }
       throw error;
     }
     return flow.attach();
+  }
+
+  async cancelAuthorization(serverName: string, serverUrl: string | URL): Promise<void> {
+    const storeKey = mcpOAuthStoreKey(serverName, serverUrl);
+    const active = this.activeAuthorizations.get(storeKey);
+    if (active === undefined) return;
+    this.activeAuthorizations.delete(storeKey);
+    await active.serverRef.current?.close().catch(() => undefined);
+    active.controller.abort();
+    const flow = await active.started.catch(() => undefined);
+    await flow?.cancelUnderlying();
   }
 
   async cancelAuthorizationWait(waitId: string): Promise<void> {
@@ -389,13 +438,7 @@ export class McpOAuthService {
   ): Promise<SharedAuthorizationFlow> {
     const { signal } = controller;
     const storeKey = mcpOAuthStoreKey(serverName, serverUrl);
-    const provider =
-      options.clientLabel === undefined
-        ? this.getProvider(serverName, serverUrl)
-        : this.createProvider(serverName, serverUrl, options.clientLabel);
-    if (options.clientLabel !== undefined) {
-      this.providers.set(provider.storeKey, provider);
-    }
+    const provider = this.createProvider(serverName, serverUrl, options.clientLabel);
 
     provider.resetFlow();
 
@@ -411,7 +454,12 @@ export class McpOAuthService {
     try {
       provider.setRedirectUrl(new URL(callbackServer.redirectUri));
       await provider.ready;
-      await provider.invalidateStaleRegistration(callbackServer.redirectUri);
+      const registrationInvalidated = await provider.invalidateStaleRegistration(
+        callbackServer.redirectUri,
+      );
+      if (registrationInvalidated || (await provider.clientInformation()) === undefined) {
+        this.providers.set(storeKey, provider);
+      }
       const requestScope = await this.resolveRequestScope(provider, serverUrl, signal);
       let tokensSaved = false;
       const unsubscribeTokensSaved = this.onEvent((event) => {
@@ -564,9 +612,7 @@ export class McpOAuthService {
             try {
               await abortable(
                 startCompletion(),
-                deadline === undefined
-                  ? waitSignal
-                  : AbortSignal.any([waitSignal, deadline.signal]),
+                deadline === undefined ? waitSignal : AbortSignal.any([waitSignal, deadline.signal]),
               );
             } catch (error) {
               throw wrapAuthError(
@@ -735,21 +781,11 @@ export class McpOAuthService {
   }
 
   private emit(event: McpOAuthEvent): void {
-    if (
-      event.type === 'tokens-saved' ||
-      (event.type === 'tokens-invalidated' && (event.scope === 'tokens' || event.scope === 'all'))
-    ) {
-      const url = canonicalMcpOAuthResource(event.serverUrl);
-      if (event.type === 'tokens-saved') {
-        this.coordinator?.notifyCredentialsChanged(event.serverName, url);
-      } else {
-        this.coordinator?.notifyCredentialsInvalidated(event.serverName, url);
-      }
-    }
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch {}
+      } catch {
+      }
     }
   }
 }
@@ -789,11 +825,7 @@ async function readStoreMeta(
 
 const CONCURRENT_GRANT_GRACE_MS = 10_000;
 
-function isConcurrentGrant(
-  tokens: StoredMcpOAuthTokens,
-  now: number,
-  connectedAt?: number,
-): boolean {
+function isConcurrentGrant(tokens: StoredMcpOAuthTokens, now: number, connectedAt?: number): boolean {
   if (typeof tokens.obtained_at !== 'number') return false;
   const age = now - tokens.obtained_at;
   if (age < 0 || age >= CONCURRENT_GRANT_GRACE_MS) return false;

@@ -1,0 +1,77 @@
+commit a5e355e271
+Author:     github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+AuthorDate: Thu Nov 19 19:07:37 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 19 19:07:37 2026 +0800
+
+    ci: release packages (#5094)
+    
+    Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+
+ .changeset/allow-resume-occupied-sessions.md      |  5 --
+ .changeset/background-notification-tool-row.md    |  5 --
+ .changeset/background-task-tail-utf8.md           |  5 --
+ .changeset/bash-session-workspace-env-desktop.md  |  5 --
+ .changeset/bash-session-workspace-env.md          |  5 --
+ .changeset/bedrock-provider.md                    |  5 --
+ .changeset/bound-ssh-project-discovery.md         |  5 --
+ .changeset/browser-file-annotations.md            |  5 --
+ .changeset/browser-google-sign-in.md              |  5 --
+ .changeset/browser-tab-title-and-favicon.md       |  5 --
+ .changeset/calm-tables-select.md                  |  5 --
+ .changeset/claude-5-output-ceiling.md             |  5 --
+ .changeset/compact-browser-tab-preview.md         |  5 --
+ .changeset/compact-own-line-calls.md              |  5 --
+ .changeset/compact-screenshot-loupe.md            |  5 --
+ .changeset/converge-mcp-api-v1.md                 |  5 --
+ .changeset/converge-sessions-api-v1.md            |  5 --
+ .changeset/curvy-pandas-cheer.md                  |  5 --
+ .changeset/feat-prompt-prediction.md              |  5 --
+ .changeset/feedback-multiline-input.md            |  5 --
+ .changeset/fix-acp-preview-environment.md         |  5 --
+ .changeset/fix-auth-media-rate-limit.md           |  5 --
+ .changeset/fix-btw-stale-session.md               |  5 --
+ .changeset/fix-composer-menu-viewport-clamp.md    |  5 --
+ .changeset/fix-consecutive-steer-unread.md        |  5 --
+ .changeset/fix-core-2.6.3-backsync.md             |  5 --
+ .changeset/fix-grouped-sessions-across-hosts.md   |  5 --
+ .changeset/fix-host-unpaginated-session-lists.md  |  5 --
+ .changeset/fix-provider-refresh-toast.md          |  5 --
+ .changeset/fix-sidechat-table-actions.md          |  5 --
+ .changeset/fix-ssh-project-lists.md               |  5 --
+ .changeset/fix-subagent-zero-timeout.md           |  5 --
+ .changeset/fix-tui-transcript-history.md          |  5 --
+ .changeset/fix-vertex-adc.md                      |  5 --
+ .changeset/fix-web-ssh-project-lists.md           |  5 --
+ .changeset/fix-webbridge-partial-update.md        |  5 --
+ .changeset/follow-up-behavior.md                  |  5 --
+ .changeset/foreground-agent-activity.md           |  5 --
+ .changeset/fresh-math-cjk.md                      |  5 --
+ .changeset/highlight-running-send-setting.md      |  5 --
+ .changeset/kap-agent-collaboration.md             |  5 --
+ .changeset/kap-agent-http-and-json-boot.md        |  5 --
+ .changeset/kap-instance-host-product.md           |  5 --
+ .changeset/kimi-server-command.md                 |  5 --
+ .changeset/mark-session-unread.md                 |  5 --
+ .changeset/pinned-rename-tooltip-dot.md           |  5 --
+ .changeset/pinned-workspaces.md                   |  5 --
+ .changeset/release-plan.json                      | 84 +++++++++++++++++++++++
+ .changeset/remote-control-websocket-proxy.md      |  5 --
+ .changeset/restore-workspace-directory-actions.md |  5 --
+ .changeset/running-send-mode-steer.md             |  5 --
+ .changeset/screenshot-macos-ime-window-level.md   |  5 --
+ .changeset/ssh-remote-devices.md                  |  5 --
+ .changeset/ssh-shared-account.md                  |  7 --
+ .changeset/status-session-id.md                   |  5 --
+ .changeset/task-stop-state-icons.md               |  5 --
+ .changeset/tidy-rooms-stop.md                     |  5 --
+ .changeset/unify-button-variants.md               |  5 --
+ .changeset/unify-toast-feedback.md                |  5 --
+ .changeset/web-add-workspace-mkdir.md             |  5 --
+ apps/desktop/CHANGELOG.md                         | 74 ++++++++++++++++++++
+ apps/desktop/package.json                         |  2 +-
+ apps/kimi-code/CHANGELOG.md                       | 56 +++++++++++++++
+ apps/kimi-code/package.json                       |  2 +-
+ packages/kap-server/CHANGELOG.md                  |  6 ++
+ packages/kap-server/package.json                  |  2 +-
+ 66 files changed, 223 insertions(+), 300 deletions(-)

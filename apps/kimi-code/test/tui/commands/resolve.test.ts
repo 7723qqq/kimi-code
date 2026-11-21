@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-
 import {
   resolveSlashCommandInput,
   setExperimentalFeatures,
   slashBusyMessage,
   slashCommandBusyReason,
 } from '#/tui/commands/index';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import { resolveUserInput, skillVariantPathsForInput } from '#/tui/commands/resolve';
 
 function resolve(
@@ -38,20 +38,14 @@ describe('resolveUserInput', () => {
   it.each([
     { input: '/skill:review src/app.ts', skills: [{ skillName: 'review', args: 'src/app.ts' }] },
     { input: '/review', skills: [{ skillName: 'review', args: '' }] },
-    {
-      input: '/skill:team/review src/app.ts',
-      skills: [{ skillName: 'team/review', args: 'src/app.ts' }],
-    },
+    { input: '/skill:team/review src/app.ts', skills: [{ skillName: 'team/review', args: 'src/app.ts' }] },
     { input: '/team/review src/app.ts', skills: [] },
     { input: 'check /skill:team/review src/app.ts', skills: [] },
     { input: '/quick\ncheck src/app.ts', skills: [] },
     { input: '/skill:review\nexplain this', skills: [] },
     { input: '/skill:review\n\nexplain this', skills: [] },
     { input: '/skill:review\texplain this', skills: [] },
-    {
-      input: '/quick \ncheck src/app.ts',
-      skills: [{ skillName: 'review', args: 'check src/app.ts' }],
-    },
+    { input: '/quick \ncheck src/app.ts', skills: [{ skillName: 'review', args: 'check src/app.ts' }] },
     { input: '/quick\n', skills: [{ skillName: 'review', args: '' }] },
     { input: 'please /skill:review src/app.ts', skills: [{ skillName: 'review' }] },
     { input: '/skill:review /review src/app.ts', skills: [{ skillName: 'review' }] },
@@ -65,11 +59,7 @@ describe('resolveUserInput', () => {
     { input: '/example:deploy /skill:review', skills: [] },
     { input: 'check src/app.ts https://example.com/review and 1/2', skills: [] },
   ])('resolves $input without changing argument or command precedence', ({ input, skills }) => {
-    expect(
-      resolveUserInput({ ...options, input }).activations.map(
-        ({ start: _start, occurrences: _occurrences, ...activation }) => activation,
-      ),
-    ).toEqual(skills as any);
+    expect(resolveUserInput({ ...options, input }).activations.map(({ start: _start, occurrences: _occurrences, ...activation }) => activation)).toEqual(skills);
   });
 
   it('attaches selected variant paths to every matching activation', () => {
@@ -382,7 +372,7 @@ describe('resolveSlashCommandInput', () => {
     });
   });
 
-  it('resolves skill commands even while busy (queued like normal messages)', () => {
+  it('resolves skill commands and keeps them resolvable while busy (queued downstream)', () => {
     const skillCommandMap = new Map([['skill:review', 'review']]);
 
     expect(resolve('/skill:review src/app.ts', { skillCommandMap })).toEqual({
@@ -399,7 +389,7 @@ describe('resolveSlashCommandInput', () => {
     });
   });
 
-  it('resolves unprefixed built-in skill commands even while busy', () => {
+  it('resolves unprefixed built-in skill commands and keeps them resolvable while busy', () => {
     const skillCommandMap = new Map([['mcp-config', 'mcp-config']]);
 
     expect(resolve('/mcp-config', { skillCommandMap })).toEqual({
@@ -452,25 +442,10 @@ describe('resolveSlashCommandInput', () => {
     });
   });
 
-  it('rejects /tower as invalid, instead of sending the slash text to the model', () => {
+  it('does not resolve /tower as a builtin when the tower flag is disabled', () => {
     expect(resolve('/tower Ship feature X')).toEqual({
-      kind: 'invalid',
-      commandName: 'tower',
-      reason: 'unknown',
-    });
-  });
-
-  it('does not let a same-named skill swallow a disabled experimental command', () => {
-    const command = resolve('/tower status', { skillCommandMap: new Map([['tower', 'tower']]) });
-
-    expect(command).toEqual({ kind: 'invalid', commandName: 'tower', reason: 'unknown' });
-  });
-
-  it('rejects a disabled experimental command with no args too', () => {
-    expect(resolve('/tower')).toEqual({
-      kind: 'invalid',
-      commandName: 'tower',
-      reason: 'unknown',
+      kind: 'message',
+      input: '/tower Ship feature X',
     });
   });
 

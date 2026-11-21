@@ -1,14 +1,14 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { IAgentTowerService } from '#/features/tower/tower';
 import {
   TowerProtocolError,
   type TowerReanchorMissionDigest,
 } from '#/features/tower/protocol/index';
-import { IAgentTowerService } from '#/features/tower/tower';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import type { ToolExecution } from '#/tool/toolContract';
 
 import {
   newTowerStore,
@@ -16,13 +16,12 @@ import {
   TOWER_MAIN_AGENT_ONLY,
   TOWER_MODE_USER_ENABLED_ONLY,
 } from '../support';
-import { ITowerInitTool, TowerInitToolInputSchema, type TowerInitToolInput } from './init';
 import DESCRIPTION from './init.md?raw';
+import { ITowerInitTool, TowerInitToolInputSchema, type TowerInitToolInput } from './init';
 
 export class TowerInitTool implements ITowerInitTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerInit' as const;
-  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerInitToolInputSchema);
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   fetchCompleteFeedbackUpload,
@@ -7,11 +7,10 @@ import {
   kimiCodeFeedbackUploadUrl,
   type CreateFeedbackUploadUrlBody,
 } from '../src/managed-feedback-upload';
-import { setGlobal, restoreEnvs, restoreGlobals } from './stubs';
 
 afterEach(() => {
-  restoreGlobals();
-  restoreEnvs();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 const SAMPLE_BODY: CreateFeedbackUploadUrlBody = {
@@ -37,25 +36,24 @@ describe('kimiCodeFeedbackUploadCompleteUrl', () => {
 
 describe('fetchCreateFeedbackUploadUrl', () => {
   it('POSTs JSON body with bearer auth and parses upload parts', async () => {
-    const fetchMock = mock(
-      async () =>
-        new Response(
-          JSON.stringify({
-            code: 0,
-            upload: {
-              id: 28,
-              upload_id: 'tos-multipart-id',
-              part_size: 8,
-              total_parts: 1,
-              parts: [
-                { part_number: 1, url: 'https://example.test/part1', method: 'PUT', size: 123 },
-              ],
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          code: 0,
+          upload: {
+            id: 28,
+            upload_id: 'tos-multipart-id',
+            part_size: 8,
+            total_parts: 1,
+            parts: [
+              { part_number: 1, url: 'https://example.test/part1', method: 'PUT', size: 123 },
+            ],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await fetchCreateFeedbackUploadUrl('access-token', SAMPLE_BODY);
 
@@ -76,14 +74,13 @@ describe('fetchCreateFeedbackUploadUrl', () => {
   });
 
   it('returns an error when the response omits parts', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
-        async () =>
-          new Response(JSON.stringify({ code: 0, upload: { id: 28 } }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
+      vi.fn(async () =>
+        new Response(JSON.stringify({ code: 0, upload: { id: 28 } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
       ),
     );
 
@@ -96,17 +93,16 @@ describe('fetchCreateFeedbackUploadUrl', () => {
   });
 
   it('returns an error when a part is missing required fields', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
-        async () =>
-          new Response(
-            JSON.stringify({
-              code: 0,
-              upload: { id: 28, parts: [{ part_number: 1 }] },
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          ),
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            code: 0,
+            upload: { id: 28, parts: [{ part_number: 1 }] },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
       ),
     );
 
@@ -119,10 +115,7 @@ describe('fetchCreateFeedbackUploadUrl', () => {
   });
 
   it('returns an error with status when the server responds 401', async () => {
-    setGlobal(
-      'fetch',
-      mock(async () => new Response('', { status: 401 })),
-    );
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })));
 
     const result = await fetchCreateFeedbackUploadUrl('access-token', SAMPLE_BODY);
 
@@ -135,8 +128,8 @@ describe('fetchCreateFeedbackUploadUrl', () => {
 
 describe('fetchCompleteFeedbackUpload', () => {
   it('POSTs upload_id and parts with bearer auth', async () => {
-    const fetchMock = mock(async () => new Response('{}', { status: 200 }));
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await fetchCompleteFeedbackUpload('access-token', {
       upload_id: 28,
@@ -160,15 +153,13 @@ describe('fetchCompleteFeedbackUpload', () => {
   });
 
   it('derives upload_url and upload_complete directly from an explicit feedbackUrl', async () => {
-    const fetchMock = mock(async (url: string) => {
+    const fetchMock = vi.fn(async (url: string) => {
       if (url.endsWith('/upload_url')) {
         return new Response(
           JSON.stringify({
             upload: {
               id: 42,
-              parts: [
-                { part_number: 1, url: 'https://storage.example.test/p1', method: 'PUT', size: 10 },
-              ],
+              parts: [{ part_number: 1, url: 'https://storage.example.test/p1', method: 'PUT', size: 10 }],
             },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -176,7 +167,7 @@ describe('fetchCompleteFeedbackUpload', () => {
       }
       return new Response('{}', { status: 200 });
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const created = await fetchCreateFeedbackUploadUrl('YOUR_API_KEY', SAMPLE_BODY, {
       feedbackUrl: 'https://registry.example.test/v1/feedback/',

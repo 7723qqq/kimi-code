@@ -1,30 +1,35 @@
-/**
- * Kimi Code version helpers.
- *
- * `getVersion` returns the build-time injected version when present, and
- * otherwise falls back to reading the host CLI's `package.json#version`.
- */
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
-import { createKimiUserAgent, type KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth/identity';
+import { KIMI_BUILD_INFO } from './build-info';
+import { t } from '#/i18n';
 
-import { CLI_MSH_PLATFORM, CLI_USER_AGENT_PRODUCT } from '#/constant/app';
+const MODULE_DIR = import.meta.dirname;
 
-import { getVersion } from './version-info';
-
-export { getHostPackageJsonPath, getHostPackageRoot, getVersion } from './version-info';
-
-export function createKimiCodeHostIdentity(version = getVersion()): KimiHostIdentity {
-  return {
-    productName: CLI_USER_AGENT_PRODUCT,
-    version,
-    platform: CLI_MSH_PLATFORM,
-  };
+export function getHostPackageJsonPath(): string {
+  let dir = MODULE_DIR;
+  for (let i = 0; i < 6; i++) {
+    const candidate = resolve(dir, 'package.json');
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(t('cli.version.packageJsonNotFound', { p1: MODULE_DIR }));
 }
 
-/**
- * Product User-Agent (`kimi-code-cli/<version>`) for ad-hoc outbound fetches
- * that don't go through the provider pipeline (registry / catalog imports).
- */
-export function createKimiCodeUserAgent(version = getVersion()): string {
-  return createKimiUserAgent(createKimiCodeHostIdentity(version));
+export function getHostPackageRoot(): string {
+  return dirname(getHostPackageJsonPath());
+}
+
+export function getVersion(): string {
+  if (KIMI_BUILD_INFO.version !== undefined) {
+    return KIMI_BUILD_INFO.version;
+  }
+  const pkg = JSON.parse(readFileSync(getHostPackageJsonPath(), 'utf-8')) as {
+    version: string;
+  };
+  return pkg.version;
 }

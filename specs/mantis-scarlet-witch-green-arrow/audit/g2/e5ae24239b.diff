@@ -1,0 +1,35 @@
+commit e5ae24239ba88b92953e22d0ca734f30933ccc16
+Author:     liruifengv <liruifeng1024@gmail.com>
+AuthorDate: Thu Nov 19 14:23:12 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 19 14:23:12 2026 +0800
+
+    chore(agent-core-v2): fix test (#5087)
+
+diff --git a/apps/kimi-code/test/tui/commands/plugins-capability.test.ts b/apps/kimi-code/test/tui/commands/plugins-capability.test.ts
+index d8db1cbe0b..68da9cb687 100644
+--- a/apps/kimi-code/test/tui/commands/plugins-capability.test.ts
++++ b/apps/kimi-code/test/tui/commands/plugins-capability.test.ts
+@@ -457,7 +457,7 @@ describe('plugins command capability surface', () => {
+   it('treats managed base URL catalogs as default and explicit catalogs as custom', () => {
+     vi.stubEnv('KIMI_CODE_BASE_URL', 'https://api.kimi.com/coding/v1');
+     expect(isDefaultMarketplaceCatalog(undefined, {})).toBe(true);
+-    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://coding.deva.msh.team/coding/v1');
++    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://coding.example.com/coding/v1');
+     expect(isDefaultMarketplaceCatalog(undefined, {})).toBe(true);
+     vi.stubEnv('KIMI_CODE_BASE_URL', 'https://gateway.example.test/coding/v1');
+     expect(isDefaultMarketplaceCatalog(undefined, {})).toBe(true);
+diff --git a/packages/agent-core-v2/src/app/plugin/marketplace.ts b/packages/agent-core-v2/src/app/plugin/marketplace.ts
+index ae1882758c..b73e1a608a 100644
+--- a/packages/agent-core-v2/src/app/plugin/marketplace.ts
++++ b/packages/agent-core-v2/src/app/plugin/marketplace.ts
+@@ -129,8 +129,7 @@ export function pluginMarketplaceUrl(baseUrl: string): string {
+ }
+ 
+ const TRUSTED_PLUGIN_MARKETPLACE_URLS = new Set(
+-  [...Object.values(KIMI_REGION_PROFILES).map((profile) => profile.baseUrl), 'https://coding.deva.msh.team/coding/v1']
+-    .map(pluginMarketplaceUrl),
++  Object.values(KIMI_REGION_PROFILES).map((profile) => pluginMarketplaceUrl(profile.baseUrl)),
+ );
+ 
+ export function isTrustedPluginMarketplaceUrl(source: string): boolean {

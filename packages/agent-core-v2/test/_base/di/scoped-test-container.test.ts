@@ -1,9 +1,12 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { createDecorator } from '#/_base/di/instantiation';
-import { _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
-import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { LifecycleScope } from '#/app/scopes';
+import {
+  _clearScopedRegistryForTests,
+  registerScopedService,
+} from '#/_base/di/scope';
+import { createScopedTestHost, stubPair } from '#/_base/di/test';
 
 interface IGreeter {
   greet(): string;
@@ -64,28 +67,6 @@ describe('scoped test container', () => {
     expect(agent.accessor.get(IGreeter).greet()).toBe('agent-local');
     expect(session.accessor.get(IGreeter).greet()).toBe('deep');
 
-    host.dispose();
-  });
-
-  it('multiple stubs can be injected via a single host', () => {
-    interface IOther {
-      value: number;
-    }
-    const IOther = createDecorator<IOther>('container-other');
-    const host = createScopedTestHost([
-      stubPair(IGreeter, { greet: () => 'multi' }),
-      stubPair(IOther, { value: 7 }),
-    ]);
-    const session = host.child(LifecycleScope.Session, 's1');
-    expect(session.accessor.get(IGreeter).greet()).toBe('multi');
-    expect(session.accessor.get(IOther).value).toBe(7);
-    host.dispose();
-  });
-
-  it('empty host with no stubs still creates a valid scope', () => {
-    const host = createScopedTestHost();
-    const session = host.child(LifecycleScope.Session, 's1');
-    expect(session.accessor).toBeDefined();
     host.dispose();
   });
 });

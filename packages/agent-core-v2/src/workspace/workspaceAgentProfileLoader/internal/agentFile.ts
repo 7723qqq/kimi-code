@@ -1,7 +1,6 @@
 import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
 import { FrontmatterError, parseFrontmatter } from '#/_base/text/frontmatter';
-import { isRecord } from '#/_base/utils/guards';
 
 import type { AgentFileDefinition, AgentFileSource } from './types';
 
@@ -104,7 +103,9 @@ export function parseAgentFileText(options: ParseAgentFileOptions): AgentFileDef
 function parseBoolean(value: unknown, field: string, filePath: string): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value === 'boolean') return value;
-  throw new AgentFileParseError(`Frontmatter field "${field}" in ${filePath} must be a boolean`);
+  throw new AgentFileParseError(
+    `Frontmatter field "${field}" in ${filePath} must be a boolean`,
+  );
 }
 
 function parseStringList(
@@ -157,4 +158,8 @@ function deriveNameFromPath(filePath: string): string | undefined {
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

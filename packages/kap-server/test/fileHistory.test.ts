@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -23,7 +24,8 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await server?.close();
-  } catch {}
+  } catch {
+  }
   server = undefined;
   rmSync(home, { recursive: true, force: true });
 });
@@ -88,7 +90,7 @@ describe('file history routes', () => {
       url: `/api/v1/sessions/${sessionId}/file-history/changes?turn_number=1`,
     });
     expect(changes.statusCode).toBe(200);
-    expect((changes.json() as Envelope<{ changes: unknown[]; recorded: boolean }>).data).toEqual({
+    expect((changes.json() as Envelope<{ changes: unknown[] }>).data).toEqual({
       changes: [],
       recorded: false,
     });

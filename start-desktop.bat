@@ -1,40 +1,12 @@
 @echo off
-REM Kimi Code Desktop launcher — builds the native binary (bun) and runs a vendored Electron shell.
-REM Usage: double-click or run from cmd/powershell.
-
 setlocal
-
 cd /d "%~dp0"
-
-REM The committed dist-web bundle mirrors upstream; validate it before building.
-node apps\kimi-code\scripts\check-web-assets.mjs
-if errorlevel 1 (
-    echo [ERROR] Web asset check failed. Sync apps\kimi-code\dist-web from code-app.
+if not exist "apps\desktop\package.json" (
+    echo [ERROR] apps\desktop is not present in this checkout.
     pause
     exit /b 1
 )
-
-REM Build the native executable (one-time, skip if already built).
-if not exist "apps\kimi-code\dist-native\bin\win32-x64\kimi.exe" (
-    echo Building native binary (bun)...
-    call bun run --cwd apps/kimi-code build:native:bun
-    if errorlevel 1 (
-        echo [ERROR] Native build failed.
-        pause
-        exit /b 1
-    )
-)
-
-REM Launch the Electron shell when it is vendored in this checkout.
-REM This fork keeps the desktop shell source outside the repo; the CLI launcher
-REM is start-native.bat.
-if not exist "apps\kimi-desktop\package.json" (
-    echo [ERROR] apps\kimi-desktop is not present in this checkout.
-    echo         Use start-native.bat for the native CLI, or vendor the desktop shell first.
-    pause
-    exit /b 1
-)
-echo Starting Kimi Code Desktop...
-call bun run --cwd apps/kimi-desktop dev
-
-endlocal
+echo Starting Kimi Code Desktop with the Bun backend...
+call bun run dev:desktop
+set EXIT_CODE=%ERRORLEVEL%
+endlocal & exit /b %EXIT_CODE%

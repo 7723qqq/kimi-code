@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { Error2, ErrorCodes, isError2 } from '#/errors';
+import { isPlainObject } from '#/app/config/toml';
 import {
   type ConfigDiagnostic,
   type EnvBindings,
@@ -8,17 +10,15 @@ import {
   type IConfigService,
 } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
-import { isPlainObject } from '#/app/config/toml';
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
-import { Error2, ErrorCodes, isError2 } from '#/errors';
 import type { IModelCatalog, Model } from '#/llm-adapter/model/catalog';
 import {
   declaredDefaultEffortForModel,
   modelSupportsThinking,
   modelSupportsThinkingEffort,
   normalizeRequestedThinkingEffort,
-  type ThinkingConfig,
-} from '#/llm-adapter/model/thinking';
+} from '@moonshot-ai/core/llm/thinking';
+import type { ThinkingConfig } from '#/llm-adapter/model/thinking';
 
 export const SUBAGENT_SECTION = 'subagent';
 export const SECONDARY_MODEL_SECTION = 'secondaryModel';
@@ -47,9 +47,12 @@ function parseTimeoutMsEnv(raw: string): number | undefined {
   return Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined;
 }
 
-export const subagentEnvBindings: EnvBindings<SubagentConfig> = envBindings(SubagentConfigSchema, {
-  timeoutMs: { env: SUBAGENT_TIMEOUT_ENV, parse: parseTimeoutMsEnv },
-});
+export const subagentEnvBindings: EnvBindings<SubagentConfig> = envBindings(
+  SubagentConfigSchema,
+  {
+    timeoutMs: { env: SUBAGENT_TIMEOUT_ENV, parse: parseTimeoutMsEnv },
+  },
+);
 
 export const stripSubagentEnv = stripEnvBoundFields(subagentEnvBindings);
 
@@ -183,7 +186,7 @@ function assertValidSubagentDefaultEffort(
   if (effort === undefined || pool === undefined) return;
   for (const alias of Object.keys(pool.models)) {
     const model = modelCatalog.get(alias);
-    if (effort === 'off' && model.alwaysThinking === true) {
+    if (effort === 'off' && model.spec.thinking?.alwaysThinking === true) {
       throw new Error2(
         ErrorCodes.CONFIG_INVALID,
         `[secondary_model].default_effort "off" cannot disable thinking for model "${alias}", which always reasons. Choose a concrete thinking effort instead of "off".`,
@@ -197,8 +200,8 @@ function assertValidSubagentDefaultEffort(
         },
       );
     }
-    if (modelSupportsThinkingEffort(effort, model, true)) continue;
-    if (!modelSupportsThinking(model)) {
+    if (modelSupportsThinkingEffort(effort, model.spec, true)) continue;
+    if (!modelSupportsThinking(model.spec)) {
       throw new Error2(
         ErrorCodes.CONFIG_INVALID,
         `[secondary_model].default_effort "${effort}" is set but model "${alias}" does not support thinking.`,
@@ -214,7 +217,7 @@ function assertValidSubagentDefaultEffort(
     }
     throw new Error2(
       ErrorCodes.CONFIG_INVALID,
-      `[secondary_model].default_effort "${effort}" is not supported by model "${alias}". Supported efforts: ${model.supportEfforts?.join(', ')}.`,
+      `[secondary_model].default_effort "${effort}" is not supported by model "${alias}". Supported efforts: ${model.spec.thinking?.supportEfforts?.join(', ')}.`,
       {
         details: {
           section: SECONDARY_MODEL_SECTION,
@@ -280,7 +283,7 @@ export function resolveSubagentThinking(
 ): string | undefined {
   if (explicit !== undefined) return explicit;
   if (config.get<ThinkingConfig>(THINKING_SECTION)?.enabled === false) return undefined;
-  return declaredDefaultEffortForModel(model);
+  return declaredDefaultEffortForModel(model?.spec);
 }
 
 export function buildSubagentModelDescriptions(config: IConfigService): string | undefined {

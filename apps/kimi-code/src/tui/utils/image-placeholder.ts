@@ -1,63 +1,7 @@
-/**
- * Scan submitted text for media placeholders and produce the prompt content
- * we'll send to the SDK prompt endpoint.
- *
- * `extractMediaAttachments` is the single expansion path for prompts:
- *   - image placeholders expand to inline image content parts. When the paste
- *     was uploaded to the daemon file store (`ImageAttachment.fileId`, v2
- *     engine only), the placeholder instead expands to a bare
- *     `kimi-file://<id>` image part — the engine's prompt intake materializes
- *     the session copy and rewrites the reference with its `?path=`, making
- *     the part self-contained (no paired tag is authored); without a `fileId`
- *     the inline base64 form is emitted unchanged (the only form the v1
- *     engine accepts). Compression captions for paste-time-downsampled images
- *     are NOT authored here: extraction runs before a first session exists,
- *     so `resolveOriginalCaptions` adds them at dispatch time, persisting the
- *     in-memory original (`ImageAttachment.original`) into the session's
- *     media-originals dir first;
- *   - video placeholders expand to a bare `kimi-file://<id>` video part:
- *     the paste was uploaded to the daemon file store in the background
- *     (`VideoAttachment.fileId`), and the engine's prompt intake
- *     materializes the session copy and rewrites the reference with its
- *     `?path=`, exactly like an uploaded image. A video without a usable
- *     upload — still in flight after the bounded submit wait, failed, or
- *     expired — aborts extraction with an error: video bytes have no
- *     inline fallback form.
- *
- * `rewriteMediaPlaceholders` is the separate text channel for slash-command
- * args (`/skill`, plugin commands): those are plain text, so media is rendered
- * as a `<video|image path="…">` tag / plain-text reference into cache-dir
- * copies the model opens with `Read`.
- *
- * Rules for both:
- *   - Only placeholders that resolve against `store` get extracted.
- *     A literal `[image #999 ...]` the user typed themselves stays in
- *     the text (we can't hallucinate files for it).
- *   - Order is preserved for text/image/video segments.
- *   - Adjacent text segments are flattened — empty / whitespace-only
- *     segments drop out so we never emit `{type:'text', text:' '}`
- *     noise between two media parts.
- *   - Bare absolute image file paths (typed or pasted — Windows drive
- *     paths included, with a WSL `/mnt/<drive>` fallback) attach as
- *     images when the file is readable and parses as a supported format;
- *     anything else stays as literal text. The attach runs through the
- *     same ingestion as clipboard paste (`PathImageIngester`) when the
- *     caller supplies one, so path-attached images are captured compressed
- *     too; without an ingester the raw bytes attach as-is.
- */
-
 import { randomUUID } from 'node:crypto';
-import {
-  copyFileSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 
 import type { PromptPart, Session } from '@moonshot-ai/kimi-code-sdk';
 import {
@@ -67,40 +11,24 @@ import {
   sessionMediaOriginalsDir,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
-import { documentMimeFromPath, parseImageMeta } from '#/utils/image/image-mime';
 import { getCacheDir } from '#/utils/paths';
 
 import { MEDIA_FILE_REF_MIN_REMAINING_MS } from '../constant/media';
 import type {
-  DocumentAttachment,
   ImageAttachment,
   ImageAttachmentStore,
   MediaAttachment,
   VideoAttachment,
 } from './image-attachment-store';
+import { t } from '#/i18n';
 
-const PLACEHOLDER_REGEX = /\[(image|video|document) #(\d+) (?:(\(\d+×\d+\))|([^\]]+))\]/g;
+const PLACEHOLDER_REGEX = /\[(image|video) #(\d+) (?:(\(\d+×\d+\))|([^\]]+))\]/g;
 
 export interface ExtractionResult {
-  /** Flat list of parts in input order; empty array when no media matched. */
   parts: PromptPart[];
-  /**
-   * Did we find at least one matching attachment? When false, callers
-   * should keep the prompt on the plain text path.
-   */
   hasMedia: boolean;
-  /** Image attachment ids matched, in the order they appeared. */
   imageAttachmentIds: number[];
-  /** Video attachment ids matched, in the order they appeared. */
   videoAttachmentIds: number[];
-  /** Document attachment ids matched, in the order they appeared. */
-  documentAttachmentIds: number[];
-  /**
-   * Image bytes captured while extracting the prompt. A cache-hint resend can
-   * outlive the attachment store and daemon file ids, so it uses these
-   * snapshots to rebuild the image parts as inline data URLs.
-   */
   imageSnapshots: ImageResendSnapshot[];
   mediaSnapshots?: readonly MediaAttachment[];
   mediaGeneration?: number;
@@ -111,12 +39,6 @@ export interface ImageResendSnapshot {
   readonly mime: string;
   readonly width: number;
   readonly height: number;
-  /**
-   * Pre-compression original captured at extraction, so a new-session resend
-   * can still persist it and author the compression caption after the image
-   * store (and its attachments) was cleared. Absent for untouched pastes and
-   * for originals already persisted and released.
-   */
   readonly original?: {
     readonly bytes: Uint8Array;
     readonly width: number;
@@ -125,181 +47,13 @@ export interface ImageResendSnapshot {
   };
 }
 
-// Absolute image file paths found in submitted text — Windows drive paths
-// (WeChat/QQ "copy image" often lands as a path, not pixels) included. The
-// quoted alternative allows spaces; the bare form stops at whitespace.
-const IMAGE_PATH_REGEX =
-  /"([^"\n]+[\\/][^"\n]+?\.(?:png|jpe?g|gif|webp|bmp))"|((?:[A-Za-z]:)?[\\/][^\s"']+\.(?:png|jpe?g|gif|webp|bmp))/gi;
-
-// PDFs are the only document type the engine carries, so the path form is
-// just as narrow.
-const DOCUMENT_PATH_REGEX = /"([^"\n]+[\\/][^"\n]+?\.pdf)"|((?:[A-Za-z]:)?[\\/][^\s"']+\.pdf)/gi;
-
-const MAX_PATH_ATTACH_BYTES = 20 * 1024 * 1024;
-const MAX_PATH_ATTACHMENTS_PER_SUBMIT = 10;
-
-/**
- * Background-free ingestion twin of the clipboard paste, applied when a bare
- * image path attaches: compress at capture time (`compressImageForModel`),
- * upload to the daemon file store when the v2 engine file store is active,
- * then `completeImage`. Implementations must surface their own failures and
- * resolve — the raw attachment stays as the inline fallback; a rejection
- * aborts the attach and leaves the path as literal text.
- */
-export type PathImageIngester = (
-  attachment: ImageAttachment,
-  bytes: Uint8Array,
-  mime: string,
-  width: number,
-  height: number,
-) => Promise<void>;
-
-/**
- * Background-free ingestion twin for a PDF that arrived as a bare path:
- * upload it to the daemon file store, then `completeDocument`. A document
- * has no inline fallback, so a caller without an ingester must not attach
- * one — the path stays literal text and the model reads it instead.
- */
-export type PathDocumentIngester = (
-  attachment: DocumentAttachment,
-  mime: string,
-  path: string,
-) => Promise<void>;
-
-async function attachFromImagePath(
-  raw: string,
-  store: ImageAttachmentStore,
-  seen: Map<string, string>,
-  ingest?: PathImageIngester,
-): Promise<string | undefined> {
-  const cached = seen.get(raw);
-  if (cached !== undefined) return cached;
-  const withoutQuotes = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
-  const candidates = [withoutQuotes];
-  // A Windows path pasted into WSL has no native `D:\` backing here; try the
-  // standard `/mnt/<drive>` translation before giving up.
-  const drive = /^([A-Za-z]):[\\/](.*)$/.exec(withoutQuotes);
-  if (drive?.[1] !== undefined && drive?.[2] !== undefined) {
-    candidates.push(`/mnt/${drive[1].toLowerCase()}/${drive[2].replaceAll('\\', '/')}`);
-  }
-  for (const candidate of candidates) {
-    try {
-      if (!statSync(candidate).isFile()) continue;
-      const bytes = readFileSync(candidate);
-      if (bytes.length === 0 || bytes.length > MAX_PATH_ATTACH_BYTES) continue;
-      const meta = parseImageMeta(bytes);
-      if (meta === null) continue;
-      const attachment = store.addImage(bytes, meta.mime, meta.width, meta.height);
-      if (ingest !== undefined) {
-        await ingest(attachment, bytes, meta.mime, meta.width, meta.height);
-      }
-      const placeholder = `${attachment.placeholder} `;
-      seen.set(raw, placeholder);
-      return placeholder;
-    } catch {
-      // unreadable / vanished between stat and read — next candidate
-    }
-  }
-  return undefined;
-}
-
-async function rewriteImageFilePaths(
+export function extractMediaAttachments(
   text: string,
   store: ImageAttachmentStore,
-  ingest?: PathImageIngester,
-): Promise<string> {
-  let conversions = 0;
-  // Repeated references to the same path share one attachment instead of
-  // duplicating bytes and uploading twice.
-  const seen = new Map<string, string>();
-  let out = '';
-  let cursor = 0;
-  IMAGE_PATH_REGEX.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = IMAGE_PATH_REGEX.exec(text)) !== null) {
-    if (conversions >= MAX_PATH_ATTACHMENTS_PER_SUBMIT) break;
-    out += text.slice(cursor, match.index);
-    const placeholder = await attachFromImagePath(
-      match[1] ?? match[2] ?? match[0],
-      store,
-      seen,
-      ingest,
-    );
-    out += placeholder ?? match[0];
-    if (placeholder !== undefined) conversions++;
-    cursor = match.index + match[0].length;
-  }
-  return out + text.slice(cursor);
-}
-
-async function attachFromDocumentPath(
-  raw: string,
-  store: ImageAttachmentStore,
-  seen: Map<string, string>,
-  ingest?: PathDocumentIngester,
-): Promise<string | undefined> {
-  const cached = seen.get(raw);
-  if (cached !== undefined) return cached;
-  const withoutQuotes = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
-  const candidates = [withoutQuotes];
-  // Same WSL `/mnt/<drive>` translation the image path uses.
-  const drive = /^([A-Za-z]):[\\/](.*)$/.exec(withoutQuotes);
-  if (drive?.[1] !== undefined && drive?.[2] !== undefined) {
-    candidates.push(`/mnt/${drive[1].toLowerCase()}/${drive[2].replaceAll('\\', '/')}`);
-  }
-  for (const candidate of candidates) {
-    try {
-      if (!statSync(candidate).isFile()) continue;
-      const mimeType = documentMimeFromPath(candidate);
-      if (mimeType === null) continue;
-      // Without an ingester nothing would upload the file, and a document has
-      // no inline fallback — leave the path as text for the model to read.
-      if (ingest === undefined) continue;
-      const attachment = store.addDocument(mimeType, candidate, basename(candidate));
-      await ingest(attachment, mimeType, candidate);
-      const placeholder = `${attachment.placeholder} `;
-      seen.set(raw, placeholder);
-      return placeholder;
-    } catch (error) {
-      const code = (error as { readonly code?: unknown }).code;
-      if (code !== 'ENOENT' && code !== 'EACCES' && code !== 'EPERM') throw error;
-    }
-  }
-  return undefined;
-}
-
-async function rewriteDocumentFilePaths(
-  text: string,
-  store: ImageAttachmentStore,
-  ingest?: PathDocumentIngester,
-): Promise<string> {
-  let conversions = 0;
-  const seen = new Map<string, string>();
-  let out = '';
-  let cursor = 0;
-  DOCUMENT_PATH_REGEX.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = DOCUMENT_PATH_REGEX.exec(text)) !== null) {
-    if (conversions >= MAX_PATH_ATTACHMENTS_PER_SUBMIT) break;
-    out += text.slice(cursor, match.index);
-    const placeholder = await attachFromDocumentPath(
-      match[1] ?? match[2] ?? match[0],
-      store,
-      seen,
-      ingest,
-    );
-    out += placeholder ?? match[0];
-    if (placeholder !== undefined) conversions++;
-    cursor = match.index + match[0].length;
-  }
-  return out + text.slice(cursor);
-}
-
-function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore): ExtractionResult {
+): ExtractionResult {
   const parts: PromptPart[] = [];
   const imageAttachmentIds: number[] = [];
   const videoAttachmentIds: number[] = [];
-  const documentAttachmentIds: number[] = [];
   const imageSnapshots: ImageResendSnapshot[] = [];
   const mediaSnapshots: MediaAttachment[] = [];
   let cursor = 0;
@@ -309,30 +63,18 @@ function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore):
   let match: RegExpExecArray | null;
   while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
     const [literal, kind, idStr] = match;
-    if (kind !== 'image' && kind !== 'video' && kind !== 'document') continue;
+    if (kind !== 'image' && kind !== 'video') continue;
     if (idStr === undefined) continue;
     const id = Number.parseInt(idStr, 10);
     const attachment = store.get(id);
-    if (attachment === undefined) continue; // stale / user-typed — leave as text
+    if (attachment === undefined) continue;
     if (attachment.kind !== kind) continue;
     mediaSnapshots.push(attachment);
     const before = text.slice(cursor, match.index);
     pushText(parts, before);
     if (attachment.kind === 'video') {
-      // The paste was uploaded to the daemon file store in the background:
-      // reference it by a bare `kimi-file://` url — the engine's prompt
-      // intake materializes the session copy, so the edge stages no local
-      // copy. Throws when the upload is unusable (still in flight, failed,
-      // expired): a video has no inline fallback.
       parts.push(videoPartForAttachment(attachment));
       videoAttachmentIds.push(id);
-    } else if (attachment.kind === 'document') {
-      // Same shape as video: the PDF was uploaded to the daemon file store
-      // in the background and travels as a `kimi-file://` document part.
-      // Throws when the upload is unusable — a document has no inline
-      // fallback either.
-      parts.push(documentPartForAttachment(attachment));
-      documentAttachmentIds.push(id);
     } else {
       const original = attachment.original;
       const originalBytes = original?.bytes ?? readOriginalImageBytes(original?.path);
@@ -351,14 +93,7 @@ function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore):
                 mime: original.mime,
               },
       });
-      // No compression caption here: `resolveOriginalCaptions` authors it
-      // at dispatch time, once the session (and its media-originals dir)
-      // is known.
       if (attachment.fileId !== undefined) {
-        // The bytes were uploaded to the daemon file store at paste time
-        // (v2): reference them by a bare `kimi-file://` url — the engine's
-        // prompt intake materializes the session copy and rewrites the
-        // reference with its `?path=`, so the edge stages no local copy.
         parts.push({
           type: 'image_url',
           imageUrl: { url: buildDaemonFileUrl(attachment.fileId) },
@@ -374,71 +109,19 @@ function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore):
   const tail = text.slice(cursor);
   pushText(parts, tail);
 
-  store.retainFileIds([...imageAttachmentIds, ...videoAttachmentIds, ...documentAttachmentIds]);
+  store.retainFileIds([...imageAttachmentIds, ...videoAttachmentIds]);
   const freshParts = refreshExpiringImageFileRefs(parts, imageAttachmentIds, store);
   return {
-    // Text-only submissions drop the synthesised parts array — the
-    // caller's contract is "parts is meaningful iff hasMedia", and
-    // emitting a stray TextPart confuses consumers that branch on
-    // `parts.length > 0`.
     parts: hasMedia ? freshParts : [],
     hasMedia,
     imageAttachmentIds,
     videoAttachmentIds,
-    documentAttachmentIds,
     imageSnapshots,
     mediaSnapshots: mediaSnapshots.length > 0 ? mediaSnapshots : undefined,
     mediaGeneration: store.generation,
   };
 }
 
-async function extractMediaAttachmentsAsync(
-  text: string,
-  store: ImageAttachmentStore,
-  ingest?: PathImageIngester,
-  ingestDocument?: PathDocumentIngester,
-): Promise<ExtractionResult> {
-  const withImages = await rewriteImageFilePaths(text, store, ingest);
-  return extractMediaAttachmentsSync(
-    await rewriteDocumentFilePaths(withImages, store, ingestDocument),
-    store,
-  );
-}
-
-/**
- * Expand the media references in `text` into prompt parts.
- *
- * Stays synchronous when the text carries no image file path — the common
- * case — so a media-free submit reaches dispatch without yielding; only a
- * path that has to be read from disk (and possibly ingested) defers.
- */
-export function extractMediaAttachments(
-  text: string,
-  store: ImageAttachmentStore,
-  ingest?: PathImageIngester,
-  ingestDocument?: PathDocumentIngester,
-): ExtractionResult | Promise<ExtractionResult> {
-  IMAGE_PATH_REGEX.lastIndex = 0;
-  const hasImagePath = IMAGE_PATH_REGEX.test(text);
-  IMAGE_PATH_REGEX.lastIndex = 0;
-  DOCUMENT_PATH_REGEX.lastIndex = 0;
-  const hasDocumentPath = DOCUMENT_PATH_REGEX.test(text);
-  DOCUMENT_PATH_REGEX.lastIndex = 0;
-  if (!hasImagePath && !hasDocumentPath) return extractMediaAttachmentsSync(text, store);
-  return extractMediaAttachmentsAsync(text, store, ingest, ingestDocument);
-}
-
-/**
- * Give media referenced by `text` a bounded moment to finish its background
- * paste ingestion (image compression/upload, video daemon upload — see
- * `ImageAttachment.pending` / `VideoAttachment.pending`) before extraction,
- * so a paste-then-immediately-submit still expands to the daemon-ref form.
- * The returned promise resolves after `timeoutMs` at the latest; an image
- * whose ingestion has not landed by then extracts to the inline fallback
- * form, a video refuses the submission (no inline form exists). Returns
- * undefined when nothing is pending, so the submit path stays synchronous
- * for media-free prompts.
- */
 export function pendingMediaIngestions(
   text: string,
   store: ImageAttachmentStore,
@@ -449,7 +132,7 @@ export function pendingMediaIngestions(
   let match: RegExpExecArray | null;
   while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
     const [, kind, idStr] = match;
-    if (kind !== 'image' && kind !== 'video' && kind !== 'document') continue;
+    if (kind !== 'image' && kind !== 'video') continue;
     if (idStr === undefined) continue;
     const attachment = store.get(Number.parseInt(idStr, 10));
     if (attachment?.kind === kind && attachment.pending !== undefined) {
@@ -468,11 +151,6 @@ export function pendingMediaIngestions(
   });
 }
 
-/**
- * Replace daemon refs that may expire before validation reaches the server
- * with the attachment's retained bytes. Called both at extraction time and
- * again when a queued/cache-hint submission is actually dispatched.
- */
 export function refreshExpiringImageFileRefs(
   parts: readonly PromptPart[],
   imageAttachmentIds: readonly number[],
@@ -509,22 +187,6 @@ export function refreshExpiringImageFileRefs(
   return changed ? next : [...parts];
 }
 
-/**
- * Make an extraction safe to resend after a session reset. The reset clears
- * the image store and deletes unretained daemon file ids, so uploaded image
- * refs must be replaced with the bytes captured during the original
- * extraction. Video refs pass through unchanged: their uploads were retained
- * by the stash, and `ImageAttachmentStore.clear` keeps retained uploads
- * alive for exactly this resend (unclaimed survivors fall to the daemon's
- * staging TTL).
- *
- * Snapshots of compressed pastes also carry the pre-compression original: the
- * cleared store took the attachment with it, so dispatch-time caption
- * resolution can no longer find either. `makeExtractionResendable` persists
- * that original into `originalsDir` (the NEW session's media-originals dir;
- * temp-dir fallback when undefined) and authors the compression caption
- * itself, right before the rebuilt image part.
- */
 export function makeExtractionResendable(
   extraction: ExtractionResult,
   originalsDir?: string,
@@ -557,10 +219,9 @@ export function makeExtractionResendable(
             byteLength: snapshot.bytes.length,
             mimeType: snapshot.mime,
           },
-          originalPath:
-            originalReferences === undefined
-              ? persistOriginalImageSync(original.bytes, original.mime, originalsDir)
-              : originalReferences.get(imageIndex - 1),
+          originalPath: originalReferences === undefined
+            ? persistOriginalImageSync(original.bytes, original.mime, originalsDir)
+            : originalReferences.get(imageIndex - 1),
         }),
       };
       const previous = parts.at(-1);
@@ -586,46 +247,21 @@ export function makeExtractionResendable(
   return {
     ...extraction,
     parts,
-    // The new session's store no longer contains these ids. The rebuilt parts
-    // carry their own bytes, so keeping stale ids would break thumbnail and
-    // later cleanup lookups.
     imageAttachmentIds: [],
   };
 }
 
 export interface MediaTagRewriteResult {
-  /** Input text with resolved placeholders replaced by media references. */
   text: string;
   hasMedia: boolean;
   imageAttachmentIds: number[];
   videoAttachmentIds: number[];
-  documentAttachmentIds: number[];
   stagingPaths: string[];
   cachedVideos: VideoAttachment[];
 }
 
-/**
- * How a resolved placeholder is rendered into command args:
- *  - `'tag'`: the `<image|video path="…"></…>` convention, for channels
- *    that pass args through verbatim (plugin commands).
- *  - `'plain'`: a plain-text file reference with no XML tag/attribute
- *    boundary characters, for channels that XML-escape args (`/skill`
- *    args are escaped by both `renderSkillAttributes` and
- *    `expandSkillParameters`, which would mangle the tag form).
- */
 export type MediaReferenceStyle = 'tag' | 'plain';
 
-/**
- * Rewrite media placeholders in slash-command args (`/skill:foo …`,
- * plugin commands) into references pointing at cache-dir copies. Command
- * args are a plain-text channel — unlike `extractMediaAttachments`, which
- * inlines image parts for the prompt endpoint — so the model reaches the
- * media through `Read` instead, the same way it already handles
- * pasted videos.
- *
- * Surrounding text is preserved verbatim (args are user content, not
- * LLM parts), and unresolved placeholders stay literal.
- */
 export function rewriteMediaPlaceholders(
   text: string,
   store: ImageAttachmentStore,
@@ -634,7 +270,6 @@ export function rewriteMediaPlaceholders(
 ): MediaTagRewriteResult {
   const imageAttachmentIds: number[] = [];
   const videoAttachmentIds: number[] = [];
-  const documentAttachmentIds: number[] = [];
   const stagingPaths: string[] = [];
   const cachedVideos: VideoAttachment[] = [];
   let cursor = 0;
@@ -645,25 +280,16 @@ export function rewriteMediaPlaceholders(
     let match: RegExpExecArray | null;
     while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
       const [literal, kind, idStr] = match;
-      if (kind !== 'image' && kind !== 'video' && kind !== 'document') continue;
+      if (kind !== 'image' && kind !== 'video') continue;
       if (idStr === undefined) continue;
       const id = Number.parseInt(idStr, 10);
-      const attachment =
-        mediaSnapshots === undefined
-          ? store.get(id)
-          : mediaSnapshots.find((snapshot) => snapshot.id === id);
+      const attachment = mediaSnapshots === undefined
+        ? store.get(id)
+        : mediaSnapshots.find((snapshot) => snapshot.id === id);
       if (attachment === undefined) continue;
       if (attachment.kind !== kind) continue;
       out += text.slice(cursor, match.index);
-      if (attachment.kind === 'document') {
-        const path = materializeDocumentToCache(attachment, style === 'plain');
-        stagingPaths.push(path);
-        out +=
-          style === 'plain'
-            ? formatMediaReference('document', path)
-            : buildMediaPathTag('document', path);
-        if (store.get(id) === attachment) documentAttachmentIds.push(id);
-      } else if (attachment.kind === 'video') {
+      if (attachment.kind === 'video') {
         const path = materializeVideoToCache(attachment, style === 'plain');
         stagingPaths.push(path);
         out +=
@@ -685,13 +311,12 @@ export function rewriteMediaPlaceholders(
     }
 
     const hasMedia = stagingPaths.length > 0;
-    store.retainFileIds([...imageAttachmentIds, ...documentAttachmentIds]);
+    store.retainFileIds(imageAttachmentIds);
     return {
       text: hasMedia ? out + text.slice(cursor) : text,
       hasMedia,
       imageAttachmentIds,
       videoAttachmentIds,
-      documentAttachmentIds,
       stagingPaths,
       cachedVideos,
     };
@@ -721,17 +346,12 @@ function cleanupStagingPaths(paths: readonly string[]): void {
   for (const path of paths) {
     try {
       unlinkSync(path);
-    } catch {
-      // Best effort: a failed copy may not have created the target.
-    }
+    } catch {}
   }
 }
 
 function pushText(parts: PromptPart[], segment: string): void {
   if (segment.length === 0) return;
-  // Keep whitespace-only segments only when they sit between non-empty
-  // text elsewhere — the simpler rule "drop everything whitespace-only"
-  // is fine here because the LLM doesn't care about inter-image spaces.
   if (segment.trim().length === 0) return;
   const last = parts.at(-1);
   if (last?.type === 'text') {
@@ -749,12 +369,6 @@ function imagePartForAttachment(att: ImageAttachment): Extract<PromptPart, { typ
   };
 }
 
-/**
- * Is this image part still what the attachment holds? Extraction encodes the
- * attachment as of extraction time; a paste whose background ingestion
- * (compression/daemon upload) landed afterwards mutated it, leaving the part
- * carrying the pre-compression form — which no caption may describe.
- */
 function imagePartMatchesAttachment(
   part: Extract<PromptPart, { type: 'image_url' }>,
   attachment: ImageAttachment,
@@ -766,13 +380,6 @@ function imagePartMatchesAttachment(
   return url === imagePartForAttachment(attachment).imageUrl.url;
 }
 
-/**
- * A `video_url` prompt part referencing the paste's daemon upload by a bare
- * `kimi-file://` url — the engine's prompt intake materializes the session
- * copy before the part reaches the model or the persisted history. Throws
- * when the upload is unusable: video bytes have no inline fallback, so the
- * submission is refused with an actionable message instead.
- */
 function videoPartForAttachment(att: VideoAttachment): PromptPart {
   const fileId = att.fileId;
   const expired =
@@ -785,66 +392,16 @@ function videoPartForAttachment(att: VideoAttachment): PromptPart {
     };
   }
   if (att.pending !== undefined) {
-    throw new Error(t('tui.statusMessages.videoStillUploading', { label: att.label }));
+    throw new Error(`Video "${att.label}" is still uploading; try again in a moment.`);
   }
   throw new Error(
     expired
-      ? t('tui.statusMessages.videoExpired', { label: att.label })
-      : t('tui.statusMessages.videoUploadFailed', { label: att.label }),
+      ? `Video "${att.label}" expired before it was sent; paste it again.`
+      : `Video "${att.label}" could not be uploaded; paste it again.`,
   );
 }
 
-/**
- * A `document_url` prompt part referencing the paste's daemon upload by a
- * bare `kimi-file://` url — the engine's prompt intake materializes the
- * session copy before the part reaches the model or the persisted history.
- * Throws when the upload is unusable: document bytes have no inline
- * fallback, so the submission is refused with an actionable message instead.
- */
-function documentPartForAttachment(att: DocumentAttachment): PromptPart {
-  const fileId = att.fileId;
-  const expired =
-    att.fileExpiresAt !== undefined &&
-    att.fileExpiresAt - Date.now() <= MEDIA_FILE_REF_MIN_REMAINING_MS;
-  if (fileId !== undefined && !expired) {
-    return {
-      type: 'document_url',
-      documentUrl: {
-        url: buildDaemonFileUrl(fileId),
-        mimeType: att.mime,
-        name: att.label,
-      },
-    };
-  }
-  if (att.pending !== undefined) {
-    throw new Error(t('tui.statusMessages.documentStillUploading', { label: att.label }));
-  }
-  throw new Error(
-    expired
-      ? t('tui.statusMessages.documentExpired', { label: att.label })
-      : t('tui.statusMessages.documentUploadFailed', { label: att.label }),
-  );
-}
-
-/**
- * Copy a pasted video into the shared cache for the slash-command args
- * channel (`rewriteMediaPlaceholders`): command args are plain text, so the
- * model reaches the video through `Read` on the cache copy — the
- * prompt-part channel never stages one (see `videoPartForAttachment`).
- */
 function materializeVideoToCache(att: VideoAttachment, escapeProofName = false): string {
-  const cacheDir = getCacheDir();
-  mkdirSync(cacheDir, { recursive: true });
-  // The label permits XML boundary chars (`<>&"`); plain references go
-  // through skill-arg escaping, where they would no longer match the file
-  // on disk, so strip them from the cache name in that mode.
-  const label = escapeProofName ? att.label.replaceAll(/[<>&"]/g, '_') : att.label;
-  const target = join(cacheDir, `${randomUUID()}-${label}`);
-  copyFileSync(att.sourcePath, target);
-  return target;
-}
-
-function materializeDocumentToCache(att: DocumentAttachment, escapeProofName = false): string {
   const cacheDir = getCacheDir();
   mkdirSync(cacheDir, { recursive: true });
   const label = escapeProofName ? att.label.replaceAll(/[<>&"]/g, '_') : att.label;
@@ -862,11 +419,6 @@ const IMAGE_MIME_EXTENSION: Readonly<Record<string, string>> = {
   'image/tiff': 'tif',
 };
 
-/**
- * File-extension hint for an image MIME (`image/png` → `png`). The real
- * format is always sniffed from the bytes, so this only names files (cache
- * copies, daemon upload labels).
- */
 export function imageExtensionForMime(mime: string): string {
   return IMAGE_MIME_EXTENSION[mime.trim().toLowerCase()] ?? 'img';
 }
@@ -874,20 +426,13 @@ export function imageExtensionForMime(mime: string): string {
 function materializeImageToCache(att: ImageAttachment): string {
   const cacheDir = getCacheDir();
   mkdirSync(cacheDir, { recursive: true });
-  // Read sniffs the real format from the bytes, so the extension
-  // only needs to be a reasonable hint.
   const target = join(cacheDir, `${randomUUID()}.${imageExtensionForMime(att.mime)}`);
   writeFileSync(target, att.bytes);
   return target;
 }
 
-/** Opening every compression caption starts with (see buildImageCompressionCaption). */
 const CAPTION_OPENING = '<system>Image compressed to fit model limits:';
 
-/**
- * The session-owned originals store for compression captions, when the
- * session's dir is known; undefined falls back to the shared temp dir.
- */
 export function originalsDirForSession(session: Session | undefined): string | undefined {
   const sessionDir = session?.summary?.sessionDir;
   return sessionDir === undefined ? undefined : sessionMediaOriginalsDir(sessionDir);
@@ -902,7 +447,6 @@ function readOriginalImageBytes(path: string | undefined): Uint8Array | undefine
   }
 }
 
-/** Register originals in the session before any caption advertises a readback reference. */
 export function resolveSessionOriginalCaptions(
   parts: readonly PromptPart[],
   imageAttachmentIds: readonly number[],
@@ -913,37 +457,28 @@ export function resolveSessionOriginalCaptions(
   const originals = imageAttachmentIds.flatMap((id, index) => {
     const attachment = store.get(id);
     const part = images[index];
-    if (attachment?.kind !== 'image' || attachment.original === undefined || part === undefined) {
-      return [];
-    }
+    if (attachment?.kind !== 'image' || attachment.original === undefined || part === undefined) return [];
     if (!imagePartMatchesAttachment(part, attachment)) return [];
     const original = attachment.original;
-    const bytes =
-      original.attachment?.sessionId === session.id
-        ? undefined
-        : (original.bytes ?? readOriginalImageBytes(original.path));
+    const bytes = original.attachment?.sessionId === session.id
+      ? undefined
+      : original.bytes ?? readOriginalImageBytes(original.path);
     return [{ attachment, original, bytes }];
   });
   if (originals.length === 0) return [...parts];
   const dir = originalsDirForSession(session);
   const resolved = resolveOriginalCaptions(parts, imageAttachmentIds, store, dir, new Map());
-  return Promise.all(
-    originals.map(async ({ attachment, original, bytes }) => {
-      if (original.attachment?.sessionId !== session.id) {
-        if (bytes === undefined) {
-          throw new Error(t('tui.statusMessages.originalPastedImageUnavailable'));
-        }
-        const reference = await session.attachFile(bytes, {
-          name: `original.${imageExtensionForMime(original.mime)}`,
-          mimeType: original.mime,
-        });
-        original.attachment = { sessionId: session.id, reference };
-      }
-      return [attachment.id, original.attachment.reference] as const;
-    }),
-  ).then((references) =>
-    resolveOriginalCaptions(resolved, imageAttachmentIds, store, dir, new Map(references)),
-  );
+  return Promise.all(originals.map(async ({ attachment, original, bytes }) => {
+    if (original.attachment?.sessionId !== session.id) {
+      if (bytes === undefined) throw new Error(t('tui.statusMessages.originalPastedImageUnavailable'));
+      const reference = await session.attachFile(bytes, {
+        name: `original.${imageExtensionForMime(original.mime)}`,
+        mimeType: original.mime,
+      });
+      original.attachment = { sessionId: session.id, reference };
+    }
+    return [attachment.id, original.attachment.reference] as const;
+  })).then((references) => resolveOriginalCaptions(resolved, imageAttachmentIds, store, dir, new Map(references)));
 }
 
 export async function makeSessionExtractionResendable(
@@ -953,18 +488,14 @@ export async function makeSessionExtractionResendable(
   const references = new Map<number, string>();
   for (const [index, snapshot] of extraction.imageSnapshots.entries()) {
     if (snapshot.original === undefined) continue;
-    references.set(
-      index,
-      await session.attachFile(snapshot.original.bytes, {
-        name: `original.${imageExtensionForMime(snapshot.original.mime)}`,
-        mimeType: snapshot.original.mime,
-      }),
-    );
+    references.set(index, await session.attachFile(snapshot.original.bytes, {
+      name: `original.${imageExtensionForMime(snapshot.original.mime)}`,
+      mimeType: snapshot.original.mime,
+    }));
   }
   return makeExtractionResendable(extraction, originalsDirForSession(session), references);
 }
 
-/** Persist a local resend copy and render captions, preferring explicit session references. */
 export function resolveOriginalCaptions(
   parts: readonly PromptPart[],
   imageAttachmentIds: readonly number[],
@@ -986,20 +517,12 @@ export function resolveOriginalCaptions(
       out.push(part);
       continue;
     }
-    // The part was encoded from the attachment at extraction; a paste whose
-    // background ingestion landed afterwards mutated it (compressed bytes,
-    // daemon file id), leaving the part carrying the pre-compression form.
-    // Caption only when the two still agree — otherwise the caption would
-    // describe an image the model did not receive.
     if (!imagePartMatchesAttachment(part, attachment)) {
       out.push(part);
       continue;
     }
     const original = attachment.original;
     if (original.path === undefined && original.bytes !== undefined) {
-      // A persistence failure (unwritable dir, full disk) leaves the path
-      // unset — and the bytes retained — so a later dispatch retries; this
-      // dispatch captions without a readback path.
       const path = persistOriginalImageSync(original.bytes, original.mime, originalsDir);
       if (path !== null) store.setOriginalPath(attachment.id, path);
     }
@@ -1016,8 +539,7 @@ export function resolveOriginalCaptions(
         byteLength: attachment.bytes.length,
         mimeType: attachment.mime,
       },
-      originalPath:
-        originalReferences === undefined ? original.path : originalReferences.get(attachment.id),
+      originalPath: originalReferences === undefined ? original.path : originalReferences.get(attachment.id),
     });
     const previous = out.at(-1);
     if (previous?.type === 'text' && previous.text.startsWith(CAPTION_OPENING)) {
@@ -1031,12 +553,6 @@ export function resolveOriginalCaptions(
   return changed ? out : [...parts];
 }
 
-/**
- * Synchronous twin of the engine's `persistOriginalImage` — same
- * content-addressed naming and the same size-capped eviction: the dispatch
- * paths that resolve captions cannot await. Exported for tests; production
- * callers go through `resolveOriginalCaptions` / `makeExtractionResendable`.
- */
 export function persistOriginalImageSync(
   bytes: Uint8Array,
   mime: string,
@@ -1050,23 +566,18 @@ export function persistOriginalImageSync(
     const target = join(targetDir, `${hash}.${imageExtensionForMime(mime)}`);
     mkdirSync(targetDir, { recursive: true });
     const existing = statSync(target, { throwIfNoEntry: false });
-    // Content-addressed: an existing entry with the right size IS this image.
     if (existing === undefined || existing.size !== bytes.length) {
       writeFileSync(target, bytes);
     }
     sweepCacheSync(targetDir, maxTotalBytes);
-    // The just-written file may itself have been evicted by the sweep when a
-    // single original exceeds the cap; report persistence honestly.
     return statSync(target, { throwIfNoEntry: false }) === undefined ? null : target;
   } catch {
     return null;
   }
 }
 
-/** Per-store ceiling; mirrors the engine originals store. */
-const DEFAULT_MAX_TOTAL_BYTES = 1024 * 1024 * 1024; // 1 GiB
+const DEFAULT_MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
 
-/** Evict oldest files (by mtime) until the store fits `maxTotalBytes`. */
 function sweepCacheSync(dir: string, maxTotalBytes: number): void {
   const entries: { path: string; size: number; mtimeMs: number }[] = [];
   for (const name of readdirSync(dir)) {
@@ -1083,23 +594,14 @@ function sweepCacheSync(dir: string, maxTotalBytes: number): void {
     try {
       unlinkSync(entry.path);
       total -= entry.size;
-    } catch {
-      // Best effort, mirroring the async twin.
-    }
+    } catch {}
   }
 }
 
-/** Mirrors agent-core-v2's `originalImageCacheDir` (not re-exported through the SDK). */
 function originalImageTempDir(): string {
   return join(tmpdir(), 'kimi-code-original-images');
 }
 
-/**
- * Plain-text media reference for channels that XML-escape args (`/skill`).
- * Free of `& < > "` (UUID image names; boundary chars stripped from video
- * cache names — see materializeVideoToCache) so it survives
- * `escapeXml`/`escapeXmlTags` untouched.
- */
-function formatMediaReference(kind: 'image' | 'video' | 'document', path: string): string {
-  return `Attached ${kind} file: ${path} (open it with Read)`;
+function formatMediaReference(kind: 'image' | 'video', path: string): string {
+  return `Attached ${kind} file: ${path} (open it with ReadMediaFile)`;
 }

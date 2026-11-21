@@ -3,6 +3,7 @@ import os from 'node:os';
 import { join } from 'node:path';
 
 import { AssociativeMemoryService } from '#/features/associativeMemory/service';
+import { stubMemoryInjectionState } from '../test/agent/injection/stubs';
 import { stubBootstrap } from '../test/app/bootstrap/stubs';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -20,6 +21,7 @@ function buildService(homeDir: string): { service: AssociativeMemoryService; adv
         { get: () => [] } as never,
         { cwd: join(homeDir, 'project') } as never,
         { revision: 0, list: async () => [] as string[], get: async () => undefined } as never,
+        stubMemoryInjectionState(),
       );
     }
     protected override now(): number {

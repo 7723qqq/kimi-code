@@ -1,4 +1,4 @@
-import type { ContentPart, ToolCall } from '../llm/message';
+import type { ContentPart, ToolCall } from '../message';
 import { estimateTokensForMessage } from '../llm/tokens';
 import { wrapSystemReminder } from '../utils/systemReminder';
 import { extractText, truncateTextToTokens, truncateTextToTokensFromEnd } from './compactionText';

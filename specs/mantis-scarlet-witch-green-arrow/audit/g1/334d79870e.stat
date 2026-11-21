@@ -1,0 +1,280 @@
+commit 334d79870e
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Mon Nov 16 17:33:12 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Mon Nov 16 17:33:12 2026 +0800
+
+    chore: sync release/2026-11-13-2 back to main (#4930)
+    
+    * fix(agent-core-v2): avoid quadratic cloning during session replay (#4885)
+    
+    * fix(agent-core-v2): avoid quadratic cloning during session replay
+    
+    * fix(agent-core-v2): isolate replay assignments and preserve rollback order
+    
+    * refactor(agent-core-v2): make participant mutable replay explicit opt-in
+    
+    ---------
+    
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+    
+    * fix(agent-core-v2): validate Kimi media upload status (#4905)
+    
+    * fix(agent-core-v2): reject failed Kimi image extraction
+    
+    * chore: add Kimi image extraction changeset
+    
+    * fix(agent-core-v2): validate Kimi media upload status
+    
+    * fix(kap-server): forward swarm member task events (#4922)
+    
+    * test(agent-core-v2): make zero-timeout task wait deterministic (#4925)
+    
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+    
+    * feat(registry): support search_url and feedback_url on custom registry providers (#4875)
+    
+    * feat(registry): support search_url and feedback_url on custom registry providers
+    
+    * fix(sdk): honor provider.env credentials and custom_headers for feedback_url
+    
+    * refactor(core): submit feedback through the engine
+    
+    Web and desktop reach this machine through kap-server, so feedback submission resolves the active model's provider in the engine and is exposed on the same route and klient method. The SDK facade keeps the managed OAuth path and no longer re-derives provider credentials.
+    
+    * refactor(sdk): drop the unused feedback facade
+    
+    Product clients submit feedback through the engine. The SDK facade and oauth toolkit no longer keep a second managed-only submission path.
+    
+    * refactor(feedback): share engine schemas across route and klient
+    
+    The HTTP body uses the engine field names, so the route forwards it and the klient contract imports the same schemas.
+    
+    * refactor(feedback): drop unused kap and klient surfaces
+    
+    TUI reaches IFeedbackService through the harness. The HTTP routes, klient facade, and the schemas that only served them have no caller.
+    
+    * refactor(feedback): package and upload feedback attachments in the engine
+    
+    * refactor(feedback): keep FeedbackService internal to agent-core-v2
+    
+    * test(cli): provide execFile in node:child_process mocks
+    
+    The feedback codebase scanner added in this branch calls
+    promisify(execFile) at module scope and is now reachable from the
+    agent-core-v2 index, so partial child_process mocks in these suites
+    failed module evaluation.
+    
+    * feat(feedback): disclose submitted files, attach request_id, and drop text-only option (#4876)
+    
+    * feat(registry): support search_url and feedback_url on custom registry providers
+    
+    * fix(sdk): honor provider.env credentials and custom_headers for feedback_url
+    
+    * refactor(core): submit feedback through the engine
+    
+    Web and desktop reach this machine through kap-server, so feedback submission resolves the active model's provider in the engine and is exposed on the same route and klient method. The SDK facade keeps the managed OAuth path and no longer re-derives provider credentials.
+    
+    * refactor(sdk): drop the unused feedback facade
+    
+    Product clients submit feedback through the engine. The SDK facade and oauth toolkit no longer keep a second managed-only submission path.
+    
+    * refactor(feedback): share engine schemas across route and klient
+    
+    The HTTP body uses the engine field names, so the route forwards it and the klient contract imports the same schemas.
+    
+    * refactor(feedback): drop unused kap and klient surfaces
+    
+    TUI reaches IFeedbackService through the harness. The HTTP routes, klient facade, and the schemas that only served them have no caller.
+    
+    * refactor(feedback): package and upload feedback attachments in the engine
+    
+    * refactor(feedback): keep FeedbackService internal to agent-core-v2
+    
+    * test(cli): provide execFile in node:child_process mocks
+    
+    The feedback codebase scanner added in this branch calls
+    promisify(execFile) at module scope and is now reachable from the
+    agent-core-v2 index, so partial child_process mocks in these suites
+    failed module evaluation.
+    
+    * feat(feedback): disclose submitted files, attach request_id, and drop text-only option
+    
+    * fix(session-export): keep SESSION_NOT_FOUND for missing non-empty session ids
+    
+    The global-log-only fallback exists for feedback submissions without an
+    active session (empty id). Scoping it to empty ids restores the 40401
+    envelope that kap-server's export route promises for unknown sessions.
+    
+    * test(agent-core-v2): pin retained request id semantics in llmRequester assertions
+    
+    * chore: sync web dist from code-app
+    
+    code-app: 11563df26b92f0035659083327976a2e9b8e6727
+    
+    code-app-release: b0b6d9c7a45c96ca48039ff05789c6e90f76ef20
+    
+    code-app-local-build: 005d2b437493b7ab04d01f70542f3b6356699f4d
+    
+    * ci: release packages (#4918)
+    
+    Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+    
+    * fix(agent-core-v2): align request id back-sync with main
+    
+    ---------
+    
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+    Co-authored-by: Haozhe <yanghaozhe@moonshot.ai>
+    Co-authored-by: 7Sageer <sag77r@hotmail.com>
+    Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+
+ apps/kimi-code/CHANGELOG.md                        |  16 +
+ ...kNode-DEGBz9a-.js => CodeBlockNode-Bz1iv58C.js} |   4 +-
+ ...eBlock-Bl6CUeD2.js => PreCodeBlock-CtrlCo7t.js} |   2 +-
+ .../{Tooltip-DczeLIMM.js => Tooltip-BKRBKKr1.js}   |   2 +-
+ ...6UvxrKe.js => abnfDiagram-VRR7QNED-BERPe-JX.js} |   2 +-
+ .../assets/{arc-BAYKiY88.js => arc-7zYLU7OF.js}    |   2 +-
+ ...js => architectureDiagram-ZJ3FMSHR-DYWxiSx7.js} |   2 +-
+ ...xsPJi_.js => blockDiagram-677ZJIJ3-DX7VASuz.js} |   2 +-
+ ...-CV3J3qiv.js => c4Diagram-LMCZKHZV-CglQqMgh.js} |   2 +-
+ apps/kimi-code/dist-web/assets/channel-C-uimFjL.js |   1 -
+ apps/kimi-code/dist-web/assets/channel-CAxO1MJX.js |   1 +
+ ...7J3B-B4SiA-sH.js => chunk-2Q5K7J3B-C3TLPLG2.js} |   2 +-
+ ...IVSS-BFmUyMke.js => chunk-32BRIVSS-Bei82u4s.js} |   2 +-
+ ...RSS4-CL5eb5j2.js => chunk-5VM5RSS4-7bvVbm3z.js} |   2 +-
+ ...RPZG-B-0Hhc2_.js => chunk-EX3LRPZG-CW3VfT5K.js} |   2 +-
+ ...2WC7-BYjd8qSx.js => chunk-JWPE2WC7-D30sT4Pj.js} |   2 +-
+ ...B5TN-HWkFUeNy.js => chunk-MOJQB5TN-BTvybMVm.js} |   2 +-
+ ...IY6F-Big4K7lm.js => chunk-RYQCIY6F-YQeyAUxQ.js} |   2 +-
+ ...EXUC-Bm5Z3t38.js => chunk-V7JOEXUC-CEjiGlrw.js} |   2 +-
+ ...4FIN-DtvxQJJA.js => chunk-VR4S4FIN-BEo7Tc-I.js} |   2 +-
+ ...QBXY-MFX63qXx.js => chunk-XXDRQBXY-fkLmoeW6.js} |   2 +-
+ .../assets/classDiagram-OUVF2IWQ-BKz4kgeR.js       |   1 -
+ .../assets/classDiagram-OUVF2IWQ-DoSrhhN2.js       |   1 +
+ .../assets/classDiagram-v2-EOCWNBFH-BKz4kgeR.js    |   1 -
+ .../assets/classDiagram-v2-EOCWNBFH-DoSrhhN2.js    |   1 +
+ ...rLVyjo.js => cose-bilkent-JH36ORCC-_zc94CKQ.js} |   2 +-
+ ...L2-CujI_sJM.js => cynefin-VYW2F7L2-CUbOuJB1.js} |   2 +-
+ ...xZ4S.js => cynefinDiagram-TSTJHNR4-B9MEfeW9.js} |   2 +-
+ ...JZFB-kwCrsNPl.js => dagre-VKFMJZFB-CZjKV0kN.js} |   2 +-
+ ...PY-DhUVmLJO.js => diagram-FQU43EPY-BK-paB6e.js} |   2 +-
+ ...AW-ooEMsc09.js => diagram-G47NLZAW-DA9e_NTx.js} |   2 +-
+ ...WH-DvguAvfP.js => diagram-NH7WQ7WH-uUU7fYB4.js} |   2 +-
+ ...LP-DGEsE0SY.js => diagram-OA4YK3LP-CsGDmy5_.js} |   2 +-
+ ...NY-DX93ZznC.js => diagram-WEI45ONY-CzxypJRV.js} |   2 +-
+ ...ooXu3YW.js => ebnfDiagram-CCIWWBDH-C7YS9ZSi.js} |   2 +-
+ ...-B5qzwoFM.js => erDiagram-Q63AITRT-hEIs33ml.js} |   2 +-
+ ...MK-ex2r.js => flowDiagram-23GEKE2U-izaGnC6g.js} |   2 +-
+ ...gINF0Q.js => ganttDiagram-NO4QXBWP-M8Yewnbw.js} |   2 +-
+ ...nNE.js => gitGraphDiagram-IHSO6WYX-DJkzlMiP.js} |   2 +-
+ .../{index-BmEhay4Q.js => index-BOaeQGcx.js}       | 946 +++++++++++----------
+ .../{index-BrVwlmzU.js => index-BVxRpKRY.js}       |   2 +-
+ .../{index-BH15cTu3.js => index-DxbZdl1N.js}       |   2 +-
+ .../{index-BR2KeeD8.css => index-fNMz307p.css}     |   4 +-
+ .../{index10-D0klOLpW.js => index10-ul3dh9Zj.js}   |   2 +-
+ .../{index5-BiJTMAp7.js => index5-B77-D2VN.js}     |   2 +-
+ .../{index6-BXXMJ6cN.js => index6-hcHOdL_D.js}     |   2 +-
+ .../{index8-ZuFWtAGJ.js => index8-B0CbfBMw.js}     |   2 +-
+ .../{index9-DqXs8VT3.js => index9-BpYrflPS.js}     |   2 +-
+ ...ezdI7kz.js => infoDiagram-FWYZ7A6U-C1j_N2Ri.js} |   2 +-
+ ...2Aw.js => ishikawaDiagram-FXEZZL3T-S5_LEmmg.js} |   2 +-
+ ...hssB.js => journeyDiagram-5HDEW3XC-B0A_X0BE.js} |   2 +-
+ ...1.js => kanban-definition-HUTT4EX6-Bv2sx5zp.js} |   2 +-
+ .../{linear-CdwUMqay.js => linear-1MRUStWI.js}     |   2 +-
+ ...rkstream-DOfPbDY-.js => markstream-BjwgRiaj.js} |   4 +-
+ ...d.core-iNANLKpN.js => mermaid.core-CN-ymjTN.js} |   8 +-
+ ....js => mindmap-definition-LN4V7U3C-y0tYkgAi.js} |   2 +-
+ ...pRqZzYKP.js => pegDiagram-2B236MQR-LXSQyoi9.js} |   2 +-
+ ...CeDxbLws.js => pieDiagram-ENE6RG2P-Ck_YVceg.js} |   2 +-
+ ...vke.js => quadrantDiagram-ABIIQ3AL-C5ersW0J.js} |   2 +-
+ ...cm7.js => railroadDiagram-RFXS5EU6-vEM6AP0h.js} |   2 +-
+ ....js => requirementDiagram-TGXJPOKE-VmUTnim1.js} |   2 +-
+ ...OC_-0.js => sankeyDiagram-HTMAVEWB-DybGCBDU.js} |   2 +-
+ ...Lkq.js => sequenceDiagram-DBY2YBRQ-DH8CvwXL.js} |   2 +-
+ ...JNW-Iic.js => sizeCapture-X5ZJPWSS-ZluGyCdi.js} |   2 +-
+ ...YSikqk.js => stateDiagram-2N3HPSRC-ts59usCJ.js} |   2 +-
+ .../assets/stateDiagram-v2-6OUMAXLB-C7fUMEmg.js    |   1 +
+ .../assets/stateDiagram-v2-6OUMAXLB-xv-0D__X.js    |   1 -
+ ...-CAPuLA7c.js => swimlanes-5IMT3BWC-BAPba3Op.js} |   4 +-
+ .../assets/swimlanesDiagram-G3AALYLV-B3UrD5MF.js   |   8 +
+ .../assets/swimlanesDiagram-G3AALYLV-Bun66Y1t.js   |   8 -
+ ...js => timeline-definition-FHXFAJF6-CCBGqpTY.js} |   2 +-
+ ...Ydqv0KF.js => vennDiagram-L72KCM5P-CNRXAY-y.js} |   2 +-
+ ...gg4M.js => vue.runtime.esm-bundler-DRUppr6Y.js} |   2 +-
+ ...F7hB.js => wardleyDiagram-EHGQE667-CrI2jyss.js} |   2 +-
+ ...OYwB.js => xychartDiagram-FW5EYKEG-5qnJ7pw6.js} |   2 +-
+ apps/kimi-code/dist-web/index.html                 |   4 +-
+ apps/kimi-code/package.json                        |   2 +-
+ .../kimi-code/src/feedback/feedback-attachments.ts | 190 -----
+ apps/kimi-code/src/tui/commands/info.ts            |  54 +-
+ apps/kimi-code/src/tui/commands/prompts.ts         |  77 +-
+ .../src/tui/components/dialogs/choice-picker.ts    |  29 +-
+ apps/kimi-code/test/cli/run-shell.test.ts          |   1 +
+ .../tui/components/dialogs/choice-picker.test.ts   |  19 +
+ .../dialogs/feedback-input-dialog.test.ts          | 112 ++-
+ .../test/tui/kimi-tui-message-flow.test.ts         | 381 ++-------
+ apps/kimi-code/test/tui/message-replay.test.ts     |   1 -
+ .../kimi-code/test/utils/process/fd-detect.test.ts |   2 +-
+ docs/en/configuration/config-files.md              |   2 +
+ docs/en/configuration/providers.md                 |  17 +-
+ docs/en/reference/slash-commands.md                |   2 +-
+ docs/zh/configuration/config-files.md              |   2 +
+ docs/zh/configuration/providers.md                 |  17 +-
+ docs/zh/reference/slash-commands.md                |   2 +-
+ packages/agent-core-v2/docs/config-manifest.toml   |   2 +
+ .../src/agent/loop/requestMetadata.ts              |  16 +-
+ .../src/agent/loop/requestObservation.ts           |  49 +-
+ .../agent-core-v2/src/agent/loop/turnProjection.ts |  11 +-
+ .../src/agent/tools/web-search/webSearchTool.ts    |   9 +-
+ packages/agent-core-v2/src/app/auth/feedback.ts    |  44 +
+ .../src/app/auth}/feedback/archive.ts              |  24 +-
+ .../src/app/auth}/feedback/codebase/filter.ts      |   0
+ .../src/app/auth}/feedback/codebase/index.ts       |   0
+ .../src/app/auth}/feedback/codebase/packager.ts    |   0
+ .../src/app/auth}/feedback/codebase/scanner.ts     |   7 +-
+ .../src/app/auth}/feedback/codebase/types.ts       |   0
+ .../agent-core-v2/src/app/auth}/feedback/upload.ts |   0
+ .../agent-core-v2/src/app/auth/feedbackService.ts  | 439 ++++++++++
+ .../src/app/auth/webSearch/webSearch.ts            |   4 +-
+ .../src/app/auth/webSearch/webSearchService.ts     |  94 +-
+ .../src/app/kosongConfig/configSection.ts          |  10 +-
+ .../src/app/sessionExport/sessionExport.ts         |   8 +
+ .../src/app/sessionExport/sessionExportService.ts  |  47 +-
+ .../agent-core-v2/src/app/sessionExport/zip.ts     |  30 +-
+ packages/agent-core-v2/src/index.ts                |   2 +
+ .../src/llm-adapter/model/model-auth.ts            |  36 +-
+ .../src/llm-adapter/provider/provider.ts           |   2 +
+ .../requestAttribution/requestAttribution.ts       |   3 +-
+ .../requestAttributionService.ts                   |  11 +-
+ .../src/state/eventDispatcherService.ts            | 131 ++-
+ packages/agent-core-v2/src/state/state.ts          |   6 -
+ .../agent-core-v2/test/agent/loop/loop.test.ts     |  31 +
+ .../test/agent/task/taskManager.test.ts            |  12 +
+ packages/agent-core-v2/test/app/auth/auth.test.ts  | 123 +++
+ .../test/app/auth}/codebase-upload.test.ts         |   6 +-
+ .../agent-core-v2/test/app/auth/feedback.test.ts   | 413 +++++++++
+ .../test/app/sessionExport/sessionExport.test.ts   |  62 ++
+ packages/agent-core-v2/test/harness/agent.ts       |   2 +
+ .../test/state/eventDispatcher.test.ts             | 220 +----
+ packages/agent-core-v2/test/tool/tool.test.ts      |  52 ++
+ .../core/src/llm/builtin/provider/kimi/files.ts    |  78 +-
+ packages/core/test/llm/kimi/files.test.ts          |  60 ++
+ .../src/transport/ws/v1/sessionTaskFeed.ts         |  49 +-
+ .../test/sessionEventBroadcaster.test.ts           |  60 ++
+ packages/node-sdk/src/auth.ts                      | 119 ---
+ packages/node-sdk/src/config/schema.ts             |   2 +
+ packages/node-sdk/src/config/toml.ts               |   8 +-
+ packages/node-sdk/src/index.ts                     |  17 +-
+ packages/node-sdk/src/kimi-harness.ts              |   9 +
+ packages/node-sdk/src/rpc.ts                       |  15 +
+ packages/node-sdk/src/sdk-rpc-client-v2.ts         |  10 +
+ packages/node-sdk/test/config.test.ts              |  31 +
+ packages/oauth/src/custom-registry.ts              |  36 +-
+ packages/oauth/src/managed-feedback-upload.ts      |  29 +-
+ packages/oauth/src/managed-feedback.ts             |   3 +-
+ packages/oauth/src/toolkit.ts                      |  85 --
+ packages/oauth/test/custom-registry.test.ts        |  94 ++
+ .../oauth/test/managed-feedback-upload.test.ts     |  44 +
+ packages/oauth/test/managed-feedback.test.ts       |  24 +
+ 148 files changed, 3061 insertions(+), 1658 deletions(-)

@@ -1,0 +1,2 @@
+[test]
+preload = ["../vite-preset/test/dom.mjs"]

@@ -1,4 +1,5 @@
-import { expect, describe, it } from "bun:test";
+import assert from "node:assert";
+import { describe, it } from "node:test";
 import type { Component, Focusable } from "../src/tui.ts";
 import { Container, type TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
@@ -64,8 +65,8 @@ describe("TUI overlay non-capturing", () => {
 			try {
 				tui.showOverlay(overlay, { nonCapturing: true });
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
-				expect(overlay.focused).toBe(false);
+				assert.strictEqual(editor.focused, true);
+				assert.strictEqual(overlay.focused, false);
 			} finally {
 				tui.stop();
 			}
@@ -83,9 +84,9 @@ describe("TUI overlay non-capturing", () => {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.focus();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(false);
-				expect(overlay.focused).toBe(true);
-				expect(handle.isFocused()).toBe(true);
+				assert.strictEqual(editor.focused, false);
+				assert.strictEqual(overlay.focused, true);
+				assert.strictEqual(handle.isFocused(), true);
 			} finally {
 				tui.stop();
 			}
@@ -104,9 +105,9 @@ describe("TUI overlay non-capturing", () => {
 				handle.focus();
 				handle.unfocus();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
-				expect(overlay.focused).toBe(false);
-				expect(handle.isFocused()).toBe(false);
+				assert.strictEqual(editor.focused, true);
+				assert.strictEqual(overlay.focused, false);
+				assert.strictEqual(handle.isFocused(), false);
 			} finally {
 				tui.stop();
 			}
@@ -125,8 +126,8 @@ describe("TUI overlay non-capturing", () => {
 				handle.setHidden(true);
 				handle.setHidden(false);
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
-				expect(overlay.focused).toBe(false);
+				assert.strictEqual(editor.focused, true);
+				assert.strictEqual(overlay.focused, false);
 			} finally {
 				tui.stop();
 			}
@@ -144,7 +145,7 @@ describe("TUI overlay non-capturing", () => {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.hide();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
+				assert.strictEqual(editor.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -163,8 +164,8 @@ describe("TUI overlay non-capturing", () => {
 				handle.focus();
 				handle.hide();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
-				expect(overlay.focused).toBe(false);
+				assert.strictEqual(editor.focused, true);
+				assert.strictEqual(overlay.focused, false);
 			} finally {
 				tui.stop();
 			}
@@ -182,11 +183,11 @@ describe("TUI overlay non-capturing", () => {
 			try {
 				tui.showOverlay(nonCapturing, { nonCapturing: true });
 				const handle = tui.showOverlay(capturing);
-				expect(capturing.focused).toBe(true);
+				assert.strictEqual(capturing.focused, true);
 				handle.hide();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
-				expect(nonCapturing.focused).toBe(false);
+				assert.strictEqual(editor.focused, true);
+				assert.strictEqual(nonCapturing.focused, false);
 			} finally {
 				tui.stop();
 			}
@@ -204,19 +205,19 @@ describe("TUI overlay non-capturing", () => {
 			try {
 				const timerHandle = tui.showOverlay(timer, { nonCapturing: true });
 				tui.showOverlay(controller);
-				expect(controller.focused).toBe(true);
-				expect(editor.focused).toBe(false);
+				assert.strictEqual(controller.focused, true);
+				assert.strictEqual(editor.focused, false);
 				timerHandle.hide();
 				tui.hideOverlay();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
-				expect(controller.focused).toBe(false);
-				expect(timer.focused).toBe(false);
+				assert.strictEqual(editor.focused, true);
+				assert.strictEqual(controller.focused, false);
+				assert.strictEqual(timer.focused, false);
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(editor.inputs).toStrictEqual(["x"]);
-				expect(controller.inputs).toStrictEqual([]);
-				expect(timer.inputs).toStrictEqual([]);
+				assert.deepStrictEqual(editor.inputs, ["x"]);
+				assert.deepStrictEqual(controller.inputs, []);
+				assert.deepStrictEqual(timer.inputs, []);
 			} finally {
 				tui.stop();
 			}
@@ -235,17 +236,17 @@ describe("TUI overlay non-capturing", () => {
 				const childHandle = tui.showOverlay(child, { nonCapturing: true });
 				childHandle.focus();
 				const parentHandle = tui.showOverlay(parent);
-				expect(parent.focused).toBe(true);
+				assert.strictEqual(parent.focused, true);
 
 				childHandle.hide();
 				parentHandle.hide();
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
 
-				expect(editor.inputs).toStrictEqual(["x"]);
-				expect(child.inputs).toStrictEqual([]);
-				expect(parent.inputs).toStrictEqual([]);
-				expect(editor.focused).toBe(true);
+				assert.deepStrictEqual(editor.inputs, ["x"]);
+				assert.deepStrictEqual(child.inputs, []);
+				assert.deepStrictEqual(parent.inputs, []);
+				assert.strictEqual(editor.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -285,8 +286,8 @@ describe("TUI overlay non-capturing", () => {
 				await Promise.resolve();
 				await renderAndFlush(tui, terminal);
 
-				expect(controller.focused).toBe(true);
-				expect(editor.focused).toBe(false);
+				assert.strictEqual(controller.focused, true);
+				assert.strictEqual(editor.focused, false);
 
 				// Simulate Esc: cleanup + close (from inside handleInput)
 				doneFn();
@@ -294,14 +295,14 @@ describe("TUI overlay non-capturing", () => {
 				await overlayPromise;
 				await renderAndFlush(tui, terminal);
 
-				expect(editor.focused, "editor should regain focus").toBe(true);
-				expect(controller.focused).toBe(false);
-				expect(timer.focused).toBe(false);
+				assert.strictEqual(editor.focused, true, "editor should regain focus");
+				assert.strictEqual(controller.focused, false);
+				assert.strictEqual(timer.focused, false);
 
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(editor.inputs, "editor should receive input after close").toStrictEqual(["x"]);
-				expect(controller.inputs).toStrictEqual([]);
+				assert.deepStrictEqual(editor.inputs, ["x"], "editor should receive input after close");
+				assert.deepStrictEqual(controller.inputs, []);
 			} finally {
 				tui.stop();
 			}
@@ -322,14 +323,14 @@ describe("TUI overlay non-capturing", () => {
 				tui.showOverlay(fallbackCapturing);
 				tui.showOverlay(nonCapturing, { nonCapturing: true });
 				tui.showOverlay(primary, { visible: () => isVisible });
-				expect(primary.focused).toBe(true);
+				assert.strictEqual(primary.focused, true);
 				isVisible = false;
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(primary.inputs).toStrictEqual([]);
-				expect(nonCapturing.inputs).toStrictEqual([]);
-				expect(fallbackCapturing.inputs).toStrictEqual(["x"]);
-				expect(fallbackCapturing.focused).toBe(true);
+				assert.deepStrictEqual(primary.inputs, []);
+				assert.deepStrictEqual(nonCapturing.inputs, []);
+				assert.deepStrictEqual(fallbackCapturing.inputs, ["x"]);
+				assert.strictEqual(fallbackCapturing.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -358,20 +359,20 @@ describe("TUI overlay non-capturing", () => {
 			tui.start();
 			try {
 				tui.showOverlay(overlay);
-				expect(overlay.focused).toBe(true);
+				assert.strictEqual(overlay.focused, true);
 				terminal.sendInput("b");
 				await renderAndFlush(tui, terminal);
-				expect(replacement.focused).toBe(true);
+				assert.strictEqual(replacement.focused, true);
 
 				terminal.sendInput("\r");
 				await renderAndFlush(tui, terminal);
-				expect(replacement.inputs).toStrictEqual(["\r"]);
-				expect(overlay.inputs).toStrictEqual(["b"]);
-				expect(overlay.focused).toBe(true);
+				assert.deepStrictEqual(replacement.inputs, ["\r"]);
+				assert.deepStrictEqual(overlay.inputs, ["b"]);
+				assert.strictEqual(overlay.focused, true);
 
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(overlay.inputs).toStrictEqual(["b", "x"]);
+				assert.deepStrictEqual(overlay.inputs, ["b", "x"]);
 			} finally {
 				tui.stop();
 			}
@@ -406,14 +407,14 @@ describe("TUI overlay non-capturing", () => {
 				tui.showOverlay(overlay);
 				terminal.sendInput("b");
 				await renderAndFlush(tui, terminal);
-				expect(replacement.focused).toBe(true);
+				assert.strictEqual(replacement.focused, true);
 
 				terminal.sendInput("1");
 				terminal.sendInput("\r");
 				await renderAndFlush(tui, terminal);
-				expect(replacement.inputs).toStrictEqual(["1", "\r"]);
-				expect(overlay.inputs).toStrictEqual(["b"]);
-				expect(overlay.focused).toBe(true);
+				assert.deepStrictEqual(replacement.inputs, ["1", "\r"]);
+				assert.deepStrictEqual(overlay.inputs, ["b"]);
+				assert.strictEqual(overlay.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -459,10 +460,10 @@ describe("TUI overlay non-capturing", () => {
 				terminal.sendInput("\r");
 				await renderAndFlush(tui, terminal);
 
-				expect(overlay.inputs).toStrictEqual(["b"]);
-				expect(firstReplacement.inputs).toStrictEqual(["n"]);
-				expect(secondReplacement.inputs).toStrictEqual(["2", "\r"]);
-				expect(overlay.focused).toBe(true);
+				assert.deepStrictEqual(overlay.inputs, ["b"]);
+				assert.deepStrictEqual(firstReplacement.inputs, ["n"]);
+				assert.deepStrictEqual(secondReplacement.inputs, ["2", "\r"]);
+				assert.strictEqual(overlay.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -502,10 +503,10 @@ describe("TUI overlay non-capturing", () => {
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
 
-				expect(overlay.inputs).toStrictEqual(["b", "x"]);
-				expect(replacement.inputs).toStrictEqual(["\r"]);
-				expect(editor.inputs).toStrictEqual([]);
-				expect(overlay.focused).toBe(true);
+				assert.deepStrictEqual(overlay.inputs, ["b", "x"]);
+				assert.deepStrictEqual(replacement.inputs, ["\r"]);
+				assert.deepStrictEqual(editor.inputs, []);
+				assert.strictEqual(overlay.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -536,15 +537,15 @@ describe("TUI overlay non-capturing", () => {
 
 				terminal.sendInput("b");
 				await renderAndFlush(tui, terminal);
-				expect(replacement.focused).toBe(true);
+				assert.strictEqual(replacement.focused, true);
 				terminal.sendInput("\r");
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
 
-				expect(overlay.inputs).toStrictEqual(["b"]);
-				expect(replacement.inputs).toStrictEqual(["\r"]);
-				expect(fallback.inputs).toStrictEqual([]);
-				expect(target.inputs).toStrictEqual(["x"]);
+				assert.deepStrictEqual(overlay.inputs, ["b"]);
+				assert.deepStrictEqual(replacement.inputs, ["\r"]);
+				assert.deepStrictEqual(fallback.inputs, []);
+				assert.deepStrictEqual(target.inputs, ["x"]);
 			} finally {
 				tui.stop();
 			}
@@ -561,14 +562,14 @@ describe("TUI overlay non-capturing", () => {
 			tui.start();
 			try {
 				tui.showOverlay(overlay);
-				expect(overlay.focused).toBe(true);
+				assert.strictEqual(overlay.focused, true);
 				tui.setFocus(replacement);
 				tui.setFocus(editor);
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(overlay.inputs).toStrictEqual(["x"]);
-				expect(editor.inputs).toStrictEqual([]);
-				expect(overlay.focused).toBe(true);
+				assert.deepStrictEqual(overlay.inputs, ["x"]);
+				assert.deepStrictEqual(editor.inputs, []);
+				assert.strictEqual(overlay.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -590,9 +591,9 @@ describe("TUI overlay non-capturing", () => {
 				tui.setFocus(editor);
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(subOverlay.inputs).toStrictEqual(["x"]);
-				expect(controller.inputs).toStrictEqual([]);
-				expect(editor.inputs).toStrictEqual([]);
+				assert.deepStrictEqual(subOverlay.inputs, ["x"]);
+				assert.deepStrictEqual(controller.inputs, []);
+				assert.deepStrictEqual(editor.inputs, []);
 			} finally {
 				tui.stop();
 			}
@@ -610,9 +611,9 @@ describe("TUI overlay non-capturing", () => {
 				tui.showOverlay(passive, { nonCapturing: true });
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(editor.inputs).toStrictEqual(["x"]);
-				expect(passive.inputs).toStrictEqual([]);
-				expect(editor.focused).toBe(true);
+				assert.deepStrictEqual(editor.inputs, ["x"]);
+				assert.deepStrictEqual(passive.inputs, []);
+				assert.strictEqual(editor.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -632,8 +633,8 @@ describe("TUI overlay non-capturing", () => {
 				tui.setFocus(editor);
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(overlay.inputs).toStrictEqual(["x"]);
-				expect(editor.inputs).toStrictEqual([]);
+				assert.deepStrictEqual(overlay.inputs, ["x"]);
+				assert.deepStrictEqual(editor.inputs, []);
 			} finally {
 				tui.stop();
 			}
@@ -652,9 +653,9 @@ describe("TUI overlay non-capturing", () => {
 				handle.unfocus();
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(editor.inputs).toStrictEqual(["x"]);
-				expect(overlay.inputs).toStrictEqual([]);
-				expect(editor.focused).toBe(true);
+				assert.deepStrictEqual(editor.inputs, ["x"]);
+				assert.deepStrictEqual(overlay.inputs, []);
+				assert.strictEqual(editor.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -671,8 +672,8 @@ describe("TUI overlay non-capturing", () => {
 				tui.setFocus(null);
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(overlay.inputs).toStrictEqual([]);
-				expect(overlay.focused).toBe(false);
+				assert.deepStrictEqual(overlay.inputs, []);
+				assert.strictEqual(overlay.focused, false);
 			} finally {
 				tui.stop();
 			}
@@ -700,9 +701,9 @@ describe("TUI overlay non-capturing", () => {
 				terminal.sendInput("\r");
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(replacement.inputs).toStrictEqual(["\r"]);
-				expect(overlay.inputs).toStrictEqual(["b", "x"]);
-				expect(overlay.focused).toBe(true);
+				assert.deepStrictEqual(replacement.inputs, ["\r"]);
+				assert.deepStrictEqual(overlay.inputs, ["b", "x"]);
+				assert.strictEqual(overlay.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -723,13 +724,13 @@ describe("TUI overlay non-capturing", () => {
 				visible = false;
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(editor.inputs).toStrictEqual(["x"]);
-				expect(overlay.inputs).toStrictEqual([]);
+				assert.deepStrictEqual(editor.inputs, ["x"]);
+				assert.deepStrictEqual(overlay.inputs, []);
 				visible = true;
 				terminal.sendInput("y");
 				await renderAndFlush(tui, terminal);
-				expect(editor.inputs).toStrictEqual(["x"]);
-				expect(overlay.inputs).toStrictEqual(["y"]);
+				assert.deepStrictEqual(editor.inputs, ["x"]);
+				assert.deepStrictEqual(overlay.inputs, ["y"]);
 			} finally {
 				tui.stop();
 			}
@@ -747,11 +748,11 @@ describe("TUI overlay non-capturing", () => {
 				visible = false;
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(overlay.inputs).toStrictEqual([]);
+				assert.deepStrictEqual(overlay.inputs, []);
 				visible = true;
 				terminal.sendInput("y");
 				await renderAndFlush(tui, terminal);
-				expect(overlay.inputs).toStrictEqual(["y"]);
+				assert.deepStrictEqual(overlay.inputs, ["y"]);
 			} finally {
 				tui.stop();
 			}
@@ -771,8 +772,8 @@ describe("TUI overlay non-capturing", () => {
 				tui.setFocus(editor);
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(editor.inputs).toStrictEqual(["x"]);
-				expect(overlay.inputs).toStrictEqual([]);
+				assert.deepStrictEqual(editor.inputs, ["x"]);
+				assert.deepStrictEqual(overlay.inputs, []);
 			} finally {
 				tui.stop();
 			}
@@ -794,9 +795,9 @@ describe("TUI overlay non-capturing", () => {
 				tui.setFocus(editor);
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(lower.inputs).toStrictEqual(["x"]);
-				expect(upper.inputs).toStrictEqual([]);
-				expect(editor.inputs).toStrictEqual([]);
+				assert.deepStrictEqual(lower.inputs, ["x"]);
+				assert.deepStrictEqual(upper.inputs, []);
+				assert.deepStrictEqual(editor.inputs, []);
 			} finally {
 				tui.stop();
 			}
@@ -814,10 +815,10 @@ describe("TUI overlay non-capturing", () => {
 			try {
 				tui.showOverlay(capturing);
 				tui.showOverlay(nonCapturing, { nonCapturing: true });
-				expect(capturing.focused).toBe(true);
+				assert.strictEqual(capturing.focused, true);
 				tui.hideOverlay();
 				await renderAndFlush(tui, terminal);
-				expect(capturing.focused).toBe(true);
+				assert.strictEqual(capturing.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -839,13 +840,13 @@ describe("TUI overlay non-capturing", () => {
 				tui.showOverlay(n1, { nonCapturing: true });
 				const c2Handle = tui.showOverlay(c2);
 				tui.showOverlay(n2, { nonCapturing: true });
-				expect(c2.focused).toBe(true);
+				assert.strictEqual(c2.focused, true);
 				c2Handle.hide();
 				await renderAndFlush(tui, terminal);
-				expect(c1.focused).toBe(true);
+				assert.strictEqual(c1.focused, true);
 				c1Handle.hide();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
+				assert.strictEqual(editor.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -861,11 +862,11 @@ describe("TUI overlay non-capturing", () => {
 			tui.start();
 			try {
 				const handle = tui.showOverlay(capturing);
-				expect(capturing.focused).toBe(true);
+				assert.strictEqual(capturing.focused, true);
 				handle.unfocus();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
-				expect(capturing.focused).toBe(false);
+				assert.strictEqual(editor.focused, true);
+				assert.strictEqual(capturing.focused, false);
 			} finally {
 				tui.stop();
 			}
@@ -886,8 +887,8 @@ describe("TUI overlay non-capturing", () => {
 				handle.setHidden(true);
 				handle.focus();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
-				expect(handle.isFocused()).toBe(false);
+				assert.strictEqual(editor.focused, true);
+				assert.strictEqual(handle.isFocused(), false);
 			} finally {
 				tui.stop();
 			}
@@ -906,8 +907,8 @@ describe("TUI overlay non-capturing", () => {
 				handle.hide();
 				handle.focus();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
-				expect(handle.isFocused()).toBe(false);
+				assert.strictEqual(editor.focused, true);
+				assert.strictEqual(handle.isFocused(), false);
 			} finally {
 				tui.stop();
 			}
@@ -925,8 +926,8 @@ describe("TUI overlay non-capturing", () => {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.unfocus();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
-				expect(overlay.focused).toBe(false);
+				assert.strictEqual(editor.focused, true);
+				assert.strictEqual(overlay.focused, false);
 			} finally {
 				tui.stop();
 			}
@@ -940,13 +941,13 @@ describe("TUI overlay non-capturing", () => {
 			tui.start();
 			try {
 				const handle = tui.showOverlay(overlay);
-				expect(overlay.focused).toBe(true);
+				assert.strictEqual(overlay.focused, true);
 				handle.unfocus();
-				expect(overlay.focused).toBe(false);
+				assert.strictEqual(overlay.focused, false);
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(overlay.inputs).toStrictEqual([]);
-				expect(handle.isFocused()).toBe(false);
+				assert.deepStrictEqual(overlay.inputs, []);
+				assert.strictEqual(handle.isFocused(), false);
 			} finally {
 				tui.stop();
 			}
@@ -971,9 +972,9 @@ describe("TUI overlay non-capturing", () => {
 				aHandle.focus();
 				aHandle.unfocus();
 				await renderAndFlush(tui, terminal);
-				expect(editor.focused).toBe(true);
-				expect(a.focused).toBe(false);
-				expect(b.focused).toBe(false);
+				assert.strictEqual(editor.focused, true);
+				assert.strictEqual(a.focused, false);
+				assert.strictEqual(b.focused, false);
 			} finally {
 				tui.stop();
 			}
@@ -1013,11 +1014,11 @@ describe("TUI overlay non-capturing", () => {
 				terminal.sendInput("E");
 				await renderAndFlush(tui, terminal);
 
-				expect(a.inputs).toStrictEqual(["a", "A"]);
-				expect(b.inputs).toStrictEqual(["b"]);
-				expect(c.inputs).toStrictEqual(["c"]);
-				expect(editor.inputs).toStrictEqual(["e", "E"]);
-				expect(editor.focused).toBe(true);
+				assert.deepStrictEqual(a.inputs, ["a", "A"]);
+				assert.deepStrictEqual(b.inputs, ["b"]);
+				assert.deepStrictEqual(c.inputs, ["c"]);
+				assert.deepStrictEqual(editor.inputs, ["e", "E"]);
+				assert.strictEqual(editor.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -1034,8 +1035,8 @@ describe("TUI overlay non-capturing", () => {
 				handle.unfocus({ target: null });
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(overlay.inputs).toStrictEqual([]);
-				expect(handle.isFocused()).toBe(false);
+				assert.deepStrictEqual(overlay.inputs, []);
+				assert.strictEqual(handle.isFocused(), false);
 			} finally {
 				tui.stop();
 			}
@@ -1060,9 +1061,9 @@ describe("TUI overlay non-capturing", () => {
 				bHandle.setHidden(true);
 				terminal.sendInput("x");
 				await renderAndFlush(tui, terminal);
-				expect(a.inputs).toStrictEqual(["x"]);
-				expect(c.inputs).toStrictEqual([]);
-				expect(a.focused).toBe(true);
+				assert.deepStrictEqual(a.inputs, ["x"]);
+				assert.deepStrictEqual(c.inputs, []);
+				assert.strictEqual(a.focused, true);
 			} finally {
 				tui.stop();
 			}
@@ -1083,11 +1084,11 @@ describe("TUI overlay non-capturing", () => {
 				aHandle.focus();
 				tui.showOverlay(new StaticOverlay(["C"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("C");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "C");
 				aHandle.focus();
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("A");
-				expect(aHandle.isFocused()).toBe(true);
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "A");
+				assert.strictEqual(aHandle.isFocused(), true);
 			} finally {
 				tui.stop();
 			}
@@ -1102,7 +1103,7 @@ describe("TUI overlay non-capturing", () => {
 				tui.showOverlay(new StaticOverlay(["A"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				tui.showOverlay(new StaticOverlay(["B"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("B");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "B");
 			} finally {
 				tui.stop();
 			}
@@ -1117,10 +1118,10 @@ describe("TUI overlay non-capturing", () => {
 				const lower = tui.showOverlay(new StaticOverlay(["A"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				tui.showOverlay(new StaticOverlay(["B"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("B");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "B");
 				lower.focus();
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("A");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "A");
 			} finally {
 				tui.stop();
 			}
@@ -1136,16 +1137,16 @@ describe("TUI overlay non-capturing", () => {
 				const middle = tui.showOverlay(new StaticOverlay(["B"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				const top = tui.showOverlay(new StaticOverlay(["C"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("C");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "C");
 				middle.focus();
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("B");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "B");
 				middle.hide();
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("C");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "C");
 				top.hide();
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("A");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "A");
 			} finally {
 				tui.stop();
 			}
@@ -1160,14 +1161,14 @@ describe("TUI overlay non-capturing", () => {
 				tui.showOverlay(new StaticOverlay(["A"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				const capturing = tui.showOverlay(new StaticOverlay(["B"]), { row: 0, col: 0, width: 1 });
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("B");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "B");
 				capturing.setHidden(true);
 				tui.showOverlay(new StaticOverlay(["C"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("C");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "C");
 				capturing.setHidden(false);
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("B");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "B");
 			} finally {
 				tui.stop();
 			}
@@ -1184,16 +1185,16 @@ describe("TUI overlay non-capturing", () => {
 				const a = tui.showOverlay(new StaticOverlay(["A"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				const b = tui.showOverlay(new StaticOverlay(["B"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("B");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "B");
 				a.focus();
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("A");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "A");
 				a.unfocus();
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("A");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "A");
 				b.focus();
 				await renderAndFlush(tui, terminal);
-				expect(terminal.getViewport()[0]?.charAt(0)).toBe("B");
+				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "B");
 			} finally {
 				tui.stop();
 			}

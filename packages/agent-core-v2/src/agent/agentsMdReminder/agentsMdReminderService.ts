@@ -26,13 +26,18 @@ import {
   extractAgentsMdPathsFromSystemPrompt,
   loadAgentsMdDetailed,
 } from '#/agent/profile/context';
-import { profileKey } from '#/agent/profile/profileOps';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IInstantiationService } from '#/_base/di/instantiation';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
-import type { ContextInjectionContext, ContextInjectionResult } from '#/features/reminder/types';
+import type {
+  ContextInjectionContext,
+  ContextInjectionResult,
+} from '#/features/reminder/types';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { legacyDidExecuteContext } from '#/agent/toolExecutor/legacyHooks';
+import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { IAgentAgentsMdReminderService } from './agentsMdReminder';
@@ -80,6 +85,7 @@ export class AgentAgentsMdReminderService
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ISessionInstructionsProvider private readonly instructions: ISessionInstructionsProvider,
     @ILogService private readonly log: ILogService,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {
     super();
     this.states.contributeState(agentsMdReminderKnownKey);
@@ -97,21 +103,18 @@ export class AgentAgentsMdReminderService
     );
     this._register(
       this.dispatcher.hooks.onDidRestore.register('agentsMdReminder', async (_ctx, next) => {
-        const profile = this.states.get(profileKey);
+        const profile = this.instantiation.invokeFunction((accessor) => accessor.get(IAgentLoopService)).data();
         const paths =
           profile.agentsMdPaths ?? extractAgentsMdPathsFromSystemPrompt(profile.systemPrompt);
         this.seedInjected(paths, this.sessionContext.cwd);
         await next();
       }),
     );
-    const handler = async (
-      ctx: ToolDidExecuteContext,
-      next: () => Promise<void>,
-    ): Promise<void> => {
-      await this.probeAndRemind(ctx);
-      await next();
-    };
-    this._register(toolExecutor.hooks.onDidExecuteTool.register('agentsMdReminder', handler));
+    this._register(toolExecutor.registerHook({
+      afterExecute: async (context) => {
+        await this.probeAndRemind(legacyDidExecuteContext(context));
+      },
+    }));
   }
 
   seedInjected(paths: readonly string[], cwd: string): void {
@@ -209,7 +212,7 @@ export class AgentAgentsMdReminderService
           turn_id: ctx.turnId,
           tool_name: ctx.toolCall.name,
           reminded_count: untracked.length,
-          trace_id: ctx.trace?.traceId,
+          request_id: ctx.trace?.requestId,
         };
         this.telemetry.track2('agents_md_reminder_shown', properties);
         for (const path of untracked) this.telemetryFired.add(path);
@@ -261,7 +264,9 @@ export class AgentAgentsMdReminderService
           normalizedCwdArg === undefined
             ? base
             : normalize(
-                isAbsolute(normalizedCwdArg) ? normalizedCwdArg : join(base, normalizedCwdArg),
+                isAbsolute(normalizedCwdArg)
+                  ? normalizedCwdArg
+                  : join(base, normalizedCwdArg),
               );
         const parsed = this.bashParser.parse(command, BASH_PARSE_OPTIONS);
         if (!parsed.ok || parsed.hasError) {
@@ -269,9 +274,11 @@ export class AgentAgentsMdReminderService
             ? { dirs: [], selfKnown }
             : { dirs: [effectiveCwd], selfKnown };
         }
-        const targets = extractBashTargetDirs(parsed.root, effectiveCwd, env.homeDir).map(
-          (target) => hostPath(target, env.pathClass),
-        );
+        const targets = extractBashTargetDirs(
+          parsed.root,
+          effectiveCwd,
+          env.homeDir,
+        ).map((target) => hostPath(target, env.pathClass));
         if (normalizedCwdArg !== undefined && !targets.includes(effectiveCwd)) {
           targets.unshift(effectiveCwd);
         }
@@ -289,7 +296,9 @@ export class AgentAgentsMdReminderService
     const dirs: string[] = [];
     const selfKnown: string[] = [];
     const targetsFiles =
-      ctx.toolCall.name === 'Read' || ctx.toolCall.name === 'Edit' || ctx.toolCall.name === 'Write';
+      ctx.toolCall.name === 'Read' ||
+      ctx.toolCall.name === 'Edit' ||
+      ctx.toolCall.name === 'Write';
     for (const access of ctx.accesses ?? []) {
       if (access.kind !== 'file') continue;
       if (

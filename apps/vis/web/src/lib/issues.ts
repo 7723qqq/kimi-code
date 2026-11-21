@@ -1,23 +1,5 @@
-// Aggregate every "something went wrong" signal from a wire timeline
-// into a flat list consumable by the Issues drawer. Pure — no React.
-//
-// Detection rules for the engine's wire protocol:
-//   - tool.call without paired tool.result (orphan tool.call)
-//   - tool.result without preceding tool.call (orphan tool.result)
-//   - tool.result with isError (tool failed)
-//   - tool.result with truncated output (model saw partial output)
-//   - step.end finishReason 'filtered' (provider blocked the response)
-//   - step.end finishReason 'max_tokens' (response cut at the output cap)
-//   - step.begin without paired step.end (incomplete step)
-//   - full_compaction.begin without complete/cancel (incomplete compaction)
-//   - plan_mode.enter without exit/cancel (still in plan mode)
-//   - permission.record_approval_result with decision='rejected' (info)
-//
-// Wire-file parse warnings are appended as info-level entries with no lineNo.
-
-import { t } from '../i18n';
 import type { WireEntry } from '../types';
-import { readApprovalResult } from './recordGuards';
+import { t } from '../i18n';
 
 export type IssueSeverity = 'error' | 'warning' | 'info';
 
@@ -37,11 +19,8 @@ export type IssueKind =
 export interface Issue {
   severity: IssueSeverity;
   kind: IssueKind;
-  /** Line number of the offending record. `null` for file-level warnings. */
   lineNo: number | null;
-  /** Short summary shown on a single line. */
   summary: string;
-  /** Optional second line / tooltip detail. */
   detail?: string;
 }
 
@@ -51,13 +30,12 @@ const SEVERITY_ORDER: Record<IssueSeverity, number> = {
   info: 2,
 };
 
-/** Scan `records` + `warnings` and produce an ordered issue list.
- *  Sorted by severity first, then lineNo ascending. Warnings (no lineNo) go last. */
-export function computeIssues(entries: readonly WireEntry[], warnings: readonly string[]): Issue[] {
+export function computeIssues(
+  entries: readonly WireEntry[],
+  warnings: readonly string[],
+): Issue[] {
   const out: Issue[] = [];
 
-  // Track in-flight tool calls keyed by toolCallId, step begins by uuid,
-  // compaction begin lineNo, and plan mode enter id.
   const toolCallById = new Map<string, { lineNo: number; name: string }>();
   const stepBeginByUuid = new Map<string, { lineNo: number; step: number; turnId: string }>();
   let lastCompactionBegin: { lineNo: number; source: string } | null = null;
@@ -70,7 +48,6 @@ export function computeIssues(entries: readonly WireEntry[], warnings: readonly 
       case 'context.append_loop_event': {
         const ev = r.event;
         if (ev.type === 'tool.call') {
-          // New in-flight tool call.
           toolCallById.set(ev.toolCallId, { lineNo, name: ev.name });
         } else if (ev.type === 'tool.result') {
           const open = toolCallById.get(ev.toolCallId);
@@ -85,8 +62,6 @@ export function computeIssues(entries: readonly WireEntry[], warnings: readonly 
               detail: t('wireRow.noPrecedingCall'),
             });
           }
-          // Environment failure / partial-output signals carried on the result.
-          // v1 persisted `truncated` / `message`; v2 persists `note` instead.
           const result = ev.result as { truncated?: boolean; message?: string; note?: string };
           if (ev.result.isError === true) {
             out.push({
@@ -109,7 +84,6 @@ export function computeIssues(entries: readonly WireEntry[], warnings: readonly 
         } else if (ev.type === 'step.begin') {
           stepBeginByUuid.set(ev.uuid, {
             lineNo,
-            // `step` / `turnId` are optional on v2 loop events.
             step: ev.step ?? -1,
             turnId: ev.turnId ?? '',
           });
@@ -152,30 +126,23 @@ export function computeIssues(entries: readonly WireEntry[], warnings: readonly 
         lastPlanEnter = null;
         break;
 
-      case 'permission.record_approval_result': {
-        // `result` is a compile-time assertion upstream (`z.custom<…>()`), so a
-        // record read off a hand-edited / imported wire can arrive without it.
-        // Read-then-check keeps the drawer alive instead of throwing during
-        // render (which used to unmount the React root — a blank app).
-        const result = readApprovalResult(r);
-        if (result?.decision === 'rejected') {
+      case 'permission.record_approval_result':
+        if (r.result.decision === 'rejected') {
           out.push({
             severity: 'info',
             kind: 'rejected_approval',
             lineNo,
             summary: `${r.toolName}#${r.toolCallId.slice(-8)} rejected`,
-            detail: result.feedback,
+            detail: r.result.feedback,
           });
         }
         break;
-      }
 
       default:
         break;
     }
   }
 
-  // Drain unmatched in-flight entries.
   for (const [id, info] of toolCallById) {
     out.push({
       severity: 'warning',
@@ -231,7 +198,6 @@ export function computeIssues(entries: readonly WireEntry[], warnings: readonly 
   return out;
 }
 
-/** Top-level summary tone used for the toolbar pill — "worst wins". */
 export function topSeverity(issues: readonly Issue[]): IssueSeverity | null {
   if (issues.length === 0) return null;
   for (const i of issues) if (i.severity === 'error') return 'error';

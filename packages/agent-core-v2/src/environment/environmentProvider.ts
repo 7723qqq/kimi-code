@@ -1,5 +1,4 @@
 import type { ServiceIdentifier } from '#/_base/di/instantiation';
-
 import type { Environment } from './environment';
 import type { EnvironmentRegistrationHandle } from './environmentRegistry';
 

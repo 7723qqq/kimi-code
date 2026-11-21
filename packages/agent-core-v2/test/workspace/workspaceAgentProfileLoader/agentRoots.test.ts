@@ -1,21 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import {
   configuredAgentRoots,
   projectAgentRoots,
   userAgentRoots,
 } from '#/workspace/workspaceAgentProfileLoader/internal/agentRoots';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 
 const hostFs = new HostFileSystem();
-
-const normalizedRealpath = async (path: string): Promise<string> =>
-  (await realpath(path)).replaceAll('\\', '/');
 
 describe('agentRoots', () => {
   let root: string;
@@ -124,10 +121,10 @@ describe('agentRoots', () => {
       const paths = roots.map((r) => r.path);
 
       expect(roots.every((r) => r.source === 'extra')).toBe(true);
-      expect(paths).toContain(await normalizedRealpath(homeDir));
-      expect(paths).toContain(await normalizedRealpath(join(homeDir, 'team')));
-      expect(paths).toContain(await normalizedRealpath(absDir));
-      expect(paths).toContain(await normalizedRealpath(join(root, 'relative')));
+      expect(paths).toContain(await realpath(homeDir));
+      expect(paths).toContain(await realpath(join(homeDir, 'team')));
+      expect(paths).toContain(await realpath(absDir));
+      expect(paths).toContain(await realpath(join(root, 'relative')));
     });
 
     it('propagates filesystem-unavailable failures while probing a root', async () => {
@@ -159,7 +156,10 @@ describe('agentRoots', () => {
             return (path: string) =>
               path === blockedDir
                 ? Promise.reject(
-                    new HostFsError(OsFsErrors.codes.OS_FS_PERMISSION_DENIED, 'permission denied'),
+                    new HostFsError(
+                      OsFsErrors.codes.OS_FS_PERMISSION_DENIED,
+                      'permission denied',
+                    ),
                   )
                 : target.realpath(path);
           }
@@ -178,9 +178,7 @@ describe('agentRoots', () => {
         (message) => warnings.push(message),
       );
 
-      expect(roots.map((candidate) => candidate.path)).toEqual([
-        await normalizedRealpath(availableDir),
-      ]);
+      expect(roots.map((candidate) => candidate.path)).toEqual([await realpath(availableDir)]);
       expect(warnings.some((warning) => warning.includes(blockedDir))).toBe(true);
     });
   });

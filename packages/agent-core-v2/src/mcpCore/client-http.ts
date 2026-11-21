@@ -1,11 +1,9 @@
-import { type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { FetchLike } from '@moonshot-ai/kimi-code-oauth';
-
 import { ErrorCodes, Error2 } from '#/errors';
+import type { McpServerHttpConfig } from './config-schema';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
-import { buildMcpRemoteHeaders, classifyRemoteStartupError } from './client-remote';
 import {
   buildRequestOptions,
   KIMI_MCP_CLIENT_NAME,
@@ -16,7 +14,8 @@ import {
   type SessionEvidence,
   type SessionEvidenceListener,
 } from './client-shared';
-import type { McpServerHttpConfig } from './config-schema';
+import { buildMcpRemoteHeaders, classifyRemoteStartupError } from './client-remote';
+import { createMcpOAuthFetch } from './oauth/provider';
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
 export interface HttpMcpClientOptions {
@@ -25,7 +24,7 @@ export interface HttpMcpClientOptions {
   readonly startupTimeoutMs?: number;
   readonly toolCallTimeoutMs?: number;
   readonly envLookup?: (name: string) => string | undefined;
-  readonly fetch?: FetchLike;
+  readonly fetch?: typeof fetch;
   readonly oauthProvider?: OAuthClientProvider;
 }
 
@@ -43,16 +42,13 @@ export class HttpMcpClient implements MCPClient {
   private pendingSessionEvidence: SessionEvidence | undefined;
   private hardEvidenceFired = false;
 
-  constructor(
-    private readonly config: McpServerHttpConfig,
-    options: HttpMcpClientOptions = {},
-  ) {
+  constructor(private readonly config: McpServerHttpConfig, options: HttpMcpClientOptions = {}) {
     const envLookup = options.envLookup ?? ((name) => process.env[name]);
     const headers = buildMcpHttpHeaders(config, envLookup);
 
     this.transport = new StreamableHTTPClientTransport(new URL(config.url), {
       requestInit: headers !== undefined ? { headers } : undefined,
-      fetch: options.fetch,
+      fetch: createMcpOAuthFetch(options.oauthProvider, options.fetch),
       authProvider: options.oauthProvider,
     });
     this.client = new Client({
@@ -71,7 +67,10 @@ export class HttpMcpClient implements MCPClient {
     this.started = true;
     this.installTransportHooks();
     try {
-      await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
+      await this.client.connect(
+        this.transport,
+        buildRequestOptions(this.startupTimeoutMs, undefined),
+      );
     } catch (error) {
       await this.closeStartedClient();
       throw classifyRemoteStartupError(this.config, error);
@@ -101,7 +100,7 @@ export class HttpMcpClient implements MCPClient {
   async listTools(): Promise<MCPToolDefinition[]> {
     const result = await this.client.listTools(
       undefined,
-      buildRequestOptions(this.startupTimeoutMs),
+      buildRequestOptions(this.startupTimeoutMs, undefined),
     );
     return result.tools.map(toMcpToolDefinition);
   }

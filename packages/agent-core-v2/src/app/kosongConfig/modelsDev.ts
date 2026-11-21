@@ -1,6 +1,7 @@
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
-import { wireHasProtocolThinkingDisable } from '#/llm-adapter/model/thinking';
 import type { ProviderType } from '#/llm-adapter/provider/provider';
+
+import { wireHasProtocolThinkingDisable } from '#/llm-adapter/model/thinking';
 
 export interface ModelsDevModelEntry {
   readonly id?: string;
@@ -42,6 +43,11 @@ export interface ModelsDevProviderEntry {
 
 export type ModelsDevCatalog = Record<string, ModelsDevProviderEntry>;
 
+export interface ModelsDevCapability extends ModelCapability {
+  readonly max_context_tokens: number;
+  readonly max_input_tokens?: number;
+}
+
 export interface ModelsDevModel {
   readonly id: string;
   readonly name?: string;
@@ -52,7 +58,7 @@ export interface ModelsDevModel {
   readonly alwaysThinking?: boolean;
   readonly protocol?: 'anthropic';
   readonly baseUrl?: string;
-  readonly capability: ModelCapability;
+  readonly capability: ModelsDevCapability;
 }
 
 const KNOWN_WIRE_TYPES = [
@@ -61,7 +67,7 @@ const KNOWN_WIRE_TYPES = [
   'kimi',
   'google-genai',
   'openai_responses',
-  'antigravity',
+  'vertexai',
 ] as const satisfies readonly ProviderType[];
 
 type KnownWireType = (typeof KNOWN_WIRE_TYPES)[number];
@@ -156,7 +162,7 @@ function inferDeclaredWireType(entry: ModelsDevProviderEntry): ProviderType | un
   if (npm.includes('anthropic') || id.includes('anthropic') || id.includes('claude')) {
     return 'anthropic';
   }
-  if (id.includes('vertex')) return 'google-genai';
+  if (id.includes('vertex')) return 'vertexai';
   if (npm.includes('google') || id.includes('google') || id.includes('gemini')) {
     return 'google-genai';
   }
@@ -210,8 +216,8 @@ export function modelsDevModelToCapability(model: ModelsDevModelEntry): ModelsDe
       image_in: inputs.includes('image'),
       video_in: inputs.includes('video'),
       audio_in: inputs.includes('audio'),
-      pdf_in: inputs.includes('pdf'),
-      thinking: Boolean(model.reasoning) || thinking.efforts !== undefined || thinking.hasToggle,
+      thinking:
+        Boolean(model.reasoning) || thinking.efforts !== undefined || thinking.hasToggle,
       tool_use: model.tool_call ?? true,
       max_context_tokens: context,
       max_input_tokens: maxInputTokens,
@@ -227,12 +233,7 @@ function modelsDevThinkingOptions(options: ModelsDevModelEntry['reasoning_option
   readonly alwaysThinking: boolean | undefined;
 } {
   if (!Array.isArray(options)) {
-    return {
-      efforts: undefined,
-      offEffort: undefined,
-      hasToggle: false,
-      alwaysThinking: undefined,
-    };
+    return { efforts: undefined, offEffort: undefined, hasToggle: false, alwaysThinking: undefined };
   }
   let efforts: readonly string[] | undefined;
   let offEffort: string | undefined;
@@ -258,9 +259,7 @@ function modelsDevThinkingOptions(options: ModelsDevModelEntry['reasoning_option
   return { efforts, offEffort, hasToggle, alwaysThinking };
 }
 
-function modelsDevReasoningKey(
-  interleaved: ModelsDevModelEntry['interleaved'],
-): string | undefined {
+function modelsDevReasoningKey(interleaved: ModelsDevModelEntry['interleaved']): string | undefined {
   if (typeof interleaved !== 'object' || interleaved === null) return undefined;
   const field = interleaved.field?.trim();
   return field !== undefined && field.length > 0 ? field : undefined;
@@ -269,9 +268,7 @@ function modelsDevReasoningKey(
 export function modelsDevProviderModels(entry: ModelsDevProviderEntry): ModelsDevModel[] {
   const providerWire = resolveModelsDevWire(entry);
   return Object.values(entry.models ?? {})
-    .map((raw) =>
-      applyModelProviderOverride(modelsDevModelToCapability(raw), raw, entry, providerWire),
-    )
+    .map((raw) => applyModelProviderOverride(modelsDevModelToCapability(raw), raw, entry, providerWire))
     .filter((model): model is ModelsDevModel => model !== undefined)
     .map((model) => {
       const protocol = model.protocol ?? providerWire;
@@ -316,11 +313,7 @@ function applyModelProviderOverride(
   }
 
   if (overrideWire === 'anthropic' && usableApi !== undefined) {
-    return {
-      ...model,
-      protocol: 'anthropic',
-      baseUrl: adaptBaseUrlForWire(usableApi, 'anthropic'),
-    };
+    return { ...model, protocol: 'anthropic', baseUrl: adaptBaseUrlForWire(usableApi, 'anthropic') };
   }
   return undefined;
 }
@@ -328,7 +321,7 @@ function applyModelProviderOverride(
 function inferOverrideWire(npm: string): ProviderType | undefined {
   const normalized = npm.toLowerCase();
   if (normalized.includes('anthropic')) return 'anthropic';
-  if (normalized.includes('vertex')) return 'google-genai';
+  if (normalized.includes('vertex')) return 'vertexai';
   if (normalized.includes('google')) return 'google-genai';
   if (normalized.includes('openai')) return 'openai';
   return undefined;

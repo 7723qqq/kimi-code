@@ -1,4 +1,3 @@
-import { resolveKimiHome } from '@moonshot-ai/agent-core-v2';
 import {
   createKimiDefaultHeaders,
   KIMI_CODE_FLOW_CONFIG,
@@ -10,15 +9,20 @@ import {
   type KimiHostIdentity,
   type ManagedKimiOAuthRef,
 } from '@moonshot-ai/kimi-code-oauth';
-import type {
-  ProviderConfig as KosongProviderConfig,
-  ProviderRequestAuth,
-} from '@moonshot-ai/kosong';
-import { APIStatusError, UNKNOWN_CAPABILITY } from '@moonshot-ai/kosong';
+import {
+  APIStatusError,
+  resolveKimiHome,
+  UNKNOWN_CAPABILITY,
+} from '@moonshot-ai/agent-core-v2';
 
 import { ErrorCodes, KimiError } from '#/errors';
 import type { Logger } from '#/logging/index';
-import type { ModelProvider, ResolvedRuntimeProvider } from '#/model-provider';
+import type {
+  ModelProvider,
+  ProviderConfig as KosongProviderConfig,
+  ProviderRequestAuth,
+  ResolvedRuntimeProvider,
+} from '#/model-provider';
 import { mapOAuthTokenError } from '#/oauth-error';
 
 export interface KimiForCodingProviderOptions extends KimiHostIdentity {
@@ -77,7 +81,9 @@ export class KimiForCodingProvider implements ModelProvider {
       type: 'kimi',
       model: this.model,
       baseUrl: this.baseUrl,
-      generationKwargs: this.promptCacheKey ? { prompt_cache_key: this.promptCacheKey } : undefined,
+      generationKwargs: this.promptCacheKey
+        ? { prompt_cache_key: this.promptCacheKey }
+        : undefined,
       defaultHeaders: {
         ...parseKimiCodeCustomHeaders(),
         ...createKimiDefaultHeaders({
@@ -127,10 +133,6 @@ export class KimiForCodingProvider implements ModelProvider {
       });
       return { apiKey };
     } catch (error) {
-      // Classify OAuth token failures into the public KimiError protocol so the
-      // turn surfaces `auth.login_required` / `provider.connection_error`
-      // instead of collapsing everything to `internal`. Unrecognized errors are
-      // rethrown raw (see mapOAuthTokenError).
       throw mapOAuthTokenError(error, KIMI_CODE_PROVIDER_NAME) ?? error;
     }
   }

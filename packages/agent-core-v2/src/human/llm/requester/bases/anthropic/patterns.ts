@@ -1,5 +1,5 @@
-import type { ContentPart, Message } from '#/llm/message';
-import type { Pattern } from '#/llm/protocol/rewrite';
+import type { ContentPart, Message } from '#human/message';
+import type { Pattern } from '#human/llm/protocol/rewrite';
 
 const OMITTED_AUDIO_PLACEHOLDER = '(audio omitted: not supported by this provider)';
 

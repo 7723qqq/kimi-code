@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { ensureMainAgent, getLiveSessionById, interactions } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -176,6 +176,59 @@ describe('server-v2 /api/v1/sessions/{sid}/interactions (approval)', () => {
       decision: 'approved',
     });
     expect(body.code).toBe(40401);
+  });
+
+  it('lists pending approvals and questions via GET /api/v1/sessions/{sid}/interactions', async () => {
+    const missingRes = await fetch(`${base}/api/v1/sessions/nope/interactions`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
+    expect(((await missingRes.json()) as Envelope<null>).code).toBe(40401);
+
+    const sid = await createSession();
+    const emptyRes = await fetch(`${base}/api/v1/sessions/${sid}/interactions`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
+    expect(((await emptyRes.json()) as Envelope<{ items: unknown[] }>).data.items).toEqual([]);
+
+    const aid = enqueueApproval(sid, 'tc-list-1');
+    const qParked = interactions.enqueue({
+      id: `question_${randomUUID()}`,
+      kind: 'question',
+      payload: {
+        questions: [
+          {
+            question: 'Which env?',
+            options: [{ label: 'dev' }, { label: 'prod' }],
+          },
+        ],
+      },
+      tags: { agentId: 'main', sessionId: sid, toolCallId: 'tc-list-2' },
+    });
+
+    const listRes = await fetch(`${base}/api/v1/sessions/${sid}/interactions`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
+    const listed = (await listRes.json()) as Envelope<{
+      items: Array<{ interaction_id: string; kind: string; request: Record<string, unknown> }>;
+    }>;
+    expect(listed.code).toBe(0);
+    expect(listed.data.items.map((i) => i.interaction_id).toSorted()).toEqual([aid, qParked.id].toSorted());
+    const qItem = listed.data.items.find((i) => i.interaction_id === qParked.id);
+    expect(qItem?.kind).toBe('question');
+
+    await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/${aid}`, {
+      kind: 'approval',
+      decision: 'approved',
+    });
+    await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/${qParked.id}`, {
+      kind: 'question',
+      dismissed: true,
+    });
+
+    const afterRes = await fetch(`${base}/api/v1/sessions/${sid}/interactions`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
+    expect(((await afterRes.json()) as Envelope<{ items: unknown[] }>).data.items).toEqual([]);
   });
 
 });

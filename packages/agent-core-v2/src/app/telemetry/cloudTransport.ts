@@ -18,8 +18,6 @@ export interface CloudEvent {
   readonly properties: CloudProperties;
 }
 
-import type { FetchLike } from '#/_base/utils/fetchLike';
-
 export interface EnrichedCloudEvent extends CloudEvent {
   readonly context: CloudContext;
 }
@@ -35,20 +33,16 @@ export interface CloudTransportOptions {
   readonly endpoint?: string;
   readonly resolveEndpoint?: () => string | undefined;
   readonly getAccessToken?: () => string | null | Promise<string | null>;
-  readonly fetchImpl?: FetchLike;
+  readonly fetchImpl?: typeof fetch;
   readonly retryBackoffsMs?: readonly number[];
   readonly requestTimeoutMs?: number;
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly now?: () => number;
-  readonly maxDiskFiles?: number;
-  readonly maxDiskBytes?: number;
 }
 
 export const SERVER_EVENT_PREFIX = 'kfc_';
 export const USER_ID_PREFIX = 'kfc_device_id_';
 export const DISK_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-export const DISK_EVENT_MAX_FILES = 500;
-export const DISK_EVENT_MAX_BYTES = 50 * 1024 * 1024;
 export const RETRY_BACKOFFS_MS = [1_000, 4_000, 16_000] as const;
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -59,18 +53,13 @@ const JSONL_SUFFIX = '.jsonl';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-export interface DiskEventCaps {
-  readonly maxDiskFiles?: number;
-  readonly maxDiskBytes?: number;
-}
-
 export class CloudTransport {
   private readonly storage: IFileSystemStorageService;
   private readonly deviceId: string;
   private readonly endpoint: string | undefined;
   private readonly resolveEndpoint: () => string | undefined;
   private readonly getAccessToken: (() => string | null | Promise<string | null>) | null;
-  private readonly fetchImpl: FetchLike;
+  private readonly fetchImpl: typeof fetch;
   private readonly retryBackoffsMs: readonly number[];
   private readonly requestTimeoutMs: number;
   private readonly sleepImpl: (ms: number, signal?: AbortSignal) => Promise<void>;
@@ -190,52 +179,6 @@ export class CloudTransport {
       } catch (error) {
         if (error instanceof TransientCloudError) continue;
       }
-    }
-  }
-
-  readonly maxDiskFiles: number = DISK_EVENT_MAX_FILES;
-  readonly maxDiskBytes: number = DISK_EVENT_MAX_BYTES;
-
-  async pruneExpiredDiskEvents(): Promise<void> {
-    const listed = await this.storage.list(TELEMETRY_SCOPE, FAILED_PREFIX);
-    const now = this.now();
-    const survivors: string[] = [];
-    for (const key of listed) {
-      if (!key.startsWith(FAILED_PREFIX) || !key.endsWith(JSONL_SUFFIX)) continue;
-      const createdAt = parseFailedTimestamp(key);
-      if (createdAt === undefined || now - createdAt > DISK_EVENT_MAX_AGE_MS) {
-        await this.storage.delete(TELEMETRY_SCOPE, key).catch(() => undefined);
-        continue;
-      }
-      try {
-        await this.readJsonl(key);
-      } catch (error) {
-        if (error instanceof SyntaxError || error instanceof TypeError) {
-          await this.storage.delete(TELEMETRY_SCOPE, key).catch(() => undefined);
-          continue;
-        }
-      }
-      survivors.push(key);
-    }
-    await this.enforceDiskEventCaps(survivors);
-  }
-
-  private async enforceDiskEventCaps(keys: readonly string[]): Promise<void> {
-    const sized: Array<{ key: string; createdAt: number; size: number }> = [];
-    for (const key of keys) {
-      const size = await this.storage.size(TELEMETRY_SCOPE, key).catch(() => undefined);
-      if (size === undefined) continue;
-      sized.push({ key, createdAt: parseFailedTimestamp(key) ?? 0, size });
-    }
-    sized.sort((a, b) => a.createdAt - b.createdAt);
-    let totalBytes = 0;
-    for (const entry of sized) totalBytes += entry.size;
-    let totalFiles = sized.length;
-    for (const entry of sized) {
-      if (totalFiles <= this.maxDiskFiles && totalBytes <= this.maxDiskBytes) return;
-      await this.storage.delete(TELEMETRY_SCOPE, entry.key).catch(() => undefined);
-      totalFiles -= 1;
-      totalBytes -= entry.size;
     }
   }
 
@@ -389,7 +332,7 @@ function handleStatus(status: number): void {
 }
 
 async function fetchWithTimeout(
-  fetchImpl: FetchLike,
+  fetchImpl: typeof fetch,
   url: string,
   init: RequestInit,
   timeoutMs: number,

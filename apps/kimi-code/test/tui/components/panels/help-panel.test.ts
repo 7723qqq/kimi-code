@@ -1,10 +1,7 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, it, expect, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { KimiSlashCommand } from '#/tui/commands/index';
-import {
-  getDefaultKeyboardShortcuts,
-  HelpPanelComponent,
-} from '#/tui/components/dialogs/help-panel';
+import { HelpPanelComponent, keyboardShortcuts } from '#/tui/components/dialogs/help-panel';
 
 function cmd(name: string, description: string, aliases: string[] = []): KimiSlashCommand {
   return {
@@ -19,6 +16,27 @@ function strip(text: string): string {
 }
 
 describe('HelpPanelComponent', () => {
+  const QUEUES = 'Submit; queues while Kimi is working';
+  const STEERS = 'Submit; steers into the running turn';
+
+  it.each([
+    ['queue', true, { Enter: QUEUES, 'Ctrl-Enter': STEERS, 'Ctrl-Q': QUEUES }],
+    ['queue', false, { Enter: QUEUES, 'Ctrl-Q': QUEUES }],
+    ['steer', true, { Enter: STEERS, 'Ctrl-Enter': QUEUES, 'Ctrl-Q': QUEUES }],
+    ['steer', false, { Enter: STEERS, 'Ctrl-Q': QUEUES }],
+  ] as const)(
+    'describes the submit keys for follow_up_behavior %s (Ctrl-Enter recognized: %s)',
+    (followUpBehavior, ctrlEnterRecognized, expected) => {
+      const submitKeys = Object.fromEntries(
+        keyboardShortcuts(followUpBehavior, ctrlEnterRecognized)
+          .filter((shortcut) => ['Enter', 'Ctrl-Enter', 'Ctrl-Q'].includes(shortcut.keys))
+          .map((shortcut) => [shortcut.keys, shortcut.description]),
+      );
+
+      expect(submitKeys).toEqual(expected);
+    },
+  );
+
   it('renders keyboard shortcuts + slash commands sections', () => {
     const panel = new HelpPanelComponent({
       commands: [cmd('exit', 'Exit', ['quit', 'q'])],
@@ -57,17 +75,17 @@ describe('HelpPanelComponent', () => {
   });
 
   it('Escape fires onClose', () => {
-    const onClose = mock();
+    const onClose = vi.fn();
     const panel = new HelpPanelComponent({
       commands: [],
       onClose,
     });
-    panel.handleInput('\u001B'); // Esc
+    panel.handleInput('\u001B');
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('q / Enter also close the panel', () => {
-    const onClose = mock();
+    const onClose = vi.fn();
     const panel = new HelpPanelComponent({
       commands: [],
       onClose,
@@ -95,54 +113,12 @@ describe('HelpPanelComponent', () => {
       onClose: () => {},
       maxVisible: 6,
     });
-    panel.handleInput('\u001B[B'); // ↓
-    panel.handleInput('\u001B[B'); // ↓
+    panel.handleInput('\u001B[B');
+    panel.handleInput('\u001B[B');
     const out = strip(panel.render(80).join('\n'));
     expect(out).toMatch(/showing 3-8 of/);
-    panel.handleInput('\u001B[A'); // ↑
+    panel.handleInput('\u001B[A');
     const out2 = strip(panel.render(80).join('\n'));
     expect(out2).toMatch(/showing 2-7 of/);
   });
-
-  it('marks Ctrl-P as off rather than advertising a key that only errors', () => {
-    const enabled = new HelpPanelComponent({
-      commands: [cmd('exit', 'Exit')],
-      shortcuts: getDefaultKeyboardShortcuts({ promptOptimizerEnabled: true }),
-      onClose: () => {},
-    });
-    const onOut = strip(enabled.render(80).join(String.fromCodePoint(10)));
-    expect(onOut).toContain('Ctrl-P');
-    expect(onOut).not.toContain('Rewrite the drafted prompt with AI (off)');
-
-    const disabled = new HelpPanelComponent({
-      commands: [cmd('exit', 'Exit')],
-      shortcuts: getDefaultKeyboardShortcuts({ promptOptimizerEnabled: false }),
-      onClose: () => {},
-    });
-    const offOut = strip(disabled.render(80).join(String.fromCodePoint(10)));
-    expect(offOut).toContain('Rewrite the drafted prompt with AI (off)');
-  });
-});
-
-describe('help panel submit shortcut descriptions', () => {
-  const QUEUES = 'Submit; queues while Kimi is working';
-  const STEERS = 'Submit; steers into the running turn';
-
-  it.each([
-    ['queue', true, { Enter: QUEUES, 'Ctrl-Enter': STEERS, 'Ctrl-Q': QUEUES }],
-    ['queue', false, { Enter: QUEUES, 'Ctrl-Q': QUEUES }],
-    ['steer', true, { Enter: STEERS, 'Ctrl-Enter': QUEUES, 'Ctrl-Q': QUEUES }],
-    ['steer', false, { Enter: STEERS, 'Ctrl-Q': QUEUES }],
-  ] as const)(
-    'describes the submit keys for follow_up_behavior %s (Ctrl-Enter recognized: %s)',
-    (followUpBehavior, ctrlEnterRecognized, expected) => {
-      const submitKeys = Object.fromEntries(
-        getDefaultKeyboardShortcuts({ followUpBehavior, ctrlEnterRecognized })
-          .filter((shortcut) => ['Enter', 'Ctrl-Enter', 'Ctrl-Q'].includes(shortcut.keys))
-          .map((shortcut) => [shortcut.keys, shortcut.description]),
-      );
-
-      expect(submitKeys).toEqual(expected);
-    },
-  );
 });

@@ -1,12 +1,12 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
-import type { Disposer, TeardownReason } from '#/_base/lifecycle/disposer';
 import { LedgerDisposedError } from '#/_base/lifecycle/errors';
 import { Ledger } from '#/_base/lifecycle/ledger';
+import type { Disposer, TeardownReason } from '#/_base/lifecycle/disposer';
 
 function deferred<T = void>(): {
   promise: Promise<T>;
@@ -27,15 +27,9 @@ describe('Ledger', () => {
     it('tears down entries in strict reverse registration order', () => {
       const events: string[] = [];
       const ledger = new Ledger('test');
-      ledger.register(() => {
-        events.push('first');
-      }, 'first');
-      ledger.register(() => {
-        events.push('second');
-      }, 'second');
-      ledger.register(() => {
-        events.push('third');
-      }, 'third');
+      ledger.register(() => { events.push('first'); }, 'first');
+      ledger.register(() => { events.push('second'); }, 'second');
+      ledger.register(() => { events.push('third'); }, 'third');
       void ledger.teardown();
       expect(events).toEqual(['third', 'second', 'first']);
       expect(ledger.state).toBe('disposed');
@@ -55,17 +49,13 @@ describe('Ledger', () => {
       const events: string[] = [];
       const gate = deferred();
       const ledger = new Ledger('test');
-      ledger.register(() => {
-        events.push('sync-1');
-      }, 'sync-1');
+      ledger.register(() => { events.push('sync-1'); }, 'sync-1');
       ledger.register(async () => {
         events.push('async-start');
         await gate.promise;
         events.push('async-end');
       }, 'async');
-      ledger.register(() => {
-        events.push('sync-3');
-      }, 'sync-3');
+      ledger.register(() => { events.push('sync-3'); }, 'sync-3');
 
       const out = ledger.teardown();
       expect(out).toBeInstanceOf(Promise);
@@ -143,21 +133,15 @@ describe('Ledger', () => {
     });
 
     it('a throwing entry is reported (with label) and teardown continues', () => {
-      setUnexpectedErrorHandler((err) => {
-        reported.push(err);
-      });
+      setUnexpectedErrorHandler((err) => { reported.push(err); });
       const events: string[] = [];
       const ledger = new Ledger('test');
-      ledger.register(() => {
-        events.push('first');
-      }, 'first');
+      ledger.register(() => { events.push('first'); }, 'first');
       ledger.register(() => {
         events.push('bad-attempted');
         throw new Error('boom');
       }, 'bad');
-      ledger.register(() => {
-        events.push('third');
-      }, 'third');
+      ledger.register(() => { events.push('third'); }, 'third');
 
       expect(() => ledger.teardown()).not.toThrow();
       expect(events).toEqual(['third', 'bad-attempted', 'first']);
@@ -168,21 +152,15 @@ describe('Ledger', () => {
     });
 
     it('a rejecting async entry is reported and teardown continues', async () => {
-      setUnexpectedErrorHandler((err) => {
-        reported.push(err);
-      });
+      setUnexpectedErrorHandler((err) => { reported.push(err); });
       const events: string[] = [];
       const ledger = new Ledger('test');
-      ledger.register(() => {
-        events.push('first');
-      }, 'first');
+      ledger.register(() => { events.push('first'); }, 'first');
       ledger.register(async () => {
         events.push('bad-attempted');
         throw new Error('async boom');
       }, 'bad');
-      ledger.register(() => {
-        events.push('third');
-      }, 'third');
+      ledger.register(() => { events.push('third'); }, 'third');
 
       await ledger.teardown();
       expect(events).toEqual(['third', 'bad-attempted', 'first']);
@@ -197,12 +175,8 @@ describe('Ledger', () => {
       const ledger = new Ledger('test');
       expect(() =>
         ledger.effect(function* () {
-          yield () => {
-            events.push('undo-1');
-          };
-          yield () => {
-            events.push('undo-2');
-          };
+          yield () => { events.push('undo-1'); };
+          yield () => { events.push('undo-2'); };
           throw new Error('construct failed');
         }, 'gen'),
       ).toThrow('construct failed');
@@ -213,21 +187,14 @@ describe('Ledger', () => {
     it('async iterator: a mid-iteration throw rolls back already-yielded disposers in reverse', async () => {
       const events: string[] = [];
       const ledger = new Ledger('test');
-      // eslint-disable-next-line require-yield
       const body = async function* (): AsyncGenerator<Disposer> {
-        yield () => {
-          events.push('undo-1');
-        };
-        yield () => {
-          events.push('undo-2');
-        };
+        yield () => { events.push('undo-1'); };
+        yield () => { events.push('undo-2'); };
         throw new Error('async construct failed');
       };
       const entry = ledger.effect(body, 'gen');
       const reported: unknown[] = [];
-      setUnexpectedErrorHandler((err) => {
-        reported.push(err);
-      });
+      setUnexpectedErrorHandler((err) => { reported.push(err); });
       try {
         await ledger.teardown();
         expect(events).toEqual(['undo-2', 'undo-1']);
@@ -253,12 +220,7 @@ describe('Ledger', () => {
     it('plain disposer', () => {
       const events: string[] = [];
       const ledger = new Ledger('test');
-      ledger.effect(
-        () => () => {
-          events.push('disposed');
-        },
-        'fx',
-      );
+      ledger.effect(() => () => { events.push('disposed'); }, 'fx');
       void ledger.teardown();
       expect(events).toEqual(['disposed']);
     });
@@ -268,15 +230,11 @@ describe('Ledger', () => {
       const gate = deferred<Disposer>();
       const ledger = new Ledger('test');
       ledger.effect(() => gate.promise, 'async-fx');
-      ledger.register(() => {
-        events.push('first');
-      }, 'first');
+      ledger.register(() => { events.push('first'); }, 'first');
 
       const out = ledger.teardown();
       expect(events).toEqual(['first']);
-      gate.resolve(() => {
-        events.push('async-disposed');
-      });
+      gate.resolve(() => { events.push('async-disposed'); });
       await out;
       expect(events).toEqual(['first', 'async-disposed']);
     });
@@ -286,13 +244,9 @@ describe('Ledger', () => {
       const ledger = new Ledger('test');
       ledger.effect(function* () {
         events.push('setup-1');
-        yield () => {
-          events.push('undo-1');
-        };
+        yield () => { events.push('undo-1'); };
         events.push('setup-2');
-        yield () => {
-          events.push('undo-2');
-        };
+        yield () => { events.push('undo-2'); };
       }, 'gen');
       expect(events).toEqual(['setup-1', 'setup-2']);
       void ledger.teardown();
@@ -303,12 +257,8 @@ describe('Ledger', () => {
       const events: string[] = [];
       const ledger = new Ledger('test');
       const body = async function* (): AsyncGenerator<Disposer> {
-        yield () => {
-          events.push('undo-1');
-        };
-        yield () => {
-          events.push('undo-2');
-        };
+        yield () => { events.push('undo-1'); };
+        yield () => { events.push('undo-2'); };
       };
       ledger.effect(body, 'gen');
       await ledger.teardown();
@@ -320,13 +270,9 @@ describe('Ledger', () => {
     it('a child ledger is one entry of the parent and tears down with it', () => {
       const events: string[] = [];
       const parent = new Ledger('parent');
-      parent.register(() => {
-        events.push('parent-entry');
-      }, 'parent-entry');
+      parent.register(() => { events.push('parent-entry'); }, 'parent-entry');
       const child = parent.createChild('child');
-      child.register(() => {
-        events.push('child-entry');
-      }, 'child-entry');
+      child.register(() => { events.push('child-entry'); }, 'child-entry');
 
       void parent.teardown();
       expect(events).toEqual(['child-entry', 'parent-entry']);
@@ -338,9 +284,7 @@ describe('Ledger', () => {
       const events: string[] = [];
       const parent = new Ledger('parent');
       const child = parent.createChild('child');
-      child.register(() => {
-        events.push('child-entry');
-      }, 'child-entry');
+      child.register(() => { events.push('child-entry'); }, 'child-entry');
 
       void child.teardown();
       expect(events).toEqual(['child-entry']);
@@ -366,7 +310,9 @@ describe('Ledger', () => {
           label: 'child-scope',
           kind: 'ledger',
           stack: undefined,
-          children: [{ label: 'child-a', kind: 'disposer', stack: undefined, children: undefined }],
+          children: [
+            { label: 'child-a', kind: 'disposer', stack: undefined, children: undefined },
+          ],
         },
       ]);
     });
@@ -385,7 +331,7 @@ describe('Ledger', () => {
 
   describe('idempotency', () => {
     it('teardown is idempotent: disposers run exactly once', async () => {
-      const spy = mock();
+      const spy = vi.fn();
       const ledger = new Ledger('test');
       ledger.register(spy, 'spy');
       void ledger.teardown();
@@ -396,9 +342,7 @@ describe('Ledger', () => {
 
     it('a concurrent teardown joins the in-flight one', async () => {
       const gate = deferred();
-      const spy = mock(async () => {
-        await gate.promise;
-      });
+      const spy = vi.fn(async () => { await gate.promise; });
       const ledger = new Ledger('test');
       ledger.register(spy, 'spy');
       const first = ledger.teardown();
@@ -410,7 +354,7 @@ describe('Ledger', () => {
     });
 
     it('entry.dispose is idempotent and removes the entry from the book', () => {
-      const spy = mock();
+      const spy = vi.fn();
       const ledger = new Ledger('test');
       const entry = ledger.register(spy, 'spy');
       void entry.dispose();
@@ -421,7 +365,7 @@ describe('Ledger', () => {
     });
 
     it('entry.release removes the entry without running its disposer', () => {
-      const spy = mock();
+      const spy = vi.fn();
       const ledger = new Ledger('test');
       const entry = ledger.register(spy, 'spy');
       entry.release();
@@ -438,24 +382,13 @@ describe('Ledger', () => {
       async (reason) => {
         const seen: TeardownReason[] = [];
         const ledger = new Ledger('test');
-        ledger.register((r) => {
-          seen.push(r);
-        }, 'plain');
-        ledger.effect(
-          () => (r) => {
-            seen.push(r);
-          },
-          'fx',
-        );
+        ledger.register((r) => { seen.push(r); }, 'plain');
+        ledger.effect(() => (r) => { seen.push(r); }, 'fx');
         ledger.effect(function* (): Generator<Disposer> {
-          yield (r) => {
-            seen.push(r);
-          };
+          yield (r) => { seen.push(r); };
         }, 'gen');
         const child = ledger.createChild('child');
-        child.register((r) => {
-          seen.push(r);
-        }, 'child-plain');
+        child.register((r) => { seen.push(r); }, 'child-plain');
 
         await ledger.teardown(reason);
         expect(seen).toEqual([reason, reason, reason, reason]);
@@ -465,9 +398,7 @@ describe('Ledger', () => {
     it('entry.dispose(reason) propagates the reason', () => {
       const seen: TeardownReason[] = [];
       const ledger = new Ledger('test');
-      const entry = ledger.register((r) => {
-        seen.push(r);
-      }, 'plain');
+      const entry = ledger.register((r) => { seen.push(r); }, 'plain');
       void entry.dispose('cascade');
       expect(seen).toEqual(['cascade']);
     });
@@ -477,15 +408,11 @@ describe('Ledger', () => {
     it('tears down current entries but keeps the ledger active', () => {
       const events: string[] = [];
       const ledger = new Ledger('test');
-      ledger.register(() => {
-        events.push('a');
-      }, 'a');
+      ledger.register(() => { events.push('a'); }, 'a');
       void ledger.clear();
       expect(events).toEqual(['a']);
       expect(ledger.state).toBe('active');
-      ledger.register(() => {
-        events.push('b');
-      }, 'b');
+      ledger.register(() => { events.push('b'); }, 'b');
       void ledger.teardown();
       expect(events).toEqual(['a', 'b']);
     });

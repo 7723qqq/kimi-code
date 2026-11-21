@@ -1,5 +1,3 @@
-import { join } from 'node:path';
-
 import {
   builtinProductSkillsEnabled,
   visibleBuiltinSkills,
@@ -31,14 +29,15 @@ import {
   projectRootsForDirs,
   sessionMediaOriginalsDir,
   userRoots,
-  type ContentPart,
   type ISessionScopeHandle,
   type Scope,
   type SkillDefinition,
   type ExtraSkillDirsConfig,
   type MergeAllAvailableSkillsConfig,
-  IAgentProfileService,
+  IAgentLoopService,
 } from '@moonshot-ai/agent-core-v2';
+import { join } from 'node:path';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -54,8 +53,8 @@ import {
 } from '../lib/promptMedia';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
-import { sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
+import { ensureMainAgent as ensureMainAgentHandle } from '../transport/mainAgent';
 import {
   activateSkillRequestSchema,
   activateSkillResultSchema,
@@ -63,10 +62,9 @@ import {
 } from '../protocol/rest-skill';
 import { workspaceIdParamSchema } from '../protocol/rest-workspace';
 import type { SkillDescriptor } from '../protocol/skill';
-import { ensureMainAgent as ensureMainAgentHandle } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 import { sendEnvironmentError } from './environment';
-import { reservePromptId, type PromptIdReservation } from './prompts';
+import { beginPromptAttempt, type PromptAttempt } from './prompts';
 import {
   sendMappedError as sendSessionMappedError,
   sessionConflictErrors,
@@ -90,6 +88,10 @@ interface SkillsRouteHost {
     ) => Promise<void> | void,
   ): unknown;
 }
+
+const sessionIdParamSchema = z.object({
+  session_id: z.string().min(1),
+});
 
 const skillTailParamsSchema = z.object({
   session_id: z.string().min(1),
@@ -176,9 +178,9 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
         );
         return;
       }
-      const skills = (await listWorkspaceSkillsForRoots(core, ws.root, ws.additionalDirs)).map(
-        toProtocolSkill,
-      );
+      const skills = (
+        await listWorkspaceSkillsForRoots(core, ws.root, ws.additionalDirs)
+      ).map(toProtocolSkill);
       reply.send(okEnvelope({ skills }, req.id));
     },
   );
@@ -222,24 +224,27 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
         return;
       }
       if (parsed.kind === 'bare') {
-        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
+        reply.send(
+          errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id),
+        );
         return;
       }
 
-      let reservation: PromptIdReservation | undefined;
+      let attempt: PromptAttempt;
       try {
-        reservation = reservePromptId(session_id, req.body.prompt_id);
+        attempt = beginPromptAttempt(session_id, req.body.prompt_id, { route: 'skills', tail, body: req.body });
+        if (attempt.earlier !== undefined) {
+          reply.send(okEnvelope(await attempt.earlier, req.id));
+          return;
+        }
       } catch (error) {
         sendMappedError(reply, req, error);
         return;
       }
 
-      const activateOnce = async (): Promise<void> => {
+      const activateOnce = async (): Promise<unknown> => {
         const resolved = await resolveActivatedSession(core, session_id, req.id);
-        if ('envelope' in resolved) {
-          reply.send(resolved.envelope);
-          return;
-        }
+        if ('envelope' in resolved) throw new Error2(ErrorCodes.SESSION_NOT_FOUND, resolved.envelope.msg);
 
         let preparedMedia: PromptMediaPreparation | undefined;
         try {
@@ -288,7 +293,7 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
                 {
                   telemetry,
                   providerType: mainAgent.accessor
-                    .get(IAgentProfileService)
+                    .get(IAgentLoopService)
                     .getModelProviderType(),
                   resolveOriginalsTarget: environmentMedia.resolveOriginalsTarget ?? (async () => ({
                     dir: sessionMediaOriginalsDir(sessionDir),
@@ -312,28 +317,28 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
             name: parsed.id,
             path: req.body.path,
             args: req.body.args,
-            promptId: reservation.id,
-            clientMetadata:
-              req.body.metadata === undefined ? undefined : [structuredClone(req.body.metadata)],
+            promptId: attempt.id,
+            clientMetadata: req.body.metadata === undefined ? undefined : [structuredClone(req.body.metadata)],
             content: attachmentParts,
             attachments: promptAttachments,
           });
-          reservation.submit();
+          attempt.enqueued();
           await preparedMedia?.discard();
           preparedMedia = undefined;
           requestLog(req)?.info({ session_id, skill_name: parsed.id }, 'skill activated');
-          reply.send(okEnvelope({ activated: true, skill_name: parsed.id }, req.id));
+          return { activated: true, skill_name: parsed.id };
         } catch (error) {
           await preparedMedia?.discardStaged();
           throw error;
         }
       };
       try {
-        await reloadOnStale(core.accessor, session_id, activateOnce);
+        const response = await reloadOnStale(core.accessor, session_id, activateOnce);
+        attempt.succeed(response);
+        reply.send(okEnvelope(response, req.id));
       } catch (error) {
+        attempt.fail(error);
         sendMappedError(reply, req, error);
-      } finally {
-        reservation.dispose();
       }
     },
   );
@@ -362,20 +367,17 @@ async function listWorkspaceSkillsForRoots(
   const useExplicitDirs = explicitDirs.length > 0;
   const rootOptions = { mergeAllAvailableSkills };
 
-  const [userRootList, projectRootList, explicitRootList, extraRootList, pluginRootList] =
-    await Promise.all([
-      useExplicitDirs
-        ? Promise.resolve([])
-        : userRoots(bootstrap.homeDir, bootstrap.osHomeDir, rootOptions),
-      useExplicitDirs
-        ? Promise.resolve([])
-        : projectRootsForDirs([workDir, ...additionalDirs], rootOptions),
-      useExplicitDirs
-        ? configuredRoots(explicitDirs, workDir, bootstrap.osHomeDir, 'user')
-        : Promise.resolve([]),
-      configuredRoots(extraSkillDirs, workDir, bootstrap.osHomeDir, 'extra'),
-      plugins.pluginSkillRoots(),
-    ]);
+  const [userRootList, projectRootList, explicitRootList, extraRootList, pluginRootList] = await Promise.all([
+    useExplicitDirs ? Promise.resolve([]) : userRoots(bootstrap.homeDir, bootstrap.osHomeDir, rootOptions),
+    useExplicitDirs
+      ? Promise.resolve([])
+      : projectRootsForDirs([workDir, ...additionalDirs], rootOptions),
+    useExplicitDirs
+      ? configuredRoots(explicitDirs, workDir, bootstrap.osHomeDir, 'user')
+      : Promise.resolve([]),
+    configuredRoots(extraSkillDirs, workDir, bootstrap.osHomeDir, 'extra'),
+    plugins.pluginSkillRoots(),
+  ]);
   const [user, project, explicit, extra, plugin] = await Promise.all([
     discovery.discover(userRootList),
     discovery.discover(projectRootList),

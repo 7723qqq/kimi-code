@@ -1,28 +1,35 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import type { QuestionRequest, QuestionResult } from '#/agent/interaction/question';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import {
   AskUserQuestionInputSchema,
   IAskUserQuestionTool,
   type AskUserQuestionInput,
 } from '#/agent/tools/ask-user-question/ask-user-question';
 import { AskUserQuestionTool } from '#/agent/tools/ask-user-question/askUserQuestionTool';
-import type {
-  QuestionBackgroundTask,
-  QuestionTaskInfo,
-} from '#/agent/tools/ask-user-question/question-background-task';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import type {
+  QuestionRequest,
+  QuestionResult,
+} from '#/agent/interaction/question';
+import {
+  INTERACTION_TAG_AGENT_ID,
+  INTERACTION_TAG_TURN_ID,
+} from '#/human/interaction/interaction';
 import { interactions } from '#/human/interaction/facade';
-import { INTERACTION_TAG_AGENT_ID, INTERACTION_TAG_TURN_ID } from '#/human/interaction/interaction';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-
 import { executeTool } from '../../../tools/fixtures/execute-tool';
+import {
+  LegacyExecutableToolAdapter,
+  memoryOutputStore,
+  ToolExecutor as HandlerToolExecutor,
+  type LegacyToolAgentContext,
+  type ToolExecutionResponse,
+} from '#/tool/executor';
 
 const signal = new AbortController().signal;
 const TASK_TOOLS = new Set(['TaskList', 'TaskOutput', 'TaskStop']);
@@ -57,44 +64,15 @@ function makeTool(
       req: QuestionRequest,
       requestOptions?: { readonly agentId?: string; readonly detached?: boolean },
     ) => Promise<QuestionResult>;
-    readonly rawResponse?: () => unknown;
   } = {},
-): {
-  readonly tool: IAskUserQuestionTool;
-  readonly request: ReturnType<typeof mock>;
-  readonly telemetryTrack: ReturnType<typeof mock>;
-  readonly registerTask: ReturnType<typeof mock>;
-  readonly getTask: ReturnType<typeof mock>;
-  readonly lastRegisteredTask: () => QuestionBackgroundTask | undefined;
-} {
-  const request = mock(options.request ?? (async () => ({ Postgres: true }) as QuestionResult));
-  const telemetryTrack = mock();
-  let lastTask: QuestionBackgroundTask | undefined;
-  const registerTask = mock((task: QuestionBackgroundTask) => {
-    lastTask = task;
-    return 'q_test_task_id';
-  });
-  const getTask = mock((id: string): QuestionTaskInfo | undefined =>
-    id === 'q_test_task_id'
-      ? {
-          taskId: id,
-          description: 'Which database?',
-          status: 'running',
-          detached: true,
-          startedAt: 0,
-          endedAt: null,
-          kind: 'question',
-          questionCount: 1,
-          toolCallId: 'call_bg',
-        }
-      : undefined,
-  );
+) {
+  const request = vi.fn(options.request ?? (async () => ({ Postgres: true }) as QuestionResult));
+  const telemetryTrack = vi.fn();
   const activeTaskTools = options.activeTaskTools ?? TASK_TOOLS;
   const ix = createServices(disposables, {
     additionalServices: (reg) => {
       reg.definePartialInstance(ISessionContext, { sessionId: TEST_SESSION_ID });
       reg.definePartialInstance(ITelemetryService, { track2: telemetryTrack });
-      reg.definePartialInstance(IAgentTaskService, { registerTask, getTask });
       reg.definePartialInstance(IAgentScopeContext, { agentId: 'main' });
       reg.definePartialInstance(IAgentToolPolicyService, {
         isToolActive: (name: string) => activeTaskTools.has(name),
@@ -115,29 +93,21 @@ function makeTool(
     })) {
       if (seen.has(pending.id)) continue;
       seen.add(pending.id);
-      if (options.rawResponse !== undefined) {
-        interactions.respond(pending.id, options.rawResponse());
-        continue;
-      }
       const agentId = pending.tags[INTERACTION_TAG_AGENT_ID];
       void request(pending.payload as QuestionRequest, {
         agentId: typeof agentId === 'string' ? agentId : 'main',
         detached: pending.tags[INTERACTION_TAG_TURN_ID] === undefined,
-      }).then((result) => {
+      }).then((result: unknown) => {
         interactions.respond(pending.id, result);
       });
     }
   };
   disposables.add(toDisposable(interactions.onDidChangePending(answerNewPending)));
   const tool = ix.get(IAskUserQuestionTool);
-  return {
-    tool,
-    request,
-    telemetryTrack,
-    registerTask,
-    getTask,
-    lastRegisteredTask: () => lastTask,
-  };
+  const outputStore = memoryOutputStore();
+  const executor = new HandlerToolExecutor<LegacyToolAgentContext>([], { outputStore });
+  executor.addExecute(new LegacyExecutableToolAdapter(tool));
+  return { tool, request, telemetryTrack, executor, outputStore };
 }
 
 describe('AskUserQuestionTool', () => {
@@ -170,7 +140,9 @@ describe('AskUserQuestionTool', () => {
   });
 
   it('rejects empty question text and empty option labels at the schema layer', () => {
-    expect(AskUserQuestionInputSchema.safeParse(input({ question: '' })).success).toBe(false);
+    expect(
+      AskUserQuestionInputSchema.safeParse(input({ question: '' })).success,
+    ).toBe(false);
     expect(
       AskUserQuestionInputSchema.safeParse(
         input({
@@ -224,7 +196,10 @@ describe('AskUserQuestionTool', () => {
 
   it('allows the same option label to appear in different questions', async () => {
     const args: AskUserQuestionInput = {
-      questions: [input().questions[0]!, input({ question: 'Which cache?' }).questions[0]!],
+      questions: [
+        input().questions[0]!,
+        input({ question: 'Which cache?' }).questions[0]!,
+      ],
     };
     expect(AskUserQuestionInputSchema.safeParse(args).success).toBe(true);
 
@@ -236,7 +211,7 @@ describe('AskUserQuestionTool', () => {
       signal,
     });
     expect(result.isError).toBe(false);
-    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledOnce();
   });
 
   it('exposes background mode when all task controls are active', () => {
@@ -253,7 +228,7 @@ describe('AskUserQuestionTool', () => {
 
   it('hides and rejects background mode after a task control becomes inactive', async () => {
     const activeTaskTools = new Set(TASK_TOOLS);
-    const { tool, request, registerTask } = makeTool({
+    const { tool, request } = makeTool({
       activeTaskTools,
     });
 
@@ -279,7 +254,6 @@ describe('AskUserQuestionTool', () => {
       output:
         'Background questions are not available for this agent because TaskList, TaskOutput, and TaskStop are not enabled.',
     });
-    expect(registerTask).not.toHaveBeenCalled();
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -297,7 +271,7 @@ describe('AskUserQuestionTool', () => {
       isError: false,
       output: JSON.stringify({ answers: { Postgres: true } }),
     });
-    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledOnce();
   });
 
   it('preserves foreground dismissal when background mode is unavailable', async () => {
@@ -354,7 +328,7 @@ describe('AskUserQuestionTool', () => {
     );
     expect(telemetryTrack).toHaveBeenCalledWith('question_answered', {
       answered: 1,
-      trace_id: undefined,
+      request_id: undefined,
     });
   });
 
@@ -410,7 +384,7 @@ describe('AskUserQuestionTool', () => {
     expect(telemetryTrack).toHaveBeenCalledWith('question_answered', {
       answered: 1,
       method: 'number_key',
-      trace_id: undefined,
+      request_id: undefined,
     });
   });
 
@@ -422,13 +396,13 @@ describe('AskUserQuestionTool', () => {
       toolCallId: 'call_question',
       args: input(),
       signal,
-      trace: { traceId: 'trace-q-1' },
+      trace: { requestId: 'trace-q-1' },
     });
 
     expect(result).toMatchObject({ isError: false });
     expect(telemetryTrack).toHaveBeenCalledWith('question_answered', {
       answered: 1,
-      trace_id: 'trace-q-1',
+      request_id: 'trace-q-1',
     });
   });
 
@@ -447,55 +421,14 @@ describe('AskUserQuestionTool', () => {
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('dismissed');
     expect(result.output).toContain('answers');
-    expect(telemetryTrack).toHaveBeenCalledWith('question_dismissed', { trace_id: undefined });
-  });
-
-  it('reports an unsupported host when the interaction settles as unsupported', async () => {
-    const { tool, telemetryTrack } = makeTool({
-      rawResponse: () => ({ cancelled: true, reason: 'unsupported' }),
-    });
-
-    const result = await executeTool(tool, {
-      turnId: 0,
-      toolCallId: 'call_question',
-      args: input(),
-      signal,
-    });
-
-    expect(result).toEqual({
-      isError: true,
-      output:
-        'The connected client does not support interactive questions. Do NOT call this tool again. Ask the user directly in your text response instead.',
-    });
-    expect(telemetryTrack).not.toHaveBeenCalled();
-  });
-
-  it('keeps the dismissed message when the host settles the question with null', async () => {
-    const { tool } = makeTool({ request: async () => null });
-
-    const result = await executeTool(tool, {
-      turnId: 0,
-      toolCallId: 'call_question',
-      args: input(),
-      signal,
-    });
-
-    expect(result).toEqual({
-      isError: false,
-      output: JSON.stringify({
-        answers: {},
-        note: 'User dismissed the question without answering.',
-      }),
-    });
+    expect(telemetryTrack).toHaveBeenCalledWith('question_dismissed', { request_id: undefined });
   });
 
   it('resolves dismissed when the waiting question is aborted', async () => {
     const controller = new AbortController();
     const { tool } = makeTool();
     const resolutions: unknown[] = [];
-    disposables.add(
-      toDisposable(interactions.onDidResolve((event) => resolutions.push(event.response))),
-    );
+    disposables.add(toDisposable(interactions.onDidResolve((event) => resolutions.push(event.response))));
 
     const result = executeTool(tool, {
       turnId: 0,
@@ -505,8 +438,8 @@ describe('AskUserQuestionTool', () => {
     });
     controller.abort();
 
+    await expect(result).resolves.toMatchObject({ isError: false });
     const settled = await result;
-    expect(settled).toMatchObject({ isError: false });
     const output = typeof settled.output === 'string' ? settled.output : '';
     expect(JSON.parse(output)).toEqual({
       answers: {},
@@ -516,7 +449,7 @@ describe('AskUserQuestionTool', () => {
   });
 
   it('answers at once without asking anyone when the host is non-interactive', async () => {
-    const { tool, request, registerTask } = makeTool({ nonInteractive: true });
+    const { tool, request } = makeTool({ nonInteractive: true });
 
     for (const background of [false, true]) {
       const result = await executeTool(tool, {
@@ -531,115 +464,107 @@ describe('AskUserQuestionTool', () => {
       });
     }
     expect(request).not.toHaveBeenCalled();
-    expect(registerTask).not.toHaveBeenCalled();
   });
 
   describe('background mode', () => {
-    function makeSink(abortSignal?: AbortSignal) {
-      const outputs: string[] = [];
-      const settlements: Array<{ status: string; stopReason?: string }> = [];
-      const sink = {
-        signal: abortSignal ?? new AbortController().signal,
-        appendOutput: (chunk: string) => {
-          outputs.push(chunk);
-        },
-        settle: async (settlement: { status: string; stopReason?: string }) => {
-          settlements.push(settlement);
-          return true;
-        },
-      };
-      return { sink, outputs, settlements };
+    function startQuestion(
+      executor: ReturnType<typeof makeTool>['executor'],
+      toolCallId: string,
+      turnId = 0,
+    ) {
+      return executor.execute({
+        type: 'function',
+        id: toolCallId,
+        name: 'AskUserQuestion',
+        arguments: JSON.stringify({ ...input(), background: true }),
+      }, { origin: 'loop', turnId });
+    }
+
+    function text(response: ToolExecutionResponse): string {
+      return response.content.map((part) => part.type === 'text' ? part.text : '').join('\n');
     }
 
     it('returns a task_id immediately without awaiting the answer', async () => {
-      const { tool, request, registerTask, getTask } = makeTool();
-      const result = await executeTool(tool, {
-        turnId: 0,
-        toolCallId: 'call_bg',
-        args: { ...input(), background: true },
-        signal,
+      let answer!: (result: QuestionResult) => void;
+      const pending = new Promise<QuestionResult>((resolve) => {
+        answer = resolve;
       });
+      const { request, executor } = makeTool({ request: () => pending });
+      const handler = startQuestion(executor, 'call_bg');
+      const acknowledgement = await handler;
 
-      expect(result.isError).toBe(false);
-      expect(result.output).toBe(
+      expect(acknowledgement).toMatchObject({ detached: true, taskId: handler.taskId });
+      expect(text(acknowledgement)).toBe(
         [
-          'task_id: q_test_task_id',
+          `task_id: ${handler.taskId}`,
           'status: running',
           'next_step: Continue your work; the answer arrives automatically in a later message. Use TaskStop only to cancel the question.',
         ].join('\n'),
       );
-      expect(registerTask).toHaveBeenCalledTimes(1);
-      expect(registerTask.mock.calls[0]![1]).toMatchObject({ detached: true });
-      expect(getTask).toHaveBeenCalledWith('q_test_task_id');
-      expect(request).not.toHaveBeenCalled();
+      expect(handler.snapshot().fields).toMatchObject({
+        task: { kind: 'question', questionCount: 1, toolCallId: 'call_bg' },
+      });
+      await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+      answer(null);
+      await handler.wait();
     });
 
     it('runs the question in the background task and settles completed with the answer', async () => {
-      const { tool, lastRegisteredTask } = makeTool();
-      await executeTool(tool, {
-        turnId: 0,
-        toolCallId: 'call_bg_run',
-        args: { ...input(), background: true },
-        signal,
-      });
+      const { executor, outputStore } = makeTool();
+      const handler = startQuestion(executor, 'call_bg_run');
+      await handler;
+      const terminal = await handler.wait();
 
-      const task = lastRegisteredTask();
-      expect(task).toBeDefined();
-      const { sink, outputs, settlements } = makeSink();
-      await task!.start(sink);
-
-      expect(outputs).toEqual([JSON.stringify({ answers: { Postgres: true } })]);
-      expect(settlements).toEqual([{ status: 'completed' }]);
+      const expected = JSON.stringify({ answers: { Postgres: true } });
+      expect(text(terminal)).toBe(expected);
+      expect(handler.output().preview).toBe(expected);
+      expect(outputStore.open(handler.taskId).preview().preview).toBe(expected);
+      expect(handler.snapshot()).toMatchObject({ status: 'success', detached: true });
     });
 
-    it('detaches the background question from the asking turn', async () => {
-      const { tool, request, lastRegisteredTask } = makeTool();
-      await executeTool(tool, {
-        turnId: 4,
-        toolCallId: 'call_bg_detached',
-        args: { ...input(), background: true },
-        signal,
+    it('detaches with the existing acknowledgement but resolves the Core tool only at the real terminal state', async () => {
+      let answer!: (result: QuestionResult) => void;
+      const answerPending = new Promise<QuestionResult>((resolve) => {
+        answer = resolve;
+      });
+      const { request, executor } = makeTool({ request: () => answerPending });
+      const handler = startQuestion(executor, 'call_bg_detached', 4);
+      const acknowledgement = await handler;
+      let settled = false;
+      const running = handler.wait();
+      void running.then(() => {
+        settled = true;
       });
 
-      const { sink } = makeSink();
-      await lastRegisteredTask()!.start(sink);
-
-      expect(request).toHaveBeenCalledTimes(1);
-      expect(request.mock.calls[0]![0]).toMatchObject({
-        turnId: 4,
-        toolCallId: 'call_bg_detached',
-      });
+      expect(acknowledgement).toMatchObject({ detached: true, taskId: handler.taskId });
+      expect(settled).toBe(false);
+      await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+      expect(request.mock.calls[0]![0]).toMatchObject({ turnId: 4, toolCallId: 'call_bg_detached' });
       expect(request.mock.calls[0]![1]).toMatchObject({ detached: true });
+      answer({ Postgres: true });
 
-      await executeTool(tool, { turnId: 4, toolCallId: 'call_fg', args: input(), signal });
-
-      expect(request).toHaveBeenCalledTimes(2);
-      expect(request.mock.calls[1]![1]).not.toMatchObject({ detached: true });
+      expect(text(await running)).toBe(JSON.stringify({ answers: { Postgres: true } }));
+      expect(handler.output().preview).toBe(JSON.stringify({ answers: { Postgres: true } }));
     });
 
     it('settles completed with a dismissed result when the background task is aborted', async () => {
-      const controller = new AbortController();
-      const { tool, lastRegisteredTask } = makeTool();
-      await executeTool(tool, {
-        turnId: 0,
-        toolCallId: 'call_bg_abort',
-        args: { ...input(), background: true },
-        signal,
+      let answer!: (result: QuestionResult) => void;
+      const pending = new Promise<QuestionResult>((resolve) => {
+        answer = resolve;
       });
+      const { executor } = makeTool({ request: () => pending });
+      const handler = startQuestion(executor, 'call_bg_abort');
+      await handler;
+      const terminal = await handler.stop('cancelled by test');
 
-      const task = lastRegisteredTask();
-      const { sink, outputs, settlements } = makeSink(controller.signal);
-      const run = task!.start(sink);
-      controller.abort();
-      await run;
-
-      expect(outputs).toEqual([
-        JSON.stringify({
-          answers: {},
-          note: 'User dismissed the question without answering.',
-        }),
-      ]);
-      expect(settlements).toEqual([{ status: 'completed' }]);
+      expect(terminal.outcome.type).toBe('aborted');
+      expect(handler.snapshot()).toMatchObject({
+        status: 'aborted',
+        stopReason: 'cancelled by test',
+        fields: { task: { kind: 'question', questionCount: 1 } },
+      });
+      answer(null);
+      await handler.wait();
     });
   });
 });

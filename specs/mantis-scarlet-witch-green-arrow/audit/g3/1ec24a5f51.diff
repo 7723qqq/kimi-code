@@ -1,0 +1,1099 @@
+commit 1ec24a5f51ac6f4a5a5704d441c5f3e2435bd46c
+Author:     grapedge <grapedge@gmail.com>
+AuthorDate: Thu Nov 12 11:03:43 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 12 11:03:43 2026 +0800
+
+    feat(tui): sweep running titles toward text and add KIMI_CODE_TUI_ANIMATION_FPS (#4843)
+
+diff --git a/.changeset/pi-tui-animation-frame-rate.md b/.changeset/pi-tui-animation-frame-rate.md
+new file mode 100644
+index 0000000000..077ded8b4f
+--- /dev/null
++++ b/.changeset/pi-tui-animation-frame-rate.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/pi-tui": patch
++---
++
++Let the host set the animation frame rate to a whole number from 1 to 60 frames per second; frames stay 120 ms apart until it does.
+diff --git a/.changeset/tui-animation-fps.md b/.changeset/tui-animation-fps.md
+new file mode 100644
+index 0000000000..fef71157e8
+--- /dev/null
++++ b/.changeset/tui-animation-fps.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/kimi-code": patch
++---
++
++Add the `KIMI_CODE_TUI_ANIMATION_FPS` environment variable to change the frame rate of the shimmer on in-progress titles. Set it to a whole number from 1 to 60.
+diff --git a/apps/kimi-code/src/cli/run-shell.ts b/apps/kimi-code/src/cli/run-shell.ts
+index 9ac75687b5..b4c896e9ec 100644
+--- a/apps/kimi-code/src/cli/run-shell.ts
++++ b/apps/kimi-code/src/cli/run-shell.ts
+@@ -20,11 +20,12 @@ import {
+ import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, TUI_HOST_UI_CAPABILITIES } from '#/constant/app';
+ import { detectPendingMigration, resolveLegacySourceHome, sameLegacyPath } from '#/migration/index';
+ import type { TuiConfig } from '#/tui/config';
+-import { loadTuiConfig, resolveTuiMode, TuiConfigParseError } from '#/tui/config';
++import { loadTuiConfig, resolveAnimationFrameRate, resolveTuiMode, TuiConfigParseError } from '#/tui/config';
+ import { CHROME_GUTTER } from '#/tui/constant/rendering';
+ import { KimiTUI } from '#/tui/index';
+ import { startupTrace } from '#/utils/startup-trace';
+ import { currentTheme, getColorPalette } from '#/tui/theme';
++import { combineStartupNotice } from '#/tui/utils/startup';
+ import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
+ import { restoreTerminalModes } from '#/utils/terminal-restore';
+ import { resolveCommandPath } from '#/utils/process/resolve-command';
+@@ -136,15 +137,17 @@ export async function runShell(
+   // has already rejected them alongside --session/--continue.
+   const agentProfile = await resolveAgentProfileSelection(opts, workDir);
+   const tuiModeResolution = resolveTuiMode(tuiConfig.tuiMode);
++  const animationFrameRateResolution = resolveAnimationFrameRate();
+   tui = new KimiTUI(harness, {
+     cliOptions: opts,
+     agentProfile,
+     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
+     tuiConfig,
+     resolvedTuiMode: tuiModeResolution.mode,
++    animationFrameRate: animationFrameRateResolution.fps,
+     version,
+     workDir,
+-    startupNotice: configWarning,
++    startupNotice: combineStartupNotice(configWarning, animationFrameRateResolution.warning),
+     migrationPlan,
+     migrateOnly: runOptions.migrateOnly,
+     telemetryDisabled: config.telemetry === false,
+diff --git a/apps/kimi-code/src/tui/components/messages/running-title.ts b/apps/kimi-code/src/tui/components/messages/running-title.ts
+index 0166d141a3..4793320098 100644
+--- a/apps/kimi-code/src/tui/components/messages/running-title.ts
++++ b/apps/kimi-code/src/tui/components/messages/running-title.ts
+@@ -1,20 +1,31 @@
++import { visibleWidth } from '@moonshot-ai/pi-tui';
+ import chalk from 'chalk';
+ 
+ import {
+   TRANSCRIPT_GROUP_FADE_HALF_LIFE_MS,
+-  TRANSCRIPT_GROUP_SWEEP_COLUMNS_PER_SECOND,
+-  TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH,
+-  TRANSCRIPT_GROUP_SWEEP_RESTART_GAP_COLUMNS,
++  TRANSCRIPT_GROUP_SWEEP_DURATION_MS,
++  TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH_RATIO,
++  TRANSCRIPT_GROUP_SWEEP_INTERVAL_MS,
++  TRANSCRIPT_GROUP_SWEEP_LIGHT_REST_MIN_CONTRAST,
++  TRANSCRIPT_GROUP_SWEEP_LIGHT_REST_TEXT_RATIO,
++  TRANSCRIPT_GROUP_SWEEP_MIN_HALF_WIDTH,
++  TRANSCRIPT_GROUP_SWEEP_START_DELAY_MS,
+   TRANSCRIPT_GROUP_TAIL_ELAPSED_MS,
+ } from '#/tui/constant/rendering';
+ import { currentTheme } from '#/tui/theme';
+-import { colorDistance, mixColors } from '#/tui/theme/color-mix';
++import { contrastRatio, mixColors } from '#/tui/theme/color-mix';
+ 
+-const MAX_FRAME_STEP_MS = 240;
++const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
++
++interface SweepBand {
++  readonly center: number;
++  readonly halfWidth: number;
++}
+ 
+ export class TitleSweep {
+-  private position = -TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH;
++  private startedAt = 0;
+   private lastFrame: number | undefined;
++  private columns = 0;
+   private level = 0;
+   // Only painting knows the columns a title covers: a wrapped detail title paints more characters
+   // than the columns passed to advance, and a cut title fewer.
+@@ -26,53 +37,71 @@ export class TitleSweep {
+ 
+   get frameKey(): string {
+     if (this.level === 0) return 'static';
+-    if (
+-      this.position <= -TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH ||
+-      this.position >= this.paintedColumns - 1 + TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH
+-    ) {
+-      return 'gap';
+-    }
+-    return `${this.position.toFixed(3)}:${this.level.toFixed(4)}`;
++    const level = this.level.toFixed(4);
++    const band = this.band();
++    return band === undefined ? `gap:${level}` : `${band.center.toFixed(3)}:${level}`;
+   }
+ 
+-  start(now: number): void {
++  start(now: number, on: boolean): void {
++    this.startedAt = now;
+     this.lastFrame = now;
++    if (on) this.level = 1;
+   }
+ 
+   advance(now: number, columns: number, on: boolean): void {
+-    const elapsed = this.lastFrame === undefined ? 0 : Math.min(MAX_FRAME_STEP_MS, Math.max(0, now - this.lastFrame));
++    const elapsed = this.lastFrame === undefined ? 0 : Math.max(0, now - this.lastFrame);
+     this.lastFrame = now;
++    this.columns = columns;
+     const target = on ? 1 : 0;
+     this.level = target + (this.level - target) * 0.5 ** (elapsed / TRANSCRIPT_GROUP_FADE_HALF_LIFE_MS);
+     if (this.level < 0.01 && target === 0) this.level = 0;
+-    this.position += elapsed * TRANSCRIPT_GROUP_SWEEP_COLUMNS_PER_SECOND / 1000;
+-    if (this.position > columns + TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH + TRANSCRIPT_GROUP_SWEEP_RESTART_GAP_COLUMNS) {
+-      this.position = -TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH;
+-    }
+   }
+ 
+   /** Starts painting a new title; the gap check covers only what the returned function paints. */
+   painter(): (text: string, offset: number) => string {
++    const band = this.band();
+     this.paintedColumns = 0;
+-    return (text, offset) => this.paint(text, offset);
++    return (text, offset) => this.paint(text, offset, band);
+   }
+ 
+-  private paint(text: string, offset: number): string {
+-    const characters = Array.from(text);
+-    this.paintedColumns = Math.max(this.paintedColumns, offset + characters.length);
++  private paint(text: string, offset: number, band: SweepBand | undefined): string {
++    this.paintedColumns = Math.max(this.paintedColumns, offset + visibleWidth(text));
+     if (this.level === 0) return currentTheme.fg('textDim', text);
+     const dim = currentTheme.color('textDim');
+-    const strong = currentTheme.color('textStrong');
+-    const background = currentTheme.terminalBackground();
+-    const bandTarget = colorDistance(dim, background) > colorDistance(dim, strong) ? background : strong;
+-    const band = mixColors(dim, bandTarget, 0.45);
+-    return characters.map((character, index) => {
+-      const distance = Math.abs(index + offset - this.position);
+-      const amount = Math.max(0, 1 - distance / TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH);
+-      const eased = amount * amount * (3 - 2 * amount);
+-      return chalk.hex(mixColors(dim, band, eased * this.level))(character);
+-    }).join('');
++    const peak = currentTheme.color('text');
++    const rest = currentTheme.isLight() ? lightRest(currentTheme.terminalBackground(), peak) : dim;
++    const base = mixColors(dim, rest, this.level);
++    if (band === undefined) return chalk.hex(base)(text);
++    let column = offset;
++    let painted = '';
++    for (const { segment } of graphemeSegmenter.segment(text)) {
++      const width = visibleWidth(segment);
++      const distance = Math.abs(column + width / 2 - band.center);
++      column += width;
++      const bandWeight = 0.5 * (1 + Math.cos(Math.PI * Math.min(distance / band.halfWidth, 1)));
++      painted += chalk.hex(mixColors(base, peak, bandWeight * this.level))(segment);
++    }
++    return painted;
++  }
++
++  private band(): SweepBand | undefined {
++    const columns = this.paintedColumns > 0 ? this.paintedColumns : this.columns;
++    const halfWidth = Math.max(columns * TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH_RATIO, TRANSCRIPT_GROUP_SWEEP_MIN_HALF_WIDTH);
++    const sinceDelay = Math.max(0, (this.lastFrame ?? this.startedAt) - this.startedAt - TRANSCRIPT_GROUP_SWEEP_START_DELAY_MS);
++    const progress = Math.min(sinceDelay % TRANSCRIPT_GROUP_SWEEP_INTERVAL_MS, TRANSCRIPT_GROUP_SWEEP_DURATION_MS) /
++      TRANSCRIPT_GROUP_SWEEP_DURATION_MS;
++    const center = progress * (columns + 2 * halfWidth) - halfWidth;
++    return center + halfWidth <= 0 || center - halfWidth >= columns ? undefined : { center, halfWidth };
++  }
++}
++
++function lightRest(background: string, text: string): string {
++  const required = Math.min(TRANSCRIPT_GROUP_SWEEP_LIGHT_REST_MIN_CONTRAST, contrastRatio(text, background));
++  for (let ratio = TRANSCRIPT_GROUP_SWEEP_LIGHT_REST_TEXT_RATIO; ratio < 1; ratio += 0.01) {
++    const rest = mixColors(background, text, ratio);
++    if (contrastRatio(rest, background) >= required) return rest;
+   }
++  return text;
+ }
+ 
+ export function shownSeconds(startedAtMs: number, now: number): number | undefined {
+diff --git a/apps/kimi-code/src/tui/components/messages/thinking.ts b/apps/kimi-code/src/tui/components/messages/thinking.ts
+index 0e5ef09051..7b97f7cb0f 100644
+--- a/apps/kimi-code/src/tui/components/messages/thinking.ts
++++ b/apps/kimi-code/src/tui/components/messages/thinking.ts
+@@ -214,7 +214,7 @@ export class ThinkingComponent implements Component {
+ 
+   private startFrames(): void {
+     if (this.ui === undefined || this.frameRequest !== undefined) return;
+-    this.sweep.start(performance.now());
++    this.sweep.start(performance.now(), true);
+     this.frameRequest = this.ui.requestAnimationFrame(this.onFrame);
+   }
+ 
+diff --git a/apps/kimi-code/src/tui/components/messages/transcript-group.ts b/apps/kimi-code/src/tui/components/messages/transcript-group.ts
+index d2c18bc796..41f2b1da44 100644
+--- a/apps/kimi-code/src/tui/components/messages/transcript-group.ts
++++ b/apps/kimi-code/src/tui/components/messages/transcript-group.ts
+@@ -308,12 +308,13 @@ export class TranscriptGroupComponent implements Component {
+ 
+   private syncFrames(): void {
+     const now = monotonicNow();
+-    if (this.disposed || (!deriveGroupView(this.model, now).live && this.sweep.intensity === 0)) {
++    const view = deriveGroupView(this.model, now);
++    if (this.disposed || (!view.live && this.sweep.intensity === 0)) {
+       this.stopFrames();
+       return;
+     }
+     if (this.frameRequest !== undefined) return;
+-    this.sweep.start(now);
++    this.sweep.start(now, view.working);
+     this.frameRequest = this.interaction.requestAnimationFrame(this.onFrame);
+   }
+ 
+diff --git a/apps/kimi-code/src/tui/config.ts b/apps/kimi-code/src/tui/config.ts
+index 604c52c84e..242a6f9d68 100644
+--- a/apps/kimi-code/src/tui/config.ts
++++ b/apps/kimi-code/src/tui/config.ts
+@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs';
+ import { mkdir, readFile, writeFile } from 'node:fs/promises';
+ import { dirname, join } from 'node:path';
+ 
++import { MAX_ANIMATION_FRAME_RATE } from '@moonshot-ai/pi-tui';
+ import { parse as parseToml } from 'smol-toml';
+ import { z } from 'zod';
+ 
+@@ -105,6 +106,23 @@ export function resolveTuiMode(
+   return { mode: preferred, config };
+ }
+ 
++export interface AnimationFrameRateResolution {
++  readonly fps?: number;
++  readonly warning?: string;
++}
++
++export function resolveAnimationFrameRate(
++  env: Readonly<Record<string, string | undefined>> = process.env,
++): AnimationFrameRateResolution {
++  const value = env['KIMI_CODE_TUI_ANIMATION_FPS']?.trim();
++  if (value === undefined || value.length === 0) return {};
++  const fps = Number(value);
++  if (/^\d+$/.test(value) && fps >= 1 && fps <= MAX_ANIMATION_FRAME_RATE) return { fps };
++  return {
++    warning: `Ignored KIMI_CODE_TUI_ANIMATION_FPS=${JSON.stringify(value)}: expected a whole number from 1 to ${String(MAX_ANIMATION_FRAME_RATE)}.`,
++  };
++}
++
+ export const TuiThemeSchema = z.string();
+ 
+ export const NotificationConditionSchema = z.enum(['unfocused', 'always']);
+diff --git a/apps/kimi-code/src/tui/constant/rendering.ts b/apps/kimi-code/src/tui/constant/rendering.ts
+index 38f45a8688..9b101740d2 100644
+--- a/apps/kimi-code/src/tui/constant/rendering.ts
++++ b/apps/kimi-code/src/tui/constant/rendering.ts
+@@ -92,9 +92,13 @@ export const MAX_FINAL_OUTPUT_LABEL_CODE_UNITS = 2_000;
+ export const BRAILLE_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+ export const BRAILLE_SPINNER_INTERVAL_MS = 80;
+ 
+-export const TRANSCRIPT_GROUP_SWEEP_COLUMNS_PER_SECOND = 42;
+-export const TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH = 6;
+-export const TRANSCRIPT_GROUP_SWEEP_RESTART_GAP_COLUMNS = 14;
++export const TRANSCRIPT_GROUP_SWEEP_START_DELAY_MS = 600;
++export const TRANSCRIPT_GROUP_SWEEP_INTERVAL_MS = 4_000;
++export const TRANSCRIPT_GROUP_SWEEP_DURATION_MS = 1_600;
++export const TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH_RATIO = 0.2;
++export const TRANSCRIPT_GROUP_SWEEP_MIN_HALF_WIDTH = 5;
++export const TRANSCRIPT_GROUP_SWEEP_LIGHT_REST_TEXT_RATIO = 0.6;
++export const TRANSCRIPT_GROUP_SWEEP_LIGHT_REST_MIN_CONTRAST = 4.5;
+ // Every 150 ms the title highlight closes half of what is left to full or off, so it fades out
+ // in about a second: the speed it was tuned to on 50 ms frames.
+ export const TRANSCRIPT_GROUP_FADE_HALF_LIFE_MS = 150;
+diff --git a/apps/kimi-code/src/tui/kimi-tui.ts b/apps/kimi-code/src/tui/kimi-tui.ts
+index 6ef1dd4b81..21d6c15617 100644
+--- a/apps/kimi-code/src/tui/kimi-tui.ts
++++ b/apps/kimi-code/src/tui/kimi-tui.ts
+@@ -256,6 +256,7 @@ export interface KimiTUIStartupInput {
+   readonly additionalDirs?: readonly string[];
+   readonly tuiConfig: TuiConfig;
+   readonly resolvedTuiMode?: TuiMode;
++  readonly animationFrameRate?: number;
+   readonly version: string;
+   readonly workDir: string;
+   readonly startupNotice?: string;
+@@ -517,6 +518,7 @@ export class KimiTUI {
+     const tuiOptions: KimiTUIOptions = {
+       initialAppState: createInitialAppState(startupInput),
+       resolvedTuiMode: startupInput.resolvedTuiMode,
++      animationFrameRate: startupInput.animationFrameRate,
+       startup: {
+         sessionFlag: startupInput.cliOptions.session,
+         continueLast: startupInput.cliOptions.continue,
+diff --git a/apps/kimi-code/src/tui/theme/color-mix.ts b/apps/kimi-code/src/tui/theme/color-mix.ts
+index 9708098e06..30684a704f 100644
+--- a/apps/kimi-code/src/tui/theme/color-mix.ts
++++ b/apps/kimi-code/src/tui/theme/color-mix.ts
+@@ -18,6 +18,21 @@ export function colorDistance(fromHex: string, toHex: string): number {
+   return Math.hypot(from.red - to.red, from.green - to.green, from.blue - to.blue);
+ }
+ 
++export function contrastRatio(firstHex: string, secondHex: string): number {
++  const first = relativeLuminance(requireHexColor(firstHex));
++  const second = relativeLuminance(requireHexColor(secondHex));
++  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
++}
++
++function relativeLuminance({ red, green, blue }: Rgb): number {
++  return 0.2126 * linearChannel(red) + 0.7152 * linearChannel(green) + 0.0722 * linearChannel(blue);
++}
++
++function linearChannel(channel: number): number {
++  const value = channel / 255;
++  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
++}
++
+ export function parseHexColor(hex: string): Rgb | undefined {
+   const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex);
+   if (match === null) return undefined;
+diff --git a/apps/kimi-code/src/tui/tui-state.ts b/apps/kimi-code/src/tui/tui-state.ts
+index 1c009109c2..7c8eb3fb97 100644
+--- a/apps/kimi-code/src/tui/tui-state.ts
++++ b/apps/kimi-code/src/tui/tui-state.ts
+@@ -158,6 +158,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
+           },
+         })
+       : new TuiMainScreen(terminal);
++  if (options.animationFrameRate !== undefined) ui.setAnimationFrameRate(options.animationFrameRate);
+ 
+   setMarkdownAltScreenActive(ui instanceof TuiAltScreen);
+   setMarkdownRenderRequester(() => {
+diff --git a/apps/kimi-code/src/tui/types.ts b/apps/kimi-code/src/tui/types.ts
+index ad8e7ac25a..a309ad9971 100644
+--- a/apps/kimi-code/src/tui/types.ts
++++ b/apps/kimi-code/src/tui/types.ts
+@@ -422,6 +422,7 @@ export interface KimiTUIOptions {
+   initialAppState: AppState;
+   startup: TUIStartupOptions;
+   resolvedTuiMode?: TuiMode;
++  animationFrameRate?: number;
+ }
+ 
+ export interface PendingExit {
+diff --git a/apps/kimi-code/test/cli/run-shell.test.ts b/apps/kimi-code/test/cli/run-shell.test.ts
+index c574958180..81c929f007 100644
+--- a/apps/kimi-code/test/cli/run-shell.test.ts
++++ b/apps/kimi-code/test/cli/run-shell.test.ts
+@@ -171,6 +171,7 @@ describe('runShell', () => {
+     vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '');
+     vi.stubEnv('KIMI_CODE_TUI_FULL_SCREEN', '');
++    vi.stubEnv('KIMI_CODE_TUI_ANIMATION_FPS', '');
+     vi.stubEnv('TERM', 'xterm-256color');
+     vi.stubEnv('TERMUX_VERSION', '');
+     vi.stubEnv('TMUX', '');
+@@ -697,6 +698,74 @@ describe('runShell', () => {
+     });
+   });
+ 
++  it('passes the KIMI_CODE_TUI_ANIMATION_FPS frame rate to the TUI', async () => {
++    vi.stubEnv('KIMI_CODE_TUI_ANIMATION_FPS', '25');
++    mocks.loadTuiConfig.mockResolvedValue({
++      theme: 'dark',
++      editorCommand: null,
++      notifications: { enabled: true, condition: 'unfocused' },
++    });
++    mocks.tuiStart.mockResolvedValue(undefined);
++
++    await runShell(
++      {
++        session: '',
++        continue: false,
++        yolo: false,
++        auto: false,
++        plan: false,
++        model: undefined,
++        outputFormat: undefined,
++        prompt: undefined,
++        skillsDirs: [],
++        agent: undefined,
++        agentFiles: [],
++        environment: undefined,
++      },
++      '1.2.3-test',
++    );
++
++    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
++    expect(startupInput).toMatchObject({ animationFrameRate: 25, startupNotice: undefined });
++  });
++
++  it('adds an ignored KIMI_CODE_TUI_ANIMATION_FPS to the startup notice after a tui.toml warning', async () => {
++    vi.stubEnv('KIMI_CODE_TUI_ANIMATION_FPS', 'fast');
++    mocks.loadTuiConfig.mockRejectedValue(
++      new mocks.TuiConfigParseError({
++        theme: 'dark',
++        editorCommand: null,
++        notifications: { enabled: true, condition: 'unfocused' },
++      }),
++    );
++    mocks.tuiStart.mockResolvedValue(undefined);
++
++    await runShell(
++      {
++        session: '',
++        continue: false,
++        yolo: false,
++        auto: false,
++        plan: false,
++        model: undefined,
++        outputFormat: undefined,
++        prompt: undefined,
++        skillsDirs: [],
++        agent: undefined,
++        agentFiles: [],
++        environment: undefined,
++      },
++      '1.2.3-test',
++    );
++
++    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
++    expect(startupInput).toMatchObject({
++      animationFrameRate: undefined,
++      startupNotice: 'Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.\n' +
++        'Ignored KIMI_CODE_TUI_ANIMATION_FPS="fast": expected a whole number from 1 to 60.',
++    });
++  });
++
+   it('leaves config.toml diagnostics to the TUI instead of the startup notice', async () => {
+     mocks.loadTuiConfig.mockResolvedValue({
+       theme: 'dark',
+diff --git a/apps/kimi-code/test/tui/components/messages/thinking.test.ts b/apps/kimi-code/test/tui/components/messages/thinking.test.ts
+index b27dc8db7e..ac0fd86f3e 100644
+--- a/apps/kimi-code/test/tui/components/messages/thinking.test.ts
++++ b/apps/kimi-code/test/tui/components/messages/thinking.test.ts
+@@ -3,6 +3,7 @@ import chalk from 'chalk';
+ import { afterEach, describe, expect, it, vi } from 'vitest';
+ 
+ import { ThinkingComponent } from '#/tui/components/messages/thinking';
++import { currentTheme, darkColors, lightColors } from '#/tui/theme';
+ 
+ const defaultChalkLevel = chalk.level;
+ 
+@@ -10,6 +11,13 @@ function strip(text: string): string {
+   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+ }
+ 
++function glyphColors(line: string): string[] {
++  return [...line.matchAll(/\u001B\[38;2;(\d+);(\d+);(\d+)m([^\u001B]*)/g)].flatMap(([, red, green, blue, text = '']) => {
++    const color = `#${[red, green, blue].map((channel) => Number(channel).toString(16).padStart(2, '0')).join('')}`;
++    return Array.from(text, () => color);
++  });
++}
++
+ const longThinking = ['line1', 'line2', 'line3', 'line4', 'line5', 'line6', 'line7'].join('\n');
+ 
+ function frameUi() {
+@@ -79,16 +87,28 @@ describe('ThinkingComponent', () => {
+     const { ui, requestRender } = frameUi();
+     const component = new ThinkingComponent('step', true, 'live', ui);
+     const initial = component.render(80)[1];
++    expect(new Set(glyphColors(initial ?? ''))).toEqual(new Set([darkColors.textDim.toLowerCase()]));
+ 
+-    vi.advanceTimersByTime(ANIMATION_FRAME_INTERVAL_MS / 2);
++    vi.advanceTimersByTime(600);
+     expect(component.render(80)[1]).toBe(initial);
+-    expect(requestRender).not.toHaveBeenCalled();
+-    vi.advanceTimersByTime(ANIMATION_FRAME_INTERVAL_MS / 2);
++    vi.advanceTimersByTime(ANIMATION_FRAME_INTERVAL_MS * 5 - ANIMATION_FRAME_INTERVAL_MS / 2);
++    const between = component.render(80)[1];
++    vi.advanceTimersByTime(ANIMATION_FRAME_INTERVAL_MS / 4);
++    expect(component.render(80)[1]).toBe(between);
++    requestRender.mockClear();
++    vi.advanceTimersByTime(ANIMATION_FRAME_INTERVAL_MS / 4);
+     expect(requestRender).toHaveBeenCalledTimes(1);
+     const swept = component.render(80)[1];
+     expect(swept).not.toBe(initial);
++    expect(glyphColors(swept ?? '')).toContain(darkColors.text.toLowerCase());
+     expect(strip(swept ?? '')).toBe('● Thinking');
+ 
++    vi.advanceTimersByTime(2_400 - 1_200);
++    expect(glyphColors(component.render(80)[1] ?? '')).toEqual(glyphColors(initial ?? ''));
++    requestRender.mockClear();
++    vi.advanceTimersByTime(ANIMATION_FRAME_INTERVAL_MS * 4);
++    expect(requestRender).not.toHaveBeenCalled();
++
+     component.finalize({ known: true, ms: 1_000 });
+     expect(vi.getTimerCount()).toBe(0);
+     requestRender.mockClear();
+@@ -100,6 +120,22 @@ describe('ThinkingComponent', () => {
+     expect(component.render(80).map((line) => strip(line).trimEnd())).toEqual(['', '● step']);
+   });
+ 
++  it('runs the light live title on the running gray between the background and text', () => {
++    chalk.level = 3;
++    vi.useFakeTimers();
++    const previousPalette = currentTheme.palette;
++    currentTheme.setPalette(lightColors);
++    currentTheme.setTerminalBackground('#FFFFFF');
++    try {
++      const component = new ThinkingComponent('step', true, 'live', frameUi().ui);
++      expect(new Set(glyphColors(component.render(80)[1] ?? ''))).toEqual(new Set(['#767676']));
++      component.dispose();
++    } finally {
++      currentTheme.setPalette(previousPalette);
++      currentTheme.setTerminalBackground(undefined);
++    }
++  });
++
+   it('stops requesting animation frames on dispose', () => {
+     vi.useFakeTimers();
+     const component = new ThinkingComponent('step', true, 'live', frameUi().ui);
+diff --git a/apps/kimi-code/test/tui/components/messages/transcript-container.test.ts b/apps/kimi-code/test/tui/components/messages/transcript-container.test.ts
+index d30da4f379..1ae4f8b5b1 100644
+--- a/apps/kimi-code/test/tui/components/messages/transcript-container.test.ts
++++ b/apps/kimi-code/test/tui/components/messages/transcript-container.test.ts
+@@ -105,6 +105,13 @@ function plain(lines: readonly string[]): string {
+   return lines.join('\n').replaceAll(/\u001B\[[0-9;]*m/g, '');
+ }
+ 
++function glyphColors(line: string): string[] {
++  return [...line.matchAll(/\u001B\[38;2;(\d+);(\d+);(\d+)m([^\u001B]*)/g)].flatMap(([, red, green, blue, text = '']) => {
++    const color = `#${[red, green, blue].map((channel) => Number(channel).toString(16).padStart(2, '0')).join('')}`;
++    return Array.from(text, () => color);
++  });
++}
++
+ interface GroupView {
+   readonly title: string;
+   readonly expanded: boolean;
+@@ -644,35 +651,44 @@ describe('TranscriptGroupComponent', () => {
+     for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(70);
+   });
+ 
+-  it('sweeps a highlight with fake time and stops requesting frames after the turn ends and the fade', () => {
++  it('sweeps a light title on its running gray, then fades it back to textDim and stops requesting frames', () => {
+     chalk.level = 3;
+     vi.useFakeTimers();
+-    const { container, requestRender } = makeContainer();
+-    container.addChild(thought());
+-    container.addChild(tool('Read', { path: '/work/a.ts' }));
+-    container.addChild(runningTool('Grep'));
+-    const timeline = liveTurn(container);
++    const previousPalette = currentTheme.palette;
++    currentTheme.setPalette(lightColors);
++    currentTheme.setTerminalBackground('#FFFFFF');
++    try {
++      const { container, requestRender } = makeContainer();
++      container.addChild(thought());
++      container.addChild(tool('Read', { path: '/work/a.ts' }));
++      container.addChild(runningTool('Grep'));
++      const timeline = liveTurn(container);
+ 
+-    const initial = container.render(80);
+-    expect(plain(initial)).toContain('  Thought for 3s');
+-    expect(plain(initial)).not.toContain('●');
+-    requestRender.mockClear();
+-    vi.advanceTimersByTime(ANIMATION_FRAME_INTERVAL_MS);
+-    const next = container.render(80);
+-    expect(requestRender).toHaveBeenCalledTimes(1);
+-    expect(next).not.toEqual(initial);
++      const initial = container.render(80);
++      expect(plain(initial)).toContain('  Thought for 3s');
++      expect(plain(initial)).not.toContain('●');
++      expect(new Set(glyphColors(initial[1] ?? ''))).toEqual(new Set(['#767676']));
++      requestRender.mockClear();
++      vi.advanceTimersByTime(1_200);
++      const next = container.render(80);
++      expect(requestRender).toHaveBeenCalled();
++      expect(next).not.toEqual(initial);
+ 
+-    timeline.turnEnded();
+-    container.render(80);
+-    for (let frame = 0; frame < 40; frame++) {
+-      vi.advanceTimersByTime(50);
++      timeline.turnEnded();
+       container.render(80);
++      for (let frame = 0; frame < 40; frame++) {
++        vi.advanceTimersByTime(50);
++        container.render(80);
++      }
++      requestRender.mockClear();
++      vi.advanceTimersByTime(1_000);
++      expect(requestRender).not.toHaveBeenCalled();
++      expect(vi.getTimerCount()).toBe(0);
++      expect(new Set(glyphColors(container.render(80)[1] ?? ''))).toEqual(new Set([lightColors.textDim.toLowerCase()]));
++      container.clear();
++    } finally {
++      currentTheme.setPalette(previousPalette);
+     }
+-    requestRender.mockClear();
+-    vi.advanceTimersByTime(1_000);
+-    expect(requestRender).not.toHaveBeenCalled();
+-    expect(vi.getTimerCount()).toBe(0);
+-    container.clear();
+   });
+ 
+   it('fades the highlight in and out by elapsed time whatever the animation frame length', () => {
+@@ -684,7 +700,7 @@ describe('TranscriptGroupComponent', () => {
+       for (let frame = frameMs; frame < time; frame += frameMs) frames.add(frame);
+       if (turnEndsAt < time) frames.add(turnEndsAt);
+       const sweep = new TitleSweep();
+-      sweep.start(0);
++      sweep.start(0, false);
+       for (const frame of [...frames].toSorted((left, right) => left - right)) {
+         sweep.advance(frame, 20, frame <= turnEndsAt);
+       }
+@@ -697,6 +713,138 @@ describe('TranscriptGroupComponent', () => {
+     }
+   });
+ 
++  it('fades the highlight out within a second of the turn ending on slow animation frames', () => {
++    const fadeOutTime = (frameMs: number): number => {
++      const sweep = new TitleSweep();
++      sweep.start(0, true);
++      let time = 0;
++      while (sweep.intensity > 0) {
++        time += frameMs;
++        sweep.advance(time, 20, false);
++      }
++      return time;
++    };
++
++    expect(fadeOutTime(1_000)).toBe(1_000);
++    expect(fadeOutTime(500)).toBe(1_000);
++    expect(fadeOutTime(120)).toBe(1_080);
++  });
++
++  it.each([
++    { theme: 'dark', palette: darkColors, background: '#000000', rest: darkColors.textDim.toLowerCase() },
++    { theme: 'dark', palette: darkColors, background: '#1E1E1E', rest: darkColors.textDim.toLowerCase() },
++    { theme: 'light', palette: lightColors, background: '#FFFFFF', rest: '#767676' },
++    { theme: 'light', palette: lightColors, background: '#F0F0F0', rest: '#6d6d6d' },
++    { theme: 'custom light', palette: { ...lightColors, text: '#333333' }, background: '#FFFFFF', rest: '#767676' },
++  ])('lights a running $theme title on $background from its rest color up to text', ({ palette, background, rest }) => {
++    chalk.level = 3;
++    const previousPalette = currentTheme.palette;
++    currentTheme.setPalette(palette);
++    currentTheme.setTerminalBackground(background);
++    try {
++      const title = 'Read 3 files, ran 2 commands';
++      const sweep = new TitleSweep();
++      sweep.start(0, true);
++      const colorsAt = (time: number): string[] => {
++        sweep.advance(time, 2 + title.length, true);
++        return glyphColors(sweep.painter()(title, 2));
++      };
++
++      expect(colorsAt(0)).toEqual(Array.from(title, () => rest));
++      const crossing = colorsAt(1_000);
++      expect(crossing[2]).toBe(palette.text.toLowerCase());
++      expect(new Set(crossing.slice(0, 7))).not.toContain(rest);
++      expect(crossing.slice(8)).toEqual(Array.from(title.slice(8), () => rest));
++    } finally {
++      currentTheme.setPalette(previousPalette);
++    }
++  });
++
++  function sweptFramesOverSixSeconds(changeTitleAt?: number) {
++    chalk.level = 3;
++    vi.useFakeTimers();
++    const frames = manualFrames();
++    const { container, requestRender } = makeContainer(options(), frames);
++    container.addChild(tool('Read', { path: '/work/a.ts' }));
++    workingTurn(container);
++    container.render(100);
++    const swept: number[] = [];
++    let redrawsWhileWaiting = 0;
++    for (let elapsed = ANIMATION_FRAME_INTERVAL_MS; elapsed <= 6_480; elapsed += ANIMATION_FRAME_INTERVAL_MS) {
++      vi.advanceTimersByTime(ANIMATION_FRAME_INTERVAL_MS);
++      if (elapsed === changeTitleAt) container.addChild(tool('Read', { path: '/work/b.ts' }));
++      requestRender.mockClear();
++      frames.run(performance.now());
++      if (elapsed >= 2_400 && elapsed < 4_600) redrawsWhileWaiting += requestRender.mock.calls.length;
++      if (new Set(glyphColors(container.render(100)[1] ?? '')).size > 1) swept.push(elapsed);
++    }
++    const title = onlyGroup(container, 100).title;
++    container.clear();
++    return { swept, redrawsWhileWaiting, title };
++  }
++
++  it('waits 600 ms before the first sweep and holds the rest color until the next 4-second cycle', () => {
++    const { swept, redrawsWhileWaiting, title } = sweptFramesOverSixSeconds();
++
++    expect(title).toBe('  Read a.ts');
++    expect(swept.some((at) => at < 2_200)).toBe(true);
++    expect(swept.some((at) => at > 4_600)).toBe(true);
++    expect(swept.filter((at) => at <= 600 || (at >= 2_200 && at <= 4_600) || at >= 6_200)).toEqual([]);
++    expect(redrawsWhileWaiting).toBe(0);
++  });
++
++  it('keeps the sweep rhythm when the title changes in the middle of a sweep', () => {
++    const { swept, redrawsWhileWaiting, title } = sweptFramesOverSixSeconds(1_200);
++
++    expect(title).toBe('  Read 2 files');
++    expect(swept.some((at) => at < 1_200)).toBe(true);
++    expect(swept.some((at) => at > 1_200 && at < 2_200)).toBe(true);
++    expect(swept.some((at) => at > 4_600)).toBe(true);
++    expect(swept.filter((at) => at <= 600 || (at >= 2_200 && at <= 4_600) || at >= 6_200)).toEqual([]);
++    expect(redrawsWhileWaiting).toBe(0);
++  });
++
++  it('sweeps every line of an opened multi-line title and keeps it still between sweeps', () => {
++    chalk.level = 3;
++    vi.useFakeTimers();
++    const frames = manualFrames();
++    const { container } = makeContainer(options({ toolCallDensity: 'compact' }), frames);
++    const heredoc = tool('Bash', { command: "cat <<'EOF' > notes.txt\nhello from the second line\nEOF" }, {
++      tool_call_id: 'bash-multi-line-sweep',
++      output: 'written',
++      is_error: false,
++    });
++    container.addChild(heredoc);
++    workingTurn(container);
++    container.toggleGroup(heredoc);
++    const titleColors = (): string[] => {
++      const rendered = container.render(100);
++      const lines = plain(rendered).split('\n').map((line) => line.trimEnd());
++      const start = lines.findIndex((line) => line.startsWith('● $ '));
++      return rendered.slice(start, lines.indexOf('', start)).map((line) => glyphColors(line).join(' '));
++    };
++    container.render(100);
++    let still: string[] = [];
++    const sweptLines = new Set<number>();
++    const moving: number[] = [];
++    for (let elapsed = ANIMATION_FRAME_INTERVAL_MS; elapsed <= 6_480; elapsed += ANIMATION_FRAME_INTERVAL_MS) {
++      vi.advanceTimersByTime(ANIMATION_FRAME_INTERVAL_MS);
++      frames.run(performance.now());
++      const colors = titleColors();
++      if (elapsed === 480) still = colors;
++      if (elapsed <= 480) continue;
++      for (const [index, line] of colors.entries()) {
++        if (line !== still[index]) sweptLines.add(index);
++      }
++      if (colors.join('\n') !== still.join('\n')) moving.push(elapsed);
++    }
++    container.clear();
++
++    expect(still).toHaveLength(3);
++    expect([...sweptLines].toSorted()).toEqual([0, 1, 2]);
++    expect(moving.filter((at) => at <= 600 || (at >= 2_200 && at <= 4_600) || at >= 6_200)).toEqual([]);
++  });
++
+   function sweepFrames(container: TranscriptContainer, requestRender: ReturnType<typeof vi.fn>) {
+     const frames: { readonly renders: number; readonly drawn: string }[] = [];
+     for (let frame = 0; frame < 24; frame++) {
+@@ -776,30 +924,6 @@ describe('TranscriptGroupComponent', () => {
+     container.clear();
+   });
+ 
+-  it('pauses after the highlight leaves the summary before restarting', () => {
+-    chalk.level = 3;
+-    vi.useFakeTimers();
+-    vi.setSystemTime(100_000);
+-    const { container } = makeContainer();
+-    container.addChild(tool('Read'));
+-    liveTurn(container);
+-    container.render(100);
+-
+-    for (let frame = 0; frame < 13; frame++) {
+-      vi.advanceTimersByTime(50);
+-      container.render(100);
+-    }
+-    const dimFirst = `  ${chalk.hex(currentTheme.color('textDim'))('R')}`;
+-    expect(container.render(100)[1]?.startsWith(dimFirst)).toBe(true);
+-
+-    for (let frame = 0; frame < 7; frame++) {
+-      vi.advanceTimersByTime(50);
+-      container.render(100);
+-    }
+-    expect(container.render(100)[1]?.startsWith(dimFirst)).toBe(false);
+-    container.clear();
+-  });
+-
+   it('draws the tail as the last line of the last group, under Show less when expanded', () => {
+     chalk.level = 3;
+     vi.useFakeTimers();
+diff --git a/apps/kimi-code/test/tui/config.test.ts b/apps/kimi-code/test/tui/config.test.ts
+index 30f66d63be..6c2bf86816 100644
+--- a/apps/kimi-code/test/tui/config.test.ts
++++ b/apps/kimi-code/test/tui/config.test.ts
+@@ -12,6 +12,7 @@ import {
+   parseTuiConfig,
+   renderTuiConfig,
+   removeLegacySurveySetting,
++  resolveAnimationFrameRate,
+   resolveTuiMode,
+   saveTuiConfig,
+   TuiConfigParseError,
+@@ -766,3 +767,32 @@ describe('resolveTuiMode', () => {
+     });
+   });
+ });
++
++describe('resolveAnimationFrameRate', () => {
++  it.each([undefined, '', '   '])('keeps the default frame rate when KIMI_CODE_TUI_ANIMATION_FPS is %j', (value) => {
++    expect(resolveAnimationFrameRate({ KIMI_CODE_TUI_ANIMATION_FPS: value })).toEqual({});
++  });
++
++  it.each([
++    ['1', 1],
++    ['8', 8],
++    [' 30 ', 30],
++    ['60', 60],
++  ])('reads KIMI_CODE_TUI_ANIMATION_FPS=%j as %d frames per second', (value, fps) => {
++    expect(resolveAnimationFrameRate({ KIMI_CODE_TUI_ANIMATION_FPS: value })).toEqual({ fps });
++  });
++
++  it.each(['abc', '0', '61', '-5', '2.5', '1e1', '0x10', '+8'])(
++    'ignores KIMI_CODE_TUI_ANIMATION_FPS=%j and explains why',
++    (value) => {
++      expect(resolveAnimationFrameRate({ KIMI_CODE_TUI_ANIMATION_FPS: value })).toEqual({
++        warning: `Ignored KIMI_CODE_TUI_ANIMATION_FPS="${value}": expected a whole number from 1 to 60.`,
++      });
++    },
++  );
++
++  it('reads process.env by default', () => {
++    vi.stubEnv('KIMI_CODE_TUI_ANIMATION_FPS', '20');
++    expect(resolveAnimationFrameRate()).toEqual({ fps: 20 });
++  });
++});
+diff --git a/apps/kimi-code/test/tui/kimi-tui-startup.test.ts b/apps/kimi-code/test/tui/kimi-tui-startup.test.ts
+index 2a85ad0561..e4d01a6a5f 100644
+--- a/apps/kimi-code/test/tui/kimi-tui-startup.test.ts
++++ b/apps/kimi-code/test/tui/kimi-tui-startup.test.ts
+@@ -3984,6 +3984,29 @@ function uiContainsFooter(driver: StartupDriver): boolean {
+   return visit(driver.state.ui);
+ }
+ 
++describe('animation frame interval wiring', () => {
++  it('runs animation frames at the startup frame rate, and every 120 ms without one', () => {
++    vi.useFakeTimers();
++    onTestFinished(() => {
++      vi.useRealTimers();
++    });
++    const frameGaps = (animationFrameRate?: number): number[] => {
++      const { ui } = makeDriver(makeHarness(), { ...makeStartupInput(), animationFrameRate }).state;
++      const times: number[] = [];
++      const step = (time: number): void => {
++        times.push(time);
++        if (times.length < 4) ui.requestAnimationFrame(step);
++      };
++      ui.requestAnimationFrame(step);
++      vi.advanceTimersByTime(1_000);
++      return times.slice(1).map((time, index) => time - (times[index] ?? 0));
++    };
++
++    expect(frameGaps()).toEqual([120, 120, 120]);
++    expect(frameGaps(20)).toEqual([50, 50, 50]);
++  });
++});
++
+ describe('survey telemetry gate wiring', () => {
+   function surveyGateTelemetryDisabled(input: KimiTUIStartupInput): boolean {
+     const driver = new KimiTUI(makeHarness() as never, input);
+diff --git a/docs/en/configuration/env-vars.md b/docs/en/configuration/env-vars.md
+index c72d345d00..9fb37b8859 100644
+--- a/docs/en/configuration/env-vars.md
++++ b/docs/en/configuration/env-vars.md
+@@ -191,6 +191,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
+ | `KIMI_CODE_LLM_HEADERS_TIMEOUT_MS` | Max time (ms) an LLM request on the `openai` / `openai-responses` / `anthropic` protocols may wait for the response headers (first byte), replacing the HTTP client's default 300 s headers timeout — raise it for long non-streaming thinking; unset keeps the default; the SDK's own total request timeout (default 10 minutes) still caps each attempt; not supported for `google-genai` (its SDK exposes no dispatcher option) or behind a SOCKS proxy (requests still go through the proxy) | Positive integer no greater than 2147483647; invalid values fail the request |
+ | `KIMI_CODE_NO_AUTO_UPDATE` | Fully disable the update preflight: no check, background install, or prompt. Legacy alias `KIMI_CLI_NO_AUTO_UPDATE` also honored | Truthy: `1`/`true`/`yes`/`on` |
+ | `KIMI_CODE_CLIPBOARD_OSC52` | Also copy through your terminal (OSC 52); try it when copying does not work over a remote connection. In tmux, also add `set -g set-clipboard on` | `1` to enable |
++| `KIMI_CODE_TUI_ANIMATION_FPS` | Frame rate of the shimmer on in-progress titles in the terminal UI | Integer from `1` to `60`; invalid values are ignored with a notice at startup |
+ | `KIMI_DISABLE_CRON` | Disable the scheduled-task tool (`CronCreate` rejects new schedules; existing tasks do not fire) | `1` to disable |
+ 
+ The `KIMI_CODE_INFINITE_RETRY`, `KIMI_CODE_IDENTITY_*`, and `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` variables are read by the `agent-core-v2` engine.
+diff --git a/docs/zh/configuration/env-vars.md b/docs/zh/configuration/env-vars.md
+index dd165e0642..3fc4f2c6bb 100644
+--- a/docs/zh/configuration/env-vars.md
++++ b/docs/zh/configuration/env-vars.md
+@@ -191,6 +191,7 @@ kimi
+ | `KIMI_CODE_LLM_HEADERS_TIMEOUT_MS` | `openai` / `openai-responses` / `anthropic` 协议的 LLM 请求等待响应头（首字节）的最长时间（毫秒），替代 HTTP 客户端默认的 300 秒响应头超时——长时间非流式 thinking 可调大；未设置保持默认；SDK 自身的总请求超时（默认 10 分钟）仍对单次尝试生效；`google-genai` 不支持（其 SDK 没有 dispatcher 配置项）；SOCKS 代理下不生效（请求仍走代理） | 正整数，不超过 2147483647；非法值会使请求失败 |
+ | `KIMI_CODE_NO_AUTO_UPDATE` | 完全禁用更新预检：不检查、不后台安装、不提示。同时兼容旧名 `KIMI_CLI_NO_AUTO_UPDATE` | 真值：`1`/`true`/`yes`/`on` |
+ | `KIMI_CODE_CLIPBOARD_OSC52` | 复制时同时交给终端（OSC 52），远程连接下复制不生效时可以试试。tmux 中还需设置 `set -g set-clipboard on` | `1` 表示启用 |
++| `KIMI_CODE_TUI_ANIMATION_FPS` | 终端界面中进行中标题扫光的帧率 | `1` 到 `60` 的整数；非法值被忽略，并在启动时提示 |
+ | `KIMI_DISABLE_CRON` | 禁用定时任务工具（`CronCreate` 拒绝新计划，已有任务不触发） | `1` 表示禁用 |
+ 
+ `KIMI_CODE_INFINITE_RETRY`、`KIMI_CODE_IDENTITY_*` 和 `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` 这几个变量由 `agent-core-v2` 引擎读取。
+diff --git a/packages/pi-tui/UPSTREAM.md b/packages/pi-tui/UPSTREAM.md
+index 936a5489f6..e9502c5f08 100644
+--- a/packages/pi-tui/UPSTREAM.md
++++ b/packages/pi-tui/UPSTREAM.md
+@@ -237,6 +237,6 @@ Each card: **decision** and **why not in the app**. Status is `keep` or `absorbe
+ 
+ ### shared-animation-frames — keep
+ 
+-**Decision:** `requestAnimationFrame` and `cancelAnimationFrame` on the TUI work like the browser's. A request runs once; every callback of a frame gets the same timestamp on the `performance.now()` clock; frames land on a fixed `ANIMATION_FRAME_INTERVAL_MS` grid and are never replayed after a late wake. One unref'd timer serves all requests and exists only while a request is pending. A throwing callback does not stop the other callbacks or later frames, and the first error is rethrown in a microtask. `stop()` pauses frames and keeps the requests; `start()` resumes on the next frame. An optional constructor clock lets tests drive frames by hand. Without one, each scheduler keeps the global timers and `performance.now` it found when it was created, so a running frame chain never moves onto fake timers that a later test installs. With no requests, behavior matches upstream.
++**Decision:** `requestAnimationFrame` and `cancelAnimationFrame` on the TUI work like the browser's. A request runs once; every callback of a frame gets the same timestamp on the `performance.now()` clock; frames are never replayed after a late wake. By default they land on a fixed `ANIMATION_FRAME_INTERVAL_MS` grid. `setAnimationFrameRate` on `TuiBase` takes a whole number of frames per second from 1 to `MAX_ANIMATION_FRAME_RATE` and throws `RangeError` on anything else; after it, the next frame comes one new interval after the last frame. One unref'd timer serves all requests and exists only while a request is pending. A throwing callback does not stop the other callbacks or later frames, and the first error is rethrown in a microtask. `stop()` pauses frames and keeps the requests; `start()` resumes on the next frame. An optional constructor clock lets tests drive frames by hand. Without one, each scheduler keeps the global timers and `performance.now` it found when it was created, so a running frame chain never moves onto fake timers that a later test installs. With no requests, behavior matches upstream.
+ 
+-**Why not in the app:** Pausing and resuming must follow the renderer's own `stop()` and `start()`, which hosts such as the external editor call directly. One clock in the renderer also lets every animated component share one timer and one frame time.
++**Why not in the app:** Pausing and resuming must follow the renderer's own `stop()` and `start()`, which hosts such as the external editor call directly. One clock in the renderer also lets every animated component share one timer and one frame time. The host sets the frame rate there for the same reason: the timer and the grid belong to the renderer, and no component sees the others' requests.
+diff --git a/packages/pi-tui/src/animation-frame.ts b/packages/pi-tui/src/animation-frame.ts
+index 911474c506..50c91cf954 100644
+--- a/packages/pi-tui/src/animation-frame.ts
++++ b/packages/pi-tui/src/animation-frame.ts
+@@ -1,5 +1,6 @@
+-/** Every animation frame lands on a multiple of this many milliseconds of the clock. */
++/** By default, every animation frame lands on a multiple of this many milliseconds of the clock. */
+ export const ANIMATION_FRAME_INTERVAL_MS = 120;
++export const MAX_ANIMATION_FRAME_RATE = 60;
+ 
+ /** Time source and timers behind animation frames. Tests pass a manual clock. */
+ export interface AnimationClock {
+@@ -30,6 +31,7 @@ export class AnimationFrameScheduler {
+ 	private timer: { readonly handle: unknown } | undefined;
+ 	private lastFrameTime = Number.NEGATIVE_INFINITY;
+ 	private paused = false;
++	private intervalMs = ANIMATION_FRAME_INTERVAL_MS;
+ 	private readonly clock: AnimationClock;
+ 
+ 	constructor(clock: AnimationClock = systemClock()) {
+@@ -60,6 +62,16 @@ export class AnimationFrameScheduler {
+ 		this.schedule();
+ 	}
+ 
++	setFrameRate(fps: number): void {
++		if (!Number.isInteger(fps) || fps < 1 || fps > MAX_ANIMATION_FRAME_RATE) {
++			throw new RangeError(`An animation frame rate must be a whole number from 1 to ${MAX_ANIMATION_FRAME_RATE}, got ${fps}`);
++		}
++		this.intervalMs = 1000 / fps;
++		if (this.timer !== undefined) this.clock.clearTimeout(this.timer.handle);
++		this.timer = undefined;
++		this.schedule();
++	}
++
+ 	private schedule(): void {
+ 		if (this.paused || this.requests.size === 0) {
+ 			if (this.timer !== undefined) this.clock.clearTimeout(this.timer.handle);
+@@ -68,7 +80,7 @@ export class AnimationFrameScheduler {
+ 		}
+ 		if (this.timer !== undefined) return;
+ 		const now = this.clock.now();
+-		const time = Math.max(this.lastFrameTime, latestFrameTime(now)) + ANIMATION_FRAME_INTERVAL_MS;
++		const time = Math.max(this.lastFrameTime, latestFrameTime(now, this.intervalMs)) + this.intervalMs;
+ 		this.timer = { handle: this.clock.setTimeout(() => this.runFrame(time), time - now) };
+ 	}
+ 
+@@ -76,7 +88,7 @@ export class AnimationFrameScheduler {
+ 		this.timer = undefined;
+ 		// A timer can fire a little before its due time or long after it. The frame keeps a grid
+ 		// time either way, and frames missed while the event loop was busy are skipped.
+-		const time = Math.max(scheduledTime, latestFrameTime(this.clock.now()));
++		const time = Math.max(scheduledTime, latestFrameTime(this.clock.now(), this.intervalMs));
+ 		this.lastFrameTime = time;
+ 		let failure: { readonly error: unknown } | undefined;
+ 		for (const handle of [...this.requests.keys()]) {
+@@ -99,6 +111,6 @@ export class AnimationFrameScheduler {
+ 	}
+ }
+ 
+-function latestFrameTime(now: number): number {
+-	return Math.floor(now / ANIMATION_FRAME_INTERVAL_MS) * ANIMATION_FRAME_INTERVAL_MS;
++function latestFrameTime(now: number, intervalMs: number): number {
++	return Math.floor(now / intervalMs) * intervalMs;
+ }
+diff --git a/packages/pi-tui/src/index.ts b/packages/pi-tui/src/index.ts
+index b6ff1b9dea..01090d83f9 100644
+--- a/packages/pi-tui/src/index.ts
++++ b/packages/pi-tui/src/index.ts
+@@ -2,7 +2,12 @@
+ 
+ export { Marked, type Token, type Tokens } from "marked";
+ // Animation frames
+-export { ANIMATION_FRAME_INTERVAL_MS, type AnimationClock, AnimationFrameScheduler } from "./animation-frame.ts";
++export {
++	ANIMATION_FRAME_INTERVAL_MS,
++	type AnimationClock,
++	AnimationFrameScheduler,
++	MAX_ANIMATION_FRAME_RATE,
++} from "./animation-frame.ts";
+ // Autocomplete support
+ export {
+ 	type AutocompleteContext,
+diff --git a/packages/pi-tui/src/tui.ts b/packages/pi-tui/src/tui.ts
+index ea79931232..464a8c14df 100644
+--- a/packages/pi-tui/src/tui.ts
++++ b/packages/pi-tui/src/tui.ts
+@@ -491,8 +491,9 @@ export interface TUI extends Component {
+ 	/**
+ 	 * Works like the browser's `window.requestAnimationFrame`: calls `callback` once, on the next
+ 	 * frame, with that frame's timestamp in milliseconds on the same clock as `performance.now()`.
+-	 * Request again from inside the callback to keep animating. Frames are at least
+-	 * `ANIMATION_FRAME_INTERVAL_MS` apart, and every callback of a frame gets the same timestamp.
++	 * Request again from inside the callback to keep animating. Frames are at least one frame
++	 * interval apart (`ANIMATION_FRAME_INTERVAL_MS` unless the host calls `setAnimationFrameRate`),
++	 * and every callback of a frame gets the same timestamp.
+ 	 * A frame does not render by itself: call `requestRender()` when the callback changes what is
+ 	 * drawn. Returns a handle for `cancelAnimationFrame`.
+ 	 */
+@@ -1058,6 +1059,10 @@ export abstract class TuiBase extends Container implements TUI {
+ 		this.animationFrames.cancelAnimationFrame(handle);
+ 	}
+ 
++	setAnimationFrameRate(fps: number): void {
++		this.animationFrames.setFrameRate(fps);
++	}
++
+ 	requestRender(force = false): void {
+ 		if (force) {
+ 			this.resetRenderState();
+diff --git a/packages/pi-tui/test/tui-render.test.ts b/packages/pi-tui/test/tui-render.test.ts
+index 2c38ead4b5..88db947b94 100644
+--- a/packages/pi-tui/test/tui-render.test.ts
++++ b/packages/pi-tui/test/tui-render.test.ts
+@@ -170,7 +170,7 @@ class ManualClock implements AnimationClock {
+ 	}
+ }
+ 
+-function animatedTui(): { clock: ManualClock; tui: TUI } {
++function animatedTui(): { clock: ManualClock; tui: TuiMainScreen } {
+ 	const clock = new ManualClock();
+ 	return { clock, tui: new TuiMainScreen(new VirtualTerminal(40, 10), undefined, undefined, clock) };
+ }
+@@ -278,6 +278,59 @@ describe("TUI animation frames", () => {
+ 		tui.stop();
+ 	});
+ 
++	it("runs frames at the rate the host sets", () => {
++		const { clock, tui } = animatedTui();
++		const times: number[] = [];
++		const step = (time: number): void => {
++			times.push(time);
++			if (times.length < 3) tui.requestAnimationFrame(step);
++		};
++		tui.requestAnimationFrame(step);
++		tui.setAnimationFrameRate(20);
++
++		clock.advance(49);
++		assert.deepStrictEqual(times, []);
++		clock.advance(1);
++		assert.deepStrictEqual(times, [50]);
++		clock.advance(100);
++		assert.deepStrictEqual(times, [50, 100, 150]);
++		assert.strictEqual(clock.pendingTimers, 0);
++	});
++
++	it("waits one new interval after the last frame when the rate changes, however often it changes", () => {
++		const { clock, tui } = animatedTui();
++		const times: number[] = [];
++		const step = (time: number): void => {
++			times.push(time);
++			if (times.length < 3) tui.requestAnimationFrame(step);
++		};
++		tui.requestAnimationFrame(step);
++		clock.advance(130);
++		assert.deepStrictEqual(times, [120]);
++
++		for (const fps of [1, 2, 1, 20]) tui.setAnimationFrameRate(fps);
++		clock.advance(39);
++		assert.deepStrictEqual(times, [120]);
++		clock.advance(1);
++		assert.deepStrictEqual(times, [120, 170]);
++		clock.advance(50);
++		assert.deepStrictEqual(times, [120, 170, 220]);
++		assert.strictEqual(clock.pendingTimers, 0);
++	});
++
++	it("accepts whole frame rates from 1 to 60 and rejects the rest without changing the current one", () => {
++		const { clock, tui } = animatedTui();
++		tui.setAnimationFrameRate(60);
++		tui.setAnimationFrameRate(1);
++		for (const fps of [0, 61, 0.5, 30.5, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
++			assert.throws(() => tui.setAnimationFrameRate(fps), RangeError, `accepted ${fps}`);
++		}
++		const times: number[] = [];
++		tui.requestAnimationFrame((time) => times.push(time));
++		clock.advance(1000);
++		assert.deepStrictEqual(times, [1000]);
++	});
++
+ 	it("runs the other callbacks and later frames when a callback throws, then rethrows the first error", (t) => {
+ 		const queued: (() => void)[] = [];
+ 		t.mock.method(globalThis, "queueMicrotask", (callback: () => void) => {

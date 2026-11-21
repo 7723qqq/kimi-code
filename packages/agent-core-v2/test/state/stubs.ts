@@ -1,12 +1,12 @@
 import type { ServiceRegistration } from '#/_base/di/test';
-import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { IAppStateService } from '#/app/state/appState';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { AppStateService } from '#/app/state/appStateService';
-import { ISessionStateService } from '#/session/state/sessionState';
+import { IAppStateService } from '#/app/state/appState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
+import { ISessionStateService } from '#/session/state/sessionState';
 import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
+import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 
 export function registerStateServices(reg: ServiceRegistration) {
   const app = new AppStateService();

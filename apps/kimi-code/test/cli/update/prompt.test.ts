@@ -1,10 +1,9 @@
-import { describe, expect, it } from 'bun:test';
 import { EventEmitter } from 'node:events';
 
-import {
-  promptForForcedUpgradeChoice,
-  remainingSkipSeconds,
-} from '#/cli/update/forced-prompt';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
+import { promptForForcedUpgradeChoice, remainingSkipSeconds } from '#/cli/update/forced-prompt';
+
 import {
   createInstallPromptChoices,
   getDefaultInstallPromptSelection,
@@ -34,11 +33,11 @@ describe('install prompt helpers', () => {
     const choices = createInstallPromptChoices({
       kind: 'switch-channel',
       sourceChannel: 'stable',
-      target: { channel: 'canary', version: '0.0.0-canary.42' },
+      target: { channel: 'canary', version: '2.3.3-canary.20261028012345-0123456' },
     });
 
     expect(choices).toEqual([
-      { value: 'install', label: 'Switch to canary now (0.0.0-canary.42)' },
+      { value: 'install', label: 'Switch to canary now (2.3.3-canary.20261028012345-0123456)' },
       { value: 'skip', label: 'Stay on stable' },
     ]);
   });
@@ -75,9 +74,9 @@ describe('promptForInstallChoice', () => {
       plan: {
         kind: 'switch-channel',
         sourceChannel: 'stable',
-        target: { channel: 'canary', version: '0.0.0-canary.42' },
+        target: { channel: 'canary', version: '2.3.3-canary.20261028012345-0123456' },
       },
-      installCommand: 'npm install -g @moonshot-ai/kimi-code@0.0.0-canary.42',
+      installCommand: 'npm install -g @moonshot-ai/kimi-code@2.3.3-canary.20261028012345-0123456',
       installSource: 'npm-global',
       input,
       output,
@@ -91,27 +90,23 @@ describe('promptForInstallChoice', () => {
     expect(rendered).toContain('View changelog');
     expect(rendered).toContain('stable -> canary');
     expect(rendered).toContain('2.3.3');
-    expect(rendered).toContain('0.0.0-canary.42');
+    expect(rendered).toContain('2.3.3-canary.20261028012345-0123456');
   });
 });
 
+
 describe('promptForForcedUpgradeChoice', () => {
-  function createPromptInputs(): {
-    input: NodeJS.ReadStream;
-    output: NodeJS.WriteStream;
-  } {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('enables skip only after the countdown', async () => {
+    vi.useFakeTimers();
+    let now = 0;
     const input = Object.assign(new EventEmitter(), {
       isRaw: false,
       setRawMode: () => {},
       resume: () => {},
     }) as unknown as NodeJS.ReadStream;
     const output = { write: () => true } as unknown as NodeJS.WriteStream;
-    return { input, output };
-  }
-
-  it('enables skip only after the countdown', async () => {
-    let now = 0;
-    const { input, output } = createPromptInputs();
     const promise = promptForForcedUpgradeChoice({
       currentVersion: '0.5.0',
       minimumVersion: '0.6.0',
@@ -123,9 +118,7 @@ describe('promptForForcedUpgradeChoice', () => {
       now: () => now,
     });
     let settled = false;
-    void promise.then(() => {
-      settled = true;
-    });
+    void promise.then(() => { settled = true; });
 
     input.emit('keypress', '', { name: 'down' });
     input.emit('keypress', '', { name: 'enter' });
@@ -134,12 +127,18 @@ describe('promptForForcedUpgradeChoice', () => {
     expect(remainingSkipSeconds(now, 10_000)).toBe(10);
 
     now = 10_000;
+    await vi.advanceTimersByTimeAsync(250);
     input.emit('keypress', '', { name: 'enter' });
     await expect(promise).resolves.toBe('skip');
   });
 
   it('does not treat Escape as an immediate skip', async () => {
-    const { input, output } = createPromptInputs();
+    const input = Object.assign(new EventEmitter(), {
+      isRaw: false,
+      setRawMode: () => {},
+      resume: () => {},
+    }) as unknown as NodeJS.ReadStream;
+    const output = { write: () => true } as unknown as NodeJS.WriteStream;
     const promise = promptForForcedUpgradeChoice({
       currentVersion: '0.5.0',
       minimumVersion: '0.6.0',

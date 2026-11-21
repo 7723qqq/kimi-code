@@ -24,11 +24,10 @@ const QuestionItemSchema = z.object({
     .describe(
       "2-4 meaningful, distinct options. Do NOT include an 'Other' option — the system adds one automatically.",
     ),
-  multi_select: z.boolean().optional().describe('Whether the user can select multiple options.'),
-  multiSelect: z
+  multi_select: z
     .boolean()
-    .optional()
-    .describe('Deprecated camelCase alias of multi_select; prefer multi_select.'),
+    .default(false)
+    .describe('Whether the user can select multiple options.'),
 });
 
 export interface AskUserQuestionInput {
@@ -37,13 +36,8 @@ export interface AskUserQuestionInput {
     question: string;
     header: string;
     options: Array<{ label: string; description: string }>;
-    multi_select?: boolean;
-    multiSelect?: boolean;
+    multi_select: boolean;
   }>;
-}
-
-export function questionMultiSelect(item: AskUserQuestionInput['questions'][number]): boolean {
-  return item.multi_select ?? item.multiSelect ?? false;
 }
 
 const QUESTION_UNIQUENESS_MESSAGE =

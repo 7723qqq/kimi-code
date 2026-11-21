@@ -1,9 +1,23 @@
-import type { SessionSummary } from '@moonshot-ai/kimi-code-sdk';
+import { createInterface } from 'node:readline/promises';
+
+import {
+  setTelemetryContext,
+  shutdownTelemetry,
+  track,
+  withTelemetryContext,
+} from '@moonshot-ai/kimi-telemetry';
+import {
+  createKimiHarness,
+  type KimiHarness,
+  type SessionSummary,
+  type TelemetryClient,
+} from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
 
+import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
+import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
+import { createKimiCodeHostIdentity } from '#/cli/host-identity';
 import { t } from '#/i18n';
-
-import { promptYesNo, type ConfirmPromptAnswer } from './confirm';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -17,7 +31,7 @@ export interface ForkedSessionResult {
 export interface ForkDeps {
   readonly listSessions: (workDir: string) => Promise<readonly SessionSummary[]>;
   readonly forkSession: (sessionId: string) => Promise<ForkedSessionResult>;
-  readonly confirmPreviousSession: (summary: SessionSummary) => Promise<ConfirmPromptAnswer>;
+  readonly confirmPreviousSession: (summary: SessionSummary) => Promise<boolean>;
   readonly cwd: () => string;
   readonly stdout: WritableLike;
   readonly stderr: WritableLike;
@@ -39,17 +53,13 @@ export async function handleFork(
     const sessions = await deps.listSessions(opts.cwd ?? deps.cwd());
     const latest = sessions[0];
     if (latest === undefined) {
-      deps.stderr.write(t('tui.statusMessages.forkNoSession') + '\n');
+      deps.stderr.write('No previous session found to fork.\n');
       deps.exit(1);
     }
     if (!opts.yes) {
-      const answer = await deps.confirmPreviousSession(latest);
-      if (answer === 'eof') {
-        deps.stderr.write(t('tui.statusMessages.confirmPromptEof') + '\n');
-        deps.exit(1);
-      }
-      if (answer === 'no') {
-        deps.stdout.write(t('tui.statusMessages.forkCancelled') + '\n');
+      const confirmed = await deps.confirmPreviousSession(latest);
+      if (!confirmed) {
+        deps.stdout.write('Fork cancelled.\n');
         return;
       }
     }
@@ -61,7 +71,7 @@ export async function handleFork(
     const forked = await deps.forkSession(resolvedId);
     const elapsedMs = Date.now() - startedAt;
     const title = forked.title === undefined ? '' : ` ("${forked.title}")`;
-    deps.stdout.write(t('tui.statusMessages.forkedTo', { id: forked.id, title, elapsedMs }) + '\n');
+    deps.stdout.write(`Forked to ${forked.id}${title} in ${elapsedMs}ms\n`);
   } catch (error) {
     deps.stderr.write(`${errorMessage(error)}\n`);
     deps.exit(1);
@@ -72,11 +82,14 @@ export function registerForkCommand(parent: Command, deps?: Partial<ForkDeps>): 
   parent
     .command('fork')
     .description(t('cli.optionDescriptions.forkDescription'))
-    .option('--cwd <path>', t('cli.optionDescriptions.forkCwd'))
+    .option(
+      '--cwd <path>',
+      t('cli.optionDescriptions.forkCwd'),
+    )
     .option('-y, --yes', t('cli.optionDescriptions.forkYes'))
     .argument('[sessionId]', t('cli.optionDescriptions.forkSessionId'))
     .action(async (sessionId: string | undefined, options: { cwd?: string; yes?: boolean }) => {
-      const resolved = await createDefaultForkDeps(deps);
+      const resolved = createDefaultForkDeps(deps);
       try {
         await handleFork(resolved, sessionId, {
           yes: options.yes === true,
@@ -88,31 +101,68 @@ export function registerForkCommand(parent: Command, deps?: Partial<ForkDeps>): 
     });
 }
 
-async function createDefaultForkDeps(overrides: Partial<ForkDeps> = {}): Promise<
-  ForkDeps & {
-    readonly close: () => Promise<void>;
-  }
-> {
-  // The harness runtime pulls the engine; load it on dispatch so registering
-  // the command stays free of it.
-  const { CliHarnessRuntime } = await import('#/cli/harness');
-  const runtime = new CliHarnessRuntime();
+function createDefaultForkDeps(overrides: Partial<ForkDeps> = {}): ForkDeps & {
+  readonly close: () => Promise<void>;
+} {
+  let harness: KimiHarness | undefined;
+  let telemetryBootstrap: ReturnType<typeof createCliTelemetryBootstrap> | undefined;
+  let telemetryInitialized = false;
+  let telemetryShutdown = false;
+  const identity = createKimiCodeHostIdentity();
+  const telemetryClient: TelemetryClient = {
+    track,
+    withContext: withTelemetryContext,
+    setContext: setTelemetryContext,
+  };
+  const getTelemetryBootstrap = (): ReturnType<typeof createCliTelemetryBootstrap> => {
+    telemetryBootstrap ??= createCliTelemetryBootstrap();
+    return telemetryBootstrap;
+  };
+  const getHarness = (): KimiHarness => {
+    const currentTelemetryBootstrap = getTelemetryBootstrap();
+    harness ??= createKimiHarness({
+      homeDir: currentTelemetryBootstrap.homeDir,
+      identity,
+      telemetry: telemetryClient,
+    });
+    return harness;
+  };
+  const initializeDefaultTelemetry = async (): Promise<void> => {
+    if (telemetryInitialized) return;
+    const currentTelemetryBootstrap = getTelemetryBootstrap();
+    const currentHarness = getHarness();
+    await currentHarness.ensureConfigFile();
+    const config = await currentHarness.getConfig();
+    initializeCliTelemetry({
+      harness: currentHarness,
+      bootstrap: currentTelemetryBootstrap,
+      config,
+      version: identity.version,
+      uiMode: CLI_UI_MODE,
+    });
+    telemetryInitialized = true;
+  };
+  const shutdownDefaultTelemetry = async (): Promise<void> => {
+    if (!telemetryInitialized || telemetryShutdown) return;
+    telemetryShutdown = true;
+    await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
+  };
   return {
     listSessions:
       overrides.listSessions ??
       ((workDir: string) =>
-        runtime.getHarness().listSessions({
+        getHarness().listSessions({
           workDir,
         })),
     forkSession:
       overrides.forkSession ??
       (async (sessionId: string) => {
-        await runtime.initializeTelemetry();
+        await initializeDefaultTelemetry();
         try {
-          const forked = await runtime.getHarness().forkSession({ id: sessionId });
+          const forked = await getHarness().forkSession({ id: sessionId });
           return { id: forked.id, title: forked.summary?.title };
         } finally {
-          await runtime.shutdownTelemetry();
+          await shutdownDefaultTelemetry();
         }
       }),
     confirmPreviousSession: overrides.confirmPreviousSession ?? confirmPreviousSession,
@@ -120,7 +170,9 @@ async function createDefaultForkDeps(overrides: Partial<ForkDeps> = {}): Promise
     stdout: overrides.stdout ?? process.stdout,
     stderr: overrides.stderr ?? process.stderr,
     exit: overrides.exit ?? ((code: number) => process.exit(code)),
-    close: () => runtime.close(),
+    close: async () => {
+      await harness?.close();
+    },
   };
 }
 
@@ -129,9 +181,16 @@ function normalizeOptionalSessionId(sessionId: string | undefined): string | und
   return trimmed === undefined || trimmed === '' ? undefined : trimmed;
 }
 
-async function confirmPreviousSession(summary: SessionSummary): Promise<ConfirmPromptAnswer> {
-  const title = summary.title === undefined ? summary.id : `${summary.title} (${summary.id})`;
-  return promptYesNo(t('tui.statusMessages.forkConfirmPrompt', { title }));
+async function confirmPreviousSession(summary: SessionSummary): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const title = summary.title === undefined ? summary.id : `${summary.title} (${summary.id})`;
+    const answer = await rl.question(`Fork previous session "${title}"? [Y/n] `);
+    const trimmed = answer.trim().toLowerCase();
+    return trimmed === '' || trimmed === 'y' || trimmed === 'yes';
+  } finally {
+    rl.close();
+  }
 }
 
 function errorMessage(error: unknown): string {

@@ -1,4 +1,4 @@
-import type { Message, StreamedMessagePart, ThinkPart } from '#/llm/message';
+import type { Message, StreamedMessagePart, ThinkPart } from '#human/message';
 
 export const KNOWN_REASONING_KEYS = [
   'reasoning_content',

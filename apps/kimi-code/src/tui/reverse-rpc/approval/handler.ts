@@ -1,14 +1,10 @@
-import type {
-  ApprovalHandler,
-  ApprovalRequest,
-  ApprovalResponse,
-} from '@moonshot-ai/kimi-code-sdk';
-
-import type { ProgramStatusInteractionTracker } from '#/tui/controllers/program-status';
-import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
-import { isToolCallId, type TurnTimeline } from '#/tui/utils/turn-timeline';
+import type { ApprovalHandler, ApprovalRequest, ApprovalResponse } from '@moonshot-ai/kimi-code-sdk';
 
 import { adaptApprovalRequest } from './adapter';
+import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
+import type { ProgramStatusInteractionTracker } from '#/tui/controllers/program-status';
+import { isToolCallId, type TurnTimeline } from '#/tui/utils/turn-timeline';
+
 import type { ApprovalController } from './controller';
 
 export function createApprovalRequestHandler(
@@ -28,8 +24,6 @@ export function createApprovalRequestHandler(
     });
     try {
       const data = adaptApprovalRequest(event);
-      // A badge lookup failure must never cancel the approval itself — it
-      // degrades to no badge.
       let environment: string | undefined;
       try {
         environment = resolveEnvironment?.();

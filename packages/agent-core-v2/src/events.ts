@@ -1,60 +1,35 @@
-import type {
-  CompactionBlockedEvent,
-  CompactionCancelledEvent,
-  CompactionCompletedEvent,
-  CompactionStartedEvent,
-} from '#/agent/fullCompaction/compactionOps';
-import type {
-  TurnStartedEvent,
-  TurnStepCompletedEvent,
-  TurnStepInterruptedEvent,
-  TurnStepRetryingEvent,
-  TurnStepStartedEvent,
-  AssistantDeltaEvent,
-  ThinkingDeltaEvent,
-} from '#/agent/loop/turnEvents';
+import type { CompactionBlockedEvent, CompactionCancelledEvent, CompactionCompletedEvent, CompactionStartedEvent } from '#/agent/fullCompaction/compactionOps';
+import type { TurnStartedEvent, TurnStepCompletedEvent, TurnStepInterruptedEvent, TurnStepRetryingEvent, TurnStepStartedEvent, AssistantDeltaEvent, ThinkingDeltaEvent } from '#/agent/loop/turnEvents';
 import type { TurnEndedEvent } from '#/agent/loop/turnOps';
 import type { PluginCommandActivatedEvent } from '#/agent/pluginCommand/pluginCommand';
 import type { PromptAbortedEvent, PromptCompletedEvent, PromptSteeredEvent, PromptSubmittedEvent } from '#/agent/prompt/promptEvents';
 import type { EnvironmentStatusChangedEvent } from '#/agent/environmentBinding/environmentEvents';
+import type { BackgroundTaskStartedEvent, BackgroundTaskTerminatedEvent, TaskStartedEvent, TaskTerminatedEvent } from '#/agent/task/types';
 import type {
-  BackgroundTaskOutputEvent,
-  BackgroundTaskStartedEvent,
-  BackgroundTaskTerminatedEvent,
-  TaskStartedEvent,
-  TaskTerminatedEvent,
-} from '#/agent/task/types';
-import type { McpServerStatusEvent, ShellCompletedEvent, ShellOutputEvent, ShellStartedEvent, ToolCallDeltaEvent, ToolCallStartedEvent, ToolListUpdatedEvent, ToolProgressEvent } from '#/agent/toolExecutor/toolExecutorEvents';
-import type { ToolResultEventPayload } from '#/agent/toolExecutor/toolExecutorEvents';
+  McpServerStatusEvent,
+  ShellCompletedEvent,
+  ShellOutputEvent,
+  ShellStartedEvent,
+  ToolCallDeltaEvent,
+  ToolCallStartedEvent,
+  ToolListUpdatedEvent,
+  ToolUpdatedEvent,
+  ToolResultEventPayload,
+} from '#/agent/toolExecutor/toolExecutorEvents';
 import type { AgentStatusUpdatedEvent } from '#/agent/usage/usageEvents';
 import type { CapabilityChangedEvent } from '#/app/capability/capabilityEvents';
 import type { ConfigChangedEvent, ConfigWarningEvent } from '#/app/config/configEvents';
 import type { ModelCatalogChangedEvent } from '#/app/kosongConfig/discovery';
 import type { PluginChangedEvent } from '#/app/plugin/pluginEvents';
-import type {
-  SessionCreatedEvent,
-  SessionStatusChangedEvent,
-  SessionWorkChangedEvent,
-} from '#/app/sessionLegacy/sessionProtocol';
-import type {
-  WorkspaceCreatedEvent,
-  WorkspaceDeletedEvent,
-  WorkspaceUpdatedEvent,
-} from '#/app/workspace/workspaceProtocol';
+import type { SessionCreatedEvent, SessionStatusChangedEvent, SessionWorkChangedEvent } from '#/app/sessionLegacy/sessionProtocol';
+import type { WorkspaceCreatedEvent, WorkspaceDeletedEvent, WorkspaceUpdatedEvent } from '#/app/workspace/workspaceProtocol';
 import type { CronFiredEvent } from '#/features/cron/cronOps';
 import type { HookResultEvent } from '#/features/externalHooks/agent/agentExternalHooksService';
 import type { GoalUpdatedEvent } from '#/features/goal/goalOps';
 import type { SkillActivatedEvent } from '#/features/skill/skillOps';
 import type { SubagentSuspendedEvent } from '#/features/swarm/session/sessionSwarmService';
-import type { TodoUpdatedEvent } from '#/features/todo/todoOps';
 import type { SessionMetaUpdatedEvent } from '#/session/sessionMetadata/sessionMetaEvents';
-import type {
-  SubagentCancelledEvent,
-  SubagentCompletedEvent,
-  SubagentFailedEvent,
-  SubagentSpawnedEvent,
-  SubagentStartedEvent,
-} from '#/session/subagent/mirrorAgentRun';
+import type { SubagentCancelledEvent, SubagentCompletedEvent, SubagentFailedEvent, SubagentSpawnedEvent, SubagentStartedEvent } from '#/session/subagent/mirrorAgentRun';
 
 import type { ErrorEvent, WarningEvent } from './errors';
 
@@ -82,7 +57,6 @@ export type AgentEvent =
   | SkillActivatedEvent
   | PluginCommandActivatedEvent
   | EnvironmentStatusChangedEvent
-  | TodoUpdatedEvent
   | TurnStartedEvent
   | TurnEndedEvent
   | TurnStepStartedEvent
@@ -94,7 +68,7 @@ export type AgentEvent =
   | ThinkingDeltaEvent
   | ToolCallDeltaEvent
   | ToolCallStartedEvent
-  | ToolProgressEvent
+  | ToolUpdatedEvent
   | ShellOutputEvent
   | ShellStartedEvent
   | ShellCompletedEvent
@@ -115,7 +89,6 @@ export type AgentEvent =
   | TaskTerminatedEvent
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent
-  | BackgroundTaskOutputEvent
   | CronFiredEvent
   | PromptSubmittedEvent
   | PromptCompletedEvent

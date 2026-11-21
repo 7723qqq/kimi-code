@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { getAgentProfileContributions } from '#/app/agentProfileCatalog/contribution';
 import { TOWER_WORKER_PROFILE_DEF } from '#/features/tower/workerProfile';
@@ -32,14 +32,7 @@ describe('tower-worker profile', () => {
     ]) {
       expect(tools).toContain(name);
     }
-    for (const name of [
-      'TowerInit',
-      'TowerPlan',
-      'TowerSpawn',
-      'TowerMerge',
-      'TowerRebase',
-      'TowerTeardown',
-    ]) {
+    for (const name of ['TowerInit', 'TowerPlan', 'TowerSpawn', 'TowerMerge', 'TowerRebase', 'TowerTeardown']) {
       expect(tools).not.toContain(name);
     }
   });

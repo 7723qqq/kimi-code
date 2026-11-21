@@ -1,29 +1,13 @@
 import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import { parseGoalCommand } from '#/tui/commands/index';
-
-/**
- * Headless goal-mode support for the `kimi -p "/goal <objective>"` prompt path.
- *
- * The goal driver keeps the prompt's turn-run alive across continuation turns
- * until the goal reaches a terminal state, so the existing prompt-turn waiter
- * already blocks until then. This module adds the create-on-entry parsing, a
- * machine-readable summary, and the terminal-status → exit-code mapping.
- */
+import { t } from '#/i18n';
 
 export interface HeadlessGoalCreate {
   readonly objective: string;
   readonly replace: boolean;
 }
 
-/**
- * Exit codes by final goal status. The lifecycle has only one success outcome
- * (`complete` → 0) and two resumable stopped states: `blocked` (the system
- * stopped pursuing — the model's UpdateGoal, a budget, or an error) and `paused`
- * (a turn abort / SIGINT). Both are non-zero — the goal did not complete. An absent goal
- * (should not happen on the create path) maps to success.
- */
 export const GOAL_EXIT_CODES = {
   complete: 0,
   blocked: 3,
@@ -43,14 +27,6 @@ export function goalExitCode(status: string | undefined): number {
 
 const GOAL_PREFIX = /^\/goal(\s|$)/;
 
-/**
- * Parses a headless prompt into a goal-create request, or `undefined` when the
- * prompt is not a `/goal` create command (so the caller runs it as a normal
- * prompt). Non-create goal subcommands are not supported headless and fall
- * through to normal prompt handling. Malformed create commands throw instead of
- * falling through, so validation errors are reported before anything is sent to
- * the model.
- */
 export function parseHeadlessGoalCreate(prompt: string): HeadlessGoalCreate | undefined {
   const trimmed = prompt.trim();
   if (!GOAL_PREFIX.test(trimmed)) return undefined;
@@ -98,11 +74,7 @@ export function goalSummaryJson(goal: GoalSnapshot | null): GoalSummary {
 
 export function formatGoalSummaryText(goal: GoalSnapshot | null): string {
   if (goal === null) return t('tui.statusMessages.goalNoGoalFound');
-  const parts = [t('tui.statusMessages.goalSummaryHeadline', { status: goal.status })];
+  const parts = [`Goal [${goal.status}]`];
   if (goal.terminalReason !== undefined) parts.push(goal.terminalReason);
-  return t('tui.statusMessages.goalSummaryCounts', {
-    summary: parts.join(': '),
-    turns: goal.turnsUsed,
-    tokens: goal.tokensUsed,
-  });
+  return `${parts.join(': ')} (turns: ${goal.turnsUsed}, tokens: ${goal.tokensUsed})`;
 }

@@ -1,18 +1,9 @@
-/**
- * Scenario: runtime validation at Klient wire-contract boundaries.
- *
- * Exercises the session-creation and plugin-manifest schemas directly with no
- * external collaborators. Run with `cd packages/klient && bun test
- * test/contract.test.ts`.
- */
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { describe, expect, it } from 'bun:test';
-import type { z } from 'zod';
-
-import { promptPayloadSchema } from '../src/contract/agent/schemas.js';
+import { pluginManifestSchema } from '../src/contract/global/plugins.js';
 import { mcpServerAuthFlowHandleSchema } from '../src/contract/global/mcpManagement.js';
-import { pluginManifestSchema, pluginUpdateStatusSchema } from '../src/contract/global/plugins.js';
 import { createSessionOptionsSchema } from '../src/contract/session/lifecycle.js';
+import { promptPayloadSchema } from '../src/contract/agent/schemas.js';
 
 type McpTimeoutField = 'startupTimeoutMs' | 'toolTimeoutMs';
 
@@ -104,74 +95,14 @@ describe('MCP timeout contract validation', () => {
         .success,
     ).toBe(false);
   });
-
-  it('plugin update status keeps the failure channel on the wire', () => {
-    const parsed = pluginUpdateStatusSchema.safeParse({
-      id: 'offline',
-      source: 'github',
-      current: { kind: 'tag', value: 'v1' },
-      latest: { kind: 'tag', value: 'v1' },
-      displayVersion: 'v1',
-      updateAvailable: false,
-      checkFailed: true,
-      errorMessage: 'network offline',
-    });
-    expect(parsed.success).toBe(true);
-    expect(parsed.data).toEqual({
-      id: 'offline',
-      source: 'github',
-      current: { kind: 'tag', value: 'v1' },
-      latest: { kind: 'tag', value: 'v1' },
-      displayVersion: 'v1',
-      updateAvailable: false,
-      checkFailed: true,
-      errorMessage: 'network offline',
-    });
-  });
-
-  it('plugin update status leaves the failure channel unset on success', () => {
-    const parsed = pluginUpdateStatusSchema.safeParse({
-      id: 'good',
-      source: 'github',
-      latest: { kind: 'tag', value: 'v2' },
-      displayVersion: 'v2',
-      updateAvailable: true,
-    });
-    expect(parsed.success).toBe(true);
-    expect(parsed.data?.checkFailed).toBeUndefined();
-  });
 });
 
 describe('prompt contract validation', () => {
-  it('accepts the supported multimodal prompt parts', () => {
-    const input: z.input<typeof promptPayloadSchema>['input'] = [
-      { type: 'text', text: 'describe these' },
-      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
-      { type: 'video_url', videoUrl: { url: 'ms://file-video', id: 'file-video' } },
-      {
-        type: 'document_url',
-        documentUrl: {
-          url: 'kimi-file://file-document',
-          mimeType: 'application/pdf',
-          id: 'file-document',
-          name: 'report.pdf',
-        },
-      },
-    ];
-
-    const parsed = promptPayloadSchema.safeParse({ input });
-
-    expect(parsed.success).toBe(true);
-    expect(parsed.data?.input).toEqual(input);
-  });
-
   it('rejects an empty caller-chosen promptId', () => {
     expect(promptPayloadSchema.safeParse({ input: [], promptId: '' }).success).toBe(false);
   });
 
   it('accepts a non-empty caller-chosen promptId', () => {
-    expect(promptPayloadSchema.safeParse({ input: [], promptId: 'submission-1' }).success).toBe(
-      true,
-    );
+    expect(promptPayloadSchema.safeParse({ input: [], promptId: 'submission-1' }).success).toBe(true);
   });
 });

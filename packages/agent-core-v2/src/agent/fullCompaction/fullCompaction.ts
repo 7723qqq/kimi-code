@@ -1,8 +1,10 @@
-import { createDecorator } from '#/_base/di/instantiation';
+import type {
+  CompactionResult,
+  CompactionSource,
+} from './types';
+import { createDecorator } from "#/_base/di/instantiation";
 import type { Event } from '#/_base/event';
 import type { Hooks } from '#/hooks';
-
-import type { CompactionResult, CompactionSource } from './types';
 
 export interface FullCompactionInput {
   readonly source: CompactionSource;
@@ -14,7 +16,7 @@ export interface FullCompactionTask {
   readonly promise: Promise<CompactionResult>;
   readonly trigger: CompactionSource;
   readonly tokenCount: number;
-  readonly traceId?: string;
+  readonly requestId?: string;
 }
 
 export interface IAgentFullCompactionService {
@@ -31,6 +33,4 @@ export interface IAgentFullCompactionService {
   readonly onDidFinishCompaction: Event<FullCompactionTask>;
 }
 
-export const IAgentFullCompactionService = createDecorator<IAgentFullCompactionService>(
-  'agentFullCompactionService',
-);
+export const IAgentFullCompactionService = createDecorator<IAgentFullCompactionService>('agentFullCompactionService');

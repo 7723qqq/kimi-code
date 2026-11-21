@@ -1,46 +1,43 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi, afterEach } from '@moonshot-ai/testkit/vitest';
 
-import { createStdinLineReader, readStdinText, type StdinSource } from '#/utils/process/stdin';
+const mocks = vi.hoisted(() => ({
+  createInterface: vi.fn(),
+}));
 
-function createFakeStdin() {
-  const listeners = new Map<string, (...args: unknown[]) => void>();
-  const stdin = {
-    on: mock((event: string, handler: (...args: unknown[]) => void) => {
-      listeners.set(event, handler);
-      return stdin;
-    }),
-    resume: mock(() => stdin),
-    emit(event: string, payload?: unknown): void {
-      listeners.get(event)?.(payload);
-    },
-  };
-  return stdin;
-}
+void vi.mock('node:readline', () => ({
+  createInterface: mocks.createInterface,
+}));
+
+import { createStdinLineReader, readStdinText } from '#/utils/process/stdin';
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('stdin helpers', () => {
   it('reads stdin text until end and trims the result', async () => {
-    const stdin = createFakeStdin();
+    const listeners = new Map<string, (...args: unknown[]) => void>();
+    const onSpy = vi.spyOn(process.stdin, 'on').mockImplementation(((
+      event: string,
+      handler: (...args: unknown[]) => void,
+    ) => {
+      listeners.set(event, handler);
+      return process.stdin;
+    }) as never);
+    const resumeSpy = vi.spyOn(process.stdin, 'resume').mockImplementation(() => process.stdin);
 
-    const pending = readStdinText({ stdin: stdin as unknown as StdinSource });
-    stdin.emit('data', Buffer.from(' hello world \n'));
-    stdin.emit('end');
+    const pending = readStdinText();
+    listeners.get('data')?.(Buffer.from(' hello world \n'));
+    listeners.get('end')?.();
 
     await expect(pending).resolves.toBe('hello world');
-    expect(stdin.resume).toHaveBeenCalledTimes(1);
+
+    onSpy.mockRestore();
+    resumeSpy.mockRestore();
   });
 
-  it('rejects when the stream errors', async () => {
-    const stdin = createFakeStdin();
-
-    const pending = readStdinText({ stdin: stdin as unknown as StdinSource });
-    stdin.emit('error', new Error('stdin closed'));
-
-    await expect(pending).rejects.toThrow('stdin closed');
-  });
-
-  it('yields lines from the injected line reader over the given input', async () => {
-    const stdin = createFakeStdin();
-    const openLineReader = mock((_input: StdinSource) =>
+  it('yields lines from readline', async () => {
+    mocks.createInterface.mockReturnValue(
       (async function* () {
         yield 'one';
         yield 'two';
@@ -48,15 +45,14 @@ describe('stdin helpers', () => {
     );
 
     const lines: string[] = [];
-    for await (const line of createStdinLineReader({
-      stdin: stdin as unknown as StdinSource,
-      openLineReader,
-    })) {
+    for await (const line of createStdinLineReader()) {
       lines.push(line);
     }
 
     expect(lines).toEqual(['one', 'two']);
-    expect(openLineReader).toHaveBeenCalledTimes(1);
-    expect(openLineReader.mock.calls[0]![0]).toBe(stdin as unknown as StdinSource);
+    expect(mocks.createInterface).toHaveBeenCalledWith({
+      input: process.stdin,
+      crlfDelay: Infinity,
+    });
   });
 });

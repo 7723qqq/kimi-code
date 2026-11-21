@@ -1,8 +1,5 @@
-import { describe, expect, it, mock } from 'bun:test';
-
-import { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE, type Event } from '@moonshot-ai/kimi-code-sdk';
-
-type ToolUpdate = Extract<Event, { type: 'tool.progress' }>['update'];
+import { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   McpOAuthAuthorizationUrlOpener,
@@ -12,30 +9,18 @@ import {
 
 describe('parseMcpOAuthAuthorizationUrlUpdate', () => {
   it('extracts MCP OAuth authorization URLs from structured tool updates', () => {
-    const update: ToolUpdate = {
-      kind: 'custom',
-      customKind: MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
-      customData: {
-        serverName: 'linear',
-        authorizationUrl: 'https://linear.example/oauth?state=abc',
-      },
-    };
+    const fields = authorizationUrlFields('https://linear.example/oauth?state=abc');
 
-    expect(parseMcpOAuthAuthorizationUrlUpdate(update)).toEqual({
+    expect(parseMcpOAuthAuthorizationUrlUpdate(fields)).toEqual({
       serverName: 'linear',
       authorizationUrl: 'https://linear.example/oauth?state=abc',
     });
   });
 
   it('ignores unrelated or malformed updates', () => {
-    const unrelated: ToolUpdate = {
-      kind: 'status',
-      text: 'https://linear.example/oauth?state=abc',
-    };
-    const malformed: ToolUpdate = {
-      kind: 'custom',
-      customKind: MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
-      customData: {
+    const unrelated = { status: 'https://linear.example/oauth?state=abc' };
+    const malformed = {
+      [MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE]: {
         serverName: 'linear',
         authorizationUrl: 'file:///tmp/callback',
       },
@@ -47,13 +32,13 @@ describe('parseMcpOAuthAuthorizationUrlUpdate', () => {
 });
 
 describe('McpOAuthAuthorizationUrlOpener', () => {
-  it('opens authorization URLs from structured tool progress updates', () => {
-    const openUrl = mock<OpenUrl>();
+  it('opens authorization URLs from structured tool fields', () => {
+    const openUrl = vi.fn<OpenUrl>();
     const opener = new McpOAuthAuthorizationUrlOpener(openUrl);
 
-    opener.handleToolProgress({
+    opener.handleToolUpdated({
       toolCallId: 'tool-1',
-      update: authorizationUrlUpdate('https://linear.example/oauth?state=abc'),
+      fields: authorizationUrlFields('https://linear.example/oauth?state=abc'),
     });
 
     expect(openUrl).toHaveBeenCalledTimes(1);
@@ -61,44 +46,39 @@ describe('McpOAuthAuthorizationUrlOpener', () => {
   });
 
   it('opens each authorization URL once per tool call', () => {
-    const openUrl = mock<OpenUrl>();
+    const openUrl = vi.fn<OpenUrl>();
     const opener = new McpOAuthAuthorizationUrlOpener(openUrl);
-    const update = authorizationUrlUpdate('https://linear.example/oauth?state=abc');
+    const fields = authorizationUrlFields('https://linear.example/oauth?state=abc');
 
-    opener.handleToolProgress({ toolCallId: 'tool-1', update });
-    opener.handleToolProgress({ toolCallId: 'tool-1', update });
-    opener.handleToolProgress({ toolCallId: 'tool-2', update });
+    opener.handleToolUpdated({ toolCallId: 'tool-1', fields });
+    opener.handleToolUpdated({ toolCallId: 'tool-1', fields });
+    opener.handleToolUpdated({ toolCallId: 'tool-2', fields });
 
     expect(openUrl).toHaveBeenCalledTimes(2);
     expect(openUrl).toHaveBeenNthCalledWith(1, 'https://linear.example/oauth?state=abc');
     expect(openUrl).toHaveBeenNthCalledWith(2, 'https://linear.example/oauth?state=abc');
   });
 
-  it('ignores progress updates that do not contain an MCP OAuth authorization URL', () => {
-    const openUrl = mock<OpenUrl>();
+  it('ignores field updates that do not contain an MCP OAuth authorization URL', () => {
+    const openUrl = vi.fn<OpenUrl>();
     const opener = new McpOAuthAuthorizationUrlOpener(openUrl);
 
-    opener.handleToolProgress({
+    opener.handleToolUpdated({
       toolCallId: 'tool-1',
-      update: {
-        kind: 'status',
-        text: 'https://linear.example/oauth?state=abc',
-      },
+      fields: { status: 'https://linear.example/oauth?state=abc' },
     });
-    opener.handleToolProgress({
+    opener.handleToolUpdated({
       toolCallId: 'tool-1',
-      update: authorizationUrlUpdate('file:///tmp/callback'),
+      fields: authorizationUrlFields('file:///tmp/callback'),
     });
 
     expect(openUrl).not.toHaveBeenCalled();
   });
 });
 
-function authorizationUrlUpdate(authorizationUrl: string): ToolUpdate {
+function authorizationUrlFields(authorizationUrl: string): Readonly<Record<string, unknown>> {
   return {
-    kind: 'custom',
-    customKind: MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
-    customData: {
+    [MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE]: {
       serverName: 'linear',
       authorizationUrl,
     },

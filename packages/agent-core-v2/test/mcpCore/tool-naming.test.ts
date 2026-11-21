@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { qualifyMcpToolName, sanitizeMcpNamePart } from '#/mcpCore/tool-naming';
 import { isMcpToolName } from '#/tool/toolContract';
+import { qualifyMcpToolName, sanitizeMcpNamePart } from '#/mcpCore/tool-naming';
 
 describe('sanitizeMcpNamePart', () => {
   it('passes alphanumeric, underscore, and dash through unchanged', () => {

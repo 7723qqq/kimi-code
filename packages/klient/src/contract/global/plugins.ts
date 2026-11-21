@@ -1,13 +1,3 @@
-/**
- * `pluginService` — plugin management and consumption. Mirrors
- * `agent-core-v2/app/plugin/plugin.ts` and `agent-core-v2/app/plugin/types.ts`;
- * nested `McpServerConfig` mirrors `agent-core-v2/mcpCore/config-schema.ts`,
- * `HookDefConfig` mirrors `agent-core-v2/features/externalHooks/configSection.ts`.
- * `pluginSkillRoots`, `enabledSessionStarts`, `enabledSystemPrompts`,
- * `enabledMcpServers`, and `enabledHooks` are excluded (not part of the
- * klient wire surface).
- */
-
 import { z } from 'zod';
 
 import { noResult } from '../helpers.js';
@@ -28,12 +18,22 @@ const pluginSessionStartSchema = z.object({
   skill: z.string(),
 });
 
+const pluginInterfaceOverrideSchema = z.object({
+  displayName: z.string().optional(),
+  description: z.string().optional(),
+  iconUrl: z.string().optional(),
+});
+
 const pluginInterfaceSchema = z.object({
   displayName: z.string().optional(),
   shortDescription: z.string().optional(),
   longDescription: z.string().optional(),
   developerName: z.string().optional(),
   websiteURL: z.string().optional(),
+  defaultLocale: z.string().optional(),
+  locales: z.string().optional(),
+  mcpOverrides: z.record(z.string(), pluginInterfaceOverrideSchema).optional(),
+  skillOverrides: z.record(z.string(), pluginInterfaceOverrideSchema).optional(),
 });
 
 const hookDefSchema = z.object({
@@ -99,14 +99,11 @@ export const pluginManifestSchema = z.object({
   systemPrompt: z.string().optional(),
 });
 
-export const pluginSkillInfoSchema = z.object({
+export const pluginMcpServerInfoSchema = z.object({
   name: z.string(),
   displayName: z.string().optional(),
   description: z.string().optional(),
-});
-
-export const pluginMcpServerInfoSchema = z.object({
-  name: z.string(),
+  iconUrl: z.string().optional(),
   runtimeName: z.string(),
   enabled: z.boolean(),
   transport: z.enum(['stdio', 'http', 'sse']),
@@ -143,10 +140,20 @@ export const pluginSummarySchema = z.object({
   source: pluginSourceSchema,
   origin: z.enum(['marketplace', 'custom', 'unknown']),
   catalogId: z.string().optional(),
-  marketplaceSource: z.string().optional(),
+  installedAt: z.string(),
   originalSource: z.string().optional(),
   github: pluginGithubMetadataSchema.optional(),
-  installedAt: z.string(),
+});
+
+export const pluginSkillInfoSchema = z.object({
+  name: z.string(),
+  displayName: z.string().optional(),
+  description: z.string().optional(),
+});
+
+export const pluginCapabilitiesSchema = z.object({
+  skills: z.array(pluginSkillInfoSchema),
+  mcpServers: z.array(pluginMcpServerInfoSchema),
 });
 
 export const pluginInfoSchema = pluginSummarySchema.extend({
@@ -161,7 +168,6 @@ export const pluginInfoSchema = pluginSummarySchema.extend({
   diagnostics: z.array(pluginDiagnosticSchema),
 });
 
-/** Same shape as `reloadSummarySchema` in `./events.js` — keep in sync. */
 export const reloadSummarySchema = z.object({
   added: z.array(z.string()),
   removed: z.array(z.string()),
@@ -175,8 +181,6 @@ export const pluginUpdateStatusSchema = z.object({
   latest: pluginGithubRefSchema,
   displayVersion: z.string(),
   updateAvailable: z.boolean(),
-  checkFailed: z.boolean().optional(),
-  errorMessage: z.string().optional(),
 });
 
 export const pluginCommandDefSchema = z.object({
@@ -188,16 +192,16 @@ export const pluginCommandDefSchema = z.object({
 });
 
 export const installPluginInputSchema = z.union([
-  z.object({
-    source: z.string(),
-  }),
-  z.object({
-    marketplaceId: z.string(),
-    expectedVersion: z.string().optional(),
-    expectedSha256: z.string().optional(),
-    marketplaceSource: z.string().optional(),
-    migrateFrom: z.string().optional(),
-  }),
+  z.object({ source: z.string() }).strict(),
+  z
+    .object({
+      marketplaceId: z.string(),
+      expectedVersion: z.string().optional(),
+      expectedSha256: z.string().optional(),
+      marketplaceSource: z.string().optional(),
+      migrateFrom: z.string().optional(),
+    })
+    .strict(),
 ]);
 
 export const setPluginEnabledInputSchema = z.object({
@@ -217,6 +221,7 @@ export const removePluginInputSchema = z.object({
 
 export const getPluginInfoInputSchema = z.object({
   id: z.string(),
+  locale: z.string().optional(),
 });
 
 export const pluginsContract = {

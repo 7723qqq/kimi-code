@@ -13,14 +13,8 @@ import { IProviderService } from '#/llm-adapter/provider/provider';
 
 import { IRegionService } from './region';
 
-export interface KimiRegionEnv extends Record<string, string | undefined> {
-  readonly KIMI_CODE_BASE_URL?: string | undefined;
-  readonly KIMI_CODE_OAUTH_HOST?: string | undefined;
-  readonly KIMI_OAUTH_HOST?: string | undefined;
-}
-
-export function kimiRegionEnv(bootstrap: IBootstrapService): KimiRegionEnv {
-  const env: Record<string, string | undefined> = { ...process.env };
+export function kimiRegionEnv(bootstrap: IBootstrapService): NodeJS.ProcessEnv {
+  const env = { ...process.env };
   const oauthHost = bootstrap.getEnv('KIMI_CODE_OAUTH_HOST');
   const legacyOAuthHost = bootstrap.getEnv('KIMI_OAUTH_HOST');
   const baseUrl = bootstrap.getEnv('KIMI_CODE_BASE_URL');
@@ -48,8 +42,8 @@ export class RegionService extends Disposable implements IRegionService {
       homeDir: bootstrap.homeDir,
       env: kimiRegionEnv(bootstrap),
       readMarker:
-        (bootstrap.getEnv('KIMI_CODE_REGION_MARKER') ?? process.env['KIMI_CODE_REGION_MARKER']) !==
-        'off',
+        (bootstrap.getEnv('KIMI_CODE_REGION_MARKER') ??
+          process.env['KIMI_CODE_REGION_MARKER']) !== 'off',
       readAuth: () => {
         if (!this.providerHydrated) return { status: 'unreadable' };
         const ref = this.providers.get(KIMI_CODE_PROVIDER_NAME)?.oauth;

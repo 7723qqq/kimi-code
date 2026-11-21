@@ -24,8 +24,9 @@ export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 const KIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
   [ErrorCodes.SESSION_NOT_FOUND]: ErrorCode.SESSION_NOT_FOUND,
-  [ErrorCodes.AGENT_NOT_FOUND]: ErrorCode.AGENT_NOT_FOUND,
+  [ErrorCodes.AGENT_NOT_FOUND]: ErrorCode.SESSION_NOT_FOUND,
   [ErrorCodes.SESSION_UNDO_UNAVAILABLE]: ErrorCode.SESSION_UNDO_UNAVAILABLE,
+  [ErrorCodes.TURN_NOT_FOUND]: ErrorCode.TURN_NOT_FOUND,
   [ErrorCodes.REQUEST_INVALID]: ErrorCode.VALIDATION_FAILED,
   [ErrorCodes.CONFIG_INVALID]: ErrorCode.VALIDATION_FAILED,
   [ErrorCodes.MODEL_CONFIG_INVALID]: ErrorCode.VALIDATION_FAILED,
@@ -33,20 +34,11 @@ const KIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
   [ErrorCodes.NOT_IMPLEMENTED]: ErrorCode.INTERNAL_ERROR,
   [ErrorCodes.PROMPT_NOT_FOUND]: ErrorCode.PROMPT_NOT_FOUND,
   [ErrorCodes.FS_PATH_NOT_FOUND]: ErrorCode.FS_PATH_NOT_FOUND,
-  [ErrorCodes.WIRE_VERSION_TOO_LOW]: ErrorCode.WIRE_VERSION_TOO_LOW,
   [ErrorCodes.SESSION_BUSY]: ErrorCode.SESSION_BUSY,
   [ErrorCodes.SESSION_FORK_ACTIVE_TURN]: ErrorCode.SESSION_BUSY,
   [ErrorCodes.SESSION_OCCUPIED]: ErrorCode.SESSION_OCCUPIED,
   [ErrorCodes.SESSION_STALE]: ErrorCode.SESSION_STALE,
   [ErrorCodes.COMPACTION_UNABLE]: ErrorCode.COMPACTION_UNABLE,
-  [ErrorCodes.TURN_NOT_FOUND]: ErrorCode.TURN_NOT_FOUND,
-  [ErrorCodes.PROMPT_OPTIMIZER_BUSY]: ErrorCode.PROMPT_OPTIMIZER_BUSY,
-  [ErrorCodes.PROMPT_OPTIMIZER_DISABLED]: ErrorCode.PROMPT_OPTIMIZER_DISABLED,
-  [ErrorCodes.PROMPT_OPTIMIZER_EMPTY_DRAFT]: ErrorCode.PROMPT_OPTIMIZER_EMPTY_DRAFT,
-  [ErrorCodes.PROMPT_OPTIMIZER_INPUT_TOO_LONG]: ErrorCode.PROMPT_OPTIMIZER_INPUT_TOO_LONG,
-  [ErrorCodes.PROMPT_OPTIMIZER_NO_OUTPUT]: ErrorCode.PROMPT_OPTIMIZER_NO_OUTPUT,
-  [ErrorCodes.PROMPT_OPTIMIZER_OUTPUT_TOO_LONG]: ErrorCode.PROMPT_OPTIMIZER_OUTPUT_TOO_LONG,
-  [ErrorCodes.PROMPT_OPTIMIZER_TIMEOUT]: ErrorCode.PROMPT_OPTIMIZER_TIMEOUT,
   [ErrorCodes.FILE_NOT_FOUND]: ErrorCode.FILE_NOT_FOUND,
   [ErrorCodes.SKILL_NOT_FOUND]: ErrorCode.SKILL_NOT_FOUND,
   [ErrorCodes.SKILL_NAME_EMPTY]: ErrorCode.SKILL_NOT_FOUND,
@@ -67,16 +59,12 @@ const KIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
   [ErrorCodes.OS_FS_PERMISSION_DENIED]: ErrorCode.FS_PERMISSION_DENIED,
   [ErrorCodes.STORAGE_IO_FAILED]: ErrorCode.PERSISTENCE_FAILURE,
   [ErrorCodes.STORAGE_LOCKED]: ErrorCode.PERSISTENCE_FAILURE,
-  [ErrorCodes.CONFIG_PERSIST_BLOCKED]: ErrorCode.PERSISTENCE_FAILURE,
+  [ErrorCodes.WIRE_VERSION_TOO_LOW]: ErrorCode.WIRE_VERSION_TOO_LOW,
   [ErrorCodes.SESSION_TOWER_MODE_INVALID]: ErrorCode.TOWER_MODE_INVALID,
   [ErrorCodes.AUTH_PROVISIONING_REQUIRED]: ErrorCode.AUTH_PROVISIONING_REQUIRED,
   [ErrorCodes.AUTH_TOKEN_MISSING]: ErrorCode.AUTH_TOKEN_MISSING,
   [ErrorCodes.AUTH_MODEL_NOT_RESOLVED]: ErrorCode.AUTH_MODEL_NOT_RESOLVED,
 };
-
-export interface UnmappedCodeReporter {
-  warn(obj: object, msg: string): void;
-}
 
 const PUBLIC_DETAIL_CODES: ReadonlySet<string> = new Set([
   ErrorCodes.SESSION_OCCUPIED,
@@ -86,26 +74,11 @@ const PUBLIC_DETAIL_CODES: ReadonlySet<string> = new Set([
   ErrorCodes.AUTH_MODEL_NOT_RESOLVED,
 ]);
 
-export function mapError(
-  err: unknown,
-  requestId: string,
-  reporter?: UnmappedCodeReporter,
-): ReturnType<typeof errEnvelope> {
+export function mapError(err: unknown, requestId: string): ReturnType<typeof errEnvelope> {
   if (err instanceof Error2) {
-    const mapped = KIMI_TO_PROTOCOL[err.code];
-    if (mapped === undefined) {
-      reporter?.warn(
-        { code: err.code, request_id: requestId },
-        'engine error code has no wire equivalent; reporting INTERNAL_ERROR',
-      );
-    }
+    const code = KIMI_TO_PROTOCOL[err.code] ?? ErrorCode.INTERNAL_ERROR;
     const details = PUBLIC_DETAIL_CODES.has(err.code) ? err.details : undefined;
-    return errEnvelope(
-      mapped ?? ErrorCode.INTERNAL_ERROR,
-      err.message,
-      requestId,
-      details,
-    );
+    return errEnvelope(code, err.message, requestId, details);
   }
   if (err instanceof TimeoutError) {
     return errEnvelope(ErrorCode.INTERNAL_ERROR, err.message, requestId);
@@ -120,9 +93,8 @@ export function mapError(
 export function mapDebugError(
   err: unknown,
   requestId: string,
-  reporter?: UnmappedCodeReporter,
 ): ReturnType<typeof errEnvelope> & { stack?: string } {
-  return { ...mapError(err, requestId, reporter), stack: err instanceof Error ? err.stack : undefined };
+  return { ...mapError(err, requestId), stack: err instanceof Error ? err.stack : undefined };
 }
 
 export function validationEnvelope(

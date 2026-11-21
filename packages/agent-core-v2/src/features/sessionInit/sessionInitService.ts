@@ -1,6 +1,6 @@
 import { isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { loadAgentsMdDetailed } from '#/agent/profile/context';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -14,8 +14,8 @@ import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 
-import { DEFAULT_INIT_PROMPT, initCompletionReminder } from './profile/init';
 import { ISessionInitService } from './sessionInit';
+import { DEFAULT_INIT_PROMPT, initCompletionReminder } from './profile/init';
 
 const INIT_PROFILE_NAME = 'coder';
 const INIT_PARENT_TOOL_CALL_ID = 'generate-agents-md';
@@ -46,7 +46,7 @@ export class SessionInitService implements ISessionInitService {
     const controller = new AbortController();
     this.initRun = controller;
     try {
-      const own = main.accessor.get(IAgentProfileService).data();
+      const own = main.accessor.get(IAgentLoopService).data();
       if (own.modelAlias === undefined) {
         throw new Error2(ErrorCodes.SESSION_INIT_FAILED, 'Main agent has no model bound');
       }

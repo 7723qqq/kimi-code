@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.production.json",
+  "include": [
+    "src/global.d.ts",
+    "src/main",
+    "src/backend",
+    "src/shared",
+    "tests/main/server/bun-backend.test.ts",
+    "tests/main/server/bun-browser.test.ts",
+    "tests/main/server/embedded-server.test.ts",
+    "tests/main/server/server-auth.test.ts",
+    "tests/main/server/searchWorkerBundle.test.ts",
+    "tests/main/server/fixtures/backend-process.ts",
+    "tests/main/diagnostics/telemetry.test.ts"
+  ],
+  "exclude": ["src/renderer", "out", "out-backend", "backend-dist", "desktop-dist", "dist-app"]
+}

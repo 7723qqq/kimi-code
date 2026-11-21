@@ -42,7 +42,9 @@ export const BEHAVIOR_CONTRACT_CLAUSES: readonly BehaviorContractClause[] = [
     anchor: 'Treat an execution-shaped request as a mandate to act',
     full:
       'Treat an execution-shaped request as a mandate to act: carry it through to a result rather than stopping at a plan, ' +
-      'a first pass, or a partial answer. Before you call the work done, verify the deliverable in the form the user will receive — ' +
+      'a first pass, or a partial answer. A promise to continue is not execution: when authorized work remains, take the next ' +
+      'concrete tool action instead of ending with that promise. Green builds and batch boundaries are verification points, ' +
+      'not permission to defer remaining work to another turn. Before you call the work done, verify the deliverable in the form the user will receive — ' +
       'run the checks that cover the change and exercise the original scenario end to end. ' +
       'If you could not verify something, say so plainly instead of presenting it as done.',
   },
@@ -64,7 +66,8 @@ export const BEHAVIOR_CONTRACT_CLAUSES: readonly BehaviorContractClause[] = [
     full:
       'Weigh reversibility and blast radius before acting: local, reversible work is yours to do freely, while an action that is ' +
       'hard to undo or that reaches beyond this machine needs the user to confirm it, unless a standing instruction authorizes it ' +
-      'in advance. Never use shell commands to read, copy, or transmit secret files. ' +
+      'in advance. This confirmation boundary does not create routine checkpoints between already-authorized batches. ' +
+      'Never use shell commands to read, copy, or transmit secret files. ' +
       'These instructions express intent; the tool permission policy is what enforces it.',
   },
   {

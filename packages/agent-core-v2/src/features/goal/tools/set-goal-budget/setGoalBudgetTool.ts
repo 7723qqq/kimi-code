@@ -1,24 +1,23 @@
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
+import { type ToolExecution } from '#/tool/toolContract';
+
 import { IAgentGoalService } from '#/features/goal/goalService';
 import type { GoalBudgetLimits, GoalSnapshot } from '#/features/goal/types';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { RepoMutations, ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
+import DESCRIPTION from './set-goal-budget.md?raw';
 import {
   SetGoalBudgetToolInputSchema,
   ISetGoalBudgetTool,
   type SetGoalBudgetToolInput,
 } from './set-goal-budget';
-import DESCRIPTION from './set-goal-budget.md?raw';
 
 const MIN_REASONABLE_TIME_BUDGET_MS = 1_000;
 
 export class SetGoalBudgetTool implements ISetGoalBudgetTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'SetGoalBudget' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SetGoalBudgetToolInputSchema);
 
@@ -33,16 +32,11 @@ export class SetGoalBudgetTool implements ISetGoalBudgetTool {
     const normalizedArgs = normalizeBudgetInput(args);
     const budget = budgetLimitsFromInput(normalizedArgs);
     const goalAtResolution = this.goal.getGoal().goal;
-    const overBudgetAfterSet =
-      budget !== null &&
-      goalAtResolution !== null &&
-      this.wouldExceedBudget(goalAtResolution, budget);
     return {
       description: `Setting goal budget: ${formatBudget(
         normalizedArgs.value,
         normalizedArgs.unit,
       )}`,
-      stopBatchAfterThis: overBudgetAfterSet,
       approvalRule: this.name,
       execute: async ({ turnId }) => {
         const currentGoal = this.goal.getGoal().goal;
@@ -68,7 +62,6 @@ export class SetGoalBudgetTool implements ISetGoalBudgetTool {
             output:
               `Goal budget set: ${formatBudget(normalizedArgs.value, normalizedArgs.unit)}. ` +
               'The goal has already reached this budget and will stop now.',
-            stopTurn: true,
           };
         }
         return {
@@ -90,6 +83,7 @@ export class SetGoalBudgetTool implements ISetGoalBudgetTool {
     );
   }
 }
+
 
 function normalizeBudgetInput(input: SetGoalBudgetToolInput): SetGoalBudgetToolInput {
   switch (input.unit) {

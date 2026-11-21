@@ -1,20 +1,4 @@
-// apps/vis/web/src/lib/analysis.ts
-//
-// Fold a flat wire timeline into the agent's natural execution structure —
-// turns → steps → tool calls — and derive the metrics a data-analysis view
-// needs but the raw record list does not surface:
-//   - per-turn / per-step / per-tool wall-clock duration (from record `time`)
-//   - per-turn token cost (sum of step usages) and cache-hit rate
-//   - context-window fill over time (mirrors the engine's snapshot formula)
-//   - tool-result truncation / size / error flags
-//   - tool usage stats (count, error rate, latency)
-//   - idle gaps (large wall-clock gaps between records → waiting)
-//
-// Pure: consumes the same `WireEntry[]` the Wire tab already fetches, so the
-// Timeline view needs no extra server round-trip.
-
 import type { TokenUsage, WireEntry } from '../types';
-import { recordTime } from '../util/time';
 
 export interface ContentSummary {
   textChars: number;
@@ -29,13 +13,10 @@ export interface ToolCallNode {
   callTime?: number;
   resultLineNo?: number;
   resultTime?: number;
-  /** resultTime − callTime, when both are known. */
   durationMs?: number;
   isError?: boolean;
   truncated?: boolean;
-  /** Approximate byte size of the tool result output. */
   outputBytes?: number;
-  /** Optional human-readable side-channel message on the result. */
   resultMessage?: string;
 }
 
@@ -51,14 +32,11 @@ export interface StepNode {
   finishReason?: string;
   isError?: boolean;
   usage?: TokenUsage;
-  /** Context-window fill after this step (the engine's snapshot formula). */
   contextTokens?: number;
   llmFirstTokenLatencyMs?: number;
   llmStreamDurationMs?: number;
-  /** TTFT split: client-side request-build vs. network + API-server time. */
   llmRequestBuildMs?: number;
   llmServerFirstTokenMs?: number;
-  /** Decode split: server time awaiting parts vs. client time processing them. */
   llmServerDecodeMs?: number;
   llmClientConsumeMs?: number;
   llmClientBlockedMs?: number;
@@ -68,7 +46,6 @@ export interface StepNode {
 
 export interface TurnNode {
   index: number;
-  /** 'prompt' | 'steer' — how the turn was kicked off. */
   trigger: 'prompt' | 'steer';
   promptLineNo: number;
   promptTime?: number;
@@ -77,16 +54,12 @@ export interface TurnNode {
   steps: StepNode[];
   startTime?: number;
   endTime?: number;
-  /** Engine-reported duration, or endTime − startTime for legacy wires. */
   durationMs?: number;
-  /** promptTime − previous turn's endTime (time the agent sat idle/waiting). */
   waitBeforeMs?: number;
-  /** Durable turn identity, available once `turn.ended` is recorded. */
   turnId?: number;
   endLineNo?: number;
   outcome?: 'completed' | 'cancelled' | 'failed' | 'blocked';
   stopReason?: string;
-  /** Sum of this turn's step usages — total tokens processed (billing cost). */
   tokens: TokenUsage;
   toolCallCount: number;
   toolErrorCount: number;
@@ -106,7 +79,6 @@ export interface ToolStat {
   count: number;
   errorCount: number;
   truncatedCount: number;
-  /** Number of calls that had both call and result times (so durationMs). */
   timedCount: number;
   totalMs: number;
   avgMs: number | null;
@@ -118,24 +90,20 @@ export interface IdleGap {
   afterLineNo: number;
   beforeLineNo: number;
   gapMs: number;
-  /** Heuristic label for what the gap represents. */
   kind: 'between_turns' | 'in_turn';
 }
 
 export interface ConfigChange {
   lineNo: number;
   time?: number;
-  /** Human-readable field=value pairs that this config.update changed. */
   changed: { field: string; value: string }[];
 }
 
 export interface CacheStats {
   inputOther: number;
-  inputCacheRead: number;
+  inputCacheRead?: number;
   inputCacheCreation: number;
   output: number;
-  /** Reads / (reads + creations) when cache writes are reported, otherwise the
-   *  share of total input served from cache. null when neither reads nor writes exist. */
   hitRate: number | null;
 }
 
@@ -145,15 +113,10 @@ export interface AnalysisSummary {
   toolCallCount: number;
   toolErrorCount: number;
   truncatedToolCount: number;
-  /** Sum of all step usages — total tokens processed across the session. */
-  totalTokens: number;
-  /** Latest context-window fill (last step.end snapshot). */
+  totalTokens: number | undefined;
   contextTokens: number;
-  /** Peak context-window fill seen across the session. */
   peakContextTokens: number;
-  /** lastRecordTime − firstRecordTime. */
   wallClockMs: number | null;
-  /** Sum of turn active durations (excludes idle/waiting). */
   activeMs: number;
 }
 
@@ -174,23 +137,25 @@ const ZERO_USAGE: TokenUsage = {
   inputCacheCreation: 0,
 };
 
-/** Idle gaps shorter than this are noise; only larger ones get surfaced. */
 const IDLE_GAP_MS = 3000;
 
 function addUsage(into: TokenUsage, u: TokenUsage): void {
   into.inputOther += u.inputOther;
   into.output += u.output;
-  into.inputCacheRead += u.inputCacheRead;
+  into.inputCacheRead =
+    into.inputCacheRead === undefined || u.inputCacheRead === undefined
+      ? undefined
+      : into.inputCacheRead + u.inputCacheRead;
   into.inputCacheCreation += u.inputCacheCreation;
 }
 
-function usageTotal(u: TokenUsage): number {
+function usageTotal(u: TokenUsage): number | undefined {
+  if (u.inputCacheRead === undefined) return undefined;
   return u.inputOther + u.output + u.inputCacheRead + u.inputCacheCreation;
 }
 
-/** Context-window fill after a step, mirroring the engine's token counting. */
-function contextFill(u: TokenUsage): number {
-  return u.inputCacheRead + u.inputCacheCreation + u.inputOther + u.output;
+function contextFill(u: TokenUsage): number | undefined {
+  return usageTotal(u);
 }
 
 function firstText(input: readonly unknown[] | undefined): string {
@@ -242,13 +207,7 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
   let prevTime: number | undefined;
   let prevLineNo = 0;
 
-  const startTurn = (
-    trigger: 'prompt' | 'steer',
-    lineNo: number,
-    time: number | undefined,
-    text: string,
-    originKind: string | undefined,
-  ): TurnNode => {
+  const startTurn = (trigger: 'prompt' | 'steer', lineNo: number, time: number | undefined, text: string, originKind: string | undefined): TurnNode => {
     const node: TurnNode = {
       index: turns.length,
       trigger,
@@ -271,7 +230,7 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
 
   for (const entry of entries) {
     const rec = entry.data;
-    const t = recordTime(rec);
+    const t = rec.time;
     if (t !== undefined) {
       firstTime ??= t;
       lastTime = t;
@@ -280,11 +239,10 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
           afterLineNo: prevLineNo,
           beforeLineNo: entry.lineNo,
           gapMs: t - prevTime,
-          // A gap straddling a turn boundary is "waiting for the user"; a gap
-          // inside a turn is the agent/tool being slow.
           kind:
             rec.type === 'turn.prompt' ||
-            (rec.type === 'turn.steer' && (current === null || current.outcome !== undefined))
+            (rec.type === 'turn.steer' &&
+              (current === null || current.outcome !== undefined))
               ? 'between_turns'
               : 'in_turn',
         });
@@ -315,9 +273,7 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         if (
           current !== null &&
           rec.target !== 'queued' &&
-          (rec.turnId === undefined ||
-            current.turnId === undefined ||
-            current.turnId === rec.turnId)
+          (rec.turnId === undefined || current.turnId === undefined || current.turnId === rec.turnId)
         ) {
           current.cancelled = true;
         }
@@ -349,8 +305,6 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
       case 'token_counting.truncated':
       case 'token_counting.rebased':
       case 'token_counting.turn_recorded':
-        // v2's replacement for `context.update_token_count`: the record's
-        // `tokens` is the agent's current context-window fill.
         contextTokens = rec.tokens;
         contextSeries.push({
           lineNo: entry.lineNo,
@@ -365,17 +319,9 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         contextTokens = 0;
         break;
       case 'context.apply_compaction':
-        // `tokensAfter` is optional in the v2 payload (absent on legacy
-        // variants) — keep the prior count then.
         if (rec.tokensAfter !== undefined) {
           contextTokens = rec.tokensAfter;
-          contextSeries.push({
-            lineNo: entry.lineNo,
-            time: t,
-            turnIndex: current?.index ?? -1,
-            step: -1,
-            contextTokens,
-          });
+          contextSeries.push({ lineNo: entry.lineNo, time: t, turnIndex: current?.index ?? -1, step: -1, contextTokens });
           if (contextTokens > peakContext) peakContext = contextTokens;
         }
         break;
@@ -384,27 +330,21 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         const cwd = rec.environmentDisclosure?.cwd;
         const effort = rec.thinkingEffort ?? rec.thinkingLevel;
         const changed: { field: string; value: string }[] = [];
-        if (rec.profileName !== undefined)
-          changed.push({ field: 'profile', value: rec.profileName });
+        if (rec.profileName !== undefined) changed.push({ field: 'profile', value: rec.profileName });
         if (rec.modelAlias !== undefined) changed.push({ field: 'model', value: rec.modelAlias });
         if (effort !== undefined) changed.push({ field: 'thinking', value: effort });
         if (cwd !== undefined) changed.push({ field: 'cwd', value: cwd });
-        if (rec.systemPrompt !== undefined)
-          changed.push({ field: 'systemPrompt', value: `${rec.systemPrompt.length} chars` });
+        if (rec.systemPrompt !== undefined) changed.push({ field: 'systemPrompt', value: `${rec.systemPrompt.length} chars` });
         if (changed.length > 0) configChanges.push({ lineNo: entry.lineNo, time: t, changed });
         break;
       }
 
       case 'profile.bind': {
-        // v2 writes most initial config state on `profile.bind` rather than
-        // `config.update`.
         const changed: { field: string; value: string }[] = [];
-        if (rec.profileName !== undefined)
-          changed.push({ field: 'profile', value: rec.profileName });
+        if (rec.profileName !== undefined) changed.push({ field: 'profile', value: rec.profileName });
         if (rec.modelAlias !== undefined) changed.push({ field: 'model', value: rec.modelAlias });
         changed.push({ field: 'thinking', value: rec.thinkingEffort });
-        if (rec.environmentDisclosure !== undefined)
-          changed.push({ field: 'cwd', value: rec.environmentDisclosure.cwd });
+        if (rec.environmentDisclosure !== undefined) changed.push({ field: 'cwd', value: rec.environmentDisclosure.cwd });
         changed.push({ field: 'systemPrompt', value: `${rec.systemPrompt.length} chars` });
         configChanges.push({ lineNo: entry.lineNo, time: t, changed });
         break;
@@ -413,25 +353,29 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
       case 'context.append_loop_event': {
         const ev = rec.event;
         if (ev.type === 'step.begin') {
-          const parsedTurnId = ev.turnId === undefined ? undefined : Number.parseInt(ev.turnId, 10);
+          const parsedTurnId =
+            ev.turnId === undefined ? undefined : Number.parseInt(ev.turnId, 10);
           const validTurnId =
-            parsedTurnId !== undefined && Number.isInteger(parsedTurnId) ? parsedTurnId : undefined;
+            parsedTurnId !== undefined && Number.isInteger(parsedTurnId)
+              ? parsedTurnId
+              : undefined;
           let turn: TurnNode | null = current;
           if (
             turn === null ||
             turn.outcome !== undefined ||
-            (validTurnId !== undefined && turn.turnId !== undefined && turn.turnId !== validTurnId)
+            (validTurnId !== undefined &&
+              turn.turnId !== undefined &&
+              turn.turnId !== validTurnId)
           ) {
-            turn =
-              pendingSteer === null
-                ? startTurn('prompt', entry.lineNo, t, '(no prompt record)', undefined)
-                : startTurn(
-                    'steer',
-                    pendingSteer.lineNo,
-                    pendingSteer.time,
-                    pendingSteer.text,
-                    pendingSteer.originKind,
-                  );
+            turn = pendingSteer === null
+              ? startTurn('prompt', entry.lineNo, t, '(no prompt record)', undefined)
+              : startTurn(
+                  'steer',
+                  pendingSteer.lineNo,
+                  pendingSteer.time,
+                  pendingSteer.text,
+                  pendingSteer.originKind,
+                );
           }
           pendingSteer = null;
           current = turn;
@@ -440,8 +384,6 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
           }
           const step: StepNode = {
             uuid: ev.uuid,
-            // `step` / `turnId` are optional on v2 loop events; fall back so
-            // the timeline stays numeric for old and new wires alike.
             step: ev.step ?? -1,
             turnId: ev.turnId ?? '',
             beginLineNo: entry.lineNo,
@@ -465,19 +407,14 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
             step.llmServerDecodeMs = ev.llmServerDecodeMs;
             step.llmClientConsumeMs = ev.llmClientConsumeMs;
             step.llmClientBlockedMs = ev.llmClientBlockedMs;
-            if (step.beginTime !== undefined && t !== undefined)
-              step.durationMs = t - step.beginTime;
+            if (step.beginTime !== undefined && t !== undefined) step.durationMs = t - step.beginTime;
             step.isError = ev.finishReason === 'filtered' || ev.finishReason === 'error';
             if ('usage' in ev && ev.usage !== undefined) {
               step.usage = ev.usage;
               if (current) addUsage(current.tokens, ev.usage);
               addUsage(cache, ev.usage);
-              // A zero-usage step.end (e.g. a content-filtered response) must
-              // not reset the context-window fill to 0 — the engine's
-              // token counting keeps the prior snapshot in that case. Carry the
-              // running value so the chart shows no false drop.
               const fill = contextFill(ev.usage);
-              if (fill > 0) {
+              if (fill !== undefined && fill > 0) {
                 contextTokens = fill;
                 if (contextTokens > peakContext) peakContext = contextTokens;
               }
@@ -497,7 +434,6 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
             callLineNo: entry.lineNo,
             toolCallId: ev.toolCallId,
             name: ev.name,
-            // v2 no longer persists `description`; v1 wires still carry it.
             description: (ev as { description?: string }).description,
             callTime: t,
           };
@@ -518,7 +454,6 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         } else if (ev.type === 'tool.result') {
           const node = toolByCallId.get(ev.toolCallId);
           const isError = ev.result.isError === true;
-          // v1 persisted `truncated` / `message`; v2 persists `note` instead.
           const result = ev.result as { truncated?: boolean; message?: string; note?: string };
           const truncated = result.truncated === true;
           const bytes = outputSize(ev.result.output);
@@ -542,7 +477,6 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
     }
   }
 
-  // Tool calls that never resolved still count toward stats (no duration).
   for (const node of toolByCallId.values()) {
     if (node.resultLineNo === undefined) recordToolStat(toolStatMap, node);
   }
@@ -568,17 +502,7 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
 function recordToolStat(map: Map<string, ToolStat>, node: ToolCallNode): void {
   let s = map.get(node.name);
   if (!s) {
-    s = {
-      name: node.name,
-      count: 0,
-      errorCount: 0,
-      truncatedCount: 0,
-      timedCount: 0,
-      totalMs: 0,
-      avgMs: null,
-      maxMs: null,
-      totalOutputBytes: 0,
-    };
+    s = { name: node.name, count: 0, errorCount: 0, truncatedCount: 0, timedCount: 0, totalMs: 0, avgMs: null, maxMs: null, totalOutputBytes: 0 };
     map.set(node.name, s);
   }
   s.count += 1;
@@ -603,7 +527,7 @@ function summarize(
   let toolCallCount = 0;
   let toolErrorCount = 0;
   let truncatedToolCount = 0;
-  let totalTokens = 0;
+  let totalTokens: number | undefined = 0;
   let activeMs = 0;
   for (const turn of turns) {
     if (
@@ -616,7 +540,11 @@ function summarize(
     stepCount += turn.steps.length;
     toolCallCount += turn.toolCallCount;
     toolErrorCount += turn.toolErrorCount;
-    totalTokens += usageTotal(turn.tokens);
+    const turnTotal = usageTotal(turn.tokens);
+    totalTokens =
+      totalTokens === undefined || turnTotal === undefined
+        ? undefined
+        : totalTokens + turnTotal;
     activeMs += turn.durationMs ?? 0;
     for (const step of turn.steps) {
       for (const tc of step.toolCalls) if (tc.truncated) truncatedToolCount += 1;
@@ -637,24 +565,18 @@ function summarize(
 }
 
 function cacheStats(c: TokenUsage): CacheStats {
-  // Same two-branch rule as the CLI's cache-hit readout: reads over reads plus
-  // creations when the provider reports cache writes, otherwise the share of
-  // total input served from cache. OpenAI-compatible endpoints never report a
-  // creation counter, so reads/(reads+creations) would read 100% on any read.
-  let hitRate: number | null;
-  if (c.inputCacheCreation > 0) {
-    hitRate = c.inputCacheRead / (c.inputCacheRead + c.inputCacheCreation);
-  } else if (c.inputCacheRead > 0) {
-    const inputTotal = c.inputCacheRead + c.inputOther;
-    hitRate = inputTotal > 0 ? c.inputCacheRead / inputTotal : null;
-  } else {
-    hitRate = null;
-  }
+  const inputTotal =
+    c.inputCacheRead === undefined
+      ? undefined
+      : c.inputOther + c.inputCacheRead + c.inputCacheCreation;
   return {
     inputOther: c.inputOther,
     inputCacheRead: c.inputCacheRead,
     inputCacheCreation: c.inputCacheCreation,
     output: c.output,
-    hitRate,
+    hitRate:
+      c.inputCacheRead === undefined || inputTotal === undefined || inputTotal === 0
+        ? null
+        : c.inputCacheRead / inputTotal,
   };
 }

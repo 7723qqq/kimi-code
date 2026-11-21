@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
-import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
-import { type ConfigDiagnostic, type ConfigStripEnv, envBindings } from '#/app/config/config';
+import {
+  type ConfigDiagnostic,
+  type ConfigStripEnv,
+  envBindings,
+} from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
 import {
   camelToSnake,
@@ -12,16 +15,16 @@ import {
   snakeToCamel,
   transformPlainObject,
 } from '#/app/config/toml';
+import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
 import {
   modelUpgradeSchema,
   type ModelOverride,
   type ModelRecord,
   type ModelsSection,
 } from '#/llm-adapter/model/model';
-import type { ModelOverrides } from '#/llm-adapter/model/model.types';
 import type { ThinkingConfig } from '#/llm-adapter/model/thinking';
-import { ProtocolSchema } from '#/llm-adapter/protocol/protocol';
 import type { OAuthRef, ProviderConfig, ProvidersSection } from '#/llm-adapter/provider/provider';
+import { ProtocolSchema } from '#/llm-adapter/protocol/protocol';
 
 export const PROVIDERS_SECTION = 'providers';
 
@@ -155,6 +158,7 @@ registerConfigSection(PROVIDERS_SECTION, ProvidersSectionSchema, {
 });
 
 export const MODELS_SECTION = 'models';
+export const MODEL_OVERRIDES_SECTION = 'modelOverrides';
 
 export const DEFAULT_MODEL_SECTION = 'defaultModel';
 
@@ -206,9 +210,13 @@ export const ModelRecordSchema = ModelBaseSchema.extend({
 
 export const ModelsSectionSchema = z.record(z.string(), ModelRecordSchema);
 
-type _AssertModelOverride = AssertExact<Equal<z.infer<typeof ModelOverrideSchema>, ModelOverride>>;
+type _AssertModelOverride = AssertExact<
+  Equal<z.infer<typeof ModelOverrideSchema>, ModelOverride>
+>;
 type _AssertModelRecord = AssertExact<Equal<z.infer<typeof ModelRecordSchema>, ModelRecord>>;
-type _AssertModelsSection = AssertExact<Equal<z.infer<typeof ModelsSectionSchema>, ModelsSection>>;
+type _AssertModelsSection = AssertExact<
+  Equal<z.infer<typeof ModelsSectionSchema>, ModelsSection>
+>;
 
 const MODEL_OBJECT_FIELDS = new Set(
   Object.entries(ModelRecordSchema.shape)
@@ -291,11 +299,7 @@ export const modelsToToml = (value: unknown, rawSnake: unknown): unknown => {
     if (!Object.hasOwn(entry, 'upgrade')) delete merged['upgrade'];
     for (const [key, field] of Object.entries(entry)) {
       if (key === 'capabilities' && Array.isArray(field)) {
-        const replaced = new Set<string>();
-        for (const c of field) {
-          if (typeof c === 'string' && c.trim().length > 0) replaced.add(c.trim());
-        }
-        merged[camelToSnake(key)] = [...replaced];
+        merged[camelToSnake(key)] = [...field];
       } else if (key === 'overrides' && isPlainObject(field)) {
         merged['overrides'] = modelOverridesToToml(field, merged['overrides']);
       } else if (key === 'upgrade') {
@@ -329,23 +333,6 @@ registerConfigSection(MODELS_SECTION, ModelsSectionSchema, {
   fromToml: modelsFromToml,
   toToml: modelsToToml,
   collectDiagnostics: collectMalformedModelEntries,
-});
-
-export const MODEL_OVERRIDES_SECTION = 'modelOverrides';
-
-export const ModelOverridesSchema = z.object({
-  temperature: z.number().optional(),
-  topP: z.number().optional(),
-  thinkingKeep: z.string().optional(),
-  maxCompletionTokens: z.number().int().min(1).optional(),
-});
-
-type _AssertModelOverrides = AssertExact<
-  Equal<z.infer<typeof ModelOverridesSchema>, ModelOverrides>
->;
-
-registerConfigSection(MODEL_OVERRIDES_SECTION, ModelOverridesSchema, {
-  defaultValue: {},
 });
 
 export const THINKING_SECTION = 'thinking';

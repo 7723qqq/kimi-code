@@ -1,4 +1,5 @@
-import { ErrorCodes, IConfigService, isError2, type Scope } from '@moonshot-ai/agent-core-v2';
+import { IConfigRegistry, IConfigService, type Scope } from '@moonshot-ai/agent-core-v2';
+import { applySectionToToml } from '@moonshot-ai/agent-core-v2/app/config/toml';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
@@ -13,7 +14,10 @@ interface ConfigRouteHost {
   get(
     path: string,
     options: { schema?: Record<string, unknown> },
-    handler: (req: { id: string }, reply: { send(payload: unknown): void }) => Promise<void> | void,
+    handler: (
+      req: { id: string },
+      reply: { send(payload: unknown): void },
+    ) => Promise<void> | void,
   ): unknown;
   post(
     path: string,
@@ -26,6 +30,7 @@ interface ConfigRouteHost {
 }
 
 export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
+  const registry = core.accessor.get(IConfigRegistry);
   const getRoute = defineRoute(
     {
       method: 'GET',
@@ -37,14 +42,10 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
     async (req, reply) => {
       const config = core.accessor.get(IConfigService);
       await config.ready;
-      reply.send(okEnvelope(toConfigResponse(config.getAll()), req.id));
+      reply.send(okEnvelope(toConfigResponse(config.getAll(), registry), req.id));
     },
   );
-  app.get(
-    getRoute.path,
-    getRoute.options,
-    getRoute.handler as Parameters<ConfigRouteHost['get']>[2],
-  );
+  app.get(getRoute.path, getRoute.options, getRoute.handler as Parameters<ConfigRouteHost['get']>[2]);
 
   const setRoute = defineRoute(
     {
@@ -54,67 +55,53 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
       success: { data: configResponseSchema },
       errors: {
         [ErrorCode.VALIDATION_FAILED]: {},
-        [ErrorCode.PERSISTENCE_FAILURE]: {},
       },
       description: 'Update the global Kimi configuration (merge semantics)',
       tags: ['config'],
     },
     async (req, reply) => {
-      const applied: string[] = [];
-      let failedDomain: string | undefined;
       try {
         const config = core.accessor.get(IConfigService);
         await config.ready;
-        const { raw, ...fields } = req.body;
-        const patchInput = { ...raw, ...fields };
-        const validated = patchConfigRequestSchema.omit({ raw: true }).parse(patchInput);
-        const camelPatch = convertKeysSnakeToCamel(validated) as Record<string, unknown>;
+        const camelPatch = convertKeysSnakeToCamel(req.body) as Record<string, unknown>;
         if (camelPatch['yolo'] === true) {
           camelPatch['defaultPermissionMode'] = 'yolo';
         }
         delete camelPatch['yolo'];
         for (const domain of Object.keys(camelPatch)) {
-          failedDomain = domain;
           const patch = camelPatch[domain];
           if (domain === 'secondaryModel' && patch === null) {
             await config.replace(domain, null);
           } else {
             await config.set(domain, patch);
           }
-          applied.push(domain);
         }
-        const response = toConfigResponse(config.getAll());
+        const response = toConfigResponse(config.getAll(), registry);
         const changedFields = Object.keys(req.body as Record<string, unknown>);
         requestLog(req)?.info({ changedFields }, 'config updated');
         reply.send(okEnvelope(response, req.id));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (isError2(error) && error.code === ErrorCodes.CONFIG_PERSIST_BLOCKED) {
-          const progress = `applied: ${applied.length === 0 ? '(none)' : applied.join(', ')}; failed: ${failedDomain ?? '(unknown)'}`;
-          requestLog(req)?.error(
-            { err: error, applied, failed: failedDomain },
-            'config update could not be persisted',
-          );
-          reply.send(
-            errEnvelope(ErrorCode.PERSISTENCE_FAILURE, `${message} (${progress})`, req.id),
-          );
-          return;
-        }
         requestLog(req)?.error({ err: error }, 'config update failed');
         reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, message, req.id));
       }
     },
   );
-  app.post(
-    setRoute.path,
-    setRoute.options,
-    setRoute.handler as Parameters<ConfigRouteHost['post']>[2],
-  );
+  app.post(setRoute.path, setRoute.options, setRoute.handler as Parameters<ConfigRouteHost['post']>[2]);
 }
 
-export function toConfigResponse(resolved: Record<string, unknown>): ConfigResponse {
+export function toConfigResponse(
+  resolved: Record<string, unknown>,
+  registry: IConfigRegistry,
+): ConfigResponse {
   const wire: Record<string, unknown> = {};
   for (const [domain, value] of Object.entries(resolved)) {
+    let output = value;
+    if (domain === 'hosts') {
+      const section: Record<string, unknown> = {};
+      applySectionToToml(section, domain, value, registry);
+      output = section['hosts'];
+    }
     wire[camelToSnake(domain)] =
       domain === 'providers'
         ? toProviderResponses(value)
@@ -122,7 +109,7 @@ export function toConfigResponse(resolved: Record<string, unknown>): ConfigRespo
           ? toModelResponses(value)
           : domain === 'services'
             ? toServiceResponses(value)
-            : value;
+            : output;
   }
   const defaultPermissionMode = resolved['defaultPermissionMode'];
   if (typeof defaultPermissionMode === 'string') {
@@ -200,12 +187,7 @@ function toServiceResponses(value: unknown): Record<string, unknown> {
       result[id] = raw;
       continue;
     }
-    const {
-      apiKey: _apiKey,
-      oauth: _oauth,
-      customHeaders,
-      ...rest
-    } = raw as ModelLike & {
+    const { apiKey: _apiKey, oauth: _oauth, customHeaders, ...rest } = raw as ModelLike & {
       customHeaders?: unknown;
     } & Record<string, unknown>;
     result[id] = {

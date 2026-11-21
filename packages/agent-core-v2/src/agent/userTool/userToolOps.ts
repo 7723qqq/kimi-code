@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { original } from 'immer';
 import { z } from 'zod';
 
@@ -54,10 +54,9 @@ function equalRegistration(a: UserToolRegistration, b: UserToolRegistration): bo
   );
 }
 
-export const userToolKey = defineState('userTool', (): UserToolModelState => new Map())
-  .replayable({
-    schema: z.custom<UserToolModelState>(),
-  })
+export const userToolKey = defineState('userTool', (): UserToolModelState => new Map()).replayable({
+  schema: z.custom<UserToolModelState>(),
+})
   .on(ToolsRegisterUserTool, (s, e) => {
     const existing = s.get(e.name);
     if (existing !== undefined && equalRegistration(original(existing), e)) return;

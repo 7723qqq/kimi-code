@@ -1,0 +1,7 @@
+{
+  "extends": "../vite-preset/tsconfig.renderer.json",
+  "compilerOptions": {
+    "types": ["node", "bun"]
+  },
+  "include": ["src"]
+}

@@ -1,30 +1,28 @@
+import { Error2 } from '#/_base/errors/errors';
 import {
   credentialConflictMessage,
   declaredProviderCredential,
 } from '@moonshot-ai/kimi-code-oauth/provider-credential';
-
-import { Error2 } from '#/_base/errors/errors';
+import {
+  BUDGET_THINKING_EFFORTS,
+  matchKnownAnthropicModelProfile,
+  matchUnknownClaudeProfile,
+} from '@moonshot-ai/core/llm/builtin/protocol/anthropic/legalize';
 import {
   bedrockWireProtocolOf,
   inferBedrockProtocol,
   resolveBedrockBaseUrl,
   stripBedrockInferenceProfilePrefix,
-} from '#human/llm/provider/bedrock/routing';
-import {
-  BUDGET_THINKING_EFFORTS,
-  matchKnownAnthropicModelProfile,
-  matchUnknownClaudeProfile,
-} from '#human/llm/requester/bases/anthropic/profile';
+} from '@moonshot-ai/core/llm/builtin/provider/bedrock/routing';
 
 import { CONFIG_INVALID_ERROR_CODE } from '../contract/errors';
 import { ProtocolSchema, type Protocol } from '../protocol/protocol';
 import type { IProviderService, ProviderConfig, ProvidersSection } from '../provider/provider';
 import { explainProviderEndpoint, getProviderDefinition } from '../provider/provider-definition';
+
 import type { IModelService, ModelRecord, ModelsSection } from './model';
 import type { ResolvedModelAuthMaterial } from './model.types';
 import { drivesThinkingThroughTraits } from './thinking';
-
-const LEGACY_VERTEX_PROVIDER_TYPE = 'vertexai';
 
 export function resolveModelAuthMaterial(args: {
   readonly modelId: string;
@@ -49,13 +47,15 @@ export function resolveModelAuthMaterial(args: {
     };
   }
 
-  const rawAuthType = args.provider?.type ?? args.model.protocol;
-  const providerAuthType =
-    rawAuthType === LEGACY_VERTEX_PROVIDER_TYPE ? 'google-genai' : rawAuthType;
+  const providerAuthType = args.provider?.type ?? args.model.protocol;
   const providerEndpoint =
     providerAuthType === undefined
       ? {}
-      : explainProviderEndpoint(providerAuthType, args.provider?.env ?? {}, args.providerName);
+      : explainProviderEndpoint(
+          providerAuthType,
+          args.provider?.env ?? {},
+          resolveModelProtocol(args.model, args.provider),
+        );
   const declared = declaredProviderCredential(args.provider ?? {}, args.providerName);
   if (declared.kind === 'conflict') {
     throw new Error2(CONFIG_INVALID_ERROR_CODE, declared.message);
@@ -96,7 +96,10 @@ export function resolveModelAuthMaterial(args: {
   return {};
 }
 
-export function effectiveModelConfig(model: ModelRecord, providerType?: string): ModelRecord {
+export function effectiveModelConfig(
+  model: ModelRecord,
+  providerType?: string,
+): ModelRecord {
   const { overrides, ...base } = model;
   const effective: ModelRecord = overrides === undefined ? model : { ...base, ...overrides };
   if (
@@ -126,9 +129,7 @@ export function withAnthropicProfile(model: ModelRecord, providerType?: string):
   const profile =
     wireName === undefined
       ? undefined
-      : providerType !== undefined &&
-          !drivesThinkingThroughTraits(providerType) &&
-          protocol === 'anthropic'
+      : providerType !== undefined && !drivesThinkingThroughTraits(providerType) && protocol === 'anthropic'
         ? (matchKnownAnthropicModelProfile(wireName) ?? matchUnknownClaudeProfile(wireName))
         : matchKnownAnthropicModelProfile(wireName);
   if (profile === undefined) return model;
@@ -144,7 +145,8 @@ export function withAnthropicProfile(model: ModelRecord, providerType?: string):
     ...model,
     capabilities: hasCapability ? capabilities : [...capabilities, capability],
     supportEfforts,
-    defaultEffort: model.defaultEffort ?? (supportEfforts.includes('high') ? 'high' : undefined),
+    defaultEffort:
+      model.defaultEffort ?? (supportEfforts.includes('high') ? 'high' : undefined),
   };
 }
 
@@ -171,7 +173,6 @@ export function resolveModelProtocol(
   }
   const providerType = provider?.type;
   if (providerType !== undefined) {
-    if (providerType === LEGACY_VERTEX_PROVIDER_TYPE) return 'google-genai';
     const asProtocol = ProtocolSchema.safeParse(providerType);
     if (asProtocol.success) {
       return asProtocol.data;
@@ -202,13 +203,11 @@ export function resolveEndpointBaseUrl(
   if (fromProvider !== undefined) {
     return fromProvider;
   }
-  const rawEndpointType = provider.type ?? model.protocol;
-  const endpointType =
-    rawEndpointType === LEGACY_VERTEX_PROVIDER_TYPE ? 'google-genai' : rawEndpointType;
+  const endpointType = provider.type ?? model.protocol;
   const endpoint =
     endpointType === undefined
       ? {}
-      : explainProviderEndpoint(endpointType, provider.env ?? {}, providerId);
+      : explainProviderEndpoint(endpointType, provider.env ?? {}, resolveModelProtocol(model, provider));
   const fromEndpoint = nonEmpty(endpoint.baseUrl);
   if (fromEndpoint !== undefined) return fromEndpoint;
   if (provider.type === 'bedrock') {
@@ -256,9 +255,7 @@ export function resolveModelForReady(
   }
   const model = effectiveModelConfig(configured);
   const fallbackProvider =
-    defaultProvider === undefined || defaultProvider.trim().length === 0
-      ? undefined
-      : defaultProvider;
+    defaultProvider === undefined || defaultProvider.trim().length === 0 ? undefined : defaultProvider;
   const providerId = model.providerId ?? model.provider ?? fallbackProvider;
   const provider = providerId === undefined ? undefined : providers[providerId];
   if (providerId !== undefined && provider === undefined) {

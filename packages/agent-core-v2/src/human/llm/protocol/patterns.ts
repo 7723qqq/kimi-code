@@ -1,4 +1,4 @@
-import type { Message, ThinkPart } from '#/llm/message';
+import type { Message, ThinkPart } from '#human/message';
 
 import { convertToolResultToPlainText } from '../requester/bases/tool-result-text';
 import type { Pattern } from './rewrite';

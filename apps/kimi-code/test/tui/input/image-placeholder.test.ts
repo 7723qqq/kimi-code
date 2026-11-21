@@ -1,8 +1,8 @@
-import { describe, expect, it, mock } from 'bun:test';
-import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { describe, it, expect, vi } from '@moonshot-ai/testkit/vitest';
 
 import { parseDaemonFileUrl, type PromptPart, type Session } from '@moonshot-ai/kimi-code-sdk';
 
@@ -10,10 +10,14 @@ import { KIMI_CODE_HOME_ENV } from '#/constant/app';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
 import {
   extractMediaAttachments,
-  makeSessionExtractionResendable,
+  makeExtractionResendable,
   omitExpiredVideoFileRefs,
+  pendingMediaIngestions,
+  persistOriginalImageSync,
+  refreshExpiringImageFileRefs,
   resolveOriginalCaptions,
   resolveSessionOriginalCaptions,
+  makeSessionExtractionResendable,
   rewriteMediaPlaceholders,
 } from '#/tui/utils/image-placeholder';
 import { getCacheDir } from '#/utils/paths';
@@ -28,16 +32,6 @@ function storeWith(
   return { store, placeholder: att.placeholder };
 }
 
-/**
- * `extractMediaAttachments` stays synchronous for text without an image file
- * path, so a refusal surfaces as a synchronous throw there and as a rejected
- * promise otherwise. Normalize both into a rejection for the assertions.
- */
-function extractRejection(text: string, store: ImageAttachmentStore): Promise<unknown> {
-  return Promise.resolve().then(() => extractMediaAttachments(text, store));
-}
-
-/** Point `getCacheDir()` at a fresh temp home for the duration of a test. */
 function setupTempCache(): { cleanup: () => void } {
   const home = mkdtempSync(join(tmpdir(), 'kimi-home-'));
   const prev = process.env[KIMI_CODE_HOME_ENV];
@@ -57,19 +51,10 @@ function makeTempDir(): string {
 
 type VideoUrlPart = { type: 'video_url'; videoUrl: { url: string } };
 
-type DocumentUrlPart = {
-  type: 'document_url';
-  documentUrl: { url: string; mimeType: string; name?: string };
-};
-
-const documentPartOf = (parts: readonly PromptPart[]): DocumentUrlPart =>
-  parts.find((part) => part.type === 'document_url') as DocumentUrlPart;
-
-// Prompt-attached videos are emitted as a `video_url` part whose url is a
-// bare `kimi-file://` daemon reference (the paste was uploaded at paste
-// time); pull the url out for assertions.
 function videoUrlFromParts(parts: unknown[]): string {
-  const part = parts.find((p): p is VideoUrlPart => (p as VideoUrlPart).type === 'video_url');
+  const part = parts.find(
+    (p): p is VideoUrlPart => (p as VideoUrlPart).type === 'video_url',
+  );
   if (!part) throw new Error(`no video_url part found in: ${JSON.stringify(parts)}`);
   return part.videoUrl.url;
 }
@@ -89,38 +74,25 @@ describe('omitExpiredVideoFileRefs', () => {
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AQ==' } },
     ];
     expect(omitExpiredVideoFileRefs(parts, [expired, live])).toEqual([
-      parts[0]!,
-      parts[2]!,
-      parts[3]!,
-      parts[4]!,
+      parts[0], parts[2], parts[3], parts[4],
     ]);
     expect(omitExpiredVideoFileRefs(parts, [])).toEqual(parts);
   });
 });
 
 describe('extractMediaAttachments', () => {
-  it('uses captured argument media after a reset without retaining a reused attachment id', async () => {
+  it('uses captured argument media after a reset without retaining a reused attachment id', () => {
     const { cleanup } = setupTempCache();
     try {
       const store = new ImageAttachmentStore();
       const original = store.addImage(new Uint8Array([1]), 'image/png', 1, 1);
-      const extraction = await extractMediaAttachments(original.placeholder, store);
+      const extraction = extractMediaAttachments(original.placeholder, store);
       store.clear();
-      const current = store.addImage(
-        new Uint8Array([2]),
-        'image/png',
-        1,
-        1,
-        undefined,
-        'file-current',
-      );
+      const current = store.addImage(new Uint8Array([2]), 'image/png', 1, 1, undefined, 'file-current');
       expect(current.id).toBe(original.id);
       const later = store.addImage(new Uint8Array([3]), 'image/png', 1, 1);
       const rewrite = rewriteMediaPlaceholders(
-        `${original.placeholder} ${later.placeholder}`,
-        store,
-        'plain',
-        extraction.mediaSnapshots,
+        `${original.placeholder} ${later.placeholder}`, store, 'plain', extraction.mediaSnapshots,
       );
       expect(rewrite.text).toContain(later.placeholder);
       expect(rewrite.hasMedia).toBe(true);
@@ -132,18 +104,18 @@ describe('extractMediaAttachments', () => {
       cleanup();
     }
   });
-  it('returns no parts and hasMedia=false for plain text', async () => {
+  it('returns no parts and hasMedia=false for plain text', () => {
     const store = new ImageAttachmentStore();
-    const r = await extractMediaAttachments('hello world', store);
+    const r = extractMediaAttachments('hello world', store);
     expect(r.hasMedia).toBe(false);
     expect(r.parts).toEqual([]);
     expect(r.imageAttachmentIds).toEqual([]);
     expect(r.videoAttachmentIds).toEqual([]);
   });
 
-  it('extracts a single matching placeholder into an image content part', async () => {
+  it('extracts a single matching placeholder into an image content part', () => {
     const { store, placeholder } = storeWith(new Uint8Array([0xaa, 0xbb]));
-    const r = await extractMediaAttachments(`describe ${placeholder} please`, store);
+    const r = extractMediaAttachments(`describe ${placeholder} please`, store);
     expect(r.hasMedia).toBe(true);
     expect(r.imageAttachmentIds).toEqual([1]);
     expect(r.parts).toEqual([
@@ -153,12 +125,12 @@ describe('extractMediaAttachments', () => {
     ]);
   });
 
-  it('keeps matched-placeholder order with multiple images', async () => {
+  it('keeps matched-placeholder order with multiple images', () => {
     const store = new ImageAttachmentStore();
     const a = store.addImage(new Uint8Array([1]), 'image/png', 10, 10);
     const b = store.addImage(new Uint8Array([2]), 'image/png', 20, 20);
     const text = `first ${a.placeholder} then ${b.placeholder} end`;
-    const r = await extractMediaAttachments(text, store);
+    const r = extractMediaAttachments(text, store);
     expect(r.imageAttachmentIds).toEqual([1, 2]);
     expect(r.parts).toEqual([
       { type: 'text', text: 'first ' },
@@ -169,13 +141,13 @@ describe('extractMediaAttachments', () => {
     ]);
   });
 
-  it('keeps matched-placeholder order with mixed image and video attachments', async () => {
+  it('keeps matched-placeholder order with mixed image and video attachments', () => {
     const store = new ImageAttachmentStore();
     const img = store.addImage(new Uint8Array([1]), 'image/png', 10, 10);
     const vid = store.addVideo('video/quicktime', '/tmp/clip.mov');
     store.completeVideo(vid, { fileId: 'file-v1' });
     const text = `first ${img.placeholder} then ${vid.placeholder} end`;
-    const r = await extractMediaAttachments(text, store);
+    const r = extractMediaAttachments(text, store);
     expect(r.imageAttachmentIds).toEqual([1]);
     expect(r.videoAttachmentIds).toEqual([2]);
     expect(r.parts).toEqual([
@@ -187,20 +159,17 @@ describe('extractMediaAttachments', () => {
     ]);
   });
 
-  it('leaves unresolved (typed by hand) placeholders as literal text', async () => {
+  it('leaves unresolved (typed by hand) placeholders as literal text', () => {
     const store = new ImageAttachmentStore();
-    const r = await extractMediaAttachments(
-      'try [image #999 (1×1)] and [video #42 clip.mov] now',
-      store,
-    );
+    const r = extractMediaAttachments('try [image #999 (1×1)] and [video #42 clip.mov] now', store);
     expect(r.hasMedia).toBe(false);
     expect(r.parts).toEqual([]);
   });
 
-  it('uses pasted image bytes in data URLs', async () => {
+  it('uses pasted image bytes in data URLs', () => {
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
     const { store, placeholder } = storeWith(bytes);
-    const r = await extractMediaAttachments(placeholder, store);
+    const r = extractMediaAttachments(placeholder, store);
     expect(r.parts).toHaveLength(1);
     expect(r.parts[0]).toEqual({
       type: 'image_url',
@@ -208,43 +177,18 @@ describe('extractMediaAttachments', () => {
     });
   });
 
-  it('keeps the video label (including special chars) in the slash-args cache path', () => {
-    const { cleanup } = setupTempCache();
-    const srcDir = makeTempDir();
-    try {
-      const srcVideo = join(srcDir, 'source.mp4');
-      writeFileSync(srcVideo, 'x');
-      const store = new ImageAttachmentStore();
-      // The filename drives the cache label; `&` is a valid path char the cache
-      // copy keeps verbatim in the tag form (slash-args channel only — prompt
-      // parts never stage a cache copy).
-      const att = store.addVideo('video/mp4', srcVideo, 'a&b.mp4');
-      const r = rewriteMediaPlaceholders(att.placeholder, store, 'tag');
-      // The tag form XML-escapes the label (`&` → `&amp;`), the plain form
-      // strips it from the cache name instead.
-      expect(r.text).toContain('a&amp;b.mp4');
-      expect(r.videoAttachmentIds).toEqual([1]);
-    } finally {
-      cleanup();
-      rmSync(srcDir, { recursive: true, force: true });
-    }
-  });
-
-  it('emits a bare kimi-file video_url part for an uploaded video', async () => {
+  it('emits a bare kimi-file video_url part for an uploaded video', () => {
     const { cleanup } = setupTempCache();
     try {
       const store = new ImageAttachmentStore();
       const att = store.addVideo('video/mp4', '/tmp/sample.mp4');
       store.completeVideo(att, { fileId: 'file-v1' });
-      const r = await extractMediaAttachments(att.placeholder, store);
+      const r = extractMediaAttachments(att.placeholder, store);
       expect(r.hasMedia).toBe(true);
       expect(r.videoAttachmentIds).toEqual([1]);
       expect(r.parts).toHaveLength(1);
       const part = r.parts[0] as VideoUrlPart;
       expect(part.type).toBe('video_url');
-      // No cache copy and no `?path=`: the engine's prompt intake
-      // materializes the session copy and rewrites the reference — the part
-      // is self-contained.
       expect(parseDaemonFileUrl(part.videoUrl.url)).toEqual({ fileId: 'file-v1' });
       expect(existsSync(getCacheDir())).toBe(false);
     } finally {
@@ -252,81 +196,453 @@ describe('extractMediaAttachments', () => {
     }
   });
 
-  it('refuses a video whose upload is still in flight', async () => {
+  it('refuses a video whose upload is still in flight', () => {
     const store = new ImageAttachmentStore();
     const att = store.addVideo('video/mp4', '/tmp/sample.mp4');
-    att.pending = new Promise<void>(() => undefined); // never settles
-    await expect(extractRejection(att.placeholder, store)).rejects.toThrow(/still uploading/);
+    att.pending = new Promise<void>(() => undefined);
+    expect(() => extractMediaAttachments(att.placeholder, store)).toThrow(
+      /still uploading/,
+    );
   });
 
-  it('refuses a video whose upload failed or is missing', async () => {
+  it('refuses a video whose upload failed or is missing', () => {
     const store = new ImageAttachmentStore();
     const att = store.addVideo('video/mp4', '/tmp/sample.mp4');
-    await expect(extractRejection(att.placeholder, store)).rejects.toThrow(/could not be uploaded/);
+    expect(() => extractMediaAttachments(att.placeholder, store)).toThrow(
+      /could not be uploaded/,
+    );
   });
 
-  it('inserts a compression caption before an image that was compressed at paste time', async () => {
+  it('refuses a video whose staged upload is too close to expiry', () => {
+    const store = new ImageAttachmentStore();
+    const att = store.addVideo('video/mp4', '/tmp/sample.mp4');
+    store.completeVideo(att, {
+      fileId: 'file-v1',
+      fileExpiresAt: Date.now() + 1_000,
+    });
+    expect(() => extractMediaAttachments(att.placeholder, store)).toThrow(/expired/);
+  });
+
+  it('expands a compressed paste without a caption — captions are authored at dispatch', () => {
     const store = new ImageAttachmentStore();
     const att = store.addImage(new Uint8Array([1, 2, 3]), 'image/png', 2000, 2000, {
-      path: '/tmp/kimi-code-original-images/abc.png',
+      bytes: new Uint8Array([9, 8, 7]),
       width: 2600,
       height: 2600,
-      byteLength: 123456,
+      byteLength: 3,
       mime: 'image/png',
     });
 
-    // Extraction never authors captions; dispatch-time resolution does, once
-    // the session (and its media-originals dir) is known.
-    const extracted = await extractMediaAttachments(`look ${att.placeholder}`, store);
-    const parts = resolveOriginalCaptions(
-      extracted.parts,
-      extracted.imageAttachmentIds,
-      store,
-      undefined,
-    );
+    const r = extractMediaAttachments(`look ${att.placeholder}`, store);
 
-    expect(parts).toHaveLength(3);
-    // Leading text survives; the caption is authored before the image part.
-    expect(parts[0]).toEqual({ type: 'text', text: 'look ' });
-    const caption = parts[1];
-    if (caption?.type !== 'text') throw new Error('expected leading text part');
-    expect(caption.text).toContain('Image compressed');
-    expect(caption.text).toContain('2600x2600');
-    expect(caption.text).toContain('/tmp/kimi-code-original-images/abc.png');
-    expect(parts[2]).toEqual({
-      type: 'image_url',
-      imageUrl: { url: 'data:image/png;base64,AQID' },
-    });
+    expect(r.parts).toEqual([
+      { type: 'text', text: 'look ' },
+      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AQID' } },
+    ]);
+    expect(att.original?.path).toBeUndefined();
   });
 
-  it('notes an unpreserved original when persistence failed at paste time', async () => {
-    const store = new ImageAttachmentStore();
-    const att = store.addImage(new Uint8Array([1]), 'image/png', 2000, 2000, {
-      path: undefined,
-      width: 2600,
-      height: 2600,
-      byteLength: 123456,
-      mime: 'image/png',
-    });
-
-    const extracted = await extractMediaAttachments(att.placeholder, store);
-    const parts = resolveOriginalCaptions(
-      extracted.parts,
-      extracted.imageAttachmentIds,
-      store,
-      undefined,
-    );
-
-    const caption = parts[0];
-    if (caption?.type !== 'text') throw new Error('expected leading text part');
-    expect(caption.text).toMatch(/not preserved/i);
-  });
-
-  it('adds no caption for an uncompressed image attachment', async () => {
+  it('adds no caption for an uncompressed image attachment', () => {
     const { store, placeholder } = storeWith(new Uint8Array([0xaa]));
-    const r = await extractMediaAttachments(placeholder, store);
+    const r = extractMediaAttachments(placeholder, store);
     expect(r.parts).toHaveLength(1);
     expect(r.parts[0]?.type).toBe('image_url');
+  });
+
+  it('expands an uploaded (fileId) image into a bare kimi-file reference', () => {
+    const { cleanup } = setupTempCache();
+    try {
+      const store = new ImageAttachmentStore();
+      const att = store.addImage(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), 'image/png', 640, 480, undefined, 'file-1');
+      const r = extractMediaAttachments(`describe ${att.placeholder} please`, store);
+      expect(r.hasMedia).toBe(true);
+      expect(r.imageAttachmentIds).toEqual([1]);
+      expect(r.parts).toEqual([
+        { type: 'text', text: 'describe ' },
+        { type: 'image_url', imageUrl: { url: 'kimi-file://file-1' } },
+        { type: 'text', text: ' please' },
+      ]);
+      expect(parseDaemonFileUrl('kimi-file://file-1')).toEqual({ fileId: 'file-1' });
+      expect(existsSync(getCacheDir())).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('falls back to retained bytes when an uploaded image is too close to expiry', () => {
+    const store = new ImageAttachmentStore();
+    const att = store.addImage(
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      'image/png',
+      640,
+      480,
+      undefined,
+      'file-1',
+      1_060_000,
+    );
+
+    const parts = refreshExpiringImageFileRefs(
+      [{ type: 'image_url', imageUrl: { url: 'kimi-file://file-1' } }],
+      [att.id],
+      store,
+      1_000_000,
+    );
+
+    expect(parts).toEqual([
+      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,iVBORw==' } },
+    ]);
+    expect(att.fileId).toBeUndefined();
+    expect(att.fileExpiresAt).toBeUndefined();
+  });
+
+  it('rebuilds an uploaded image as inline bytes for a new-session resend', () => {
+    const { cleanup } = setupTempCache();
+    try {
+      const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+      const store = new ImageAttachmentStore();
+      const att = store.addImage(bytes, 'image/png', 640, 480, undefined, 'file-1');
+      const extraction = extractMediaAttachments(att.placeholder, store);
+
+      const resend = makeExtractionResendable(extraction);
+
+      expect(resend.imageAttachmentIds).toEqual([]);
+      expect(resend.parts).toContainEqual({
+        type: 'image_url',
+        imageUrl: { url: 'data:image/png;base64,iVBORw==' },
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rebuilds a compressed paste with its caption and original for a new-session resend', () => {
+    const dir = makeTempDir();
+    try {
+      const store = new ImageAttachmentStore();
+      const att = store.addImage(
+        new Uint8Array([1, 2, 3]),
+        'image/png',
+        2000,
+        1000,
+        {
+          bytes: new Uint8Array([9, 8, 7, 6]),
+          width: 2600,
+          height: 2600,
+          byteLength: 4,
+          mime: 'image/png',
+        },
+        'file-1',
+      );
+      const extraction = extractMediaAttachments(att.placeholder, store);
+
+      const resend = makeExtractionResendable(extraction, dir);
+
+      expect(resend.imageAttachmentIds).toEqual([]);
+      expect(resend.parts).toHaveLength(2);
+      const caption = resend.parts[0];
+      if (caption?.type !== 'text') throw new Error('expected caption text part');
+      expect(caption.text).toContain('Image compressed');
+      expect(caption.text).toContain('2600x2600');
+      const files = readdirSync(dir);
+      expect(files).toHaveLength(1);
+      expect(caption.text).toContain(join(dir, files[0]!));
+      expect(resend.parts[1]).toEqual({
+        type: 'image_url',
+        imageUrl: { url: 'data:image/png;base64,AQID' },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps expanding an uploaded image as a bare reference when the cache dir is broken', () => {
+    const { cleanup } = setupTempCache();
+    try {
+      writeFileSync(getCacheDir(), 'occupied');
+      const store = new ImageAttachmentStore();
+      const uploaded = store.addImage(new Uint8Array([1]), 'image/png', 10, 10, undefined, 'file-1');
+      const plain = store.addImage(new Uint8Array([2]), 'image/png', 20, 20);
+      const r = extractMediaAttachments(`${uploaded.placeholder} and ${plain.placeholder}`, store);
+      expect(r.imageAttachmentIds).toEqual([1, 2]);
+      expect(r.parts).toEqual([
+        { type: 'image_url', imageUrl: { url: 'kimi-file://file-1' } },
+        { type: 'text', text: ' and ' },
+        { type: 'image_url', imageUrl: { url: 'data:image/png;base64,Ag==' } },
+      ]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('stages nothing when a later video refuses the submission', () => {
+    const { cleanup } = setupTempCache();
+    try {
+      const store = new ImageAttachmentStore();
+      const first = store.addVideo('video/mp4', '/tmp/first.mp4');
+      store.completeVideo(first, { fileId: 'file-v1' });
+      const missing = store.addVideo('video/mp4', '/tmp/missing.mp4');
+
+      expect(() =>
+        extractMediaAttachments(`${first.placeholder} ${missing.placeholder}`, store),
+      ).toThrow(/could not be uploaded/);
+      expect(existsSync(getCacheDir())).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('resolveOriginalCaptions', () => {
+  function storeWithOriginal(
+    original?: {
+      bytes: Uint8Array;
+      width: number;
+      height: number;
+      byteLength: number;
+      mime: string;
+      path?: string;
+    },
+    fileId?: string,
+  ) {
+    const store = new ImageAttachmentStore();
+    const att = store.addImage(
+      new Uint8Array([1, 2, 3]),
+      'image/png',
+      2000,
+      1000,
+      original,
+      fileId,
+    );
+    return { store, att };
+  }
+
+  it('persists the original into the given dir and inserts the caption before the image', () => {
+    const dir = makeTempDir();
+    try {
+      const originalBytes = new Uint8Array([9, 8, 7, 6]);
+      const { store, att } = storeWithOriginal({
+        bytes: originalBytes,
+        width: 2600,
+        height: 2600,
+        byteLength: originalBytes.length,
+        mime: 'image/png',
+      });
+      const r = extractMediaAttachments(`look ${att.placeholder}`, store);
+
+      const resolved = resolveOriginalCaptions(r.parts, r.imageAttachmentIds, store, dir);
+
+      expect(att.original?.path?.startsWith(dir)).toBe(true);
+      expect(readFileSync(att.original!.path!)).toEqual(Buffer.from(originalBytes));
+      expect(resolved).toHaveLength(3);
+      const caption = resolved[1];
+      if (caption?.type !== 'text') throw new Error('expected caption text part');
+      expect(caption.text).toContain('Image compressed');
+      expect(caption.text).toContain('2600x2600');
+      expect(caption.text).toContain(att.original!.path!);
+      expect(resolved[2]).toEqual({
+        type: 'image_url',
+        imageUrl: { url: 'data:image/png;base64,AQID' },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('releases the in-memory original bytes once persistence succeeds', () => {
+    const dir = makeTempDir();
+    try {
+      const originalBytes = new Uint8Array([9, 8, 7, 6]);
+      const { store, att } = storeWithOriginal({
+        bytes: originalBytes,
+        width: 2600,
+        height: 2600,
+        byteLength: originalBytes.length,
+        mime: 'image/png',
+      });
+      const r = extractMediaAttachments(att.placeholder, store);
+      resolveOriginalCaptions(r.parts, r.imageAttachmentIds, store, dir);
+
+      expect(att.original?.bytes).toBeUndefined();
+      const again = resolveOriginalCaptions(
+        r.parts,
+        r.imageAttachmentIds,
+        store,
+        dir,
+      );
+      const caption = again[0];
+      if (caption?.type !== 'text') throw new Error('expected caption text part');
+      expect(caption.text).toContain('2600x2600');
+      expect(caption.text).toContain('4 B');
+      expect(caption.text).toContain(att.original!.path!);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('authors the caption before the bare kimi-file reference', () => {
+    const dir = makeTempDir();
+    try {
+      const { store, att } = storeWithOriginal(
+        { bytes: new Uint8Array([9, 9]), width: 2600, height: 2600, byteLength: 2, mime: 'image/png' },
+        'file-2',
+      );
+      const r = extractMediaAttachments(att.placeholder, store);
+
+      const resolved = resolveOriginalCaptions(r.parts, r.imageAttachmentIds, store, dir);
+
+      expect(resolved).toHaveLength(2);
+      const caption = resolved[0];
+      if (caption?.type !== 'text') throw new Error('expected caption text part');
+      expect(caption.text).toContain('Image compressed');
+      expect(caption.text).toContain(att.original!.path!);
+      expect(resolved[1]).toEqual({
+        type: 'image_url',
+        imageUrl: { url: 'kimi-file://file-2' },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refreshes an already-authored caption in place instead of duplicating it', () => {
+    const dir = makeTempDir();
+    try {
+      const { store, att } = storeWithOriginal({
+        bytes: new Uint8Array([9]),
+        width: 2600,
+        height: 2600,
+        byteLength: 1,
+        mime: 'image/png',
+      });
+      const r = extractMediaAttachments(att.placeholder, store);
+      const once = resolveOriginalCaptions(r.parts, r.imageAttachmentIds, store, dir);
+
+      const twice = resolveOriginalCaptions(once, r.imageAttachmentIds, store, dir);
+
+      expect(twice).toHaveLength(2);
+      expect(twice[0]?.type).toBe('text');
+      expect(twice[1]?.type).toBe('image_url');
+      expect(att.original?.path?.startsWith(dir)).toBe(true);
+      expect(readdirSync(dir)).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reuses an already-persisted original path without rewriting the file', () => {
+    const dir = makeTempDir();
+    try {
+      const existing = join(dir, 'already.png');
+      writeFileSync(existing, 'orig');
+      const { store, att } = storeWithOriginal({
+        bytes: new Uint8Array([7, 7, 7]),
+        width: 2600,
+        height: 2600,
+        byteLength: 3,
+        mime: 'image/png',
+        path: existing,
+      });
+      const r = extractMediaAttachments(att.placeholder, store);
+
+      const resolved = resolveOriginalCaptions(r.parts, r.imageAttachmentIds, store, dir);
+
+      const caption = resolved[0];
+      if (caption?.type !== 'text') throw new Error('expected caption text part');
+      expect(caption.text).toContain(existing);
+      expect(readFileSync(existing, 'utf8')).toBe('orig');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('notes an unpreserved original when persistence fails, then retries at a later dispatch', () => {
+    const dir = makeTempDir();
+    try {
+      const occupied = join(dir, 'occupied');
+      writeFileSync(occupied, 'x');
+      const { store, att } = storeWithOriginal({
+        bytes: new Uint8Array([5, 5]),
+        width: 2600,
+        height: 2600,
+        byteLength: 2,
+        mime: 'image/png',
+      });
+      const r = extractMediaAttachments(att.placeholder, store);
+
+      const failed = resolveOriginalCaptions(
+        r.parts,
+        r.imageAttachmentIds,
+        store,
+        join(occupied, 'sub'),
+      );
+
+      const caption = failed[0];
+      if (caption?.type !== 'text') throw new Error('expected caption text part');
+      expect(caption.text).toMatch(/not preserved/i);
+      expect(att.original?.path).toBeUndefined();
+      expect(att.original?.bytes).toBeDefined();
+
+      const retried = resolveOriginalCaptions(r.parts, r.imageAttachmentIds, store, dir);
+
+      expect(att.original?.path?.startsWith(dir)).toBe(true);
+      const retryCaption = retried[0];
+      if (retryCaption?.type !== 'text') throw new Error('expected caption text part');
+      expect(retryCaption.text).toContain(att.original!.path!);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips the caption when ingestion landed after extraction (stale inline part)', () => {
+    const dir = makeTempDir();
+    try {
+      const store = new ImageAttachmentStore();
+      const rawBytes = new Uint8Array([1, 2, 3, 4]);
+      const att = store.addImage(rawBytes, 'image/png', 2600, 2600);
+      const r = extractMediaAttachments(att.placeholder, store);
+      store.completeImage(att, {
+        bytes: new Uint8Array([1, 2, 3]),
+        mime: 'image/png',
+        width: 2000,
+        height: 2000,
+        original: { bytes: rawBytes, width: 2600, height: 2600, byteLength: 4, mime: 'image/png' },
+      });
+
+      const resolved = resolveOriginalCaptions(r.parts, r.imageAttachmentIds, store, dir);
+
+      expect(resolved).toHaveLength(1);
+      expect(resolved[0]?.type).toBe('image_url');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves images without an original untouched', () => {
+    const { store, placeholder } = storeWith(new Uint8Array([0xaa]));
+    const r = extractMediaAttachments(placeholder, store);
+    const resolved = resolveOriginalCaptions(r.parts, r.imageAttachmentIds, store, undefined);
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]?.type).toBe('image_url');
+  });
+});
+
+describe('persistOriginalImageSync', () => {
+  it('evicts the oldest originals once the store exceeds the size cap', () => {
+    const dir = makeTempDir();
+    try {
+      const first = persistOriginalImageSync(new Uint8Array(6).fill(1), 'image/png', dir);
+      expect(first).not.toBeNull();
+      const old = new Date(Date.now() - 60_000);
+      utimesSync(first!, old, old);
+
+      const second = persistOriginalImageSync(new Uint8Array(6).fill(2), 'image/png', dir, 10);
+
+      expect(second).not.toBeNull();
+      expect(existsSync(first!)).toBe(false);
+      expect(existsSync(second!)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -418,10 +734,9 @@ describe('rewriteMediaPlaceholders', () => {
       const r = rewriteMediaPlaceholders(`look at ${placeholder}`, store, 'plain');
       expect(r.hasMedia).toBe(true);
       expect(r.imageAttachmentIds).toEqual([1]);
-      // Skill args pass through XML escaping, so the reference must not
-      // contain any tag/attribute boundary characters.
       expect(r.text).not.toMatch(/[<>&"]/);
-      const m = /^look at Attached image file: (\S+) \(open it with Read\)$/.exec(r.text);
+      const m =
+        /^look at Attached image file: (\S+) \(open it with ReadMediaFile\)$/.exec(r.text);
       if (!m) throw new Error(`no plain reference found in: ${r.text}`);
       expect(m[1]!.startsWith(getCacheDir())).toBe(true);
       expect(new Uint8Array(readFileSync(m[1]!))).toEqual(bytes);
@@ -442,7 +757,7 @@ describe('rewriteMediaPlaceholders', () => {
       expect(r.hasMedia).toBe(true);
       expect(r.videoAttachmentIds).toEqual([1]);
       expect(r.text).not.toMatch(/[<>&"]/);
-      const m = /^Attached video file: (\S+) \(open it with Read\)$/.exec(r.text);
+      const m = /^Attached video file: (\S+) \(open it with ReadMediaFile\)$/.exec(r.text);
       if (!m) throw new Error(`no plain reference found in: ${r.text}`);
       expect(readFileSync(m[1]!, 'utf8')).toBe('video-bytes');
     } finally {
@@ -451,22 +766,17 @@ describe('rewriteMediaPlaceholders', () => {
     }
   });
 
-  it('sanitizes XML boundary chars out of plain-style video cache names', () => {
+  it("sanitizes XML boundary chars out of plain-style video cache names", () => {
     const { cleanup } = setupTempCache();
     const srcDir = makeTempDir();
     try {
-      // The video label keeps the original filename, and sanitizeVideoLabel
-      // allows `<>&"`; skill args are XML-escaped, so the plain reference
-      // would point at a path that no longer matches the file on disk.
-      // (`<`, `>`, `"` are illegal on Windows, so the fixture sticks to `&`,
-      // which is still an XML boundary character on every platform.)
-      const srcVideo = join(srcDir, 'clip&1.mov');
+      const srcVideo = join(srcDir, 'clip<1>&.mov');
       writeFileSync(srcVideo, 'video-bytes');
       const store = new ImageAttachmentStore();
       const att = store.addVideo('video/quicktime', srcVideo);
       const r = rewriteMediaPlaceholders(att.placeholder, store, 'plain');
       expect(r.text).not.toMatch(/[<>&"]/);
-      const m = /^Attached video file: (\S+) \(open it with Read\)$/.exec(r.text);
+      const m = /^Attached video file: (\S+) \(open it with ReadMediaFile\)$/.exec(r.text);
       if (!m) throw new Error(`no plain reference found in: ${r.text}`);
       expect(readFileSync(m[1]!, 'utf8')).toBe('video-bytes');
     } finally {
@@ -476,222 +786,87 @@ describe('rewriteMediaPlaceholders', () => {
   });
 });
 
-describe('extractMediaAttachments: bare image paths', () => {
-  const PNG_1X1 = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-    'base64',
-  );
-
-  it('attaches an absolute POSIX image path and replaces it inline', async () => {
-    const dir = makeTempDir();
-    try {
-      const file = join(dir, 'sample.png');
-      writeFileSync(file, PNG_1X1);
-      const store = new ImageAttachmentStore();
-      const r = await extractMediaAttachments(`看这个 ${file} 谢谢`, store);
-      expect(r.hasMedia).toBe(true);
-      expect(r.imageAttachmentIds).toEqual([1]);
-      expect(r.parts.some((p) => p.type === 'image_url')).toBe(true);
-      expect(JSON.stringify(r.parts)).not.toContain('sample.png');
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('converts a quoted path containing spaces', async () => {
-    const dir = join(makeTempDir(), 'with space');
-    mkdirSync(dir, { recursive: true });
-    try {
-      const file = join(dir, 'wx shot.png');
-      writeFileSync(file, PNG_1X1);
-      const store = new ImageAttachmentStore();
-      const r = await extractMediaAttachments(`"${file}"`, store);
-      expect(r.hasMedia).toBe(true);
-      expect(r.imageAttachmentIds).toEqual([1]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('leaves a Windows path with no backing file as literal text', async () => {
+describe('pendingMediaIngestions', () => {
+  it('returns undefined for text without media placeholders', () => {
     const store = new ImageAttachmentStore();
-    // A plain template with escaped backslashes: Bun's transpiler escapes
-    // non-ASCII characters inside template literals, which `String.raw` would
-    // then keep as literal `\uXXXX` text.
-    const text = `看 D:\\微信聊天数据\\temp\\a7d0eaaa.png 这张图`;
-    const r = await extractMediaAttachments(text, store);
-    expect(r.hasMedia).toBe(false);
-    expect(r.parts).toEqual([]);
-    expect(text).toContain('D:\\微信聊天数据');
+    expect(pendingMediaIngestions('hello world', store, 5)).toBeUndefined();
   });
 
-  it('reuses one attachment when the same path appears twice', async () => {
-    const dir = makeTempDir();
-    try {
-      const file = join(dir, 'dup.png');
-      writeFileSync(file, PNG_1X1);
-      const store = new ImageAttachmentStore();
-      const r = await extractMediaAttachments(`对比 ${file} 和 ${file} 的差异`, store);
-      // Both spans resolve to the SAME stored attachment (dedupe) — two
-      // references, one set of bytes; without dedupe this would be [1, 2].
-      expect(r.imageAttachmentIds).toEqual([1, 1]);
-      expect(r.parts.filter((p) => p.type === 'image_url')).toHaveLength(2);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it('returns undefined when no referenced image has a pending ingestion', () => {
+    const { store, placeholder } = storeWith(new Uint8Array([0xaa, 0xbb]));
+    expect(pendingMediaIngestions(`describe ${placeholder}`, store, 5)).toBeUndefined();
   });
 
-  it('awaits the ingester and expands the ingested form of a path attachment', async () => {
-    const dir = makeTempDir();
-    try {
-      const file = join(dir, 'huge.png');
-      writeFileSync(file, PNG_1X1);
-      const store = new ImageAttachmentStore();
-      const r = await extractMediaAttachments(`看这个 ${file} 谢谢`, store, (attachment) => {
-        store.completeImage(attachment, {
-          bytes: new Uint8Array([9, 9, 9]),
-          mime: 'image/png',
-          width: 100,
-          height: 50,
-        });
-        return Promise.resolve();
-      });
-      expect(r.hasMedia).toBe(true);
-      expect(r.imageAttachmentIds).toEqual([1]);
-      // The placeholder is built after ingestion settles, so this submit
-      // expands to the compressed bytes and the completed dimensions.
-      expect(store.get(1)?.placeholder).toContain('100×50');
-      expect(r.parts[1]).toEqual({
-        type: 'image_url',
-        imageUrl: { url: 'data:image/png;base64,CQkJ' },
-      });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it('waits for a pending ingestion so extraction can use the daemon-ref form', async () => {
+    const { store, placeholder } = storeWith(new Uint8Array([0xaa, 0xbb]));
+    const att = store.get(1);
+    if (att?.kind !== 'image') throw new Error('expected image attachment');
+    let finish!: () => void;
+    att.pending = new Promise<void>((resolve) => {
+      finish = () => {
+        att.fileId = 'file-1';
+        att.fileExpiresAt = Date.now() + 60 * 60 * 1000;
+        att.pending = undefined;
+        resolve();
+      };
+    });
+
+    const waited = pendingMediaIngestions(`describe ${placeholder}`, store, 1_000);
+    if (waited === undefined) throw new Error('expected a pending wait');
+    let settled = false;
+    void waited.then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+
+    finish();
+    await waited;
+    expect(settled).toBe(true);
+
+    const r = extractMediaAttachments(`describe ${placeholder}`, store);
+    const part = r.parts.find((p) => p.type === 'image_url');
+    expect(part?.type).toBe('image_url');
+    if (part?.type !== 'image_url') throw new Error('expected an image part');
+    expect(parseDaemonFileUrl(part.imageUrl.url)?.fileId).toBe('file-1');
   });
 
-  it('keeps the path as literal text when ingestion rejects', async () => {
-    const dir = makeTempDir();
-    try {
-      const file = join(dir, 'boom.png');
-      writeFileSync(file, PNG_1X1);
-      const store = new ImageAttachmentStore();
-      const r = await extractMediaAttachments(`看这个 ${file}`, store, () =>
-        Promise.reject(new Error('ingest exploded')),
-      );
-      expect(r.hasMedia).toBe(false);
-      expect(r.parts).toEqual([]);
-      expect(store.size()).toBe(1);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('extractMediaAttachments: document attachments', () => {
-  it('emits a bare kimi-file document_url part for an uploaded PDF', async () => {
+  it('waits for a pending video upload so extraction can use the daemon-ref form', async () => {
     const store = new ImageAttachmentStore();
-    const att = store.addDocument('application/pdf', '/tmp/report.pdf', 'report.pdf');
-    store.completeDocument(att, { fileId: 'file-d1' });
+    const att = store.addVideo('video/mp4', '/tmp/clip.mp4');
+    let finish!: () => void;
+    att.pending = new Promise<void>((resolve) => {
+      finish = () => {
+        store.completeVideo(att, { fileId: 'file-v1' });
+        resolve();
+      };
+    });
 
-    const r = await extractMediaAttachments(att.placeholder, store);
+    const waited = pendingMediaIngestions(`watch ${att.placeholder}`, store, 1_000);
+    if (waited === undefined) throw new Error('expected a pending wait');
+    finish();
+    await waited;
 
-    expect(r.hasMedia).toBe(true);
-    expect(r.documentAttachmentIds).toEqual([1]);
-    const part = documentPartOf(r.parts);
-    expect(part.type).toBe('document_url');
-    expect(part.documentUrl.mimeType).toBe('application/pdf');
-    expect(part.documentUrl.name).toBe('report.pdf');
-    expect(parseDaemonFileUrl(part.documentUrl.url)).toEqual({ fileId: 'file-d1' });
+    const r = extractMediaAttachments(`watch ${att.placeholder}`, store);
+    expect(videoUrlFromParts(r.parts)).toBe('kimi-file://file-v1');
   });
 
-  it('refuses a document whose upload is still in flight', async () => {
-    const store = new ImageAttachmentStore();
-    const att = store.addDocument('application/pdf', '/tmp/report.pdf', 'report.pdf');
-    att.pending = new Promise<void>(() => undefined); // never settles
-    await expect(extractRejection(att.placeholder, store)).rejects.toThrow(/still uploading/);
-  });
+  it('bounds the wait by the timeout so a slow ingestion extracts to the inline form', async () => {
+    const { store, placeholder } = storeWith(new Uint8Array([0xaa, 0xbb]));
+    const att = store.get(1);
+    if (att?.kind !== 'image') throw new Error('expected image attachment');
+    att.pending = new Promise<void>(() => undefined);
 
-  it('refuses a document whose upload failed or is missing', async () => {
-    const store = new ImageAttachmentStore();
-    const att = store.addDocument('application/pdf', '/tmp/report.pdf', 'report.pdf');
-    await expect(extractRejection(att.placeholder, store)).rejects.toThrow(/could not be uploaded/);
-  });
+    const start = Date.now();
+    const waited = pendingMediaIngestions(`describe ${placeholder}`, store, 20);
+    if (waited === undefined) throw new Error('expected a pending wait');
+    await waited;
+    expect(Date.now() - start).toBeLessThan(1_000);
 
-  it('keeps a typed-by-hand document placeholder as literal text', async () => {
-    const store = new ImageAttachmentStore();
-    const r = await extractMediaAttachments('see [document #9 report.pdf]', store);
-    expect(r.hasMedia).toBe(false);
-    expect(r.parts).toEqual([]);
-  });
-});
-
-describe('extractMediaAttachments: bare document paths', () => {
-  it('attaches a PDF path through the document ingester', async () => {
-    const srcDir = makeTempDir();
-    try {
-      const pdf = join(srcDir, 'report.pdf');
-      writeFileSync(pdf, '%PDF-1.4\n');
-      const store = new ImageAttachmentStore();
-      const seen: string[] = [];
-
-      const r = await extractMediaAttachments(
-        `read ${pdf}`,
-        store,
-        undefined,
-        (attachment, mime, path) => {
-          seen.push(path);
-          expect(mime).toBe('application/pdf');
-          store.completeDocument(attachment, { fileId: 'file-d2' });
-          return Promise.resolve();
-        },
-      );
-
-      expect(seen).toEqual([pdf]);
-      expect(r.hasMedia).toBe(true);
-      expect(r.documentAttachmentIds).toEqual([1]);
-      expect(parseDaemonFileUrl(documentPartOf(r.parts).documentUrl.url)).toEqual({
-        fileId: 'file-d2',
-      });
-    } finally {
-      rmSync(srcDir, { recursive: true, force: true });
-    }
-  });
-
-  it('surfaces document ingester failures', async () => {
-    const srcDir = makeTempDir();
-    try {
-      const pdf = join(srcDir, 'report.pdf');
-      writeFileSync(pdf, '%PDF-1.4\n');
-      const store = new ImageAttachmentStore();
-
-      await expect(
-        extractMediaAttachments(`read ${pdf}`, store, undefined, async () => {
-          throw new Error('upload failed');
-        }),
-      ).rejects.toThrow('upload failed');
-    } finally {
-      rmSync(srcDir, { recursive: true, force: true });
-    }
-  });
-
-  it('leaves a PDF path as literal text when no ingester is available', async () => {
-    const srcDir = makeTempDir();
-    try {
-      const pdf = join(srcDir, 'report.pdf');
-      writeFileSync(pdf, '%PDF-1.4\n');
-      const store = new ImageAttachmentStore();
-
-      const r = await extractMediaAttachments(`read ${pdf}`, store);
-
-      // Without an ingester nothing would upload the file, and a document has
-      // no inline fallback — attaching it would guarantee a refused submit.
-      expect(r.hasMedia).toBe(false);
-      expect(r.parts).toEqual([]);
-      expect(store.size()).toBe(0);
-    } finally {
-      rmSync(srcDir, { recursive: true, force: true });
-    }
+    const r = extractMediaAttachments(`describe ${placeholder}`, store);
+    const part = r.parts.find((p) => p.type === 'image_url');
+    if (part?.type !== 'image_url') throw new Error('expected an image part');
+    expect(part.imageUrl.url.startsWith('data:image/png;base64,')).toBe(true);
   });
 });
 
@@ -701,86 +876,43 @@ describe('session-owned pasted originals', () => {
     const bytes = new Uint8Array([9, 8, 7]);
     const store = new ImageAttachmentStore();
     const attachment = store.addImage(new Uint8Array([1]), 'image/png', 100, 100, {
-      bytes,
-      width: 200,
-      height: 200,
-      byteLength: bytes.length,
-      mime: 'image/png',
+      bytes, width: 200, height: 200, byteLength: bytes.length, mime: 'image/png',
     });
-    const extraction = await extractMediaAttachments(attachment.placeholder, store);
-    const attachFile = mock(async () => 'kimi-file://f_original');
+    const extraction = extractMediaAttachments(attachment.placeholder, store);
+    const attachFile = vi.fn(async () => 'kimi-file://f_original');
     const session = { id: 's1', summary: { sessionDir: dir }, attachFile } as unknown as Session;
     try {
-      const parts = await resolveSessionOriginalCaptions(
-        extraction.parts,
-        extraction.imageAttachmentIds,
-        store,
-        session,
-      );
-      expect((parts[0] as { text: string }).text).toContain('kimi-file://f_original');
-      expect((parts[0] as { text: string }).text.includes(dir)).toBe(false);
+      const parts = await resolveSessionOriginalCaptions(extraction.parts, extraction.imageAttachmentIds, store, session);
+      expect(parts[0]).toMatchObject({ type: 'text', text: expect.stringContaining('kimi-file://f_original') });
+      expect((parts[0] as { text: string }).text).not.toContain(dir);
       await resolveSessionOriginalCaptions(parts, extraction.imageAttachmentIds, store, session);
       expect(attachFile).toHaveBeenCalledTimes(1);
-      await resolveSessionOriginalCaptions(parts, extraction.imageAttachmentIds, store, {
-        id: 's2',
-        summary: { sessionDir: dir },
-        attachFile,
-      } as unknown as Session);
+      await resolveSessionOriginalCaptions(parts, extraction.imageAttachmentIds, store, { id: 's2', summary: { sessionDir: dir }, attachFile } as unknown as Session);
       expect(attachFile).toHaveBeenCalledTimes(2);
-      expect(attachFile).toHaveBeenLastCalledWith(Buffer.from(bytes), {
-        name: 'original.png',
-        mimeType: 'image/png',
-      });
-      const snapshot = await extractMediaAttachments(attachment.placeholder, store);
+      expect(attachFile).toHaveBeenLastCalledWith(Buffer.from(bytes), { name: 'original.png', mimeType: 'image/png' });
+      const snapshot = extractMediaAttachments(attachment.placeholder, store);
       expect(snapshot.imageSnapshots[0]?.original?.bytes).toEqual(Buffer.from(bytes));
       store.clear();
-      const rebuilt = await makeSessionExtractionResendable({ ...snapshot, parts }, {
-        id: 's3',
-        summary: { sessionDir: dir },
-        attachFile,
-      } as unknown as Session);
+      const rebuilt = await makeSessionExtractionResendable({ ...snapshot, parts }, { id: 's3', summary: { sessionDir: dir }, attachFile } as unknown as Session);
       expect(rebuilt.parts).toHaveLength(2);
-      expect((rebuilt.parts[0] as { text: string }).text).toContain(
-        'kimi-file://f_original',
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+      expect(rebuilt.parts[0]).toMatchObject({ type: 'text', text: expect.stringContaining('kimi-file://f_original') });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   it('reports attachment persistence failure and retries without advertising a local path', async () => {
     const dir = makeTempDir();
     const store = new ImageAttachmentStore();
     const attachment = store.addImage(new Uint8Array([1]), 'image/png', 100, 100, {
-      bytes: new Uint8Array([9]),
-      width: 200,
-      height: 200,
-      byteLength: 1,
-      mime: 'image/png',
+      bytes: new Uint8Array([9]), width: 200, height: 200, byteLength: 1, mime: 'image/png',
     });
-    const extraction = await extractMediaAttachments(attachment.placeholder, store);
-    const attachFile = mock(async () => 'kimi-file://f_retry');
-    attachFile.mockRejectedValueOnce(new Error('disk full'));
+    const extraction = extractMediaAttachments(attachment.placeholder, store);
+    const attachFile = vi.fn().mockRejectedValueOnce(new Error('disk full')).mockResolvedValue('kimi-file://f_retry');
     const session = { id: 's1', summary: { sessionDir: dir }, attachFile } as unknown as Session;
     try {
-      await expect(
-        resolveSessionOriginalCaptions(
-          extraction.parts,
-          extraction.imageAttachmentIds,
-          store,
-          session,
-        ),
-      ).rejects.toThrow('disk full');
-      const retried = await resolveSessionOriginalCaptions(
-        extraction.parts,
-        extraction.imageAttachmentIds,
-        store,
-        session,
-      );
-      expect((retried[0] as { text: string }).text).toContain('kimi-file://f_retry');
-      expect((retried[0] as { text: string }).text.includes(dir)).toBe(false);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+      await expect(resolveSessionOriginalCaptions(extraction.parts, extraction.imageAttachmentIds, store, session)).rejects.toThrow('disk full');
+      const retried = await resolveSessionOriginalCaptions(extraction.parts, extraction.imageAttachmentIds, store, session);
+      expect(retried[0]).toMatchObject({ type: 'text', text: expect.stringContaining('kimi-file://f_retry') });
+      expect((retried[0] as { text: string }).text).not.toContain(dir);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

@@ -1,4 +1,5 @@
-import { expect, describe, it } from "bun:test";
+import assert from "node:assert";
+import { describe, it } from "node:test";
 import { SettingsList, type SettingsListTheme } from "../src/components/settings-list.ts";
 
 const testTheme: SettingsListTheme = {
@@ -32,11 +33,11 @@ describe("SettingsList", () => {
 
 		for (const character of "TUI mode") list.handleInput(character);
 
-		expect(changes).toStrictEqual([]);
-		expect(String(list.render(80)[0] ?? "")).toMatch(/TUI mode/);
+		assert.deepStrictEqual(changes, []);
+		assert.match(list.render(80)[0] ?? "", /TUI mode/);
 
 		list.handleInput("\r");
-		expect(changes).toStrictEqual([{ id: "tui-mode", value: "fullscreen" }]);
+		assert.deepStrictEqual(changes, [{ id: "tui-mode", value: "fullscreen" }]);
 	});
 
 	it("keeps Space as a change shortcut before a search query is entered", () => {
@@ -52,6 +53,6 @@ describe("SettingsList", () => {
 
 		list.handleInput(" ");
 
-		expect(changes).toStrictEqual([{ id: "tui-mode", value: "fullscreen" }]);
+		assert.deepStrictEqual(changes, [{ id: "tui-mode", value: "fullscreen" }]);
 	});
 });

@@ -3,10 +3,9 @@ import {
   ErrorCodes,
   Error2,
   IAgentGoalService,
-  IAgentHelloWorldService,
   IAgentLifecycleService,
+  IAgentLoopService,
   IAgentPlanService,
-  IAgentProfileService,
   IAgentSwarmService,
   IAgentTowerService,
   IModelCatalog,
@@ -70,9 +69,9 @@ async function bindableDefaultModel(core: Scope): Promise<string | undefined> {
   }
 }
 
-export function applyThinking(profile: IAgentProfileService, level: string): void {
-  if (!profile.hasModel()) throw sessionModelMissing();
-  profile.setThinking(level);
+export function applyThinking(loop: IAgentLoopService, level: string): void {
+  if (!loop.hasModel()) throw sessionModelMissing();
+  loop.setThinking(level);
 }
 
 function sessionModelMissing(): Error2 {
@@ -100,12 +99,12 @@ export async function applyAgentConfigToSession(
 ): Promise<void> {
   const agent = await ensureMainAgent(session);
 
-  const profile = agent.accessor.get(IAgentProfileService);
+  const loop = agent.accessor.get(IAgentLoopService);
   if (agentConfig.model !== undefined && agentConfig.model !== '') {
-    await profile.setModel(agentConfig.model);
+    await loop.setModel(agentConfig.model);
   }
   if (agentConfig.thinking !== undefined) {
-    applyThinking(profile, agentConfig.thinking);
+    applyThinking(loop, agentConfig.thinking);
   }
   if (agentConfig.permission_mode !== undefined) {
     agent.accessor
@@ -127,25 +126,21 @@ export async function applyAgentConfigToSession(
       else swarm.exit();
     }
   }
-  if (agentConfig.hello_world_mode !== undefined) {
-    const helloWorld = agent.accessor.get(IAgentHelloWorldService);
-    if (helloWorld.isActive !== agentConfig.hello_world_mode) {
-      if (agentConfig.hello_world_mode) helloWorld.enter('manual');
-      else helloWorld.exit();
-    }
-  }
   if (agentConfig.tower_mode !== undefined) {
     const tower = agent.accessor.get(IAgentTowerService);
     if (agentConfig.tower_mode) {
       const result = await tower.enter(agentConfig.tower_base);
       if (!result.entered) {
-        throw new Error2(ErrorCodes.SESSION_TOWER_MODE_INVALID, towerEnterFailureMessage(result));
+        throw new Error2(
+          ErrorCodes.SESSION_TOWER_MODE_INVALID,
+          towerEnterFailureMessage(result),
+        );
       }
     } else {
       await tower.exit();
     }
   }
-  if (agentConfig.goal_objective !== undefined) {
+  if (agentConfig.goal_objective !== undefined && agentConfig.goal_control !== 'edit') {
     await agent.accessor
       .get(IAgentGoalService)
       .createGoal({ objective: agentConfig.goal_objective });
@@ -161,6 +156,9 @@ export async function applyAgentConfigToSession(
         break;
       case 'cancel':
         await goal.cancelGoal({});
+        break;
+      case 'edit':
+        await goal.editGoalObjective({ objective: agentConfig.goal_objective ?? '' });
         break;
     }
   }

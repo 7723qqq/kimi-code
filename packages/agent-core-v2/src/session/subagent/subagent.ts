@@ -1,9 +1,9 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import type { Turn } from '#/agent/loop/loop';
 import type { Hooks } from '#/hooks';
-import type { TokenUsage } from '#human/llm/usage';
 
 import type {
   SpawnSubagentOptions,
@@ -13,11 +13,7 @@ import type {
 } from './spawn';
 
 export type AgentRunRequest =
-  | {
-      readonly kind: 'prompt';
-      readonly prompt: string;
-      readonly helper?: string;
-    }
+  | { readonly kind: 'prompt'; readonly prompt: string; readonly helper?: string }
   | { readonly kind: 'retry'; readonly trigger?: string };
 
 export interface RunAgentOptions {
@@ -33,7 +29,7 @@ export interface AgentRunCompletion {
 
 export interface AgentRunHandle {
   readonly agentId: string;
-  readonly turn: Turn;
+  readonly turn?: Turn;
   readonly completion: Promise<AgentRunCompletion>;
   readonly partialOutput: () => string;
 }
@@ -60,11 +56,7 @@ export interface ISessionSubagentService {
 
   readonly onDidStopAgentTask: Event<AgentTaskStopHookContext>;
 
-  run(
-    agent: AgentContext,
-    request: AgentRunRequest,
-    opts: RunAgentOptions,
-  ): Promise<AgentRunHandle>;
+  run(agent: AgentContext, request: AgentRunRequest, opts: RunAgentOptions): Promise<AgentRunHandle>;
 
   planSpawn(input: SubagentSpawnPlanInput): Promise<SubagentSpawnPlan>;
 

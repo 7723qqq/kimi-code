@@ -1,4 +1,5 @@
 import { Disposable } from '#/_base/di/lifecycle';
+import { isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 
@@ -49,6 +50,13 @@ function findPathToken(text: string): string | undefined {
   let start = 0;
   for (let index = 0; index <= text.length; index += 1) {
     if (index < text.length && isPathChar(text.codePointAt(index))) continue;
+    if (
+      index === start + 1 &&
+      text[index] === ':' &&
+      /^[A-Za-z]$/.test(text[start] ?? '') &&
+      (text[index + 1] === '/' || text[index + 1] === '\\')
+    )
+      continue;
     if (index > start) {
       const token = matchPathToken(text, start, index);
       if (token !== undefined) return token;
@@ -76,7 +84,7 @@ export class KnowledgeInjection extends Disposable {
     const signals = this.extractSignals();
     if (!signals.query && !signals.scopePath) return undefined;
 
-    const results = this.knowledge.search(
+    const results = this.knowledge.searchForInjection(
       signals.query,
       signals.scopePath,
       signals.tags,
@@ -94,7 +102,7 @@ export class KnowledgeInjection extends Disposable {
     let lastUserText = '';
     for (let i = history.length - 1; i >= 0; i--) {
       const msg = history[i];
-      if (msg?.role === 'user' && msg.content) {
+      if (msg !== undefined && isRealUserInput(msg)) {
         for (const part of msg.content) {
           if ('text' in part && part.text) {
             lastUserText = part.text;

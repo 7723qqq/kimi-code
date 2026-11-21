@@ -2,7 +2,7 @@ import {
   IAgentFullCompactionService,
   IAgentGoalService,
   IAgentPermissionModeService,
-  IAgentProfileService,
+  IAgentLoopService,
   IAgentStateService,
   IAgentSwarmService,
   IAgentTodoService,
@@ -12,16 +12,29 @@ import {
   type ServiceIdentifier,
 } from '@moonshot-ai/agent-core-v2';
 
-import { projectGoalStatus } from '../../../protocol/goal';
-import type { AgentState, GoalState, TodoItemState, UsageState } from '../../../protocol/ws-agent';
+import type {
+  AgentState,
+  ContextState,
+  GoalState,
+  TodoItemState,
+} from '../../../protocol/ws-agent';
 import { readLegacyStatus } from '../../../services/legacyStatus/legacyStatus';
 
-export function readAgentState(handle: IAgentScopeHandle, running: boolean): AgentState {
-  const profile = optionalService(handle, IAgentProfileService);
+export function readAgentState(handle: IAgentScopeHandle | undefined, running: boolean): AgentState {
+  if (handle === undefined) {
+    return {
+      status: running ? 'running' : 'idle',
+      compacting: false,
+      plan_mode: false,
+      swarm_mode: false,
+      tower_mode: false,
+    };
+  }
+  const profile = optionalService(handle, IAgentLoopService);
   const model = profile?.getModel() ?? '';
   return {
     status: running ? 'running' : 'idle',
-    compacting: Boolean(optionalService(handle, IAgentFullCompactionService)?.compacting),
+    compacting: (optionalService(handle, IAgentFullCompactionService)?.compacting ?? null) !== null,
     model: text(model),
     thinking: model === '' ? undefined : text(profile?.getEffectiveThinkingLevel()),
     permission_mode: optionalService(handle, IAgentPermissionModeService)?.mode,
@@ -31,7 +44,7 @@ export function readAgentState(handle: IAgentScopeHandle, running: boolean): Age
   };
 }
 
-export function readUsageState(handle: IAgentScopeHandle): UsageState | undefined {
+export function readContextState(handle: IAgentScopeHandle): ContextState | undefined {
   const status = readLegacyStatus(handle);
   if (status === undefined) return undefined;
   return {
@@ -45,11 +58,8 @@ export function readGoalState(handle: IAgentScopeHandle): GoalState | undefined 
   const goal = optionalService(handle, IAgentGoalService)?.getGoal().goal ?? undefined;
   if (goal === undefined) return undefined;
   return {
-    goal_id: goal.goalId,
     objective: goal.objective,
-    status: projectGoalStatus(goal.status),
-    budget: goal.budget,
-    terminal_reason: goal.terminalReason,
+    status: goal.status,
     completion_criterion: text(goal.completionCriterion),
     turns_used: goal.turnsUsed,
     tokens_used: goal.tokensUsed,

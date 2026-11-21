@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { RETRY_DETAIL_MAX_CHARS } from '#/tui/constant/rendering';
-import type { StepRetryState } from '#/tui/types';
 import { formatStepRetryDetail, formatStepRetryLabel } from '#/tui/utils/step-retry';
+import type { StepRetryState } from '#/tui/types';
 
 function retry(partial: Partial<StepRetryState> = {}): StepRetryState {
   return {
@@ -19,12 +19,12 @@ function retry(partial: Partial<StepRetryState> = {}): StepRetryState {
 
 describe('formatStepRetryLabel', () => {
   it('shows attempts, raw error name, and backoff delay', () => {
-    expect(formatStepRetryLabel(retry())).toBe('Retrying (2/10) in 4s — APIStatusError');
+    expect(formatStepRetryLabel(retry())).toBe('Retrying (2/10) · APIStatusError · in 4s');
   });
 
   it('drops the stale countdown once the attempt is running', () => {
     expect(formatStepRetryLabel(retry({ phase: 'attempt' }))).toBe(
-      'Retrying (2/10) — APIStatusError',
+      'Retrying (2/10) · APIStatusError',
     );
   });
 
@@ -41,11 +41,7 @@ describe('formatStepRetryDetail', () => {
   it('omits the status code for network/timeout failures', () => {
     expect(
       formatStepRetryDetail(
-        retry({
-          errorName: 'APIConnectionError',
-          errorMessage: 'fetch failed',
-          statusCode: undefined,
-        }),
+        retry({ errorName: 'APIConnectionError', errorMessage: 'fetch failed', statusCode: undefined }),
       ),
     ).toBe('fetch failed');
   });

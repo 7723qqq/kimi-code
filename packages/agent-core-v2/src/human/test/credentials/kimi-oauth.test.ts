@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { createKimiOAuthCredentialProvider } from '#/credentials/kimi-oauth';
+import { createKimiOAuthCredentialProvider } from '#human/credentials/kimi-oauth';
 
 describe('createKimiOAuthCredentialProvider', () => {
   function createTokens() {

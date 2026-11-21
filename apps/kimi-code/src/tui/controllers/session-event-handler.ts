@@ -1,98 +1,63 @@
+import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import type {
+  AgentStatusUpdatedEvent,
+  AssistantDeltaEvent,
   BackgroundTaskInfo,
+  BackgroundTaskStartedEvent,
+  BackgroundTaskTerminatedEvent,
+  CompactionCancelledEvent,
+  CompactionCompletedEvent,
+  CompactionStartedEvent,
+  CronFiredEvent,
+  ErrorEvent,
   Event,
   GoalChange,
+  GoalUpdatedEvent,
+  HookResultEvent,
   Session,
   SessionMetaUpdatedEvent,
-  TokenUsage,
+  SkillActivatedEvent,
+  PluginCommandActivatedEvent,
+  ThinkingDeltaEvent,
+  ToolCallDeltaEvent,
+  ToolCallStartedEvent,
+  ToolUpdatedEvent,
+  ToolResultEvent,
+  TurnEndedEvent,
+  TurnStartedEvent,
+  TurnStepCompletedEvent,
+  TurnStepInterruptedEvent,
+  TurnStepRetryingEvent,
+  TurnStepStartedEvent,
+  WarningEvent,
 } from '@moonshot-ai/kimi-code-sdk';
-import { log } from '@moonshot-ai/kimi-code-sdk';
-import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 
-/** Narrowed event shapes consumed by the private handlers below. */
-type StatusUpdatedEvent = Extract<Event, { type: 'agent.status.updated' }>;
-type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
-type TurnEndedEvent = Extract<Event, { type: 'turn.ended' }>;
-type TurnStepStartedEvent = Extract<Event, { type: 'turn.step.started' }>;
-type TurnStepCompletedEvent = Extract<Event, { type: 'turn.step.completed' }>;
-type TurnStepInterruptedEvent = Extract<Event, { type: 'turn.step.interrupted' }>;
-type TurnStepRetryingEvent = Extract<Event, { type: 'turn.step.retrying' }>;
-type CronFiredEvent = Extract<Event, { type: 'cron.fired' }>;
-type ErrorEvent = Extract<Event, { type: 'error' }>;
-type WarningEvent = Extract<Event, { type: 'warning' }>;
-type GoalUpdatedEvent = Extract<Event, { type: 'goal.updated' }>;
-type HookResultEvent = Extract<Event, { type: 'hook.result' }>;
-type SkillActivatedEvent = Extract<Event, { type: 'skill.activated' }>;
-type PluginCommandActivatedEvent = Extract<Event, { type: 'plugin_command.activated' }>;
-type ThinkingDeltaEvent = Extract<Event, { type: 'thinking.delta' }>;
-type AssistantDeltaEvent = Extract<Event, { type: 'assistant.delta' }>;
-type ToolCallDeltaEvent = Extract<Event, { type: 'tool.call.delta' }>;
-type ToolCallStartedEvent = Extract<Event, { type: 'tool.call.started' }>;
-type ToolProgressEvent = Extract<Event, { type: 'tool.progress' }>;
-type ToolResultEvent = Extract<Event, { type: 'tool.result' }>;
-type CompactionStartedEvent = Extract<Event, { type: 'compaction.started' }>;
-type CompactionCompletedEvent = Extract<Event, { type: 'compaction.completed' }>;
-type CompactionCancelledEvent = Extract<Event, { type: 'compaction.cancelled' }>;
-type BackgroundTaskEvent = Extract<
-  Event,
-  { type: 'background.task.started' | 'background.task.terminated' }
->;
-
-import { t } from '#/i18n';
-import { currentTheme } from '#/tui/theme';
-import type { ColorToken } from '#/tui/theme';
-import { openUrl } from '#/utils/open-url';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '#/utils/render-clock';
-import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
-
-import { createGoal as startGoalCommand } from '../commands/goal';
 import { MoonLoader } from '../components/chrome/moon-loader';
 import { buildGoalMarker } from '../components/messages/goal-markers';
-import {
-  HelloWorldModeMarkerComponent,
-  HelloWorldStageMarkerComponent,
-  type HelloWorldModeMarkerState,
-} from '../components/messages/hello-world-markers';
 import { StatusMessageComponent } from '../components/messages/status-message';
 import {
   SwarmModeMarkerComponent,
   type SwarmModeMarkerState,
 } from '../components/messages/swarm-markers';
-import { errorReportHintLine } from '../constant/feedback';
 import {
-  getOauthLoginRequiredStartupNotice,
   OAUTH_LOGIN_REQUIRED_CODE,
+  OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE,
 } from '../constant/kimi-tui';
+import { buildGoalCompletionMessage } from '../utils/goal-completion';
+import {
+  argsRecord,
+  formatErrorPayload,
+  formatErrorMessage,
+  serializeToolResultOutput,
+  stringValue,
+} from '../utils/event-payload';
 import {
   readGoalQueue,
   removeGoalQueueItem,
   restoreGoalQueueItem,
   type UpcomingGoal,
 } from '../goal-queue-store';
-import type { TUIState } from '../state';
-import { sumTokenUsage } from '../types';
-import type {
-  AppState,
-  LivePaneState,
-  QueuedMessage,
-  SkillActivationTrigger,
-  ToolCallBlockData,
-  ToolResultBlockData,
-  TranscriptEntry,
-} from '../types';
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
-import { formatLocalizedError } from '../utils/error-display';
-import {
-  argsRecord,
-  formatErrorMessage,
-  serializeToolResultOutput,
-  stringValue,
-} from '../utils/event-payload';
-import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import { formatHookResultMarkdown } from '../utils/hook-result-format';
 import { McpOAuthAuthorizationUrlOpener } from '../utils/mcp-oauth';
 import {
@@ -101,17 +66,34 @@ import {
   type McpServerStatusSnapshot,
   selectMcpStartupStatusRows,
 } from '../utils/mcp-server-status';
+import { openUrl } from '#/utils/open-url';
+import { currentTheme } from '#/tui/theme';
+import type { ColorToken } from '#/tui/theme';
+import { errorReportHintLine } from '../constant/feedback';
+import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
 import { isTurnPromptEvent, isTurnSteerEvent, isUserSteerOrigin } from '../utils/steer-delivery';
 import { nextTranscriptId } from '../utils/transcript-id';
 import { isToolCallId } from '../utils/turn-timeline';
 import type { BtwPanelController } from './btw-panel';
-import type { StepCacheBreak } from './cache-hint-controller';
-import { NotifyController } from './notify';
 import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
 import type { StreamingUIController } from './streaming-ui';
-import { SubAgentEventHandler } from './subagent-event-handler';
+import type { ProgramStatusController } from './program-status';
 import type { SurveyController } from './survey-controller';
 import type { TasksBrowserController } from './tasks-browser';
+import { SubAgentEventHandler } from './subagent-event-handler';
+import { NotifyController } from './notify';
+import {
+  sumTokenUsage,
+  type AppState,
+  type LivePaneState,
+  type QueuedMessage,
+  type ToolCallBlockData,
+  type ToolResultBlockData,
+  type TranscriptEntry,
+} from '../types';
+import type { TUIState } from '../tui-state';
+import { createGoal as startGoalCommand } from '../commands/goal';
+import { t } from '#/i18n';
 
 export interface SessionEventHost {
   state: TUIState;
@@ -119,7 +101,7 @@ export interface SessionEventHost {
   aborted: boolean;
   sessionEventUnsubscribe: (() => void) | undefined;
   readonly streamingUI: StreamingUIController;
-  readonly surveyController: SurveyController;
+  readonly programStatus?: ProgramStatusController;
 
   requireSession(): Session;
   setAppState(patch: Partial<AppState>): void;
@@ -128,38 +110,18 @@ export interface SessionEventHost {
   showError(msg: string): void;
   showStatus(msg: string, color?: ColorToken): void;
   showNotice(title: string, detail?: string): void;
+  refreshPluginCommands(session?: Session): Promise<void>;
   refreshEnvironmentSlot(): Promise<void>;
   updateActivityPane(): void;
-  /** One-row live status above the input box for an in-flight Ctrl+P rewrite. */
-  readonly promptOptimizerActivity: import('./prompt-optimizer-activity').PromptOptimizerActivityController;
   track(event: string, props?: Record<string, unknown>): void;
   recordSessionActivity(): void;
-  noteStepUsage(usage: TokenUsage | undefined, cacheBreak?: StepCacheBreak): void;
-  /** Folds one completed step into the readout. The decode window comes from
-   *  the engine (first and last token-bearing part) rather than from a clock
-   *  read here: only `llm.streaming.part` sees every part, including the
-   *  tool-call argument deltas that never reach the host event stream. */
-  noteStepCacheStats(
-    usage: TokenUsage | undefined,
-    window: { llmFirstTokenOffsetMs?: number; llmLastTokenOffsetMs?: number },
-  ): void;
-  noteSessionTurnStarted(): void;
-  noteSessionStepCompleted(
-    usage: TokenUsage | undefined,
-    llmStreamDurationMs: number | undefined,
-    llmFirstTokenLatencyMs: number | undefined,
-  ): void;
-  noteSessionToolCompleted(deltaMs: number): void;
   noteCompactionFinished(): void;
-  handleTurnStarted?(event: Extract<Event, { type: 'turn.started' }>): void;
-  handleTurnEnded?(event: Extract<Event, { type: 'turn.ended' }>): void;
+  handleCompactionCancelled?(): void;
   handleBackgroundTaskStatus?(info: BackgroundTaskInfo): void;
-  mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void;
+  mountEditorReplacement(panel: Component & Focusable): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
-  appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;
-  replaceTranscriptChild(previous: Component, next: Component, entry?: TranscriptEntry): boolean;
-  removeTranscriptEntries(entries: readonly TranscriptEntry[]): void;
+  appendTranscriptEntry(entry: TranscriptEntry): void;
   moveTranscriptEntryToEnd(entry: TranscriptEntry): boolean;
   handleShellOutput(event: { commandId: string; update: { kind: string; text?: string } }): void;
   handleShellStarted(event: { commandId: string; taskId: string }): void;
@@ -177,26 +139,11 @@ export interface SessionEventHost {
   completedCompactionSerial: number;
   handleTurnStarted?(event: TurnStartedEvent): void;
   handleTurnEnded?(event: TurnEndedEvent): void;
+  handlePromptPredictionTurnEnded?(event: TurnEndedEvent): void;
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserController;
+  readonly surveyController: SurveyController;
 }
-
-/**
- * Estimate token count from text content. Matches the heuristic the token
- * estimator has always used: ASCII chars ≈ 4/token, non-ASCII (CJK,
- * emoji) ≈ 1/token.
- */
-function estimateTokensFromText(text: string): number {
-  let ascii = 0;
-  let nonAscii = 0;
-  for (const ch of text) {
-    if (ch.charCodeAt(0) < 128) ascii++;
-    else nonAscii++;
-  }
-  return Math.ceil(ascii / 4 + nonAscii);
-}
-
-export type SessionEventTimers = Pick<RenderClock, 'setTimeout' | 'clearTimeout'>;
 
 export class SessionEventHandler {
   readonly notifications: NotifyController;
@@ -206,7 +153,6 @@ export class SessionEventHandler {
   constructor(
     private readonly host: SessionEventHost,
     pluginUpdateNotifier?: PluginUpdateNotifier,
-    private readonly timers: SessionEventTimers = SYSTEM_RENDER_CLOCK,
   ) {
     this.notifications = new NotifyController(host.state);
     this.subAgentEventHandler = new SubAgentEventHandler(host, {
@@ -222,13 +168,14 @@ export class SessionEventHandler {
       new PluginUpdateNotifier({
         getSession: () => this.host.session,
         workDir: host.state.appState.workDir,
+        reloadPlugins: async () => host.session?.reloadPlugins(),
+        refreshPluginCommands: async () => host.refreshPluginCommands(host.session),
         notify: (message) => {
           this.host.showStatus(message, 'warning');
         },
       });
   }
 
-  // Runtime state – owned by this handler, reset between sessions.
   backgroundTasks: Map<string, BackgroundTaskInfo> = new Map();
   backgroundTaskTranscriptedTerminal: Set<string> = new Set();
   private backgroundTaskTerminalEntries: Map<string, TranscriptEntry> = new Map();
@@ -236,21 +183,20 @@ export class SessionEventHandler {
   seenSkillActivationIds: Set<string> = new Set();
   renderedPluginCommandActivationIds: Set<string> = new Set();
   renderedMcpServerStatusKeys: Map<string, string> = new Map();
-  mcpServerStatusSpinners: Map<string, { spinner: MoonLoader; entry: TranscriptEntry }> = new Map();
+  mcpServerStatusSpinners: Map<string, MoonLoader> = new Map();
   mcpServers: Map<string, McpServerStatusSnapshot> = new Map();
   private goalCompletionAwaitingClear = false;
   private goalCompletionTurnEnded = false;
   private currentTurnHasAssistantText = false;
   private pluginCommandTurns: Map<string, string> = new Map();
   private pluginMcpToolsUsedInTurn: Set<string> = new Set();
-  /** `tool.call.started` timestamps for the footer tool-duration stat; entries
-   *  are removed when the matching `tool.result` arrives. */
-  private toolStartTimes: Map<string, number> = new Map();
   private pendingModelBlockedFallback: GoalChange | undefined;
+  private compactionFailed = false;
   private queuedGoalPromotionPending = false;
   private queuedGoalPromotionInFlight = false;
-  private queuedGoalPromotionTimer: RenderTimerHandle | undefined;
-  private stepRetryAttemptTimer: RenderTimerHandle | undefined;
+  private queuedGoalPromotionTimer: ReturnType<typeof setTimeout> | undefined;
+  private stepRetryAttemptTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly toolStatuses = new Map<string, string>();
 
   resetRuntimeState(): void {
     this.backgroundTasks.clear();
@@ -258,6 +204,7 @@ export class SessionEventHandler {
     this.backgroundTaskTerminalEntries.clear();
     this.subAgentEventHandler.resetRuntimeState();
     this.notifications.reset();
+    this.toolStatuses.clear();
     this.seenSkillActivationIds.clear();
     this.renderedPluginCommandActivationIds.clear();
     this.renderedMcpServerStatusKeys.clear();
@@ -268,12 +215,11 @@ export class SessionEventHandler {
     this.pluginCommandTurns.clear();
     this.pluginMcpToolsUsedInTurn.clear();
     this.pendingModelBlockedFallback = undefined;
+    this.compactionFailed = false;
     this.queuedGoalPromotionPending = false;
     this.queuedGoalPromotionInFlight = false;
     this.clearQueuedGoalPromotionTimer();
-    // Clear the retry timer AND the stale `stepRetry` appState — switching
-    // sessions mid-backoff must not leave the previous session's countdown.
-    this.clearStepRetry();
+    this.clearStepRetryAttemptTimer();
     this.stopAllMcpServerStatusSpinners();
   }
 
@@ -301,8 +247,8 @@ export class SessionEventHandler {
     host.sessionEventUnsubscribe = session.onEvent((event) => {
       if (host.aborted) return;
       if (event.sessionId !== sessionId) return;
-      if (event.type === 'tool.progress') {
-        mcpOAuthOpener.handleToolProgress(event);
+      if (event.type === 'tool.updated') {
+        mcpOAuthOpener.handleToolUpdated(event);
       }
       this.handleEvent(event, sendQueued);
     });
@@ -317,7 +263,7 @@ export class SessionEventHandler {
     } catch (error) {
       if (host.session !== session || host.aborted) return;
       const message = error instanceof Error ? error.message : String(error);
-      host.showError(t('tui.statusMessages.failedToSyncMcp', { message }));
+      host.showError(t('tui.statusMessages.failedToSyncMcp', { message: message }));
       return;
     }
     if (host.session !== session || host.state.appState.sessionId !== session.id) return;
@@ -345,13 +291,16 @@ export class SessionEventHandler {
   }
 
   handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void {
+    if ('origin' in event && event.origin === 'shellCommand') return;
     this.notifications.handleEvent(event);
+    if (event.type === 'background.task.started' || event.type === 'background.task.terminated') {
+      this.host.handleBackgroundTaskStatus?.(event.info);
+    }
     if (this.subAgentEventHandler.routeChildAgentEvent(event)) return;
 
     if ('turnId' in event && event.turnId !== undefined) {
       this.host.streamingUI.setTurnId(String(event.turnId));
     }
-
     const rawEvent: object = event;
     if (isTurnSteerEvent(rawEvent)) {
       if (isUserSteerOrigin(rawEvent)) {
@@ -365,127 +314,66 @@ export class SessionEventHandler {
     }
 
     switch (event.type) {
-      case 'turn.started':
-        this.handleTurnBegin(event);
-        break;
-      case 'turn.ended':
-        this.handleTurnEnd(event, sendQueued);
-        break;
-      case 'prompt.completed':
-        this.handlePromptCompleted(event);
-        break;
-      case 'turn.step.started':
-        this.handleStepBegin(event);
-        break;
-      case 'turn.step.interrupted':
-        this.handleStepInterrupted(event);
-        break;
-      case 'turn.step.completed':
-        this.handleStepCompleted(event);
-        break;
-      case 'turn.step.retrying':
-        this.handleStepRetrying(event);
-        break;
-      case 'tool.progress':
-        this.handleToolProgress(event);
-        break;
-      case 'shell.output':
-        this.host.handleShellOutput(event);
-        break;
-      case 'shell.started':
-        this.host.handleShellStarted(event);
-        break;
-      case 'assistant.delta':
-        this.handleAssistantDelta(event);
-        break;
-      case 'hook.result':
-        this.handleHookResult(event);
-        break;
-      case 'thinking.delta':
-        this.handleThinkingDelta(event);
-        break;
-      case 'tool.call.started':
-        this.handleToolCall(event);
-        break;
-      case 'tool.call.delta':
-        this.handleToolCallDelta(event);
-        break;
-      case 'tool.result':
-        this.handleToolResult(event);
-        break;
-      case 'agent.status.updated':
-        this.handleStatusUpdate(event);
-        break;
-      case 'session.meta.updated':
-        this.handleSessionMetaChanged(event);
-        break;
-      case 'goal.updated':
-        this.handleGoalUpdated(event);
-        break;
-      case 'skill.activated':
-        this.handleSkillActivated(event);
-        break;
-      case 'plugin_command.activated':
-        this.handlePluginCommandActivated(event);
-        break;
-      case 'error':
-        this.handleSessionError(event);
-        break;
-      case 'warning':
-        this.handleSessionWarning(event);
-        break;
-      case 'compaction.started':
-        this.handleCompactionBegin(event);
-        break;
-      case 'compaction.completed':
-        this.handleCompactionEnd(event, sendQueued);
-        break;
-      case 'compaction.blocked':
-        break;
-      case 'compaction.cancelled':
-        this.handleCompactionCancel(event, sendQueued);
-        break;
+      case 'turn.started': this.handleTurnBegin(event); break;
+      case 'turn.ended': this.handleTurnEnd(event, sendQueued); break;
+      case 'prompt.completed': this.handlePromptCompleted(event, sendQueued); break;
+      case 'turn.step.started': this.handleStepBegin(event); break;
+      case 'turn.step.interrupted': this.handleStepInterrupted(event); break;
+      case 'turn.step.completed': this.handleStepCompleted(event); break;
+      case 'turn.step.retrying': this.handleStepRetrying(event); break;
+      case 'tool.updated': this.handleToolUpdated(event); break;
+      case 'shell.output': this.host.handleShellOutput(event); break;
+      case 'shell.started': this.host.handleShellStarted(event); break;
+      case 'assistant.delta': this.handleAssistantDelta(event); break;
+      case 'hook.result': this.handleHookResult(event); break;
+      case 'thinking.delta': this.handleThinkingDelta(event); break;
+      case 'tool.call.started': this.handleToolCall(event); break;
+      case 'tool.call.delta': this.handleToolCallDelta(event); break;
+      case 'tool.result': this.handleToolResult(event); break;
+      case 'agent.status.updated': this.handleStatusUpdate(event); break;
+      case 'session.meta.updated': this.handleSessionMetaChanged(event); break;
+      case 'goal.updated': this.handleGoalUpdated(event); break;
+      case 'skill.activated': this.handleSkillActivated(event); break;
+      case 'plugin_command.activated': this.handlePluginCommandActivated(event); break;
+      case 'error': this.handleSessionError(event); break;
+      case 'warning': this.handleSessionWarning(event); break;
+      case 'compaction.started': this.handleCompactionBegin(event); break;
+      case 'compaction.completed': this.handleCompactionEnd(event, sendQueued); break;
+      case 'compaction.blocked': break;
+      case 'compaction.cancelled': this.handleCompactionCancel(event, sendQueued); break;
       case 'subagent.spawned':
         this.host.surveyController.notifySubagentSpawned(event);
-        this.subAgentEventHandler.handleLifecycleEvent(event);
-        break;
+        this.subAgentEventHandler.handleLifecycleEvent(event); break;
       case 'subagent.started':
       case 'subagent.suspended':
+        this.subAgentEventHandler.handleLifecycleEvent(event); break;
       case 'subagent.completed':
       case 'subagent.failed':
-      case 'subagent.cancelled':
+      case 'subagent.cancelled': {
+        const record = this.subAgentEventHandler.activityStore.get(event.subagentId);
         this.subAgentEventHandler.handleLifecycleEvent(event);
+        if (record !== undefined && this.host.state.tasksBrowser !== undefined) {
+          this.host.tasksBrowserController.onSubagentSettled(record);
+        }
         break;
+      }
       case 'background.task.started':
       case 'background.task.terminated':
-        this.handleBackgroundTaskEvent(event);
-        break;
-      case 'cron.fired':
-        this.handleCronFired(event);
-        break;
-      case 'environment.status.changed':
-        void this.host.refreshEnvironmentSlot();
-        break;
-      case 'mcp.server.status':
-        this.renderMcpServerStatus(event.server);
-        break;
-      case 'tool.list.updated':
-        break;
-      default:
-        break;
+        this.handleBackgroundTaskEvent(event); break;
+      case 'cron.fired': this.handleCronFired(event); break;
+      case 'environment.status.changed': void this.host.refreshEnvironmentSlot(); break;
+      case 'mcp.server.status': this.renderMcpServerStatus(event.server); break;
+      case 'tool.list.updated': break;
+      default: break;
     }
   }
 
   stopAllMcpServerStatusSpinners(): void {
-    for (const { spinner } of this.mcpServerStatusSpinners.values()) {
+    for (const spinner of this.mcpServerStatusSpinners.values()) {
       spinner.stop();
     }
     this.mcpServerStatusSpinners.clear();
   }
-
-  // ---------------------------------------------------------------------------
-  // Private handlers
-  // ---------------------------------------------------------------------------
 
   private handleTurnBegin(event: TurnStartedEvent): void {
     this.host.streamingUI.timeline.turnStarted();
@@ -494,8 +382,6 @@ export class SessionEventHandler {
     this.currentTurnHasAssistantText = false;
     if (event.origin?.kind === 'plugin_command') {
       this.pluginCommandTurns.set(String(event.turnId), event.origin.pluginId);
-    } else {
-      this.host.noteSessionTurnStarted();
     }
     if (event.origin?.kind === 'task') {
       this.anchorTaskNotificationTurn(event.origin.taskId, event.origin.status);
@@ -532,6 +418,18 @@ export class SessionEventHandler {
     });
   }
 
+  private handlePromptCompleted(
+    event: Extract<Event, { type: 'prompt.completed' }>,
+    sendQueued: (item: QueuedMessage) => void,
+  ): void {
+    if (event.reason === 'blocked' || event.reason === 'failed') {
+      this.host.releaseSteerDelivery?.(event.promptId);
+    }
+    if (event.reason !== 'blocked') return;
+    this.host.programStatus?.failRequest(t('tui.programStatus.turnBlocked'));
+    this.host.streamingUI.finalizeTurn(sendQueued);
+  }
+
   private handleTurnEnd(event: TurnEndedEvent, sendQueued: (item: QueuedMessage) => void): void {
     this.host.streamingUI.timeline.turnEnded(event.reason === 'completed' ? 'completed' : 'stopped');
     this.host.handleTurnEnded?.(event);
@@ -540,14 +438,7 @@ export class SessionEventHandler {
     if (event.reason === 'cancelled') {
       this.markActiveAgentSwarmsCancelled();
     }
-    // Aborted foreground subagents emit no completed/failed lifecycle event
-    // (v2 suppresses it for aborts), so their activity records would linger
-    // until the session reset — prune them when the owning turn ends.
     this.subAgentEventHandler.dropForegroundOnlyActivityRecords();
-    // A tool interrupted by the turn end (abort, max_tokens without result)
-    // would otherwise leave a stale start timestamp that a later same-id
-    // result could match — drop the whole map at the turn boundary.
-    this.toolStartTimes.clear();
     if (event.reason === 'failed' && event.error?.code === 'provider.filtered') {
       this.host.showStatus(t('tui.statusMessages.turnStoppedFiltered'), 'error');
     }
@@ -556,12 +447,11 @@ export class SessionEventHandler {
     }
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeTurn(sendQueued);
+    this.host.handlePromptPredictionTurnEnded?.(event);
     this.host.recordSessionActivity();
     this.renderPendingModelBlockedFallback();
     this.currentTurnHasAssistantText = false;
     this.goalCompletionTurnEnded = true;
-    // Plugin usage is reported once the whole turn's output has ended — but a
-    // cancelled turn cut the output short, so skip the notice there.
     const reportPluginUsage = event.reason !== 'cancelled';
     const pluginCommandPluginId = this.pluginCommandTurns.get(String(event.turnId));
     if (pluginCommandPluginId !== undefined) {
@@ -577,15 +467,6 @@ export class SessionEventHandler {
     }
     this.pluginMcpToolsUsedInTurn.clear();
     this.scheduleQueuedGoalPromotion();
-  }
-
-  private handlePromptCompleted(event: Extract<Event, { type: 'prompt.completed' }>): void {
-    // A steer the engine rejected before consuming it never reaches turn.steer
-    // or turn.started, so its entry would stay faded for the rest of the
-    // session without this release.
-    if (event.reason === 'blocked' || event.reason === 'failed') {
-      this.host.releaseSteerDelivery?.(event.promptId);
-    }
   }
 
   private handleStepBegin(event: TurnStepStartedEvent): void {
@@ -609,24 +490,13 @@ export class SessionEventHandler {
     this.host.streamingUI.timeline.abandonUnstarted();
     this.host.streamingUI.flushNow();
     this.clearStepRetry();
-    this.host.noteStepUsage(event.usage, event.cacheBreak);
-    this.host.noteStepCacheStats(event.usage, {
-      llmFirstTokenOffsetMs: event.llmFirstTokenOffsetMs,
-      llmLastTokenOffsetMs: event.llmLastTokenOffsetMs,
-    });
-    this.host.noteSessionStepCompleted(
-      event.usage,
-      event.llmStreamDurationMs,
-      event.llmFirstTokenLatencyMs,
-    );
+    this.host.recordSessionActivity();
     this.maybeShowDebugTiming(event);
 
     if (event.providerFinishReason === 'filtered') {
       this.host.showNotice(
         t('tui.statusMessages.policyBlocked'),
-        t('tui.statusMessages.outputFiltered', {
-          reason: event.rawFinishReason ?? 'content_filter',
-        }),
+        t('tui.statusMessages.outputFiltered', { reason: event.rawFinishReason ?? 'content_filter' }),
       );
       return;
     }
@@ -650,9 +520,6 @@ export class SessionEventHandler {
 
   private handleStepRetrying(event: TurnStepRetryingEvent): void {
     this.host.streamingUI.timeline.abandonUnstarted();
-    // The failure may arrive mid-stream, after thinking/assistant deltas have
-    // parked the pane in `thinking`/`composing` — drive it back to waiting so
-    // the retry label and detail actually render during the backoff.
     this.host.patchLivePane({ mode: 'waiting' });
     this.host.setAppState({
       streamingPhase: 'waiting',
@@ -666,11 +533,8 @@ export class SessionEventHandler {
         phase: 'backoff',
       },
     });
-    // Both engines sleep for `delayMs` before the next attempt runs, but only
-    // v2 re-emits `turn.step.started` for it — flip the phase on a timer so the
-    // stale countdown drops on the legacy engine too.
     this.clearStepRetryAttemptTimer();
-    this.stepRetryAttemptTimer = this.timers.setTimeout(() => {
+    this.stepRetryAttemptTimer = setTimeout(() => {
       this.stepRetryAttemptTimer = undefined;
       const retry = this.host.state.appState.stepRetry;
       if (retry === null) return;
@@ -686,7 +550,7 @@ export class SessionEventHandler {
 
   clearStepRetryAttemptTimer(): void {
     if (this.stepRetryAttemptTimer !== undefined) {
-      this.timers.clearTimeout(this.stepRetryAttemptTimer);
+      clearTimeout(this.stepRetryAttemptTimer);
       this.stepRetryAttemptTimer = undefined;
     }
   }
@@ -736,35 +600,19 @@ export class SessionEventHandler {
     this.host.showError(
       reason === 'max_steps'
         ? t('tui.statusMessages.stepMaxSteps')
-        : t('tui.statusMessages.stepInterrupted', { reason }),
+        : t('tui.statusMessages.stepInterrupted', { reason: reason }),
     );
   }
 
   private handleThinkingDelta(event: ThinkingDeltaEvent): void {
     const { state, streamingUI } = this.host;
-    // Encrypted / redacted reasoning (e.g. Kimi over the Anthropic-compatible
-    // protocol) streams thinking deltas whose visible text is empty — only an
-    // opaque signature rides along. Models also occasionally stream whitespace-
-    // only thinking (e.g. a single space). Such deltas carry nothing to render,
-    // so switching into the `thinking` pane mode here would stop the "waiting"
-    // moon spinner while no ThinkingComponent is ever created (it needs visible
-    // text), leaving a blank, spinner-less gap until the first real text/tool
-    // token arrives. Keep the moon up until actual thinking text shows up.
     if (event.delta.trim().length === 0 && !streamingUI.hasThinkingDraft()) return;
-    if (streamingUI.hasStreamingBlock()) streamingUI.finalizeAssistantStream();
     streamingUI.timeline.thinkingDelta(event.delta);
     streamingUI.appendThinkingDelta(event.delta);
     this.host.patchLivePane({ mode: 'idle' });
     if (state.appState.streamingPhase !== 'thinking') {
-      this.host.setAppState({
-        streamingPhase: 'thinking',
-        streamingStartTime: Date.now(),
-        outputTokens: 0,
-      });
+      this.host.setAppState({ streamingPhase: 'thinking', streamingStartTime: Date.now() });
     }
-    this.host.setAppState({
-      outputTokens: state.appState.outputTokens + estimateTokensFromText(event.delta),
-    });
     streamingUI.scheduleFlush();
   }
 
@@ -787,15 +635,8 @@ export class SessionEventHandler {
       pendingQuestion: null,
     });
     if (state.appState.streamingPhase !== 'composing') {
-      this.host.setAppState({
-        streamingPhase: 'composing',
-        streamingStartTime: Date.now(),
-        outputTokens: 0,
-      });
+      this.host.setAppState({ streamingPhase: 'composing', streamingStartTime: Date.now() });
     }
-    this.host.setAppState({
-      outputTokens: state.appState.outputTokens + estimateTokensFromText(event.delta),
-    });
     streamingUI.scheduleFlush();
   }
 
@@ -816,6 +657,7 @@ export class SessionEventHandler {
       turnId: String(event.turnId),
       renderMode: 'markdown',
       content: formatHookResultMarkdown(event),
+      hookResult: true,
     });
     this.host.patchLivePane({
       mode: 'idle',
@@ -829,7 +671,6 @@ export class SessionEventHandler {
     if (isToolCallId(event.toolCallId)) streamingUI.timeline.callStarted(event.toolCallId, event.name);
     this.host.surveyController.notifyToolCallStarted(event.toolCallId, event.name);
     streamingUI.flushNow();
-    this.toolStartTimes.set(event.toolCallId, Date.now());
     const { turnId, step } = streamingUI.getTurnContext();
     const toolCall: ToolCallBlockData = {
       id: event.toolCallId,
@@ -859,8 +700,7 @@ export class SessionEventHandler {
     const preview = streamingUI.getStreamingToolCallPreview(event.toolCallId);
     if (
       preview !== undefined &&
-      (preview.name === 'AgentSwarm' ||
-        this.subAgentEventHandler.hasAgentSwarmProgress(event.toolCallId))
+      (preview.name === 'AgentSwarm' || this.subAgentEventHandler.hasAgentSwarmProgress(event.toolCallId))
     ) {
       this.subAgentEventHandler.handleAgentSwarmToolCallDelta(event.toolCallId, preview.args, {
         streamingArguments: preview.argumentsText,
@@ -878,36 +718,29 @@ export class SessionEventHandler {
     streamingUI.scheduleFlush();
   }
 
-  private handleToolProgress(event: ToolProgressEvent): void {
-    // Input queued before the wait began would otherwise sit until the wait
-    // returns; steering it now ends the wait so the model reads it first.
-    if (this.host.streamingUI.markWaitForRunning(event.toolCallId)) {
+  private handleToolUpdated(event: ToolUpdatedEvent): void {
+    if (event.fields['wait'] !== undefined && this.host.streamingUI.markWaitForRunning(event.toolCallId)) {
       this.host.steerQueuedMessagesIntoRunningTurn();
     }
-    const text = event.update.text;
-    if (text === undefined || text.length === 0) return;
     const tc = this.host.streamingUI.getToolComponent(event.toolCallId);
     if (tc === undefined) return;
-    if (event.update.kind === 'status') {
-      tc.appendProgress(text, { replace: event.update.replace === true });
+    if (event.output !== undefined) {
+      if (event.output.text.length > 0) tc.appendLiveOutput(event.output.text);
       return;
     }
-    if (event.update.kind === 'stdout' || event.update.kind === 'stderr') {
-      tc.appendLiveOutput(text);
-    }
+    const status = event.fields['status'];
+    if (typeof status !== 'string' || status.length === 0 || this.toolStatuses.get(event.toolCallId) === status) return;
+    this.toolStatuses.set(event.toolCallId, status);
+    tc.appendProgress(status, { replace: event.fields['statusReplace'] === true });
   }
 
   private handleToolResult(event: ToolResultEvent): void {
     const { streamingUI } = this.host;
     if (isToolCallId(event.toolCallId)) streamingUI.timeline.callResult(event.toolCallId);
+    this.toolStatuses.delete(event.toolCallId);
     this.host.surveyController.notifyToolCallEnded(event.toolCallId);
     streamingUI.flushNow();
     this.clearStepRetry();
-    const startMs = this.toolStartTimes.get(event.toolCallId);
-    this.toolStartTimes.delete(event.toolCallId);
-    if (startMs !== undefined && event.synthetic !== true) {
-      this.host.noteSessionToolCompleted(Date.now() - startMs);
-    }
     const resultData: ToolResultBlockData = {
       tool_call_id: event.toolCallId,
       output: serializeToolResultOutput(event.output),
@@ -916,8 +749,6 @@ export class SessionEventHandler {
     };
     const matchedCall = streamingUI.completeToolResult(event.toolCallId, resultData);
     if (matchedCall !== undefined && isPluginMcpToolName(matchedCall.name)) {
-      // Buffer plugin MCP usage for the turn; the update notice fires once the
-      // whole turn's output has ended (see handleTurnEnd).
       this.pluginMcpToolsUsedInTurn.add(matchedCall.name);
     }
     this.subAgentEventHandler.handleAgentSwarmToolResult(
@@ -928,15 +759,11 @@ export class SessionEventHandler {
     this.host.patchLivePane({ mode: 'waiting' });
   }
 
-  private handleStatusUpdate(event: StatusUpdatedEvent): void {
+  private handleStatusUpdate(event: AgentStatusUpdatedEvent): void {
     const shouldRenderSwarmEnded =
       event.swarmMode === false &&
       this.host.state.appState.swarmMode &&
       this.host.state.swarmModeEntry === 'task';
-    const shouldRenderHelloWorldEnded =
-      event.helloWorldMode === false &&
-      this.host.state.appState.helloWorldMode &&
-      this.host.state.helloWorldModeEntry === 'task';
     const shouldRenderTowerGoalExit =
       event.towerMode === false &&
       this.host.state.appState.towerMode &&
@@ -947,32 +774,13 @@ export class SessionEventHandler {
     if (event.contextUsage !== undefined) {
       patch.contextUsage = event.contextUsage;
     } else if (event.contextTokens !== undefined || event.maxContextTokens !== undefined) {
-      // v2 status events carry contextTokens/maxContextTokens but never
-      // contextUsage. Recompute the ratio from the post-patch token counts so
-      // it cannot go stale and drift from them — the footer and the /usage
-      // panel bar render this ratio while their texts recompute from the
-      // counts, so a stale ratio shows as a bar/percentage mismatch.
       const tokens = patch.contextTokens ?? this.host.state.appState.contextTokens;
       const max = patch.maxContextTokens ?? this.host.state.appState.maxContextTokens;
       patch.contextUsage = max > 0 ? tokens / max : 0;
     }
     if (event.planMode !== undefined) patch.planMode = event.planMode;
-    if (event.specMode !== undefined) patch.specMode = event.specMode;
     if (event.swarmMode !== undefined) patch.swarmMode = event.swarmMode;
-    if (event.helloWorldMode !== undefined) patch.helloWorldMode = event.helloWorldMode;
-    if (event.helloWorldStage !== undefined) patch.helloWorldStage = event.helloWorldStage;
     if (event.towerMode !== undefined) patch.towerMode = event.towerMode;
-    if (event.specMode === false) {
-      // Leaving spec mode invalidates the stage: the footer renders
-      // `spec:${stage}` and a stale value would label the next spec with the
-      // previous one's progress.
-      patch.specStage = undefined;
-    }
-    if (event.helloWorldMode === false) {
-      // Same reasoning as the spec stage: a stale hello-world stage would
-      // relabel the next run with the previous one's progress.
-      patch.helloWorldStage = undefined;
-    }
     if (event.permission !== undefined) {
       patch.permissionMode = event.permission;
     }
@@ -981,21 +789,11 @@ export class SessionEventHandler {
     if (event.usage?.total !== undefined) {
       patch.cumulativeTokens = sumTokenUsage(event.usage.total);
     }
-    const previousHelloWorldStage = this.host.state.appState.helloWorldStage;
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
-    if (event.helloWorldStage !== undefined && event.helloWorldStage !== previousHelloWorldStage) {
-      this.renderHelloWorldStageMarker(event.helloWorldStage);
-    }
     if (event.swarmMode === false) {
       this.host.state.swarmModeEntry = undefined;
       if (shouldRenderSwarmEnded) {
         this.renderSwarmModeMarker('ended');
-      }
-    }
-    if (event.helloWorldMode === false) {
-      this.host.state.helloWorldModeEntry = undefined;
-      if (shouldRenderHelloWorldEnded) {
-        this.renderHelloWorldModeMarker('ended');
       }
     }
     if (shouldRenderTowerGoalExit) {
@@ -1007,42 +805,10 @@ export class SessionEventHandler {
   }
 
   private renderSwarmModeMarker(state: SwarmModeMarkerState): void {
-    this.host.appendTranscriptEntry(
-      {
-        id: nextTranscriptId(),
-        kind: 'status',
-        turnId: undefined,
-        renderMode: 'plain',
-        content: state,
-      },
+    this.host.state.transcriptContainer.addChild(
       new SwarmModeMarkerComponent(state),
     );
-  }
-
-  private renderHelloWorldModeMarker(state: HelloWorldModeMarkerState): void {
-    this.host.appendTranscriptEntry(
-      {
-        id: nextTranscriptId(),
-        kind: 'status',
-        turnId: undefined,
-        renderMode: 'plain',
-        content: state,
-      },
-      new HelloWorldModeMarkerComponent(state),
-    );
-  }
-
-  private renderHelloWorldStageMarker(stage: string): void {
-    this.host.appendTranscriptEntry(
-      {
-        id: nextTranscriptId(),
-        kind: 'status',
-        turnId: undefined,
-        renderMode: 'plain',
-        content: stage,
-      },
-      new HelloWorldStageMarkerComponent(stage),
-    );
+    this.host.state.ui.requestRender();
   }
 
   private handleGoalUpdated(event: GoalUpdatedEvent): void {
@@ -1059,10 +825,6 @@ export class SessionEventHandler {
     if (change === undefined) return;
     const { state } = this.host;
 
-    // Completion -> the box disappears (snapshot cleared on the follow-up null
-    // update) and a deterministic completion message lands in the transcript.
-    // Resume renders the same text from the durable goal completion replay
-    // record, so live and replayed completion cards stay identical.
     if (change.kind === 'completion' && event.snapshot !== null) {
       this.pendingModelBlockedFallback = undefined;
       this.goalCompletionAwaitingClear = true;
@@ -1072,33 +834,28 @@ export class SessionEventHandler {
         kind: 'assistant',
         renderMode: 'markdown',
         content: buildGoalCompletionMessage(event.snapshot),
-        goalCompletionData: true,
       });
       state.ui.requestRender();
       return;
     }
 
-    // Lifecycle change (pause / resume / blocked) -> a low-profile,
-    // ctrl+o-expandable marker.
     if (change.kind === 'lifecycle' && change.status === 'blocked') {
       void this.notifyQueuedGoalWaitingOnBlocked();
       if (change.actor === 'model' || change.reason === undefined) {
-        this.pendingModelBlockedFallback = this.currentTurnHasAssistantText ? undefined : change;
+        this.pendingModelBlockedFallback = this.currentTurnHasAssistantText
+          ? undefined
+          : change;
         return;
       }
       this.pendingModelBlockedFallback = undefined;
     } else if (change.kind === 'lifecycle') {
       this.pendingModelBlockedFallback = undefined;
     }
-    if (buildGoalMarker(change, state.transcriptContainer.toolOutputExpanded, change.actor) === null) return;
-    this.host.appendTranscriptEntry({
-      id: nextTranscriptId(),
-      kind: 'goal',
-      turnId: this.host.streamingUI.getTurnContext().turnId,
-      renderMode: 'plain',
-      content: '',
-      goalData: { kind: 'lifecycle', change },
-    });
+    const marker = buildGoalMarker(change, state.transcriptContainer.toolOutputExpanded, change.actor);
+    if (marker !== null) {
+      state.transcriptContainer.addChild(marker);
+      state.ui.requestRender();
+    }
   }
 
   private renderPendingModelBlockedFallback(): void {
@@ -1106,23 +863,18 @@ export class SessionEventHandler {
     if (change === undefined) return;
     this.pendingModelBlockedFallback = undefined;
     const { state } = this.host;
-    const modelChange: GoalChange = { ...change, actor: 'model' };
-    if (buildGoalMarker(modelChange, state.transcriptContainer.toolOutputExpanded, 'model') === null) return;
-    this.host.appendTranscriptEntry({
-      id: nextTranscriptId(),
-      kind: 'goal',
-      turnId: this.host.streamingUI.getTurnContext().turnId,
-      renderMode: 'plain',
-      content: '',
-      goalData: { kind: 'lifecycle', change: modelChange },
-    });
+    const marker = buildGoalMarker(change, state.transcriptContainer.toolOutputExpanded, 'model');
+    if (marker !== null) {
+      state.transcriptContainer.addChild(marker);
+      state.ui.requestRender();
+    }
   }
 
   private scheduleQueuedGoalPromotion(): void {
     if (!this.queuedGoalPromotionPending || !this.goalCompletionTurnEnded) return;
     if (this.queuedGoalPromotionInFlight) return;
     if (this.queuedGoalPromotionTimer !== undefined) return;
-    this.queuedGoalPromotionTimer = this.timers.setTimeout(() => {
+    this.queuedGoalPromotionTimer = setTimeout(() => {
       this.queuedGoalPromotionTimer = undefined;
       if (!this.queuedGoalPromotionPending || !this.goalCompletionTurnEnded) return;
       if (this.queuedGoalPromotionInFlight) return;
@@ -1139,15 +891,6 @@ export class SessionEventHandler {
           }
           this.goalCompletionTurnEnded = false;
         })
-        .catch((error) => {
-          // An unexpected failure must not surface as an unhandled rejection;
-          // reset the pending state so a later turn can retry the promotion.
-          this.queuedGoalPromotionPending = false;
-          this.goalCompletionTurnEnded = false;
-          log.error('Failed to promote queued goal', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        })
         .finally(() => {
           this.queuedGoalPromotionInFlight = false;
           this.scheduleQueuedGoalPromotion();
@@ -1157,7 +900,7 @@ export class SessionEventHandler {
 
   private clearQueuedGoalPromotionTimer(): void {
     if (this.queuedGoalPromotionTimer === undefined) return;
-    this.timers.clearTimeout(this.queuedGoalPromotionTimer);
+    clearTimeout(this.queuedGoalPromotionTimer);
     this.queuedGoalPromotionTimer = undefined;
   }
 
@@ -1190,9 +933,7 @@ export class SessionEventHandler {
     try {
       queue = await readGoalQueue(session);
     } catch (error) {
-      host.showError(
-        t('tui.statusMessages.failedToReadUpcomingGoals', { error: formatErrorMessage(error) }),
-      );
+      host.showError(t('tui.statusMessages.failedToReadUpcomingGoals', { error: formatErrorMessage(error) }));
       return false;
     }
     if (host.session !== session || host.aborted) return true;
@@ -1242,9 +983,7 @@ export class SessionEventHandler {
     try {
       await restoreGoalQueueItem(session, goal);
     } catch (error) {
-      this.host.showError(
-        t('tui.statusMessages.queuedGoalRestoreFailed', { error: formatErrorMessage(error) }),
-      );
+      this.host.showError(t('tui.statusMessages.queuedGoalRestoreFailed', { error: formatErrorMessage(error) }));
     }
     await this.cancelStartedQueuedGoal(session);
   }
@@ -1253,9 +992,7 @@ export class SessionEventHandler {
     try {
       await session.cancelGoal();
     } catch (error) {
-      this.host.showError(
-        t('tui.statusMessages.queuedGoalCancelFailed', { error: formatErrorMessage(error) }),
-      );
+      this.host.showError(t('tui.statusMessages.queuedGoalCancelFailed', { error: formatErrorMessage(error) }));
     }
   }
 
@@ -1268,13 +1005,15 @@ export class SessionEventHandler {
     try {
       const queue = await readGoalQueue(session);
       hasQueuedGoal = queue.goals.length > 0;
-    } catch (error) {
-      log.warn('failed to read goal queue for blocked notice', { error: String(error) });
+    } catch {
       return;
     }
     if (!hasQueuedGoal || host.session !== session || host.aborted) return;
 
-    host.showNotice(t('tui.statusMessages.goalBlocked'), t('tui.statusMessages.goalBlockedDetail'));
+    host.showNotice(
+      t('tui.statusMessages.goalBlocked'),
+      t('tui.statusMessages.goalBlockedDetail'),
+    );
   }
 
   private handleSessionMetaChanged(event: SessionMetaUpdatedEvent): void {
@@ -1289,25 +1028,25 @@ export class SessionEventHandler {
     this.host.streamingUI.flushNow();
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeLiveTextBuffers('idle');
+    if (event.code === 'compaction.failed') {
+      this.compactionFailed = true;
+      this.host.setAppState({ isCompacting: false });
+      this.host.programStatus?.failRequest(formatErrorPayload(event));
+    }
     if (event.code === OAUTH_LOGIN_REQUIRED_CODE) {
-      this.host.showError(getOauthLoginRequiredStartupNotice());
+      this.host.programStatus?.setAuthRequired(true);
+      this.host.showError(OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
       return;
     }
-    const formatted = formatLocalizedError(event);
-    if (formatted.length > 0) {
-      this.host.showError(formatted);
-    }
+    this.host.showError(formatErrorPayload(event));
     const sessionId = this.host.state.appState.sessionId;
-    if (sessionId.length > 0 && formatted.length > 0) {
+    if (sessionId.length > 0) {
       this.host.showStatus(errorReportHintLine());
     }
   }
 
   private handleSessionWarning(event: WarningEvent): void {
-    this.host.showStatus(
-      t('tui.statusMessages.warningPrefix', { message: event.message }),
-      'warning',
-    );
+    this.host.showStatus(`Warning: ${event.message}`, 'warning');
   }
 
   private renderMcpServerStatus(server: McpServerStatusSnapshot): void {
@@ -1320,41 +1059,32 @@ export class SessionEventHandler {
 
     switch (server.status) {
       case 'connected': {
-        const message = t('tui.statusMessages.mcpServerConnected', {
-          name: server.name,
-          count: server.toolCount,
-          transport: server.transport,
-        });
+        const toolStr = `${server.toolCount} tool${server.toolCount === 1 ? '' : 's'}`;
+        const message = `MCP server "${server.name}" connected · ${toolStr} (${server.transport})`;
         this.finalizeMcpServerStatusRow(server.name, message, 'success');
         return;
       }
       case 'failed': {
-        const message =
-          server.error !== undefined
-            ? t('tui.statusMessages.mcpServerFailedWithError', {
-                name: server.name,
-                error: server.error,
-              })
-            : t('tui.statusMessages.mcpServerFailed', { name: server.name });
+        const message = `MCP server "${server.name}" failed${server.error !== undefined ? `: ${server.error}` : ''}`;
         this.finalizeMcpServerStatusRow(server.name, message, 'error');
         return;
       }
       case 'needs-auth': {
-        const message = t('tui.statusMessages.mcpServerNeedsAuth', { name: server.name });
+        const message = `MCP server "${server.name}" needs OAuth — run /mcp-config login ${server.name}`;
         this.finalizeMcpServerStatusRow(server.name, message, 'warning');
         return;
       }
       case 'disabled':
         this.finalizeMcpServerStatusRow(
           server.name,
-          t('tui.statusMessages.mcpServerDisabled', { name: server.name }),
+          `MCP server "${server.name}" disabled`,
           'textMuted',
         );
         return;
       case 'removed':
         this.finalizeMcpServerStatusRow(
           server.name,
-          t('tui.statusMessages.mcpServerRemoved', { name: server.name }),
+          `MCP server "${server.name}" removed`,
           'textMuted',
         );
         return;
@@ -1366,44 +1096,34 @@ export class SessionEventHandler {
 
   private showMcpServerStatusSpinner(name: string): void {
     const { state } = this.host;
-    const label = t('tui.statusMessages.mcpServerConnecting', { name });
+    const label = `MCP server "${name}" connecting…`;
     const existing = this.mcpServerStatusSpinners.get(name);
     if (existing !== undefined) {
-      existing.spinner.setLabel(label);
-      existing.entry.content = label;
+      existing.setLabel(label);
       return;
     }
     const tint = (s: string): string => currentTheme.fg('textMuted', s);
     const spinner = new MoonLoader(state.ui, 'braille', tint, label);
-    // Ownership: MoonLoader arms nothing by itself, so this controller starts the
-    // frames here and ends them in `finalizeMcpServerStatusRow` — and, when the
-    // session switches before a server ever settles, in
-    // `stopAllMcpServerStatusSpinners`.
-    spinner.start();
-    const entry: TranscriptEntry = {
-      id: nextTranscriptId(),
-      kind: 'status',
-      turnId: undefined,
-      renderMode: 'plain',
-      content: label,
-    };
-    this.mcpServerStatusSpinners.set(name, { spinner, entry });
-    this.host.appendTranscriptEntry(entry, spinner);
+    state.transcriptContainer.addChild(spinner);
+    this.mcpServerStatusSpinners.set(name, spinner);
+    state.ui.requestRender();
   }
 
   private finalizeMcpServerStatusRow(name: string, message: string, color: ColorToken): void {
     const { state } = this.host;
-    const tracked = this.mcpServerStatusSpinners.get(name);
-    if (tracked === undefined) {
+    const spinner = this.mcpServerStatusSpinners.get(name);
+    if (spinner === undefined) {
       this.host.showStatus(message, color);
       return;
     }
-    tracked.spinner.stop();
-    tracked.entry.content = message;
-    tracked.entry.color = color;
+    spinner.stop();
     const status = new StatusMessageComponent(message, color);
-    if (!this.host.replaceTranscriptChild(tracked.spinner, status, tracked.entry)) {
-      this.host.appendTranscriptEntry(tracked.entry, status);
+    const children = state.transcriptContainer.children;
+    const idx = children.indexOf(spinner);
+    if (idx >= 0) {
+      this.host.state.transcriptContainer.replaceChild(spinner, status);
+    } else {
+      state.transcriptContainer.addChild(status);
     }
     this.mcpServerStatusSpinners.delete(name);
     state.ui.requestRender();
@@ -1418,13 +1138,11 @@ export class SessionEventHandler {
       kind: 'skill_activation',
       turnId: undefined,
       renderMode: 'plain',
-      content: t('tui.statusMessages.activatedSkill', { skillName: event.skillName }),
+      content: `Activated skill: ${event.skillName}`,
       skillActivationId: event.activationId,
       skillName: event.skillName,
       skillArgs: event.skillArgs,
-      // v2 declares `trigger` as a plain string; the engine only ever emits
-      // the three `SkillActivationTrigger` values (see SkillActivationOrigin).
-      skillTrigger: event.trigger as SkillActivationTrigger,
+      skillTrigger: event.trigger,
     });
   }
 
@@ -1448,6 +1166,7 @@ export class SessionEventHandler {
   }
 
   private handleCompactionBegin(event: CompactionStartedEvent): void {
+    this.compactionFailed = false;
     this.host.lastCompactionTrigger = event.trigger;
     this.host.streamingUI.finalizeLiveTextBuffers('waiting');
     this.host.setAppState({
@@ -1462,8 +1181,6 @@ export class SessionEventHandler {
     event: CompactionCompletedEvent,
     sendQueued: (item: QueuedMessage) => void,
   ): void {
-    // Cancellations do not count: the context was not cut, so a queued
-    // /compact must still fire.
     if (this.host.lastCompactionTrigger === 'auto') this.host.autoCompactionSerial += 1;
     this.host.completedCompactionSerial += 1;
     this.host.streamingUI.endCompaction(
@@ -1471,12 +1188,8 @@ export class SessionEventHandler {
       event.result.tokensAfter,
       event.result.summary,
     );
-    // A completed compaction just refreshed and shrank the cached context —
-    // count it as activity so the next submit isn't judged against the
-    // pre-compaction timestamp, and reset the cache-break baseline (the drop
-    // is expected). Cancellations do neither: the context was not cut.
     this.host.recordSessionActivity();
-    this.host.noteCompactionFinished();
+    if (!this.compactionFailed) this.host.noteCompactionFinished();
     this.host.surveyController.notifyCompactionFinished();
     this.finishCompaction(sendQueued);
   }
@@ -1486,6 +1199,7 @@ export class SessionEventHandler {
     sendQueued: (item: QueuedMessage) => void,
   ): void {
     this.host.streamingUI.cancelCompaction();
+    if (!this.compactionFailed) this.host.handleCompactionCancelled?.();
     this.finishCompaction(sendQueued);
   }
 
@@ -1502,7 +1216,7 @@ export class SessionEventHandler {
       });
       this.host.resetLivePane();
       if (next !== undefined) {
-        this.timers.setTimeout(() => {
+        setTimeout(() => {
           this.host.state.queuedMessageDispatchPending = false;
           sendQueued(next);
         }, 0);
@@ -1512,20 +1226,12 @@ export class SessionEventHandler {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Background task lifecycle
-  // ---------------------------------------------------------------------------
-
-  private handleBackgroundTaskEvent(event: BackgroundTaskEvent): void {
-    const { state } = this.host;
+  private handleBackgroundTaskEvent(
+    event: BackgroundTaskStartedEvent | BackgroundTaskTerminatedEvent,
+  ): void {
     const { info } = event;
     const previous = this.backgroundTasks.get(info.taskId);
     this.backgroundTasks.set(info.taskId, info);
-    this.host.handleBackgroundTaskStatus?.(info);
-
-    if (state.tasksBrowser?.selectedTaskId === info.taskId) {
-      void this.host.tasksBrowserController.refreshOutputViewer({ silent: true });
-    }
 
     const isTerminal =
       info.status === 'completed' ||
@@ -1536,37 +1242,30 @@ export class SessionEventHandler {
 
     if (event.type === 'background.task.started') {
       if (info.kind === 'agent') {
-        // A foreground subagent detached via Ctrl+B: flip its card to
-        // `◐ backgrounded` so it doesn't look like it completed.
         this.host.streamingUI.markSubagentBackgrounded(info.agentId);
         this.syncBackgroundTaskBadge();
-        this.host.tasksBrowserController.repaint();
+        this.host.tasksBrowserController.repaint(info);
         return;
       }
       this.appendBackgroundTaskEntry(info);
       this.syncBackgroundTaskBadge();
-      this.host.tasksBrowserController.repaint();
+      this.host.tasksBrowserController.repaint(info);
       return;
     }
 
     if (event.type === 'background.task.terminated' && isTerminal) {
       if (info.kind === 'agent') {
-        // The Agent tool's spawn-success ToolResult is not an error, so the
-        // parent toolCall card would otherwise render `✓ Completed` for any
-        // terminated bg agent — including `lost` / `failed` / `killed`.
-        // Push the actual terminal status so the card matches reality.
         this.host.streamingUI.applyBackgroundTaskTerminalStatus({
           agentId: info.agentId,
           description: info.description,
           status: info.status,
         });
-        // Stopped / timed-out agents terminate without a `subagent.failed`
-        // event — mark the activity record here so the detail view does not
-        // stay "running" forever. `subagent.completed` carries the result
-        // summary and may land after this, so only fill still-running records.
         const agentId = info.agentId;
         if (agentId !== undefined) {
-          const record = this.subAgentEventHandler.activityStore.get(agentId);
+          const parentToolCallId = 'parentToolCallId' in info && typeof info.parentToolCallId === 'string'
+            ? info.parentToolCallId
+            : undefined;
+          const record = this.subAgentEventHandler.activityStore.get(agentId, parentToolCallId);
           if (record !== undefined && record.status === 'running') {
             if (info.status === 'completed') {
               this.subAgentEventHandler.activityStore.markCompleted(agentId);
@@ -1583,14 +1282,14 @@ export class SessionEventHandler {
         this.backgroundTaskTranscriptedTerminal.add(info.taskId);
       }
       this.syncBackgroundTaskBadge();
-      this.host.tasksBrowserController.repaint();
+      this.host.tasksBrowserController.repaint(info);
       return;
     }
 
     if (previous?.status !== info.status) {
       this.syncBackgroundTaskBadge();
     }
-    this.host.tasksBrowserController.repaint();
+    this.host.tasksBrowserController.repaint(info);
   }
 
   private appendBackgroundTaskEntry(info: BackgroundTaskInfo): TranscriptEntry {
@@ -1608,22 +1307,14 @@ export class SessionEventHandler {
     return entry;
   }
 
-  /**
-   * Give a task-notification turn its own fold-segment boundary at turn start:
-   * move the task's asynchronously mounted terminal card down to the turn,
-   * or mount one now when none is mounted (e.g. it was trimmed). Without an
-   * anchor the turn's end-of-turn fold would extend into the previous turn's
-   * output and collapse its final answer into the step summary.
-   */
-  private anchorTaskNotificationTurn(taskId: string, status: BackgroundTaskInfo['status']): void {
+  private anchorTaskNotificationTurn(
+    taskId: string,
+    status: BackgroundTaskInfo['status'],
+  ): void {
     const mounted = this.backgroundTaskTerminalEntries.get(taskId);
     if (mounted !== undefined && this.host.moveTranscriptEntryToEnd(mounted)) return;
     const task = this.backgroundTasks.get(taskId);
     if (task === undefined) return;
-    // An agent whose terminal lifecycle event landed before its task id was
-    // known (e.g. a tower worker that finished before registerTask) mounted
-    // its terminal card without registering it under the task id. Reuse that
-    // card instead of mounting a duplicate.
     if (task.kind === 'agent') {
       const orphaned = this.findTerminalBackgroundAgentCard(task.agentId, taskId);
       if (orphaned !== undefined && this.host.moveTranscriptEntryToEnd(orphaned)) {
@@ -1636,7 +1327,6 @@ export class SessionEventHandler {
     this.backgroundTaskTranscriptedTerminal.add(taskId);
   }
 
-  /** The agent's latest mounted terminal (non-`started`) background card. */
   private findTerminalBackgroundAgentCard(
     agentId: string | undefined,
     taskId: string,
@@ -1645,9 +1335,6 @@ export class SessionEventHandler {
     return this.host.state.transcriptEntries.findLast((entry) => {
       const card = entry.backgroundAgentStatus;
       if (card?.agentId !== agentId || card.phase === 'started') return false;
-      // A resumed background agent keeps its previous agentId, so the latest
-      // matching card can belong to an earlier run. Never reuse a card that
-      // is already registered under another task — mount our own instead.
       for (const [registeredTaskId, registered] of this.backgroundTaskTerminalEntries) {
         if (registered === entry && registeredTaskId !== taskId) return false;
       }

@@ -1,0 +1,120 @@
+commit 2eb3e87c66f4e749cee1c1b05490c252baf463e4
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Thu Nov 19 14:44:54 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 19 14:44:54 2026 +0800
+
+    ci: use fixed product names for release titles (#5088)
+    
+    * ci: use product names for release titles
+    
+    * ci: include versions in release titles
+    
+    ---------
+    
+    Co-authored-by: kimi-agent-bot <317908118+kimi-agent-bot@users.noreply.github.com>
+
+diff --git a/.github/workflows/canary-release.yml b/.github/workflows/canary-release.yml
+index 9d9cf79534..57a61c205c 100644
+--- a/.github/workflows/canary-release.yml
++++ b/.github/workflows/canary-release.yml
+@@ -135,11 +135,11 @@ jobs:
+         run: |
+           if gh release view "$CANARY_TAG" >/dev/null 2>&1; then
+             gh release upload "$CANARY_TAG" dist-canary/* --clobber
+-            gh release edit "$CANARY_TAG" --prerelease --latest=false --draft=false
++            gh release edit "$CANARY_TAG" --title "Kimi Code CLI ${CANARY_VERSION}" --prerelease --latest=false --draft=false
+           else
+             gh release create "$CANARY_TAG" dist-canary/* \
+               --target "$CANARY_SHA" \
+-              --title "$CANARY_TAG" \
++              --title "Kimi Code CLI ${CANARY_VERSION}" \
+               --generate-notes \
+               --prerelease \
+               --latest=false
+diff --git a/.github/workflows/desktop-build.yml b/.github/workflows/desktop-build.yml
+index 882b755d1d..6835ac55bf 100644
+--- a/.github/workflows/desktop-build.yml
++++ b/.github/workflows/desktop-build.yml
+@@ -451,7 +451,7 @@ jobs:
+           ls -la dist-desktop-canary
+           gh release create "$tag" \
+             --target "${GITHUB_SHA}" \
+-            --title "Kimi Code Canary ${version}" \
++            --title "Kimi Code Desktop ${version}" \
+             --notes "目标版本：${version%%-canary.*}；来源：${GITHUB_REF_NAME} @ ${GITHUB_SHA}。CDN 需手动发布。" \
+             --prerelease
+           gh release upload "$tag" dist-desktop-canary/*
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index ecca2e0ab7..d43390db06 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -236,6 +236,14 @@ jobs:
+         env:
+           CHANGESETS_PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+ 
++      - name: Set Kimi Code release title
++        if: steps.kimi-release.outputs.should_publish == 'true'
++        env:
++          GH_TOKEN: ${{ github.token }}
++          RELEASE_TAG: ${{ steps.kimi-release.outputs.tag }}
++          RELEASE_VERSION: ${{ steps.kimi-release.outputs.version }}
++        run: gh release edit "$RELEASE_TAG" --title "Kimi Code CLI ${RELEASE_VERSION}"
++
+   native-artifacts:
+     name: Native release artifact
+     needs: release
+diff --git a/scripts/release.mjs b/scripts/release.mjs
+index ec98e443c5..973cf5cfcf 100644
+--- a/scripts/release.mjs
++++ b/scripts/release.mjs
+@@ -83,7 +83,7 @@ if (command === 'check') {
+       const sections = changelog.split(/(?=^## )/m);
+       const notes = sections.find((section) => section.split(/\r?\n/, 1)[0] === heading);
+       if (!notes) throw new Error(`Missing changelog entry for ${tag}`);
+-      execFileSync('gh', ['release', 'create', tag, '--repo', repo, '--verify-tag', '--draft', '--title', tag, '--notes-file', '-', ...(pkg.version.includes('-') ? ['--prerelease'] : [])], { input: notes, stdio: ['pipe', 'inherit', 'inherit'] });
++      execFileSync('gh', ['release', 'create', tag, '--repo', repo, '--verify-tag', '--draft', '--title', `Kimi Code Desktop ${pkg.version}`, '--notes-file', '-', ...(pkg.version.includes('-') ? ['--prerelease'] : [])], { input: notes, stdio: ['pipe', 'inherit', 'inherit'] });
+       release = findRelease(tag);
+       if (!release) throw new Error(`Release ${tag} was not created`);
+     }
+diff --git a/scripts/release.test.mjs b/scripts/release.test.mjs
+index 8e4025538e..2a2564bdea 100644
+--- a/scripts/release.test.mjs
++++ b/scripts/release.test.mjs
+@@ -63,7 +63,7 @@ if (args[0] === 'api') {
+     done(state.releases[tag]);
+   } else throw new Error('Unexpected API: ' + endpoint);
+ } else if (args[0] === 'release' && args[1] === 'create') {
+-  state.releases[args[2]] = { draft: true, notes: fs.readFileSync(0, 'utf8') };
++  state.releases[args[2]] = { draft: true, title: args[args.indexOf('--title') + 1], notes: fs.readFileSync(0, 'utf8') };
+   done({});
+ } else if (args[0] === 'release' && args[1] === 'edit') {
+   state.releases[args[2]].draft = false;
+@@ -141,6 +141,7 @@ test('prepares a draft and retries an interrupted release from the same SHA', ()
+   assert.equal(run(f, 'prepare').status, 0);
+   assert.equal(f.state().tags[tag], sha);
+   assert.equal(f.state().releases[tag].draft, true);
++  assert.equal(f.state().releases[tag].title, 'Kimi Code Desktop 1.0.1');
+   assert.match(f.state().releases[tag].notes, /Fix a bug/);
+   assert.doesNotMatch(f.state().releases[tag].notes, /Old notes/);
+   assert.match(readFileSync(join(f.dir, 'output'), 'utf8'), /build=true/);
+@@ -153,6 +154,19 @@ test('prepares a draft and retries an interrupted release from the same SHA', ()
+   assert.match(readFileSync(join(f.dir, 'output'), 'utf8'), /build=false/);
+ });
+ 
++test('workflow release titles use product names and full versions', () => {
++  const workflow = (name) => readFileSync(fileURLToPath(new URL(`../.github/workflows/${name}`, import.meta.url)), 'utf8');
++  const stable = workflow('release.yml');
++  assert.match(stable, /RELEASE_VERSION: \$\{\{ steps\.kimi-release\.outputs\.version \}\}/);
++  assert.match(stable, /gh release edit "\$RELEASE_TAG" --title "Kimi Code CLI \$\{RELEASE_VERSION\}"/);
++  const canary = workflow('canary-release.yml');
++  assert.equal(canary.split('--title "Kimi Code CLI ${CANARY_VERSION}"').length - 1, 2);
++  assert.doesNotMatch(canary, /--title "\$CANARY_TAG"/);
++  const desktop = workflow('desktop-build.yml');
++  assert.match(desktop, /--title "Kimi Code Desktop \$\{version\}"/);
++  assert.doesNotMatch(desktop, /--title "Kimi Code Canary/);
++});
++
+ test('version command records the consumed changesets and changed package versions', () => {
+   const f = fixture();
+   writeFileSync(join(f.dir, '.changeset/fix.md'), '---\n---\n');

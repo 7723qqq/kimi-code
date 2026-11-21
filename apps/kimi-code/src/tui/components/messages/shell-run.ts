@@ -1,58 +1,29 @@
 import { Container, Text } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { SHELL_OUTPUT_PREVIEW_LINES } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
+
 import { formatBashOutputForDisplay, sanitizeShellOutput } from '#/tui/utils/shell-output';
 
 import { TruncatedOutputComponent } from './tool-renderers/truncated';
+import { t } from '#/i18n';
 
 const RUNNING_TAIL_LINES = 5;
 const TIMER_INTERVAL_MS = 1000;
-// Cap the live running buffer so a command that spews output for minutes can't
-// grow memory without bound or make every render re-strip a multi-MB string.
-// Only affects the transient running tail; the final view uses the full
-// captured stdout/stderr passed to finish(). When the cap drops older output,
-// the expanded running view says so via the truncation notice.
 const MAX_COMBINED_CHARS = 256 * 1024;
 const KEEP_COMBINED_CHARS = 64 * 1024;
 
-/**
- * Live view for a user-initiated `!` shell command. Two phases:
- *
- *  - running: dim, ANSI-stripped tail of the combined output (the last
- *    RUNNING_TAIL_LINES lines, or the whole buffer when expanded via
- *    ctrl+o), a `+N lines` overflow marker, an elapsed `(Xs)` timer that
- *    ticks every second, and a `(ctrl+b to run in background)` hint —
- *    matching claude-code's running card so warnings are grey rather than
- *    red while the command works.
- *  - finished: the standard `formatBashOutputForDisplay` view (stderr red only
- *    on failure) through the shared TruncatedOutputComponent — collapsed to
- *    the first SHELL_OUTPUT_PREVIEW_LINES visual rows, expanded to the full
- *    output by the global ctrl+o toggle.
- *
- * Hardened so a misbehaving command can never crash the TUI: the running
- * buffer is capped, and every render/render-request path swallows errors.
- */
+const TRUNCATED_RUNNING_NOTICE = t('tui.messages.shellRunOutputTruncated');
+
 export class ShellRunComponent extends Container {
   private readonly textComponent: Text;
   private finalOutput = '';
-  // The raw streams behind finalOutput. formatBashOutputForDisplay bakes the
-  // active palette into the text it returns, so a theme switch has to format
-  // them again rather than reuse the stale colours.
-  private finalStdout = '';
-  private finalStderr = '';
-  private finalIsError: boolean | undefined;
-  // Physical line count of finalOutput, cached when it is set: hasHiddenContent()
-  // runs on every frame and must not re-split a multi-MB string per call.
-  private finalLines = 0;
   private combined = '';
   private combinedTruncated = false;
   private running = true;
   private backgrounded = false;
   private disposed = false;
   private expanded = false;
-  // Whether the collapsed running tail leaves rows (or a capped buffer) behind; refreshed by renderText().
   private runningHidesRows = false;
   private readonly startedAt = Date.now();
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -78,20 +49,11 @@ export class ShellRunComponent extends Container {
     if (this.disposed || !this.running) return;
     this.running = false;
     this.clearTimer();
-    this.finalStdout = stdout;
-    this.finalStderr = stderr;
-    this.finalIsError = isError;
     this.finalOutput = formatBashOutputForDisplay(stdout, stderr, isError);
-    this.refreshFinalLines();
     this.rebuildResult();
     this.flush();
   }
 
-  /**
-   * Whether ctrl+o would change the card: a running tail with earlier rows
-   * (or a capped buffer) behind it, or a finished preview cut to its row cap.
-   * Drives the footer's ctrl+o hint.
-   */
   isExpanded(): boolean {
     return this.expanded;
   }
@@ -99,14 +61,8 @@ export class ShellRunComponent extends Container {
   hasHiddenContent(): boolean {
     if (this.disposed || this.backgrounded) return false;
     if (this.running) return this.runningHidesRows;
-    // More physical lines than the collapsed cap is hidden for certain, even
-    // for a card that finished while already expanded; a wrapped overflow
-    // shows up once a collapsed render has recorded it. The preview's hint
-    // row replaces the hidden rows, so a single hidden row gains nothing. The
-    // count is cached with finalOutput, so the per-frame footer probe never
-    // re-splits it.
     return (
-      this.finalLines > SHELL_OUTPUT_PREVIEW_LINES + 1 ||
+      this.finalOutput.split('\n').length > SHELL_OUTPUT_PREVIEW_LINES + 1 ||
       this.children.some(
         (child) => child instanceof TruncatedOutputComponent && child.wasTruncated(),
       )
@@ -129,8 +85,6 @@ export class ShellRunComponent extends Container {
   setExpanded(expanded: boolean): void {
     if (this.disposed || this.expanded === expanded) return;
     this.expanded = expanded;
-    // Running and backgrounded views re-render in place; only a finished
-    // card rebuilds its result component with the new state.
     if (this.running || this.backgrounded) {
       this.flush();
       return;
@@ -139,62 +93,17 @@ export class ShellRunComponent extends Container {
     this.flush();
   }
 
-  /**
-   * A theme switch swaps the palette, but both views bake their colours in
-   * when they are built — renderText() builds the running label and
-   * TruncatedOutputComponent styles its text in the constructor — while the
-   * inherited invalidate() only clears render caches. Rebuild whatever is on
-   * screen so the new palette takes effect in the same frame.
-   */
-  override invalidate(): void {
-    if (!this.disposed) {
-      if (this.running || this.backgrounded) {
-        // Re-render the live label from the current palette. Nothing here
-        // reads the caches about to be cleared, so this cannot recurse.
-        this.textComponent.setText(this.renderText());
-      } else {
-        // Re-format before rebuilding: the stored text carries the previous
-        // palette's colours, and the result component only re-styles what it
-        // is handed.
-        this.finalOutput = formatBashOutputForDisplay(
-          this.finalStdout,
-          this.finalStderr,
-          this.finalIsError,
-        );
-        this.rebuildResult();
-      }
-    }
-    super.invalidate();
-  }
-
-  /** Physical line count of finalOutput, cached when the output is set. */
-  private refreshFinalLines(): void {
-    this.finalLines = this.finalOutput.length === 0 ? 0 : this.finalOutput.split('\n').length;
-  }
-
-  // Rebuild-on-toggle, mirroring ToolCallComponent: the result component is
-  // immutable, so a new expansion state means a new component instance.
   private rebuildResult(): void {
     try {
-      // The formatted output may have just landed, or this may be the rebuild
-      // after a theme switch; keep the cached count in step with it.
-      this.refreshFinalLines();
-      // Build before clearing: if the constructor throws, the old view stays.
       const next = new TruncatedOutputComponent(this.finalOutput, {
         expanded: this.expanded,
-        // The stream colours are already baked into the formatted text, so
-        // the component must not re-colour the whole block as an error.
         isError: false,
         maxLines: SHELL_OUTPUT_PREVIEW_LINES,
         expandHint: true,
       });
       this.clear();
       this.addChild(next);
-    } catch {
-      // finish() runs in a promise continuation and setExpanded() in a key
-      // handler — an escaping error would surface as an unhandled rejection
-      // or take down the TUI.
-    }
+    } catch {}
   }
 
   private tick(): void {
@@ -209,10 +118,7 @@ export class ShellRunComponent extends Container {
         this.textComponent.setText(this.renderText());
       }
       this.requestRender();
-    } catch {
-      // Never let a render/render-request error escape into a timer or event
-      // handler — an uncaught exception there can take down the whole TUI.
-    }
+    } catch {}
   }
 
   private clearTimer(): void {
@@ -237,9 +143,7 @@ export class ShellRunComponent extends Container {
       if (trimmed.length === 0) {
         body = `  ${dim('Running…')}`;
       } else if (this.expanded) {
-        const notice = this.combinedTruncated
-          ? `  ${dim(t('tui.messages.shellRunOutputTruncated'))}\n`
-          : '';
+        const notice = this.combinedTruncated ? `  ${dim(TRUNCATED_RUNNING_NOTICE)}\n` : '';
         body =
           notice +
           trimmed
@@ -256,7 +160,7 @@ export class ShellRunComponent extends Container {
       const hint = `  ${dim(t('tui.messages.shellRun.hint'))}`;
       return `${body}\n${timing}\n${hint}`;
     } catch {
-      return `  ${t('tui.messages.shellRunOutputUnavailable')}`;
+      return '  (output unavailable)';
     }
   }
 }

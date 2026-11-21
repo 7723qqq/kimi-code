@@ -34,10 +34,10 @@ function fail(message) {
   process.exit(1);
 }
 
-function git(args) {
+function git(args, failurePrefix = 'git') {
   const result = Bun.spawnSync(['git', ...args], { cwd: ROOT });
   if (result.exitCode !== 0) {
-    fail(`git ${args.join(' ')} failed: ${result.stderr.toString().trim()}`);
+    fail(`${failurePrefix} ${args.join(' ')} failed: ${result.stderr.toString().trim()}`);
   }
   return result.stdout.toString();
 }
@@ -99,14 +99,14 @@ function clusterOf(sha, hints) {
   return hints.get(sha) ?? 'unassigned';
 }
 
-function refresh() {
-  git(['fetch', '--quiet', 'upstream']);
+function refresh(ref) {
+  if (ref === undefined) git(['fetch', '--quiet', 'upstream']);
   const commitLines = git([
     'log',
     '--no-merges',
     '--reverse',
     '--format=%H%x1f%s',
-    'upstream/main',
+    ref ?? 'upstream/main',
     '^main',
   ])
     .split('\n')
@@ -218,8 +218,40 @@ function runPatternProbe(probe, shouldExist) {
   return hit.found ? { ok: true, detail: hit.detail } : { ok: false, detail: 'pattern not found' };
 }
 
-function verify(rows, onlyBatch) {
-  const selected = rows.filter((row) => {
+function selectRefRows(rows, ref) {
+  if (ref === undefined) return rows;
+  const reachable = new Set(git(['rev-list', ref]).trim().split('\n'));
+  return rows.filter((row) => reachable.has(row.sha));
+}
+
+function resolveRef(argv) {
+  const index = argv.indexOf('--ref');
+  if (index === -1) return undefined;
+  const value = argv[index + 1];
+  if (value === undefined || value.length === 0 || value.startsWith('-')) {
+    fail('--ref requires a commit or tag');
+  }
+  return git(
+    ['rev-parse', '--verify', '--end-of-options', `${value}^{commit}`],
+    'invalid --ref: git',
+  ).trim();
+}
+
+export function appendEvidence(previous, probeDetail) {
+  const detail = typeof probeDetail === 'string' && probeDetail.length > 0 ? probeDetail : '-';
+  const prior = typeof previous === 'string' ? previous.trimEnd() : '';
+  if (prior.length === 0 || prior === '-') return detail;
+  const marker = `Probe: ${detail}`;
+  if (prior.includes(marker)) return prior;
+  return `${prior} ${marker}`;
+}
+
+export function promotedVerdict(verdict) {
+  return verdict === 'pending' || verdict === 'in_progress' ? 'ported' : verdict;
+}
+
+function verify(rows, onlyBatch, ref) {
+  const selected = selectRefRows(rows, ref).filter((row) => {
     if (onlyBatch && row.cluster !== onlyBatch) return false;
     return PROBE_KINDS.slice(0, 3).some((kind) => row.probe.startsWith(kind));
   });
@@ -237,8 +269,8 @@ function verify(rows, onlyBatch) {
     const held = row.verdict === 'partial' || row.verdict === 'blocked';
     if (outcome.ok) {
       if (!held) {
-        row.verdict = row.verdict === 'equivalent' ? 'equivalent' : 'ported';
-        row.evidence = outcome.detail || '-';
+        row.verdict = promotedVerdict(row.verdict);
+        row.evidence = appendEvidence(row.evidence, outcome.detail);
         row.updated = today();
       }
       process.stdout.write(
@@ -366,9 +398,9 @@ function usage() {
     [
       'usage: bun scripts/upstream-ledger.mjs <command>',
       '',
-      '  --refresh                  fetch upstream and add open commits as pending rows',
-      '  --verify [--batch B4]      run every executable probe; partial/blocked rows are held',
-      '  --report                   batch x verdict matrix, plus remaining count',
+      '  --refresh [--ref <ref>]     add open commits; an explicit ref never fetches upstream',
+      '  --verify [--batch B4] [--ref <ref>] run reachable probes; partial/blocked rows are held',
+      '  --report [--ref <ref>]      reachable batch x verdict matrix, plus remaining count',
       '  --set <sha> <verdict> --evidence <text> [--approved-by <who>]',
       '  --probe <sha> <probe>     attach test:/grep:/absent:/manual:/  to a row',
       '  --cluster <sha> <batch>   move a row into B1..B12 or unassigned',
@@ -389,18 +421,19 @@ function main() {
     return;
   }
   const rows = loadLedger();
+  const ref = resolveRef(argv);
   if (command === '--refresh') {
-    refresh();
+    refresh(ref);
     return;
   }
   if (rows.length === 0 && command !== '--refresh') fail('ledger is empty; run --refresh first');
   if (command === '--report') {
-    report(rows);
+    report(selectRefRows(rows, ref));
     return;
   }
   if (command === '--verify') {
     const index = argv.indexOf('--batch');
-    verify(rows, index === -1 ? undefined : argv[index + 1]);
+    verify(rows, index === -1 ? undefined : argv[index + 1], ref);
     return;
   }
   const readOption = (name) => {
@@ -440,4 +473,4 @@ function main() {
   fail(`unknown command ${command}`);
 }
 
-main();
+if (import.meta.main) main();

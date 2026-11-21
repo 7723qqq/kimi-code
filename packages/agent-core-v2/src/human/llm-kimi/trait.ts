@@ -1,18 +1,14 @@
 import { KIMI_OPEN_PLATFORM_API_BASE_GLOBAL } from '@moonshot-ai/runtime-shared';
 
-import { providerImagePolicy } from '#/llm/media/image-formats';
-import type { ContentPart, ToolDescription } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import type { ProtocolEndpoint, ProviderConnection } from '#/llm/protocol/connection';
-import { CONTEXT_MANAGEMENT_BETA } from '#/llm/requester/bases/anthropic/contract';
-import type { AnthropicTrait } from '#/llm/requester/bases/anthropic/trait';
-import type { OpenAIResponsesTrait } from '#/llm/requester/bases/openai-responses/trait';
-import type {
-  OpenAIRawUsage,
-  OpenAIWireMessage,
-  OpenAIWireToolCall,
-} from '#/llm/requester/bases/openai/contract';
-import type { OpenAITrait } from '#/llm/requester/bases/openai/trait';
+import { providerImagePolicy } from '#human/media/image-formats';
+import type { ContentPart, ToolDescription } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import type { ProtocolEndpoint, ProviderConnection } from '#human/llm/protocol/connection';
+import { CONTEXT_MANAGEMENT_BETA } from '#human/llm/requester/bases/anthropic/contract';
+import type { AnthropicTrait } from '#human/llm/requester/bases/anthropic/trait';
+import type { OpenAIResponsesTrait } from '#human/llm/requester/bases/openai-responses/trait';
+import type { OpenAIWireMessage, OpenAIWireToolCall } from '#human/llm/requester/bases/openai/contract';
+import type { OpenAITrait } from '#human/llm/requester/bases/openai/trait';
 
 import { normalizeKimiToolSchema } from './schema';
 
@@ -153,19 +149,6 @@ export const kimiOpenAITrait: OpenAITrait = {
     }
 
     return converted;
-  },
-
-  extractUsage: (chunk) => {
-    const topLevel = chunk.usage;
-    if (topLevel !== null && topLevel !== undefined && typeof topLevel === 'object') {
-      return topLevel;
-    }
-    const firstChoice = chunk.choices?.[0] as { usage?: OpenAIRawUsage | null } | undefined;
-    const choiceUsage = firstChoice?.usage;
-    if (choiceUsage !== null && choiceUsage !== undefined && typeof choiceUsage === 'object') {
-      return choiceUsage;
-    }
-    return undefined;
   },
 };
 

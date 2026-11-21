@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'bun:test';
-
-import type { ContentPart, ToolCall } from '@moonshot-ai/kimi-code-sdk';
-import type { ContextMessage, PromptOrigin } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
+import type {
+  ContentPart,
+  ToolCall,
+  ContextMessage,
+  PromptOrigin,
+} from '@moonshot-ai/kimi-code-sdk';
 
 import {
   buildExportMarkdown,
@@ -11,10 +14,6 @@ import {
   groupIntoTurns,
   isInternalMessage,
 } from '../../src/tui/utils/export-markdown';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function userMsg(text: string, origin?: PromptOrigin): ContextMessage {
   return {
@@ -60,10 +59,6 @@ function makeToolCall(id: string, name: string, args: Record<string, unknown>): 
   };
 }
 
-// ---------------------------------------------------------------------------
-// extractToolCallHint
-// ---------------------------------------------------------------------------
-
 describe('extractToolCallHint', () => {
   it('extracts path from arguments', () => {
     expect(extractToolCallHint(JSON.stringify({ path: '/foo/bar.ts' }))).toBe('/foo/bar.ts');
@@ -92,13 +87,9 @@ describe('extractToolCallHint', () => {
   it('truncates long values', () => {
     const long = 'a'.repeat(100);
     const hint = extractToolCallHint(JSON.stringify({ path: long }));
-    expect(hint.length).toBeLessThanOrEqual(63); // 60 + "…"
+    expect(hint.length).toBeLessThanOrEqual(63);
   });
 });
-
-// ---------------------------------------------------------------------------
-// formatContentPartMd
-// ---------------------------------------------------------------------------
 
 describe('formatContentPartMd', () => {
   it('renders text part', () => {
@@ -117,27 +108,23 @@ describe('formatContentPartMd', () => {
   });
 
   it('renders image placeholder', () => {
-    expect(formatContentPartMd({ type: 'image_url', imageUrl: { url: 'http://x' } })).toBe(
-      '[image]',
-    );
+    expect(
+      formatContentPartMd({ type: 'image_url', imageUrl: { url: 'http://x' } }),
+    ).toBe('[image]');
   });
 
   it('renders audio placeholder', () => {
-    expect(formatContentPartMd({ type: 'audio_url', audioUrl: { url: 'http://x' } })).toBe(
-      '[audio]',
-    );
+    expect(
+      formatContentPartMd({ type: 'audio_url', audioUrl: { url: 'http://x' } }),
+    ).toBe('[audio]');
   });
 
   it('renders video placeholder', () => {
-    expect(formatContentPartMd({ type: 'video_url', videoUrl: { url: 'http://x' } })).toBe(
-      '[video]',
-    );
+    expect(
+      formatContentPartMd({ type: 'video_url', videoUrl: { url: 'http://x' } }),
+    ).toBe('[video]');
   });
 });
-
-// ---------------------------------------------------------------------------
-// formatToolCallMd
-// ---------------------------------------------------------------------------
 
 describe('formatToolCallMd', () => {
   it('renders tool call with hint', () => {
@@ -157,17 +144,15 @@ describe('formatToolCallMd', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// isInternalMessage
-// ---------------------------------------------------------------------------
-
 describe('isInternalMessage', () => {
   it('marks injection origin as internal', () => {
     expect(isInternalMessage(userMsg('x', { kind: 'injection', variant: 'test' }))).toBe(true);
   });
 
   it('marks system_trigger origin as internal', () => {
-    expect(isInternalMessage(userMsg('x', { kind: 'system_trigger', name: 'test' }))).toBe(true);
+    expect(
+      isInternalMessage(userMsg('x', { kind: 'system_trigger', name: 'test' })),
+    ).toBe(true);
   });
 
   it('marks compaction_summary origin as internal', () => {
@@ -175,7 +160,9 @@ describe('isInternalMessage', () => {
   });
 
   it('marks hook_result origin as internal', () => {
-    expect(isInternalMessage(userMsg('x', { kind: 'hook_result', event: 'test' }))).toBe(true);
+    expect(
+      isInternalMessage(userMsg('x', { kind: 'hook_result', event: 'test' })),
+    ).toBe(true);
   });
 
   it('marks cron_job origin as internal', () => {
@@ -194,7 +181,9 @@ describe('isInternalMessage', () => {
   });
 
   it('marks cron_missed origin as internal', () => {
-    expect(isInternalMessage(userMsg('x', { kind: 'cron_missed', count: 2 }))).toBe(true);
+    expect(
+      isInternalMessage(userMsg('x', { kind: 'cron_missed', count: 2 })),
+    ).toBe(true);
   });
 
   it('keeps real user messages', () => {
@@ -213,10 +202,6 @@ describe('isInternalMessage', () => {
     expect(isInternalMessage(userMsg('hello'))).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// groupIntoTurns
-// ---------------------------------------------------------------------------
 
 describe('groupIntoTurns', () => {
   it('groups messages into turns starting at user messages', () => {
@@ -260,10 +245,6 @@ describe('groupIntoTurns', () => {
     expect(turns[0]).toHaveLength(4);
   });
 });
-
-// ---------------------------------------------------------------------------
-// buildExportMarkdown
-// ---------------------------------------------------------------------------
 
 describe('buildExportMarkdown', () => {
   const now = new Date('2026-05-27T10:00:00+08:00');
@@ -312,9 +293,6 @@ describe('buildExportMarkdown', () => {
   });
 
   it('renders an uploaded image daemon ref as [image] in the exported user message', () => {
-    // An uploaded image persists as a self-contained `kimi-file://` part —
-    // the export keeps the real text and `[image]`, never the materialization
-    // path or the internal url.
     const msgs: ContextMessage[] = [
       {
         role: 'user',

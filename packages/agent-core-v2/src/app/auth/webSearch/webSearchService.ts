@@ -4,15 +4,13 @@ import {
   kimiCodeBaseUrl,
   type BearerTokenProvider,
 } from '@moonshot-ai/kimi-code-oauth';
-
+import { LifecycleScope } from '#/app/scopes';
 import { Error2 } from '#/_base/errors/errors';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IOAuthService } from '#/app/auth/auth';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
 import { CONFIG_INVALID_ERROR_CODE } from '#/llm-adapter/contract/errors';
 import { IModelService, type ModelRecord } from '#/llm-adapter/model/model';
 import {
@@ -24,14 +22,12 @@ import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/pr
 import { isOAuthCatalogVendor } from '#/llm-adapter/provider/provider-definition';
 
 import { SERVICES_SECTION, type ServicesConfig } from '../configSection';
-import { LocalWebSearchProvider } from './providers/local-web-search';
 import { MoonshotWebSearchProvider } from './providers/moonshot-web-search';
+import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
 import { IWebSearchProviderService } from './webSearch';
 
 export class WebSearchProviderService implements IWebSearchProviderService {
   declare readonly _serviceBrand: undefined;
-
-  private local: LocalWebSearchProvider | undefined;
 
   constructor(
     @IProviderService private readonly providers: IProviderService,
@@ -43,36 +39,22 @@ export class WebSearchProviderService implements IWebSearchProviderService {
   ) {}
 
   getWebSearchProvider(modelAlias?: string): WebSearchProvider | undefined {
-    const candidates: WebSearchProvider[] = [];
     const search = this.configuredSearch();
     if (search !== undefined && search.oauth === undefined) {
-      candidates.push(this.buildServicesSearchProvider(search));
-    } else {
-      const model = this.fromModelProvider(modelAlias);
-      if (model !== undefined) candidates.push(model);
-      if (search !== undefined) {
-        candidates.push(this.buildServicesSearchProvider(search));
-      } else {
-        let managed: WebSearchProvider | undefined;
-        try {
-          managed = this.fromManagedOAuth();
-        } catch {
-          managed = undefined;
-        }
-        if (managed !== undefined) candidates.push(managed);
-      }
+      return this.buildServicesSearchProvider(search);
     }
-    candidates.push(this.localProvider());
-    return createFailoverWebSearchProvider(candidates);
+    return (
+      this.fromModelProvider(modelAlias) ??
+      (search === undefined ? undefined : this.buildServicesSearchProvider(search)) ??
+      this.fromManagedOAuth()
+    );
   }
 
-  hasWebSearchProvider(_modelAlias?: string): boolean {
-    return true;
-  }
-
-  private localProvider(): WebSearchProvider {
-    this.local ??= new LocalWebSearchProvider();
-    return this.local;
+  hasWebSearchProvider(modelAlias?: string): boolean {
+    const search = this.configuredSearch();
+    if (search !== undefined && search.oauth === undefined) return true;
+    if (this.modelSearchProvider(modelAlias) !== undefined) return true;
+    return search !== undefined || this.managedTokenProvider() !== undefined;
   }
 
   private configuredSearch(): (ServicesConfig['moonshotSearch'] & { baseUrl: string }) | undefined {
@@ -144,14 +126,13 @@ export class WebSearchProviderService implements IWebSearchProviderService {
     | { provider: ProviderConfig; tokenProvider: BearerTokenProvider }
     | undefined {
     const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);
-    if (
-      provider === undefined ||
-      !isOAuthCatalogVendor(provider.type) ||
-      provider.oauth === undefined
-    ) {
+    if (provider === undefined || !isOAuthCatalogVendor(provider.type) || provider.oauth === undefined) {
       return undefined;
     }
-    const tokenProvider = this.oauth.resolveTokenProvider(KIMI_CODE_PROVIDER_NAME, provider.oauth);
+    const tokenProvider = this.oauth.resolveTokenProvider(
+      KIMI_CODE_PROVIDER_NAME,
+      provider.oauth,
+    );
     if (tokenProvider === undefined) return undefined;
     return { provider, tokenProvider };
   }
@@ -189,29 +170,6 @@ export class WebSearchProviderService implements IWebSearchProviderService {
 function nonEmptyString(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
-}
-
-export function createFailoverWebSearchProvider(
-  candidates: readonly WebSearchProvider[],
-): WebSearchProvider {
-  return {
-    async search(query, options) {
-      let lastError: unknown = new Error('no search provider configured');
-      let sawError = false;
-      for (const candidate of candidates) {
-        try {
-          const results = await candidate.search(query, options);
-          if (results.length > 0) return results;
-        } catch (error) {
-          if (options?.signal?.aborted) throw error;
-          sawError = true;
-          lastError = error;
-        }
-      }
-      if (!sawError) return [];
-      throw lastError;
-    },
-  };
 }
 
 registerScopedService(

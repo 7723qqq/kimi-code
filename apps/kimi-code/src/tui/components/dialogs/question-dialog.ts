@@ -1,10 +1,3 @@
-/**
- * QuestionDialog — pi-tui version of the structured question prompt.
- *
- * Each question collects an answer locally, and a final Submit tab
- * reviews everything before the answers are emitted upstream.
- */
-
 import {
   Container,
   Input,
@@ -12,42 +5,32 @@ import {
   Key,
   decodeKittyPrintable,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
-  type TuiMouseEventResult,
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
+import { normalizeCapsLockedCtrl } from '#/tui/components/editor/custom-editor';
+import { currentTheme } from '#/tui/theme';
 import type {
   PendingQuestion,
   QuestionPanelResponse,
   QuestionSubmissionMethod,
 } from '#/tui/reverse-rpc/types';
-import { currentTheme } from '#/tui/theme';
-import { DialogMouse, mouseDispatch, regionAt, type RowRegion } from '#/tui/utils/mouse';
+import { t } from '#/i18n';
 
 const NUMBER_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 const MAX_BODY_LINES = 12;
-function getDefaultOtherLabel(): string {
-  return t('tui.dialogs.questionDialog.defaultOtherLabel');
-}
-function getNotAnsweredLabel(): string {
-  return t('tui.dialogs.questionDialog.notAnswered');
-}
-function getReviewTitle(): string {
-  return t('tui.dialogs.questionDialog.reviewTitle');
-}
-function getSubmitPrompt(): string {
-  return t('tui.dialogs.questionDialog.submitPrompt');
-}
-function getUnansweredWarning(): string {
-  return t('tui.dialogs.questionDialog.unansweredWarning');
-}
-function getSubmitActions() {
-  return [t('common.submit'), t('common.cancel')] as const;
+const DEFAULT_OTHER_LABEL = t('tui.dialogs.questionDialog.defaultOtherLabel');
+const NOT_ANSWERED_LABEL = t('tui.dialogs.questionDialog.notAnswered');
+const REVIEW_TITLE = t('tui.dialogs.questionDialog.reviewTitle');
+const SUBMIT_PROMPT = t('tui.dialogs.questionDialog.submitPrompt');
+const UNANSWERED_WARNING = t('tui.dialogs.questionDialog.unansweredWarning');
+const SUBMIT_ACTIONS = [t('common.submit'), t('common.cancel')] as const;
+
+export interface QuestionDialogOptions {
+  readonly isTerminalFocused?: () => boolean;
+  readonly onFocusUpdates?: () => boolean;
 }
 
 interface DisplayOption {
@@ -56,24 +39,6 @@ interface DisplayOption {
   readonly kind: 'preset' | 'other';
 }
 
-/** What a pointer landing on a rendered rectangle does. */
-type QuestionHit =
-  | { readonly kind: 'option'; readonly index: number }
-  | { readonly kind: 'tab'; readonly index: number }
-  | { readonly kind: 'action'; readonly index: number };
-
-interface QuestionHitRegion extends RowRegion {
-  readonly hit: QuestionHit;
-}
-
-/**
- * Push `content` to `lines`, wrapping it to fit `width` with a hanging
- * indent. The first physical line starts with `firstPrefix`; continuation
- * lines get `continuationPrefix`. Pass `tone` to wrap every emitted line
- * in a single ANSI span (cleaner for selection highlights and matches the
- * pre-wrap rendering tests expect); leave it undefined when the prefixes
- * already carry their own mixed styling.
- */
 function appendWrapped(
   lines: string[],
   firstPrefix: string,
@@ -96,11 +61,6 @@ function appendWrapped(
   }
 }
 
-export interface QuestionDialogOptions {
-  /** Whether the terminal window has focus; the dialog fades while it does not. */
-  readonly isTerminalFocused?: () => boolean;
-}
-
 export class QuestionDialogComponent extends Container implements Focusable {
   focused = false;
 
@@ -115,25 +75,16 @@ export class QuestionDialogComponent extends Container implements Focusable {
   private reviewMessage: string | undefined;
   private lastAnswerMethod: QuestionSubmissionMethod | undefined;
 
-  /** Rectangles recorded by the last render, so a click knows what it hit. */
-  private readonly hitRegions: QuestionHitRegion[] = [];
-  private readonly mouse = new DialogMouse(() => this.focused);
-
-  /** Per-question cursor position. */
   private readonly cursors: number[];
-  /** Per-question single-select choice. */
   private readonly singleSelections: (number | undefined)[];
-  /** Per-question multi-select choices. */
   private readonly multiSelections: Set<number>[];
-  /** Per-question free-text drafts for the synthetic Other option. */
   private readonly otherDrafts: string[];
-  /** Per-question committed Other values. */
   private readonly committedOtherValues: (string | undefined)[];
-  /** Per-question derived answers used by tabs + review. */
   private readonly answers: (string | undefined)[];
 
   private readonly onToggleToolOutput: (() => void) | undefined;
   private readonly isTerminalFocused: () => boolean;
+  private readonly onFocusUpdates: (() => boolean) | undefined;
 
   constructor(
     request: PendingQuestion,
@@ -148,6 +99,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
     this.maxVisibleOptions = maxVisibleOptions;
     this.onToggleToolOutput = onToggleToolOutput;
     this.isTerminalFocused = options.isTerminalFocused ?? (() => true);
+    this.onFocusUpdates = options.onFocusUpdates;
     this.otherInput.onSubmit = (value) => {
       this.commitOtherInput(value, 'enter');
     };
@@ -161,9 +113,11 @@ export class QuestionDialogComponent extends Container implements Focusable {
     this.answers = Array.from({ length: total }, (): string | undefined => undefined);
   }
 
-  // ── Input ─────────────────────────────────────────────────────────
-
   handleInput(data: string): void {
+    if (matchesKey(normalizeCapsLockedCtrl(data), Key.ctrl('n')) && this.onFocusUpdates?.() === true) {
+      return;
+    }
+
     if (matchesKey(data, Key.escape)) {
       this.onAnswer({ answers: [] });
       return;
@@ -262,15 +216,14 @@ export class QuestionDialogComponent extends Container implements Focusable {
   }
 
   private handleSubmitInput(data: string): void {
-    const submitActions = getSubmitActions();
     if (matchesKey(data, Key.up)) {
       this.submitActionIdx =
-        (this.submitActionIdx - 1 + submitActions.length) % submitActions.length;
+        (this.submitActionIdx - 1 + SUBMIT_ACTIONS.length) % SUBMIT_ACTIONS.length;
       this.reviewMessage = undefined;
       return;
     }
     if (matchesKey(data, Key.down)) {
-      this.submitActionIdx = (this.submitActionIdx + 1) % submitActions.length;
+      this.submitActionIdx = (this.submitActionIdx + 1) % SUBMIT_ACTIONS.length;
       this.reviewMessage = undefined;
       return;
     }
@@ -300,88 +253,6 @@ export class QuestionDialogComponent extends Container implements Focusable {
       this.executeSubmitAction(1, 'number_key');
     }
   }
-
-  // ── Mouse ─────────────────────────────────────────────────────────
-
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouseEvent(event));
-  }
-
-  private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    // The first click only hands the keyboard to the dialog; the next one
-    // acts. A question answered by the click that revealed it is worse than
-    // one extra click.
-    const handoff = this.mouse.handoff(event);
-    if (handoff !== undefined) return handoff;
-
-    if (event.type === 'wheel') {
-      const direction = this.mouse.wheel(event);
-      if (direction === 0 || this.isEditingOther()) return { handled: true };
-      if (this.isSubmitTab()) {
-        const actions = getSubmitActions();
-        this.submitActionIdx = (this.submitActionIdx + direction + actions.length) % actions.length;
-      } else {
-        this.moveQuestionCursor(direction);
-      }
-      return { handled: true, render: true };
-    }
-
-    if (event.type === 'move') {
-      const over = regionAt(this.hitRegions, event)?.hit;
-      if (over === undefined || over.kind !== 'option') return undefined;
-      return { handled: true, render: this.pointAtOption(over.index) };
-    }
-
-    if (event.button !== 'left') return undefined;
-    const hit = regionAt(this.hitRegions, event)?.hit;
-    if (hit === undefined) return undefined;
-
-    if (hit.kind === 'tab') {
-      if (event.type !== 'press' && event.type !== 'click') return undefined;
-      if (this.mouse.settling(event)) return { handled: true };
-      this.gotoTab(hit.index);
-      return { handled: true, render: true };
-    }
-
-    if (hit.kind === 'action') {
-      if (event.type !== 'press' && event.type !== 'click') return undefined;
-      this.submitActionIdx = hit.index;
-      if (event.type === 'click') {
-        if (this.mouse.settling(event)) return { handled: true, render: true };
-        this.executeSubmitAction(hit.index, 'enter');
-      }
-      return { handled: true, render: true };
-    }
-
-    if (event.type === 'press') {
-      return { handled: true, render: this.pointAtOption(hit.index) };
-    }
-    if (event.type !== 'click') return { handled: true };
-    if (this.mouse.settling(event)) return { handled: true };
-    this.leaveOtherInput();
-    this.activateQuestionOption(hit.index, 'enter');
-    return { handled: true, render: true };
-  }
-
-  /** Highlight an option without choosing it, the way hovering does with keys. */
-  private pointAtOption(index: number): boolean {
-    const questionIdx = this.currentQuestionIndex();
-    if (questionIdx === undefined) return false;
-    this.leaveOtherInput();
-    const changed = this.currentCursor() !== index;
-    this.cursors[questionIdx] = index;
-    this.reviewMessage = undefined;
-    return changed;
-  }
-
-  private leaveOtherInput(): void {
-    if (!this.isEditingOther()) return;
-    const questionIdx = this.currentQuestionIndex();
-    if (questionIdx !== undefined) this.syncOtherDraft(questionIdx);
-    this.editingOther = false;
-  }
-
-  // ── State mutation ────────────────────────────────────────────────
 
   private gotoTab(target: number): void {
     const total = this.totalTabs();
@@ -513,7 +384,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
       if (set.has(otherIdx) && otherText !== undefined && otherText.length > 0) {
         labels.push(otherText);
       }
-      this.answers[questionIdx] = labels.length > 0 ? labels.join(', ') : undefined;
+      this.answers[questionIdx] = labels.length > 0 ? labels.join(t('tui.migration.listSeparator')) : undefined;
       return;
     }
 
@@ -545,28 +416,22 @@ export class QuestionDialogComponent extends Container implements Focusable {
   }
 
   private emitAnswers(method: QuestionSubmissionMethod): void {
-    // Dense array: unanswered slots become '' (the consumer skips empty
-    // strings) so no sparse holes can misalign positional consumers.
     const out: string[] = [];
     for (let i = 0; i < this.answers.length; i++) {
       const answer = this.answers[i];
-      out[i] = answer !== undefined && answer.length > 0 ? answer : '';
+      if (answer !== undefined && answer.length > 0) out[i] = answer;
     }
     this.onAnswer({ answers: out, method: this.lastAnswerMethod ?? method });
   }
 
-  // ── Render ────────────────────────────────────────────────────────
-
   override render(width: number): string[] {
     this.otherInput.focused = this.focused && this.isEditingOther();
-    this.hitRegions.length = 0;
     const lines = this.isSubmitTab() ? this.renderSubmitTab(width) : this.renderQuestionTab(width);
-    // Faded while another panel holds the keyboard or the terminal window is
-    // inactive: a question the user cannot read is a question they cannot
-    // answer.
-    return this.focused && this.isTerminalFocused()
-      ? lines
-      : lines.map((line) => currentTheme.fade(line));
+    return this.focused && this.isTerminalFocused() ? lines : lines.map((line) => currentTheme.fade(line));
+  }
+
+  private rule(width: number): string {
+    return currentTheme.fg(this.focused ? 'primary' : 'border', '─'.repeat(width));
   }
 
   private renderQuestionTab(width: number): string[] {
@@ -581,17 +446,13 @@ export class QuestionDialogComponent extends Container implements Focusable {
     const success = (text: string) => currentTheme.fg('success', text);
 
     const renderWidth = Math.max(1, width);
-    const lines: string[] = [
-      accent('─'.repeat(renderWidth)),
-      currentTheme.boldFg('primary', t('tui.dialogs.questionDialog.title')),
-      '',
-    ];
+    const lines: string[] = [this.rule(renderWidth), currentTheme.boldFg('primary', t('tui.dialogs.questionDialog.title')), ''];
     this.pushTabs(lines);
     lines.push('');
 
     appendWrapped(lines, ' ? ', '   ', question.question, renderWidth, accent);
     if (this.isEditingOther()) {
-      lines.push(dim(`   ${t('tui.dialogs.questionDialog.typeAnswerHint')}`));
+      lines.push(dim(t('tui.dialogs.questionDialog.typeAnswerHint')));
     }
 
     if (question.body !== undefined && question.body.trim().length > 0) {
@@ -602,13 +463,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
         appendWrapped(lines, '   ', '   ', bodyLine, renderWidth, dim);
       }
       if (bodyLines.length > visibleBodyLines.length) {
-        lines.push(
-          dim(
-            `   ${t('tui.dialogs.questionDialog.moreLines', {
-              count: bodyLines.length - visibleBodyLines.length,
-            })}`,
-          ),
-        );
+        lines.push(dim(t('tui.dialogs.questionDialog.moreLines', { count: String(bodyLines.length - visibleBodyLines.length) })));
       }
     }
 
@@ -628,62 +483,56 @@ export class QuestionDialogComponent extends Container implements Focusable {
       const isCursor = i === cursor;
       const isOther = option.kind === 'other';
       const isSelected = question.multi_select ? multiSet.has(i) : singleSelection === i;
-      const rowStart = lines.length;
 
       if (this.isEditingOther() && isCursor && isOther) {
         lines.push(this.renderEditingOtherLine(renderWidth, questionIdx, option, num, isSelected));
-      } else {
-        const label = this.renderOptionLabel(questionIdx, option, isCursor);
-
-        let tone: (s: string) => string;
-        let prefix: string;
-        if (question.multi_select) {
-          const checked = isSelected ? '✓' : ' ';
-          prefix = `  [${checked}] `;
-          if (isSelected && isCursor) tone = (s) => currentTheme.boldFg('success', s);
-          else if (isSelected) tone = success;
-          else if (isCursor) tone = accent;
-          else tone = dim;
-        } else if (isSelected && this.isAnswered(questionIdx)) {
-          prefix = isCursor ? `  → [${String(num)}] ` : `    [${String(num)}] `;
-          tone = isCursor ? (s) => currentTheme.boldFg('success', s) : success;
-        } else if (isCursor) {
-          prefix = `  → [${String(num)}] `;
-          tone = accent;
-        } else {
-          prefix = `    [${String(num)}] `;
-          tone = dim;
-        }
-        const continuation = ' '.repeat(visibleWidth(prefix));
-        appendWrapped(lines, prefix, continuation, label, renderWidth, tone);
-
-        if (option.description !== undefined && option.description.length > 0) {
-          appendWrapped(lines, '        ', '        ', option.description, renderWidth, dim);
-        }
+        continue;
       }
 
-      this.hitRegions.push({
-        start: rowStart,
-        end: lines.length,
-        hit: { kind: 'option', index: i },
-      });
+      const label = this.renderOptionLabel(questionIdx, option, isCursor);
+
+      let tone: (s: string) => string;
+      let prefix: string;
+      if (question.multi_select) {
+        const checked = isSelected ? '✓' : ' ';
+        prefix = `  [${checked}] `;
+        if (isSelected && isCursor) tone = (s) => currentTheme.boldFg('success', s);
+        else if (isSelected) tone = success;
+        else if (isCursor) tone = accent;
+        else tone = dim;
+      } else if (isSelected && this.isAnswered(questionIdx)) {
+        prefix = isCursor ? `  → [${String(num)}] ` : `    [${String(num)}] `;
+        tone = isCursor ? (s) => currentTheme.boldFg('success', s) : success;
+      } else if (isCursor) {
+        prefix = `  → [${String(num)}] `;
+        tone = accent;
+      } else {
+        prefix = `    [${String(num)}] `;
+        tone = dim;
+      }
+      const continuation = ' '.repeat(visibleWidth(prefix));
+      appendWrapped(lines, prefix, continuation, label, renderWidth, tone);
+
+      if (
+        option.description !== undefined &&
+        option.description.length > 0 &&
+        !(this.isEditingOther() && isCursor && isOther)
+      ) {
+        appendWrapped(lines, '        ', '        ', option.description, renderWidth, dim);
+      }
     }
 
     if (visibleEnd < options.length || visibleStart > 0) {
       lines.push(
         dim(
-          `   ${t('tui.dialogs.questionDialog.showing', {
-            from: visibleStart + 1,
-            to: visibleEnd,
-            total: options.length,
-          })}`,
+          `   showing ${String(visibleStart + 1)}-${String(visibleEnd)} of ${String(options.length)}`,
         ),
       );
     }
 
     lines.push('');
-    lines.push(this.buildQuestionHint(dim, questionIdx));
-    lines.push(accent('─'.repeat(renderWidth)));
+    lines.push(this.focused ? this.buildQuestionHint(dim, questionIdx) : dim('  esc back to question'));
+    lines.push(this.rule(renderWidth));
 
     return lines.map((line) => truncateToWidth(line, width));
   }
@@ -695,16 +544,12 @@ export class QuestionDialogComponent extends Container implements Focusable {
     const warning = (text: string) => currentTheme.fg('warning', text);
 
     const renderWidth = Math.max(1, width);
-    const lines: string[] = [
-      accent('─'.repeat(renderWidth)),
-      currentTheme.boldFg('primary', t('tui.dialogs.questionDialog.title')),
-      '',
-    ];
+    const lines: string[] = [this.rule(renderWidth), currentTheme.boldFg('primary', t('tui.dialogs.questionDialog.title')), ''];
     this.pushTabs(lines);
     lines.push('');
-    lines.push(currentTheme.boldFg('text', ` ${getReviewTitle()}`));
+    lines.push(currentTheme.boldFg('text', ` ${REVIEW_TITLE}`));
     const reviewWarning =
-      this.reviewMessage ?? (this.hasUnansweredQuestions() ? getUnansweredWarning() : undefined);
+      this.reviewMessage ?? (this.hasUnansweredQuestions() ? UNANSWERED_WARNING : undefined);
     if (reviewWarning !== undefined) {
       lines.push(warning(`  ${reviewWarning}`));
     }
@@ -714,85 +559,71 @@ export class QuestionDialogComponent extends Container implements Focusable {
       const question = this.request.data.questions[i];
       if (question === undefined) continue;
       const answer = this.answers[i];
-      appendWrapped(lines, `  ${dim('Q')}  `, '       ', question.question, renderWidth);
+      appendWrapped(
+        lines,
+        `  ${dim('Q')}  `,
+        '       ',
+        question.question,
+        renderWidth,
+      );
       if (answer !== undefined && answer.length > 0) {
-        appendWrapped(lines, `  ${accent('→')}  `, '       ', text(answer), renderWidth);
+        appendWrapped(
+          lines,
+          `  ${accent('→')}  `,
+          '       ',
+          text(answer),
+          renderWidth,
+        );
       } else {
-        lines.push(`  ${dim('→')}  ${dim(getNotAnsweredLabel())}`);
+        lines.push(`  ${dim('→')}  ${dim(NOT_ANSWERED_LABEL)}`);
       }
     }
 
     lines.push('');
-    lines.push(text(` ${getSubmitPrompt()}`));
+    lines.push(text(` ${SUBMIT_PROMPT}`));
     lines.push('');
 
-    const submitActions = getSubmitActions();
-    for (let i = 0; i < submitActions.length; i++) {
-      const label = submitActions[i];
+    for (let i = 0; i < SUBMIT_ACTIONS.length; i++) {
+      const label = SUBMIT_ACTIONS[i];
       if (label === undefined) continue;
       const num = i + 1;
-      const rowStart = lines.length;
       if (i === this.submitActionIdx) {
         lines.push(accent(`  → [${String(num)}] ${label}`));
       } else {
         lines.push(dim(`    [${String(num)}] ${label}`));
       }
-      this.hitRegions.push({
-        start: rowStart,
-        end: lines.length,
-        hit: { kind: 'action', index: i },
-      });
     }
 
     lines.push('');
-    lines.push(this.buildSubmitHint(dim));
-    lines.push(accent('─'.repeat(renderWidth)));
+    lines.push(this.focused ? this.buildSubmitHint(dim) : dim('  esc back to question'));
+    lines.push(this.rule(renderWidth));
 
     return lines.map((line) => truncateToWidth(line, width));
   }
 
   private pushTabs(lines: string[]): void {
     const dim = (text: string) => currentTheme.fg('textDim', text);
-    const active = (text: string) => currentTheme.bg('primary', currentTheme.boldFg('text', text));
+    const active = (text: string) =>
+      currentTheme.bg('primary', currentTheme.boldFg('text', text));
 
-    const cells: Array<{ readonly text: string; readonly index: number }> = [];
+    const tabs: string[] = [];
     for (let i = 0; i < this.request.data.questions.length; i++) {
       const question = this.request.data.questions[i];
       if (question === undefined) continue;
       const label =
         question.header !== undefined && question.header.length > 0
           ? question.header
-          : t('tui.dialogs.questionDialog.questionPrefix', { number: i + 1 });
-      if (i === this.currentTab) cells.push({ text: active(` ${label} `), index: i });
-      else if (this.isAnswered(i))
-        cells.push({ text: currentTheme.fg('success', `(✓) ${label}`), index: i });
-      else cells.push({ text: dim(`(○) ${label}`), index: i });
+          : `Q${String(i + 1)}`;
+      if (i === this.currentTab) tabs.push(active(` ${label} `));
+      else if (this.isAnswered(i)) tabs.push(currentTheme.fg('success', `(✓) ${label}`));
+      else tabs.push(dim(`(○) ${label}`));
     }
 
-    const submitIndex = this.request.data.questions.length;
     const submitLabel = t('tui.dialogs.questionDialog.submitTab');
-    cells.push({
-      text: this.isSubmitTab() ? active(` ${submitLabel} `) : dim(` ${submitLabel} `),
-      index: submitIndex,
-    });
+    if (this.isSubmitTab()) tabs.push(active(` ${submitLabel} `));
+    else tabs.push(dim(` ${submitLabel} `));
 
-    const row = lines.length;
-    const renderTabs: string[] = [];
-    let column = 1;
-    for (const cell of cells) {
-      const cellWidth = visibleWidth(cell.text);
-      this.hitRegions.push({
-        start: row,
-        end: row + 1,
-        columnStart: column,
-        columnEnd: column + cellWidth,
-        hit: { kind: 'tab', index: cell.index },
-      });
-      renderTabs.push(cell.text);
-      column += cellWidth + 2;
-    }
-
-    lines.push(` ${renderTabs.join('  ')}`);
+    lines.push(` ${tabs.join('  ')}`);
   }
 
   private buildQuestionHint(dim: (s: string) => string, questionIdx: number): string {
@@ -809,15 +640,11 @@ export class QuestionDialogComponent extends Container implements Focusable {
     const optionCount = Math.min(this.displayOptions(questionIdx).length, NUMBER_KEYS.length);
     const numberHint = optionCount <= 1 ? '1' : `1-${String(optionCount)}`;
     const question = this.request.data.questions[questionIdx];
-    if (question === undefined)
-      return dim(`  ${t('tui.dialogs.questionDialog.hintQuestion.cancel')}`);
+    if (question === undefined) return dim('  esc cancel');
 
-    const actionKey = question.multi_select
-      ? 'tui.dialogs.questionDialog.hintQuestion.toggle'
-      : 'tui.dialogs.questionDialog.hintQuestion.choose';
     const parts: string[] = [
       t('tui.dialogs.questionDialog.hintQuestion.navigate'),
-      t(actionKey, { range: numberHint }),
+      `${numberHint} / ↵ ${question.multi_select ? 'toggle' : 'choose'}`,
     ];
     if (this.totalTabs() > 1) parts.push(t('tui.dialogs.questionDialog.hintQuestion.tabSwitch'));
     parts.push(t('tui.dialogs.questionDialog.hintQuestion.cancel'));
@@ -825,11 +652,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
   }
 
   private buildSubmitHint(dim: (s: string) => string): string {
-    const parts: string[] = [
-      t('tui.dialogs.questionDialog.hintSubmit.navigate'),
-      t('tui.dialogs.questionDialog.hintSubmit.choose'),
-      t('tui.dialogs.questionDialog.hintSubmit.confirm'),
-    ];
+    const parts: string[] = [t('tui.dialogs.questionDialog.hintSubmit.navigate'), t('tui.dialogs.questionDialog.hintSubmit.choose'), t('tui.dialogs.questionDialog.hintSubmit.confirm')];
     if (this.totalTabs() > 1) parts.push(t('tui.dialogs.questionDialog.hintSubmit.tabSwitch'));
     parts.push(t('tui.dialogs.questionDialog.hintSubmit.cancel'));
     return dim(`  ${parts.join('  ')}`);
@@ -841,8 +664,6 @@ export class QuestionDialogComponent extends Container implements Focusable {
     const max = Math.max(0, total - this.maxVisibleOptions);
     return Math.max(0, Math.min(cursor - half, max));
   }
-
-  // ── Helpers ───────────────────────────────────────────────────────
 
   private totalTabs(): number {
     return this.request.data.questions.length + 1;
@@ -881,7 +702,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
         kind: 'preset' as const,
       })),
       {
-        label: question.other_label?.length ? question.other_label : getDefaultOtherLabel(),
+        label: question.other_label?.length ? question.other_label : DEFAULT_OTHER_LABEL,
         description: question.other_description?.length ? question.other_description : undefined,
         kind: 'other' as const,
       },
@@ -921,7 +742,9 @@ export class QuestionDialogComponent extends Container implements Focusable {
     if (question.multi_select) {
       const checked = isSelected ? '✓' : ' ';
       const body = `  [${checked}] ${option.label}: `;
-      prefix = isSelected ? currentTheme.boldFg('success', body) : currentTheme.fg('primary', body);
+      prefix = isSelected
+        ? currentTheme.boldFg('success', body)
+        : currentTheme.fg('primary', body);
     } else {
       const body = `  → [${String(num)}] ${option.label}: `;
       prefix =
@@ -937,7 +760,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
   }
 
   private otherDraftValue(questionIdx: number): string {
-    return this.otherDrafts[questionIdx] ?? this.committedOtherValues[questionIdx] ?? '';
+    return (this.otherDrafts[questionIdx] ?? this.committedOtherValues[questionIdx]) ?? '';
   }
 
   private syncOtherDraft(questionIdx: number): void {

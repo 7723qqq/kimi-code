@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { StreamParseSink } from '#/llm/protocol/format';
-import { anthropicFormat } from '#/llm/requester/bases/anthropic/format';
-import { createOpenAIFormat } from '#/llm/requester/bases/openai/format';
-import type { TokenUsage } from '#/llm/usage';
+import type { StreamParseSink } from '#human/llm/protocol/format';
+import { anthropicFormat } from '#human/llm/requester/bases/anthropic/format';
+import { createOpenAIFormat } from '#human/llm/requester/bases/openai/format';
+import type { TokenUsage } from '#human/llm/usage';
 
 const openAIFormat = createOpenAIFormat();
 
@@ -25,6 +25,44 @@ describe('openAIFormat stream usage', () => {
     expect(usages).toEqual([
       { inputOther: 120, output: 30, inputCacheRead: 0, inputCacheCreation: 0, raw },
     ]);
+  });
+
+  it.each([undefined, null])(
+    'falls back to first-choice usage when top-level usage is %s',
+    (usage) => {
+      const { sink, usages } = createSink();
+      const raw = { prompt_tokens: 5, completion_tokens: 1 };
+      openAIFormat.createStreamParser()({ choices: [{ usage: raw }], usage }, sink);
+      expect(usages).toEqual([
+        { inputOther: 5, output: 1, inputCacheRead: 0, inputCacheCreation: 0, raw },
+      ]);
+    },
+  );
+
+  it.each([
+    { raw: { prompt_tokens: 120, completion_tokens: 30 }, inputOther: 120, output: 30 },
+    { raw: {}, inputOther: 0, output: 0 },
+  ])(
+    'prefers top-level usage without adding choice totals: $raw',
+    ({ raw, inputOther, output }) => {
+      const { sink, usages } = createSink();
+      openAIFormat.createStreamParser()(
+        { choices: [{ usage: { prompt_tokens: 5, completion_tokens: 1 } }], usage: raw },
+        sink,
+      );
+      expect(usages).toEqual([
+        { inputOther, output, inputCacheRead: 0, inputCacheCreation: 0, raw },
+      ]);
+    },
+  );
+
+  it('uses only the first choice for usage fallback', () => {
+    const { sink, usages } = createSink();
+    openAIFormat.createStreamParser()(
+      { choices: [{ usage: null }, { usage: { prompt_tokens: 5, completion_tokens: 1 } }] },
+      sink,
+    );
+    expect(usages).toEqual([]);
   });
 
   it('splits cached tokens out of the prompt total', () => {

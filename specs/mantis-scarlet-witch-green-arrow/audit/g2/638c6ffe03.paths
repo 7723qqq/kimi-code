@@ -1,0 +1,6 @@
+A	.changeset/fix-token-counting-compaction-usage.md
+M	packages/agent-core-v2/src/agent/fullCompaction/fullCompactionService.ts
+M	packages/agent-core-v2/src/agent/loop/requestObservation.ts
+M	packages/agent-core-v2/src/session/tokenCounting/tokenCountingAgentModel.ts
+M	packages/agent-core-v2/test/agent/fullCompaction/fullCompaction.test.ts
+M	packages/agent-core-v2/test/agent/tokenCounting/tokenCounting.test.ts

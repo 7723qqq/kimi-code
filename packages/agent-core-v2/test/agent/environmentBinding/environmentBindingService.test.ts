@@ -1,10 +1,10 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { ISessionEventBus } from '#/app/event/eventBus';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import '#/agent/contextMemory/conversationTime';
+import '#/agent/loop/turnOps';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { AgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { AgentEnvironmentService, type IAgentEnvironmentOverlay } from '#/agent/environmentBinding/agentEnvironment';
 import { AgentEnvironmentBindingService, PROJECT_CONTEXT_REMINDER_VARIANT } from '#/agent/environmentBinding/environmentBindingService';
 import { environmentBindingKey, EnvironmentSetBinding } from '#/agent/environmentBinding/environmentBindingOps';
 import { AgentStateService } from '#/agent/state/agentStateService';
@@ -209,7 +209,10 @@ function setup(options: {
     );
     return {
       binding: agentBinding,
-      agentEnvironment: new AgentEnvironmentService(agentScopeContext, agentBinding, registry as unknown as IEnvironmentService, eventBus, session, workspaceInfo),
+      agentEnvironment: new AgentEnvironmentService(agentScopeContext, agentBinding, registry as unknown as IEnvironmentService, eventBus, session, workspaceInfo, {
+        _serviceBrand: undefined,
+        decorate: (lease) => lease,
+      } satisfies IAgentEnvironmentOverlay),
       state: agentState,
     };
   };
@@ -347,13 +350,13 @@ describe('AgentEnvironmentBindingService environment reminder', () => {
 });
 
 function probeFs(files: Record<string, string>, directories: readonly string[] = []): IHostFileSystem {
-  const stat = mock(async (path: string): Promise<HostFileStat> => {
+  const stat = vi.fn(async (path: string): Promise<HostFileStat> => {
     const content = files[path];
     if (content !== undefined) return { isFile: true, isDirectory: false, size: content.length };
     if (directories.includes(path)) return { isFile: false, isDirectory: true, size: 0 };
     throw new Error(`missing: ${path}`);
   });
-  const readText = mock(async (path: string): Promise<string> => {
+  const readText = vi.fn(async (path: string): Promise<string> => {
     const content = files[path];
     if (content === undefined) throw new Error(`missing: ${path}`);
     return content;

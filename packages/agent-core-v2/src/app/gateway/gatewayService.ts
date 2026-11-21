@@ -1,10 +1,15 @@
-import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { ILogService } from '#/_base/log/log';
-import { IAgentLoopService } from '#/agent/loop/loop';
 import { LifecycleScope } from '#/app/scopes';
-import { ISessionManager } from '#/app/sessionManager/sessionManager';
-import { Error2, ErrorCodes } from '#/errors';
+
+import {
+  type IAgentScopeHandle,
+  ScopeActivation,
+  registerScopedService,
+} from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { Error2, ErrorCodes } from '#/errors';
+import { ILogService } from '#/_base/log/log';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { IAgentLoopService } from '#/agent/loop/loop';
 
 import { IRestGateway, IWSGateway } from './gateway';
 
@@ -14,7 +19,7 @@ export class RestGateway implements IRestGateway {
   constructor(
     @ISessionManager private readonly sessions: ISessionManager,
     @ILogService private readonly log: ILogService,
-  ) {}
+  ) { }
 
   private agent(sessionId: string, agentId: string): IAgentScopeHandle {
     const session = this.liveSession(sessionId);
@@ -44,28 +49,11 @@ export class RestGateway implements IRestGateway {
   ): Promise<{ readonly turn_id: number } | undefined> {
     const loop = this.agent(sessionId, agentId).accessor.get(IAgentLoopService);
     const { id } = loop.submit({
-      message: { role: 'user', content: [{ type: 'text', text: input }] },
-      meta: { origin: { kind: 'user' }, tracked: true },
+      role: 'user',
+      content: [{ type: 'text', text: input }],
+      attributes: { origin: { kind: 'user' } },
     });
     const turn = await loop.promptHandle(id)?.launched;
-    if (turn === undefined) return undefined;
-    await turn.ready.catch(() => undefined);
-    return turn.id === undefined ? undefined : { turn_id: turn.id };
-  }
-  async steer(
-    sessionId: string,
-    agentId: string,
-    content: string,
-  ): Promise<{ readonly turn_id: number } | undefined> {
-    const service = this.agent(sessionId, agentId).accessor.get(IAgentLoopService);
-    const { id } = service.submit(
-      {
-        message: { role: 'user', content: [{ type: 'text', text: content }] },
-        meta: { origin: { kind: 'user' }, tracked: true },
-      },
-      { steerIfActive: true },
-    );
-    const turn = await service.promptHandle(id)?.launched;
     if (turn === undefined) return undefined;
     await turn.ready.catch(() => undefined);
     return turn.id === undefined ? undefined : { turn_id: turn.id };
@@ -96,20 +84,9 @@ export class WSGateway implements IWSGateway {
   connect(connectionId: string): void {
     this.connections.add(connectionId);
   }
-  broadcast(_sessionId: string, _event: unknown): void {}
+  broadcast(_sessionId: string, _event: unknown): void {
+  }
 }
 
-registerScopedService(
-  LifecycleScope.App,
-  IRestGateway,
-  RestGateway,
-  ScopeActivation.OnScopeCreated,
-  'gateway',
-);
-registerScopedService(
-  LifecycleScope.App,
-  IWSGateway,
-  WSGateway,
-  ScopeActivation.OnScopeCreated,
-  'gateway',
-);
+registerScopedService(LifecycleScope.App, IRestGateway, RestGateway, ScopeActivation.OnScopeCreated, 'gateway');
+registerScopedService(LifecycleScope.App, IWSGateway, WSGateway, ScopeActivation.OnScopeCreated, 'gateway');

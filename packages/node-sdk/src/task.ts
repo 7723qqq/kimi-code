@@ -1,7 +1,9 @@
-import type { SubagentTaskInfo } from '@moonshot-ai/agent-core-v2';
-import type { QuestionTaskInfo } from '@moonshot-ai/agent-core-v2/agent/tools/ask-user-question/question-background-task';
-import type { ProcessTaskInfo } from '@moonshot-ai/agent-core-v2/agent/tools/os/bash/process-task';
-import type { AgentTaskStatus } from '@moonshot-ai/agent-core-v2/contract';
+import type {
+  AgentTaskStatus,
+  ProcessTaskInfo,
+  QuestionTaskInfo,
+  SubagentTaskInfo,
+} from '@moonshot-ai/agent-core-v2/agent/task/types';
 
 export type BackgroundTaskStatus = AgentTaskStatus;
 

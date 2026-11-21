@@ -1,11 +1,24 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+
+import { spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+} from 'node:fs';
 import { arch, platform } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
-import { kimiCodeCdnBase } from '#/constant/region-urls';
-import { t } from '#/i18n';
+import { kimiCodeCdnBase } from '#/constant/app';
 import { getBinDir } from '#/utils/paths';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
+import { t } from '#/i18n';
 
 const CANDIDATES = ['fd', 'fdfind'];
 const DOWNLOAD_TIMEOUT_MS = 120_000;
@@ -25,112 +38,48 @@ const FD_ARCHIVE_SHA256: Record<string, string> = {
     'b2816e506390a89941c63c9187d58a3cc10e9a55f2ef0685f9ea0eccaf7c98c8',
 };
 
-export interface FdSpawnResult {
-  readonly status: number | null;
-  readonly error?: { readonly message: string } | undefined;
-  readonly stderr?: { toString(): string } | undefined;
-}
-
-export type FdSpawnSync = (
-  command: string,
-  args: readonly string[],
-  options: { readonly stdio: 'ignore' | 'pipe' },
-) => FdSpawnResult;
-
-export interface FdDetectDeps {
-  readonly spawnSync: FdSpawnSync;
-  readonly resolveCommandPath: (command: string) => string | undefined;
-  readonly platform: NodeJS.Platform;
-  readonly arch: string;
-  readonly env: NodeJS.ProcessEnv;
-  readonly now: () => number;
-  readonly binDir: () => string;
-  readonly fetch: typeof fetch;
-}
-
-export function createFdDetectDeps(overrides: Partial<FdDetectDeps> = {}): FdDetectDeps {
-  return {
-    spawnSync: (command, args, options) => {
-      try {
-        const result = Bun.spawnSync({
-          cmd: [command, ...args],
-          stdout: options.stdio === 'pipe' ? 'pipe' : 'ignore',
-          stderr: options.stdio === 'pipe' ? 'pipe' : 'ignore',
-        });
-        const stderrBytes = result.stderr;
-        return {
-          status: result.exitCode,
-          error: undefined,
-          stderr:
-            stderrBytes === undefined || stderrBytes.length === 0
-              ? undefined
-              : { toString: () => new TextDecoder().decode(stderrBytes) },
-        };
-      } catch (error) {
-        return {
-          status: null,
-          error: { message: error instanceof Error ? error.message : String(error) },
-          stderr: undefined,
-        };
-      }
-    },
-    resolveCommandPath: (command) => resolveCommandPath(command),
-    platform: platform(),
-    arch: arch(),
-    env: process.env,
-    now: () => Date.now(),
-    binDir: () => getBinDir(),
-    fetch,
-    ...overrides,
-  };
-}
-
-export function detectFdPath(overrides: Partial<FdDetectDeps> = {}): string | null {
-  const deps = createFdDetectDeps(overrides);
-  const managed = getManagedFdPath(deps);
+export function detectFdPath(): string | null {
+  const managed = getManagedFdPath();
   if (managed !== null) return managed;
-  return detectSystemFdPath(deps);
+  return detectSystemFdPath();
 }
 
-export async function ensureFdPath(overrides: Partial<FdDetectDeps> = {}): Promise<string | null> {
-  const deps = createFdDetectDeps(overrides);
-  const existing = detectFdPath(deps);
+export async function ensureFdPath(): Promise<string | null> {
+  const existing = detectFdPath();
   if (existing !== null) return existing;
 
   try {
-    return await downloadFd(deps);
+    return await downloadFd();
   } catch {
     return null;
   }
 }
 
-function detectSystemFdPath(deps: FdDetectDeps): string | null {
+function detectSystemFdPath(): string | null {
   for (const name of CANDIDATES) {
-    const commandPath = deps.resolveCommandPath(name);
+    const commandPath = resolveCommandPath(name);
     if (commandPath === undefined) continue;
     try {
-      const result = deps.spawnSync(commandPath, ['--version'], { stdio: 'ignore' });
+      const result = spawnSync(commandPath, ['--version'], { stdio: 'ignore' });
       if (result.status === 0) return commandPath;
-    } catch {
-      // ENOENT, EACCES, etc. — try next candidate.
-    }
+    } catch {}
   }
   return null;
 }
 
-function getManagedFdPath(deps: FdDetectDeps): string | null {
-  const binaryPath = getManagedFdBinaryPath(deps);
+function getManagedFdPath(): string | null {
+  const binaryPath = getManagedFdBinaryPath();
   if (!existsSync(binaryPath)) return null;
   try {
-    const result = deps.spawnSync(binaryPath, ['--version'], { stdio: 'ignore' });
+    const result = spawnSync(binaryPath, ['--version'], { stdio: 'ignore' });
     return result.status === 0 ? binaryPath : null;
   } catch {
     return null;
   }
 }
 
-function getManagedFdBinaryPath(deps: FdDetectDeps): string {
-  return join(deps.binDir(), deps.platform === 'win32' ? 'fd.exe' : 'fd');
+function getManagedFdBinaryPath(): string {
+  return join(getBinDir(), platform() === 'win32' ? 'fd.exe' : 'fd');
 }
 
 export function getFdAssetName(plat = platform(), architecture = arch()): string | null {
@@ -152,36 +101,36 @@ export function getFdAssetName(plat = platform(), architecture = arch()): string
   return null;
 }
 
-async function downloadFd(deps: FdDetectDeps): Promise<string | null> {
-  const assetName = getFdAssetName(deps.platform, deps.arch);
+async function downloadFd(): Promise<string | null> {
+  const assetName = getFdAssetName();
   if (assetName === null) return null;
   const expectedSha256 = FD_ARCHIVE_SHA256[assetName];
   if (expectedSha256 === undefined) return null;
 
-  const binDir = deps.binDir();
+  const binDir = getBinDir();
   mkdirSync(binDir, { recursive: true });
 
-  const binaryPath = getManagedFdBinaryPath(deps);
+  const binaryPath = getManagedFdBinaryPath();
   const extractDir = join(
     binDir,
-    `fd_extract_${process.pid}_${deps.now()}_${Math.random().toString(36).slice(2, 10)}`,
+    `fd_extract_${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
   );
   mkdirSync(extractDir, { recursive: true });
   const archivePath = join(extractDir, assetName);
 
   try {
     const downloadUrl = `${kimiCodeCdnBase()}/fd/${assetName}`;
-    await downloadFile(deps, downloadUrl, archivePath);
-    await verifyArchive(archivePath, expectedSha256);
-    extractArchive(deps, archivePath, extractDir, assetName);
+    await downloadFile(downloadUrl, archivePath);
+    verifyArchive(archivePath, expectedSha256);
+    extractArchive(archivePath, extractDir, assetName);
 
-    const binaryName = deps.platform === 'win32' ? 'fd.exe' : 'fd';
+    const binaryName = platform() === 'win32' ? 'fd.exe' : 'fd';
     const extractedBinary = findBinaryRecursively(extractDir, binaryName);
     if (extractedBinary === null) return null;
 
     rmSync(binaryPath, { force: true });
     renameSync(extractedBinary, binaryPath);
-    if (deps.platform !== 'win32') {
+    if (platform() !== 'win32') {
       chmodSync(binaryPath, 0o755);
     }
     return binaryPath;
@@ -190,58 +139,51 @@ async function downloadFd(deps: FdDetectDeps): Promise<string | null> {
   }
 }
 
-async function verifyArchive(path: string, expectedSha256: string): Promise<void> {
-  const actualSha256 = new Bun.CryptoHasher('sha256')
-    .update(await Bun.file(path).bytes())
-    .digest('hex');
+function verifyArchive(path: string, expectedSha256: string): void {
+  const actualSha256 = new Bun.CryptoHasher('sha256').update(readFileSync(path)).digest('hex');
   if (actualSha256 !== expectedSha256) {
     throw new Error(`fd archive checksum mismatch: ${actualSha256} !== ${expectedSha256}`);
   }
 }
 
-async function downloadFile(deps: FdDetectDeps, url: string, dest: string): Promise<void> {
-  const response = await deps.fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+async function downloadFile(url: string, dest: string): Promise<void> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`Failed to download fd: ${response.status}`);
   }
   if (response.body === null) {
     throw new Error(t('tui.statusMessages.fdDownloadEmptyResponse'));
   }
-  await Bun.write(dest, response.body);
+  await pipeline(Readable.fromWeb(response.body), createWriteStream(dest));
 }
 
-function extractArchive(
-  deps: FdDetectDeps,
-  archivePath: string,
-  extractDir: string,
-  assetName: string,
-): void {
+function extractArchive(archivePath: string, extractDir: string, assetName: string): void {
   if (assetName.endsWith('.tar.gz')) {
-    runExtractionCommand(deps, 'tar', ['xzf', archivePath, '-C', extractDir]);
+    runExtractionCommand('tar', ['xzf', archivePath, '-C', extractDir]);
     return;
   }
   if (assetName.endsWith('.zip')) {
-    if (deps.platform === 'win32') {
-      runExtractionCommand(deps, getWindowsTarCommand(deps), ['xf', archivePath, '-C', extractDir]);
+    if (platform() === 'win32') {
+      runExtractionCommand(getWindowsTarCommand(), ['xf', archivePath, '-C', extractDir]);
       return;
     }
-    runExtractionCommand(deps, 'unzip', ['-q', archivePath, '-d', extractDir]);
+    runExtractionCommand('unzip', ['-q', archivePath, '-d', extractDir]);
     return;
   }
   throw new Error(`Unsupported fd archive format: ${assetName}`);
 }
 
-function runExtractionCommand(deps: FdDetectDeps, command: string, args: readonly string[]): void {
-  const result = deps.spawnSync(command, [...args], { stdio: 'pipe' });
+function runExtractionCommand(command: string, args: readonly string[]): void {
+  const result = spawnSync(command, [...args], { stdio: 'pipe' });
   if (!result.error && result.status === 0) return;
-  const stderr = result.stderr?.toString().trim() ?? '';
+  const stderr = result.stderr.toString().trim();
   const detail =
     result.error?.message ?? (stderr.length > 0 ? stderr : `exit status ${String(result.status)}`);
   throw new Error(`Failed to extract fd with ${command}: ${detail}`);
 }
 
-function getWindowsTarCommand(deps: FdDetectDeps): string {
-  const systemRoot = deps.env['SystemRoot'] ?? deps.env['WINDIR'];
+function getWindowsTarCommand(): string {
+  const systemRoot = process.env['SystemRoot'] ?? process.env['WINDIR'];
   if (systemRoot !== undefined) {
     const systemTar = join(systemRoot, 'System32', 'tar.exe');
     if (existsSync(systemTar)) return systemTar;

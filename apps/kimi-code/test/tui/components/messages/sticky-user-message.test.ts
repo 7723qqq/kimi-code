@@ -1,7 +1,6 @@
-import { describe, expect, it, mock } from 'bun:test';
-
 import { visibleWidth, type TuiMouseEvent, type TuiMouseEventType } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { StickyUserMessageComponent } from '#/tui/components/messages/sticky-user-message';
 import { UserMessageComponent } from '#/tui/components/messages/user-message';
@@ -12,7 +11,7 @@ function stripAnsi(text: string): string {
 }
 
 function judgment(summary: string, targetY = 2) {
-  return { component: { render: mock(() => []), invalidate() {} }, summary, targetY };
+  return { component: { render: vi.fn(() => []), invalidate() {} }, summary, targetY };
 }
 
 function mouseEvent(type: TuiMouseEventType): TuiMouseEvent {
@@ -45,6 +44,21 @@ describe('StickyUserMessageComponent', () => {
     expect(component.setJudgment(null)).toBe(false);
   });
 
+  it('fades the summary while the user message is still an unread steer', () => {
+    const previousLevel = chalk.level;
+    chalk.level = 3;
+    try {
+      const component = new StickyUserMessageComponent(() => {});
+      const message = new UserMessageComponent('keep this input', undefined, undefined, undefined, true);
+      component.setJudgment({ component: message, summary: 'keep this input', targetY: 2 });
+      expect(component.render(80)[0]).toContain('\u001B[2m');
+      message.setSteerPending(false);
+      expect(component.render(80)[0]).not.toContain('\u001B[2m');
+    } finally {
+      chalk.level = previousLevel;
+    }
+  });
+
   it('keeps the user message skill highlighting in a Fullscreen summary', () => {
     const summary = '/skill:review check src/app.ts';
     const user = new UserMessageComponent(summary, undefined, undefined, ['review']);
@@ -57,27 +71,6 @@ describe('StickyUserMessageComponent', () => {
       const line = component.render(80)[0]!;
       expect(stripAnsi(line)).toBe(`❯ ${summary}`);
       expect(line).toContain(currentTheme.boldFg('primary', '/skill:review'));
-    } finally {
-      chalk.level = previousLevel;
-    }
-  });
-
-  it('fades the summary while the user message is still an unread steer', () => {
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    try {
-      const component = new StickyUserMessageComponent(() => {});
-      const message = new UserMessageComponent(
-        'keep this input',
-        undefined,
-        undefined,
-        undefined,
-        true,
-      );
-      component.setJudgment({ component: message, summary: 'keep this input', targetY: 2 });
-      expect(component.render(80)[0]).toContain('\u001B[2m');
-      message.setSteerPending(false);
-      expect(component.render(80)[0]).not.toContain('\u001B[2m');
     } finally {
       chalk.level = previousLevel;
     }
@@ -105,7 +98,7 @@ describe('StickyUserMessageComponent', () => {
   });
 
   it('uses the latest jump target even when the displayed summary is unchanged', () => {
-    const scrollTo = mock();
+    const scrollTo = vi.fn();
     const component = new StickyUserMessageComponent(scrollTo);
     const state = judgment('hello', 6);
     component.setJudgment(state);
@@ -118,7 +111,7 @@ describe('StickyUserMessageComponent', () => {
   });
 
   it('lets wheel input pass through and ignores clicks while hidden', () => {
-    const scrollTo = mock();
+    const scrollTo = vi.fn();
     const component = new StickyUserMessageComponent(scrollTo);
     expect(component.handleMouse(mouseEvent('click'))).toBeUndefined();
     component.setJudgment(judgment('hello'));

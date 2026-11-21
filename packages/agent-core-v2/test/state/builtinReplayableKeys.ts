@@ -1,63 +1,47 @@
-import { changeNotifierSnapshotKey } from '#/agent/changeNotifier/changeNotifierOps';
-import { contextMemoryKey } from '#/agent/contextMemory/contextOps';
-import {
-  fullCompactionKey,
-  fullCompactionWireRangesKey,
-} from '#/agent/fullCompaction/compactionOps';
+import type { ReplayableStateKey } from '#/state/state';
+
+import { fullCompactionKey, fullCompactionWireRangesKey } from '#/agent/fullCompaction/compactionOps';
 import { interruptionReminderKey } from '#/agent/interruptionReminder/interruptionReminderOps';
-import { llmRequestTraceKey } from '#/agent/llmRequester/llmRequestOps';
+import { llmRequestTraceKey } from '#/agent/loop/llmRequestOps';
 import { turnKey } from '#/agent/loop/turnOps';
-import { toolSelectKey } from '#/agent/toolSelect/toolSelectOps';
 import { mcpDiscoveryKey } from '#/agent/mcp/mcpDiscoveryOps';
 import { mcpFailureKey } from '#/agent/mcp/mcpFailureOps';
-import { microCompactionKey } from '#/agent/microCompaction/microCompactionOps';
 import {
   permissionModeConfiguredKey,
   permissionModeKey,
 } from '#/agent/permissionMode/permissionModeOps';
 import { permissionRulesKey } from '#/agent/permissionRules/permissionRulesOps';
 import { pluginSessionStartSnapshotKey } from '#/agent/plugin/agentPluginOps';
-import { profileActiveToolsKey, profileKey } from '#/agent/profile/profileOps';
+import { changeNotifierSnapshotKey } from '#/agent/changeNotifier/changeNotifierOps';
 import { environmentBindingKey } from '#/agent/environmentBinding/environmentBindingOps';
 import { taskKey } from '#/agent/task/taskOps';
-import { taskNotificationDeliveryKey } from '#/agent/task/taskService';
+import { toolSelectKey } from '#/agent/toolSelect/toolSelectOps';
 import { userToolKey } from '#/agent/userTool/userToolOps';
 import { fileHistoryKey } from '#/features/fileHistory/fileHistoryOps';
-import { helloWorldKey, helloWorldRunKey } from '#/features/helloWorld/helloWorldOps';
 import { planKey } from '#/features/plan/planOps';
-import { specKey } from '#/features/spec/specOps';
-import { swarmKey } from '#/features/swarm/swarmOps';
+import { swarmKey, swarmReminderDeliveredKey } from '#/features/swarm/swarmOps';
 import { towerKey, towerOwnerKey } from '#/features/tower/towerOps';
-import type { ReplayableStateKey } from '#/state/state';
 
 export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] = [
-  contextMemoryKey,
   fullCompactionKey,
   fullCompactionWireRangesKey,
   interruptionReminderKey,
   llmRequestTraceKey,
   turnKey,
-  toolSelectKey,
   mcpDiscoveryKey,
   mcpFailureKey,
-  microCompactionKey,
   permissionModeKey,
   permissionModeConfiguredKey,
   permissionRulesKey,
   pluginSessionStartSnapshotKey,
   changeNotifierSnapshotKey,
-  profileKey,
-  profileActiveToolsKey,
   environmentBindingKey,
   taskKey,
-  taskNotificationDeliveryKey,
+  toolSelectKey,
   userToolKey,
   fileHistoryKey,
   planKey,
-  specKey,
-  swarmKey,
-  helloWorldKey,
-  helloWorldRunKey,
+  swarmKey, swarmReminderDeliveredKey,
   towerKey,
   towerOwnerKey,
 ];

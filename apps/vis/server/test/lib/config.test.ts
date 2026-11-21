@@ -1,5 +1,4 @@
-import { describe, expect, it } from 'bun:test';
-
+import { describe, it, expect } from '@moonshot-ai/testkit/vitest';
 import { hostForUrl } from '../../src/config';
 
 describe('hostForUrl', () => {

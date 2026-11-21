@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';
@@ -47,9 +47,7 @@ const toolSelectInitializedSchema = z.object({
   tools: z.array(toolSchema).readonly(),
 });
 
-export class ToolSelectInitialized extends AgentEvent2<
-  z.infer<typeof toolSelectInitializedSchema>
-> {
+export class ToolSelectInitialized extends AgentEvent2<z.infer<typeof toolSelectInitializedSchema>> {
   static override readonly type = 'tool_select.initialized';
   static override readonly durable = true;
   static override readonly schema = toolSelectInitializedSchema;
@@ -65,9 +63,7 @@ const toolSelectToolsChangedSchema = z.object({
   removed: z.array(toolSchema).readonly(),
 });
 
-export class ToolSelectToolsChanged extends AgentEvent2<
-  z.infer<typeof toolSelectToolsChangedSchema>
-> {
+export class ToolSelectToolsChanged extends AgentEvent2<z.infer<typeof toolSelectToolsChangedSchema>> {
   static override readonly type = 'tool_select.tools_changed';
   static override readonly durable = true;
   static override readonly schema = toolSelectToolsChangedSchema;
@@ -86,8 +82,7 @@ export const toolSelectKey = defineState('toolSelect', (): ToolSelectModelState 
   initial: undefined,
   current: [],
   changes: [],
-}))
-  .replayable({ schema: z.custom<ToolSelectModelState>() })
+})).replayable({ schema: z.custom<ToolSelectModelState>() })
   .on(ToolSelectInitialized, (s, e) => {
     if (s.initial !== undefined) return;
     s.initial = e.tools.map((tool) => ({ ...tool }));
@@ -95,9 +90,10 @@ export const toolSelectKey = defineState('toolSelect', (): ToolSelectModelState 
   })
   .on(ToolSelectToolsChanged, (s, e) => {
     const removed = new Set(e.removed.map((tool) => tool.name));
-    s.current = [...s.current.filter((tool) => !removed.has(tool.name)), ...e.added].toSorted(
-      byName,
-    );
+    s.current = [
+      ...s.current.filter((tool) => !removed.has(tool.name)),
+      ...e.added,
+    ].toSorted(byName);
     s.changes.push({
       added: e.added.map((tool) => ({ ...tool })),
       removed: e.removed.map((tool) => ({ ...tool })),

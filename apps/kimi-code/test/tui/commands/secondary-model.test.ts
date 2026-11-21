@@ -1,19 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
-
-/**
- * Scenario: /secondary-model command behavior in the interactive TUI.
- * Responsibilities: picker filtering, persistence of `[secondary_model] default_model`
- * (keeping existing pool descriptions), and error paths.
- * Wiring: real command and selector with the SDK/session boundaries stubbed by a small host rig.
- * Run: cd apps/kimi-code && bun test --isolate test/tui/commands/secondary-model.test.ts
- */
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { getLocale, setLocale } from '#/i18n';
 import type { SlashCommandHost } from '#/tui/commands';
 import { handleSecondaryModelCommand } from '#/tui/commands/config';
 import { TabbedModelSelectorComponent } from '#/tui/components/dialogs/tabbed-model-selector';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 interface PickerOptions {
   readonly models: Record<string, ModelAlias>;
@@ -40,7 +30,7 @@ function makeHost(options?: {
     availableModels: {
       k2: model('k2'),
       cheap: model('cheap'),
-      primary: model('primary'),
+      'primary': model('primary'),
     } as Record<string, ModelAlias>,
     availableProviders: {},
     transcriptEntries: [],
@@ -51,51 +41,43 @@ function makeHost(options?: {
       transcriptEntries: [],
     },
     authFlow: {
-      refreshOAuthProviderModels: mock(async () => undefined),
+      refreshOAuthProviderModels: vi.fn(async () => undefined),
     },
     harness: {
-      getConfig: mock(async () => ({
+      getConfig: vi.fn(async () => ({
         providers: {},
         secondaryModel: options?.secondaryModel,
       })),
-      setConfig: mock(async () => ({})),
+      setConfig: vi.fn(async () => ({})),
     },
-    setAppState: mock((patch) => Object.assign(appState, patch)),
-    mountEditorReplacement: mock(),
-    restoreEditor: mock(),
-    showStatus: mock(),
-    showError: mock(),
-    showNotice: mock(),
-    track: mock(),
+    setAppState: vi.fn((patch) => Object.assign(appState, patch)),
+    mountEditorReplacement: vi.fn(),
+    restoreEditor: vi.fn(),
+    showStatus: vi.fn(),
+    showError: vi.fn(),
+    showNotice: vi.fn(),
+    track: vi.fn(),
   } as unknown as SlashCommandHost & {
     harness: {
-      getConfig: Mock<(...args: any[]) => any>;
-      setConfig: Mock<(...args: any[]) => any>;
+      getConfig: ReturnType<typeof vi.fn>;
+      setConfig: ReturnType<typeof vi.fn>;
     };
-    mountEditorReplacement: Mock<(...args: any[]) => any>;
-    showStatus: Mock<(...args: any[]) => any>;
-    showError: Mock<(...args: any[]) => any>;
-    showNotice: Mock<(...args: any[]) => any>;
+    mountEditorReplacement: ReturnType<typeof vi.fn>;
+    showStatus: ReturnType<typeof vi.fn>;
+    showError: ReturnType<typeof vi.fn>;
+    showNotice: ReturnType<typeof vi.fn>;
   };
   return { host };
 }
 
-function mountedPicker(host: {
-  mountEditorReplacement: Mock<(...args: any[]) => any>;
-}): PickerOptions {
-  expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
+function mountedPicker(host: { mountEditorReplacement: ReturnType<typeof vi.fn> }): PickerOptions {
+  expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
   const component = host.mountEditorReplacement.mock.calls[0]![0];
   expect(component).toBeInstanceOf(TabbedModelSelectorComponent);
   return (component as unknown as { opts: PickerOptions }).opts;
 }
 
 describe('handleSecondaryModelCommand', () => {
-  // The command's copy is localized at call time; these assertions check the
-  // English strings, so pin the locale instead of inheriting the host's.
-  const previousLocale = getLocale();
-  beforeEach(() => setLocale('en'));
-  afterEach(() => setLocale(previousLocale));
-
   it('opens the picker filtered to user models, with the configured default as current', async () => {
     const { host } = makeHost({ secondaryModel: { defaultModel: 'cheap' } });
 
@@ -105,8 +87,6 @@ describe('handleSecondaryModelCommand', () => {
     expect(Object.keys(opts.models)).toEqual(['k2', 'cheap', 'primary']);
     expect(opts.currentValue).toBe('cheap');
     expect(opts.title).toContain('secondary model');
-    // Pool bindings carry no explicit thinking level — the picker hides the
-    // Thinking footer instead of offering a no-op choice.
     expect(opts.thinkingControl).toBe(false);
   });
 
@@ -116,7 +96,7 @@ describe('handleSecondaryModelCommand', () => {
     await handleSecondaryModelCommand(host, '');
     mountedPicker(host).onSelect({ alias: 'k2' });
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showStatus).toHaveBeenCalled();
     });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
@@ -136,7 +116,7 @@ describe('handleSecondaryModelCommand', () => {
     await handleSecondaryModelCommand(host, '');
     mountedPicker(host).onSelect({ alias: 'k2' });
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showStatus).toHaveBeenCalled();
     });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
@@ -158,7 +138,7 @@ describe('handleSecondaryModelCommand', () => {
     await handleSecondaryModelCommand(host, '');
     mountedPicker(host).onSelect({ alias: 'k2' });
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showStatus).toHaveBeenCalled();
     });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
@@ -225,7 +205,7 @@ describe('handleSecondaryModelCommand', () => {
     await handleSecondaryModelCommand(host, '');
     mountedPicker(host).onSelect({ alias: 'k2' });
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalled();
     });
     expect(host.showError.mock.calls[0]![0]).toContain('disk full');

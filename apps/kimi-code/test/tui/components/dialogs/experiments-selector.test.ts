@@ -1,12 +1,11 @@
-import { describe, expect, it, mock } from 'bun:test';
-
 import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   ExperimentsSelectorComponent,
   type ExperimentalFeatureDraftChange,
 } from '#/tui/components/dialogs/experiments-selector';
-import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
+
 
 const ANSI = /\u001B\[[0-9;]*m/g;
 const ESC = String.fromCodePoint(27);
@@ -16,7 +15,9 @@ function strip(text: string): string {
   return text.replaceAll(ANSI, '');
 }
 
-function feature(overrides: Partial<ExperimentalFeatureState> = {}): ExperimentalFeatureState {
+function feature(
+  overrides: Partial<ExperimentalFeatureState> = {},
+): ExperimentalFeatureState {
   return {
     id: 'micro_compaction',
     title: 'Micro compaction',
@@ -37,38 +38,36 @@ function text(component: ExperimentsSelectorComponent, width = 120): string {
 describe('ExperimentsSelectorComponent', () => {
   it('renders searchable feature toggles with source details', () => {
     const selector = new ExperimentsSelectorComponent({
-      features: [feature({ enabled: true, source: 'config', configValue: true })],
-      onApply: mock(),
-      onCancel: mock(),
+      features: [
+        feature({ enabled: true, source: 'config', configValue: true }),
+      ],
+      onApply: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     const out = text(selector);
 
     expect(out).toContain(' Experimental features  (type to search)');
     expect(out).toContain(' ↑↓ navigate · Space toggle · Enter apply · Esc cancel');
-    expect(out).toContain('  ❯ Micro compaction (cache-miss tool-result truncation)  enabled');
-    expect(out).toContain(
-      '    id micro_compaction · config · KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION',
-    );
-    expect(out).toContain('    After a prompt-cache miss');
+    expect(out).toContain('  ❯ Micro compaction  enabled');
+    expect(out).toContain('    id micro_compaction · config · KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION');
+    expect(out).toContain('    Trim older tool results.');
     expect(out).toContain(' [ Apply changes and reload ]  no changes');
   });
 
   it('drafts changes with Space and applies them with Enter', () => {
-    const onApply = mock<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
+    const onApply = vi.fn<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
     const first = feature();
     const selector = new ExperimentsSelectorComponent({
       features: [first],
       onApply,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
     selector.handleInput(' ');
 
     expect(onApply).not.toHaveBeenCalled();
-    expect(text(selector)).toContain(
-      '  ❯ Micro compaction (cache-miss tool-result truncation)  disabled',
-    );
+    expect(text(selector)).toContain('  ❯ Micro compaction  disabled');
     expect(text(selector)).toContain(
       '    id micro_compaction · default · KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION · modified',
     );
@@ -76,11 +75,13 @@ describe('ExperimentsSelectorComponent', () => {
 
     selector.handleInput(ENTER);
 
-    expect(onApply).toHaveBeenCalledWith([{ id: 'micro_compaction', enabled: false }]);
+    expect(onApply).toHaveBeenCalledWith([
+      { id: 'micro_compaction', enabled: false },
+    ]);
   });
 
   it('does not draft changes for env-locked features', () => {
-    const onApply = mock<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
+    const onApply = vi.fn<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
     const selector = new ExperimentsSelectorComponent({
       features: [
         feature({
@@ -89,59 +90,22 @@ describe('ExperimentsSelectorComponent', () => {
         }),
       ],
       onApply,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
     selector.handleInput(' ');
     selector.handleInput(ENTER);
 
-    expect(text(selector)).toContain(
-      '  ❯ Micro compaction (cache-miss tool-result truncation)  enabled',
-    );
+    expect(text(selector)).toContain('  ❯ Micro compaction  enabled');
     expect(text(selector)).toContain(' [ Apply changes and reload ]  no changes');
     expect(onApply).not.toHaveBeenCalled();
-  });
-
-  it('treats a space as part of the query once searching has started', () => {
-    const onApply = mock<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
-    const selector = new ExperimentsSelectorComponent({
-      features: [feature()],
-      onApply,
-      onCancel: mock(),
-    });
-
-    for (const char of 'web search') selector.handleInput(char);
-
-    // The space belongs to the query, so no draft was flipped on the way.
-    expect(text(selector)).toContain('Search: web search');
-    expect(text(selector)).toContain(' [ Apply changes and reload ]  no changes');
-    expect(text(selector)).not.toContain('modified');
-
-    selector.handleInput(ENTER);
-    expect(onApply).not.toHaveBeenCalled();
-  });
-
-  it('still toggles with a space while the query is empty', () => {
-    // The single-key toggle keeps working where it is unambiguous: nothing has
-    // been typed yet, so the space cannot belong to a search.
-    const selector = new ExperimentsSelectorComponent({
-      features: [feature()],
-      onApply: mock(),
-      onCancel: mock(),
-    });
-
-    selector.handleInput(' ');
-
-    expect(text(selector)).toContain(
-      '  ❯ Micro compaction (cache-miss tool-result truncation)  disabled',
-    );
   });
 
   it('filters by typing and clears the query before cancelling', () => {
-    const onCancel = mock();
+    const onCancel = vi.fn();
     const selector = new ExperimentsSelectorComponent({
       features: [feature()],
-      onApply: mock(),
+      onApply: vi.fn(),
       onCancel,
     });
 
@@ -154,27 +118,6 @@ describe('ExperimentsSelectorComponent', () => {
     selector.handleInput(ESC);
     expect(onCancel).not.toHaveBeenCalled();
     selector.handleInput(ESC);
-    expect(onCancel).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('ExperimentsSelectorComponent — mouse', () => {
-  it('toggles the feature under the pointer', () => {
-    const selector = new ExperimentsSelectorComponent({
-      features: [feature({ id: 'web_search', title: 'Web search' })],
-      onApply: mock(),
-      onCancel: mock(),
-    });
-    pastSettlingWindow();
-    selector.focused = true;
-    const rows = selector.render(120).map(strip);
-    const row = rows.findIndex((line) => line.includes('Web search'));
-    expect(row).toBeGreaterThan(0);
-
-    for (const type of ['press', 'release', 'click'] as const) {
-      selector.handleMouse(mouse(type, row));
-    }
-    expect(text(selector)).toContain('disabled');
-    expect(text(selector)).toContain('1 change');
+    expect(onCancel).toHaveBeenCalledOnce();
   });
 });

@@ -1,39 +1,14 @@
-/**
- * ReadGroupComponent renders 2+ Read tool calls from the same step as one group.
- *
- * It follows the same structure as `AgentGroupComponent`, with a smaller
- * surface:
- * - one summary header and a tree body listing each file path and status;
- * - permanently grouped; the body is shown only while expanded (ctrl+o),
- *   the collapsed group is the header line alone;
- * - 200ms throttling, matching AgentGroup;
- * - state stays in each `ToolCallComponent`; the group only reads snapshots.
- *
- * Header forms:
- *   pending > 0: Reading {N} files
- *   all done:    Read {N} files · {L} lines
- *   some failed: append · {F} failed
- *   all failed:  Read {N} files · failed
- *
- * Body lines follow AgentGroup's branch style:
- *   src/main.ts · 51 lines
- *   src/cli.ts · reading
- *   src/missing.ts · failed
- */
-
 import type { TUI } from '@moonshot-ai/pi-tui';
 import { Container, Spacer, Text } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 
 import type { ToolCallComponent, ToolCallReadSnapshot } from './tool-call';
 import { TruncatedHeaderLine, type HeaderContent } from './truncated-header-line';
+import { t } from '#/i18n';
 
 const THROTTLE_MS = 200;
-// One shared reference: the header line compares segment styles by identity
-// to keep its render cache across rebuilds; the palette is read at call time.
 const dimHeaderStyle = (text: string): string => currentTheme.dim(text);
 
 interface ReadEntry {
@@ -48,7 +23,6 @@ export class ReadGroupComponent extends Container {
   private throttleTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFlushPhases = new Map<string, ToolCallReadSnapshot['phase']>();
   private _invalidating = false;
-  private disposed = false;
   private expanded = false;
   private projectionVersion = 0;
 
@@ -69,7 +43,6 @@ export class ReadGroupComponent extends Container {
     return this.entries.map((entry) => entry.tc);
   }
 
-  /** Changes whenever the borrowed cards change what a transcript projection draws. */
   get transcriptProjectionVersion(): number {
     return this.projectionVersion + this.entries.reduce(
       (version, entry) => version + entry.tc.transcriptProjectionVersion,
@@ -77,14 +50,12 @@ export class ReadGroupComponent extends Container {
     );
   }
 
-  /** Global ctrl+o toggle: the per-file body is only rendered while expanded. */
   setExpanded(expanded: boolean): void {
     if (this.expanded === expanded) return;
     this.expanded = expanded;
     this.flushRender();
   }
 
-  /** The per-file bodies only render while expanded, so any attached Read is hidden content. */
   hasHiddenContent(): boolean {
     return this.entries.length > 0;
   }
@@ -93,11 +64,6 @@ export class ReadGroupComponent extends Container {
     return this.expanded;
   }
 
-  /**
-   * Borrows a standalone `ToolCallComponent` into the group as a hidden state
-   * container. Snapshot changes trigger throttled refreshes. Re-attaching the
-   * same toolCallId is a no-op.
-   */
   attach(toolCallId: string, tc: ToolCallComponent): void {
     if (this.entries.some((e) => e.toolCallId === toolCallId)) return;
     this.entries.push({ toolCallId, tc });
@@ -108,15 +74,9 @@ export class ReadGroupComponent extends Container {
     this.flushRender();
   }
 
-  /**
-   * The pending -> done/failed transition is the important visible change, so
-   * it refreshes immediately. Other changes are throttled. The transition
-   * check and the rebuild it triggers share one snapshot pass.
-   */
   private scheduleRender(): void {
-    const snapshots = this.entries.map((e) => e.tc.getReadSnapshot());
-    if (this.detectPhaseTransition(snapshots)) {
-      this.flushRender(snapshots);
+    if (this.detectPhaseTransition()) {
+      this.flushRender();
       return;
     }
     if (this.throttleTimer !== null) return;
@@ -126,34 +86,21 @@ export class ReadGroupComponent extends Container {
     }, THROTTLE_MS);
   }
 
-  private detectPhaseTransition(snapshots: readonly ToolCallReadSnapshot[]): boolean {
-    for (let index = 0; index < snapshots.length; index += 1) {
-      const entry = this.entries[index];
-      const phase = snapshots[index]?.phase;
-      if (
-        entry !== undefined &&
-        phase !== undefined &&
-        this.lastFlushPhases.get(entry.toolCallId) !== phase
-      ) {
-        return true;
-      }
+  private detectPhaseTransition(): boolean {
+    for (const e of this.entries) {
+      const phase = e.tc.getReadSnapshot().phase;
+      if (this.lastFlushPhases.get(e.toolCallId) !== phase) return true;
     }
     return false;
   }
 
-  /**
-   * Rebuilds the header and body from one snapshot pass; callers that already
-   * read the snapshots (the transition check in `scheduleRender`) pass them in
-   * so a card is never re-read for the same flush.
-   */
-  private flushRender(
-    snapshots: readonly ToolCallReadSnapshot[] = this.entries.map((e) => e.tc.getReadSnapshot()),
-  ): void {
+  private flushRender(): void {
     if (this.throttleTimer !== null) {
       clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
     }
 
+    const snapshots = this.entries.map((e) => e.tc.getReadSnapshot());
     let pending = 0;
     let failed = 0;
     let totalLines = 0;
@@ -181,10 +128,7 @@ export class ReadGroupComponent extends Container {
       if (snap !== undefined) this.lastFlushPhases.set(entry.toolCallId, snap.phase);
     });
 
-    // Invalidate the container's caches directly: calling the `invalidate()`
-    // override here would re-enter `flushRender()` and rebuild the whole body
-    // (plus request a second render) on every throttle tick.
-    super.invalidate();
+    this.invalidate();
     this.ui?.requestRender();
   }
 
@@ -196,47 +140,26 @@ export class ReadGroupComponent extends Container {
   ): HeaderContent {
     if (pending > 0) {
       const bullet = currentTheme.fg('text', STATUS_BULLET);
-      const label = currentTheme.boldFg(
-        'primary',
-        t('tui.messages.readGroup.readingFiles', { count: total }),
-      );
+      const label = currentTheme.boldFg('primary', t('tui.messages.readGroup.readingFiles', { count: String(total) }));
       return `${bullet}${label}`;
     }
 
-    // All reads have finished, either successfully or with failures.
     if (failed === total) {
       const bullet = currentTheme.fg('error', '✗ ');
-      const label = currentTheme.boldFg(
-        'error',
-        t('tui.messages.readGroup.readFiles', { count: total }),
-      );
-      return `${bullet}${label}${currentTheme.fg('error', ` · ${t('tui.messages.readGroup.failed')}`)}`;
+      const label = currentTheme.boldFg('error', t('tui.messages.readGroup.readFiles', { count: String(total) }));
+      return `${bullet}${label}${currentTheme.fg('error', ' · failed')}`;
     }
 
-    // Three segments so a narrow row drops the line count before the failure
-    // count: with the per-file body hidden while collapsed, that tail is the
-    // only sign that some of the reads failed.
     const bullet = currentTheme.fg('success', STATUS_BULLET);
-    const label = currentTheme.boldFg(
-      'primary',
-      t('tui.messages.readGroup.readFiles', { count: total }),
-    );
+    const label = currentTheme.boldFg('primary', t('tui.messages.readGroup.readFiles', { count: String(total) }));
     return {
       head: `${bullet}${label}`,
       flex: {
-        text: ` · ${t(
-          totalLines === 1
-            ? 'tui.messages.readGroup.line_one'
-            : 'tui.messages.readGroup.line_other',
-          { count: totalLines },
-        )}`,
+        text: ` · ${String(totalLines)} ${totalLines === 1 ? 'line' : 'lines'}`,
         style: dimHeaderStyle,
         keep: 'head',
       },
-      tail:
-        failed > 0
-          ? currentTheme.fg('error', ` · ${String(failed)} ${t('tui.messages.readGroup.failed')}`)
-          : '',
+      tail: failed > 0 ? currentTheme.fg('error', ` · ${String(failed)} failed`) : '',
     };
   }
 
@@ -248,18 +171,11 @@ export class ReadGroupComponent extends Container {
 
     let tail: string;
     if (snap.phase === 'pending') {
-      tail = dim(` · ${t('tui.messages.readGroup.reading')}`);
+      tail = dim(' · reading…');
     } else if (snap.phase === 'failed') {
-      tail = currentTheme.fg('error', ` · ${t('tui.messages.readGroup.failed')}`);
+      tail = currentTheme.fg('error', t('tui.messages.transcriptGroups.statusFailed'));
     } else {
-      tail = dim(
-        ` · ${t(
-          snap.lines === 1
-            ? 'tui.messages.readGroup.line_one'
-            : 'tui.messages.readGroup.line_other',
-          { count: snap.lines },
-        )}`,
-      );
+      tail = dim(` · ${String(snap.lines)} ${snap.lines === 1 ? 'line' : 'lines'}`);
     }
     return `  ${branch} ${pathPart}${tail}`;
   }
@@ -274,25 +190,13 @@ export class ReadGroupComponent extends Container {
     this._invalidating = false;
   }
 
-  /**
-   * Releases throttle timers so destroyed components cannot refresh later.
-   * Disposing also cascades into the borrowed cards: a still-streaming Read
-   * card drives its own progress interval and would otherwise keep calling
-   * `requestRender()` after `/clear`, a session switch, or a transcript fold.
-   * `stopTimers()` and `dispose()` are both idempotent, so a second
-   * `dispose()` is harmless.
-   */
   dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
     if (this.throttleTimer !== null) {
       clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
     }
     for (const e of this.entries) {
       e.tc.setSnapshotListener(undefined);
-      e.tc.stopTimers();
-      e.tc.dispose();
     }
   }
 }

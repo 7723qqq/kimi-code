@@ -1,14 +1,23 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+/**
+ * bun caches evaluated modules and `vi.resetModules()` cannot clear that, so
+ * mock-based tests ask for a fresh instance through a unique query string —
+ * that forces re-evaluation, which picks up the `vi.doMock`ed builtins.
+ */
+let freshIdentityCount = 0;
+const freshIdentity = (): Promise<typeof import('../src/identity')> =>
+  import(`../src/identity?fresh=${++freshIdentityCount}`) as Promise<typeof import('../src/identity')>;
+
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterEach, describe, expect, it, vi, requireActual } from '@moonshot-ai/testkit/vitest';
 
 import {
   createKimiDefaultHeaders,
   createKimiDeviceHeaders,
   createKimiDeviceId,
   createKimiUserAgent,
-  type KimiHostProbe,
   KIMI_CODE_PLATFORM,
   readKimiDeviceId,
 } from '../src/identity';
@@ -147,8 +156,6 @@ describe('Kimi identity factories', () => {
   });
 });
 
-// HTTP header values must be plain ASCII without leading/trailing whitespace.
-// The public factories surface the sanitizer used for User-Agent and X-Msh-*.
 describe('ascii header value sanitization', () => {
   it('strips a trailing newline from a header value', () => {
     const ua = createKimiUserAgent({ productName: 'kimi-code-cli', version: '6.8.0-101\n' });
@@ -160,82 +167,117 @@ describe('ascii header value sanitization', () => {
     expect(ua).toBe('kimi-code-cli/hllo');
   });
 
-  it('uses the unknown fallback when every hostname codepoint is non-ASCII', () => {
-    const headers = createKimiDeviceHeaders({
-      homeDir: tempHome(),
-      version: '1.0.0',
-      platform: 'test',
-      host: {
+  it('uses the unknown fallback when every hostname codepoint is non-ASCII', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => {
+      const actual = requireActual('node:os');
+      return {
+        ...actual,
         hostname: () => '你好',
-        osType: () => 'Linux',
-        osRelease: () => '1.0.0',
-        osArch: () => 'x64',
-      },
+        release: () => '1.0.0',
+        type: () => 'Linux',
+        arch: () => 'x64',
+      };
     });
 
-    expect(headers['X-Msh-Device-Name']).toBe('unknown');
-  });
-
-  it('keeps every device-header value free of leading or trailing whitespace', () => {
-    const headers = createKimiDeviceHeaders({
-      homeDir: tempHome(),
-      version: '1.0.0',
-      platform: 'test',
-      host: {
-        hostname: () => '  myhost  ',
-        osType: () => 'Linux',
-        osRelease: () => '#101-Ubuntu SMP\n',
-        osArch: () => 'x64',
-      },
-    });
-    for (const [key, value] of Object.entries(headers)) {
-      expect(value, `header ${key} has untrimmed whitespace: ${JSON.stringify(value)}`).toBe(
-        value.trim(),
-      );
+    try {
+      const { createKimiDeviceHeaders: createHeaders } = await freshIdentity();
+      const headers = createHeaders({ homeDir: tempHome(), version: '1.0.0', platform: 'test' });
+      expect(headers['X-Msh-Device-Name']).toBe('unknown');
+    } finally {
+      vi.doUnmock('node:os');
+      vi.resetModules();
     }
   });
 
-  function darwinHost(readMacOsSystemVersion: () => string): Partial<KimiHostProbe> {
-    return {
-      hostname: () => 'my-mac',
-      osType: () => 'Darwin',
-      osRelease: () => '25.5.0',
-      osArch: () => 'arm64',
-      readMacOsSystemVersion,
-    };
-  }
-
-  it('reads the macOS product version from SystemVersion.plist without spawning sw_vers', () => {
-    const headers = createKimiDeviceHeaders({
-      homeDir: tempHome(),
-      version: '1.0.0',
-      platform: 'test',
-      host: darwinHost(() =>
-        [
-          '<?xml version="1.0" encoding="UTF-8"?>',
-          '<plist version="1.0">',
-          '<dict>',
-          '\t<key>ProductName</key>',
-          '\t<string>macOS</string>',
-          '\t<key>ProductVersion</key>',
-          '\t<string>26.1</string>',
-          '</dict>',
-          '</plist>',
-        ].join('\n'),
-      ),
+  it('keeps every device-header value free of leading or trailing whitespace', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => {
+      const actual = requireActual('node:os');
+      return {
+        ...actual,
+        hostname: () => '  myhost  ',
+        release: () => '#101-Ubuntu SMP\n',
+        type: () => 'Linux',
+        arch: () => 'x64',
+      };
     });
-    expect(headers['X-Msh-Device-Model']).toBe('macOS 26.1 arm64');
+
+    try {
+      const { createKimiDeviceHeaders: createHeaders } = await freshIdentity();
+      const headers = createHeaders({ homeDir: tempHome(), version: '1.0.0', platform: 'test' });
+      for (const [key, value] of Object.entries(headers)) {
+        expect(value, `header ${key} has untrimmed whitespace: ${JSON.stringify(value)}`).toBe(
+          value.trim(),
+        );
+      }
+    } finally {
+      vi.doUnmock('node:os');
+      vi.resetModules();
+    }
   });
 
-  it('falls back to Darwin kernel version when SystemVersion.plist is unavailable', () => {
-    const headers = createKimiDeviceHeaders({
-      homeDir: tempHome(),
-      version: '1.0.0',
-      platform: 'test',
-      host: darwinHost(() => {
-        throw new Error('ENOENT');
-      }),
+  const MACOS_SYSTEM_VERSION_PLIST = '/System/Library/CoreServices/SystemVersion.plist';
+
+  function mockDarwinHost(systemVersionPlist: string | Error): void {
+    vi.doMock('node:os', () => ({
+      ...requireActual('node:os'),
+      hostname: () => 'my-mac',
+      release: () => '25.5.0',
+      type: () => 'Darwin',
+      arch: () => 'arm64',
+    }));
+    vi.doMock('node:fs', () => {
+      const actual = requireActual('node:fs');
+      const readFileSync = ((path: unknown, ...rest: unknown[]) => {
+        if (String(path) !== MACOS_SYSTEM_VERSION_PLIST) {
+          return (actual.readFileSync as (...args: unknown[]) => unknown)(path, ...rest);
+        }
+        if (systemVersionPlist instanceof Error) throw systemVersionPlist;
+        return systemVersionPlist;
+      }) as typeof actual.readFileSync;
+      return { ...actual, readFileSync };
     });
-    expect(headers['X-Msh-Device-Model']).toBe('macOS 25.5.0 arm64');
+  }
+
+  function unmockDarwinHost(): void {
+    vi.doUnmock('node:os');
+    vi.doUnmock('node:fs');
+  }
+
+  it('reads the macOS product version from SystemVersion.plist without spawning sw_vers', async () => {
+    mockDarwinHost(
+      [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<plist version="1.0">',
+        '<dict>',
+        '\t<key>ProductName</key>',
+        '\t<string>macOS</string>',
+        '\t<key>ProductVersion</key>',
+        '\t<string>26.1</string>',
+        '</dict>',
+        '</plist>',
+      ].join('\n'),
+    );
+
+    try {
+      const { createKimiDeviceHeaders } = await freshIdentity();
+      const headers = createKimiDeviceHeaders({ homeDir: tempHome(), version: '1.0.0', platform: 'test' });
+      expect(headers['X-Msh-Device-Model']).toBe('macOS 26.1 arm64');
+    } finally {
+      unmockDarwinHost();
+    }
+  });
+
+  it('falls back to Darwin kernel version when SystemVersion.plist is unavailable', async () => {
+    mockDarwinHost(new Error('ENOENT'));
+
+    try {
+      const { createKimiDeviceHeaders } = await freshIdentity();
+      const headers = createKimiDeviceHeaders({ homeDir: tempHome(), version: '1.0.0', platform: 'test' });
+      expect(headers['X-Msh-Device-Model']).toBe('macOS 25.5.0 arm64');
+    } finally {
+      unmockDarwinHost();
+    }
   });
 });

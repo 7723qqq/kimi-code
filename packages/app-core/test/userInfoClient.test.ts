@@ -1,0 +1,87 @@
+import { stubGlobals } from '../../vite-preset/test/globals';
+import { describe, expect, it, mock } from 'bun:test';
+import { DaemonKimiWebApi } from '../src/api/daemon/client';
+
+const stubGlobal = stubGlobals();
+
+const identity = {
+  clientId: 'web_t',
+  clientName: 't',
+  clientVersion: '0',
+  clientUiMode: 'web',
+};
+
+function makeApi() {
+  return new DaemonKimiWebApi({
+    origin: 'http://test.local',
+    identity,
+  });
+}
+
+function envelope(data: unknown): Response {
+  return new Response(JSON.stringify({ code: 0, msg: '', data, request_id: 'req_t' }));
+}
+
+describe('DaemonKimiWebApi.getUserInfo', () => {
+  it('GETs /oauth/userinfo and passes the camelCase profile through unmapped', async () => {
+    const userInfo = {
+      userId: 'u_1',
+      nickname: 'Kimi User',
+      status: 'active',
+      region: 'mainland-cn',
+      userLevel: 3,
+      userLevelName: 'Vivace',
+      domain: 1,
+      domainName: 'DOMAIN_EXAMPLE',
+      globalId: 'g_1',
+      bio: 'hello',
+      avatar: 'https://cdn.example/avatar.png',
+      username: 'kimiuser',
+      email: 'kimi@example.com',
+      phone: { countryCode: '+86', number: '13800000000' },
+      createdTime: '2026-01-01T00:00:00Z',
+      lastLoginTime: '2026-07-01T00:00:00Z',
+    };
+    const fetchMock = mock().mockResolvedValue(envelope({ kind: 'ok', userInfo }));
+    stubGlobal('fetch', fetchMock);
+
+    const result = await makeApi().getUserInfo();
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://test.local/api/v1/oauth/userinfo');
+    expect(init.method).toBe('GET');
+    expect(result).toEqual({ kind: 'ok', userInfo });
+  });
+
+  it('passes the error shape through untouched', async () => {
+    stubGlobal('fetch', mock().mockResolvedValue(envelope({
+      kind: 'error',
+      message: 'not signed in',
+      status: 401,
+    })));
+
+    expect(await makeApi().getUserInfo()).toEqual({
+      kind: 'error',
+      message: 'not signed in',
+      status: 401,
+    });
+  });
+
+  it('passes a minimal profile through with absent optionals staying absent', async () => {
+    const userInfo = {
+      userId: 'u_1',
+      nickname: 'n',
+      status: 'active',
+      region: 'mainland-cn',
+      userLevel: 0,
+      userLevelName: '',
+      domain: 0,
+      domainName: 'DOMAIN_EXAMPLE',
+    };
+    stubGlobal('fetch', mock().mockResolvedValue(envelope({ kind: 'ok', userInfo })));
+
+    const result = await makeApi().getUserInfo();
+
+    expect(result).toEqual({ kind: 'ok', userInfo });
+  });
+});

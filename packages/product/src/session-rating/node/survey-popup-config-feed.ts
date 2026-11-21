@@ -1,7 +1,4 @@
-import type {
-  ClientConfigClient,
-  ClientConfigFetchOptions,
-} from '#/client-configs/node/client-configs';
+import type { ClientConfigClient, ClientConfigFetchOptions } from '#/client-configs/node/client-configs';
 
 import {
   surveyPopupConfigSchema,
@@ -79,20 +76,18 @@ export class SurveyPopupConfigFeed {
 
   private refresh(): boolean {
     this.refreshedAt = this.now();
+    this.refreshedRegion = this.deps.region();
     const refresh = this.deps.refresh;
     if (refresh === undefined) {
-      this.refreshedRegion = this.deps.region();
       this.ready = true;
       return false;
     }
-    this.refreshedRegion = this.deps.region();
     this.ready = false;
     void new Promise((resolve) => {
       resolve(refresh());
     })
       .catch(() => undefined)
       .finally(() => {
-        this.refreshedRegion = this.deps.region();
         this.ready = true;
       });
     return true;

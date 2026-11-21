@@ -1,5 +1,7 @@
-import type { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import { type SessionSummary } from '#/app/sessionIndex/sessionIndex';
+import {
+  ISessionIndexMirror,
+  type SessionSummary,
+} from '#/app/sessionIndex/sessionIndex';
 
 export function stubSessionIndexMirror(): ISessionIndexMirror & {
   readonly recorded: SessionSummary[];

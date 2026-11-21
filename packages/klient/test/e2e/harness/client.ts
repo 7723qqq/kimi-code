@@ -1,22 +1,9 @@
-import type { AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
-import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
-/**
- * `DaemonClient` — wire-level test client for the kimi-code server.
- *
- * Wraps the server's HTTP REST + WS surfaces (`/api/v1/...` + `/api/v1/ws`)
- * into a single, typed object that scenarios can drive. Handles:
- *   - Envelope unwrap + typed REST helpers
- *   - WS `subscribe` / `unsubscribe` response correlation
- *   - Approval + question reverse-RPC auto-resolve via per-event handlers
- *   - `waitForFrame` / `waitForSessionBusy` convenience waits
- *
- * **What it is NOT**: a server bootstrap helper. Connect to a server process
- * that's already running at `baseUrl` (default `http://127.0.0.1:58627`).
- */
 import type {
   FsBrowseResponse,
   FsHomeResponse,
 } from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+import type { AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
+import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import type { UpdateSessionProfileRequest as SessionUpdate } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import type {
   ProviderCatalogItem,
@@ -26,7 +13,6 @@ import type {
   InteractionRespondRequest,
   InteractionRespondResult,
 } from '@moonshot-ai/kap-server/protocol/interaction';
-import type { Message } from '@moonshot-ai/kap-server/protocol/message';
 import type {
   ListModelsResponse,
   ListProvidersResponse,
@@ -40,18 +26,19 @@ import type {
   PromptSubmitResult,
   PromptThinking,
 } from '@moonshot-ai/kap-server/protocol/rest-prompt';
+import type { ConversationTurnsPage } from '@moonshot-ai/kap-server/protocol/conversation';
 import type {
+  CancelSessionRequest,
   CompactSessionRequest,
   CompactSessionResponse,
   ForkSessionRequest,
-  SessionAbortResponse,
+  SessionCancelResponse,
   UndoSessionRequest,
   UndoSessionResponse,
+  UpdateSessionProfileResponse,
 } from '@moonshot-ai/kap-server/protocol/rest-session';
-import type { ConversationTurnsPage } from '@moonshot-ai/kap-server/protocol/conversation';
 import type {
   Session,
-  SessionChildCreate,
   SessionCreate,
 } from '@moonshot-ai/kap-server/protocol/session';
 import type {
@@ -67,24 +54,23 @@ import { DEFAULT_FRAME_TIMEOUT_MS, waitForSessionBusy } from './wait.js';
 import { type AnyFrame, WsClient } from './ws.js';
 
 export interface DaemonClientOptions {
-  /** Default `http://127.0.0.1:58627`. */
   baseUrl?: string;
-  /** Default `/api/v1`. WS endpoint is `${apiPrefix}/ws`. */
   apiPrefix?: string;
   fetchImpl?: typeof fetch;
   wsImpl?: typeof WsWebSocket;
   logger?: (level: 'info' | 'warn' | 'error' | 'debug', msg: string, meta?: unknown) => void;
-  /** Directory for JSONL trace events and generated HTML reports. */
   reportDir?: string;
-  /** Default 5s. Applies to subscribe and unsubscribe responses. */
   controlAckTimeoutMs?: number;
 }
 
 export interface SubmitAndWaitOptions {
-  /** Default `prompt.completed`. */
-  waitFor?: 'prompt.completed' | 'turn.ended';
-  /** Default 60s. */
   timeoutMs?: number;
+}
+
+export interface SubmitAndWaitResult {
+  prompt_id: string;
+  user_message_id: string;
+  finalFrame: AnyFrame;
 }
 
 type UploadFileData = Blob | ArrayBuffer | Uint8Array | string;
@@ -93,16 +79,6 @@ const DEFAULT_BASE_URL = 'http://127.0.0.1:58627';
 const DEFAULT_API_PREFIX = '/api/v1';
 const DEFAULT_CONTROL_ACK_TIMEOUT_MS = 5_000;
 
-/**
- * Per-request stateless session controls that the server REST surface
- * requires on every prompt submission. Scenarios that don't care about
- * these can leave them at the defaults; tests that exercise switching
- * model / thinking / permission / plan mode override only the field
- * they need.
- *
- * `model` matches what the existing server-e2e scenarios assume (the
- * default provider exposes `kimi-code/kimi-for-coding`).
- */
 export const DEFAULT_PROMPT_CONTROLS = {
   model: 'kimi-code/kimi-for-coding',
   thinking: 'off' as PromptThinking,
@@ -110,16 +86,9 @@ export const DEFAULT_PROMPT_CONTROLS = {
   plan_mode: false,
 } as const;
 
-/**
- * Looser input shape for `submitPrompt` / `submitAndWait`. `content` is
- * required; the four stateless controls fall back to
- * `DEFAULT_PROMPT_CONTROLS` when omitted. `metadata` carries through
- * verbatim.
- */
-export type PromptSubmitInput = Pick<PromptSubmission, 'content'> &
-  Partial<
-    Pick<PromptSubmission, 'metadata' | 'model' | 'thinking' | 'permission_mode' | 'plan_mode'>
-  >;
+export type PromptSubmitInput =
+  Pick<PromptSubmission, 'content'>
+  & Partial<Pick<PromptSubmission, 'metadata' | 'model' | 'thinking' | 'permission_mode' | 'plan_mode'>>;
 
 function fillPromptDefaults(input: PromptSubmitInput): PromptSubmission {
   return { ...DEFAULT_PROMPT_CONTROLS, ...input };
@@ -158,7 +127,6 @@ export class DaemonClient {
     });
   }
 
-  // ── Probes + model catalog ─────────────────────────────────────────────
   getAuth(): Promise<AuthSummary> {
     return this.http.getAuth();
   }
@@ -175,54 +143,39 @@ export class DaemonClient {
     return this.http.getProvider(providerId);
   }
 
-  // ── HTTP convenience surface ────────────────────────────────────────────
   createSession(body: SessionCreate): Promise<Session> {
     return this.http.createSession(body);
   }
   getSession(sid: string): Promise<Session> {
     return this.http.getSession(sid);
   }
-  listSessions(query?: {
-    page_size?: number;
-    before_id?: string;
-    after_id?: string;
-    workspace_id?: string;
-  }): Promise<{ items: Session[]; has_more: boolean }> {
+  listSessions(
+    query?: { page_size?: number; before_id?: string; after_id?: string; workspace_id?: string },
+  ): Promise<{ items: Session[]; has_more: boolean }> {
     return this.http.listSessions(query);
   }
-  updateSession(sid: string, body: SessionUpdate): Promise<Session> {
+  updateSession(sid: string, body: SessionUpdate): Promise<UpdateSessionProfileResponse> {
     return this.http.updateSession(sid, body);
   }
   forkSession(sid: string, body: ForkSessionRequest = {}): Promise<Session> {
     return this.http.forkSession(sid, body);
   }
-  compactSession(sid: string, body: CompactSessionRequest = {}): Promise<CompactSessionResponse> {
+  compactSession(
+    sid: string,
+    body: CompactSessionRequest = {},
+  ): Promise<CompactSessionResponse> {
     return this.http.compactSession(sid, body);
   }
-  undoSession(sid: string, body: UndoSessionRequest): Promise<UndoSessionResponse> {
-    return this.http.undoSession(sid, body);
-  }
-  listTurns(
+  undoSession(
     sid: string,
-    agentId: string,
-    query?: { before_ordinal?: number; page_size?: number },
-  ): Promise<ConversationTurnsPage> {
-    return this.http.listTurns(sid, agentId, query);
+    body: UndoSessionRequest,
+  ): Promise<UndoSessionResponse> {
+    return this.http.undoSession(sid, body);
   }
   archiveSession(sid: string): Promise<{ archived: true }> {
     return this.http.archiveSession(sid);
   }
-  listChildren(
-    sid: string,
-    query?: { page_size?: number; before_id?: string; after_id?: string; busy?: boolean },
-  ): Promise<{ items: Session[]; has_more: boolean }> {
-    return this.http.listChildren(sid, query);
-  }
-  createChild(sid: string, body: SessionChildCreate = {}): Promise<Session> {
-    return this.http.createChild(sid, body);
-  }
 
-  // ── Workspaces + folder picker ──────────────────────────────────────────
   listWorkspaces(): Promise<{ items: Workspace[] }> {
     return this.http.listWorkspaces();
   }
@@ -252,30 +205,20 @@ export class DaemonClient {
   deleteFile(fileId: string): Promise<{ deleted: true }> {
     return this.http.deleteFile(fileId);
   }
-  listMessages(
-    sid: string,
-    query?: { page_size?: number; before_id?: string; after_id?: string; role?: string },
-  ): Promise<{ items: Message[]; has_more: boolean }> {
-    return this.http.listMessages(sid, query);
+  listTurns(sid: string): Promise<ConversationTurnsPage> {
+    return this.http.listTurns(sid);
   }
   submitPrompt(sid: string, input: PromptSubmitInput): Promise<PromptSubmitResult> {
     return this.http.submitPrompt(sid, fillPromptDefaults(input));
   }
-  /**
-   * Stateful-session submit — sends `body` to `POST /sessions/{sid}/prompts`
-   * verbatim, with NO default controls injected. Pair with
-   * `updateSession(sid, {agent_config: {...}})` (or `submitPrompt` with the
-   * legacy default-filled path) to first establish session state, then
-   * exercise the "content-only prompt inherits session state" contract.
-   */
-  submitPromptStateful(sid: string, body: PromptSubmission): Promise<PromptSubmitResult> {
+  submitPromptStateful(
+    sid: string,
+    body: PromptSubmission,
+  ): Promise<PromptSubmitResult> {
     return this.http.submitPrompt(sid, body);
   }
   listPrompts(sid: string): Promise<PromptListResponse> {
     return this.http.listPrompts(sid);
-  }
-  steerPrompt(sid: string, pid: string): Promise<PromptSteerResult> {
-    return this.http.steerPrompt(sid, pid);
   }
   steerPrompts(sid: string, promptIds: readonly string[]): Promise<PromptSteerResult> {
     return this.http.steerPrompts(sid, promptIds);
@@ -283,8 +226,8 @@ export class DaemonClient {
   abortPrompt(sid: string, pid: string): Promise<PromptAbortResponse> {
     return this.http.abortPrompt(sid, pid);
   }
-  abortSession(sid: string): Promise<SessionAbortResponse> {
-    return this.http.abortSession(sid);
+  cancelSession(sid: string, body: CancelSessionRequest = {}): Promise<SessionCancelResponse> {
+    return this.http.cancelSession(sid, body);
   }
   respondInteraction(
     sid: string,
@@ -294,11 +237,6 @@ export class DaemonClient {
     return this.http.respondInteraction(sid, interactionId, body);
   }
 
-  // ── WS lifecycle ────────────────────────────────────────────────────────
-  /**
-   * Open the WS socket. There is no handshake: every connection receives the
-   * global events, including `event.session.work_changed`, without subscribing.
-   */
   connect(): Promise<void> {
     this._connecting ??= this._open().catch((error: unknown) => {
       this._connecting = null;
@@ -319,7 +257,6 @@ export class DaemonClient {
     this._ws = ws;
   }
 
-  /** Send `subscribe` and await its response. Tracks the session for `close()`. */
   async subscribe(sid: string): Promise<void> {
     const ws = this._requireWs();
     if (this._subscribed.has(sid)) return;
@@ -328,14 +265,11 @@ export class DaemonClient {
       this._controlAckTimeoutMs,
     );
     if (response.code !== 0) {
-      throw new Error(
-        `subscribe rejected (code=${response.code}): ${response.msg ?? 'no message'}`,
-      );
+      throw new Error(`subscribe rejected (code=${response.code}): ${response.msg ?? 'no message'}`);
     }
     this._subscribed.add(sid);
   }
 
-  /** Send `unsubscribe` and await its response. */
   async unsubscribe(sid: string): Promise<void> {
     const ws = this._requireWs();
     if (!this._subscribed.has(sid)) return;
@@ -344,21 +278,16 @@ export class DaemonClient {
       this._controlAckTimeoutMs,
     );
     if (response.code !== 0) {
-      throw new Error(
-        `unsubscribe rejected (code=${response.code}): ${response.msg ?? 'no message'}`,
-      );
+      throw new Error(`unsubscribe rejected (code=${response.code}): ${response.msg ?? 'no message'}`);
     }
     this._subscribed.delete(sid);
   }
 
-  /** Close the socket. Idempotent. */
   async close(): Promise<void> {
     for (const dispose of this._disposers.splice(0)) {
       try {
         dispose();
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
     const connecting = this._connecting;
     this._connecting = null;
@@ -370,21 +299,20 @@ export class DaemonClient {
     this._subscribed.clear();
   }
 
-  // ── WS observation ──────────────────────────────────────────────────────
-  /** Subscribe to ALL incoming frames. Returns an unsubscribe handle. */
   onFrame(handler: (frame: AnyFrame) => void): () => void {
     return this._requireWs().onFrame(handler);
   }
 
-  /** Wait for the next frame satisfying `predicate`. */
   waitForFrame(
     predicate: (frame: AnyFrame) => boolean,
     opts?: { timeoutMs?: number },
   ): Promise<AnyFrame> {
-    return this._requireWs().waitForFrame(predicate, opts?.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS);
+    return this._requireWs().waitForFrame(
+      predicate,
+      opts?.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS,
+    );
   }
 
-  /** Poll `/sessions/{sid}` until its aggregate work flag reaches `busy`. */
   waitForSessionBusy(
     sid: string,
     busy: boolean,
@@ -393,63 +321,68 @@ export class DaemonClient {
     return waitForSessionBusy(this.http, sid, busy, opts);
   }
 
-  // ── High-level convenience ──────────────────────────────────────────────
-  /**
-   * Submit a prompt and wait for its terminal event. `waitFor` defaults to
-   * the synthesized `prompt.completed` event (broadcast after `turn.ended`
-   * lands for the same prompt). Returns `prompt_id` and the matching frame.
-   */
+  async runUntilIdle<T>(
+    sid: string,
+    action: () => Promise<T>,
+    opts: { timeoutMs?: number } = {},
+  ): Promise<{ result: T; finalFrame: AnyFrame }> {
+    const ws = this._requireWs();
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS;
+    let dispose = (): void => {};
+    const idle = new Promise<AnyFrame>((resolve, reject) => {
+      let sawBusy = false;
+      const timer = setTimeout(() => {
+        dispose();
+        reject(new Error(`session ${sid} did not return to idle within ${timeoutMs}ms`));
+      }, timeoutMs);
+      timer.unref?.();
+      const off = ws.onFrame((frame) => {
+        if (frame.type !== 'session' || frame['change'] !== 'updated') return;
+        const session = frame['session'] as { id?: string; activity?: string } | undefined;
+        if (session?.id !== sid || typeof session.activity !== 'string') return;
+        const busy = session.activity !== 'idle';
+        if (busy) {
+          sawBusy = true;
+        } else if (sawBusy) {
+          dispose();
+          resolve(frame);
+        }
+      });
+      dispose = () => {
+        clearTimeout(timer);
+        off();
+      };
+    });
+    try {
+      const result = await action();
+      return { result, finalFrame: await idle };
+    } catch (error) {
+      dispose();
+      throw error;
+    }
+  }
+
   async submitAndWait(
     sid: string,
     input: PromptSubmitInput,
     opts: SubmitAndWaitOptions = {},
-  ): Promise<{ prompt_id: string; user_message_id: string; finalFrame: AnyFrame }> {
-    const ws = this._requireWs();
-    const waitFor = opts.waitFor ?? 'prompt.completed';
-    const timeoutMs = opts.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS;
-
-    // POST the prompt FIRST — without `prompt_id` we have nothing to match on.
-    // The WS layer queues every frame from the moment we open, so any events
-    // that arrive between this POST and the `waitForFrame` below are still
-    // there to be matched (they're drained from the queue, not dropped).
-    const submit = await this.http.submitPrompt(sid, fillPromptDefaults(input));
-
-    const finalFrame = await ws.waitForFrame((f) => {
-      if (f.type !== waitFor) return false;
-      const payload = (f.payload as { promptId?: string; prompt_id?: string } | undefined) ?? {};
-      const pid = payload.promptId ?? payload.prompt_id;
-      return pid === submit.prompt_id;
-    }, timeoutMs);
-
-    return { prompt_id: submit.prompt_id, user_message_id: submit.user_message_id, finalFrame };
+  ): Promise<SubmitAndWaitResult> {
+    return this.submitAndWaitStateful(sid, fillPromptDefaults(input), opts);
   }
 
-  /**
-   * Stateful-session companion to `submitAndWait` — POSTs `body` verbatim
-   * (NO default controls injected), then waits for the terminal event for
-   * the resulting `prompt_id`. Use after `updateSession(sid, {agent_config:
-   * {...}})` to verify the session's shadow drives the next prompt without
-   * the body needing to redeclare any controls.
-   */
   async submitAndWaitStateful(
     sid: string,
     body: PromptSubmission,
     opts: SubmitAndWaitOptions = {},
-  ): Promise<{ prompt_id: string; user_message_id: string; finalFrame: AnyFrame }> {
-    const ws = this._requireWs();
-    const waitFor = opts.waitFor ?? 'prompt.completed';
-    const timeoutMs = opts.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS;
-    const submit = await this.http.submitPrompt(sid, body);
-    const finalFrame = await ws.waitForFrame((f) => {
-      if (f.type !== waitFor) return false;
-      const payload = (f.payload as { promptId?: string; prompt_id?: string } | undefined) ?? {};
-      const pid = payload.promptId ?? payload.prompt_id;
-      return pid === submit.prompt_id;
-    }, timeoutMs);
-    return { prompt_id: submit.prompt_id, user_message_id: submit.user_message_id, finalFrame };
+  ): Promise<SubmitAndWaitResult> {
+    const { result, finalFrame } = await this.runUntilIdle(
+      sid,
+      () => this.http.submitPrompt(sid, body),
+      opts,
+    );
+    return { prompt_id: result.prompt_id, user_message_id: result.user_message_id, finalFrame };
   }
 
-  // ── internals ───────────────────────────────────────────────────────────
   private _requireWs(): WsClient {
     if (!this._ws) {
       throw new Error('ws not connected — call `await client.connect()` first');
@@ -458,6 +391,4 @@ export class DaemonClient {
   }
 }
 
-function noopLogger(): void {
-  // intentionally blank
-}
+function noopLogger(): void {}

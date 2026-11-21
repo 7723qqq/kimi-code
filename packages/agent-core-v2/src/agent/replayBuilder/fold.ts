@@ -1,8 +1,8 @@
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { CompactionResult } from '#/agent/fullCompaction/types';
-import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import type { PermissionApprovalResultRecord } from '#/agent/permissionRules/permissionRules';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import type { AgentConfigUpdateData } from '#/agent/profile/profile';
 import type {
   GoalActor,
@@ -11,7 +11,7 @@ import type {
   GoalSnapshot,
   GoalStatus,
 } from '#/features/goal/types';
-import { createToolMessage } from '#/llm-adapter/contract/message';
+import { createToolMessage } from '@moonshot-ai/core/llm/message';
 import { estimateTokens, estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import {
   isNewerWireVersion,
@@ -20,7 +20,12 @@ import {
   resolveWireMigrations,
   type WireMigration,
 } from '#/wire/migration/migration';
-import { isWireMetadataRecord, type WireRecord } from '#/wire/record';
+import {
+  assertWireRecordsReaderVersion,
+  isWireMetadataRecord,
+  type WireRecord,
+} from '#/wire/record';
+import { normalizeLegacyTurnSteerRecords } from '#/wire/human';
 
 import type { AgentReplayRecord, AgentReplayRecordPayload } from './types';
 
@@ -46,9 +51,6 @@ export const FOLD_RELEVANT_WIRE_TYPES: ReadonlySet<string> = new Set([
   'plan_mode.enter',
   'plan_mode.cancel',
   'plan_mode.exit',
-  'spec_mode.enter',
-  'spec_mode.cancel',
-  'spec_mode.exit',
   'config.update',
   'permission.set_mode',
   'permission.record_approval_result',
@@ -86,22 +88,25 @@ const REPLAY_TURN_ID = '__replayTurnId';
 
 export function foldWireRecords(
   records: readonly WireRecord[],
+  decodePersistent?: (record: WireRecord) => WireRecord,
   matchingRecords?: readonly WireRecord[],
 ): WireReplayFold {
+  records = normalizeLegacyTurnSteerRecords(records);
+  const matching = normalizeLegacyTurnSteerRecords(matchingRecords ?? records);
   const turnIdByAppend = new Map<WireRecord, number>();
-  for (const match of matchWireTurnInputRecords(matchingRecords ?? records, true)) {
+  for (const match of matchWireTurnInputRecords(matching, true)) {
     if (match.turnId !== undefined) {
-      turnIdByAppend.set((matchingRecords ?? records)[match.appendIndex]!, match.turnId);
+      turnIdByAppend.set(matching[match.appendIndex]!, match.turnId);
     }
   }
+  const fold = new WireReplayFoldState();
   const annotated = records.map((record) =>
     record.type === 'context.append_message'
       ? { ...record, [REPLAY_TURN_ID]: turnIdByAppend.get(record) }
       : record,
   );
-  const fold = new WireReplayFoldState();
   for (const record of migrateJournalRecords(annotated)) {
-    fold.apply(record);
+    fold.apply(decodePersistent === undefined ? record : decodePersistent(record));
   }
   fold.finish();
   return { replay: fold.replay, toolStore: fold.toolStore };
@@ -115,6 +120,7 @@ function migrateJournalRecords(records: readonly WireRecord[]): WireRecord[] {
     if (!isWireMetadataRecord(first)) {
       throw new Error('Agent wire metadata is malformed');
     }
+    assertWireRecordsReaderVersion(records);
     migrations = isNewerWireVersion(first.protocol_version)
       ? []
       : resolveWireMigrations(first.protocol_version);
@@ -131,13 +137,9 @@ interface FoldGoalState {
   status: GoalStatus;
   turnsUsed: number;
   tokensUsed: number;
-  inputTokensUsed: number;
-  outputTokensUsed: number;
   wallClockMs: number;
   budgetLimits: GoalBudgetLimits;
   terminalReason?: string;
-  createdAt: number;
-  updatedAt: number;
 }
 
 class WireReplayFoldState {
@@ -191,7 +193,10 @@ class WireReplayFoldState {
         return;
       }
       case 'full_compaction.begin':
-        this.push({ type: 'compaction', instruction: readString(record, 'instruction') }, time);
+        this.push(
+          { type: 'compaction', instruction: readString(record, 'instruction') },
+          time,
+        );
         return;
       case 'full_compaction.cancel':
         this.patchLastCompaction({ result: 'cancelled' });
@@ -214,13 +219,6 @@ class WireReplayFoldState {
       case 'plan_mode.cancel':
       case 'plan_mode.exit':
         this.push({ type: 'plan_updated', enabled: false }, time);
-        return;
-      case 'spec_mode.enter':
-        this.push({ type: 'spec_updated', enabled: true }, time);
-        return;
-      case 'spec_mode.cancel':
-      case 'spec_mode.exit':
-        this.push({ type: 'spec_updated', enabled: false }, time);
         return;
       case 'config.update':
         this.updateConfig(record, time);
@@ -325,7 +323,7 @@ class WireReplayFoldState {
       }
       case 'tool.call': {
         const openStep = this.openSteps.get(event.stepUuid);
-        if (openStep === undefined) {
+        if (openStep === undefined || openStep.role !== 'assistant') {
           throw new Error(
             `Received tool_call for unknown step_uuid '${event.stepUuid}' (no open step_begin)`,
           );
@@ -422,7 +420,6 @@ class WireReplayFoldState {
     const summaryMessage: ContextMessage = {
       role: 'user',
       content: [{ type: 'text', text: contextSummary }],
-      toolCalls: [],
       origin: { kind: 'compaction_summary' },
     };
     this.history =
@@ -470,12 +467,8 @@ class WireReplayFoldState {
       status: 'active',
       turnsUsed: 0,
       tokensUsed: 0,
-      inputTokensUsed: readNumber(record, 'inputTokensUsed') ?? 0,
-      outputTokensUsed: readNumber(record, 'outputTokensUsed') ?? 0,
       wallClockMs: 0,
       budgetLimits: {},
-      createdAt: readNumber(record, 'createdAt') ?? time,
-      updatedAt: readNumber(record, 'updatedAt') ?? time,
     };
     this.goal = state;
     this.push(
@@ -501,12 +494,6 @@ class WireReplayFoldState {
     if (tokensUsed !== undefined) state.tokensUsed = tokensUsed;
     const wallClockMs = readNumber(record, 'wallClockMs');
     if (wallClockMs !== undefined) state.wallClockMs = wallClockMs;
-    const inputTokensUsed = readNumber(record, 'inputTokensUsed');
-    if (inputTokensUsed !== undefined) state.inputTokensUsed = inputTokensUsed;
-    const outputTokensUsed = readNumber(record, 'outputTokensUsed');
-    if (outputTokensUsed !== undefined) state.outputTokensUsed = outputTokensUsed;
-    const updatedAt = readNumber(record, 'updatedAt');
-    state.updatedAt = updatedAt ?? time;
     const budgetLimits = record['budgetLimits'] as GoalBudgetLimits | undefined;
     if (budgetLimits !== undefined) state.budgetLimits = budgetLimits;
     if (status === undefined) return;
@@ -541,13 +528,9 @@ class WireReplayFoldState {
       {
         role: 'user',
         content: [
-          {
-            type: 'text',
-            text: `<system-reminder>\n${GOAL_FORK_CLEARED_REMINDER}\n</system-reminder>`,
-          },
+          { type: 'text', text: `<system-reminder>\n${GOAL_FORK_CLEARED_REMINDER}\n</system-reminder>` },
         ],
-        toolCalls: [],
-        origin: { kind: 'system_trigger', name: 'goal_fork_cleared' },
+          origin: { kind: 'system_trigger', name: 'goal_fork_cleared' },
       },
       time,
     );
@@ -584,13 +567,9 @@ function goalSnapshot(state: FoldGoalState): GoalSnapshot {
     status: state.status,
     turnsUsed: state.turnsUsed,
     tokensUsed: state.tokensUsed,
-    inputTokensUsed: state.inputTokensUsed,
-    outputTokensUsed: state.outputTokensUsed,
     wallClockMs: state.wallClockMs,
     budget: goalBudgetReport(state),
     terminalReason: state.terminalReason,
-    createdAt: state.createdAt,
-    updatedAt: state.updatedAt,
   };
 }
 
@@ -603,8 +582,6 @@ function goalBudgetReport(state: FoldGoalState): GoalBudgetReport {
   const wallClockBudgetReached =
     wallClockBudgetMs !== null && state.wallClockMs >= wallClockBudgetMs;
   return {
-    inputTokensUsed: state.inputTokensUsed,
-    outputTokensUsed: state.outputTokensUsed,
     tokenBudget,
     turnBudget,
     wallClockBudgetMs,
@@ -690,14 +667,13 @@ export function matchWireTurnInputRecords(
         (records[index]!.type !== 'turn.prompt' || index < append.index) &&
         wireTurnInputMatches(records[index]!, append.record, true, allUserMessages),
     );
-    const matchAt =
-      exact !== -1
-        ? exact
-        : unused.findIndex(
-            (index) =>
-              (records[index]!.type !== 'turn.prompt' || index < append.index) &&
-              wireTurnInputMatches(records[index]!, append.record, false, allUserMessages),
-          );
+    const matchAt = exact !== -1
+      ? exact
+      : unused.findIndex(
+          (index) =>
+            (records[index]!.type !== 'turn.prompt' || index < append.index) &&
+            wireTurnInputMatches(records[index]!, append.record, false, allUserMessages),
+        );
     const inputIndex = matchAt === -1 ? undefined : unused.splice(matchAt, 1)[0];
     matches.push({
       appendIndex: append.index,
@@ -781,7 +757,8 @@ function wireTurnInputMatches(
       : undefined;
   if (promptId !== undefined && messageId !== undefined) return promptId === messageId;
   return (
-    !compareContent || JSON.stringify(inputRecord['input']) === JSON.stringify(message['content'])
+    !compareContent ||
+    JSON.stringify(inputRecord['input']) === JSON.stringify(message['content'])
   );
 }
 

@@ -3,10 +3,10 @@ import {
   resumeSessionById,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
-import { sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   fileHistoryChangesQuerySchema,
@@ -15,6 +15,10 @@ import {
   fileHistoryContentResponseSchema,
 } from '../protocol/rest-file-history';
 import { ensureMainAgent } from '../transport/mainAgent';
+
+const sessionIdParamSchema = z.object({
+  session_id: z.string().min(1),
+});
 
 interface FileHistoryRouteHost {
   get(
@@ -79,6 +83,7 @@ export function registerFileHistoryRoutes(app: FileHistoryRouteHost, core: Scope
       success: { data: fileHistoryContentResponseSchema },
       errors: {
         [ErrorCode.SESSION_NOT_FOUND]: {},
+        [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
       },
       description: "A file's content as captured at a turn's file-history checkpoint",
       tags: ['sessions'],

@@ -1,19 +1,5 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { EnvironmentService } from '#/app/environment/environmentService';
-
-async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
-  const deadline = Date.now() + (opts?.timeout ?? 1000);
-  for (;;) {
-    try {
-      await fn();
-      return;
-    } catch {
-      if (Date.now() > deadline) throw new Error('vi.waitFor timed out');
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-}
-
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { Workspace, IWorkspaceService } from '#/app/workspace/workspace';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
@@ -57,21 +43,18 @@ function manager(
   const workspaces: IWorkspaceService = {
     _serviceBrand: undefined,
     list: async () => values,
-    get: mock(async (id: string) => {
-      const value = byId.get(id);
-      return value === undefined ? undefined : { ...value };
-    }),
-    create: mock(async (input: { root: string }) => {
+    get: vi.fn(async (id: string) => byId.get(id)),
+    create: vi.fn(async (input: { root: string }) => {
       const value = values.find((entry) => entry.root === input.root);
       if (value === undefined) throw new Error(`unknown root ${input.root}`);
       return value;
     }),
-    createOrTouch: mock(async (root: string) => {
+    createOrTouch: vi.fn(async (root: string) => {
       const value = values.find((entry) => entry.root === root);
       if (value === undefined) throw new Error(`unknown root ${root}`);
-      return { ...value };
+      return value;
     }),
-    touch: mock(async (id: string) => byId.get(id)),
+    touch: vi.fn(async (id: string) => byId.get(id)),
     update: async () => undefined,
     setPrimary: async () => undefined,
     readProjectConfigDirs: async () => [],
@@ -106,7 +89,7 @@ describe('WorkspaceInstanceManager', () => {
     first.dispose();
     expect(value.get('one')).toBe(first.instance);
     second.dispose();
-    await viWaitFor(() => {
+    await vi.waitFor(() => {
       expect(value.get('one')).toBeUndefined();
     });
     await value.dispose();
@@ -155,7 +138,7 @@ describe('WorkspaceInstanceManager', () => {
     expect(lease.instance.program.status).toBe('degraded');
     expect(lease.instance.snapshot().lifecycle).toBe('active');
     lease.dispose();
-    await viWaitFor(() => {
+    await vi.waitFor(() => {
       expect(value.get('one')).toBeUndefined();
     });
     await value.dispose();

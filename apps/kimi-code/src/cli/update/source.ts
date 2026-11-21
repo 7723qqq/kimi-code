@@ -1,67 +1,53 @@
 import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 
 import { getHostPackageRoot } from '#/cli/version';
-import { getBunEmbeddedAssetSource } from '#/native/bun-assets';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import { NPM_PACKAGE_NAME, type InstallSource } from './types';
 
-/** How the running binary was packaged. `sea` is kept for staged-update
- * records written by older builds; new packaged binaries are always `bun`. */
-export type NativeInstallKind = 'sea' | 'bun';
+const nodeRequire = createRequire(import.meta.url);
 
-export type NativeInstallDetection =
-  | { readonly native: false }
-  | { readonly native: true; readonly kind: NativeInstallKind };
-
-/**
- * The runtime markers packaging detection reads. Injectable so tests can
- * describe bun/node environments without mutating `globalThis` — under the
- * real Bun runtime `globalThis.Bun` is read-only and permanently present.
- */
-export interface BunRuntimeView {
-  readonly Bun?: unknown;
-  readonly __KIMI_BUN_ASSETS__?: Record<string, string>;
+interface NodeSeaModule {
+  isSea(): boolean;
 }
 
-// Bun packaged builds are recognized by the embedded-asset marker that
-// apps/kimi-code/scripts/native/bun-entry.ts registers.
-function detectBunNativeInstall(view: BunRuntimeView): NativeInstallDetection | null {
-  if (view.Bun === undefined) return null;
-  if (getBunEmbeddedAssetSource(view) === null) return null;
-  return { native: true, kind: 'bun' };
+let cachedSea: NodeSeaModule | null | undefined;
+
+function loadSeaModule(): NodeSeaModule | null {
+  if (cachedSea !== undefined) return cachedSea;
+  try {
+    cachedSea = nodeRequire('node:sea') as NodeSeaModule;
+  } catch {
+    cachedSea = null;
+  }
+  return cachedSea;
 }
 
-/** Runtime packaging detection — native when running as a packaged binary. */
-export function detectNativeInstall(
-  view: BunRuntimeView = globalThis as BunRuntimeView,
-): NativeInstallDetection {
-  const bun = detectBunNativeInstall(view);
-  if (bun !== null) return bun;
-  return { native: false };
+export function detectNativeInstall(): boolean {
+  const sea = loadSeaModule();
+  if (sea === null) return false;
+  try {
+    return sea.isSea();
+  } catch {
+    return false;
+  }
 }
 
-// Path heuristic markers (compared in lowercase; both forward and backward slashes accepted).
+const PNPM_PATH_SEGMENT = 'pnpm/global/';
 const YARN_PATH_SEGMENTS = ['.config/yarn/global/', '/.yarn/global/'];
 const BUN_PATH_SEGMENT = '.bun/install/global/';
-// Homebrew installs formulae under its Cellar directory. Avoid matching the
-// broader /homebrew/ prefix — on Apple Silicon, npm itself lives under
-// /opt/homebrew/, so `npm install -g` paths also contain /homebrew/.
 const HOMEBREW_PATH_SEGMENT = '/cellar/';
 
 function normalizeForHeuristic(filePath: string): string {
   return filePath.replaceAll('\\', '/').toLowerCase();
 }
 
-/**
- * Heuristic classification by package root path segments. Returns the
- * matching `InstallSource` or `null` if no heuristic matches (caller should
- * fall through to npm-prefix comparison).
- */
 export function classifyByPathHeuristic(packageRoot: string): InstallSource | null {
   const normalized = normalizeForHeuristic(packageRoot);
+  if (normalized.includes(PNPM_PATH_SEGMENT)) return 'pnpm-global';
   for (const seg of YARN_PATH_SEGMENTS) {
     if (normalized.includes(seg)) return 'yarn-global';
   }
@@ -73,7 +59,7 @@ export function classifyByPathHeuristic(packageRoot: string): InstallSource | nu
 export interface DetectInstallSourceDeps {
   readonly getPackageRoot: () => string;
   readonly getGlobalPrefix: () => Promise<string>;
-  readonly detectNative: () => NativeInstallDetection;
+  readonly detectNative: () => boolean;
   readonly platform: NodeJS.Platform;
   readonly allowGlobalPrefix?: boolean;
 }
@@ -82,40 +68,23 @@ function npmCommand(platform: NodeJS.Platform): string {
   return platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
-// The install-source detection runs before the workspace trust gate, so the
-// npm binary must be resolved through PATH to an absolute path — a bare name
-// would let cmd.exe pick up an `npm.cmd` planted in the current directory.
 function npmGlobalPrefix(platform: NodeJS.Platform): Promise<string> {
   const resolved = resolveCommandPath(npmCommand(platform));
   if (resolved === undefined) {
     return Promise.reject(new Error('npm was not found in PATH'));
   }
-  return execFileText(resolved, ['prefix', '-g'], platform).then((text) => text.trim());
+  return execFileText(resolved, ['prefix', '-g']).then((text) => text.trim());
 }
 
-function execFileText(
-  command: string,
-  args: readonly string[],
-  platform: NodeJS.Platform,
-): Promise<string> {
+function execFileText(command: string, args: readonly string[]): Promise<string> {
   return new Promise((resolveOutput, reject) => {
-    // Windows npm is a .cmd shim. Since the CVE-2024-27980 fix, Node throws
-    // EINVAL when spawning a .cmd/.bat without a shell, so run through
-    // cmd.exe on win32, quoting the resolved path — a space in it (e.g.
-    // C:\Program Files\...) would otherwise split the command. The args are
-    // fixed constants, so they are shell-safe.
-    execFile(
-      platform === 'win32' ? `"${command}"` : command,
-      [...args],
-      { encoding: 'utf-8', shell: platform === 'win32' ? true : undefined },
-      (error, stdout) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolveOutput(stdout);
-      },
-    );
+    execFile(command, [...args], { encoding: 'utf-8' }, (error, stdout) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolveOutput(stdout);
+    });
   });
 }
 
@@ -183,13 +152,15 @@ export async function detectInstallSource(
   const platform = deps.platform ?? process.platform;
   const resolved: DetectInstallSourceDeps = {
     getPackageRoot: deps.getPackageRoot ?? getHostPackageRoot,
-    getGlobalPrefix: deps.getGlobalPrefix ?? (() => npmGlobalPrefix(platform)),
+    getGlobalPrefix:
+      deps.getGlobalPrefix ??
+      (() => npmGlobalPrefix(platform)),
     detectNative: deps.detectNative ?? detectNativeInstall,
     platform,
     allowGlobalPrefix: deps.allowGlobalPrefix ?? true,
   };
 
-  if (resolved.detectNative().native) return 'native';
+  if (resolved.detectNative()) return 'native';
 
   const packageRoot = resolved.getPackageRoot();
   const heuristic = classifyByPathHeuristic(packageRoot);

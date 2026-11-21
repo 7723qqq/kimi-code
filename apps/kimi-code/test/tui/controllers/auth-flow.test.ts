@@ -1,12 +1,13 @@
-import { afterEach, describe, expect, it, jest } from 'bun:test';
+import { describe, expect, it, vi, beforeEach, afterEach } from '@moonshot-ai/testkit/vitest';
 
-import { AuthFlowController, type AuthFlowHost } from '#/tui/controllers/auth-flow';
+import {
+  AuthFlowController,
+  type AuthFlowHost,
+} from '#/tui/controllers/auth-flow';
 import {
   refreshModelSwitchConfirmConfig,
   resetModelSwitchConfirmConfigCache,
 } from '#/utils/model-switch-confirm-config';
-
-import { waitForAssertion, waitUntil } from '../../helpers/waitFor';
 
 function makeHost(
   options: {
@@ -26,51 +27,87 @@ function makeHost(
     options.withSession === true
       ? {
           id: 'ses-live',
-          getStatus: jest.fn(async () => ({ model: options.boundModel ?? 'old-model' })),
-          setModel: jest.fn(async () => ({ model: 'k2', providerName: 'managed' })),
-          setThinking: jest.fn(async () => {}),
+          getStatus: vi.fn(async () => ({ model: options.boundModel ?? 'old-model' })),
+          setModel: vi.fn(async () => ({ model: 'k2', providerName: 'managed' })),
+          setThinking: vi.fn(async () => {}),
         }
       : undefined;
   const host = {
-    state: { appState, transcriptEntries: [] },
+    state: { appState },
     session,
     harness: {
-      createSession: jest.fn(async () => ({ id: 'ses-new', summary: { title: null } })),
-      getConfig: jest.fn(async () => ({
+      createSession: vi.fn(async () => ({ id: 'ses-new', summary: { title: null } })),
+      getConfig: vi.fn(async () => ({
         defaultModel: options.defaultModel,
-        models: {
-          k2: { provider: 'managed:kimi-code', model: 'kimi-k2', maxContextSize: 200_000 },
-        },
+        models: { k2: { provider: 'managed:kimi-code', model: 'kimi-k2', maxContextSize: 200_000 } },
         providers: {},
       })),
+      auth: { getCachedAccessToken: vi.fn(async () => 'test-token') },
     },
     options: { startup: {} },
-    setAppState: jest.fn((patch: Record<string, unknown>) => Object.assign(appState, patch)),
-    setStartupReady: jest.fn(),
-    resetSessionRuntime: jest.fn(),
-    setSession: jest.fn(async (next: unknown) => {
+    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(appState, patch)),
+    setStartupReady: vi.fn(),
+    resetSessionRuntime: vi.fn(),
+    setAuthRequired: vi.fn(),
+    setSession: vi.fn(async (next: unknown) => {
       (host as { session: unknown }).session = next;
     }),
-    syncRuntimeState: jest.fn(async () => {}),
-    appendStartupNotice: jest.fn(),
-    hydrateLazyConfigDefaults: jest.fn(async () => {}),
-    sessionEventHandler: { startSubscription: jest.fn() },
-    fetchSessions: jest.fn(async () => {}),
-    updateTerminalTitle: jest.fn(),
-    refreshSkillCommands: jest.fn(async () => {}),
-    refreshPluginCommands: jest.fn(async () => {}),
+    syncRuntimeState: vi.fn(async () => {}),
+    appendStartupNotice: vi.fn(),
+    hydrateLazyConfigDefaults: vi.fn(async () => {}),
+    waitForSessionAssembly: vi.fn(async () => {}),
+    sessionEventHandler: { startSubscription: vi.fn() },
+    fetchSessions: vi.fn(async () => {}),
+    updateTerminalTitle: vi.fn(),
+    refreshSkillCommands: vi.fn(async () => {}),
+    refreshPluginCommands: vi.fn(async () => {}),
   } as unknown as AuthFlowHost & {
     session: unknown;
     harness: {
-      createSession: ReturnType<typeof jest.fn>;
-      getConfig: ReturnType<typeof jest.fn>;
+      createSession: ReturnType<typeof vi.fn>;
+      getConfig: ReturnType<typeof vi.fn>;
     };
-    setAppState: ReturnType<typeof jest.fn>;
+    setAppState: ReturnType<typeof vi.fn>;
   };
   return { host, appState, session };
 }
 
+beforeEach(() => {
+  resetModelSwitchConfirmConfigCache();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      new Response(JSON.stringify({ name: 'model_switch_confirm', config: { enable: false, rules: [] } })),
+    ),
+  );
+});
+
+afterEach(() => {
+  resetModelSwitchConfirmConfigCache();
+  vi.unstubAllGlobals();
+});
+
+describe('login-required startup', () => {
+  it('marks the application as blocked until authentication is resolved', () => {
+    const { host } = makeHost();
+    const authFlow = new AuthFlowController(host);
+
+    authFlow.enterLoginRequiredStartupState();
+
+    expect(host.setAuthRequired).toHaveBeenCalledWith(true);
+  });
+});
+
 describe('activateModelAfterLogin', () => {
+  it('clears auth required after a model is activated', async () => {
+    const { host } = makeHost();
+    const authFlow = new AuthFlowController(host);
+
+    await authFlow.activateModelAfterLogin('k2', 'high');
+
+    expect(host.setAuthRequired).toHaveBeenCalledWith(false);
+  });
+
   it('reports an engine-tracked switch when the pick changes the bound alias', async () => {
     const { host, session } = makeHost({ withSession: true });
     const authFlow = new AuthFlowController(host);
@@ -86,9 +123,6 @@ describe('activateModelAfterLogin', () => {
     const { host, session } = makeHost({ withSession: true, boundModel: 'k2' });
     const authFlow = new AuthFlowController(host);
 
-    // setModel is an alias no-op here, so neither engine emits model_switch —
-    // callers must stay the producer. The effort still goes through
-    // setThinking, whose thinking_toggle is the engine's own event.
     const engineTrackedSwitch = await authFlow.activateModelAfterLogin('k2', 'high');
 
     expect(engineTrackedSwitch).toBe(false);
@@ -133,49 +167,58 @@ describe('refreshConfigAfterLogin', () => {
 });
 
 describe('refreshConfigAfterLogin with a matching cloud rule', () => {
-  afterEach(() => {
-    resetModelSwitchConfirmConfigCache();
-  });
-
-  async function makeGateHost() {
-    const { host, session, appState } = makeHost({ withSession: true, defaultModel: 'k2' });
+  async function makeGateHost(
+    options: { withSession?: boolean; sessionType?: 'old' | 'new' | 'all' } = {},
+  ) {
+    const withSession = options.withSession ?? true;
+    const sessionType = options.sessionType ?? 'old';
+    const { host, session, appState } = makeHost({ withSession, defaultModel: 'k2' });
     (appState as Record<string, unknown>)['streamingPhase'] = 'idle';
-    host.harness.getConfig = jest.fn(async () => ({
+    host.harness.getConfig = vi.fn(async () => ({
       defaultModel: 'k2',
       models: {
-        'old-model': {
+        'old-model': { provider: 'managed:kimi-code', model: 'upstream-old', maxContextSize: 200_000 },
+        k2: {
           provider: 'managed:kimi-code',
-          model: 'upstream-old',
+          model: 'upstream-new',
           maxContextSize: 200_000,
+          capabilities: ['thinking'],
+          supportEfforts: ['low', 'high'],
+          defaultEffort: 'high',
         },
-        k2: { provider: 'managed:kimi-code', model: 'upstream-new', maxContextSize: 200_000 },
       },
       providers: {},
     }));
-    (host as unknown as { state: Record<string, unknown> }).state['transcriptEntries'] = [
-      { kind: 'user', bullet: 'hi' },
-    ];
-    const mountEditorReplacement = jest.fn();
+    (host as unknown as { state: Record<string, unknown> }).state['transcriptEntries'] = withSession
+      ? [{ kind: 'user', bullet: 'hi' }]
+      : [];
+    const mountEditorReplacement = vi.fn();
     (host as unknown as Record<string, unknown>)['mountEditorReplacement'] = mountEditorReplacement;
-    (host as unknown as Record<string, unknown>)['restoreEditor'] = jest.fn();
-    (host as unknown as Record<string, unknown>)['showStatus'] = jest.fn();
-    (host as unknown as Record<string, unknown>)['showError'] = jest.fn();
-    (host as unknown as Record<string, unknown>)['showNotice'] = jest.fn();
-    (host as unknown as Record<string, unknown>)['track'] = jest.fn();
+    (host as unknown as Record<string, unknown>)['restoreEditor'] = vi.fn();
+    (host as unknown as Record<string, unknown>)['showStatus'] = vi.fn();
+    (host as unknown as Record<string, unknown>)['showError'] = vi.fn();
+    (host as unknown as Record<string, unknown>)['showNotice'] = vi.fn();
+    (host as unknown as Record<string, unknown>)['track'] = vi.fn();
+    (host as unknown as Record<string, unknown>)['authFlow'] = new AuthFlowController(host);
     await refreshModelSwitchConfirmConfig({
-      fetchImpl: jest.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              name: 'model_switch_confirm',
-              config: {
-                enable: true,
-                rules: [{ from: 'upstream-old', to: 'upstream-new' }],
-              },
-            }),
-          ),
+      fetchImpl: vi.fn(async () =>
+        new Response(JSON.stringify({ name: 'model_switch_confirm', config: { enable: false, rules: [] } })),
       ) as unknown as typeof fetch,
     });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            name: 'model_switch_confirm',
+            config: {
+              enable: true,
+              rules: [{ from: 'upstream-old', to: 'upstream-new', session_type: sessionType }],
+            },
+          }),
+        ),
+      ),
+    );
     return { host, session, appState, mountEditorReplacement };
   }
 
@@ -191,8 +234,6 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
 
   it('gates an alias introduced by this login that the stale catalog lacks', async () => {
     const { host, session, appState, mountEditorReplacement } = await makeGateHost();
-    // The pre-refresh catalog knows nothing about k2 — only the freshly loaded
-    // config introduces it, so the match must run against the new catalog.
     (appState as Record<string, unknown>)['availableModels'] = {
       'old-model': { model: 'upstream-old', displayName: 'Old' },
     };
@@ -202,6 +243,26 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
     expect(result).toBe('gated');
     expect(session!.setModel).not.toHaveBeenCalled();
     expect(mountEditorReplacement).toHaveBeenCalledTimes(1);
+  });
+
+  it('hydrates non-model defaults and uses the target effort after a session-less confirmation', async () => {
+    const { host, appState, mountEditorReplacement } = await makeGateHost({
+      withSession: false,
+      sessionType: 'new',
+    });
+
+    const result = await new AuthFlowController(host).refreshConfigAfterLogin();
+
+    expect(result).toBe('gated');
+    expect(host.hydrateLazyConfigDefaults).toHaveBeenCalledWith(false);
+    expect(appState.model).toBe('old-model');
+    const dialog = mountEditorReplacement.mock.calls[0]?.[0] as unknown as {
+      opts: { onSelect: (action: string) => void };
+    };
+    dialog.opts.onSelect('continue');
+    await vi.waitFor(() => {
+      expect(appState).toMatchObject({ model: 'k2', thinkingEffort: 'high', lazySessionThinking: 'high' });
+    });
   });
 
   it('forwards the caller picked effort to the gated dialog', async () => {
@@ -214,33 +275,30 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
       opts: { onSelect: (action: string) => void };
     };
     dialog.opts.onSelect('continue');
-    await waitForAssertion(() => expect(session!.setThinking).toHaveBeenCalledWith('max'));
+    await vi.waitFor(() => expect(session!.setThinking).toHaveBeenCalledWith('max'));
   });
+});
 
-  describe('refreshProviderModels', () => {
-    it('reloads app-state providers and models even when the engine reports no model change', async () => {
-      // A config-only registry change (type, baseUrl, …) is persisted by the
-      // engine while the provider lands in `unchanged` — the TUI must still
-      // reload, or appState keeps the stale provider record.
-      const { host } = makeHost();
-      const refreshProviderModels = jest.fn(async () => ({
-        changed: [],
-        unchanged: ['custom'],
-        failed: [],
-      }));
-      (host.harness as unknown as { refreshProviderModels: unknown }).refreshProviderModels =
-        refreshProviderModels;
+describe('refreshProviderModels', () => {
+  it('reloads app-state providers and models even when the engine reports no model change', async () => {
+    const { host } = makeHost();
+    const refreshProviderModels = vi.fn(async () => ({
+      changed: [],
+      unchanged: ['custom'],
+      failed: [],
+    }));
+    (host.harness as unknown as { refreshProviderModels: unknown }).refreshProviderModels =
+      refreshProviderModels;
 
-      const result = await new AuthFlowController(host).refreshProviderModels({
-        providerId: 'custom',
-      });
+    const result = await new AuthFlowController(host).refreshProviderModels({
+      providerId: 'custom',
+    });
 
-      expect(refreshProviderModels).toHaveBeenCalledWith({ providerId: 'custom' });
-      expect(result.unchanged).toEqual(['custom']);
-      expect(host.setAppState).toHaveBeenCalledWith({
-        availableModels: expect.anything(),
-        availableProviders: expect.anything(),
-      });
+    expect(refreshProviderModels).toHaveBeenCalledWith({ providerId: 'custom' });
+    expect(result.unchanged).toEqual(['custom']);
+    expect(host.setAppState).toHaveBeenCalledWith({
+      availableModels: expect.anything(),
+      availableProviders: expect.anything(),
     });
   });
 });

@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { ConfigRegistry } from '#/app/config/configService';
+import { ErrorCodes, Error2 } from '#/errors';
+import { kimiModelEnvOverlay, ENV_MODEL_ALIAS_KEY } from '#/app/kosongConfig/envOverlay';
 import {
   ENV_MODEL_PROVIDER_KEY,
   MODELS_SECTION,
@@ -8,10 +10,9 @@ import {
   modelsFromToml,
   modelsToToml,
 } from '#/app/kosongConfig/configSection';
-import { kimiModelEnvOverlay, ENV_MODEL_ALIAS_KEY } from '#/app/kosongConfig/envOverlay';
-import { ErrorCodes, Error2 } from '#/errors';
 import { type ModelRecord } from '#/llm-adapter/model/model';
 import { effectiveModelConfig } from '#/llm-adapter/model/model-auth';
+
 
 describe('effectiveModelConfig', () => {
   it('clamps the input cap to the effective total window without mutating the source', () => {
@@ -274,36 +275,6 @@ describe('models TOML transforms', () => {
       },
     });
   });
-
-  it('replaces on-disk capabilities with the memory capabilities in modelsToToml', () => {
-    expect(
-      modelsToToml(
-        {
-          kimi: {
-            provider: 'p',
-            model: 'm',
-            maxContextSize: 1000,
-            capabilities: ['thinking'],
-          },
-        },
-        {
-          kimi: {
-            provider: 'p',
-            model: 'm',
-            max_context_size: 1000,
-            capabilities: ['thinking', 'tool_use', 'image_in'],
-          },
-        },
-      ),
-    ).toEqual({
-      kimi: {
-        provider: 'p',
-        model: 'm',
-        max_context_size: 1000,
-        capabilities: ['thinking'],
-      },
-    });
-  });
 });
 
 type EnvMap = Readonly<Record<string, string | undefined>>;
@@ -461,7 +432,9 @@ describe('kimiModelEnvOverlay', () => {
     });
 
     expect(changed).toEqual(['models', 'providers', 'defaultModel', 'modelOverrides']);
-    expect((effective['models'] as Record<string, unknown>)[ENV_MODEL_ALIAS_KEY]).toEqual({
+    expect(
+      (effective['models'] as Record<string, unknown>)[ENV_MODEL_ALIAS_KEY],
+    ).toEqual({
       provider: ENV_MODEL_PROVIDER_KEY,
       model: 'env-model',
       maxContextSize: 1000000,

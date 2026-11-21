@@ -1,15 +1,7 @@
 import type { McpServerInfo } from '@moonshot-ai/kimi-code-sdk';
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-
-import { foldToSingleLine } from './usage-panel';
-
-/** Pad `text` to `width` visible columns (CJK-safe, unlike `padEnd`). */
-function padEndVisible(text: string, width: number): string {
-  return text + ' '.repeat(Math.max(0, width - visibleWidth(text)));
-}
+import { t } from '#/i18n';
 
 export interface McpStatusReportOptions {
   readonly servers: readonly McpServerInfo[];
@@ -24,22 +16,14 @@ const STATUS_PRIORITY: Record<McpServerInfo['status'], number> = {
   removed: 5,
 };
 
-function statusLabel(status: McpServerInfo['status']): string {
-  switch (status) {
-    case 'connected':
-      return t('tui.messages.mcpStatusPanel.status.connected');
-    case 'pending':
-      return t('tui.messages.mcpStatusPanel.status.pending');
-    case 'needs-auth':
-      return t('tui.messages.mcpStatusPanel.status.needsAuth');
-    case 'failed':
-      return t('tui.messages.mcpStatusPanel.status.failed');
-    case 'disabled':
-      return t('tui.messages.mcpStatusPanel.status.disabled');
-    case 'removed':
-      return t('tui.messages.mcpStatusPanel.status.removed');
-  }
-}
+const STATUS_LABEL: Record<McpServerInfo['status'], string> = {
+  connected: t('tui.messages.mcpStatusPanel.status.connected'),
+  pending: t('tui.messages.mcpStatusPanel.status.pending'),
+  'needs-auth': t('tui.messages.mcpStatusPanel.status.needsAuth'),
+  failed: t('tui.messages.mcpStatusPanel.status.failed'),
+  disabled: t('tui.messages.mcpStatusPanel.status.disabled'),
+  removed: t('tui.messages.mcpStatusPanel.status.removed'),
+};
 
 const SUMMARY_ORDER: readonly McpServerInfo['status'][] = [
   'connected',
@@ -50,7 +34,9 @@ const SUMMARY_ORDER: readonly McpServerInfo['status'][] = [
   'removed',
 ];
 
-function statusPainter(status: McpServerInfo['status']): (text: string) => string {
+function statusPainter(
+  status: McpServerInfo['status'],
+): (text: string) => string {
   switch (status) {
     case 'connected':
       return (text) => currentTheme.fg('success', text);
@@ -66,24 +52,22 @@ function statusPainter(status: McpServerInfo['status']): (text: string) => strin
 }
 
 function formatToolCount(server: McpServerInfo): string {
-  if (server.status === 'disabled' || server.status === 'removed') {
-    return t('tui.messages.mcpStatusPanel.disabledToolCount');
-  }
-  return t(
-    server.toolCount === 1
-      ? 'tui.messages.mcpStatusPanel.tool_one'
-      : 'tui.messages.mcpStatusPanel.tool_other',
-    { count: server.toolCount },
-  );
+  if (server.status === 'disabled' || server.status === 'removed') return t('tui.messages.mcpStatusPanel.disabledToolCount');
+  return `${server.toolCount} tool${server.toolCount === 1 ? '' : 's'}`;
 }
 
 function formatToolsAvailable(count: number): string {
-  return t('tui.messages.mcpStatusPanel.toolsAvailable', { count });
+  return `${count} tool${count === 1 ? '' : 's'} available`;
+}
+
+function formatErrorLine(error: string): string {
+  return error.trim().replaceAll(/\s+/g, ' ');
 }
 
 function sortedServers(servers: readonly McpServerInfo[]): McpServerInfo[] {
   return servers.toSorted(
-    (a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status] || a.name.localeCompare(b.name),
+    (a, b) =>
+      STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status] || a.name.localeCompare(b.name),
   );
 }
 
@@ -98,7 +82,7 @@ function buildSummary(servers: readonly McpServerInfo[]): string {
   for (const status of SUMMARY_ORDER) {
     const n = counts[status];
     if (n === undefined || n === 0) continue;
-    parts.push(`${n} ${statusLabel(status)}`);
+    parts.push(`${n} ${STATUS_LABEL[status]}`);
   }
   parts.push(formatToolsAvailable(toolsAvailable));
   return parts.join(' · ');
@@ -114,38 +98,33 @@ export function buildMcpStatusReportLines(options: McpStatusReportOptions): stri
   const lines: string[] = [accent(t('tui.messages.mcpStatusPanel.servers'))];
 
   if (servers.length === 0) {
-    lines.push(muted(`  ${t('tui.messages.mcpStatusPanel.noServers')}`));
+    lines.push(muted(t('tui.messages.mcpStatusPanel.noServers')));
     return lines;
   }
 
-  const nameWidth = Math.max(
-    visibleWidth(t('tui.messages.mcpStatusPanel.nameLabel')),
-    ...servers.map((server) => visibleWidth(server.name)),
-  );
+  const nameWidth = Math.max(t('tui.messages.mcpStatusPanel.nameLabel').length, ...servers.map((server) => server.name.length));
   const statusWidth = Math.max(
-    visibleWidth(t('tui.messages.mcpStatusPanel.statusLabel')),
-    ...servers.map((server) => visibleWidth(statusLabel(server.status))),
+    t('tui.messages.mcpStatusPanel.statusLabel').length,
+    ...servers.map((server) => STATUS_LABEL[server.status].length),
   );
   const transportWidth = Math.max(
-    visibleWidth(t('tui.messages.mcpStatusPanel.transportLabel')),
-    ...servers.map((server) => visibleWidth(server.transport)),
+    t('tui.messages.mcpStatusPanel.transportLabel').length,
+    ...servers.map((server) => server.transport.length),
   );
 
   lines.push(
-    `  ${muted(padEndVisible(t('tui.messages.mcpStatusPanel.nameLabel'), nameWidth))}  ${muted(
-      padEndVisible(t('tui.messages.mcpStatusPanel.statusLabel'), statusWidth),
-    )}  ${muted(
-      padEndVisible(t('tui.messages.mcpStatusPanel.transportLabel'), transportWidth),
+    `  ${muted(t('tui.messages.mcpStatusPanel.nameLabel').padEnd(nameWidth))}  ${muted(t('tui.messages.mcpStatusPanel.statusLabel').padEnd(statusWidth))}  ${muted(
+      t('tui.messages.mcpStatusPanel.transportLabel').padEnd(transportWidth),
     )}  ${muted(t('tui.messages.mcpStatusPanel.toolsLabel'))}`,
   );
 
   for (const server of servers) {
-    const status = statusPainter(server.status)(
-      padEndVisible(statusLabel(server.status), statusWidth),
-    );
+    const status = statusPainter(
+      server.status,
+    )(STATUS_LABEL[server.status].padEnd(statusWidth));
     lines.push(
-      `  ${value(padEndVisible(server.name, nameWidth))}  ${status}  ${muted(
-        padEndVisible(server.transport, transportWidth),
+      `  ${value(server.name.padEnd(nameWidth))}  ${status}  ${muted(
+        server.transport.padEnd(transportWidth),
       )}  ${value(formatToolCount(server))}`,
     );
 
@@ -154,16 +133,10 @@ export function buildMcpStatusReportLines(options: McpStatusReportOptions): stri
       server.error !== undefined &&
       server.error.trim().length > 0
     ) {
-      lines.push(
-        `    ${muted(t('tui.messages.mcpStatusPanel.errorLabel'))} ${error(foldToSingleLine(server.error))}`,
-      );
+      lines.push(`    ${muted(t('tui.messages.mcpStatusPanel.errorLabel'))} ${error(formatErrorLine(server.error))}`);
     }
     if (server.status === 'needs-auth') {
-      lines.push(
-        `    ${muted(t('tui.messages.mcpStatusPanel.actionLabel'))} ${value(
-          t('tui.messages.mcpStatusPanel.actionLogin', { name: server.name }),
-        )}`,
-      );
+      lines.push(`    ${muted(t('tui.messages.mcpStatusPanel.actionLabel'))} ${value(`run /mcp-config login ${server.name}`)}`);
     }
   }
 

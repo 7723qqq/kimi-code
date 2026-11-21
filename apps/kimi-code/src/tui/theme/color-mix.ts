@@ -1,5 +1,3 @@
-import { t } from '#/i18n';
-
 export interface Rgb {
   readonly red: number;
   readonly green: number;
@@ -47,14 +45,12 @@ export function parseHexColor(hex: string): Rgb | undefined {
 
 function requireHexColor(hex: string): Rgb {
   const color = parseHexColor(hex);
-  if (color === undefined) throw new Error(t('tui.messages.colorMix.badHex', { value: hex }));
+  if (color === undefined) throw new Error(`Invalid RGB color: ${hex}`);
   return color;
 }
 
 export function interpolateHexColor(from: Rgb, to: Rgb, ratio: number): string {
   const channel = (start: number, end: number): string =>
-    Math.round(start + (end - start) * ratio)
-      .toString(16)
-      .padStart(2, '0');
+    Math.round(start + (end - start) * ratio).toString(16).padStart(2, '0');
   return `#${channel(from.red, to.red)}${channel(from.green, to.green)}${channel(from.blue, to.blue)}`;
 }

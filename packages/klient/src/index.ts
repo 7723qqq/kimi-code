@@ -1,11 +1,3 @@
-/**
- * `@moonshot-ai/klient` public surface — the transport-agnostic client facade
- * over the agent-core-v2 engine. Create a klient with one of the transport
- * entry points (`@moonshot-ai/klient/ipc` or `/memory`); everything
- * exported here behaves identically regardless of which one carried the
- * bytes.
- */
-
 export type {
   CallOptions,
   EventSourceRef,
@@ -99,25 +91,41 @@ export type {
 export type { SessionEventPayloads } from './contract/session/events.js';
 export type { AgentEventPayloads } from './contract/agent/events.js';
 
-// Wire types re-exported for consumer convenience (type-only; the engine is
-// not pulled in at runtime for http consumers).
-export type { SessionListQuery, SessionSummary } from '@moonshot-ai/agent-core-v2';
-export type { Page } from '@moonshot-ai/agent-core-v2';
-export type { Workspace, WorkspaceUpdate } from '@moonshot-ai/agent-core-v2';
-export type { ConfigDiagnostic, ConfigInspectValue } from '@moonshot-ai/agent-core-v2';
-export type { ProviderConfig } from '@moonshot-ai/agent-core-v2';
-export type { AuthStatus } from '@moonshot-ai/agent-core-v2';
-export type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
-export type { FsBrowseResponse, FsHomeResponse } from '@moonshot-ai/agent-core-v2';
-export type { FileMeta } from '@moonshot-ai/agent-core-v2';
+export type {
+  SessionListQuery,
+  SessionSummary,
+} from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
+export type { Page } from '@moonshot-ai/agent-core-v2/persistence/interface/queryStore';
+export type {
+  Workspace,
+  WorkspaceUpdate,
+} from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
+export type {
+  ConfigDiagnostic,
+  ConfigInspectValue,
+} from '@moonshot-ai/agent-core-v2/app/config/config';
+export type { ProviderConfig } from '@moonshot-ai/agent-core-v2/llm-adapter/provider/provider';
+export type { AuthStatus } from '@moonshot-ai/agent-core-v2/app/auth/auth';
+export type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2/app/flag/flag';
+export type {
+  FsBrowseResponse,
+  FsHomeResponse,
+} from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+export type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 export type {
   PluginCommandDef,
   PluginInfo,
+  PluginOrigin,
   PluginSummary,
   PluginUpdateStatus,
   ReloadSummary,
-} from '@moonshot-ai/agent-core-v2';
-export type { AgentMeta, SessionMeta, SessionMetaPatch } from '@moonshot-ai/agent-core-v2';
+} from '@moonshot-ai/agent-core-v2/app/plugin/types';
+export type { InstallPluginInput } from '@moonshot-ai/agent-core-v2/app/plugin/plugin';
+export type {
+  AgentMeta,
+  SessionMeta,
+  SessionMetaPatch,
+} from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
 export type {
   ApprovalRequest,
   ApprovalResponse,
@@ -126,8 +134,11 @@ export type {
   QuestionRequest,
   QuestionResult,
 } from '@moonshot-ai/agent-core-v2/agent/interaction/question';
-export type { Interaction, InteractionKind } from '@moonshot-ai/agent-core-v2';
-export type { SkillSummary } from '@moonshot-ai/agent-core-v2';
+export type {
+  Interaction,
+  InteractionKind,
+} from '@moonshot-ai/agent-core-v2/human/interaction/interaction';
+export type { SkillSummary } from '@moonshot-ai/agent-core-v2/features/skill/catalog/types';
 export type {
   GlobalMcpServerConfig,
   McpManagedServer,
@@ -138,6 +149,6 @@ export type {
   McpServerLocator,
   McpServerTestResult,
   McpServerTestTarget,
-} from '@moonshot-ai/agent-core-v2';
-export type { ContentPart } from '@moonshot-ai/agent-core-v2';
+} from '@moonshot-ai/agent-core-v2/app/mcpManagement/mcpManagement';
+export type { ContentPart } from '@moonshot-ai/agent-core-v2/human/message';
 export type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';

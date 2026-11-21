@@ -4,13 +4,16 @@ import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
+import { isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentMemoryInjectionState } from '#/agent/injection/memoryInjectionState';
 import { WarningIssued } from '#/agent/profile/profileOps';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
 import { IMemoryRepo } from '#/app/memory/memoryRepo';
 import { IMemoryStore } from '#/app/memory/memoryStore';
+import { createMemoryVisibilityContext } from '#/app/memory/memoryVisibility';
 import { LifecycleScope } from '#/app/scopes';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IHostProcessService } from '#/os/interface/hostProcess';
@@ -67,6 +70,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   protected indexLoader: GitMemoryIndexLoader;
   private readonly renderState = new GitMemoryRenderState();
   private readonly entries: GitMemoryEntries;
+  private declaredSnapshot: string | undefined;
 
   constructor(
     @IHostProcessService private readonly process: IHostProcessService,
@@ -80,10 +84,22 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @ISessionContext private readonly session: ISessionContext,
+    @IAgentMemoryInjectionState private readonly injectionState: IAgentMemoryInjectionState,
   ) {
     super();
     this.indexLoader = this.createIndexLoader();
-    this.entries = new GitMemoryEntries(memoryStore, memoryRepo, session, log, this.renderState);
+    this.entries = new GitMemoryEntries(
+      memoryStore,
+      memoryRepo,
+      injectionState,
+      log,
+      this.renderState,
+      () =>
+        createMemoryVisibilityContext(
+          this.session.cwd || this.bootstrap.cwd,
+          this.session.sessionId,
+        ),
+    );
     this.reminders.register('git_memory_signal', ({ isNewTurn }) =>
       isNewTurn ? this.signalBlock(this.lastUserText()) : undefined,
     );
@@ -97,10 +113,13 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     return {
       process: this.process,
       storeDir: this.bootstrap.storeDir,
-      cwd: this.bootstrap.cwd,
+      cwd: this.session.cwd || this.bootstrap.cwd,
       log: this.log,
       now: () => this.now(),
       onIndexChanged: () => {
+        this.renderState.clear();
+      },
+      onHeadChanged: () => {
         this.renderState.clear();
       },
       onHeadUnavailable: (reason) => {
@@ -113,6 +132,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     if (!this.enabled()) return '';
     this.renderState.trim();
     try {
+      this.entries.synchronize();
       const index = await this.indexLoader.ensureIndex();
       if (index === undefined) return '';
       const commits = index.commits.slice(0, GIT_MEMORY_REPO_COMMITS);
@@ -125,6 +145,9 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       if (unscoped.length > 0) {
         parts.push(unscoped.map((entry) => projectMemoryBlock(entry)).join('\n'));
       }
+      parts.push(this.snapshotBlock(index, ''));
+      this.declaredSnapshot = this.snapshotIdentity(index);
+      this.entries.claim(unscoped);
       return parts.join('\n');
     } catch (error) {
       this.log.warn('git memory repo block failed', { error });
@@ -136,6 +159,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     if (!this.enabled()) return '';
     this.renderState.trim();
     try {
+      this.entries.synchronize();
       const index = await this.indexLoader.ensureIndex();
       if (index === undefined) return '';
       const key = this.toRepoPath(path);
@@ -159,7 +183,10 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
         const rendered = memories.map((entry) => projectMemoryBlock(entry)).join('\n');
         block = block.length === 0 ? rendered : `${block}\n${rendered}`;
       }
-      return block;
+      this.entries.claim(memories);
+      return index.headSha === this.indexLoader.observedHeadSha
+        ? block
+        : `${this.snapshotBlock(index, '')}\n${block}`;
     } catch (error) {
       this.log.warn('git memory file block failed', { error });
       return '';
@@ -170,11 +197,21 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     if (!this.enabled()) return '';
     this.renderState.trim();
     try {
-      const paths = this.extractPaths(message);
-      if (paths.length === 0) return '';
-      const index = await this.indexLoader.ensureIndex();
+      this.entries.synchronize();
+      const index = await this.indexLoader.ensureIndex({ forceHead: true });
       if (index === undefined) return '';
+      const identity = this.snapshotIdentity(index);
       const blocks: string[] = [];
+      if (this.declaredSnapshot !== undefined && identity !== this.declaredSnapshot) {
+        blocks.push(
+          this.snapshotBlock(
+            index,
+            projectRepoBlock(index.commits.slice(0, GIT_MEMORY_REPO_COMMITS)),
+          ),
+        );
+      }
+      this.declaredSnapshot = identity;
+      const paths = this.extractPaths(message);
       for (const path of paths) {
         const commits = this.commitsForPath(index, path).slice(0, GIT_MEMORY_SIGNAL_COMMITS);
         if (commits.length === 0) continue;
@@ -189,6 +226,14 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       this.log.warn('git memory signal block failed', { error });
       return '';
     }
+  }
+
+  private snapshotIdentity(index: GitMemoryIndex): string {
+    return `${index.repoRoot}\0${index.headSha}\0${this.indexLoader.observedHeadSha ?? ''}`;
+  }
+
+  private snapshotBlock(index: GitMemoryIndex, content: string): string {
+    return `<repo-memory-snapshot snapshot-head="${index.headSha.slice(0, 7)}" observed-head="${this.indexLoader.observedHeadSha?.slice(0, 7) ?? 'unknown'}">\n${content}\n</repo-memory-snapshot>`;
   }
 
   async repoMap(path: string | undefined, depth: number): Promise<string> {
@@ -264,7 +309,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   private notifyUnavailable(reason: GitUnavailableReason): void {
     if (this.unavailableNotified || !this.enabled()) return;
     this.unavailableNotified = true;
-    const cwd = this.bootstrap.cwd;
+    const cwd = this.session.cwd || this.bootstrap.cwd;
     let message: string;
     switch (reason) {
       case 'not-a-repo':
@@ -320,7 +365,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     const history = this.contextMemory.get();
     for (let index = history.length - 1; index >= 0; index--) {
       const message = history[index];
-      if (message?.role !== 'user') continue;
+      if (message === undefined || !isRealUserInput(message)) continue;
       for (const part of message.content ?? []) {
         if ('text' in part && part.text) return part.text;
       }

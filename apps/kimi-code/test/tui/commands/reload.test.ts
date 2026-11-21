@@ -1,32 +1,39 @@
-import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { getLocale, setLocale } from '#/i18n';
-import { type SlashCommandHost } from '#/tui/commands';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
+import {
+  handleReloadCommand,
+  handleReloadTuiCommand,
+} from '#/tui/commands/reload';
+import { currentTheme } from '#/tui/theme';
+import type { SlashCommandHost } from '#/tui/commands';
 import {
   isExperimentalFlagEnabled,
   setExperimentalFeatures,
 } from '#/tui/commands/experimental-flags';
-import { handleReloadCommand, handleReloadTuiCommand } from '#/tui/commands/reload';
 import {
   createMarkdownOptions,
   getMarkdownMermaidMode,
   setMarkdownMermaidMode,
   setMarkdownRenderLatex,
 } from '#/tui/utils/markdown-options';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 const tempDirs: string[] = [];
 const originalKimiCodeHome = process.env['KIMI_CODE_HOME'];
 
 beforeEach(() => {
-  setEnv('KIMI_CODE_TUI_FULL_SCREEN', '');
+  vi.stubEnv('KIMI_CODE_TUI_FULL_SCREEN', '');
+  vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '');
+  vi.stubEnv('TERM', 'xterm-256color');
+  vi.stubEnv('TERMUX_VERSION', '');
+  vi.stubEnv('TMUX', '');
 });
 
 afterEach(async () => {
-  restoreEnvs();
+  vi.unstubAllEnvs();
   setExperimentalFeatures([]);
   for (const dir of tempDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });
@@ -54,7 +61,7 @@ notification_condition = "always"
 [upgrade]
 auto_install = false
 `);
-    const session = { reloadSession: mock() };
+    const session = { reloadSession: vi.fn() };
     const host = makeHost({ session });
 
     await handleReloadTuiCommand(host);
@@ -69,12 +76,15 @@ auto_install = false
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
     });
-    expect(host.showStatus).toHaveBeenCalledWith('TUI config reloaded.', 'success');
+    expect(host.showStatus).toHaveBeenCalledWith(
+      'TUI config reloaded.',
+      'success',
+    );
   });
 
   it('reloads the active session, refreshes runtime config, and applies tui.toml', async () => {
     await writeTuiConfig('theme = "light"\n');
-    const session = { id: 'ses-1', reloadSession: mock(async () => ({})) };
+    const session = { id: 'ses-1', reloadSession: vi.fn(async () => ({})) };
     const host = makeHost({ session });
 
     await handleReloadCommand(host);
@@ -84,10 +94,13 @@ auto_install = false
       forcePluginSessionStartReminder: true,
     });
     expect(session.reloadSession).not.toHaveBeenCalled();
-    expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(session, 'Session reloaded.');
+    expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
+      session,
+      'Session reloaded.',
+    );
     expect(host.harness.getConfig).toHaveBeenCalledWith({ reload: true });
-    expect(host.harness.getExperimentalFeatures).toHaveBeenCalledTimes(1);
-    expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledTimes(1);
+    expect(host.harness.getExperimentalFeatures).toHaveBeenCalledOnce();
+    expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledOnce();
     expect(isExperimentalFlagEnabled('micro_compaction')).toBe(true);
     expect(host.state.appState.theme).toBe('light');
     expect(host.state.appState.availableModels).toEqual({
@@ -105,13 +118,11 @@ auto_install = false
     };
 
     let themeWhenTracked: string | undefined;
-    // Theme application resolves on a later microtask, mirroring the real
-    // async palette load; tracking must observe the *new* theme.
-    mutable.applyTheme = mock(async (theme: string) => {
+    mutable.applyTheme = vi.fn(async (theme: string) => {
       await Promise.resolve();
       mutable.state.appState.theme = theme;
     });
-    mutable.refreshTerminalThemeTracking = mock(() => {
+    mutable.refreshTerminalThemeTracking = vi.fn(() => {
       themeWhenTracked = mutable.state.appState.theme;
     });
 
@@ -124,12 +135,9 @@ auto_install = false
     await writeTuiConfig('render_latex = false\n');
     const host = makeHost();
 
-    // applyTheme invalidates transcript components, which rebuild their
-    // Markdown children by copying the shared options — the reloaded value
-    // must already be live at that point.
     let latexWhenThemeApplied: boolean | undefined;
     const mutable = host as unknown as { applyTheme: unknown };
-    mutable.applyTheme = mock(() => {
+    mutable.applyTheme = vi.fn(() => {
       latexWhenThemeApplied = createMarkdownOptions().renderLatex;
     });
 
@@ -147,7 +155,7 @@ auto_install = false
 
     let mermaidWhenThemeApplied: string | undefined;
     const mutable = host as unknown as { applyTheme: unknown };
-    mutable.applyTheme = mock(() => {
+    mutable.applyTheme = vi.fn(() => {
       mermaidWhenThemeApplied = getMarkdownMermaidMode();
     });
 
@@ -165,9 +173,9 @@ auto_install = false
   it('refreshes workspace commands and lazy defaults on a session-less v2 reload', async () => {
     await writeTuiConfig('theme = "dark"\n');
     const host = makeHost();
-    const refreshSkillCommands = mock(async () => {});
-    const refreshPluginCommands = mock(async () => {});
-    const hydrateLazyConfigDefaults = mock(async () => {});
+    const refreshSkillCommands = vi.fn(async () => {});
+    const refreshPluginCommands = vi.fn(async () => {});
+    const hydrateLazyConfigDefaults = vi.fn(async () => {});
     Object.assign(host, {
       refreshSkillCommands,
       refreshPluginCommands,
@@ -176,10 +184,9 @@ auto_install = false
 
     await handleReloadCommand(host);
 
-    expect(refreshSkillCommands).toHaveBeenCalledTimes(1);
-    expect(refreshPluginCommands).toHaveBeenCalledTimes(1);
-    expect(hydrateLazyConfigDefaults).toHaveBeenCalledTimes(1);
-    // Autocomplete must rebuild after the command maps are refreshed.
+    expect(refreshSkillCommands).toHaveBeenCalledOnce();
+    expect(refreshPluginCommands).toHaveBeenCalledOnce();
+    expect(hydrateLazyConfigDefaults).toHaveBeenCalledOnce();
     expect(refreshSkillCommands.mock.invocationCallOrder[0]).toBeLessThan(
       host.refreshSlashCommandAutocomplete.mock.invocationCallOrder[0]!,
     );
@@ -187,39 +194,6 @@ auto_install = false
       'Environment and TUI config reloaded; no active session.',
       'success',
     );
-  });
-
-  it('applies a locale changed in tui.toml to the i18n engine, the engine and appState', async () => {
-    await writeTuiConfig('locale = "zh"\n');
-    const host = makeHost();
-    const mutable = host as unknown as {
-      harness: { setEngineLocale: Mock<(...args: any[]) => any> };
-    };
-
-    try {
-      await handleReloadTuiCommand(host);
-
-      expect(getLocale()).toBe('zh');
-      expect(mutable.harness.setEngineLocale).toHaveBeenCalledWith('zh');
-      expect(host.setAppState).toHaveBeenCalledWith({ locale: 'zh' });
-      expect(host.state.appState.locale).toBe('zh');
-    } finally {
-      setLocale('en');
-    }
-  });
-
-  it('does not touch the locale machinery when tui.toml keeps the current language', async () => {
-    await writeTuiConfig('locale = "en"\n');
-    const host = makeHost();
-    const mutable = host as unknown as {
-      harness: { setEngineLocale: Mock<(...args: any[]) => any> };
-    };
-
-    await handleReloadTuiCommand(host);
-
-    expect(getLocale()).toBe('en');
-    expect(mutable.harness.setEngineLocale).not.toHaveBeenCalled();
-    expect(host.setAppState).not.toHaveBeenCalledWith({ locale: 'en' });
   });
 
   it('applies follow_up_behavior from tui.toml', async () => {
@@ -242,24 +216,17 @@ auto_install = false
   });
 
   it('notices a required restart when tui_mode differs from the running UI mode', async () => {
-    const previousTerm = process.env['TERM'];
-    process.env['TERM'] = 'xterm-256color';
-    try {
-      await writeTuiConfig('tui_mode = "fullscreen"\n');
-      const host = makeHost();
+    await writeTuiConfig('tui_mode = "fullscreen"\n');
+    const host = makeHost();
 
-      await handleReloadTuiCommand(host);
+    await handleReloadTuiCommand(host);
 
-      expect(host.setAppState).toHaveBeenCalledWith(
-        expect.objectContaining({ tuiMode: 'fullscreen' }),
-      );
-      expect(host.showNotice).toHaveBeenCalledWith(
-        'TUI mode takes effect after restarting Kimi Code.',
-      );
-    } finally {
-      if (previousTerm === undefined) delete process.env['TERM'];
-      else process.env['TERM'] = previousTerm;
-    }
+    expect(host.setAppState).toHaveBeenCalledWith(
+      expect.objectContaining({ tuiMode: 'fullscreen' }),
+    );
+    expect(host.showNotice).toHaveBeenCalledWith(
+      'TUI mode takes effect after restarting Kimi Code.',
+    );
   });
 
   it('does not notice when tui_mode matches the running UI mode', async () => {
@@ -270,13 +237,21 @@ auto_install = false
 
     expect(host.showNotice).not.toHaveBeenCalled();
   });
+
+  it('does not notice when tui_mode is unset and experimental flag keeps fullscreen active', async () => {
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '1');
+    await writeTuiConfig('theme = "dark"\n');
+    const host = makeHost();
+    (host.state as { ui: { mode: string } }).ui.mode = 'fullscreen';
+
+    await handleReloadTuiCommand(host);
+
+    expect(host.showNotice).not.toHaveBeenCalled();
+  });
 });
 
 async function writeTuiConfig(text: string): Promise<void> {
-  const dir = join(
-    tmpdir(),
-    `kimi-tui-reload-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
+  const dir = join(tmpdir(), `kimi-tui-reload-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   tempDirs.push(dir);
   await mkdir(dir, { recursive: true });
   process.env['KIMI_CODE_HOME'] = dir;
@@ -291,7 +266,6 @@ function makeHost({
   const state = {
     appState: {
       theme: 'dark',
-      locale: 'en',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -299,9 +273,9 @@ function makeHost({
       availableProviders: {},
       transcript: { toolCallDensity: 'compact', thinking: 'grouped' },
     },
-    transcriptContainer: { setPresentationOptions: mock() },
+    transcriptContainer: { setPresentationOptions: vi.fn() },
     editor: {
-      setDisablePasteBurst: mock(),
+      setDisablePasteBurst: vi.fn(),
     },
     ui: {
       mode: 'regular' as const,
@@ -316,9 +290,8 @@ function makeHost({
     state,
     session,
     harness: {
-      reloadSession: mock(async () => session),
-      setEngineLocale: mock(),
-      getConfig: mock(async () => ({
+      reloadSession: vi.fn(async () => session),
+      getConfig: vi.fn(async () => ({
         models: {
           fresh: { provider: 'test', model: 'fresh-model', maxContextSize: 1000 },
         },
@@ -326,29 +299,28 @@ function makeHost({
           test: { type: 'kimi', apiKey: 'test-key' },
         },
       })),
-      getExperimentalFeatures: mock(async () => [{ id: 'micro_compaction', enabled: true }]),
+      getExperimentalFeatures: vi.fn(async () => [{ id: 'micro_compaction', enabled: true }]),
     },
-    setAppState: mock((patch: Record<string, unknown>) => {
+    setAppState: vi.fn((patch: Record<string, unknown>) => {
       Object.assign(state.appState, patch);
     }),
-    applyTheme: mock((theme: string) => {
+    applyTheme: vi.fn((theme: string) => {
       state.appState.theme = theme;
     }),
-    refreshTerminalThemeTracking: mock(),
-    refreshSlashCommandAutocomplete: mock(),
-    reloadCurrentSessionView: mock(async () => {}),
-    showStatus: mock(),
-    showNotice: mock(),
+    refreshTerminalThemeTracking: vi.fn(),
+    refreshSlashCommandAutocomplete: vi.fn(),
+    reloadCurrentSessionView: vi.fn(async () => {}),
+    showStatus: vi.fn(),
+    showNotice: vi.fn(),
   } as unknown as SlashCommandHost & {
     readonly harness: {
-      readonly reloadSession: Mock<(...args: any[]) => any>;
-      readonly setEngineLocale: Mock<(...args: any[]) => any>;
-      readonly getConfig: Mock<(...args: any[]) => any>;
-      readonly getExperimentalFeatures: Mock<(...args: any[]) => any>;
+      readonly reloadSession: ReturnType<typeof vi.fn>;
+      readonly getConfig: ReturnType<typeof vi.fn>;
+      readonly getExperimentalFeatures: ReturnType<typeof vi.fn>;
     };
-    readonly refreshSlashCommandAutocomplete: Mock<(...args: any[]) => any>;
-    readonly reloadCurrentSessionView: Mock<(...args: any[]) => any>;
-    readonly showStatus: Mock<(...args: any[]) => any>;
-    readonly showNotice: Mock<(...args: any[]) => any>;
+    readonly refreshSlashCommandAutocomplete: ReturnType<typeof vi.fn>;
+    readonly reloadCurrentSessionView: ReturnType<typeof vi.fn>;
+    readonly showStatus: ReturnType<typeof vi.fn>;
+    readonly showNotice: ReturnType<typeof vi.fn>;
   };
 }

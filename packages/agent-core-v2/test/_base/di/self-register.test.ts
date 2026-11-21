@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
@@ -30,22 +30,5 @@ describe('IInstantiationService self-registration', () => {
     const b = new InstantiationService();
     expect(a.invokeFunction((acc) => acc.get(IInstantiationService))).toBe(a);
     expect(b.invokeFunction((acc) => acc.get(IInstantiationService))).toBe(b);
-  });
-
-  it('use-after-dispose on self-registration throws', () => {
-    const ix = new InstantiationService();
-    ix.dispose();
-    expect(() => ix.invokeFunction((a) => a.get(IInstantiationService))).toThrow(/disposed/);
-  });
-
-  it('IInstantiationService resolved via createInstance is the creating container', () => {
-    class Widget {
-      constructor(@IInstantiationService public readonly ix: IInstantiationService) {}
-    }
-    const parent = new InstantiationService();
-    const child = parent.createChild(new ServiceCollection());
-    const w = child.createInstance(Widget);
-    expect(w.ix).toBe(child);
-    parent.dispose();
   });
 });

@@ -8,9 +8,9 @@ export function stubWorkspaceContext(
     _serviceBrand: undefined,
     workDir,
     additionalDirs,
-    setWorkDir: () => {},
     resolve: (rel) => `${workDir}/${rel}`,
     isWithin: () => true,
     assertAllowed: (absPath) => absPath,
+    setWorkDir: () => {},
   };
 }

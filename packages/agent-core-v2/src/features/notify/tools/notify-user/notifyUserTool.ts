@@ -1,17 +1,12 @@
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import {
-  RepoMutations,
-  ToolAccesses,
-  ToolSideEffects,
-  type ToolExecution,
-} from '#/tool/toolContract';
-
+import { ToolAccesses, type ToolExecution } from '#/tool/toolContract';
 import { notifyUserAvailable } from '../../notifyUserAvailability';
 import { notifyStreakBefore } from '../../notifyUserNudge';
+
 import {
   INotifyUserTool,
   NOTIFY_USER_TOOL_NAME,
@@ -19,26 +14,24 @@ import {
   type NotifyUserInput,
 } from './notify-user';
 import DESCRIPTION from './notify-user.md?raw';
-import { NOTIFY_USER_DELIVERED_OUTPUT, NOTIFY_USER_SUPPRESSED_OUTPUT } from './notifyOutput';
 
-export { NOTIFY_USER_DELIVERED_OUTPUT, NOTIFY_USER_SUPPRESSED_OUTPUT } from './notifyOutput';
+export const NOTIFY_USER_DELIVERED_OUTPUT = 'Update shown to the user.';
 export const NOTIFY_USER_EMPTY_TITLE = 'title must not be empty.';
 export const NOTIFY_USER_MULTILINE_TITLE = 'title must be a single line.';
 export const NOTIFY_USER_INVALID_TITLE = 'title must be a string.';
 export const NOTIFY_USER_EMPTY_MESSAGE = 'message must not be empty.';
+export const NOTIFY_USER_SUPPRESSED_OUTPUT = 'Notifications are disabled; the update was not displayed.';
 
 export class NotifyUserTool implements INotifyUserTool {
   declare readonly _serviceBrand: undefined;
   readonly name = NOTIFY_USER_TOOL_NAME;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(NotifyUserInputSchema);
 
   constructor(
     @IFlagService private readonly flags: IFlagService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
-    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentLoopService private readonly context: IAgentLoopService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 
@@ -63,7 +56,7 @@ export class NotifyUserTool implements INotifyUserTool {
       approvalRule: this.name,
       execute: async ({ turnId, toolCallId }) => {
         const displayed = notifyUserAvailable(this.flags, this.bootstrap);
-        const streak = notifyStreakBefore(this.context.get(), toolCallId);
+        const streak = notifyStreakBefore(this.context.history(), toolCallId);
         this.telemetry.track2('notify_user_sent', {
           turn_id: turnId,
           rounds_since_notify: streak.rounds,

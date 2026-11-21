@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
@@ -14,7 +14,6 @@ function userPrompt(): ContextMessage {
   return {
     role: 'user',
     content: [{ type: 'text', text: 'do the thing' }],
-    toolCalls: [],
     origin: { kind: 'user' },
   };
 }
@@ -23,7 +22,6 @@ function nudgeInjection(): ContextMessage {
   return {
     role: 'user',
     content: [{ type: 'text', text: 'nudge' }],
-    toolCalls: [],
     origin: { kind: 'injection', variant: 'notify_user_nudge' },
   };
 }
@@ -32,7 +30,6 @@ function cronPrompt(): ContextMessage {
   return {
     role: 'user',
     content: [{ type: 'text', text: 'cron fired' }],
-    toolCalls: [],
     origin: {
       kind: 'cron_job',
       jobId: 'j1',
@@ -48,13 +45,7 @@ function slashSkillPrompt(): ContextMessage {
   return {
     role: 'user',
     content: [{ type: 'text', text: '/review' }],
-    toolCalls: [],
-    origin: {
-      kind: 'skill_activation',
-      activationId: 'a1',
-      skillName: 'review',
-      trigger: 'user-slash',
-    },
+    origin: { kind: 'skill_activation', activationId: 'a1', skillName: 'review', trigger: 'user-slash' },
   };
 }
 
@@ -62,13 +53,7 @@ function modelSkillPrompt(): ContextMessage {
   return {
     role: 'user',
     content: [{ type: 'text', text: 'skill content' }],
-    toolCalls: [],
-    origin: {
-      kind: 'skill_activation',
-      activationId: 'a2',
-      skillName: 'pdf',
-      trigger: 'model-tool',
-    },
+    origin: { kind: 'skill_activation', activationId: 'a2', skillName: 'pdf', trigger: 'model-tool' },
   };
 }
 
@@ -76,7 +61,6 @@ function taskPrompt(): ContextMessage {
   return {
     role: 'user',
     content: [{ type: 'text', text: 'task finished' }],
-    toolCalls: [],
     origin: { kind: 'task', taskId: 't1', status: 'completed', notificationId: 'n1' },
   };
 }
@@ -85,8 +69,7 @@ function retryPrompt(): ContextMessage {
   return {
     role: 'user',
     content: [],
-    toolCalls: [],
-    origin: { kind: 'retry' },
+    origin: undefined,
   };
 }
 
@@ -94,7 +77,6 @@ function subagentTriggerPrompt(): ContextMessage {
   return {
     role: 'user',
     content: [{ type: 'text', text: 'resume the subagent' }],
-    toolCalls: [],
     origin: { kind: 'system_trigger', name: 'subagent' },
   };
 }
@@ -103,7 +85,6 @@ function stopHookContinuation(): ContextMessage {
   return {
     role: 'user',
     content: [{ type: 'text', text: 'stop hook asks to continue' }],
-    toolCalls: [],
     origin: { kind: 'system_trigger', name: 'stop_hook' },
   };
 }
@@ -209,7 +190,7 @@ describe('notifyStreak', () => {
       retryPrompt(),
       assistantWithTools('Read'),
     ];
-    expect(notifyStreak(retryTurn).rounds).toBe(1);
+    expect(notifyStreak(retryTurn).rounds).toBe(2);
   });
 
   it('stops at a subagent system trigger but not at a stop-hook continuation', () => {
@@ -296,9 +277,9 @@ describe('shouldNudgeNotifyUser', () => {
 
   it('spaces nudges by the threshold while a silent streak continues', () => {
     expect(shouldNudgeNotifyUser(NOTIFY_USER_NUDGE_THRESHOLD * 2, 3)).toBe(false);
-    expect(
-      shouldNudgeNotifyUser(NOTIFY_USER_NUDGE_THRESHOLD * 2, NOTIFY_USER_NUDGE_THRESHOLD),
-    ).toBe(true);
+    expect(shouldNudgeNotifyUser(NOTIFY_USER_NUDGE_THRESHOLD * 2, NOTIFY_USER_NUDGE_THRESHOLD)).toBe(
+      true,
+    );
   });
 
   it('re-arms at the threshold after the model notified (streak reset)', () => {

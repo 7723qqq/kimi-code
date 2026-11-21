@@ -1,6 +1,6 @@
 {
   "name": "@moonshot-ai/agent-core-v2",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
   "description": "The unified agent engine for Kimi (v2 — DI Scope architecture)",
   "keywords": [
@@ -103,11 +103,19 @@
     "xstate": "^5.32.5",
     "yauzl": "^3.3.0",
     "yazl": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "@jsquash/webp": "^1.5.0",
+    "@moonshot-ai/core": "workspace:^",
+    "@noble/hashes": "^2.0.0",
+    "cross-spawn": "^7.0.6",
+    "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
+    "@moonshot-ai/testkit": "workspace:*",
+    "@types/cross-spawn": "^6.0.6",
     "@types/js-yaml": "^4.0.9",
     "@types/picomatch": "^4.0.3",
+    "@types/proper-lockfile": "^4.1.4",
     "@types/retry": "0.12.0",
     "@types/semver": "^7.7.0",
     "@types/sinon": "^21.0.1",
@@ -115,6 +123,7 @@
     "@types/yauzl": "^2.10.3",
     "@types/yazl": "^2.4.6",
     "sinon": "^22.0.0",
-    "ts-morph": "^28.0.0"
+    "ts-morph": "^28.0.0",
+    "tsx": "^4.21.0"
   }
 }

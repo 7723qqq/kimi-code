@@ -1,7 +1,7 @@
-import { type ModelCapability } from '#/llm/capability';
-import { getAnthropicModelCapability } from '#/llm/requester/bases/anthropic/capability';
-import { getOpenAILegacyModelCapability } from '#/llm/requester/bases/openai/capability';
-import { getOpenAIResponsesModelCapability } from '#/llm/requester/bases/openai-responses/capability';
+import { type ModelCapability } from '#human/llm/capability';
+import { getAnthropicModelCapability } from '#human/llm/requester/bases/anthropic/capability';
+import { getOpenAILegacyModelCapability } from '#human/llm/requester/bases/openai/capability';
+import { getOpenAIResponsesModelCapability } from '#human/llm/requester/bases/openai-responses/capability';
 
 export type BedrockWireProtocol = 'anthropic' | 'openai' | 'openai_responses';
 

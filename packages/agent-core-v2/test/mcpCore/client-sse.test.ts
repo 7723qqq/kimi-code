@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-
 import { SseError } from '@modelcontextprotocol/sdk/client/sse.js';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SseMcpClient, isTerminalSseTransportError } from '#/mcpCore/client-sse';
 
@@ -60,7 +59,11 @@ describe('SseMcpClient', () => {
     expect(isTerminalSseTransportError(unauthorized)).toBe(true);
     expect(
       isTerminalSseTransportError(
-        new SseError(204, 'Server sent HTTP 204', {} as ConstructorParameters<typeof SseError>[2]),
+        new SseError(
+          204,
+          'Server sent HTTP 204',
+          {} as ConstructorParameters<typeof SseError>[2],
+        ),
       ),
     ).toBe(true);
     expect(isTerminalSseTransportError(new Error('fetch failed'))).toBe(false);

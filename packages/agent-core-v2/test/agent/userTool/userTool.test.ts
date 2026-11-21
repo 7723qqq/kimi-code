@@ -1,19 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
-import { userToolKey } from '#/agent/userTool/userToolOps';
 import { AgentUserToolService } from '#/agent/userTool/userToolService';
+import { userToolKey } from '#/agent/userTool/userToolOps';
 import { interactions } from '#/human/interaction/facade';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -52,9 +52,7 @@ interface ProfileStub {
   readonly active: Set<string>;
 }
 
-function createProfileStub(
-  activeToolNames?: readonly string[],
-): IAgentProfileService & ProfileStub {
+function createProfileStub(activeToolNames?: readonly string[]): IAgentLoopService & ProfileStub {
   const active = new Set<string>();
   return {
     active,
@@ -66,7 +64,7 @@ function createProfileStub(
     removeActiveTool: (name: string) => {
       active.delete(name);
     },
-  } as unknown as IAgentProfileService & ProfileStub;
+  } as unknown as IAgentLoopService & ProfileStub;
 }
 
 let disposables: DisposableStore;
@@ -75,7 +73,7 @@ let log: IAppendLogStore;
 let dispatcher: IEventDispatcher;
 let agentState: IAgentStateService;
 let registry: IAgentToolRegistryService;
-let profile: IAgentProfileService & ProfileStub;
+let profile: IAgentLoopService & ProfileStub;
 let svc: IAgentUserToolService;
 
 beforeEach(() => {
@@ -86,8 +84,8 @@ beforeEach(() => {
   ix.set(IAgentStateService, new AgentStateService());
   ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
   profile = createProfileStub();
-  ix.stub(IAgentProfileService, profile);
-
+  ix.stub(IAgentLoopService, profile);
+  
   ix.set(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
   log = ix.get(IAppendLogStore);
   registerTestAgentWire(ix, testWireScope(SCOPE, KEY), { log });
@@ -105,10 +103,7 @@ afterEach(() => {
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(
-    testWireScope(SCOPE, key),
-    AGENT_WIRE_RECORD_KEY,
-  )) {
+  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
     out.push(record);
   }
   return out;
@@ -191,7 +186,7 @@ describe('AgentUserToolService (wire-backed)', () => {
     ixChild.set(IAgentStateService, new AgentStateService());
     ixChild.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
     const childProfile = createProfileStub();
-    ixChild.stub(IAgentProfileService, childProfile);
+    ixChild.stub(IAgentLoopService, childProfile);
     ixChild.set(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
 
     registerTestAgentWire(ixChild, testWireScope(SCOPE, 'user-tool-child'), {
@@ -235,7 +230,7 @@ describe('AgentUserToolService (wire-backed)', () => {
     ixChild.set(IAgentStateService, new AgentStateService());
     ixChild.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
     const childProfile = createProfileStub([]);
-    ixChild.stub(IAgentProfileService, childProfile);
+    ixChild.stub(IAgentLoopService, childProfile);
     ixChild.set(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
     registerTestAgentWire(ixChild, testWireScope(SCOPE, 'inactive-user-tool-child'), {
       log: ixChild.get(IAppendLogStore),
@@ -251,11 +246,23 @@ describe('AgentUserToolService (wire-backed)', () => {
     expect(childProfile.active.has(toolA.name)).toBe(false);
   });
 
-  it('re-registering an equal tool is a no-op on the model (same reference)', () => {
+  it('re-registering an equal tool is a model no-op and duplicate registration requires explicit unregister', () => {
     svc.register(toolA);
     const before = modelOf(agentState);
     svc.register(toolA);
     expect(modelOf(agentState)).toBe(before);
+    expect(() => registry.register({
+      name: toolA.name,
+      description: toolA.description,
+      parameters: toolA.parameters,
+      resolveExecution: () => ({
+        approvalRule: toolA.name,
+        execute: async () => ({ output: 'duplicate' }),
+      }),
+    })).toThrow('Tool "Lookup" is already registered; unregister it before registering again');
+    expect(registry.unregister(toolA.name)).toBe(true);
+    expect(registry.resolve(toolA.name)).toBeUndefined();
+    expect(registry.unregister(toolA.name)).toBe(false);
   });
 
   it('execute parks under a minted interaction id and keeps the provider toolCallId on the payload', async () => {
@@ -264,7 +271,7 @@ describe('AgentUserToolService (wire-backed)', () => {
     ixExec.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ixExec.set(IAgentStateService, new AgentStateService());
     ixExec.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
-    ixExec.stub(IAgentProfileService, createProfileStub());
+    ixExec.stub(IAgentLoopService, createProfileStub());
     ixExec.stub(ISessionContext, { sessionId: EXEC_SESSION_ID });
     ixExec.set(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
     registerTestAgentWire(ixExec, testWireScope(SCOPE, 'user-tool-exec'), {
@@ -323,7 +330,9 @@ describe('AgentUserToolService (wire-backed)', () => {
 
     expect(modelOf(agentState)).not.toBe(before);
     expect(modelOf(agentState).get(toolA.name)?.disclosure).toBe('deferred');
-    expect(registry.list().find((tool) => tool.name === toolA.name)?.disclosure).toBe('deferred');
+    expect(registry.list().find((tool) => tool.name === toolA.name)?.disclosure).toBe(
+      'deferred',
+    );
   });
 
   it('replay rebuilds the model silently and onDidRestore re-registers tools after replay', async () => {
@@ -337,7 +346,7 @@ describe('AgentUserToolService (wire-backed)', () => {
     ix2.set(IAgentStateService, new AgentStateService());
     ix2.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
     const profile2 = createProfileStub();
-    ix2.stub(IAgentProfileService, profile2);
+    ix2.stub(IAgentLoopService, profile2);
     ix2.set(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
 
     registerTestAgentWire(ix2, testWireScope(SCOPE, 'user-tool-replay'), {

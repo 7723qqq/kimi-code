@@ -1,8 +1,7 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import type { SkillDefinition, SkillSource } from '#/features/skill/catalog/types';
-
 import { stubSkill } from './stubs';
 
 describe('InMemorySkillCatalog skill listing', () => {
@@ -108,10 +107,7 @@ describe('InMemorySkillCatalog skill listing', () => {
     expect(registry.getSkill('foo')?.description).toBe('primary');
     expect(registry.getSkill('foo', secondary.path)?.description).toBe('secondary');
     expect(registry.getSkill('foo', '/tmp/missing/SKILL.md')).toBeUndefined();
-    expect(registry.listSkills().map((skill) => skill.description)).toEqual([
-      'primary',
-      'secondary',
-    ]);
+    expect(registry.listSkills().map((skill) => skill.description)).toEqual(['primary', 'secondary']);
     expect(registry.listDefaultSkills().map((skill) => skill.description)).toEqual(['primary']);
     expect(registry.getModelSkillListing()).toContain('Workspace: /tmp/secondary');
   });
@@ -207,33 +203,6 @@ describe('InMemorySkillCatalog model skill listing', () => {
 });
 
 describe('InMemorySkillCatalog prompt rendering', () => {
-  it('appends a required verification block when the skill declares one', () => {
-    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
-      stubSkill('release', {
-        content: 'Ship it.',
-        metadata: { verify: ['pnpm test --filter release', 'pnpm lint'] },
-      }),
-      '',
-    );
-
-    expect(rendered).toBe(
-      'Ship it.\n\n## Verification (required)\n\n' +
-        'Do not report this skill as complete until every command below has passed. ' +
-        'Running the commands is the check; reviewing your own output is not a substitute.\n' +
-        '- `pnpm test --filter release`\n' +
-        '- `pnpm lint`',
-    );
-  });
-
-  it('leaves the prompt untouched when no verification is declared', () => {
-    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
-      stubSkill('release', { content: 'Ship it.' }),
-      '',
-    );
-    expect(rendered).toBe('Ship it.');
-    expect(rendered).not.toContain('Verification');
-  });
-
   it('expands raw, positional, named, and context placeholders', () => {
     const rendered = new InMemorySkillCatalog().renderSkillPrompt(
       stubSkill('commit', {
@@ -298,7 +267,9 @@ describe('InMemorySkillCatalog prompt rendering', () => {
       { sessionId: 'ses_1' },
     );
 
-    expect(rendered).toBe('Use /skills/review/references/checklist.md.\n\nARGUMENTS: src/app.ts');
+    expect(rendered).toBe(
+      'Use /skills/review/references/checklist.md.\n\nARGUMENTS: src/app.ts',
+    );
   });
 
   it('does not treat longer variable names as declared argument placeholders', () => {
@@ -386,17 +357,10 @@ describe('InMemorySkillCatalog plugin lookup', () => {
     const registry = new InMemorySkillCatalog();
     registry.register(makeSkill('review', 'project', 'project skill'));
     registry.register(
-      makeSkill(
-        'review',
-        'extra',
-        'plugin skill',
-        undefined,
-        {},
-        {
-          id: 'superpowers',
-          instructions: 'Use the plugin instructions.',
-        },
-      ),
+      makeSkill('review', 'extra', 'plugin skill', undefined, {}, {
+        id: 'superpowers',
+        instructions: 'Use the plugin instructions.',
+      }),
     );
 
     expect(registry.getSkill('review')).toMatchObject({
@@ -444,17 +408,10 @@ describe('InMemorySkillCatalog plugin lookup', () => {
 
   it('keeps plugin context on the qualified entry so instructions injection still works', () => {
     const registry = makeRegistry([
-      makeSkill(
-        'brainstorm',
-        'extra',
-        'from plugin',
-        undefined,
-        {},
-        {
-          id: 'superpowers',
-          instructions: 'Use AskUserQuestion.',
-        },
-      ),
+      makeSkill('brainstorm', 'extra', 'from plugin', undefined, {}, {
+        id: 'superpowers',
+        instructions: 'Use AskUserQuestion.',
+      }),
     ]);
 
     const skill = registry.getSkill('superpowers:brainstorm');
@@ -486,28 +443,14 @@ describe('InMemorySkillCatalog plugin lookup', () => {
   it('replaces both the qualified-name and plugin indexes when requested', () => {
     const registry = new InMemorySkillCatalog();
     registry.register(
-      makeSkill(
-        'review',
-        'extra',
-        'first',
-        undefined,
-        {},
-        {
-          id: 'superpowers',
-        },
-      ),
+      makeSkill('review', 'extra', 'first', undefined, {}, {
+        id: 'superpowers',
+      }),
     );
     registry.register(
-      makeSkill(
-        'review',
-        'extra',
-        'second',
-        undefined,
-        {},
-        {
-          id: 'superpowers',
-        },
-      ),
+      makeSkill('review', 'extra', 'second', undefined, {}, {
+        id: 'superpowers',
+      }),
       { replace: true },
     );
 

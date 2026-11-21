@@ -1,12 +1,12 @@
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { CRON_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
-import { IAgentCronService } from '#/features/cron/cronService';
-import { type CronTask } from '#/features/cron/cronTask';
-import { cronToHuman, parseCronExpression } from '#/features/cron/internal/cron-expr';
-import { formatLocalIsoWithOffset } from '#/features/cron/internal/format';
+import type { ToolExecution } from '#/tool/toolContract';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { RepoMutations, ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentCronService } from '#/features/cron/cronService';
+import { cronToHuman, parseCronExpression } from '#/features/cron/internal/cron-expr';
+import { type CronTask } from '#/features/cron/cronTask';
+import { formatLocalIsoWithOffset } from '#/features/cron/internal/format';
 
+import { CRON_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
 import { ICronListTool, CronListInputSchema, type CronListInput } from './cron-list';
 import CRON_LIST_DESCRIPTION from './cron-list.md?raw';
 
@@ -26,10 +26,10 @@ export class CronListTool implements ICronListTool {
   declare readonly _serviceBrand: undefined;
 
   readonly name = 'CronList' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description = CRON_LIST_DESCRIPTION;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(CronListInputSchema);
+  readonly parameters: Record<string, unknown> = toInputJsonSchema(
+    CronListInputSchema,
+  );
 
   constructor(
     @IAgentCronService private readonly cron: IAgentCronService,
@@ -78,7 +78,8 @@ export class CronListTool implements ICronListTool {
       if (nextFireMs !== null) {
         nextFireAtIso = formatLocalIsoWithOffset(nextFireMs);
       }
-    } catch {}
+    } catch {
+    }
 
     return [
       `id: ${task.id}`,

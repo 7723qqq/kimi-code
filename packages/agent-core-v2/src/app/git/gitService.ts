@@ -1,17 +1,12 @@
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import type { FsDiffResponse, FsGitStatusResponse, FsPullRequest, GitStatusOptions } from './git';
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
 import { resolveProgramPath } from '#/environment/programPath';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 
-import type {
-  FsDiffResponse,
-  FsGitStatusResponse,
-  FsPullRequest,
-  GitStatusOptions,
-} from './git';
 import { IGitService } from './git';
 import { parseNumstat, parsePorcelain, parsePullRequest } from './gitParsers';
 import { findGitWorkTree, type GitWorkTree } from './workTree';
@@ -21,8 +16,6 @@ const DIFF_MAX_BYTES = 1_048_576;
 const GIT_SPAWN_TIMEOUT_MS = 30_000;
 const PR_SPAWN_TIMEOUT_MS = 5_000;
 const PULL_REQUEST_TTL_MS = 60_000;
-
-const NULL_DEVICE = process.platform === 'win32' ? 'NUL' : '/dev/null';
 
 export class GitService implements IGitService {
   declare readonly _serviceBrand: undefined;
@@ -41,20 +34,14 @@ export class GitService implements IGitService {
   async status(cwd: string, options: GitStatusOptions = {}): Promise<FsGitStatusResponse> {
     const inside = await this.runCommand('git', ['rev-parse', '--is-inside-work-tree'], cwd);
     if (inside.exitCode !== 0 || inside.stdout.trim() !== 'true') {
-      throw this.gitUnavailable(
-        cwd,
-        inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`,
-      );
+      throw this.gitUnavailable(cwd, inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`);
     }
 
     let pathPrefix = '';
     if (options.scopeToCwd === true) {
       const prefix = await this.runCommand('git', ['rev-parse', '--show-prefix'], cwd);
       if (prefix.exitCode !== 0) {
-        throw this.gitUnavailable(
-          cwd,
-          prefix.stderr.trim() || `git rev-parse exit ${prefix.exitCode}`,
-        );
+        throw this.gitUnavailable(cwd, prefix.stderr.trim() || `git rev-parse exit ${prefix.exitCode}`);
       }
       pathPrefix = prefix.stdout.replace(/\r?\n$/, '');
     }
@@ -86,25 +73,14 @@ export class GitService implements IGitService {
       }
     }
 
-    result.pullRequest =
-      options.includePullRequest === false ? null : await this.readPullRequest(cwd, result.branch);
+    result.pullRequest = options.includePullRequest === false ? null : await this.readPullRequest(cwd, result.branch);
     return result;
   }
 
   async pullRequest(cwd: string): Promise<FsPullRequest | null> {
-    const inside = await this.runCommand('git', ['rev-parse', '--is-inside-work-tree'], cwd);
-    if (inside.exitCode !== 0 || inside.stdout.trim() !== 'true') {
-      throw this.gitUnavailable(
-        cwd,
-        inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`,
-      );
-    }
     const head = await this.runCommand('git', ['symbolic-ref', '--short', '-q', 'HEAD'], cwd);
     if (head.exitCode !== 0 && head.exitCode !== 1) {
-      throw this.gitUnavailable(
-        cwd,
-        head.stderr.trim() || `git symbolic-ref exit ${head.exitCode}`,
-      );
+      throw this.gitUnavailable(cwd, head.stderr.trim() || `git symbolic-ref exit ${head.exitCode}`);
     }
     return this.readPullRequest(cwd, head.stdout.trim());
   }
@@ -112,22 +88,12 @@ export class GitService implements IGitService {
   async diff(cwd: string, relPath: string, absPath: string): Promise<FsDiffResponse> {
     const inside = await this.runCommand('git', ['rev-parse', '--is-inside-work-tree'], cwd);
     if (inside.exitCode !== 0 || inside.stdout.trim() !== 'true') {
-      throw this.gitUnavailable(
-        cwd,
-        inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`,
-      );
+      throw this.gitUnavailable(cwd, inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`);
     }
 
-    const statusRes = await this.runCommand(
-      'git',
-      ['status', '--porcelain=v1', '--', relPath],
-      cwd,
-    );
+    const statusRes = await this.runCommand('git', ['status', '--porcelain=v1', '--', relPath], cwd);
     if (statusRes.exitCode !== 0) {
-      throw this.gitUnavailable(
-        cwd,
-        statusRes.stderr.trim() || `git status exit ${statusRes.exitCode}`,
-      );
+      throw this.gitUnavailable(cwd, statusRes.stderr.trim() || `git status exit ${statusRes.exitCode}`);
     }
     const untracked = statusRes.stdout.startsWith('??');
 
@@ -138,7 +104,7 @@ export class GitService implements IGitService {
     if (untracked || !hasHead) {
       const res = await this.runCommand(
         'git',
-        ['diff', '--no-color', '--no-index', '--', NULL_DEVICE, relPath],
+        ['diff', '--no-color', '--no-index', '--', '/dev/null', relPath],
         cwd,
       );
       if (res.exitCode !== 0 && res.exitCode !== 1) {
@@ -180,18 +146,19 @@ export class GitService implements IGitService {
     if (branch === '') return null;
     const cached = this.pullRequestCache.get(cwd);
     const now = Date.now();
-    if (
-      cached !== undefined &&
-      cached.branch === branch &&
-      now - cached.fetchedAt < PULL_REQUEST_TTL_MS
-    ) {
+    if (cached !== undefined && cached.branch === branch && now - cached.fetchedAt < PULL_REQUEST_TTL_MS) {
       return cached.value;
     }
 
-    const res = await this.runCommand('gh', ['pr', 'view', '--json', 'number,url,state,isDraft'], cwd, {
-      env: { GH_NO_UPDATE_NOTIFIER: '1', GH_PROMPT_DISABLED: '1' },
-      timeoutMs: PR_SPAWN_TIMEOUT_MS,
-    });
+    const res = await this.runCommand(
+      'gh',
+      ['pr', 'view', '--json', 'number,url,state,isDraft'],
+      cwd,
+      {
+        env: { GH_NO_UPDATE_NOTIFIER: '1', GH_PROMPT_DISABLED: '1' },
+        timeoutMs: PR_SPAWN_TIMEOUT_MS,
+      },
+    );
     const value = res.exitCode === 0 ? parsePullRequest(res.stdout) : null;
     this.pullRequestCache.set(cwd, { branch, value, fetchedAt: now });
     return value;
@@ -233,12 +200,10 @@ export class GitService implements IGitService {
         timer.unref?.();
       });
       const result = await Promise.race([
-        work.then(([stdout, stderr, exitCode]) => ({
-          kind: 'done' as const,
-          stdout,
-          stderr,
-          exitCode,
-        })),
+        work.then(
+          ([stdout, stderr, exitCode]) =>
+            ({ kind: 'done' as const, stdout, stderr, exitCode }),
+        ),
         timeout.then((kind) => ({ kind })),
       ]);
       if (result.kind === 'done') {
@@ -282,7 +247,6 @@ function localProgramPath(cmd: string, cwd: string): string | undefined {
   }
 }
 
-
 async function collect(stream: AsyncIterable<Uint8Array | string>): Promise<string> {
   const decoder = new TextDecoder();
   let out = '';
@@ -293,10 +257,4 @@ async function collect(stream: AsyncIterable<Uint8Array | string>): Promise<stri
   return out;
 }
 
-registerScopedService(
-  LifecycleScope.App,
-  IGitService,
-  GitService,
-  ScopeActivation.OnScopeCreated,
-  'git',
-);
+registerScopedService(LifecycleScope.App, IGitService, GitService, ScopeActivation.OnScopeCreated, 'git');

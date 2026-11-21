@@ -1,5 +1,6 @@
-import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 import { z } from 'zod';
+
+import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 
 export const workspaceIdSchema = z
   .string()
@@ -9,13 +10,11 @@ export const workspaceIdSchema = z
 
 export type WorkspaceId = z.infer<typeof workspaceIdSchema>;
 
-export const workspaceKindSchema = z.enum(['managed', 'implicit']);
-
 export const workspaceSchema = z.object({
   id: workspaceIdSchema,
   root: z.string().min(1),
   name: z.string().min(1).max(100),
-  kind: workspaceKindSchema,
+  kind: z.enum(['managed', 'implicit']),
   additional_dirs: z.array(z.string()),
   created_at: isoDateTimeSchema,
   last_opened_at: isoDateTimeSchema,
@@ -33,9 +32,13 @@ export const workspaceCreateSchema = z.object({
 
 export type WorkspaceCreate = z.infer<typeof workspaceCreateSchema>;
 
-export const workspaceUpdateSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  additional_dirs: z.array(z.string().min(1)).max(64).optional(),
-});
+export const workspaceUpdateSchema = z
+  .object({
+    name: z.string().min(1).max(100).optional(),
+    additional_dirs: z.array(z.string().min(1)).max(64).optional(),
+  })
+  .refine((value) => value.name !== undefined || value.additional_dirs !== undefined, {
+    message: 'at least one of name or additional_dirs is required',
+  });
 
 export type WorkspaceUpdate = z.infer<typeof workspaceUpdateSchema>;

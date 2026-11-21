@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import lockfile from 'proper-lockfile';
 
 import {
   marketplaceEntryInstallableOnHost,
@@ -10,10 +11,6 @@ import {
   type PluginMarketplacePlatform,
 } from './marketplace';
 import type { PluginRecord } from './types';
-
-const LOCK_RETRY_MS = 50;
-const LOCK_TIMEOUT_MS = 10_000;
-const LOCK_STALE_MS = 5_000;
 
 export interface PluginAvailabilityEntry {
   readonly clients?: readonly PluginClient[];
@@ -48,39 +45,32 @@ function availabilityValue(entry: PluginAvailabilityEntry): string {
 }
 
 function availabilityFileValue(file: PluginAvailabilityFile): string {
-  const sources = Object.entries(file.sources).toSorted(([left], [right]) =>
-    left.localeCompare(right),
-  );
-  return JSON.stringify(
-    Object.fromEntries(
-      sources.map(([source, entries]) => [
-        source,
-        Object.fromEntries(
-          Object.entries(entries).map(([id, entry]) => [
-            id,
-            { value: availabilityValue(entry), artifactSourceKey: entry.artifactSourceKey },
-          ]),
-        ),
-      ]),
-    ),
-  );
+  const sources = Object.entries(file.sources)
+    .toSorted(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify(Object.fromEntries(
+    sources.map(([source, entries]) => [
+      source,
+      Object.fromEntries(Object.entries(entries).map(([id, entry]) => [id, {
+        value: availabilityValue(entry),
+        artifactSourceKey: entry.artifactSourceKey,
+      }])),
+    ]),
+  ));
 }
 
 function catalogEntries(
   marketplace: PluginMarketplace,
   checkedAt: string,
 ): Readonly<Record<string, PluginAvailabilityEntry>> {
-  return Object.fromEntries(
-    marketplace.plugins.map((entry) => [
-      entry.id,
-      {
-        clients: entry.clients,
-        platforms: entry.platforms,
-        artifactSourceKey: pluginAvailabilitySourceKey(entry.source),
-        checkedAt,
-      },
-    ]),
-  );
+  return Object.fromEntries(marketplace.plugins.map((entry) => [
+    entry.id,
+    {
+      clients: entry.clients,
+      platforms: entry.platforms,
+      artifactSourceKey: pluginAvailabilitySourceKey(entry.source),
+      checkedAt,
+    },
+  ]));
 }
 
 function availabilityObject(value: unknown): Record<string, unknown> {
@@ -115,66 +105,33 @@ function migrateAvailabilityEntry(value: unknown): PluginAvailabilityEntry {
     platforms: availabilityStrings(entry['platforms']) as
       | readonly PluginMarketplacePlatform[]
       | undefined,
-    artifactSourceKey:
-      availabilityString(entry['artifactSourceKey']) ??
+    artifactSourceKey: availabilityString(entry['artifactSourceKey']) ??
       (artifactSource === undefined ? undefined : pluginAvailabilitySourceKey(artifactSource)),
     checkedAt,
   };
 }
 
-async function readAvailability(filePath: string): Promise<PluginAvailabilityFile> {
-  let text: string;
+async function readAvailability(kimiHomeDir: string): Promise<PluginAvailabilityFile> {
   try {
-    text = await Bun.file(filePath).text();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return EMPTY;
-    throw error;
-  }
-  const parsed = availabilityObject(JSON.parse(text));
-  if (parsed['version'] !== 1) throw new Error('Invalid plugin availability cache');
-  const sources = availabilityObject(parsed['sources']);
-  return {
-    version: 1,
-    sources: Object.fromEntries(
-      Object.entries(sources).map(([source, value]) => [
+    const text = await Bun.file(path.join(kimiHomeDir, 'plugins', 'availability.json')).text();
+    const parsed = availabilityObject(JSON.parse(text));
+    if (parsed['version'] !== 1) throw new Error('Invalid plugin availability cache');
+    const sources = availabilityObject(parsed['sources']);
+    return {
+      version: 1,
+      sources: Object.fromEntries(Object.entries(sources).map(([source, value]) => [
         pluginAvailabilitySourceKey(source),
-        Object.fromEntries(
-          Object.entries(availabilityObject(value)).map(([id, entry]) => [
-            id,
-            migrateAvailabilityEntry(entry),
-          ]),
-        ),
-      ]),
-    ),
-  };
-}
-
-async function withFileLock<T>(lockPath: string, run: () => Promise<T>): Promise<T> {
-  const deadline = Date.now() + LOCK_TIMEOUT_MS;
-  for (;;) {
-    try {
-      const handle = await open(lockPath, 'wx');
-      await handle.close();
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      const age = await stat(lockPath)
-        .then((info) => Date.now() - info.mtimeMs)
-        .catch(() => 0);
-      if (age > LOCK_STALE_MS) {
-        await rm(lockPath, { force: true });
-        continue;
-      }
-      if (Date.now() > deadline) {
-        throw new Error(`Timed out waiting for the plugin availability lock: ${lockPath}`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+        Object.fromEntries(Object.entries(availabilityObject(value)).map(([id, entry]) => [
+          id,
+          migrateAvailabilityEntry(entry),
+        ])),
+      ])),
+    };
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
+      return EMPTY;
     }
-  }
-  try {
-    return await run();
-  } finally {
-    await rm(lockPath, { force: true }).catch(() => undefined);
+    throw error;
   }
 }
 
@@ -192,7 +149,7 @@ export class PluginAvailabilityStore {
   }
 
   async refresh(): Promise<void> {
-    this.replaceCurrent(await readAvailability(this.filePath));
+    this.replaceCurrent(await readAvailability(path.dirname(path.dirname(this.filePath))));
   }
 
   async update(marketplace: PluginMarketplace): Promise<boolean> {
@@ -200,12 +157,17 @@ export class PluginAvailabilityStore {
     const checkedAt = new Date().toISOString();
     const incoming = catalogEntries(marketplace, checkedAt);
     await mkdir(path.dirname(this.filePath), { recursive: true });
-    return withFileLock(`${this.filePath}.lock`, async () => {
-      const latest = await readAvailability(this.filePath);
+    const release = await lockfile.lock(`${this.filePath}.lock`, {
+      retries: { retries: 120, factor: 1, minTimeout: 50, maxTimeout: 200 },
+      stale: 5_000,
+      realpath: false,
+    });
+    let temporary: string | undefined;
+    try {
+      const latest = await readAvailability(path.dirname(path.dirname(this.filePath)));
       const existing = latest.sources[source] ?? {};
-      const changed = Object.entries(incoming).some(
-        ([id, entry]) =>
-          existing[id] === undefined || availabilityValue(existing[id]) !== availabilityValue(entry),
+      const changed = Object.entries(incoming).some(([id, entry]) =>
+        existing[id] === undefined || availabilityValue(existing[id]) !== availabilityValue(entry)
       );
       if (!changed) {
         this.replaceCurrent(latest);
@@ -213,35 +175,34 @@ export class PluginAvailabilityStore {
       }
       const next: PluginAvailabilityFile = {
         version: 1,
-        sources: { ...latest.sources, [source]: { ...latest.sources[source], ...incoming } },
+        sources: {
+          ...latest.sources,
+          [source]: { ...latest.sources[source], ...incoming },
+        },
       };
-      const temporary = `${this.filePath}.${randomUUID()}.tmp`;
-      try {
-        await writeFile(temporary, JSON.stringify(next, null, 2), 'utf8');
-        await rename(temporary, this.filePath);
-      } finally {
-        await rm(temporary, { force: true }).catch(() => undefined);
-      }
+      temporary = `${this.filePath}.${randomUUID()}.tmp`;
+      await writeFile(temporary, JSON.stringify(next, null, 2), 'utf8');
+      await rename(temporary, this.filePath);
       this.replaceCurrent(next);
       return true;
-    });
+    } finally {
+      if (temporary !== undefined) await rm(temporary, { force: true }).catch(() => undefined);
+      await release();
+    }
   }
 
   entryFor(record: AvailabilityRecord): PluginAvailabilityEntry | undefined {
     if (record.origin === 'custom') return undefined;
     const catalogId = record.catalogId ?? (record.origin === 'unknown' ? record.id : undefined);
     if (catalogId === undefined) return undefined;
-    const originalSourceKey =
-      record.originalSource === undefined
-        ? undefined
-        : pluginAvailabilitySourceKey(record.originalSource);
+    const originalSourceKey = record.originalSource === undefined
+      ? undefined
+      : pluginAvailabilitySourceKey(record.originalSource);
     if (record.marketplaceSource !== undefined) {
-      const entry =
-        this.current.sources[pluginAvailabilitySourceKey(record.marketplaceSource)]?.[catalogId];
+      const entry = this.current.sources[pluginAvailabilitySourceKey(record.marketplaceSource)]?.[catalogId];
       if (
         record.origin === 'unknown' &&
-        (entry?.artifactSourceKey === undefined ||
-          entry.artifactSourceKey !== originalSourceKey)
+        (entry?.artifactSourceKey === undefined || entry.artifactSourceKey !== originalSourceKey)
       ) {
         return undefined;
       }
@@ -252,8 +213,7 @@ export class PluginAvailabilityStore {
       .filter((entry): entry is PluginAvailabilityEntry => entry !== undefined);
     if (record.origin === 'unknown') {
       const provenanceMatches = matches.filter(
-        (entry) =>
-          entry.artifactSourceKey !== undefined && entry.artifactSourceKey === originalSourceKey,
+        (entry) => entry.artifactSourceKey !== undefined && entry.artifactSourceKey === originalSourceKey,
       );
       if (provenanceMatches.length === 1) return provenanceMatches[0];
       return provenanceMatches.length === 0
@@ -263,24 +223,10 @@ export class PluginAvailabilityStore {
     if (matches.length === 1) return matches[0];
     if (matches.length === 0) return undefined;
     const provenanceMatches = matches.filter(
-      (entry) =>
-        entry.artifactSourceKey !== undefined && entry.artifactSourceKey === originalSourceKey,
+      (entry) => entry.artifactSourceKey !== undefined && entry.artifactSourceKey === originalSourceKey,
     );
     if (provenanceMatches.length === 1) return provenanceMatches[0];
     return { clients: [], platforms: [], checkedAt: '' };
-  }
-
-  matchByArtifact(
-    artifactSource: string,
-  ): { readonly marketplaceSource: string; readonly catalogId: string } | undefined {
-    const digest = pluginAvailabilitySourceKey(artifactSource);
-    for (const [marketplaceSource, entries] of Object.entries(this.current.sources)) {
-      const match = Object.entries(entries).find(
-        ([, entry]) => entry.artifactSourceKey === digest,
-      );
-      if (match !== undefined) return { marketplaceSource, catalogId: match[0] };
-    }
-    return undefined;
   }
 
   supports(record: AvailabilityRecord, client: PluginClient, platform: NodeJS.Platform): boolean {

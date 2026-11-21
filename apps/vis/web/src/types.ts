@@ -1,7 +1,3 @@
-// Client-side types — re-export server DTOs (type-only cross-package import).
-// The server's `agent-record-types.ts` is the single source of truth for
-// all session / agent / wire shapes.
-
 export type {
   SessionSummary,
   SessionDetail,
@@ -37,7 +33,9 @@ export type {
   ImportResult,
   LogLine,
   LogsResponse,
+  CoreContentPart,
 } from '../../server/src/lib/agent-record-types';
+export { mediaUrlOf } from '../../server/src/lib/agent-record-types';
 
 export type {
   ProjectedMessage,
@@ -52,12 +50,6 @@ export interface DeleteSessionResponse {
   deleted: true;
 }
 
-/**
- * Shape returned by `GET /api/sessions/:id/context?agent=<agentId>`.
- *
- * Mirrors `ContextProjection` from context-projector, plus the `sessionId`
- * and `agentId` echoed by the route.
- */
 export interface ContextResponse {
   sessionId: string;
   agentId: string;
@@ -69,8 +61,4 @@ export interface ContextResponse {
   planMode: { active: boolean; id?: string };
   goal: import('../../server/src/lib/context-projector').GoalSnapshot | null;
   swarm: { active: boolean; trigger?: string };
-  helloWorld?: { active: boolean; trigger?: string; stage?: string };
-  /** Wire-reader and blob-resolver caveats for this read (malformed records,
-   *  parts left unresolved). Absent on a clean read. */
-  warnings?: string[];
 }

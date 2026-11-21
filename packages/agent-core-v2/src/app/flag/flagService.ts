@@ -1,10 +1,9 @@
 import { Disposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { ILogService } from '#/_base/log/log';
 import { parseBooleanEnv } from '#/_base/utils/env';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
 
 import {
   type ExperimentalFeatureState,
@@ -27,7 +26,6 @@ export class FlagService extends Disposable implements IFlagService {
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IConfigService private readonly config: IConfigService,
     @IFlagRegistry registry: IFlagRegistry,
-    @ILogService private readonly log: ILogService,
   ) {
     super();
     this.registry = registry;
@@ -39,40 +37,14 @@ export class FlagService extends Disposable implements IFlagService {
         }
       }),
     );
-    for (const name of [...this.registry.list().map((def) => def.env), MASTER_ENV]) {
-      const value = this.bootstrap.getEnv(name);
-      if (value === undefined || value.trim().length === 0) continue;
-      if (parseBooleanEnv(value) !== undefined) continue;
-      this.log.warn(
-        `Ignoring invalid boolean value ${JSON.stringify(value)} for ${name}; expected 1/true/yes/on or 0/false/no/off`,
-      );
-    }
   }
 
   private readConfig(): ExperimentalFlagConfig {
-    return this.canonicalizeOverrides(
-      this.config.get<ExperimentalFlagConfig>(EXPERIMENTAL_SECTION) ?? {},
-    );
+    return this.config.get<ExperimentalFlagConfig>(EXPERIMENTAL_SECTION) ?? {};
   }
 
   setConfigOverrides(overrides: ExperimentalFlagConfig | undefined): void {
-    this.configOverrides = this.canonicalizeOverrides(overrides ?? {});
-  }
-
-  private canonicalizeOverrides(raw: ExperimentalFlagConfig): ExperimentalFlagConfig {
-    const out: ExperimentalFlagConfig = {};
-    for (const [key, value] of Object.entries(raw)) {
-      out[this.canonicalFlagId(key)] = value;
-    }
-    return out;
-  }
-
-  private canonicalFlagId(key: string): string {
-    const normalized = key.replaceAll('-', '_');
-    for (const def of this.registry.list()) {
-      if (def.id === normalized) return def.id;
-    }
-    return key;
+    this.configOverrides = overrides ?? {};
   }
 
   enabled(id: FlagId): boolean {
@@ -93,7 +65,9 @@ export class FlagService extends Disposable implements IFlagService {
   }
 
   snapshot(): ExperimentalFlagMap {
-    return Object.fromEntries(this.registry.list().map((def) => [def.id, this.enabled(def.id)]));
+    return Object.fromEntries(
+      this.registry.list().map((def) => [def.id, this.enabled(def.id)]),
+    );
   }
 
   enabledIds(): readonly FlagId[] {

@@ -1,14 +1,8 @@
 import { ref, type LiveRef } from '#/_base/di/instantiation';
-import {
-  type FsDiffResponse,
-  type FsGitStatusResponse,
-  type FsPullRequest,
-  type GitStatusOptions,
-  IGitService,
-} from '#/app/git/git';
+import { type FsDiffResponse, type FsGitStatusResponse, type FsPullRequest, type GitStatusOptions, IGitService } from '#/app/git/git';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 
-import type { IWorkspaceGitService } from './workspaceGit';
+import { IWorkspaceGitService } from './workspaceGit';
 
 export class WorkspaceGitService implements IWorkspaceGitService {
   declare readonly _serviceBrand: undefined;

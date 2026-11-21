@@ -1,17 +1,20 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { IModelCatalog } from '@moonshot-ai/agent-core-v2';
 import { createActor, setup } from '@moonshot-ai/agent-core-v2/human/xstate2';
+import { afterAll, afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 import { WebSocket, type RawData } from 'ws';
 
 import { startServer } from '../src/start';
 import { fakeModelCatalog } from './helpers/fakeModelCatalog';
 import { fixedTokenAuth } from './helpers/fixedAuth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { sharedServer } from './helpers/sharedServer';
+import { ensureSharedServer, sharedServer, stopSharedServer } from './helpers/sharedServer';
+
+await ensureSharedServer();
+afterAll(() => stopSharedServer());
 
 function rawToString(data: RawData): string {
   if (typeof data === 'string') return data;
@@ -39,14 +42,17 @@ function expectRejected(url: string, opts?: ConnectOptions): Promise<void> {
     const done = (err?: Error): void => {
       clearTimeout(t);
       ws.removeAllListeners();
-      ws.on('error', () => {});
       try {
         ws.terminate();
-      } catch {}
+      } catch {
+      }
       if (err !== undefined) reject(err);
       else resolve();
     };
-    const t = setTimeout(() => done(new Error('connection was not rejected within timeout')), 1500);
+    const t = setTimeout(
+      () => done(new Error('connection was not rejected within timeout')),
+      1500,
+    );
     ws.once('open', () => done(new Error('connection unexpectedly opened')));
     ws.once('error', () => done());
     ws.once('close', () => done());
@@ -60,7 +66,8 @@ describe('WS upgrade auth', () => {
     for (const ws of sockets.splice(0)) {
       try {
         ws.close();
-      } catch {}
+      } catch {
+      }
     }
   });
 

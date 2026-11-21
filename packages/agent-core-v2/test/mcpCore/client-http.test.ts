@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { ErrorCodes, Error2 } from '#/errors';
 import {
@@ -151,11 +151,9 @@ describe('HttpMcpClient', () => {
     });
     try {
       await client.connect();
-      const internal = (
-        client as unknown as {
-          client: { onerror?: (error: Error) => void };
-        }
-      ).client;
+      const internal = (client as unknown as {
+        client: { onerror?: (error: Error) => void };
+      }).client;
       internal.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
       await new Promise((r) => setTimeout(r, 25));
       expect(evidences).toHaveLength(1);
@@ -175,11 +173,9 @@ describe('HttpMcpClient', () => {
     client.onSessionEvidence(() => closes.push(Date.now()));
     try {
       await client.connect();
-      const internal = (
-        client as unknown as {
-          client: { onerror?: (error: Error) => void };
-        }
-      ).client;
+      const internal = (client as unknown as {
+        client: { onerror?: (error: Error) => void };
+      }).client;
       internal.onerror?.(new Error('SSE stream disconnected: ECONNRESET'));
       internal.onerror?.(new Error('fetch failed'));
       await new Promise((r) => setTimeout(r, 25));

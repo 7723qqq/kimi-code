@@ -1,35 +1,35 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
+import type { ToolCall } from '#human/message';
+import {
+  compileToolArgsValidator,
+  validateToolArgs,
+} from '#/tool/args-validator';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
-import {
-  type IAgentGoalJudgeService,
-  type JudgeVerdict,
-} from '#/agent/goal/judge/goalJudgeService';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { TurnStarted } from '#/agent/loop/turnEvents';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import {
-  IAgentToolExecutorService,
-  type ToolExecutionResult,
-} from '#/agent/toolExecutor/toolExecutor';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IEventBus } from '#/app/event/eventBus';
 import { IAgentGoalService } from '#/features/goal/goalService';
+import { CreateGoalTool } from '#/features/goal/tools/create-goal/createGoalTool';
+import { GetGoalTool } from '#/features/goal/tools/get-goal/getGoalTool';
 import { SetGoalBudgetTool } from '#/features/goal/tools/set-goal-budget/setGoalBudgetTool';
 import { UpdateGoalToolInputSchema } from '#/features/goal/tools/update-goal/update-goal';
 import { UpdateGoalTool } from '#/features/goal/tools/update-goal/updateGoalTool';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
-import { type ToolCall } from '#human/llm/message';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IEventBus } from '#/app/event/eventBus';
+import { TurnStarted } from '#/agent/loop/turnEvents';
 
-import { stubLoopWithHooks } from '../../../agent/loop/stubs';
 import {
   agentService,
   createTestAgent,
   permissionModeServices,
   type TestAgentContext,
 } from '../../../harness';
+import { stubLoopWithHooks } from '../../../agent/loop/stubs';
 import { stubAgentSwarm } from '../stubs';
+import { stubAgentContext } from '../../../agent/agentContext/stubs';
+import { executeLegacyTool, type LegacyExecutionResult } from '../../../agent/toolExecutor/execute';
 
 const signal = new AbortController().signal;
 
@@ -41,16 +41,20 @@ describe('goal tools', () => {
   let toolExecutor: IAgentToolExecutorService;
   let setGoalBudgetTool: SetGoalBudgetTool;
   let updateGoalTool: UpdateGoalTool;
-  let judgeVerdict: JudgeVerdict;
-
-  const judgeStub: IAgentGoalJudgeService = {
-    _serviceBrand: undefined,
-    evaluate: async () => judgeVerdict,
-  };
 
   beforeEach(async () => {
-    judgeVerdict = { ok: true, reason: '' };
     loopService = stubLoopWithHooks({ hasActiveTurn: true });
+    const modelCapabilities = loopService.data().modelCapabilities;
+    loopService.resolveModelContext = () => ({
+      modelAlias: 'mock-model',
+      model: { provider: 'mock', name: 'mock-model', capability: modelCapabilities },
+      maxOutputSize: undefined,
+      alwaysThinking: undefined,
+      thinkingLevel: 'off',
+      reservedContextSize: undefined,
+      compactionTriggerRatio: undefined,
+      compactionMaxAttempts: undefined,
+    });
     ctx = createTestAgent(
       agentService(IAgentLoopService, loopService),
       agentService(IAgentSwarmService, stubAgentSwarm()),
@@ -62,7 +66,7 @@ describe('goal tools', () => {
     toolExecutor = ctx.get(IAgentToolExecutorService);
     const scope = ctx.get(IAgentScopeContext);
     setGoalBudgetTool = new SetGoalBudgetTool(goals, scope);
-    updateGoalTool = new UpdateGoalTool(goals, judgeStub, scope);
+    updateGoalTool = new UpdateGoalTool(goals, scope);
   });
 
   afterEach(async () => {
@@ -119,21 +123,18 @@ describe('goal tools', () => {
     const result = await execution.execute({ turnId: 0, toolCallId: 'call_1', signal });
 
     expect(result.isError).toBeFalsy();
-    expect(result.stopTurn).toBeFalsy();
     expect(result.output).toBe('Goal budget not set: no current goal.');
   });
 
-  it('SetGoalBudget returns stop signals when the requested limit is already exhausted', async () => {
+  it('SetGoalBudget blocks the goal when the requested limit is already exhausted', async () => {
     await goals.createGoal({ objective: 'work' });
     await countGoalTurn(1);
 
     const execution = setGoalBudgetTool.resolveExecution({ value: 1, unit: 'turns' });
     if (execution.isError === true) throw new Error('execution should not be an error');
 
-    expect(execution.stopBatchAfterThis).toBe(true);
     const result = await execution.execute({ turnId: 0, toolCallId: 'call_1', signal });
 
-    expect(result.stopTurn).toBe(true);
     expect(result.output).toContain('will stop now');
     expect(goals.getGoal().goal).toMatchObject({
       status: 'blocked',
@@ -141,17 +142,15 @@ describe('goal tools', () => {
     });
   });
 
-  it('SetGoalBudget leaves the turn running when the requested limit has room', async () => {
+  it('SetGoalBudget leaves the goal active when the requested limit has room', async () => {
     await goals.createGoal({ objective: 'work' });
     await countGoalTurn(2);
 
     const execution = setGoalBudgetTool.resolveExecution({ value: 5, unit: 'turns' });
     if (execution.isError === true) throw new Error('execution should not be an error');
 
-    expect(execution.stopBatchAfterThis).toBeFalsy();
     const result = await execution.execute({ turnId: 0, toolCallId: 'call_1', signal });
 
-    expect(result.stopTurn).toBeFalsy();
     expect(result.output).toBe('Goal budget set: 5 turns.');
     expect(goals.getGoal().goal).toMatchObject({
       status: 'active',
@@ -274,52 +273,26 @@ describe('goal tools', () => {
     expect(goals.getGoal().goal?.status).toBe('active');
   });
 
-  it('UpdateGoal complete returns the completion summary prompt and stops the turn', async () => {
+  it('UpdateGoal complete returns the completion summary prompt without forcing a turn stop', async () => {
     await goals.createGoal({ objective: 'ship it' });
     const execution = updateGoalTool.resolveExecution({ status: 'complete' });
     if (execution.isError === true) throw new Error('execution should not be an error');
     const result = await execution.execute({ turnId: 0, toolCallId: 'call_c', signal });
 
-    expect(result.stopTurn).toBe(true);
     expect(result.output).toContain('Goal completed successfully');
     expect(result.output).toContain('Worked');
     expect(result.output).toContain('Write a concise final message for the user');
   });
 
-  it('UpdateGoal blocked returns the blocked-reason prompt and stops the turn', async () => {
+  it('UpdateGoal blocked returns the blocked-reason prompt without forcing a turn stop', async () => {
     await goals.createGoal({ objective: 'ship it' });
     const execution = updateGoalTool.resolveExecution({ status: 'blocked' });
     if (execution.isError === true) throw new Error('execution should not be an error');
     const result = await execution.execute({ turnId: 0, toolCallId: 'call_b', signal });
 
-    expect(result.stopTurn).toBe(true);
     expect(result.output).toContain('Goal blocked.');
     expect(result.output).toContain('Worked');
     expect(result.output).toContain('concrete blocker');
-  });
-
-  it('UpdateGoal keeps the goal active when the judge rejects completion', async () => {
-    await goals.createGoal({ objective: 'ship it' });
-    judgeVerdict = { ok: false, reason: 'the tests were never run' };
-    const execution = updateGoalTool.resolveExecution({ status: 'complete' });
-    if (execution.isError === true) throw new Error('execution should not be an error');
-    const result = await execution.execute({ turnId: 0, toolCallId: 'call_c', signal });
-
-    expect(result.stopTurn).toBeUndefined();
-    expect(result.output).toContain('Goal completion rejected by judge: the tests were never run');
-    expect(goals.getGoal().goal?.status).toBe('active');
-  });
-
-  it('UpdateGoal marks the goal blocked when the judge calls it impossible', async () => {
-    await goals.createGoal({ objective: 'ship it' });
-    judgeVerdict = { ok: false, impossible: true, reason: 'the objective contradicts itself' };
-    const execution = updateGoalTool.resolveExecution({ status: 'complete' });
-    if (execution.isError === true) throw new Error('execution should not be an error');
-    const result = await execution.execute({ turnId: 0, toolCallId: 'call_c', signal });
-
-    expect(result.stopTurn).toBe(true);
-    expect(result.output).toContain('Goal blocked.');
-    expect(goals.getGoal().goal?.status).toBe('blocked');
   });
 
   it('UpdateGoal does not apply a delayed outcome to a replacement goal', async () => {
@@ -331,7 +304,6 @@ describe('goal tools', () => {
     const result = await execution.execute({ turnId: 0, toolCallId: 'call_old_outcome', signal });
 
     expect(result.output).toBe('Goal not completed: the current goal changed.');
-    expect(result.stopTurn).toBeFalsy();
     expect(goals.getGoal().goal).toMatchObject({
       goalId: replacement.goalId,
       status: 'active',
@@ -350,7 +322,6 @@ describe('goal tools', () => {
     });
 
     expect(result.output).toBe('Goal not completed: the current goal changed.');
-    expect(result.stopTurn).toBeFalsy();
     expect(goals.getGoal().goal).toMatchObject({
       goalId: created.goalId,
       status: 'active',
@@ -376,7 +347,6 @@ describe('goal tools', () => {
 
       const outcome = results.find((result) => result.toolName === 'UpdateGoal')?.result;
       expect(outcome?.output).toContain(expectedOutput);
-      expect(outcome?.stopTurn).toBe(true);
       expect(goals.getGoal().goal?.status ?? null).toBe(expectedCurrentStatus);
     },
   );
@@ -399,7 +369,6 @@ describe('goal tools', () => {
 
       const outcome = results.find((result) => result.toolName === 'UpdateGoal')?.result;
       expect(outcome?.output).toContain(expectedOutput);
-      expect(outcome?.stopTurn).toBe(true);
       expect(goals.getGoal().goal?.status ?? null).toBe(expectedCurrentStatus);
     },
   );
@@ -435,12 +404,8 @@ describe('goal tools', () => {
   async function executeGoalCalls(
     calls: ToolCall[],
     turnId: number,
-  ): Promise<ToolExecutionResult[]> {
-    const results: ToolExecutionResult[] = [];
-    for await (const result of toolExecutor.execute(calls, { turnId, signal })) {
-      results.push(result);
-    }
-    return results;
+  ): Promise<LegacyExecutionResult[]> {
+    return executeLegacyTool(toolExecutor, calls, { turnId, signal });
   }
 
   function goalToolCall(
@@ -451,3 +416,4 @@ describe('goal tools', () => {
     return { type: 'function', id, name, arguments: JSON.stringify(args) };
   }
 });
+

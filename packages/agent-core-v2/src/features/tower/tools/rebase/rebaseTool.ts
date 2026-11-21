@@ -1,27 +1,26 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentTaskService } from '#/agent/task/task';
-import { TOWER_NAME } from '#/features/tower/protocol/index';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentTowerService } from '#/features/tower/tower';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import type { ToolExecution } from '#/tool/toolContract';
 
+import { TOWER_NAME } from '#/features/tower/protocol/index';
 import { newTowerStore, runTowerTool, TOWER_MAIN_AGENT_ONLY } from '../support';
-import { ITowerRebaseTool, TowerRebaseToolInputSchema, type TowerRebaseToolInput } from './rebase';
 import DESCRIPTION from './rebase.md?raw';
+import { ITowerRebaseTool, TowerRebaseToolInputSchema, type TowerRebaseToolInput } from './rebase';
 
 export class TowerRebaseTool implements ITowerRebaseTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerRebase' as const;
-  readonly sideEffect = ToolSideEffects.write;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerRebaseToolInputSchema);
 
   constructor(
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-    @IAgentTaskService private readonly tasks: IAgentTaskService,
+    @IAgentToolExecutorService private readonly tasks: IAgentToolExecutorService,
     @IAgentTowerService private readonly tower: IAgentTowerService,
   ) {}
 
@@ -81,11 +80,10 @@ export class TowerRebaseTool implements ITowerRebaseTool {
 
   private activeAgentIds(): ReadonlySet<string> {
     return new Set(
-      this.tasks
-        .list(true)
-        .flatMap((task) =>
-          task.kind === 'agent' && task.agentId !== undefined ? [task.agentId] : [],
-        ),
+      this.tasks.handlers().flatMap((handler) => {
+        const task = handler.snapshot().fields.task;
+        return task?.kind === 'agent' && task.agentId !== undefined ? [task.agentId] : [];
+      }),
     );
   }
 }

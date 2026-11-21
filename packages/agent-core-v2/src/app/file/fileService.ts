@@ -41,8 +41,7 @@ export interface IFileService {
   delete(fileId: string): Promise<void>;
 }
 
-export const IFileService: ServiceIdentifier<IFileService> =
-  createDecorator<IFileService>('fileService');
+export const IFileService: ServiceIdentifier<IFileService> = createDecorator<IFileService>('fileService');
 
 export const FILE_ID_REGEX = /^f_[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
@@ -53,16 +52,13 @@ export function isFileId(value: string): boolean {
 export const FileErrors = {
   codes: {
     FILE_NOT_FOUND: 'file.not_found',
-    FILE_TOO_LARGE: 'file.too_large',
   },
   info: {
     'file.not_found': {
+      title: 'File not found',
       retryable: false,
       public: true,
-    },
-    'file.too_large': {
-      retryable: false,
-      public: true,
+      action: 'Check the file_id or upload the file again.',
     },
   },
 } as const satisfies ErrorDomain;
@@ -84,9 +80,6 @@ export function fileNotFoundError(fileId: string): FileError {
   return new FileError(FileErrors.codes.FILE_NOT_FOUND, `file not found: ${fileId}`, { fileId });
 }
 
-export function isFileError(
-  error: unknown,
-  code: (typeof FileErrors.codes)[keyof typeof FileErrors.codes],
-): boolean {
+export function isFileError(error: unknown, code: (typeof FileErrors.codes)[keyof typeof FileErrors.codes]): boolean {
   return error instanceof Error2 && error.code === code;
 }

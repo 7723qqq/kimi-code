@@ -1,8 +1,12 @@
+
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBlobStore } from '#/persistence/interface/blobStore';
-import type { ContentPart } from '#human/llm/message';
-
-import { BLOBREF_PROTOCOL, IAgentBlobService, MISSING_MEDIA_PLACEHOLDER } from './agentBlobService';
+import {
+  BLOBREF_PROTOCOL,
+  IAgentBlobService,
+  MISSING_MEDIA_PLACEHOLDER,
+} from './agentBlobService';
 import { ByteLruCache } from './byteLruCache';
 
 const DEFAULT_THRESHOLD = 4096;
@@ -153,3 +157,4 @@ function asMediaContainer(value: unknown): { url: unknown } | undefined {
   const obj = value as Record<string, unknown>;
   return 'url' in obj ? (obj as { url: unknown }) : undefined;
 }
+

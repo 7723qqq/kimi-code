@@ -1,23 +1,28 @@
-/**
- * `kimi export` sub-command.
- *
- * CLI glue only: session lookup, previous-session confirmation, and output.
- * The actual ZIP/manifest export is owned by the SDK.
- */
+import { createInterface } from 'node:readline/promises';
 
-import type {
-  ExportSessionInput,
-  ExportSessionResult,
-  SessionSummary,
-  ShellEnvironment,
+import {
+  setTelemetryContext,
+  shutdownTelemetry,
+  track,
+  withTelemetryContext,
+} from '@moonshot-ai/kimi-telemetry';
+import {
+  createKimiHarness,
+  type ExportSessionInput,
+  type ExportSessionResult,
+  type KimiHarness,
+  type SessionSummary,
+  type ShellEnvironment,
+  type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
 
+import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
+import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
 import { detectInstallSource } from '#/cli/update/source';
-import { t } from '#/i18n';
+import { createKimiCodeHostIdentity } from '#/cli/host-identity';
 import { detectShellEnvironment } from '#/utils/process/shell-env';
-
-import { promptYesNo, type ConfirmPromptAnswer } from './confirm';
+import { t } from '#/i18n';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -33,9 +38,7 @@ export interface PreviousSessionSummary {
 export interface ExportDeps {
   readonly listSessions: (workDir: string) => Promise<readonly SessionSummary[]>;
   readonly exportSession: (input: ExportSessionInput) => Promise<ExportSessionResult>;
-  readonly confirmPreviousSession: (
-    summary: PreviousSessionSummary,
-  ) => Promise<ConfirmPromptAnswer>;
+  readonly confirmPreviousSession: (summary: PreviousSessionSummary) => Promise<boolean>;
   readonly getInstallSource: () => Promise<string>;
   readonly getShellEnv: () => ShellEnvironment;
   readonly version: string;
@@ -64,18 +67,14 @@ export async function handleExport(
     resolvedId = requestedId;
   } else {
     if (previousSummary === undefined) {
-      deps.stderr.write(t('tui.statusMessages.exportNoSession') + '\n');
+      deps.stderr.write(t('cli.sub.export.noPreviousSession'));
       deps.exit(1);
     }
     resolvedId = previousSummary.id;
     if (!opts.yes) {
-      const answer = await deps.confirmPreviousSession(toPreviousSessionSummary(previousSummary));
-      if (answer === 'eof') {
-        deps.stderr.write(t('tui.statusMessages.confirmPromptEof') + '\n');
-        deps.exit(1);
-      }
-      if (answer === 'no') {
-        deps.stdout.write(t('tui.statusMessages.exportCancelled') + '\n');
+      const confirmed = await deps.confirmPreviousSession(toPreviousSessionSummary(previousSummary));
+      if (!confirmed) {
+        deps.stdout.write('Export cancelled.\n');
         return;
       }
     }
@@ -105,14 +104,17 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
     .description(t('cli.commandDescriptions.exportCmd'))
     .option('-o, --output <path>', t('cli.optionDescriptions.exportOutput'))
     .option('-y, --yes', t('cli.optionDescriptions.exportYes'))
-    .option('--no-include-global-log', t('cli.optionDescriptions.exportNoIncludeGlobalLog'))
+    .option(
+      '--no-include-global-log',
+      t('cli.optionDescriptions.exportNoIncludeGlobalLog'),
+    )
     .argument('[sessionId]', t('cli.optionDescriptions.exportSessionId'))
     .action(
       async (
         sessionId: string | undefined,
         options: { output?: string; yes?: boolean; includeGlobalLog?: boolean },
       ) => {
-        const resolved = await createDefaultExportDeps(deps);
+        const resolved = createDefaultExportDeps(deps);
         try {
           await handleExport(resolved, sessionId, options.output, {
             yes: options.yes === true,
@@ -125,33 +127,70 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
     );
 }
 
-async function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): Promise<
-  ExportDeps & {
-    readonly close: () => Promise<void>;
-  }
-> {
-  // The harness runtime pulls the engine; load it on dispatch so registering
-  // the command stays free of it.
-  const { CliHarnessRuntime } = await import('#/cli/harness');
-  const runtime = new CliHarnessRuntime();
+function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDeps & {
+  readonly close: () => Promise<void>;
+} {
+  let harness: KimiHarness | undefined;
+  let telemetryBootstrap: ReturnType<typeof createCliTelemetryBootstrap> | undefined;
+  let telemetryInitialized = false;
+  let telemetryShutdown = false;
+  const identity = createKimiCodeHostIdentity();
+  const telemetryClient: TelemetryClient = {
+    track,
+    withContext: withTelemetryContext,
+    setContext: setTelemetryContext,
+  };
+  const getTelemetryBootstrap = (): ReturnType<typeof createCliTelemetryBootstrap> => {
+    telemetryBootstrap ??= createCliTelemetryBootstrap();
+    return telemetryBootstrap;
+  };
+  const getHarness = (): KimiHarness => {
+    const currentTelemetryBootstrap = getTelemetryBootstrap();
+    harness ??= createKimiHarness({
+      homeDir: currentTelemetryBootstrap.homeDir,
+      identity,
+      telemetry: telemetryClient,
+    });
+    return harness;
+  };
+  const initializeDefaultTelemetry = async (): Promise<void> => {
+    if (telemetryInitialized) return;
+    const currentTelemetryBootstrap = getTelemetryBootstrap();
+    const currentHarness = getHarness();
+    await currentHarness.ensureConfigFile();
+    const config = await currentHarness.getConfig();
+    initializeCliTelemetry({
+      harness: currentHarness,
+      bootstrap: currentTelemetryBootstrap,
+      config,
+      version: identity.version,
+      uiMode: CLI_UI_MODE,
+    });
+    telemetryInitialized = true;
+  };
+  const shutdownDefaultTelemetry = async (): Promise<void> => {
+    if (!telemetryInitialized || telemetryShutdown) return;
+    telemetryShutdown = true;
+    await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
+  };
   return {
     listSessions:
       overrides.listSessions ??
       ((workDir: string) =>
-        runtime.getHarness().listSessions({
+        getHarness().listSessions({
           workDir,
         })),
     exportSession:
       overrides.exportSession ??
       (async (input: ExportSessionInput) => {
-        await runtime.initializeTelemetry();
+        await initializeDefaultTelemetry();
         try {
-          return await runtime.getHarness().exportSession(input);
+          return await getHarness().exportSession(input);
         } finally {
-          await runtime.shutdownTelemetry();
+          await shutdownDefaultTelemetry();
         }
       }),
-    version: overrides.version ?? runtime.version,
+    version: overrides.version ?? identity.version,
     getInstallSource: overrides.getInstallSource ?? (() => detectInstallSource()),
     getShellEnv: overrides.getShellEnv ?? detectShellEnvironment,
     confirmPreviousSession: overrides.confirmPreviousSession ?? confirmPreviousSession,
@@ -159,16 +198,15 @@ async function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): Pro
     stdout: overrides.stdout ?? process.stdout,
     stderr: overrides.stderr ?? process.stderr,
     exit: overrides.exit ?? ((code: number) => process.exit(code)),
-    // The v2 harness boots an engine whose watchers hold the event loop open;
-    // close it so a one-shot command can exit. No-op when the run never needed
-    // the harness.
-    close: () => runtime.close(),
+    close: async () => {
+      await harness?.close();
+    },
   };
 }
 
-async function findPreviousSession(
-  deps: Pick<ExportDeps, 'cwd' | 'listSessions'>,
-): Promise<SessionSummary | undefined> {
+async function findPreviousSession(deps: Pick<ExportDeps, 'cwd' | 'listSessions'>): Promise<
+  SessionSummary | undefined
+> {
   const sessions = await deps.listSessions(deps.cwd());
   return sessions[0];
 }
@@ -187,12 +225,16 @@ function normalizeOptionalSessionId(sessionId: string | undefined): string | und
   return trimmed === undefined || trimmed === '' ? undefined : trimmed;
 }
 
-async function confirmPreviousSession(
-  summary: PreviousSessionSummary,
-): Promise<ConfirmPromptAnswer> {
-  const title =
-    summary.title === undefined ? summary.sessionId : `${summary.title} (${summary.sessionId})`;
-  return promptYesNo(t('tui.statusMessages.exportConfirmPrompt', { title }));
+async function confirmPreviousSession(summary: PreviousSessionSummary): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const title = summary.title === undefined ? summary.sessionId : `${summary.title} (${summary.sessionId})`;
+    const answer = await rl.question(`Export previous session "${title}"? [Y/n] `);
+    const trimmed = answer.trim().toLowerCase();
+    return trimmed === '' || trimmed === 'y' || trimmed === 'yes';
+  } finally {
+    rl.close();
+  }
 }
 
 function errorMessage(error: unknown): string {

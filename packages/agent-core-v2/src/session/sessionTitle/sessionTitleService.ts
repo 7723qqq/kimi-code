@@ -8,17 +8,16 @@ import {
 } from '@moonshot-ai/kimi-code-oauth';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { ILogService } from '#/_base/log/log';
-import { IOAuthService } from '#/app/auth/auth';
-import { IEventService } from '#/app/event/event';
 import { LifecycleScope } from '#/app/scopes';
 import type { SessionTitleGenerationFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
-import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
-import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/provider';
-import { isOAuthCatalogVendor } from '#/llm-adapter/provider/provider-definition';
+import { ILogService } from '#/_base/log/log';
+import { IOAuthService } from '#/app/auth/auth';
+import { IEventService } from '#/app/event/event';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
+import { IProviderService } from '#/llm-adapter/provider/provider';
+import { isOAuthCatalogVendor } from '#/llm-adapter/provider/provider-definition';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
@@ -138,30 +137,14 @@ export class SessionTitleService implements ISessionTitleService {
   ): Promise<TitleGenerationResult> {
     const current = await this.metadata.read();
     if (!force && current.titleKind === 'custom') return { reason: 'custom_title' };
-    if (this.kimiTitleProvider() === undefined) {
-      return this.generateLocalTitle(chatContent, force);
-    }
-    return this.requestHostedTitle(chatContent, force);
-  }
-
-  private kimiTitleProvider(): ProviderConfig | undefined {
     const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);
     if (
       provider === undefined ||
       !isOAuthCatalogVendor(provider.type) ||
       provider.oauth === undefined
     ) {
-      return undefined;
+      return { reason: 'provider_unavailable' };
     }
-    return provider;
-  }
-
-  private async requestHostedTitle(
-    chatContent: string,
-    force: boolean,
-  ): Promise<TitleGenerationResult> {
-    const provider = this.kimiTitleProvider();
-    if (provider === undefined) return { reason: 'provider_unavailable' };
     const runtimeAuth = resolveKimiCodeRuntimeAuth({
       configuredBaseUrl: provider.baseUrl,
       configuredOAuthRef: provider.oauth,
@@ -202,60 +185,7 @@ export class SessionTitleService implements ISessionTitleService {
       this.log.debug(`chat_title request failed: ${result.message}`);
       return { reason: 'request_failed' };
     }
-    return this.applyTitle(
-      result.title.slice(0, MAX_GENERATED_TITLE_LENGTH),
-      force,
-      result.title.length > MAX_GENERATED_TITLE_LENGTH ? 'truncated' : 'ok',
-    );
-  }
-
-  private async generateLocalTitle(
-    chatContent: string,
-    force: boolean,
-  ): Promise<TitleGenerationResult> {
-    const agent = this.agentLifecycle.handleOf(MAIN_AGENT_ID);
-    if (agent === undefined) return { reason: 'no_agent' };
-    const requester = agent.accessor.get(IAgentLLMRequesterService);
-    if (requester === undefined) return { reason: 'provider_unavailable' };
-    const prompt = [
-      'Write a short title for this conversation, at most 40 characters. Reply with the title only: no quotes, no preamble, no trailing period.',
-      '',
-      chatContent,
-    ].join('\n');
-    const parts: string[] = [];
-    try {
-      await requester.request(
-        {
-          messages: [{ role: 'user', content: [{ type: 'text', text: prompt }], toolCalls: [] }],
-          source: { type: 'operation', requestKind: 'session_title' },
-        },
-        (part) => {
-          if (part.type === 'text') parts.push(part.text);
-        },
-      );
-    } catch (error) {
-      this.log.debug(
-        `chat_title local generation failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return { reason: 'request_failed' };
-    }
-    const title = parts
-      .join('')
-      .trim()
-      .replace(/^["'“”]|["'“”]$/g, '');
-    if (title.length === 0) return { reason: 'request_failed' };
-    return this.applyTitle(
-      title.slice(0, MAX_GENERATED_TITLE_LENGTH),
-      force,
-      title.length > MAX_GENERATED_TITLE_LENGTH ? 'truncated' : 'ok',
-    );
-  }
-
-  private async applyTitle(
-    title: string,
-    force: boolean,
-    outcome: 'ok' | 'truncated',
-  ): Promise<TitleGenerationResult> {
+    const title = result.title.slice(0, MAX_GENERATED_TITLE_LENGTH);
     const applied = await this.metadata.setGeneratedTitleIfUncustomized(title, { force });
     if (!applied) return { reason: 'custom_title' };
     this.eventService.publish(
@@ -268,7 +198,10 @@ export class SessionTitleService implements ISessionTitleService {
         },
       }),
     );
-    return { title, outcome };
+    return {
+      title,
+      outcome: result.title.length > MAX_GENERATED_TITLE_LENGTH ? 'truncated' : 'ok',
+    };
   }
 }
 

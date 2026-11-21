@@ -1,6 +1,5 @@
-import { parseSkillText } from '#/features/skill/catalog/parser';
 import type { SkillDefinition } from '#/features/skill/catalog/types';
-
+import { parseSkillText } from '#/features/skill/catalog/parser';
 import CUSTOM_THEME_BODY from './custom-theme.md?raw';
 
 const PSEUDO_PATH = 'builtin://custom-theme';

@@ -1,4 +1,4 @@
-import type { ToolCall } from '#/llm/message';
+import type { ToolCall } from '#human/message';
 
 export interface ToolCallIdSeedMessage {
   readonly role?: string;

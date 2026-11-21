@@ -1,20 +1,10 @@
-import { readFile } from 'node:fs/promises';
+
 import { homedir } from 'node:os';
 
 import { parseAgentFileText, resolveAgentPath } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
-
 import type { CLIOptions } from './options';
 
-/**
- * Resolve which agent profile the launch flags select.
- *
- * `--agent` carries the profile name directly; `--agent-file` implicitly
- * selects the profile the file defines, so the file is parsed here (fatal on
- * error) so a bad file fails before any session work. Returns undefined when
- * neither flag is present.
- */
 export async function resolveAgentProfileSelection(
   opts: Pick<CLIOptions, 'agent' | 'agentFiles'>,
   workDir: string,
@@ -26,13 +16,10 @@ export async function resolveAgentProfileSelection(
   const path = resolveAgentPath(agentFile, workDir, homedir());
   let text: string;
   try {
-    text = await readFile(path, 'utf8');
+    text = await Bun.file(path).text();
   } catch (error) {
     throw new Error(
-      t('tui.statusMessages.agentFileReadFailed', {
-        path,
-        message: error instanceof Error ? error.message : String(error),
-      }),
+      `Failed to read agent file "${path}": ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }
@@ -40,10 +27,7 @@ export async function resolveAgentProfileSelection(
     return parseAgentFileText({ path, source: 'explicit', text }).name;
   } catch (error) {
     throw new Error(
-      t('tui.statusMessages.agentFileInvalid', {
-        path,
-        message: error instanceof Error ? error.message : String(error),
-      }),
+      `Invalid agent file "${path}": ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }

@@ -1,12 +1,11 @@
-import {
-  log,
-  type QuestionHandler,
-  type QuestionRequest,
-  type QuestionResult,
-} from '@moonshot-ai/kimi-code-sdk';
+import type { QuestionHandler, QuestionRequest, QuestionResult } from '@moonshot-ai/kimi-code-sdk';
+
+import type {
+  QuestionPanelData,
+  QuestionPanelResponse,
+} from '#/tui/reverse-rpc/types';
 
 import type { ProgramStatusInteractionTracker } from '#/tui/controllers/program-status';
-import type { QuestionPanelData, QuestionPanelResponse } from '#/tui/reverse-rpc/types';
 
 import type { QuestionController } from './controller';
 
@@ -22,8 +21,7 @@ export function createQuestionAskHandler(
     try {
       const answers = await controller.show(adaptQuestionRequest(event));
       return adaptQuestionAnswers(event, answers);
-    } catch (error) {
-      log.warn('failed to show question dialog', { error: String(error) });
+    } catch {
       return null;
     } finally {
       if (interaction !== undefined) interactionTracker?.endInteraction(interaction);
@@ -64,5 +62,7 @@ export function adaptQuestionAnswers(
     if (question === undefined || typeof answer !== 'string' || answer.length === 0) continue;
     result[question.question] = answer;
   }
-  return Object.keys(result).length > 0 ? { answers: result, method: response.method } : null;
+  return Object.keys(result).length > 0
+    ? { answers: result, method: response.method }
+    : null;
 }

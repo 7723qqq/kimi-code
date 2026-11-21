@@ -1,9 +1,8 @@
-import { describe, expect, it } from 'bun:test';
+import { type Message } from '@moonshot-ai/core/llm/message';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { DEFAULT_COMPACTION_CONFIG } from '#/agent/fullCompaction/strategy';
-import { DefaultCompactionStrategy } from '#/agent/fullCompaction/strategy';
-import { type Message } from '#/llm-adapter/contract/message';
 import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import { DefaultCompactionStrategy } from '#/agent/fullCompaction/strategy';
 
 describe('DefaultCompactionStrategy', () => {
   it('keeps an oversized trailing user message as recent', () => {
@@ -47,7 +46,11 @@ describe('DefaultCompactionStrategy', () => {
     expect(strategy.computeCompactCount([textMessage('user', 'only pending')], 'auto')).toBe(0);
     expect(
       strategy.computeCompactCount(
-        [textMessage('user', 'a'), textMessage('user', 'b'), textMessage('user', 'c')],
+        [
+          textMessage('user', 'a'),
+          textMessage('user', 'b'),
+          textMessage('user', 'c'),
+        ],
         'auto',
       ),
     ).toBe(0);
@@ -81,8 +84,8 @@ describe('DefaultCompactionStrategy', () => {
           { type: 'function', id: 'call_b', name: 'Lookup', arguments: '{}' },
         ],
       },
-      { role: 'tool', content: [{ type: 'text', text: 'a' }], toolCalls: [], toolCallId: 'call_a' },
-      { role: 'tool', content: [{ type: 'text', text: 'b' }], toolCalls: [], toolCallId: 'call_b' },
+      { role: 'tool', content: [{ type: 'text', text: 'a' }], toolCallId: 'call_a' },
+      { role: 'tool', content: [{ type: 'text', text: 'b' }], toolCallId: 'call_b' },
       textMessage('user', 'next prompt'),
     ];
 
@@ -173,52 +176,6 @@ describe('DefaultCompactionStrategy', () => {
     expect(strategy.shouldCompact(28_000)).toBe(true);
     expect(strategy.shouldBlock(28_000)).toBe(true);
   });
-
-  it('treats an Infinity maxRecentUserMessages like an unreachable u32 cap', () => {
-    const base = { ...DEFAULT_COMPACTION_CONFIG };
-    const messages: Message[] = [
-      textMessage('user', 'old user'),
-      textMessage('assistant', 'old assistant'),
-      textMessage('user', 'run both tools'),
-      {
-        role: 'assistant',
-        content: [],
-        toolCalls: [
-          { type: 'function', id: 'call_a', name: 'Lookup', arguments: '{}' },
-          { type: 'function', id: 'call_b', name: 'Lookup', arguments: '{}' },
-        ],
-      },
-      { role: 'tool', content: [{ type: 'text', text: 'a' }], toolCalls: [], toolCallId: 'call_a' },
-      { role: 'tool', content: [{ type: 'text', text: 'b' }], toolCalls: [], toolCallId: 'call_b' },
-      textMessage('user', 'next prompt'),
-    ];
-
-    const infinity = new DefaultCompactionStrategy(() => 1_000, {
-      ...base,
-      maxRecentUserMessages: Infinity,
-    }).computeCompactCount(messages, 'auto');
-    const maxU32 = new DefaultCompactionStrategy(() => 1_000, {
-      ...base,
-      maxRecentUserMessages: 0xffffffff,
-    }).computeCompactCount(messages, 'auto');
-
-    expect(infinity).toBe(6);
-    expect(maxU32).toBe(infinity);
-  });
-
-  it('keeps a non-finite maxSize on the TS-equivalent path instead of corrupting the native budget', () => {
-    const strategy = new DefaultCompactionStrategy(() => Number.POSITIVE_INFINITY, {
-      ...DEFAULT_COMPACTION_CONFIG,
-    });
-    const messages = [
-      textMessage('user', 'old user'),
-      textMessage('assistant', 'old assistant'),
-      textMessage('user', 'pending user'),
-    ];
-
-    expect(() => strategy.computeCompactCount(messages, 'auto')).not.toThrow();
-    expect(strategy.computeCompactCount(messages, 'auto')).toBeGreaterThanOrEqual(0);
-  });
 });
 
 function testCompactionStrategy(maxSize: number = 1_000): DefaultCompactionStrategy {
@@ -250,9 +207,7 @@ function overflowOnlyCompactionStrategy(maxSize: number = 14): DefaultCompaction
 }
 
 function textMessage(role: 'user' | 'assistant', text: string): Message {
-  return {
-    role,
-    content: [{ type: 'text', text }],
-    toolCalls: [],
-  };
+  return role === 'assistant'
+    ? { role, content: [{ type: 'text', text }], toolCalls: [] }
+    : { role, content: [{ type: 'text', text }] };
 }

@@ -31,4 +31,5 @@ export interface IAgentPlanService {
   status(): Promise<PlanData>;
 }
 
-export const IAgentPlanService = createDecorator<IAgentPlanService>('agentPlanService');
+export const IAgentPlanService =
+  createDecorator<IAgentPlanService>('agentPlanService');

@@ -28,16 +28,6 @@ const LOCALE_SOURCES = [
     en: 'apps/kimi-code/src/i18n/locales/en.ts',
     zh: 'apps/kimi-code/src/i18n/locales/zh.ts',
   },
-  {
-    name: 'vis-web',
-    en: 'apps/vis/web/src/i18n/locales/en.ts',
-    zh: 'apps/vis/web/src/i18n/locales/zh.ts',
-  },
-  {
-    name: 'vscode-webview',
-    en: 'apps/vscode/webview-ui/src/i18n/locales/en.ts',
-    zh: 'apps/vscode/webview-ui/src/i18n/locales/zh.ts',
-  },
 ];
 
 // ── Key collection ───────────────────────────────────────────────────────────

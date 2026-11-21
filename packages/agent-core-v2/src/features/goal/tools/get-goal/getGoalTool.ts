@@ -1,18 +1,17 @@
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
+import { type ToolExecution } from '#/tool/toolContract';
+
 import { IAgentGoalService } from '#/features/goal/goalService';
 import { goalResultForModel } from '#/features/goal/tools/serialize';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { RepoMutations, ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
-import { GetGoalToolInputSchema, IGetGoalTool, type GetGoalToolInput } from './get-goal';
 import DESCRIPTION from './get-goal.md?raw';
+import { GetGoalToolInputSchema, IGetGoalTool, type GetGoalToolInput } from './get-goal';
 
 export class GetGoalTool implements IGetGoalTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'GetGoal' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GetGoalToolInputSchema);
 
@@ -34,3 +33,4 @@ export class GetGoalTool implements IGetGoalTool {
     };
   }
 }
+

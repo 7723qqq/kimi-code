@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 import {
   AUDIO_MIME_BY_SUFFIX,
-  DOCUMENT_MIME_BY_SUFFIX,
   IMAGE_MIME_BY_SUFFIX,
   VIDEO_MIME_BY_SUFFIX,
   buildDaemonFileUrl,
@@ -16,7 +16,6 @@ import {
   mediaKindOfPart,
   parseDaemonFileUrl,
 } from '#/agent/media/mediaRef';
-import type { ContentPart } from '#human/llm/message';
 
 describe('media kind classification', () => {
   it('classifies paths by suffix, case-insensitively', () => {
@@ -27,7 +26,6 @@ describe('media kind classification', () => {
     expect(mediaKindForPath('/a.b/clip')).toBeUndefined();
     expect(mediaKindForPath('/a/shot.')).toBeUndefined();
     expect(mediaKindForPath('notes.txt')).toBeUndefined();
-    expect(mediaKindForPath('/a/b/report.PDF')).toBe('document');
   });
 
   it('classifies MIME types, ignoring case and parameters', () => {
@@ -36,8 +34,7 @@ describe('media kind classification', () => {
     expect(mediaKindForMime('video/mp4; codecs=avc1')).toBe('video');
     expect(mediaKindForMime('audio/mpeg')).toBe('audio');
     expect(mediaKindForMime(' Audio/OGG; codecs=opus ')).toBe('audio');
-    expect(mediaKindForMime('application/pdf')).toBe('document');
-    expect(mediaKindForMime(' Application/PDF; charset=binary ')).toBe('document');
+    expect(mediaKindForMime('application/pdf')).toBeUndefined();
     expect(mediaKindForMime('text/plain')).toBeUndefined();
   });
 
@@ -45,15 +42,10 @@ describe('media kind classification', () => {
     const image: ContentPart = { type: 'image_url', imageUrl: { url: 'https://x/y.png' } };
     const video: ContentPart = { type: 'video_url', videoUrl: { url: 'https://x/y.mp4' } };
     const audio: ContentPart = { type: 'audio_url', audioUrl: { url: 'https://x/y.mp3' } };
-    const document: ContentPart = {
-      type: 'document_url',
-      documentUrl: { url: 'data:application/pdf;base64,JVBERi0=', mimeType: 'application/pdf' },
-    };
     const text: ContentPart = { type: 'text', text: 'hi' };
     expect(mediaKindOfPart(image)).toBe('image');
     expect(mediaKindOfPart(video)).toBe('video');
     expect(mediaKindOfPart(audio)).toBe('audio');
-    expect(mediaKindOfPart(document)).toBe('document');
     expect(mediaKindOfPart(text)).toBeUndefined();
   });
 
@@ -62,7 +54,6 @@ describe('media kind classification', () => {
     expect(VIDEO_MIME_BY_SUFFIX['.mkv']).toBe('video/x-matroska');
     expect(AUDIO_MIME_BY_SUFFIX['.mp3']).toBe('audio/mpeg');
     expect(AUDIO_MIME_BY_SUFFIX['.weba']).toBe('audio/webm');
-    expect(DOCUMENT_MIME_BY_SUFFIX['.pdf']).toBe('application/pdf');
   });
 });
 
@@ -92,16 +83,17 @@ describe('daemon file URL', () => {
 
   it('extracts references from media parts with the part-implied kind', () => {
     const url = buildDaemonFileUrl('file_1');
-    expect(daemonFileRefFromPart({ type: 'image_url', imageUrl: { url } })).toEqual({
-      kind: 'image',
-      ref: { fileId: 'file_1' },
-    });
-    expect(daemonFileRefFromPart({ type: 'video_url', videoUrl: { url } })).toEqual({
-      kind: 'video',
-      ref: { fileId: 'file_1' },
-    });
     expect(
-      daemonFileRefFromPart({ type: 'image_url', imageUrl: { url: 'data:image/png;base64,AA' } }),
+      daemonFileRefFromPart({ type: 'image_url', imageUrl: { url } }),
+    ).toEqual({ kind: 'image', ref: { fileId: 'file_1' } });
+    expect(
+      daemonFileRefFromPart({ type: 'video_url', videoUrl: { url } }),
+    ).toEqual({ kind: 'video', ref: { fileId: 'file_1' } });
+    expect(
+      daemonFileRefFromPart({
+        type: 'image_url',
+        imageUrl: { url: 'data:image/png;base64,AA' },
+      }),
     ).toBeUndefined();
     expect(daemonFileRefFromPart({ type: 'text', text: url })).toBeUndefined();
   });
@@ -187,3 +179,4 @@ describe('matchSingleMediaPathTag', () => {
     expect(matchSingleMediaPathTag('plain text')).toBeUndefined();
   });
 });
+

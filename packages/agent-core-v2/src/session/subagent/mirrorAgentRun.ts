@@ -1,22 +1,21 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
-import { errorMessage } from '#/_base/utils/errorMessage';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { tryAgentContextOf } from '#/agent/scopeContext/scopeContext';
-import { Event2, registerEvent2Class } from '#/app/event/event2';
-import type { SubagentCreatedEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { isProviderRateLimitError } from '#/llm-adapter/contract/errors';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { tryAgentContextOf } from '#/agent/scopeContext/scopeContext';
+import { isProviderRateLimitError } from '#/llm-adapter/contract/errors';
+import { type TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { SubagentCreatedEvent } from '#/app/telemetry/events';
+import { Event2, registerEvent2Class } from '#/app/event/event2';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { type TokenUsage } from '#human/llm/usage';
 
-import type { SubagentModelSource } from './configSection';
 import { type AgentRunCompletion, type AgentRunHandle, ISessionSubagentService } from './subagent';
+import type { SubagentModelSource } from './configSection';
 
 export interface SubagentSpawnedPayload {
   readonly subagentId: string;
@@ -167,7 +166,7 @@ export function emitAgentRunSpawned(
   const childProfile = requester.accessor
     .get(IAgentLifecycleService)
     .handleOf(targetAgentId)
-    ?.accessor.get(IAgentProfileService);
+    ?.accessor.get(IAgentLoopService);
   void requester.accessor.get(IEventDispatcher)?.dispatch(
     new SubagentSpawned({
       subagentId: targetAgentId,
@@ -206,6 +205,7 @@ export async function mirrorAgentRun(
   const dispatcher = requester.accessor.get(IEventDispatcher);
   const subagents = requester.accessor.get(ISessionSubagentService);
   const agentLifecycle = requester.accessor.get(IAgentLifecycleService);
+  void run.completion.catch(() => {});
   if (options.deferStarted !== true) {
     void dispatcher?.dispatch(new SubagentStarted({ subagentId: run.agentId }));
   }
@@ -289,6 +289,10 @@ function terminalEventFor(
 
 function suppressesRateLimitFailure(options: MirrorAgentRunOptions, error: unknown): boolean {
   return options.suppressRateLimitFailureEvent === true && isProviderRateLimitError(error);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function childContextTokens(

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.0
+
+### Minor Changes
+
+- [#4611](https://github.com/MoonshotAI/kimi-code/pull/4611) [`cc6b98e`](https://github.com/MoonshotAI/kimi-code/commit/cc6b98ec0eb19236c9498b55ccb68dc07d7c5b4e) Thanks [@Grapedge](https://github.com/Grapedge)! - Automatically refresh the VS Code model list on startup and every six hours.
+
+### Patch Changes
+
+- Updated dependencies [[`8019337`](https://github.com/MoonshotAI/kimi-code/commit/80193374ebb47973a97d21d0b4ce4c27128eee82)]:
+  - @moonshot-ai/kimi-code-sdk@0.23.0
+  - @moonshot-ai/migration-legacy@0.1.18
+
+## 0.8.4
+
+### Patch Changes
+
+- Updated dependencies [[`b3c6e0a`](https://github.com/MoonshotAI/kimi-code/commit/b3c6e0a75a3b1716a360a75eed7194be9b97c176)]:
+  - @moonshot-ai/kimi-code-sdk@0.22.0
+
 ## 0.8.3
 
 ### Patch Changes

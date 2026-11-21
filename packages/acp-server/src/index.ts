@@ -1,4 +1,4 @@
-export type { AvailableCommand, Implementation } from '@agentclientprotocol/sdk';
+export type { Implementation } from '@agentclientprotocol/sdk';
 
 export { AcpServer, createAcpAgentApp } from './server';
 export type {
@@ -27,7 +27,7 @@ export {
   toolCallLazyCreateToSessionUpdate,
   toolCallStartedUpgradeToSessionUpdate,
   toolCallStartToSessionUpdate,
-  toolProgressToSessionUpdate,
+  toolUpdatedToSessionUpdate,
   toolResultToSessionUpdate,
   turnEndReasonToStopReason,
 } from './events-map';
@@ -49,7 +49,12 @@ export {
   projectModelCatalog,
 } from './model-catalog';
 export type { AcpModelEntry } from './model-catalog';
-export { ACP_MODES, acpModeToToggles, DEFAULT_MODE_ID, isAcpModeId } from './modes';
+export {
+  ACP_MODES,
+  acpModeToToggles,
+  DEFAULT_MODE_ID,
+  isAcpModeId,
+} from './modes';
 export type { AcpModeId, AcpModeToggles } from './modes';
 export type { AcpStopReason, AcpToolCallStatus, AcpToolKind } from './types';
 export { HideOutputMarker, isHideOutputMarker } from './marker';
@@ -81,7 +86,7 @@ export {
   questionRequestToElicitationParams,
 } from './question';
 export { projectHistoryToSessionUpdates } from './replay';
-export { AcpEnvironmentProviderFactory } from './acp-terminal';
+export { AcpEnvironmentOverlay } from './acp-terminal';
 export type {
   AcpTerminalCreatedEvent,
   AcpTerminalCreatedListener,

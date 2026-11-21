@@ -5,7 +5,7 @@ import type {
   Role,
   ToolCall,
   ToolDescription,
-} from '#human/llm/message';
+} from '#human/message';
 
 export type {
   AudioURLPart,
@@ -18,11 +18,9 @@ export type {
   ToolCall,
   ToolCallPart,
   VideoURLPart,
-} from '#human/llm/message';
+} from '#human/message';
 
 export type Tool = ToolDescription;
-
-export { normalizeThinkingTags } from '#human/llm/thinking-tags';
 
 export {
   extractText,
@@ -31,7 +29,11 @@ export {
   isToolCall,
   isToolCallPart,
   mergeInPlace,
-} from '#human/llm/message';
+  fromCoreMessage,
+  fromCorePart,
+  toCoreMessage,
+  toCorePart,
+} from '#human/message';
 
 export interface Message {
   readonly role: Role;
@@ -110,12 +112,7 @@ export function fromLlmMessage(message: LlmMessage): Message {
     case 'assistant':
       return { role: 'assistant', content: message.content, toolCalls: message.toolCalls };
     case 'tool':
-      return {
-        role: 'tool',
-        content: message.content,
-        toolCalls: [],
-        toolCallId: message.toolCallId,
-      };
+      return { role: 'tool', content: message.content, toolCalls: [], toolCallId: message.toolCallId };
   }
 }
 

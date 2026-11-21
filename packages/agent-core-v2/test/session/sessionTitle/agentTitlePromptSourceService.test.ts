@@ -1,13 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type PromptHandle } from '#/agent/loop/loop';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 import { IAgentTitlePromptSource } from '#/session/sessionTitle/agentTitlePromptSource';
 import { AgentTitlePromptSourceService } from '#/session/sessionTitle/agentTitlePromptSourceService';
-import type { ContentPart } from '#human/llm/message';
 
 const USER_ORIGIN: ContextMessage['origin'] = { kind: 'user' };
 
@@ -20,7 +19,6 @@ function userMessage(
     id,
     role: 'user',
     content: [{ type: 'text', text }],
-    toolCalls: [],
     origin,
   };
 }
@@ -30,7 +28,7 @@ function assistantMessage(id: string, parts: ContentPart[]): ContextMessage {
 }
 
 function toolMessage(id: string, text: string): ContextMessage {
-  return { id, role: 'tool', content: [{ type: 'text', text }], toolCalls: [] };
+  return { id, role: 'tool', content: [{ type: 'text', text }], toolCallId: id };
 }
 
 interface MockQueueState {
@@ -38,7 +36,6 @@ interface MockQueueState {
   pending: {
     id: string;
     message: ContextMessage;
-    tracked: true;
     createdAt: string;
     userMessageId: string;
   }[];
@@ -56,17 +53,18 @@ describe('AgentTitlePromptSource', () => {
     disposables = new DisposableStore();
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.definePartialInstance(IAgentContextMemoryService, { get: () => liveMessages });
         reg.definePartialInstance(IAgentLoopService, {
+          history: () => liveMessages,
           snapshot: () => ({
             state: 'idle' as const,
             activeTurnId: undefined,
             activePromptId: queue.active?.id,
             queue: queue.pending.map((item) => ({
-              message: { role: 'user' as const, content: [...item.message.content] },
-              meta: {
+              role: 'user' as const,
+              content: [...item.message.content],
+              attributes: {
                 promptId: item.id,
-                tracked: item.tracked,
+                origin: item.message.origin,
                 createdAt: item.createdAt,
                 userMessageId: item.userMessageId,
               },
@@ -89,24 +87,11 @@ describe('AgentTitlePromptSource', () => {
   });
 
   it('uses client display text consistently for titles, first turns and digests', async () => {
-    liveMessages = [
-      userMessage('annotated', '<browser_ref id="internal">Save</browser_ref>', {
-        kind: 'user',
-        clientMetadata: [{ display_text: 'Save button · Rename to Save changes' }],
-      }),
-      assistantMessage('reply', [{ type: 'text', text: 'Done' }]),
-    ];
+    liveMessages = [userMessage('annotated', '<browser_ref id="internal">Save</browser_ref>', { kind: 'user', clientMetadata: [{ display_text: 'Save button · Rename to Save changes' }] }), assistantMessage('reply', [{ type: 'text', text: 'Done' }])];
     const source = ix.get(IAgentTitlePromptSource);
-    await expect(source.firstUserPrompts(3)).resolves.toEqual([
-      'Save button · Rename to Save changes',
-    ]);
-    await expect(source.firstTurnExcerpt()).resolves.toEqual({
-      user: 'Save button · Rename to Save changes',
-      assistant: 'Done',
-    });
-    await expect(source.digestExcerpt()).resolves.toEqual({
-      turns: [{ user: 'Save button · Rename to Save changes', assistant: 'Done' }],
-    });
+    await expect(source.firstUserPrompts(3)).resolves.toEqual(['Save button · Rename to Save changes']);
+    await expect(source.firstTurnExcerpt()).resolves.toEqual({ user: 'Save button · Rename to Save changes', assistant: 'Done' });
+    await expect(source.digestExcerpt()).resolves.toEqual({ turns: [{ user: 'Save button · Rename to Save changes', assistant: 'Done' }] });
   });
 
   it('returns the first three prompts from the live context and queue in order', async () => {
@@ -118,14 +103,18 @@ describe('AgentTitlePromptSource', () => {
           id: 'two',
           userMessageId: 'two',
           createdAt: '2026-01-01T00:00:00.000Z',
-          tracked: true,
           message: userMessage('two', '第二条'),
+        },
+        {
+          id: 'goal',
+          userMessageId: 'goal',
+          createdAt: '2026-01-01T00:00:00.500Z',
+          message: userMessage('goal', '不应进入标题', { kind: 'system_trigger', name: 'goal_continuation' }),
         },
         {
           id: 'three',
           userMessageId: 'three',
           createdAt: '2026-01-01T00:00:01.000Z',
-          tracked: true,
           message: userMessage('three', '第三条'),
         },
       ],
@@ -141,10 +130,7 @@ describe('AgentTitlePromptSource', () => {
   it('keeps the head user messages of a compacted window, skipping elision and summary', async () => {
     liveMessages = [
       userMessage('head', '开场提问'),
-      userMessage('elision', '... omitted ...', {
-        kind: 'injection',
-        variant: 'compaction_elision',
-      }),
+      userMessage('elision', '... omitted ...', { kind: 'injection', variant: 'compaction_elision' }),
       userMessage('tail', '最近的追问'),
       userMessage('summary', ' compaction summary ', { kind: 'compaction_summary' }),
     ];

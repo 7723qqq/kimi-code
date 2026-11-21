@@ -72,17 +72,16 @@ export function isSensitivePath(relativePath: string): boolean {
   const segments = relativePath.split('/');
   for (let i = 0; i < segments.length - 1; i += 1) {
     const segment = segments[i];
-    if (segment !== undefined && SENSITIVE_DIR_NAMES.has(segment.toLowerCase())) return true;
+    if (segment !== undefined && SENSITIVE_DIR_NAMES.has(segment)) return true;
   }
 
   const base = segments.at(-1);
   if (base === undefined || base.length === 0) return false;
-  const lowerBase = base.toLowerCase();
-  if (SENSITIVE_FILE_NAMES.has(lowerBase)) return true;
-  if (SENSITIVE_FILE_SUFFIXES.some((suffix) => lowerBase.endsWith(suffix))) return true;
+  if (SENSITIVE_FILE_NAMES.has(base)) return true;
+  if (SENSITIVE_FILE_SUFFIXES.some((suffix) => base.endsWith(suffix))) return true;
 
-  if (lowerBase.startsWith('.env.')) {
-    const suffix = lowerBase.slice('.env'.length);
+  if (base.startsWith('.env.')) {
+    const suffix = base.slice('.env'.length);
     return !ENV_FILE_ALLOWED_SUFFIXES.has(suffix);
   }
 

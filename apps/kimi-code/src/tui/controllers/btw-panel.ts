@@ -1,16 +1,18 @@
-import type { Event, KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 import { Spacer } from '@moonshot-ai/pi-tui';
+import type {
+  Event,
+  KimiHarness,
+  Session,
+  TurnEndedEvent,
+} from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
-
+import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
 import { BtwPanelComponent } from '../components/panes/btw-panel';
-import { getNoActiveSessionMessage } from '../constant/kimi-tui';
-import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from '../constant/media';
-import type { TUIState } from '../state';
-import { createMarkdownTheme } from '../theme/pi-tui-theme';
-import type { InlineSkillActivation, PreparedSkillActivations } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import { formatHookResultPlain } from '../utils/hook-result-format';
+import { createMarkdownTheme } from '../theme/pi-tui-theme';
+import type { InlineSkillActivation, PreparedSkillActivations } from '../types';
+import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from '../constant/media';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
 import {
   extractMediaAttachments,
@@ -19,12 +21,15 @@ import {
   type ExtractionResult,
 } from '../utils/image-placeholder';
 import type { StagingLease, StagingLeaseTracker } from './staging-leases';
+import type { TUIState } from '../tui-state';
+import { t } from '#/i18n';
+
+const BTW_BUSY_NOTICE = t('tui.statusMessages.btwBusyNotice');
 
 export interface BtwPanelHost {
   state: TUIState;
   session: Session | undefined;
   readonly harness: KimiHarness;
-  readonly skillCommandMap?: ReadonlyMap<string, string>;
 
   showError(msg: string): void;
   validateMediaCapabilities(extraction: ExtractionResult): boolean;
@@ -183,9 +188,12 @@ export class BtwPanelController {
     if (this.active?.panel === panel) this.active = undefined;
   }
 
-  private showBusyNotice(active: { readonly panel: BtwPanelComponent }, input: string): void {
+  private showBusyNotice(
+    active: { readonly panel: BtwPanelComponent },
+    input: string,
+  ): void {
     this.host.state.editor.setText(input);
-    active.panel.addTransientNotice(t('tui.statusMessages.btwBusyNotice'));
+    active.panel.addTransientNotice(BTW_BUSY_NOTICE);
     this.host.state.ui.requestRender();
   }
 
@@ -197,7 +205,7 @@ export class BtwPanelController {
   ): void {
     const session = this.host.session;
     if (session === undefined) {
-      panel.markFailed(getNoActiveSessionMessage());
+      panel.markFailed(NO_ACTIVE_SESSION_MESSAGE);
       this.host.state.ui.requestRender();
       return;
     }
@@ -223,13 +231,9 @@ export class BtwPanelController {
     let lease: StagingLease | undefined;
     try {
       const ingestionWait = pendingMediaIngestions(
-        prompt,
-        this.imageStore,
-        MEDIA_INGESTION_SUBMIT_WAIT_MS,
+        prompt, this.imageStore, MEDIA_INGESTION_SUBMIT_WAIT_MS,
       );
       if (ingestionWait !== undefined) await ingestionWait;
-      // Ctrl-C during the media wait: no child turn existed for cancel() to
-      // stop, so settle the question here instead of dispatching it anyway.
       if (this.cancelledAgentIds.delete(agentId)) {
         panel.markFailed(t('tui.statusMessages.btwInterrupted'));
         return;
@@ -238,18 +242,15 @@ export class BtwPanelController {
         this.host.session !== session ||
         this.panelsByAgentId.get(agentId) !== panel ||
         !panel.isRunning()
-      )
-        return;
-      extraction = await Promise.resolve(extractMediaAttachments(prompt, this.imageStore));
+      ) return;
+      extraction = extractMediaAttachments(prompt, this.imageStore);
       if (!this.host.validateMediaCapabilities(extraction)) {
         throw new Error(t('tui.statusMessages.btwMediaUnsupported'));
       }
       prepared = this.host.prepareSkillActivations(activations);
       const input = extraction.hasMedia
         ? await resolveSessionOriginalCaptions(
-            extraction.parts,
-            extraction.imageAttachmentIds,
-            this.imageStore,
+            extraction.parts, extraction.imageAttachmentIds, this.imageStore,
             session,
           )
         : prompt;
@@ -257,20 +258,10 @@ export class BtwPanelController {
         panel.markFailed(t('tui.statusMessages.btwInterrupted'));
         return;
       }
-      if (
-        this.host.session !== session ||
-        this.panelsByAgentId.get(agentId) !== panel ||
-        !panel.isRunning()
-      ) {
-        return;
-      }
+      if (this.host.session !== session || this.panelsByAgentId.get(agentId) !== panel || !panel.isRunning()) return;
       lease = this.staging.create(
         [
-          ...new Set([
-            ...extraction.imageAttachmentIds,
-            ...extraction.videoAttachmentIds,
-            ...extraction.documentAttachmentIds,
-          ]),
+          ...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds]),
           ...prepared.mediaAttachmentIds,
         ],
         prepared.stagingPaths,
@@ -285,14 +276,7 @@ export class BtwPanelController {
       if (lease === undefined) {
         if (prepared !== undefined) this.host.releaseSkillArgumentMedia(prepared);
         if (extraction !== undefined) {
-          this.staging.releaseMedia(
-            [
-              ...extraction.imageAttachmentIds,
-              ...extraction.videoAttachmentIds,
-              ...extraction.documentAttachmentIds,
-            ],
-            [],
-          );
+          this.staging.releaseMedia([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds], []);
         }
       }
     }
@@ -315,7 +299,7 @@ export class BtwPanelController {
   }
 }
 
-function formatBtwTurnEnd(event: Extract<Event, { type: 'turn.ended' }>): string {
+function formatBtwTurnEnd(event: TurnEndedEvent): string {
   if (event.reason === 'cancelled') {
     return t('tui.statusMessages.btwInterrupted');
   }

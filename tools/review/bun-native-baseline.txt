@@ -57,7 +57,6 @@ packages/kap-server/src/instanceRegistry.ts:readFile 1
 packages/kap-server/src/lib/promptMedia.ts:readFile 1
 packages/kap-server/src/search/worker/host.ts:readFile 3
 packages/kap-server/src/services/auth/privateFiles.ts:readFile 1
-packages/kap-server/src/services/guiStore/guiStoreService.ts:readFile 1
 packages/kap-server/src/services/transcript/transcriptService.ts:readFile 1
 packages/migration-legacy/src/detect.ts:readFile 2
 packages/migration-legacy/src/marker.ts:readFile 1
@@ -75,3 +74,8 @@ packages/migration-legacy/src/stub-detect.ts:readFile 2
 packages/node-sdk/scripts/build-dts.mjs:readFile 1
 packages/node-sdk/src/v2/resume-replay.ts:readFile 1
 packages/telemetry/src/transport.ts:readFile 1
+
+# Bun has no native streaming hash, and CryptoHasher is not a Writable stream.
+# This call site feeds node:crypto hash through pipeline(); node:crypto runs on
+# Bun's own implementation, not a Node process.
+packages/agent-core-v2/src/app/auth/feedbackService.ts:createHash 1

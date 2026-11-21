@@ -1,28 +1,19 @@
-import { beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { describe, expect, it, beforeEach, vi } from '@moonshot-ai/testkit/vitest';
 
-import type { GoalChange } from '@moonshot-ai/kimi-code-sdk';
-
-import { buildGoalMarker } from '#/tui/components/messages/goal-markers';
-import { STATUS_DOT } from '#/tui/constant/symbols';
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
-import { readGoalQueue, removeGoalQueueItem, restoreGoalQueueItem } from '#/tui/goal-queue-store';
-import { getBuiltInPalette } from '#/tui/theme';
 import { TurnTimeline } from '#/tui/utils/turn-timeline';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { getBuiltInPalette } from '#/tui/theme';
+import { readGoalQueue, removeGoalQueueItem, restoreGoalQueueItem } from '#/tui/goal-queue-store';
 
-void mock.module('#/tui/goal-queue-store', () => ({
-  readGoalQueue: mock(async () => ({
+void vi.mock('#/tui/goal-queue-store', () => ({
+  readGoalQueue: vi.fn(async () => ({
     goals: [{ id: 'q1', objective: 'Ship queued goal', createdAt: '', updatedAt: '' }],
   })),
-  removeGoalQueueItem: mock(async () => ({ goals: [] })),
-  restoreGoalQueueItem: mock(async () => ({
+  removeGoalQueueItem: vi.fn(async () => ({ goals: [] })),
+  restoreGoalQueueItem: vi.fn(async () => ({
     goals: [{ id: 'q1', objective: 'Ship queued goal', createdAt: '', updatedAt: '' }],
   })),
 }));
-
-const readGoalQueueMock = readGoalQueue as Mock<typeof readGoalQueue>;
-const removeGoalQueueItemMock = removeGoalQueueItem as Mock<typeof removeGoalQueueItem>;
-const restoreGoalQueueItemMock = restoreGoalQueueItem as Mock<typeof restoreGoalQueueItem>;
 
 function fakeGoalSnapshot(objective: string, status: 'active' | 'blocked' | 'paused' | 'complete') {
   return {
@@ -31,11 +22,7 @@ function fakeGoalSnapshot(objective: string, status: 'active' | 'blocked' | 'pau
     status,
     turnsUsed: 1,
     tokensUsed: 10,
-    inputTokensUsed: 8,
-    outputTokensUsed: 2,
     wallClockMs: 100,
-    createdAt: 1000,
-    updatedAt: 2000,
     budget: {
       tokenBudget: null,
       turnBudget: 20,
@@ -47,19 +34,17 @@ function fakeGoalSnapshot(objective: string, status: 'active' | 'blocked' | 'pau
       turnBudgetReached: false,
       wallClockBudgetReached: false,
       overBudget: false,
-      inputTokensUsed: 8,
-      outputTokensUsed: 2,
     },
   };
 }
 
 function makeHost(options: { createGoalRejects?: boolean } = {}) {
   const session = {
-    createGoal: mock(async () => {
+    createGoal: vi.fn(async () => {
       if (options.createGoalRejects === true) throw new Error('create failed');
       return fakeGoalSnapshot('Ship queued goal', 'active');
     }),
-    cancelGoal: mock(async () => fakeGoalSnapshot('Ship queued goal', 'active')),
+    cancelGoal: vi.fn(async () => fakeGoalSnapshot('Ship queued goal', 'active')),
   };
   const host = {
     state: {
@@ -73,51 +58,48 @@ function makeHost(options: { createGoalRejects?: boolean } = {}) {
       queuedMessageDispatchPending: false,
       theme: { palette: getBuiltInPalette('dark') },
       toolOutputExpanded: false,
-      todoPanel: { getTodos: mock(() => []) },
-      transcriptContainer: { addChild: mock() },
-      ui: { requestRender: mock() },
+      transcriptContainer: { addChild: vi.fn() },
+      ui: { requestRender: vi.fn() },
     },
     session,
     aborted: false,
     sessionEventUnsubscribe: undefined,
     streamingUI: {
       timeline: new TurnTimeline(),
-      setTurnId: mock(),
-      flushNow: mock(),
-      resetToolUi: mock(),
-      clearNotifyPanel: mock(),
-      markNotifyPanelEnded: mock(),
-      finalizeTurn: mock(),
-      hasActiveTurn: mock(() => false),
-      hasThinkingDraft: mock(() => false),
-      flushThinkingToTranscript: mock(),
-      appendAssistantDelta: mock(),
-      scheduleFlush: mock(),
-      beginCompaction: mock(),
-      endCompaction: mock(),
-      cancelCompaction: mock(),
-      getTurnContext: mock(() => ({ turnId: 'turn-1', step: 0 })),
+      setTurnId: vi.fn(),
+      flushNow: vi.fn(),
+      resetToolUi: vi.fn(),
+      clearNotifyPanel: vi.fn(),
+      markNotifyPanelEnded: vi.fn(),
+      finalizeTurn: vi.fn(),
+      hasActiveTurn: vi.fn(() => false),
+      hasThinkingDraft: vi.fn(() => false),
+      flushThinkingToTranscript: vi.fn(),
+      appendAssistantDelta: vi.fn(),
+      scheduleFlush: vi.fn(),
+      beginCompaction: vi.fn(),
+      endCompaction: vi.fn(),
+      cancelCompaction: vi.fn(),
     },
-    requireSession: mock(() => session),
-    setAppState: mock(),
-    patchLivePane: mock(),
-    resetLivePane: mock(),
-    showError: mock(),
-    showStatus: mock(),
-    showNotice: mock(),
-    track: mock(),
-    recordSessionActivity: mock(),
-    noteStepUsage: mock(),
-    noteCompactionFinished: mock(),
-    mountEditorReplacement: mock(),
-    restoreEditor: mock(),
-    restoreInputText: mock(),
-    appendTranscriptEntry: mock(),
-    sendNormalUserInput: mock(),
-    sendQueuedMessage: mock(),
-    shiftQueuedMessage: mock(),
-    btwPanelController: { routeEvent: mock(() => false) },
-    surveyController: { notifyCompactionFinished: mock() },
+    requireSession: vi.fn(() => session),
+    setAppState: vi.fn(),
+    patchLivePane: vi.fn(),
+    resetLivePane: vi.fn(),
+    showError: vi.fn(),
+    showStatus: vi.fn(),
+    showNotice: vi.fn(),
+    track: vi.fn(),
+    recordSessionActivity: vi.fn(),
+    noteCompactionFinished: vi.fn(),
+    mountEditorReplacement: vi.fn(),
+    restoreEditor: vi.fn(),
+    restoreInputText: vi.fn(),
+    appendTranscriptEntry: vi.fn(),
+    sendNormalUserInput: vi.fn(),
+    sendQueuedMessage: vi.fn(),
+    shiftQueuedMessage: vi.fn(),
+    btwPanelController: { routeEvent: vi.fn(() => false) },
+    surveyController: { notifyCompactionFinished: vi.fn() },
     tasksBrowserController: {},
   };
   host.setAppState.mockImplementation((patch: Record<string, unknown>) => {
@@ -193,40 +175,31 @@ function modelBlockedEvent() {
 }
 
 function addedTranscriptText(host: ReturnType<typeof makeHost>['host']): string {
-  const entry = host.appendTranscriptEntry.mock.calls.at(-1)?.[0] as
-    | { goalData?: { kind?: string; change?: GoalChange } }
-    | undefined;
-  const change = entry?.goalData?.change;
-  if (change === undefined) return '';
-  const component = buildGoalMarker(change, false, change.actor);
-  if (component === null) return '';
-  return component
-    .render(80)
-    .join('\n')
-    .replaceAll(/\[[0-9;]*m/g, '');
+  const component = host.state.transcriptContainer.addChild.mock.calls.at(-1)?.[0];
+  return component.render(80).join('\n').replaceAll(/\[[0-9;]*m/g, '');
 }
 
 describe('SessionEventHandler goal queue promotion', () => {
   beforeEach(() => {
-    readGoalQueueMock.mockClear();
-    removeGoalQueueItemMock.mockClear();
-    restoreGoalQueueItemMock.mockClear();
+    vi.mocked(readGoalQueue).mockClear();
+    vi.mocked(removeGoalQueueItem).mockClear();
+    vi.mocked(restoreGoalQueueItem).mockClear();
   });
 
   it('starts the next queued goal after the completion turn ends', async () => {
     const { host, session } = makeHost();
     const handler = new SessionEventHandler(host);
 
-    handler.handleEvent(completionEvent(), mock());
+    handler.handleEvent(completionEvent(), vi.fn());
     expect(session.createGoal).not.toHaveBeenCalled();
-    handler.handleEvent(clearedEvent(), mock());
+    handler.handleEvent(clearedEvent(), vi.fn());
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.createGoal).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
 
     handler.handleEvent(turnEndedEvent(), sendQueuedViaHost(host, session));
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(session.createGoal).toHaveBeenCalledWith({
         objective: 'Ship queued goal',
         replace: false,
@@ -269,7 +242,7 @@ describe('SessionEventHandler goal queue promotion', () => {
     handler.handleEvent(clearedEvent(), sendQueued);
     handler.handleEvent(turnEndedEvent(), sendQueued);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.sendQueuedMessage).toHaveBeenCalledWith(session, { text: 'queued user turn' });
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -277,7 +250,7 @@ describe('SessionEventHandler goal queue promotion', () => {
 
     handler.handleEvent(turnEndedEvent(), sendQueued);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(session.createGoal).toHaveBeenCalledWith({
         objective: 'Ship queued goal',
         replace: false,
@@ -290,8 +263,6 @@ describe('SessionEventHandler goal queue promotion', () => {
     const { host, session } = makeHost();
     host.state.appState.streamingPhase = 'idle';
     host.state.queuedMessages = [];
-    // The queue looks empty and the phase is idle, but a shifted queued message
-    // is still awaiting its deferred send. Promotion must not jump ahead of it.
     host.state.queuedMessageDispatchPending = true;
     const handler = new SessionEventHandler(host);
 
@@ -299,11 +270,9 @@ describe('SessionEventHandler goal queue promotion', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.createGoal).not.toHaveBeenCalled();
 
-    // Once the queued message has been dispatched, the flag clears and the
-    // promotion proceeds on the next retry.
     host.state.queuedMessageDispatchPending = false;
     handler.retryQueuedGoalPromotion();
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(session.createGoal).toHaveBeenCalledWith({
         objective: 'Ship queued goal',
         replace: false,
@@ -332,22 +301,20 @@ describe('SessionEventHandler goal queue promotion', () => {
     handler.requestQueuedGoalPromotion();
     handler.handleEvent(compactionCompletedEvent(), sendQueued);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.sendQueuedMessage).toHaveBeenCalledWith(session, { text: 'queued user turn' });
     });
     expect(session.createGoal).not.toHaveBeenCalled();
 
     handler.handleEvent(turnEndedEvent(), sendQueued);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(session.createGoal).toHaveBeenCalledWith({
         objective: 'Ship queued goal',
         replace: false,
       });
     });
-    const sendQueuedCalls = host.sendQueuedMessage.mock.calls as Array<
-      [unknown, { text?: string }]
-    >;
+    const sendQueuedCalls = host.sendQueuedMessage.mock.calls as Array<[unknown, { text?: string }]>;
     const userMessageIndex = sendQueuedCalls.findIndex(
       ([, item]) => item.text === 'queued user turn',
     );
@@ -362,17 +329,17 @@ describe('SessionEventHandler goal queue promotion', () => {
     const { host, session } = makeHost({ createGoalRejects: true });
     const handler = new SessionEventHandler(host);
 
-    handler.handleEvent(completionEvent(), mock());
-    handler.handleEvent(clearedEvent(), mock());
-    handler.handleEvent(turnEndedEvent(), mock());
+    handler.handleEvent(completionEvent(), vi.fn());
+    handler.handleEvent(clearedEvent(), vi.fn());
+    handler.handleEvent(turnEndedEvent(), vi.fn());
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalledWith(expect.stringContaining('create failed'));
     });
     expect(removeGoalQueueItem).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
     expect(host.sendQueuedMessage).not.toHaveBeenCalled();
-    expect(session.createGoal).toHaveBeenCalledTimes(1);
+    expect(session.createGoal).toHaveBeenCalledOnce();
   });
 
   it('retries the queued goal on a later idle event after startup fails', async () => {
@@ -385,7 +352,7 @@ describe('SessionEventHandler goal queue promotion', () => {
     handler.handleEvent(clearedEvent(), sendQueued);
     handler.handleEvent(turnEndedEvent(), sendQueued);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalledWith(expect.stringContaining('create failed'));
     });
     expect(removeGoalQueueItem).not.toHaveBeenCalled();
@@ -393,7 +360,7 @@ describe('SessionEventHandler goal queue promotion', () => {
 
     handler.handleEvent(turnEndedEvent(), sendQueued);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(session.createGoal).toHaveBeenCalledTimes(2);
     });
     expect(removeGoalQueueItem).toHaveBeenCalledWith(session, { goalId: 'q1' });
@@ -401,22 +368,22 @@ describe('SessionEventHandler goal queue promotion', () => {
   });
 
   it('does not send the queued objective when removal fails after goal creation', async () => {
-    removeGoalQueueItemMock.mockRejectedValueOnce(new Error('remove failed'));
+    vi.mocked(removeGoalQueueItem).mockRejectedValueOnce(new Error('remove failed'));
     const { host, session } = makeHost();
     const handler = new SessionEventHandler(host);
 
-    handler.handleEvent(completionEvent(), mock());
-    handler.handleEvent(clearedEvent(), mock());
-    handler.handleEvent(turnEndedEvent(), mock());
+    handler.handleEvent(completionEvent(), vi.fn());
+    handler.handleEvent(clearedEvent(), vi.fn());
+    handler.handleEvent(turnEndedEvent(), vi.fn());
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalledWith(expect.stringContaining('could not be removed'));
     });
     expect(session.createGoal).toHaveBeenCalledWith({
       objective: 'Ship queued goal',
       replace: false,
     });
-    expect(session.cancelGoal).toHaveBeenCalledTimes(1);
+    expect(session.cancelGoal).toHaveBeenCalledOnce();
     expect(restoreGoalQueueItem).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
     expect(host.sendQueuedMessage).not.toHaveBeenCalled();
@@ -424,17 +391,17 @@ describe('SessionEventHandler goal queue promotion', () => {
 
   it('restores the queued goal and cancels the started goal when the session changes before send', async () => {
     const { host, session } = makeHost();
-    removeGoalQueueItemMock.mockImplementationOnce(async () => {
+    vi.mocked(removeGoalQueueItem).mockImplementationOnce(async () => {
       host.session = undefined;
       return { goals: [] };
     });
     const handler = new SessionEventHandler(host);
 
-    handler.handleEvent(completionEvent(), mock());
-    handler.handleEvent(clearedEvent(), mock());
+    handler.handleEvent(completionEvent(), vi.fn());
+    handler.handleEvent(clearedEvent(), vi.fn());
     handler.handleEvent(turnEndedEvent(), sendQueuedViaHost(host, session));
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(restoreGoalQueueItem).toHaveBeenCalledWith(session, {
         id: 'q1',
         objective: 'Ship queued goal',
@@ -442,23 +409,23 @@ describe('SessionEventHandler goal queue promotion', () => {
         updatedAt: '',
       });
     });
-    expect(session.cancelGoal).toHaveBeenCalledTimes(1);
+    expect(session.cancelGoal).toHaveBeenCalledOnce();
     expect(host.sendQueuedMessage).not.toHaveBeenCalled();
   });
 
   it('restores and cancels when the host becomes busy before sending the promoted goal', async () => {
     const { host, session } = makeHost();
-    removeGoalQueueItemMock.mockImplementationOnce(async () => {
+    vi.mocked(removeGoalQueueItem).mockImplementationOnce(async () => {
       host.setAppState({ streamingPhase: 'waiting' });
       return { goals: [] };
     });
     const handler = new SessionEventHandler(host);
 
-    handler.handleEvent(completionEvent(), mock());
-    handler.handleEvent(clearedEvent(), mock());
+    handler.handleEvent(completionEvent(), vi.fn());
+    handler.handleEvent(clearedEvent(), vi.fn());
     handler.handleEvent(turnEndedEvent(), sendQueuedViaHost(host, session));
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(restoreGoalQueueItem).toHaveBeenCalledWith(session, {
         id: 'q1',
         objective: 'Ship queued goal',
@@ -466,7 +433,7 @@ describe('SessionEventHandler goal queue promotion', () => {
         updatedAt: '',
       });
     });
-    expect(session.cancelGoal).toHaveBeenCalledTimes(1);
+    expect(session.cancelGoal).toHaveBeenCalledOnce();
     expect(host.sendQueuedMessage).not.toHaveBeenCalled();
   });
 
@@ -481,9 +448,9 @@ describe('SessionEventHandler goal queue promotion', () => {
       change: { kind: 'lifecycle', status: 'blocked', reason: 'waiting for access' },
     } as const;
 
-    handler.handleEvent(event, mock());
+    handler.handleEvent(event, vi.fn());
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showNotice).toHaveBeenCalledWith(
         'Goal blocked.',
         'The next queued goal will start only after this goal is complete.',
@@ -496,26 +463,26 @@ describe('SessionEventHandler goal queue promotion', () => {
     const { host } = makeHost();
     const handler = new SessionEventHandler(host);
 
-    handler.handleEvent(modelBlockedEvent(), mock());
+    handler.handleEvent(modelBlockedEvent(), vi.fn());
 
-    expect(host.appendTranscriptEntry).not.toHaveBeenCalled();
+    expect(host.state.transcriptContainer.addChild).not.toHaveBeenCalled();
   });
 
   it('renders a blocked fallback when the model does not explain the blocked goal', () => {
     const { host } = makeHost();
     const handler = new SessionEventHandler(host);
 
-    handler.handleEvent(modelBlockedEvent(), mock());
-    handler.handleEvent(turnEndedEvent(), mock());
+    handler.handleEvent(modelBlockedEvent(), vi.fn());
+    handler.handleEvent(turnEndedEvent(), vi.fn());
 
-    expect(addedTranscriptText(host)).toBe(`  ${STATUS_DOT} Goal blocked`);
+    expect(addedTranscriptText(host)).toBe('  ◦ Goal blocked');
   });
 
   it('does not render a blocked fallback after the model explains the blocked goal', () => {
     const { host } = makeHost();
     const handler = new SessionEventHandler(host);
 
-    handler.handleEvent(modelBlockedEvent(), mock());
+    handler.handleEvent(modelBlockedEvent(), vi.fn());
     handler.handleEvent(
       {
         type: 'assistant.delta',
@@ -524,11 +491,11 @@ describe('SessionEventHandler goal queue promotion', () => {
         turnId: 1,
         delta: 'I am blocked because I need credentials.',
       },
-      mock(),
+      vi.fn(),
     );
-    handler.handleEvent(turnEndedEvent(), mock());
+    handler.handleEvent(turnEndedEvent(), vi.fn());
 
-    expect(host.appendTranscriptEntry).not.toHaveBeenCalled();
+    expect(host.state.transcriptContainer.addChild).not.toHaveBeenCalled();
   });
 
   it('does not render a blocked fallback after earlier assistant text in the same turn', () => {
@@ -543,12 +510,12 @@ describe('SessionEventHandler goal queue promotion', () => {
         turnId: 1,
         delta: 'I am blocked because I need credentials.',
       },
-      mock(),
+      vi.fn(),
     );
-    handler.handleEvent(modelBlockedEvent(), mock());
-    handler.handleEvent(turnEndedEvent(), mock());
+    handler.handleEvent(modelBlockedEvent(), vi.fn());
+    handler.handleEvent(turnEndedEvent(), vi.fn());
 
-    expect(host.appendTranscriptEntry).not.toHaveBeenCalled();
+    expect(host.state.transcriptContainer.addChild).not.toHaveBeenCalled();
   });
 
   it('does not promote on paused or cancelled updates', async () => {
@@ -562,8 +529,8 @@ describe('SessionEventHandler goal queue promotion', () => {
       change: { kind: 'lifecycle', status: 'paused' },
     } as const;
 
-    handler.handleEvent(paused, mock());
-    handler.handleEvent(clearedEvent(), mock());
+    handler.handleEvent(paused, vi.fn());
+    handler.handleEvent(clearedEvent(), vi.fn());
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.createGoal).not.toHaveBeenCalled();

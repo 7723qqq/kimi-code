@@ -8,7 +8,15 @@ const BASELINE_PATH = join(import.meta.dirname, 'deep-import-baseline.txt');
 
 const ENGINE_PREFIX = '@moonshot-ai/agent-core-v2/';
 const SCAN_ROOTS = ['packages', 'apps'];
-const SKIP_DIRS = new Set(['node_modules', 'dist', 'dist-web', 'coverage', '.git', '参考目录']);
+const SKIP_DIRS = new Set([
+  'node_modules',
+  'dist',
+  'dist-web',
+  'coverage',
+  '.git',
+  '.tmp',
+  '参考目录',
+]);
 
 const SERVICE_IDENTIFIER_RE =
   /\bI[A-Z][A-Za-z0-9]*(?:Service|Catalog|Index|Manager|Browser|Store|Registry)\b/;

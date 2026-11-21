@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/global.d.ts", "src/main", "src/backend", "src/shared", "scripts/backend-*.ts"],
+  "exclude": [
+    "src/renderer",
+    "**/*.test.ts",
+    "tests",
+    "e2e",
+    "out",
+    "out-backend",
+    "backend-dist",
+    "desktop-dist",
+    "dist-app"
+  ]
+}

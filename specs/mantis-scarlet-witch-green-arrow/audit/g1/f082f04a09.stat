@@ -1,0 +1,13 @@
+commit f082f04a09
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Sat Nov 14 01:32:03 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Sat Nov 14 01:32:03 2026 +0800
+
+    docs(changelog): sync 2.6.2 from apps/kimi-code/CHANGELOG.md (#4929)
+    
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+
+ docs/en/release-notes/changelog.md | 17 +++++++++++++++++
+ docs/zh/release-notes/changelog.md | 17 +++++++++++++++++
+ 2 files changed, 34 insertions(+)

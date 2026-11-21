@@ -1,5 +1,5 @@
-import { extractText, type ContentPart, type Message } from '#/llm/message';
-import type { ToolMessageConversion } from '#/llm/requester/requester';
+import { extractText, type ContentPart, type DocumentURLPart, type Message } from '#human/message';
+import type { ToolMessageConversion } from '#human/llm/requester/requester';
 
 import type { OpenAIContentPart, OpenAIWireMessage } from './contract';
 import { TOOL_RESULT_MEDIA_PLACEHOLDER } from './patterns';
@@ -8,7 +8,7 @@ import { DEFAULT_REASONING_KEY, REASONING_DETAILS_KEY } from './reasoning-key';
 const OMITTED_AUDIO_PLACEHOLDER = '(audio omitted: not supported by this provider)';
 const OMITTED_VIDEO_PLACEHOLDER = '(video omitted: not supported by this provider)';
 
-function convertContentPart(part: ContentPart): OpenAIContentPart | null {
+function convertContentPart(part: ContentPart | DocumentURLPart): OpenAIContentPart | null {
   switch (part.type) {
     case 'text':
       return { type: 'text', text: part.text };

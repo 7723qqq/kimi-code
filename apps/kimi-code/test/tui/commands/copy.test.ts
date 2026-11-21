@@ -1,31 +1,16 @@
-import { beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { findLastAssistantText, handleCopyCommand } from '#/tui/commands/copy';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import { findBuiltInSlashCommand, resolveSlashCommandAvailability } from '#/tui/commands/index';
 import type { TranscriptEntry } from '#/tui/types';
 
-const mocks = (() => ({
-  copyTextToClipboard: mock(),
-  t: (key: string, params?: Record<string, string | number>) => {
-    const translations: Record<string, string> = {
-      'tui.statusMessages.copyNative': `Copied to clipboard (${String(params?.['count'] ?? '?')} characters).`,
-      'tui.statusMessages.copyEscape': `Copied via terminal escape sequence (unverified, ${String(params?.['count'] ?? '?')} characters).`,
-      'tui.statusMessages.copyNoMessage': 'No assistant message to copy.',
-      'tui.statusMessages.copyFailed': `Failed to copy to clipboard: ${String(params?.['error'] ?? '?')}`,
-    };
-    return translations[key] ?? key;
-  },
-}))();
-
-void mock.module('#/utils/clipboard/clipboard-text', () => ({
-  copyTextToClipboard: mocks.copyTextToClipboard,
+const mocks = vi.hoisted(() => ({
+  copyTextToClipboard: vi.fn(),
 }));
 
-void mock.module('#/i18n', () => ({
-  t: mocks.t,
-  setLocale: mock(),
-  getLocale: () => 'en',
+void vi.mock('#/utils/clipboard/clipboard-text', () => ({
+  copyTextToClipboard: mocks.copyTextToClipboard,
 }));
 
 let nextEntryId = 0;
@@ -46,11 +31,11 @@ function assistantEntry(content: string): TranscriptEntry {
 function makeHost(entries: TranscriptEntry[]) {
   const host = {
     state: { transcriptEntries: entries },
-    showStatus: mock(),
-    showError: mock(),
+    showStatus: vi.fn(),
+    showError: vi.fn(),
   } as unknown as SlashCommandHost & {
-    showStatus: Mock<(...args: any[]) => any>;
-    showError: Mock<(...args: any[]) => any>;
+    showStatus: ReturnType<typeof vi.fn>;
+    showError: ReturnType<typeof vi.fn>;
   };
   return host;
 }
@@ -109,7 +94,7 @@ describe('findLastAssistantText', () => {
 
 describe('handleCopyCommand', () => {
   beforeEach(() => {
-    mock.clearAllMocks();
+    vi.clearAllMocks();
     mocks.copyTextToClipboard.mockResolvedValue('native');
   });
 

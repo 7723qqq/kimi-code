@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';
@@ -9,7 +9,6 @@ const mcpServerFailedSchema = z.object({
   serverName: z.string(),
   transport: z.enum(['stdio', 'http', 'sse']),
   error: z.string().optional(),
-  nextRetryAt: z.number().optional(),
 });
 
 export class McpServerFailed extends AgentEvent2<z.infer<typeof mcpServerFailedSchema>> {
@@ -22,7 +21,6 @@ export interface McpServerFailed {
   readonly serverName: string;
   readonly transport: 'stdio' | 'http' | 'sse';
   readonly error?: string;
-  readonly nextRetryAt?: number;
 }
 
 const mcpServerFailureResolutionSchema = z.enum(['recovered', 'needs-auth', 'disabled', 'removed']);
@@ -35,9 +33,7 @@ const mcpServerFailureResolvedSchema = z.object({
   resolution: mcpServerFailureResolutionSchema,
 });
 
-export class McpServerFailureResolved extends AgentEvent2<
-  z.infer<typeof mcpServerFailureResolvedSchema>
-> {
+export class McpServerFailureResolved extends AgentEvent2<z.infer<typeof mcpServerFailureResolvedSchema>> {
   static override readonly type = 'mcp.server_failure_resolved';
   static override readonly durable = true;
   static override readonly schema = mcpServerFailureResolvedSchema;
@@ -51,23 +47,13 @@ export interface McpServerFailureResolved {
 
 export interface McpFailureState {
   readonly open: readonly string[];
-  readonly retryAt: Readonly<Record<string, number | undefined>>;
 }
 
-export const mcpFailureKey = defineState('mcp.failures', (): McpFailureState => ({
-  open: [],
-  retryAt: {},
-}))
+export const mcpFailureKey = defineState('mcp.failures', (): McpFailureState => ({ open: [] }))
   .replayable({ schema: z.custom<McpFailureState>() })
   .on(McpServerFailed, (s, e) => {
     if (!s.open.includes(e.serverName)) s.open = [...s.open, e.serverName];
-    if (e.nextRetryAt !== undefined) s.retryAt = { ...s.retryAt, [e.serverName]: e.nextRetryAt };
   })
   .on(McpServerFailureResolved, (s, e) => {
     s.open = s.open.filter((serverName) => serverName !== e.serverName);
-    if (e.serverName in s.retryAt) {
-      const next = { ...s.retryAt };
-      delete next[e.serverName];
-      s.retryAt = next;
-    }
   });

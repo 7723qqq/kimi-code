@@ -1,16 +1,10 @@
-/**
- * Pure helpers for composing session labels in the session picker.
- *
- * Detection rule for the `[imported]` badge: `metadata.imported_from_kimi_cli`
- * is strictly the boolean `true`. This mirrors the value written by
- * `migration-legacy` into the session's `state.json` `custom` block.
- */
-
 import { t } from '#/i18n';
-
-export function formatImportedBadge(): string {
-  return t('tui.migration.badgeImported');
-}
+const IMPORTED_BADGE = t('tui.migration.badgeImported');
+const IMPORTED_FLAG_KEY = 'imported_from_kimi_cli';
+const SOURCE_BADGES: Readonly<Record<string, string>> = {
+  'claude-code': '[Claude Code]',
+  codex: '[Codex]',
+};
 
 export interface SessionLabelInput {
   readonly title: string;
@@ -25,8 +19,11 @@ export function isImportedSession(
 }
 
 export function formatSessionLabel(input: SessionLabelInput): string {
-  const prefix = isImportedSession(input.metadata) ? `${formatImportedBadge()} ` : '';
-  return `${prefix}${input.title}`;
+  const source = input.metadata?.['imported_from'];
+  const badge = isImportedSession(input.metadata)
+    ? IMPORTED_BADGE
+    : typeof source === 'string'
+      ? SOURCE_BADGES[source]
+      : undefined;
+  return badge === undefined ? input.title : `${badge} ${input.title}`;
 }
-
-const IMPORTED_FLAG_KEY = 'imported_from_kimi_cli';

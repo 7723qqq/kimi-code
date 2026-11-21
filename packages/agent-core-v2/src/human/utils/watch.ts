@@ -12,7 +12,7 @@ import {
   stopChild,
   type ActorRefFrom,
   type Subscription,
-} from '#/xstate2';
+} from '#human/xstate2';
 
 export type WatchChangeAction = 'created' | 'modified' | 'deleted';
 export type WatchChangeKind = 'file' | 'directory';
@@ -135,8 +135,7 @@ const chokidarLeg = fromCallback<WatchEvent, ChokidarLegInput>(({ input, sendBac
   });
   watcher.on('all', (eventName: string, absPath: string) => {
     const mapped = CHOKIDAR_EVENTS[eventName];
-    if (mapped !== undefined)
-      sendBack({ type: 'leg.change', change: { path: absPath, ...mapped } });
+    if (mapped !== undefined) sendBack({ type: 'leg.change', change: { path: absPath, ...mapped } });
   });
   watcher.on('error', (error: unknown) => sendBack({ type: 'leg.error', error }));
   watcher.once('ready', () => sendBack({ type: 'leg.ready' }));
@@ -179,10 +178,7 @@ interface RetryLegInput {
 }
 
 const retryLeg = fromCallback<WatchEvent, RetryLegInput>(({ input, sendBack }) => {
-  const retry = input.runtime.scheduleRetry(
-    () => sendBack({ type: 'leg.retryFired' }),
-    input.delayMs,
-  );
+  const retry = input.runtime.scheduleRetry(() => sendBack({ type: 'leg.retryFired' }), input.delayMs);
   return () => {
     retry.dispose();
   };
@@ -322,7 +318,10 @@ const watchMachine = setup({
               assign({
                 recovering: true,
                 retryDelayMs: ({ context }) =>
-                  Math.min(NATIVE_RETRY_BASE_MS * 2 ** context.retryAttempts, NATIVE_RETRY_MAX_MS),
+                  Math.min(
+                    NATIVE_RETRY_BASE_MS * 2 ** context.retryAttempts,
+                    NATIVE_RETRY_MAX_MS,
+                  ),
                 retryAttempts: ({ context }) => context.retryAttempts + 1,
               }),
               ({ context, event }) => context.input.runtime.reportError(event.error),
@@ -690,10 +689,7 @@ function isCandidateRelated(root: string, candidates: readonly string[], path: s
     if (sameWatchPath(path, candidate)) return true;
     if (isPathInside(path, candidate) || isPathInside(candidate, path)) return true;
     const segment = firstPathSegment(root, candidate);
-    if (
-      segment !== undefined &&
-      (basename(path) === segment || path.endsWith(`${sep}${segment}`))
-    ) {
+    if (segment !== undefined && (basename(path) === segment || path.endsWith(`${sep}${segment}`))) {
       return true;
     }
   }

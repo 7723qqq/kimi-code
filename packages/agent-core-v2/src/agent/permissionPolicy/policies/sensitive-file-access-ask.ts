@@ -1,9 +1,11 @@
-import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
+import { IConfigService } from '#/app/config/config';
 import { isDangerousCommandGuardEnabled } from '#/agent/permissionRules/configSection';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
-import { IConfigService } from '#/app/config/config';
 import { isSensitiveFile } from '#/tool/path-access';
-
+import type {
+  PermissionPolicy,
+  PermissionPolicyResult,
+} from '#/agent/permissionPolicy/types';
 import { fileAccesses } from './path-utils';
 
 export class SensitiveFileAccessAskPermissionPolicyService implements PermissionPolicy {

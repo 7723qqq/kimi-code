@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'bun:test';
+import type { ToolCall } from '#human/message';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';
 import { ToolAccesses } from '#/tool/toolContract';
-import type { ToolCall } from '#human/llm/message';
 
 const signal = new AbortController().signal;
 
@@ -43,6 +43,7 @@ describe('DefaultToolApprovePermissionPolicyService', () => {
     ['Read', { path: '/workspace/notes.md' }],
     ['Grep', { pattern: 'TODO', path: '/workspace' }],
     ['Glob', { pattern: '**/*.ts', path: '/workspace' }],
+    ['ReadMediaFile', { path: '/workspace/image.png' }],
     ['SetTodoList', { items: [] }],
     ['TodoList', {}],
     ['NotifyUser', { message: 'Reading the parser first.' }],
@@ -79,10 +80,8 @@ describe('DefaultToolApprovePermissionPolicyService', () => {
     ['CronCreate', { cron: '*/5 * * * *', prompt: 'ping' }],
     ['CronDelete', { id: 'job_1' }],
   ] as const)('does not approve %s', (toolName, args) => {
-    expect(policy.evaluate(policyContext(toolName, args))).toBeUndefined();
-  });
-
-  it('does not approve an unknown tool name', () => {
-    expect(policy.evaluate(policyContext('UnknownTool', {}))).toBeUndefined();
+    expect(
+      policy.evaluate(policyContext(toolName, args)),
+    ).toBeUndefined();
   });
 });

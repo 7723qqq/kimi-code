@@ -11,17 +11,21 @@ export type EventDispatcherHooks = {
 
 export type RestorePhase = 'new' | 'restoring' | 'ready' | 'failed';
 
+export interface ReplayOutcome {
+  readonly ok: boolean;
+}
+
 export interface DurableAgentRuntimeParticipant<State = any> {
   readonly id: string;
   readonly events: readonly Event2Class<any, any>[];
   readonly undoable: boolean;
   readonly mutableReplay?: boolean;
   readonly transition: StateFold<State>;
-  readonly onUndo?: (state: State, count: number) => State | void;
+  readonly onUndo?: (state: State, count: number) => State;
   onWillReplay?(): void;
-  onDidReplay?(state: State, result: { readonly ok: boolean }): void;
+  onDidReplay?(state: State, outcome: ReplayOutcome): void;
   getState(): State;
-  commit(state: State, silent: boolean): void;
+  commit(state: State): void;
 }
 
 export interface DurableRuntimeParticipantHost {
@@ -38,7 +42,6 @@ export interface IEventDispatcher extends DurableRuntimeParticipantHost {
   dispatch(event: Event2<any>): Promise<void>;
   attachLate(participant: DurableAgentRuntimeParticipant): Promise<IDisposable>;
   restore(): Promise<void>;
-  whenRestored(): Promise<void>;
   flush(): Promise<void>;
 }
 

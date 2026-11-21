@@ -1,6 +1,6 @@
-import { extractImageCompressionCaptions } from '#/llm/media/imageCompressionCaption';
-import { matchSingleMediaPathTag } from '#/llm/media/pathTag';
-import type { ContentPart, TextPart } from '#/llm/message';
+import { extractImageCompressionCaptions } from '#human/llm/media/imageCompressionCaption';
+import { matchSingleMediaPathTag } from '#human/llm/media/pathTag';
+import type { ContentPart, TextPart } from '#human/message';
 
 export const SKILL_ACTIVATION_PART_SOURCE = 'skill activation';
 

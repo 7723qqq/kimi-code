@@ -1,31 +1,19 @@
-#!/usr/bin/env bun
-// Press-Enter-to-restart wrapper for the local server. No file watcher.
-//
-// Spawns `bun --import ../../build/register-raw-text-loader.mjs ./src/main.ts web --no-open …extraArgs`
-// once, then on each
-// newline read from stdin SIGTERMs the child and respawns after it has
-// cleanly exited. SIGTERM triggers the server's own `shutdown()` handler
-// (apps/kimi-code/src/cli/sub/web/run.ts) which releases the instance
-// registration and closes WS conns before exit, so a fresh start can
-// re-acquire 58627 without a stale-entry fight.
-//
-// CLI args after `--` (or any extras) are passed straight through, so:
-//   bun run dev:server:restart -- --host 0.0.0.0 --port 58627 --log-level debug
-// is equivalent to `bun run dev:server` with that arg list, but with the restart
-// loop on top.
-
+#!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
-const SCRIPT_DIR = import.meta.dirname;
+
+const SCRIPT_DIR = dirname(Bun.fileURLToPath(import.meta.url));
 const APP_ROOT = resolve(SCRIPT_DIR, '..');
 
-const bunBin = process.platform === 'win32' ? 'bun.exe' : 'bun';
+const tsxBin = process.platform === 'win32' ? 'tsx.cmd' : 'tsx';
 
 const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === '--') cliArgs.shift();
 
-const serverArgs = [
+const tsxArgs = [
+  '--tsconfig',
+  './tsconfig.dev.json',
   '--import',
   '../../build/register-raw-text-loader.mjs',
   './src/main.ts',
@@ -41,10 +29,9 @@ let killTimer = null;
 
 function start() {
   console.error('[dev:server:restart] starting server…');
-  child = spawn(bunBin, serverArgs, {
+  child = spawn(tsxBin, tsxArgs, {
     cwd: APP_ROOT,
     env: { ...process.env, KIMI_CODE_DEV_SERVER: '1' },
-    // Server does not read stdin; keep ours free for the Enter trigger.
     stdio: ['ignore', 'inherit', 'inherit'],
   });
 
@@ -68,29 +55,24 @@ function start() {
       start();
       return;
     }
-    // Server died on its own (port conflict, runtime error, etc.). Stay alive
-    // so the user can fix the issue and press Enter to retry.
     const tag = signal !== null ? `signal=${signal}` : `code=${code}`;
     console.error(
       `[dev:server:restart] server exited (${tag}). Press Enter to restart, Ctrl+C to quit.`,
     );
-    void prev; // silence unused warning
+    void prev;
   });
 }
 
 function restart() {
   if (shuttingDown) return;
   if (child === null) {
-    // Previous run already exited; just spin up a new one.
     start();
     return;
   }
-  if (restarting) return; // debounce — multiple Enters during shutdown collapse
+  if (restarting) return;
   restarting = true;
   console.error('[dev:server:restart] restarting…');
   child.kill('SIGTERM');
-  // Safety net: if the child ignores SIGTERM, force-kill after 5s so the
-  // restart loop doesn't wedge.
   killTimer = setTimeout(() => {
     if (child !== null && child.exitCode === null && child.signalCode === null) {
       console.error('[dev:server:restart] SIGTERM timed out, sending SIGKILL');
@@ -101,8 +83,6 @@ function restart() {
 
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
-  // Any newline (Enter on most terminals) triggers a restart. Empty Enter is
-  // the canonical signal; typing `r<Enter>` works too.
   if (chunk.includes('\n') || chunk.includes('\r')) {
     restart();
   }
@@ -113,7 +93,6 @@ const onShutdownSignal = (signal) => {
   shuttingDown = true;
   if (child !== null) {
     child.kill(signal);
-    // Give the server a moment to flush logs / release the lock.
     setTimeout(() => process.exit(0), 1000).unref();
   } else {
     process.exit(0);

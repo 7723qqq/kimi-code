@@ -19,13 +19,8 @@ import type { ConfigDiagnostics, KimiConfig } from '#/types';
  * Every top-level `KimiConfig` field except `raw` (a v1 write-path
  * implementation detail with no v2 counterpart). Each entry is both the v1
  * field name and the v2 config domain name.
- *
- * The `config.test.ts` allowlist check pins this list against
- * `KimiConfigSchema`: a schema section missing here type-checks fine and
- * silently disappears between a write and the next read, which is how the
- * `[prompt_optimizer]` settings shipped.
  */
-export const KIMI_CONFIG_DOMAINS = [
+const KIMI_CONFIG_DOMAINS = [
   'providers',
   'defaultProvider',
   'defaultModel',
@@ -39,16 +34,12 @@ export const KIMI_CONFIG_DOMAINS = [
   'permission',
   'hooks',
   'services',
-  'github',
   'mergeAllAvailableSkills',
   'extraSkillDirs',
-  'extraAgentDirs',
   'loopControl',
   'background',
   'subagent',
-  'agent',
   'secondaryModel',
-  'promptOptimizer',
   'mcp',
   'image',
   'modelCatalog',
@@ -61,9 +52,9 @@ export const KIMI_CONFIG_DOMAINS = [
 /**
  * Pick the v1-shaped fields out of the v2 engine's resolved config
  * (`config.getAll()` — the effective view: file values plus env overlays
- * plus registered section defaults). Domains the v2 engine registers but
- * the v1 schema does not declare (`cron`, `tools`, `read`, ...) are
- * dropped, mirroring how v1's schema strips unknown top-level keys.
+ * plus registered section defaults). Domains v2 knows but v1 does not
+ * (`cron`, `tools`, `extraAgentDirs`, ...) are dropped,
+ * mirroring how v1's schema strips unknown top-level keys.
  */
 export function resolvedConfigToKimiConfig(resolved: Record<string, unknown>): KimiConfig {
   const config: Record<string, unknown> = {};
@@ -141,22 +132,5 @@ export function planProviderRemoval(input: {
     models,
     clearDefaultModel: removedDefault,
     clearDefaultProvider: input.defaultProvider === input.providerId,
-  };
-}
-
-export function removeProviderFromConfig(config: KimiConfig, providerId: string): KimiConfig {
-  const plan = planProviderRemoval({
-    providers: config.providers as Record<string, unknown> | undefined,
-    models: config.models as Record<string, Record<string, unknown>> | undefined,
-    defaultModel: config.defaultModel,
-    defaultProvider: config.defaultProvider,
-    providerId,
-  });
-  return {
-    ...config,
-    providers: plan.providers as KimiConfig['providers'],
-    models: plan.models as KimiConfig['models'],
-    defaultModel: plan.clearDefaultModel ? undefined : config.defaultModel,
-    defaultProvider: plan.clearDefaultProvider ? undefined : config.defaultProvider,
   };
 }

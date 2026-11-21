@@ -1,7 +1,8 @@
-import type { MediaPathTagKind } from '#human/llm/media/pathTag';
-import type { ContentPart } from '#human/llm/message';
+import { join } from 'node:path';
 
-export type MediaKind = MediaPathTagKind;
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
+
+export type MediaKind = 'image' | 'video' | 'audio' | 'file';
 
 export const IMAGE_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.freeze({
   '.png': 'image/png',
@@ -35,10 +36,6 @@ export const VIDEO_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.fre
   '.3g2': 'video/3gpp2',
 });
 
-export const DOCUMENT_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.freeze({
-  '.pdf': 'application/pdf',
-});
-
 export const AUDIO_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.freeze({
   '.mp3': 'audio/mpeg',
   '.wav': 'audio/wav',
@@ -55,11 +52,8 @@ export const AUDIO_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.fre
 const IMAGE_EXT_BY_MIME = invertMimeBySuffix(IMAGE_MIME_BY_SUFFIX);
 const VIDEO_EXT_BY_MIME = invertMimeBySuffix(VIDEO_MIME_BY_SUFFIX);
 const AUDIO_EXT_BY_MIME = invertMimeBySuffix(AUDIO_MIME_BY_SUFFIX);
-const DOCUMENT_EXT_BY_MIME = invertMimeBySuffix(DOCUMENT_MIME_BY_SUFFIX);
 
-function invertMimeBySuffix(
-  table: Readonly<Record<string, string>>,
-): Readonly<Record<string, string>> {
+function invertMimeBySuffix(table: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
   const out: Record<string, string> = {};
   for (const [suffix, mime] of Object.entries(table)) {
     out[mime] ??= suffix;
@@ -70,12 +64,7 @@ function invertMimeBySuffix(
 export function mediaExtensionForMime(mimeType: string): string | undefined {
   const semi = mimeType.indexOf(';');
   const base = (semi === -1 ? mimeType : mimeType.slice(0, semi)).trim().toLowerCase();
-  return (
-    VIDEO_EXT_BY_MIME[base] ??
-    IMAGE_EXT_BY_MIME[base] ??
-    AUDIO_EXT_BY_MIME[base] ??
-    DOCUMENT_EXT_BY_MIME[base]
-  );
+  return VIDEO_EXT_BY_MIME[base] ?? IMAGE_EXT_BY_MIME[base] ?? AUDIO_EXT_BY_MIME[base];
 }
 
 function mediaSuffix(path: string): string {
@@ -86,30 +75,27 @@ function mediaSuffix(path: string): string {
   return path.slice(idx).toLowerCase();
 }
 
-export function mediaKindForPath(path: string): MediaKind | undefined {
+export function mediaKindForPath(path: string): 'image' | 'video' | 'audio' | undefined {
   const suffix = mediaSuffix(path);
   if (suffix in IMAGE_MIME_BY_SUFFIX) return 'image';
   if (suffix in VIDEO_MIME_BY_SUFFIX) return 'video';
   if (suffix in AUDIO_MIME_BY_SUFFIX) return 'audio';
-  if (suffix in DOCUMENT_MIME_BY_SUFFIX) return 'document';
   return undefined;
 }
 
-export function mediaKindForMime(mimeType: string): MediaKind | undefined {
+export function mediaKindForMime(mimeType: string): 'image' | 'video' | 'audio' | undefined {
   const semi = mimeType.indexOf(';');
   const base = (semi === -1 ? mimeType : mimeType.slice(0, semi)).trim().toLowerCase();
   if (base.startsWith('image/')) return 'image';
   if (base.startsWith('video/')) return 'video';
   if (base.startsWith('audio/')) return 'audio';
-  if (base === 'application/pdf') return 'document';
   return undefined;
 }
 
-export function mediaKindOfPart(part: ContentPart): MediaKind | undefined {
+export function mediaKindOfPart(part: ContentPart): 'image' | 'video' | 'audio' | undefined {
   if (part.type === 'image_url') return 'image';
   if (part.type === 'video_url') return 'video';
   if (part.type === 'audio_url') return 'audio';
-  if (part.type === 'document_url') return 'document';
   return undefined;
 }
 
@@ -149,11 +135,59 @@ export function daemonFileRefFromPart(
   return undefined;
 }
 
-export {
-  buildMediaPathTag,
-  escapeMediaAttribute,
-  matchMediaPathTags,
-  matchSingleMediaPathTag,
-  unescapeMediaAttribute,
-  type MediaPathTag,
-} from '#human/llm/media/pathTag';
+export const SESSION_MEDIA_DIR = 'media';
+
+export function sessionMediaFilePath(sessionDir: string, fileId: string, ext: string): string {
+  return join(sessionDir, SESSION_MEDIA_DIR, `${fileId}${ext}`);
+}
+
+const MEDIA_PATH_TAG_RE = /<(image|video|audio|file)\b[^>]*?\bpath="([^"]*)"[^>]*>(?:<\/\1>)?/g;
+
+export interface MediaPathTag {
+  readonly kind: MediaKind;
+  readonly path: string;
+  readonly index: number;
+  readonly text: string;
+}
+
+export function escapeMediaAttribute(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+export function unescapeMediaAttribute(value: string): string {
+  return value
+    .replaceAll('&quot;', '"')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&');
+}
+
+export function buildMediaPathTag(kind: MediaKind, path: string): string {
+  return `<${kind} path="${escapeMediaAttribute(path)}"></${kind}>`;
+}
+
+export function matchMediaPathTags(text: string): MediaPathTag[] {
+  const tags: MediaPathTag[] = [];
+  for (const match of text.matchAll(MEDIA_PATH_TAG_RE)) {
+    tags.push({
+      kind: match[1] as MediaKind,
+      path: unescapeMediaAttribute(match[2]!),
+      index: match.index,
+      text: match[0],
+    });
+  }
+  return tags;
+}
+
+export function matchSingleMediaPathTag(text: string): MediaPathTag | undefined {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return undefined;
+  const tags = matchMediaPathTags(trimmed);
+  if (tags.length !== 1) return undefined;
+  const tag = tags[0]!;
+  return tag.index === 0 && tag.text.length === trimmed.length ? tag : undefined;
+}

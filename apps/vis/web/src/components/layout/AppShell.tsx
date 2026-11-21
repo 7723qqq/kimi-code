@@ -1,12 +1,9 @@
-import { localeMeta, otherLocale } from '@moonshot-ai/i18n-shared';
-import { useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-
-import { useTheme, type ThemeChoice, type ResolvedTheme } from '../../hooks/useTheme';
-import { t, useLocale } from '../../i18n';
 import { SessionRail } from '../sessions/SessionRail';
 import { ZipDropOverlay } from '../shared/ZipDropOverlay';
+import { useTheme, type ThemeChoice, type ResolvedTheme } from '../../hooks/useTheme';
 
 interface AppShellProps {
   children: ReactNode;
@@ -15,7 +12,6 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const qc = useQueryClient();
   const { choice, resolved, cycle } = useTheme();
-  const { locale, set } = useLocale();
 
   return (
     <div className="flex h-full flex-col">
@@ -26,38 +22,25 @@ export function AppShell({ children }: AppShellProps) {
             kimi <span className="text-fg-2">vis</span>
           </span>
           <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.12em] text-fg-3">
-            {t('app.debugLabel')}
+            debug · local files
           </span>
         </Link>
         <div className="flex items-center gap-2 text-[11px] text-fg-2">
-          <button
-            onClick={() => {
-              set(otherLocale(locale));
-            }}
-            className="flex items-center gap-1.5 border border-border px-2 py-0.5 font-mono text-[11px] text-fg-1 transition-colors hover:border-border-strong hover:text-fg-0"
-            title={t('shell.switchLanguage', { lang: localeMeta(otherLocale(locale)).label })}
-          >
-            {localeMeta(otherLocale(locale)).short}
-          </button>
           <ThemeToggle choice={choice} resolved={resolved} onCycle={cycle} />
           <button
             onClick={() => {
               void qc.invalidateQueries();
             }}
             className="flex items-center gap-1.5 border border-border px-2 py-0.5 font-mono text-[11px] text-fg-1 transition-colors hover:border-border-strong hover:text-fg-0"
-            title={t('shell.refreshTitle')}
+            title="Refresh — re-read all session data from disk"
           >
             <RefreshIcon />
-            {t('shell.refresh')}
+            refresh
           </button>
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
         <SessionRail />
-        {/* min-w-0 lets the main column shrink below its content's intrinsic
-            width; without it a flex child defaults to min-width:auto and wide
-            tab content (e.g. the Timeline's flex-wrap rows) blows the layout
-            out horizontally instead of wrapping. */}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
       </div>
       <ZipDropOverlay />
@@ -75,13 +58,13 @@ function ThemeToggle({
   onCycle: () => void;
 }) {
   const label = choice === 'auto' ? `auto · ${resolved}` : choice;
-  const title = t('shell.themeTitle', { label });
+  const title = `Theme: ${label}. Click to cycle (auto → light → dark → auto).`;
   return (
     <button
       onClick={onCycle}
       className="flex items-center gap-1.5 border border-border px-2 py-0.5 font-mono text-[11px] text-fg-1 transition-colors hover:border-border-strong hover:text-fg-0"
       title={title}
-      aria-label={t('shell.themeLabel', { label })}
+      aria-label={`Theme ${label}`}
     >
       {choice === 'auto' ? <AutoIcon /> : resolved === 'light' ? <SunIcon /> : <MoonIcon />}
       <span className="tabular">{label}</span>
@@ -110,14 +93,7 @@ function RefreshIcon() {
         fill="none"
         strokeLinecap="square"
       />
-      <path
-        d="M7 1 L10 3 L7 5"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        fill="none"
-        strokeLinecap="square"
-        strokeLinejoin="miter"
-      />
+      <path d="M7 1 L10 3 L7 5" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="square" strokeLinejoin="miter" />
     </svg>
   );
 }
@@ -143,7 +119,10 @@ function SunIcon() {
 function MoonIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M9 7.5 A4.5 4.5 0 1 1 4.5 3 A3.6 3.6 0 0 0 9 7.5 Z" fill="currentColor" />
+      <path
+        d="M9 7.5 A4.5 4.5 0 1 1 4.5 3 A3.6 3.6 0 0 0 9 7.5 Z"
+        fill="currentColor"
+      />
     </svg>
   );
 }
@@ -151,7 +130,10 @@ function MoonIcon() {
 function AutoIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M6 1 A5 5 0 1 1 6 11 Z" fill="currentColor" />
+      <path
+        d="M6 1 A5 5 0 1 1 6 11 Z"
+        fill="currentColor"
+      />
       <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeWidth="1" />
     </svg>
   );

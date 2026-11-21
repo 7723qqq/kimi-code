@@ -1,15 +1,14 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   fetchSubmitFeedback,
   kimiCodeFeedbackUrl,
   type SubmitFeedbackBody,
 } from '../src/managed-feedback';
-import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from './stubs';
 
 afterEach(() => {
-  restoreGlobals();
-  restoreEnvs();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 const SAMPLE_BODY: SubmitFeedbackBody = {
@@ -28,21 +27,20 @@ describe('kimiCodeFeedbackUrl', () => {
   });
 
   it('honours KIMI_CODE_BASE_URL and trims trailing slashes', () => {
-    setEnv('KIMI_CODE_BASE_URL', 'https://example.test/v9///');
+    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://example.test/v9///');
     expect(kimiCodeFeedbackUrl()).toBe('https://example.test/v9/feedback');
   });
 });
 
 describe('fetchSubmitFeedback', () => {
   it('POSTs JSON body with bearer auth and returns feedback_id on 200', async () => {
-    const fetchMock = mock(
-      async () =>
-        new Response(JSON.stringify({ feedback_id: 3 }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ feedback_id: 3 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await fetchSubmitFeedback(
       'https://api.example/feedback',
@@ -66,22 +64,17 @@ describe('fetchSubmitFeedback', () => {
   });
 
   it('returns an error when the server omits feedback_id', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
-        async () =>
-          new Response(JSON.stringify({ ok: true }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
+      vi.fn(async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
       ),
     );
 
-    const result = await fetchSubmitFeedback(
-      'https://api.example/feedback',
-      'access-token',
-      SAMPLE_BODY,
-    );
+    const result = await fetchSubmitFeedback('https://api.example/feedback', 'access-token', SAMPLE_BODY);
 
     expect(result).toEqual({
       kind: 'error',
@@ -90,14 +83,13 @@ describe('fetchSubmitFeedback', () => {
   });
 
   it('preserves the kimi-code- version prefix in the request body', async () => {
-    const fetchMock = mock(
-      async () =>
-        new Response(JSON.stringify({ feedback_id: 3 }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ feedback_id: 3 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     await fetchSubmitFeedback('https://api.example/feedback', 'tok', SAMPLE_BODY);
 
@@ -107,9 +99,9 @@ describe('fetchSubmitFeedback', () => {
   });
 
   it('returns an error with status when the server responds 401', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async () => new Response('', { status: 401 })),
+      vi.fn(async () => new Response('', { status: 401 })),
     );
 
     const result = await fetchSubmitFeedback(
@@ -125,9 +117,9 @@ describe('fetchSubmitFeedback', () => {
   });
 
   it('surfaces API error messages from failed submissions', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
+      vi.fn(
         async () =>
           new Response(JSON.stringify({ error: { message: 'feedback rejected' } }), {
             status: 400,
@@ -149,9 +141,9 @@ describe('fetchSubmitFeedback', () => {
   });
 
   it('returns an error with status when the server responds 500', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async () => new Response('', { status: 500 })),
+      vi.fn(async () => new Response('', { status: 500 })),
     );
 
     const result = await fetchSubmitFeedback(
@@ -167,9 +159,9 @@ describe('fetchSubmitFeedback', () => {
   });
 
   it('returns a timeout error when the request aborts', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
+      vi.fn(
         (_url: string, init?: RequestInit) =>
           new Promise<Response>((_, reject) => {
             init?.signal?.addEventListener('abort', () => {
@@ -195,9 +187,9 @@ describe('fetchSubmitFeedback', () => {
   });
 
   it('returns a generic error message on network failure', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async () => {
+      vi.fn(async () => {
         throw new TypeError('network down');
       }),
     );
@@ -215,14 +207,14 @@ describe('fetchSubmitFeedback', () => {
   });
 
   it('merges custom headers when provided', async () => {
-    const fetchMock = mock(
+    const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify({ feedback_id: 9 }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await fetchSubmitFeedback(
       'https://api.example/feedback',

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { normalizePluginId, PLUGIN_NAME_REGEX } from '#/app/plugin/types';
 

@@ -1,6 +1,5 @@
-import { describe, expect, it, spyOn } from 'bun:test';
-
 import type { QuestionRequest } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { QuestionController } from '#/tui/reverse-rpc/question/controller';
 import { createQuestionAskHandler } from '#/tui/reverse-rpc/question/handler';
@@ -34,10 +33,9 @@ describe('question reverse-rpc', () => {
 
   it('normalizes question payloads and returns the selected answer', async () => {
     const controller = new QuestionController();
-    const show = spyOn(controller, 'show').mockResolvedValue({
-      answers: ['Alpha'],
-      method: 'number_key',
-    });
+    const show = vi
+      .spyOn(controller, 'show')
+      .mockResolvedValue({ answers: ['Alpha'], method: 'number_key' });
     const handler = createQuestionAskHandler(controller);
     const event = questionEvent({
       questions: [
@@ -82,10 +80,9 @@ describe('question reverse-rpc', () => {
 
   it('maps multiple question answers by question text', async () => {
     const controller = new QuestionController();
-    const show = spyOn(controller, 'show').mockResolvedValue({
-      answers: ['Alpha', 'SQLite'],
-      method: 'enter',
-    });
+    const show = vi
+      .spyOn(controller, 'show')
+      .mockResolvedValue({ answers: ['Alpha', 'SQLite'], method: 'enter' });
     const handler = createQuestionAskHandler(controller);
     const event = questionEvent({
       toolCallId: 'call_question',
@@ -133,5 +130,23 @@ describe('question reverse-rpc', () => {
         },
       ],
     });
+  });
+
+  it('tracks the requesting agent until the question handler settles', async () => {
+    const controller = new QuestionController();
+    vi.spyOn(controller, 'show').mockRejectedValue(new Error('boom'));
+    const token = Symbol('question');
+    const tracker = {
+      startInteraction: vi.fn(() => token),
+      endInteraction: vi.fn(),
+    };
+    const handler = createQuestionAskHandler(controller, tracker);
+
+    await expect(handler(questionEvent({ agentId: 'agent-1' }))).resolves.toBeNull();
+    expect(tracker.startInteraction).toHaveBeenCalledWith({
+      agentId: 'agent-1',
+      kind: 'question',
+    });
+    expect(tracker.endInteraction).toHaveBeenCalledWith(token);
   });
 });

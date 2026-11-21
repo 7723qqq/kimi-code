@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'bun:test';
 
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
 import {
   createAssistantMessage,
   createToolMessage,
   createUserMessage,
   type Message,
-} from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
-import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
-import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';
-import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
-import type { LlmClientContext, LlmRequestEvent } from '#/llm/requester/requester';
-import type { ResponseFormat } from '#/llm/response-format';
+} from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import { createAnthropicRequester } from '#human/llm/requester/bases/anthropic/requester';
+import { createGoogleGenAIRequester } from '#human/llm/requester/bases/google-genai/requester';
+import { createOpenAIResponsesRequester } from '#human/llm/requester/bases/openai-responses/requester';
+import { createOpenAIRequester } from '#human/llm/requester/bases/openai/requester';
+import type { LlmClientContext, LlmRequestEvent } from '#human/llm/requester/requester';
+import type { ResponseFormat } from '#human/llm/response-format';
 
 const model: LlmModel = {
   provider: 'test',

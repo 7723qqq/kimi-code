@@ -176,6 +176,13 @@ async function buildBunNative() {
   // External plugin code still needs its own package.json files for exports
   // and node_modules resolution; this does not load the user's CLI config.
   buildArgs.push('--compile-autoload-package-json');
+  // Optional native addons stay runtime requires: tsdown.native.config.ts lists
+  // them in `neverBundle`, and `--compile` would otherwise follow them into
+  // their prebuilt .node binaries. Canvas reaches the graph through the d3
+  // family on 2.7.0; cpu-features through ssh2.
+  for (const nativeDependency of ['canvas', 'cpu-features']) {
+    buildArgs.push('--external', nativeDependency);
+  }
   buildArgs.push('--outfile', outfile, join(stageRoot, 'bun-entry.ts'));
   await run(resolveBun(), buildArgs);
 

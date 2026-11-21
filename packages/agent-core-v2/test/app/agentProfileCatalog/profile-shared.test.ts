@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   normalizeAgentProfile,
@@ -25,7 +25,6 @@ import {
   TODO_LIST_GUIDANCE,
   withoutDelegatingTargets,
 } from '#/app/agentProfileCatalog/profile-shared';
-
 import NOTIFY_USER_DESCRIPTION from '../../../src/features/notify/tools/notify-user/notify-user.md?raw';
 
 type AssertFalse<T extends false> = T;
@@ -35,32 +34,6 @@ type RenderlessInputIsNotAssignable = AssertFalse<
 >;
 
 describe('systemPromptVars', () => {
-  it('renders an empty repo memory when none was provided', () => {
-    const vars = systemPromptVars({}, { skillActive: false });
-    expect(vars['repo_memory']).toBe('');
-  });
-
-  it('renders the repo memory block verbatim', () => {
-    const vars = systemPromptVars(
-      { repoMemory: '<repo-memory>\nfix 12\n</repo-memory>' },
-      { skillActive: false },
-    );
-    expect(vars['repo_memory']).toBe('<repo-memory>\nfix 12\n</repo-memory>');
-  });
-
-  it('renders an empty memory code when none was provided', () => {
-    const vars = systemPromptVars({}, { skillActive: false });
-    expect(vars['memory_code']).toBe('');
-    expect(vars['memory_code_section']).toBe('');
-  });
-
-  it('renders the memory code section when guidance is provided', () => {
-    const vars = systemPromptVars({ memoryCode: 'Never store secrets.' }, { skillActive: false });
-    expect(vars['memory_code']).toBe('Never store secrets.');
-    expect(vars['memory_code_section']).toContain('# Memory code');
-    expect(vars['memory_code_section']).toContain('Never store secrets.');
-  });
-
   it('builds the full variable table from the context', () => {
     const vars = systemPromptVars(
       {
@@ -265,15 +238,9 @@ describe('renderSystemPromptResult', () => {
 
   it('keeps the AGENTS.md maintenance sentence only for profiles that can change files', () => {
     const full = renderSystemPromptResult('', { agentsMd: 'AGENTS' }, { skillActive: false }).text;
-    const readOnly = renderSystemPromptResult(
-      '',
-      { agentsMd: 'AGENTS' },
-      { skillActive: false, readOnly: true },
-    ).text;
+    const readOnly = renderSystemPromptResult('', { agentsMd: 'AGENTS' }, { skillActive: false, readOnly: true }).text;
 
-    expect(full).toContain(
-      'If you change anything an `AGENTS.md` documents, update that `AGENTS.md` to match.',
-    );
+    expect(full).toContain('If you change anything an `AGENTS.md` documents, update that `AGENTS.md` to match.');
     expect(readOnly).not.toContain('If you change anything an `AGENTS.md` documents');
     expect(readOnly).toContain('with more specific guidance.\n');
     expect(readOnly).toContain('AGENTS');
@@ -595,37 +562,25 @@ describe('systemPromptVars notify_user_guidance', () => {
     const active = systemPromptVars({ notifyUserActive: true }, { skillActive: false });
     expect(active['notify_user_guidance']).toBe(` ${NOTIFY_USER_GUIDANCE}`);
     expect(NOTIFY_USER_GUIDANCE).toContain('use it proactively');
-    expect(NOTIFY_USER_DESCRIPTION).toContain(
-      'When working as a subagent, describe only your own subtask',
-    );
-    expect(NOTIFY_USER_DESCRIPTION).toContain(
-      'does not automatically send a message to your parent agent',
-    );
+    expect(NOTIFY_USER_DESCRIPTION).toContain('When working as a subagent, describe only your own subtask');
+    expect(NOTIFY_USER_DESCRIPTION).toContain('does not automatically send a message to your parent agent');
 
-    expect(
-      systemPromptVars({ notifyUserActive: false }, { skillActive: false })['notify_user_guidance'],
-    ).toBe('');
+    expect(systemPromptVars({ notifyUserActive: false }, { skillActive: false })['notify_user_guidance']).toBe('');
     expect(systemPromptVars({}, { skillActive: false })['notify_user_guidance']).toBe('');
   });
 });
 
 describe('systemPromptVars todo_list_guidance', () => {
   it('adds the TodoList guidance paragraph only when the context marks the tool active', () => {
-    expect(
-      systemPromptVars({ todoListActive: true }, { skillActive: false })['todo_list_guidance'],
-    ).toBe(`${TODO_LIST_GUIDANCE}\n\n`);
-    expect(
-      systemPromptVars({ todoListActive: false }, { skillActive: false })['todo_list_guidance'],
-    ).toBe('');
+    expect(systemPromptVars({ todoListActive: true }, { skillActive: false })['todo_list_guidance']).toBe(
+      `${TODO_LIST_GUIDANCE}\n\n`,
+    );
+    expect(systemPromptVars({ todoListActive: false }, { skillActive: false })['todo_list_guidance']).toBe('');
     expect(systemPromptVars({}, { skillActive: false })['todo_list_guidance']).toBe('');
   });
 
   it('places the guidance as its own paragraph in the builtin template', () => {
-    const withTodo = renderSystemPromptResult(
-      '',
-      { todoListActive: true },
-      { skillActive: false },
-    ).text;
+    const withTodo = renderSystemPromptResult('', { todoListActive: true }, { skillActive: false }).text;
     const withoutTodo = renderSystemPromptResult('', {}, { skillActive: false }).text;
 
     expect(withTodo).toContain(`\n\n${TODO_LIST_GUIDANCE}\n\nBefore you finalize a reply`);
@@ -636,25 +591,15 @@ describe('systemPromptVars todo_list_guidance', () => {
 
 describe('systemPromptVars plan_mode_guidance', () => {
   it('places the plan mode guidance after the opening of Delivering work only when plan mode is available', () => {
-    const withPlan = renderSystemPromptResult(
-      '',
-      { planModeAvailable: true },
-      { skillActive: false },
-    ).text;
+    const withPlan = renderSystemPromptResult('', { planModeAvailable: true }, { skillActive: false }).text;
     const withoutPlan = renderSystemPromptResult('', {}, { skillActive: false }).text;
-    const readOnly = renderSystemPromptResult(
-      '',
-      { planModeAvailable: true },
-      { skillActive: false, readOnly: true },
-    ).text;
+    const readOnly = renderSystemPromptResult('', { planModeAvailable: true }, { skillActive: false, readOnly: true }).text;
 
     expect(withPlan).toContain(
       `only if the user asked for a fix.\n\n${PLAN_MODE_GUIDANCE}\n\nBefore you call a change done`,
     );
     expect(withoutPlan).not.toContain(PLAN_MODE_GUIDANCE);
-    expect(withoutPlan).toContain(
-      'only if the user asked for a fix.\n\nBefore you call a change done',
-    );
+    expect(withoutPlan).toContain('only if the user asked for a fix.\n\nBefore you call a change done');
     expect(readOnly).not.toContain(PLAN_MODE_GUIDANCE);
   });
 
@@ -668,21 +613,15 @@ describe('systemPromptVars plan_mode_guidance', () => {
 
 describe('renderAgentProfilePrompt', () => {
   it('adds guidance to custom prompts only when the tool is active', () => {
-    const profile = normalizeAgentProfile({
-      name: 'custom',
-      renderSystemPrompt: () => ({ text: 'Custom instructions.', environment: { cwd: '/work' } }),
-    });
+    const profile = normalizeAgentProfile({ name: 'custom', renderSystemPrompt: () => ({ text: 'Custom instructions.', environment: { cwd: '/work' } }) });
     expect(renderAgentProfilePrompt(profile, {}).text).toBe('Custom instructions.');
-    expect(renderAgentProfilePrompt(profile, { notifyUserActive: true }).text).toBe(
-      `Custom instructions.\n\n${NOTIFY_USER_GUIDANCE}`,
-    );
+    expect(renderAgentProfilePrompt(profile, { notifyUserActive: true }).text).toBe(`Custom instructions.\n\n${NOTIFY_USER_GUIDANCE}`);
   });
 
   it('keeps the normal system prompt guidance once', () => {
     const profile = normalizeAgentProfile({
       name: 'custom',
-      renderSystemPrompt: (context) =>
-        renderSystemPromptResult('', context, { skillActive: false }),
+      renderSystemPrompt: (context) => renderSystemPromptResult('', context, { skillActive: false }),
     });
     const rendered = renderAgentProfilePrompt(profile, { notifyUserActive: true });
     expect(rendered.text.split(NOTIFY_USER_GUIDANCE)).toHaveLength(2);

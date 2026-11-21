@@ -8,7 +8,11 @@ export const MAX_AGENT_SWARM_SUBAGENTS = 128;
 
 export const AgentSwarmToolInputSchema = z
   .object({
-    description: z.string().trim().min(1).describe('Short description for the whole swarm.'),
+    description: z
+      .string()
+      .trim()
+      .min(1)
+      .describe('Short description for the whole swarm.'),
     subagent_type: z
       .string()
       .trim()
@@ -42,7 +46,7 @@ export const AgentSwarmToolInputSchema = z
       .record(z.string().trim().min(1), z.string().trim().min(1))
       .optional()
       .describe(
-        'Flat object: keys are existing subagent agent_id strings (from a previous swarm\'s `<subagent agent_id="...">` result), values are the continuation prompt for that subagent (e.g. "continue"). Resumed subagents run before new item-based subagents. Do not pass an array or a list of {item, prompt} objects.',
+        'Map of existing subagent agent_id to the prompt used to resume that subagent. These resumed subagents are launched before new item-based subagents.',
       ),
     model: z
       .string()
@@ -55,7 +59,5 @@ export const AgentSwarmToolInputSchema = z
 
 export type AgentSwarmToolInput = z.infer<typeof AgentSwarmToolInputSchema>;
 
-export interface IAgentSwarmTool extends AgentTool<AgentSwarmToolInput> {
-  readonly _serviceBrand: undefined;
-}
+export interface IAgentSwarmTool extends AgentTool<AgentSwarmToolInput> { readonly _serviceBrand: undefined }
 export const IAgentSwarmTool = createDecorator<IAgentSwarmTool>('agentSwarmTool');

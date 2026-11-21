@@ -1,18 +1,18 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { decideUpdate, resolveUpdateChannel, updateChannelForVersion } from '#/cli/update/select';
 import type { ChannelSelection } from '#/cli/update/types';
 
-const DEV = '2.5.0-canary.202610260043';
-const FIXED_DEV = '0.0.0-canary.42';
+const CANARY = '2.5.0-canary.20261026004300-fedcba9';
+const NEXT_CANARY = '2.5.0-canary.20261027004300-0123456';
 const DEFAULT: ChannelSelection = { channel: 'stable', origin: 'default' };
-const DEV_DEFAULT: ChannelSelection = { channel: 'canary', origin: 'default' };
+const CANARY_DEFAULT: ChannelSelection = { channel: 'canary', origin: 'default' };
 const STABLE_ENV: ChannelSelection = { channel: 'stable', origin: 'env' };
-const DEV_ENV: ChannelSelection = { channel: 'canary', origin: 'env' };
+const CANARY_ENV: ChannelSelection = { channel: 'canary', origin: 'env' };
 
 describe('updateChannelForVersion', () => {
   it('recognizes only canary prereleases as canary', () => {
-    expect(updateChannelForVersion(DEV)).toBe('canary');
+    expect(updateChannelForVersion(CANARY)).toBe('canary');
     expect(updateChannelForVersion('2.5.0')).toBe('stable');
     expect(updateChannelForVersion('2.5.0-rc.1')).toBe('stable');
     expect(updateChannelForVersion('not-a-version')).toBe('stable');
@@ -22,25 +22,27 @@ describe('updateChannelForVersion', () => {
 describe('resolveUpdateChannel', () => {
   it('follows the installed channel when KIMI_CODE_UPDATE_CHANNEL is unset or blank', () => {
     expect(resolveUpdateChannel('2.5.0', 'npm-global', {})).toEqual(DEFAULT);
-    expect(resolveUpdateChannel(FIXED_DEV, 'native', {})).toEqual(DEV_DEFAULT);
-    expect(resolveUpdateChannel(FIXED_DEV, 'native', { KIMI_CODE_UPDATE_CHANNEL: '  ' })).toEqual(DEV_DEFAULT);
+    expect(resolveUpdateChannel(CANARY, 'native', {})).toEqual(CANARY_DEFAULT);
+    expect(resolveUpdateChannel(CANARY, 'native', { KIMI_CODE_UPDATE_CHANNEL: '  ' })).toEqual(CANARY_DEFAULT);
   });
 
   it('accepts stable and canary case-insensitively', () => {
-    expect(resolveUpdateChannel(FIXED_DEV, 'native', { KIMI_CODE_UPDATE_CHANNEL: 'stable' })).toEqual(STABLE_ENV);
-    expect(resolveUpdateChannel('2.5.0', 'npm-global', { KIMI_CODE_UPDATE_CHANNEL: ' Canary ' })).toEqual(DEV_ENV);
+    expect(resolveUpdateChannel(CANARY, 'native', { KIMI_CODE_UPDATE_CHANNEL: 'stable' })).toEqual(STABLE_ENV);
+    expect(resolveUpdateChannel('2.5.0', 'npm-global', { KIMI_CODE_UPDATE_CHANNEL: ' Canary ' })).toEqual(CANARY_ENV);
   });
 
   it('falls back to the installed channel for an unknown value and keeps it for the warning', () => {
-    expect(resolveUpdateChannel(FIXED_DEV, 'native', { KIMI_CODE_UPDATE_CHANNEL: 'nightly' })).toEqual({
-      channel: 'canary',
-      origin: 'invalid',
-      raw: 'nightly',
-    });
+    for (const raw of ['nightly', 'dev']) {
+      expect(resolveUpdateChannel(CANARY, 'native', { KIMI_CODE_UPDATE_CHANNEL: raw })).toEqual({
+        channel: 'canary',
+        origin: 'invalid',
+        raw,
+      });
+    }
   });
 
   it('always uses stable for Homebrew and ignores the channel variable', () => {
-    expect(resolveUpdateChannel(FIXED_DEV, 'homebrew', { KIMI_CODE_UPDATE_CHANNEL: 'canary' })).toEqual({
+    expect(resolveUpdateChannel(CANARY, 'homebrew', { KIMI_CODE_UPDATE_CHANNEL: 'canary' })).toEqual({
       channel: 'stable',
       origin: 'homebrew',
     });
@@ -57,9 +59,9 @@ describe('decideUpdate', () => {
       kind: 'upgrade',
       target: { channel: 'stable', version: '2.5.0' },
     });
-    expect(decideUpdate('0.0.0-canary.99', { channel: 'canary', latest: '0.0.0-canary.100' })).toEqual({
+    expect(decideUpdate(CANARY, { channel: 'canary', latest: NEXT_CANARY })).toEqual({
       kind: 'upgrade',
-      target: { channel: 'canary', version: '0.0.0-canary.100' },
+      target: { channel: 'canary', version: NEXT_CANARY },
     });
   });
 
@@ -68,26 +70,27 @@ describe('decideUpdate', () => {
       expect(decideUpdate('2.4.0', { channel: 'stable', latest })).toEqual({ kind: 'none' });
     }
     expect(decideUpdate('not-a-version', { channel: 'stable', latest: '2.5.0' })).toEqual({ kind: 'none' });
+    expect(decideUpdate(NEXT_CANARY, { channel: 'canary', latest: CANARY })).toEqual({ kind: 'none' });
   });
 
   it('switches in either direction without comparing versions across channels', () => {
-    expect(decideUpdate(DEV, { channel: 'stable', latest: '2.4.1' })).toEqual({
+    expect(decideUpdate(CANARY, { channel: 'stable', latest: '2.4.1' })).toEqual({
       kind: 'switch-channel',
       sourceChannel: 'canary',
       target: { channel: 'stable', version: '2.4.1' },
     });
-    expect(decideUpdate('2.5.0', { channel: 'canary', latest: FIXED_DEV })).toEqual({
+    expect(decideUpdate('2.5.0', { channel: 'canary', latest: CANARY })).toEqual({
       kind: 'switch-channel',
       sourceChannel: 'stable',
-      target: { channel: 'canary', version: FIXED_DEV },
+      target: { channel: 'canary', version: CANARY },
     });
   });
 
   it('uses the selected channel rather than the target version suffix', () => {
-    expect(decideUpdate(DEV, { channel: 'stable', latest: DEV })).toEqual({
+    expect(decideUpdate(CANARY, { channel: 'stable', latest: CANARY })).toEqual({
       kind: 'switch-channel',
       sourceChannel: 'canary',
-      target: { channel: 'stable', version: DEV },
+      target: { channel: 'stable', version: CANARY },
     });
   });
 });

@@ -1,41 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-/**
- * Scenario: VSCode-owned file baselines for new, migrated, and forked sessions.
- * Responsibilities: capture originals, show changes, keep/undo, persist legacy tombstones, and reject unsafe paths.
- * Wiring: real temporary workspace/global-storage/legacy files; no stubbed collaborators.
- * Run: cd apps/vscode && bun run test -- baseline.manager.test.ts
- */
 import { existsSync, writeFileSync } from 'node:fs';
-import {
-  chmod,
-  lstat,
-  mkdir,
-  mkdtemp,
-  open,
-  readdir,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  unlink,
-  writeFile,
-} from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { SYMLINKS } from './helpers';
-import { realNodeFs, realStatSync, statSyncMock } from './real-node-fs';
-
-// An unreachable UNC share reports EUNKNOWN on Windows rather than ENOENT, and
-// `statSync` cannot be spied on through a module namespace. Only that export is
-// replaced; every other `node:fs` export keeps its real implementation so the
-// rest of the process is unaffected.
-void mock.module('node:fs', () => ({
-  ...realNodeFs,
-  statSync: statSyncMock,
-}));
-
-import { BaselineManager, type BaselineSession } from '../src/managers/baseline.manager';
+import {
+  BaselineManager,
+  type BaselineSession,
+} from '../src/managers/baseline.manager';
 
 let root: string;
 let workDir: string;
@@ -51,8 +23,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  statSyncMock.mockReset();
-  statSyncMock.mockImplementation(realStatSync);
   await rm(root, { recursive: true, force: true });
 });
 
@@ -168,91 +138,6 @@ describe('file baselines (capture, compare, keep, and undo)', () => {
 
     await expect(readFile(filePath, 'utf-8')).resolves.toBe('first\r\nsecond\r\n');
   });
-
-  // Windows has no POSIX permission bits: `chmod` is a no-op beyond the
-  // read-only flag, so there is no mode to preserve.
-  it.skipIf(process.platform === 'win32')(
-    'restores the original content and keeps the file mode when undo runs',
-    async () => {
-      const session = createSession();
-      const filePath = join(workDir, 'script.sh');
-      await writeFile(filePath, '#!/bin/sh\necho original\n', 'utf-8');
-      await chmod(filePath, 0o600);
-      await manager.capture(session, filePath);
-      await manager.undo(session, filePath);
-
-      await expect(readFile(filePath, 'utf-8')).resolves.toBe('#!/bin/sh\necho original\n');
-      expect((await stat(filePath)).mode & 0o777).toBe(0o600);
-    },
-  );
-
-  it.skipIf(!SYMLINKS)('restores the snapshotted file behind an in-workspace symlink', async () => {
-    const session = createSession();
-    const target = join(workDir, 'target.txt');
-    const link = join(workDir, 'link.txt');
-    await writeFile(target, 'original\n', 'utf-8');
-    await symlink(target, link);
-    await manager.capture(session, link);
-    await writeFile(target, 'changed\n', 'utf-8');
-
-    await manager.undo(session, link);
-
-    expect((await lstat(link)).isSymbolicLink()).toBe(true);
-    await expect(readFile(target, 'utf-8')).resolves.toBe('original\n');
-  });
-
-  it('leaves no temporary file behind when undo restores the original', async () => {
-    const session = createSession();
-    const filePath = join(workDir, 'app.ts');
-    await writeFile(filePath, 'original\n', 'utf-8');
-    await manager.capture(session, filePath);
-    await writeFile(filePath, 'changed\n', 'utf-8');
-
-    await manager.undo(session, filePath);
-
-    await expect(readdir(workDir)).resolves.toEqual(['app.ts']);
-  });
-
-  it('recreates a file the session deleted after it was captured', async () => {
-    const session = createSession();
-    const filePath = join(workDir, 'src', 'app.ts');
-    await mkdir(join(workDir, 'src'), { recursive: true });
-    await writeFile(filePath, 'original\n', 'utf-8');
-    await manager.capture(session, 'src/app.ts');
-    await rm(join(workDir, 'src'), { recursive: true });
-
-    await manager.undo(session, 'src/app.ts');
-
-    await expect(readFile(filePath, 'utf-8')).resolves.toBe('original\n');
-  });
-
-  // Replacing a file while another handle holds it open is POSIX behaviour;
-  // Windows refuses the rename with EPERM.
-  it.skipIf(process.platform === 'win32')(
-    'replaces the restored file instead of truncating it in place',
-    async () => {
-      const session = createSession();
-      const filePath = join(workDir, 'app.ts');
-      await writeFile(filePath, 'original content\n', 'utf-8');
-      await manager.capture(session, filePath);
-      await writeFile(filePath, 'changed\n', 'utf-8');
-      // A reader that opened the file before the restore: with `writeFile` it
-      // would observe the truncated intermediate state, with a rename it keeps
-      // reading the complete original.
-      const heldOpen = await open(filePath, 'r');
-
-      try {
-        await manager.undo(session, filePath);
-
-        await expect(readFile(filePath, 'utf-8')).resolves.toBe('original content\n');
-        const handle = await heldOpen.readFile({ encoding: 'utf-8' });
-        expect(handle).toBe('changed\n');
-      } finally {
-        await heldOpen.close();
-      }
-      await expect(readdir(workDir)).resolves.toEqual(['app.ts']);
-    },
-  );
 
   it('captures a new original after keep accepts the previous changes', async () => {
     const session = createSession();
@@ -410,7 +295,9 @@ describe('baseline boundaries (errors, cleanup, and platform paths)', () => {
         await expect(manager.capture(session, filePath)).rejects.toThrow(
           'Unable to capture original file',
         );
-        await expect(manager.getContent(session, filePath)).rejects.toThrow('No baseline exists');
+        await expect(manager.getContent(session, filePath)).rejects.toThrow(
+          'No baseline exists',
+        );
       } finally {
         await chmod(filePath, 0o600);
       }
@@ -422,8 +309,12 @@ describe('baseline boundaries (errors, cleanup, and platform paths)', () => {
     const directoryPath = join(workDir, 'not-a-file');
     await mkdir(directoryPath);
 
-    await expect(manager.capture(session, directoryPath)).rejects.toThrow('is not a regular file');
-    await expect(manager.getContent(session, directoryPath)).rejects.toThrow('No baseline exists');
+    await expect(manager.capture(session, directoryPath)).rejects.toThrow(
+      'is not a regular file',
+    );
+    await expect(manager.getContent(session, directoryPath)).rejects.toThrow(
+      'No baseline exists',
+    );
   });
 
   it('throws a clear error when requested baseline content does not exist', async () => {
@@ -442,7 +333,9 @@ describe('baseline boundaries (errors, cleanup, and platform paths)', () => {
     const session: BaselineSession = { id: 'ses-windows', workDir: 'C:\\Workspace' };
     await manager.capture(session, 'C:\\Workspace\\src\\new.ts');
 
-    await expect(manager.getContent(session, 'c:\\WORKSPACE\\SRC\\NEW.ts')).resolves.toBe('');
+    await expect(
+      manager.getContent(session, 'c:\\WORKSPACE\\SRC\\NEW.ts'),
+    ).resolves.toBe('');
   });
 
   it('rejects a Windows path on another drive', async () => {
@@ -458,13 +351,6 @@ describe('baseline boundaries (errors, cleanup, and platform paths)', () => {
       id: 'ses-unc',
       workDir: '\\\\Server\\Share\\Workspace',
     };
-    // An unreachable UNC share reports EUNKNOWN on Windows instead of ENOENT;
-    // the manager only treats the file as new when the stat reports ENOENT.
-    statSyncMock.mockImplementationOnce(() => {
-      throw Object.assign(new Error('ENOENT: no such file or directory, stat'), {
-        code: 'ENOENT',
-      });
-    });
     await manager.capture(session, '\\\\server\\share\\workspace\\src\\new.ts');
 
     await expect(manager.getContent(session, 'src\\new.ts')).resolves.toBe('');

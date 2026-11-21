@@ -4,7 +4,11 @@ import { IQueryStore, type WriteOp } from '#/persistence/interface/queryStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import { PARENT_SESSION_ID_KEY, type SessionSummary } from './sessionIndex';
-import { clearDirtyMarks, dirtyMarkSessionIds, listDirtyMarks } from './sessionIndexDirtyJournal';
+import {
+  clearDirtyMarks,
+  dirtyMarkSessionIds,
+  listDirtyMarks,
+} from './sessionIndexDirtyJournal';
 import {
   PARENT_INDEX_NAME,
   SESSION_INDEX_MANIFEST,
@@ -80,6 +84,10 @@ export class SessionIndexProjector {
   }
 
   sharedScanForRead(): Promise<AuthoritativeScan> {
+    // Fallback reads join only a scan that is still in flight and otherwise
+    // drive a fresh one, so a read never serves a settled snapshot that could
+    // predate a just-created (or just-deleted) session. `sharedScan()` — used
+    // by projections — is the one allowed to reuse a recently settled slot.
     const slot = this.scanSlot;
     if (slot !== undefined && !slot.settled) return slot.promise;
     return this.startScan();
@@ -124,8 +132,7 @@ export class SessionIndexProjector {
       field: `custom.${PARENT_SESSION_ID_KEY}`,
     });
 
-    const { summaries, counts, sourceSessionCount, workspaceSignals, primaryByWorkspace } =
-      await scan;
+    const { summaries, counts, sourceSessionCount, workspaceSignals, primaryByWorkspace } = await scan;
     await this.batchChunks(
       summaries.map((summary) => ({
         kind: 'put' as const,

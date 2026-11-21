@@ -1,6 +1,5 @@
-import { parseSkillText } from '#/features/skill/catalog/parser';
 import type { SkillDefinition } from '#/features/skill/catalog/types';
-
+import { parseSkillText } from '#/features/skill/catalog/parser';
 import CHECK_KIMI_CODE_DOCS_BODY from './check-kimi-code-docs.md?raw';
 
 const PSEUDO_PATH = 'builtin://check-kimi-code-docs';

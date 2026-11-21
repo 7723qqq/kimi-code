@@ -32,8 +32,13 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
+// The status surface was folded into `components/messages/status-*`; the
+// original `components/chrome/status-surface` directory exists in no release.
 const ROOTS = [
-  'apps/kimi-code/src/tui/components/chrome/status-surface',
+  'apps/kimi-code/src/tui/components/messages/status-message.ts',
+  'apps/kimi-code/src/tui/components/messages/status-panel.ts',
+  'apps/kimi-code/src/tui/components/messages/mcp-status-panel.ts',
+  'apps/kimi-code/src/tui/components/messages/plugins-status-panel.ts',
   'apps/kimi-code/src/tui/controllers/notify.ts',
 ];
 

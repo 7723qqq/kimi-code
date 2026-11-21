@@ -114,7 +114,7 @@ hook 的 stdout 与 stderr 各自上限为 64 KiB，超出部分会被丢弃并�
 | `UserPromptSubmit` | 用户提交的文本内容 | ✓ | 用户发送消息时触发；返回文本会附加到上下文，阻断则本轮不调用模型 |
 | `UserPromptQueued` | 排队消息的文本内容 | — | 上一回合仍在运行、新消息进入队列时触发；payload 含 `prompt_id`、`prompt`、`queue_length` |
 | `PreToolUse` | 工具名 | ✓ | 工具调用前、权限检查前触发；阻断后工具不会执行 |
-| `Stop` | 空字符串 | ✓ | 模型准备结束本轮时触发；阻断后可追加一条消息让模型继续 |
+| `Stop` | 空字符串 | ✓ | 轮次完成且没有待处理请求后，携带最终步骤事实触发；阻断会启动一次续跑轮次，续跑不会再次进入 `Stop` |
 | `TurnStarted` | 回合来源类型（如 `user`、`task`、`system_trigger`） | — | 新回合开始时触发；payload 含 `turn_id`、`origin_kind`、`origin_name`、`prompt` |
 | `PostToolUse` | 工具名 | — | 工具成功执行后触发 |
 | `PostToolUseFailure` | 工具名 | — | 工具失败或被阻断后触发 |

@@ -1,7 +1,7 @@
 import { EnvironmentRegistry } from '#/environment/environmentRegistry';
 import { IEnvironmentService } from '#/app/environment/environment';
 
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
@@ -31,7 +31,6 @@ import type { SessionCreatedEvent } from '#/workspace/sessionLifecycle/sessionLi
 import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
 import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
 import type { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 function accessor(
   entries: ReadonlyArray<readonly [ServiceIdentifier<unknown>, unknown]>,
@@ -241,10 +240,7 @@ function sessionManagerResuming(sessionId: string): SessionManager {
   } as unknown as SessionLifecycleService;
   const workspace = {
     id: summary.workspaceId,
-    program: {
-      sessionControllerGeneration: 'generation-1',
-      createSessionController: () => controller,
-    },
+    program: { sessionControllerGeneration: 'generation-1', createSessionController: () => controller },
   } as unknown as WorkspaceInstance;
   const environments = new EnvironmentRegistry() as unknown as IEnvironmentService;
   return new SessionManager(
@@ -264,10 +260,6 @@ function sessionManagerResuming(sessionId: string): SessionManager {
       realpath: async (path: string) => path,
     } as unknown as IHostFileSystem,
     new InMemorySessionLockService(),
-    undefined as never,
-    undefined as never,
-    undefined as never,
-    undefined as never,
   );
 }
 
@@ -281,10 +273,9 @@ describe('setSessionArchived', () => {
     let releaseEarlierTransition!: () => void;
     const earlierTransition = manager.withLifecycleSerialization(
       's1',
-      () =>
-        new Promise<void>((resolve) => {
-          releaseEarlierTransition = resolve;
-        }),
+      () => new Promise<void>((resolve) => {
+        releaseEarlierTransition = resolve;
+      }),
     );
     let archiveOutcome: string | undefined;
     void setSessionArchived(
@@ -303,7 +294,7 @@ describe('setSessionArchived', () => {
     releaseEarlierTransition();
     await earlierTransition;
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(archiveOutcome).toBe('updated');
     });
     await expect(resumed).resolves.toMatchObject({ id: 's1' });

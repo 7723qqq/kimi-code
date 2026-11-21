@@ -1,10 +1,9 @@
-import { describe, expect, it } from 'bun:test';
-
-import type { GoalChange } from '@moonshot-ai/kimi-code-sdk';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { buildGoalMarker, GoalMarkerComponent } from '#/tui/components/messages/goal-markers';
 import { SwarmModeMarkerComponent } from '#/tui/components/messages/swarm-markers';
+import { buildGoalMarker, GoalMarkerComponent } from '#/tui/components/messages/goal-markers';
+import type { GoalChange } from '@moonshot-ai/kimi-code-sdk';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
 function strip(lines: string[]): string {
@@ -42,11 +41,7 @@ describe('buildGoalMarker', () => {
 
   it('does not repeat paused for runtime pause reasons', () => {
     const marker = buildGoalMarker(
-      {
-        kind: 'lifecycle',
-        status: 'paused',
-        reason: 'Paused after runtime error: socket hang up',
-      } as GoalChange,
+      { kind: 'lifecycle', status: 'paused', reason: 'Paused after runtime error: socket hang up' } as GoalChange,
       false,
       'runtime',
     );

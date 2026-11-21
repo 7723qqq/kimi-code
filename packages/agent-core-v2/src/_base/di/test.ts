@@ -1,31 +1,15 @@
-export { createServices, TestInstantiationService } from './testInstantiationService';
+export {
+  createServices,
+  TestInstantiationService,
+} from './testInstantiationService';
 export type {
   CreateServicesOptions,
   ServiceGroup,
   ServiceRegistration,
 } from './testInstantiationService';
 
-import { ILogService } from '#/_base/log/log';
-
 import { type ServiceIdentifier } from './instantiation';
-import type { Scope } from './scope';
-import { createAppScope, createScopedChildHandle, type ScopeKind, type ScopeSeed } from './scope';
-
-export const SILENT_TEST_LOGGER: ILogService = {
-  _serviceBrand: undefined,
-  level: 'off',
-  error() {},
-  warn() {},
-  info() {},
-  debug() {},
-  setLevel() {},
-  flush() {
-    return Promise.resolve();
-  },
-  child() {
-    return SILENT_TEST_LOGGER;
-  },
-};
+import { createAppScope, createScopedChildHandle, Scope, type ScopeKind, type ScopeSeed } from './scope';
 
 export interface ScopedTestHost {
   readonly app: Scope;

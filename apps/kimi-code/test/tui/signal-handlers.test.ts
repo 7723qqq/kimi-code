@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, jest, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
 
@@ -29,11 +29,10 @@ function makeStartupInput(): KimiTUIStartupInput {
     tuiConfig: {
       theme: 'dark',
       disablePasteBurst: false,
-      locale: 'en',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
-      transcript: { toolCallDensity: 'compact' as const, thinking: 'grouped' as const },
+      transcript: { toolCallDensity: 'compact', thinking: 'grouped' },
       statusLine: { items: null, command: null },
     },
     version: '0.0.0-test',
@@ -43,27 +42,25 @@ function makeStartupInput(): KimiTUIStartupInput {
 
 function makeHarness() {
   return {
-    getConfig: jest.fn(async () => ({})),
-    onConfigSectionChanged: jest.fn(() => jest.fn()),
-    createSession: jest.fn(),
-    resumeSession: jest.fn(),
-    listSessions: jest.fn(async () => []),
-    close: jest.fn(async () => {}),
-    track: jest.fn(),
-    setTelemetryContext: jest.fn(),
-    getWorkspaceTrustInfo: jest.fn(async () => ({
+    getConfig: vi.fn(async () => ({})),
+    onConfigSectionChanged: vi.fn(() => vi.fn()),
+    createSession: vi.fn(),
+    resumeSession: vi.fn(),
+    listSessions: vi.fn(async () => []),
+    close: vi.fn(async () => {}),
+    track: vi.fn(),
+    setTelemetryContext: vi.fn(),
+    getWorkspaceTrustInfo: vi.fn(async () => ({
       trusted: true,
       gatedMcpServers: [],
-      gatedAdditionalDirs: [],
-      additionalDirSources: [],
-      warnings: [],
+      gatedAdditionalDirs: [], additionalDirSources: [], warnings: [],
       instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
     })),
     auth: {
-      status: jest.fn(async () => ({ providers: [] })),
-      login: jest.fn(),
-      logout: jest.fn(),
-      getManagedUsage: jest.fn(),
+      status: vi.fn(async () => ({ providers: [] })),
+      login: vi.fn(),
+      logout: vi.fn(),
+      getManagedUsage: vi.fn(),
     },
   };
 }
@@ -74,10 +71,6 @@ function makeDriver(): { driver: SignalDriver; tui: KimiTUI } {
   return { driver, tui };
 }
 
-// Capture handlers via process.prependListener spy so we can invoke them
-// directly without going through `process.emit`. Routing through emit also
-// fires unrelated listeners that vitest installs on its worker process, and
-// those listeners exit the worker.
 interface CapturedHandlers {
   signalHandlers: Map<NodeJS.Signals, (...args: unknown[]) => void>;
   stdoutErrorHandler?: (error: Error) => void;
@@ -87,9 +80,7 @@ interface CapturedHandlers {
 
 function captureHandlers(driver: SignalDriver): CapturedHandlers {
   const signalHandlers = new Map<NodeJS.Signals, (...args: unknown[]) => void>();
-  // The Node typings give `process.prependListener` a long list of overloads
-  // (one per signal). We bypass that by typing the spy through `unknown`.
-  const prependSpy = jest.spyOn(process, 'prependListener');
+  const prependSpy = vi.spyOn(process, 'prependListener');
   (prependSpy as unknown as { mockImplementation: (fn: unknown) => unknown }).mockImplementation(
     (event: string | symbol, listener: (...args: unknown[]) => void): NodeJS.Process => {
       if (event === 'SIGTERM' || event === 'SIGHUP') {
@@ -101,7 +92,7 @@ function captureHandlers(driver: SignalDriver): CapturedHandlers {
 
   let stdoutErrorHandler: ((error: Error) => void) | undefined;
   let stderrErrorHandler: ((error: Error) => void) | undefined;
-  const stdoutOnSpy = jest.spyOn(process.stdout, 'on');
+  const stdoutOnSpy = vi.spyOn(process.stdout, 'on');
   (stdoutOnSpy as unknown as { mockImplementation: (fn: unknown) => unknown }).mockImplementation(
     (event: string | symbol, listener: (...args: unknown[]) => void) => {
       if (event === 'error') {
@@ -110,7 +101,7 @@ function captureHandlers(driver: SignalDriver): CapturedHandlers {
       return process.stdout;
     },
   );
-  const stderrOnSpy = jest.spyOn(process.stderr, 'on');
+  const stderrOnSpy = vi.spyOn(process.stderr, 'on');
   (stderrOnSpy as unknown as { mockImplementation: (fn: unknown) => unknown }).mockImplementation(
     (event: string | symbol, listener: (...args: unknown[]) => void) => {
       if (event === 'error') {
@@ -139,13 +130,13 @@ function captureHandlers(driver: SignalDriver): CapturedHandlers {
 }
 
 describe('KimiTUI signal handlers', () => {
-  let exitSpy: ReturnType<typeof jest.spyOn>;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
   let platformDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
-    exitSpy = spyOn(process, 'exit').mockImplementation(
-      (() => undefined) as unknown as typeof process.exit,
-    );
+    exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as unknown as typeof process.exit);
     platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
   });
 
@@ -163,7 +154,6 @@ describe('KimiTUI signal handlers', () => {
   });
 
   it('registers SIGTERM and SIGHUP on POSIX, only SIGTERM on Windows', () => {
-    // POSIX
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     const posix = makeDriver();
     const posixCaptured = captureHandlers(posix.driver);
@@ -172,7 +162,6 @@ describe('KimiTUI signal handlers', () => {
     posixCaptured.restore();
     posix.driver.unregisterSignalHandlers();
 
-    // Windows
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     const win = makeDriver();
     const winCaptured = captureHandlers(win.driver);
@@ -185,7 +174,7 @@ describe('KimiTUI signal handlers', () => {
   it('SIGHUP handler calls emergencyTerminalExit (process.exit(129)) without going through stop()', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     const { driver, tui } = makeDriver();
-    const stopSpy = jest.spyOn(tui, 'stop').mockResolvedValue(undefined);
+    const stopSpy = vi.spyOn(tui, 'stop').mockResolvedValue(undefined);
     const captured = captureHandlers(driver);
 
     const sighup = captured.signalHandlers.get('SIGHUP');
@@ -203,19 +192,16 @@ describe('KimiTUI signal handlers', () => {
   it('SIGTERM handler falls back to emergency exit (code 143) when stop() rejects', async () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     const { driver, tui } = makeDriver();
-    const stopSpy = jest.spyOn(tui, 'stop').mockRejectedValue(new Error('cleanup boom'));
+    const stopSpy = vi.spyOn(tui, 'stop').mockRejectedValue(new Error('cleanup boom'));
     const captured = captureHandlers(driver);
 
     const sigterm = captured.signalHandlers.get('SIGTERM');
     expect(sigterm).toBeDefined();
     sigterm?.();
 
-    // Allow the rejected stop() promise to settle so the .catch() chain runs.
     await Promise.resolve();
     await Promise.resolve();
 
-    // 143 = 128 + SIGTERM(15). Supervisors key off this to detect signal-driven
-    // exits; we must not collapse it to the SIGHUP code (129) or to 0.
     expect(stopSpy).toHaveBeenCalledWith(143);
     expect(exitSpy).toHaveBeenCalledWith(143);
     expect(exitSpy).not.toHaveBeenCalledWith(129);
@@ -229,10 +215,7 @@ describe('KimiTUI signal handlers', () => {
   it('SIGTERM handler routes through stop(143) and forces exit 143 on success', async () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     const { driver, tui } = makeDriver();
-    // `stop()` resolving without exiting models the defensive fallback path
-    // where `onExit` was not wired up. The handler must still exit 143 so
-    // supervisors see signal termination.
-    const stopSpy = jest.spyOn(tui, 'stop').mockResolvedValue(undefined);
+    const stopSpy = vi.spyOn(tui, 'stop').mockResolvedValue(undefined);
     const captured = captureHandlers(driver);
 
     const sigterm = captured.signalHandlers.get('SIGTERM');
@@ -303,8 +286,7 @@ describe('KimiTUI signal handlers', () => {
 
   it('stop() unregisters previously-installed signal handlers', async () => {
     const { driver, tui } = makeDriver();
-    // Suppress real stop work for this test — focus on the cleanup contract.
-    jest.spyOn(tui, 'stop').mockImplementation(async () => {
+    vi.spyOn(tui, 'stop').mockImplementation(async () => {
       (tui as unknown as SignalDriver).unregisterSignalHandlers();
     });
     const beforeSigterm = process.listenerCount('SIGTERM');
@@ -318,39 +300,33 @@ describe('KimiTUI signal handlers', () => {
   it('stop() drains terminal input before stopping the UI and exiting', async () => {
     const { driver, tui } = makeDriver();
     const events: string[] = [];
-    const drainInput = jest
-      .spyOn(driver.state.terminal, 'drainInput')
-      .mockImplementation(async () => {
-        events.push('drain');
-      });
-    const uiStop = jest.spyOn(driver.state.ui, 'stop').mockImplementation(() => {
+    const drainInput = vi.spyOn(driver.state.terminal, 'drainInput').mockImplementation(async () => {
+      events.push('drain');
+    });
+    const uiStop = vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {
       events.push('ui.stop');
     });
-    tui.onExit = jest.fn(async () => {
+    tui.onExit = vi.fn(async () => {
       events.push('exit');
     });
 
     await tui.stop();
 
-    expect(drainInput).toHaveBeenCalledTimes(1);
-    expect(uiStop).toHaveBeenCalledTimes(1);
-    expect(tui.onExit).toHaveBeenCalledTimes(1);
+    expect(drainInput).toHaveBeenCalledOnce();
+    expect(uiStop).toHaveBeenCalledOnce();
+    expect(tui.onExit).toHaveBeenCalledOnce();
     expect(events).toEqual(['drain', 'ui.stop', 'exit']);
   });
 
   it('start() unregisters signal handlers when initialization throws', async () => {
     const { tui } = makeDriver();
-    // Force the very first awaited call inside start() to reject. We don't
-    // care which method blows up — only that the failure surfaces and any
-    // listeners we installed up front get cleaned up before the throw escapes.
-    jest
-      .spyOn(tui as unknown as { initMainTui(): Promise<boolean> }, 'initMainTui')
-      .mockRejectedValue(new Error('init boom'));
-    // Stub state.ui.stop so the failure-path cleanup does not touch the real
-    // event loop.
-    jest
-      .spyOn((tui as unknown as { state: { ui: { stop(): void } } }).state.ui, 'stop')
-      .mockImplementation(() => {});
+    vi.spyOn(tui as unknown as { initMainTui(): Promise<boolean> }, 'initMainTui').mockRejectedValue(
+      new Error('init boom'),
+    );
+    vi.spyOn(
+      (tui as unknown as { state: { ui: { stop(): void } } }).state.ui,
+      'stop',
+    ).mockImplementation(() => {});
 
     const beforeSigterm = process.listenerCount('SIGTERM');
     const beforeSighup = process.listenerCount('SIGHUP');

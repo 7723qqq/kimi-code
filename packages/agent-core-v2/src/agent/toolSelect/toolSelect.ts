@@ -1,9 +1,8 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
 import type { ToolInfo } from '#/tool/toolContract';
-import type { ToolDescription as Tool } from '#human/llm/message';
 
-import type { ToolSearchHit } from './toolRetriever';
 import type { ToolSelectTool } from './toolSelectOps';
 
 export const SELECT_TOOLS_TOOL_NAME = 'select_tools';
@@ -47,6 +46,7 @@ export interface LoadToolsResult {
   readonly consecutiveFailures: number;
   readonly suggestions: Readonly<Record<string, readonly string[]>>;
   readonly loadable: readonly string[];
+  readonly schemas: readonly Tool[];
 }
 
 export interface IAgentToolSelectService {
@@ -58,7 +58,18 @@ export interface IAgentToolSelectService {
 
   prepareForRequest(signal?: AbortSignal): Promise<void>;
 
+  prepareCatalog(signal?: AbortSignal): Promise<void>;
+
+  initialTools(): readonly Tool[];
+
   defaultTools(disclosure?: boolean): readonly Tool[];
+
+  requestTools(
+    base: readonly Tool[] | undefined,
+    disclosure?: boolean,
+    dynamic?: boolean,
+    messages?: readonly ContextMessage[],
+  ): readonly Tool[];
 
   shapeTools(entries: readonly ToolInfo[], disclosure?: boolean): readonly ShapedToolEntry[];
 
@@ -70,13 +81,10 @@ export interface IAgentToolSelectService {
 
   load(names: readonly string[]): LoadToolsResult;
 
-  search(query: string, limit?: number): readonly ToolSearchHit[];
-
-  drainPendingToolSchemas(): readonly Tool[] | undefined;
-
   loadableToolsAnnouncement(
     lastDisclosure?: ToolSelectAnnouncementDisclosure,
   ): ToolSelectAnnouncement | undefined;
+
 }
 
 export const IAgentToolSelectService: ServiceIdentifier<IAgentToolSelectService> =

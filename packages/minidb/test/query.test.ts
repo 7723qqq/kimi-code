@@ -1,9 +1,9 @@
-// test/query.test.ts
-import { expect, test } from 'bun:test';
+// test/query.test.js
+import { test } from '@moonshot-ai/testkit/vitest';
+import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
 import { MiniDb } from '../src/index.js';
 
 async function tmpDir() {
@@ -15,12 +15,12 @@ test('key range + prefix scan', async () => {
   try {
     const db = await MiniDb.open({ dir, valueCodec: 'string' });
     for (const k of ['user:3', 'user:1', 'user:2', 'order:1']) await db.set(k, k);
-    expect(db.scan({ gte: 'user:', lte: 'user:~' }).map((r) => r.key)).toStrictEqual([
+    assert.deepEqual(db.scan({ gte: 'user:', lte: 'user:~' }).map((r) => r.key), [
       'user:1',
       'user:2',
       'user:3',
     ]);
-    expect(db.prefix('user:').map((r) => r.key)).toStrictEqual(['user:1', 'user:2', 'user:3']);
+    assert.deepEqual(db.prefix('user:').map((r) => r.key), ['user:1', 'user:2', 'user:3']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -38,13 +38,13 @@ test('dt columns: set, range query, persist across reopen', async () => {
     await db.set('b', { n: 2 }, { dt: { created: mar } });
     await db.set('c', { n: 3 }, { dt: { created: jun } });
 
-    expect(db.dtColumns().toSorted()).toStrictEqual(['created']);
+    assert.deepEqual(db.dtColumns().sort(), ['created']);
     const rows = db.dtRange('created', { gte: jan, lte: mar });
-    expect(rows.map((r) => r.key)).toStrictEqual(['a', 'b']);
+    assert.deepEqual(rows.map((r) => r.key), ['a', 'b']);
     await db.close();
 
     db = await MiniDb.open({ dir, valueCodec: 'json' });
-    expect(db.dtRange('created', { gt: mar }).map((r) => r.key)).toStrictEqual(['c']);
+    assert.deepEqual(db.dtRange('created', { gt: mar }).map((r) => r.key), ['c']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -59,25 +59,22 @@ test('value filter (Mongo-like) with operators', async () => {
     await db.set('b', { name: 'Bob', age: 17, tags: ['y'] });
     await db.set('c', { name: 'Eve', age: 25, tags: ['z'] });
 
-    expect(
-      db
-        .query({ filter: { age: { $gt: 18 } } })
-        .map((r) => r.key)
-        .toSorted(),
-    ).toStrictEqual(['a', 'c']);
-    expect(
-      db
-        .query({ filter: { tags: { $contains: 'y' } } })
-        .map((r) => r.key)
-        .toSorted(),
-    ).toStrictEqual(['a', 'b']);
-    expect(
-      db
-        .query({ filter: { $or: [{ age: { $lt: 18 } }, { name: 'Eve' }] } })
-        .map((r) => r.key)
-        .toSorted(),
-    ).toStrictEqual(['b', 'c']);
-    expect(db.query({ filter: { name: { $regex: '^A' } } }).map((r) => r.key)).toStrictEqual(['a']);
+    assert.deepEqual(
+      db.query({ filter: { age: { $gt: 18 } } }).map((r) => r.key).sort(),
+      ['a', 'c'],
+    );
+    assert.deepEqual(
+      db.query({ filter: { tags: { $contains: 'y' } } }).map((r) => r.key).sort(),
+      ['a', 'b'],
+    );
+    assert.deepEqual(
+      db.query({ filter: { $or: [{ age: { $lt: 18 } }, { name: 'Eve' }] } }).map((r) => r.key).sort(),
+      ['b', 'c'],
+    );
+    assert.deepEqual(
+      db.query({ filter: { name: { $regex: '^A' } } }).map((r) => r.key),
+      ['a'],
+    );
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -89,11 +86,7 @@ test('query composes dt range + value filter + sort + limit + project', async ()
   try {
     const db = await MiniDb.open({ dir, valueCodec: 'json' });
     for (let i = 1; i <= 10; i++) {
-      await db.set(
-        `p${i}`,
-        { age: i * 5, city: i % 2 ? 'Paris' : 'London' },
-        { dt: { ts: i * 1000 } },
-      );
+      await db.set(`p${i}`, { age: i * 5, city: i % 2 ? 'Paris' : 'London' }, { dt: { ts: i * 1000 } });
     }
     const res = db.query({
       dt: { ts: { gte: 3000, lte: 8000 } },
@@ -103,8 +96,8 @@ test('query composes dt range + value filter + sort + limit + project', async ()
       project: ['age'],
     });
     // ts in [3000,8000] => i=3..8; Paris (odd i) => 3,5,7; sort age desc => 7(35),5(25)
-    expect(res.map((r) => r.key)).toStrictEqual(['p7', 'p5']);
-    expect(res[0].value).toStrictEqual({ age: 35 }); // projected
+    assert.deepEqual(res.map((r) => r.key), ['p7', 'p5']);
+    assert.deepEqual(res[0].value, { age: 35 }); // projected
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -128,51 +121,32 @@ test('dt-ordered limit fast path matches a reference (no ties)', async () => {
 
     const refDesc = docs
       .filter((d) => d.role === 'user' && d.ts >= gte && d.ts <= lte)
-      .toSorted((a, b) => b.ts - a.ts);
+      .sort((a, b) => b.ts - a.ts);
 
     // sort by dt desc + limit -> fast path
-    expect(
-      db
-        .query({ dt: { ts: { gte, lte } }, filter: { role: 'user' }, sort: { ts: -1 }, limit: 3 })
-        .map((r) => r.key),
-    ).toStrictEqual(refDesc.slice(0, 3).map((d) => d.key));
+    assert.deepEqual(
+      db.query({ dt: { ts: { gte, lte } }, filter: { role: 'user' }, sort: { ts: -1 }, limit: 3 }).map((r) => r.key),
+      refDesc.slice(0, 3).map((d) => d.key),
+    );
     // ascending + skip + limit -> fast path
-    const refAsc = [...refDesc].toReversed();
-    expect(
-      db
-        .query({
-          dt: { ts: { gte, lte } },
-          filter: { role: 'user' },
-          sort: { ts: 1 },
-          skip: 1,
-          limit: 2,
-        })
-        .map((r) => r.key),
-    ).toStrictEqual(refAsc.slice(1, 3).map((d) => d.key));
+    const refAsc = [...refDesc].reverse();
+    assert.deepEqual(
+      db.query({ dt: { ts: { gte, lte } }, filter: { role: 'user' }, sort: { ts: 1 }, skip: 1, limit: 2 }).map((r) => r.key),
+      refAsc.slice(1, 3).map((d) => d.key),
+    );
     // no sort -> defaults to dt ascending, still fast path
-    expect(
+    assert.deepEqual(
       db.query({ dt: { ts: { gte, lte } }, filter: { role: 'user' }, limit: 2 }).map((r) => r.key),
-    ).toStrictEqual(refAsc.slice(0, 2).map((d) => d.key));
+      refAsc.slice(0, 2).map((d) => d.key),
+    );
     // project still applies on the fast path
-    const proj = db.query({
-      dt: { ts: { gte, lte } },
-      filter: { role: 'user' },
-      sort: { ts: -1 },
-      limit: 1,
-      project: ['n'],
-    });
-    expect(proj[0]).toStrictEqual({
-      key: refDesc[0]!.key,
-      value: { n: refDesc[0]!.n },
-      dt: { ts: refDesc[0]!.ts },
-    });
+    const proj = db.query({ dt: { ts: { gte, lte } }, filter: { role: 'user' }, sort: { ts: -1 }, limit: 1, project: ['n'] });
+    assert.deepEqual(proj[0], { key: refDesc[0]!.key, value: { n: refDesc[0]!.n }, dt: { ts: refDesc[0]!.ts } });
     // sort by a non-dt field -> falls back to general path (still correct)
-    // n == i order matches ts here
-    expect(
-      db
-        .query({ dt: { ts: { gte, lte } }, filter: { role: 'user' }, sort: { n: -1 }, limit: 3 })
-        .map((r) => r.key),
-    ).toStrictEqual(refDesc.slice(0, 3).map((d) => d.key));
+    assert.deepEqual(
+      db.query({ dt: { ts: { gte, lte } }, filter: { role: 'user' }, sort: { n: -1 }, limit: 3 }).map((r) => r.key),
+      refDesc.slice(0, 3).map((d) => d.key), // n == i order matches ts here
+    );
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -186,16 +160,14 @@ test('dt-ordered limit fast path orders equal ts by key (tie-break)', async () =
     // several docs share the same ts; SkipList tie-break is by record key
     for (const k of ['t3', 't1', 't4', 't2']) await db.set(k, { v: k }, { dt: { ts: 1000 } });
     // descending -> key desc; ascending -> key asc
-    expect(
-      db
-        .query({ dt: { ts: { gte: 1000, lte: 1000 } }, sort: { ts: -1 }, limit: 4 })
-        .map((r) => r.key),
-    ).toStrictEqual(['t4', 't3', 't2', 't1']);
-    expect(
-      db
-        .query({ dt: { ts: { gte: 1000, lte: 1000 } }, sort: { ts: 1 }, limit: 2 })
-        .map((r) => r.key),
-    ).toStrictEqual(['t1', 't2']);
+    assert.deepEqual(
+      db.query({ dt: { ts: { gte: 1000, lte: 1000 } }, sort: { ts: -1 }, limit: 4 }).map((r) => r.key),
+      ['t4', 't3', 't2', 't1'],
+    );
+    assert.deepEqual(
+      db.query({ dt: { ts: { gte: 1000, lte: 1000 } }, sort: { ts: 1 }, limit: 2 }).map((r) => r.key),
+      ['t1', 't2'],
+    );
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -212,16 +184,13 @@ test('full-text search: latin + CJK', async () => {
     await db.set('c', { bio: '我在上海写代码' });
 
     const latin = db.search('bio', 'hello').map((r) => r.key);
-    expect(latin).toStrictEqual(['a']);
+    assert.deepEqual(latin, ['a']);
 
     const cjk = db.search('bio', '北京').map((r) => r.key);
-    expect(cjk).toStrictEqual(['b']);
+    assert.deepEqual(cjk, ['b']);
 
-    const or = db
-      .search('bio', '北京 上海', { op: 'OR' })
-      .map((r) => r.key)
-      .toSorted();
-    expect(or).toStrictEqual(['b', 'c']);
+    const or = db.search('bio', '北京 上海', { op: 'OR' }).map((r) => r.key).sort();
+    assert.deepEqual(or, ['b', 'c']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -238,7 +207,7 @@ test('text index persists + rebuilds across reopen', async () => {
     await db.close();
 
     db = await MiniDb.open({ dir, valueCodec: 'json' });
-    expect(db.search('bio', '北京').map((r) => r.key)).toStrictEqual(['a']);
+    assert.deepEqual(db.search('bio', '北京').map((r) => r.key), ['a']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -259,7 +228,7 @@ test('query composes key prefix + text + filter', async () => {
       text: { index: 'body', q: 'Redis' },
       filter: { tag: 'db' },
     });
-    expect(res.map((r) => r.key)).toStrictEqual(['post:1']);
+    assert.deepEqual(res.map((r) => r.key), ['post:1']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -276,22 +245,13 @@ test('query uses value indexes for equality/range filters', async () => {
     await db.set('b', { city: 'Paris', age: 17 });
     await db.set('c', { city: 'London', age: 41 });
 
-    expect(
-      db
-        .query({ filter: { city: 'Paris' } })
-        .map((r) => r.key)
-        .toSorted(),
-    ).toStrictEqual(['a', 'b']);
-    expect(
-      db
-        .query({ filter: { age: { $gte: 30 } } })
-        .map((r) => r.key)
-        .toSorted(),
-    ).toStrictEqual(['a', 'c']);
-    expect(
+    assert.deepEqual(db.query({ filter: { city: 'Paris' } }).map((r) => r.key).sort(), ['a', 'b']);
+    assert.deepEqual(db.query({ filter: { age: { $gte: 30 } } }).map((r) => r.key).sort(), ['a', 'c']);
+    assert.deepEqual(
       db.query({ filter: { $and: [{ city: 'Paris' }, { age: { $gte: 18 } }] } }).map((r) => r.key),
-    ).toStrictEqual(['a']);
-    expect(db.stats.queryIndexHits >= 3).toBeTruthy();
+      ['a'],
+    );
+    assert.ok(db.stats.queryIndexHits >= 3);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

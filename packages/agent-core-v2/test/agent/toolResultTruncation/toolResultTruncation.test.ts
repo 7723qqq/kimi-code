@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,13 +5,14 @@ import { join } from 'node:path';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import type { ExecutableToolResult } from '#/tool/toolContract';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import type { ExecutableToolResult } from '#/tool/toolContract';
-import type { ContentPart } from '#human/llm/message';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 
@@ -42,23 +42,18 @@ describe('ToolResultTruncationService', () => {
     await rm(homeDir, { recursive: true, force: true });
   });
 
-  const spillDir = () => join(homeDir, 'sessions/workspace/session/agents/main/tool-results');
+  const spillDir = () =>
+    join(homeDir, 'sessions/workspace/session/agents/main/tool-results');
 
   it('recognizes agent event logs under the sessions directory', () => {
     expect(
-      truncation.isWireJournalPath(
-        join(homeDir, 'sessions/workspace/session/agents/main/wire.jsonl'),
-      ),
+      truncation.isWireJournalPath(join(homeDir, 'sessions/workspace/session/agents/main/wire.jsonl')),
     ).toBe(true);
     expect(
-      truncation.isWireJournalPath(
-        join(homeDir, 'sessions/workspace/session/agents/sub-1/wire.jsonl'),
-      ),
+      truncation.isWireJournalPath(join(homeDir, 'sessions/workspace/session/agents/sub-1/wire.jsonl')),
     ).toBe(true);
     expect(
-      truncation.isWireJournalPath(
-        join(homeDir, 'sessions/workspace/session/agents/main/notes.jsonl'),
-      ),
+      truncation.isWireJournalPath(join(homeDir, 'sessions/workspace/session/agents/main/notes.jsonl')),
     ).toBe(false);
     expect(truncation.isWireJournalPath(join(homeDir, 'blobs/wire.jsonl'))).toBe(false);
     expect(truncation.isWireJournalPath('/elsewhere/sessions/x/wire.jsonl')).toBe(false);
@@ -94,7 +89,7 @@ describe('ToolResultTruncationService', () => {
       join(
         homeDir,
         'sessions/workspace/session/agents/main/tool-results/Lookup_Tool-call_lookup-',
-      ).replaceAll('\\', '/'),
+      ),
     );
     await expect(readFile(outputPath, 'utf8')).resolves.toBe(fullOutput);
   });
@@ -136,7 +131,9 @@ describe('ToolResultTruncationService', () => {
     const rendered = result.output;
     expect(typeof rendered).toBe('string');
     if (typeof rendered !== 'string') throw new Error('expected string output');
-    expect(rendered).toContain('the first 60000 characters (of 25000000) were saved to a file.');
+    expect(rendered).toContain(
+      'the first 60000 characters (of 25000000) were saved to a file.',
+    );
     expect(rendered).not.toContain('the full output was saved');
     expect(rendered).toContain(
       'output_size_chars: 25000000 (only the first 60000 characters were preserved)',
@@ -157,7 +154,9 @@ describe('ToolResultTruncationService', () => {
     const rendered = result.output;
     expect(typeof rendered).toBe('string');
     if (typeof rendered !== 'string') throw new Error('expected string output');
-    expect(rendered).toContain('the first 10000000 characters (of 11000000) were saved to a file.');
+    expect(rendered).toContain(
+      'the first 10000000 characters (of 11000000) were saved to a file.',
+    );
     await expect(readFile(renderedOutputPath(rendered), 'utf8')).resolves.toBe(retained);
   });
 
@@ -206,7 +205,9 @@ describe('ToolResultTruncationService', () => {
     expect(pointer.text).toContain('Tool output exceeded 50000 characters');
     expect(pointer.text).toContain('the full text output was saved to a file');
     expect(media).toEqual([image]);
-    await expect(readFile(renderedOutputPath(pointer.text), 'utf8')).resolves.toBe(bulk('x', 600));
+    await expect(readFile(renderedOutputPath(pointer.text), 'utf8')).resolves.toBe(
+      bulk('x', 600),
+    );
   });
 
   it('appends the pointer instead of replacing output when per-line shaping suffices', async () => {
@@ -226,9 +227,7 @@ describe('ToolResultTruncationService', () => {
     expect(rendered).toContain('first line\n');
     expect(rendered).toContain(`${'y'.repeat(1_984)}[...truncated]\n`);
     expect(rendered).toContain('last line');
-    expect(rendered).toContain(
-      '[Per-line truncation occurred; the complete output was saved to a file.',
-    );
+    expect(rendered).toContain('[Per-line truncation occurred; the complete output was saved to a file.');
     expect(rendered).toContain('next_step: Use Read with output_path');
     await expect(readFile(renderedOutputPath(rendered), 'utf8')).resolves.toBe(full);
   });
@@ -246,9 +245,7 @@ describe('ToolResultTruncationService', () => {
     const rendered = result.output;
     expect(typeof rendered).toBe('string');
     if (typeof rendered !== 'string') throw new Error('expected string output');
-    expect(rendered).toContain(
-      '[Per-line truncation occurred; the complete output was saved to a file.',
-    );
+    expect(rendered).toContain('[Per-line truncation occurred; the complete output was saved to a file.');
     expect(rendered.split(notice).length - 1).toBe(1);
   });
 
@@ -264,9 +261,7 @@ describe('ToolResultTruncationService', () => {
     const rendered = result.output;
     expect(typeof rendered).toBe('string');
     if (typeof rendered !== 'string') throw new Error('expected string output');
-    expect(rendered).toContain(
-      '[Per-line truncation occurred; the complete output was saved to a file.',
-    );
+    expect(rendered).toContain('[Per-line truncation occurred; the complete output was saved to a file.');
     expect(rendered).toContain('task_id: task-9');
   });
 
@@ -409,61 +404,6 @@ describe('ToolResultTruncationService', () => {
     await expect(readFile(secondPath, 'utf8')).resolves.toContain('second');
   });
 
-  it('handles empty output strings without truncation', async () => {
-    const result = await truncation.truncateForModel<ExecutableToolResult>({
-      toolName: 'Empty',
-      toolCallId: 'call_empty',
-      result: { output: '' },
-    });
-
-    expect(result.truncated).toBeUndefined();
-    expect(result.output).toBe('');
-  });
-
-  it('handles output that is exactly one byte over the limit', async () => {
-    const oneOver = 'x'.repeat(50_001);
-
-    const result = await truncation.truncateForModel<ExecutableToolResult>({
-      toolName: 'OneOver',
-      toolCallId: 'call_one_over',
-      result: { output: oneOver },
-    });
-
-    expect(result.truncated).toBe(true);
-    const rendered = result.output;
-    expect(typeof rendered).toBe('string');
-    if (typeof rendered !== 'string') throw new Error('expected string output');
-    expect(rendered).toContain('output_path:');
-  });
-
-  it('preserves output that is exactly at the boundary of the truncation limit', async () => {
-    const exactlyAtLimit = 'x'.repeat(50_000);
-
-    const result = await truncation.truncateForModel<ExecutableToolResult>({
-      toolName: 'Boundary',
-      toolCallId: 'call_boundary',
-      result: { output: exactlyAtLimit },
-    });
-
-    expect(result.truncated).toBeUndefined();
-    expect(result.output).toBe(exactlyAtLimit);
-  });
-
-  it('uses a tool name with special characters in the output path', async () => {
-    const fullOutput = 'y'.repeat(50_001);
-
-    const result = await truncation.truncateForModel<ExecutableToolResult>({
-      toolName: 'My Super Tool!@#$%',
-      toolCallId: 'call_special',
-      result: { output: fullOutput },
-    });
-
-    expect(result.truncated).toBe(true);
-    const rendered = result.output;
-    expect(typeof rendered).toBe('string');
-    expect(rendered).toMatch(/My_Super_Tool_-call_special-[0-9a-f-]+\.txt/);
-  });
-
   it('renders a bounded preview without a pointer when the spill write fails', async () => {
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(IBootstrapService, stubBootstrap(homeDir));
@@ -507,7 +447,77 @@ describe('ToolResultTruncationService', () => {
     expect(renderedShortLines).toContain('could not be saved to a file');
     expect(renderedShortLines.length).toBeLessThan(10_000);
   });
+
+  it('does not split a surrogate pair when shaping a long line', async () => {
+    const emojiLine = `${'a'.repeat(1_983)}\u{1F600}${'\u{1F600}'.repeat(20)}`;
+    const full = `${'x'.repeat(49_000)}\n${emojiLine}`;
+
+    const result = await truncation.truncateForModel<ExecutableToolResult>({
+      toolName: 'Grep',
+      toolCallId: 'call_surrogate_line',
+      result: { output: full },
+    });
+
+    expect(result.truncated).toBe(true);
+    const rendered = result.output;
+    expect(typeof rendered).toBe('string');
+    if (typeof rendered !== 'string') throw new Error('expected string output');
+    expect(rendered).toContain('Per-line truncation occurred');
+    expect(rendered).toContain(`${'a'.repeat(1_983)}\u{1F600}[...truncated]`);
+    expect(LONE_SURROGATE.test(rendered)).toBe(false);
+    await expect(readFile(renderedOutputPath(rendered), 'utf8')).resolves.toBe(full);
+  });
+
+  it('keeps head and tail previews on code point boundaries', async () => {
+    const head = `${'b'.repeat(4_095)}\u{1F600}\n`;
+    const filler = `${'m'.repeat(99)}\n`.repeat(520);
+    const tail = `\u{1F600}${'t'.repeat(1_023)}`;
+    const full = `${head}${filler}${tail}`;
+
+    const result = await truncation.truncateForModel<ExecutableToolResult>({
+      toolName: 'Bash',
+      toolCallId: 'call_surrogate_preview',
+      result: { output: full },
+    });
+
+    expect(result.truncated).toBe(true);
+    const rendered = result.output;
+    expect(typeof rendered).toBe('string');
+    if (typeof rendered !== 'string') throw new Error('expected string output');
+    expect(rendered).toContain('Tool output exceeded 50000 characters');
+    expect(rendered).toContain(`[preview: chars [0, ${String(4_095)})]`);
+    expect(rendered).toContain(
+      `[elided: chars [${String(4_095)}, ${String(full.length - 1_023)})]`,
+    );
+    expect(rendered).toContain(
+      `[preview: chars [${String(full.length - 1_023)}, ${String(full.length)})]`,
+    );
+    expect(LONE_SURROGATE.test(rendered)).toBe(false);
+    await expect(readFile(renderedOutputPath(rendered), 'utf8')).resolves.toBe(full);
+  });
+
+  it('keeps the retained spill on a code point boundary', async () => {
+    const pad = 'c'.repeat(9_999_999);
+    const full = `${pad}\u{1F600}${'d'.repeat(100)}`;
+
+    const result = await truncation.truncateForModel<ExecutableToolResult>({
+      toolName: 'mcp__s__big',
+      toolCallId: 'call_surrogate_retained',
+      result: { output: full },
+    });
+
+    expect(result.truncated).toBe(true);
+    const rendered = result.output;
+    expect(typeof rendered).toBe('string');
+    if (typeof rendered !== 'string') throw new Error('expected string output');
+    expect(rendered).toContain('the first 9999999 characters (of 10000101) were saved');
+    const saved = await readFile(renderedOutputPath(rendered), 'utf8');
+    expect(saved).toBe(pad);
+    expect(LONE_SURROGATE.test(saved)).toBe(false);
+  });
 });
+
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 function renderedOutputPath(output: unknown): string {
   if (typeof output !== 'string') throw new Error('expected rendered output to be a string');

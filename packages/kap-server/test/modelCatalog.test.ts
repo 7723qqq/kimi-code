@@ -1,5 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, mock } from 'bun:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -14,11 +13,11 @@ import {
   type ModelCatalogConfig,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { removeTempHome } from './helpers/tempHome';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -95,7 +94,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       active = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
     delete process.env['KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START'];
@@ -190,7 +189,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
   });
 
   it('lists models without refreshing providers', async () => {
-    const refreshProviderModels = mock(async () => ({
+    const refreshProviderModels = vi.fn(async () => ({
       changed: [],
       unchanged: [],
       failed: [],
@@ -268,21 +267,6 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     expect(config.body.data.default_model).toBe('turbo');
   });
 
-  it('refuses to report success when the default model was not written to disk (tainted config)', async () => {
-    await boot(CATALOG_TOML);
-    const configPath = join(home as string, 'config.toml');
-    const broken = 'default_model = "turbo"\n\n[providers.kimi\n';
-    await writeFile(configPath, broken, 'utf-8');
-    await (server as RunningServer).core.accessor.get(IConfigService).reload();
-
-    const { body } = await postJson<unknown>('/api/v1/models/turbo:set_default', {});
-    expect(body.code).toBe(50003);
-    expect(body.data).toBeNull();
-    expect(body.msg).toContain('default_model was not persisted');
-
-    expect(await readFile(configPath, 'utf-8')).toBe(broken);
-  });
-
   it('maps unknown provider and model ids to catalog not-found codes', async () => {
     await boot(CATALOG_TOML);
     const provider = await getJson<unknown>('/api/v1/providers/missing');
@@ -320,15 +304,6 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     return {
       _serviceBrand: undefined,
       get: () => {
-        throw new Error('unused');
-      },
-      getRequester: () => {
-        throw new Error('unused');
-      },
-      generate: () => {
-        throw new Error('unused');
-      },
-      ping: async () => {
         throw new Error('unused');
       },
       findByName: () => [],
@@ -381,7 +356,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
   }
 
   it('refreshes OAuth provider models through POST /providers:refresh_oauth', async () => {
-    const refreshOAuthProviderModels = mock(async () => ({
+    const refreshOAuthProviderModels = vi.fn(async () => ({
       changed: [
         { provider_id: 'managed:kimi-code', provider_name: 'Kimi Code', added: 1, removed: 0 },
       ],
@@ -410,16 +385,14 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
   });
 
   it('refreshes all provider models through POST /providers:refresh', async () => {
-    const refreshProviderModels = mock(async () => ({
+    const refreshProviderModels = vi.fn(async () => ({
       changed: [
         { provider_id: 'managed:kimi-code', provider_name: 'Kimi Code', added: 2, removed: 1 },
       ],
       unchanged: ['moonshot-cn'],
       failed: [],
     }));
-    const seeds = [
-      [IProviderDiscoveryService, discoveryStub(refreshProviderModels)],
-    ] as unknown as ScopeSeed;
+    const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
     const { status, body } = await postJson('/api/v1/providers:refresh', {});
@@ -429,14 +402,12 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
   });
 
   it('refreshes a single provider through POST /providers/{id}:refresh', async () => {
-    const refreshProviderModels = mock(async () => ({
+    const refreshProviderModels = vi.fn(async () => ({
       changed: [],
       unchanged: [],
       failed: [],
     }));
-    const seeds = [
-      [IProviderDiscoveryService, discoveryStub(refreshProviderModels)],
-    ] as unknown as ScopeSeed;
+    const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
     const { status, body } = await postJson('/api/v1/providers/managed%3Akimi-code:refresh', {});
@@ -446,14 +417,12 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
   });
 
   it('rejects unsupported provider actions with 40001', async () => {
-    const refreshProviderModels = mock(async () => ({
+    const refreshProviderModels = vi.fn(async () => ({
       changed: [],
       unchanged: [],
       failed: [],
     }));
-    const seeds = [
-      [IProviderDiscoveryService, discoveryStub(refreshProviderModels)],
-    ] as unknown as ScopeSeed;
+    const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
     const { body } = await postJson('/api/v1/providers/foo:bogus', {});

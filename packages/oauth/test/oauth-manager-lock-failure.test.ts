@@ -1,26 +1,21 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import lockfile from 'proper-lockfile';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { OAuthError } from '../src/errors';
 import { OAuthManager } from '../src/oauth-manager';
 import type { TokenStorage } from '../src/storage';
 import type { OAuthFlowConfig, TokenInfo } from '../src/types';
 
-// `mock.module` rewrites the registry for the whole `bun test` process and
-// cannot be undone, so every other file that reaches the POSIX lock path sees
-// this mock too. The real `lock` is captured before the rewrite (calling the
-// module from inside its own factory would recurse) and is the default path;
-// only this file's test swaps in a rejecting implementation.
-const realLock = lockfile.lock.bind(lockfile);
-let lockImpl: typeof realLock = realLock;
+const lockMock = vi.hoisted(() => ({
+  lock: vi.fn(),
+}));
 
-void mock.module('proper-lockfile', () => ({
+void vi.mock('proper-lockfile', () => ({
   default: {
-    lock: (target: string, options?: Parameters<typeof realLock>[1]) => lockImpl(target, options),
+    lock: lockMock.lock,
   },
 }));
 
@@ -71,35 +66,30 @@ describe('OAuthManager refresh lock failure', () => {
       `kimi-oauth-lock-failure-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     mkdirSync(dir, { recursive: true });
-    lockImpl = realLock;
+    lockMock.lock.mockReset();
   });
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
-    mock.restore();
+    vi.restoreAllMocks();
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'fails closed instead of refreshing without a configured cross-process lock',
-    async () => {
-      const storage = new InMemoryStorage();
-      storage.token = makeToken();
-      lockImpl = async () => {
-        throw new Error('lock busy');
-      };
-      const refreshImpl = mock().mockResolvedValue(makeToken({ accessToken: 'at-new' }));
+  it.skipIf(process.platform === 'win32')('fails closed instead of refreshing without a configured cross-process lock', async () => {
+    const storage = new InMemoryStorage();
+    storage.token = makeToken();
+    lockMock.lock.mockRejectedValue(new Error('lock busy'));
+    const refreshImpl = vi.fn().mockResolvedValue(makeToken({ accessToken: 'at-new' }));
 
-      const mgr = new OAuthManager({
-        config,
-        storage,
-        configDir: dir,
-        now: () => 1_000_000_000,
-        refreshTokenImpl: refreshImpl,
-      });
+    const mgr = new OAuthManager({
+      config,
+      storage,
+      configDir: dir,
+      now: () => 1_000_000_000,
+      refreshTokenImpl: refreshImpl,
+    });
 
-      await expect(mgr.ensureFresh()).rejects.toBeInstanceOf(OAuthError);
-      await expect(mgr.ensureFresh()).rejects.toThrow(/refresh lock/i);
-      expect(refreshImpl).not.toHaveBeenCalled();
-    },
-  );
+    await expect(mgr.ensureFresh()).rejects.toBeInstanceOf(OAuthError);
+    await expect(mgr.ensureFresh()).rejects.toThrow(/refresh lock/i);
+    expect(refreshImpl).not.toHaveBeenCalled();
+  });
 });

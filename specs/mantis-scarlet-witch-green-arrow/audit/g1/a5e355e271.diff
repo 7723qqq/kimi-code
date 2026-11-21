@@ -1,0 +1,953 @@
+commit a5e355e2718a2ebf70d8229fa5a05fe35d5f98a1
+Author:     github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+AuthorDate: Thu Nov 19 19:07:37 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 19 19:07:37 2026 +0800
+
+    ci: release packages (#5094)
+    
+    Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+
+diff --git a/.changeset/allow-resume-occupied-sessions.md b/.changeset/allow-resume-occupied-sessions.md
+deleted file mode 100644
+index 16b59d8052..0000000000
+--- a/.changeset/allow-resume-occupied-sessions.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Allow resuming sessions that are open in another client.
+diff --git a/.changeset/background-notification-tool-row.md b/.changeset/background-notification-tool-row.md
+deleted file mode 100644
+index a07ee1f0b4..0000000000
+--- a/.changeset/background-notification-tool-row.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Show background task notifications as collapsible rows styled like tool calls, with correct task duration and status.
+diff --git a/.changeset/background-task-tail-utf8.md b/.changeset/background-task-tail-utf8.md
+deleted file mode 100644
+index 2f4bb51d11..0000000000
+--- a/.changeset/background-task-tail-utf8.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Fix corrupted characters in the truncated output of background Bash tasks.
+diff --git a/.changeset/bash-session-workspace-env-desktop.md b/.changeset/bash-session-workspace-env-desktop.md
+deleted file mode 100644
+index aa63bcc76b..0000000000
+--- a/.changeset/bash-session-workspace-env-desktop.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Expose `KIMI_CODE_SESSION_ID` and `KIMI_CODE_WORKSPACE_ID` to shell tool subprocesses.
+diff --git a/.changeset/bash-session-workspace-env.md b/.changeset/bash-session-workspace-env.md
+deleted file mode 100644
+index 773eb3aea7..0000000000
+--- a/.changeset/bash-session-workspace-env.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Expose `KIMI_CODE_SESSION_ID` and `KIMI_CODE_WORKSPACE_ID` in `Bash` tool child processes.
+diff --git a/.changeset/bedrock-provider.md b/.changeset/bedrock-provider.md
+deleted file mode 100644
+index ae2bc286f7..0000000000
+--- a/.changeset/bedrock-provider.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": minor
+----
+-
+-Add support for Amazon Bedrock providers, configured with `type = "bedrock"` and `AWS_REGION`.
+diff --git a/.changeset/bound-ssh-project-discovery.md b/.changeset/bound-ssh-project-discovery.md
+deleted file mode 100644
+index 0b689f7789..0000000000
+--- a/.changeset/bound-ssh-project-discovery.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kap-server": patch
+----
+-
+-Limit SSH project discovery to five seconds per host when aggregating workspace and session lists.
+diff --git a/.changeset/browser-file-annotations.md b/.changeset/browser-file-annotations.md
+deleted file mode 100644
+index 45ac4dee94..0000000000
+--- a/.changeset/browser-file-annotations.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix annotations not working on local HTML files in the built-in browser.
+diff --git a/.changeset/browser-google-sign-in.md b/.changeset/browser-google-sign-in.md
+deleted file mode 100644
+index 929333f53b..0000000000
+--- a/.changeset/browser-google-sign-in.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix the built-in browser being flagged as insecure when signing in on some websites.
+diff --git a/.changeset/browser-tab-title-and-favicon.md b/.changeset/browser-tab-title-and-favicon.md
+deleted file mode 100644
+index 34e3066d56..0000000000
+--- a/.changeset/browser-tab-title-and-favicon.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Browser tabs (including the remote control page) now show a dynamic favicon, and the tab title displays the project and current session, configurable in Settings > Appearance.
+diff --git a/.changeset/calm-tables-select.md b/.changeset/calm-tables-select.md
+deleted file mode 100644
+index 45c5b1b3bf..0000000000
+--- a/.changeset/calm-tables-select.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Select regions, rows, or columns in Markdown tables and copy them via right-click or keyboard shortcuts.
+diff --git a/.changeset/claude-5-output-ceiling.md b/.changeset/claude-5-output-ceiling.md
+deleted file mode 100644
+index 3deff23c2a..0000000000
+--- a/.changeset/claude-5-output-ceiling.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Prevent compaction requests from exceeding the output limits of Claude Opus 5 and Haiku 5 models.
+diff --git a/.changeset/compact-browser-tab-preview.md b/.changeset/compact-browser-tab-preview.md
+deleted file mode 100644
+index 1206989646..0000000000
+--- a/.changeset/compact-browser-tab-preview.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Move the browser tab title preview below the setting and show a single tab.
+diff --git a/.changeset/compact-own-line-calls.md b/.changeset/compact-own-line-calls.md
+deleted file mode 100644
+index f153fffd55..0000000000
+--- a/.changeset/compact-own-line-calls.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Show CronCreate, CronDelete, and MCP authorization calls on their own line instead of in the compact tool call summary, with the authorization link shown while it waits and the reason shown if it fails.
+diff --git a/.changeset/compact-screenshot-loupe.md b/.changeset/compact-screenshot-loupe.md
+deleted file mode 100644
+index 7674bed1f8..0000000000
+--- a/.changeset/compact-screenshot-loupe.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Shrink the screenshot magnifier and color picker so they cover less of the screen.
+diff --git a/.changeset/converge-mcp-api-v1.md b/.changeset/converge-mcp-api-v1.md
+deleted file mode 100644
+index e402bc487f..0000000000
+--- a/.changeset/converge-mcp-api-v1.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Remove `/api/v2/mcp/*` and `POST /api/v1/mcp/servers/{id}:restart`, serving MCP server and OAuth management on `/api/v1/mcp/*` instead of the live-session `/api/v1/mcp/servers` list.
+diff --git a/.changeset/converge-sessions-api-v1.md b/.changeset/converge-sessions-api-v1.md
+deleted file mode 100644
+index 5cc2e8aa21..0000000000
+--- a/.changeset/converge-sessions-api-v1.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Remove `/api/v2/sessions*` and serve grouped views, git metadata, id projections, and batch `:archive`/`:restore` on `/api/v1/sessions*`, replacing `include_archive`, `archived_only`, and `exclude_empty` with `archived` and `has_prompt`.
+diff --git a/.changeset/curvy-pandas-cheer.md b/.changeset/curvy-pandas-cheer.md
+deleted file mode 100644
+index efde542055..0000000000
+--- a/.changeset/curvy-pandas-cheer.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Add Qwen Coding Plan (global and China sites) as selectable providers.
+diff --git a/.changeset/feat-prompt-prediction.md b/.changeset/feat-prompt-prediction.md
+deleted file mode 100644
+index a77123f8c2..0000000000
+--- a/.changeset/feat-prompt-prediction.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": minor
+----
+-
+-Add experimental next-prompt predictions in the TUI after completed turns. Enable with KIMI_CODE_EXPERIMENTAL_PROMPT_PREDICTION=1 and press Tab or Right Arrow to accept.
+diff --git a/.changeset/feedback-multiline-input.md b/.changeset/feedback-multiline-input.md
+deleted file mode 100644
+index c6e8f44744..0000000000
+--- a/.changeset/feedback-multiline-input.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": minor
+----
+-
+-The feedback dialog accepts multiple lines, and thanks you for helping improve Kimi.
+diff --git a/.changeset/fix-acp-preview-environment.md b/.changeset/fix-acp-preview-environment.md
+deleted file mode 100644
+index cb6cbc215e..0000000000
+--- a/.changeset/fix-acp-preview-environment.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Restore the original environment and tools after closing an ACP session preview.
+diff --git a/.changeset/fix-auth-media-rate-limit.md b/.changeset/fix-auth-media-rate-limit.md
+deleted file mode 100644
+index 2e869dba9e..0000000000
+--- a/.changeset/fix-auth-media-rate-limit.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix image load failures potentially triggering auth rate limits.
+diff --git a/.changeset/fix-btw-stale-session.md b/.changeset/fix-btw-stale-session.md
+deleted file mode 100644
+index 5a015c39b7..0000000000
+--- a/.changeset/fix-btw-stale-session.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Fix /btw failing when another client has updated the current session.
+diff --git a/.changeset/fix-composer-menu-viewport-clamp.md b/.changeset/fix-composer-menu-viewport-clamp.md
+deleted file mode 100644
+index b7ac7f7259..0000000000
+--- a/.changeset/fix-composer-menu-viewport-clamp.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix the model and permission popups overflowing the screen on narrow and mobile layouts.
+diff --git a/.changeset/fix-consecutive-steer-unread.md b/.changeset/fix-consecutive-steer-unread.md
+deleted file mode 100644
+index ab7fa78a44..0000000000
+--- a/.changeset/fix-consecutive-steer-unread.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix duplicate unread/read state on earlier steered messages when steering multiple times in a row.
+diff --git a/.changeset/fix-core-2.6.3-backsync.md b/.changeset/fix-core-2.6.3-backsync.md
+deleted file mode 100644
+index 115dc6c4e7..0000000000
+--- a/.changeset/fix-core-2.6.3-backsync.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix known issues in session resume, background notifications, model responses, and Windows WebBridge updates.
+diff --git a/.changeset/fix-grouped-sessions-across-hosts.md b/.changeset/fix-grouped-sessions-across-hosts.md
+deleted file mode 100644
+index 46f5edf63c..0000000000
+--- a/.changeset/fix-grouped-sessions-across-hosts.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Fix session list loading for grouped sessions across SSH hosts.
+diff --git a/.changeset/fix-host-unpaginated-session-lists.md b/.changeset/fix-host-unpaginated-session-lists.md
+deleted file mode 100644
+index 9096090829..0000000000
+--- a/.changeset/fix-host-unpaginated-session-lists.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Fix unpaginated session ID lists across SSH hosts and honor the requested sort order.
+diff --git a/.changeset/fix-provider-refresh-toast.md b/.changeset/fix-provider-refresh-toast.md
+deleted file mode 100644
+index ef5f067d0c..0000000000
+--- a/.changeset/fix-provider-refresh-toast.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix repeated cryptic "action failed" toasts when opening the model picker with an expired provider credential.
+diff --git a/.changeset/fix-sidechat-table-actions.md b/.changeset/fix-sidechat-table-actions.md
+deleted file mode 100644
+index 542dbd325b..0000000000
+--- a/.changeset/fix-sidechat-table-actions.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix table action buttons being clipped when the side chat is open.
+diff --git a/.changeset/fix-ssh-project-lists.md b/.changeset/fix-ssh-project-lists.md
+deleted file mode 100644
+index a980576c6f..0000000000
+--- a/.changeset/fix-ssh-project-lists.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Keep local projects visible when an SSH host stops responding and fix loading older project sessions in the sidebar.
+diff --git a/.changeset/fix-subagent-zero-timeout.md b/.changeset/fix-subagent-zero-timeout.md
+deleted file mode 100644
+index 10cd25a176..0000000000
+--- a/.changeset/fix-subagent-zero-timeout.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Fix subagents timing out immediately in `kimi -p` and when `[subagent] timeout_ms = 0` is set.
+diff --git a/.changeset/fix-tui-transcript-history.md b/.changeset/fix-tui-transcript-history.md
+deleted file mode 100644
+index fb2baeb6c7..0000000000
+--- a/.changeset/fix-tui-transcript-history.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Fix conversation history disappearing during live trimming, long-turn folding, and replay of damaged session journals.
+diff --git a/.changeset/fix-vertex-adc.md b/.changeset/fix-vertex-adc.md
+deleted file mode 100644
+index 34c73d3deb..0000000000
+--- a/.changeset/fix-vertex-adc.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Fix Vertex AI authentication with Google ADC and honor the configured project and location.
+diff --git a/.changeset/fix-web-ssh-project-lists.md b/.changeset/fix-web-ssh-project-lists.md
+deleted file mode 100644
+index 3674f27a2a..0000000000
+--- a/.changeset/fix-web-ssh-project-lists.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Keep local projects visible when an SSH host stops responding and fix loading older project sessions in the Web sidebar.
+diff --git a/.changeset/fix-webbridge-partial-update.md b/.changeset/fix-webbridge-partial-update.md
+deleted file mode 100644
+index faad19533d..0000000000
+--- a/.changeset/fix-webbridge-partial-update.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Show the update button when the browser extension reports an update while in the partial state.
+diff --git a/.changeset/follow-up-behavior.md b/.changeset/follow-up-behavior.md
+deleted file mode 100644
+index d78214b706..0000000000
+--- a/.changeset/follow-up-behavior.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": minor
+----
+-
+-Add a Follow-up behavior setting under /settings; pick Steer to make Enter steer your message into the running turn instead of queueing it.
+diff --git a/.changeset/foreground-agent-activity.md b/.changeset/foreground-agent-activity.md
+deleted file mode 100644
+index 555bcccf33..0000000000
+--- a/.changeset/foreground-agent-activity.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": minor
+----
+-
+-View running foreground agents and their activity in `/tasks`.
+diff --git a/.changeset/fresh-math-cjk.md b/.changeset/fresh-math-cjk.md
+deleted file mode 100644
+index ae76f17cd0..0000000000
+--- a/.changeset/fresh-math-cjk.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix the bottom edge of CJK subscripts being clipped in block math.
+diff --git a/.changeset/highlight-running-send-setting.md b/.changeset/highlight-running-send-setting.md
+deleted file mode 100644
+index 29535e0192..0000000000
+--- a/.changeset/highlight-running-send-setting.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Highlight the "send while running" setting when jumping to it from the composer hint bar.
+diff --git a/.changeset/kap-agent-collaboration.md b/.changeset/kap-agent-collaboration.md
+deleted file mode 100644
+index eb52c9ab79..0000000000
+--- a/.changeset/kap-agent-collaboration.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": minor
+----
+-
+-Connect external agents such as Claude Code, Codex, and Cursor to this desktop app to hand off sessions, review history, and collaborate across turns.
+diff --git a/.changeset/kap-agent-http-and-json-boot.md b/.changeset/kap-agent-http-and-json-boot.md
+deleted file mode 100644
+index bae932371c..0000000000
+--- a/.changeset/kap-agent-http-and-json-boot.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": minor
+----
+-
+-Add `kimi web --json`, `GET /api/v1/sessions/{session_id}/interactions`, `POST /api/v1/sessions/{session_id}:wait`, and `GET /api/v1/kap.md` for HTTP-driven KAP automation.
+diff --git a/.changeset/kap-instance-host-product.md b/.changeset/kap-instance-host-product.md
+deleted file mode 100644
+index b06bed2364..0000000000
+--- a/.changeset/kap-instance-host-product.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Include the host `product` name in `~/.kimi-code/server/instances/*.json` and `GET /api/v1/meta`.
+diff --git a/.changeset/kimi-server-command.md b/.changeset/kimi-server-command.md
+deleted file mode 100644
+index 2752553b78..0000000000
+--- a/.changeset/kimi-server-command.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": minor
+----
+-
+-Run the local server without opening a browser with `kimi server` (pass `--open` to open the web UI).
+diff --git a/.changeset/mark-session-unread.md b/.changeset/mark-session-unread.md
+deleted file mode 100644
+index 56b954dfc9..0000000000
+--- a/.changeset/mark-session-unread.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Add mark as unread/read to the session context menu.
+diff --git a/.changeset/pinned-rename-tooltip-dot.md b/.changeset/pinned-rename-tooltip-dot.md
+deleted file mode 100644
+index f8cdf26477..0000000000
+--- a/.changeset/pinned-rename-tooltip-dot.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix the hover tooltip collapsing into a small dot when renaming a pinned session.
+diff --git a/.changeset/pinned-workspaces.md b/.changeset/pinned-workspaces.md
+deleted file mode 100644
+index ef843eb494..0000000000
+--- a/.changeset/pinned-workspaces.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Support pinning projects in the sidebar's pinned section, with single-row display and drag-to-reorder alongside pinned sessions.
+diff --git a/.changeset/release-plan.json b/.changeset/release-plan.json
+new file mode 100644
+index 0000000000..3a7a9fa3cd
+--- /dev/null
++++ b/.changeset/release-plan.json
+@@ -0,0 +1,84 @@
++{
++  "branch": "release/2026-11-19",
++  "changesets": [
++    "allow-resume-occupied-sessions.md",
++    "background-notification-tool-row.md",
++    "background-task-tail-utf8.md",
++    "bash-session-workspace-env-desktop.md",
++    "bash-session-workspace-env.md",
++    "bedrock-provider.md",
++    "bound-ssh-project-discovery.md",
++    "browser-file-annotations.md",
++    "browser-google-sign-in.md",
++    "browser-tab-title-and-favicon.md",
++    "calm-tables-select.md",
++    "claude-5-output-ceiling.md",
++    "compact-browser-tab-preview.md",
++    "compact-own-line-calls.md",
++    "compact-screenshot-loupe.md",
++    "converge-mcp-api-v1.md",
++    "converge-sessions-api-v1.md",
++    "curvy-pandas-cheer.md",
++    "feat-prompt-prediction.md",
++    "feedback-multiline-input.md",
++    "fix-acp-preview-environment.md",
++    "fix-auth-media-rate-limit.md",
++    "fix-btw-stale-session.md",
++    "fix-composer-menu-viewport-clamp.md",
++    "fix-consecutive-steer-unread.md",
++    "fix-core-2.6.3-backsync.md",
++    "fix-grouped-sessions-across-hosts.md",
++    "fix-host-unpaginated-session-lists.md",
++    "fix-provider-refresh-toast.md",
++    "fix-sidechat-table-actions.md",
++    "fix-ssh-project-lists.md",
++    "fix-subagent-zero-timeout.md",
++    "fix-tui-transcript-history.md",
++    "fix-vertex-adc.md",
++    "fix-web-ssh-project-lists.md",
++    "fix-webbridge-partial-update.md",
++    "follow-up-behavior.md",
++    "foreground-agent-activity.md",
++    "fresh-math-cjk.md",
++    "highlight-running-send-setting.md",
++    "kap-agent-collaboration.md",
++    "kap-agent-http-and-json-boot.md",
++    "kap-instance-host-product.md",
++    "kimi-server-command.md",
++    "mark-session-unread.md",
++    "pinned-rename-tooltip-dot.md",
++    "pinned-workspaces.md",
++    "remote-control-websocket-proxy.md",
++    "restore-workspace-directory-actions.md",
++    "running-send-mode-steer.md",
++    "screenshot-macos-ime-window-level.md",
++    "ssh-remote-devices.md",
++    "ssh-shared-account.md",
++    "status-session-id.md",
++    "task-stop-state-icons.md",
++    "tidy-rooms-stop.md",
++    "unify-button-variants.md",
++    "unify-toast-feedback.md",
++    "web-add-workspace-mkdir.md"
++  ],
++  "packages": [
++    {
++      "name": "kimi-code-app",
++      "path": "apps/desktop",
++      "version": "1.4.0",
++      "private": true
++    },
++    {
++      "name": "@moonshot-ai/kimi-code",
++      "path": "apps/kimi-code",
++      "version": "2.7.0",
++      "private": false
++    },
++    {
++      "name": "@moonshot-ai/kap-server",
++      "path": "packages/kap-server",
++      "version": "0.3.1",
++      "private": true
++    }
++  ]
++}
+diff --git a/.changeset/remote-control-websocket-proxy.md b/.changeset/remote-control-websocket-proxy.md
+deleted file mode 100644
+index 241d05a89d..0000000000
+--- a/.changeset/remote-control-websocket-proxy.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix remote control connections ignoring the system HTTP/HTTPS proxy environment variables.
+diff --git a/.changeset/restore-workspace-directory-actions.md b/.changeset/restore-workspace-directory-actions.md
+deleted file mode 100644
+index ddf2c7e435..0000000000
+--- a/.changeset/restore-workspace-directory-actions.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Restore the directory row and action buttons in the new project dialog; the full path now shows on hover.
+diff --git a/.changeset/running-send-mode-steer.md b/.changeset/running-send-mode-steer.md
+deleted file mode 100644
+index c3fb33f2f9..0000000000
+--- a/.changeset/running-send-mode-steer.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Messages sent while the agent is running now steer the current turn immediately by default, with a first-time hint; switch back to queueing in Settings.
+diff --git a/.changeset/screenshot-macos-ime-window-level.md b/.changeset/screenshot-macos-ime-window-level.md
+deleted file mode 100644
+index 8d847405c2..0000000000
+--- a/.changeset/screenshot-macos-ime-window-level.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix the macOS IME candidate window being hidden behind the screenshot overlay.
+diff --git a/.changeset/ssh-remote-devices.md b/.changeset/ssh-remote-devices.md
+deleted file mode 100644
+index 35249373f6..0000000000
+--- a/.changeset/ssh-remote-devices.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Connect to SSH hosts and create projects on them. Each host uses its own Kimi account, and remote sessions keep running while this machine is asleep or offline.
+diff --git a/.changeset/ssh-shared-account.md b/.changeset/ssh-shared-account.md
+deleted file mode 100644
+index d3d67523e2..0000000000
+--- a/.changeset/ssh-shared-account.md
++++ /dev/null
+@@ -1,7 +0,0 @@
+----
+-"@moonshot-ai/kimi-code": patch
+----
+-
+-Support configuring SSH hosts for Kimi Code projects, with each host using its own Kimi login and optional copied custom model providers.
+-
+-Fix missing or out-of-order sessions when paging projects across SSH hosts.
+diff --git a/.changeset/status-session-id.md b/.changeset/status-session-id.md
+deleted file mode 100644
+index decbbb4cf9..0000000000
+--- a/.changeset/status-session-id.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Show the current session ID in the session status dialog.
+diff --git a/.changeset/task-stop-state-icons.md b/.changeset/task-stop-state-icons.md
+deleted file mode 100644
+index c1ce0748c9..0000000000
+--- a/.changeset/task-stop-state-icons.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Use square stop icons for background tasks and keep completed, failed, and stopped states in the task bar.
+diff --git a/.changeset/tidy-rooms-stop.md b/.changeset/tidy-rooms-stop.md
+deleted file mode 100644
+index b56355f2cf..0000000000
+--- a/.changeset/tidy-rooms-stop.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Fix stopping a session waking up sessions that were already closed.
+diff --git a/.changeset/unify-button-variants.md b/.changeset/unify-button-variants.md
+deleted file mode 100644
+index ec64ae999e..0000000000
+--- a/.changeset/unify-button-variants.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Unify button styles and interactions across the app.
+diff --git a/.changeset/unify-toast-feedback.md b/.changeset/unify-toast-feedback.md
+deleted file mode 100644
+index 19229d71e3..0000000000
+--- a/.changeset/unify-toast-feedback.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Unify the style of undo, archive, delete, and export toasts and show them centered at the top.
+diff --git a/.changeset/web-add-workspace-mkdir.md b/.changeset/web-add-workspace-mkdir.md
+deleted file mode 100644
+index 980938180a..0000000000
+--- a/.changeset/web-add-workspace-mkdir.md
++++ /dev/null
+@@ -1,5 +0,0 @@
+----
+-"kimi-code-app": patch
+----
+-
+-Support creating a new folder directly while picking a directory when adding a project.
+diff --git a/apps/desktop/CHANGELOG.md b/apps/desktop/CHANGELOG.md
+index b8ba9cc88f..745bf62e6a 100644
+--- a/apps/desktop/CHANGELOG.md
++++ b/apps/desktop/CHANGELOG.md
+@@ -1,5 +1,79 @@
+ # kimi-code-app
+ 
++## 1.4.0
++
++### Minor Changes
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Connect external agents such as Claude Code, Codex, and Cursor to this desktop app to hand off sessions, review history, and collaborate across turns.
++
++### Patch Changes
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Show background task notifications as collapsible rows styled like tool calls, with correct task duration and status.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Expose `KIMI_CODE_SESSION_ID` and `KIMI_CODE_WORKSPACE_ID` to shell tool subprocesses.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix annotations not working on local HTML files in the built-in browser.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix the built-in browser being flagged as insecure when signing in on some websites.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Browser tabs (including the remote control page) now show a dynamic favicon, and the tab title displays the project and current session, configurable in Settings > Appearance.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Select regions, rows, or columns in Markdown tables and copy them via right-click or keyboard shortcuts.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Move the browser tab title preview below the setting and show a single tab.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Shrink the screenshot magnifier and color picker so they cover less of the screen.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Add Qwen Coding Plan (global and China sites) as selectable providers.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix image load failures potentially triggering auth rate limits.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix the model and permission popups overflowing the screen on narrow and mobile layouts.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix duplicate unread/read state on earlier steered messages when steering multiple times in a row.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix known issues in session resume, background notifications, model responses, and Windows WebBridge updates.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix repeated cryptic "action failed" toasts when opening the model picker with an expired provider credential.
++
++- [#5098](https://github.com/MoonshotAI/kimi-code/pull/5098) [`63b94bc`](https://github.com/MoonshotAI/kimi-code/commit/63b94bc4c0169bf362dac2071990596933f6c959) Thanks [@kimi-agent-bot](https://github.com/kimi-agent-bot)! - Fix table action buttons being clipped when the side chat is open.
++
++- [#5102](https://github.com/MoonshotAI/kimi-code/pull/5102) [`0b73b62`](https://github.com/MoonshotAI/kimi-code/commit/0b73b629dea1a8918813d2e3eb46bb597a5dad32) Thanks [@7Sageer](https://github.com/7Sageer)! - Keep local projects visible when an SSH host stops responding and fix loading older project sessions in the sidebar.
++
++- [#5090](https://github.com/MoonshotAI/kimi-code/pull/5090) [`08997af`](https://github.com/MoonshotAI/kimi-code/commit/08997afe2b49b67f790cecb7c2c6a8fab86c40af) Thanks [@liruifengv](https://github.com/liruifengv)! - Show the update button when the browser extension reports an update while in the partial state.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix the bottom edge of CJK subscripts being clipped in block math.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Highlight the "send while running" setting when jumping to it from the composer hint bar.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Add mark as unread/read to the session context menu.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix the hover tooltip collapsing into a small dot when renaming a pinned session.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Support pinning projects in the sidebar's pinned section, with single-row display and drag-to-reorder alongside pinned sessions.
++
++- [#5037](https://github.com/MoonshotAI/kimi-code/pull/5037) [`3a05a7e`](https://github.com/MoonshotAI/kimi-code/commit/3a05a7ec93f30b7771c101661d21ce1f5b2f2435) Thanks [@sailist](https://github.com/sailist)! - Fix remote control connections ignoring the system HTTP/HTTPS proxy environment variables.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Restore the directory row and action buttons in the new project dialog; the full path now shows on hover.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Messages sent while the agent is running now steer the current turn immediately by default, with a first-time hint; switch back to queueing in Settings.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix the macOS IME candidate window being hidden behind the screenshot overlay.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Connect to SSH hosts and create projects on them. Each host uses its own Kimi account, and remote sessions keep running while this machine is asleep or offline.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Show the current session ID in the session status dialog.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Use square stop icons for background tasks and keep completed, failed, and stopped states in the task bar.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix stopping a session waking up sessions that were already closed.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Unify button styles and interactions across the app.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Unify the style of undo, archive, delete, and export toasts and show them centered at the top.
++
++- [#5079](https://github.com/MoonshotAI/kimi-code/pull/5079) [`5db75e0`](https://github.com/MoonshotAI/kimi-code/commit/5db75e0c20dd74fa92225f26c95116fcc4594cb1) Thanks [@liruifengv](https://github.com/liruifengv)! - Support creating a new folder directly while picking a directory when adding a project.
++
+ ## 1.3.7
+ 
+ ### 新功能
+diff --git a/apps/desktop/package.json b/apps/desktop/package.json
+index fb625becdb..a23be3c942 100644
+--- a/apps/desktop/package.json
++++ b/apps/desktop/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "kimi-code-app",
+-  "version": "1.3.7",
++  "version": "1.4.0",
+   "private": true,
+   "description": "Kimi Code Desktop — Everything you love about Kimi Code, now on desktop",
+   "author": "Moonshot AI",
+diff --git a/apps/kimi-code/CHANGELOG.md b/apps/kimi-code/CHANGELOG.md
+index 927692da8c..8896ee484f 100644
+--- a/apps/kimi-code/CHANGELOG.md
++++ b/apps/kimi-code/CHANGELOG.md
+@@ -1,5 +1,61 @@
+ # @moonshot-ai/kimi-code
+ 
++## 2.7.0
++
++### Minor Changes
++
++- [#4895](https://github.com/MoonshotAI/kimi-code/pull/4895) [`88e3c20`](https://github.com/MoonshotAI/kimi-code/commit/88e3c20739a20a9a4003e366db7ecad9b88e10bd) Thanks [@sailist](https://github.com/sailist)! - Add support for Amazon Bedrock providers, configured with `type = "bedrock"` and `AWS_REGION`.
++
++- [#4754](https://github.com/MoonshotAI/kimi-code/pull/4754) [`482936a`](https://github.com/MoonshotAI/kimi-code/commit/482936afceaec4d513aa28f7b7e6b461e35e105f) Thanks [@sailist](https://github.com/sailist)! - Add experimental next-prompt predictions in the TUI after completed turns. Enable with KIMI_CODE_EXPERIMENTAL_PROMPT_PREDICTION=1 and press Tab or Right Arrow to accept.
++
++- [#5042](https://github.com/MoonshotAI/kimi-code/pull/5042) [`7e2c565`](https://github.com/MoonshotAI/kimi-code/commit/7e2c565e31fb81169a30bc924ff0f88a36f88c66) Thanks [@7Sageer](https://github.com/7Sageer)! - The feedback dialog accepts multiple lines, and thanks you for helping improve Kimi.
++
++- [#4890](https://github.com/MoonshotAI/kimi-code/pull/4890) [`90d3a66`](https://github.com/MoonshotAI/kimi-code/commit/90d3a66c644d56f2e3a9d4ae9e55e59375fb750d) Thanks [@Grapedge](https://github.com/Grapedge)! - Add a Follow-up behavior setting under /settings; pick Steer to make Enter steer your message into the running turn instead of queueing it.
++
++- [#5049](https://github.com/MoonshotAI/kimi-code/pull/5049) [`a09bf85`](https://github.com/MoonshotAI/kimi-code/commit/a09bf8573cdfaa611366b7ca8c7bfefb1727409b) Thanks [@Grapedge](https://github.com/Grapedge)! - View running foreground agents and their activity in `/tasks`.
++
++- [#4966](https://github.com/MoonshotAI/kimi-code/pull/4966) [`84439d5`](https://github.com/MoonshotAI/kimi-code/commit/84439d5f4ec7bcf69f3e1a5ba0e3145d8dddff08) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Add `kimi web --json`, `GET /api/v1/sessions/{session_id}/interactions`, `POST /api/v1/sessions/{session_id}:wait`, and `GET /api/v1/kap.md` for HTTP-driven KAP automation.
++
++- [#4784](https://github.com/MoonshotAI/kimi-code/pull/4784) [`13d363e`](https://github.com/MoonshotAI/kimi-code/commit/13d363e1800152daecffd80b67f0986d492df811) Thanks [@7Sageer](https://github.com/7Sageer)! - Run the local server without opening a browser with `kimi server` (pass `--open` to open the web UI).
++
++### Patch Changes
++
++- [#4910](https://github.com/MoonshotAI/kimi-code/pull/4910) [`6130601`](https://github.com/MoonshotAI/kimi-code/commit/61306018717cc45caa73ce591f4ef51f41981a29) Thanks [@7Sageer](https://github.com/7Sageer)! - Allow resuming sessions that are open in another client.
++
++- [#4886](https://github.com/MoonshotAI/kimi-code/pull/4886) [`1fc7be4`](https://github.com/MoonshotAI/kimi-code/commit/1fc7be400100695a93ee5d12d812e626b608280d) Thanks [@pvzheroes125](https://github.com/pvzheroes125)! - Fix corrupted characters in the truncated output of background Bash tasks.
++
++- [#5053](https://github.com/MoonshotAI/kimi-code/pull/5053) [`50ec3c3`](https://github.com/MoonshotAI/kimi-code/commit/50ec3c3940a3f265cf1b99123d6d2ebf9c23aaa0) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Expose `KIMI_CODE_SESSION_ID` and `KIMI_CODE_WORKSPACE_ID` in `Bash` tool child processes.
++
++- [#5096](https://github.com/MoonshotAI/kimi-code/pull/5096) [`cab0c0e`](https://github.com/MoonshotAI/kimi-code/commit/cab0c0e5ad031cbdb172f1337bbebbceaebe2cba) Thanks [@sailist](https://github.com/sailist)! - Prevent compaction requests from exceeding the output limits of Claude Opus 5 and Haiku 5 models.
++
++- [#4844](https://github.com/MoonshotAI/kimi-code/pull/4844) [`4108143`](https://github.com/MoonshotAI/kimi-code/commit/410814349d4677fc2844ad79069b0ad4a751303a) Thanks [@Grapedge](https://github.com/Grapedge)! - Show CronCreate, CronDelete, and MCP authorization calls on their own line instead of in the compact tool call summary, with the authorization link shown while it waits and the reason shown if it fails.
++
++- [#4891](https://github.com/MoonshotAI/kimi-code/pull/4891) [`f538d53`](https://github.com/MoonshotAI/kimi-code/commit/f538d534cc9f4e96f4bacfdf02e28df682a4f611) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Remove `/api/v2/mcp/*` and `POST /api/v1/mcp/servers/{id}:restart`, serving MCP server and OAuth management on `/api/v1/mcp/*` instead of the live-session `/api/v1/mcp/servers` list.
++
++- [#4891](https://github.com/MoonshotAI/kimi-code/pull/4891) [`f538d53`](https://github.com/MoonshotAI/kimi-code/commit/f538d534cc9f4e96f4bacfdf02e28df682a4f611) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Remove `/api/v2/sessions*` and serve grouped views, git metadata, id projections, and batch `:archive`/`:restore` on `/api/v1/sessions*`, replacing `include_archive`, `archived_only`, and `exclude_empty` with `archived` and `has_prompt`.
++
++- [#4979](https://github.com/MoonshotAI/kimi-code/pull/4979) [`fec7428`](https://github.com/MoonshotAI/kimi-code/commit/fec742878d73678082b304c887e4fb1564088c54) Thanks [@7Sageer](https://github.com/7Sageer)! - Restore the original environment and tools after closing an ACP session preview.
++
++- [#5021](https://github.com/MoonshotAI/kimi-code/pull/5021) [`5ae9739`](https://github.com/MoonshotAI/kimi-code/commit/5ae973905cb3b2f80e3a781ec21f7bc5e76ee205) Thanks [@7Sageer](https://github.com/7Sageer)! - Fix /btw failing when another client has updated the current session.
++
++- [#5013](https://github.com/MoonshotAI/kimi-code/pull/5013) [`2931c7e`](https://github.com/MoonshotAI/kimi-code/commit/2931c7efd542a7cb2486faec0fc35bc2fde0f533) Thanks [@7Sageer](https://github.com/7Sageer)! - Fix session list loading for grouped sessions across SSH hosts.
++
++- [#5015](https://github.com/MoonshotAI/kimi-code/pull/5015) [`de1fdaa`](https://github.com/MoonshotAI/kimi-code/commit/de1fdaa89d34800e6f37af88987c9adc9baab8c4) Thanks [@7Sageer](https://github.com/7Sageer)! - Fix unpaginated session ID lists across SSH hosts and honor the requested sort order.
++
++- [#4868](https://github.com/MoonshotAI/kimi-code/pull/4868) [`68b849c`](https://github.com/MoonshotAI/kimi-code/commit/68b849c90d38f08fd1e11fdb37694e6b856eb90a) Thanks [@kimi-agent-bot](https://github.com/kimi-agent-bot)! - Fix subagents timing out immediately in `kimi -p` and when `[subagent] timeout_ms = 0` is set.
++
++- [#4866](https://github.com/MoonshotAI/kimi-code/pull/4866) [`0ea324c`](https://github.com/MoonshotAI/kimi-code/commit/0ea324cafb4b1754ae5b1737147a141a618d4a4e) Thanks [@kimi-agent-bot](https://github.com/kimi-agent-bot)! - Fix conversation history disappearing during live trimming, long-turn folding, and replay of damaged session journals.
++
++- [#5056](https://github.com/MoonshotAI/kimi-code/pull/5056) [`b37c9bb`](https://github.com/MoonshotAI/kimi-code/commit/b37c9bb857d556034afcb0004beaba6e2c2bb15a) Thanks [@huangzheng2016](https://github.com/huangzheng2016)! - Fix Vertex AI authentication with Google ADC and honor the configured project and location.
++
++- [#5102](https://github.com/MoonshotAI/kimi-code/pull/5102) [`0b73b62`](https://github.com/MoonshotAI/kimi-code/commit/0b73b629dea1a8918813d2e3eb46bb597a5dad32) Thanks [@7Sageer](https://github.com/7Sageer)! - Keep local projects visible when an SSH host stops responding and fix loading older project sessions in the Web sidebar.
++
++- [#5045](https://github.com/MoonshotAI/kimi-code/pull/5045) [`baa7b4b`](https://github.com/MoonshotAI/kimi-code/commit/baa7b4bcfcb86f558318f220686c60eddd9ab4a4) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Include the host `product` name in `~/.kimi-code/server/instances/*.json` and `GET /api/v1/meta`.
++
++- [#4784](https://github.com/MoonshotAI/kimi-code/pull/4784) [`13d363e`](https://github.com/MoonshotAI/kimi-code/commit/13d363e1800152daecffd80b67f0986d492df811) Thanks [@7Sageer](https://github.com/7Sageer)! - Support configuring SSH hosts for Kimi Code projects, with each host using its own Kimi login and optional copied custom model providers.
++
++  Fix missing or out-of-order sessions when paging projects across SSH hosts.
++
+ ## 2.6.3
+ 
+ ### Patch Changes
+diff --git a/apps/kimi-code/package.json b/apps/kimi-code/package.json
+index 6ea9eceaff..9cab961e09 100644
+--- a/apps/kimi-code/package.json
++++ b/apps/kimi-code/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@moonshot-ai/kimi-code",
+-  "version": "2.6.3",
++  "version": "2.7.0",
+   "description": "The Starting Point for Next-Gen Agents",
+   "license": "MIT",
+   "author": "Moonshot AI",
+diff --git a/packages/kap-server/CHANGELOG.md b/packages/kap-server/CHANGELOG.md
+index 17bb77e17e..fa0663e39d 100644
+--- a/packages/kap-server/CHANGELOG.md
++++ b/packages/kap-server/CHANGELOG.md
+@@ -1,5 +1,11 @@
+ # @moonshot-ai/kap-server
+ 
++## 0.3.1
++
++### Patch Changes
++
++- [#5102](https://github.com/MoonshotAI/kimi-code/pull/5102) [`0b73b62`](https://github.com/MoonshotAI/kimi-code/commit/0b73b629dea1a8918813d2e3eb46bb597a5dad32) Thanks [@7Sageer](https://github.com/7Sageer)! - Limit SSH project discovery to five seconds per host when aggregating workspace and session lists.
++
+ ## 0.3.0
+ 
+ ### Minor Changes
+diff --git a/packages/kap-server/package.json b/packages/kap-server/package.json
+index 522881ac8b..be96bf2352 100644
+--- a/packages/kap-server/package.json
++++ b/packages/kap-server/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@moonshot-ai/kap-server",
+-  "version": "0.3.0",
++  "version": "0.3.1",
+   "private": true,
+   "description": "Kimi Code server backed by the DI × Scope agent engine (agent-core-v2)",
+   "type": "module",

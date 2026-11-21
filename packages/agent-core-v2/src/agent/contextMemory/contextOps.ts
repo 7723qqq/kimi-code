@@ -5,7 +5,7 @@ import { ErrorCodes, Error2 } from '#/errors';
 import { defineState } from '#/state/state';
 import type { PartsTransformer } from '#/wire/record';
 import type { WireRecord } from '#/wire/record';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '#human/message';
 
 import {
   buildContextCompactionShape,

@@ -1,9 +1,12 @@
-import { type CollectionRecord, type CollectionView } from '#/_base/di/collection';
-import { IInstantiationService, type ServiceIdentifier } from '#/_base/di/instantiation';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
+import { type CollectionRecord, type CollectionView } from '#/_base/di/collection';
+import {
+  IInstantiationService,
+  type ServiceIdentifier,
+} from '#/_base/di/instantiation';
+import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2, ErrorCodes } from '#/errors';
 
 import { IAgentCommandService, type AgentCommandInfo } from './agentCommand';

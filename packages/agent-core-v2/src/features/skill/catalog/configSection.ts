@@ -9,38 +9,6 @@ import {
 } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
 
-export const SKILLS_SECTION = 'skills';
-export const SkillsConfigSchema = z
-  .object({
-    hiddenFromModel: z.array(z.string()).optional(),
-    subSkills: z.array(z.string()).optional(),
-  })
-  .optional();
-export type SkillsConfig = z.infer<typeof SkillsConfigSchema>;
-
-registerConfigSection(SKILLS_SECTION, SkillsConfigSchema, { defaultValue: {} });
-
-export function hiddenFromModelPatterns(config: IConfigService): readonly string[] {
-  return config.get<SkillsConfig>(SKILLS_SECTION)?.hiddenFromModel ?? [];
-}
-
-export function subSkillPatterns(config: IConfigService): readonly string[] {
-  return config.get<SkillsConfig>(SKILLS_SECTION)?.subSkills ?? [];
-}
-
-export function isHiddenFromModel(name: string, patterns: readonly string[]): boolean {
-  const normalized = name.trim().toLowerCase();
-  if (normalized.length === 0) return false;
-  for (const raw of patterns) {
-    const pattern = raw.trim().toLowerCase();
-    if (pattern.length === 0) continue;
-    if (pattern === '*') return true;
-    const escaped = pattern.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&').replaceAll('\\*', '.*');
-    if (new RegExp(`^${escaped}$`).test(normalized)) return true;
-  }
-  return false;
-}
-
 export const EXTRA_SKILL_DIRS_SECTION = 'extraSkillDirs';
 export const ExtraSkillDirsConfigSchema = z.array(z.string()).optional();
 export type ExtraSkillDirsConfig = z.infer<typeof ExtraSkillDirsConfigSchema>;
@@ -63,13 +31,11 @@ export type BuiltinProductSkillsConfig = z.infer<typeof BuiltinProductSkillsConf
 
 export const BUILTIN_PRODUCT_SKILLS_ENV = 'KIMI_CODE_BUILTIN_PRODUCT_SKILLS';
 
-export const builtinProductSkillsEnvBindings: EnvBindings<BuiltinProductSkillsConfig> = envBindings(
-  BuiltinProductSkillsConfigSchema,
-  {
+export const builtinProductSkillsEnvBindings: EnvBindings<BuiltinProductSkillsConfig> =
+  envBindings(BuiltinProductSkillsConfigSchema, {
     env: BUILTIN_PRODUCT_SKILLS_ENV,
     parse: parseBooleanEnv,
-  },
-);
+  });
 
 export const stripBuiltinProductSkillsEnv: ConfigStripEnv<BuiltinProductSkillsConfig> = (
   value,

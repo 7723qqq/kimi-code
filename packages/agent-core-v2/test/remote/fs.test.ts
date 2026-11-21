@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, afterEach, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { FileEditService } from '#/app/edit/fileEditService';
 import { HostFsError } from '#/os/interface/hostFsErrors';
@@ -24,7 +24,7 @@ import {
   type SpawnedExecutor,
 } from './helpers/loopback';
 
-describe.skipIf(process.platform === 'win32')('fs group over a subprocess loopback', () => {
+describe('fs group over a subprocess loopback', () => {
   let connection: RemoteExecConnection;
   let spawned: SpawnedExecutor;
   let fs: RemoteFileSystem;
@@ -43,13 +43,13 @@ describe.skipIf(process.platform === 'win32')('fs group over a subprocess loopba
   });
 
   afterEach(() => {
-    mock.restore();
+    vi.restoreAllMocks();
   });
 
   it('reads metadata and the file head in one RPC', async () => {
     const path = join(workDir, 'head.txt');
     await writeFile(path, 'alpha\nbeta\n');
-    const calls = spyOn(connection, 'call');
+    const calls = vi.spyOn(connection, 'call');
     const head = await fs.readFileHead(path, 5);
     expect(Buffer.from(head.bytes).toString('utf8')).toBe('alpha');
     expect(head.stat).toMatchObject({ isFile: true, isDirectory: false, size: 11 });
@@ -69,7 +69,7 @@ describe.skipIf(process.platform === 'win32')('fs group over a subprocess loopba
     const path = join(workDir, 'edit.txt');
     await writeFile(path, 'before\nold value\n');
     const editor = new FileEditService(fs);
-    const calls = spyOn(connection, 'call');
+    const calls = vi.spyOn(connection, 'call');
     const result = await editor.edit({
       path,
       displayPath: 'edit.txt',
@@ -80,6 +80,21 @@ describe.skipIf(process.platform === 'win32')('fs group over a subprocess loopba
     expect(result).toEqual({ ok: true, count: 1 });
     expect(calls.mock.calls.map(([method]) => method)).toEqual(['fs/readFile', 'fs/writeFile']);
     expect(await readFile(path, 'utf8')).toBe('before\nnew value\n');
+  });
+
+  it('preserves a UTF-8 BOM when editing', async () => {
+    const path = join(workDir, 'edit-bom.txt');
+    await writeFile(path, Buffer.from([0xef, 0xbb, 0xbf, 0x61, 0x0a, 0x62, 0x0a]));
+    const editor = new FileEditService(fs);
+    const result = await editor.edit({
+      path,
+      displayPath: 'edit-bom.txt',
+      old_string: 'b',
+      new_string: 'c',
+      replace_all: false,
+    });
+    expect(result).toEqual({ ok: true, count: 1 });
+    expect(await readFile(path)).toEqual(Buffer.from([0xef, 0xbb, 0xbf, 0x61, 0x0a, 0x63, 0x0a]));
   });
 
   it('writes a byte stream progressively without retaining the complete input', async () => {
@@ -175,12 +190,12 @@ describe.skipIf(process.platform === 'win32')('fs group over a subprocess loopba
 
 describe('fs protocol semantics', () => {
   afterEach(() => {
-    mock.restore();
+    vi.restoreAllMocks();
   });
 
   it.each(['response', 'visitor'])('stops replaying entries when the deadline expires during the %s', async (phase) => {
     let clock = 1_000;
-    spyOn(Date, 'now').mockImplementation(() => clock);
+    vi.spyOn(Date, 'now').mockImplementation(() => clock);
     const fs = new RemoteFileSystem({
       call: async () => {
         if (phase === 'response') clock = 2_000;
@@ -318,45 +333,13 @@ describe('fs protocol semantics', () => {
   }, 60_000);
 });
 
-describe('remote fs text decoding', () => {
-  it('preserves a UTF-8 BOM when editing', async () => {
-    const loopback = createInProcessLoopback();
-    const connection = await RemoteExecConnection.connect(loopback.clientPipe, {
-      clientName: 'remote-exec-test',
-      clientVersion: '0.0.0',
-    });
-    const workDir = await mkdtemp(join(tmpdir(), 'remote-exec-bom-'));
-    try {
-      const path = join(workDir, 'edit-bom.txt');
-      await writeFile(path, Buffer.from([0xef, 0xbb, 0xbf, 0x61, 0x0a, 0x62, 0x0a]));
-      const result = await new FileEditService(new RemoteFileSystem(connection)).edit({
-        path,
-        displayPath: 'edit-bom.txt',
-        old_string: 'b',
-        new_string: 'c',
-        replace_all: false,
-      });
-      expect(result).toEqual({ ok: true, count: 1 });
-      expect(await readFile(path)).toEqual(
-        Buffer.from([0xef, 0xbb, 0xbf, 0x61, 0x0a, 0x63, 0x0a]),
-      );
-    } finally {
-      connection.close();
-      await loopback.host.done;
-      await rm(workDir, { recursive: true, force: true });
-    }
-  });
-});
-
 describe('requireAbsolutePath', () => {
   it('asks Windows targets for a drive path', () => {
     const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     try {
       for (const path of ['/c/work', '/tmp', '\\\\server\\share']) {
-        expect(() => requireAbsolutePath({ path }, 'path')).toThrow(
-          'path must be an absolute Windows drive path such as C:\\work',
-        );
+        expect(() => requireAbsolutePath({ path }, 'path')).toThrow('path must be an absolute Windows drive path such as C:\\work');
       }
       expect(requireAbsolutePath({ path: 'C:\\work' }, 'path')).toBe('C:\\work');
     } finally {

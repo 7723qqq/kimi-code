@@ -55,10 +55,11 @@ export async function projectRoots(
 export async function projectRootsForDirs(
   workDirs: readonly string[],
   options: SkillRootsOptions = {},
+  fs: SkillRootsFs = nodeFs,
 ): Promise<readonly SkillRoot[]> {
   const roots: SkillRoot[] = [];
   for (const workDir of workDirs) {
-    for (const root of await projectRoots(workDir, options)) {
+    for (const root of await projectRoots(workDir, options, fs)) {
       if (!roots.some((kept) => kept.path === root.path)) roots.push(root);
     }
   }

@@ -1,15 +1,15 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createUserMessage, type Message } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
-import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';
-import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
-import type { LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
-import { LLM_BODY_TIMEOUT_ENV, LLM_HEADERS_TIMEOUT_ENV } from '#/llm/requester/timeout';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
+import { createUserMessage, type Message } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import { createAnthropicRequester } from '#human/llm/requester/bases/anthropic/requester';
+import { createOpenAIResponsesRequester } from '#human/llm/requester/bases/openai-responses/requester';
+import { createOpenAIRequester } from '#human/llm/requester/bases/openai/requester';
+import type { LlmRequester, LlmRequestEvent } from '#human/llm/requester/requester';
+import { LLM_BODY_TIMEOUT_ENV, LLM_HEADERS_TIMEOUT_ENV } from '#human/llm/requester/timeout';
 
-import { setGlobal, restoreGlobals } from '../../../../test/helpers/stubs';
+import { setGlobal, restoreGlobals } from '../helpers/stubs';
 
 const model: LlmModel = {
   provider: 'test',

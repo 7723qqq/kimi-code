@@ -1,8 +1,8 @@
-import type { LlmRemoteErrorMessage } from '#/llm/errors';
-import type { FinishInfo } from '#/llm/finish-reason';
-import type { Message, StreamedMessagePart, ToolDescription } from '#/llm/message';
-import type { LlmRequestConfig } from '#/llm/requester/requester';
-import type { TokenUsage } from '#/llm/usage';
+import type { LlmRemoteErrorMessage } from '#human/llm/errors';
+import type { FinishInfo } from '#human/llm/finish-reason';
+import type { Message, StreamedMessagePart, ToolDescription } from '#human/message';
+import type { LlmRequestConfig } from '#human/llm/requester/requester';
+import type { TokenUsage } from '#human/llm/usage';
 
 export type FormatRequestInput = LlmRequestConfig & {
   readonly messages: readonly Message[];

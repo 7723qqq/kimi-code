@@ -1,23 +1,17 @@
+
 import type { ServicesAccessor } from '#/_base/di/instantiation';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventService } from '#/app/event/event';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { getLiveSessionById } from '#/app/sessionManager/sessionLookup';
 import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
 import { buildSessionSummary } from '#/app/sessionIndex/sessionIndexSource';
-import { getLiveSessionById } from '#/app/sessionManager/sessionLookup';
-import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
 import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
-import {
-  normalizeSessionMeta,
-  encodeSessionMeta,
-} from '#/session/sessionMetadata/sessionMetadataService';
+import { normalizeSessionMeta, encodeSessionMeta } from '#/session/sessionMetadata/sessionMetadataService';
 
-import {
-  sessionScopeOf,
-  legacySessionMetaScopeOf,
-  workspacePersistenceScope,
-} from './internal/addressing';
+import { sessionScopeOf, legacySessionMetaScopeOf, workspacePersistenceScope } from './internal/addressing';
 import { SessionArchived, SessionRestored } from './sessionLifecycleEvents';
 
 export type ColdSessionArchiveOutcome = 'updated' | 'not_found';

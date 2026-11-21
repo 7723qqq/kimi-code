@@ -1,9 +1,5 @@
-import { MODELS_DEV_API_URL } from '@moonshot-ai/runtime-shared';
-
 import { CoreErrors } from '#/_base/errors/codes';
 import { BugIndicatingError, Error2 } from '#/_base/errors/errors';
-import type { FetchLike } from '#/_base/utils/fetchLike';
-import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import type { ModelRecord } from '#/llm-adapter/model/model';
 
 import { BUILT_IN_MODELS_DEV_JSON } from './builtInModelsDev';
@@ -12,12 +8,13 @@ import {
   modelsDevProviderModels,
   resolveModelsDevImport,
   type ModelsDevCatalog,
+  type ModelsDevCapability,
   type ModelsDevModel,
   type ModelsDevProviderEntry,
 } from './modelsDev';
 import type { ModelsDevModelItem, ModelsDevProviderItem } from './modelsDevImport';
 
-export const MODELS_DEV_URL = MODELS_DEV_API_URL;
+export const MODELS_DEV_URL = 'https://models.dev/api.json';
 const CACHE_TTL_MS = 10 * 60 * 1000;
 export const UPSTREAM_FETCH_TIMEOUT_MS = 10_000;
 
@@ -38,11 +35,16 @@ interface ModelsDevCacheEntry {
 let cache: ModelsDevCacheEntry | undefined;
 let inFlight: Promise<ModelsDevCatalog> | undefined;
 let builtInMemo: ModelsDevCatalog | undefined | null = null;
-let fetchImpl: FetchLike = fetch;
+let fetchImpl: FetchImpl = fetch;
 let nowImpl: () => number = Date.now;
 
+type FetchImpl = (
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+) => Promise<Response>;
+
 export function setModelsDevUpstreamForTest(options: {
-  fetchImpl?: FetchLike;
+  fetchImpl?: FetchImpl;
   now?: () => number;
 }): void {
   if (options.fetchImpl !== undefined) fetchImpl = options.fetchImpl;
@@ -57,8 +59,8 @@ export function resetModelsDevUpstreamForTest(): void {
   nowImpl = Date.now;
 }
 
-export function upstreamFetch(): FetchLike {
-  return fetchImpl;
+export function upstreamFetch(): typeof fetch {
+  return fetchImpl as unknown as typeof fetch;
 }
 
 export async function getModelsDevCatalog(userAgent: string): Promise<ModelsDevCatalog> {
@@ -114,7 +116,7 @@ export function modelsDevEntry(
   return Object.prototype.hasOwnProperty.call(catalog, id) ? catalog[id] : undefined;
 }
 
-function capabilityToStrings(capability: ModelCapability): string[] | undefined {
+function capabilityToStrings(capability: ModelsDevCapability): string[] | undefined {
   const caps: string[] = [];
   if (capability.image_in) caps.push('image_in');
   if (capability.video_in) caps.push('video_in');
@@ -132,7 +134,7 @@ function toModelItem(model: ModelsDevModel): ModelsDevModelItem {
     ...(caps !== undefined ? { capabilities: caps } : {}),
     id: model.id,
     max_context_size: model.capability.max_context_tokens,
-    reasoning: model.capability.thinking,
+    reasoning: model.capability.thinking === true,
   };
 }
 

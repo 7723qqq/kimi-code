@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
 import {
@@ -14,12 +14,7 @@ function strip(text: string): string {
 const todo = (title: string, status: TodoItem['status']): TodoItem => ({ title, status });
 
 function resultText(todos: readonly TodoItem[]): string {
-  const done = todos.filter((item) => item.status === 'done').length;
-  const pct = todos.length === 0 ? 0 : Math.round((done / todos.length) * 100);
-  return [
-    `Current todo list: (overall ${done}/${todos.length} · ${pct}%)`,
-    ...todos.map((item, i) => `  [${item.status}] s${i + 1}: ${item.title}`),
-  ].join('\n');
+  return ['Current todo list:', ...todos.map((item) => `  [${item.status}] ${item.title}`)].join('\n');
 }
 
 function todoCard(todos: readonly TodoItem[], isError = false): ToolCallComponent {
@@ -27,9 +22,7 @@ function todoCard(todos: readonly TodoItem[], isError = false): ToolCallComponen
     { id: 'call_todo', name: 'TodoList', args: { todos } },
     {
       tool_call_id: 'call_todo',
-      output: isError
-        ? 'Invalid todo list'
-        : `Todo list updated.\n${resultText(todos)}\n\nMark the next item in_progress.`,
+      output: isError ? 'Invalid todo list' : `Todo list updated.\n${resultText(todos)}\n\nMark the next item in_progress.`,
       is_error: isError,
     },
   );
@@ -44,11 +37,7 @@ function cardLines(card: ToolCallComponent): string[] {
 
 describe('TodoList card', () => {
   it('shows every item of a short list and has nothing to expand', () => {
-    const card = todoCard([
-      todo('Read the code', 'done'),
-      todo('Fix it', 'in_progress'),
-      todo('Test', 'pending'),
-    ]);
+    const card = todoCard([todo('Read the code', 'done'), todo('Fix it', 'in_progress'), todo('Test', 'pending')]);
     expect(cardLines(card).slice(1)).toEqual(['  ✓ Read the code', '  ● Fix it', '  ○ Test']);
     expect(card.hasHiddenContent()).toBe(false);
   });
@@ -106,36 +95,6 @@ describe('TodoList card', () => {
     expect(cardLines(cleared)).toEqual(['● Used TodoList']);
     expect(cardLines(todoCard([todo('a', 'pending')], true)).join('\n')).not.toContain('○ a');
   });
-  it('parses the header progress suffix and the per-row id the tool actually prints', () => {
-    const output = [
-      'Todo list updated.',
-      'Current todo list: (overall 1/2 · 50%)',
-      '  [pending] s1: Read the file',
-      '  [done] s2: Fix the bug',
-      '',
-      'Mark the next item in_progress.',
-    ].join('\n');
-    const card = new ToolCallComponent(
-      { id: 'call_real', name: 'TodoList', args: { todos: [] } },
-      { tool_call_id: 'call_real', output, is_error: false },
-    );
-    expect(cardLines(card)).toEqual(['● Used TodoList', '  ○ Read the file', '  ✓ Fix the bug']);
-  });
-
-  it('parses nested child rows, which are indented one level deeper', () => {
-    const output = [
-      'Current todo list: (overall 0/2 · 0%)',
-      '  [in_progress] m1: Milestone (0/1 · 0%)',
-      '    [pending] c1: Child task',
-    ].join('\n');
-    const card = new ToolCallComponent(
-      { id: 'call_nested', name: 'TodoList', args: { todos: [] } },
-      { tool_call_id: 'call_nested', output, is_error: false },
-    );
-    const lines = cardLines(card);
-    expect(lines.some((line) => line.includes('Milestone'))).toBe(true);
-    expect(lines.some((line) => line.includes('Child task'))).toBe(true);
-  });
 });
 
 describe('selectVisibleTodos', () => {
@@ -149,12 +108,7 @@ describe('selectVisibleTodos', () => {
   });
 
   it('pairs the in-progress item with the latest done item', () => {
-    const todos = [
-      todo('d1', 'done'),
-      todo('d2', 'done'),
-      todo('ip', 'in_progress'),
-      todo('p1', 'pending'),
-    ];
+    const todos = [todo('d1', 'done'), todo('d2', 'done'), todo('ip', 'in_progress'), todo('p1', 'pending')];
     const { rows, hidden, hiddenCounts } = selectVisibleTodos(todos);
     expect(rows.map((r) => r.title)).toEqual(['d2', 'ip']);
     expect(hidden).toBe(2);
@@ -162,22 +116,12 @@ describe('selectVisibleTodos', () => {
   });
 
   it('fills with the earliest pending items when nothing is done', () => {
-    const todos = [
-      todo('ip', 'in_progress'),
-      todo('p1', 'pending'),
-      todo('p2', 'pending'),
-      todo('p3', 'pending'),
-    ];
+    const todos = [todo('ip', 'in_progress'), todo('p1', 'pending'), todo('p2', 'pending'), todo('p3', 'pending')];
     expect(selectVisibleTodos(todos).rows.map((r) => r.title)).toEqual(['ip', 'p1']);
   });
 
   it('shows the latest done and the earliest pending item without an in-progress item', () => {
-    const todos = [
-      todo('p0', 'pending'),
-      todo('d0', 'done'),
-      todo('p1', 'pending'),
-      todo('d1', 'done'),
-    ];
+    const todos = [todo('p0', 'pending'), todo('d0', 'done'), todo('p1', 'pending'), todo('d1', 'done')];
     expect(selectVisibleTodos(todos).rows.map((r) => r.title)).toEqual(['p0', 'd1']);
   });
 

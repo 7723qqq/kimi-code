@@ -25,4 +25,5 @@ export interface IDebugLedgerService {
   tree(): DebugLedgerNode;
 }
 
-export const IDebugLedgerService = createDecorator<IDebugLedgerService>('debugLedgerService');
+export const IDebugLedgerService =
+  createDecorator<IDebugLedgerService>('debugLedgerService');

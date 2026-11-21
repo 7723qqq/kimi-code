@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, win32 } from 'node:path';
-
 import { migratedMarker, skipMarker } from './paths.js';
 
 export interface MarkerRun {
@@ -17,7 +16,6 @@ export interface MarkerData {
   readonly last_migrated_at: string;
   readonly migrator_version: string;
   readonly target_path: string;
-  /** All target homes covered by this marker. Absent in legacy markers. */
   readonly target_paths?: readonly string[];
   readonly runs: readonly MarkerRun[];
 }
@@ -27,14 +25,6 @@ export interface MigrationSuppressionInput {
   readonly targetHome: string;
 }
 
-/**
- * Decide whether a migration prompt should be suppressed for one target home.
- *
- * A completed marker covers every target recorded in `target_paths`; the
- * legacy `target_path` field remains authoritative when that list is absent.
- * Unreadable markers are treated conservatively as completed so upgrading does
- * not start prompting users who had already dismissed the migration.
- */
 export function shouldSuppressMigration(input: MigrationSuppressionInput): boolean {
   if (existsSync(skipMarker(input.targetHome))) return true;
 
@@ -59,9 +49,6 @@ export async function readMarker(sourceHome: string): Promise<MarkerData | undef
     const text = await readFile(migratedMarker(sourceHome), 'utf-8');
     const parsed = JSON.parse(text) as Partial<MarkerData>;
     if (parsed.version !== 1) return undefined;
-    // A partially-written or hand-edited marker may keep `version` but lack a
-    // valid `runs` array; treating it as absent avoids `appendMarkerRun`
-    // throwing on `[...existing.runs, run]` and aborting a healthy rerun.
     if (!Array.isArray(parsed.runs)) return undefined;
     return parsed as MarkerData;
   } catch {
@@ -102,9 +89,6 @@ export async function appendMarkerRun(
     ...existing,
     last_migrated_at: run.completedAt,
     migrator_version: run.migratorVersion,
-    // Record the latest run's target so a rerun to a different KIMI_CODE_HOME
-    // updates the marker — otherwise `detectPendingMigration` keeps prompting
-    // for the new target even though it was just migrated.
     target_path: run.targetPath,
     target_paths: appendTargetPath(markerTargetPaths(existing), run.targetPath),
     runs: [
@@ -125,9 +109,7 @@ function markerTargetPaths(marker: {
   readonly target_paths?: unknown;
 }): string[] {
   const targetPaths = Array.isArray(marker.target_paths)
-    ? marker.target_paths.filter(
-        (targetPath): targetPath is string => typeof targetPath === 'string',
-      )
+    ? marker.target_paths.filter((targetPath): targetPath is string => typeof targetPath === 'string')
     : [];
   if (typeof marker.target_path === 'string') {
     return appendTargetPath(targetPaths, marker.target_path);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   IProtocolAdapterRegistry,
@@ -8,7 +8,12 @@ import {
 
 describe('ProtocolSchema', () => {
   it('accepts the four real wire protocols', () => {
-    for (const protocol of ['anthropic', 'openai', 'openai_responses', 'google-genai'] as const) {
+    for (const protocol of [
+      'anthropic',
+      'openai',
+      'openai_responses',
+      'google-genai',
+    ]) {
       expect(ProtocolSchema.parse(protocol)).toBe(protocol);
     }
   });

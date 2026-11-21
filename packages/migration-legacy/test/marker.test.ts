@@ -1,16 +1,14 @@
-/**
- * Scenario: legacy migration marker persistence and prompt suppression.
- * Responsibilities: preserve run history and decide whether one target still needs migration.
- * Wiring: real temporary filesystem; no stubbed collaborators.
- * Run: cd packages/migration-legacy && bun run test -- marker.test.ts
- */
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { describe, expect, it, beforeEach, afterEach } from '@moonshot-ai/testkit/vitest';
+import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
+import {
+  readMarker,
+  writeMarker,
+  appendMarkerRun,
+  type MarkerData,
+} from '../src/marker.js';
 import { runMigration, shouldSuppressMigration } from '../src/index.js';
-import { readMarker, writeMarker, appendMarkerRun, type MarkerData } from '../src/marker.js';
 
 let dir: string;
 beforeEach(async () => {
@@ -60,8 +58,6 @@ describe('marker', () => {
     expect(data?.first_migrated_at).toBe('2026-05-16T10:00:00Z');
     expect(data?.last_migrated_at).toBe('2026-05-17T10:00:30Z');
     expect(data?.runs).toHaveLength(2);
-    // A rerun to a different target updates target_path so the marker
-    // reflects the home it most recently migrated to.
     expect(data?.target_path).toBe('/bar');
   });
 
@@ -119,8 +115,6 @@ describe('marker', () => {
   });
 
   it('readMarker returns undefined when version is kept but runs is missing', async () => {
-    // A partially-written/hand-edited marker: treating it as absent avoids
-    // appendMarkerRun throwing on `[...existing.runs, run]`.
     await writeFile(
       join(dir, '.migrated-to-kimi-code'),
       JSON.stringify({ version: 1, target_path: '/foo' }),
@@ -130,9 +124,9 @@ describe('marker', () => {
   });
 
   it('does not suppress migration when no marker exists for the target', () => {
-    expect(shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') })).toBe(
-      false,
-    );
+    expect(
+      shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') }),
+    ).toBe(false);
   });
 
   it('suppresses migration when the completed marker names the same target', async () => {
@@ -161,17 +155,17 @@ describe('marker', () => {
   it('suppresses migration when an old marker has no target path', async () => {
     await writeFile(join(dir, '.migrated-to-kimi-code'), '{}', 'utf-8');
 
-    expect(shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') })).toBe(
-      true,
-    );
+    expect(
+      shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') }),
+    ).toBe(true);
   });
 
   it('suppresses migration when the completed marker is corrupt', async () => {
     await writeFile(join(dir, '.migrated-to-kimi-code'), 'not-json', 'utf-8');
 
-    expect(shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') })).toBe(
-      true,
-    );
+    expect(
+      shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') }),
+    ).toBe(true);
   });
 
   it('suppresses migration when the target contains the skip marker', async () => {

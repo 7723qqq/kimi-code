@@ -1,0 +1,100 @@
+commit 8d939f7dc7
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Fri Nov 13 16:27:38 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Fri Nov 13 16:27:38 2026 +0800
+
+    chore: sync release/2026-11-13 back to main (#4913)
+    
+    * ci: release packages (#4889)
+    
+    Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+    
+    * chore: sync web dist from code-app
+    
+    code-app: 11563df26b92f0035659083327976a2e9b8e6727
+    
+    ---------
+    
+    Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+
+ .changeset/fix-long-session-replay-stall.md                  |  5 -----
+ .changeset/fix-token-counting-compaction-usage.md            |  5 -----
+ apps/kimi-code/CHANGELOG.md                                  |  8 ++++++++
+ .../{CodeBlockNode-Bm4C9dVb.js => CodeBlockNode-CTr8Ahm_.js} |  4 ++--
+ .../{PreCodeBlock-Br5RjlXO.js => PreCodeBlock-CZ1A7bzH.js}   |  2 +-
+ .../assets/{Tooltip-Ch3ptgSA.js => Tooltip-C6YuGBRo.js}      |  2 +-
+ ...VRR7QNED-CBLvFBpW.js => abnfDiagram-VRR7QNED-BoLNTdRf.js} |  2 +-
+ .../dist-web/assets/{arc-BOBVOYUx.js => arc-Cqn0FGhS.js}     |  2 +-
+ ...-D7etWNvB.js => architectureDiagram-ZJ3FMSHR-DizkUOT9.js} |  2 +-
+ ...77ZJIJ3-HtUuQKCp.js => blockDiagram-677ZJIJ3-CQ8JKUuQ.js} |  2 +-
+ ...m-LMCZKHZV-C6F9pgpg.js => c4Diagram-LMCZKHZV-CMzaS9o-.js} |  2 +-
+ apps/kimi-code/dist-web/assets/channel-C5CFBUOy.js           |  1 +
+ apps/kimi-code/dist-web/assets/channel-Ckpuf4dU.js           |  1 -
+ ...chunk-2Q5K7J3B-B1um50jy.js => chunk-2Q5K7J3B-DYawCPUy.js} |  2 +-
+ ...chunk-32BRIVSS-wgsAnPjT.js => chunk-32BRIVSS-BtoeDRQ4.js} |  2 +-
+ ...chunk-5VM5RSS4-54wFyECr.js => chunk-5VM5RSS4-D_0zzpTi.js} |  2 +-
+ ...chunk-EX3LRPZG-yNhe7521.js => chunk-EX3LRPZG-kq5Q8Yrn.js} |  2 +-
+ ...chunk-JWPE2WC7-BIU3fIpY.js => chunk-JWPE2WC7-BO7RlGDp.js} |  2 +-
+ ...chunk-MOJQB5TN-BDau9VXg.js => chunk-MOJQB5TN-D1HJh85V.js} |  2 +-
+ ...chunk-RYQCIY6F-Cc3idB16.js => chunk-RYQCIY6F-DCMwupeG.js} |  2 +-
+ ...chunk-V7JOEXUC-C9Jf5jfZ.js => chunk-V7JOEXUC-CBwNlOHq.js} |  2 +-
+ ...chunk-VR4S4FIN-Cw88AIM3.js => chunk-VR4S4FIN-BZylFbgH.js} |  2 +-
+ ...chunk-XXDRQBXY-BIfBlvHR.js => chunk-XXDRQBXY-BrhF2SGF.js} |  2 +-
+ .../dist-web/assets/classDiagram-OUVF2IWQ-CKwB2eQ5.js        |  1 +
+ .../dist-web/assets/classDiagram-OUVF2IWQ-CawwqYzj.js        |  1 -
+ .../dist-web/assets/classDiagram-v2-EOCWNBFH-CKwB2eQ5.js     |  1 +
+ .../dist-web/assets/classDiagram-v2-EOCWNBFH-CawwqYzj.js     |  1 -
+ ...H36ORCC-CAwaTnyj.js => cose-bilkent-JH36ORCC-DSrlnCf5.js} |  2 +-
+ ...fin-VYW2F7L2-m4clgFB2.js => cynefin-VYW2F7L2-BZmNVIpz.js} |  2 +-
+ ...JHNR4-BBVvDEWS.js => cynefinDiagram-TSTJHNR4-B6FWLQV4.js} |  2 +-
+ ...dagre-VKFMJZFB-qFVkG6LB.js => dagre-VKFMJZFB-B1xa8PbL.js} |  2 +-
+ ...ram-FQU43EPY-CYrrS6Gd.js => diagram-FQU43EPY-BAGSq82d.js} |  2 +-
+ ...ram-G47NLZAW-TLjaA2RX.js => diagram-G47NLZAW-D7TgEelL.js} |  2 +-
+ ...ram-NH7WQ7WH-DUlTK9zu.js => diagram-NH7WQ7WH-DKXZXZ7H.js} |  2 +-
+ ...ram-OA4YK3LP-Cyu9TDHQ.js => diagram-OA4YK3LP-DaZ_L2Bb.js} |  2 +-
+ ...ram-WEI45ONY-CYYZykY7.js => diagram-WEI45ONY-BeqkYdky.js} |  2 +-
+ ...CCIWWBDH-__YAbMwI.js => ebnfDiagram-CCIWWBDH-Q7Qnotgl.js} |  2 +-
+ ...m-Q63AITRT-DAv6N_J4.js => erDiagram-Q63AITRT-CC3zw3BP.js} |  2 +-
+ ...23GEKE2U-bh2-ViKw.js => flowDiagram-23GEKE2U-CSokeZMR.js} |  2 +-
+ ...O4QXBWP-CDFzcsAM.js => ganttDiagram-NO4QXBWP-B0dVfXAd.js} |  2 +-
+ ...6WYX-B6bILxgv.js => gitGraphDiagram-IHSO6WYX-Cn7AVV2P.js} |  2 +-
+ .../dist-web/assets/{index-DakE5lLj.js => index-D_PXkDdl.js} |  2 +-
+ .../dist-web/assets/{index-CM7yDKkF.js => index-Y30h7qWu.js} | 12 ++++++------
+ .../dist-web/assets/{index-BWmXmHrp.js => index-YzZwYHpt.js} |  2 +-
+ .../assets/{index10-HaRvcXI2.js => index10-CD-Axunc.js}      |  2 +-
+ .../assets/{index5-C0jvPhFf.js => index5-5EQAk4DM.js}        |  2 +-
+ .../assets/{index6-BH6B-sg5.js => index6-D_9H8dVT.js}        |  2 +-
+ .../assets/{index8-Yr54pYug.js => index8-D0S-KBjl.js}        |  2 +-
+ .../assets/{index9-Ceq0Dg23.js => index9-08eeuzgd.js}        |  2 +-
+ ...FWYZ7A6U-D1zDDuhP.js => infoDiagram-FWYZ7A6U-BIV5LWmr.js} |  2 +-
+ ...ZL3T-B7Bi_cxR.js => ishikawaDiagram-FXEZZL3T-FcKsdtbB.js} |  2 +-
+ ...EW3XC-DHed6g9L.js => journeyDiagram-5HDEW3XC-0bS9ClDz.js} |  2 +-
+ ...X6-_0bfcAww.js => kanban-definition-HUTT4EX6-ChgrIFn6.js} |  2 +-
+ .../assets/{linear-BxNs_LxE.js => linear-VbovRL-R.js}        |  2 +-
+ .../{markstream-BUptTvRz.js => markstream-IhoU5S3F.js}       |  4 ++--
+ .../{mermaid.core-DlCtapN4.js => mermaid.core-DKFySF7y.js}   |  8 ++++----
+ ...C-D-4uIaTN.js => mindmap-definition-LN4V7U3C-D4HfT17m.js} |  2 +-
+ ...-2B236MQR-CFn0_0uI.js => pegDiagram-2B236MQR-B8J9JReC.js} |  2 +-
+ ...-ENE6RG2P-IhOnWzIc.js => pieDiagram-ENE6RG2P-CMcfrO-R.js} |  2 +-
+ ...Q3AL-Dvzs2VY1.js => quadrantDiagram-ABIIQ3AL-BYp2W7AW.js} |  2 +-
+ ...5EU6-BWo-CrDq.js => railroadDiagram-RFXS5EU6-DOO3bn5s.js} |  2 +-
+ ...E-VvV3ne9O.js => requirementDiagram-TGXJPOKE-YkaaVL9l.js} |  2 +-
+ ...MAVEWB-DqjEdPU3.js => sankeyDiagram-HTMAVEWB-D1wmIblt.js} |  2 +-
+ ...YBRQ-MZiBc_XJ.js => sequenceDiagram-DBY2YBRQ-DSS0XtWu.js} |  2 +-
+ ...X5ZJPWSS-B2i0bpmP.js => sizeCapture-X5ZJPWSS-CUnriT95.js} |  2 +-
+ ...N3HPSRC-CKFUbuKY.js => stateDiagram-2N3HPSRC-plDGN4pw.js} |  2 +-
+ .../dist-web/assets/stateDiagram-v2-6OUMAXLB-CfQbQpLc.js     |  1 -
+ .../dist-web/assets/stateDiagram-v2-6OUMAXLB-Cft8YUzZ.js     |  1 +
+ ...s-5IMT3BWC-B09pA6yK.js => swimlanes-5IMT3BWC-BwdVXnDJ.js} |  4 ++--
+ .../dist-web/assets/swimlanesDiagram-G3AALYLV-Cq93LWdC.js    |  8 --------
+ .../dist-web/assets/swimlanesDiagram-G3AALYLV-Djw4ZBJI.js    |  8 ++++++++
+ ...--oOq6-Tu.js => timeline-definition-FHXFAJF6-keAW8dAN.js} |  2 +-
+ ...L72KCM5P-C3ONohTe.js => vennDiagram-L72KCM5P-x0ycoPx9.js} |  2 +-
+ ...ndler-DB658cIY.js => vue.runtime.esm-bundler-BYhR-d27.js} |  2 +-
+ ...QE667-BSEDuVed.js => wardleyDiagram-EHGQE667-VBx_3SNI.js} |  2 +-
+ ...EYKEG-CnSZjVsn.js => xychartDiagram-FW5EYKEG-DaZLZguM.js} |  2 +-
+ apps/kimi-code/dist-web/index.html                           |  2 +-
+ apps/kimi-code/package.json                                  |  2 +-
+ 78 files changed, 96 insertions(+), 98 deletions(-)

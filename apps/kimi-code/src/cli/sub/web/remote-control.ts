@@ -1,12 +1,11 @@
-import type { RemoteControlStatus } from '@moonshot-ai/remote-control';
 import chalk from 'chalk';
 
-import { t } from '#/i18n';
-
+import { getVersion } from '../../version';
 import { darkColors } from '../../../tui/theme/colors';
 import { supportsHyperlinks, toTerminalHyperlink } from '../../../utils/terminal-hyperlink';
-import { getVersion } from '../../version';
+import type { RemoteControlStatus } from '@moonshot-ai/remote-control';
 import { buildOpenableUrl, splitTokenFragment } from './access-urls';
+import { t } from '#/i18n';
 
 export {
   acquireRemoteControlLock,
@@ -51,14 +50,8 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
   const status = (text: string): string => chalk.hex(darkColors.success)(text);
   const link = (url: string): string =>
     supportsHyperlinks() ? toTerminalHyperlink(accent(url), url) : accent(url);
-  const docs = toTerminalHyperlink(
-    t('tui.statusMessages.rcDocsLabel'),
-    'https://kimi.com/code/docs/remote-control',
-  );
-  const feedback = toTerminalHyperlink(
-    t('tui.statusMessages.rcFeedbackLabel'),
-    'https://kimi.com/code/feedback',
-  );
+  const docs = toTerminalHyperlink(t('tui.statusMessages.rcDocsLabel'), 'https://kimi.com/code/docs/remote-control');
+  const feedback = toTerminalHyperlink(t('tui.statusMessages.rcFeedbackLabel'), 'https://kimi.com/code/feedback');
   const [localBase, localFrag] = splitTokenFragment(
     buildOpenableUrl(options.localOrigin, options.localServerToken),
   );
@@ -67,11 +60,11 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
     `  ${title(t('tui.statusMessages.rcReadyTitle'))}  ${muted(getVersion())}`,
     `  ${muted(t('tui.statusMessages.rcReadySubtitle'))}`,
     '',
-    `  ${label('1.')} ${t('tui.statusMessages.rcStepScan', { url: link(options.url) })}`,
-    `  ${label('2.')} ${t('tui.statusMessages.rcStepLogin')}`,
-    `  ${label('3.')} ${t('tui.statusMessages.rcStepChat')}`,
+    `  ${label('1.')} Scan the QR code, or open ${link(options.url)}`,
+    `  ${label('2.')} Log in with your Kimi account`,
+    `  ${label('3.')} Start chatting — sessions run on this machine`,
     '',
-    `  ${status('✓')} ${muted(t('tui.statusMessages.rcConnectedWaiting', { host: new URL(options.url).host }))}`,
+    `  ${status('✓')} ${muted(`Connected to ${new URL(options.url).host}, waiting for remote devices…`)}`,
     `  ${label(t('tui.statusMessages.rcDeviceLabel'))}${muted(options.deviceName)}`,
     `  ${status('⚠')} ${muted(t('tui.statusMessages.rcLinkWarning'))}`,
     '',

@@ -1,15 +1,8 @@
 import path from 'pathe';
 
 import type { ILogService, LogPayload } from '#/_base/log/log';
-import {
-  SkillParseError,
-  UnsupportedSkillTypeError,
-  parseSkillText,
-} from '#/features/skill/catalog/parser';
-import type {
-  ISkillDiscovery,
-  SkillDiscoveryResult,
-} from '#/features/skill/catalog/skillDiscovery';
+import type { ISkillDiscovery, SkillDiscoveryResult } from '#/features/skill/catalog/skillDiscovery';
+import { SkillParseError, UnsupportedSkillTypeError, parseSkillText } from '#/features/skill/catalog/parser';
 import type { SkillDefinition, SkillRoot, SkippedSkill } from '#/features/skill/catalog/types';
 import { normalizeSkillName } from '#/features/skill/catalog/types';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -65,20 +58,17 @@ async function discoverEnvironmentSkills(
         }),
         workspaceDir: input.root.workspaceDir,
       };
-      const skill =
-        input.subSkillParentName === undefined
-          ? parsed
-          : {
-              ...parsed,
-              name: qualifySubSkillName(input.subSkillParentName, parsed.name),
-              metadata: { ...parsed.metadata, isSubSkill: true },
-            };
-      const discovered =
-        input.root.plugin === undefined ? skill : { ...skill, plugin: input.root.plugin };
-      const key =
-        input.root.plugin === undefined
-          ? normalizeSkillName(discovered.name)
-          : `${input.root.plugin.id}\0${normalizeSkillName(discovered.name)}`;
+      const skill = input.subSkillParentName === undefined
+        ? parsed
+        : {
+            ...parsed,
+            name: qualifySubSkillName(input.subSkillParentName, parsed.name),
+            metadata: { ...parsed.metadata, isSubSkill: true },
+          };
+      const discovered = input.root.plugin === undefined ? skill : { ...skill, plugin: input.root.plugin };
+      const key = input.root.plugin === undefined
+        ? normalizeSkillName(discovered.name)
+        : `${input.root.plugin.id}\0${normalizeSkillName(discovered.name)}`;
       if (!byDiscoveryKey.has(key)) byDiscoveryKey.set(key, discovered);
       const variantKey = `${key}\0${input.root.workspaceDir ?? ''}`;
       if (!seenVariantKeys.has(variantKey) && !bySkillPath.has(discovered.path)) {
@@ -234,12 +224,9 @@ function qualifySubSkillName(parentName: string, skillName: string): string {
 
 function hasSubSkillEnabled(skill: SkillDefinition): boolean {
   const nested = skill.metadata['metadata'];
-  const nestedFlag =
-    typeof nested === 'object' && nested !== null
-      ? (nested as Record<string, unknown>)['has-sub-skill'] === true ||
-        (nested as Record<string, unknown>)['hasSubSkill'] === true
-      : false;
-  return (
-    skill.metadata['has-sub-skill'] === true || skill.metadata['hasSubSkill'] === true || nestedFlag
-  );
+  const nestedFlag = typeof nested === 'object' && nested !== null
+    ? (nested as Record<string, unknown>)['has-sub-skill'] === true ||
+      (nested as Record<string, unknown>)['hasSubSkill'] === true
+    : false;
+  return skill.metadata['has-sub-skill'] === true || skill.metadata['hasSubSkill'] === true || nestedFlag;
 }

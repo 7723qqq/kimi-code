@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (41 sections · 3 overlay(s))
+# Index (32 sections · 2 overlay(s))
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
@@ -19,30 +19,21 @@
 #   experimental             src/app/flag/flag.ts
 #   extraAgentDirs           src/workspace/workspaceAgentProfileLoader/configSection.ts
 #   extraSkillDirs           src/features/skill/catalog/configSection.ts
-#   github                   src/agent/tools/github/configSection.ts
-#   github_proxy             src/agent/tools/github/configSection.ts
 #   hooks                    src/features/externalHooks/configSection.ts
+#   hosts                    src/app/hostsConfig/configSection.ts
 #   identity                 src/app/agentIdentity/configSection.ts
 #   image                    src/agent/media/configSection.ts
-#   llmRequester             src/agent/llmRequester/configSection.ts
 #   loopControl              src/agent/loop/configSection.ts
-#   lsp                      src/features/lsp/configSection.ts
 #   mcp                      src/app/mcpConfig/configSection.ts
 #   mergeAllAvailableSkills  src/features/skill/catalog/configSection.ts
 #   modelCatalog             src/app/kosongConfig/configSection.ts
-#   modelOverrides           src/app/kosongConfig/configSection.ts
 #   models                   src/app/kosongConfig/configSection.ts
-#   operationLog             src/features/operationLog/configSection.ts
 #   permission               src/agent/permissionRules/configSection.ts
-#   promptOptimizer          src/features/promptOptimizer/configSection.ts
 #   providers                src/app/kosongConfig/configSection.ts
 #   read                     src/agent/tools/os/read/configSection.ts
-#   sandbox                  src/workspace/sandbox/sandbox.ts
 #   secondaryModel           src/session/subagent/configSection.ts
 #   services                 src/app/auth/configSection.ts
-#   skills                   src/features/skill/catalog/configSection.ts
 #   subagent                 src/session/subagent/configSection.ts
-#   subagentBackend          src/session/subagent/backend/configSection.ts
 #   swarm                    src/features/swarm/configSection.ts
 #   task                     src/agent/task/configSection.ts
 #   thinking                 src/app/kosongConfig/configSection.ts
@@ -50,7 +41,6 @@
 #   tools                    src/agent/toolPolicy/configSection.ts
 #   watch                    src/app/watch/configSection.ts
 #   workspace                src/workspace/workspaceTrust/configSection.ts
-#   (overlay) githubEnvOverlay  src/agent/tools/github/envOverlay.ts
 #   (overlay) servicesCredentialEnvOverlay  src/app/auth/configSection.ts
 #   (overlay) kimiModelEnvOverlay  src/app/kosongConfig/envOverlay.ts
 
@@ -61,7 +51,6 @@
 #   hooks: stripEnv
 #   env:
 #     keep_alive_on_exit <- KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT (custom parse)
-#     max_running_tasks <- KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS (custom parse)
 #     bash_task_timeout_s <- KIMI_CODE_BACKGROUND_BASH_TASK_TIMEOUT_S (custom parse)
 #     print_wait_ceiling_s <- KIMI_CODE_BACKGROUND_PRINT_WAIT_CEILING_S (custom parse)
 #     print_background_mode <- KIMI_CODE_BACKGROUND_PRINT_BACKGROUND_MODE (custom parse)
@@ -69,8 +58,6 @@
 # ##########################################################################
 
 [background]
-# max_running_tasks: integer
-# max_settled_tasks: integer
 # keep_alive_on_exit: boolean
 # bash_auto_background_on_timeout: boolean
 # bash_task_timeout_s: integer
@@ -185,29 +172,6 @@ extra_agent_dirs = []
 extra_skill_dirs = []
 
 # ##########################################################################
-# github
-#   owner: src/agent/tools/github/configSection.ts
-#   scope: core
-# ##########################################################################
-
-[github]
-# token: string
-# base_url: string
-
-# ##########################################################################
-# github_proxy
-#   owner: src/agent/tools/github/configSection.ts
-#   scope: core
-# ##########################################################################
-
-[github_proxy]
-# proxy: string
-# mirror: string
-# domains: string[]
-# mirror_hosts: string[]
-# fallback: boolean
-
-# ##########################################################################
 # hooks
 #   owner: src/features/externalHooks/configSection.ts
 #   scope: core
@@ -220,8 +184,23 @@ extra_skill_dirs = []
   # matcher: string
   # command: string
   # timeout: integer
-  # cwd: string
-  # env: record<string, string>
+
+# ##########################################################################
+# hosts
+#   owner: src/app/hostsConfig/configSection.ts
+#   scope: core
+#   hooks: custom fromToml · custom toToml
+# ##########################################################################
+
+[hosts]
+
+# one [hosts."<name>"] table per entry:
+# [hosts."<name>"]
+  # host: string
+  # name: string
+  # enabled: boolean
+  # identity_file: string
+  # remote_bin: string
 
 # ##########################################################################
 # identity
@@ -252,18 +231,6 @@ extra_skill_dirs = []
 # read_byte_budget: integer
 
 # ##########################################################################
-# llmRequester (config.toml: llm_requester)
-#   owner: src/agent/llmRequester/configSection.ts
-#   scope: core
-#   hooks: stripEnv
-#   env:
-#     request_byte_budget <- KIMI_LLM_REQUEST_BYTE_BUDGET (custom parse)
-# ##########################################################################
-
-[llm_requester]
-# request_byte_budget: integer
-
-# ##########################################################################
 # loopControl (config.toml: loop_control)
 #   owner: src/agent/loop/configSection.ts
 #   scope: core
@@ -285,15 +252,6 @@ extra_skill_dirs = []
 # compaction_max_attempts: integer
 
 # ##########################################################################
-# lsp
-#   owner: src/features/lsp/configSection.ts
-#   scope: core
-# ##########################################################################
-
-[lsp]
-# servers: record<string, object>
-
-# ##########################################################################
 # mcp
 #   owner: src/app/mcpConfig/configSection.ts
 #   scope: core
@@ -301,7 +259,6 @@ extra_skill_dirs = []
 #   env:
 #     startup_timeout_ms <- KIMI_MCP_STARTUP_TIMEOUT_MS (custom parse)
 #     tool_timeout_ms <- KIMI_MCP_TOOL_TIMEOUT_MS (custom parse)
-#     auto_defer_tool_threshold <- KIMI_MCP_AUTO_DEFER_TOOL_THRESHOLD (custom parse)
 #     reconnect_initial_delay_ms <- KIMI_MCP_RECONNECT_INITIAL_DELAY_MS (custom parse)
 #     reconnect_max_delay_ms <- KIMI_MCP_RECONNECT_MAX_DELAY_MS (custom parse)
 # ##########################################################################
@@ -310,8 +267,6 @@ extra_skill_dirs = []
 # startup_timeout_ms: integer
 # tool_timeout_ms: integer
 # default_deferred: boolean
-# auto_defer_tool_threshold: integer
-# compact_tool_schemas: boolean
 # reconnect_initial_delay_ms: integer
 # reconnect_max_delay_ms: integer
 
@@ -334,18 +289,6 @@ merge_all_available_skills = true
 # refresh_on_start: boolean
 
 # ##########################################################################
-# modelOverrides (config.toml: model_overrides)
-#   owner: src/app/kosongConfig/configSection.ts
-#   scope: core
-# ##########################################################################
-
-[model_overrides]
-# temperature: number
-# top_p: number
-# thinking_keep: string
-# max_completion_tokens: integer
-
-# ##########################################################################
 # models
 #   owner: src/app/kosongConfig/configSection.ts
 #   scope: core
@@ -363,7 +306,7 @@ merge_all_available_skills = true
     # storage: "file" | "keyring"
     # key: string
     # oauth_host: string
-  # protocol: "anthropic" | "openai" | "openai_responses" | "google-genai" | "antigravity"
+  # protocol: "anthropic" | "openai" | "openai_responses" | "google-genai"
   # name: string
   # aliases: string[]
   # provider: string
@@ -396,22 +339,6 @@ merge_all_available_skills = true
     # off_effort: string
 
 # ##########################################################################
-# operationLog (config.toml: operation_log)
-#   owner: src/features/operationLog/configSection.ts
-#   scope: core
-#   hooks: stripEnv
-#   env:
-#     max_operations <- KIMI_CODE_OPERATION_LOG_MAX_OPERATIONS (custom parse)
-#     max_age_ms <- KIMI_CODE_OPERATION_LOG_MAX_AGE_MS (custom parse)
-#     max_total_bytes <- KIMI_CODE_OPERATION_LOG_MAX_TOTAL_BYTES (custom parse)
-# ##########################################################################
-
-[operation_log]
-# max_operations: integer
-# max_age_ms: integer
-# max_total_bytes: integer
-
-# ##########################################################################
 # permission
 #   owner: src/agent/permissionRules/configSection.ts
 #   scope: core
@@ -427,16 +354,6 @@ merge_all_available_skills = true
   # pattern: string
   # reason: string
 # dangerous_command_guard: boolean
-
-# ##########################################################################
-# promptOptimizer (config.toml: prompt_optimizer)
-#   owner: src/features/promptOptimizer/configSection.ts
-#   scope: core
-# ##########################################################################
-
-[prompt_optimizer]
-timeout_ms = 180000
-# effort: string
 
 # ##########################################################################
 # providers
@@ -478,15 +395,6 @@ timeout_ms = 180000
 [read]
 # default_max_chars: integer
 # max_chars: integer
-
-# ##########################################################################
-# sandbox
-#   owner: src/workspace/sandbox/sandbox.ts
-#   scope: core
-# ##########################################################################
-
-[sandbox]
-mode = "off"
 
 # ##########################################################################
 # secondaryModel (config.toml: secondary_model)
@@ -533,16 +441,6 @@ mode = "off"
   # custom_headers: record<string, string>
 
 # ##########################################################################
-# skills
-#   owner: src/features/skill/catalog/configSection.ts
-#   scope: core
-# ##########################################################################
-
-[skills]
-# hidden_from_model: string[]
-# sub_skills: string[]
-
-# ##########################################################################
 # subagent
 #   owner: src/session/subagent/configSection.ts
 #   scope: core
@@ -553,27 +451,6 @@ mode = "off"
 
 [subagent]
 timeout_ms = 7200000
-
-# ##########################################################################
-# subagentBackend (config.toml: subagent_backend)
-#   owner: src/session/subagent/backend/configSection.ts
-#   scope: core
-# ##########################################################################
-
-[subagent_backend]
-
-# [subagent_backend.claude_code]
-  # command: string
-  # model: string
-
-# [subagent_backend.codex]
-  # command: string
-  # model: string
-
-# [subagent_backend.acp]
-  # command: string
-  # args: string[]
-  # env: record<string, string>
 
 # ##########################################################################
 # swarm
@@ -594,7 +471,6 @@ timeout_ms = 7200000
 #   hooks: stripEnv
 #   env:
 #     keep_alive_on_exit <- KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT (custom parse)
-#     max_running_tasks <- KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS (custom parse)
 #     bash_task_timeout_s <- KIMI_CODE_BACKGROUND_BASH_TASK_TIMEOUT_S (custom parse)
 #     print_wait_ceiling_s <- KIMI_CODE_BACKGROUND_PRINT_WAIT_CEILING_S (custom parse)
 #     print_background_mode <- KIMI_CODE_BACKGROUND_PRINT_BACKGROUND_MODE (custom parse)
@@ -602,8 +478,6 @@ timeout_ms = 7200000
 # ##########################################################################
 
 [task]
-# max_running_tasks: integer
-# max_settled_tasks: integer
 # keep_alive_on_exit: boolean
 # bash_auto_background_on_timeout: boolean
 # bash_task_timeout_s: integer

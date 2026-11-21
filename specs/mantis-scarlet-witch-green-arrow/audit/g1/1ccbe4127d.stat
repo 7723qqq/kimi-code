@@ -1,0 +1,222 @@
+commit 1ccbe4127d
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Wed Nov 18 02:38:47 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Wed Nov 18 02:38:47 2026 +0800
+
+    chore: sync release 2.6.3 back to main (#5026)
+    
+    * fix: resume sessions with removed default models (#4982)
+    
+    * fix(node-sdk): resume sessions with missing default model
+    
+    * fix(cli): check auth for the resumed session model
+    
+    * chore: add changeset for unavailable model recovery
+    
+    * fix(agent-core-v2): stop rebuilding mismatched session indexes (#4980)
+    
+    * fix(agent-core-v2): reject repeated model responses (#4977)
+    
+    * fix(agent-core-v2): reject repeated model responses
+    
+    * chore: add changeset for repeated model responses
+    
+    ---------
+    
+    Co-authored-by: 7Sageer <sag77r@hotmail.com>
+    
+    * fix(agent-core-v2): inline deferred tools without dynamic loading (#4971)
+    
+    * fix(agent-core-v2): record restored task notifications without model requests (#4949) (#4989)
+    
+    * fix(agent-core-v2): record restored task notifications without model requests
+    
+    - queue restored task notifications as prompt-only turns after loop initialization
+    - preserve interrupted and queued turns during resume and fork
+    - complete reconciliation before initialization and reset return to keep Wire reads ordered
+    - run loop and container cleanup when reconciliation fails
+    - surface restored notification persistence failures
+    
+    * chore: add changeset for restored task notifications
+    
+    * fix(agent-core-v2): restore overflow recovery after LLM retries (#4950) (#4990)
+    
+    * fix(agent-core-v2): restore step state after LLM retries
+    
+    * test(agent-core-v2): scope retry event to overflow regression
+    
+    * fix(config): allow sessions with invalid user config (#4951) (#4991)
+    
+    * fix(agent-core-v2): tolerate config read failures for permission rules
+    
+    * chore: add changeset for permission config recovery
+    
+    * docs: document permission config recovery
+    
+    * docs: qualify permission config recovery scope
+    
+    * fix(config): surface read error diagnostics
+    
+    * fix(config): allow sessions with invalid user config
+    
+    * fix(config): preserve valid values and replay diagnostics
+    
+    * fix(config): remove startup diagnostic replay
+    
+    * fix(agent-core-v2): ignore non-user prompts during Tower wake (#4952) (#4992)
+    
+    * fix(agent-core-v2): ignore non-user prompts during Tower wake
+    
+    * chore: add Tower notification fix changeset
+    
+    * fix(agent-core-v2): preserve slash prompts during Tower wake
+    
+    * fix(agent-core-v2): route foreground shell events by origin (#4954) (#4994)
+    
+    * fix(agent-core-v2): route foreground shell events by origin
+    
+    * test(agent-core-v2): expect tool event origins in snapshots
+    
+    * fix(klient): accept tool events from pre-origin hosts
+    
+    * fix(agent-core-v2): run external Stop hooks after turn completion (#4956) (#4995)
+    
+    * fix(agent-core-v2): run external Stop hooks after turn completion
+    
+    * chore: add changeset for external Stop hooks
+    
+    * docs: clarify post-turn Stop hook timing
+    
+    * fix(agent-core-v2): wait for subagent quiescence (#4953) (#4993)
+    
+    * fix(agent-core-v2): reject incomplete model streams (#5006)
+    
+    * fix(agent-core-v2): preserve choice-level OpenAI token usage (#5017)
+    
+    * fix(capability): confirm stopping WebBridge before Windows updates (#4999)
+    
+    * fix(capability): confirm stopping WebBridge before Windows updates
+    
+    * fix(capability): harden WebBridge update recovery
+    
+    * fix(capability): restore WebBridge after startup failure
+    
+    * fix(capability): wait for WebBridge process exit
+    
+    * fix(capability): handle WebBridge confirmation edge cases
+    
+    ---------
+    
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+    Co-authored-by: kimi-agent-bot <317908118+kimi-agent-bot@users.noreply.github.com>
+    
+    * chore: sync release 2.6.3 back to main
+    
+    * chore: finish release 2.6.3 backsync
+    
+    * chore: sync node-sdk lockfile importer
+    
+    * fix(sdk): preserve main core type dependencies
+    
+    * fix: complete release 2.6.3 backsync
+    
+    ---------
+    
+    Co-authored-by: Haozhe <yanghaozhe@moonshot.ai>
+    Co-authored-by: 7Sageer <sag77r@hotmail.com>
+    Co-authored-by: kimi-agent-bot <317908118+kimi-agent-bot@users.noreply.github.com>
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+
+ apps/kimi-code/CHANGELOG.md                        |  16 ++
+ apps/kimi-code/package.json                        |   2 +-
+ apps/kimi-code/src/cli/v2/run-v2-print.ts          |   7 +-
+ .../src/tui/controllers/session-event-handler.ts   |   1 +
+ apps/kimi-code/test/cli/v2-run-print.test.ts       |  11 +-
+ .../test/tui/kimi-tui-message-flow.test.ts         |  63 ++++-
+ apps/vscode/test/event-adapter.test.ts             |   8 +
+ apps/vscode/test/session-runtime.test.ts           |   3 +
+ apps/vscode/test/workspace-paths.test.ts           |   1 +
+ docs/en/configuration/config-files.md              |   4 +
+ docs/en/customization/hooks.md                     |   2 +-
+ docs/en/reference/server-api-service.md            |   2 +-
+ docs/zh/configuration/config-files.md              |   4 +
+ docs/zh/customization/hooks.md                     |   2 +-
+ docs/zh/reference/server-api-service.md            |   2 +-
+ packages/acp-server/src/replay.ts                  |   1 +
+ packages/acp-server/test/e2e-turn.test.ts          |   2 +
+ packages/agent-core-v2/src/agent/loop/loop.ts      |   3 +-
+ .../agent-core-v2/src/agent/loop/loopService.ts    | 135 +++++++----
+ .../src/agent/loop/promptProjection.ts             |   1 +
+ .../agent-core-v2/src/agent/loop/turnProjection.ts |  15 +-
+ .../src/agent/permissionRules/configSection.ts     |   1 -
+ .../agent-core-v2/src/agent/prompt/promptEvents.ts |   4 +-
+ .../src/agent/shellCommand/shellCommandService.ts  |   2 +-
+ .../src/agent/toolExecutor/toolExecutorEvents.ts   |   4 +
+ .../src/agent/toolExecutor/toolExecutorService.ts  |   3 +
+ .../src/agent/toolSelect/toolSelectService.ts      |   4 +-
+ .../src/app/capability/entries/kimiWebbridge.ts    | 132 ++++++++--
+ .../agent-core-v2/src/app/config/configService.ts  |   7 +-
+ .../src/app/sessionIndex/sessionIndexProjector.ts  |   4 +-
+ .../src/app/sessionIndex/sessionIndexService.ts    |  39 ++-
+ .../agent/agentExternalHooksService.ts             |  90 ++++---
+ .../src/features/tower/towerService.ts             |   5 +
+ .../src/remote/declaration/configSection.ts        |   1 -
+ .../agentLifecycle/agentLifecycleService.ts        |   8 +-
+ .../src/session/subagent/runAgentTurn.ts           | 112 +++++----
+ .../src/tool/executor/legacy-adapter.ts            |   4 +-
+ packages/agent-core-v2/src/tool/toolContract.ts    |   3 +
+ .../agent/fullCompaction/fullCompaction.test.ts    |  19 +-
+ .../test/agent/loop/core/hooks.test.ts             |  61 ++++-
+ .../agent-core-v2/test/agent/loop/loop.test.ts     |  68 ++++--
+ packages/agent-core-v2/test/agent/loop/stubs.ts    |   3 +-
+ .../test/agent/mcp/tools/auth.test.ts              |   2 +-
+ .../agent/permissionRules/permissionRules.test.ts  |   2 +-
+ .../test/agent/prompt/promptService.test.ts        |  42 +++-
+ .../agent/questionTools/tools/ask-user.test.ts     |   2 +-
+ .../test/agent/shellCommand/shellCommand.test.ts   |   8 +-
+ .../agent/task/idle-notification-repro.test.ts     |  56 +++--
+ .../test/agent/task/rpc-events.test.ts             |  20 +-
+ packages/agent-core-v2/test/agent/task/stubs.ts    |   6 +-
+ .../test/agent/task/tools/task-tools.test.ts       |   2 +-
+ .../test/agent/task/wire-history.test.ts           |  21 +-
+ .../test/agent/toolExecutor/execute.ts             |   1 +
+ .../agent-core-v2/test/agent/toolExecutor/stubs.ts |   2 +-
+ .../test/agent/toolExecutor/toolExecutor.test.ts   |  23 +-
+ .../agent/toolSelect/toolSelectService.test.ts     |   8 +-
+ .../test/app/capability/kimiWebbridge.test.ts      | 269 +++++++++++++++++++++
+ .../agent-core-v2/test/app/config/config.test.ts   |  26 +-
+ .../test/app/sessionIndex/sessionIndex.test.ts     |  61 +++--
+ .../features/externalHooks/integration.test.ts     | 228 ++++++++++-------
+ .../agent-core-v2/test/features/plan/plan.test.ts  |  36 +--
+ .../test/features/tower/tools/spawnTool.test.ts    |   2 +-
+ .../test/features/tower/towerService.test.ts       |  82 +++++--
+ .../test/os/backends/node-local/tools/bash.test.ts |   1 +
+ .../session/agentLifecycle/agentLifecycle.test.ts  |  18 +-
+ .../test/session/subagent/runAgentTurn.test.ts     | 142 +++++++++--
+ packages/agent-core-v2/test/tool/tool.test.ts      |  16 +-
+ .../src/llm/builtin/protocol/openai/contract.ts    |   1 +
+ .../core/src/llm/builtin/protocol/openai/decode.ts |   4 +-
+ .../core/src/llm/builtin/provider/kimi/protocol.ts |  23 +-
+ packages/core/src/llm/message.ts                   |   1 +
+ packages/core/src/llm/policy/settle.ts             |  20 +-
+ packages/core/src/loop/create-loop.ts              |   5 +-
+ packages/core/src/loop/loop-actor.ts               |  34 ++-
+ packages/core/src/loop/state.ts                    |   4 +-
+ .../core/test/llm/openai/fixtures/decode/index.ts  |   2 +
+ .../llm/openai/fixtures/decode/usage-choice.ts     |  36 +++
+ packages/core/test/llm/settle.test.ts              |  42 ++++
+ packages/kap-server/src/start.ts                   |  14 +-
+ packages/kap-server/test/config.test.ts            |  17 +-
+ .../test/conversationContract.e2e.test.ts          |   6 +-
+ .../kap-server/test/services/conversation.test.ts  |   1 +
+ packages/kap-server/test/sessionRating.test.ts     |   6 +-
+ packages/klient/src/contract/agent/events.ts       |   3 +
+ packages/klient/test/facade.test.ts                |   2 +-
+ packages/klient/test/helpers/conformance.ts        |   1 +
+ packages/node-sdk/CHANGELOG.md                     |   6 +
+ packages/node-sdk/package.json                     |   2 +-
+ packages/node-sdk/src/sdk-rpc-client-v2.ts         |  45 +++-
+ packages/node-sdk/test/sdk-rpc-client-v2.test.ts   |  97 +++++++-
+ .../node-sdk/test/session-prompt-events.test.ts    |  90 ++++++-
+ 91 files changed, 1858 insertions(+), 539 deletions(-)

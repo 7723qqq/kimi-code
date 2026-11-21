@@ -4,43 +4,43 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { isoDateTimeSchema } from '#/_base/utils/isoDateTime';
 import {
   fsGitStatusSchema,
-  type FsBatchError,
   type FsDiffRequest,
   type FsDiffResponse,
-  type FsGitStatusBatchRequest,
-  type FsGitStatusBatchResponse,
   type FsGitStatusRequest,
   type FsGitStatusResponse,
+  type FsGitStatusBatchRequest,
+  type FsGitStatusBatchResponse,
+  type FsBatchError,
   type FsPullRequest,
+  type FsPullRequestRequest,
   type FsPullRequestBatchRequest,
   type FsPullRequestBatchResponse,
-  type FsPullRequestRequest,
 } from '#/app/git/git';
 
 export {
   fsDiffRequestSchema,
   fsDiffResponseSchema,
-  fsGitStatusBatchRequestSchema,
-  fsGitStatusBatchResponseSchema,
   fsGitStatusRequestSchema,
   fsGitStatusResponseSchema,
-  fsPullRequestBatchRequestSchema,
-  fsPullRequestBatchResponseSchema,
+  fsGitStatusBatchRequestSchema,
+  fsGitStatusBatchResponseSchema,
   fsPullRequestRequestSchema,
   fsPullRequestSchema,
+  fsPullRequestBatchRequestSchema,
+  fsPullRequestBatchResponseSchema,
 } from '#/app/git/git';
 export type {
-  FsBatchError,
   FsDiffRequest,
   FsDiffResponse,
-  FsGitStatusBatchRequest,
-  FsGitStatusBatchResponse,
   FsGitStatusRequest,
   FsGitStatusResponse,
+  FsGitStatusBatchRequest,
+  FsGitStatusBatchResponse,
+  FsBatchError,
   FsPullRequest,
+  FsPullRequestRequest,
   FsPullRequestBatchRequest,
   FsPullRequestBatchResponse,
-  FsPullRequestRequest,
 };
 
 export const fsKindSchema = z.enum(['file', 'directory', 'symlink']);
@@ -56,8 +56,8 @@ export const fsEntrySchema = z.object({
   mime: z.string().optional(),
   language_id: z.string().optional(),
   is_binary: z.boolean().optional(),
-  is_symlink_to: z.string().optional(),
   is_directory: z.boolean().optional(),
+  is_symlink_to: z.string().optional(),
   git_status: fsGitStatusSchema.optional(),
   child_count: z.number().int().nonnegative().optional(),
 });
@@ -104,9 +104,9 @@ export const fsListRequestSchema = z.object({
   follow_gitignore: z.boolean().default(true),
   exclude_globs: z.array(z.string()).optional(),
   allow_ignored_globs: z.array(z.string()).optional(),
+  allow_external_symlinks: z.boolean().optional(),
   sort: fsListSortSchema.default('type_first'),
   include_git_status: z.boolean().default(false),
-  allow_external_symlinks: z.boolean().optional(),
 });
 export type FsListRequest = z.infer<typeof fsListRequestSchema>;
 

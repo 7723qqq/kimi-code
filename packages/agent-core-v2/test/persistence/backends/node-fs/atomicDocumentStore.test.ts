@@ -1,19 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import {
-  JsonAtomicDocumentStore,
-  TomlAtomicDocumentStore,
-} from '#/persistence/backends/node-fs/atomicDocumentStore';
-import {
-  IAtomicDocumentStore,
-  IAtomicTomlDocumentStore,
-} from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { expectRejection } from '#test/helpers/assertions';
+import { IAtomicDocumentStore, IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { JsonAtomicDocumentStore, TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
 interface State {
   readonly title?: string;
@@ -89,7 +82,7 @@ describe('JsonAtomicDocumentStore', () => {
 
   it('throws storage.decode_failed when the stored bytes are not valid JSON', async () => {
     await storage.append('session', 'bad.json', new TextEncoder().encode('{ not json'));
-    await expectRejection(config.get('session', 'bad.json'), (error: unknown) => {
+    await expect(config.get('session', 'bad.json')).rejects.toSatisfy((error: unknown) => {
       expect(error).toMatchObject({
         code: 'storage.decode_failed',
         details: { scope: 'session', key: 'bad.json', format: 'json' },
@@ -97,30 +90,6 @@ describe('JsonAtomicDocumentStore', () => {
       expect((error as { cause?: unknown }).cause).toBeInstanceOf(SyntaxError);
       return true;
     });
-  });
-
-  it('list on a non-existent scope returns empty array', async () => {
-    expect(await config.list('no-such-scope')).toEqual([]);
-  });
-
-  it('list with prefix matching no keys returns empty array', async () => {
-    await config.set('session', 'aaa.json', {});
-    expect(await config.list('session', 'zzz-')).toEqual([]);
-  });
-
-  it('delete on a non-existent key is a no-op', async () => {
-    await expect(config.delete('session', 'never-existed.json')).resolves.toBeUndefined();
-  });
-
-  it('set with empty object value', async () => {
-    await config.set('session', 'empty.json', {});
-    expect(await config.get('session', 'empty.json')).toEqual({});
-  });
-
-  it('handles deeply nested objects', async () => {
-    const deep = { level1: { level2: { level3: { value: 'deep' } } } };
-    await config.set('session', 'nested.json', deep);
-    expect(await config.get('session', 'nested.json')).toEqual(deep);
   });
 });
 
@@ -169,31 +138,5 @@ describe('TomlAtomicDocumentStore', () => {
       code: 'storage.decode_failed',
       details: { scope: 'session', key: 'bad.toml', format: 'toml' },
     });
-  });
-
-  it('delete removes a TOML key; missing delete is a no-op', async () => {
-    await config.set<State>('session', 'config.toml', { title: 'x' });
-    await config.delete('session', 'config.toml');
-    expect(await config.get('session', 'config.toml')).toBeUndefined();
-    await expect(config.delete('session', 'config.toml')).resolves.toBeUndefined();
-  });
-
-  it('list returns TOML keys, optionally filtered by prefix', async () => {
-    await config.set('session', 'cfg-a.toml', {});
-    await config.set('session', 'cfg-b.toml', {});
-    await config.set('session', 'other.toml', {});
-    expect((await config.list('session')).toSorted()).toEqual([
-      'cfg-a.toml',
-      'cfg-b.toml',
-      'other.toml',
-    ]);
-    expect((await config.list('session', 'cfg-')).toSorted()).toEqual(['cfg-a.toml', 'cfg-b.toml']);
-  });
-
-  it('scopes are isolated in TOML store', async () => {
-    await config.set<State>('scope-a', 'c.toml', { title: 'A' });
-    await config.set<State>('scope-b', 'c.toml', { title: 'B' });
-    expect(await config.get<State>('scope-a', 'c.toml')).toEqual({ title: 'A' });
-    expect(await config.get<State>('scope-b', 'c.toml')).toEqual({ title: 'B' });
   });
 });

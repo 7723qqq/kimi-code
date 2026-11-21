@@ -1,36 +1,44 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
-import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { FooterComponent } from '#/tui/components/chrome/footer';
-import { getTranscriptGroupingTip } from '#/tui/constant/tips';
+import { buildWeightedTips, FooterComponent } from '#/tui/components/chrome/footer';
+import { ALL_TIPS, TRANSCRIPT_GROUPING_TIP } from '#/tui/constant/tips';
+import { BRAILLE_SPINNER_INTERVAL_MS } from '#/tui/constant/rendering';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
+import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import type { AppState } from '#/tui/types';
-import { SYSTEM_RENDER_CLOCK } from '#/utils/render-clock';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
-import * as actualGitStatus from '#/utils/git/git-status';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
-const gitStatusMocks = (() => ({
-  createGitStatusCache: jest.fn(),
-}))();
-
-jest.mock('#/utils/git/git-status', () => ({
-  ...actualGitStatus,
-  createGitStatusCache: gitStatusMocks.createGitStatusCache,
+const gitStatusMocks = vi.hoisted(() => ({
+  createGitStatusCache: vi.fn(),
 }));
+
+void vi.mock('#/utils/git/git-status', async () => {
+  const actual = await import('#/utils/git/git-status');
+  return { ...actual, createGitStatusCache: gitStatusMocks.createGitStatusCache };
+});
 
 beforeEach(() => {
   gitStatusMocks.createGitStatusCache.mockClear();
   gitStatusMocks.createGitStatusCache.mockImplementation(() => ({
-    getStatus: jest.fn(() => null),
-    refresh: jest.fn(),
-    dispose: jest.fn(),
+    getStatus: vi.fn(() => null),
+    refresh: vi.fn(),
+    dispose: vi.fn(),
   }));
 });
+
+const gitSource = {
+  status: async () => null,
+  pullRequest: async () => null,
+};
+
+function plainText(text: string): string {
+  return text.replaceAll(/\[[0-9;]*m/g, '');
+}
 
 const TRUECOLOR_PATTERN = /\[38;2;(\d+);(\d+);(\d+)m/g;
 
@@ -42,11 +50,6 @@ function truecolorCodes(text: string): Set<string> {
   return codes;
 }
 
-function stripAnsi(text: string): string {
-  return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
-}
-
-// Dark dance colors the footer never uses outside of /dance.
 const RAINBOW_CYAN = '91,192,190';
 const RAINBOW_GREEN = '78,200,126';
 
@@ -71,26 +74,16 @@ const appState: AppState = {
   permissionMode: 'manual',
   thinkingEffort: 'off',
   contextUsage: 0,
-  cacheReadTokens: 0,
-  cacheMissTokens: 0,
-  cacheOtherTokens: 0,
-  tokenSpeed: 0,
-  tokenSpeedAverage: 0,
-  sessionStats: createEmptySessionStats(),
   contextTokens: 0,
   maxContextTokens: 0,
   isCompacting: false,
   isReplaying: false,
   streamingPhase: 'idle',
   streamingStartTime: 0,
-  outputTokens: 0,
-  locale: 'en',
   stepRetry: null,
   planMode: false,
-  specMode: false,
   inputMode: 'prompt',
   swarmMode: false,
-  helloWorldMode: false,
   towerMode: false,
   theme: 'dark',
   editorCommand: null,
@@ -104,63 +97,76 @@ const appState: AppState = {
 
 describe('FooterComponent', () => {
   it('asks the git cache to refresh and disposes it with the footer', () => {
-    const refresh = jest.fn();
-    const dispose = jest.fn();
+    const refresh = vi.fn();
+    const dispose = vi.fn();
     gitStatusMocks.createGitStatusCache.mockImplementation(() => ({
       getStatus: () => null,
       refresh,
       dispose,
     }));
     const footer = new FooterComponent(appState);
-    footer.setGitBinding((state) => ({
-      key: state.workDir,
-      source: { status: async () => null, pullRequest: async () => null },
-    }));
+    footer.refreshGitStatus();
+    expect(gitStatusMocks.createGitStatusCache).not.toHaveBeenCalled();
+    footer.setGitBinding((state) => ({ key: state.sessionId, source: gitSource }));
     footer.refreshGitStatus();
     expect(refresh).toHaveBeenCalledTimes(1);
     footer.dispose();
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the remote git badge from the binding and keeps it through a disconnect', () => {
-    const status = {
-      branch: 'feat/remote-badge',
-      dirty: false,
-      ahead: 0,
-      behind: 0,
-      diffAdded: 0,
-      diffDeleted: 0,
-      pullRequest: null,
-    };
-    gitStatusMocks.createGitStatusCache.mockImplementation(() => ({
-      getStatus: () => status,
-      refresh: jest.fn(),
-      dispose: jest.fn(),
-    }));
-    const remoteState: AppState = {
+  it('keeps the git cache through a disconnect and refreshes it once the environment is ready again', () => {
+    const refresh = vi.fn();
+    const dispose = vi.fn();
+    gitStatusMocks.createGitStatusCache.mockImplementation(() => ({ getStatus: () => null, refresh, dispose }));
+    const remote = (status: 'ready' | 'disconnected'): AppState => ({
       ...appState,
-      environment: { environmentId: 'dev-box', type: 'ssh', status: 'ready', cwd: '/remote/proj' },
-    };
-    const footer = new FooterComponent(remoteState);
-    footer.setGitBinding((state) => ({
-      key: [state.sessionId, state.workDir, 'remote'].join('\0'),
-      source: { status: async () => null, pullRequest: async () => null },
-    }));
-
-    expect(footer.render(120).join('\n')).toContain('feat/remote-badge');
-    expect(gitStatusMocks.createGitStatusCache).toHaveBeenCalledTimes(1);
-
-    footer.setState({
-      ...remoteState,
-      environment: {
-        environmentId: 'dev-box',
-        type: 'ssh',
-        status: 'connecting',
-        cwd: '/remote/proj',
-      },
+      environment: { environmentId: 'dev-box', type: 'ssh', status },
     });
+    const footer = new FooterComponent(remote('ready'));
+    footer.setGitBinding((state) => ({ key: state.sessionId, source: gitSource }));
+
+    footer.setState(remote('disconnected'));
+    expect(dispose).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+
+    footer.setState(remote('ready'));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    footer.setState(remote('ready'));
+    expect(refresh).toHaveBeenCalledTimes(1);
     expect(gitStatusMocks.createGitStatusCache).toHaveBeenCalledTimes(1);
-    expect(footer.render(120).join('\n')).toContain('feat/remote-badge');
+    footer.dispose();
+  });
+
+  it('keeps the git cache for the same binding key and replaces it on a new one', () => {
+    const dispose = vi.fn();
+    gitStatusMocks.createGitStatusCache.mockImplementation(() => ({
+      getStatus: () => ({
+        branch: 'main',
+        dirty: false,
+        ahead: 0,
+        behind: 0,
+        diffAdded: 0,
+        diffDeleted: 0,
+        pullRequest: null,
+      }),
+      refresh: vi.fn(),
+      dispose,
+    }));
+    const footer = new FooterComponent(appState);
+    footer.setGitBinding((state) => (state.sessionId === 'none' ? null : { key: state.sessionId, source: gitSource }));
+    expect(plainText(footer.render(160)[0] ?? '')).toContain('main');
+
+    footer.setState({ ...appState, model: 'other' });
+    expect(gitStatusMocks.createGitStatusCache).toHaveBeenCalledTimes(1);
+
+    footer.setState({ ...appState, sessionId: 'ses-2' });
+    expect(gitStatusMocks.createGitStatusCache).toHaveBeenCalledTimes(2);
+    expect(dispose).toHaveBeenCalledTimes(1);
+
+    footer.setState({ ...appState, sessionId: 'none' });
+    expect(dispose).toHaveBeenCalledTimes(2);
+    expect(plainText(footer.render(160)[0] ?? '')).not.toContain('main');
+    footer.dispose();
   });
 
   const previousChalkLevel = chalk.level;
@@ -180,8 +186,6 @@ describe('FooterComponent', () => {
 
     const codes = truecolorCodes(footer.render(120).join('\n'));
 
-    // "kimi-k2" spreads across the palette, pulling in colors the footer
-    // never renders on its own.
     expect(codes.has(RAINBOW_CYAN)).toBe(true);
     expect(codes.has(RAINBOW_GREEN)).toBe(true);
   });
@@ -199,13 +203,12 @@ describe('FooterComponent', () => {
     const footer = new FooterComponent(appState);
     const before = footer.render(120).join('\n');
 
-    currentTheme.setPalette(lightColors, 'light');
+    currentTheme.setPalette(lightColors);
     try {
       const after = footer.render(120).join('\n');
-      // Reads currentTheme live, so a palette swap changes the emitted colours.
       expect(after).not.toBe(before);
     } finally {
-      currentTheme.setPalette(darkColors, 'dark');
+      currentTheme.setPalette(darkColors);
     }
   });
 
@@ -225,58 +228,6 @@ describe('FooterComponent', () => {
     const footer = new FooterComponent(state);
 
     expect(footer.render(120).join('\n')).toContain('thinking: max');
-  });
-
-  it('routes clicks on the model name and effort suffix separately', () => {
-    const effortModel: ModelAlias = {
-      provider: 'managed:kimi-code',
-      model: 'kimi-k2',
-      maxContextSize: 262144,
-      supportEfforts: ['low', 'high', 'max'],
-      defaultEffort: 'high',
-    };
-    const state: AppState = {
-      ...appState,
-      thinkingEffort: 'max',
-      availableModels: { 'kimi-k2': effortModel },
-    };
-    const footer = new FooterComponent(state);
-    const onModel = jest.fn();
-    const onThinking = jest.fn();
-    footer.setModelSlotClickHandler(onModel);
-    footer.setThinkingSlotClickHandler(onThinking);
-
-    const line = stripAnsi(footer.render(120)[0]!);
-    const modelX = line.indexOf('kimi-k2') + 1;
-    const thinkingX = line.indexOf('thinking: max') + 1;
-    expect(modelX).toBeGreaterThan(0);
-    expect(thinkingX).toBeGreaterThan(0);
-
-    expect(
-      footer.handleMouse({ type: 'click', button: 'left', x: modelX } as TuiMouseEvent),
-    ).toEqual({ handled: true });
-    expect(onModel).toHaveBeenCalledTimes(1);
-    expect(onThinking).not.toHaveBeenCalled();
-
-    expect(
-      footer.handleMouse({ type: 'click', button: 'left', x: thinkingX } as TuiMouseEvent),
-    ).toEqual({ handled: true });
-    expect(onThinking).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps the background badge clickable through the button row', () => {
-    const footer = new FooterComponent(appState);
-    footer.setBackgroundCounts({ bashTasks: 1, agentTasks: 0 });
-    const onClick = jest.fn();
-    footer.setBackgroundBadgeClickHandler(onClick);
-
-    const line = stripAnsi(footer.render(120)[0]!);
-    const x = line.indexOf('[') + 1;
-    expect(x).toBeGreaterThan(0);
-    expect(footer.handleMouse({ type: 'click', button: 'left', x } as TuiMouseEvent)).toEqual({
-      handled: true,
-    });
-    expect(onClick).toHaveBeenCalledTimes(1);
   });
 
   it('does not show the effort for a legacy boolean model', () => {
@@ -411,7 +362,6 @@ describe('FooterComponent ctrl+o hint', () => {
   });
 
   it('keeps the hint and drops the rotating tip when only one of them fits', () => {
-    // Same left-hand slots without the tips: measures the space the hint competes for.
     const noTips = new FooterComponent({
       ...appState,
       statusLine: { items: ['mode', 'model', 'cwd'], command: null },
@@ -432,24 +382,13 @@ describe('FooterComponent ctrl+o hint with a status_line command', () => {
   it('moves the hint to line 2 when a command owns line 1', async () => {
     const footer = new FooterComponent({
       ...appState,
-      statusLine: { items: null, command: 'echo my-custom-status' },
+      statusLine: { items: null, command: 'printf "my-custom-status"' },
     });
     footer.setExpandHintProvider(() => 'expand');
     footer.render(120);
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
-    // The line only exists once the spawned command exits, and a run may take
-    // the full 300ms ceiling on a loaded machine before the next render starts
-    // another. Poll renders instead of sleeping: each render advances the
-    // runner past its throttle, so the assertion observes the async result
-    // rather than racing it with a fixed delay.
-    await waitForAssertion(
-      () => {
-        expect(stripAnsi(footer.render(120)[0] ?? '')).toContain('my-custom-status');
-      },
-      { timeout: 2_000, interval: 25 },
-    );
-
-    const [line1, line2] = footer.render(120).map((line) => stripAnsi(line));
+    const [line1, line2] = footer.render(120).map((line) => line.replaceAll(/\[[0-9;]*m/g, ''));
     expect(line1).toContain('my-custom-status');
     expect(line1).not.toContain('ctrl+o');
     expect(line2).toContain('ctrl+o expand');
@@ -459,68 +398,56 @@ describe('FooterComponent ctrl+o hint with a status_line command', () => {
 });
 
 describe('transcript grouping tip', () => {
-  function footerAt(state: AppState, fullscreen: boolean, step: number): FooterComponent {
-    const clock = { ...SYSTEM_RENDER_CLOCK, now: () => step * 10_000 };
-    return new FooterComponent(state, () => {}, clock, fullscreen);
-  }
-
-  function showsGroupingTip(state: AppState, fullscreen: boolean): boolean {
-    const text = getTranscriptGroupingTip().text;
-    for (let step = 0; step < 40; step += 1) {
-      const footer = footerAt(state, fullscreen, step);
-      const shown = footer.render(240)[0]?.includes(text) ?? false;
-      footer.dispose();
-      if (shown) return true;
-    }
-    return false;
-  }
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it('appears only when the running fullscreen UI has settings that create groups', () => {
-    const fullscreenState = { ...appState, tuiMode: 'fullscreen' as const };
-    expect(showsGroupingTip(fullscreenState, true)).toBe(true);
+    const rotation = buildWeightedTips([...ALL_TIPS, TRANSCRIPT_GROUPING_TIP]);
+    const index = rotation.findIndex((tip) => tip.text === TRANSCRIPT_GROUPING_TIP.text);
+    expect(index).toBeGreaterThanOrEqual(0);
+    vi.setSystemTime(index * 10_000);
 
-    expect(showsGroupingTip({
+    const fullscreenFooter = (state: AppState) => new FooterComponent(state, undefined, true);
+    const fullscreenState = { ...appState, tuiMode: 'fullscreen' as const };
+    const grouping = fullscreenFooter(fullscreenState);
+    expect(grouping.render(240)[0]).toContain(TRANSCRIPT_GROUPING_TIP.text);
+    grouping.dispose();
+
+    const toolGroups = fullscreenFooter({
       ...fullscreenState,
       transcript: { toolCallDensity: 'detailed', thinking: 'ungrouped' },
-    }, true)).toBe(true);
+    });
+    expect(toolGroups.render(240)[0]).toContain(TRANSCRIPT_GROUPING_TIP.text);
+    toolGroups.dispose();
 
-    expect(showsGroupingTip({
+    const noGroups = fullscreenFooter({
       ...fullscreenState,
       transcript: { toolCallDensity: 'ungrouped', thinking: 'ungrouped' },
-    }, true)).toBe(false);
+    });
+    expect(noGroups.render(240)[0]).not.toContain(TRANSCRIPT_GROUPING_TIP.text);
+    noGroups.dispose();
 
-    expect(showsGroupingTip({
+    const thoughtGroups = fullscreenFooter({
       ...fullscreenState,
       transcript: { toolCallDensity: 'ungrouped', thinking: 'grouped' },
-    }, true)).toBe(true);
+    });
+    expect(thoughtGroups.render(240)[0]).toContain(TRANSCRIPT_GROUPING_TIP.text);
+    thoughtGroups.dispose();
 
-    expect(showsGroupingTip({ ...appState, tuiMode: 'regular' }, false)).toBe(false);
+    const regularMode = new FooterComponent({ ...appState, tuiMode: 'regular' });
+    expect(regularMode.render(240)[0]).not.toContain(TRANSCRIPT_GROUPING_TIP.text);
+    regularMode.dispose();
 
-    const tipText = getTranscriptGroupingTip().text;
-    const showsAfterSwitch = (
-      initial: AppState,
-      fullscreen: boolean,
-      next: AppState,
-    ): boolean => {
-      for (let step = 0; step < 40; step += 1) {
-        const footer = footerAt(initial, fullscreen, step);
-        footer.setState(next);
-        const shown = footer.render(240)[0]?.includes(tipText) ?? false;
-        footer.dispose();
-        if (shown) return true;
-      }
-      return false;
-    };
-    expect(showsAfterSwitch(
-      { ...appState, tuiMode: 'regular' },
-      false,
-      { ...appState, tuiMode: 'fullscreen' },
-    )).toBe(false);
-    expect(showsAfterSwitch(
-      fullscreenState,
-      true,
-      { ...fullscreenState, tuiMode: 'regular' },
-    )).toBe(true);
+    const switchedToFullscreen = new FooterComponent({ ...appState, tuiMode: 'regular' });
+    switchedToFullscreen.setState({ ...appState, tuiMode: 'fullscreen' });
+    expect(switchedToFullscreen.render(240)[0]).not.toContain(TRANSCRIPT_GROUPING_TIP.text);
+    switchedToFullscreen.dispose();
+
+    const switchedToRegular = fullscreenFooter(fullscreenState);
+    switchedToRegular.setState({ ...fullscreenState, tuiMode: 'regular' });
+    expect(switchedToRegular.render(240)[0]).toContain(TRANSCRIPT_GROUPING_TIP.text);
+    switchedToRegular.dispose();
   });
 });
 
@@ -547,5 +474,79 @@ describe('FooterComponent ctrl+o hint beside an inline tips slot', () => {
     expect(line1.endsWith('ctrl+o expand')).toBe(true);
     expect(line1.length).toBeLessThanOrEqual(width);
     footer.dispose();
+  });
+});
+
+describe('FooterComponent environment slot', () => {
+  const ERROR = '38;2;232;84;84';
+  let repoDir: string;
+  const previousChalkLevel = chalk.level;
+
+  beforeEach(() => {
+    chalk.level = 3;
+  });
+
+  afterEach(() => {
+    chalk.level = previousChalkLevel;
+    vi.useRealTimers();
+  });
+
+  function plain(text: string): string {
+    return text.replaceAll(/\[[0-9;]*m/g, '');
+  }
+
+  function line1(footer: FooterComponent, width = 160): string {
+    return plain(footer.render(width)[0] ?? '');
+  }
+
+  beforeEach(() => {
+    repoDir = mkdtempSync(join(tmpdir(), 'kimi-footer-environment-'));
+  });
+
+  afterEach(() => {
+    rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  function footerWith(environment: AppState['environment']): FooterComponent {
+    return new FooterComponent({ ...appState, workDir: repoDir, environment });
+  }
+
+  it('renders the remote identifier ahead of the cwd without a type prefix', () => {
+    const ssh = footerWith({ environmentId: 'dev-box', type: 'ssh', status: 'ready' });
+    const sshRendered = line1(ssh);
+    expect(sshRendered).toContain('dev-box');
+    expect(sshRendered.indexOf('dev-box')).toBeLessThan(sshRendered.indexOf('kimi-footer-environment'));
+    ssh.dispose();
+
+    const command = footerWith({ environmentId: 'kimi-dev', type: 'command', status: 'ready' });
+    const commandRendered = line1(command);
+    expect(commandRendered).toContain('kimi-dev');
+    expect(commandRendered).not.toContain('command:kimi-dev');
+    expect(commandRendered).not.toContain('command:');
+    command.dispose();
+  });
+
+  it('renders a disconnected remote identifier in the error color', () => {
+    const footer = footerWith({ environmentId: 'dev-box', type: 'ssh', status: 'disconnected' });
+    const rendered = footer.render(160)[0] ?? '';
+    expect(rendered).toContain('dev-box');
+    expect(rendered).toContain(ERROR);
+    footer.dispose();
+  });
+
+  it('leaves no spinner timer running after dispose', () => {
+    vi.useFakeTimers();
+    const onRefresh = vi.fn();
+    const footer = new FooterComponent(
+      {
+        ...appState,
+        workDir: repoDir,
+        environment: { environmentId: 'dev-box', type: 'ssh', status: 'connecting' },
+      },
+      onRefresh,
+    );
+    footer.dispose();
+    vi.advanceTimersByTime(BRAILLE_SPINNER_INTERVAL_MS * 5);
+    expect(onRefresh).not.toHaveBeenCalled();
   });
 });

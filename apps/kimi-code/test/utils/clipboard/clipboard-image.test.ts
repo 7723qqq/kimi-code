@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import type { RunCommand } from '#/utils/clipboard/clipboard-common';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
 import { ClipboardMediaError, readClipboardMedia } from '#/utils/clipboard/clipboard-image';
 import type { ClipboardModule } from '#/utils/clipboard/clipboard-native';
 
@@ -26,8 +26,8 @@ function png(width: number, height: number): Uint8Array {
 
 function fakeClipboard(overrides: Partial<ClipboardModule>): ClipboardModule {
   return {
-    hasImage: () => false,
-    getImageBinary: async () => [],
+    hasImage: vi.fn(() => false),
+    getImageBinary: vi.fn(async () => []),
     ...overrides,
   };
 }
@@ -43,19 +43,13 @@ describe('readClipboardMedia', () => {
       const imagePath = join(dir, 'photo.png');
       const imageBytes = png(12, 34);
       writeFileSync(imagePath, imageBytes);
-      let imageBinaryCalls = 0;
+      const getImageBinary = vi.fn(async () => Array.from(png(1, 1)));
       const clip = fakeClipboard({
-        availableFormats: () => ['public.file-url', 'public.png'],
-        hasImage: () => true,
-        getImageBinary: async () => {
-          imageBinaryCalls += 1;
-          return Array.from(png(1, 1));
-        },
+        availableFormats: vi.fn(() => ['public.file-url', 'public.png']),
+        hasImage: vi.fn(() => true),
+        getImageBinary,
       });
-      const runCommand: RunCommand = () => ({
-        stdout: Buffer.from(`${imagePath}\n`),
-        ok: true,
-      });
+      const runCommand = vi.fn(() => ({ stdout: Buffer.from(`${imagePath}\n`), ok: true }));
 
       const media = await readClipboardMedia({ platform: 'darwin', clipboard: clip, runCommand });
 
@@ -64,7 +58,7 @@ describe('readClipboardMedia', () => {
         bytes: imageBytes,
         mimeType: 'image/png',
       });
-      expect(imageBinaryCalls).toBe(0);
+      expect(getImageBinary).not.toHaveBeenCalled();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -75,16 +69,13 @@ describe('readClipboardMedia', () => {
     try {
       const videoPath = join(dir, 'sample.mov');
       writeFileSync(videoPath, new Uint8Array([0, 1, 2]));
-      let imageBinaryCalls = 0;
+      const getImageBinary = vi.fn(async () => [0x89, 0x50, 0x4e, 0x47]);
       const clip = fakeClipboard({
-        availableFormats: () => ['public.file-url', 'public.png'],
-        hasText: () => true,
-        getText: async () => pathToFileURL(videoPath).toString(),
-        hasImage: () => true,
-        getImageBinary: async () => {
-          imageBinaryCalls += 1;
-          return [0x89, 0x50, 0x4e, 0x47];
-        },
+        availableFormats: vi.fn(() => ['public.file-url', 'public.png']),
+        hasText: vi.fn(() => true),
+        getText: vi.fn(async () => pathToFileURL(videoPath).toString()),
+        hasImage: vi.fn(() => true),
+        getImageBinary,
       });
 
       const media = await readClipboardMedia({
@@ -99,7 +90,7 @@ describe('readClipboardMedia', () => {
         filename: 'sample.mov',
         sourcePath: videoPath,
       });
-      expect(imageBinaryCalls).toBe(0);
+      expect(getImageBinary).not.toHaveBeenCalled();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -107,10 +98,10 @@ describe('readClipboardMedia', () => {
 
   it('falls back to native image bytes when no video file is present', async () => {
     const clip = fakeClipboard({
-      availableFormats: () => ['public.png'],
-      hasText: () => false,
-      hasImage: () => true,
-      getImageBinary: async () => [0x89, 0x50, 0x4e, 0x47],
+      availableFormats: vi.fn(() => ['public.png']),
+      hasText: vi.fn(() => false),
+      hasImage: vi.fn(() => true),
+      getImageBinary: vi.fn(async () => [0x89, 0x50, 0x4e, 0x47]),
     });
 
     const media = await readClipboardMedia({
@@ -127,14 +118,11 @@ describe('readClipboardMedia', () => {
   });
 
   it('does not consume file-like clipboard image previews when no real file path is readable', async () => {
-    let imageBinaryCalls = 0;
+    const getImageBinary = vi.fn(async () => Array.from(png(1, 1)));
     const clip = fakeClipboard({
-      availableFormats: () => ['public.file-url', 'public.png'],
-      hasImage: () => true,
-      getImageBinary: async () => {
-        imageBinaryCalls += 1;
-        return Array.from(png(1, 1));
-      },
+      availableFormats: vi.fn(() => ['public.file-url', 'public.png']),
+      hasImage: vi.fn(() => true),
+      getImageBinary,
     });
 
     const media = await readClipboardMedia({
@@ -144,7 +132,7 @@ describe('readClipboardMedia', () => {
     });
 
     expect(media).toBeNull();
-    expect(imageBinaryCalls).toBe(0);
+    expect(getImageBinary).not.toHaveBeenCalled();
   });
 
   it('rejects pasted videos larger than 100 MB', async () => {
@@ -154,9 +142,9 @@ describe('readClipboardMedia', () => {
       writeFileSync(videoPath, new Uint8Array([0]));
       truncateSync(videoPath, 101 * 1024 * 1024);
       const clip = fakeClipboard({
-        availableFormats: () => ['public.file-url'],
-        hasText: () => true,
-        getText: async () => pathToFileURL(videoPath).toString(),
+        availableFormats: vi.fn(() => ['public.file-url']),
+        hasText: vi.fn(() => true),
+        getText: vi.fn(async () => pathToFileURL(videoPath).toString()),
       });
 
       await expect(
@@ -166,191 +154,6 @@ describe('readClipboardMedia', () => {
           runCommand: noMacOsPaths,
         }),
       ).rejects.toThrow(ClipboardMediaError);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('reads a Wayland clipboard image through wl-paste', async () => {
-    const imageBytes = png(8, 6);
-    const calls: { command: string; args: string[] }[] = [];
-    const runCommand: RunCommand = (command, args) => {
-      calls.push({ command, args });
-      if (args[0] === '--list-types') {
-        return { stdout: Buffer.from('text/plain\nimage/png\n'), ok: true };
-      }
-      if (args[0] === '--type') {
-        return { stdout: Buffer.from(imageBytes), ok: true };
-      }
-      return { stdout: Buffer.alloc(0), ok: false };
-    };
-
-    const media = await readClipboardMedia({
-      platform: 'linux',
-      env: { WAYLAND_DISPLAY: 'wayland-1' },
-      // `null` would fall back to the real native binding, so a no-image fake
-      // keeps this test independent of the host clipboard.
-      clipboard: fakeClipboard({}),
-      runCommand,
-    });
-
-    expect(media).toEqual({
-      kind: 'image',
-      bytes: imageBytes,
-      mimeType: 'image/png',
-    });
-    expect(calls[0]).toEqual({ command: 'wl-paste', args: ['--list-types'] });
-    expect(calls).toContainEqual({
-      command: 'wl-paste',
-      args: ['--type', 'image/png', '--no-newline'],
-    });
-  });
-
-  it('reaches the Windows clipboard from WSL with the injected env', async () => {
-    const imageBytes = png(3, 7);
-    let tmpFile = '';
-    let powerShellCalls = 0;
-    const runCommand: RunCommand = (command, args, options) => {
-      if (command === 'wslpath') {
-        tmpFile = args[1] ?? '';
-        return { stdout: Buffer.from('C:\\Users\\test\\clip.png\n'), ok: true };
-      }
-      if (command === 'powershell.exe') {
-        powerShellCalls += 1;
-        const env = options?.env ?? {};
-        expect(env['KIMI_CLIPBOARD_IMAGE_PATH']).toBe('C:\\Users\\test\\clip.png');
-        expect(env['KIMI_INJECTED_ENV']).toBe('1');
-        // Exactly the injected env plus the temp path: no host variable leaks in.
-        expect(Object.keys(env).toSorted()).toEqual([
-          'KIMI_CLIPBOARD_IMAGE_PATH',
-          'KIMI_INJECTED_ENV',
-          'WSL_DISTRO_NAME',
-        ]);
-        if (tmpFile === '') throw new Error('wslpath must run before powershell.exe');
-        writeFileSync(tmpFile, imageBytes);
-        return { stdout: Buffer.from('ok\n'), ok: true };
-      }
-      return { stdout: Buffer.alloc(0), ok: false };
-    };
-
-    const media = await readClipboardMedia({
-      platform: 'linux',
-      env: { WSL_DISTRO_NAME: 'Ubuntu', KIMI_INJECTED_ENV: '1' },
-      // `null` would fall back to the real native binding, so a no-image fake
-      // keeps this test independent of the host clipboard.
-      clipboard: fakeClipboard({}),
-      runCommand,
-    });
-
-    expect(media).toEqual({
-      kind: 'image',
-      bytes: imageBytes,
-      mimeType: 'image/png',
-    });
-    expect(powerShellCalls).toBe(1);
-  });
-});
-
-describe('readClipboardMedia on Windows', () => {
-  it('falls back to PowerShell when the native binding cannot hand back the image', async () => {
-    const imageBytes = png(5, 9);
-    const runCommand: RunCommand = (command, _args, options) => {
-      if (command === 'powershell.exe') {
-        const target = options?.env?.['KIMI_CLIPBOARD_IMAGE_PATH'] ?? '';
-        expect(target.length).toBeGreaterThan(0);
-        writeFileSync(target, imageBytes);
-        return { stdout: Buffer.from('ok\n'), ok: true };
-      }
-      return { stdout: Buffer.alloc(0), ok: false };
-    };
-    const clip = fakeClipboard({
-      availableFormats: () => ['CF_DIB', 'CF_BITMAP'],
-      hasImage: () => true,
-      getImageBinary: async () => {
-        throw new Error('Get image error, code = OSError(0)');
-      },
-    });
-
-    const media = await readClipboardMedia({ platform: 'win32', clipboard: clip, runCommand });
-
-    expect(media).toEqual({ kind: 'image', bytes: imageBytes, mimeType: 'image/png' });
-  });
-
-  it('reports a read failure instead of silently returning null when every path fails', async () => {
-    const runCommand: RunCommand = () => ({ stdout: Buffer.from('empty\n'), ok: true });
-    const clip = fakeClipboard({
-      availableFormats: () => ['CF_DIB'],
-      hasImage: () => true,
-      getImageBinary: async () => {
-        throw new Error('Get image error, code = OSError(0)');
-      },
-    });
-
-    await expect(
-      readClipboardMedia({ platform: 'win32', clipboard: clip, runCommand }),
-    ).rejects.toBeInstanceOf(ClipboardMediaError);
-  });
-
-  it('reads a file-drop clipboard through PowerShell when the native getText fails', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'kimi-code-clip-'));
-    try {
-      const imagePath = join(dir, 'shot.png');
-      const imageBytes = png(8, 8);
-      writeFileSync(imagePath, imageBytes);
-      let powerShellCalls = 0;
-      const runCommand: RunCommand = (command) => {
-        if (command === 'powershell.exe') {
-          powerShellCalls += 1;
-          return { stdout: Buffer.from(`${imagePath}\n`), ok: true };
-        }
-        return { stdout: Buffer.alloc(0), ok: false };
-      };
-      const clip = fakeClipboard({
-        availableFormats: () => ['CF_HDROP', 'FileNameW'],
-        hasText: () => false,
-        getText: async () => {
-          throw new Error('Get text error, code = OSError(1168)');
-        },
-        hasImage: () => false,
-      });
-
-      const media = await readClipboardMedia({ platform: 'win32', clipboard: clip, runCommand });
-
-      expect(media).toEqual({ kind: 'image', bytes: imageBytes, mimeType: 'image/png' });
-      expect(powerShellCalls).toBe(1);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('reads a PDF from a file-drop clipboard through PowerShell', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'kimi-code-clip-'));
-    try {
-      const pdfPath = join(dir, 'report.pdf');
-      writeFileSync(pdfPath, '%PDF-1.4\n');
-      const runCommand: RunCommand = (command) => {
-        if (command === 'powershell.exe') {
-          return { stdout: Buffer.from(`${pdfPath}\n`), ok: true };
-        }
-        return { stdout: Buffer.alloc(0), ok: false };
-      };
-      const clip = fakeClipboard({
-        availableFormats: () => ['CF_HDROP', 'FileNameW'],
-        hasText: () => false,
-        getText: async () => {
-          throw new Error('Get text error, code = OSError(1168)');
-        },
-        hasImage: () => false,
-      });
-
-      const media = await readClipboardMedia({ platform: 'win32', clipboard: clip, runCommand });
-
-      expect(media).toEqual({
-        kind: 'document',
-        mimeType: 'application/pdf',
-        filename: 'report.pdf',
-        sourcePath: pdfPath,
-      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -1,5 +1,5 @@
-import type { ContentPart, Message, ThinkPart, ToolMessage, UserMessage } from '#/llm/message';
-import type { Pattern } from '#/llm/protocol/rewrite';
+import type { ContentPart, Message, ThinkPart, ToolMessage, UserMessage } from '#human/message';
+import type { Pattern } from '#human/llm/protocol/rewrite';
 
 export const TOOL_RESULT_MEDIA_PROMPT = 'Attached media from tool result:';
 export const TOOL_RESULT_MEDIA_PLACEHOLDER = '(see attached media)';

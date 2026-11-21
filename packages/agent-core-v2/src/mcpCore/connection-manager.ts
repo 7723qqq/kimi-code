@@ -1,16 +1,14 @@
+import { ErrorCodes, Error2 } from '#/errors';
+import type { McpServerConfig } from './config-schema';
+import type { ILogger as Logger } from '#/_base/log/log';
+import type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
 import { McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import type { ILogger as Logger } from '#/_base/log/log';
 import { abortable } from '#/_base/utils/abort';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ErrorCodes, Error2 } from '#/errors';
-import type { McpOAuthService } from '#/mcpCore/oauth/service';
-import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
-import { EnvironmentError } from '#/environment/environmentRegistry';
-import type { ToolDescription as Tool } from '#human/llm/message';
-
 import { HttpMcpClient } from './client-http';
 import { classifyRemoteDiscoveryError, isRemoteMcpConfig } from './client-remote';
+import { SseMcpClient } from './client-sse';
 import {
   classifyMcpDiscoveryError,
   MCP_LIVENESS_PROBE_TIMEOUT_MS,
@@ -20,19 +18,11 @@ import {
   type SessionEvidence,
   type UnexpectedCloseReason,
 } from './client-shared';
-import { SseMcpClient } from './client-sse';
 import { StdioMcpClient } from './client-stdio';
-import type { McpServerConfig } from './config-schema';
-import { compactMcpInputSchema } from './schema-compaction';
+import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import { assertMcpInputSchema, type MCPClient, type MCPToolDefinition } from './types';
 
-export type McpServerStatus =
-  | 'pending'
-  | 'connected'
-  | 'failed'
-  | 'disabled'
-  | 'needs-auth'
-  | 'removed';
+export type McpServerStatus = 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth' | 'removed';
 
 export interface McpServerEntry {
   readonly name: string;
@@ -78,7 +68,9 @@ export interface McpConnectionView {
   list(): readonly McpServerEntry[];
   get(name: string): McpServerEntry | undefined;
   deferredOf(name: string): boolean;
-  resolved(name: string):
+  resolved(
+    name: string,
+  ):
     | {
         client: MCPClient;
         tools: readonly Tool[];
@@ -100,7 +92,6 @@ const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 const DEFAULT_RECONNECT_INITIAL_DELAY_MS = 5_000;
 const DEFAULT_RECONNECT_MAX_DELAY_MS = 300_000;
 const MAX_FAILURE_STREAK = 31;
-export const AUTO_DEFER_TOOL_THRESHOLD = 24;
 
 type RuntimeMcpClient = StdioMcpClient | HttpMcpClient | SseMcpClient;
 const defaultLog: Logger = {
@@ -115,8 +106,6 @@ export interface McpDefaults {
   readonly startupTimeoutMs?: number;
   readonly toolTimeoutMs?: number;
   readonly defaultDeferred?: boolean;
-  readonly autoDeferToolThreshold?: number;
-  readonly compactToolSchemas?: boolean;
   readonly reconnectInitialDelayMs?: number;
   readonly reconnectMaxDelayMs?: number;
 }
@@ -130,7 +119,6 @@ export interface McpConnectionManagerOptions {
   readonly sessionId?: string;
   readonly reconnectRetryEnabled?: boolean;
   readonly oauthService?: McpOAuthService;
-  readonly telemetry?: ITelemetryService;
   readonly log?: Logger;
   readonly resolveDefaults?: () => McpDefaults;
   readonly resolveClientName?: () => string | undefined;
@@ -155,11 +143,7 @@ type McpEntryEvent =
       readonly error: unknown;
       readonly client?: RuntimeMcpClient;
     }
-  | {
-      readonly type: 'probeSucceeded';
-      readonly attemptId: number;
-      readonly client: RuntimeMcpClient;
-    }
+  | { readonly type: 'probeSucceeded'; readonly attemptId: number; readonly client: RuntimeMcpClient }
   | {
       readonly type: 'probeFailed';
       readonly attemptId: number;
@@ -241,15 +225,13 @@ export class McpConnectionManager implements McpConnectionView {
     return this.entries.get(name)?.deferred ?? false;
   }
 
-  private resolveDeferred(config: McpServerConfig, toolCount?: number): boolean {
-    if (config.deferred !== undefined) return config.deferred;
-    const defaults = this.options.resolveDefaults?.();
-    const threshold = defaults?.autoDeferToolThreshold ?? AUTO_DEFER_TOOL_THRESHOLD;
-    if (toolCount !== undefined && threshold > 0 && toolCount >= threshold) return true;
-    return defaults?.defaultDeferred ?? false;
+  private resolveDeferred(config: McpServerConfig): boolean {
+    return config.deferred ?? this.options.resolveDefaults?.().defaultDeferred ?? false;
   }
 
-  resolved(name: string):
+  resolved(
+    name: string,
+  ):
     | {
         client: MCPClient;
         tools: readonly Tool[];
@@ -445,8 +427,7 @@ export class McpConnectionManager implements McpConnectionView {
     }
     if (!this.shouldMarkNeedsAuth(entry, error)) return false;
     if (entry.state === 'needsAuth' && !redrive) return true;
-    if (entry.state !== 'needsAuth' && client !== undefined && entry.client !== client)
-      return false;
+    if (entry.state !== 'needsAuth' && client !== undefined && entry.client !== client) return false;
     const guard = entry.attemptId;
     const oauthService = this.oauthService;
     const rejectedGrant =
@@ -462,11 +443,7 @@ export class McpConnectionManager implements McpConnectionView {
     transition.attemptId = authGuard;
     await this.operationTails.get(name);
     if (!this.isCurrent(entry, authGuard)) return false;
-    if (
-      rejectedGrant !== undefined &&
-      oauthService !== undefined &&
-      isRemoteMcpConfig(entry.config)
-    ) {
+    if (rejectedGrant !== undefined && oauthService !== undefined && isRemoteMcpConfig(entry.config)) {
       try {
         await oauthService.invalidateTokensIfCurrent(name, entry.config.url, rejectedGrant.tokens);
       } catch (invalidateError) {
@@ -563,18 +540,15 @@ export class McpConnectionManager implements McpConnectionView {
         if (client !== undefined) {
           const attemptId = entry.attemptId;
           const reason = plan.weakReason ?? {};
-          void this.enqueueOperation(entry.name, () =>
-            this.runProbe(entry, client, attemptId, reason),
-          );
+          void this.enqueueOperation(entry.name, () => this.runProbe(entry, client, attemptId, reason));
         }
         break;
       }
       case 'retryWaiting': {
         entry.error = plan.error;
-        const streak =
-          plan.rescheduleRetry === true
-            ? Math.max(0, entry.failureStreak - 1)
-            : entry.failureStreak;
+        const streak = plan.rescheduleRetry === true
+          ? Math.max(0, entry.failureStreak - 1)
+          : entry.failureStreak;
         const delayMs = this.nextRetryDelayMs(streak);
         if (plan.rescheduleRetry !== true) {
           entry.failureStreak = Math.min(entry.failureStreak + 1, MAX_FAILURE_STREAK);
@@ -597,8 +571,7 @@ export class McpConnectionManager implements McpConnectionView {
         break;
     }
     const after = toPublicEntry(entry);
-    const suppressRetryStatus =
-      event.type === 'retryDue' || (automaticRetry && plan.target === 'retryWaiting');
+    const suppressRetryStatus = event.type === 'retryDue' || (automaticRetry && plan.target === 'retryWaiting');
     if (!suppressRetryStatus && (plan.forceEmit === true || !publicEntriesEqual(before, after))) {
       this.emit(entry);
     }
@@ -736,15 +709,13 @@ export class McpConnectionManager implements McpConnectionView {
           this.closeForLifecycle(entry, startupClient);
         },
       );
-      const enabledNames = computeEnabledNames(entry.config, discovered.tools);
-      entry.deferred = this.resolveDeferred(entry.config, enabledNames.size);
       this.transition(entry, {
         type: 'handshakeSucceeded',
         attemptId,
         client: startupClient,
         tools: discovered.tools,
         rawTools: discovered.rawTools,
-        enabledNames,
+        enabledNames: computeEnabledNames(entry.config, discovered.tools),
       });
     } catch (error) {
       this.transition(entry, { type: 'handshakeFailed', attemptId, error, client });
@@ -770,10 +741,7 @@ export class McpConnectionManager implements McpConnectionView {
     reason: UnexpectedCloseReason,
   ): Promise<void> {
     try {
-      const alive = await probeMcpLiveness(
-        client,
-        AbortSignal.timeout(MCP_LIVENESS_PROBE_TIMEOUT_MS),
-      );
+      const alive = await probeMcpLiveness(client, AbortSignal.timeout(MCP_LIVENESS_PROBE_TIMEOUT_MS));
       if (alive) {
         this.transition(entry, { type: 'probeSucceeded', attemptId, client });
       } else {
@@ -797,24 +765,17 @@ export class McpConnectionManager implements McpConnectionView {
     if (this.reconcileTimerAt !== undefined && this.reconcileTimerAt <= nearest) return;
     this.stopReconcile();
     this.reconcileTimerAt = nearest;
-    this.reconcileTimer = setTimeout(
-      () => {
-        this.reconcileTimer = undefined;
-        this.reconcileTimerAt = undefined;
-        const now = Date.now();
-        for (const entry of this.entries.values()) {
-          if (
-            entry.state === 'retryWaiting' &&
-            entry.nextRetryAt !== undefined &&
-            entry.nextRetryAt <= now
-          ) {
-            this.transition(entry, { type: 'retryDue' });
-          }
+    this.reconcileTimer = setTimeout(() => {
+      this.reconcileTimer = undefined;
+      this.reconcileTimerAt = undefined;
+      const now = Date.now();
+      for (const entry of this.entries.values()) {
+        if (entry.state === 'retryWaiting' && entry.nextRetryAt !== undefined && entry.nextRetryAt <= now) {
+          this.transition(entry, { type: 'retryDue' });
         }
-        this.scheduleReconcile();
-      },
-      Math.max(0, nearest - Date.now()),
-    );
+      }
+      this.scheduleReconcile();
+    }, Math.max(0, nearest - Date.now()));
     this.reconcileTimer.unref?.();
   }
 
@@ -902,27 +863,15 @@ export class McpConnectionManager implements McpConnectionView {
         ? classifyRemoteDiscoveryError(config, error)
         : classifyMcpDiscoveryError(error);
     }
-    const compact = this.options.resolveDefaults?.().compactToolSchemas === true;
     try {
-      const prepared = mcpTools.map((mcpTool) => ({
-        name: mcpTool.name,
-        description: mcpTool.description,
-        parameters: assertMcpInputSchema(mcpTool.name, mcpTool.inputSchema),
-      }));
-      const tools = compact
-        ? prepared.map((tool) => ({
-            ...tool,
-            parameters: compactMcpInputSchema(tool.parameters),
-          }))
-        : prepared;
-      if (compact) {
-        this.options.telemetry?.track2('mcp_schema_compacted', {
-          tool_count: tools.length,
-          original_chars: JSON.stringify(prepared.map((tool) => tool.parameters)).length,
-          compacted_chars: JSON.stringify(tools.map((tool) => tool.parameters)).length,
-        });
-      }
-      return { rawTools: mcpTools, tools };
+      return {
+        rawTools: mcpTools,
+        tools: mcpTools.map((mcpTool) => ({
+          name: mcpTool.name,
+          description: mcpTool.description,
+          parameters: assertMcpInputSchema(mcpTool.name, mcpTool.inputSchema),
+        })),
+      };
     } catch (error) {
       if (error instanceof Error2 && error.code === ErrorCodes.MCP_STARTUP_FAILED) {
         throw new McpClassifiedStartupError('protocol', error.message, { cause: error });
@@ -934,7 +883,8 @@ export class McpConnectionManager implements McpConnectionView {
   private async closeRuntimeClient(client: RuntimeMcpClient): Promise<void> {
     try {
       await client.close();
-    } catch {}
+    } catch {
+    }
   }
 
   private isCurrent(entry: InternalEntry, attemptId: number): boolean {
@@ -954,7 +904,8 @@ export class McpConnectionManager implements McpConnectionView {
     for (const listener of this.listeners) {
       try {
         listener(view);
-      } catch {}
+      } catch {
+      }
     }
   }
 }
@@ -1011,23 +962,13 @@ function computeEnabledNames(config: McpServerConfig, tools: readonly Tool[]): S
 
 function classifyStartupFailure(error: unknown): McpFailureKind {
   if (error instanceof McpClassifiedStartupError) return error.failureKind;
-  if (error instanceof EnvironmentError) {
-    return error.code === 'environment.unavailable' ? 'transport' : 'config';
-  }
-  if (
-    error instanceof Error2 &&
-    (error.code === ErrorCodes.CONFIG_INVALID || error.code === ErrorCodes.NOT_IMPLEMENTED)
-  ) {
-    return 'config';
-  }
-  if (isUnauthorizedLikeError(error)) return 'auth-oauth';
+  if (error instanceof Error2 && error.code === ErrorCodes.CONFIG_INVALID) return 'config';
   return 'transport';
 }
 
 function isUnauthorizedLikeError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   if (error instanceof McpError) return false;
-  if (error.name === 'InvalidGrantError') return true;
   if (error.name === 'UnauthorizedError') return true;
   const code = (error as { code?: unknown }).code;
   if (typeof code === 'number' && code === 401) return true;

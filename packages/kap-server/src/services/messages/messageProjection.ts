@@ -1,10 +1,8 @@
-import {
-  daemonFileRefFromPart,
-  parseDaemonFileUrl,
-  type ContentPart,
-  type ContextMessage,
-} from '@moonshot-ai/agent-core-v2';
-import { projectPromptContentParts as projectTranscriptPromptContent } from '@moonshot-ai/transcript';
+import { daemonFileRefFromPart, parseDaemonFileUrl, type ContextMessage } from '@moonshot-ai/agent-core-v2';
+import { isUserPromptSubmitHookPart } from '@moonshot-ai/agent-core-v2/agent/contextMemory/hookParts';
+import { stripBundledSkillBlocks, type SteerMessage } from '@moonshot-ai/core/llm/origin';
+import { fromCorePart } from '@moonshot-ai/agent-core-v2/human/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 import type { Message, MessageContent, MessageRole, ToolUseContent } from '../../protocol/message';
 
@@ -18,55 +16,40 @@ function toProtocolRole(role: ContextMessage['role']): MessageRole {
 }
 
 function mapContentPart(part: ContextMessage['content'][number]): MessageContent {
-  switch (part.type) {
+  const legacy = fromCorePart(part);
+  switch (legacy.type) {
     case 'text':
-      return { type: 'text', text: part.text };
+      return { type: 'text', text: legacy.text };
     case 'think': {
-      const sig = part.encrypted;
+      const sig = legacy.encrypted;
       return sig !== undefined
-        ? { type: 'thinking', thinking: part.think, signature: sig }
-        : { type: 'thinking', thinking: part.think };
+        ? { type: 'thinking', thinking: legacy.think, signature: sig }
+        : { type: 'thinking', thinking: legacy.think };
     }
     case 'image_url': {
-      const ref = parseDaemonFileUrl(part.imageUrl.url);
+      const ref = parseDaemonFileUrl(legacy.imageUrl.url);
       return ref !== undefined
-        ? {
-            type: 'image',
-            source: { kind: 'session_media', file_id: ref.fileId },
-            name: part.imageUrl.name,
-          }
-        : {
-            type: 'image',
-            source: { kind: 'url', url: part.imageUrl.url, id: part.imageUrl.id },
-            name: part.imageUrl.name,
-          };
+        ? { type: 'image', source: { kind: 'session_media', file_id: ref.fileId }, name: legacy.imageUrl.name }
+        : { type: 'image', source: { kind: 'url', url: legacy.imageUrl.url, id: legacy.imageUrl.id }, name: legacy.imageUrl.name };
     }
     case 'audio_url':
-      return { type: 'text', text: `[audio:${part.audioUrl.url}]` };
+      return { type: 'text', text: `[audio:${legacy.audioUrl.url}]` };
     case 'document_url': {
-      const ref = parseDaemonFileUrl(part.documentUrl.url);
+      const ref = parseDaemonFileUrl(legacy.documentUrl.url);
       return ref !== undefined
         ? {
             type: 'file',
             file_id: ref.fileId,
-            name: part.documentUrl.name,
-            media_type: part.documentUrl.mimeType,
+            name: legacy.documentUrl.name,
+            media_type: legacy.documentUrl.mimeType,
           }
-        : { type: 'text', text: `[document:${part.documentUrl.mimeType}]` };
+        : { type: 'text', text: `[document:${legacy.documentUrl.url}]` };
     }
     case 'video_url': {
-      const ref = parseDaemonFileUrl(part.videoUrl.url);
+      const ref = parseDaemonFileUrl(legacy.videoUrl.url);
       return ref !== undefined
-        ? {
-            type: 'video',
-            source: { kind: 'session_media', file_id: ref.fileId },
-            name: part.videoUrl.name,
-          }
-        : {
-            type: 'video',
-            source: { kind: 'url', url: part.videoUrl.url, id: part.videoUrl.id },
-            name: part.videoUrl.name,
-          };
+        ? { type: 'video', source: { kind: 'session_media', file_id: ref.fileId }, name: legacy.videoUrl.name }
+        : { type: 'video', source: { kind: 'url', url: legacy.videoUrl.url, id: legacy.videoUrl.id }, name: legacy.videoUrl.name };
     }
   }
 }
@@ -127,7 +110,7 @@ function projectToolResultMediaPart(part: unknown): unknown {
   return legacy;
 }
 
-export function projectToolResultOutput(output: unknown): unknown {
+function projectToolResultOutput(output: unknown): unknown {
   if (!Array.isArray(output)) return output;
   return output.map((part) => projectToolResultMediaPart(part));
 }
@@ -186,7 +169,43 @@ function buildProtocolContent(msg: ContextMessage): MessageContent[] {
 }
 
 export function projectPromptContentParts(content: readonly ContentPart[]): MessageContent[] {
-  return projectTranscriptPromptContent(content) as MessageContent[];
+  const parts: MessageContent[] = [];
+  for (const part of content) {
+    const daemonRef = daemonFileRefFromPart(part);
+    const legacy = fromCorePart(part);
+    if (daemonRef !== undefined) {
+      parts.push({
+        type: daemonRef.kind,
+        source: { kind: 'session_media', file_id: daemonRef.ref.fileId },
+        name:
+          legacy.type === 'image_url'
+            ? legacy.imageUrl.name
+            : legacy.type === 'video_url'
+              ? legacy.videoUrl.name
+              : undefined,
+      });
+      continue;
+    }
+    if (legacy.type === 'text') parts.push({ type: 'text', text: legacy.text });
+    else if (legacy.type === 'image_url') {
+      const match = /^data:([^;]+);base64,(.*)$/.exec(legacy.imageUrl.url);
+      parts.push(match === null
+        ? { type: 'image', source: { kind: 'url', url: legacy.imageUrl.url, id: legacy.imageUrl.id }, name: legacy.imageUrl.name }
+        : { type: 'image', source: { kind: 'base64', media_type: match[1]!, data: match[2]! }, name: legacy.imageUrl.name });
+    } else if (legacy.type === 'video_url') {
+      const match = /^data:([^;]+);base64,(.*)$/.exec(legacy.videoUrl.url);
+      parts.push(match === null
+        ? { type: 'video', source: { kind: 'url', url: legacy.videoUrl.url, id: legacy.videoUrl.id }, name: legacy.videoUrl.name }
+        : { type: 'video', source: { kind: 'base64', media_type: match[1]!, data: match[2]! }, name: legacy.videoUrl.name });
+    }
+  }
+  return parts;
+}
+
+export function projectUserContent(message: SteerMessage): MessageContent[] {
+  const origin = message.origin as { readonly kind: string; readonly name?: unknown } | undefined;
+  if (origin?.kind === 'retry' || (origin?.kind === 'system_trigger' && origin.name !== 'subagent')) return [];
+  return projectPromptContentParts(stripBundledSkillBlocks(message).filter((part) => !isUserPromptSubmitHookPart(part)));
 }
 
 export function toProtocolMessage(

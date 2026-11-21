@@ -1,21 +1,13 @@
-import { execFileSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { resolveProgramPath } from '#/environment/programPath';
 
 import { resolveLauncher } from '#/remote/client/launchers';
-
-function hostEnvKey(name: string): string {
-  return Object.keys(process.env).find((key) => key.toUpperCase() === name) ?? name;
-}
-
-function hostEnv(name: string): string | undefined {
-  return process.env[hostEnvKey(name)];
-}
 
 describe('launcher lowering', () => {
   it('lowers ssh to the fixed argv shape', () => {
@@ -130,22 +122,66 @@ describe('ssh remote command tilde expansion through a local shell', () => {
     return execFileSync('sh', ['-c', `printf '%s' ${binWord}`], { encoding: 'utf8' });
   }
 
-  it.skipIf(process.platform === 'win32')('expands the default remoteBin via $HOME', () => {
+  it('expands the default remoteBin via $HOME', () => {
     const command = resolveLauncher({ type: 'ssh', host: 'dev-box' }).args.at(-1)!;
     expect(expandBinWord(command)).toBe(`${process.env['HOME']}/.kimi-code/bin/kimi`);
   });
 
-  it.skipIf(process.platform === 'win32')('expands a ~user remoteBin via tilde expansion', () => {
+  it('expands a ~user remoteBin via tilde expansion', () => {
     const username = userInfo().username;
     const command = resolveLauncher({ type: 'ssh', host: 'dev-box', remoteBin: `~${username}/bin/kimi` }).args.at(-1)!;
     expect(expandBinWord(command)).toBe(`${userInfo().homedir}/bin/kimi`);
   });
 });
 
+describe('complete SSH executor commands', () => {
+  it.each(['exit 1', 'exit 23'])('preserves executor failure without a second launch: %s', async (exit) => {
+    const dir = await mkdtemp(join(tmpdir(), 'kimi-executor-exit-'));
+    try {
+      const bin = join(dir, 'kimi');
+      const calls = join(dir, 'calls');
+      await writeFile(bin, `#!/bin/sh\nprintf 'called\\n' >> "$CALLS"\n${exit}\n`);
+      await chmod(bin, 0o700);
+      const command = resolveLauncher({ type: 'ssh', host: 'example.test', remoteBin: bin }).args.at(-1)!;
+      const result = spawnSync('sh', ['-c', command], { env: { ...process.env, CALLS: calls }, encoding: 'utf8' });
+      expect(result.status).toBe(Number(exit.slice(5)));
+      expect(result.stderr).toBe('');
+      expect(await readFile(calls, 'utf8')).toBe('called\n');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['$(printf INJECTED >&2)', '`printf INJECTED >&2`', 'a"b', "it's", 'a b'])('executes the literal path containing %s', async (name) => {
+    const dir = await mkdtemp(join(tmpdir(), 'kimi-executor-literal-'));
+    try {
+      const bin = join(dir, name);
+      await writeFile(bin, '#!/bin/sh\nprintf "%s\\n" "$@"\n');
+      await chmod(bin, 0o700);
+      const command = resolveLauncher({ type: 'ssh', host: 'example.test', remoteBin: bin }).args.at(-1)!;
+      const result = spawnSync('sh', ['-c', command], { encoding: 'utf8' });
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(result.stdout).toBe('exec-server\n--listen\nstdio\n');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    [undefined, "($env:USERPROFILE + '/.kimi-code/bin/kimi.exe')"],
+    ['~/bin dir/kimi.exe', "($env:USERPROFILE + '/bin dir/kimi.exe')"],
+    [String.raw`C:\Program Files\it's $env:PATH $(whoami) & Kimi\kimi.exe`, String.raw`'C:\Program Files\it''s $env:PATH $(whoami) & Kimi\kimi.exe'`],
+  ])('encodes the entire Windows script with a literal executable: %s', (remoteBin, executable) => {
+    const command = resolveLauncher({ type: 'ssh', host: 'example.test', remoteBin }, false, 'windows').args.at(-1)!;
+    expect(command).toMatch(/^powershell -NoLogo -NoProfile -NonInteractive -EncodedCommand [A-Za-z0-9+/=]+$/);
+    const script = Buffer.from(command.split(' ').at(-1)!, 'base64').toString('utf16le');
+    expect(script).toBe(`$ErrorActionPreference = 'Stop'; & ${executable} exec-server --listen stdio; exit $LASTEXITCODE`);
+  });
+});
+
 describe('command launcher environment', () => {
-  it.skipIf(process.platform === 'win32')(
-    'resolves a bare command against the configured PATH',
-    async () => {
+  it('resolves a bare command against the configured PATH', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'remote-exec-configured-path-'));
     try {
       await writeFile(join(sandbox, 'sandbox'), '#!/bin/sh\nexit 0\n');
@@ -155,23 +191,21 @@ describe('command launcher environment', () => {
         program: 'sandbox',
         env: { PATH: sandbox },
       });
-        expect(resolved.program).toBe(join(sandbox, 'sandbox'));
-      } finally {
-        await rm(sandbox, { recursive: true, force: true });
-      }
-    },
-  );
+      expect(resolved.program).toBe(join(sandbox, 'sandbox'));
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
+  });
 
   it('drops host secrets from the resolved command launcher env', () => {
-    process.env['REMOTE_EXEC_TEST_LLM_KEY'] = 'secret';
+    vi.stubEnv('REMOTE_EXEC_TEST_LLM_KEY', 'secret');
     try {
       const resolved = resolveLauncher({ type: 'command', program: process.execPath });
       expect(resolved.env?.['REMOTE_EXEC_TEST_LLM_KEY']).toBeUndefined();
-      const pathKey = hostEnvKey('PATH');
-      expect(resolved.env?.[pathKey]).toBe(hostEnv('PATH'));
-      const homeKey = hostEnvKey('HOME');
-      expect(resolved.env?.[homeKey]).toBe(hostEnv('HOME'));
+      expect(resolved.env?.['PATH']).toBe(process.env['PATH']);
+      expect(resolved.env?.['HOME']).toBe(process.env['HOME']);
     } finally {
+      vi.unstubAllEnvs();
     }
   });
 });
@@ -220,7 +254,7 @@ describe('command launcher executor invocation', () => {
   });
 });
 
-describe.skipIf(process.platform === 'win32')('command program PATH resolution', () => {
+describe('command program PATH resolution', () => {
   let sandbox: string;
   let pathDir: string;
   let cwdDir: string;
@@ -249,13 +283,15 @@ describe.skipIf(process.platform === 'win32')('command program PATH resolution',
     await chmod(join(pathDir, 'sandbox.exe'), 0o755);
     await writeFile(join(pathDir, 'sandbox.EXE'), 'executable');
     await chmod(join(pathDir, 'sandbox.EXE'), 0o755);
-    process.env['PATHEXT'] = '.EXE;.CMD';
+    vi.stubEnv('PATHEXT', '.EXE;.CMD');
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     try {
       expect(resolveProgramPath(program, { cwd: cwdDir, pathEnv: pathDir }).toLowerCase()).toBe(join(pathDir, 'sandbox.exe').toLowerCase());
       expect(() => resolveProgramPath(program, { cwd: pathDir, pathEnv: pathDir })).toThrow(/refusing cwd match/);
+      expect(() => resolveProgramPath(program, { cwd: sandbox.toUpperCase(), pathEnv: pathDir })).toThrow(/refusing cwd match/);
     } finally {
       Object.defineProperty(process, 'platform', descriptor);
+      vi.unstubAllEnvs();
     }
   });
 
@@ -275,47 +311,5 @@ describe.skipIf(process.platform === 'win32')('command program PATH resolution',
     expect(() =>
       resolveProgramPath(join(cwdDir, 'smuggled'), { cwd: cwdDir, pathEnv: pathDir }),
     ).toThrow(/refusing cwd match/);
-  });
-});
-
-describe('windows ssh executor command', () => {
-  it.each([
-    [undefined, "($env:USERPROFILE + '/.kimi-code/bin/kimi.exe')"],
-    ['~/bin dir/kimi.exe', "($env:USERPROFILE + '/bin dir/kimi.exe')"],
-    [
-      String.raw`C:\Program Files\it's $env:PATH $(whoami) & Kimi\kimi.exe`,
-      String.raw`'C:\Program Files\it''s $env:PATH $(whoami) & Kimi\kimi.exe'`,
-    ],
-  ])(
-    'encodes the entire script with a literal executable: %s',
-    (remoteBin, executable) => {
-      const command = resolveLauncher({ type: 'ssh', host: 'example.test', remoteBin }, false, 'windows')
-        .args.at(-1)!;
-      expect(command).toMatch(
-        /^powershell -NoLogo -NoProfile -NonInteractive -EncodedCommand [A-Za-z0-9+/=]+$/,
-      );
-      const script = Buffer.from(command.split(' ').at(-1)!, 'base64').toString('utf16le');
-      expect(script).toBe(
-        `$ErrorActionPreference = 'Stop'; & ${executable} exec-server --listen stdio; exit $LASTEXITCODE`,
-      );
-    },
-  );
-
-  it('keeps a bare remote bin on the shell path even for a windows target', () => {
-    const command = resolveLauncher(
-      { type: 'ssh', host: 'example.test', remoteBin: 'kimi' },
-      false,
-      'windows',
-    ).args.at(-1)!;
-    expect(command).toBe('kimi exec-server --listen stdio');
-  });
-
-  it('keeps the posix command for a posix target', () => {
-    const command = resolveLauncher(
-      { type: 'ssh', host: 'example.test', remoteBin: '/opt/kimi/bin/kimi' },
-      false,
-      'posix',
-    ).args.at(-1)!;
-    expect(command).toBe("'/opt/kimi/bin/kimi' 'exec-server' '--listen' 'stdio'");
   });
 });

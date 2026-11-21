@@ -1,11 +1,3 @@
-/**
- * `modelResolver` — the engine's `IModelCatalog`: materialized model lookup
- * plus the read-only catalog enumeration over configured providers and model
- * aliases, and the global default-model selection. Mirrors
- * `agent-core-v2/llm-adapter/model/catalog.ts`; wire shapes mirror
- * `packages/kap-server/src/protocol/rest-modelCatalog.ts` (snake_case fields).
- */
-
 import { z } from 'zod';
 
 import type { ServiceContract, StreamingProcedureContract } from '../types.js';
@@ -52,21 +44,15 @@ const generateInputSchema = z.object({
   responseFormat: z.unknown().optional(),
 });
 
-const generateParamsSchema = z
-  .object({
-    cacheKey: z.string().optional(),
-    temperature: z.number().optional(),
-    topP: z.number().optional(),
-    thinkingEffort: z.string().optional(),
-    maxCompletionTokens: z.number().optional(),
-  })
-  .optional();
+const generateParamsSchema = z.object({
+  protocol: z.unknown().optional(),
+  model: z.unknown().optional(),
+  endpoint: z.unknown().optional(),
+}).optional();
 
-const generateEventSchema = z
-  .object({
-    type: z.string(),
-  })
-  .passthrough();
+const generateEventSchema = z.object({
+  type: z.string(),
+}).passthrough();
 
 export const catalogContract = {
   listModels: { input: z.tuple([]), output: z.array(modelCatalogItemSchema) },

@@ -40,9 +40,6 @@ function matchesLevel(line: LogLine, filter: LevelFilter): boolean {
   return line.level === filter;
 }
 
-/** Logs tab — structured view of a session's diagnostic log. Works for both
- *  local sessions (whose dir holds `logs/kimi-code.log`) and imported bundles
- *  (which additionally may carry the global log). */
 export function LogsTab({ sessionId }: LogsTabProps) {
   const [which, setWhich] = useState<'session' | 'global'>('session');
   const [level, setLevel] = useState<LevelFilter>('ALL');
@@ -75,14 +72,14 @@ export function LogsTab({ sessionId }: LogsTabProps) {
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-surface-1 px-3 py-2">
         <div className="flex items-center gap-1 font-mono text-[11px]">
           <SegBtn active={which === 'session'} onClick={() => { setWhich('session'); }} disabled={!available.session && !isLoading}>
-            {t('logs.session')}
+            session
           </SegBtn>
           <SegBtn active={which === 'global'} onClick={() => { setWhich('global'); }} disabled={!available.global}>
-            {t('logs.global')}
+            global
           </SegBtn>
         </div>
         <label className="flex items-center gap-1.5 font-mono text-[11px] text-fg-2">
-          <span className="text-fg-3">{t('logs.level')}</span>
+          <span className="text-fg-3">level</span>
           <select
             value={level}
             onChange={(e) => { setLevel(e.target.value as LevelFilter); }}
@@ -95,19 +92,19 @@ export function LogsTab({ sessionId }: LogsTabProps) {
         </label>
         <input
           type="text"
-          placeholder={t('logs.searchPlaceholder')}
+          placeholder="search log (substring)"
           value={search}
           onChange={(e) => { setSearch(e.target.value); }}
           className="w-64 border border-border bg-surface-0 px-2 py-1 font-mono text-[12px] text-fg-0 placeholder:text-fg-3 focus:border-border-strong focus:outline-none"
         />
         <span className="ml-auto font-mono text-[11px] text-fg-3 tabular">
           {filtered.length} / {lines.length}
-          {data?.truncated ? ` · ${t('logs.tail')}` : ''}
+          {data?.truncated ? ' · tail' : ''}
         </span>
       </div>
 
       {isLoading ? (
-        <div className="p-6 font-mono text-[12px] text-fg-3">{t('logs.loading')}</div>
+        <div className="p-6 font-mono text-[12px] text-fg-3">loading log…</div>
       ) : error ? (
         <div className="p-6 font-mono text-[12px] text-[var(--color-sev-error)]">{error.message}</div>
       ) : lines.length === 0 ? (
@@ -120,7 +117,7 @@ export function LogsTab({ sessionId }: LogsTabProps) {
         <div ref={parentRef} className="min-h-0 flex-1 overflow-y-auto">
           {data?.truncated ? (
             <div className="border-b border-[var(--color-sev-warning)] bg-[color-mix(in_oklab,var(--color-sev-warning)_8%,transparent)] px-3 py-1 font-mono text-[10px] text-[var(--color-sev-warning)]">
-              {t('logs.truncated', { count: lines.length })}
+              log is large — showing the most recent {lines.length} lines
             </div>
           ) : null}
           <div style={{ height: virt.getTotalSize(), position: 'relative' }}>

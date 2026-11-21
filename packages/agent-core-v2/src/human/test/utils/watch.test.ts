@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   createWatchService,
@@ -13,9 +14,7 @@ import {
   type WatchChange,
   type WatchHandle,
   type WatchRuntime,
-} from '#/utils/watch';
-
-import { waitForAssertion } from '../../../../test/helpers/waitFor';
+} from '#human/utils/watch';
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const longTempDir = (prefix: string): Promise<string> =>
@@ -302,8 +301,6 @@ describe('watch signal mode', () => {
       expect(events[0]).toEqual({ path: root, action: 'modified', kind: 'directory' });
       expect(events.some((e) => e.path === file && e.action === 'created')).toBe(true);
     } finally {
-      handle?.dispose();
-      handle = undefined;
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -339,16 +336,12 @@ describe('watch signal mode', () => {
 
       await writeFile(join(target, 'config.toml'), 'x');
 
-      await waitForAssertion(() =>
-        expect(
-          events.some((e) => e.path === join(requested, 'config.toml') && e.action === 'created'),
-        ).toBe(true),
-      );
+      await expect
+        .poll(() => events.some((e) => e.path === join(requested, 'config.toml') && e.action === 'created'))
+        .toBe(true);
       expect(events.every((e) => e.path.startsWith(requested))).toBe(true);
       expect(ignoredPaths.every((path) => path.startsWith(requested))).toBe(true);
     } finally {
-      handle?.dispose();
-      handle = undefined;
       await rm(base, { recursive: true, force: true });
     }
   });
@@ -378,8 +371,6 @@ describe('watch signal mode', () => {
       expect(nativeCalls).toBe(0);
       expect(events.some((e) => e.path === file && e.action === 'created')).toBe(true);
     } finally {
-      handle?.dispose();
-      handle = undefined;
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -413,11 +404,11 @@ describe('watch chokidar mode', () => {
     const file = join(root, 'a.txt');
     const actions = () => events.filter((e) => e.path === file).map((e) => e.action);
     await writeFile(file, 'v1');
-    await waitForAssertion(() => expect(actions()).toContain('created'));
+    await expect.poll(actions).toContain('created');
     await writeFile(file, 'v2');
-    await waitForAssertion(() => expect(actions()).toContain('modified'));
+    await expect.poll(actions).toContain('modified');
     await rm(file);
-    await waitForAssertion(() => expect(actions()).toContain('deleted'));
+    await expect.poll(actions).toContain('deleted');
 
     expect(events.some((e) => e.path === preexisting)).toBe(false);
     expect(events.find((e) => e.path === file)?.kind).toBe('file');
@@ -442,12 +433,10 @@ describe('watch chokidar mode', () => {
     expect(events.some((e) => e.path.includes('ck_') || e.path.includes('sessions'))).toBe(false);
 
     await writeFile(file, 'hello');
-    await waitForAssertion(() => expect(events.some((e) => e.path === file)).toBe(true), {
-      timeout: 5000,
-    });
-    expect(
-      events.some((e) => e.path === kimi || e.path === root || e.path.includes('sessions')),
-    ).toBe(false);
+    await expect.poll(() => events.some((e) => e.path === file), { timeout: 5000 }).toBe(true);
+    expect(events.some((e) => e.path === kimi || e.path === root || e.path.includes('sessions'))).toBe(
+      false,
+    );
   });
 
   it('prunes events matching a custom ignored predicate', async () => {
@@ -460,9 +449,7 @@ describe('watch chokidar mode', () => {
     await wait(300);
 
     expect(events.some((e) => e.path.includes('node_modules'))).toBe(false);
-    await waitForAssertion(() =>
-      expect(events.some((e) => e.path === join(root, 'index.ts'))).toBe(true),
-    );
+    await expect.poll(() => events.some((e) => e.path === join(root, 'index.ts'))).toBe(true);
   });
 
   it('does not report changes below the configured depth', async () => {
@@ -474,12 +461,8 @@ describe('watch chokidar mode', () => {
     await writeFile(join(root, 'sub', 'nested.txt'), 'x');
     await wait(300);
 
-    await waitForAssertion(() =>
-      expect(events.some((e) => e.path === join(root, 'top.txt'))).toBe(true),
-    );
-    await waitForAssertion(() =>
-      expect(events.some((e) => e.path === join(root, 'sub'))).toBe(true),
-    );
+    await expect.poll(() => events.some((e) => e.path === join(root, 'top.txt'))).toBe(true);
+    await expect.poll(() => events.some((e) => e.path === join(root, 'sub'))).toBe(true);
     expect(events.some((e) => e.path.endsWith('nested.txt'))).toBe(false);
   });
 
@@ -515,14 +498,10 @@ describe('watch chokidar mode', () => {
       root = await mkdtemp(join(tmpdir(), 'watch-'));
       const long = join(root, 'long directory name');
       await mkdir(long);
-      const short = execFileSync(
-        'cmd.exe',
-        ['/d', '/s', '/c', `"for %I in ("${long}") do @echo %~sI"`],
-        {
-          encoding: 'utf8',
-          windowsVerbatimArguments: true,
-        },
-      ).trim();
+      const short = execFileSync('cmd.exe', ['/d', '/s', '/c', `"for %I in ("${long}") do @echo %~sI"`], {
+        encoding: 'utf8',
+        windowsVerbatimArguments: true,
+      }).trim();
       expect(basename(short)).toMatch(/~\d/);
       expect(existsSync(short)).toBe(true);
       await writeFile(join(long, 'config.toml'), 'v1');
@@ -534,16 +513,14 @@ describe('watch chokidar mode', () => {
       await writeFile(join(long, 'config.toml'), 'v2');
       await writeFile(join(long, 'added.toml'), 'v1');
 
-      await waitForAssertion(
-        () =>
-          expect(events).toEqual(
-            expect.arrayContaining([
-              { path: join(short, 'config.toml'), action: 'modified', kind: 'file' },
-              { path: join(short, 'added.toml'), action: 'created', kind: 'file' },
-            ]),
-          ),
-        { timeout: 10000 },
-      );
+      await expect
+        .poll(() => events, { timeout: 10000 })
+        .toEqual(
+          expect.arrayContaining([
+            { path: join(short, 'config.toml'), action: 'modified', kind: 'file' },
+            { path: join(short, 'added.toml'), action: 'created', kind: 'file' },
+          ]),
+        );
     },
     30000,
   );

@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
   chmodSync,
   existsSync,
@@ -11,15 +10,20 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createAuthTokenService } from '../src/services/auth/authTokenService';
-import { resolvePasswordHash, verifyPassword } from '../src/services/auth/password';
-import { loadOrCreateServerToken, rotateServerToken } from '../src/services/auth/persistentToken';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import {
   PrivateFileTooPermissiveError,
   readPrivateFile,
   writePrivateFile,
 } from '../src/services/auth/privateFiles';
+import {
+  loadOrCreateServerToken,
+  rotateServerToken,
+} from '../src/services/auth/persistentToken';
 import { createTokenStore } from '../src/services/auth/tokenStore';
+import { createAuthTokenService } from '../src/services/auth/authTokenService';
+import { resolvePasswordHash, verifyPassword } from '../src/services/auth/password';
 
 let tmpDir: string;
 
@@ -38,14 +42,11 @@ describe('privateFiles', () => {
     expect(statSync(p).mode & 0o777).toBe(0o600);
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'creates an absent parent dir with mode 0700',
-    async () => {
-      const p = join(tmpDir, 'nested', 'dir', 'secret');
-      await writePrivateFile(p, 'hello');
-      expect(statSync(join(tmpDir, 'nested', 'dir')).mode & 0o777).toBe(0o700);
-    },
-  );
+  it.skipIf(process.platform === 'win32')('creates an absent parent dir with mode 0700', async () => {
+    const p = join(tmpDir, 'nested', 'dir', 'secret');
+    await writePrivateFile(p, 'hello');
+    expect(statSync(join(tmpDir, 'nested', 'dir')).mode & 0o777).toBe(0o700);
+  });
 
   it('round-trips string content through readPrivateFile', async () => {
     const p = join(tmpDir, 'secret');
@@ -95,16 +96,13 @@ describe('tokenStore', () => {
     await b.dispose();
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'writes the token file with mode 0600 at server.token',
-    async () => {
-      const home = join(tmpDir, 'home');
-      const store = await createTokenStore(home);
-      expect(store.tokenPath).toBe(join(home, 'server.token'));
-      expect(statSync(store.tokenPath).mode & 0o777).toBe(0o600);
-      await store.dispose();
-    },
-  );
+  it.skipIf(process.platform === 'win32')('writes the token file with mode 0600 at server.token', async () => {
+    const home = join(tmpDir, 'home');
+    const store = await createTokenStore(home);
+    expect(store.tokenPath).toBe(join(home, 'server.token'));
+    expect(statSync(store.tokenPath).mode & 0o777).toBe(0o600);
+    await store.dispose();
+  });
 
   it('isValid accepts the token and rejects wrong / empty / same-length candidates', async () => {
     const store = await createTokenStore(join(tmpDir, 'home'));
@@ -133,8 +131,6 @@ describe('tokenStore', () => {
     const original = store.getToken();
     const rotated = 'r'.repeat(original.length);
     await writePrivateFile(store.tokenPath, rotated);
-
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
 
     expect(store.getToken()).toBe(rotated);
     expect(store.isValid(rotated)).toBe(true);

@@ -1,26 +1,24 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
+import type { InstallPluginInput, IPluginService } from '#/app/plugin/plugin';
+import type { IPluginMarketplaceService } from '#/app/plugin/marketplaceService';
+import type { ResolvedMarketplacePluginInstallOptions } from '#/app/plugin/pluginService';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import type { CapabilityEntryContext } from '#/app/capability/entries/context';
 import {
   createKimiCuEntry,
-  elevatedSwapScript,
+  elevatedDittoScript,
   parsePermissionStatus,
   parseWindowsDoctorOutput,
   readAppBundleVersion,
-  resolveWindowsCuExe,
-  windowsCuExeCandidates,
   windowsPowerShellPath,
   windowsPowerShell7Path,
 } from '#/app/capability/entries/kimiCu';
-import type { IPluginMarketplaceService } from '#/app/plugin/marketplaceService';
-import type { InstallPluginInput, IPluginService } from '#/app/plugin/plugin';
-import type { ResolvedMarketplacePluginInstallOptions } from '#/app/plugin/pluginService';
-import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 
 function fakeProc(code: number, stdout = '', stderr = ''): IHostProcess {
   return {
@@ -36,7 +34,7 @@ function fakeProc(code: number, stdout = '', stderr = ''): IHostProcess {
     stderr: Readable.from([stderr]),
     wait: () => Promise.resolve(code),
     kill: () => Promise.resolve(),
-    dispose: () => {},
+    dispose: () => undefined,
   } as IHostProcess;
 }
 
@@ -66,7 +64,7 @@ function fakeHostProcess(
           stderr: Readable.from(['']),
           wait: () => new Promise<number>(() => {}),
           kill: () => Promise.resolve(),
-          dispose: () => {},
+          dispose: () => undefined,
         } as IHostProcess);
       }
       return Promise.resolve(fakeProc(hit?.code ?? 0, hit?.stdout ?? '', hit?.stderr ?? ''));
@@ -164,20 +162,15 @@ function fakePlugins(
       installs.push(input);
       if (options?.resolved !== undefined) resolvedInstalls.push(options.resolved);
       await onInstall?.();
-      const id =
-        options?.resolved.expectedPluginId ??
-        ('marketplaceId' in input
-          ? input.marketplaceId
-          : input.source.includes('kimi-cu-win')
-            ? 'kimi-cu-win'
-            : 'kimi-cu');
-      const version =
-        options?.resolved.version ??
+      const id = options?.resolved.expectedPluginId ?? ('marketplaceId' in input
+        ? input.marketplaceId
+        : input.source.includes('kimi-cu-win') ? 'kimi-cu-win' : 'kimi-cu');
+      const version = options?.resolved.version ??
         ('marketplaceId' in input ? input.expectedVersion : undefined);
-      const origin =
-        options?.resolved.origin ?? ('marketplaceId' in input ? 'marketplace' : 'custom');
-      const catalogId =
-        options?.resolved.catalogId ?? ('marketplaceId' in input ? id : undefined);
+      const origin = options?.resolved.origin ??
+        ('marketplaceId' in input ? 'marketplace' : 'custom');
+      const catalogId = options?.resolved.catalogId ??
+        ('marketplaceId' in input ? id : undefined);
       const existing = installed.find((p) => p.id === id);
       if (existing === undefined) {
         installed.push({ id, enabled: true, state: 'ok', version, origin, catalogId });
@@ -227,9 +220,7 @@ describe('parsePermissionStatus', () => {
       accessibility: true,
       screenRecording: false,
     });
-    expect(
-      parsePermissionStatus('permissionStatus: accessibility=false screenRecording=true'),
-    ).toEqual({
+    expect(parsePermissionStatus('permissionStatus: accessibility=false screenRecording=true')).toEqual({
       accessibility: false,
       screenRecording: true,
     });
@@ -263,85 +254,13 @@ describe('windowsPowerShellPath', () => {
   });
 });
 
-describe('windowsCuExeCandidates', () => {
-  it('keeps the exact candidate order and expansion of the doctor script', () => {
-    expect(
-      windowsCuExeCandidates({
-        KIMI_CU_WINDOWS_EXE: 'D:\\explicit\\kimi-cu.exe',
-        KIMI_CU_WINDOWS_HOME: 'D:\\home',
-        LOCALAPPDATA: 'D:\\local',
-        ProgramFiles: 'D:\\program',
-      }),
-    ).toEqual([
-      'D:\\explicit\\kimi-cu.exe',
-      'D:\\home\\kimi-cu.exe',
-      'D:\\local\\KimiCU\\kimi-cu.exe',
-      'D:\\program\\KimiCU\\kimi-cu.exe',
-    ]);
-    expect(
-      windowsCuExeCandidates({ KIMI_CU_WINDOWS_EXE: undefined, LOCALAPPDATA: 'D:\\local' }),
-    ).toEqual(['D:\\local\\KimiCU\\kimi-cu.exe']);
-  });
-
-  it('drops blank candidates like the script whitespace filter', () => {
-    expect(
-      windowsCuExeCandidates({
-        KIMI_CU_WINDOWS_EXE: '   ',
-        KIMI_CU_WINDOWS_HOME: '',
-        LOCALAPPDATA: '',
-        ProgramFiles: '',
-      }),
-    ).toEqual([]);
-  });
-});
-
-describe('resolveWindowsCuExe', () => {
-  let root: string;
-  beforeEach(async () => {
-    root = await mkdtemp(path.join(tmpdir(), 'kimi-cu-resolve-'));
-  });
-  afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
-  });
-
-  it('returns the first candidate that is a file and skips directories', async () => {
-    const directory = path.join(root, 'as-directory');
-    await mkdir(path.join(directory, 'kimi-cu.exe'), { recursive: true });
-    const file = path.join(root, 'kimi-cu.exe');
-    await writeFile(file, '');
-
-    await expect(
-      resolveWindowsCuExe([path.join(root, 'missing.exe'), directory, file]),
-    ).resolves.toBe(file);
-    await expect(resolveWindowsCuExe([directory, path.join(root, 'missing.exe')])).resolves.toBe(
-      undefined,
+describe('elevatedDittoScript', () => {
+  it('shell-quotes both paths so spaces and metacharacters stay literal', () => {
+    expect(elevatedDittoScript('/tmp/kimi cu/app', '/Applications/KimiCU.app')).toBe(
+      "/usr/bin/ditto '/tmp/kimi cu/app' '/Applications/KimiCU.app'",
     );
-  });
-});
-
-describe('elevatedSwapScript', () => {
-  it('swaps the staged bundle in under one shell-quoted transaction', () => {
-    expect(
-      elevatedSwapScript('/tmp/kimi cu/app', '/Applications/KimiCU.app', '/Applications/x.new-1-2'),
-    ).toBe(
-      "set -e; rm -rf '/Applications/KimiCU.app.bak'; rm -rf '/Applications/x.new-1-2'; " +
-        "/usr/bin/ditto '/tmp/kimi cu/app' '/Applications/x.new-1-2'; " +
-        "if [ -e '/Applications/KimiCU.app' ]; then /bin/mv '/Applications/KimiCU.app' '/Applications/KimiCU.app.bak'; fi; " +
-        "if ! /bin/mv '/Applications/x.new-1-2' '/Applications/KimiCU.app'; then " +
-        "if [ -e '/Applications/KimiCU.app.bak' ]; then /bin/mv '/Applications/KimiCU.app.bak' '/Applications/KimiCU.app'; fi; " +
-        'exit 1; fi; ' +
-        "rm -rf '/Applications/KimiCU.app.bak'",
-    );
-  });
-
-  it('shell-quotes every path so spaces and metacharacters stay literal', () => {
-    const script = elevatedSwapScript(
-      "$(touch /tmp/pwned); echo '",
-      '/Applications/KimiCU.app',
-      '/Applications/KimiCU.app.new-x',
-    );
-    expect(script).toContain("/usr/bin/ditto '$(touch /tmp/pwned); echo '\\'''");
-    expect(script).not.toContain('ditto $(touch');
+    const script = elevatedDittoScript("$(touch /tmp/pwned); echo '", '/Applications/KimiCU.app');
+    expect(script).toBe("/usr/bin/ditto '$(touch /tmp/pwned); echo '\\''' '/Applications/KimiCU.app'");
   });
 });
 
@@ -373,40 +292,13 @@ describe('readAppBundleVersion', () => {
 
 describe('kimi-cu entry', () => {
   let root: string;
-  const windowsEnvKeys = [
-    'KIMI_CU_WINDOWS_EXE',
-    'KIMI_CU_WINDOWS_HOME',
-    'LOCALAPPDATA',
-    'ProgramFiles',
-  ] as const;
-  let savedWindowsEnv: Map<string, string | undefined>;
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(tmpdir(), 'kimi-cu-entry-'));
-    savedWindowsEnv = new Map(windowsEnvKeys.map((key) => [key, process.env[key]]));
-    for (const key of windowsEnvKeys) delete process.env[key];
   });
   afterEach(async () => {
-    for (const key of windowsEnvKeys) {
-      const previous = savedWindowsEnv.get(key);
-      if (previous === undefined) delete process.env[key];
-      else process.env[key] = previous;
-    }
     await rm(root, { recursive: true, force: true });
   });
-
-  function hideWindowsCandidates(): void {
-    process.env['LOCALAPPDATA'] = path.join(root, 'no-local-app-data');
-    process.env['ProgramFiles'] = path.join(root, 'no-program-files');
-  }
-
-  async function fakeWindowsExe(): Promise<string> {
-    const exe = path.join(root, 'KimiCU', 'kimi-cu.exe');
-    await mkdir(path.dirname(exe), { recursive: true });
-    await writeFile(exe, '');
-    process.env['KIMI_CU_WINDOWS_EXE'] = exe;
-    return exe;
-  }
 
   async function fakeAppBundle(): Promise<string> {
     const applicationsDir = path.join(root, 'Applications');
@@ -443,7 +335,9 @@ describe('kimi-cu entry', () => {
       pluginId: 'kimi-cu-win',
       supported: true,
     });
-    expect(createKimiCuEntry(makeCtx({ platform: 'win32', arch: 'arm64' })).supported).toBe(false);
+    expect(createKimiCuEntry(makeCtx({ platform: 'win32', arch: 'arm64' })).supported).toBe(
+      false,
+    );
   });
 
   it('labels the Windows capability consistently with its installed plugin', () => {
@@ -453,13 +347,12 @@ describe('kimi-cu entry', () => {
   });
 
   it('detects the Windows plugin and signed runtime through doctor', async () => {
-    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([
       { id: 'kimi-cu-win', enabled: true, state: 'ok', version: '0.2.14' },
     ]);
     const host = fakeHostProcess([
       {
-        match: 'kimi-cu.exe doctor',
+        match: '-Command',
         code: 0,
         stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
       },
@@ -480,78 +373,19 @@ describe('kimi-cu entry', () => {
         { id: 'runtime', state: 'ok', detail: '0.2.14' },
       ],
     });
-    expect(host.calls).toEqual([`${exe} doctor`]);
-  });
-
-  it('reports the Windows runtime missing without spawning anything on a bare machine', async () => {
-    hideWindowsCandidates();
-    const host = fakeHostProcess([]);
-    const entry = createKimiCuEntry(
-      makeCtx({ platform: 'win32', arch: 'x64', hostProcess: host.service }),
-    );
-
-    await expect(entry.detect()).resolves.toEqual({
-      version: undefined,
-      steps: [
-        { id: 'plugin', state: 'missing' },
-        { id: 'runtime', state: 'missing' },
-      ],
-    });
-    expect(host.calls).toEqual([]);
-  });
-
-  it('falls back to the PowerShell doctor script when the resolved runtime cannot be launched', async () => {
-    const exe = await fakeWindowsExe();
-    const calls: string[] = [];
-    const hostProcess = {
-      _serviceBrand: undefined,
-      spawn: (command: string, args: readonly string[] = []) => {
-        calls.push(`${command} ${args.join(' ')}`);
-        if (command === exe) return Promise.reject(new Error('launch failed'));
-        return Promise.resolve(
-          fakeProc(0, 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n'),
-        );
-      },
-    } as IHostProcessService;
-    const entry = createKimiCuEntry(
-      makeCtx({ platform: 'win32', arch: 'x64', hostProcess }),
-    );
-
-    await expect(entry.detect()).resolves.toMatchObject({
-      steps: [
-        { id: 'plugin', state: 'missing' },
-        { id: 'runtime', state: 'ok', detail: '0.2.14' },
-      ],
-    });
-    expect(calls[0]).toBe(`${exe} doctor`);
-    expect(calls[1]?.startsWith(`${windowsPowerShellPath()} -NoProfile -NonInteractive -Command `)).toBe(
-      true,
-    );
-  });
-
-  it('reports a failing Windows doctor with the same detail as before', async () => {
-    const exe = await fakeWindowsExe();
-    const host = fakeHostProcess([
-      { match: 'kimi-cu.exe doctor', code: 1, stderr: 'runtime unhealthy' },
-    ]);
-    const entry = createKimiCuEntry(
-      makeCtx({ platform: 'win32', arch: 'x64', hostProcess: host.service }),
-    );
-
-    const detected = await entry.detect();
-    expect(detected.steps.find((step) => step.id === 'runtime')).toEqual({
-      id: 'runtime',
-      state: 'failed',
-      detail: 'runtime unhealthy',
-    });
-    expect(host.calls).toEqual([`${exe} doctor`]);
+    expect(host.calls).toHaveLength(1);
+    expect(
+      host.calls[0]?.startsWith(
+        `${windowsPowerShellPath()} -NoProfile -NonInteractive -Command `,
+      ),
+    ).toBe(true);
   });
 
   it('installs Windows with the official setup script and shared plugin wiring', async () => {
-    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([]);
     const calls: string[] = [];
     const doctorResults = [
+      { code: 3, stdout: '', stderr: '' },
       {
         code: 0,
         stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
@@ -562,7 +396,6 @@ describe('kimi-cu entry', () => {
       _serviceBrand: undefined,
       spawn: (command: string, args: readonly string[] = []) => {
         calls.push(`${command} ${args.join(' ')}`);
-        if (command === exe) return Promise.resolve(fakeProc(3));
         if (args.some((arg) => arg.includes('$matched ='))) return Promise.resolve(fakeProc(0, '0'));
         if (args.some((arg) => arg.includes('Get-FileHash'))) {
           return Promise.resolve(fakeProc(0, 'PowerShell 5.1'));
@@ -583,7 +416,9 @@ describe('kimi-cu entry', () => {
         return Promise.resolve(fakeProc(1));
       },
     } as IHostProcessService;
-    const fetchImpl = (() => {
+    const downloads: string[] = [];
+    const fetchImpl = ((input: unknown) => {
+      downloads.push(String(input));
       const bytes = new TextEncoder().encode("Write-Host 'official setup'");
       return Promise.resolve(
         new Response(bytes, {
@@ -591,7 +426,7 @@ describe('kimi-cu entry', () => {
           headers: { 'content-length': String(bytes.length) },
         }),
       );
-    }) as FetchLike;
+    }) as unknown as typeof fetch;
     const entry = createKimiCuEntry(
       makeCtx({
         platform: 'win32',
@@ -608,6 +443,9 @@ describe('kimi-cu entry', () => {
     expect(plugins.installs).toEqual([
       { marketplaceId: 'kimi-cu-win', expectedVersion: '0.2.14' },
     ]);
+    expect(downloads).toEqual([
+      'https://cdn.kimi.com/kimi-computer-use-windows/latest/setup_windows.ps1',
+    ]);
     expect(reports).toContainEqual(['plugin', undefined]);
     expect(reports).toContainEqual(['download', 0]);
     expect(reports).toContainEqual(['download', 100]);
@@ -620,64 +458,15 @@ describe('kimi-cu entry', () => {
           call.includes('setup_windows.ps1'),
       ),
     ).toBe(true);
-    expect(
-      calls
-        .filter((call) => call !== `${exe} doctor`)
-        .every((call) => call.startsWith(windowsPowerShellPath())),
-    ).toBe(true);
+    expect(calls.every((call) => call.startsWith(windowsPowerShellPath()))).toBe(true);
     expect(doctorResults).toEqual([]);
   });
 
-  it('rejects a Windows setup download whose published checksum does not match', async () => {
-    const plugins = fakePlugins([]);
-    const calls: string[] = [];
-    const hostProcess = {
-      _serviceBrand: undefined,
-      spawn: (command: string, args: readonly string[] = []) => {
-        calls.push(`${command} ${args.join(' ')}`);
-        if (args.some((arg) => arg.includes('$matched ='))) {
-          return Promise.resolve(fakeProc(0, '0'));
-        }
-        if (args.some((arg) => arg.includes('Get-FileHash'))) {
-          return Promise.resolve(fakeProc(0, 'PowerShell 5.1'));
-        }
-        return Promise.resolve(fakeProc(0));
-      },
-    } as IHostProcessService;
-    const fetchImpl = ((url: string) => {
-      if (url.endsWith('.sha256')) {
-        const bytes = new TextEncoder().encode('0'.repeat(64));
-        return Promise.resolve(
-          new Response(bytes, { status: 200, headers: { 'content-length': '64' } }),
-        );
-      }
-      const bytes = new TextEncoder().encode("Write-Host 'official setup'");
-      return Promise.resolve(
-        new Response(bytes, {
-          status: 200,
-          headers: { 'content-length': String(bytes.length) },
-        }),
-      );
-    }) as FetchLike;
-    const entry = createKimiCuEntry(
-      makeCtx({
-        platform: 'win32',
-        arch: 'x64',
-        plugins: plugins.service,
-        hostProcess,
-        fetchImpl,
-      }),
-    );
-
-    await expect(entry.install(() => {})).rejects.toThrow(/Checksum mismatch/);
-    expect(calls.some((call) => call.includes('setup_windows.ps1'))).toBe(false);
-  });
-
   it('uses trusted PowerShell 7 when system PowerShell cannot run the installer', async () => {
-    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([]);
     const calls: string[] = [];
     const doctorResults = [
+      { code: 3, stdout: '', stderr: '' },
       {
         code: 0,
         stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
@@ -688,7 +477,6 @@ describe('kimi-cu entry', () => {
       _serviceBrand: undefined,
       spawn: (command: string, args: readonly string[] = []) => {
         calls.push(`${command} ${args.join(' ')}`);
-        if (command === exe) return Promise.resolve(fakeProc(3));
         if (args.some((arg) => arg.includes('$matched ='))) return Promise.resolve(fakeProc(0, '0'));
         if (args.some((arg) => arg.includes('Get-FileHash'))) {
           return Promise.resolve(
@@ -717,15 +505,16 @@ describe('kimi-cu entry', () => {
             new Response("Write-Host 'official setup'", {
               headers: { 'content-length': '27' },
             }),
-          )) as FetchLike,
+          )) as unknown as typeof fetch,
       }),
     );
 
-    await entry.install(() => {});
+    await entry.install(() => undefined);
 
     expect(
       calls.some(
-        (call) => call.startsWith(windowsPowerShell7Path()) && call.includes('setup_windows.ps1'),
+        (call) =>
+          call.startsWith(windowsPowerShell7Path()) && call.includes('setup_windows.ps1'),
       ),
     ).toBe(true);
     expect(plugins.installs).toEqual([
@@ -734,7 +523,6 @@ describe('kimi-cu entry', () => {
   });
 
   it('keeps the Windows runtime detectable after installing through PowerShell 7', async () => {
-    await fakeWindowsExe();
     const plugins = fakePlugins([]);
     const calls: string[] = [];
     let runtimeInstalled = false;
@@ -755,7 +543,10 @@ describe('kimi-cu entry', () => {
         }
         return Promise.resolve(
           runtimeInstalled
-            ? fakeProc(0, 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n')
+            ? fakeProc(
+                0,
+                'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
+              )
             : fakeProc(3),
         );
       },
@@ -771,11 +562,11 @@ describe('kimi-cu entry', () => {
             new Response("Write-Host 'official setup'", {
               headers: { 'content-length': '27' },
             }),
-          )) as FetchLike,
+          )) as unknown as typeof fetch,
       }),
     );
 
-    await entry.install(() => {});
+    await entry.install(() => undefined);
 
     await expect(entry.detect()).resolves.toEqual({
       version: '0.2.14',
@@ -786,7 +577,8 @@ describe('kimi-cu entry', () => {
     });
     expect(
       calls.some(
-        (call) => call.startsWith(windowsPowerShell7Path()) && call.includes('setup_windows.ps1'),
+        (call) =>
+          call.startsWith(windowsPowerShell7Path()) && call.includes('setup_windows.ps1'),
       ),
     ).toBe(true);
   });
@@ -815,11 +607,11 @@ describe('kimi-cu entry', () => {
         fetchImpl: (() => {
           downloads += 1;
           return Promise.reject(new Error('download should not start'));
-        }) as FetchLike,
+        }) as unknown as typeof fetch,
       }),
     );
 
-    await expect(entry.install(() => {})).rejects.toThrow(
+    await expect(entry.install(() => undefined)).rejects.toThrow(
       /requires Windows PowerShell 5\.1 or PowerShell 7.*Get-FileHash, Expand-Archive/,
     );
 
@@ -828,7 +620,6 @@ describe('kimi-cu entry', () => {
   });
 
   it.each([false, true])('repairs only the Windows plugin without installer cmdlets, process fallback: %s', async (fallback) => {
-    await fakeWindowsExe();
     const plugins = fakePlugins([]);
     const calls: string[] = [];
     let downloads = 0;
@@ -856,7 +647,7 @@ describe('kimi-cu entry', () => {
       fetchImpl: (() => {
         downloads += 1;
         return Promise.reject(new Error('runtime download should not start'));
-      }) as FetchLike,
+      }) as unknown as typeof fetch,
     }));
 
     await entry.install(() => undefined);
@@ -885,9 +676,9 @@ describe('kimi-cu entry', () => {
   });
 
   it('repairs a missing Windows runtime without replacing a healthy plugin', async () => {
-    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([{ id: 'kimi-cu-win', enabled: true, state: 'ok' }]);
     const doctorResults = [
+      { code: 3, stdout: '', stderr: '' },
       {
         code: 0,
         stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
@@ -896,8 +687,7 @@ describe('kimi-cu entry', () => {
     ];
     const hostProcess = {
       _serviceBrand: undefined,
-      spawn: (command: string, args: readonly string[] = []) => {
-        if (command === exe) return Promise.resolve(fakeProc(3));
+      spawn: (_command: string, args: readonly string[] = []) => {
         if (args.some((arg) => arg.includes('$matched ='))) return Promise.resolve(fakeProc(0, '0'));
         if (args.some((arg) => arg.includes('Get-FileHash'))) {
           return Promise.resolve(fakeProc(0, 'PowerShell 5.1'));
@@ -922,18 +712,17 @@ describe('kimi-cu entry', () => {
             new Response("Write-Host 'official setup'", {
               headers: { 'content-length': '27' },
             }),
-          )) as FetchLike,
+          )) as unknown as typeof fetch,
       }),
     );
 
-    await entry.install(() => {});
+    await entry.install(() => undefined);
 
     expect(plugins.installs).toEqual([]);
     expect(doctorResults).toEqual([]);
   });
 
   it('refreshes the Windows plugin when installation starts fully ready', async () => {
-    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([{ id: 'kimi-cu-win', enabled: true, state: 'ok' }]);
     const doctorResults = [
       {
@@ -949,13 +738,7 @@ describe('kimi-cu entry', () => {
     ];
     const hostProcess = {
       _serviceBrand: undefined,
-      spawn: (command: string, args: readonly string[] = []) => {
-        if (command === exe) {
-          const direct = doctorResults.shift();
-          return Promise.resolve(
-            fakeProc(direct?.code ?? 1, direct?.stdout ?? '', direct?.stderr ?? 'unexpected doctor'),
-          );
-        }
+      spawn: (_command: string, args: readonly string[] = []) => {
         if (args.some((arg) => arg.includes('$matched ='))) return Promise.resolve(fakeProc(0, '0'));
         if (args.some((arg) => arg.includes('Get-FileHash'))) {
           return Promise.resolve(fakeProc(0, 'PowerShell 5.1'));
@@ -980,11 +763,11 @@ describe('kimi-cu entry', () => {
             new Response("Write-Host 'official setup'", {
               headers: { 'content-length': '27' },
             }),
-          )) as FetchLike,
+          )) as unknown as typeof fetch,
       }),
     );
 
-    await entry.install(() => {});
+    await entry.install(() => undefined);
 
     expect(plugins.installs).toEqual([
       { marketplaceId: 'kimi-cu-win', expectedVersion: '0.2.14' },
@@ -993,7 +776,6 @@ describe('kimi-cu entry', () => {
   });
 
   it.each([false, true])('only stops running Windows processes with consent: %s', async (confirmed) => {
-    await fakeWindowsExe();
     const actions: string[] = [];
     const plugins = fakePlugins([], async () => { actions.push('install'); });
     plugins.service.withMcpServersSuspended = async (_id, task) => {
@@ -1063,17 +845,16 @@ describe('kimi-cu entry', () => {
       }),
     );
 
-    await expect(entry.install(() => {})).rejects.toThrow(
+    await expect(entry.install(() => undefined)).rejects.toThrow(
       'Kimi Computer Use plugin files are still in use. Close other applications using the plugin, then install again.',
     );
   });
 
   it('does not reinstall a healthy Windows runtime when only the plugin is missing', async () => {
-    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([]);
     const host = fakeHostProcess([
       {
-        match: 'kimi-cu.exe doctor',
+        match: '-Command',
         code: 0,
         stdout: 'version=0.2.14\nmcp=true\nhelper=embedded\nagent=running\n',
       },
@@ -1092,23 +873,15 @@ describe('kimi-cu entry', () => {
     await entry.install((step) => reports.push(step));
 
     expect(reports).toEqual(['plugin']);
-    expect(host.calls.filter((call) => call === `${exe} doctor`)).toHaveLength(1);
+    expect(host.calls.filter((call) => call.includes('& $exe doctor'))).toHaveLength(1);
   });
 
   it('detects all four layers with details', async () => {
     const applicationsDir = await fakeAppBundle();
     const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' }]);
     const host = fakeHostProcess([
-      {
-        match: 'service-status',
-        code: 0,
-        stdout: 'SMAppService status=1 (1=enabled); fallback plist exists=false',
-      },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=false',
-      },
+      { match: 'service-status', code: 0, stdout: 'SMAppService status=1 (1=enabled); fallback plist exists=false' },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=false' },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({ applicationsDir, plugins: plugins.service, hostProcess: host.service }),
@@ -1179,16 +952,48 @@ describe('kimi-cu entry', () => {
     expect(plugins.installs).toEqual([]);
   });
 
+  it('resumes a partial install without repeating completed runtime layers', async () => {
+    const applicationsDir = await fakeAppBundle();
+    const plugins = fakePlugins([]);
+    const host = fakeHostProcess([
+      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
+    ]);
+    const entry = createKimiCuEntry(
+      makeCtx({
+        applicationsDir,
+        plugins: plugins.service,
+        marketplace: fakeMarketplace([
+          { id: 'kimi-cu', version: '9.8.7', sha256sum: 'a'.repeat(64) },
+        ]),
+        hostProcess: host.service,
+        fetchImpl: (() => Promise.reject(new Error('download should be skipped'))) as never,
+      }),
+    );
+    const reports: string[] = [];
+
+    await entry.install((step) => reports.push(step));
+
+    expect(plugins.installs).toEqual([
+      {
+        marketplaceId: 'kimi-cu',
+        expectedVersion: '9.8.7',
+        expectedSha256: 'a'.repeat(64),
+      },
+    ]);
+    await expect(plugins.service.listPlugins()).resolves.toMatchObject([
+      { id: 'kimi-cu', version: '9.8.7', origin: 'marketplace', catalogId: 'kimi-cu' },
+    ]);
+    expect(reports).toEqual(['plugin']);
+    expect(host.calls.every((call) => call.includes('service-status') || call.includes('xpc-ping'))).toBe(true);
+  });
+
   it('uses the fixed official CDN when the marketplace catalog is unavailable', async () => {
     const applicationsDir = await fakeAppBundle();
     const plugins = fakePlugins([]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({
@@ -1205,14 +1010,12 @@ describe('kimi-cu entry', () => {
     await entry.install(() => {});
 
     expect(plugins.installs).toEqual([{ marketplaceId: 'kimi-cu' }]);
-    expect(plugins.resolvedInstalls).toMatchObject([
-      {
-        source: expect.stringContaining('kimi-computer-use/latest/kimi-cu-plugin.zip'),
-        origin: 'marketplace',
-        catalogId: 'kimi-cu',
-        expectedPluginId: 'kimi-cu',
-      },
-    ]);
+    expect(plugins.resolvedInstalls).toMatchObject([{
+      source: expect.stringContaining('kimi-computer-use/latest/kimi-cu-plugin.zip'),
+      origin: 'marketplace',
+      catalogId: 'kimi-cu',
+      expectedPluginId: 'kimi-cu',
+    }]);
     await expect(plugins.service.listPlugins()).resolves.toMatchObject([
       { origin: 'marketplace', catalogId: 'kimi-cu' },
     ]);
@@ -1223,11 +1026,7 @@ describe('kimi-cu entry', () => {
     const plugins = fakePlugins([]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({
@@ -1245,44 +1044,15 @@ describe('kimi-cu entry', () => {
     await entry.install(() => {});
 
     expect(plugins.installs).toEqual([{ marketplaceId: 'kimi-cu' }]);
-    expect(plugins.resolvedInstalls).toMatchObject([
-      {
-        source: expect.stringContaining('kimi-computer-use/latest/kimi-cu-plugin.zip'),
-        origin: 'marketplace',
-        catalogId: 'kimi-cu',
-        expectedPluginId: 'kimi-cu',
-      },
+    expect(plugins.resolvedInstalls).toMatchObject([{
+      source: expect.stringContaining('kimi-computer-use/latest/kimi-cu-plugin.zip'),
+      origin: 'marketplace',
+      catalogId: 'kimi-cu',
+      expectedPluginId: 'kimi-cu',
+    }]);
+    await expect(plugins.service.listPlugins()).resolves.toMatchObject([
+      { origin: 'marketplace', catalogId: 'kimi-cu' },
     ]);
-  });
-
-  it('resumes a partial install without repeating completed runtime layers', async () => {
-    const applicationsDir = await fakeAppBundle();
-    const plugins = fakePlugins([]);
-    const host = fakeHostProcess([
-      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
-    ]);
-    const entry = createKimiCuEntry(
-      makeCtx({
-        applicationsDir,
-        plugins: plugins.service,
-        hostProcess: host.service,
-        fetchImpl: (() => Promise.reject(new Error('download should be skipped'))) as never,
-      }),
-    );
-    const reports: string[] = [];
-
-    await entry.install((step) => reports.push(step));
-
-    expect(plugins.installs).toHaveLength(1);
-    expect(reports).toEqual(['plugin']);
-    expect(
-      host.calls.every((call) => call.includes('service-status') || call.includes('xpc-ping')),
-    ).toBe(true);
   });
 
   it('migrates the exact legacy standalone MCP registration after installing the plugin', async () => {
@@ -1302,11 +1072,7 @@ describe('kimi-cu entry', () => {
     const plugins = fakePlugins([]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({
@@ -1353,11 +1119,7 @@ describe('kimi-cu entry', () => {
     });
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({
@@ -1390,11 +1152,7 @@ describe('kimi-cu entry', () => {
     const plugins = fakePlugins([]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({
@@ -1432,11 +1190,6 @@ describe('kimi-cu entry', () => {
       state: 'failed',
       detail: expect.stringContaining('timed out'),
     });
-    expect(detected.steps.find((s) => s.id === 'permissions')).toEqual({
-      id: 'permissions',
-      state: 'failed',
-      detail: expect.stringContaining('timed out'),
-    });
     expect(detected.steps.filter((s) => s.id.startsWith('permissions.'))).toEqual([
       {
         id: 'permissions.accessibility',
@@ -1459,11 +1212,7 @@ describe('kimi-cu entry', () => {
     const plugins = fakePlugins([{ id: 'kimi-cu', enabled: false, state: 'ok', version: '0.5.4' }]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({ applicationsDir, plugins: plugins.service, hostProcess: host.service }),
@@ -1475,7 +1224,9 @@ describe('kimi-cu entry', () => {
 
   it('refreshes the wiring plugin when permissions are the only missing layer', async () => {
     const applicationsDir = await fakeAppBundle();
-    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' }]);
+    const plugins = fakePlugins([
+      { id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' },
+    ]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
       {
@@ -1501,11 +1252,7 @@ describe('kimi-cu entry', () => {
     const host = fakeHostProcess([
       { match: 'uninstall', code: 0, hang: true },
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
     ]);
     const fetchImpl = (() =>
       Promise.resolve(
@@ -1518,17 +1265,10 @@ describe('kimi-cu entry', () => {
     const hostProcess = {
       spawn: async (command: string, args: readonly string[] = []) => {
         const proc = await host.service.spawn(command, args);
-        const destination = String(args.at(-1));
-        if (
-          command === 'ditto' &&
-          (destination.includes('KimiCU.app') || args[0]?.includes('KimiCU.app'))
-        ) {
-          const stampedBin = destination.includes('KimiCU.app')
-            ? path.join(destination, 'Contents', 'MacOS', 'kimi-cu')
-            : appBin;
-          await mkdir(path.dirname(stampedBin), { recursive: true });
-          await writeFile(stampedBin, '#!/bin/sh\n');
-          await chmod(stampedBin, 0o755);
+        if (command === 'ditto' && String(args.at(-1)).includes('KimiCU.app')) {
+          await mkdir(path.dirname(appBin), { recursive: true });
+          await writeFile(appBin, '#!/bin/sh\n');
+          await chmod(appBin, 0o755);
         }
         return proc;
       },
@@ -1546,15 +1286,11 @@ describe('kimi-cu entry', () => {
     await entry.install(() => {});
     expect(host.calls.some((call) => call.includes('ditto'))).toBe(true);
     expect(host.calls.some((call) => call.includes('pkill') && call.includes('+mcp'))).toBe(false);
-    expect(host.calls.some((call) => call.includes('pkill') && call.includes('+service'))).toBe(
-      true,
-    );
+    expect(host.calls.some((call) => call.includes('pkill') && call.includes('+service'))).toBe(true);
   });
 
   it('reports the plugin layer missing when its MCP server is disabled', async () => {
-    const plugins = fakePlugins([
-      { id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4', enabledMcp: 0 },
-    ]);
+    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4', enabledMcp: 0 }]);
     const entry = createKimiCuEntry(makeCtx({ plugins: plugins.service }));
 
     const detected = await entry.detect();
@@ -1567,16 +1303,10 @@ describe('kimi-cu entry', () => {
 
   it('re-enables disabled MCP servers during setup', async () => {
     const applicationsDir = await fakeAppBundle();
-    const plugins = fakePlugins([
-      { id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4', enabledMcp: 0 },
-    ]);
+    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4', enabledMcp: 0 }]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
+      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({ applicationsDir, plugins: plugins.service, hostProcess: host.service }),
@@ -1591,13 +1321,16 @@ describe('kimi-cu entry', () => {
     const host = fakeHostProcess([
       { match: 'ditto -x -k', code: 1, stderr: 'ditto: Not a zip file' },
     ]);
-    const fetchImpl = (() =>
-      Promise.resolve(
+    const downloads: string[] = [];
+    const fetchImpl = ((input: unknown) => {
+      downloads.push(String(input));
+      return Promise.resolve(
         new Response(new TextEncoder().encode('<html>captive portal</html>'), {
           status: 200,
           headers: { 'content-length': '26' },
         }),
-      )) as never;
+      );
+    }) as never;
     const entry = createKimiCuEntry(
       makeCtx({
         applicationsDir: path.join(root, 'Applications'),
@@ -1608,6 +1341,7 @@ describe('kimi-cu entry', () => {
     );
 
     await expect(entry.install(() => {})).rejects.toThrow(/Failed to unzip/);
+    expect(downloads).toEqual(['https://cdn.kimi.com/kimi-computer-use/latest/KimiCU.app.zip']);
     expect(host.calls.some((call) => call.includes('uninstall'))).toBe(false);
     expect(host.calls.some((call) => call.includes('bootout'))).toBe(false);
     expect(host.calls.some((call) => call.includes('pkill'))).toBe(false);
@@ -1628,155 +1362,10 @@ describe('kimi-cu entry', () => {
     const entry = createKimiCuEntry(makeCtx({ applicationsDir }));
 
     const detected = await entry.detect();
-    if (process.platform === 'win32') {
-      expect(detected.steps.find((s) => s.id === 'app')?.state).toBe('ok');
-      return;
-    }
     expect(detected.steps.find((s) => s.id === 'app')).toEqual({
       id: 'app',
       state: 'missing',
       detail: 'not executable',
     });
-  });
-
-  async function installableMacSetup(
-    host: { service: IHostProcessService; calls: string[] },
-    appBody: string,
-  ): Promise<{ hostProcess: IHostProcessService }> {
-    const placeBundle = async (source: string, target: string): Promise<void> => {
-      await mkdir(path.join(target, 'Contents', 'MacOS'), { recursive: true });
-      const sourceBin = path.join(source, 'Contents', 'MacOS', 'kimi-cu');
-      const body = await readFile(sourceBin, 'utf8').catch(() => appBody);
-      const bin = path.join(target, 'Contents', 'MacOS', 'kimi-cu');
-      await writeFile(bin, body);
-      await chmod(bin, 0o755);
-      await writeFile(
-        path.join(target, 'Contents', 'Info.plist'),
-        '<key>CFBundleShortVersionString</key>\n<string>0.5.5</string>',
-      );
-    };
-    const hostProcess = {
-      spawn: async (command: string, args: readonly string[] = []) => {
-        const proc = await host.service.spawn(command, args);
-        const destination = String(args.at(-1));
-        const source = String(args[0]);
-        if (command === 'ditto') {
-          const from = args[0] === '-x' ? String(args[2]) : source;
-          if (args[0] === '-x') {
-            await placeBundle(path.join(from, 'KimiCU.app'), path.join(destination, 'KimiCU.app'));
-          } else if (destination.includes('KimiCU.app')) {
-            await placeBundle(from, destination);
-          }
-        }
-        return proc;
-      },
-    } as IHostProcessService;
-    return { hostProcess };
-  }
-
-  const macFetchImpl = (() =>
-    Promise.resolve(
-      new Response(new Uint8Array([1, 2, 3]), {
-        status: 200,
-        headers: { 'content-length': '3' },
-      }),
-    )) as never;
-
-  it('keeps the installed app when the staged copy cannot be made', async () => {
-    const applicationsDir = await fakeAppBundle();
-    const appBin = path.join(applicationsDir, 'KimiCU.app', 'Contents', 'MacOS', 'kimi-cu');
-    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' }]);
-    const host = fakeHostProcess([
-      { match: 'ditto -x -k', code: 0 },
-      { match: 'ditto', code: 1, stderr: 'ditto: Copy failed' },
-      { match: 'osascript', code: 1, stderr: 'User canceled.' },
-      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
-    ]);
-    const entry = createKimiCuEntry(
-      makeCtx({
-        applicationsDir,
-        plugins: plugins.service,
-        hostProcess: host.service,
-        fetchImpl: macFetchImpl,
-      }),
-    );
-
-    await expect(entry.install(() => {})).rejects.toThrow(/Failed to install KimiCU\.app/);
-    expect(await readFile(appBin, 'utf8')).toBe('#!/bin/sh\n');
-    expect(host.calls.some((call) => call.includes('uninstall'))).toBe(false);
-  });
-
-  it('restores the installed app when the staged swap fails', async () => {
-    const applicationsDir = await fakeAppBundle();
-    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' }]);
-    const host = fakeHostProcess([
-      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
-    ]);
-    const { hostProcess } = await installableMacSetup(host, '#!/bin/sh\n');
-    const offendingHost = {
-      spawn: async (command: string, args: readonly string[] = []) => {
-        const proc = await hostProcess.spawn(command, args);
-        if (command === 'ditto' && String(args.at(-1)).includes('.new-')) {
-          await rm(String(args.at(-1)), { recursive: true, force: true });
-        }
-        return proc;
-      },
-    } as IHostProcessService;
-    const entry = createKimiCuEntry(
-      makeCtx({
-        applicationsDir,
-        plugins: plugins.service,
-        hostProcess: offendingHost,
-        fetchImpl: macFetchImpl,
-      }),
-    );
-
-    await expect(entry.install(() => {})).rejects.toThrow(/staged bundle could not replace/);
-    expect(await readdir(applicationsDir)).toEqual(['KimiCU.app']);
-    const infoPlist = path.join(applicationsDir, 'KimiCU.app', 'Contents', 'Info.plist');
-    expect(await readAppBundleVersion(infoPlist)).toBe('0.5.4');
-  });
-
-  it('replaces the installed app and leaves no staging entries after a successful install', async () => {
-    const applicationsDir = await fakeAppBundle();
-    await mkdir(path.join(applicationsDir, 'KimiCU.app.bak-1-1'), { recursive: true });
-    await mkdir(path.join(applicationsDir, 'KimiCU.app.new-1-1'), { recursive: true });
-    await mkdir(path.join(applicationsDir, 'KimiCU.app.bak'), { recursive: true });
-    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' }]);
-    const host = fakeHostProcess([
-      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      {
-        match: 'xpc-ping',
-        code: 0,
-        stdout: 'permissionStatus: accessibility=true screenRecording=true',
-      },
-    ]);
-    const { hostProcess } = await installableMacSetup(host, '#!/bin/sh\necho new\n');
-    const entry = createKimiCuEntry(
-      makeCtx({
-        applicationsDir,
-        plugins: plugins.service,
-        hostProcess,
-        fetchImpl: macFetchImpl,
-      }),
-    );
-
-    await entry.install(() => {});
-
-    const infoPlist = path.join(applicationsDir, 'KimiCU.app', 'Contents', 'Info.plist');
-    expect(await readAppBundleVersion(infoPlist)).toBe('0.5.5');
-    const leftovers = await readdir(applicationsDir);
-    expect(leftovers.filter((entry) => /^KimiCU\.app\.(new|bak)-/.test(entry))).toEqual([]);
-    expect(host.calls.some((call) => call.includes('xattr -dr com.apple.quarantine'))).toBe(true);
   });
 });

@@ -45,14 +45,7 @@ export type ToolInputDisplay =
     }
   | {
       kind: 'todo_list';
-      items: {
-        id?: string | undefined;
-        parentId?: string | null | undefined;
-        kind?: 'milestone' | 'task' | undefined;
-        title: string;
-        status: string;
-        progress?: number | undefined;
-      }[];
+      items: { title: string; status: string }[];
     }
   | {
       kind: 'task';
@@ -75,7 +68,7 @@ export type ToolInputDisplay =
   | {
       kind: 'spec_review';
       dir: string;
-      documents: readonly { readonly name: string; readonly content: string }[];
+      documents: { name: string; content: string }[];
       options?: readonly { label: string; description: string }[] | undefined;
     }
   | {

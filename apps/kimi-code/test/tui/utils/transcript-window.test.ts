@@ -1,12 +1,7 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import type { TranscriptEntry } from '#/tui/types';
-import {
-  expandCutoffIndex,
-  groupTurns,
-  readEnvInt,
-  turnsToTrim,
-} from '#/tui/utils/transcript-window';
+import { expandCutoffIndex, groupTurns, readEnvInt, turnsToTrim } from '#/tui/utils/transcript-window';
 
 let seq = 0;
 function makeEntry(
@@ -31,7 +26,6 @@ describe('groupTurns', () => {
   });
 
   it('attaches leading undefined turnId entries to the following turn', () => {
-    // A user message (undefined turnId) followed by its response should be one turn.
     const turns = groupTurns([msg(undefined), tool('1'), msg('1')]);
     expect(turns).toHaveLength(1);
     expect(turns[0]!.turnId).toBe('1');
@@ -56,17 +50,17 @@ describe('groupTurns', () => {
 
 describe('turnsToTrim', () => {
   it('returns empty when turn count is within maxTurns', () => {
-    const turns = groupTurns([msg('a'), msg('b'), msg('c')]); // 3 turns
+    const turns = groupTurns([msg('a'), msg('b'), msg('c')]);
     expect(turnsToTrim(turns, 5, 1).size).toBe(0);
   });
 
   it('does not trim within the hysteresis band', () => {
-    const turns = groupTurns([msg('a'), msg('b'), msg('c')]); // 3 turns
-    expect(turnsToTrim(turns, 2, 1).size).toBe(0); // 3 <= 2 + 1
+    const turns = groupTurns([msg('a'), msg('b'), msg('c')]);
+    expect(turnsToTrim(turns, 2, 1).size).toBe(0);
   });
 
   it('trims oldest turns first', () => {
-    const entries = [msg('a'), msg('b'), msg('c'), msg('d')]; // 4 turns
+    const entries = [msg('a'), msg('b'), msg('c'), msg('d')];
     const turns = groupTurns(entries);
     const removed = turnsToTrim(turns, 2, 0);
     expect(removed.has(entries[0]!)).toBe(true);
@@ -76,9 +70,8 @@ describe('turnsToTrim', () => {
   });
 
   it('never trims the most recent turn', () => {
-    // A single turn is never removed, even if it is huge.
     const entries = Array.from({ length: 200 }, () => tool('solo'));
-    const turns = groupTurns(entries); // 1 turn
+    const turns = groupTurns(entries);
     const removed = turnsToTrim(turns, 2, 0);
     expect(removed.size).toBe(0);
   });

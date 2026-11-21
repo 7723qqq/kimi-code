@@ -1,4 +1,4 @@
-import type { ModelCapability } from '#/llm/capability';
+import type { ModelCapability } from '#human/llm/capability';
 
 export interface LlmConnection {
   readonly baseUrl?: string;

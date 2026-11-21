@@ -1,9 +1,10 @@
-import { PROVIDER_ID_PATTERN, ProtocolSchema } from '@moonshot-ai/agent-core-v2';
+import { z } from 'zod';
+
+import { PROVIDER_ID_PATTERN } from '@moonshot-ai/agent-core-v2';
 import {
   modelCatalogItemSchema,
   providerCatalogItemSchema,
 } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
-import { z } from 'zod';
 
 export const listModelsResponseSchema = z.object({
   items: z.array(modelCatalogItemSchema),
@@ -36,18 +37,18 @@ export const createProviderModelSchema = z.object({
   max_context_size: z.number().int().min(1),
   display_name: z.string().min(1).optional(),
   capabilities: z.array(z.string()).optional(),
+  protocol: z.enum(['anthropic', 'openai', 'openai_responses']).optional(),
   max_output_size: z.number().int().min(1).optional(),
   support_efforts: z.array(z.string().min(1)).optional(),
   adaptive_thinking: z.boolean().optional(),
-  protocol: z.enum(ProtocolSchema.options).optional(),
 });
 export type CreateProviderModel = z.infer<typeof createProviderModelSchema>;
 
 function refineProviderForm(
-  value: { base_url?: string | null; models: Array<{ model: string }> },
+  value: { base_url?: string | undefined; models: Array<{ model: string }> },
   ctx: z.RefinementCtx,
 ): void {
-  if (value.base_url !== null && value.base_url !== undefined && value.base_url.includes('${')) {
+  if (value.base_url !== undefined && value.base_url.includes('${')) {
     ctx.addIssue({
       code: 'custom',
       message: 'base_url must not contain an environment variable placeholder',
@@ -97,8 +98,7 @@ export const createProviderRequestSchema = z
         path: ['default_model'],
       });
     }
-  })
-  .strict();
+  });
 export type CreateProviderRequest = z.infer<typeof createProviderRequestSchema>;
 
 export const createProviderResponseSchema = providerCatalogItemSchema;
@@ -110,15 +110,14 @@ export const replaceProviderRequestSchema = z
     type: providerWireTypeSchema,
     api_key: z.string().optional(),
     api_key_env: z.string().optional(),
-    base_url: z.string().trim().nullable().optional(),
-    default_model: z.string().min(1).nullable().optional(),
+    base_url: z.string().trim().optional(),
+    default_model: z.string().min(1).optional(),
     models: z.array(createProviderModelSchema).min(1),
   })
   .superRefine((value, ctx) => {
     refineProviderForm(value, ctx);
     if (
       value.default_model !== undefined &&
-      value.default_model !== null &&
       !value.models.some((entry) => entry.model === value.default_model)
     ) {
       ctx.addIssue({
@@ -127,8 +126,7 @@ export const replaceProviderRequestSchema = z
         path: ['default_model'],
       });
     }
-  })
-  .strict();
+  });
 export type ReplaceProviderRequest = z.infer<typeof replaceProviderRequestSchema>;
 
 export const replaceProviderResponseSchema = z.object({
@@ -167,15 +165,13 @@ export type ListCatalogProvidersResponse = z.infer<typeof listCatalogProvidersRe
 export const getCatalogProviderResponseSchema = catalogProviderItemSchema;
 export type GetCatalogProviderResponse = z.infer<typeof getCatalogProviderResponseSchema>;
 
-export const providerCollectionActionBodySchema = z
-  .object({
-    catalog_id: z.string().min(1).optional(),
-    api_key: z.string().optional(),
-    base_url: z.string().optional(),
-    id: providerIdSchema.optional(),
-    url: z.string().min(1).optional(),
-  })
-  .strict();
+export const providerCollectionActionBodySchema = z.object({
+  catalog_id: z.string().min(1).optional(),
+  api_key: z.string().optional(),
+  base_url: z.string().optional(),
+  id: providerIdSchema.optional(),
+  url: z.string().min(1).optional(),
+});
 export type ProviderCollectionActionBody = z.infer<typeof providerCollectionActionBodySchema>;
 
 export const importCatalogProviderResponseSchema = z.object({

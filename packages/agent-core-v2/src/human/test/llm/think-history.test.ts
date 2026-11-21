@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { encodeOpenAIThinkHistoryKwargs } from '#/llm/requester/bases/openai/format';
+import { encodeOpenAIThinkHistoryKwargs } from '#human/llm/requester/bases/openai/format';
 
 describe('encodeOpenAIThinkHistoryKwargs', () => {
   it('uses the deepseek family history default', () => {

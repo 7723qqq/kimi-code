@@ -1,0 +1,171 @@
+commit b37c9bb857d556034afcb0004beaba6e2c2bb15a
+Author:     HydrogenE7 <huangzhengdoc@163.com>
+AuthorDate: Thu Nov 19 10:22:09 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 19 10:22:09 2026 +0800
+
+    fix(agent-core-v2): support Vertex AI ADC (#5056)
+    
+    * fix(agent-core-v2): support Vertex AI ADC
+    
+    * test(core): isolate Vertex client tests from ADC
+
+diff --git a/.changeset/fix-vertex-adc.md b/.changeset/fix-vertex-adc.md
+new file mode 100644
+index 0000000000..34c73d3deb
+--- /dev/null
++++ b/.changeset/fix-vertex-adc.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/kimi-code": patch
++---
++
++Fix Vertex AI authentication with Google ADC and honor the configured project and location.
+diff --git a/packages/agent-core-v2/src/app/auth/authService.ts b/packages/agent-core-v2/src/app/auth/authService.ts
+index 12c25dda06..f409663bea 100644
+--- a/packages/agent-core-v2/src/app/auth/authService.ts
++++ b/packages/agent-core-v2/src/app/auth/authService.ts
+@@ -736,6 +736,7 @@ export class AuthSummaryService implements IAuthSummaryService {
+         if (nonEmpty(token) !== undefined) return;
+         throw new AuthTokenMissingError(providerKey);
+       }
++      if (provider?.type === 'vertexai') return;
+       throw new AuthTokenMissingError(providerName);
+     } catch (error) {
+       this.telemetry.track2('auth_ensure_ready_failed', {
+diff --git a/packages/agent-core-v2/src/llm-adapter/protocol/protocolAdapterRegistry.ts b/packages/agent-core-v2/src/llm-adapter/protocol/protocolAdapterRegistry.ts
+index 4a70d78ebf..2d34a055ee 100644
+--- a/packages/agent-core-v2/src/llm-adapter/protocol/protocolAdapterRegistry.ts
++++ b/packages/agent-core-v2/src/llm-adapter/protocol/protocolAdapterRegistry.ts
+@@ -70,7 +70,11 @@ function routeFor(model: Model): AdapterRoute {
+       return model.providerOptions?.vertexai === true
+         ? {
+             requester: googleVertexRequester,
+-            options: { vertexai: true },
++            options: {
++              vertexai: true,
++              project: model.providerOptions?.project,
++              location: model.providerOptions?.location,
++            },
+             providerId: 'google_genai',
+           }
+         : {
+diff --git a/packages/agent-core-v2/test/app/auth/auth.test.ts b/packages/agent-core-v2/test/app/auth/auth.test.ts
+index fd1c593c80..f542fbdb0b 100644
+--- a/packages/agent-core-v2/test/app/auth/auth.test.ts
++++ b/packages/agent-core-v2/test/app/auth/auth.test.ts
+@@ -1878,6 +1878,22 @@ describe('AuthSummaryService', () => {
+     expect(getCachedAccessToken).not.toHaveBeenCalled();
+   });
+ 
++  it('ensureReady accepts Vertex AI ADC without an API key', async () => {
++    providers['vertex-main'] = {
++      type: 'vertexai',
++      env: { GOOGLE_CLOUD_PROJECT: 'test-project', GOOGLE_CLOUD_LOCATION: 'global' },
++    };
++    models['vertex'] = {
++      provider: 'vertex-main',
++      model: 'gemini-test',
++      protocol: 'google-genai',
++      maxContextSize: 128000,
++    };
++
++    await expect(createSummary().ensureReady('vertex')).resolves.toBeUndefined();
++    expect(getCachedAccessToken).not.toHaveBeenCalled();
++  });
++
+   it('ensureReady resolves a providerless model through the configured defaultProvider', async () => {
+     models = {
+       flat: { model: 'gpt-4.1', protocol: 'openai', maxContextSize: 128000 },
+diff --git a/packages/agent-core-v2/test/llm-adapter/protocol/protocolAdapterRegistry.test.ts b/packages/agent-core-v2/test/llm-adapter/protocol/protocolAdapterRegistry.test.ts
+index 3c7e130f04..f704cacc0f 100644
+--- a/packages/agent-core-v2/test/llm-adapter/protocol/protocolAdapterRegistry.test.ts
++++ b/packages/agent-core-v2/test/llm-adapter/protocol/protocolAdapterRegistry.test.ts
+@@ -231,7 +231,11 @@ describe('request gateway routes', () => {
+       }),
+     );
+     expect(contentsOf(vertex).model?.spec?.provider).toBe('google_genai');
+-    expect(contentsOf(vertex).protocol?.options).toMatchObject({ vertexai: true });
++    expect(contentsOf(vertex).protocol?.options).toMatchObject({
++      vertexai: true,
++      project: 'p',
++      location: 'l',
++    });
+   });
+ 
+   it('routes kimi+anthropic with media and explicit beta opt-in', async () => {
+diff --git a/packages/core/src/llm/builtin/protocol/google-genai/index.ts b/packages/core/src/llm/builtin/protocol/google-genai/index.ts
+index e1b148d50a..97a3ff585e 100644
+--- a/packages/core/src/llm/builtin/protocol/google-genai/index.ts
++++ b/packages/core/src/llm/builtin/protocol/google-genai/index.ts
+@@ -17,6 +17,8 @@ export type {
+ 
+ export interface GoogleGenAIOptions {
+   readonly vertexai?: boolean;
++  readonly project?: string;
++  readonly location?: string;
+   readonly extras?: GoogleGenAIExtraParams;
+ }
+ 
+@@ -53,6 +55,8 @@ function createClient(
+   const client = new GenAIClient({
+     apiKey: endpoint.apiKey,
+     vertexai: vertexai ? true : undefined,
++    project: endpoint.apiKey === undefined ? options?.project : undefined,
++    location: endpoint.apiKey === undefined ? options?.location : undefined,
+     httpOptions: Object.keys(httpOptions).length > 0 ? httpOptions : undefined,
+   });
+   if (endpoint.fetch !== undefined) {
+diff --git a/packages/core/test/llm/google-genai/client.test.ts b/packages/core/test/llm/google-genai/client.test.ts
+new file mode 100644
+index 0000000000..1eda424197
+--- /dev/null
++++ b/packages/core/test/llm/google-genai/client.test.ts
+@@ -0,0 +1,47 @@
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++const mocks = vi.hoisted(() => ({ genAIConstructor: vi.fn() }));
++
++vi.mock('@google/genai', () => ({
++  GoogleGenAI: mocks.genAIConstructor,
++}));
++
++import { googleGenAIProtocol } from '#/llm/builtin/protocol/google-genai/index';
++
++describe('Google GenAI client', () => {
++  beforeEach(() => {
++    mocks.genAIConstructor.mockClear();
++  });
++
++  it('passes Vertex project and location to the SDK when using ADC', () => {
++    googleGenAIProtocol.client(
++      {},
++      { vertexai: true, project: 'test-project', location: 'test-location' },
++    );
++
++    expect(mocks.genAIConstructor).toHaveBeenCalledTimes(1);
++    expect(mocks.genAIConstructor).toHaveBeenCalledWith({
++      apiKey: undefined,
++      vertexai: true,
++      project: 'test-project',
++      location: 'test-location',
++      httpOptions: undefined,
++    });
++  });
++
++  it('keeps Vertex API key requests projectless', () => {
++    googleGenAIProtocol.client(
++      { apiKey: 'test-key' },
++      { vertexai: true, project: 'test-project', location: 'test-location' },
++    );
++
++    expect(mocks.genAIConstructor).toHaveBeenCalledTimes(1);
++    expect(mocks.genAIConstructor).toHaveBeenCalledWith({
++      apiKey: 'test-key',
++      vertexai: true,
++      project: undefined,
++      location: undefined,
++      httpOptions: undefined,
++    });
++  });
++});

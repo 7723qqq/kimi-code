@@ -1,10 +1,19 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { DEFAULT_KIMI_CODE_OAUTH_HOST } from '#/constants';
 import { KIMI_CODE_OAUTH_KEY } from '#/managed-kimi-code';
 import { DEFAULT_KIMI_CODE_BASE_URL } from '#/managed-usage';
+import { KIMI_REGION_CACHE_FILENAME, type KimiRegionCacheRecord } from '#/region-cache';
+import { detectKimiRegionFromLocalSignals } from '#/region-local';
+import {
+  createKimiRegionResolver,
+  decideKimiRegion,
+  type KimiRegionAuthRead,
+  type KimiRegionAuthSnapshot,
+} from '#/region-resolver';
 import {
   KIMI_REGION_MARKER_FILENAME,
   KIMI_REGION_PROFILES,
@@ -14,14 +23,6 @@ import {
   resolveKimiRegion,
   resolveKimiRemoteControlAuth,
 } from '#/region';
-import { KIMI_REGION_CACHE_FILENAME, type KimiRegionCacheRecord } from '#/region-cache';
-import { detectKimiRegionFromLocalSignals } from '#/region-local';
-import {
-  createKimiRegionResolver,
-  decideKimiRegion,
-  type KimiRegionAuthRead,
-  type KimiRegionAuthSnapshot,
-} from '#/region-resolver';
 
 import { createTempWorkDir, type TempDirHandle } from './helpers';
 
@@ -68,9 +69,7 @@ describe('resolveKimiRegion', () => {
     expect(
       detectKimiRegionFromLocalSignals({ timeZone: 'America/New_York', locale: 'en-US' }),
     ).toEqual({ region: 'global', confident: true });
-    expect(
-      detectKimiRegionFromLocalSignals({ timeZone: 'Asia/Taipei', locale: 'zh-Hant-TW' }),
-    ).toEqual({
+    expect(detectKimiRegionFromLocalSignals({ timeZone: 'Asia/Taipei', locale: 'zh-Hant-TW' })).toEqual({
       region: 'global',
       confident: true,
     });
@@ -91,7 +90,9 @@ describe('resolveKimiRegion', () => {
     expect(resolveKimiRegion({ env: { KIMI_CODE_OAUTH_HOST: 'https://auth.kimi.ai' } })).toBe(
       'global',
     );
-    expect(resolveKimiRegion({ env: { KIMI_OAUTH_HOST: 'https://auth.kimi.ai' } })).toBe('global');
+    expect(resolveKimiRegion({ env: { KIMI_OAUTH_HOST: 'https://auth.kimi.ai' } })).toBe(
+      'global',
+    );
     expect(
       resolveKimiRegion({
         env: {
@@ -103,8 +104,6 @@ describe('resolveKimiRegion', () => {
   });
 
   it('treats an unknown env host as a custom environment and falls back to cn', async () => {
-    // ...even when the persisted login or marker says otherwise: the custom
-    // env overrides every endpoint anyway.
     expect(
       resolveKimiRegion({
         env: { KIMI_CODE_OAUTH_HOST: 'https://auth.internal.example.com' },
@@ -118,9 +117,7 @@ describe('resolveKimiRegion', () => {
     expect(resolveKimiRegion({ env: {}, configuredOAuthHost: 'https://auth.kimi.ai/' })).toBe(
       'global',
     );
-    expect(resolveKimiRegion({ env: {}, configuredOAuthHost: 'https://auth.kimi.com' })).toBe(
-      'mainland-cn',
-    );
+    expect(resolveKimiRegion({ env: {}, configuredOAuthHost: 'https://auth.kimi.com' })).toBe('mainland-cn');
   });
 
   it('ignores an unrecognized persisted host and continues down the chain', async () => {
@@ -135,9 +132,7 @@ describe('resolveKimiRegion', () => {
 
   it('reads the install-channel marker when nothing else decides', async () => {
     expect(resolveKimiRegion({ env: {}, homeDir: await markerDir('global\n') })).toBe('global');
-    expect(resolveKimiRegion({ env: {}, homeDir: await markerDir('  mainland-cn  ') })).toBe(
-      'mainland-cn',
-    );
+    expect(resolveKimiRegion({ env: {}, homeDir: await markerDir('  mainland-cn  ') })).toBe('mainland-cn');
   });
 
   it('reconciles auth state, persistent cache, and transient fallback', async () => {
@@ -362,9 +357,7 @@ describe('resolveKimiRegion', () => {
         homeDir: dir,
       }),
     ).toBe('global');
-    expect(
-      resolveKimiRemoteControlAuth({ env: {}, configuredOAuthKey: key, homeDir: dir }),
-    ).toEqual({
+    expect(resolveKimiRemoteControlAuth({ env: {}, configuredOAuthKey: key, homeDir: dir })).toEqual({
       region: 'global',
       oauthKey: key,
       relayOrigin: 'https://code-rc.kimi.com',

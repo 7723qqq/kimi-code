@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   applyCustomRegistryEntries,
@@ -26,7 +26,7 @@ function makeKokubResponseBody(): Record<string, CustomRegistryProviderEntry> {
         'claude-opus-4-7': { id: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
       },
     },
-    registry_messages: {
+    'registry_messages': {
       id: 'registry_messages',
       name: 'Sample Registry (messages)',
       api: 'https://registry.example.test',
@@ -35,7 +35,7 @@ function makeKokubResponseBody(): Record<string, CustomRegistryProviderEntry> {
         'claude-opus-4-7': { id: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
       },
     },
-    registry_responses: {
+    'registry_responses': {
       id: 'registry_responses',
       name: 'Sample Registry (responses)',
       api: 'https://registry.example.test/v1',
@@ -62,11 +62,12 @@ const KOKUB_SOURCE: CustomRegistrySource = {
 
 describe('fetchCustomRegistry', () => {
   it('parses a kokub-shaped 200 response into three providers', async () => {
-    const fetchMock = jest.fn(async () => makeJsonResponse(makeKokubResponseBody()));
+    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
 
-    const result = await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-    });
+    const result = await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    );
 
     expect(Object.keys(result)).toHaveLength(3);
     expect(result['registry_chat-completions']?.type).toBe('openai');
@@ -96,11 +97,12 @@ describe('fetchCustomRegistry', () => {
       support_efforts: ['low', 'high', 'max'],
       default_effort: 'high',
     };
-    const fetchMock = jest.fn(async () => makeJsonResponse(body));
+    const fetchMock = vi.fn(async () => makeJsonResponse(body));
 
-    const result = await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-    });
+    const result = await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    );
 
     expect(result['registry_chat-completions']?.models['gpt-5.5']).toEqual({
       id: 'gpt-5.5',
@@ -123,28 +125,26 @@ describe('fetchCustomRegistry', () => {
     },
     { name: 'empty input only', modalities: { input: [] }, capabilities: [] },
     { name: 'empty output only', modalities: { output: [] }, capabilities: [] },
-  ])(
-    'preserves $name modalities through parsing and configuration',
-    async ({ modalities, capabilities }) => {
-      const body = makeKokubResponseBody();
-      const upgrade = { model: 'next', migration_markdown: 'Use {model_to}' };
-      body['registry_chat-completions']!.models['current'] = { id: 'current', modalities, upgrade };
-      body['registry_chat-completions']!.models['next'] = { id: 'next' };
-      const fetchMock = jest.fn(async () => makeJsonResponse(body));
+  ])('preserves $name modalities through parsing and configuration', async ({ modalities, capabilities }) => {
+    const body = makeKokubResponseBody();
+    const upgrade = { model: 'next', migration_markdown: 'Use {model_to}' };
+    body['registry_chat-completions']!.models['current'] = { id: 'current', modalities, upgrade };
+    body['registry_chat-completions']!.models['next'] = { id: 'next' };
+    const fetchMock = vi.fn(async () => makeJsonResponse(body));
 
-      const result = await fetchCustomRegistry(KOKUB_SOURCE, {
-        fetchImpl: fetchMock as unknown as typeof fetch,
-      });
-      const provider = result['registry_chat-completions']!;
+    const result = await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    );
+    const provider = result['registry_chat-completions']!;
 
-      expect(provider.models['current']?.modalities).toEqual(modalities);
-      expect(provider.models['current']?.upgrade).toEqual(upgrade);
+    expect(provider.models['current']?.modalities).toEqual(modalities);
+    expect(provider.models['current']?.upgrade).toEqual(upgrade);
 
-      const config: ManagedKimiConfigShape = { providers: {} };
-      applyCustomRegistryProvider(config, provider, KOKUB_SOURCE);
-      expect(config.models?.['registry_chat-completions/current']).toMatchObject({ capabilities });
-    },
-  );
+    const config: ManagedKimiConfigShape = { providers: {} };
+    applyCustomRegistryProvider(config, provider, KOKUB_SOURCE);
+    expect(config.models?.['registry_chat-completions/current']).toMatchObject({ capabilities });
+  });
 
   it('parses upgrade metadata and null retirement time', async () => {
     const body = makeKokubResponseBody();
@@ -173,11 +173,12 @@ describe('fetchCustomRegistry', () => {
         retirement_at: '2030-01-01t00:00:00z',
       },
     };
-    const fetchMock = jest.fn(async () => makeJsonResponse(body));
+    const fetchMock = vi.fn(async () => makeJsonResponse(body));
 
-    const result = await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-    });
+    const result = await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    );
 
     expect(result['registry_chat-completions']?.models['gpt-5.5']?.upgrade).toEqual({
       model: 'gpt-6',
@@ -204,7 +205,7 @@ describe('fetchCustomRegistry', () => {
         retirement_at: 'not-a-timestamp',
       },
     };
-    const fetchMock = jest.fn(async () => makeJsonResponse(body));
+    const fetchMock = vi.fn(async () => makeJsonResponse(body));
 
     await expect(
       fetchCustomRegistry(KOKUB_SOURCE, { fetchImpl: fetchMock as unknown as typeof fetch }),
@@ -212,7 +213,7 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('omits the Authorization header when the apiKey is empty', async () => {
-    const fetchMock = jest.fn(async () => makeJsonResponse(makeKokubResponseBody()));
+    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
 
     await fetchCustomRegistry(
       { kind: 'apiJson', url: KOKUB_SOURCE.url, apiKey: '' },
@@ -227,15 +228,20 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('sends the given User-Agent, and none by default', async () => {
-    const fetchMock = jest.fn(async () => makeJsonResponse(makeKokubResponseBody()));
+    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
 
-    await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      userAgent: 'kimi-code-cli/1.2.3',
-    });
+    await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      {
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        userAgent: 'kimi-code-cli/1.2.3',
+      },
+    );
 
     const withUa = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect((withUa[1].headers as Record<string, string>)['User-Agent']).toBe('kimi-code-cli/1.2.3');
+    expect((withUa[1].headers as Record<string, string>)['User-Agent']).toBe(
+      'kimi-code-cli/1.2.3',
+    );
 
     fetchMock.mockClear();
     await fetchCustomRegistry(KOKUB_SOURCE, {
@@ -247,31 +253,35 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('forwards an AbortSignal when provided', async () => {
-    const fetchMock = jest.fn(async () => makeJsonResponse(makeKokubResponseBody()));
+    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
     const controller = new AbortController();
 
-    await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      signal: controller.signal,
-    });
+    await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      {
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        signal: controller.signal,
+      },
+    );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const forwarded = call[1].signal;
     expect(forwarded).toBeDefined();
-    expect(forwarded!.aborted).toBe(false);
+    expect(forwarded?.aborted).toBe(false);
     controller.abort();
-    expect(forwarded!.aborted).toBe(true);
+    expect(forwarded?.aborted).toBe(true);
   });
 
   it('throws CustomRegistryApiError with status on 401', async () => {
-    const fetchMock = jest.fn(async () =>
-      makeJsonResponse({ error: { message: 'invalid bearer' } }, 401),
+    const fetchMock = vi.fn(
+      async () => makeJsonResponse({ error: { message: 'invalid bearer' } }, 401),
     );
 
-    const error = await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-    }).catch((error: unknown) => error);
+    const error = await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    ).catch((error: unknown) => error);
 
     expect(error).toBeInstanceOf(CustomRegistryApiError);
     expect((error as CustomRegistryApiError).status).toBe(401);
@@ -279,7 +289,7 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('throws when the payload is not an object', async () => {
-    const fetchMock = jest.fn(async () => makeJsonResponse(['not', 'an', 'object']));
+    const fetchMock = vi.fn(async () => makeJsonResponse(['not', 'an', 'object']));
 
     await expect(
       fetchCustomRegistry(KOKUB_SOURCE, {
@@ -290,25 +300,27 @@ describe('fetchCustomRegistry', () => {
 
   it('skips invalid entries and keeps valid ones', async () => {
     const goodEntry = makeKokubResponseBody()['registry_chat-completions'];
-    const fetchMock = jest.fn(async () =>
-      makeJsonResponse({
-        'broken-entry': { id: 'broken-entry', name: 'Broken' },
-        'unknown-type': {
-          id: 'unknown-type',
-          name: 'Unknown Type',
-          api: 'https://example.test/v1',
-          type: 'vertexai',
-          models: { 'm-1': { id: 'm-1' } },
-        },
-        'registry_chat-completions': goodEntry,
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        makeJsonResponse({
+          'broken-entry': { id: 'broken-entry', name: 'Broken' },
+          'unknown-type': {
+            id: 'unknown-type',
+            name: 'Unknown Type',
+            api: 'https://example.test/v1',
+            type: 'vertexai',
+            models: { 'm-1': { id: 'm-1' } },
+          },
+          'registry_chat-completions': goodEntry,
+        }),
     );
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     try {
-      const result = await fetchCustomRegistry(KOKUB_SOURCE, {
-        fetchImpl: fetchMock as unknown as typeof fetch,
-      });
+      const result = await fetchCustomRegistry(
+        KOKUB_SOURCE,
+        { fetchImpl: fetchMock as unknown as typeof fetch },
+      );
 
       expect(Object.keys(result)).toEqual(['registry_chat-completions']);
       expect(result['broken-entry']).toBeUndefined();
@@ -326,7 +338,7 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('imports a google-genai provider whose api already includes the version path', async () => {
-    const fetchMock = jest.fn(async () =>
+    const fetchMock = vi.fn(async () =>
       makeJsonResponse({
         'registry_gemini-generate': {
           id: 'registry_gemini-generate',
@@ -457,9 +469,7 @@ describe('applyCustomRegistryProvider', () => {
       capabilities: string[];
     };
     expect(alias.maxContextSize).toBe(200000);
-    expect(alias.capabilities).toEqual(
-      expect.arrayContaining(['tool_use', 'thinking', 'image_in']),
-    );
+    expect(alias.capabilities).toEqual(expect.arrayContaining(['tool_use', 'thinking', 'image_in']));
     expect(alias.capabilities).not.toContain('image_out');
   });
 
@@ -559,7 +569,6 @@ describe('applyCustomRegistryProvider', () => {
 
     const alias = config.models?.['registry_chat-completions/gpt-5.5'];
     expect(alias?.['betaApi']).toBe(true);
-    // Upstream-owned fields are still refreshed.
     expect(alias?.['displayName']).toBe('GPT 5.5');
   });
 
@@ -831,11 +840,6 @@ describe('removeCustomRegistryProvider', () => {
 });
 
 describe('applyCustomRegistryEntries', () => {
-  // Regression: re-importing the same multi-provider api.json used to lose all
-  // but the last provider because the caller mixed in-memory mutations with the
-  // `harness.removeProvider` RPC (which read/wrote disk inside the loop and
-  // returned a fresh config object, discarding prior iterations' additions).
-  // The pure in-memory helper must keep every entry across repeated imports.
   it('keeps every provider when the same multi-provider source is applied twice', () => {
     const source: CustomRegistrySource = {
       kind: 'apiJson',
@@ -843,27 +847,9 @@ describe('applyCustomRegistryEntries', () => {
       apiKey: 'sk-token',
     };
     const entries: Record<string, CustomRegistryProviderEntry> = {
-      a: {
-        id: 'a',
-        name: 'A',
-        api: 'https://a.test/v1',
-        type: 'openai',
-        models: { m1: { id: 'm1' } },
-      },
-      b: {
-        id: 'b',
-        name: 'B',
-        api: 'https://b.test/v1',
-        type: 'openai',
-        models: { m1: { id: 'm1' } },
-      },
-      c: {
-        id: 'c',
-        name: 'C',
-        api: 'https://c.test/v1',
-        type: 'openai',
-        models: { m1: { id: 'm1' } },
-      },
+      a: { id: 'a', name: 'A', api: 'https://a.test/v1', type: 'openai', models: { 'm1': { id: 'm1' } } },
+      b: { id: 'b', name: 'B', api: 'https://b.test/v1', type: 'openai', models: { 'm1': { id: 'm1' } } },
+      c: { id: 'c', name: 'C', api: 'https://c.test/v1', type: 'openai', models: { 'm1': { id: 'm1' } } },
     };
 
     const config: ManagedKimiConfigShape = { providers: {} };
@@ -915,16 +901,9 @@ describe('applyCustomRegistryEntries', () => {
     expect(config.models?.['x/old-model']).toBeUndefined();
     expect(config.models?.['x/new-model']).toBeDefined();
     expect(config.models?.['other/keep']).toBeDefined();
-    // defaultModel pointed at the now-removed alias, so it must be cleared
-    // (matches the old harness.removeProvider semantics that the caller relied
-    // on before the refactor).
     expect(config.defaultModel).toBeUndefined();
   });
 
-  // Re-import semantics: when a provider that existed in a previous import is
-  // gone from the new fetch (same source URL), it must be removed along with
-  // its aliases and any `defaultModel` pointing at it. Without this, deleting a
-  // provider upstream silently leaves orphan records and a dangling default.
   it('removes providers from the same source URL that disappeared on re-import', () => {
     const source: CustomRegistrySource = {
       kind: 'apiJson',
@@ -932,25 +911,12 @@ describe('applyCustomRegistryEntries', () => {
       apiKey: 'sk-token',
     };
     const firstEntries: Record<string, CustomRegistryProviderEntry> = {
-      a: {
-        id: 'a',
-        name: 'A',
-        api: 'https://a.test/v1',
-        type: 'openai',
-        models: { m1: { id: 'm1' } },
-      },
-      b: {
-        id: 'b',
-        name: 'B',
-        api: 'https://b.test/v1',
-        type: 'openai',
-        models: { m1: { id: 'm1' } },
-      },
+      a: { id: 'a', name: 'A', api: 'https://a.test/v1', type: 'openai', models: { m1: { id: 'm1' } } },
+      b: { id: 'b', name: 'B', api: 'https://b.test/v1', type: 'openai', models: { m1: { id: 'm1' } } },
     };
 
     const config: ManagedKimiConfigShape = {
       providers: {
-        // Provider from an unrelated source — must not be touched.
         keepme: {
           type: 'openai',
           baseUrl: 'https://keepme.test/v1',
@@ -968,10 +934,8 @@ describe('applyCustomRegistryEntries', () => {
     };
 
     applyCustomRegistryEntries(config, firstEntries, source);
-    // After first import, default points at one of the now-orphaned aliases.
     config.defaultModel = 'b/m1';
 
-    // Second import drops provider `b`.
     applyCustomRegistryEntries(
       config,
       {
@@ -986,7 +950,6 @@ describe('applyCustomRegistryEntries', () => {
     expect(config.models?.['b/m1']).toBeUndefined();
     expect(config.defaultModel).toBeUndefined();
 
-    // Unrelated provider from a different source URL is preserved.
     expect(config.providers['keepme']).toBeDefined();
     expect(config.models?.['keepme/m1']).toBeDefined();
   });
@@ -1018,8 +981,6 @@ describe('applyCustomRegistryEntries', () => {
       sourceB,
     );
 
-    // Importing source A with no overlapping ids must not delete the provider
-    // sitting under source B.
     applyCustomRegistryEntries(
       config,
       {
@@ -1148,16 +1109,7 @@ describe('capabilitiesFromCustomEntry', () => {
         reasoning: true,
         modalities: { input: ['text', 'image', 'video'], output: ['text', 'image', 'audio'] },
       }),
-    ).toEqual(
-      expect.arrayContaining([
-        'tool_use',
-        'thinking',
-        'image_in',
-        'video_in',
-        'image_out',
-        'audio_out',
-      ]),
-    );
+    ).toEqual(expect.arrayContaining(['tool_use', 'thinking', 'image_in', 'video_in', 'image_out', 'audio_out']));
   });
 
   it('omits capabilities that are explicitly false', () => {

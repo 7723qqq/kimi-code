@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, jest, type Mock } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from '@moonshot-ai/testkit/vitest';
 import {
   clearManagedKimiCodeConfig,
   resolveKimiCodeOAuthKey,
@@ -12,8 +12,6 @@ import {
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
-import { ILogService } from '#/_base/log/log';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IAuthSummaryService, IOAuthService, IOAuthToolkit } from '#/app/auth/auth';
 import { AuthSummaryService, OAuthService } from '#/app/auth/authService';
 import {
@@ -27,27 +25,24 @@ import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
 import { WebSearchProviderService } from '#/app/auth/webSearch/webSearchService';
 import { IAuthLegacyService } from '#/app/authLegacy/authLegacy';
 import { AuthLegacyService } from '#/app/authLegacy/authLegacyService';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { ConfigRegistry } from '#/app/config/configService';
 import { IEventService } from '#/app/event/event';
 import type { Event2 } from '#/app/event/event2';
-import { MODELS_SECTION } from '#/app/kosongConfig/configSection';
+import { ILogService } from '#/_base/log/log';
 import { IRegionService } from '#/app/region/region';
 import { RegionService } from '#/app/region/regionService';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IModelService, type ModelRecord } from '#/llm-adapter/model/model';
-import {
-  IProviderService,
-  type ProviderConfig,
-  type ProvidersChangedEvent,
-} from '#/llm-adapter/provider/provider';
-import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from '#test/helpers/stubs';
-import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
+import { MODELS_SECTION } from '#/app/kosongConfig/configSection';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IProviderService, type ProviderConfig, type ProvidersChangedEvent } from '#/llm-adapter/provider/provider';
 
-import { stubAgentIdentity } from '../../app/agentIdentity/stubs';
+
 import { registerBootstrapServices } from '../bootstrap/stubs';
 import { registerTelemetryServices } from '../telemetry/stubs';
+import { stubAgentIdentity } from '../../app/agentIdentity/stubs';
 
 const OAUTH_PROVIDER = 'managed:kimi-code';
 const NON_OAUTH_PROVIDER = 'openai-main';
@@ -89,11 +84,11 @@ const OVERSEAS_SCOPED_REF = {
 
 interface FakeToolkit {
   readonly login: Mock<(...args: any[]) => any>;
-  readonly logout: ReturnType<typeof jest.fn>;
-  readonly getCachedAccessToken: ReturnType<typeof jest.fn>;
-  readonly tokenProvider: ReturnType<typeof jest.fn>;
-  readonly getManagedUsage: ReturnType<typeof jest.fn>;
-  readonly getManagedUserInfo: ReturnType<typeof jest.fn>;
+  readonly logout: ReturnType<typeof vi.fn>;
+  readonly getCachedAccessToken: ReturnType<typeof vi.fn>;
+  readonly tokenProvider: ReturnType<typeof vi.fn>;
+  readonly getManagedUsage: ReturnType<typeof vi.fn>;
+  readonly getManagedUserInfo: ReturnType<typeof vi.fn>;
 }
 
 describe('OAuthService', () => {
@@ -105,11 +100,9 @@ describe('OAuthService', () => {
   let defaultModel: string | undefined;
   let thinking: { enabled?: boolean; effort?: string } | undefined;
   let toolkit: FakeToolkit;
-  let providerSet: ReturnType<
-    typeof jest.fn<(name: string, config: ProviderConfig) => Promise<void>>
-  >;
-  let configSet: ReturnType<typeof jest.fn>;
-  let configReplace: ReturnType<typeof jest.fn<(domain: string, value: unknown) => Promise<void>>>;
+  let providerSet: ReturnType<typeof vi.fn<(name: string, config: ProviderConfig) => Promise<void>>>;
+  let configSet: ReturnType<typeof vi.fn>;
+  let configReplace: ReturnType<typeof vi.fn<(domain: string, value: unknown) => Promise<void>>>;
   let events: Event2[];
   let providerChangedEmitter: Emitter<ProvidersChangedEvent>;
 
@@ -124,14 +117,14 @@ describe('OAuthService', () => {
       },
       [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' },
     };
-    providerSet = jest.fn(async (name: string, config: ProviderConfig) => {
+    providerSet = vi.fn(async (name: string, config: ProviderConfig) => {
       providers = { ...providers, [name]: config };
     });
     models = {};
     services = undefined;
     defaultModel = undefined;
     thinking = undefined;
-    configSet = jest.fn(async (domain: string, value: unknown) => {
+    configSet = vi.fn(async (domain: string, value: unknown) => {
       if (domain === 'defaultModel') {
         defaultModel = value as string | undefined;
         return;
@@ -142,7 +135,7 @@ describe('OAuthService', () => {
       }
       throw new Error(`unexpected config set: ${domain}`);
     });
-    configReplace = jest.fn(async (domain: string, value: unknown) => {
+    configReplace = vi.fn(async (domain: string, value: unknown) => {
       if (domain === 'providers') {
         providers = value as Record<string, ProviderConfig>;
         return;
@@ -167,12 +160,12 @@ describe('OAuthService', () => {
     });
     events = [];
     toolkit = {
-      login: jest.fn<(...args: any[]) => any>(),
-      logout: jest.fn().mockResolvedValue({ providerName: OAUTH_PROVIDER, ok: true }),
-      getCachedAccessToken: jest.fn().mockResolvedValue(undefined),
-      tokenProvider: jest.fn().mockReturnValue({ getAccessToken: async () => 'access-token' }),
-      getManagedUsage: jest.fn().mockResolvedValue({ kind: 'error', message: 'not configured' }),
-      getManagedUserInfo: jest.fn().mockResolvedValue({ kind: 'error', message: 'not configured' }),
+      login: vi.fn<(...args: any[]) => any>(),
+      logout: vi.fn().mockResolvedValue({ providerName: OAUTH_PROVIDER, ok: true }),
+      getCachedAccessToken: vi.fn().mockResolvedValue(undefined),
+      tokenProvider: vi.fn().mockReturnValue({ getAccessToken: async () => 'access-token' }),
+      getManagedUsage: vi.fn().mockResolvedValue({ kind: 'error', message: 'not configured' }),
+      getManagedUserInfo: vi.fn().mockResolvedValue({ kind: 'error', message: 'not configured' }),
     };
     ix = createServices(disposables, {
       base: [registerBootstrapServices, registerTelemetryServices],
@@ -182,8 +175,7 @@ describe('OAuthService', () => {
           get: ((name: string) => providers[name]) as IProviderService['get'],
           list: (() => providers) as IProviderService['list'],
           set: providerSet as unknown as IProviderService['set'],
-          onDidChangeProviders:
-            providerChangedEmitter.event as IProviderService['onDidChangeProviders'],
+          onDidChangeProviders: providerChangedEmitter.event as IProviderService['onDidChangeProviders'],
         });
         reg.definePartialInstance(IConfigService, {
           get: ((domain: string) => configBacking()[domain]) as IConfigService['get'],
@@ -195,26 +187,22 @@ describe('OAuthService', () => {
           })) as IConfigService['inspect'],
           set: configSet as unknown as IConfigService['set'],
           replace: configReplace as unknown as IConfigService['replace'],
-          reload: jest.fn().mockResolvedValue(undefined) as unknown as IConfigService['reload'],
-          onDidChangeConfiguration: (() => ({
-            dispose: () => {},
-          })) as IConfigService['onDidChangeConfiguration'],
-          onDidSectionChange: (() => ({
-            dispose: () => {},
-          })) as IConfigService['onDidSectionChange'],
+          reload: vi.fn().mockResolvedValue(undefined) as unknown as IConfigService['reload'],
+          onDidChangeConfiguration: (() => ({ dispose: () => { } })) as IConfigService['onDidChangeConfiguration'],
+          onDidSectionChange: (() => ({ dispose: () => { } })) as IConfigService['onDidSectionChange'],
         });
         reg.definePartialInstance(ILogService, {
-          info: jest.fn(),
-          warn: jest.fn(),
-          debug: jest.fn(),
-          error: jest.fn(),
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
         });
         reg.definePartialInstance(IEventService, {
           publish: (event: Event2) => events.push(event),
           subscribe: () => ({ dispose: () => {} }),
         });
         reg.defineInstance(IOAuthToolkit, toolkit as unknown as IOAuthToolkit);
-        reg.definePartialInstance(ITelemetryService, { track2: jest.fn() });
+        reg.definePartialInstance(ITelemetryService, { track2: vi.fn() });
         reg.define(IRegionService, RegionService);
         reg.define(IOAuthService, OAuthService);
       },
@@ -222,8 +210,8 @@ describe('OAuthService', () => {
   });
   afterEach(() => {
     disposables.dispose();
-    restoreGlobals();
-    restoreEnvs();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   function createService(): IOAuthService {
@@ -234,24 +222,21 @@ describe('OAuthService', () => {
     return { providers, models, services, defaultModel, thinking };
   }
 
-  function stubManagedModelsFetch(): ReturnType<typeof jest.fn> {
-    const fetchMock = jest.fn().mockImplementation(
-      async () =>
-        new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: 'kimi-k2',
-                limit: { context: 131072 },
-                reasoning: { type: 'both' },
-                display_name: 'Kimi K2',
-              },
-            ],
-          }),
-          { status: 200 },
-        ),
-    );
-    setGlobal('fetch', fetchMock);
+  function stubManagedModelsFetch(): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: 'kimi-k2',
+            limit: { context: 131072 },
+            reasoning: { type: 'both' },
+            display_name: 'Kimi K2',
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
     return fetchMock;
   }
 
@@ -272,17 +257,18 @@ describe('OAuthService', () => {
   };
 
   function stubGatedManagedModelsFetch(): {
-    fetchMock: ReturnType<typeof jest.fn>;
+    fetchMock: ReturnType<typeof vi.fn>;
     releaseFetch: () => void;
   } {
     let releaseFetch!: () => void;
     const gate = new Promise<void>((resolve) => {
       releaseFetch = resolve;
     });
-    const fetchMock = jest.fn().mockImplementation(async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => {
       await gate;
-      return new Response(
-        JSON.stringify({
+      return {
+        ok: true,
+        json: async () => ({
           data: [
             {
               id: 'kimi-k2',
@@ -304,10 +290,9 @@ describe('OAuthService', () => {
             },
           ],
         }),
-        { status: 200 },
-      );
+      };
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
     return { fetchMock, releaseFetch };
   }
 
@@ -337,7 +322,7 @@ describe('OAuthService', () => {
       }),
     );
 
-    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
+    await vi.waitFor(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
   });
 
   it('provisions the managed provider through the provider service after login', async () => {
@@ -413,8 +398,8 @@ describe('OAuthService', () => {
   });
 
   it('startLogin honors KIMI_CODE_BASE_URL / KIMI_CODE_OAUTH_HOST for the login environment', async () => {
-    setEnv('KIMI_CODE_BASE_URL', 'https://env-api.example.com/coding/v1');
-    setEnv('KIMI_CODE_OAUTH_HOST', 'https://env-auth.example.com');
+    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://env-api.example.com/coding/v1');
+    vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://env-auth.example.com');
     stubManagedModelsFetch();
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
@@ -479,7 +464,7 @@ describe('OAuthService', () => {
   });
 
   it('startLogin with a region still honors env endpoint overrides', async () => {
-    setEnv('KIMI_CODE_OAUTH_HOST', 'https://env-auth.example.com');
+    vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://env-auth.example.com');
     stubManagedModelsFetch();
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
@@ -498,7 +483,7 @@ describe('OAuthService', () => {
   });
 
   it('getRegion resolves cn by default and global from the persisted login host', async () => {
-    setEnv('KIMI_CODE_REGION_MARKER', 'off');
+    vi.stubEnv('KIMI_CODE_REGION_MARKER', 'off');
     const svc = createService();
     expect(await svc.getRegionAsync()).toBe('mainland-cn');
 
@@ -514,11 +499,11 @@ describe('OAuthService', () => {
     try {
       await mkdir(home, { recursive: true });
       await writeFile(join(home, 'region'), 'global\n', 'utf-8');
-      setEnv('KIMI_CODE_OAUTH_HOST', '');
+      vi.stubEnv('KIMI_CODE_OAUTH_HOST', '');
       providers[OAUTH_PROVIDER] = { type: 'kimi' };
       expect(await createService().getRegionAsync()).toBe('global');
 
-      setEnv('KIMI_CODE_REGION_MARKER', 'off');
+      vi.stubEnv('KIMI_CODE_REGION_MARKER', 'off');
       const offRegions = new RegionService(ix.get(IProviderService), ix.get(IBootstrapService));
       try {
         expect(await offRegions.getRegionAsync()).toBe('mainland-cn');
@@ -536,8 +521,8 @@ describe('OAuthService', () => {
     try {
       await mkdir(bootstrapHome, { recursive: true });
       await writeFile(join(bootstrapHome, 'region'), 'global\n', 'utf-8');
-      setEnv('KIMI_CODE_HOME', envHome);
-      setEnv('KIMI_CODE_OAUTH_HOST', '');
+      vi.stubEnv('KIMI_CODE_HOME', envHome);
+      vi.stubEnv('KIMI_CODE_OAUTH_HOST', '');
       providers[OAUTH_PROVIDER] = { type: 'kimi' };
       expect(await createService().getRegionAsync()).toBe('global');
     } finally {
@@ -551,7 +536,7 @@ describe('OAuthService', () => {
     try {
       await mkdir(home, { recursive: true });
       await writeFile(join(home, 'region'), 'global\n', 'utf-8');
-      setEnv('KIMI_CODE_OAUTH_HOST', '');
+      vi.stubEnv('KIMI_CODE_OAUTH_HOST', '');
       providers[OAUTH_PROVIDER] = {
         type: 'kimi',
         oauth: { storage: 'file', key: 'oauth/kimi-code' },
@@ -563,8 +548,8 @@ describe('OAuthService', () => {
   });
 
   it('resolves the runtime credential slot to the env environment after an env-scoped login', async () => {
-    setEnv('KIMI_CODE_BASE_URL', 'https://env-api.example.com/coding/v1');
-    setEnv('KIMI_CODE_OAUTH_HOST', 'https://env-auth.example.com');
+    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://env-api.example.com/coding/v1');
+    vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://env-auth.example.com');
     stubManagedModelsFetch();
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
@@ -572,7 +557,7 @@ describe('OAuthService', () => {
     });
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
-    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
+    await vi.waitFor(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
 
     await svc.status(OAUTH_PROVIDER);
     expect(toolkit.getCachedAccessToken).toHaveBeenCalledWith(
@@ -618,8 +603,8 @@ describe('OAuthService', () => {
   });
 
   it('startLogin returns authenticated when model refresh fails on the already-authenticated fast path', async () => {
-    const fetchMock = jest.fn().mockRejectedValue(new Error('network disabled in test'));
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network disabled in test'));
+    vi.stubGlobal('fetch', fetchMock);
     toolkit.login.mockResolvedValue({ providerName: OAUTH_PROVIDER, ok: true });
     const svc = createService();
 
@@ -641,8 +626,8 @@ describe('OAuthService', () => {
   });
 
   it('keeps a device-code login authenticated when model fetch is unavailable after authorization', async () => {
-    const fetchMock = jest.fn().mockRejectedValue(new Error('network disabled in test'));
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network disabled in test'));
+    vi.stubGlobal('fetch', fetchMock);
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
       return Promise.resolve({ providerName: OAUTH_PROVIDER, ok: true });
@@ -653,7 +638,7 @@ describe('OAuthService', () => {
       provider: OAUTH_PROVIDER,
       status: 'pending',
     });
-    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
+    await vi.waitFor(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(configReplace).not.toHaveBeenCalledWith('defaultModel', expect.any(String));
   });
@@ -667,7 +652,7 @@ describe('OAuthService', () => {
     const svc = createService();
 
     await svc.startLogin(OAUTH_PROVIDER);
-    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
+    await vi.waitFor(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(providerSet).toHaveBeenCalledWith(
@@ -689,7 +674,7 @@ describe('OAuthService', () => {
   it('keeps an in-flight OAuth flow alive when unrelated providers change', async () => {
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
-      return new Promise(() => {});
+      return new Promise(() => { });
     });
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
@@ -703,7 +688,7 @@ describe('OAuthService', () => {
   it('aborts an in-flight OAuth flow when its provider is removed from config', async () => {
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
-      return new Promise(() => {});
+      return new Promise(() => { });
     });
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
@@ -719,7 +704,7 @@ describe('OAuthService', () => {
   it('marks an in-flight OAuth flow cancelled (not vanished) when its provider config changes', async () => {
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
-      return new Promise(() => {});
+      return new Promise(() => { });
     });
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
@@ -747,7 +732,7 @@ describe('OAuthService', () => {
     resolveLogin({ providerName: OAUTH_PROVIDER, ok: true });
     providerChangedEmitter.fire({ added: [], removed: [], changed: [OAUTH_PROVIDER] });
 
-    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('cancelled'));
+    await vi.waitFor(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('cancelled'));
   });
 
   it('reports pending until provisioning finishes after the grant settles', async () => {
@@ -766,13 +751,13 @@ describe('OAuthService', () => {
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(providerSet).toHaveBeenCalled();
     });
     expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('pending');
 
     resolveProvision();
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated');
     });
   });
@@ -791,7 +776,7 @@ describe('OAuthService', () => {
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
 
-    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
+    await vi.waitFor(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
   });
 
   it('cancelLogin aborts a pending flow and marks it cancelled', async () => {
@@ -799,7 +784,7 @@ describe('OAuthService', () => {
     toolkit.login.mockImplementation((_provider, options) => {
       capturedSignal = options.signal;
       options.onDeviceCode(deviceAuth);
-      return new Promise(() => {});
+      return new Promise(() => { });
     });
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
@@ -813,7 +798,7 @@ describe('OAuthService', () => {
   it('logout delegates to the toolkit and clears any pending flow', async () => {
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
-      return new Promise(() => {});
+      return new Promise(() => { });
     });
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
@@ -983,23 +968,20 @@ describe('OAuthService', () => {
   });
 
   it('refreshOAuthProviderModels fetches models and writes back the changed sections', async () => {
-    const fetchMock = jest.fn().mockImplementation(
-      async () =>
-        new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: 'kimi-k2',
-                limit: { context: 131072 },
-                reasoning: { type: 'both' },
-                display_name: 'Kimi K2',
-              },
-            ],
-          }),
-          { status: 200 },
-        ),
-    );
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: 'kimi-k2',
+            limit: { context: 131072 },
+            reasoning: { type: 'both' },
+            display_name: 'Kimi K2',
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
     const svc = createService();
 
     const result = await svc.refreshOAuthProviderModels();
@@ -1036,13 +1018,14 @@ describe('OAuthService', () => {
   it('serializes concurrent refreshOAuthProviderModels runs so they never overlap', async () => {
     let inFlight = 0;
     let maxInFlight = 0;
-    const fetchMock = jest.fn().mockImplementation(async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => {
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
       await new Promise((resolve) => setTimeout(resolve, 20));
       inFlight--;
-      return new Response(
-        JSON.stringify({
+      return {
+        ok: true,
+        json: async () => ({
           data: [
             {
               id: 'kimi-k2',
@@ -1052,10 +1035,9 @@ describe('OAuthService', () => {
             },
           ],
         }),
-        { status: 200 },
-      );
+      };
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
     const svc = createService();
 
     await Promise.all([svc.refreshOAuthProviderModels(), svc.refreshOAuthProviderModels()]);
@@ -1066,39 +1048,29 @@ describe('OAuthService', () => {
 
   it('aborts the refresh write when the managed provider was edited mid-fetch', async () => {
     let resolveFetch!: (value: unknown) => void;
-    const fetchMock = jest.fn(
-      () =>
-        new Promise((resolve) => {
-          resolveFetch = resolve;
-        }),
-    );
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn(() => new Promise((resolve) => { resolveFetch = resolve; }));
+    vi.stubGlobal('fetch', fetchMock);
     const svc = createService();
 
     const pending = svc.refreshOAuthProviderModels();
-    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalled());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     providers = {
       ...providers,
-      [OAUTH_PROVIDER]: {
-        ...providers[OAUTH_PROVIDER]!,
-        baseUrl: 'https://api.changed.example.com',
-      },
+      [OAUTH_PROVIDER]: { ...providers[OAUTH_PROVIDER]!, baseUrl: 'https://api.changed.example.com' },
     };
-    resolveFetch(
-      new Response(
-        JSON.stringify({
-          data: [
-            {
-              id: 'kimi-k2',
-              limit: { context: 131072 },
-              reasoning: { type: 'both' },
-              display_name: 'Kimi K2',
-            },
-          ],
-        }),
-        { status: 200 },
-      ),
-    );
+    resolveFetch({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: 'kimi-k2',
+            limit: { context: 131072 },
+            reasoning: { type: 'both' },
+            display_name: 'Kimi K2',
+          },
+        ],
+      }),
+    });
 
     await expect(pending).resolves.toEqual({ changed: [], unchanged: [], failed: [] });
     expect(configReplace).not.toHaveBeenCalled();
@@ -1130,7 +1102,7 @@ describe('OAuthService', () => {
       },
     ]);
     expect(configReplace).toHaveBeenCalledWith('defaultModel', 'kimi-code/kimi-k2');
-    expect<string | undefined>(defaultModel).toBe('kimi-code/kimi-k2');
+    expect(defaultModel).toBe('kimi-code/kimi-k2');
     expect(events).toEqual([
       expect.objectContaining({
         type: 'event.model_catalog.changed',
@@ -1166,7 +1138,7 @@ describe('OAuthService', () => {
     const svc = createService();
 
     const refresh = svc.refreshOAuthProviderModels();
-    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalled());
+    await vi.waitFor(() => { expect(fetchMock).toHaveBeenCalled(); });
     await configReplace('defaultModel', 'kimi-code/kimi-k2.5');
     releaseFetch();
     const result = await refresh;
@@ -1194,7 +1166,7 @@ describe('OAuthService', () => {
     const svc = createService();
 
     const refresh = svc.refreshOAuthProviderModels();
-    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalled());
+    await vi.waitFor(() => { expect(fetchMock).toHaveBeenCalled(); });
     releaseFetch();
     const result = await refresh;
 
@@ -1228,7 +1200,7 @@ describe('OAuthService', () => {
     const svc = createService();
 
     const refresh = svc.refreshOAuthProviderModels();
-    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalled());
+    await vi.waitFor(() => { expect(fetchMock).toHaveBeenCalled(); });
     await configReplace('thinking', { enabled: false });
     releaseFetch();
     const result = await refresh;
@@ -1248,7 +1220,7 @@ describe('WebSearchProviderService', () => {
   let models: Record<string, ModelRecord>;
   let defaultModel: string | undefined;
   let servicesConfig: ServicesConfig | undefined;
-  let resolveTokenProvider: ReturnType<typeof jest.fn>;
+  let resolveTokenProvider: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -1257,7 +1229,7 @@ describe('WebSearchProviderService', () => {
     models = {};
     defaultModel = undefined;
     servicesConfig = undefined;
-    resolveTokenProvider = jest
+    resolveTokenProvider = vi
       .fn()
       .mockReturnValue({ getAccessToken: async () => 'access-token' });
     ix = createServices(disposables, {
@@ -1278,7 +1250,10 @@ describe('WebSearchProviderService', () => {
           'User-Agent': 'kimi-code-cli/test',
           'X-Msh-Device-Id': 'device-test',
         };
-        reg.defineInstance(IAgentIdentity, stubAgentIdentity({ hostRequestHeaders: hostHeaders }));
+        reg.defineInstance(
+          IAgentIdentity,
+          stubAgentIdentity({ hostRequestHeaders: hostHeaders }),
+        );
         reg.definePartialInstance(IBootstrapService, {
           args: { requestHeaders: hostHeaders },
         });
@@ -1292,26 +1267,26 @@ describe('WebSearchProviderService', () => {
   });
   afterEach(() => {
     disposables.dispose();
-    restoreGlobals();
+    vi.unstubAllGlobals();
   });
 
   function createService(): IWebSearchProviderService {
     return ix.get(IWebSearchProviderService);
   }
 
-  it('falls back to the local keyless provider when the managed provider is not configured', () => {
+  it('returns undefined when the managed provider is not configured', () => {
     providers = { [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' } };
-    expect(createService().getWebSearchProvider()).not.toBeUndefined();
+    expect(createService().getWebSearchProvider()).toBeUndefined();
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 
-  it('falls back to the local keyless provider when the managed provider is not an OAuth kimi provider', () => {
+  it('returns undefined when the managed provider is not an OAuth kimi provider', () => {
     providers = { [OAUTH_PROVIDER]: { type: 'kimi', apiKey: 'sk-test' } };
-    expect(createService().getWebSearchProvider()).not.toBeUndefined();
+    expect(createService().getWebSearchProvider()).toBeUndefined();
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 
-  it('falls back to the local keyless provider when the oauth service yields no token provider', () => {
+  it('returns undefined when the oauth service yields no token provider', () => {
     providers = {
       [OAUTH_PROVIDER]: {
         type: 'kimi',
@@ -1320,7 +1295,7 @@ describe('WebSearchProviderService', () => {
       },
     };
     resolveTokenProvider.mockReturnValue(undefined);
-    expect(createService().getWebSearchProvider()).not.toBeUndefined();
+    expect(createService().getWebSearchProvider()).toBeUndefined();
   });
 
   it('builds a search provider from the managed provider oauth ref', () => {
@@ -1347,19 +1322,21 @@ describe('WebSearchProviderService', () => {
         customHeaders: { 'X-Custom': 'yes' },
       },
     };
-    const fetchMock = jest.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
       status: 200,
       json: async () => ({
         search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
       }),
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
     expect(provider).not.toBeUndefined();
     const results = await provider!.search('hello');
 
-    expect(results).toEqual([{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }]);
+    expect(results).toEqual([
+      { title: 'Title', url: 'https://example.com', snippet: 'Snippet' },
+    ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://api.example.com/v1/search');
@@ -1382,20 +1359,22 @@ describe('WebSearchProviderService', () => {
         customHeaders: { 'X-Custom': 'yes' },
       },
     };
-    const fetchMock = jest.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
       status: 200,
       json: async () => ({
         search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
       }),
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
     expect(provider).not.toBeUndefined();
     expect(resolveTokenProvider).not.toHaveBeenCalled();
     const results = await provider!.search('hello');
 
-    expect(results).toEqual([{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }]);
+    expect(results).toEqual([
+      { title: 'Title', url: 'https://example.com', snippet: 'Snippet' },
+    ]);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://search.example.com/search');
     const headers = init.headers as Record<string, string>;
@@ -1416,13 +1395,11 @@ describe('WebSearchProviderService', () => {
         oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     };
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
+    const fetchMock = vi.fn().mockResolvedValue({
       status: 200,
       json: async () => ({ search_results: [] }),
-      text: async () => '<html><body>no results</body></html>',
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
     expect(provider).not.toBeUndefined();
@@ -1442,13 +1419,11 @@ describe('WebSearchProviderService', () => {
         oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     };
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
+    const fetchMock = vi.fn().mockResolvedValue({
       status: 200,
       json: async () => ({ search_results: [] }),
-      text: async () => '<html><body>no results</body></html>',
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
     expect(provider).not.toBeUndefined();
@@ -1462,9 +1437,9 @@ describe('WebSearchProviderService', () => {
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer access-token');
   });
 
-  it('falls back to the local keyless provider when services.moonshot_search has no baseUrl and no managed oauth', () => {
+  it('returns undefined when services.moonshot_search has no baseUrl and no managed oauth', () => {
     servicesConfig = { moonshotSearch: { apiKey: 'search-key' } };
-    expect(createService().getWebSearchProvider()).not.toBeUndefined();
+    expect(createService().getWebSearchProvider()).toBeUndefined();
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 
@@ -1502,7 +1477,7 @@ describe('WebSearchProviderService', () => {
 
     servicesConfig = undefined;
     providers = {};
-    expect(svc.hasWebSearchProvider()).toBe(true);
+    expect(svc.hasWebSearchProvider()).toBe(false);
 
     providers = {
       [OAUTH_PROVIDER]: {
@@ -1546,13 +1521,11 @@ describe('WebSearchProviderService', () => {
       },
     };
 
-    const fetchMock = jest.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
       status: 200,
-      json: async () => ({
-        search_results: [{ title: 'Doc', url: 'https://example.test/doc', snippet: 'Body' }],
-      }),
+      json: async () => ({ search_results: [] }),
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const svc = createService();
     expect(svc.hasWebSearchProvider('registry-kimi/k3')).toBe(true);
@@ -1609,13 +1582,11 @@ describe('WebSearchProviderService', () => {
       },
     };
 
-    const fetchMock = jest.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
       status: 200,
-      json: async () => ({
-        search_results: [{ title: 'Doc', url: 'https://example.test/doc', snippet: 'Body' }],
-      }),
+      json: async () => ({ search_results: [] }),
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const svc = createService();
     expect(svc.hasWebSearchProvider()).toBe(true);
@@ -1655,11 +1626,7 @@ describe('services config section', () => {
           base_url: 'https://api.example.com/search',
           api_key: 'search-key',
           custom_headers: { 'X-Search': '1' },
-          oauth: {
-            storage: 'file',
-            key: 'oauth/kimi-code',
-            oauth_host: 'https://auth.example.com',
-          },
+          oauth: { storage: 'file', key: 'oauth/kimi-code', oauth_host: 'https://auth.example.com' },
         },
         moonshot_fetch: { base_url: 'https://api.example.com/fetch', api_key: 'fetch-key' },
       }),
@@ -1738,9 +1705,9 @@ describe('AuthSummaryService', () => {
   let models: Record<string, ModelRecord>;
   let defaultModel: string | undefined;
   let defaultProvider: string | undefined;
-  let oauthStatus: ReturnType<typeof jest.fn>;
-  let getCachedAccessToken: ReturnType<typeof jest.fn>;
-  let reload: ReturnType<typeof jest.fn>;
+  let oauthStatus: ReturnType<typeof vi.fn>;
+  let getCachedAccessToken: ReturnType<typeof vi.fn>;
+  let reload: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -1767,9 +1734,9 @@ describe('AuthSummaryService', () => {
       },
     };
     defaultModel = 'kimi';
-    oauthStatus = jest.fn();
-    getCachedAccessToken = jest.fn().mockResolvedValue(undefined);
-    reload = jest.fn().mockResolvedValue(undefined);
+    oauthStatus = vi.fn();
+    getCachedAccessToken = vi.fn().mockResolvedValue(undefined);
+    reload = vi.fn().mockResolvedValue(undefined);
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IProviderService, {
@@ -1789,25 +1756,20 @@ describe('AuthSummaryService', () => {
             return undefined;
           }) as IConfigService['get'],
           reload: reload as unknown as IConfigService['reload'],
-          onDidChangeConfiguration: (() => ({
-            dispose: () => {},
-          })) as IConfigService['onDidChangeConfiguration'],
-          onDidSectionChange: (() => ({
-            dispose: () => {},
-          })) as IConfigService['onDidSectionChange'],
+          onDidChangeConfiguration: (() => ({ dispose: () => { } })) as IConfigService['onDidChangeConfiguration'],
+          onDidSectionChange: (() => ({ dispose: () => { } })) as IConfigService['onDidSectionChange'],
         });
         reg.definePartialInstance(IOAuthService, {
           status: oauthStatus as unknown as IOAuthService['status'],
-          getCachedAccessToken:
-            getCachedAccessToken as unknown as IOAuthService['getCachedAccessToken'],
+          getCachedAccessToken: getCachedAccessToken as unknown as IOAuthService['getCachedAccessToken'],
         });
         reg.definePartialInstance(ILogService, {
-          info: jest.fn(),
-          warn: jest.fn(),
-          debug: jest.fn(),
-          error: jest.fn(),
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
         });
-        reg.definePartialInstance(ITelemetryService, { track2: jest.fn() });
+        reg.definePartialInstance(ITelemetryService, { track2: vi.fn() });
         reg.define(IAuthSummaryService, AuthSummaryService);
       },
     });
@@ -1895,7 +1857,7 @@ describe('AuthSummaryService', () => {
 
   it('ensureReady emits auth_ensure_ready_failed with reason unexpected for non-auth-classified failures', async () => {
     getCachedAccessToken.mockRejectedValue(new Error('token store unreadable'));
-    const track2 = ix.get(ITelemetryService).track2 as unknown as Mock<ITelemetryService['track2']>;
+    const track2 = ix.get(ITelemetryService).track2 as unknown as Mock;
 
     await expect(createSummary().ensureReady()).rejects.toThrow('token store unreadable');
     expect(track2).toHaveBeenCalledWith('auth_ensure_ready_failed', {
@@ -1913,6 +1875,22 @@ describe('AuthSummaryService', () => {
     };
     await expect(createSummary().ensureReady('openai')).resolves.toBeUndefined();
     await expect(createSummary().ensureReady('bedrock')).resolves.toBeUndefined();
+    expect(getCachedAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('ensureReady accepts Vertex AI ADC without an API key', async () => {
+    providers['vertex-main'] = {
+      type: 'vertexai',
+      env: { GOOGLE_CLOUD_PROJECT: 'test-project', GOOGLE_CLOUD_LOCATION: 'global' },
+    };
+    models['vertex'] = {
+      provider: 'vertex-main',
+      model: 'gemini-test',
+      protocol: 'google-genai',
+      maxContextSize: 128000,
+    };
+
+    await expect(createSummary().ensureReady('vertex')).resolves.toBeUndefined();
     expect(getCachedAccessToken).not.toHaveBeenCalled();
   });
 
@@ -1943,18 +1921,18 @@ describe('AuthLegacyService', () => {
   let providers: Record<string, ProviderConfig>;
   let models: Record<string, ModelRecord>;
   let defaultModel: string | undefined;
-  let oauthStatus: ReturnType<typeof jest.fn>;
+  let oauthStatus: ReturnType<typeof vi.fn>;
   let configReady: Promise<void>;
-  let configReload: ReturnType<typeof jest.fn>;
+  let configReload: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     providers = {};
     models = {};
     defaultModel = undefined;
-    oauthStatus = jest.fn();
+    oauthStatus = vi.fn();
     configReady = Promise.resolve();
-    configReload = jest.fn().mockResolvedValue(undefined);
+    configReload = vi.fn().mockResolvedValue(undefined);
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IConfigService, {

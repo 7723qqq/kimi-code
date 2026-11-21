@@ -148,6 +148,10 @@ const NON_BUN_PATHS = [_][]const u8{
     "apps/vscode",
     "apps/kimi-inspect",
     "apps/vis/web",
+    "apps/desktop/src/main",
+    "apps/desktop/src/preload",
+    "apps/desktop/src/renderer",
+    "apps/desktop/src/shared",
 };
 
 pub fn runNative(ctx: *check.Context) !void {
@@ -906,6 +910,12 @@ test "isBunHosted excludes the Node-only and browser-safe packages" {
     try testing.expect(!isBunHosted("packages/i18n-shared/src/x.ts"));
     try testing.expect(!isBunHosted("apps/vscode/src/x.ts"));
     try testing.expect(!isBunHosted("apps/vis/web/src/x.tsx"));
+    try testing.expect(!isBunHosted("apps/desktop/src/main/app/index.ts"));
+    try testing.expect(!isBunHosted("apps/desktop/src/preload/index.ts"));
+    try testing.expect(!isBunHosted("apps/desktop/src/renderer/main.ts"));
+    try testing.expect(!isBunHosted("apps/desktop/src/shared/backend-protocol.ts"));
+    try testing.expect(isBunHosted("apps/desktop/src/backend/entry.ts"));
+    try testing.expect(isBunHosted("apps/desktop/scripts/build-backend.mjs"));
 }
 
 test "a Node call with a Bun lookalike that disagrees stays unpaired" {

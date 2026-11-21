@@ -1,11 +1,10 @@
-import type { ModelCapability } from '../contract/capability';
 import type { OAuthRef } from '../provider/provider';
 
 export interface ModelOverrides {
-  temperature?: number;
-  topP?: number;
-  thinkingKeep?: string;
-  maxCompletionTokens?: number;
+  readonly temperature?: number;
+  readonly topP?: number;
+  readonly thinkingKeep?: string;
+  readonly maxCompletionTokens?: number;
 }
 
 export interface CompletionBudgetParams {
@@ -25,17 +24,4 @@ export interface ResolvedModelAuthMaterial {
 export interface AwsAuthMaterial {
   readonly region?: string;
   readonly profile?: string;
-}
-
-export interface ThinkingDefaults {
-  readonly enabled?: boolean;
-  readonly effort?: string;
-}
-
-export interface ModelThinkingMetadata {
-  readonly capabilities?: ModelCapability | readonly string[];
-  readonly adaptiveThinking?: boolean;
-  readonly alwaysThinking?: boolean;
-  readonly supportEfforts?: readonly string[];
-  readonly defaultEffort?: string;
 }

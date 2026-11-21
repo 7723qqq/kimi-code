@@ -2,15 +2,15 @@ import { describe, expect, it } from 'bun:test';
 
 import { z } from 'zod';
 
-import { storeActor } from '#/eventStore/actor';
-import { defineEvent } from '#/eventStore/events';
-import { createEventStore, type Cause } from '#/eventStore/eventStore';
-import { journalFromBranch } from '#/eventStore/journal';
-import { createSlice } from '#/eventStore/slice';
-import { MemoryBackend } from '#/store/backend/memory';
-import { TreeStore } from '#/store/store';
-import { Tree } from '#/store/tree';
-import { createActor } from '#/xstate2';
+import { storeActor } from '#human/eventStore/actor';
+import { defineEvent } from '#human/eventStore/events';
+import { createEventStore, type Cause } from '#human/eventStore/eventStore';
+import { journalFromBranch } from '#human/eventStore/journal';
+import { createSlice } from '#human/eventStore/slice';
+import { MemoryBackend } from '#human/store/backend/memory';
+import { TreeStore } from '#human/store/store';
+import { Tree } from '#human/store/tree';
+import { createActor } from '#human/xstate2';
 
 const counterAdded = defineEvent({
   type: 'test.counter_added',

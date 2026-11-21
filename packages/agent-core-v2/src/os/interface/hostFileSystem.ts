@@ -28,13 +28,8 @@ export interface HostWalkEntry {
   readonly kind: 'file' | 'directory' | 'symlink';
 }
 
-export interface HostWalkMatcher {
-  ignores(path: string): boolean;
-}
-
 export interface HostWalkOptions {
   readonly ignore?: readonly string[];
-  readonly matcher?: HostWalkMatcher;
   readonly deadlineMs?: number;
 }
 
@@ -65,7 +60,6 @@ export interface IHostFileSystem {
   remove(path: string): Promise<void>;
   rename?(from: string, to: string): Promise<void>;
   realpath(path: string): Promise<string>;
-  rename?(from: string, to: string): Promise<void>;
 }
 
 export const IHostFileSystem: ServiceIdentifier<IHostFileSystem> =

@@ -1,18 +1,17 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import type { SDKRpcClientBase } from '#/rpc';
 import { Session } from '#/session';
+import type { SDKRpcClientBase } from '#/rpc';
 
 function makeSession() {
   const rpc = {
-    createGoal: mock(async () => ({ goalId: 'g1' })),
-    editGoalObjective: mock(async () => ({ goalId: 'g1' })),
-    getGoal: mock(async () => ({ goal: null })),
-    pauseGoal: mock(async () => ({ goalId: 'g1' })),
-    resumeGoal: mock(async () => ({ goalId: 'g1' })),
-    cancelGoal: mock(async () => ({ goalId: 'g1' })),
-    getCronTasks: mock(async () => ({ tasks: [] })),
-    clearSessionHandlers: mock(),
+    createGoal: vi.fn(async () => ({ goalId: 'g1' })),
+    getGoal: vi.fn(async () => ({ goal: null })),
+    pauseGoal: vi.fn(async () => ({ goalId: 'g1' })),
+    resumeGoal: vi.fn(async () => ({ goalId: 'g1' })),
+    cancelGoal: vi.fn(async () => ({ goalId: 'g1' })),
+    getCronTasks: vi.fn(async () => ({ tasks: [] })),
+    clearSessionHandlers: vi.fn(),
   } as unknown as SDKRpcClientBase;
   const session = new Session({ id: 'ses_goal', workDir: '/tmp/work', rpc });
   return { session, rpc };
@@ -36,15 +35,6 @@ describe('Session goal methods', () => {
     const { session, rpc } = makeSession();
     await session.getGoal();
     expect(rpc.getGoal).toHaveBeenCalledWith({ sessionId: 'ses_goal' });
-  });
-
-  it('editGoalObjective forwards the objective with sessionId', async () => {
-    const { session, rpc } = makeSession();
-    await session.editGoalObjective({ objective: 'Ship feature Y' });
-    expect(rpc.editGoalObjective).toHaveBeenCalledWith({
-      sessionId: 'ses_goal',
-      objective: 'Ship feature Y',
-    });
   });
 
   it('pauseGoal forwards sessionId', async () => {
@@ -81,8 +71,8 @@ describe('Session goal methods', () => {
   it('keeps the goal metadata key reserved for lifecycle methods', async () => {
     const { session } = makeSession();
 
-    await expect(session.updateMetadata({ goal: { status: 'complete' } })).rejects.toMatchObject({
-      code: 'goal.metadata_reserved',
-    });
+    await expect(
+      session.updateMetadata({ goal: { status: 'complete' } }),
+    ).rejects.toMatchObject({ code: 'goal.metadata_reserved' });
   });
 });

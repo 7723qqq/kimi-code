@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createUserMessage } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import type { FormatRequestInput } from '#/llm/protocol/format';
-import { prepareOpenAIRequest } from '#/llm/requester/bases/openai/requester';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
+import { createUserMessage } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import type { FormatRequestInput } from '#human/llm/protocol/format';
+import { prepareOpenAIRequest } from '#human/llm/requester/bases/openai/requester';
 
 const DEEPSEEK = 'deepseek-v4.1-flash';
 

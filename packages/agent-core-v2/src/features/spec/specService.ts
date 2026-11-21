@@ -82,7 +82,7 @@ export class AgentSpecService extends Service implements IAgentSpecService {
         );
       }),
     );
-    this._register(toolExecutor.onBeforeExecuteTool((event) => this.guardToolExecution(event)));
+    this._register(toolExecutor.registerLegacyStarting((event) => this.guardToolExecution(event)));
     this._register(new SpecModeInjection(reminder, this, this.context, this.agentState));
   }
 

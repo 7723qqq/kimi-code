@@ -1,4 +1,5 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+
 import type {
   HostEnvironmentInfo,
   JsRuntimeInfo,
@@ -19,7 +20,6 @@ export interface IHostEnvironment {
   readonly shellPath: string;
   readonly pathClass: PathClass;
   readonly homeDir: string;
-  readonly jsRuntimes?: ReadonlyArray<JsRuntimeInfo>;
   readonly ready: Promise<void>;
 }
 

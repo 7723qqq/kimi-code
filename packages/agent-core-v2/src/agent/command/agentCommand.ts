@@ -1,5 +1,5 @@
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 export interface AgentCommandInfo {
   readonly name: string;

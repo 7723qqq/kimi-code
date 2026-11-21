@@ -1,94 +1,71 @@
-/**
- * FeedbackInputDialog — blue rounded box that collects a single line of
- * user feedback before submitting it to the managed Kimi Code platform.
- *
- * Geometry mirrors `DeviceCodeBox` so the chrome stays consistent with
- * the OAuth login flow. The box embeds a `pi-tui` Input for the actual
- * text entry; cursor visibility tracks the dialog's `focused` flag.
- *
- * This is stage 1 of the feedback flow: it collects the free-form text
- * only. Whether to attach diagnostic logs / codebase is decided in a
- * follow-up stage (see `promptFeedbackAttachment`).
- */
-
 import {
   Container,
-  Input,
+  Editor,
+  isKeyRelease,
   Key,
   matchesKey,
   truncateToWidth,
   visibleWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
-  type TuiMouseEventResult,
+  type TUI,
 } from '@moonshot-ai/pi-tui';
-
-import { t } from '#/i18n';
+import { normalizeCapsLockedCtrl } from '#/tui/components/editor/custom-editor';
 import { currentTheme } from '#/tui/theme';
-import { DialogMouse, inputPressAt, mouseDispatch, type InputFrame } from '#/tui/utils/mouse';
+import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
+import { t } from '#/i18n';
 
 export type FeedbackInputDialogResult =
   | { readonly kind: 'ok'; readonly value: string }
   | { readonly kind: 'cancel' };
 
-function getTitle(): string {
-  return t('tui.dialogs.feedbackInput.title');
-}
-function getSubtitleDefault(): string {
-  return t('tui.dialogs.feedbackInput.subtitleDefault');
-}
-function getSubtitleEmpty(): string {
-  return t('tui.dialogs.feedbackInput.subtitleEmpty');
-}
-function getFooter(): string {
-  return t('tui.dialogs.feedbackInput.footer');
+const TITLE = t('tui.dialogs.feedbackInput.title');
+const SUBTITLE_DEFAULT = "Tell us what's working or what's not.";
+const SUBTITLE_EMPTY = t('tui.dialogs.feedbackInput.subtitleEmpty');
+const FOOTER = t('tui.dialogs.goalQueueEdit.footer');
+const MIN_FIELD_LINES = 3;
+
+class FeedbackField extends Editor {
+  protected override renderTopBorder(width: number, hiddenLineCount: number): string {
+    return hiddenLineCount > 0 ? super.renderTopBorder(width, hiddenLineCount) : '';
+  }
+
+  protected override renderBottomBorder(width: number, hiddenLineCount: number): string {
+    return hiddenLineCount > 0 ? super.renderBottomBorder(width, hiddenLineCount) : '';
+  }
 }
 
 export class FeedbackInputDialogComponent extends Container implements Focusable {
   focused = false;
 
-  private readonly input = new Input();
+  private readonly input: FeedbackField;
   private readonly onDone: (result: FeedbackInputDialogResult) => void;
   private done = false;
   private emptyHinted = false;
-  /** Where the last render put the input line, in the dialog's own frame. */
-  private inputFrame: InputFrame = { row: -1, column: 0 };
-  private readonly mouse = new DialogMouse(() => this.focused);
 
-  constructor(onDone: (result: FeedbackInputDialogResult) => void) {
+  constructor(tui: TUI, onDone: (result: FeedbackInputDialogResult) => void) {
     super();
     this.onDone = onDone;
+    this.input = new FeedbackField(tui, createEditorTheme(), { paddingX: 1 });
     this.input.onSubmit = (value) => {
       this.submit(value);
+    };
+    this.input.onChange = () => {
+      this.emptyHinted = false;
     };
   }
 
   handleInput(data: string): void {
-    if (this.done) return;
+    const key = normalizeCapsLockedCtrl(data);
+    if (this.done || isKeyRelease(key)) return;
     if (
-      matchesKey(data, Key.escape) ||
-      matchesKey(data, Key.ctrl('c')) ||
-      matchesKey(data, Key.ctrl('d'))
+      matchesKey(key, Key.escape) ||
+      matchesKey(key, Key.ctrl('c')) ||
+      matchesKey(key, Key.ctrl('d'))
     ) {
       this.cancel();
       return;
     }
-    if (this.emptyHinted) {
-      this.emptyHinted = false;
-    }
-    this.input.handleInput(data);
-  }
-
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouseEvent(event));
-  }
-
-  private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (this.done) return undefined;
-    const handoff = this.mouse.handoff(event);
-    if (handoff !== undefined) return handoff;
-    return inputPressAt(this.input, event, this.inputFrame);
+    this.input.handleInput(key);
   }
 
   override invalidate(): void {
@@ -101,46 +78,45 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
 
     const safeWidth = Math.max(0, width);
     if (safeWidth <= 0) return [''];
-    const innerWidth = Math.max(1, safeWidth - 4);
-    const pad = '  ';
 
-    const border = (s: string): string => currentTheme.fg('primary', s);
-    const titleStyled = currentTheme.boldFg('textStrong', getTitle());
-    const subtitleText = this.emptyHinted ? getSubtitleEmpty() : getSubtitleDefault();
-    const subtitleStyled = currentTheme.fg('textDim', subtitleText);
-    const footerStyled = currentTheme.fg('textDim', getFooter());
+    const rule = currentTheme.fg('primary', '─'.repeat(safeWidth));
+    const title = truncateToWidth(currentTheme.boldFg('primary', ` ${TITLE}`), safeWidth);
+    const hint = truncateToWidth(currentTheme.fg('textMuted', ` ${FOOTER}`), safeWidth);
+    const subtitleText = this.emptyHinted ? SUBTITLE_EMPTY : SUBTITLE_DEFAULT;
+    const subtitle = truncateToWidth(currentTheme.fg('textDim', ` ${subtitleText}`), safeWidth);
+    const fieldWidth = Math.max(1, safeWidth - 2);
+    const field = this.renderField(fieldWidth).map((line) => truncateToWidth(` ${line}`, safeWidth));
 
-    const titleLine = truncateToWidth(titleStyled, innerWidth, '…');
-    const subtitleLine = truncateToWidth(subtitleStyled, innerWidth, '…');
-    const footerLine = truncateToWidth(footerStyled, innerWidth, '…');
-    const inputLine = this.input.render(innerWidth)[0] ?? '> ';
+    return [rule, title, hint, '', subtitle, ...field, '', rule].map((line) =>
+      truncateToWidth(line, safeWidth),
+    );
+  }
 
-    const contentLines: string[] = [titleLine, '', subtitleLine, '', inputLine, '', footerLine];
-    const inputIndex = contentLines.indexOf(inputLine);
-
-    if (safeWidth < 4) {
-      this.inputFrame = { row: 1 + inputIndex, column: 0 };
-      return ['', ...contentLines.map((line) => truncateToWidth(line, safeWidth, '…'))];
-    }
-    this.inputFrame = { row: 3 + inputIndex, column: 3 };
-
-    const lines: string[] = [
-      '',
-      border('╭' + '─'.repeat(safeWidth - 2) + '╮'),
-      border('│') + ' '.repeat(safeWidth - 2) + border('│'),
-    ];
-
-    for (const content of contentLines) {
-      const vis = visibleWidth(content);
-      const rightPad = Math.max(0, innerWidth - vis);
-      lines.push(border('│') + pad + content + ' '.repeat(rightPad) + border('│'));
+  private renderField(width: number): string[] {
+    if (width < 4) {
+      const lines = this.input.render(Math.max(1, width)).slice(1, -1);
+      while (lines.length < MIN_FIELD_LINES) lines.push('');
+      return lines;
     }
 
-    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'));
-    lines.push(border('╰' + '─'.repeat(safeWidth - 2) + '╯'));
-    lines.push('');
+    const editorWidth = width - 2;
+    const rendered = this.input.render(editorWidth);
+    const hasBorders = rendered.length >= 2;
+    const top = hasBorders ? (rendered[0] ?? '') : '';
+    const bottom = hasBorders ? (rendered.at(-1) ?? '') : '';
+    const body = hasBorders ? rendered.slice(1, -1) : [...rendered];
+    while (body.length < MIN_FIELD_LINES) body.push('');
 
-    return lines.map((line) => truncateToWidth(line, safeWidth, '…'));
+    const paint = (text: string): string => currentTheme.fg('primary', text);
+    const row = (line: string): string => {
+      const gap = Math.max(0, editorWidth - visibleWidth(line));
+      return paint('│') + line + ' '.repeat(gap) + paint('│');
+    };
+    const cap = (left: string, middle: string, right: string): string =>
+      middle.length > 0
+        ? paint(left) + middle + paint(right)
+        : paint(left + '─'.repeat(editorWidth) + right);
+    return [cap('╭', top, '╮'), ...body.map(row), cap('╰', bottom, '╯')];
   }
 
   private submit(value: string): void {

@@ -1,30 +1,26 @@
-import { getWorkingTips, type ToolbarTip } from '#/tui/constant/tips';
-import { createLocaleKeyedTipRotation, TIP_ROTATE_INTERVAL_MS } from '#/tui/utils/tip-rotation';
+import { WORKING_TIPS, type ToolbarTip } from '#/tui/constant/tips';
 
-export { getWorkingTips };
+import { buildWeightedTips } from './footer';
 
-const getWorkingTipRotation = createLocaleKeyedTipRotation(getWorkingTips);
+export { WORKING_TIPS };
+
+const TIP_ROTATE_INTERVAL_MS = 10_000;
+
+const WORKING_TIP_ROTATION = buildWeightedTips(WORKING_TIPS);
 
 export function currentWorkingTip(now = Date.now()): ToolbarTip | undefined {
-  const rotation = getWorkingTipRotation();
-  if (rotation.length === 0) return undefined;
-  const index = Math.floor(now / TIP_ROTATE_INTERVAL_MS) % rotation.length;
-  return rotation[index];
+  if (WORKING_TIP_ROTATION.length === 0) return undefined;
+  const index = Math.floor(now / TIP_ROTATE_INTERVAL_MS) % WORKING_TIP_ROTATION.length;
+  return WORKING_TIP_ROTATION[index];
 }
 
-/**
- * Pick a random tip from the weighted working-tip rotation.
- * If `excludeText` is provided and there are other tips available, avoid
- * returning the same text twice in a row.
- */
 export function pickRandomWorkingTip(excludeText?: string): ToolbarTip | undefined {
-  const rotation = getWorkingTipRotation();
-  if (rotation.length === 0) return undefined;
+  if (WORKING_TIP_ROTATION.length === 0) return undefined;
   const candidates =
-    excludeText === undefined || rotation.length === 1
-      ? rotation
-      : rotation.filter((tip) => tip.text !== excludeText);
-  const pool = candidates.length > 0 ? candidates : rotation;
+    excludeText === undefined || WORKING_TIP_ROTATION.length === 1
+      ? WORKING_TIP_ROTATION
+      : WORKING_TIP_ROTATION.filter((t) => t.text !== excludeText);
+  const pool = candidates.length > 0 ? candidates : WORKING_TIP_ROTATION;
   const index = Math.floor(Math.random() * pool.length);
   return pool[index];
 }

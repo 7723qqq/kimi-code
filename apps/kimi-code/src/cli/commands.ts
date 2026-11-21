@@ -1,28 +1,23 @@
-import { CODE_SHIM_SUBCOMMAND } from '@moonshot-ai/agent-core-v2/features/codeRuntime/codeShimSource';
-import { KIMI_NODE_FALLBACK_SUBCOMMAND } from '@moonshot-ai/kimi-code-sdk/runtime';
+import { CLI_COMMAND_NAME } from '#/constant/app';
+import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/index';
+import { registerImportSessionsCommand } from '#/session-import/index';
 import { Command, InvalidArgumentError, Option } from 'commander';
 
-import { CLI_COMMAND_NAME } from '#/constant/app';
-import { t } from '#/i18n';
-import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/command';
-import { registerImportSessionsCommand } from '#/session-import/command';
-
+import { EXEC_SERVER_COMMAND } from './exec-server';
 import type { CLIOptions } from './options';
 import type { InstallIntent, UpdateChannel } from './update/types';
 import { registerAcpCommand } from './sub/acp';
-import { registerAppCommand } from './sub/app';
 import { registerDoctorCommand } from './sub/doctor';
-import { EXEC_SERVER_COMMAND } from './exec-server';
 import { registerExportCommand } from './sub/export';
 import { registerForkCommand } from './sub/fork';
+import { registerAppCommand } from './sub/app';
 import { registerInstallDesktopCommand } from './sub/install-desktop';
 import { registerLoginCommand } from './sub/login';
 import { registerProviderCommand } from './sub/provider';
 import { registerSessionCommand } from './sub/session';
-import { registerShellsCommand } from './sub/shells';
-import { registerSnapshotCommand } from './v2/snapshot';
 import { registerVisCommand } from './sub/vis';
 import { registerWebCommand } from './sub/web';
+import { t } from '#/i18n';
 
 export type MainCommandHandler = (opts: CLIOptions) => void;
 export type MigrateCommandHandler = (options: MigrateCommandOptions) => void;
@@ -34,7 +29,6 @@ export type UpdateDownloadHandler = (
   intent: InstallIntent,
   channel: UpdateChannel,
 ) => void;
-export type CodeShimHandler = () => void;
 export type ExecServerCommandHandler = (listen: string) => void;
 
 export function createProgram(
@@ -44,7 +38,6 @@ export function createProgram(
   onPluginNodeRunner: PluginNodeRunnerHandler = () => {},
   onUpgrade: UpgradeCommandHandler = () => {},
   onUpdateDownload: UpdateDownloadHandler = () => {},
-  onCodeShim: CodeShimHandler = () => {},
   onExecServer: ExecServerCommandHandler = () => {},
 ): Command {
   const program = new Command(CLI_COMMAND_NAME)
@@ -55,16 +48,14 @@ export function createProgram(
     .configureHelp({ helpWidth: 100 })
     .helpOption('-h, --help', t('cli.program.helpOption'))
     .usage(t('cli.program.usage'))
-    .addHelpText(
-      'after',
-      `\n${t('cli.program.documentation')}        https://moonshotai.github.io/kimi-code/\n`,
-    );
+    .addHelpText('after', '\nDocumentation:        https://moonshotai.github.io/kimi-code/\n');
 
   program
     .addOption(
-      new Option('-S, --session [id]', t('cli.optionDescriptions.session')).argParser(
-        (val: string | boolean) => (val === true ? '' : (val as string)),
-      ),
+      new Option(
+        '-S, --session [id]',
+        t('cli.optionDescriptions.session'),
+      ).argParser((val: string | boolean) => (val === true ? '' : (val as string))),
     )
     .addOption(
       new Option('-r, --resume [id]')
@@ -75,21 +66,37 @@ export function createProgram(
     .addOption(new Option('-C').hideHelp().default(false))
     .option('-y, --yolo', t('cli.optionDescriptions.yolo'), false)
     .option('--auto', t('cli.optionDescriptions.auto'), false)
-    .addOption(new Option('-m, --model <model>', t('cli.optionDescriptions.model')))
-    .addOption(new Option('-p, --prompt <prompt>', t('cli.optionDescriptions.prompt')))
     .addOption(
-      new Option('--output-format <format>', t('cli.optionDescriptions.outputFormat')).choices([
-        'text',
-        'stream-json',
-      ]),
+      new Option(
+        '-m, --model <model>',
+        t('cli.optionDescriptions.model'),
+      ),
     )
     .addOption(
-      new Option('--skills-dir <dir>', t('cli.optionDescriptions.skillsDir'))
+      new Option(
+        '-p, --prompt <prompt>',
+        t('cli.optionDescriptions.prompt'),
+      ),
+    )
+    .addOption(
+      new Option(
+        '--output-format <format>',
+        t('cli.optionDescriptions.outputFormat'),
+      ).choices(['text', 'stream-json']),
+    )
+    .addOption(
+      new Option(
+        '--skills-dir <dir>',
+        t('cli.optionDescriptions.skillsDir'),
+      )
         .argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
         .default([]),
     )
     .addOption(
-      new Option('--agent <name>', t('cli.optionDescriptions.agent'))
+      new Option(
+        '--agent <name>',
+        'Agent profile to start the new session with. Custom profiles are discovered from agent directories or loaded via --agent-file. Cannot be combined with --session/--continue.',
+      )
         .argParser((value: string, previous: string | undefined) => {
           if (previous !== undefined) {
             throw new InvalidArgumentError(t('cli.errors.agentOnlyOnce'));
@@ -99,7 +106,10 @@ export function createProgram(
         .conflicts('agentFile'),
     )
     .addOption(
-      new Option('--agent-file <path>', t('cli.optionDescriptions.agentFile'))
+      new Option(
+        '--agent-file <path>',
+        'Load an agent definition from a Markdown file and select it for the new session. Cannot be combined with --session/--continue.',
+      )
         .argParser((value: string, previous: string[] | undefined) => {
           if ((previous?.length ?? 0) > 0) {
             throw new InvalidArgumentError(t('cli.errors.agentFileOnlyOnce'));
@@ -110,14 +120,18 @@ export function createProgram(
         .default([]),
     )
     .addOption(
-      new Option('--add-dir <dir>', t('cli.optionDescriptions.addDir'))
+      new Option(
+        '--add-dir <dir>',
+        t('cli.optionDescriptions.addDir'),
+      )
         .argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
         .default([]),
     )
     .addOption(new Option('--yes').hideHelp().default(false))
     .addOption(new Option('--auto-approve').hideHelp().default(false))
     .addOption(
-      new Option('--environment <id>', 'Bind the new session to the configured environment <id>.').hideHelp(),
+      new Option('--environment <id>', 'Bind the new session to the configured environment <id>.')
+        .hideHelp(),
     )
     .addOption(
       new Option(
@@ -131,8 +145,6 @@ export function createProgram(
   registerForkCommand(program);
   registerProviderCommand(program);
   registerSessionCommand(program);
-  registerShellsCommand(program);
-  registerSnapshotCommand(program);
   registerAcpCommand(program);
   registerWebCommand(program);
   registerLoginCommand(program);
@@ -151,25 +163,8 @@ export function createProgram(
       await onUpgrade(options.yes === true);
     });
 
-  // Self-spawned worker for native staged updates (detached background
-  // download, or foreground from `kimi upgrade`. Hidden: not user-facing.
   program
-    .command('__update_download', { hidden: true })
-    .argument('<version>')
-    .option('--manual', 'the stage answers an explicit user-initiated upgrade')
-    .option('--switch-channel', t('cli.optionDescriptions.updateDownloadSwitchChannel'))
-    .option('--channel <channel>', t('cli.optionDescriptions.updateDownloadChannel'))
-    .action((targetVersion: string, options: { manual?: boolean; switchChannel?: boolean; channel?: UpdateChannel }) => {
-      onUpdateDownload(
-        targetVersion,
-        options.manual === true,
-        options.switchChannel === true ? 'switch-channel' : 'upgrade',
-        options.channel ?? 'stable',
-      );
-    });
-
-  program
-    .command(KIMI_NODE_FALLBACK_SUBCOMMAND, { hidden: true })
+    .command('__plugin_run_node', { hidden: true })
     .argument('<entry>')
     .argument('[args...]')
     .allowUnknownOption(true)
@@ -178,10 +173,18 @@ export function createProgram(
     });
 
   program
-    .command(CODE_SHIM_SUBCOMMAND, { hidden: true })
-    .allowUnknownOption(true)
-    .action(() => {
-      onCodeShim();
+    .command('__update_download', { hidden: true })
+    .argument('<version>')
+    .option('--manual', t('cli.optionDescriptions.updateDownloadManual'))
+    .option('--switch-channel', 'the stage changes the selected update channel')
+    .option('--channel <channel>', 'the selected update channel')
+    .action((targetVersion: string, options: { manual?: boolean; switchChannel?: boolean; channel?: UpdateChannel }) => {
+      onUpdateDownload(
+        targetVersion,
+        options.manual === true,
+        options.switchChannel === true ? 'switch-channel' : 'upgrade',
+        options.channel ?? 'stable',
+      );
     });
 
   program
@@ -194,9 +197,7 @@ export function createProgram(
 
   program.argument('[args...]').action((args: string[]) => {
     if (args.length > 0) {
-      program.error(
-        t('cli.errors.unknownCommand', { command: args[0] ?? '', cliName: CLI_COMMAND_NAME }),
-      );
+      program.error(`unknown command '${args[0]}'. See '${CLI_COMMAND_NAME} --help'.`);
     }
 
     const raw = program.opts<Record<string, unknown>>();

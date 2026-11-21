@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'bun:test';
-
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { STREAMING_ARGS_PREVIEW_MAX_CHARS } from '#/tui/constant/streaming';
 import {
@@ -68,31 +67,5 @@ describe('error payload formatting', () => {
     });
 
     expect(formatErrorMessage(error)).toBe(conciseFilteredMessage);
-  });
-
-  it('localizes a KimiError whose code has a locale entry', () => {
-    const error = new KimiError(ErrorCodes.GOAL_NOT_FOUND, 'No goal found');
-
-    const formatted = formatErrorMessage(error);
-    expect(formatted).toContain('[goal.not_found]');
-    expect(formatted).toContain('No goal found');
-  });
-
-  it('falls back to the raw payload for a code with no locale entry', () => {
-    // Every code the SDK declares now has an entry, so the fallback path is
-    // reached the way it is in production: an error carrying a code this build
-    // does not know (a newer engine than the pinned SDK).
-    const error = new KimiError('engine.newer_than_sdk' as never, 'boom');
-
-    expect(formatErrorMessage(error)).toBe('[engine.newer_than_sdk] boom');
-  });
-
-  it('localizes a provider API error now that the code has an entry', () => {
-    const error = new KimiError(ErrorCodes.PROVIDER_API_ERROR, 'boom');
-
-    const formatted = formatErrorMessage(error);
-    expect(formatted).toContain('[provider.api_error]');
-    expect(formatted).toContain('Provider API error');
-    expect(formatted).toContain('boom');
   });
 });

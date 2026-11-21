@@ -1,6 +1,7 @@
 import type { WireRecord } from '#/wire/record';
 
 import { WireError, WireErrors } from '../errors';
+
 import { migrateV1_0ToV1_1 } from './v1.1';
 import { migrateV1_1ToV1_2 } from './v1.2';
 import { migrateV1_2ToV1_3 } from './v1.3';
@@ -18,26 +19,6 @@ export {
 export const WIRE_PROTOCOL_VERSION = '1.5';
 export const WIRE_MIN_READER_VERSION = '1.5';
 
-export type WireMigrationRecord = WireRecord;
-
-export interface WireMigration {
-  readonly sourceVersion: string;
-  readonly targetVersion: string;
-  migrateRecord(record: WireMigrationRecord): WireMigrationRecord;
-}
-
-export const MIGRATIONS: readonly WireMigration[] = [
-  migrateV1_0ToV1_1,
-  migrateV1_1ToV1_2,
-  migrateV1_2ToV1_3,
-  migrateV1_3ToV1_4,
-  migrateV1_4ToV1_5,
-];
-
-export function isNewerWireVersion(readVersion: string): boolean {
-  return compareWireVersions(readVersion, WIRE_PROTOCOL_VERSION) > 0;
-}
-
 export function assertWireReaderVersion(minReaderVersion: string | undefined): void {
   if (
     minReaderVersion !== undefined &&
@@ -54,6 +35,26 @@ export function assertWireReaderVersion(minReaderVersion: string | undefined): v
       },
     );
   }
+}
+
+export type WireMigrationRecord = WireRecord;
+
+export interface WireMigration {
+  readonly sourceVersion: string;
+  readonly targetVersion: string;
+  migrateRecord(record: WireMigrationRecord): WireMigrationRecord;
+}
+
+const MIGRATIONS: readonly WireMigration[] = [
+  migrateV1_0ToV1_1,
+  migrateV1_1ToV1_2,
+  migrateV1_2ToV1_3,
+  migrateV1_3ToV1_4,
+  migrateV1_4ToV1_5,
+];
+
+export function isNewerWireVersion(readVersion: string): boolean {
+  return compareWireVersions(readVersion, WIRE_PROTOCOL_VERSION) > 0;
 }
 
 export function resolveWireMigrations(readVersion: string): readonly WireMigration[] {
@@ -83,14 +84,18 @@ export function migrateWireRecord(
   record: WireMigrationRecord,
   migrations: readonly WireMigration[],
 ): WireMigrationRecord {
-  return migrations.reduce((current, migration) => migration.migrateRecord(current), record);
+  return migrations.reduce(
+    (current, migration) => migration.migrateRecord(current),
+    record,
+  );
 }
 
 export function migrateWireRecords(
   records: readonly WireMigrationRecord[],
   readVersion: string | undefined,
 ): WireMigrationRecord[] {
-  const migrations = readVersion === undefined ? MIGRATIONS : resolveWireMigrations(readVersion);
+  const migrations =
+    readVersion === undefined ? MIGRATIONS : resolveWireMigrations(readVersion);
   return applyWireMigrations(records, migrations);
 }
 

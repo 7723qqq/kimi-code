@@ -161,7 +161,7 @@ describe('node:http to Bun.serve is a different model', () => {
       expect(typeof server.port).toBe('number');
       expect(server.port).toBeGreaterThan(0);
     } finally {
-      server.stop(true);
+      void server.stop(true);
     }
   });
 

@@ -63,7 +63,6 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
     this.manager = new McpConnectionManager({
       log: this.log,
       oauthService: this.oauthService,
-      telemetry: this.telemetry,
       stdioCwd: () => this.dirs.primary,
       environmentResolver: this.environmentResolver,
       environmentId: 'local',
@@ -161,7 +160,6 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
     const sessionManager = new McpConnectionManager({
       log: this.log,
       oauthService: this.oauthService,
-      telemetry: this.telemetry,
       stdioCwd: opts?.stdioCwd ?? (() => this.dirs.primary),
       environmentResolver: this.environmentResolver,
       environmentId: 'local',
@@ -323,7 +321,8 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
   }
 
   private async initialize(): Promise<void> {
-    await Promise.all([this.mcpConfig.ready, this.identity.resolved()]);
+    await this.mcpConfig.ready;
+    await this.identity.resolved();
     this.appliedPrimary = this.dirs.primary;
     const servers = this.mcpConfig.servers();
     if (Object.keys(servers).length === 0) return;

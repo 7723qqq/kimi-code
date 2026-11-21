@@ -1,31 +1,31 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import type { TestInstantiationService } from '#/_base/di/test';
+import type {
+  BeforeExecuteDecision,
+  ResolvedToolExecutionHookContext,
+} from '#/agent/toolExecutor/toolHooks';
 import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
 import { AgentPermissionGate } from '#/agent/permissionGate/permissionGateService';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { PermissionPolicyEvaluation } from '#/agent/permissionPolicy/permissionPolicy';
-import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicy';
 import type { PermissionMode, PermissionPolicyResolution } from '#/agent/permissionPolicy/types';
+import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicy';
 import {
   IAgentPermissionRulesService,
   type PermissionRule,
 } from '#/agent/permissionRules/permissionRules';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type {
-  BeforeExecuteDecision,
-  ResolvedToolExecutionHookContext,
-} from '#/agent/toolExecutor/toolHooks';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '#human/message';
 
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { stubPermissionModeService } from '../permissionMode/stubs';
 import { stubPermissionPolicyService } from '../permissionPolicy/stubs';
 import { stubPermissionRulesService } from '../permissionRules/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../toolExecutor/stubs';
 
 function makeContext(
@@ -56,15 +56,15 @@ describe('AgentPermissionGate', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let mode: PermissionMode;
-  let rules: PermissionRule[];
+  let rules: readonly PermissionRule[];
   let policyResult: PermissionPolicyEvaluation | undefined;
   let records: TelemetryRecord[];
   let executorEvents: ToolExecutorEventStubs;
   let resolvePermissionResolution: ReturnType<
-    typeof mock<IAgentToolApprovalService['resolvePermissionResolution']>
+    typeof vi.fn<IAgentToolApprovalService['resolvePermissionResolution']>
   >;
   let requestToolApproval: ReturnType<
-    typeof mock<IAgentToolApprovalService['requestToolApproval']>
+    typeof vi.fn<IAgentToolApprovalService['requestToolApproval']>
   >;
 
   beforeEach(() => {
@@ -74,8 +74,8 @@ describe('AgentPermissionGate', () => {
     policyResult = undefined;
     records = [];
     executorEvents = stubToolExecutorEvents();
-    resolvePermissionResolution = mock(async () => undefined);
-    requestToolApproval = mock(async () => undefined);
+    resolvePermissionResolution = vi.fn(async () => undefined);
+    requestToolApproval = vi.fn(async () => undefined);
     const toolApproval: IAgentToolApprovalService = {
       _serviceBrand: undefined,
       resolvePermissionResolution,
@@ -85,14 +85,8 @@ describe('AgentPermissionGate', () => {
     };
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.defineInstance(
-          IAgentPermissionModeService,
-          stubPermissionModeService(() => mode),
-        );
-        reg.defineInstance(
-          IAgentPermissionRulesService,
-          stubPermissionRulesService(() => rules),
-        );
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
+        reg.defineInstance(IAgentPermissionRulesService, stubPermissionRulesService(() => rules));
         reg.defineInstance(
           IAgentPermissionPolicyService,
           stubPermissionPolicyService(() => policyResult),
@@ -179,8 +173,8 @@ describe('AgentPermissionGate', () => {
     policyResult = { policyName: 'p', result: { kind: 'deny', message: 'nope' } };
     resolvePermissionResolution.mockResolvedValue(blocked);
     make();
-    const later = mock();
-    executorEvents.executor.onBeforeExecuteTool(later);
+    const later = vi.fn();
+    executorEvents.executor.registerHook({ permitting: later });
 
     const decision = await executorEvents.fireBeforeExecute(makeContext('bash'));
 

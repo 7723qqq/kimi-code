@@ -1,0 +1,81 @@
+commit 5ae973905cb3b2f80e3a781ec21f7bc5e76ee205
+Author:     7Sageer <sag77r@hotmail.com>
+AuthorDate: Tue Nov 17 23:29:25 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Tue Nov 17 23:29:25 2026 +0800
+
+    fix(sdk): reload stale sessions before starting btw (#5021)
+
+diff --git a/.changeset/fix-btw-stale-session.md b/.changeset/fix-btw-stale-session.md
+new file mode 100644
+index 0000000000..5a015c39b7
+--- /dev/null
++++ b/.changeset/fix-btw-stale-session.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/kimi-code": patch
++---
++
++Fix /btw failing when another client has updated the current session.
+diff --git a/packages/node-sdk/src/sdk-rpc-client-v2.ts b/packages/node-sdk/src/sdk-rpc-client-v2.ts
+index 8b66961c29..07d69ef650 100644
+--- a/packages/node-sdk/src/sdk-rpc-client-v2.ts
++++ b/packages/node-sdk/src/sdk-rpc-client-v2.ts
+@@ -2509,9 +2509,11 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
+    * (`InMemoryAgentRecordPersistence`, no metadata).
+    */
+   override async startBtw(input: SessionIdRpcInput): Promise<string> {
+-    const session = this.requireLiveSession(input.sessionId);
+-    await this.materializeMainAgent(session);
+-    return session.accessor.get(ISessionBtwService).start();
++    return this.withStaleReload(input.sessionId, async () => {
++      const session = this.requireLiveSession(input.sessionId);
++      await this.materializeMainAgent(session);
++      return session.accessor.get(ISessionBtwService).start();
++    });
+   }
+ 
+   override async predictNextPrompt(input: {
+diff --git a/packages/node-sdk/test/sdk-rpc-client-v2.test.ts b/packages/node-sdk/test/sdk-rpc-client-v2.test.ts
+index 898c06c42a..0042ee10d5 100644
+--- a/packages/node-sdk/test/sdk-rpc-client-v2.test.ts
++++ b/packages/node-sdk/test/sdk-rpc-client-v2.test.ts
+@@ -990,6 +990,38 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
+     }
+   });
+ 
++  it('reloads a stale session before starting btw', async () => {
++    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
++    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
++    tempDirs.push(homeDir, workDir);
++    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
++    const other = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
++    let otherClosed = false;
++    try {
++      await client.createSession({ id: 'ses_btw_stale', workDir });
++      await client.getSessionWarnings({ sessionId: 'ses_btw_stale' });
++      await other.resumeSession({ id: 'ses_btw_stale' });
++      await other.importContext({
++        sessionId: 'ses_btw_stale',
++        content: 'updated by another client',
++        source: "session 'other'",
++      });
++      await other.close();
++      otherClosed = true;
++      const handler = vi.fn(async (_summary: unknown) => {});
++      client.setStaleReloadHandler('ses_btw_stale', handler);
++
++      const agentId = await client.startBtw({ sessionId: 'ses_btw_stale' });
++
++      expect(agentId).toMatch(/^agent-\d+$/);
++      expect(handler).toHaveBeenCalledTimes(1);
++      expect(handler.mock.calls[0]?.[0]).toMatchObject({ id: 'ses_btw_stale' });
++    } finally {
++      await client.close();
++      if (!otherClosed) await other.close();
++    }
++  });
++
+   it('close() awaits the MCP OAuth service shutdown', async () => {
+     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
+     tempDirs.push(homeDir);

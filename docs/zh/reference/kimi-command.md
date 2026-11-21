@@ -171,7 +171,7 @@ kimi acp
 
 在当前终端前台运行本地 Kimi 服务 —— 同一个进程同时挂载 REST + WebSocket API 与 web UI —— 并在服务就绪后用默认浏览器打开 web UI。命令会一直挂在终端，直到收到 `SIGINT` / `SIGTERM`（如 `Ctrl-C`）时干净退出。
 
-服务运行时，`GET /openapi.json` 会返回 REST OpenAPI 文档，`GET /asyncapi.json` 会返回本地 WebSocket 协议的 AsyncAPI 文档。用 API 驱动会话的完整流程见[服务 API：用 API 驱动一个会话](./server-api.md#用-api-驱动一个会话)，协议细节见[服务 API](./server-api.md)。
+服务运行时，`GET /api/v1/kap.md` 会返回当前版本的 KAP 接口说明，`GET /openapi.json` 会返回 REST OpenAPI 文档，`GET /asyncapi.json` 会返回本地 WebSocket 协议的 AsyncAPI 文档。在其他 Agent 中交互与交接会话见[在其他 Agent 中使用（Agent to Agent）](../guides/other-agents.md)。
 
 ```sh
 kimi web                 # 前台运行服务并打开浏览器
@@ -194,12 +194,11 @@ kimi web --port 58628    # 指定绑定端口
 | `--web-title <title>` | 自定义 web UI 的浏览器标签页标题；无默认值。该值会透传给服务端，并在 `GET /api/v1/meta` 中以 `web_title` 返回；它不会设置浏览器标签页标题，标签页标题始终是 `Kimi Code Web` |
 | `--rc, --remote-control` | 通过 Kimi Remote Control 暴露 web UI |
 | `--no-open` | 就绪后不自动打开浏览器 |
+| `--json` | 使用内存中的临时 bearer token，仅输出一行就绪 JSON；不打开浏览器、不创建持久化 token、不注册实例 |
 
 `kimi web` 默认只绑定本机 loopback 地址，并在启动横幅中打印 bearer token；web UI 通过 URL 的 `#token=` 片段自动完成鉴权。
 
-::: info 说明
-`kimi server` 命令树已废弃：任何 `kimi server …` 调用（含全部旧子命令）只会打印弃用提示并以退出码 1 结束，请改用 `kimi web`。唯一的例外是 `kimi server kill`，它仍然可用，仅用于停止 0.28.0 之前版本启动的服务。该提示将在 Kimi Code 下个大版本移除。
-:::
+使用 `kimi server` 可运行同一个前台服务，但不自动打开浏览器。它接受上表中的服务选项；添加 `--open` 可显式打开 Web 界面。[SSH 主机](../configuration/config-files.md#hosts)通过内部命令 `server ensure-daemon` 复用由私有套接字连接的受管理后台服务；该内部命令不替代普通的前台启动命令。
 
 ::: danger 警告
 `--dangerous-bypass-auth` 会彻底关闭鉴权。任何能访问该端口的人都能完全控制你的会话、文件系统和 shell。请仅在可信网络或自有鉴权反向代理之后使用，用完后按 `Ctrl+C` 停止服务。
@@ -207,7 +206,7 @@ kimi web --port 58628    # 指定绑定端口
 
 #### `kimi web rc`
 
-运行本地 Kimi 服务并通过 Kimi Remote Control 打开 web UI —— 与 `kimi web` 是同一个服务，但会向中转服务注册，使会话可以从其他设备访问。`kimi rc` 是它的别名。参见[远程控制](../guides/remote-control.md)。
+运行本地 Kimi 服务并通过 Kimi Remote Control 打开 web UI —— 与 `kimi web` 是同一个服务，但会向中转服务注册，使会话可以从其他设备访问。`kimi rc` 是它的别名。参见[远程控制](../guides/web.md#远程控制)。
 
 #### `kimi server kill`
 

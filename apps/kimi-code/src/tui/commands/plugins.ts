@@ -10,16 +10,7 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 import { Spacer } from '@moonshot-ai/pi-tui';
 
-import { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV, QUOTA_CONSUMING_PLUGIN_IDS } from '#/constant/app';
-import { t } from '#/i18n';
 import { Markdown } from '#/tui/components/markdown/markdown';
-import { openUrl } from '#/utils/open-url';
-import {
-  loadPluginMarketplace,
-  withMarketplaceLatestVersions,
-  type PluginMarketplace,
-  type PluginMarketplaceEntry,
-} from '#/utils/plugin-marketplace';
 
 import {
   PluginInstallTrustConfirmComponent,
@@ -42,12 +33,26 @@ import { createMarkdownTheme } from '../theme/pi-tui-theme';
 import { formatErrorMessage } from '../utils/event-payload';
 import { createMarkdownOptions } from '../utils/markdown-options';
 import {
+  capabilityIdForMarketplaceEntry,
+  installedPluginForMarketplaceEntry,
+  isCapabilityPluginId,
+} from '../utils/capability-marketplace';
+import {
   formatPluginSourceLabel,
   isOfficialPluginInstall,
   isOfficialPluginSource,
 } from '../utils/plugin-source-label';
-import { nextTranscriptId } from '../utils/transcript-id';
+import {
+  KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV,
+  QUOTA_CONSUMING_PLUGIN_IDS,
+} from '#/constant/app';
+import {
+  loadPluginMarketplace,
+  withMarketplaceLatestVersions,
+  type PluginMarketplaceEntry,
+} from '#/utils/plugin-marketplace';
 import type { SlashCommandHost } from './dispatch';
+import { t } from '#/i18n';
 
 interface ShowPluginsPickerOptions {
   readonly selectedId?: string;
@@ -69,7 +74,6 @@ interface ShowPluginMcpPickerOptions {
   readonly serverHint?: PluginMcpServerHint;
 }
 
-/** The plugin-management surface `/plugins` operates on. */
 type PluginApi = Pick<
   Session,
   | 'listPlugins'
@@ -81,11 +85,6 @@ type PluginApi = Pick<
   | 'getPluginInfo'
 >;
 
-/**
- * Resolve the plugin-management API. Plugin state is app-global, so a
- * session-less startup still gets a working `/plugins` through the harness's
- * global facade; once a session exists the session's own API is used.
- */
 async function resolvePluginApi(host: SlashCommandHost): Promise<PluginApi> {
   if (host.session !== undefined) return host.session;
   return {
@@ -101,10 +100,7 @@ async function resolvePluginApi(host: SlashCommandHost): Promise<PluginApi> {
 }
 
 export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: string): Promise<void> {
-  const args = rawArgs
-    .trim()
-    .split(/\s+/)
-    .filter((part) => part.length > 0);
+  const args = rawArgs.trim().split(/\s+/).filter((part) => part.length > 0);
   const sub = args[0];
   const rest = args.slice(1);
   const session = await resolvePluginApi(host);
@@ -128,17 +124,12 @@ export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: stri
         host.showStatus(t('tui.commands.plugins.installCancelled'));
         return;
       }
-      const spinner = host.showProgressSpinner(
-        t('tui.commands.plugins.installingFrom', { source: truncateForStatus(source) }),
-      );
+      const spinner = host.showProgressSpinner(t('tui.commands.plugins.installingFrom', { source: truncateForStatus(source) }));
       try {
         await installPluginFromSource(host, source);
         spinner.stop({ ok: true, label: t('tui.commands.plugins.installFinished') });
       } catch (error) {
-        spinner.stop({
-          ok: false,
-          label: t('tui.commands.plugins.installFailed', { error: formatErrorMessage(error) }),
-        });
+        spinner.stop({ ok: false, label: `Install failed: ${formatErrorMessage(error)}` });
         throw error;
       }
       return;
@@ -146,10 +137,6 @@ export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: stri
     if (sub === 'marketplace') {
       const marketplaceSource = rest.join(' ').trim() || undefined;
       await showPluginsPicker(host, {
-        // Custom marketplaces often omit `tier`, so their entries land on the
-        // Curated tab (entry.tier !== 'official'). Open there when a custom
-        // source is supplied; otherwise the default catalog's official entries
-        // make Official the right landing tab.
         initialTab: marketplaceSource === undefined ? 'official' : 'third-party',
         marketplaceSource,
       });
@@ -168,24 +155,16 @@ export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: stri
       const action = rest[0];
       const id = rest[1];
       const server = rest[2];
-      if (
-        (action !== 'enable' && action !== 'disable') ||
-        id === undefined ||
-        server === undefined
-      ) {
+      if ((action !== 'enable' && action !== 'disable') || id === undefined || server === undefined) {
         host.showError(t('tui.commands.plugins.mcpUsage'));
         return;
       }
       await session.setPluginMcpServerEnabled(id, server, action === 'enable');
-      host.showStatus(
-        t('tui.commands.plugins.mcpToggled', {
-          action: t(
-            action === 'enable' ? 'tui.commands.plugins.enabled' : 'tui.commands.plugins.disabled',
-          ),
-          id,
-          server,
-        }),
-      );
+      const state =
+        action === 'enable'
+          ? t('tui.commands.plugins.toggleEnabled')
+          : t('tui.commands.plugins.toggleDisabled');
+      host.showStatus(t('tui.commands.plugins.mcpServerToggled', { state, server, id }));
       return;
     }
     if (sub === 'enable' || sub === 'disable') {
@@ -221,21 +200,10 @@ export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: stri
     }
     host.showError(t('tui.commands.plugins.unknownAction', { action: sub }));
   } catch (error) {
-    host.showError(
-      t('tui.commands.plugins.commandFailed', {
-        sub: sub ?? '',
-        error: formatErrorMessage(error),
-      }),
-    );
+    host.showError(`/plugins ${sub ?? ''} failed: ${formatErrorMessage(error)}`);
   }
 }
 
-/**
- * Resolve the capability API. Like plugin state, capability state is
- * app-global on the v2 engine, so a session-less startup still gets
- * readiness and installs through the harness's global facade; with a live
- * session the session's own API is used.
- */
 type CapabilityApi = Pick<Session, 'listCapabilities' | 'getCapability' | 'installCapability'>;
 
 async function resolveCapabilityApi(host: SlashCommandHost): Promise<CapabilityApi> {
@@ -255,7 +223,10 @@ function logCapabilityStatus(capability: CapabilityStatus, installed?: boolean):
     steps: capability.steps,
   };
   const hasStepIssues = capability.steps.some((step) => step.state !== 'ok');
-  if (capability.install.error !== undefined || (installed !== false && hasStepIssues)) {
+  if (
+    capability.install.error !== undefined ||
+    (installed !== false && hasStepIssues)
+  ) {
     log.warn('capability needs attention', payload);
   } else {
     log.info('capability status', payload);
@@ -281,163 +252,94 @@ async function showPluginsPicker(
     log.warn('capability status unavailable', { error });
   }
 
-  const installedIds = new Set(plugins.map((plugin) => plugin.id));
   for (const capability of capabilities) {
-    logCapabilityStatus(capability, installedIds.has(capability.pluginId ?? capability.id));
+    const installed = installedPluginForMarketplaceEntry(
+      capability.pluginId ?? capability.id,
+      plugins,
+      capability,
+      true,
+    );
+    logCapabilityStatus(capability, installed !== undefined);
   }
 
+  const catalogIsDefault = isDefaultMarketplaceCatalog(options?.marketplaceSource);
   const panel = new PluginsPanelComponent({
     installed: plugins,
-    installedIds,
     capabilities,
-    catalogIsDefault: isDefaultMarketplaceCatalog(options?.marketplaceSource),
+    catalogIsDefault,
     initialTab: options?.initialTab,
     selectedId: options?.selectedId,
     pluginHint: options?.pluginHint,
     onSelect: (selection) => {
-      // Each branch of the handler either mounts the next view or restores the
-      // editor itself, so do not pre-restore here — that would flash the editor
-      // for in-place actions like toggling a plugin.
-      void handlePluginsPanelSelection(host, panel, selection).catch((error: unknown) => {
-        host.showError(t('tui.commands.plugins.panelFailed', { error: formatErrorMessage(error) }));
+      void handlePluginsPanelSelection(
+        host,
+        panel,
+        selection,
+        catalogIsDefault,
+        options?.marketplaceSource !== undefined ||
+        process.env[KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV] !== undefined
+          ? panel.marketplaceSource()
+          : undefined,
+      ).catch((error: unknown) => {
+        host.showError(`/plugins failed: ${formatErrorMessage(error)}`);
       });
     },
     onCancel: () => {
       host.restoreEditor();
     },
-    // Every tab except Custom needs the catalog: Official/Curated list it,
-    // and Installed uses it to show update badges. The Installed/Custom tabs
-    // keep working even when the marketplace is unreachable (badges simply stay
-    // hidden until data arrives).
     onRequestMarketplace: () => {
-      void loadMarketplaceCatalog(host, panel, options?.marketplaceSource, capabilities);
+      void loadMarketplaceCatalog(host, panel, options?.marketplaceSource);
     },
   });
   host.mountEditorReplacement(panel);
-  // Kick off the catalog fetch for any tab that needs it: Installed uses it for
-  // update badges, Official/Curated list it. Custom never reads the catalog,
-  // so skip the fetch there. Done here (after `panel` is initialized) rather
-  // than inside the component constructor, because the callback above closes
-  // over `panel`.
   if (options?.initialTab !== 'custom') {
     panel.setMarketplaceLoading();
-    void loadMarketplaceCatalog(host, panel, options?.marketplaceSource, capabilities);
+    void loadMarketplaceCatalog(host, panel, options?.marketplaceSource);
   }
 }
 
-/**
- * Adapt a capability from the engine's registry into a catalog row. The
- * engine is the single source of truth for what the built-in capabilities
- * are — the CLI only renders them. The `capability:<id>` source marker
- * routes installs through the capability flow (never a plain plugin
- * install), so the row needs no real URL.
- */
-function capabilityMarketplaceEntry(capability: CapabilityStatus): PluginMarketplaceEntry {
-  return {
-    id: capability.id,
-    displayName: capability.displayName,
-    description: capability.description,
-    tier: 'official',
-    source: `capability:${capability.id}`,
-    builtIn: true,
-  };
-}
-
-/**
- * The engine registry owns the built-in rows, so a catalog entry that carries
- * the same capability must be replaced rather than listed twice. The catalog
- * uses the canonical plugin id (`kimi-browser-extension`) while the capability
- * keeps its stable id (`kimi-webbridge`), and the legacy id can still be
- * present in an older catalog.
- */
-function withCapabilityEntries(
-  marketplace: PluginMarketplace,
-  capabilities: readonly CapabilityStatus[],
-): PluginMarketplace {
-  const replaced = new Set<string>(['kimi-webbridge']);
-  for (const capability of capabilities) {
-    if (capability.pluginId !== undefined) replaced.add(capability.pluginId);
-  }
-  const builtIns = capabilities.map((capability) => {
-    const entry = capabilityMarketplaceEntry(capability);
-    const catalogEntry = marketplace.plugins.find(
-      (candidate) => candidate.id === capability.pluginId && candidate.version !== undefined,
-    );
-    return catalogEntry === undefined ? entry : { ...entry, version: catalogEntry.version };
-  });
-  return {
-    ...marketplace,
-    plugins: [...marketplace.plugins.filter((entry) => !replaced.has(entry.id)), ...builtIns],
-  };
-}
-
-/**
- * Injection is part of the DEFAULT catalog experience only: any explicit
- * replacement (the slash-command source or a user-set env override) opts out
- * wholesale. The dev marketplace server started by apps/kimi-code/scripts/dev.mjs
- * serves this repo's own catalog and marks itself, so it still counts as default.
- */
 function isDefaultMarketplaceCatalog(
   source: string | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   if (source !== undefined) return false;
-  if (env[KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV] === undefined) return true;
-  return env['KIMI_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] === '1';
+  if (env[KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV] !== undefined) {
+    return env['KIMI_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] === '1';
+  }
+  return true;
 }
 
 async function loadMarketplaceCatalog(
   host: SlashCommandHost,
   panel: PluginsPanelComponent,
   source: string | undefined,
-  capabilities: readonly CapabilityStatus[],
 ): Promise<void> {
-  const inject =
-    isDefaultMarketplaceCatalog(source) === true
-      ? (catalog: PluginMarketplace): PluginMarketplace =>
-          withCapabilityEntries(catalog, capabilities)
-      : (catalog: PluginMarketplace): PluginMarketplace => catalog;
-  let marketplace: PluginMarketplace;
-  let catalog: PluginMarketplace;
   try {
-    // Phase 1: render the catalog as soon as it arrives. Version lookups
-    // (GitHub releases/latest round trips) must not gate the first paint.
-    // Keep the raw parsed catalog for phase 2: injecting built-ins first
-    // would mask the matching catalog entries' GitHub sources behind
-    // `capability:<id>` rows, making their versions unresolvable.
-    catalog = await loadPluginMarketplace({
+    const catalog = await loadPluginMarketplace({
       workDir: host.state.appState.workDir,
       source,
-      skipLatestVersions: true,
       reconcileAvailability: async (changed) => {
         if (!changed) return;
-        await reloadPlugins(host);
+        const plugins = await resolvePluginApi(host);
+        await plugins.reloadPlugins();
+        await host.refreshPluginCommands(host.session);
+        panel.setInstalled(await plugins.listPlugins());
       },
     });
-    marketplace = inject(catalog);
-    panel.setMarketplace(marketplace.plugins, marketplace.source);
+    panel.setMarketplace(catalog.plugins, catalog.source);
+    panel.setMarketplaceCatalogVersions(catalog.plugins);
+    host.state.ui.requestRender();
+    try {
+      const enriched = await withMarketplaceLatestVersions(catalog);
+      panel.setMarketplace(enriched.plugins, enriched.source);
+    } catch (error) {
+      log.warn('marketplace version lookup failed', { error });
+    }
     host.state.ui.requestRender();
   } catch (error) {
-    // Any phase-1 failure (unreachable OR malformed catalog) surfaces as an
-    // error: the panel keeps built-in capability rows installable in the
-    // Official tab while the error is shown, and a broken catalog must not
-    // be masked as a successfully loaded, built-ins-only marketplace.
     panel.setMarketplaceError(formatErrorMessage(error));
     host.state.ui.requestRender();
-    return;
   }
-  try {
-    // Phase 2: resolve latest versions in the background (against the raw
-    // catalog), re-apply the built-in injection so resolved versions flow
-    // onto capability rows, then refresh so update badges appear. Failures
-    // degrade to badge-less rows and never clobber the rendered list.
-    const enrichedCatalog = await withMarketplaceLatestVersions(catalog);
-    const enriched = inject(enrichedCatalog);
-    panel.setMarketplace(enriched.plugins, enriched.source);
-  } catch (error) {
-    log.warn('marketplace version lookup failed', { error });
-  }
-  host.state.ui.requestRender();
 }
 
 async function showPluginMcpPicker(
@@ -449,7 +351,7 @@ async function showPluginMcpPicker(
   try {
     info = await (await resolvePluginApi(host)).getPluginInfo(id);
   } catch (error) {
-    host.showError(t('tui.commands.plugins.mcpLoadFailed', { error: formatErrorMessage(error) }));
+    host.showError(t('tui.commands.plugins.mcpServersLoadFailed', { error: formatErrorMessage(error) }));
     return;
   }
 
@@ -459,12 +361,8 @@ async function showPluginMcpPicker(
       selectedServer: options?.selectedServer,
       serverHint: options?.serverHint,
       onSelect: (selection) => {
-        // Every MCP action re-mounts a picker, so let the handler do the
-        // mounting — pre-restoring the editor here would flash on toggle.
         void handlePluginMcpSelection(host, selection).catch((error: unknown) => {
-          host.showError(
-            t('tui.commands.plugins.mcpPanelFailed', { error: formatErrorMessage(error) }),
-          );
+          host.showError(t('tui.commands.plugins.mcpSubcommandFailed', { error: formatErrorMessage(error) }));
         });
       },
       onCancel: () => {
@@ -479,9 +377,7 @@ async function confirmRemovePlugin(host: SlashCommandHost, id: string): Promise<
   let displayName = id;
   try {
     displayName = (await (await resolvePluginApi(host)).getPluginInfo(id)).displayName;
-  } catch {
-    // Keep the confirmation available even when plugin details cannot be loaded.
-  }
+  } catch {}
 
   return new Promise((resolveConfirmed) => {
     host.mountEditorReplacement(
@@ -502,8 +398,6 @@ async function confirmInstallTrust(
   label: string,
   official: boolean,
 ): Promise<boolean> {
-  // Kimi-built official plugins are trusted implicitly; anything else requires
-  // the user to explicitly opt in via the trust prompt.
   if (official) return true;
   return new Promise((resolveConfirmed) => {
     host.mountEditorReplacement(
@@ -519,45 +413,18 @@ async function confirmInstallTrust(
 }
 
 const CAPABILITY_POLL_INTERVAL_MS = 700;
-const CAPABILITY_POLL_ATTEMPTS = 260; // ~3 minutes of runtime setup budget
+const CAPABILITY_POLL_ATTEMPTS = 260;
 
-/** Delay between capability status polls; injectable so tests need no real wait. */
-export interface CapabilityPollOptions {
-  readonly sleep?: (ms: number) => Promise<void>;
-}
-
-const delayPollInterval = (ms: number): Promise<void> =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-/** Client-injected v2 entries install their runtime and plugin together.
- * Trust keys on the parser-proof `builtIn` flag — the `capability:<id>`
- * source string stays purely diagnostic. */
-function isCapabilityEntry(entry: PluginMarketplaceEntry): boolean {
-  return entry.builtIn === true;
-}
-
-/**
- * Closed-set plugin id check for the post-remove note. What must not happen
- * is answering membership by running `listCapabilities()`, which fires every
- * entry's detector (seconds of probes) just to print one hint line.
- */
-function isCapabilityPluginId(id: string): boolean {
-  return id === 'kimi-cu' || id === 'kimi-cu-win' || id === 'kimi-browser-extension';
-}
-
-/** Poll a background capability install until it settles (or we run out of budget). */
 async function pollCapabilityInstall(
   host: SlashCommandHost,
   id: string,
-  options: CapabilityPollOptions = {},
 ): Promise<CapabilityStatus | undefined> {
-  const sleep = options.sleep ?? delayPollInterval;
   const api = await resolveCapabilityApi(host);
   let previousProgress = '';
   for (let attempt = 0; attempt < CAPABILITY_POLL_ATTEMPTS; attempt += 1) {
-    await sleep(CAPABILITY_POLL_INTERVAL_MS);
+    await new Promise((resolve) => {
+      setTimeout(resolve, CAPABILITY_POLL_INTERVAL_MS);
+    });
     const status = await api.getCapability(id);
     if (!status.install.running) return status;
     const progress = `${status.install.step ?? ''}:${status.install.percent ?? ''}`;
@@ -574,9 +441,11 @@ async function pollCapabilityInstall(
 }
 
 export const __pluginsCommandInternals = {
-  isCapabilityEntry,
   installCapabilityFromPanel,
+  installMarketplaceEntryFromPanel,
+  installPluginFromSource,
   isDefaultMarketplaceCatalog,
+  loadMarketplaceCatalog,
   pollCapabilityInstall,
   removePlugin,
 };
@@ -585,41 +454,33 @@ async function installCapabilityFromPanel(
   host: SlashCommandHost,
   panel: PluginsPanelComponent,
   entry: PluginMarketplaceEntry,
-  options: CapabilityPollOptions = {},
+  capabilityId: CapabilityStatus['id'],
 ): Promise<void> {
   const label = entry.displayName;
-  // Capability entries are official by construction; the trust prompt is
-  // reserved for unreviewed third-party plugins.
   panel.setInstalling(truncateForStatus(label));
   host.state.ui.requestRender();
   const api = await resolveCapabilityApi(host);
-  log.info('capability install requested', { capabilityId: entry.id });
+  log.info('capability install requested', { capabilityId });
   try {
-    // An install already running (started from another panel or client) is
-    // followed, not restarted — the service rejects duplicate starts even
-    // though the original is healthy.
-    const alreadyRunning = await api.getCapability(entry.id).then(
-      (status) => status.install.running,
-      () => false,
-    );
+    const alreadyRunning = await api
+      .getCapability(capabilityId)
+      .then((status) => status.install.running, () => false);
     if (!alreadyRunning) {
-      await api.installCapability(entry.id);
+      await api.installCapability(capabilityId);
     } else {
-      log.info('following running capability install', { capabilityId: entry.id });
+      log.info('following running capability install', { capabilityId });
     }
   } catch (error) {
-    log.warn('capability install failed to start', { capabilityId: entry.id, error });
+    log.warn('capability install failed to start', { capabilityId, error });
     panel.clearInstalling();
     host.state.ui.requestRender();
-    host.showError(
-      t('tui.commands.plugins.installFailedLabel', { label, error: formatErrorMessage(error) }),
-    );
+    host.showError(t('tui.commands.plugins.installFailedWithLabel', { label, error: formatErrorMessage(error) }));
     host.restoreEditor();
     return;
   }
   let result: CapabilityStatus | undefined;
   try {
-    result = await pollCapabilityInstall(host, entry.id, options);
+    result = await pollCapabilityInstall(host, capabilityId);
     if (result?.install.confirmationRequired === 'stop-processes') {
       panel.clearInstalling();
       const confirmed = await new Promise<boolean>((resolveConfirmed) => {
@@ -629,33 +490,26 @@ async function installCapabilityFromPanel(
       });
       if (!confirmed) {
         host.restoreEditor();
-        host.showStatus(t('tui.commands.plugins.installCancelledLabel', { label }));
+        host.showStatus(t('tui.commands.plugins.installCancelledWithLabel', { label }));
         return;
       }
       panel.setInstalling(truncateForStatus(label));
       host.mountEditorReplacement(panel);
       try {
-        await api.installCapability(entry.id, { stopRunningProcesses: true });
+        await api.installCapability(capabilityId, { stopRunningProcesses: true });
       } catch (error) {
         panel.clearInstalling();
         host.restoreEditor();
-        host.showError(
-          t('tui.commands.plugins.installFailedLabel', {
-            label,
-            error: formatErrorMessage(error),
-          }),
-        );
+        host.showError(t('tui.commands.plugins.installFailedWithLabel', { label, error: formatErrorMessage(error) }));
         return;
       }
-      result = await pollCapabilityInstall(host, entry.id, options);
+      result = await pollCapabilityInstall(host, capabilityId);
     }
   } catch (error) {
-    log.warn('capability install polling failed', { capabilityId: entry.id, error });
+    log.warn('capability install polling failed', { capabilityId, error });
     result = undefined;
   }
   panel.clearInstalling();
-  // Close the panel so the result lines land in the transcript, matching the
-  // plain plugin install flow.
   host.restoreEditor();
   if (result === undefined) {
     host.showStatus(t('tui.commands.plugins.installStillRunning', { label }));
@@ -663,68 +517,61 @@ async function installCapabilityFromPanel(
   }
   logCapabilityStatus(result);
   if (result.install.confirmationRequired !== undefined) {
-    host.showError(t('tui.commands.plugins.installProcessesStillRunning', { label }));
+    host.showError(
+      t('tui.commands.plugins.installIncompleteProcesses', { label }),
+    );
     return;
   }
   if (result.install.error !== undefined) {
-    host.showError(
-      t('tui.commands.plugins.installFailedWithError', { label, error: result.install.error }),
-    );
+    host.showError(`${label} installation failed: ${result.install.error}`);
     host.showStatus(t('tui.commands.plugins.fixErrorAndRetry'), 'warning');
     return;
   }
   if (result.state !== 'ready') {
     const permissionsRequired =
-      entry.id === 'kimi-cu' &&
-      result.steps.some((step) => step.id === 'permissions' && step.state !== 'ok');
+      capabilityId === 'kimi-cu' &&
+      result.steps.some((step) => step.id.startsWith('permissions.') && step.state !== 'ok');
     if (permissionsRequired) {
-      host.showStatus(t('tui.commands.plugins.grantPermissions'), 'warning');
+      host.showStatus(
+        t('tui.commands.plugins.grantPermissions'),
+        'warning',
+      );
     } else {
-      host.showError(t('tui.commands.plugins.installIncomplete', { label }));
+      host.showError(
+        t('tui.commands.plugins.installIncompleteCheckLogs', { label }),
+      );
     }
-    host.showStatus(pluginReloadHint(), 'warning');
+    host.showStatus(PLUGIN_RELOAD_HINT, 'warning');
     return;
   }
-  if (entry.id === 'kimi-webbridge') {
-    host.showNotice(t('tui.commands.plugins.installed', { label }));
-    // Spacer and body share one history entry so the pair stays accountable as
-    // a single transcript row group.
-    const postInstallEntry = {
-      id: nextTranscriptId(),
-      kind: 'status' as const,
-      turnId: undefined,
-      renderMode: 'plain' as const,
-      content: '',
-    };
-    host.mountTranscriptComponent(postInstallEntry, new Spacer(1));
-    host.appendTranscriptEntry(
-      postInstallEntry,
-      new Markdown(webbridgePostInstallMarkdown(), 2, 0, createMarkdownTheme(), undefined, {
+  if (capabilityId === 'kimi-webbridge') {
+    host.showNotice(t('tui.commands.plugins.installed', { label: label }));
+    host.state.transcriptContainer.addChild(new Spacer(1));
+    host.state.transcriptContainer.addChild(
+      new Markdown(WEBBRIDGE_POST_INSTALL_MARKDOWN, 2, 0, createMarkdownTheme(), undefined, {
         ...createMarkdownOptions(),
         copySource: true,
       }),
     );
+    host.state.ui.requestRender();
     return;
   }
-  host.showStatus(t('tui.commands.plugins.installed', { label }));
-  host.showStatus(pluginReloadHint(), 'warning');
+  host.showStatus(t('tui.commands.plugins.installed', { label: label }));
+  host.showStatus(PLUGIN_RELOAD_HINT, 'warning');
 }
 
 async function installFromPanel(
   host: SlashCommandHost,
   panel: PluginsPanelComponent,
-  source: string,
   label: string,
   official: boolean,
+  install: () => Promise<void>,
 ): Promise<void> {
   if (!(await confirmInstallTrust(host, label, official))) {
-    host.showStatus(t('tui.commands.plugins.installCancelledLabel', { label }));
+    host.showStatus(t('tui.commands.plugins.installCancelledWithLabel', { label }));
     host.restoreEditor();
     return;
   }
-  // Official installs keep the panel mounted and show the inline installing
-  // state; third-party installs pass through a trust prompt that replaces the
-  // panel, so fall back to a transcript status for those.
   if (official) {
     panel.setInstalling(truncateForStatus(label));
   } else {
@@ -732,24 +579,49 @@ async function installFromPanel(
   }
   host.state.ui.requestRender();
   try {
-    await installPluginFromSource(host, source);
+    await install();
   } catch (error) {
     if (official) {
       panel.clearInstalling();
       host.state.ui.requestRender();
     } else {
-      // The trust prompt replaced the panel; re-mount it so the user can retry
-      // instead of being dropped back at the editor.
       host.mountEditorReplacement(panel);
     }
-    host.showError(
-      t('tui.commands.plugins.installFailedLabel', { label, error: formatErrorMessage(error) }),
-    );
+    host.showError(t('tui.commands.plugins.installFailedWithLabel', { label, error: formatErrorMessage(error) }));
     return;
   }
-  // Close the panel after installing so the result status and the
-  // "/reload or /new" tip are visible in the transcript.
   host.restoreEditor();
+}
+
+async function installMarketplaceEntryFromPanel(
+  host: SlashCommandHost,
+  panel: PluginsPanelComponent,
+  entry: PluginMarketplaceEntry,
+  catalogIsDefault: boolean,
+  marketplaceSource?: string,
+): Promise<void> {
+  if (entry.id === 'kimi-webbridge') {
+    throw new Error(
+      'Marketplace plugin "kimi-webbridge" is legacy; install "kimi-browser-extension" instead',
+    );
+  }
+  const capabilityId = capabilityIdForMarketplaceEntry(entry.id, catalogIsDefault);
+  if (capabilityId !== undefined) {
+    await installCapabilityFromPanel(host, panel, entry, capabilityId);
+    return;
+  }
+  await installFromPanel(
+    host,
+    panel,
+    entry.displayName,
+    isOfficialPluginSource(entry.source),
+    () => installPluginFromMarketplace(
+      host,
+      entry,
+      panel.expectedMarketplaceVersion(entry),
+      marketplaceSource,
+    ),
+  );
 }
 
 async function applyPluginEnabled(
@@ -768,16 +640,13 @@ async function applyPluginEnabled(
   }
   const mcpHint =
     enabled && info !== undefined && info.mcpServerCount > info.enabledMcpServerCount
-      ? t('tui.commands.plugins.mcpDisabledHint', { id })
+      ? ` Some MCP servers are disabled; re-enable with /plugins mcp enable ${id} <server>.`
       : '';
   if (showStatus) {
-    host.showStatus(
-      t('tui.commands.plugins.toggled', {
-        action: t(enabled ? 'tui.commands.plugins.enabled' : 'tui.commands.plugins.disabled'),
-        id,
-        mcpHint,
-      }),
-    );
+    const state = enabled
+      ? t('tui.commands.plugins.toggleEnabled')
+      : t('tui.commands.plugins.toggleDisabled');
+    host.showStatus(`${t('tui.commands.plugins.toggledHint', { state, id })}${mcpHint}`);
   }
   const inlineMcpHint = mcpHint.length > 0 ? t('tui.commands.plugins.inlineMcpDisabled') : '';
   return `${pluginInlineChangeHint()}${inlineMcpHint}`;
@@ -787,6 +656,8 @@ async function handlePluginsPanelSelection(
   host: SlashCommandHost,
   panel: PluginsPanelComponent,
   selection: PluginsPanelSelection,
+  catalogIsDefault: boolean,
+  marketplaceSource?: string,
 ): Promise<void> {
   switch (selection.kind) {
     case 'toggle': {
@@ -819,16 +690,12 @@ async function handlePluginsPanelSelection(
       await showPluginsPicker(host, { initialTab: 'installed' });
       return;
     case 'install':
-      if (isCapabilityEntry(selection.entry)) {
-        await installCapabilityFromPanel(host, panel, selection.entry);
-        return;
-      }
-      await installFromPanel(
+      await installMarketplaceEntryFromPanel(
         host,
         panel,
-        selection.entry.source,
-        selection.entry.displayName,
-        isOfficialPluginSource(selection.entry.source),
+        selection.entry,
+        catalogIsDefault,
+        marketplaceSource,
       );
       return;
     case 'install-source':
@@ -836,18 +703,9 @@ async function handlePluginsPanelSelection(
         host,
         panel,
         selection.source,
-        selection.source,
         isOfficialPluginSource(selection.source),
+        () => installPluginFromSource(host, selection.source),
       );
-      return;
-    case 'open-url':
-      host.restoreEditor();
-      openUrl(selection.url);
-      host.showStatus(
-        t('tui.commands.plugins.openingInBrowser', { label: selection.label }),
-        'success',
-      );
-      host.showStatus(t('tui.commands.plugins.visitUrl', { url: selection.url }));
       return;
   }
 }
@@ -877,12 +735,14 @@ async function handlePluginMcpSelection(
 
 async function removePlugin(host: SlashCommandHost, id: string): Promise<void> {
   await (await resolvePluginApi(host)).removePlugin(id);
-  host.showStatus(t('tui.commands.plugins.removed', { id }));
+  host.showStatus(`Removed ${id}.`);
   if (isCapabilityPluginId(id)) {
-    host.showStatus(t('tui.commands.plugins.capabilityRemoveNote'));
+    host.showStatus(
+      t('tui.commands.plugins.capabilityRemoveNote'),
+    );
     return;
   }
-  host.showStatus(pluginReloadHint(), 'warning');
+  host.showStatus(PLUGIN_RELOAD_HINT, 'warning');
 }
 
 async function renderPluginsList(
@@ -890,22 +750,14 @@ async function renderPluginsList(
   plugins?: readonly PluginSummary[],
 ): Promise<void> {
   const currentPlugins = plugins ?? (await (await resolvePluginApi(host)).listPlugins());
-  const title = t('tui.commands.plugins.listTitle', { count: currentPlugins.length });
+  const title = ` Plugins (${currentPlugins.length}) `;
   const panel = new UsagePanelComponent(
     () => buildPluginsListLines({ plugins: currentPlugins }),
     'primary',
     title,
   );
-  host.appendTranscriptEntry(
-    {
-      id: nextTranscriptId(),
-      kind: 'status',
-      turnId: undefined,
-      renderMode: 'plain',
-      content: '',
-    },
-    panel,
-  );
+  host.state.transcriptContainer.addChild(panel);
+  host.state.ui.requestRender();
 }
 
 async function renderPluginInfo(host: SlashCommandHost, id: string): Promise<void> {
@@ -915,47 +767,59 @@ async function renderPluginInfo(host: SlashCommandHost, id: string): Promise<voi
     'primary',
     ` ${info.id} `,
   );
-  host.appendTranscriptEntry(
-    {
-      id: nextTranscriptId(),
-      kind: 'status',
-      turnId: undefined,
-      renderMode: 'plain',
-      content: '',
-    },
-    panel,
-  );
+  host.state.transcriptContainer.addChild(panel);
+  host.state.ui.requestRender();
 }
 
-async function installPluginFromSource(host: SlashCommandHost, source: string): Promise<void> {
+async function installPluginFromSource(
+  host: SlashCommandHost,
+  source: string,
+): Promise<void> {
   const session = await resolvePluginApi(host);
   const beforeList = await session.listPlugins();
-  const summary = await session.installPlugin(
-    resolvePluginInstallSource(source, host.state.appState.workDir),
-  );
+  const summary = await session.installPlugin({
+    source: resolvePluginInstallSource(source, host.state.appState.workDir),
+  });
   showPluginInstallResult(host, beforeList, summary);
 }
 
-function pluginReloadHint(): string {
-  return t('tui.commands.plugins.reloadHint');
+async function installPluginFromMarketplace(
+  host: SlashCommandHost,
+  entry: PluginMarketplaceEntry,
+  expectedVersion: string | undefined,
+  marketplaceSource?: string,
+): Promise<void> {
+  const session = await resolvePluginApi(host);
+  const beforeList = await session.listPlugins();
+  const migrateFrom =
+    entry.id === 'kimi-browser-extension' &&
+    beforeList.some((plugin) => plugin.id === 'kimi-webbridge')
+      ? 'kimi-webbridge'
+      : undefined;
+  const summary = await session.installPlugin({
+    marketplaceId: entry.id,
+    expectedVersion,
+    expectedSha256: entry.sha256sum,
+    migrateFrom,
+    marketplaceSource,
+  });
+  showPluginInstallResult(host, beforeList, summary);
 }
 
-function webbridgePostInstallMarkdown(): string {
-  return [
-    t('tui.commands.plugins.webbridgeIntro'),
-    t('tui.commands.plugins.webbridgeStep1'),
-    '',
-    t('tui.commands.plugins.webbridgeChromeLink'),
-    t('tui.commands.plugins.webbridgeEdgeLink'),
-    t('tui.commands.plugins.webbridgeManualLink'),
-    '',
-    t('tui.commands.plugins.webbridgeStep2'),
-  ].join('\n');
-}
+const PLUGIN_RELOAD_HINT = t('tui.commands.plugins.reloadHint');
 
-function pluginQuotaNote(): string {
-  return t('tui.commands.plugins.quotaNote');
-}
+const WEBBRIDGE_POST_INSTALL_MARKDOWN = [
+  t('tui.commands.plugins.webbridgeIntro'),
+  t('tui.commands.plugins.webbridgeStep1'),
+  '',
+  t('tui.commands.plugins.webbridgeChromeLink'),
+  t('tui.commands.plugins.webbridgeEdgeLink'),
+  t('tui.commands.plugins.webbridgeManualLink'),
+  '',
+  '2. Run `/reload` or `/new` to apply it.',
+].join('\n');
+
+const PLUGIN_QUOTA_NOTE = t('tui.commands.plugins.quotaNote');
 
 function showPluginInstallResult(
   host: SlashCommandHost,
@@ -963,66 +827,40 @@ function showPluginInstallResult(
   summary: PluginSummary,
 ): void {
   const previous = beforeList.find((entry) => entry.id === summary.id);
+  const serverWord = summary.mcpServerCount === 1 ? 'server' : 'servers';
   const mcpHint =
     summary.mcpServerCount > 0
-      ? t(
-          summary.mcpServerCount === 1
-            ? 'tui.commands.plugins.mcpDeclaredOne'
-            : 'tui.commands.plugins.mcpDeclaredMany',
-          { count: summary.mcpServerCount },
-        )
+      ? t('tui.commands.plugins.declaresMcp', { count: summary.mcpServerCount, serverWord })
       : '';
   const action = describeInstallAction(previous, summary);
-  host.showStatus(
-    t('tui.statusMessages.pluginsInstallResult', {
-      action,
-      id: summary.id,
-      hint: mcpHint,
-    }),
-  );
-  host.showStatus(pluginReloadHint(), 'warning');
-  // Gate on provenance, not just the id: a local/GitHub fork whose manifest
-  // reuses a billed plugin's id is not the official quota-consuming build.
+  host.showStatus(`${action} (${summary.id}).${mcpHint}`);
+  host.showStatus(PLUGIN_RELOAD_HINT, 'warning');
   if (QUOTA_CONSUMING_PLUGIN_IDS.includes(summary.id) && isOfficialPluginInstall(summary)) {
-    host.showStatus(pluginQuotaNote(), 'warning');
+    host.showStatus(PLUGIN_QUOTA_NOTE, 'warning');
   }
 }
 
-function describeInstallAction(previous: PluginSummary | undefined, next: PluginSummary): string {
+function describeInstallAction(
+  previous: PluginSummary | undefined,
+  next: PluginSummary,
+): string {
   const sourceLabel = formatPluginSourceLabel(next);
   const versionFromTo = (prev?: string, cur?: string): string => {
     if (prev === undefined || prev === cur) return cur === undefined ? '' : ` ${cur}`;
     return ` ${prev} → ${cur ?? '-'}`;
   };
   if (previous === undefined) {
-    return t('tui.commands.plugins.installedAction', {
-      label: next.displayName,
-      versions: versionFromTo(undefined, next.version),
-      source: sourcePhrase(sourceLabel),
-    });
+    return `Installed ${next.displayName}${versionFromTo(undefined, next.version)} ${sourcePhrase(sourceLabel)}`;
   }
   if (sourceIdentity(previous) !== sourceIdentity(next)) {
     const prevSourceLabel = formatPluginSourceLabel(previous);
-    return t('tui.commands.plugins.migratedAction', {
-      label: next.displayName,
-      previous: prevSourceLabel,
-      current: sourceLabel,
-      versions: versionFromTo(previous.version, next.version),
-    });
+    return `Migrated ${next.displayName}: ${prevSourceLabel} → ${sourceLabel}${versionFromTo(previous.version, next.version)}`;
   }
-  return t('tui.commands.plugins.updatedAction', {
-    label: next.displayName,
-    versions: versionFromTo(previous.version, next.version),
-    source: sourcePhrase(sourceLabel),
-  });
+  return `Updated ${next.displayName}${versionFromTo(previous.version, next.version)} ${sourcePhrase(sourceLabel)}`;
 }
 
-// formatPluginSourceLabel already prefixes zip-url hosts with "via", so adding
-// "from" would read as "from via <host>". Only prepend "from" otherwise.
 function sourcePhrase(sourceLabel: string): string {
-  return sourceLabel.startsWith('via ')
-    ? sourceLabel
-    : t('tui.commands.plugins.fromSource', { source: sourceLabel });
+  return sourceLabel.startsWith('via ') ? sourceLabel : `from ${sourceLabel}`;
 }
 
 function sourceIdentity(plugin: PluginSummary): string {
@@ -1039,17 +877,9 @@ function truncateForStatus(input: string): string {
 
 async function reloadPlugins(host: SlashCommandHost): Promise<void> {
   const summary = await (await resolvePluginApi(host)).reloadPlugins();
-  const line =
-    t('tui.commands.plugins.reloadSummary', {
-      added: summary.added.length,
-      removed: summary.removed.length,
-    }) +
-    (summary.errors.length > 0
-      ? t('tui.commands.plugins.reloadErrors', { count: summary.errors.length })
-      : '');
+  const line = `Reload: +${summary.added.length} -${summary.removed.length}` +
+    (summary.errors.length > 0 ? ` (${summary.errors.length} errors)` : '');
   host.showStatus(line);
-  // Rebuild the TUI's plugin slash-command list from the reloaded service so
-  // newly added/enabled commands resolve in this session-less UI right away.
   await host.refreshPluginCommands(host.session);
 }
 

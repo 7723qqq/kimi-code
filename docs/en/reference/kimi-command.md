@@ -171,7 +171,7 @@ kimi acp
 
 Run the local Kimi server in the foreground of the current terminal — a single process that exposes the REST + WebSocket API and serves the web UI from the same origin — and open the web UI in the default browser once it is ready. The command stays attached to the terminal and shuts down cleanly on `SIGINT` / `SIGTERM` (e.g. `Ctrl-C`).
 
-When the server is running, `GET /openapi.json` returns the REST OpenAPI document and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document. For an end-to-end walkthrough of driving sessions over the API, see [Server API: Drive a session over the API](./server-api.md#drive-a-session-over-the-api); for the protocol details, see the [Server API](./server-api.md) reference.
+When the server is running, `GET /api/v1/kap.md` returns the version-matched KAP runtime guide, `GET /openapi.json` returns the REST OpenAPI document, and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document. For interacting with or handing off sessions from other agents, see [Using in Other Agents (Agent to Agent)](../guides/other-agents.md).
 
 ```sh
 kimi web                 # run the server in the foreground and open the browser
@@ -194,12 +194,11 @@ Multiple instances can share one home directory: each registers itself under `~/
 | `--web-title <title>` | Custom browser tab title for the web UI; no default. The value is passed through to the server and exposed as `web_title` in `GET /api/v1/meta`; it does not set the browser tab title, which is always `Kimi Code Web` |
 | `--rc, --remote-control` | Expose the web UI through Kimi Remote Control |
 | `--no-open` | Do not open the browser once the server is ready |
+| `--json` | Emit one ready JSON line with an in-memory ephemeral bearer token and skip browser opening, persistent token creation, and instance registration |
 
 `kimi web` binds to local loopback only by default and prints the bearer token in the startup banner; the web UI authenticates automatically via the `#token=` URL fragment.
 
-::: info
-The `kimi server` command tree is deprecated: any `kimi server …` invocation (including all legacy subcommands) only prints a deprecation notice and exits with code 1 — use `kimi web` instead. The one exception is `kimi server kill`, which stays functional for stopping servers started by a version before 0.28.0. The notice will be removed in the next major version of Kimi Code.
-:::
+Use `kimi server` to run the same foreground server without opening a browser. It accepts the server options above; pass `--open` to open the Web UI explicitly. The internal `server ensure-daemon` command is used by [SSH hosts](../configuration/config-files.md#hosts) to reuse a managed background server over a private socket; it is not a replacement for the normal foreground command.
 
 ::: danger
 `--dangerous-bypass-auth` disables authentication entirely. Anyone who can reach the port gets full access to your sessions, filesystem, and shell. Only use it on a trusted network or behind your own authenticating reverse proxy, and stop the server with `Ctrl+C` when you are done.
@@ -207,7 +206,7 @@ The `kimi server` command tree is deprecated: any `kimi server …` invocation (
 
 #### `kimi web rc`
 
-Run the local Kimi server and open the web UI through Kimi Remote Control — the same server as `kimi web`, but registered with the relay so the session can be reached from another device. `kimi rc` is an alias. See [Remote Control](../guides/remote-control.md).
+Run the local Kimi server and open the web UI through Kimi Remote Control — the same server as `kimi web`, but registered with the relay so the session can be reached from another device. `kimi rc` is an alias. See [Remote Control](../guides/web.md#remote-control).
 
 #### `kimi server kill`
 

@@ -1,14 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   appendRolloutDecisionLog,
   decidePassiveUpdate,
   isRolloutBypassedByExperimentalEnv,
   isRolloutEligible,
-  MAX_ROLLOUT_DELAY_SECONDS,
+  UNCOVERED_ROLLOUT_DELAY_SECONDS,
   rolloutBucket,
   rolloutDelayForBucket,
   rolloutDelaySeconds,
@@ -71,16 +72,23 @@ describe('rolloutDelayForBucket', () => {
     expect(rolloutDelayForBucket(STANDARD_ROLLOUT, 99)).toBe(86_400);
   });
 
-  it('clamps oversized delays to 24h', () => {
+  it('honors plan delays beyond 24h', () => {
     const rollout: readonly RolloutBatch[] = [{ percent: 100, delaySeconds: 999_999 }];
-    expect(rolloutDelayForBucket(rollout, 50)).toBe(MAX_ROLLOUT_DELAY_SECONDS);
+    expect(rolloutDelayForBucket(rollout, 50)).toBe(999_999);
   });
 
   it('assigns buckets not covered by the plan to the slowest cohort', () => {
     const rollout: readonly RolloutBatch[] = [{ percent: 30, delaySeconds: 0 }];
     expect(rolloutDelayForBucket(rollout, 29)).toBe(0);
-    expect(rolloutDelayForBucket(rollout, 30)).toBe(MAX_ROLLOUT_DELAY_SECONDS);
-    expect(rolloutDelayForBucket(rollout, 99)).toBe(MAX_ROLLOUT_DELAY_SECONDS);
+    expect(rolloutDelayForBucket(rollout, 30)).toBe(UNCOVERED_ROLLOUT_DELAY_SECONDS);
+    expect(rolloutDelayForBucket(rollout, 99)).toBe(UNCOVERED_ROLLOUT_DELAY_SECONDS);
+  });
+
+  it('keeps uncovered buckets behind the longest configured delay', () => {
+    const rollout: readonly RolloutBatch[] = [{ percent: 30, delaySeconds: 172_800 }];
+    expect(rolloutDelayForBucket(rollout, 29)).toBe(172_800);
+    expect(rolloutDelayForBucket(rollout, 30)).toBe(172_800);
+    expect(rolloutDelayForBucket(rollout, 99)).toBe(172_800);
   });
 
   it('tolerates percents summing past 100', () => {
@@ -140,9 +148,10 @@ describe('isRolloutEligible', () => {
     expect(isRolloutEligible(manifest, 'device-a', secondsAfterPublish(-3_600))).toBe(false);
   });
 
-  it('is always eligible 24h after publish regardless of the plan', () => {
+  it('honors eligibility delays beyond 24h', () => {
     const manifest = makeManifest({ rollout: [{ percent: 100, delaySeconds: 999_999 }] });
-    expect(isRolloutEligible(manifest, 'device-a', secondsAfterPublish(86_400))).toBe(true);
+    expect(isRolloutEligible(manifest, 'device-a', secondsAfterPublish(86_400))).toBe(false);
+    expect(isRolloutEligible(manifest, 'device-a', secondsAfterPublish(999_999))).toBe(true);
   });
 
   it('fails open when publishedAt cannot be parsed', () => {
@@ -199,6 +208,22 @@ describe('decidePassiveUpdate', () => {
     });
   });
 
+  it('reports held without throwing when the batch delay exceeds the Date range', () => {
+    const manifest = makeManifest({ rollout: [{ percent: 100, delaySeconds: 8_640_000_000_000 }] });
+    const decision = decidePassiveUpdate(
+      '1.0.0',
+      { channel: 'stable', latest: '2.0.0', manifest },
+      'device-a',
+      now,
+    );
+    expect(decision).toMatchObject({
+      plan: { kind: 'none' },
+      reason: 'held',
+      delaySeconds: 8_640_000_000_000,
+      eligibleAt: null,
+    });
+  });
+
   it('reports eligible once the batch delay has passed', () => {
     const manifest = makeManifest({ rollout: [{ percent: 100, delaySeconds: 43_200 }] });
     const decision = decidePassiveUpdate(
@@ -215,15 +240,15 @@ describe('decidePassiveUpdate', () => {
   });
 
   it('uses the normal eligible path for an empty canary rollout', () => {
-    const manifest = makeManifest({ version: '0.0.0-canary.42', rollout: [] });
+    const manifest = makeManifest({ version: '2.4.1-canary.20261028012345-0123456', rollout: [] });
     const decision = decidePassiveUpdate(
-      '0.0.0-canary.41',
-      { channel: 'canary', latest: '0.0.0-canary.42', manifest },
+      '2.4.1-canary.20261027012345-89abcde',
+      { channel: 'canary', latest: '2.4.1-canary.20261028012345-0123456', manifest },
       'device-a',
       now,
     );
     expect(decision).toMatchObject({
-      plan: { kind: 'upgrade', target: { channel: 'canary', version: '0.0.0-canary.42' } },
+      plan: { kind: 'upgrade', target: { channel: 'canary', version: '2.4.1-canary.20261028012345-0123456' } },
       reason: 'eligible',
       delaySeconds: 0,
     });
@@ -232,7 +257,7 @@ describe('decidePassiveUpdate', () => {
   it('returns a channel switch without applying the stable rollout hold', () => {
     const manifest = makeManifest({ version: '2.4.1', rollout: [{ percent: 100, delaySeconds: 86_400 }] });
     const decision = decidePassiveUpdate(
-      '0.0.0-canary.42',
+      '2.4.1-canary.20261028012345-0123456',
       { channel: 'stable', latest: '2.4.1', manifest },
       'device-a',
       now,
@@ -270,10 +295,7 @@ describe('appendRolloutDecisionLog', () => {
     const lines = readFileSync(file, 'utf-8').trim().split('\n');
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0] ?? '')).toMatchObject({ phase: 'startup-cache', reason: 'held' });
-    expect(JSON.parse(lines[1] ?? '')).toMatchObject({
-      phase: 'prompt-refresh',
-      reason: 'eligible',
-    });
+    expect(JSON.parse(lines[1] ?? '')).toMatchObject({ phase: 'prompt-refresh', reason: 'eligible' });
   });
 
   it('resets the file once it grows past the size cap', async () => {
@@ -344,24 +366,20 @@ describe('experimental flag bypass', () => {
   });
 
   it('still reports not-newer and no-latest under bypass', () => {
-    expect(
-      decidePassiveUpdate(
-        '2.0.0',
-        { channel: 'stable', latest: '2.0.0', manifest: heldManifest },
-        'device-a',
-        now,
-        true,
-      ),
-    ).toMatchObject({ plan: { kind: 'none' }, reason: 'not-newer' });
-    expect(
-      decidePassiveUpdate(
-        '1.0.0',
-        { channel: 'stable', latest: null, manifest: null },
-        'device-a',
-        now,
-        true,
-      ),
-    ).toMatchObject({ plan: { kind: 'none' }, reason: 'no-latest' });
+    expect(decidePassiveUpdate(
+      '2.0.0',
+      { channel: 'stable', latest: '2.0.0', manifest: heldManifest },
+      'device-a',
+      now,
+      true,
+    )).toMatchObject({ plan: { kind: 'none' }, reason: 'not-newer' });
+    expect(decidePassiveUpdate(
+      '1.0.0',
+      { channel: 'stable', latest: null, manifest: null },
+      'device-a',
+      now,
+      true,
+    )).toMatchObject({ plan: { kind: 'none' }, reason: 'no-latest' });
   });
 
   it('marks plain-latest visibility as experimental when bypassing', () => {
@@ -381,7 +399,7 @@ describe('experimental flag bypass', () => {
   it('does not turn a channel switch into an automatic upgrade', () => {
     const decision = decidePassiveUpdate(
       '2.4.1',
-      { channel: 'canary', latest: '0.0.0-canary.42', manifest: null },
+      { channel: 'canary', latest: '2.4.1-canary.20261028012345-0123456', manifest: null },
       'device-a',
       now,
       true,
@@ -390,7 +408,7 @@ describe('experimental flag bypass', () => {
       plan: {
         kind: 'switch-channel',
         sourceChannel: 'stable',
-        target: { channel: 'canary', version: '0.0.0-canary.42' },
+        target: { channel: 'canary', version: '2.4.1-canary.20261028012345-0123456' },
       },
       reason: 'switch-channel',
     });

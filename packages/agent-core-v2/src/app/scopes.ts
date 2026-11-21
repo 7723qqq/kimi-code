@@ -1,6 +1,10 @@
-import { LifecycleScope, setScopeTopology } from '#/_base/di/scope';
+import { setScopeTopology } from '#/_base/di/scope';
 
-export { LifecycleScope };
+export enum LifecycleScope {
+  App = 'app',
+  Session = 'session',
+  Agent = 'agent',
+}
 
 export const SCOPE_TOPOLOGY: readonly LifecycleScope[] = [
   LifecycleScope.App,

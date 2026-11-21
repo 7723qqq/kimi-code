@@ -4,15 +4,6 @@ import { LOCAL_ENVIRONMENT_ID, environmentBindingId } from '#/environment/enviro
 import { EnvironmentError, type EnvironmentGenerationSnapshot, type EnvironmentRegistryChange } from '#/environment/environmentRegistry';
 import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
 import type { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import type { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
-import { ExplicitAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoaderService';
-import type { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
-import { ExtraAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoaderService';
-import type { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
-import { PluginAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoaderService';
-import type { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
-import { UserAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoaderService';
-import type { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
 import type { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import type { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import type { IWorkspaceFsService } from '#/workspace/workspaceFs/fs';
@@ -22,10 +13,19 @@ import type { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp
 import { WorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcpService';
 import type { IWorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
 import { WorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
-import type { IWorkspaceTrustDisclosure } from '#/workspace/workspaceTrust/trustDisclosure';
 import type { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
 import { WorkspaceTrustService } from '#/workspace/workspaceTrust/workspaceTrustService';
+import type { IWorkspaceTrustDisclosure } from '#/workspace/workspaceTrust/trustDisclosure';
 import { WorkspaceTrustDisclosureService } from '#/workspace/workspaceTrust/trustDisclosureService';
+import type { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
+import { ExtraAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoaderService';
+import type { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
+import { ExplicitAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoaderService';
+import type { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
+import { PluginAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoaderService';
+import type { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { UserAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoaderService';
+import type { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
 import { ExplicitFileSkillSource } from '#/features/skill/workspace/explicitFileSkillSource';
 import { ExtraFileSkillSource } from '#/features/skill/workspace/extraFileSkillSource';
 import { PluginSkillSource } from '#/features/skill/workspace/pluginSkillSource';
@@ -34,7 +34,7 @@ import type { IWorkspaceSkillCatalog } from '#/features/skill/workspace/workspac
 import type { IEnvironmentService } from '#/app/environment/environment';
 
 import type { ProgramDependencies } from './programDependencies';
-import { PROGRAM_CAPABILITIES, ProgramWorkdirs, type ProgramHarness } from './programWorkdirs';
+import { PROGRAM_CAPABILITIES, ProgramWorkdirs, type ProgramHarness, type ProgramWorkdir } from './programWorkdirs';
 
 export type { ProgramWorkdir } from './programWorkdirs';
 
@@ -105,9 +105,7 @@ export class Program {
   private disposed = false;
   private readonly generationCleanups = new Set<Promise<void>>();
   private resolveReady?: () => void;
-  readonly ready = new Promise<void>((resolve) => {
-    this.resolveReady = resolve;
-  });
+  readonly ready = new Promise<void>((resolve) => { this.resolveReady = resolve; });
 
   constructor(
     readonly workspaceId: string,
@@ -156,13 +154,22 @@ export class Program {
         pluginAgentProfiles: generation.pluginAgentProfiles,
         mcp: generation.mcp,
         trust: generation.trust,
-        acquireWorkdir: (environmentId, cwd, followsPrimary) =>
-          generation.workdirs.acquire(environmentId, cwd, followsPrimary),
+        acquireWorkdir: (environmentId, cwd, followsPrimary) => generation.workdirs.acquire(environmentId, cwd, followsPrimary),
         onDispose: release,
       });
     } catch (error) {
       release();
       throw error;
+    }
+  }
+
+  async acquireWorkdir(environmentId: string, cwd: string, followsPrimary = environmentId === LOCAL_ENVIRONMENT_ID): Promise<ProgramWorkdir> {
+    const generation = this.requireGeneration();
+    const lease = await this.environments.acquireWhenReady({ environmentId }, ['fs']);
+    try {
+      return await generation.workdirs.acquire(environmentId, cwd, followsPrimary);
+    } finally {
+      lease.dispose();
     }
   }
 
@@ -298,7 +305,7 @@ export class Program {
       const explicitAgentProfiles = own(new ExplicitAgentProfileLoaderService(this.context, root.dirs, this.dependencies.bootstrap, hostFs, this.dependencies.log, userAgentProfiles, this.dependencies.agentProfiles));
       const extraAgentProfiles = own(new ExtraAgentProfileLoaderService(this.dependencies.config, this.context, root.dirs, this.dependencies.bootstrap, hostFs, this.dependencies.log, userAgentProfiles, this.dependencies.agentProfiles));
       const trust = own(new WorkspaceTrustService(root.dirs, this.dependencies.trustStore, root.state, this.dependencies.config));
-      const mcpConfig = own(new WorkspaceMcpConfigService(root.dirs, this.dependencies.bootstrap, this.dependencies.plugins, this.dependencies.log, this.dependencies.config, hostFs, trust, this.dependencies.configStore));
+      const mcpConfig = own(new WorkspaceMcpConfigService(root.dirs, this.dependencies.bootstrap, this.dependencies.plugins, this.dependencies.log, this.dependencies.config, hostFs, trust, this.dependencies.configStore, this.dependencies.oauth));
       const mcp = new WorkspaceMcpService(this.context, root.dirs, this.environments, mcpConfig, this.dependencies.oauth, this.dependencies.log, this.dependencies.telemetry, this.dependencies.identity, this.dependencies.sessionManager);
       disposables.push({ dispose: () => mcp.disposeAsync() });
       const trustDisclosure = new WorkspaceTrustDisclosureService(this.context, hostFs, this.dependencies.bootstrap, this.dependencies.config, root.localConfig, root.dirs, trust, root.skills, root.agentProfiles, this.dependencies.agentProfiles, root.instructions, this.dependencies.log);
@@ -322,7 +329,7 @@ export class Program {
       };
     } catch (error) {
       this.cleanupGeneration({ disposables });
-      lease.dispose();      throw error;
+      throw error;
     } finally {
       lease.dispose();
     }
@@ -375,8 +382,7 @@ export class Program {
         }
       }
       if (errors.length === 1) throw errors[0];
-      if (errors.length > 1)
-        throw new AggregateError(errors, `program ${this.workspaceId} generation disposal failed`);
+      if (errors.length > 1) throw new AggregateError(errors, `program ${this.workspaceId} generation disposal failed`);
     })();
     this.generationCleanups.add(cleanup);
     void cleanup.then(
@@ -385,10 +391,7 @@ export class Program {
       },
       (error) => {
         this.generationCleanups.delete(cleanup);
-        this.dependencies.log.error('program generation disposal failed', {
-          workspaceId: this.workspaceId,
-          error,
-        });
+        this.dependencies.log.error('program generation disposal failed', { workspaceId: this.workspaceId, error });
       },
     );
   }
@@ -401,11 +404,8 @@ export class Program {
   private refresh(): void {
     const local = this.environments.current(LOCAL_ENVIRONMENT_ID);
     if (local === undefined || local.status === 'connecting') this.currentStatus = 'preparing';
-    else if (this.generationFailed || this.generation?.failed === true)
-      this.currentStatus = 'degraded';
-    else if (this.generation?.ready !== true)
-      this.currentStatus =
-        this.generation === undefined && local.status !== 'ready' ? 'degraded' : 'preparing';
+    else if (this.generationFailed || this.generation?.failed === true) this.currentStatus = 'degraded';
+    else if (this.generation?.ready !== true) this.currentStatus = this.generation === undefined && local.status !== 'ready' ? 'degraded' : 'preparing';
     else this.currentStatus = local.status === 'ready' ? 'ready' : 'degraded';
     this.changeEmitter.fire(this.snapshot());
   }

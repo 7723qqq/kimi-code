@@ -1,17 +1,18 @@
-import { IAgentTaskService } from '#/agent/task/task';
-import type { AgentTaskInfo, AgentTaskOutputSnapshot } from '#/agent/task/task';
-import { formatTaskRecord } from '#/agent/task/tools/format';
-import { type AgentTaskStatus, TERMINAL_STATUSES } from '#/agent/task/types';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import {
-  RepoMutations,
-  ToolSideEffects,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
+import { type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTaskHistoryService } from '#/agent/task/taskService';
+import { IAgentTaskOutputService } from '#/agent/task/taskOutput';
+import { agentTaskInfo } from '#/agent/task/handler';
+import type {
+  AgentTaskInfo,
+  AgentTaskOutputSnapshot,
+} from '#/agent/task/task';
+import { type AgentTaskStatus, TERMINAL_STATUSES } from '#/agent/task/types';
+import { formatTaskRecord } from '#/agent/task/tools/format';
 import { ITaskOutputTool, TaskOutputInputSchema, type TaskOutputInput } from './task-output';
 import TASK_OUTPUT_DESCRIPTION from './task-output.md?raw';
 
@@ -51,12 +52,14 @@ function fullOutputHint(output: AgentTaskOutputSnapshot): string | undefined {
 export class TaskOutputTool implements ITaskOutputTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TaskOutput' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description: string = TASK_OUTPUT_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskOutputInputSchema);
 
-  constructor(@IAgentTaskService private readonly tasks: IAgentTaskService) {}
+  constructor(
+    @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
+    @IAgentTaskHistoryService private readonly history: IAgentTaskHistoryService,
+    @IAgentTaskOutputService private readonly taskOutputs: IAgentTaskOutputService,
+  ) {}
 
   resolveExecution(args: TaskOutputInput): ToolExecution {
     return {
@@ -68,12 +71,34 @@ export class TaskOutputTool implements ITaskOutputTool {
   }
 
   private async execute(args: TaskOutputInput): Promise<ExecutableToolResult> {
-    const current = this.tasks.getTask(args.task_id);
+    const handler = this.toolExecutor.handler(args.task_id);
+    const current = handler?.snapshot().fields.task === undefined ? this.history.getTask(args.task_id) : agentTaskInfo(handler);
     if (!current) {
       return { isError: true, output: `Task not found: ${args.task_id}` };
     }
 
-    const output = await this.tasks.getOutputSnapshot(args.task_id, OUTPUT_PREVIEW_BYTES);
+    const live = handler?.output(OUTPUT_PREVIEW_BYTES);
+    const persisted = live === undefined
+      ? await this.taskOutputs.readTaskOutputSnapshot(args.task_id, OUTPUT_PREVIEW_BYTES)
+      : undefined;
+    const output: AgentTaskOutputSnapshot = live !== undefined
+      ? {
+          outputPath: live.path,
+          outputSizeBytes: live.totalBytes,
+          previewBytes: Buffer.byteLength(live.preview),
+          truncated: live.truncated,
+          fullOutputAvailable: live.path !== undefined,
+          preview: live.preview,
+        }
+      : persisted === undefined
+        ? {
+            outputSizeBytes: 0,
+            previewBytes: 0,
+            truncated: false,
+            fullOutputAvailable: false,
+            preview: '',
+          }
+        : { ...persisted, fullOutputAvailable: true };
 
     const lines = [
       formatTaskRecord({
@@ -108,7 +133,4 @@ export class TaskOutputTool implements ITaskOutputTool {
   }
 }
 
-registerAgentToolService(ITaskOutputTool, TaskOutputTool, {
-  name: 'TaskOutput',
-  domain: 'agentTask',
-});
+registerAgentToolService(ITaskOutputTool, TaskOutputTool, { name: 'TaskOutput', domain: 'agentTask' });

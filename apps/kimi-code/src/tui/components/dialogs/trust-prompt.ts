@@ -1,4 +1,3 @@
-import type { WorkspaceTrustInfo } from '@moonshot-ai/kimi-code-sdk';
 import {
   Key,
   matchesKey,
@@ -9,12 +8,13 @@ import {
   type TuiMouseEvent,
   type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
+import type { WorkspaceTrustInfo } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme, type ColorToken } from '#/tui/theme';
-import { ListMouseRouter, type ListCursor } from '#/tui/utils/mouse';
 import { pageView } from '#/tui/utils/paging';
+import { isSettlingClick } from '#/tui/utils/terminal-focus';
+import { t } from '#/i18n';
 
 export type TrustPromptChoice = 'trust' | 'distrust';
 
@@ -25,42 +25,21 @@ export interface TrustPromptOptions {
   readonly onSelect: (choice: TrustPromptChoice) => void;
 }
 
-function getOptions(): readonly { value: TrustPromptChoice; label: string }[] {
-  return [
-    { value: 'trust', label: t('tui.dialogs.trustPrompt.trustLabel') },
-    { value: 'distrust', label: t('tui.dialogs.trustPrompt.distrustLabel') },
-  ];
-}
+const OPTIONS: readonly { value: TrustPromptChoice; label: string }[] = [
+  { value: 'trust', label: t('tui.dialogs.trustPrompt.trustLabel') },
+  { value: 'distrust', label: t('tui.dialogs.trustPrompt.distrustLabel') },
+];
 
 export class TrustPromptComponent implements Component, Focusable {
   focused = false;
-  // Pages its own disclosure text with PageUp/PageDown and Home/End.
-  readonly ownsViewportKeys = true;
-  readonly ownsViewportSearchKey = true;
   private selectedIndex = 0;
   private disclosureIndex = 0;
   private disclosurePageSize = 1;
   private canConfirm = true;
-  private readonly mouse: ListMouseRouter<{ value: TrustPromptChoice; label: string }>;
+  private optionRows: readonly number[] = [];
+  private readonly shownAt = Date.now();
 
-  constructor(private readonly opts: TrustPromptOptions) {
-    this.mouse = new ListMouseRouter(this.cursor(), (option) => this.opts.onSelect(option.value), {
-      isFocused: () => this.focused,
-    });
-  }
-
-  /** The cursor the mouse router drives over the prompt's choices. */
-  private cursor(): ListCursor<{ value: TrustPromptChoice; label: string }> {
-    return {
-      items: () => getOptions(),
-      selectedIndex: () => this.selectedIndex,
-      pageCount: () => 1,
-      moveTo: (index) => {
-        this.selectedIndex = Math.max(0, Math.min(getOptions().length - 1, index));
-      },
-      page: () => false,
-    };
-  }
+  constructor(private readonly opts: TrustPromptOptions) {}
 
   invalidate(): void {}
 
@@ -74,7 +53,7 @@ export class TrustPromptComponent implements Component, Focusable {
       return;
     }
     if (matchesKey(data, Key.down)) {
-      this.selectedIndex = Math.min(getOptions().length - 1, this.selectedIndex + 1);
+      this.selectedIndex = Math.min(OPTIONS.length - 1, this.selectedIndex + 1);
       return;
     }
     const previousPage = matchesKey(data, Key.left) || matchesKey(data, Key.pageUp);
@@ -87,16 +66,39 @@ export class TrustPromptComponent implements Component, Focusable {
       return;
     }
     if (this.canConfirm && (matchesKey(data, Key.enter) || matchesKey(data, Key.space))) {
-      this.opts.onSelect(getOptions()[this.selectedIndex]!.value);
+      this.opts.onSelect(OPTIONS[this.selectedIndex]!.value);
     }
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (!this.canConfirm) return undefined;
-    return this.mouse.handleMouse(event);
+    if (!this.focused) {
+      if (event.type === 'press') return { handled: true };
+      if (event.type === 'click') return { handled: true, focus: true };
+      return undefined;
+    }
+    if (event.type === 'move') {
+      const index = this.optionRows.indexOf(event.y);
+      if (index === -1) return undefined;
+      const changed = this.selectedIndex !== index;
+      this.selectedIndex = index;
+      return { handled: true, render: changed };
+    }
+    if (event.button !== 'left') return undefined;
+    const index = this.optionRows.indexOf(event.y);
+    if (index === -1) return undefined;
+    if (event.type === 'press') {
+      this.selectedIndex = index;
+      return { handled: true, render: true };
+    }
+    if (event.type === 'click' && this.canConfirm && !isSettlingClick(this.shownAt)) {
+      this.selectedIndex = index;
+      this.opts.onSelect(OPTIONS[index]!.value);
+    }
+    return { handled: true };
   }
 
   render(width: number): string[] {
+    this.optionRows = [];
     const rule = currentTheme.fg('primary', '─'.repeat(width));
     const availableRows = Math.max(0, Math.floor(this.opts.getAvailableRows?.() ?? Infinity));
     const header = [
@@ -110,22 +112,30 @@ export class TrustPromptComponent implements Component, Focusable {
       '',
       ...this.renderDisclosure(width),
     ];
-    const options = getOptions();
-    const optionLines = options.map((option, i) => {
+    const footer = [
+      ...wrap(
+        t('tui.dialogs.trustPrompt.remembered'),
+        1,
+        width,
+        'textMuted',
+      ),
+      ...wrap(t('tui.dialogs.trustPrompt.approvals'), 1, width, 'textMuted'),
+      '',
+    ];
+    const optionRows: number[] = [];
+    for (const [i, option] of OPTIONS.entries()) {
       const selected = i === this.selectedIndex;
       const pointer = selected ? SELECT_POINTER : ' ';
       const label = selected
         ? currentTheme.boldFg('primary', option.label)
         : currentTheme.fg('text', option.label);
-      return currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `) + label;
-    });
-    const remembered = wrap(t('tui.dialogs.trustPrompt.remembered'), 1, width, 'textMuted');
-    const approvals = wrap(t('tui.dialogs.trustPrompt.approvals'), 1, width, 'textMuted');
-    const footer = [...remembered, ...approvals, '', ...optionLines, rule];
+      optionRows.push(footer.length);
+      footer.push(currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `) + label);
+    }
+    footer.push(rule);
     this.canConfirm = header.length + footer.length + 2 <= availableRows;
     if (!this.canConfirm) {
-      this.mouse.setRegions([]);
-      return [header[1]!, ` ${t('tui.dialogs.trustPrompt.enlargeTerminal')}`]
+      return [header[1]!, t('tui.dialogs.trustPrompt.enlargeTerminal')]
         .slice(0, availableRows)
         .map((line) => truncateToWidth(line, width));
     }
@@ -138,25 +148,9 @@ export class TrustPromptComponent implements Component, Focusable {
     const lines = [...header, ...body.slice(page.start, page.end)];
     while (lines.length < header.length + this.disclosurePageSize) lines.push('');
     if (page.pageCount > 1)
-      lines.push(
-        currentTheme.fg(
-          'textMuted',
-          t('tui.dialogs.trustPrompt.pageIndicator', {
-            page: page.page + 1,
-            total: page.pageCount,
-          }),
-        ),
-      );
+      lines.push(currentTheme.fg('textMuted', ` ←→ page · ${page.page + 1} / ${page.pageCount}`));
+    this.optionRows = optionRows.map((row) => lines.length + row);
     lines.push(...footer);
-    // The choices sit at the bottom of the panel, below the paged disclosure.
-    const optionsStart = lines.length - footer.length + remembered.length + approvals.length + 1;
-    this.mouse.setRegions(
-      optionLines.map((_, i) => ({
-        start: optionsStart + i,
-        end: optionsStart + i + 1,
-        index: i,
-      })),
-    );
     return lines.map((line) => truncateToWidth(line, width));
   }
 
@@ -172,12 +166,9 @@ export class TrustPromptComponent implements Component, Focusable {
     if (gatedMcpServers.length > 0) {
       lines.push(
         ...wrap(
-          t(
-            gatedMcpServers.length === 1
-              ? 'tui.dialogs.trustPrompt.startMcpServers_one'
-              : 'tui.dialogs.trustPrompt.startMcpServers_other',
-            { count: gatedMcpServers.length },
-          ),
+          `Start ${gatedMcpServers.length} MCP ${
+            gatedMcpServers.length === 1 ? 'server' : 'servers'
+          } automatically`,
           1,
           width,
           'warning',
@@ -186,9 +177,7 @@ export class TrustPromptComponent implements Component, Focusable {
       const origins = [...new Set(gatedMcpServers.map((server) => server.origin))];
       lines.push(
         ...wrap(
-          t('tui.dialogs.trustPrompt.configSources', {
-            paths: origins.map((path) => relativize(this.opts.workDir, path)).join(', '),
-          }),
+          `Config: ${origins.map((path) => relativize(this.opts.workDir, path)).join(', ')}`,
           3,
           width,
           'textMuted',
@@ -199,12 +188,9 @@ export class TrustPromptComponent implements Component, Focusable {
     if (gatedAdditionalDirs.length > 0) {
       lines.push(
         ...wrap(
-          t(
-            gatedAdditionalDirs.length === 1
-              ? 'tui.dialogs.trustPrompt.accessFolders_one'
-              : 'tui.dialogs.trustPrompt.accessFolders_other',
-            { count: gatedAdditionalDirs.length },
-          ),
+          `Access ${gatedAdditionalDirs.length} ${
+            gatedAdditionalDirs.length === 1 ? 'folder' : 'folders'
+          } outside this project`,
           1,
           width,
           'warning',
@@ -213,11 +199,9 @@ export class TrustPromptComponent implements Component, Focusable {
       if (additionalDirSources.length > 0) {
         lines.push(
           ...wrap(
-            t('tui.dialogs.trustPrompt.configSources', {
-              paths: additionalDirSources
-                .map((path) => relativize(this.opts.workDir, path))
-                .join(', '),
-            }),
+            `Config: ${additionalDirSources
+              .map((path) => relativize(this.opts.workDir, path))
+              .join(', ')}`,
             3,
             width,
             'textMuted',
@@ -234,16 +218,10 @@ export class TrustPromptComponent implements Component, Focusable {
           ? t('tui.dialogs.trustPrompt.subjectInstructionsAndProfiles')
           : t('tui.dialogs.trustPrompt.subjectInstructions')
         : t('tui.dialogs.trustPrompt.subjectAgentProfiles');
-      lines.push(
-        ...wrap(t('tui.dialogs.trustPrompt.loadProjectSources', { subject }), 1, width, 'text'),
-      );
+      lines.push(...wrap(t('tui.dialogs.trustPrompt.loadProjectSources', { subject: subject }), 1, width, 'text'));
       lines.push(
         ...wrap(
-          t('tui.dialogs.trustPrompt.checkSources', {
-            paths: instructionSources.paths
-              .map((path) => relativize(this.opts.workDir, path))
-              .join(' · '),
-          }),
+          `Check: ${instructionSources.paths.map((path) => relativize(this.opts.workDir, path)).join(' · ')}`,
           3,
           width,
           'textMuted',
@@ -253,7 +231,10 @@ export class TrustPromptComponent implements Component, Focusable {
     }
     for (const warning of warnings) lines.push(...wrap(warning, 1, width, 'warning'));
     if (lines.length === 0)
-      lines.push(...wrap(t('tui.dialogs.trustPrompt.noProjectSources'), 1, width, 'textMuted'), '');
+      lines.push(
+        ...wrap(t('tui.dialogs.trustPrompt.noProjectSources'), 1, width, 'textMuted'),
+        '',
+      );
     return lines;
   }
 }

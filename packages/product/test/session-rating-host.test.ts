@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,7 +20,9 @@ import {
   type ISessionScopeHandle,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { TurnEnded, TurnPrompt, TurnStarted } from '@moonshot-ai/agent-core-v2';
+import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { SessionRatingHost } from '#/session-rating/node/index';
 
@@ -33,20 +34,17 @@ let records: Readonly<Record<string, unknown>>[];
 
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'rating-host-'));
-  core = bootstrap(
-    {
-      homeDir: home,
-      osHomeDir: home,
-      cwd: home,
-      env: {},
-      clientIdentity: { productName: 'test-host', version: '0.0.0-test', platform: 'test' },
-    },
-    logSeed(resolveLoggingConfig({ homeDir: home, env: {} })),
-  ).app;
+  core = bootstrap({
+    homeDir: home,
+    osHomeDir: home,
+    cwd: home,
+    env: {},
+    clientIdentity: { productName: 'test-host', version: '0.0.0-test', platform: 'test' },
+  }, logSeed(resolveLoggingConfig({ homeDir: home, env: {} }))).app;
   await core.accessor.get(IConfigService).ready;
   now = 0;
   records = [];
-  jest.spyOn(performance, 'now').mockImplementation(() => now);
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
 });
 
 afterEach(async () => {
@@ -58,10 +56,8 @@ afterEach(async () => {
   core.dispose();
   await drainSessionIndexMirror();
   await drainQueryStoreDisposals();
-  jest.restoreAllMocks();
-  await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(
-    () => undefined,
-  );
+  vi.restoreAllMocks();
+  await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 function startHost(): SessionRatingHost {
@@ -85,9 +81,7 @@ async function mainAgent(session: ISessionScopeHandle): Promise<IAgentScopeHandl
 
 async function completeTurn(agent: IAgentScopeHandle): Promise<void> {
   const origin = { kind: 'user' } as const;
-  await agent.accessor
-    .get(IEventDispatcher)
-    .dispatch(new TurnPrompt({ agentId: MAIN_AGENT_ID, input: [], origin }));
+  await agent.accessor.get(IEventDispatcher).dispatch(new TurnPrompt({ agentId: MAIN_AGENT_ID, input: [], origin }));
   const bus = agent.accessor.get(IEventBus);
   bus.publish(new TurnStarted({ agentId: MAIN_AGENT_ID, turnId: 1, origin }));
   bus.publish(new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 1, reason: 'completed' }));
@@ -107,11 +101,10 @@ describe('session rating host history', () => {
     const session = await manager.create({ workDir: home });
     await completeTurn(await mainAgent(session));
     await manager.close(session.id);
-    const read = jest.spyOn(core.accessor.get(IAppendLogStore), 'read');
-    const historyReads = (): number =>
-      read.mock.calls.filter(
-        ([scope, key]) => scope.endsWith('/agents/main') && key === 'wire.jsonl',
-      ).length;
+    const read = vi.spyOn(core.accessor.get(IAppendLogStore), 'read');
+    const historyReads = (): number => read.mock.calls.filter(
+      ([scope, key]) => scope.endsWith('/agents/main') && key === 'wire.jsonl',
+    ).length;
     await manager.resume(session.id);
     const baselineReads = historyReads();
     expect(baselineReads).toBeGreaterThan(0);

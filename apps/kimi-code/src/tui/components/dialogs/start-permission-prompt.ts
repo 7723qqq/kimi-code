@@ -2,23 +2,23 @@ import {
   Key,
   matchesKey,
   truncateToWidth,
-  type Component,
+  visibleWidth,
   type Focusable,
   type TuiMouseEvent,
   type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
+import { DockSection, type DockLayout, type DockPart } from '#/tui/components/chrome/dock-section';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import { ListMouseRouter, type ListCursor, type ListRowRegion } from '#/tui/utils/mouse';
-import { wrapText as wrapPlain } from '#/tui/utils/wrap-text';
+import { isSettlingClick } from '#/tui/utils/terminal-focus';
+
+import { paintHoverRow } from './hover-row';
+import { t } from '#/i18n';
 
 export type StartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
 
-export interface StartPermissionOption<
-  TChoice extends StartPermissionChoice = StartPermissionChoice,
-> {
+export interface StartPermissionOption<TChoice extends StartPermissionChoice = StartPermissionChoice> {
   readonly value: TChoice;
   readonly label: string;
   readonly description: string;
@@ -30,55 +30,32 @@ export interface StartPermissionPromptOptions<
   readonly title: string;
   readonly noticeLines: readonly string[];
   readonly options: readonly StartPermissionOption<TChoice>[];
-  /**
-   * Choice highlighted when the prompt opens. Defaults to the first option;
-   * callers that are about to widen permissions pass the CURRENT mode, so
-   * Enter means "keep what I have" (the same shape as
-   * `ChoicePickerComponent`'s `initialValue`).
-   */
-  readonly initialValue?: TChoice;
   readonly onSelect: (choice: TChoice) => void;
   readonly onCancel: () => void;
+  readonly layout?: DockLayout;
 }
 
 export class StartPermissionPromptComponent<
   TChoice extends StartPermissionChoice = StartPermissionChoice,
->
-  implements Component, Focusable
-{
+> extends DockSection implements Focusable {
   focused = false;
-  private selectedIndex: number;
-  private readonly mouse: ListMouseRouter<StartPermissionOption<TChoice>>;
+  private selectedIndex = 0;
+  private choiceRows: readonly number[] = [];
+  private hoverIndex: number | undefined;
+  private readonly shownAt = Date.now();
 
   constructor(private readonly opts: StartPermissionPromptOptions<TChoice>) {
-    const initialIndex =
-      opts.initialValue === undefined
-        ? -1
-        : opts.options.findIndex((option) => option.value === opts.initialValue);
-    this.selectedIndex = initialIndex >= 0 ? initialIndex : 0;
-    this.mouse = new ListMouseRouter(this.cursor(), (option) => this.opts.onSelect(option.value), {
-      isFocused: () => this.focused,
-    });
+    super(opts.layout);
   }
-
-  /** The cursor the mouse router drives over the prompt's options. */
-  private cursor(): ListCursor<StartPermissionOption<TChoice>> {
-    return {
-      items: () => this.opts.options,
-      selectedIndex: () => this.selectedIndex,
-      pageCount: () => 1,
-      moveTo: (index) => {
-        this.selectedIndex = Math.max(0, Math.min(this.opts.options.length - 1, index));
-      },
-      page: () => false,
-    };
-  }
-
-  invalidate(): void {}
 
   handleInput(data: string): void {
+    this.hoverIndex = undefined;
     if (matchesKey(data, Key.escape)) {
       this.opts.onCancel();
+      return;
+    }
+    if (this.layout !== undefined && (matchesKey(data, 'shift+up') || matchesKey(data, 'shift+down'))) {
+      this.scrollBody(matchesKey(data, 'shift+up') ? -1 : 1);
       return;
     }
     if (matchesKey(data, Key.up)) {
@@ -94,47 +71,105 @@ export class StartPermissionPromptComponent<
     }
   }
 
-  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    return this.mouse.handleMouse(event);
+  protected renderPart(part: DockPart, width: number): string[] {
+    switch (part) {
+      case 'head': {
+        const lines = [
+          currentTheme.fg('primary', '─'.repeat(width)),
+          currentTheme.boldFg('primary', ` ${this.opts.title}`),
+        ];
+        if (this.layout === undefined) {
+          lines.push(currentTheme.fg('textMuted', ' ↑↓ navigate · Enter select · Esc cancel'));
+        }
+        lines.push('');
+        return lines.map((line) => truncateToWidth(line, width));
+      }
+      case 'body': {
+        const lines: string[] = [];
+        const textWidth = Math.max(20, width - 2);
+        for (const paragraph of this.opts.noticeLines) {
+          for (const line of wrapPlain(paragraph, textWidth)) {
+            lines.push(` ${styleModeNames(line, 'textMuted')}`);
+          }
+          lines.push('');
+        }
+        return lines.map((line) => truncateToWidth(line, width));
+      }
+      case 'foot':
+        return this.renderFoot(width);
+    }
   }
 
-  render(width: number): string[] {
-    const rule = currentTheme.fg('primary', '─'.repeat(width));
-    const lines = [
-      rule,
-      currentTheme.boldFg('primary', ` ${this.opts.title}`),
-      currentTheme.fg('textMuted', ` ${t('tui.dialogs.startPermissionPrompt.navHint')}`),
-      '',
-    ];
-
-    const textWidth = Math.max(20, width - 2);
-    for (const paragraph of this.opts.noticeLines) {
-      for (const line of wrapPlain(paragraph, textWidth)) {
-        lines.push(` ${styleModeNames(line, 'textMuted')}`);
-      }
-      lines.push('');
-    }
-
-    const regions: ListRowRegion[] = [];
+  private renderFoot(width: number): string[] {
+    const docked = this.layout !== undefined;
+    const hoverBackground = this.focused ? currentTheme.hoverBackground() : undefined;
+    const hovered = hoverBackground === undefined ? undefined : this.hoverIndex;
+    const lines: string[] = [];
+    const choiceRows: number[] = [];
     for (let i = 0; i < this.opts.options.length; i += 1) {
       const option = this.opts.options[i]!;
       const selected = i === this.selectedIndex;
       const pointer = selected ? SELECT_POINTER : ' ';
-      const start = lines.length;
+      const label = styleLabel(option.label, selected);
+      choiceRows.push(lines.length);
+      const line =
+        currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `) + label;
       lines.push(
-        currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `) +
-          styleLabel(option.label, selected),
+        i === hovered && hoverBackground !== undefined
+          ? paintHoverRow(line, width, hoverBackground)
+          : line,
       );
-      for (const line of wrapPlain(option.description, Math.max(20, width - 4))) {
-        lines.push(`    ${styleModeNames(line, 'textMuted')}`);
+      if (!docked) {
+        for (const line of wrapPlain(option.description, Math.max(20, width - 4))) {
+          lines.push(`    ${styleModeNames(line, 'textMuted')}`);
+        }
+        lines.push('');
       }
-      regions.push({ start, end: lines.length, index: i });
-      lines.push('');
     }
-    this.mouse.setRegions(regions);
+    this.choiceRows = choiceRows;
 
-    lines.push(rule);
+    if (docked) {
+      const descriptions = this.opts.options.map((option) =>
+        wrapPlain(option.description, Math.max(20, width - 4)),
+      );
+      const areaHeight = Math.min(3, Math.max(0, ...descriptions.map((rows) => rows.length)));
+      if (areaHeight > 0) {
+        const rows = descriptions[hovered ?? this.selectedIndex] ?? [];
+        lines.push('');
+        for (let row = 0; row < areaHeight; row += 1) {
+          const cut = row === areaHeight - 1 && rows.length > areaHeight;
+          const text = cut
+            ? `${truncateToWidth(rows[row]!, Math.max(1, width - 5), '')}…`
+            : (rows[row] ?? '');
+          lines.push(`    ${styleModeNames(text, 'textMuted')}`);
+        }
+      }
+      const scrollHint = this.bodyOverflows(width) ? ' · shift+↑/↓ scroll' : '';
+      lines.push('');
+      lines.push(currentTheme.fg('textMuted', ` ↑↓ navigate · Enter select · Esc cancel${scrollHint}`));
+    }
+
+    lines.push(currentTheme.fg('primary', '─'.repeat(width)));
     return lines.map((line) => truncateToWidth(line, width));
+  }
+
+  protected override handlePartMouse(
+    part: DockPart,
+    event: TuiMouseEvent,
+  ): TuiMouseEventResult | undefined {
+    if (this.layout === undefined) return undefined;
+    const index = part === 'foot' ? this.choiceRows.indexOf(event.y) : -1;
+    if (event.type === 'move') {
+      const hovered = index === -1 ? undefined : index;
+      if (hovered === this.hoverIndex) return index === -1 ? undefined : { handled: true };
+      this.hoverIndex = hovered;
+      return { handled: true, render: true };
+    }
+    if (index === -1 || event.button !== 'left') return undefined;
+    if (event.type === 'click' && !isSettlingClick(this.shownAt)) {
+      this.opts.onSelect(this.opts.options[index]!.value);
+    }
+    return { handled: true };
   }
 }
 
@@ -143,20 +178,33 @@ function styleLabel(label: string, selected: boolean): string {
   return styleModeNames(label, 'text');
 }
 
+const PERMISSION_MODE_NAMES = [t('tui.permissionMode.manual'), t('tui.permissionMode.yolo'), t('tui.permissionMode.auto')] as const;
+const PERMISSION_MODE_NAME_SET = new Set<string>(PERMISSION_MODE_NAMES);
+const PERMISSION_MODE_PATTERN = new RegExp(`(\\b(?:${PERMISSION_MODE_NAMES.join('|')})\\b)`, 'g');
+
 function styleModeNames(text: string, baseToken: 'text' | 'textMuted'): string {
-  const modeNames = [
-    t('tui.permissionMode.manual'),
-    t('tui.permissionMode.yolo'),
-    t('tui.permissionMode.auto'),
-  ];
-  const escaped = modeNames.map((name) => name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const pattern = new RegExp(`(${escaped.join('|')})`, 'g');
   return text
-    .split(pattern)
-    .map((part) =>
-      modeNames.includes(part)
-        ? currentTheme.boldFg('textStrong', part)
-        : currentTheme.fg(baseToken, part),
-    )
+    .split(PERMISSION_MODE_PATTERN)
+    .map((part) => {
+      if (PERMISSION_MODE_NAME_SET.has(part)) return currentTheme.boldFg('textStrong', part);
+      return currentTheme.fg(baseToken, part);
+    })
     .join('');
+}
+
+function wrapPlain(text: string, width: number): string[] {
+  const words = text.split(/\s+/).filter((word) => word.length > 0);
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current.length === 0 ? word : `${current} ${word}`;
+    if (visibleWidth(candidate) <= width) {
+      current = candidate;
+      continue;
+    }
+    if (current.length > 0) lines.push(current);
+    current = visibleWidth(word) <= width ? word : truncateToWidth(word, width, '…');
+  }
+  if (current.length > 0) lines.push(current);
+  return lines.length > 0 ? lines : [''];
 }

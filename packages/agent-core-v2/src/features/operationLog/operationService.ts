@@ -5,7 +5,7 @@ import { Service } from '#/_base/di/service';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import { legacyDidExecuteContext, legacyExecutionContext } from '#/agent/toolExecutor/legacyHooks';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
@@ -43,6 +43,17 @@ export class AgentOperationService extends Service implements IAgentOperationSer
   declare readonly _serviceBrand: undefined;
 
   private readonly repositoryViews = new Map<string, RepositoryViewService>();
+  private readonly pendingCaptures = new Map<
+    string,
+    {
+      readonly backend: RepositoryViewService;
+      readonly store: OperationLogStore;
+      readonly before: OperationView;
+      readonly description: string;
+      readonly turnId: number;
+      readonly release: () => void;
+    }
+  >();
 
   constructor(
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
@@ -55,10 +66,77 @@ export class AgentOperationService extends Service implements IAgentOperationSer
   ) {
     super();
     this._register(
-      toolExecutor.hooks.onExecuteTool.register('operation-log', async (context, next) => {
-        await this.capture(context, next);
+      toolExecutor.registerHook({
+        beforeExecute: async (context) => {
+          if (!this.flags.enabled(OPERATION_LOG_FLAG_ID)) return;
+          if (context.prepared.kind !== 'execute') return;
+          const resolved = legacyExecutionContext(context);
+          const repoRoot = this.localRepoRoot();
+          const release = await this.acquireExecutionLock(repoRoot);
+          try {
+            const { backend, store } = await this.openOperationStore(repoRoot);
+            const before = await backend.captureView();
+            const head = await store.head();
+            if (head !== undefined) {
+              const operation = await store.get(head.operationId);
+              const expected = await store.view(operation.viewId);
+              if (!operationViewsEqual(before, expected)) {
+                await this.importExternalChanges(store, before, expected);
+              }
+            }
+            this.pendingCaptures.set(resolved.toolCall.id, {
+              backend,
+              store,
+              before,
+              description: resolved.execution.description ?? resolved.toolCall.name,
+              turnId: resolved.turnId,
+              release,
+            });
+          } catch (error) {
+            release();
+            throw error;
+          }
+        },
       }),
     );
+    this._register(
+      toolExecutor.registerHook({
+        afterExecute: async (context) => {
+          const did = legacyDidExecuteContext(context);
+          const pending = this.pendingCaptures.get(did.toolCall.id);
+          if (pending === undefined) return;
+          this.pendingCaptures.delete(did.toolCall.id);
+          try {
+            const after = await pending.backend.captureView();
+            if (!operationViewsEqual(pending.before, after)) {
+              await pending.store.capture(
+                after,
+                {
+                  at: this.clock.now(),
+                  description: pending.description,
+                  origin: {
+                    sessionId: this.session.sessionId,
+                    agentId: this.agent.agentId,
+                    turnId: pending.turnId,
+                    toolCallId: did.toolCall.id,
+                    toolName: did.toolCall.name,
+                  },
+                },
+                pending.before,
+              );
+            }
+          } finally {
+            pending.release();
+          }
+        },
+      }),
+    );
+    this._register({
+      dispose: () => {
+        for (const pending of this.pendingCaptures.values()) pending.release();
+        this.pendingCaptures.clear();
+      },
+    });
   }
 
   listOperations(limit?: number): Promise<readonly OperationRecord[]> {
@@ -116,18 +194,6 @@ export class AgentOperationService extends Service implements IAgentOperationSer
     });
   }
 
-  private async capture(
-    context: ResolvedToolExecutionHookContext,
-    next: (context?: ResolvedToolExecutionHookContext) => Promise<void>,
-  ): Promise<void> {
-    if (!this.flags.enabled(OPERATION_LOG_FLAG_ID) || context.tool?.repoMutation === 'none') {
-      await next(context);
-      return;
-    }
-    const repoRoot = this.localRepoRoot();
-    await this.withExecutionLock(repoRoot, () => this.captureLocked(repoRoot, context, next));
-  }
-
   private localRepoRoot(): string {
     if (!this.flags.enabled(OPERATION_LOG_FLAG_ID)) {
       throw new OperationLogError('invalid', 'Operation Log is disabled');
@@ -146,6 +212,15 @@ export class AgentOperationService extends Service implements IAgentOperationSer
   }
 
   private async withExecutionLock<T>(repoRoot: string, run: () => Promise<T>): Promise<T> {
+    const release = await this.acquireExecutionLock(repoRoot);
+    try {
+      return await run();
+    } finally {
+      release();
+    }
+  }
+
+  private async acquireExecutionLock(repoRoot: string): Promise<() => void> {
     const previous = executionLocks.get(repoRoot) ?? Promise.resolve();
     let release!: () => void;
     const current = new Promise<void>((resolve) => {
@@ -154,12 +229,10 @@ export class AgentOperationService extends Service implements IAgentOperationSer
     const tail = previous.then(() => current);
     executionLocks.set(repoRoot, tail);
     await previous;
-    try {
-      return await run();
-    } finally {
+    return () => {
       release();
       if (executionLocks.get(repoRoot) === tail) executionLocks.delete(repoRoot);
-    }
+    };
   }
 
   private async openOperationStore(repoRoot: string): Promise<{
@@ -285,51 +358,4 @@ export class AgentOperationService extends Service implements IAgentOperationSer
     };
   }
 
-  private async captureLocked(
-    repoRoot: string,
-    context: ResolvedToolExecutionHookContext,
-    next: (context?: ResolvedToolExecutionHookContext) => Promise<void>,
-  ): Promise<void> {
-    const backend = await this.repositoryView(repoRoot);
-    const store = new OperationLogStore(
-      backend.storageRoot,
-      resolveOperationLogRetention(this.configuration),
-    );
-    const before = await backend.captureView();
-    const head = await store.head();
-    if (head !== undefined) {
-      const operation = await store.get(head.operationId);
-      const expected = await store.view(operation.viewId);
-      if (!operationViewsEqual(before, expected)) {
-        await this.importExternalChanges(store, before, expected);
-      }
-    }
-    let failed = false;
-    let executionError: unknown;
-    try {
-      await next(context);
-    } catch (error) {
-      failed = true;
-      executionError = error;
-    }
-    const after = await backend.captureView();
-    if (!operationViewsEqual(before, after)) {
-      await store.capture(
-        after,
-        {
-          at: this.clock.now(),
-          description: context.execution.description ?? context.toolCall.name,
-          origin: {
-            sessionId: this.session.sessionId,
-            agentId: this.agent.agentId,
-            turnId: context.turnId,
-            toolCallId: context.toolCall.id,
-            toolName: context.toolCall.name,
-          },
-        },
-        before,
-      );
-    }
-    if (failed) throw executionError;
-  }
 }

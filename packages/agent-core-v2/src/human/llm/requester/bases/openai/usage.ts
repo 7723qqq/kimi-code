@@ -1,5 +1,5 @@
-import type { TokenUsage } from '#/llm/usage';
-import type { LlmLogger } from '#/log/log';
+import type { TokenUsage } from '#human/llm/usage';
+import type { LlmLogger } from '#human/log/log';
 
 import type { OpenAIRawUsage } from './contract';
 

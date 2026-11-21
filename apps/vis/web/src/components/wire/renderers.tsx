@@ -1,20 +1,8 @@
-// The single wire-renderer registry. Co-locates tone + label + headline +
-// detail for every record kind. Because `WIRE_RENDERERS` is typed as a mapped
-// type over the FULL `RecordType` union, TypeScript REQUIRES an entry for each
-// kind: adding a kind upstream in agent-core fails
-// `cd apps/vis/web && bun run typecheck` here until a renderer is
-// added. This is the anti-rot guarantee that keeps vis from silently falling
-// behind the wire protocol.
-
 import type { ReactNode } from 'react';
 
-import { t } from '../../i18n';
-import { MISSING_APPROVAL_RESULT, readApprovalResult } from '../../lib/recordGuards';
 import type { AgentRecord, AgentRecordOf } from '../../types';
-import { JsonViewer } from '../shared/JsonViewer';
 import type { PillTone } from '../shared/Pill';
 import { Pill } from '../shared/Pill';
-import { SizePreview } from '../shared/SizePreview';
 import {
   Dim,
   type HeadlineRender,
@@ -27,21 +15,19 @@ import {
   truncate,
   loopEventSummary,
 } from './parts';
+import { SizePreview } from '../shared/SizePreview';
+import { JsonViewer } from '../shared/JsonViewer';
+import { t } from '../../i18n';
 
 export type RecordType = AgentRecord['type'];
 
 export interface WireRenderer<K extends RecordType> {
   tone: PillTone;
-  /** Compact badge label. */
   label: string;
-  /** One-line collapsed summary. */
   headline: (r: AgentRecordOf<K>) => HeadlineRender;
-  /** Expanded detail. Omit to fall back to a full structured JSON dump. */
   detail?: (r: AgentRecordOf<K>) => ReactNode;
 }
 
-/** A registry entry for every record kind. The value type is a mapped type
- *  over the full `RecordType` union, so TypeScript forces an entry per kind. */
 type RendererMap = { [K in RecordType]: WireRenderer<K> };
 
 interface CompactionSummaryView {
@@ -51,8 +37,6 @@ interface CompactionSummaryView {
   message?: UnknownObject;
 }
 
-/** Normalize all three `context.apply_compaction` summary variants without
- *  trusting imported wire payloads. */
 function compactionSummaryView(
   r: AgentRecordOf<'context.apply_compaction'>,
 ): CompactionSummaryView {
@@ -124,7 +108,11 @@ function wireLineRange(value: unknown): { start: number; end: number } | undefin
 function valuePreview(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'string') return JSON.stringify(value);
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
     return String(value);
   }
   if (value === undefined) return 'undefined';
@@ -145,7 +133,9 @@ function stringValue(value: unknown): string {
 }
 
 function numberValue(value: unknown): string {
-  return typeof value === 'number' && Number.isFinite(value) ? String(value) : invalidValue(value);
+  return typeof value === 'number' && Number.isFinite(value)
+    ? String(value)
+    : invalidValue(value);
 }
 
 function checkpointPhase(value: unknown): { label: string; tone: PillTone } {
@@ -178,7 +168,9 @@ function snapshotKey(entry: UnknownObject | undefined): { label: string; dim: bo
 }
 
 function sizeValue(value: unknown): string {
-  return typeof value === 'number' && Number.isFinite(value) ? `${value}b` : invalidValue(value);
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${value}b`
+    : invalidValue(value);
 }
 
 function timestampValue(value: unknown): string {
@@ -190,10 +182,7 @@ function optionalNumberValue(value: unknown, fallback: string): string {
   return value === undefined ? fallback : numberValue(value);
 }
 
-function compactionCount(record: UnknownObject): {
-  label: 'compactedCount' | 'count';
-  value: string;
-} {
+function compactionCount(record: UnknownObject): { label: 'compactedCount' | 'count'; value: string } {
   if (record.compactedCount !== undefined) {
     return { label: 'compactedCount', value: numberValue(record.compactedCount) };
   }
@@ -288,7 +277,9 @@ export const WIRE_RENDERERS: RendererMap = {
       const entry = asObject(record.entry);
       const key = snapshotKey(entry);
       const malformedOversize =
-        entry !== undefined && entry.oversize !== undefined && typeof entry.oversize !== 'boolean';
+        entry !== undefined &&
+        entry.oversize !== undefined &&
+        typeof entry.oversize !== 'boolean';
       return (
         <div className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-[2px]">
           <FieldRow label="turnId">
@@ -339,7 +330,7 @@ export const WIRE_RENDERERS: RendererMap = {
   forked: {
     tone: 'lifecycle',
     label: 'fork',
-    headline: () => ({ main: <Dim>{t('wireRenderer.sessionForked')}</Dim> }),
+    headline: () => ({ main: <Dim>session forked</Dim> }),
   },
 
   'changeNotifier.snapshot': {
@@ -348,35 +339,19 @@ export const WIRE_RENDERERS: RendererMap = {
     headline: (r) => {
       const parts: string[] = [];
       if (r.agentsMdFiles !== null && r.agentsMdFiles !== undefined) {
-        parts.push(
-          t('wireRenderer.changeNotifierAgentsMdFiles', {
-            count: Object.keys(r.agentsMdFiles).length,
-          }),
-        );
+        parts.push(`${Object.keys(r.agentsMdFiles).length} agents.md`);
       }
-      if (r.skillsHash !== null && r.skillsHash !== undefined) {
-        parts.push(t('wireRenderer.changeNotifierSkills'));
-      }
+      if (r.skillsHash !== null && r.skillsHash !== undefined) parts.push('skills');
       if (r.subagentNames !== null && r.subagentNames !== undefined) {
-        parts.push(
-          t('wireRenderer.changeNotifierSubagentProfiles', { count: r.subagentNames.length }),
-        );
+        parts.push(`${r.subagentNames.length} profiles`);
       }
       if (r.modelPool !== null && r.modelPool !== undefined) {
-        parts.push(
-          t('wireRenderer.changeNotifierPoolModels', {
-            count: Object.keys(r.modelPool.models).length,
-          }),
-        );
+        parts.push(`${Object.keys(r.modelPool.models).length} pool models`);
       }
       return {
         main: (
           <span className="truncate text-fg-0">
-            {parts.length === 0 ? (
-              <Dim>{t('wireRenderer.changeNotifierEmptyBeliefs')}</Dim>
-            ) : (
-              parts.join(' · ')
-            )}
+            {parts.length === 0 ? <Dim>(empty beliefs)</Dim> : parts.join(' · ')}
           </span>
         ),
       };
@@ -398,7 +373,7 @@ export const WIRE_RENDERERS: RendererMap = {
       return {
         main: (
           <span className="truncate text-fg-0">
-            {parts.length === 0 ? <Dim>{t('wireRenderer.noFields')}</Dim> : parts.join(' · ')}
+            {parts.length === 0 ? <Dim>(no fields)</Dim> : parts.join(' · ')}
           </span>
         ),
       };
@@ -453,7 +428,7 @@ export const WIRE_RENDERERS: RendererMap = {
         </div>
         <div>
           <div className="mb-1 text-fg-2">
-            {t('wireRenderer.inputParts', { count: r.input.length })}
+            input ({r.input.length} part{r.input.length === 1 ? '' : 's'})
           </div>
           <div className="space-y-1">
             {r.input.map((part, i) => (
@@ -490,7 +465,7 @@ export const WIRE_RENDERERS: RendererMap = {
         </div>
         <div>
           <div className="mb-1 text-fg-2">
-            {t('wireRenderer.inputParts', { count: r.input.length })}
+            input ({r.input.length} part{r.input.length === 1 ? '' : 's'})
           </div>
           <div className="space-y-1">
             {r.input.map((part, i) => (
@@ -506,13 +481,7 @@ export const WIRE_RENDERERS: RendererMap = {
     tone: 'warning',
     label: 'cancel',
     headline: (r) => ({
-      main: (
-        <Mono>
-          {r.turnId !== undefined
-            ? t('wireRenderer.turnId', { id: r.turnId })
-            : t('wireRenderer.latest')}
-        </Mono>
-      ),
+      main: <Mono>{r.turnId !== undefined ? `turn ${r.turnId}` : t('wireRenderer.latest')}</Mono>,
     }),
   },
 
@@ -521,10 +490,7 @@ export const WIRE_RENDERERS: RendererMap = {
     label: 'message',
     headline: (r) => {
       const m = r.message;
-      const tc =
-        m.toolCalls.length > 0
-          ? t('wireRenderer.toolCallsCount', { count: m.toolCalls.length })
-          : '';
+      const tc = m.role === 'assistant' && m.toolCalls.length > 0 ? `${m.toolCalls.length} tool_call(s)` : '';
       return {
         main: (
           <span className="flex items-center gap-2 min-w-0">
@@ -542,17 +508,16 @@ export const WIRE_RENDERERS: RendererMap = {
             >
               {m.role}
             </Pill>
-            <Dim>{t('wireRenderer.partsCount', { count: m.content.length })}</Dim>
+            <Dim>({m.content.length} part{m.content.length === 1 ? '' : 's'})</Dim>
             {tc ? <Dim>· {tc}</Dim> : null}
             {m.origin?.kind ? <Dim>· origin={m.origin.kind}</Dim> : null}
           </span>
         ),
-        right:
-          m.isError === true ? (
-            <Pill tone="error" variant="solid">
-              {t('wireRenderer.error')}
-            </Pill>
-          ) : undefined,
+        right: m.isError === true ? (
+          <Pill tone="error" variant="solid">
+            error
+          </Pill>
+        ) : undefined,
       };
     },
     detail: (r) => <MessageDetail message={r.message} />,
@@ -578,34 +543,16 @@ export const WIRE_RENDERERS: RendererMap = {
     headline: (r) => ({ main: <Dim>context {r.tokenCount} tok</Dim> }),
   },
 
-  'context.replace_tool_result': {
-    tone: 'assistant',
-    label: 'replace',
-    headline: (r) => ({
-      main: (
-        <span className="flex items-center gap-2 min-w-0">
-          <Mono>{r.toolCallId}</Mono>
-          <Dim className="truncate">
-            {typeof r.result.output === 'string' ? r.result.output.slice(0, 120) : '[parts]'}
-          </Dim>
-        </span>
-      ),
-    }),
-  },
-
   'context.clear': {
     tone: 'warning',
     label: 'clear',
-    headline: () => ({ main: <Dim>{t('wireRenderer.contextCleared')}</Dim> }),
+    headline: () => ({ main: <Dim>context cleared</Dim> }),
   },
 
   'context.apply_compaction': {
     tone: 'compaction',
     label: 'compacted',
     headline: (r) => {
-      // v2 payload variants: `summary` is a string on current records, a
-      // ContextMessage on the legacy variant (which uses `count` instead of
-      // `compactedCount`); `tokensBefore`/`tokensAfter` are optional.
       const record = r as unknown as UnknownObject;
       const summary = compactionSummaryView(r);
       const compactedCount = compactionCount(record);
@@ -617,9 +564,9 @@ export const WIRE_RENDERERS: RendererMap = {
               compacted
             </Pill>
             <Dim>
-              {summary.label} {summary.text.length}b ·{' '}
-              {optionalNumberValue(record.tokensBefore, '?')}→
-              {optionalNumberValue(record.tokensAfter, '?')} tok · {compactedCount.value} msgs
+              {summary.label} {summary.text.length}b · {optionalNumberValue(record.tokensBefore, '?')}→
+              {optionalNumberValue(record.tokensAfter, '?')} tok ·{' '}
+              {compactedCount.value} msgs
             </Dim>
           </span>
         ),
@@ -744,56 +691,6 @@ export const WIRE_RENDERERS: RendererMap = {
     }),
   },
 
-  'tool_select.initialized': {
-    tone: 'tools',
-    label: 'tool·init',
-    headline: (r) => {
-      const head = r.tools
-        .slice(0, 3)
-        .map((tool) => tool.name)
-        .join(', ');
-      const rest =
-        r.tools.length > 3 ? ` ${t('wireRenderer.more', { count: r.tools.length - 3 })}` : '';
-      return {
-        main: (
-          <span className="flex items-center gap-2 min-w-0">
-            <Mono>{t('wireRenderer.toolsCount', { count: r.tools.length })}</Mono>
-            <Dim className="truncate">
-              {head}
-              {rest}
-            </Dim>
-          </span>
-        ),
-      };
-    },
-  },
-
-  'tool_select.tools_changed': {
-    tone: 'tools',
-    label: 'tool±',
-    headline: (r) => {
-      const names = [
-        ...r.added.map((tool) => `+${tool.name}`),
-        ...r.removed.map((tool) => `-${tool.name}`),
-      ];
-      const head = names.slice(0, 4).join(', ');
-      const rest =
-        names.length > 4 ? ` ${t('wireRenderer.more', { count: names.length - 4 })}` : '';
-      return {
-        main: (
-          <span className="flex items-center gap-2 min-w-0">
-            <Mono className="text-[var(--color-cat-tools)]">+{r.added.length}</Mono>
-            <Mono className="text-[var(--color-sev-warning)]">-{r.removed.length}</Mono>
-            <Dim className="truncate">
-              {head}
-              {rest}
-            </Dim>
-          </span>
-        ),
-      };
-    },
-  },
-
   'tools.register_user_tool': {
     tone: 'tools',
     label: 'tool+',
@@ -823,8 +720,7 @@ export const WIRE_RENDERERS: RendererMap = {
     label: 'tools',
     headline: (r) => {
       const head = r.names.slice(0, 3).join(', ');
-      const rest =
-        r.names.length > 3 ? ` ${t('wireRenderer.more', { count: r.names.length - 3 })}` : '';
+      const rest = r.names.length > 3 ? ` +${r.names.length - 3} more` : '';
       return {
         main: (
           <Mono className="truncate">
@@ -832,7 +728,7 @@ export const WIRE_RENDERERS: RendererMap = {
             {rest}
           </Mono>
         ),
-        right: <Dim>{t('wireRenderer.toolsCount', { count: r.names.length })}</Dim>,
+        right: <Dim>{r.names.length} tools</Dim>,
       };
     },
   },
@@ -883,12 +779,12 @@ export const WIRE_RENDERERS: RendererMap = {
     tone: 'approval',
     label: 'approval',
     headline: (r) => {
-      // `result` is type-asserted only; render a placeholder for a malformed
-      // record rather than dereferencing undefined (which blanked the app).
-      const result = readApprovalResult(r);
-      const decision = result?.decision ?? MISSING_APPROVAL_RESULT;
       const tone =
-        decision === 'approved' ? 'success' : decision === 'rejected' ? 'error' : 'neutral';
+        r.result.decision === 'approved'
+          ? 'success'
+          : r.result.decision === 'rejected'
+            ? 'error'
+            : 'neutral';
       return {
         main: (
           <span className="flex items-center gap-2 min-w-0">
@@ -896,55 +792,52 @@ export const WIRE_RENDERERS: RendererMap = {
               {r.toolName}#{r.toolCallId.slice(-8)}
             </Mono>
             <Pill tone={tone} variant="soft">
-              {decision}
+              {r.result.decision}
             </Pill>
-            {result?.scope ? <Dim>({result.scope})</Dim> : null}
+            {r.result.scope ? <Dim>({r.result.scope})</Dim> : null}
           </span>
         ),
       };
     },
-    detail: (r) => {
-      const result = readApprovalResult(r);
-      return (
-        <div className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-[2px]">
-          <FieldRow label="toolName">
-            <Mono>{r.toolName}</Mono>
+    detail: (r) => (
+      <div className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-[2px]">
+        <FieldRow label="toolName">
+          <Mono>{r.toolName}</Mono>
+        </FieldRow>
+        <FieldRow label="toolCallId">
+          <Mono>{r.toolCallId}</Mono>
+        </FieldRow>
+        <FieldRow label="action">
+          <Mono>{r.action}</Mono>
+        </FieldRow>
+        <FieldRow label="turnId">
+          <span className="text-[var(--color-sev-info)]">{r.turnId}</span>
+        </FieldRow>
+        <FieldRow label="decision">
+          <span className="text-fg-0">{r.result.decision}</span>
+        </FieldRow>
+        {r.result.scope !== undefined ? (
+          <FieldRow label="scope">
+            <Mono>{r.result.scope}</Mono>
           </FieldRow>
-          <FieldRow label="toolCallId">
-            <Mono>{r.toolCallId}</Mono>
+        ) : null}
+        {r.sessionApprovalRule !== undefined ? (
+          <FieldRow label="sessionApprovalRule" wide>
+            <Mono className="break-all">{r.sessionApprovalRule}</Mono>
           </FieldRow>
-          <FieldRow label="action">
-            <Mono>{r.action}</Mono>
+        ) : null}
+        {r.result.selectedLabel !== undefined ? (
+          <FieldRow label="selectedLabel" wide>
+            <Mono className="break-all">{r.result.selectedLabel}</Mono>
           </FieldRow>
-          <FieldRow label="turnId">
-            <span className="text-[var(--color-sev-info)]">{r.turnId}</span>
+        ) : null}
+        {r.result.feedback !== undefined ? (
+          <FieldRow label="feedback" wide>
+            <pre className="whitespace-pre-wrap break-words text-fg-1">{r.result.feedback}</pre>
           </FieldRow>
-          <FieldRow label="decision">
-            <span className="text-fg-0">{result?.decision ?? MISSING_APPROVAL_RESULT}</span>
-          </FieldRow>
-          {result?.scope !== undefined ? (
-            <FieldRow label="scope">
-              <Mono>{result.scope}</Mono>
-            </FieldRow>
-          ) : null}
-          {r.sessionApprovalRule !== undefined ? (
-            <FieldRow label="sessionApprovalRule" wide>
-              <Mono className="break-all">{r.sessionApprovalRule}</Mono>
-            </FieldRow>
-          ) : null}
-          {result?.selectedLabel !== undefined ? (
-            <FieldRow label="selectedLabel" wide>
-              <Mono className="break-all">{result.selectedLabel}</Mono>
-            </FieldRow>
-          ) : null}
-          {result?.feedback !== undefined ? (
-            <FieldRow label="feedback" wide>
-              <pre className="whitespace-pre-wrap break-words text-fg-1">{result.feedback}</pre>
-            </FieldRow>
-          ) : null}
-        </div>
-      );
-    },
+        ) : null}
+      </div>
+    ),
   },
 
   'usage.record': {
@@ -977,7 +870,9 @@ export const WIRE_RENDERERS: RendererMap = {
           <Pill tone="compaction" variant="soft">
             {r.source}
           </Pill>
-          {r.instruction ? <Dim className="truncate">"{truncate(r.instruction, 40)}"</Dim> : null}
+          {r.instruction ? (
+            <Dim className="truncate">"{truncate(r.instruction, 40)}"</Dim>
+          ) : null}
         </span>
       ),
     }),
@@ -986,18 +881,13 @@ export const WIRE_RENDERERS: RendererMap = {
   'full_compaction.cancel': {
     tone: 'warning',
     label: 'compact×',
-    headline: () => ({ main: <Dim>{t('wireRenderer.cancelled')}</Dim> }),
+    headline: () => ({ main: <Dim>cancelled</Dim> }),
   },
 
-  // `full_compaction.complete` has an EMPTY payload (`{}`). The previous code
-  // read `r.summary` / `r.compactedCount` / `r.tokensBefore` / `r.tokensAfter`,
-  // none of which exist on this record — a runtime crash. Those fields belong
-  // to `context.apply_compaction` (its own entry above). This is a static,
-  // payload-free renderer; the generic JSON dump shows type + time only.
   'full_compaction.complete': {
     tone: 'success',
     label: 'compact✓',
-    headline: () => ({ main: <Dim>{t('wireRenderer.compactionComplete')}</Dim> }),
+    headline: () => ({ main: <Dim>compaction complete</Dim> }),
   },
 
   'micro_compaction.apply': {
@@ -1007,24 +897,9 @@ export const WIRE_RENDERERS: RendererMap = {
       main: (
         <span className="flex items-center gap-2 min-w-0">
           <Pill tone="compaction" variant="soft">
-            {t('wireRenderer.micro')}
+            micro
           </Pill>
           <Dim>cutoff {r.cutoff}</Dim>
-        </span>
-      ),
-    }),
-  },
-
-  'micro_compaction.clamp': {
-    tone: 'compaction',
-    label: 'µcompact',
-    headline: (r) => ({
-      main: (
-        <span className="flex items-center gap-2 min-w-0">
-          <Pill tone="compaction" variant="soft">
-            {t('wireRenderer.micro')}
-          </Pill>
-          <Dim>max cutoff {r.maxCutoff}</Dim>
         </span>
       ),
     }),
@@ -1037,7 +912,7 @@ export const WIRE_RENDERERS: RendererMap = {
       main: (
         <span className="flex items-center gap-2">
           <Pill tone="lifecycle" variant="soft">
-            {t('wireRenderer.enter')}
+            enter
           </Pill>
           <Mono>{r.id}</Mono>
         </span>
@@ -1052,7 +927,7 @@ export const WIRE_RENDERERS: RendererMap = {
       main: (
         <span className="flex items-center gap-2">
           <Pill tone="warning" variant="soft">
-            {t('wireRenderer.cancel')}
+            cancel
           </Pill>
           <Mono>{r.id ?? t('wireRenderer.latest')}</Mono>
         </span>
@@ -1067,69 +942,9 @@ export const WIRE_RENDERERS: RendererMap = {
       main: (
         <span className="flex items-center gap-2">
           <Pill tone="success" variant="soft">
-            {t('wireRenderer.exit')}
+            exit
           </Pill>
           <Mono>{r.id ?? t('wireRenderer.latest')}</Mono>
-        </span>
-      ),
-    }),
-  },
-
-  'spec_mode.enter': {
-    tone: 'lifecycle',
-    label: 'spec↻',
-    headline: (r) => ({
-      main: (
-        <span className="flex items-center gap-2">
-          <Pill tone="lifecycle" variant="soft">
-            {t('wireRenderer.enter')}
-          </Pill>
-          <Mono>{r.id}</Mono>
-        </span>
-      ),
-    }),
-  },
-
-  'spec_mode.cancel': {
-    tone: 'warning',
-    label: 'spec×',
-    headline: (r) => ({
-      main: (
-        <span className="flex items-center gap-2">
-          <Pill tone="warning" variant="soft">
-            {t('wireRenderer.cancel')}
-          </Pill>
-          <Mono>{r.id ?? t('wireRenderer.latest')}</Mono>
-        </span>
-      ),
-    }),
-  },
-
-  'spec_mode.exit': {
-    tone: 'success',
-    label: 'spec✓',
-    headline: (r) => ({
-      main: (
-        <span className="flex items-center gap-2">
-          <Pill tone="success" variant="soft">
-            {t('wireRenderer.exit')}
-          </Pill>
-          <Mono>{r.id ?? t('wireRenderer.latest')}</Mono>
-        </span>
-      ),
-    }),
-  },
-
-  'spec.revision': {
-    tone: 'lifecycle',
-    label: 'spec·rev',
-    headline: (r) => ({
-      main: (
-        <span className="flex items-center gap-2 min-w-0">
-          <Mono>
-            spec {r.id} · v{r.version}
-          </Mono>
-          <Dim>{r.bytes}b</Dim>
         </span>
       ),
     }),
@@ -1142,7 +957,7 @@ export const WIRE_RENDERERS: RendererMap = {
       main: (
         <span className="flex items-center gap-2">
           <Pill tone="subagent" variant="soft">
-            {t('wireRenderer.enter')}
+            enter
           </Pill>
           <Mono>{r.trigger}</Mono>
         </span>
@@ -1153,55 +968,19 @@ export const WIRE_RENDERERS: RendererMap = {
   'swarm_mode.exit': {
     tone: 'subagent',
     label: 'swarm✓',
-    headline: () => ({ main: <Dim>{t('wireRenderer.swarmExited')}</Dim> }),
-  },
-
-  'hello_world_mode.enter': {
-    tone: 'subagent',
-    label: 'hello-world↻',
-    headline: (r) => ({
-      main: (
-        <span className="flex items-center gap-2">
-          <Pill tone="subagent" variant="soft">
-            {t('wireRenderer.enter')}
-          </Pill>
-          <Mono>{r.trigger}</Mono>
-        </span>
-      ),
-    }),
-  },
-
-  'hello_world_mode.exit': {
-    tone: 'subagent',
-    label: 'hello-world✓',
-    headline: () => ({ main: <Dim>{t('wireRenderer.helloWorldExited')}</Dim> }),
-  },
-
-  'hello_world_run.updated': {
-    tone: 'subagent',
-    label: 'hello-world↻',
-    headline: (r) => ({
-      main: (
-        <span className="flex items-center gap-2">
-          <Pill tone="subagent" variant="soft">
-            {t('wireRenderer.helloWorldRunStage')}
-          </Pill>
-          <Mono>{r.stage}</Mono>
-        </span>
-      ),
-    }),
+    headline: () => ({ main: <Dim>swarm mode exited</Dim> }),
   },
 
   'tower_mode.enter': {
     tone: 'subagent',
     label: 'tower↻',
-    headline: () => ({ main: <Dim>{t('wireRenderer.towerEntered')}</Dim> }),
+    headline: () => ({ main: <Dim>tower mode entered</Dim> }),
   },
 
   'tower_mode.exit': {
     tone: 'subagent',
     label: 'tower✓',
-    headline: () => ({ main: <Dim>{t('wireRenderer.towerExited')}</Dim> }),
+    headline: () => ({ main: <Dim>tower mode exited</Dim> }),
   },
 
   'goal.create': {
@@ -1211,7 +990,7 @@ export const WIRE_RENDERERS: RendererMap = {
       main: (
         <span className="flex items-center gap-2 min-w-0">
           <Pill tone="lifecycle" variant="soft">
-            {t('wireRenderer.goal')}
+            goal
           </Pill>
           <span className="truncate text-fg-1">{r.objective}</span>
         </span>
@@ -1231,7 +1010,7 @@ export const WIRE_RENDERERS: RendererMap = {
       return {
         main: (
           <span className="truncate text-fg-1">
-            {parts.length === 0 ? <Dim>{t('wireRenderer.noChange')}</Dim> : parts.join(' · ')}
+            {parts.length === 0 ? <Dim>(no change)</Dim> : parts.join(' · ')}
           </span>
         ),
       };
@@ -1241,10 +1020,8 @@ export const WIRE_RENDERERS: RendererMap = {
   'goal.clear': {
     tone: 'warning',
     label: 'goal×',
-    headline: () => ({ main: <Dim>{t('wireRenderer.goalCleared')}</Dim> }),
+    headline: () => ({ main: <Dim>goal cleared</Dim> }),
   },
-
-  // Observability records — the request trace (see the v2 wire manifest).
 
   'llm.tools_snapshot': {
     tone: 'tools',
@@ -1252,13 +1029,15 @@ export const WIRE_RENDERERS: RendererMap = {
     headline: (r) => ({
       main: (
         <span className="flex items-center gap-2 min-w-0">
-          <Mono>{t('wireRenderer.toolsCount', { count: r.tools.length })}</Mono>
+          <Mono>
+            {r.tools.length} tool{r.tools.length === 1 ? '' : 's'}
+          </Mono>
           <Dim className="truncate">
             {r.tools
               .slice(0, 4)
               .map((tool) => tool.name)
               .join(', ')}
-            {r.tools.length > 4 ? ` ${t('wireRenderer.more', { count: r.tools.length - 4 })}` : ''}
+            {r.tools.length > 4 ? ` +${r.tools.length - 4} more` : ''}
           </Dim>
         </span>
       ),
@@ -1278,7 +1057,10 @@ export const WIRE_RENDERERS: RendererMap = {
       return {
         main: (
           <span className="flex items-center gap-2 min-w-0">
-            <Pill tone={r.kind === 'compaction' ? 'compaction' : 'turn'} variant="soft">
+            <Pill
+              tone={r.kind === 'compaction' ? 'compaction' : r.kind === 'prediction' ? 'subagent' : 'turn'}
+              variant="soft"
+            >
               {r.kind}
             </Pill>
             <Mono>{r.model}</Mono>
@@ -1405,19 +1187,47 @@ export const WIRE_RENDERERS: RendererMap = {
         <span className="flex items-center gap-2 min-w-0">
           <Mono>{r.serverName}</Mono>
           <Dim>
-            {t('wireRenderer.toolsCount', { count: r.tools.length })} · {r.enabledNames.length}{' '}
-            {t('wireRenderer.enabled')}
+            {r.tools.length} tool{r.tools.length === 1 ? '' : 's'} · {r.enabledNames.length}{' '}
+            enabled
           </Dim>
         </span>
       ),
       right:
         r.collisions !== undefined && r.collisions.length > 0 ? (
           <Pill tone="warning" variant="soft">
-            {t('wireRenderer.collisions', { count: r.collisions.length })}
+            {r.collisions.length} collision{r.collisions.length === 1 ? '' : 's'}
           </Pill>
         ) : (
           <Mono>#{r.hash.slice(0, 8)}</Mono>
         ),
+    }),
+  },
+
+  'tool_select.initialized': {
+    tone: 'tools',
+    label: 'tools·init',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Mono>{r.tools.length} tool{r.tools.length === 1 ? '' : 's'}</Mono>
+          <Dim>initial snapshot</Dim>
+        </span>
+      ),
+    }),
+  },
+
+  'tool_select.tools_changed': {
+    tone: 'tools',
+    label: 'tools·delta',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Mono>
+            +{r.added.length} / −{r.removed.length}
+          </Mono>
+          <Dim>runtime change</Dim>
+        </span>
+      ),
     }),
   },
 
@@ -1429,9 +1239,7 @@ export const WIRE_RENDERERS: RendererMap = {
         <span className="flex items-center gap-2 min-w-0">
           <Mono>turn {r.turnId}</Mono>
           <Pill
-            tone={
-              r.reason === 'completed' ? 'success' : r.reason === 'failed' ? 'error' : 'warning'
-            }
+            tone={r.reason === 'completed' ? 'success' : r.reason === 'failed' ? 'error' : 'warning'}
             variant="soft"
           >
             {r.reason}
@@ -1633,13 +1441,7 @@ export const WIRE_RENDERERS: RendererMap = {
   'token_counting.truncated': {
     tone: 'meta',
     label: 'tokens',
-    headline: (r) => ({
-      main: (
-        <Dim>
-          context {r.tokens} tok (truncated @ {r.length})
-        </Dim>
-      ),
-    }),
+    headline: (r) => ({ main: <Dim>context {r.tokens} tok (truncated @ {r.length})</Dim> }),
   },
 
   'token_counting.rebased': {
@@ -1657,13 +1459,7 @@ export const WIRE_RENDERERS: RendererMap = {
   'token_counting.turn_recorded': {
     tone: 'meta',
     label: 'tokens',
-    headline: (r) => ({
-      main: (
-        <Dim>
-          context {r.tokens} tok (turn {r.turnId})
-        </Dim>
-      ),
-    }),
+    headline: (r) => ({ main: <Dim>context {r.tokens} tok (turn {r.turnId})</Dim> }),
   },
 
   'cron.add': {
@@ -1704,19 +1500,6 @@ export const WIRE_RENDERERS: RendererMap = {
     }),
   },
 
-  'environment.set_binding': {
-    tone: 'lifecycle',
-    label: 'env·bind',
-    headline: (r) => ({
-      main: (
-        <span className="flex items-center gap-2 min-w-0">
-          <Mono>{r.environmentId}</Mono>
-          <Dim>{r.cwd === undefined ? '' : `cwd ${r.cwd}`}</Dim>
-        </span>
-      ),
-    }),
-  },
-
   'plan.revision': {
     tone: 'lifecycle',
     label: 'plan·rev',
@@ -1744,6 +1527,19 @@ export const WIRE_RENDERERS: RendererMap = {
     }),
   },
 
+  'environment.set_binding': {
+    tone: 'meta',
+    label: 'environment',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Mono>{r.environmentId}</Mono>
+          {r.cwd === undefined ? null : <Dim className="truncate">{r.cwd}</Dim>}
+        </span>
+      ),
+    }),
+  },
+
   'staleGuard.recorded': {
     tone: 'meta',
     label: 'stale',
@@ -1761,25 +1557,14 @@ export const WIRE_RENDERERS: RendererMap = {
     label: 'interrupted',
     headline: (r) => ({ main: <Dim>interruption reminder · turn {r.turnId}</Dim> }),
   },
+
+  'interruptionReminder.requested': {
+    tone: 'meta',
+    label: 'interrupt requested',
+    headline: (r) => ({ main: <Dim>interruption requested · turn {r.turnId}</Dim> }),
+  },
 };
 
-/** Look up a renderer by a runtime `type` string. Returns `undefined` for kinds
- *  outside the known union (best-effort parse of a future/legacy/foreign
- *  protocol), which the callers render via the generic fallback.
- *
- *  Legacy/foreign runtime-only kinds (e.g. `goal.account_usage`,
- *  `goal.continuation`, `background.stop`) are intentionally NOT given registry
- *  entries: they sit outside the typed `AgentRecord` union, so this returns
- *  `undefined` and they fall back to a readable generic render — `TypeBadge`
- *  shows the raw `type` string (neutral tone, `title` tooltip), the headline
- *  shows `(unknown record type: …)`, and the detail shows the full JSON. That is
- *  legible enough; no friendly-label map is warranted.
- *
- *  The `as unknown as` widening is the one place we sidestep TypeScript's
- *  correlated-union limitation: each entry's `headline`/`detail` is narrowed to
- *  its own kind, but at dispatch time we only have the union, so we widen the
- *  value to `WireRenderer<RecordType>` (callable with any `AgentRecord`). Safe
- *  because we only ever call it with the matching record. */
 export function rendererFor(type: string): WireRenderer<RecordType> | undefined {
   return (WIRE_RENDERERS as unknown as Record<string, WireRenderer<RecordType>>)[type];
 }

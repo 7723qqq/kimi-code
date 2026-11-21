@@ -1,7 +1,9 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
+import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
+import { BugIndicatingError } from '#/errors';
 import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import {
@@ -9,8 +11,6 @@ import {
   type AgentProfileRegistration,
 } from '#/app/agentProfileCatalog/agentProfileRegistry';
 import { BUILTIN_AGENT_PROFILE_SOURCE_ID } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
-import { LifecycleScope } from '#/app/scopes';
-import { BugIndicatingError } from '#/errors';
 
 import { ISessionAgentProfileCatalogSeed } from './agentProfileCatalogSeed';
 import {

@@ -1,0 +1,4 @@
+M	.github/workflows/ci.yml
+M	.github/workflows/desktop-build.yml
+A	scripts/desktop-nightly-guard.mjs
+A	scripts/desktop-nightly-guard.test.mjs

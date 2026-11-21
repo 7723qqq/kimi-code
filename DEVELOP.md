@@ -11,14 +11,14 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 2.6.2 (the main CLI app — upstream 2.6.2 plus this fork's own patch stream)
+- **Version**: `@moonshot-ai/kimi-code` 2.7.0, aligned to the fixed upstream release commit `a5e355e2718a2ebf70d8229fa5a05fe35d5f98a1`; Desktop is `1.4.0` and KAP Server is `0.3.1`.
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
 ### Fork-specific additions vs upstream
 
 - **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
-- **Windows launchers** — `start-native.bat` runs the CLI via `bun run dev:cli` (which delegates to `apps/kimi-code/scripts/dev.mjs`, starting the local plugin-marketplace server first); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
+- **Windows launchers** — `start-native.bat` runs the CLI via `bun run dev:cli` (which delegates to `apps/kimi-code/scripts/dev.mjs`, starting the local plugin-marketplace server first); `start-desktop.bat` invokes `bun run dev:desktop` using the tracked `apps/desktop` source.
 - **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `apps/kimi-code/scripts/native/build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the test suites (`bun run test`) all run on Bun, and no CI job installs Node; the Nix build path (`flake.nix`, `nix-build.yml`) still requires Node. Self-update remains engine-aware for legacy SEA installs.
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): subagent delegation-depth accounting (`session/agentLifecycle/subagentMetadata.ts`), the eval-mode code-runtime worker (`features/codeRuntime/codeWorkerSource.ts`), and the session-query record types (`features/sessionQuery/types.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 - **hello-world staged dev-run mode** — `/hello-world` runs a 7-stage development workflow (requirements→design→implement→test→review→docs→deliver) with evidence-driven stage gates; run artifacts land in `specs/<id>/` (see `docs/{zh,en}/guides/hello-world.md`).
@@ -54,7 +54,7 @@ User-level global instructions (`~/.kimi-code/AGENTS.md`) and a local `SYSTEM.md
 | Module system | ESM (`"type": "module"` in every package) |
 | Dev runtime | **Bun** >= 1.4.4 — install, build, lint, typecheck, and the test suites (`bun run test`) all run through bun |
 | Published CLI runtime | **Bun** >= 1.4.4 (`engines` floor of the published package) |
-| Web UIs | **React 19** + **Vite** — `apps/vis/web`, `apps/kimi-inspect`, and the VS Code webview. There is no Vue in this repository |
+| Web UIs | **Vue 3** + **Vite** for `apps/desktop` and shared `app-*` packages; **React 19** + **Vite** for `apps/vis/web`, `apps/kimi-inspect`, and the VS Code webview |
 | VS Code extension | **React 19** + **TailwindCSS 4** + **shadcn/ui** |
 
 ### Package Management & Build
@@ -88,6 +88,7 @@ User-level global instructions (`~/.kimi-code/AGENTS.md`) and a local `SYSTEM.md
 
 ```
 apps/
+  desktop/          — Electron desktop host, Bun backend, and Vue renderer / Web variant
   kimi-code/        — Main CLI / TUI application (entry point, incl. dist-web web bundle)
   vscode/           — VS Code extension (React 19 webview)
   kimi-inspect/     — Web inspector for kap-server /api/v1/debug RPC surface
@@ -141,9 +142,9 @@ src/
 
 #### Web UI (`apps/kimi-code/dist-web`)
 
-The shipped `apps/kimi-code/dist-web` bundle is a committed, prebuilt bundle synced from the code-app repo. To hack on the web UI against this repo's server, run `bun run dev:server` here and point the web UI dev server at it via `KIMI_SERVER_URL`.
+The shipped `apps/kimi-code/dist-web` bundle is rebuilt from this repository's `apps/desktop` Vue renderer using its Web variant. Run `bun run build:web` to build `apps/desktop/web-dist`, or `bun run sync:web` to build and replace the CLI bundle. For development, run `bun run dev:server` and `bun run --filter kimi-code-app dev:web`; `KIMI_SERVER_URL` selects the API server. The Web variant intentionally omits Electron-only terminal, screenshot and embedded-browser host capabilities.
 
-**Sync convention: replace, never overlay.** A Vite build emits content-hashed filenames, so copying a new bundle over the old one leaves every previous generation behind — the directory once accumulated 616 files / 44 MB across a dozen stale entry chunks, and nothing in the repo detected it because `scripts/check-web-assets.mjs` only verifies that the assets `index.html` names still exist. Delete `apps/kimi-code/dist-web/` first, then copy the fresh bundle in, then commit; the diff should show the old generation removed, not merely a new one added. To audit an existing directory, walk reachability from `index.html` (and `boot.js`) and delete what the walk cannot reach — a reference *count* is not enough, since a whole dead generation cross-references itself.
+**Sync convention: replace, never overlay.** `apps/kimi-code/scripts/sync-web-dist.mjs` builds the Web variant, validates its entry references, copies into a staging directory and replaces the complete generation. Build or validation failure leaves the previous bundle untouched; replacement failure restores the previous directory. Both the CLI package build and the native bundle pipeline invoke this entry. Do not manually overlay hashed assets or delete the valid bundle before a successful build.
 
 #### `apps/vscode` — VS Code Extension
 
@@ -167,6 +168,15 @@ Debug visualization tool for kimi-code sessions. Composed of `vis/server` (backe
 
 ```
 packages/
+  app-client/          — Shared Vue client state, composables and API transport
+  app-components/      — Shared Desktop/Web components
+  app-composer/        — Shared prompt composer
+  app-core/            — Browser-safe application utilities and domain contracts
+  app-i18n/            — Shared renderer locale resources
+  app-markdown/        — Vue Markdown rendering
+  app-ui/              — Shared Vue UI primitives
+  vite-preset/         — Renderer, icon and Vue test compilation configuration
+  testkit/             — Scripted model HTTP fixtures and protocol drivers
   acp-server/          — Agent Client Protocol (ACP) host over the v2 engine
   agent-core-v2/       — Agent engine v2 (DI × Scope architecture)
   i18n/                — Shared i18n infrastructure (t() with en/zh support)
@@ -189,7 +199,7 @@ packages/
 
 #### Key Package Details
 
-**`agent-core-v2`** (v0.5.1) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server`, `klient`, `acp-server`, `product`, `remote-control`, `migration-legacy` and the `apps/kimi-inspect` debug client. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
+**`agent-core-v2`** (v0.6.0) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server`, `klient`, `acp-server`, `product`, `remote-control`, `migration-legacy` and the `apps/kimi-inspect` debug client. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
 
   - **Three** `LifecycleScope` tiers — `App` / `Session` / `Agent` (`app/scopes.ts`, mirrored in `SCOPE_TOPOLOGY`). `Workspace` is a **directory namespace prefix** inside the engine (`app/workspaceLifecycle/`, `app/workspaceSessions/`), **not** a fourth tier: there is no `LifecycleScope.Workspace`, and adding one is not a valid change.
   - There is no App-level session lifecycle facade. Callers compose `ISessionIndex` → `IWorkspaceLifecycleService.handlerFor` → the handler.
@@ -199,13 +209,13 @@ packages/
 
 **`klient`** (v0.1.3) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction. Both declared transports exist; only `memory` (in-process) has a consumer today — `acp-server/src/start.ts` and `node-sdk/src/sdk-rpc-client-v2.ts` both call `createKlient({ scope })`, and nothing imports `@moonshot-ai/klient/ipc`. Also hosts e2e suites.
 
-**`kap-server`** — The Kimi Code local server. Backed by DI × Scope agent engine. Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`), plus a `/api/v2` route group and the `/api/v1/debug/*` debug surface. Bootstrapped from `src/start.ts`.
+**`kap-server`** — The Kimi Code local server. Backed by the DI × Scope machine engine. Exposes REST + WebSocket through `/api/v1` and `/api/v1/ws`, plus the opt-in `/api/v1/debug/*` surface. The versioned v2 session/MCP route group is retired. Bootstrapped from `src/start.ts`.
 
 **`transcript`** (v0.0.2) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
 
 **`minidb`** (v0.2.0) — Pure-Node.js embedded key-value database. Combines Redis-style in-memory KV with SQLite-style WAL + snapshot persistence. Includes cluster support.
 
-**`node-sdk`** (v0.21.1) — Public SDK, and the one package whose `tsconfig.json` deliberately differs from what its compiler and bundler read. Its `#/*` subpath imports are resolved by Bun from `compilerOptions.paths` (Bun does not honour `package.json#imports` here), so the package tsconfig keeps them for the test run. A project-wide alias also captures the `#/*` specifiers inside the `agent-core-v2` sources this package pulls in, so both readers that see those sources use a view with an empty `paths`: `tsconfig.build.json` for `tsdown`, `tsconfig.typecheck.json` for `tsc`, and `tsconfig.dts.json` for the declaration build. Its engine dependencies are `devDependencies` because `tsdown` bundles them (`alwaysBundle: [/^@moonshot-ai\//]`), not because they are optional at runtime.
+**`node-sdk`** (v0.23.2) — Public SDK, and the one package whose `tsconfig.json` deliberately differs from what its compiler and bundler read. Its `#/*` subpath imports are resolved by Bun from `compilerOptions.paths` (Bun does not honour `package.json#imports` here), so the package tsconfig keeps them for the test run. A project-wide alias also captures the `#/*` specifiers inside the `agent-core-v2` sources this package pulls in, so both readers that see those sources use a view with an empty `paths`: `tsconfig.build.json` for `tsdown`, `tsconfig.typecheck.json` for `tsc`, and `tsconfig.dts.json` for the declaration build. Its engine dependencies are `devDependencies` because `tsdown` bundles them (`alwaysBundle: [/^@moonshot-ai\//]`), not because they are optional at runtime.
 
 ### Plugins
 
@@ -422,7 +432,7 @@ the `cwd` its script expects — `bun run` resolves relative to the package — 
 ## Environment Requirements
 
 - **Bun**: `>= 1.4.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the test suites (`bun run test`) all run through bun.
-- **Node.js**: not required for the Bun-based dev workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's bun:test suite included), and no CI job installs Node. The Nix build path is the exception: `flake.nix` pins `minNodeVersion = "24.15.0"` and fails evaluation below it, keeps `nodejs` in the derivation's `nativeBuildInputs` and the devShell, and runs `node apps/kimi-code/scripts/check-web-assets.mjs` as a build step, so `nix-build.yml` needs Node on every PR.
+- **Node.js**: not required for the Bun-based dev workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's bun:test suite included), and no CI job installs Node. The Nix build path is the exception: `flake.nix` pins `minNodeVersion = "24.15.0"` and fails evaluation below it, keeps `nodejs` in the derivation's `nativeBuildInputs` and the devShell, and runs the Web asset check through Bun as a build step, so `nix-build.yml` needs Node on every PR.
 - **Published package engines**: the published package declares `"bun": ">=1.4.4"` — the same floor the dev toolchain requires.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
 
@@ -443,6 +453,9 @@ bun run dev:cli               # Run the CLI in dev mode; delegates to
 bun run dev:local              # Run the CLI from a fresh bundle (works; incremental, ~2s)
 bun run dev:local:watch       # Same, rebuilding and re-running on every source change
 bun run dev:server            # Run server in dev mode
+bun run dev:desktop           # Run Electron host with the owned Bun backend
+bun run build:web             # Build the Desktop renderer's Web variant
+bun run sync:web              # Build, validate and replace CLI dist-web
 bun run test                  # Every workspace and repository-scripts suite (CI scope)
 bun run test:scripts          # scripts/test plus scripts/prompt-optimizer/test only
 bun run test:watch            # Watch mode
@@ -735,7 +748,7 @@ This fork shares its root commit with `MoonshotAI/kimi-code` and has since diver
 - **`.upstream/ledger.tsv` is the only progress source.** Every open upstream commit is one row with a verdict (`pending` / `in_progress` / `ported` / `equivalent` / `partial` / `blocked` / `not-applicable`) and a probe (`test:` / `grep:` / `absent:` / `manual:`).
 - **`.upstream/PLAYBOOK.md`** maps each upstream pnpm/Node construct to its Bun equivalent. Upstream capability is *translated*, never dropped for being on the other toolchain.
 - **`.upstream/issues.tsv` records upstream issues selected for this fork.** Each row is one upstream issue with an area, a priority, why it is useful here, and a `local_check` status (`open` / `likely-fixed` / `needs-check`) to resolve against this branch before work starts. It is a selection list, not a progress ledger: applying an issue means branching from `main` and moving its `status` to `done` with the fixing commit.
-- **`bun scripts/upstream-ledger.mjs --refresh`** re-reads `upstream/main` and adds new commits as `pending`. `--verify` runs the probes and advances verdicts, except on `partial` / `blocked` rows, where it only reports the probe result and leaves the verdict and evidence untouched. `--report` prints the batch × verdict matrix. `--set` / `--probe` / `--cluster` / `--batch-done` are the only ways to edit a row.
+- **`bun scripts/upstream-ledger.mjs --refresh`** re-reads `upstream/main` and adds new commits as `pending`. `--refresh --ref <tag-or-sha>` resolves a fixed local commit without fetching the moving branch; `--verify --ref <tag-or-sha>` and `--report --ref <tag-or-sha>` restrict their rows to commits reachable from that target. `--verify` runs the probes and advances verdicts, except on `partial` / `blocked` rows, where it only reports the probe result and leaves the verdict and evidence untouched. `--report` prints the batch × verdict matrix. `--set` / `--probe` / `--cluster` / `--batch-done` are the only ways to edit a row.
 - **Never report progress with commit counts or diff line counts.** Aggregate the ledger.
 - **`tools/review`'s `upstream-drift` check is complementary, not a substitute.** It only catches whole files upstream has and this branch lacks; content-level gaps inside a shared file are the ledger's job.
 

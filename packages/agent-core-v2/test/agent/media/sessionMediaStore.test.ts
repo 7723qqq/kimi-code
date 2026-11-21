@@ -1,38 +1,35 @@
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
-
 import { Jimp } from 'jimp';
-import { join } from 'pathe';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
-import { degradeLeadingMediaParts } from '#/agent/contextProjector/mediaProjection';
-import { mcpResultToExecutableOutput } from '#/agent/mcp/output';
-import { detectFileType, sniffImageDimensions } from '#/agent/media/file-type';
-import { parseDaemonFileUrl } from '#/agent/media/mediaRef';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
-import type { Message } from '#/llm-adapter/contract/message';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { mcpResultToExecutableOutput } from '#/agent/mcp/output';
+import { detectFileType, sniffImageDimensions } from '#/agent/media/file-type';
+import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
+import { lowerMessage as lowerOpenAI } from '@moonshot-ai/core/llm/builtin/protocol/openai/lower';
+import { lowerMessage as lowerAnthropic } from '@moonshot-ai/core/llm/builtin/protocol/anthropic/lower';
+import { providerImagePolicy } from '@moonshot-ai/core/llm/protocol/kit/media';
+import type { Message, ToolMessage } from '@moonshot-ai/core/llm/message';
+import { degradeLeadingMediaParts } from '@moonshot-ai/core/llm/builtin/policy/media-degrade';
+import { parseDaemonFileUrl } from '#/agent/media/mediaRef';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { providerImagePolicy } from '#human/llm/media/image-formats';
-import type { ToolMessage } from '#human/llm/message';
-import { lowerMessage as lowerAnthropic } from '#human/llm/requester/bases/anthropic/lower';
-import { lowerMessage as lowerOpenAI } from '#human/llm/requester/bases/openai/lower';
 
 const BYTES = Buffer.from('media bytes');
 
 function modelText(result: Awaited<ReturnType<typeof mcpResultToExecutableOutput>>): string {
-  return renderToolResultForModel(result)
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('\n');
+  return renderToolResultForModel(result).map((part) => part.type === 'text' ? part.text : '').join('\n');
 }
 
 function streamOf(bytes: Buffer): () => NodeJS.ReadableStream {
@@ -54,16 +51,13 @@ describe('SessionMediaStoreService', () => {
     ix = createServices(disposables, {
       strict: true,
       additionalServices: (reg) => {
-        reg.defineInstance(
-          ISessionContext,
-          makeSessionContext({
-            sessionId: 's1',
-            workspaceId: 'w1',
-            sessionDir,
-            sessionScope: join('sessions', 's1'),
-            cwd: '/tmp',
-          }),
-        );
+        reg.defineInstance(ISessionContext, makeSessionContext({
+          sessionId: 's1',
+          workspaceId: 'w1',
+          sessionDir,
+          sessionScope: join('sessions', 's1'),
+          cwd: '/tmp',
+        }));
         reg.defineInstance(IFileSystemStorageService, new FileStorageService(homeDir));
         reg.define(IAtomicDocumentStore, JsonAtomicDocumentStore);
         reg.define(ISessionMediaStore, SessionMediaStoreService);
@@ -103,23 +97,12 @@ describe('SessionMediaStoreService', () => {
 
   it('preserves an embedded MCP PDF as bytes at the advertised session path', async () => {
     const bytes = Buffer.from('%PDF-1.4\nexample attachment\n%%EOF');
-    const output = await mcpResultToExecutableOutput(
-      {
-        isError: false,
-        content: [
-          {
-            type: 'resource',
-            resource: {
-              uri: 'example://report',
-              mimeType: 'application/pdf',
-              blob: bytes.toString('base64'),
-            },
-          },
-        ],
-      },
-      'mcp__example__report',
-      { attachmentStore: store },
-    );
+    const output = await mcpResultToExecutableOutput({
+      isError: false,
+      content: [{ type: 'resource', resource: {
+        uri: 'example://report', mimeType: 'application/pdf', blob: bytes.toString('base64'),
+      } }],
+    }, 'mcp__example__report', { attachmentStore: store });
     const path = /Original attachment saved at: ("[^\n]+")/.exec(modelText(output))?.[1];
     expect(path).toBeDefined();
     const savedPath = JSON.parse(path!) as string;
@@ -128,57 +111,33 @@ describe('SessionMediaStoreService', () => {
     expect(await readFile(savedPath)).toEqual(bytes);
   });
 
-  it.each(['image/tiff', 'audio/wav', 'video/mp4'])(
-    'preserves an omitted MCP %s attachment exactly',
-    async (mimeType) => {
-      const bytes =
-        mimeType === 'image/tiff'
-          ? Buffer.from([0x49, 0x49, 0x2a, 0, 8, 0, 0, 0])
-          : Buffer.alloc(10 * 1024 * 1024 + 1, 0x63);
-      const output = await mcpResultToExecutableOutput(
-        {
-          isError: false,
-          content: [
-            {
-              type: 'resource',
-              resource: {
-                uri: 'example://attachment',
-                mimeType,
-                blob: bytes.toString('base64'),
-              },
-            },
-          ],
-        },
-        'mcp__example__attachment',
-        { attachmentStore: store, providerType: 'anthropic' },
-      );
-      const encodedPath = /Original attachment saved at: ("[^\n]+")/.exec(modelText(output))?.[1];
-      expect(encodedPath).toBeDefined();
-      expect((await readFile(JSON.parse(encodedPath!) as string)).equals(bytes)).toBe(true);
-      expect(modelText(output)).not.toContain('could not be saved');
-    },
-  );
+  it.each(['image/tiff', 'audio/wav', 'video/mp4'])('preserves an omitted MCP %s attachment exactly', async (mimeType) => {
+    const bytes = mimeType === 'image/tiff'
+      ? Buffer.from([0x49, 0x49, 0x2a, 0, 8, 0, 0, 0])
+      : Buffer.alloc(10 * 1024 * 1024 + 1, 0x63);
+    const output = await mcpResultToExecutableOutput({
+      isError: false,
+      content: [{ type: 'resource', resource: {
+        uri: 'example://attachment', mimeType, blob: bytes.toString('base64'),
+      } }],
+    }, 'mcp__example__attachment', { attachmentStore: store, providerType: 'anthropic' });
+    const encodedPath = /Original attachment saved at: ("[^\n]+")/.exec(modelText(output))?.[1];
+    expect(encodedPath).toBeDefined();
+    expect((await readFile(JSON.parse(encodedPath!) as string)).equals(bytes)).toBe(true);
+    expect(modelText(output)).not.toContain('could not be saved');
+  });
 
   it('keeps other MCP output and reports attachment save failures without inventing a path', async () => {
     await writeFile(join(sessionDir, 'media'), 'not a directory');
-    const output = await mcpResultToExecutableOutput(
-      {
-        isError: false,
-        content: [
-          { type: 'text', text: 'The report was generated.' },
-          {
-            type: 'resource',
-            resource: {
-              uri: 'example://report',
-              mimeType: 'application/pdf',
-              blob: Buffer.from('%PDF-1.4').toString('base64'),
-            },
-          },
-        ],
-      },
-      'mcp__example__report',
-      { attachmentStore: store },
-    );
+    const output = await mcpResultToExecutableOutput({
+      isError: false,
+      content: [
+        { type: 'text', text: 'The report was generated.' },
+        { type: 'resource', resource: {
+          uri: 'example://report', mimeType: 'application/pdf', blob: Buffer.from('%PDF-1.4').toString('base64'),
+        } },
+      ],
+    }, 'mcp__example__report', { attachmentStore: store });
     expect(JSON.stringify(output.output)).toContain('The report was generated.');
     expect(output.isError).not.toBe(true);
     expect(modelText(output)).toContain('original attachment preservation is incomplete');
@@ -187,54 +146,28 @@ describe('SessionMediaStoreService', () => {
   });
 
   it('reports malformed base64 instead of saving silently repaired bytes', async () => {
-    const output = await mcpResultToExecutableOutput(
-      {
-        isError: false,
-        content: [
-          {
-            type: 'resource',
-            resource: {
-              uri: 'example://report',
-              blob: '%%%invalid base64===',
-            },
-          },
-        ],
-      },
-      'mcp__example__report',
-      { attachmentStore: store },
-    );
+    const output = await mcpResultToExecutableOutput({
+      isError: false,
+      content: [{ type: 'resource', resource: {
+        uri: 'example://report', blob: '%%%invalid base64===',
+      } }],
+    }, 'mcp__example__report', { attachmentStore: store });
     expect(modelText(output)).toContain('Invalid base64 attachment');
     expect(modelText(output)).not.toContain('Original attachment saved at:');
   });
 
   it('keeps unknown binary bytes and metadata accessible after reopening the session store', async () => {
     const bytes = Buffer.from([0, 255, 128, 65, 0]);
-    const output = await mcpResultToExecutableOutput(
-      {
-        isError: false,
-        content: [
-          {
-            type: 'resource',
-            resource: { uri: 'example://unknown', blob: bytes.toString('base64') },
-          },
-        ],
-      },
-      'mcp__example__unknown',
-      { attachmentStore: store },
-    );
+    const output = await mcpResultToExecutableOutput({
+      isError: false,
+      content: [{ type: 'resource', resource: { uri: 'example://unknown', blob: bytes.toString('base64') } }],
+    }, 'mcp__example__unknown', { attachmentStore: store });
     const encodedPath = /Original attachment saved at: ("[^\n]+")/.exec(modelText(output))?.[1];
     expect(encodedPath).toBeDefined();
     const path = JSON.parse(encodedPath!) as string;
     expect(path.endsWith('.bin')).toBe(true);
-    const fileId = path
-      .split('/')
-      .at(-1)!
-      .replace(/\.bin$/, '');
-    const reopened = new SessionMediaStoreService(
-      ix.get(ISessionContext),
-      ix.get(IFileSystemStorageService),
-      ix.get(IAtomicDocumentStore),
-    );
+    const fileId = path.split('/').at(-1)!.replace(/\.bin$/, '');
+    const reopened = new SessionMediaStoreService(ix.get(ISessionContext), ix.get(IFileSystemStorageService), ix.get(IAtomicDocumentStore));
     const file = await reopened.open(fileId);
     expect(file?.mediaType).toBe('application/octet-stream');
     expect(file?.path).toBe(path);
@@ -245,71 +178,39 @@ describe('SessionMediaStoreService', () => {
     { provider: 'openai', kind: 'audio', mimeType: 'audio/wav' },
     { provider: 'anthropic', kind: 'audio', mimeType: 'audio/wav' },
     { provider: 'openai', kind: 'video', mimeType: 'video/mp4' },
-  ])(
-    'keeps a small $kind original accessible after $provider lowering',
-    async ({ provider, kind, mimeType }) => {
-      const bytes = Buffer.alloc(1024, 0x63);
-      const result = await mcpResultToExecutableOutput(
-        {
-          isError: false,
-          content: [
-            kind === 'audio'
-              ? { type: 'audio', mimeType, data: bytes.toString('base64') }
-              : {
-                  type: 'resource',
-                  resource: { uri: 'example://video', mimeType, blob: bytes.toString('base64') },
-                },
-          ],
-        },
-        'mcp__example__audio',
-        { attachmentStore: store, providerType: provider },
-      );
-      const content = renderToolResultForModel(result);
-      const text = content.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
-      const encodedPath = /Original attachment saved at: ("[^\n]+")/.exec(text)?.[1];
-      expect(encodedPath).toBeDefined();
-      const path = JSON.parse(encodedPath!) as string;
-      expect((await readFile(path)).equals(bytes)).toBe(true);
-      const message: ToolMessage = { role: 'tool', toolCallId: 'audio', content };
-      const wire =
-        provider === 'openai'
-          ? lowerOpenAI(message, {
-              reasoningKey: 'reasoning_content',
-              preserveThinking: false,
-              echoFullReasoning: false,
-              toolMessageConversion: undefined,
-            })
-          : lowerAnthropic(message, providerImagePolicy().acceptedMimes);
-      expect(JSON.stringify(wire)).toContain(JSON.stringify(encodedPath!).slice(1, -1));
-      expect(JSON.stringify(wire)).not.toContain(bytes.toString('base64'));
-    },
-  );
+  ])('keeps a small $kind original accessible after $provider lowering', async ({ provider, kind, mimeType }) => {
+    const bytes = Buffer.alloc(1024, 0x63);
+    const result = await mcpResultToExecutableOutput({
+      isError: false,
+      content: [kind === 'audio'
+        ? { type: 'audio', mimeType, data: bytes.toString('base64') }
+        : { type: 'resource', resource: { uri: 'example://video', mimeType, blob: bytes.toString('base64') } }],
+    }, 'mcp__example__audio', { attachmentStore: store, providerType: provider });
+    const content = renderToolResultForModel(result);
+    const text = content.map((part) => part.type === 'text' ? part.text : '').join('\n');
+    const encodedPath = /Original attachment saved at: ("[^\n]+")/.exec(text)?.[1];
+    expect(encodedPath).toBeDefined();
+    const path = JSON.parse(encodedPath!) as string;
+    expect((await readFile(path)).equals(bytes)).toBe(true);
+    const message: ToolMessage = { role: 'tool', toolCallId: 'audio', content };
+    const wire = provider === 'openai'
+      ? lowerOpenAI(message, {
+          reasoningKey: 'reasoning_content',
+          preserveThinking: false,
+          toolMessageConversion: undefined,
+        })
+      : lowerAnthropic(message, providerImagePolicy().acceptedMimes);
+    expect(JSON.stringify(wire)).toContain(JSON.stringify(encodedPath!).slice(1, -1));
+    expect(JSON.stringify(wire)).not.toContain(bytes.toString('base64'));
+  });
 
   it('provides a readable attachment reference when the backing store has no local path', async () => {
     const storage = new InMemoryStorageService();
-    const memoryStore = new SessionMediaStoreService(
-      ix.get(ISessionContext),
-      storage,
-      new JsonAtomicDocumentStore(storage),
-    );
+    const memoryStore = new SessionMediaStoreService(ix.get(ISessionContext), storage, new JsonAtomicDocumentStore(storage));
     const bytes = Buffer.from('memory attachment');
-    const result = await mcpResultToExecutableOutput(
-      {
-        isError: false,
-        content: [
-          {
-            type: 'resource',
-            resource: {
-              uri: 'example://memory',
-              mimeType: 'text/plain',
-              blob: bytes.toString('base64'),
-            },
-          },
-        ],
-      },
-      'mcp__example__memory',
-      { attachmentStore: memoryStore },
-    );
+    const result = await mcpResultToExecutableOutput({ isError: false, content: [{ type: 'resource', resource: {
+      uri: 'example://memory', mimeType: 'text/plain', blob: bytes.toString('base64'),
+    } }] }, 'mcp__example__memory', { attachmentStore: memoryStore });
     const text = modelText(result);
     expect(text).not.toContain('could not be saved');
     expect(text).not.toContain('Original attachment saved at:');
@@ -319,32 +220,22 @@ describe('SessionMediaStoreService', () => {
   });
 
   it('preserves an unchanged image before older media is degraded', async () => {
-    const bytes = Buffer.from(
-      await new Jimp({ width: 32, height: 32, color: 0x3366ccff }).getBuffer('image/png'),
-    );
-    const materialize = spyOn(store, 'materialize');
-    const result = await mcpResultToExecutableOutput(
-      {
-        isError: false,
-        content: [{ type: 'image', mimeType: 'image/png', data: bytes.toString('base64') }],
-      },
-      'mcp__example__image',
-      { attachmentStore: store },
-    );
+    const bytes = Buffer.from(await new Jimp({ width: 32, height: 32, color: 0x3366ccff }).getBuffer('image/png'));
+    const materialize = vi.spyOn(store, 'materialize');
+    const result = await mcpResultToExecutableOutput({
+      isError: false,
+      content: [{ type: 'image', mimeType: 'image/png', data: bytes.toString('base64') }],
+    }, 'mcp__example__image', { attachmentStore: store });
     const content = renderToolResultForModel(result);
     const reference = JSON.parse(/Attachment reference: ("[^\n]+")/.exec(modelText(result))![1]!) as string;
     expect(content).toContainEqual({ type: 'image_url', imageUrl: { url: reference } });
     expect(materialize).toHaveBeenCalledTimes(1);
     const messages: Message[] = [
-      { role: 'tool', toolCallId: 'image', content, toolCalls: [] },
-      {
-        role: 'user',
-        toolCalls: [],
-        content: [
-          { type: 'image_url', imageUrl: { url: 'data:image/png;base64,bmV3' } },
-          { type: 'image_url', imageUrl: { url: 'data:image/png;base64,bmV3Mg==' } },
-        ],
-      },
+      { role: 'tool', toolCallId: 'image', content },
+      { role: 'user', content: [
+        { type: 'image_url', imageUrl: { url: 'data:image/png;base64,bmV3' } },
+        { type: 'image_url', imageUrl: { url: 'data:image/png;base64,bmV3Mg==' } },
+      ] },
     ];
     const degraded = degradeLeadingMediaParts(messages, 1)[0]!;
     const text = degraded.content.map((part) => part.type === 'text' ? part.text : '').join('\n');
@@ -357,29 +248,21 @@ describe('SessionMediaStoreService', () => {
   });
 
   it('provides a session-relative path for an original preserved during image compression', async () => {
-    const bytes = Buffer.from(
-      await new Jimp({ width: 3600, height: 1800, color: 0x3366ccff }).getBuffer('image/png'),
-    );
-    const result = await mcpResultToExecutableOutput(
-      {
-        isError: false,
-        content: [{ type: 'image', mimeType: 'image/png', data: bytes.toString('base64') }],
-      },
-      'mcp__example__image',
-      { attachmentStore: store },
-    );
+    const bytes = Buffer.from(await new Jimp({ width: 3600, height: 1800, color: 0x3366ccff }).getBuffer('image/png'));
+    const result = await mcpResultToExecutableOutput({
+      isError: false,
+      content: [{ type: 'image', mimeType: 'image/png', data: bytes.toString('base64') }],
+    }, 'mcp__example__image', { attachmentStore: store });
     const content = renderToolResultForModel(result);
     const text = modelText(result);
     expect(text).toContain('Image compressed');
     const relative = /Session-relative attachment: ("[^\n]+")/.exec(text)?.[1];
     expect(relative).toBeDefined();
-    expect((await readFile(join(sessionDir, JSON.parse(relative!) as string))).equals(bytes)).toBe(
-      true,
-    );
+    expect((await readFile(join(sessionDir, JSON.parse(relative!) as string))).equals(bytes)).toBe(true);
     const image = content.find((part) => part.type === 'image_url');
     expect(image?.imageUrl.url).toMatch(/^kimi-file:\/\//);
-    const final = await store.read(parseDaemonFileUrl(image!.imageUrl.url)!.fileId);
-    expect(sniffImageDimensions(final!.data)).toMatchObject({ width: 2000, height: 1000 });
+    const final = await store.get(image!.imageUrl.url);
+    expect(sniffImageDimensions(final!.bytes)).toMatchObject({ width: 2000, height: 1000 });
   });
 
   it.each([
@@ -397,23 +280,12 @@ describe('SessionMediaStoreService', () => {
     ['text/x-example', 'example text', '.txt'],
   ])('preserves %s blobs with a readable text extension', async (mimeType, body, extension) => {
     const bytes = Buffer.from(body);
-    const result = await mcpResultToExecutableOutput(
-      {
-        isError: false,
-        content: [
-          {
-            type: 'resource',
-            resource: {
-              uri: 'example://text',
-              mimeType,
-              blob: bytes.toString('base64'),
-            },
-          },
-        ],
-      },
-      'mcp__example__text',
-      { attachmentStore: store },
-    );
+    const result = await mcpResultToExecutableOutput({
+      isError: false,
+      content: [{ type: 'resource', resource: {
+        uri: 'example://text', mimeType, blob: bytes.toString('base64'),
+      } }],
+    }, 'mcp__example__text', { attachmentStore: store });
     const encoded = /Original attachment saved at: ("[^\n]+")/.exec(modelText(result))?.[1];
     expect(encoded).toBeDefined();
     const path = JSON.parse(encoded!) as string;
@@ -425,71 +297,44 @@ describe('SessionMediaStoreService', () => {
 
   it('saves uncompressed SVG as readable SVG text', async () => {
     const bytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>');
-    const output = await mcpResultToExecutableOutput(
-      {
-        isError: false,
-        content: [
-          {
-            type: 'resource',
-            resource: {
-              uri: 'example://drawing',
-              mimeType: 'image/svg+xml',
-              blob: bytes.toString('base64'),
-            },
-          },
-        ],
-      },
-      'mcp__example__drawing',
-      { attachmentStore: store },
-    );
-    const path = JSON.parse(
-      /Original attachment saved at: ("[^\n]+")/.exec(modelText(output))![1]!,
-    ) as string;
+    const output = await mcpResultToExecutableOutput({
+      isError: false,
+      content: [{ type: 'resource', resource: {
+        uri: 'example://drawing', mimeType: 'image/svg+xml', blob: bytes.toString('base64'),
+      } }],
+    }, 'mcp__example__drawing', { attachmentStore: store });
+    const path = JSON.parse(/Original attachment saved at: ("[^\n]+")/.exec(modelText(output))![1]!) as string;
     expect(path.endsWith('.svg')).toBe(true);
     const saved = await readFile(path);
     expect(saved.equals(bytes)).toBe(true);
     expect(detectFileType(path, saved).kind).toBe('text');
   });
 
-  it.each([true, false])(
-    'stops attachment persistence when cancellation is already triggered=%s',
-    async (alreadyAborted) => {
-      const controller = new AbortController();
-      const reason = new Error('attachment import canceled');
-      const storage = ix.get(IFileSystemStorageService);
-      const writeStream = storage.writeStream.bind(storage);
-      const writes = spyOn(storage, 'writeStream').mockImplementation(
-        async (scope, key, source, options) => {
-          expect(options?.signal).toBe(controller.signal);
-          controller.abort(reason);
-          return writeStream(scope, key, source, options);
-        },
-      );
-      if (alreadyAborted) controller.abort(reason);
-      await expect(
-        mcpResultToExecutableOutput(
-          {
-            isError: false,
-            content: [1, 2, 3].map((i) => ({
-              type: 'resource',
-              resource: {
-                uri: `example://file/${String(i)}`,
-                blob: Buffer.from(`file ${String(i)}`).toString('base64'),
-              },
-            })),
-          },
-          'mcp__example__files',
-          { attachmentStore: store, signal: controller.signal },
-        ),
-      ).rejects.toBe(reason);
-      expect(writes).toHaveBeenCalledTimes(alreadyAborted ? 0 : 1);
-    },
-  );
+  it.each([true, false])('stops attachment persistence when cancellation is already triggered=%s', async (alreadyAborted) => {
+    const controller = new AbortController();
+    const reason = new Error('attachment import canceled');
+    const storage = ix.get(IFileSystemStorageService);
+    const writeStream = storage.writeStream.bind(storage);
+    const writes = vi.spyOn(storage, 'writeStream').mockImplementation(async (scope, key, source, options) => {
+      expect(options?.signal).toBe(controller.signal);
+      controller.abort(reason);
+      return writeStream(scope, key, source, options);
+    });
+    if (alreadyAborted) controller.abort(reason);
+    await expect(mcpResultToExecutableOutput({
+      isError: false,
+      content: [1, 2, 3].map((i) => ({ type: 'resource', resource: {
+        uri: `example://file/${String(i)}`, blob: Buffer.from(`file ${String(i)}`).toString('base64'),
+      } })),
+    }, 'mcp__example__files', { attachmentStore: store, signal: controller.signal })).rejects.toBe(reason);
+    expect(writes).toHaveBeenCalledTimes(alreadyAborted ? 0 : 1);
+  });
 
-  it('keeps a same-size copy without re-reading the stream', async () => {
-    await store.materialize(input());
+  it('keeps a same-size copy without re-reading the stream or changing metadata on abort', async () => {
+    await store.materialize(input({ name: 'original.mp4' }));
     const again = await store.materialize(
       input({
+        name: 'renamed.mp4',
         stream: () => {
           throw new Error('must not be read');
         },
@@ -497,6 +342,21 @@ describe('SessionMediaStoreService', () => {
     );
     expect(again).toBe(pathFor('f_1', '.mp4'));
     expect(await readFile(again!)).toEqual(BYTES);
+
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      store.materialize(
+        input({
+          name: 'cancelled.mp4',
+          signal: controller.signal,
+          stream: () => {
+            throw new Error('must not be read');
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect((await store.open('f_1'))?.name).toBe('renamed.mp4');
   });
 
   it('overwrites a wrong-size copy', async () => {
@@ -530,17 +390,23 @@ describe('SessionMediaStoreService', () => {
     expect(await store.materialize(input({ fileId: 'f_2', name: 'noext' }))).toBe(
       pathFor('f_2', '.mp4'),
     );
-    expect(
-      await store.materialize(input({ fileId: 'f_3', name: 'noext', mimeType: 'odd/type' })),
-    ).toBe(pathFor('f_3', '.bin'));
+    expect(await store.materialize(input({ fileId: 'f_3', name: 'noext', mimeType: 'odd/type' }))).toBe(
+      pathFor('f_3', '.bin'),
+    );
   });
 
-  it('reads canonical bytes independently from the daemon file store', async () => {
-    await store.materialize(input());
-    await expect(store.read('f_1')).resolves.toEqual({
-      data: BYTES,
-      name: 'f_1.mp4',
+  it('puts and gets canonical media with its metadata', async () => {
+    const reference = await store.put({
+      bytes: BYTES,
+      mimeType: 'video/mp4',
+      filename: 'clip.mp4',
     });
+
+    expect(reference).toMatch(/^kimi-file:\/\/f_/);
+    const stored = await store.get(reference);
+    expect(stored?.mimeType).toBe('video/mp4');
+    expect(stored?.filename).toBe('clip.mp4');
+    expect(Buffer.from(stored!.bytes)).toEqual(BYTES);
   });
 
   it('opens canonical media with its persisted download metadata', async () => {
@@ -554,9 +420,7 @@ describe('SessionMediaStoreService', () => {
       mediaType: 'video/mp4',
       size: BYTES.length,
     });
-    expect(file === undefined ? undefined : Buffer.from(await collect(file.stream()))).toEqual(
-      BYTES,
-    );
+    expect(file === undefined ? undefined : Buffer.from(await collect(file.stream()))).toEqual(BYTES);
   });
 
   it('streams only the requested canonical byte range', async () => {
@@ -614,31 +478,26 @@ it('retains canonical bytes without inventing a path for a non-filesystem backen
   const ix = createServices(disposables, {
     strict: true,
     additionalServices: (reg) => {
-      reg.defineInstance(
-        ISessionContext,
-        makeSessionContext({
-          sessionId: 's1',
-          workspaceId: 'w1',
-          sessionDir: '/unused',
-          sessionScope: 'sessions/w1/s1',
-          cwd: '/tmp',
-        }),
-      );
+      reg.defineInstance(ISessionContext, makeSessionContext({
+        sessionId: 's1',
+        workspaceId: 'w1',
+        sessionDir: '/unused',
+        sessionScope: 'sessions/w1/s1',
+        cwd: '/tmp',
+      }));
       reg.defineInstance(IFileSystemStorageService, new InMemoryStorageService());
       reg.define(IAtomicDocumentStore, JsonAtomicDocumentStore);
       reg.define(ISessionMediaStore, SessionMediaStoreService);
     },
   });
   const store = ix.get(ISessionMediaStore);
-  await expect(
-    store.materialize({
-      fileId: 'f_1',
-      size: BYTES.length,
-      name: 'clip.mp4',
-      mimeType: 'video/mp4',
-      stream: streamOf(BYTES),
-    }),
-  ).resolves.toBeUndefined();
+  await expect(store.materialize({
+    fileId: 'f_1',
+    size: BYTES.length,
+    name: 'clip.mp4',
+    mimeType: 'video/mp4',
+    stream: streamOf(BYTES),
+  })).resolves.toBeUndefined();
   const canonical = await store.read('f_1');
   expect(canonical?.name).toBe('f_1.mp4');
   expect(canonical === undefined ? undefined : Buffer.from(canonical.data)).toEqual(BYTES);

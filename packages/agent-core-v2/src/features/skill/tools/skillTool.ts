@@ -1,22 +1,18 @@
 import { randomUUID } from 'node:crypto';
 
-import { renderPrompt } from '#/_base/utils/render-prompt';
-import type { SkillActivationOrigin } from '#/agent/contextMemory/types';
+import type { ContextMessage, SkillActivationOrigin } from '#/agent/contextMemory/types';
+import { historyEntryFromContext } from '#/agent/loop/history';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import { isInlineSkillType, normalizeSkillName } from '#/features/skill/catalog/types';
 import { renderModelToolSkillPrompt } from '#/features/skill/prompt';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { IAgentSkillService } from '#/features/skill/skillService';
+import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { isInlineSkillType, normalizeSkillName } from '#/features/skill/catalog/types';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { renderPrompt } from '#/_base/utils/render-prompt';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import {
-  RepoMutations,
-  ToolSideEffects,
-  type ExecutableToolResult,
-  type ToolDeliveryMessage,
-  type ToolExecution,
-} from '#/tool/toolContract';
 
 import {
   ISkillTool,
@@ -30,8 +26,6 @@ import skillDescriptionTemplate from './skill.md?raw';
 export class SkillTool implements ISkillTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Skill';
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description: string = renderPrompt(skillDescriptionTemplate, {
     MAX_SKILL_QUERY_DEPTH,
   });
@@ -44,36 +38,41 @@ export class SkillTool implements ISkillTool {
     @ISessionSkillCatalog private readonly catalog: ISessionSkillCatalog,
     @IAgentSkillService private readonly skill: IAgentSkillService,
     @ISessionContext private readonly sessionContext: ISessionContext,
-    @IAgentToolResultTruncationService
-    private readonly truncation: IAgentToolResultTruncationService,
+    @IAgentLoopService private readonly loop: IAgentLoopService,
+    @IAgentToolResultTruncationService private readonly truncation: IAgentToolResultTruncationService,
   ) {}
 
   resolveExecution(args: SkillToolInput): ToolExecution {
-    const context =
-      this.queryDepth === 0 && this.workspaceDir === undefined
-        ? this.skill.modelToolContext()
-        : { queryDepth: this.queryDepth, workspaceDir: this.workspaceDir };
+    const context = this.queryDepth === 0 && this.workspaceDir === undefined
+      ? this.skill.modelToolContext()
+      : { queryDepth: this.queryDepth, workspaceDir: this.workspaceDir };
     return {
       description: `Invoke skill ${args.skill}`,
       display: { kind: 'skill_call', skill_name: args.skill, args: args.args },
       approvalRule: this.name,
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.skill),
-      execute: (executionContext) =>
-        executeModelSkill(
-          this.catalog,
-          this.skill,
-          this.truncation,
-          args,
-          context.queryDepth,
-          this.sessionContext.sessionId,
-          executionContext.toolCallId,
-          context.workspaceDir,
-        ),
+      execute: (executionContext) => executeModelSkill(
+        this.catalog,
+        this.skill,
+        this.loop,
+        this.truncation,
+        args,
+        context.queryDepth,
+        this.sessionContext.sessionId,
+        executionContext.toolCallId,
+        context.workspaceDir,
+      ),
     };
   }
 
   withInitialQueryDepth(initialQueryDepth: number, workspaceDir?: string): SkillTool {
-    const clone = new SkillTool(this.catalog, this.skill, this.sessionContext, this.truncation);
+    const clone = new SkillTool(
+      this.catalog,
+      this.skill,
+      this.sessionContext,
+      this.loop,
+      this.truncation,
+    );
     clone.queryDepth = initialQueryDepth;
     clone.workspaceDir = workspaceDir;
     return clone;
@@ -83,6 +82,7 @@ export class SkillTool implements ISkillTool {
 export async function executeModelSkill(
   catalog: ISessionSkillCatalog,
   skillService: IAgentSkillService,
+  loop: IAgentLoopService,
   truncation: IAgentToolResultTruncationService,
   args: SkillToolInput,
   queryDepth: number,
@@ -96,14 +96,12 @@ export async function executeModelSkill(
   }
 
   await catalog.ready;
-  const skill =
-    args.path === undefined && parentWorkspaceDir !== undefined
-      ? (catalog.catalog.listSkills().find(
-          (candidate) =>
-            candidate.workspaceDir === parentWorkspaceDir &&
-            normalizeSkillName(candidate.name) === normalizeSkillName(args.skill),
-        ) ?? catalog.catalog.getSkill(args.skill))
-      : catalog.catalog.getSkill(args.skill, args.path);
+  const skill = args.path === undefined && parentWorkspaceDir !== undefined
+    ? catalog.catalog.listSkills().find((candidate) =>
+        candidate.workspaceDir === parentWorkspaceDir &&
+        normalizeSkillName(candidate.name) === normalizeSkillName(args.skill)
+      ) ?? catalog.catalog.getSkill(args.skill)
+    : catalog.catalog.getSkill(args.skill, args.path);
   if (skill === undefined) {
     return errorResult(`Skill "${args.skill}" not found in the current skill listing.`);
   }
@@ -136,7 +134,7 @@ export async function executeModelSkill(
     toolCallId,
     result: { output: skillContent },
   });
-  const message: ToolDeliveryMessage = {
+  const message: ContextMessage = {
     role: 'user',
     content: [
       {
@@ -151,13 +149,12 @@ export async function executeModelSkill(
         }),
       },
     ],
-    toolCalls: [],
     origin,
   };
   skillService.recordModelToolActivation(origin, currentDepth + 1);
+  loop.remind(historyEntryFromContext(message));
   return {
     output: `Skill "${skill.name}" loaded inline. Follow its instructions.`,
-    delivery: { kind: 'steer', message },
   };
 }
 

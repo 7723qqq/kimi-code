@@ -1,3 +1,5 @@
+
+
 import { basename } from 'pathe';
 
 import { ErrorCodes, Error2 } from '#/errors';
@@ -28,13 +30,6 @@ export function mcpOAuthStoreKey(serverName: string, serverUrl: string | URL): s
     .digest('hex')
     .slice(0, 24);
   return `${safeName}-${digest}`;
-}
-
-export const META_SUFFIX = '-meta.json';
-
-export interface McpOAuthStoreMeta {
-  readonly serverName: string;
-  readonly serverUrl: string;
 }
 
 export interface McpOAuthStore {

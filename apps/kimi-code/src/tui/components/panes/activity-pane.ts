@@ -1,25 +1,17 @@
 import { Container, Spacer, Text, TruncatedText, type Component } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import type { MoonLoader } from '#/tui/components/chrome/moon-loader';
 import { ACTIVITY_DETAIL_INDENT } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
 import { workedSummary } from '#/tui/utils/activity-label';
 import type { TimelineReader } from '#/tui/utils/turn-timeline';
 
-export type ActivityPaneMode =
-  | 'hidden'
-  | 'waiting'
-  | 'thinking'
-  | 'composing'
-  | 'tool'
-  | 'compacting';
+export type ActivityPaneMode = 'hidden' | 'waiting' | 'thinking' | 'composing' | 'tool' | 'compacting';
 
 export interface ActivityPaneOptions {
   readonly mode: ActivityPaneMode;
   readonly spinner?: MoonLoader;
   readonly tip?: string;
-  /** Extra dim line rendered under the spinner (e.g. step retry error detail). */
   readonly detail?: string;
 }
 
@@ -38,18 +30,15 @@ export class ActivityPaneComponent extends Container {
       (options.mode === 'waiting' ||
         options.mode === 'tool' ||
         options.mode === 'composing' ||
-        options.mode === 'thinking') &&
+        options.mode === 'thinking' ||
+        options.mode === 'compacting') &&
       options.spinner !== undefined
     ) {
       this.addChild(new Spacer(1));
-      if (options.tip) {
-        options.spinner.setTip(t('tui.chrome.activityPane.tipPrefix', { tip: options.tip }));
-      }
+      options.spinner.setTip(formatActivitySpinnerTip(options.tip));
       this.addChild(options.spinner);
       if (options.detail !== undefined && options.detail.length > 0) {
-        this.addChild(
-          new Text(currentTheme.fg('textDim', options.detail), ACTIVITY_DETAIL_INDENT, 0),
-        );
+        this.addChild(new Text(currentTheme.fg('textDim', options.detail), ACTIVITY_DETAIL_INDENT, 0));
       }
     }
   }

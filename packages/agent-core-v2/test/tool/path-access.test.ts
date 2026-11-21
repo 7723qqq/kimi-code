@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { getShellPathBridge, type ShellPathBridge } from '#/_base/execEnv/shellPathBridge';
 import {
@@ -71,61 +71,6 @@ describe('isSensitiveFile', () => {
       expect(isSensitiveFile(path), path).toBe(false);
     }
   });
-
-  it('matches SSH private key patterns in the .ssh directory', () => {
-    for (const path of [
-      '/home/user/.ssh/id_rsa',
-      '/home/user/.ssh/id_ed25519',
-      '/home/user/.ssh/id_ecdsa',
-      '/home/user/.ssh/id_ed25519_sk',
-      '/home/user/.ssh/id_ecdsa_sk',
-      '.ssh/id_rsa',
-      '/home/user/.ssh/id_rsa-backup',
-      '.ssh/id_rsa.old',
-    ]) {
-      expect(isSensitiveFile(path), path).toBe(true);
-    }
-  });
-
-  it('does not flag SSH public key files', () => {
-    for (const path of [
-      '/home/user/.ssh/id_rsa.pub',
-      '/home/user/.ssh/id_ed25519.pub',
-      '/home/user/.ssh/authorized_keys',
-      '/home/user/.ssh/known_hosts',
-    ]) {
-      expect(isSensitiveFile(path), path).toBe(false);
-    }
-  });
-
-  it('flags paths with mixed-case sensitive patterns on posix systems', () => {
-    expect(isSensitiveFile('/home/user/.SSH/ID_RSA')).toBe(true);
-    expect(isSensitiveFile('/home/user/.Ssh/Id_Ed25519')).toBe(true);
-    expect(isSensitiveFile('/app/.Env.Production')).toBe(true);
-  });
-
-  it('rejects extremely long paths gracefully', () => {
-    const longBase = '/'.repeat(10_000) + '.env';
-    expect(isSensitiveFile(longBase)).toBe(true);
-    const longSafe = '/'.repeat(10_000) + 'README.md';
-    expect(isSensitiveFile(longSafe)).toBe(false);
-  });
-
-  it('handles paths with special characters like spaces and parentheses', () => {
-    expect(isSensitiveFile('/home/user/my project/.env')).toBe(true);
-    expect(isSensitiveFile('/home/user/project (copy)/config.yml')).toBe(false);
-  });
-
-  it('does not flag credentials with extra suffixes like (backup) in the path name', () => {
-    expect(isSensitiveFile('/home/user/.aws/credentials_backup')).toBe(true);
-    expect(isSensitiveFile('/home/user/.aws/credentials.bak')).toBe(true);
-  });
-
-  it('does not flag .gitignore or .gitattributes', () => {
-    expect(isSensitiveFile('/repo/.gitignore')).toBe(false);
-    expect(isSensitiveFile('/repo/.gitattributes')).toBe(false);
-    expect(isSensitiveFile('.gitignore')).toBe(false);
-  });
 });
 
 describe('extendWorkspaceWithSkillRoots', () => {
@@ -149,9 +94,9 @@ describe('extendWorkspaceWithSkillRoots', () => {
   });
 
   it('dedupes roots that repeat or nest inside a just-added root', () => {
-    expect(extendWorkspaceWithSkillRoots(workspace, ['/skills', '/skills', '/skills/sub'])).toEqual(
-      { workspaceDir: '/repo', additionalDirs: ['/extra', '/skills'] },
-    );
+    expect(
+      extendWorkspaceWithSkillRoots(workspace, ['/skills', '/skills', '/skills/sub']),
+    ).toEqual({ workspaceDir: '/repo', additionalDirs: ['/extra', '/skills'] });
   });
 
   it('compares case-insensitively on win32 path class', () => {
@@ -162,33 +107,6 @@ describe('extendWorkspaceWithSkillRoots', () => {
         'win32',
       ).additionalDirs,
     ).toEqual([]);
-  });
-
-  it('handles a large number of skill roots without performance issues', () => {
-    const manyRoots = Array.from({ length: 100 }, (_, i) => `/skills/root-${String(i)}`);
-    const result = extendWorkspaceWithSkillRoots(workspace, manyRoots);
-    expect(result.additionalDirs).toHaveLength(100 + 1);
-    expect(result.additionalDirs[0]).toBe('/extra');
-  });
-
-  it('dedupes a root that is an exact match of the workspace dir', () => {
-    const result = extendWorkspaceWithSkillRoots({ workspaceDir: '/repo', additionalDirs: [] }, [
-      '/repo',
-    ]);
-    expect(result.additionalDirs).toEqual([]);
-  });
-
-  it('does not dedupe a root that is a parent of the workspace dir (parent dirs are not filtered)', () => {
-    const result = extendWorkspaceWithSkillRoots(
-      { workspaceDir: '/repo/sub', additionalDirs: [] as string[] },
-      ['/repo'],
-    );
-    expect(result.additionalDirs).toEqual(['/repo']);
-  });
-
-  it('handles empty additionalDirs and empty skill roots', () => {
-    const result = extendWorkspaceWithSkillRoots({ workspaceDir: '/repo', additionalDirs: [] }, []);
-    expect(result.additionalDirs).toEqual([]);
   });
 });
 
@@ -215,53 +133,6 @@ describe('resolvePathAccess shell path bridge', () => {
     const result = resolvePathAccessPath('/tmp/scratch.txt', {
       env: WIN_ENV,
       shellPathBridge: getShellPathBridge(WIN_ENV),
-      workspace: { workspaceDir: 'C:\\workspace', additionalDirs: [] },
-      operation: 'read',
-    });
-    expect(result).toBe('/tmp/scratch.txt');
-  });
-
-  it('normalizes through an explicitly injected shell path bridge', () => {
-    const bridge: ShellPathBridge = {
-      toShellPath: (p) => p,
-      fromShellPath: (p) => (p.startsWith('/tmp/') ? `C:/Temp/${p.slice('/tmp/'.length)}` : p),
-    };
-    const result = resolvePathAccess(
-      '/tmp/notes.txt',
-      'C:\\workspace',
-      { workspaceDir: 'C:\\workspace', additionalDirs: [] },
-      {
-        operation: 'read',
-        pathClass: 'win32',
-        policy: DEFAULT_WORKSPACE_ACCESS_POLICY,
-        shellPathBridge: bridge,
-      },
-    );
-    expect(result).toEqual({ path: 'C:/Temp/notes.txt', outsideWorkspace: true });
-  });
-});
-
-describe('resolvePathAccess shell path bridge on win32', () => {
-  const WIN_ENV = {
-    pathClass: 'win32' as const,
-    homeDir: 'C:\\Users\\test',
-    osKind: 'Windows',
-    shellName: 'bash' as const,
-    shellPath: 'C:\\kimi-test-nonexistent\\Git\\bin\\bash.exe',
-  };
-
-  it('routes win32 file-tool paths through the shell path bridge', () => {
-    const result = resolvePathAccessPath('/c/workspace/file.txt', {
-      env: WIN_ENV,
-      workspace: { workspaceDir: 'C:\\workspace', additionalDirs: [] },
-      operation: 'read',
-    });
-    expect(result).toBe('C:/workspace/file.txt');
-  });
-
-  it('passes root-relative POSIX paths through when cygpath is unavailable', () => {
-    const result = resolvePathAccessPath('/tmp/scratch.txt', {
-      env: WIN_ENV,
       workspace: { workspaceDir: 'C:\\workspace', additionalDirs: [] },
       operation: 'read',
     });

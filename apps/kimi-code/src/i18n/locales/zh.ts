@@ -399,6 +399,10 @@ export default {
     close: '关闭',
     submit: '提交',
     loading: '加载中…',
+    enabled: '已启用',
+    disabled: '已停用',
+    on: '开',
+    off: '关',
   },
   cli: {
     program: {
@@ -613,6 +617,29 @@ export default {
       environmentCwdRequiresEnvironment: '--environment-cwd 需要同时指定 --environment。',
       cannotCombineEnvironmentAndSession:
         '--environment 不能与 --session/--continue 同时使用：环境在创建会话时绑定，恢复会话时会自动还原所绑定的环境。',
+    },
+    sub: {
+      export: {
+        noPreviousSession: '未找到可导出的上一个会话。\n',
+      },
+      pluginRunNode: {
+        entryOutsideRoot: '插件 node 入口必须位于 KIMI_PLUGIN_ROOT 内：{{p1}}',
+      },
+      session: {
+        noSessions: '没有找到会话。\n',
+      },
+      web: {
+        runWithoutBrowser: '启动本地 Kimi 服务器，但不打开浏览器。',
+      },
+    },
+    version: {
+      packageJsonNotFound: '在 {{p1}} 附近找不到 package.json',
+    },
+    migration: {
+      commandDescription: '将旧版 kimi-cli 安装中的数据迁移到 kimi-code。',
+    },
+    sessionImport: {
+      needsInteractiveTerminal: 'kimi import-sessions 需要交互式终端。\n',
     },
   },
   startup: {
@@ -866,6 +893,17 @@ export default {
         reloadSummary: '重新加载：+{{added}} -{{removed}}',
         reloadErrors: '（{{count}} 个错误）',
         inlineChangeHint: '运行 /reload 或 /new 以应用',
+        mcpServersLoadFailed: '加载插件 MCP 服务器失败：{{error}}',
+        mcpSubcommandFailed: '/plugins mcp 失败：{{error}}',
+        installFailedWithLabel: '安装 {{label}} 失败：{{error}}',
+        installIncompleteProcesses: '{{label}} 安装未完成。相关进程仍在运行；请从 /plugins 重新安装。',
+        installIncompleteCheckLogs: '{{label}} 安装未完成。请检查日志后从 /plugins 重新安装。',
+        installCancelledWithLabel: '已取消安装：{{label}}。',
+        declaresMcp: ' 声明了 {{count}} 个 MCP {{serverWord}}；默认启用，可在 /plugins 中配置。',
+        toggleEnabled: '启用',
+        toggleDisabled: '禁用',
+        mcpServerToggled: '已{{state}} MCP 服务器 {{server}}（{{id}}）。运行 /reload 或 /new 生效。',
+        toggledHint: '已{{state}} {{id}}。运行 /reload 或 /new 生效。',
       },
       auth: {
         loggedIn: '登录成功。',
@@ -908,6 +946,46 @@ export default {
         registryAuthRequired: '该注册表需要认证——请粘贴其 Bearer token。',
         importedOne: '已从注册表导入 1 个供应商。',
         importedMany: '已从注册表导入 {{count}} 个供应商。',
+      },
+      btw: {
+        failedToStart: '启动 /btw 失败：{{p1}}',
+      },
+      desktop: {
+        openedInBrowser: '{{p1}} — 已在浏览器中打开',
+      },
+      prompts: {
+        currentSessionLogs: '当前会话日志',
+        uploadListedFiles: '随反馈一并上传下列文件',
+        logsPlusCode: '会话日志 + 项目代码',
+        alsoUploadSources: '同时上传此工作区的源文件以帮助复现问题。密钥、依赖与构建产物不会包含在内。',
+        chooseIncluded: '选择随反馈提交的内容',
+        alwaysIncluded: '备注、会话 ID、请求 ID、模型、CLI 版本、操作系统和 shell 始终会包含。请在下方选择是否附加诊断信息。',
+        currentSessionLine: ' 当前会话 · {{p1}}',
+        sessionFilesHeading: '会话文件',
+        fileListUnavailable: '  会话文件列表不可用；提交时仍会上传 session.zip。',
+        noSessionFiles: '  还没有会话文件。',
+        fileListRange: '  {{p1}} 个会话文件 · 显示 {{p2}}–{{p3}}',
+        moreFilesNextPage: '  还有 {{p1}} 个文件 · → 下一页',
+        previousPage: '  ← 上一页',
+        zipIncludesLog: '  session.zip 还包含应用日志，其中可能提及其它会话。',
+        keySavedTo: '你的密钥将保存到 ~/.kimi-code/config.toml',
+        passwordNotSaved: '密码仅在本进程中使用，不会被保存。',
+        sshPasswordPrompt: '输入 {{p1}} 的 SSH 密码',
+        sshPasswordEmpty: 'SSH 密码不能为空。',
+        noSupportedProviders: '目录中没有使用受支持协议类型的供应商。',
+      },
+      config: {
+        feedbackSurveyAlready: '反馈问卷{{state}}。',
+        feedbackSurveySet: '反馈问卷{{state}}。',
+        mermaidAlready: 'Mermaid 图表{{state}}。',
+        mermaidSet: 'Mermaid 图表{{state}}。',
+        copyOnSelectAlready: '选中即复制{{state}}。',
+        copyOnSelectSet: '选中即复制{{state}}。',
+        skippedRefresh: '已跳过刷新 {{p1}}：{{p2}}',
+        skippedCompaction: '已跳过压缩 — 上下文已经压缩过，正在切换模型。',
+        permissionModeFailed: '设置权限模式失败：{{p1}}',
+        tuiModeAlready: 'TUI 模式已是 {{p1}}。',
+        tuiModeSet: 'TUI 模式已设为 {{p1}}。',
       },
     },
     approvalLabels: {
@@ -1465,6 +1543,10 @@ export default {
         moreLoading: '加载中…',
         moreSearching: '搜索全部…',
         moreScroll: '滚动查看更多',
+        resuming: '{{p1}} 正在恢复会话…',
+        loadingMore: ' · 加载中…',
+        searchingAll: ' · 搜索全部…',
+        scrollForMore: ' · 滚动查看更多',
       },
       goalStartPermissionPrompt: {
         titleYolo: '以「必要时询问」模式启动目标？',
@@ -1732,6 +1814,11 @@ export default {
         durationSeconds: '{{seconds}} 秒',
         durationMinutes: '{{minutes}} 分 {{seconds}} 秒',
         durationHours: '{{hours}} 小时 {{minutes}} 分',
+        panelHeader: ' 任务浏览器 ',
+        noActiveTasks: '没有正在运行的任务。按 Tab 显示全部。',
+        noTasksInSession: '此会话中没有任务。',
+        selectTask: '请从列表中选择一个任务。',
+        previewOutput: '预览输出',
       },
       undoSelector: {
         navHint: '↑↓ 导航 · Enter 选择 · Esc 取消',

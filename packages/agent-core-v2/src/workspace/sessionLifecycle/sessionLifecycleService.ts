@@ -83,6 +83,7 @@ import { ISessionNotify } from '#/features/notify/sessionNotify';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import {
   AGENT_WIRE_RECORD_KEY,
+  assertWireRecordsReaderVersion,
   createWireMetadataRecord,
   type WireRecord,
 } from '#/wire/record';
@@ -107,8 +108,8 @@ import { agentScopeOf, sessionDirOf, sessionScopeOf } from './internal/addressin
 import { SessionArchived, SessionDeleted, SessionRestored } from './sessionLifecycleEvents';
 import {
   assertForkTurnIndex,
-  sliceMainRecordsAtTurn,
   sliceMainRecordsForRunningFork,
+  sliceMainRecordsAtTurn,
   sliceRecordsBeforePendingWork,
   sliceSubagentRecordsAtTime,
 } from './internal/forkTurnSlice';
@@ -210,11 +211,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     @IProviderService private readonly providers: IProviderService,
     private readonly environments: IEnvironmentService,
     private readonly trust: IWorkspaceTrust,
-    private readonly acquireWorkdir: (
-      environmentId: string,
-      cwd: string,
-      followsPrimary?: boolean,
-    ) => Promise<ProgramWorkdir>,
+    private readonly acquireWorkdir: (environmentId: string, cwd: string, followsPrimary?: boolean) => Promise<ProgramWorkdir>,
     onDispose?: () => void,
   ) {
     super();
@@ -397,9 +394,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   }
 
   private sessionWorkDir(fallbackCwd: string, environment: EnvironmentBinding | undefined): string {
-    if (environment !== undefined && environment.environmentId !== LOCAL_ENVIRONMENT_ID) {
-      return fallbackCwd;
-    }
+    if (environment !== undefined && environment.environmentId !== LOCAL_ENVIRONMENT_ID) return fallbackCwd;
     const primary = this.workspaceContext.meta.root;
     return resolveEffectiveWorkspaceRoots(
       { workspaceId: this.workspaceId, cwd: fallbackCwd },
@@ -412,9 +407,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     environment: (EnvironmentBinding & { readonly cwd: string }) | undefined,
     workDir: string,
   ): Promise<ProgramWorkdir> {
-    if (environment === undefined) {
-      return this.acquireWorkdir(LOCAL_ENVIRONMENT_ID, workDir, true);
-    }
+    if (environment === undefined) return this.acquireWorkdir(LOCAL_ENVIRONMENT_ID, workDir, true);
     const { environmentId, cwd } = environment;
     let lease: EnvironmentLease;
     try {
@@ -627,7 +620,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       await this.appendLogStore.flush();
       this.event.publish(
         new SessionDeleted({
-          payload: { sessionId, workspaceId: this.workspaceContext.workspaceId },
+          payload: { sessionId, workspaceId: this.workspaceContext.workspaceId, session: summary },
         }),
       );
     } finally {
@@ -694,7 +687,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
             queuedPromptIds.set(
               agentHandle.id,
               snapshot.queue.flatMap((item) => {
-                const promptId = item.meta?.promptId;
+                const promptId = item.attributes?.promptId;
                 return typeof promptId === 'string' ? [promptId] : [];
               }),
             );
@@ -836,7 +829,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         environmentCwd: sourceMeta?.environmentCwd,
         custom: forkCustomMetadata(sourceMeta?.custom, opts.metadata),
         lastPrompt: turnSlice === undefined ? sourceMeta?.lastPrompt : turnSlice.lastPrompt,
-        lastTurnReason: sourceMeta?.lastTurnReason,
+        lastTurnReason: turnSlice === undefined ? sourceMeta?.lastTurnReason : turnSlice.lastTurnReason,
       };
       await this.docs.set(
         sessionScopeOf(this.handlerScope, targetId),
@@ -909,6 +902,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       ...(args.records ??
         (await this.readSourceWireRecords(args.sourceHandle, args.sourceSessionId, args.agentId))),
     ];
+    assertWireRecordsReaderVersion(records);
     if (records.length === 0) {
       records.push(createWireMetadataRecord());
     } else if (records[0]?.type !== 'metadata') {
@@ -941,6 +935,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       return;
     }
     if (first.type === 'metadata') {
+      assertWireRecordsReaderVersion([first]);
       this.appendLogStore.append(scope, AGENT_WIRE_RECORD_KEY, forkedRecord(agentId));
       return;
     }
@@ -978,6 +973,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         },
       }),
     );
+    assertWireRecordsReaderVersion(records);
     if (truncation !== undefined) {
       await repairWireJournal(
         {

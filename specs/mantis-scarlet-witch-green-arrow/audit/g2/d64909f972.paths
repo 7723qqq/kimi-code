@@ -1,0 +1,8 @@
+M	packages/agent-core-v2/src/agent/loop/loop.ts
+M	packages/agent-core-v2/src/agent/loop/loopService.ts
+M	packages/agent-core-v2/src/agent/loop/profileAdapter.ts
+M	packages/agent-core-v2/src/agent/profile/profile.ts
+M	packages/agent-core-v2/src/agent/profile/profileService.ts
+M	packages/agent-core-v2/test/agent/loop/stubs.ts
+M	packages/agent-core-v2/test/agent/profile/binding.test.ts
+M	packages/agent-core-v2/test/agent/toolSelect/toolSelectService.test.ts

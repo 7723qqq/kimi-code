@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { createRequire } from 'node:module';
 
 import { Jimp, ResizeStrategy } from 'jimp';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { sniffImageDimensions } from '#/agent/media/file-type';
 import {
   buildImageCompressionCaption,
   compressBase64ForModel,
@@ -20,6 +19,8 @@ import {
   setConfiguredMaxImageEdgePx,
   setConfiguredReadImageByteBudget,
 } from '#/agent/media/image-compress';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
+import { sniffImageDimensions } from '#/agent/media/file-type';
 import {
   buildUnsupportedImageNotice,
   isModelAcceptedImageMime,
@@ -27,7 +28,19 @@ import {
   unsupportedImageMimeFromUrl,
 } from '#/agent/media/image-format-policy';
 import { buildDaemonFileUrl } from '#/agent/media/mediaRef';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import { mediaUrlOf } from '@moonshot-ai/core/llm/protocol/kit/media';
+
+function image(url: string, id?: string): ContentPart {
+  return {
+    type: 'image_url',
+    imageUrl: id === undefined ? { url } : { url, id },
+  };
+}
+
+function video(url: string): ContentPart {
+  return { type: 'video_url', videoUrl: { url } };
+}
 
 async function solidPng(width: number, height: number, color = 0x3366ccff): Promise<Uint8Array> {
   const image = new Jimp({ width, height, color });
@@ -68,45 +81,6 @@ async function randomNoiseJpeg(width: number, height: number): Promise<Uint8Arra
   return new Uint8Array(await image.getBuffer('image/jpeg', { quality: 90 }));
 }
 
-async function noiseGif(width: number, height: number): Promise<Uint8Array> {
-  const image = new Jimp({ width, height, color: 0x000000ff });
-  fillXorshiftNoise(image.bitmap.data);
-  return new Uint8Array(await image.getBuffer('image/gif'));
-}
-
-interface GifWriterLike {
-  addFrame(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    indexedPixels: number[],
-    opts: { palette: number[]; delay: number },
-  ): void;
-  end(): number;
-}
-
-function indexedGif(width: number, height: number, frames: readonly number[][]): Uint8Array {
-  const requireLocal = createRequire(import.meta.url);
-  const gifModule = requireLocal('omggif') as {
-    GifWriter: new (buf: number[], w: number, h: number, opts?: { loop?: number }) => GifWriterLike;
-  };
-  const palette = [0x000000, 0xffffff];
-  const buffer = Array.from<number>({ length: width * height * frames.length });
-  const writer = new gifModule.GifWriter(buffer, width, height, { loop: 0 });
-  for (const pixels of frames) {
-    writer.addFrame(0, 0, width, height, pixels, { palette, delay: 10 });
-  }
-  return new Uint8Array(buffer.slice(0, writer.end()));
-}
-
-function animatedGif(width: number, height: number): Uint8Array {
-  return indexedGif(width, height, [
-    Array.from({ length: width * height }, () => 0),
-    Array.from({ length: width * height }, () => 1),
-  ]);
-}
-
 function fillXorshiftNoise(data: Buffer | Uint8Array): void {
   let state = 0x9e3779b9;
   const next = (): number => {
@@ -133,13 +107,32 @@ async function encodeWebp(
   image: { bitmap: { data: Buffer | Uint8Array; width: number; height: number } },
   quality = 90,
 ): Promise<Uint8Array> {
+  const requireLocal = createRequire(import.meta.url);
+  const encMod = (await import(
+    requireLocal.resolve('@jsquash/webp/encode.js')
+  )) as typeof import('@jsquash/webp/encode.js');
+  const { readFileSync } = await import('node:fs');
+  const wasmNamespace = (
+    globalThis as unknown as { WebAssembly: { compile(bytes: Uint8Array): Promise<object> } }
+  ).WebAssembly;
+  const wasm = await wasmNamespace.compile(
+    readFileSync(requireLocal.resolve('@jsquash/webp/codec/enc/webp_enc.wasm')),
+  );
+  await encMod.init(wasm as never);
   const { bitmap } = image;
-  const png = await Jimp.fromBitmap({
-    data: Buffer.from(bitmap.data.buffer, bitmap.data.byteOffset, bitmap.data.byteLength),
-    width: bitmap.width,
-    height: bitmap.height,
-  }).getBuffer('image/png');
-  return new Uint8Array(await new Bun.Image(png).webp({ quality }).bytes());
+  const encoded = await encMod.default(
+    {
+      data: new Uint8ClampedArray(
+        bitmap.data.buffer,
+        bitmap.data.byteOffset,
+        bitmap.data.byteLength,
+      ),
+      width: bitmap.width,
+      height: bitmap.height,
+    } as never,
+    { quality },
+  );
+  return new Uint8Array(encoded);
 }
 
 function animatedWebpHeader(): Uint8Array {
@@ -248,7 +241,7 @@ describe('compressImageForModel — byte budget', () => {
   });
 
   it('drops alpha to JPEG only as a last resort under a tiny budget', async () => {
-    const png = await noisePng(400, 400, true);
+    const png = await noisePng(400, 400,   true);
     const result = await compressImageForModel(png, 'image/png', { byteBudget: 4 * 1024 });
     expect(result.changed).toBe(true);
     expect(result.mimeType).toBe('image/jpeg');
@@ -274,22 +267,27 @@ describe('compressImageForModel — byte budget', () => {
     expect(Math.max(result.width, result.height)).toBe(2000);
   });
 
-  it('re-runs the JPEG quality ladder at fallback sizes instead of jumping to q20', async () => {
-    const jpeg = await randomNoiseJpeg(2400, 300);
-    const probe = new Bun.Image(jpeg).resize(1000, 125);
-    const q60Size = (await probe.jpeg({ quality: 60 }).buffer()).length;
-    const q20Size = (await probe.jpeg({ quality: 20 }).buffer()).length;
-    expect(q60Size).toBeGreaterThan(q20Size);
+  it(
+    're-runs the JPEG quality ladder at fallback sizes instead of jumping to q20',
+    async () => {
+      const jpeg = await randomNoiseJpeg(2400, 300);
+      const probe = await Jimp.fromBuffer(Buffer.from(jpeg));
+      probe.resize({ w: 2000, h: 250 });
+      probe.resize({ w: 1000, h: 125 });
+      const q60Size = (await probe.getBuffer('image/jpeg', { quality: 60 })).length;
+      const q20Size = (await probe.getBuffer('image/jpeg', { quality: 20 })).length;
+      expect(q60Size).toBeGreaterThan(q20Size);
 
-    const result = await compressImageForModel(jpeg, 'image/jpeg', {
-      byteBudget: q60Size + 256,
-    });
-    expect(result.changed).toBe(true);
-    expect(result.mimeType).toBe('image/jpeg');
-    expect(Math.max(result.width, result.height)).toBe(1000);
-    expect(result.finalByteLength).toBeLessThanOrEqual(q60Size + 256);
-    expect(result.finalByteLength).toBeGreaterThan(q20Size);
-  }, 15_000);
+      const result = await compressImageForModel(jpeg, 'image/jpeg', {
+        byteBudget: q60Size + 256,
+      });
+      expect(result.changed).toBe(true);
+      expect(result.mimeType).toBe('image/jpeg');
+      expect(Math.max(result.width, result.height)).toBe(1000);
+      expect(result.finalByteLength).toBe(q60Size);
+    },
+    15_000,
+  );
 });
 
 describe('compressImageForModel — fallback', () => {
@@ -307,7 +305,7 @@ describe('compressImageForModel — fallback', () => {
     expect(result.data).toBe(empty);
   });
 
-  it('passes a within-budget GIF through untouched (preserves animation)', async () => {
+  it('passes GIF through (preserves animation)', async () => {
     const gif = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0]);
     const result = await compressImageForModel(gif, 'image/gif');
     expect(result.changed).toBe(false);
@@ -315,7 +313,9 @@ describe('compressImageForModel — fallback', () => {
   });
 
   it('passes a tiny within-budget WebP through untouched (fast path)', async () => {
-    const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
+    const webp = new Uint8Array([
+      0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50,
+    ]);
     const result = await compressImageForModel(webp, 'image/webp');
     expect(result.changed).toBe(false);
     expect(result.data).toBe(webp);
@@ -344,36 +344,48 @@ describe('compressImageForModel — fallback', () => {
 });
 
 describe('compressImageForModel — webp', () => {
-  it('downscales an oversized WebP to the edge cap', async () => {
-    const source = new Jimp({ width: 2100, height: 1050, color: 0x3366ccff });
-    const webp = await encodeWebp(source);
-    const result = await compressImageForModel(webp, 'image/webp');
-    expect(result.changed).toBe(true);
-    expect(Math.max(result.width, result.height)).toBe(2000);
-    expect(result.originalWidth).toBe(2100);
-    expect(result.originalHeight).toBe(1050);
-    expect(sniffImageDimensions(result.data)).toEqual({ width: 2000, height: 1000 });
-  }, 15_000);
+  it(
+    'downscales an oversized WebP to the edge cap',
+    async () => {
+      const source = new Jimp({ width: 2100, height: 1050, color: 0x3366ccff });
+      const webp = await encodeWebp(source);
+      const result = await compressImageForModel(webp, 'image/webp');
+      expect(result.changed).toBe(true);
+      expect(Math.max(result.width, result.height)).toBe(2000);
+      expect(result.originalWidth).toBe(2100);
+      expect(result.originalHeight).toBe(1050);
+      expect(sniffImageDimensions(result.data)).toEqual({ width: 2000, height: 1000 });
+    },
+    15_000,
+  );
 
-  it('re-encodes an over-budget WebP within the byte budget', async () => {
-    const budget = 128 * 1024;
-    const noisy = new Jimp({ width: 700, height: 700, color: 0x000000ff });
-    fillXorshiftNoise(noisy.bitmap.data);
-    const webp = await encodeWebp(noisy, 100);
-    expect(webp.length).toBeGreaterThan(budget);
-    const result = await compressImageForModel(webp, 'image/webp', { byteBudget: budget });
-    expect(result.changed).toBe(true);
-    expect(result.finalByteLength).toBeLessThanOrEqual(budget);
-  }, 15_000);
+  it(
+    're-encodes an over-budget WebP within the byte budget',
+    async () => {
+      const budget = 128 * 1024;
+      const noisy = new Jimp({ width: 700, height: 700, color: 0x000000ff });
+      fillXorshiftNoise(noisy.bitmap.data);
+      const webp = await encodeWebp(noisy, 100);
+      expect(webp.length).toBeGreaterThan(budget);
+      const result = await compressImageForModel(webp, 'image/webp', { byteBudget: budget });
+      expect(result.changed).toBe(true);
+      expect(result.finalByteLength).toBeLessThanOrEqual(budget);
+    },
+    15_000,
+  );
 
-  it('keeps alpha when re-encoding a translucent WebP', async () => {
-    const translucent = new Jimp({ width: 2100, height: 1050, color: 0x33_66_cc_80 });
-    const webp = await encodeWebp(translucent);
-    const result = await compressImageForModel(webp, 'image/webp');
-    expect(result.changed).toBe(true);
-    expect(result.mimeType).toBe('image/png');
-    expect(await decodeAlpha(result.data)).toBe(true);
-  }, 15_000);
+  it(
+    'keeps alpha when re-encoding a translucent WebP',
+    async () => {
+      const translucent = new Jimp({ width: 2100, height: 1050, color: 0x33_66_cc_80 });
+      const webp = await encodeWebp(translucent);
+      const result = await compressImageForModel(webp, 'image/webp');
+      expect(result.changed).toBe(true);
+      expect(result.mimeType).toBe('image/png');
+      expect(await decodeAlpha(result.data)).toBe(true);
+    },
+    15_000,
+  );
 
   it('passes an animated WebP through to preserve animation', async () => {
     const animated = animatedWebpHeader();
@@ -382,22 +394,26 @@ describe('compressImageForModel — webp', () => {
     expect(result.data).toBe(animated);
   });
 
-  it('crops a region out of a WebP', async () => {
-    const source = new Jimp({ width: 800, height: 400, color: 0x3366ccff });
-    const webp = await encodeWebp(source);
-    const result = await cropImageForModel(webp, 'image/webp', {
-      x: 10,
-      y: 20,
-      width: 300,
-      height: 200,
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.width).toBe(300);
-    expect(result.height).toBe(200);
-    expect(result.originalWidth).toBe(800);
-    expect(result.originalHeight).toBe(400);
-  }, 15_000);
+  it(
+    'crops a region out of a WebP',
+    async () => {
+      const source = new Jimp({ width: 800, height: 400, color: 0x3366ccff });
+      const webp = await encodeWebp(source);
+      const result = await cropImageForModel(webp, 'image/webp', {
+        x: 10,
+        y: 20,
+        width: 300,
+        height: 200,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.width).toBe(300);
+      expect(result.height).toBe(200);
+      expect(result.originalWidth).toBe(800);
+      expect(result.originalHeight).toBe(400);
+    },
+    15_000,
+  );
 
   it('refuses to crop an animated WebP', async () => {
     const result = await cropImageForModel(animatedWebpHeader(), 'image/webp', {
@@ -410,38 +426,6 @@ describe('compressImageForModel — webp', () => {
     if (result.ok) return;
     expect(result.error).toContain('animated WebP');
   });
-});
-
-describe('compressImageForModel — gif', () => {
-  it('recodes an over-budget GIF within the byte budget', async () => {
-    const budget = 32 * 1024;
-    const gif = await noiseGif(500, 500);
-    expect(gif.length).toBeGreaterThan(budget);
-    const result = await compressImageForModel(gif, 'image/gif', { byteBudget: budget });
-    expect(result.changed).toBe(true);
-    expect(result.finalByteLength).toBeLessThanOrEqual(budget);
-    expect(sniffImageDimensions(result.data)).not.toBeNull();
-    expect(Math.max(result.width, result.height)).toBeLessThanOrEqual(MAX_IMAGE_EDGE_PX);
-  }, 15_000);
-
-  it('downscales an oversized GIF to the edge cap', async () => {
-    const gif = indexedGif(2100, 1050, [Array.from({ length: 2100 * 1050 }, () => 0)]);
-    const result = await compressImageForModel(gif, 'image/gif');
-    expect(result.changed).toBe(true);
-    expect(Math.max(result.width, result.height)).toBe(MAX_IMAGE_EDGE_PX);
-    expect(result.originalWidth).toBe(2100);
-    expect(result.originalHeight).toBe(1050);
-    expect(sniffImageDimensions(result.data)).toEqual({ width: 2000, height: 1000 });
-  });
-
-  it('recodes an oversized animated GIF from its decodable first frame', async () => {
-    const gif = animatedGif(2100, 1050);
-    const result = await compressImageForModel(gif, 'image/gif');
-    expect(result.changed).toBe(true);
-    expect(Math.max(result.width, result.height)).toBe(MAX_IMAGE_EDGE_PX);
-    const decoded = await Jimp.fromBuffer(Buffer.from(result.data));
-    expect(decoded.bitmap.data[0]).toBe(0);
-  }, 30_000);
 });
 
 describe('compressImageForModel — invariants', () => {
@@ -530,14 +514,14 @@ describe('compressImageContentParts', () => {
     const big = await solidPng(2100, 1050);
     const parts = [
       { type: 'text' as const, text: 'look at this' },
-      { type: 'image_url' as const, imageUrl: { url: dataUrl('image/png', big) } },
+      image(dataUrl('image/png', big)),
     ];
     const { parts: out } = await compressImageContentParts(parts);
 
     expect(out[0]).toEqual({ type: 'text', text: 'look at this' });
     const imagePart = out[1];
     if (imagePart?.type !== 'image_url') throw new Error('expected image_url');
-    const match = /^data:(image\/[a-z]+);base64,(.+)$/.exec(imagePart.imageUrl.url);
+    const match = /^data:(image\/[a-z]+);base64,(.+)$/.exec(mediaUrlOf(imagePart));
     expect(match).not.toBeNull();
     const dims = sniffImageDimensions(Buffer.from(match![2]!, 'base64'));
     expect(Math.max(dims!.width, dims!.height)).toBeLessThanOrEqual(MAX_IMAGE_EDGE_PX);
@@ -546,42 +530,33 @@ describe('compressImageContentParts', () => {
   it('preserves the part identity for a within-budget image (no change)', async () => {
     const small = await solidPng(48, 48);
     const url = dataUrl('image/png', small);
-    const parts = [{ type: 'image_url' as const, imageUrl: { url } }];
+    const parts = [image(url)];
     const { parts: out } = await compressImageContentParts(parts);
-    expect(out[0]).toEqual({ type: 'image_url', imageUrl: { url } });
+    expect(out[0]).toEqual(image(url));
   });
 
   it('leaves remote (non-data) image URLs untouched', async () => {
-    const parts = [
-      { type: 'image_url' as const, imageUrl: { url: 'https://example.com/pic.png' } },
-    ];
+    const url = 'https://example.com/pic.png';
+    const parts = [image(url)];
     const { parts: out } = await compressImageContentParts(parts);
-    expect(out[0]).toEqual({ type: 'image_url', imageUrl: { url: 'https://example.com/pic.png' } });
+    expect(out[0]).toEqual(image(url));
   });
 
   it('keeps an image part id when rewriting the compressed url', async () => {
     const big = await solidPng(2100, 1050);
-    const parts = [
-      { type: 'image_url' as const, imageUrl: { url: dataUrl('image/png', big), id: 'att-1' } },
-    ];
+    const parts = [image(dataUrl('image/png', big), 'att-1')];
     const { parts: out } = await compressImageContentParts(parts);
     const imagePart = out[0];
     if (imagePart?.type !== 'image_url') throw new Error('expected image_url');
     expect(imagePart.imageUrl.id).toBe('att-1');
-    expect(imagePart.imageUrl.url).not.toBe(dataUrl('image/png', big));
+    expect(mediaUrlOf(imagePart)).not.toBe(dataUrl('image/png', big));
   });
 
   it('drops image parts the provider cannot accept, replacing each with a notice', async () => {
     const parts = [
       { type: 'text' as const, text: 'search results' },
-      {
-        type: 'image_url' as const,
-        imageUrl: { url: dataUrl('image/avif', new Uint8Array([1, 2, 3])) },
-      },
-      {
-        type: 'image_url' as const,
-        imageUrl: { url: dataUrl('image/heic', new Uint8Array([4, 5, 6])) },
-      },
+      image(dataUrl('image/avif', new Uint8Array([1, 2, 3]))),
+      image(dataUrl('image/heic', new Uint8Array([4, 5, 6]))),
     ];
     const { parts: out, captions } = await compressImageContentParts(parts);
 
@@ -596,9 +571,9 @@ describe('compressImageContentParts', () => {
   it('passes the accepted formats through the format gate untouched', async () => {
     for (const mime of ['image/png', 'image/jpeg', 'image/gif', 'image/webp']) {
       const url = dataUrl(mime, new Uint8Array([1, 2, 3]));
-      const parts = [{ type: 'image_url' as const, imageUrl: { url } }];
+      const parts = [image(url)];
       const { parts: out } = await compressImageContentParts(parts);
-      expect(out[0]).toEqual({ type: 'image_url', imageUrl: { url } });
+      expect(out[0]).toEqual(image(url));
     }
   });
 
@@ -606,25 +581,15 @@ describe('compressImageContentParts', () => {
     const bytes = new Uint8Array([1, 2, 3]);
     const base64 = Buffer.from(bytes).toString('base64');
     for (const alias of ['image/jpg', 'Image/JPEG', ' image/jpeg ']) {
-      const parts = [
-        { type: 'image_url' as const, imageUrl: { url: `data:${alias};base64,${base64}` } },
-      ];
+      const parts = [image(`data:${alias};base64,${base64}`)];
       const { parts: out, captions } = await compressImageContentParts(parts);
-      expect(out[0]).toEqual({
-        type: 'image_url',
-        imageUrl: { url: `data:image/jpeg;base64,${base64}` },
-      });
+      expect(out[0]).toEqual(image(`data:image/jpeg;base64,${base64}`));
       expect(captions).toEqual([]);
     }
   });
 
   it('drops an unsupported image even when its data URL carries MIME parameters', async () => {
-    const parts = [
-      {
-        type: 'image_url' as const,
-        imageUrl: { url: dataUrl('image/avif;charset=utf-8', new Uint8Array([1, 2, 3])) },
-      },
-    ];
+    const parts = [image(dataUrl('image/avif;charset=utf-8', new Uint8Array([1, 2, 3])))];
     const { parts: out } = await compressImageContentParts(parts);
     expect(out.some((p) => p.type === 'image_url')).toBe(false);
     expect(out[0]).toMatchObject({ type: 'text' });
@@ -640,44 +605,36 @@ describe('gateImageFormatParts', () => {
   it('replaces every unsupported inline image with a notice and keeps the rest', () => {
     const parts = [
       { type: 'text' as const, text: 'results' },
-      { type: 'image_url' as const, imageUrl: { url: dataUrl('image/avif', new Uint8Array([1])) } },
-      { type: 'image_url' as const, imageUrl: { url: dataUrl('image/bmp', new Uint8Array([2])) } },
-      { type: 'video_url' as const, videoUrl: { url: dataUrl('video/mp4', new Uint8Array([3])) } },
-      { type: 'image_url' as const, imageUrl: { url: dataUrl('image/png', new Uint8Array([4])) } },
+      image(dataUrl('image/avif', new Uint8Array([1]))),
+      image(dataUrl('image/bmp', new Uint8Array([2]))),
+      video(dataUrl('video/mp4', new Uint8Array([3]))),
+      image(dataUrl('image/png', new Uint8Array([4]))),
     ];
     const out = gateImageFormatParts(parts);
 
-    expect(out[0]!).toEqual({ type: 'text', text: 'results' });
+    expect(out[0]).toEqual({ type: 'text', text: 'results' });
     const notices = out.filter((p) => p.type === 'text').map((p) => (p as { text: string }).text);
     expect(notices.some((t) => t.includes('image/avif'))).toBe(true);
     expect(notices.some((t) => t.includes('image/bmp'))).toBe(true);
-    expect(out).toContainEqual(parts[3]!);
-    expect(out).toContainEqual(parts[4]!);
+    expect(out).toContainEqual(parts[3]);
+    expect(out).toContainEqual(parts[4]);
     expect(
-      out.some((p) => p.type === 'image_url' && !p.imageUrl.url.startsWith('data:image/png')),
+      out.some(
+        (p) => p.type === 'image_url' && !mediaUrlOf(p).startsWith('data:image/png'),
+      ),
     ).toBe(false);
   });
 
   it('rewrites accepted MIME aliases to canonical form', () => {
     const base64 = Buffer.from([1, 2, 3]).toString('base64');
-    const out = gateImageFormatParts([
-      { type: 'image_url', imageUrl: { url: `data:image/jpg;base64,${base64}` } },
-    ]);
-    expect(out[0]).toEqual({
-      type: 'image_url',
-      imageUrl: { url: `data:image/jpeg;base64,${base64}` },
-    });
+    const out = gateImageFormatParts([image(`data:image/jpg;base64,${base64}`)]);
+    expect(out[0]).toEqual(image(`data:image/jpeg;base64,${base64}`));
   });
 
   it('rewrites an accepted MIME carrying parameters to the bare canonical form', () => {
     const base64 = Buffer.from([1, 2, 3]).toString('base64');
-    const out = gateImageFormatParts([
-      { type: 'image_url', imageUrl: { url: `data:image/jpeg;charset=utf-8;base64,${base64}` } },
-    ]);
-    expect(out[0]).toEqual({
-      type: 'image_url',
-      imageUrl: { url: `data:image/jpeg;base64,${base64}` },
-    });
+    const out = gateImageFormatParts([image(`data:image/jpeg;charset=utf-8;base64,${base64}`)]);
+    expect(out[0]).toEqual(image(`data:image/jpeg;base64,${base64}`));
   });
 
   it('gates on the sniffed bytes, not the declared MIME', () => {
@@ -691,39 +648,24 @@ describe('gateImageFormatParts', () => {
     };
 
     const mislabeled = gateImageFormatParts([
-      {
-        type: 'image_url',
-        imageUrl: { url: `data:image/png;base64,${ftyp('avif').toString('base64')}` },
-      },
+      image(`data:image/png;base64,${ftyp('avif').toString('base64')}`),
     ]);
     expect(mislabeled.some((p) => p.type === 'image_url')).toBe(false);
     expect((mislabeled[0] as { text: string }).text).toContain('image/avif');
 
     const video = gateImageFormatParts([
-      {
-        type: 'image_url',
-        imageUrl: { url: `data:image/png;base64,${ftyp('isom').toString('base64')}` },
-      },
+      image(`data:image/png;base64,${ftyp('isom').toString('base64')}`),
     ]);
     expect(video.some((p) => p.type === 'image_url')).toBe(false);
     expect((video[0] as { text: string }).text).toContain('video/mp4');
 
     const rescued = gateImageFormatParts([
-      {
-        type: 'image_url',
-        imageUrl: { url: `data:image/avif;base64,${pngBytes.toString('base64')}` },
-      },
+      image(`data:image/avif;base64,${pngBytes.toString('base64')}`),
     ]);
-    expect(rescued[0]).toEqual({
-      type: 'image_url',
-      imageUrl: { url: `data:image/png;base64,${pngBytes.toString('base64')}` },
-    });
+    expect(rescued[0]).toEqual(image(`data:image/png;base64,${pngBytes.toString('base64')}`));
 
     const garbage = gateImageFormatParts([
-      {
-        type: 'image_url',
-        imageUrl: { url: `data:image/png;base64,${Buffer.from([1, 2, 3]).toString('base64')}` },
-      },
+      image(`data:image/png;base64,${Buffer.from([1, 2, 3]).toString('base64')}`),
     ]);
     expect(garbage[0]).toMatchObject({ type: 'image_url' });
   });
@@ -731,17 +673,10 @@ describe('gateImageFormatParts', () => {
   it('parses the base64 marker case-insensitively', () => {
     const base64 = Buffer.from([1, 2, 3]).toString('base64');
 
-    const accepted = gateImageFormatParts([
-      { type: 'image_url', imageUrl: { url: `data:image/jpeg;BASE64,${base64}` } },
-    ]);
-    expect(accepted[0]).toEqual({
-      type: 'image_url',
-      imageUrl: { url: `data:image/jpeg;base64,${base64}` },
-    });
+    const accepted = gateImageFormatParts([image(`data:image/jpeg;BASE64,${base64}`)]);
+    expect(accepted[0]).toEqual(image(`data:image/jpeg;base64,${base64}`));
 
-    const unsupported = gateImageFormatParts([
-      { type: 'image_url', imageUrl: { url: `data:image/avif;BASE64,${base64}` } },
-    ]);
+    const unsupported = gateImageFormatParts([image(`data:image/avif;BASE64,${base64}`)]);
     expect(unsupported.some((p) => p.type === 'image_url')).toBe(false);
     expect((unsupported[0] as { text: string }).text).toContain('image/avif');
   });
@@ -755,7 +690,7 @@ describe('gateImageFormatParts', () => {
       'https://example.com/icon.ico',
       'https://example.com/logo.svg',
     ]) {
-      const out = gateImageFormatParts([{ type: 'image_url', imageUrl: { url: bad } }]);
+      const out = gateImageFormatParts([image(bad)]);
       expect(out[0]).toMatchObject({ type: 'text' });
       expect((out[0] as { text: string }).text).toContain(bad);
     }
@@ -765,7 +700,7 @@ describe('gateImageFormatParts', () => {
       'https://example.com/avatar',
       'https://cdn.example.com/v2/image?id=123',
     ]) {
-      const part = { type: 'image_url' as const, imageUrl: { url: ok } };
+      const part = image(ok);
       expect(gateImageFormatParts([part])).toEqual([part]);
     }
   });
@@ -776,7 +711,7 @@ describe('gateImageFormatParts', () => {
       buildDaemonFileUrl(fileId),
       `kimi-file://${fileId}?path=${encodeURIComponent('/tmp/upload/photo.heic')}`,
     ]) {
-      const part = { type: 'image_url' as const, imageUrl: { url } };
+      const part = image(url);
       expect(gateImageFormatParts([part])).toEqual([part]);
     }
   });
@@ -790,7 +725,7 @@ describe('gateImageFormatParts', () => {
       'DATA:image/avif',
     ];
     for (const url of cases) {
-      const out = gateImageFormatParts([{ type: 'image_url', imageUrl: { url } }]);
+      const out = gateImageFormatParts([image(url)]);
       expect(out.some((p) => p.type === 'image_url')).toBe(false);
       expect(out[0]).toMatchObject({ type: 'text' });
       expect((out[0] as { text: string }).text).toContain('not a valid data URL');
@@ -799,7 +734,7 @@ describe('gateImageFormatParts', () => {
 
   it('truncates a long malformed data URL in the notice', () => {
     const url = `data:image/png${'x'.repeat(500)}`;
-    const out = gateImageFormatParts([{ type: 'image_url', imageUrl: { url } }]);
+    const out = gateImageFormatParts([image(url)]);
     const notice = (out[0] as { text: string }).text;
     expect(notice.length).toBeLessThan(250);
     expect(notice).not.toContain(url);
@@ -873,7 +808,7 @@ describe('provider-aware image format policy', () => {
       0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63,
     ]).toString('base64');
     const url = `data:image/heic;base64,${base64}`;
-    const part = { type: 'image_url' as const, imageUrl: { url } };
+    const part = image(url);
     expect(gateImageFormatParts([part], 'kimi')).toEqual([part]);
     const rejected = gateImageFormatParts([part]);
     expect(rejected.some((p) => p.type === 'image_url')).toBe(false);
@@ -1045,8 +980,8 @@ describe('cropImageForModel', () => {
   });
 
   it('rejects non-recodable formats explicitly', async () => {
-    const bmp = new Uint8Array([0x42, 0x4d, 1, 2, 3, 4]);
-    const result = await cropImageForModel(bmp, 'image/bmp', {
+    const gif = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0]);
+    const result = await cropImageForModel(gif, 'image/gif', {
       x: 0,
       y: 0,
       width: 1,
@@ -1054,7 +989,7 @@ describe('cropImageForModel', () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toMatch(/PNG, JPEG, GIF, and WebP/);
+    expect(result.error).toMatch(/PNG, JPEG, and WebP/);
   });
 
   it('rejects corrupt bytes without throwing', async () => {
@@ -1183,7 +1118,7 @@ describe('compressImageContentParts — annotate', () => {
   it('collects a caption for a compressed image and persists the original', async () => {
     const big = await solidPng(2100, 1050);
     const persisted: { bytes: Uint8Array; mimeType: string }[] = [];
-    const parts = [{ type: 'image_url' as const, imageUrl: { url: dataUrl('image/png', big) } }];
+    const parts = [image(dataUrl('image/png', big))];
     const out = await compressImageContentParts(parts, {
       annotate: {
         persistOriginal: (bytes, mimeType) => {
@@ -1206,20 +1141,17 @@ describe('compressImageContentParts — annotate', () => {
   it('collects no caption when the image passes through unchanged', async () => {
     const small = await solidPng(48, 48);
     const url = dataUrl('image/png', small);
-    const out = await compressImageContentParts(
-      [{ type: 'image_url' as const, imageUrl: { url } }],
-      {
-        annotate: {},
-      },
-    );
+    const out = await compressImageContentParts([image(url)], {
+      annotate: {},
+    });
     expect(out.parts).toHaveLength(1);
-    expect(out.parts[0]).toEqual({ type: 'image_url', imageUrl: { url } });
+    expect(out.parts[0]).toEqual(image(url));
     expect(out.captions).toEqual([]);
   });
 
   it('captions without a path when persistence fails', async () => {
     const big = await solidPng(2100, 1050);
-    const parts = [{ type: 'image_url' as const, imageUrl: { url: dataUrl('image/png', big) } }];
+    const parts = [image(dataUrl('image/png', big))];
     const out = await compressImageContentParts(parts, {
       annotate: { persistOriginal: () => Promise.resolve(null) },
     });
@@ -1367,8 +1299,7 @@ function captureTelemetry(): { telemetry: ITelemetryService; events: CapturedEve
   const events: CapturedEvent[] = [];
   return {
     telemetry: {
-      track2: (event: string, props: unknown) =>
-        events.push({ event, props: (props ?? {}) as CapturedEvent['props'] }),
+      track2: (event: string, props: unknown) => events.push({ event, props: (props ?? {}) as CapturedEvent['props'] }),
     } as unknown as ITelemetryService,
     events,
   };
@@ -1422,33 +1353,30 @@ describe('compressImageForModel — telemetry', () => {
 
     const bomb = captureTelemetry();
     await compressImageForModel(new Uint8Array(header), 'image/png', {
-      telemetry: bomb.telemetry,
-      telemetrySource: 'mcp_tool_result',
+      telemetry: bomb.telemetry, telemetrySource: 'mcp_tool_result',
     });
     expect(bomb.events[0]!.props['outcome']).toBe('passthrough_guard');
 
     const byteCap = captureTelemetry();
     await compressImageForModel(await solidPng(2100, 100), 'image/png', {
       maxDecodeBytes: 64,
-      telemetry: byteCap.telemetry,
-      telemetrySource: 'mcp_tool_result',
+      telemetry: byteCap.telemetry, telemetrySource: 'mcp_tool_result',
     });
     expect(byteCap.events[0]!.props['outcome']).toBe('passthrough_guard');
   });
 
-  it('reports recodable-but-unchanged formats and empty input', async () => {
+  it('reports non-recodable formats and empty input as passthrough_unsupported', async () => {
     const gif = captureTelemetry();
     await compressImageForModel(
       new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0]),
       'image/gif',
       { telemetry: gif.telemetry, telemetrySource: 'mcp_tool_result' },
     );
-    expect(gif.events[0]!.props['outcome']).toBe('passthrough_fast');
+    expect(gif.events[0]!.props['outcome']).toBe('passthrough_unsupported');
 
     const empty = captureTelemetry();
     await compressImageForModel(new Uint8Array(0), 'image/png', {
-      telemetry: empty.telemetry,
-      telemetrySource: 'mcp_tool_result',
+      telemetry: empty.telemetry, telemetrySource: 'mcp_tool_result',
     });
     expect(empty.events[0]!.props['outcome']).toBe('passthrough_unsupported');
   });
@@ -1497,7 +1425,7 @@ describe('compressImageForModel — telemetry', () => {
     const { telemetry, events } = captureTelemetry();
     const big = await solidPng(2100, 1050);
     const url = `data:image/png;base64,${Buffer.from(big).toString('base64')}`;
-    await compressImageContentParts([{ type: 'image_url', imageUrl: { url } }], {
+    await compressImageContentParts([image(url)], {
       telemetry,
       telemetrySource: 'mcp_tool_result',
     });
@@ -1560,8 +1488,8 @@ describe('cropImageForModel — telemetry', () => {
 
     const format = captureTelemetry();
     await cropImageForModel(
-      new Uint8Array([0x42, 0x4d, 1, 2, 3, 4]),
-      'image/bmp',
+      new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0]),
+      'image/gif',
       { x: 0, y: 0, width: 1, height: 1 },
       { telemetry: format.telemetry, telemetrySource: 'read_media' },
     );
@@ -1572,12 +1500,7 @@ describe('cropImageForModel — telemetry', () => {
       await noisePng(400, 400),
       'image/png',
       { x: 0, y: 0, width: 400, height: 400 },
-      {
-        skipResize: true,
-        byteBudget: 8 * 1024,
-        telemetry: budget.telemetry,
-        telemetrySource: 'read_media',
-      },
+      { skipResize: true, byteBudget: 8 * 1024, telemetry: budget.telemetry, telemetrySource: 'read_media' },
     );
     expect(budget.events[0]!.props['error_kind']).toBe('budget');
   });

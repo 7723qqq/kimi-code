@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createToolMessage, createUserMessage } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
-import type { LlmRequestEvent } from '#/llm/requester/requester';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
+import { createToolMessage, createUserMessage } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import { createGoogleGenAIRequester } from '#human/llm/requester/bases/google-genai/requester';
+import type { LlmRequestEvent } from '#human/llm/requester/requester';
 
 const model: LlmModel = {
   provider: 'test',

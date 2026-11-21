@@ -1,14 +1,14 @@
-import { isAbortError, toLlmErrorMessage, toLlmTransportErrorMessage } from '#/llm/errors';
-import type { ProtocolBase } from '#/llm/protocol/base';
+import { isAbortError, toLlmErrorMessage, toLlmTransportErrorMessage } from '#human/llm/errors';
+import type { ProtocolBase } from '#human/llm/protocol/base';
 import {
   type LlmRequestConfig,
   type LlmRequestContent,
   type LlmRequestControl,
   type LlmRequester,
-} from '#/llm/requester/requester';
-import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
-import { thinkingMetadataOf } from '#/llm/thinking';
-import type { Message } from '#human/llm/message';
+} from '#human/llm/requester/requester';
+import { createThinkingTagEventHandler } from '#human/llm/requester/thinking-tags';
+import { thinkingMetadataOf } from '#human/llm/thinking';
+import type { Message } from '#human/message';
 
 import { AntigravityChatProvider, getAntigravityModelCapability } from './antigravity';
 

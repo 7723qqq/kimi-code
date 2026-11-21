@@ -1,8 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it, beforeEach, afterEach } from '@moonshot-ai/testkit/vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import { appendSessionIndexEntry, ensureSessionIndexEntry } from '../src/session-index.js';
 
 let target: string;
@@ -59,7 +58,6 @@ describe('ensureSessionIndexEntry', () => {
       sessionDir: '/abs/x',
       workDir: '/abs/wd',
     });
-    // Same id, different dir — must not add a duplicate line.
     await ensureSessionIndexEntry(target, {
       sessionId: 'ses_x',
       sessionDir: '/abs/x-rerun',

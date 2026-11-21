@@ -1,22 +1,8 @@
-/**
- * Skill activation card.
- *
- * When the user runs `/skill:foo bar`, the TUI renders a compact card instead
- * of expanding the SKILL.md body into the user bubble:
- *
- *   ▶ Activated skill: foo
- *     bar
- *
- * The args line is optional. Core expands the skill body into the LLM context;
- * the TUI only consumes the `skill.activated` event and user_message origin
- * metadata.
- */
-
 import { Container, Text, Spacer } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import type { SkillActivationTrigger } from '#/tui/types';
+import { t } from '#/i18n';
 
 const ARGS_PREVIEW_MAX = 200;
 
@@ -49,7 +35,6 @@ export class SkillActivationComponent extends Container {
     }
   }
 
-  /** Whether the model (rather than the user's `/skill`) loaded this skill. */
   get loadedByModel(): boolean {
     return this.trigger === 'model-tool' || this.trigger === 'nested-skill';
   }

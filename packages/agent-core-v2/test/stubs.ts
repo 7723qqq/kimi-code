@@ -1,17 +1,17 @@
-import { isError2 } from '#/_base/errors/errors';
 import { Emitter, type Event } from '#/_base/event';
+import { isError2 } from '#/_base/errors/errors';
 import type { IOAuthService } from '#/app/auth/auth';
-import type { IConfigService } from '#/app/config/config';
 import {
   type ConfigChangedEvent,
   type ConfigDiagnostic,
   type ConfigInspectValue,
+  IConfigService,
   type ResolvedConfig,
 } from '#/app/config/config';
 import type { IProviderDiscoveryService, RetiredModel } from '#/app/kosongConfig/discovery';
-import { ErrorCodes } from '#/errors';
 import type { IModelOAuthTokens } from '#/llm-adapter/model/model-oauth';
 import type { ISessionLockService } from '#/persistence/interface/sessionLock';
+import { ErrorCodes } from '#/errors';
 import type { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 
 export class StubConfigService implements IConfigService {
@@ -35,8 +35,6 @@ export class StubConfigService implements IConfigService {
     return this._values.get(domain) as T;
   }
 
-  assertValid(_domain: string): void {}
-
   inspect<T = unknown>(domain: string): ConfigInspectValue<T> {
     return {
       value: this._values.get(domain) as T | undefined,
@@ -45,6 +43,8 @@ export class StubConfigService implements IConfigService {
       memoryValue: undefined,
     };
   }
+
+  assertValid(): void {}
 
   getAll(): ResolvedConfig {
     return Object.fromEntries(this._values) as ResolvedConfig;
@@ -125,13 +125,13 @@ export function stubOAuthService(tokenProvider?: StubTokenProvider): IOAuthServi
   return {
     _serviceBrand: undefined,
     startLogin: () => Promise.reject(new Error('not implemented')),
-    getFlow: () => {},
+    getFlow: () => undefined,
     cancelLogin: () => Promise.reject(new Error('not implemented')),
     logout: () => Promise.reject(new Error('not implemented')),
     status: () => Promise.resolve({ loggedIn: false }),
     refreshOAuthProviderModels: () => Promise.reject(new Error('not implemented')),
     resolveTokenProvider: () => tokenProvider,
-    getCachedAccessToken: () => Promise.resolve(),
+    getCachedAccessToken: () => Promise.resolve(undefined),
   } as unknown as IOAuthService;
 }
 
@@ -166,7 +166,9 @@ export function stubModelOAuthTokens(
     getAccessToken: (_provider, _oauthRef, options) =>
       tokenProvider === undefined
         ? Promise.reject(new Error('auth.login_required'))
-        : tokenProvider.getAccessToken(options?.force === true ? { force: true } : undefined),
+        : tokenProvider.getAccessToken(
+            options?.force === true ? { force: true } : undefined,
+          ),
   };
 }
 
@@ -174,9 +176,7 @@ export function stubSessionRunGate(
   locks: ISessionLockService,
   sessionId = 'test-session',
 ): ISessionRunGate {
-  const begin = (): void => {
-    locks.hold(sessionId);
-  };
+  const begin = () => locks.hold(sessionId);
   return {
     _serviceBrand: undefined,
     begin,

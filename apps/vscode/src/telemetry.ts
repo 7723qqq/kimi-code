@@ -1,25 +1,26 @@
+import * as vscode from "vscode";
+
 import {
   createKimiDeviceId,
   KIMI_CODE_PROVIDER_NAME,
   KIMI_REGION_PROFILES,
-} from '@moonshot-ai/kimi-code-oauth';
+} from "@moonshot-ai/kimi-code-oauth";
 import {
   KimiAuthFacade,
   loadRuntimeConfigSafe,
   resolveConfigPath,
   resolveKimiHome,
   type KimiConfig,
-} from '@moonshot-ai/kimi-code-sdk';
+} from "@moonshot-ai/kimi-code-sdk";
 import {
   initializeTelemetry,
   setTelemetryEnabled,
   shouldEnableTelemetry,
   shutdownTelemetry,
   track,
-} from '@moonshot-ai/kimi-telemetry';
-import * as vscode from 'vscode';
+} from "@moonshot-ai/kimi-telemetry";
 
-import { resolveExtensionRegion } from './utils/region';
+import { resolveExtensionRegion } from "./utils/region";
 
 const SHUTDOWN_TIMEOUT_MS = 2000;
 
@@ -47,9 +48,9 @@ export function activateExtensionTelemetry(options: ExtensionTelemetryOptions): 
     deviceId,
     enabled: config.telemetry !== false,
     initiallyEnabled: vscode.env.isTelemetryEnabled,
-    appName: 'kimi-code-vscode',
+    appName: "kimi-code-vscode",
     version: options.version,
-    uiMode: 'vscode',
+    uiMode: "vscode",
     model: config.defaultModel,
     region: resolution.region,
     regionSource: resolution.source,
@@ -60,7 +61,7 @@ export function activateExtensionTelemetry(options: ExtensionTelemetryOptions): 
   });
 
   const staticallyEnabled = shouldEnableTelemetry({ enabled: config.telemetry !== false });
-  if (firstLaunch) track('first_launch');
+  if (firstLaunch) track("first_launch");
 
   return vscode.env.onDidChangeTelemetryEnabled((enabled) => {
     if (staticallyEnabled) setTelemetryEnabled(enabled);
@@ -71,7 +72,9 @@ export async function deactivateExtensionTelemetry(): Promise<void> {
   await shutdownTelemetry({ timeoutMs: SHUTDOWN_TIMEOUT_MS });
 }
 
-function readTelemetryConfig(configPath: string): Pick<KimiConfig, 'telemetry' | 'defaultModel'> {
+function readTelemetryConfig(
+  configPath: string,
+): Pick<KimiConfig, "telemetry" | "defaultModel"> {
   try {
     const { config, fileError } = loadRuntimeConfigSafe(configPath);
     if (fileError !== undefined) return {};

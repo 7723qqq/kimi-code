@@ -8,7 +8,6 @@ import {
 } from '#/tui/components/messages/user-message';
 import { getTranscriptComponentEntry } from '#/tui/utils/transcript-component-metadata';
 
-/** Whether a component starts a new turn, live or replayed. */
 export function isTurnBoundaryComponent(child: Component): boolean {
   if (
     !(child instanceof UserMessageComponent) &&

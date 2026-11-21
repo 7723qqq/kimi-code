@@ -29,7 +29,7 @@ export class SandboxPolicyService extends Service implements ISandboxPolicyServi
     const policy = resolveSandboxPolicy(config, sessionCtx.cwd);
     if (policy.mode === 'off') return;
     this._register(
-      toolExecutor.onBeforeExecuteTool((event) => {
+      toolExecutor.registerLegacyStarting((event) => {
         const message = sandboxToolVeto(
           policy,
           event.toolCall.name,

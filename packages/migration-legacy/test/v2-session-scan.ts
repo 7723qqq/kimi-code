@@ -1,11 +1,11 @@
-import type { SessionSummary } from '@moonshot-ai/agent-core-v2';
+import { FileStorageService } from '@moonshot-ai/agent-core-v2/persistence/backends/node-fs/fileStorageService';
+import { JsonAtomicDocumentStore } from '@moonshot-ai/agent-core-v2/persistence/backends/node-fs/atomicDocumentStore';
 import {
   listWorkspaceIds,
   listSessionIds,
   readSessionSummary,
 } from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndexSource';
-import { JsonAtomicDocumentStore } from '@moonshot-ai/agent-core-v2/persistence/backends/node-fs/atomicDocumentStore';
-import { FileStorageService } from '@moonshot-ai/agent-core-v2/persistence/backends/node-fs/fileStorageService';
+import type { SessionSummary } from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
 
 export async function listSessionsV2(homeDir: string): Promise<readonly SessionSummary[]> {
   const storage = new FileStorageService(homeDir);

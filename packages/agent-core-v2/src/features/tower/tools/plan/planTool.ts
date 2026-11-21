@@ -1,9 +1,9 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentTowerService } from '#/features/tower/tower';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentTowerService } from '#/features/tower/tower';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import type { ToolExecution } from '#/tool/toolContract';
 
 import {
   newTowerStore,
@@ -11,13 +11,12 @@ import {
   TOWER_MAIN_AGENT_ONLY,
   TOWER_MODE_USER_ENABLED_ONLY,
 } from '../support';
-import { ITowerPlanTool, TowerPlanToolInputSchema, type TowerPlanToolInput } from './plan';
 import DESCRIPTION from './plan.md?raw';
+import { ITowerPlanTool, TowerPlanToolInputSchema, type TowerPlanToolInput } from './plan';
 
 export class TowerPlanTool implements ITowerPlanTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerPlan' as const;
-  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerPlanToolInputSchema);
 
@@ -66,3 +65,4 @@ export class TowerPlanTool implements ITowerPlanTool {
     };
   }
 }
+

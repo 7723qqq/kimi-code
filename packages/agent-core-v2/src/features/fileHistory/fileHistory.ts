@@ -8,7 +8,6 @@ export interface FileBackupEntry {
   readonly oversize?: boolean;
   readonly mtimeMs?: number;
   readonly environmentId?: string;
-  readonly unreadable?: boolean;
 }
 
 export type FileHistoryCheckpointPhase = 'start' | 'end';
@@ -33,7 +32,6 @@ export interface FileHistoryChange {
   readonly deletions: number;
   readonly binary?: boolean;
   readonly oversize?: boolean;
-  readonly unreadable?: boolean;
 }
 
 export interface FileHistoryContent {

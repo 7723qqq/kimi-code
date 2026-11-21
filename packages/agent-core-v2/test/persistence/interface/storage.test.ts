@@ -1,11 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -15,8 +16,11 @@ interface ServiceHandle {
   readonly cleanup?: () => Promise<void>;
 }
 
-function storageServiceSuite(name: string, setup: () => Promise<ServiceHandle>): void {
-  describe(name, () => {
+function storageServiceSuite(
+  name: string,
+  setup: () => Promise<ServiceHandle>,
+): void {
+  describe(`${name}`, () => {
     let service: IFileSystemStorageService;
     let cleanup: (() => Promise<void>) | undefined;
 

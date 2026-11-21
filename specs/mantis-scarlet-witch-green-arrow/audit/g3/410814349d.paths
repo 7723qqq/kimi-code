@@ -1,0 +1,8 @@
+A	.changeset/compact-own-line-calls.md
+M	apps/kimi-code/src/tui/components/messages/transcript-group.ts
+M	apps/kimi-code/src/tui/config.ts
+A	apps/kimi-code/src/tui/constant/mcp.ts
+M	apps/kimi-code/src/tui/utils/transcript-items.ts
+M	apps/kimi-code/src/tui/utils/transcript-projection.ts
+M	apps/kimi-code/test/tui/components/messages/transcript-container.test.ts
+M	apps/kimi-code/test/tui/utils/transcript-projection.test.ts

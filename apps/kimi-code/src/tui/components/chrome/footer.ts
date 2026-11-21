@@ -1,41 +1,21 @@
-/**
- * Footer/status bar — multi-line status display at the bottom of the TUI.
- *
- * Layout:
- *   Line 1: slots from status_line.items (mode, goal, model, tasks, cwd, git)
- *           joined left, rotating tips right (unless 'tips' is a slot); a
- *           status_line.command's first stdout line replaces it when set.
- *   Line 2: transient hint left, context readout right — the readout shows only
- *           until the status strip has session numbers, because the strip owns
- *           the session totals from then on.
- */
-
-import { homedir } from 'node:os';
-
-import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
-import type { Component, TuiMouseEvent, TuiMouseEventResult } from '@moonshot-ai/pi-tui';
+import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
+import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
-import { getAllTips, getTranscriptGroupingTip } from '#/tui/constant/tips';
+import { ALL_TIPS, TRANSCRIPT_GROUPING_TIP, type ToolbarTip } from '#/tui/constant/tips';
 import { transcriptGroupingActive } from '#/tui/config';
-import {
-  isRainbowDancing,
-  renderDanceFooterModel,
-  rainbowText,
-  getDanceRainbowPalette,
-} from '#/tui/easter-eggs/dance';
+import { isRainbowDancing, renderDanceFooterModel } from '#/tui/easter-eggs/dance';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { AppState, EnvironmentSlotState } from '#/tui/types';
-import { permissionModeDisplayName } from '#/tui/utils/permission-mode';
+import { PERMISSION_MODE_DISPLAY_NAMES } from '#/tui/utils/permission-mode';
 import { sessionWorkDir } from '#/tui/utils/session-work-dir';
-import { ButtonRow, type ButtonRowItem } from './button';
-import { formatContextStatus } from '#/tui/utils/session-stats';
 import { SpinnerTicker } from '#/tui/utils/spinner-ticker';
-import { StatusLineCommandRunner, type StatusLinePayload } from '#/tui/utils/status-line-command';
-import { createLocaleKeyedTipRotation, TIP_ROTATE_INTERVAL_MS } from '#/tui/utils/tip-rotation';
+import {
+  StatusLineCommandRunner,
+  type StatusLinePayload,
+} from '#/tui/utils/status-line-command';
 import {
   createGitStatusCache,
   formatGitBadgeBase,
@@ -45,12 +25,12 @@ import {
   type GitStatusSource,
 } from '#/utils/git/git-status';
 import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '#/utils/render-clock';
+  formatTokenCount,
+  usagePercent,
+  usagePercentFromRatio,
+} from '#/utils/usage/usage-format';
+import { t } from '#/i18n';
 
-/** What the footer's fixed ctrl+o hint offers: expand collapsed tool output, or collapse it again. */
 export type ToolOutputExpandHint = 'expand' | 'collapse';
 
 const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'environment', 'cwd', 'git'] as const;
@@ -58,56 +38,49 @@ const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'environmen
 const MAX_CWD_SEGMENTS = 3;
 const MAX_ENVIRONMENT_REASON_WIDTH = 40;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
-/**
- * Thinking-suffix breathing ramp. The visible cycle is the contract, not the
- * tick rate: 8 steps of 0.125 at 200 ms is the same 1.6 s cycle the fork
- * originally ran as 20 steps of 0.05 at 80 ms, with 2.5x fewer ticks
- * (12.5 repaints/s -> 5 repaints/s) — and each tick that would render the same
- * text is skipped outright, see `FooterComponent.pulseOutput`. 0.125 was picked
- * over 0.1 because 0.1 would stretch the cycle to 2 s and change how the pulse
- * reads to the user, while 0.125 keeps the ramp pixel-for-pixel the same shape.
- */
-const THINKING_PULSE_INTERVAL_MS = 200;
-const THINKING_PULSE_STEP = 0.125;
 
-// Toolbar tips — rotates every 10s. Most tips are short and pair up (two
-// joined by " | ") when space allows; tips flagged `solo` are long or
-// important enough to take the whole slot on their own. A `priority` weight
-// makes a tip recur more often in the rotation (default 1). Width is always
-// the final arbiter (a pair that doesn't fit falls back to its first tip).
+const TIP_ROTATE_INTERVAL_MS = 10_000;
 const TIP_SEPARATOR = ' | ';
 
-const getRotation = createLocaleKeyedTipRotation(getAllTips);
-const getGroupingRotation = createLocaleKeyedTipRotation(() => [
-  ...getAllTips(),
-  getTranscriptGroupingTip(),
+export function buildWeightedTips(tips: readonly ToolbarTip[]): readonly ToolbarTip[] {
+  const items = tips.map((t) => ({
+    tip: t,
+    weight: Math.max(1, Math.trunc(t.priority ?? 1)),
+    current: 0,
+  }));
+  const total = items.reduce((sum, it) => sum + it.weight, 0);
+  const seq: ToolbarTip[] = [];
+  for (let n = 0; n < total; n++) {
+    let best = items[0]!;
+    for (const it of items) {
+      it.current += it.weight;
+      if (it.current > best.current) best = it;
+    }
+    best.current -= total;
+    seq.push(best.tip);
+  }
+  return seq;
+}
+
+const ROTATION: readonly ToolbarTip[] = buildWeightedTips(ALL_TIPS);
+const GROUPING_ROTATION: readonly ToolbarTip[] = buildWeightedTips([
+  ...ALL_TIPS,
+  TRANSCRIPT_GROUPING_TIP,
 ]);
+
+function currentTipIndex(): number {
+  return Math.floor(Date.now() / TIP_ROTATE_INTERVAL_MS);
+}
 
 function showsGroupingTip(state: AppState, fullscreen: boolean): boolean {
   return transcriptGroupingActive({ ...state.transcript, fullscreen });
 }
 
-/**
- * Rotation index of the tip shown at `nowMs`. The clock is a parameter so the
- * caller can drive the rotation from the same clock that paints the footer.
- */
-function currentTipIndex(nowMs: number = Date.now()): number {
-  return Math.floor(nowMs / TIP_ROTATE_INTERVAL_MS);
-}
-
-/**
- * Pick the tip(s) for a rotation index over the weighted ROTATION sequence.
- * `primary` is always shown when it fits; `pair` (primary + next tip joined
- * by the separator) is offered for wide terminals. Pairing is skipped when
- * the current/next tip is `solo` or when the neighbour is a duplicate of the
- * current tip (which can happen at the wrap boundary), keeping long/important
- * tips on their own and avoiding "X | X".
- */
 function tipsForIndex(
   index: number,
-  groupingTip = false,
+  groupingTip: boolean,
 ): { primary: string; pair: string | null } {
-  const rotation = groupingTip ? getGroupingRotation() : getRotation();
+  const rotation = groupingTip ? GROUPING_ROTATION : ROTATION;
   const n = rotation.length;
   if (n === 0) return { primary: '', pair: null };
   const offset = ((index % n) + n) % n;
@@ -118,19 +91,12 @@ function tipsForIndex(
   return { primary: current.text, pair: current.text + TIP_SEPARATOR + next.text };
 }
 
-/**
- * Footer goal badge, e.g. `[goal ● active · 4m · 7 turns]`. Only shown for a
- * live (active/paused) goal; terminal/no goal -> no badge. Turn count is a raw
- * count unless an explicit turn budget is set, in which case it shows used/limit.
- */
 function formatGoalBadge(
   goal: AppState['goal'],
   colors: ColorPalette,
   wallClockMs?: number,
 ): string | null {
   if (goal === null || goal === undefined) return null;
-  // Show the badge for every persisted, resumable status. `complete` clears the
-  // goal, so it never reaches here; only the unset case returns null.
   if (goal.status !== 'active' && goal.status !== 'paused' && goal.status !== 'blocked') {
     return null;
   }
@@ -142,17 +108,9 @@ function formatGoalBadge(
         : colors.textMuted;
   const turns =
     goal.budget.turnBudget !== null
-      ? `${goal.turnsUsed}/${goal.budget.turnBudget} ${t('tui.chrome.footer.turns')}`
-      : goal.turnsUsed === 1
-        ? t('tui.chrome.footer.turn_one', { count: String(goal.turnsUsed) })
-        : t('tui.chrome.footer.turn_other', { count: String(goal.turnsUsed) });
-  const statusLabel =
-    goal.status === 'active'
-      ? t('tui.chrome.footer.statusActive')
-      : goal.status === 'blocked'
-        ? t('tui.chrome.footer.statusBlocked')
-        : t('tui.chrome.footer.statusPaused');
-  const label = `${statusLabel} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
+      ? `${goal.turnsUsed}/${goal.budget.turnBudget} turns`
+      : `${goal.turnsUsed} ${goal.turnsUsed === 1 ? 'turn' : t('tui.chrome.footer.turns')}`;
+  const label = `${goal.status} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
   return (
     chalk.hex(colors.textMuted)('[goal ') +
     chalk.hex(dotColor)('●') +
@@ -175,43 +133,18 @@ function modelDisplayName(state: AppState): string {
   return effective?.displayName ?? effective?.model ?? state.model;
 }
 
-/**
- * The "thinking" suffix of the model slot, e.g. `thinking: high`, or `''` when
- * effort is off. Split out of `buildSlots` so the pulse timer can compare the
- * exact text the ramp colours; a second copy of these effort rules that drifted
- * from the render path would either freeze the punctuation or repaint forever.
- */
-function thinkingSuffixLabel(state: AppState): string {
-  const effort = state.thinkingEffort;
-  if (effort === 'off') return '';
-  const rawCurrentModel = state.availableModels[state.model];
-  const currentModel =
-    rawCurrentModel === undefined ? undefined : effectiveModelAlias(rawCurrentModel);
-  // Only effort-capable models (those declaring support_efforts) show the
-  // concrete effort; legacy boolean models keep the plain "thinking" suffix.
-  const hasEfforts = (currentModel?.supportEfforts?.length ?? 0) > 0;
-  return hasEfforts && effort !== 'on'
-    ? t('tui.chrome.footer.thinkingEffort', { effort })
-    : t('tui.chrome.footer.thinking');
-}
-
 function isRemoteEnvironment(environment: AppState['environment']): environment is EnvironmentSlotState {
   return environment !== undefined && environment.environmentId !== 'local';
 }
 
-function shortenCwd(path: string): string {
+function shortenCwd(path: string, home: string | undefined): string {
   if (!path) return path;
-  // Windows processes launched from cmd/PowerShell often have no HOME; use
-  // the OS homedir and normalize separators so `~` abbreviation and the
-  // segment cap work for backslash paths too.
-  const home = homedir().replaceAll('\\', '/');
-  const work0 = path.replaceAll('\\', '/');
-  let work = work0;
-  if (home.length > 0 && work0 === home) {
+  let work = path;
+  if (home !== undefined && home.length > 0 && path === home) {
     return '~';
   }
-  if (home.length > 0 && work0.startsWith(home + '/')) {
-    work = '~' + work0.slice(home.length);
+  if (home !== undefined && home.length > 0 && path.startsWith(home + '/')) {
+    work = '~' + path.slice(home.length);
   }
 
   const segments = work.split('/').filter((s) => s.length > 0);
@@ -220,21 +153,14 @@ function shortenCwd(path: string): string {
   return `…/${tail}`;
 }
 
-/**
- * Render the combined swarm-plan badge with a rainbow gradient effect.
- * Each character gets a different color from the theme-appropriate palette.
- */
-function renderSwarmPlanBadge(text: string): string {
-  const palette = getDanceRainbowPalette();
-  return rainbowText(text, palette, 0, true);
+function formatContextStatus(usage: number, tokens?: number, maxTokens?: number): string {
+  if (maxTokens !== undefined && maxTokens > 0 && tokens !== undefined) {
+    const pct = String(usagePercent(tokens, maxTokens));
+    return `context: ${pct}% (${formatTokenCount(tokens)}/${formatTokenCount(maxTokens)})`;
+  }
+  return `context: ${String(usagePercentFromRatio(usage))}%`;
 }
 
-/**
- * Footer context readout. Percent comes from the exact token counts when
- * both are known (the ratio can lag a step behind); otherwise it falls
- * back to the precomputed ratio. Counts use the shared 1024-based
- * formatter.
- */
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
   const base = chalk.hex(colors.textDim)(formatGitBadgeBase(status));
   if (status.pullRequest === null) return base;
@@ -245,7 +171,6 @@ export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): s
   return `${base} ${pullRequest}`;
 }
 
-/** Where the footer reads git state for a given app state; a new key replaces the cache. */
 export interface FooterGitBinding {
   readonly key: string;
   readonly source: GitStatusSource;
@@ -254,66 +179,27 @@ export interface FooterGitBinding {
 export class FooterComponent implements Component {
   private state: AppState;
   private readonly onRefresh: () => void;
-  private readonly clock: RenderClock;
+  private readonly runningFullscreen: boolean;
   private gitBinding: ((state: AppState) => FooterGitBinding | null) | null = null;
   private gitCache: GitStatusCache | null = null;
   private gitCacheKey: string | null = null;
   private transientHint: string | null = null;
   private warningHint: string | null = null;
   private expandHintProvider: (() => ToolOutputExpandHint | null) | null = null;
-  /**
-   * Whether the status strip above the editor is currently rendering the
-   * session readout. When it is, line 2 keeps its right side empty: the same
-   * context figure in both places put one reading on screen twice, and the
-   * strip is the copy that does not scroll away.
-   */
-  private statsShownProbe: (() => boolean) | null = null;
   private goalSnapshotKey: string | null = null;
-  private goalObservedAtMs: number | null = null;
-  private goalTimer: RenderTimerHandle | null = null;
-  private pulseTimer: RenderTimerHandle | null = null;
-  private pulsePhase = 0;
-  /**
-   * The pulse output the frame was last painted for, as `pulseOutput()` returned
-   * it at that phase. `null` doubles as "nothing on screen consumes the ramp"
-   * and as the starting "unknown", which makes the first tick after an arm
-   * repaint rather than trust a comparison it never established.
-   */
-  private lastPulseOutput: string | null = null;
+  private goalObservedAtMs = Date.now();
+  private goalTimer: ReturnType<typeof setInterval> | null = null;
   private readonly environmentSpinner = new SpinnerTicker(() => {
     this.onRefresh();
   });
   private statusLineRunner: StatusLineCommandRunner | null = null;
-  /**
-   * Non-terminal background-task counts split by kind so the footer can
-   * render two distinct badges. `bashTasks` covers `bash-*` BPM tasks
-   * spawned via `Shell run_in_background=true`; `agentTasks` covers
-   * `agent-*` BPM tasks (background subagents). Either zero hides its
-   * respective badge.
-   */
   private backgroundBashTaskCount = 0;
   private backgroundAgentCount = 0;
-  private lineRow: ButtonRow | undefined;
-  private onBackgroundBadgeClick: (() => void) | undefined;
-  private onModelSlotClick: (() => void) | undefined;
-  private onThinkingSlotClick: (() => void) | undefined;
-  private modelNameText = '';
-  private thinkingLabelText = '';
 
-  /**
-   * `clock` defaults to the system clock, which keeps timers, the goal elapsed
-   * readout and the tip rotation on the same wall clock they have always used;
-   * inject one to drive all three from the same source in a test.
-   */
-  constructor(
-    state: AppState,
-    onRefresh: () => void = () => {},
-    clock: RenderClock = SYSTEM_RENDER_CLOCK,
-    private readonly runningFullscreen = false,
-  ) {
+  constructor(state: AppState, onRefresh: () => void = () => {}, runningFullscreen = false) {
     this.state = state;
     this.onRefresh = onRefresh;
-    this.clock = clock;
+    this.runningFullscreen = runningFullscreen;
     this.syncGoalClock(state.goal);
     this.syncGoalTimer(state.goal);
     this.syncEnvironmentSpinner(state.environment);
@@ -327,16 +213,11 @@ export class FooterComponent implements Component {
     }
     this.syncGoalClock(state.goal);
     this.syncGoalTimer(state.goal);
-    this.syncPulseTimer(state.thinkingEffort !== 'off' && state.streamingPhase !== 'idle');
     this.syncEnvironmentSpinner(state.environment);
     this.syncStatusLineRunner(state);
     this.state = state;
   }
 
-  /**
-   * Resolves the git source for each app state. Until it is set, or while it
-   * resolves to `null`, the git slot stays empty.
-   */
   setGitBinding(resolve: (state: AppState) => FooterGitBinding | null): void {
     this.gitBinding = resolve;
     this.syncGitCache(this.state);
@@ -348,13 +229,7 @@ export class FooterComponent implements Component {
     if (key === this.gitCacheKey) return;
     this.gitCache?.dispose();
     this.gitCacheKey = key;
-    this.gitCache =
-      binding === null
-        ? null
-        : createGitStatusCache(state.workDir, {
-            onChange: this.onRefresh,
-            source: binding.source,
-          });
+    this.gitCache = binding === null ? null : createGitStatusCache(binding.source, { onChange: this.onRefresh });
   }
 
   private syncStatusLineRunner(state: AppState): void {
@@ -365,19 +240,11 @@ export class FooterComponent implements Component {
       return;
     }
     if (this.statusLineRunner?.command !== command) {
-      // A reload can swap one command for another; the old runner would
-      // otherwise keep executing the previous script until restart.
       this.statusLineRunner?.dispose();
       this.statusLineRunner = new StatusLineCommandRunner(command, this.onRefresh);
     }
   }
 
-  /**
-   * Short-lived hint that replaces the rotating toolbar tips on line 1.
-   * Used by the exit-confirmation double-tap flow to show "Press Ctrl+C
-   * again to exit" without requiring a toast/overlay subsystem.
-   * Pass `null` to clear.
-   */
   setTransientHint(hint: string | null): void {
     this.transientHint = hint;
   }
@@ -386,58 +253,17 @@ export class FooterComponent implements Component {
     return this.transientHint;
   }
 
-  /**
-   * Longer-lived warning for line 2 (e.g. the over-long `/goal` objective
-   * warning). Unlike the transient hint it has no owner/timeout: the caller
-   * sets and clears it directly. A transient hint takes precedence while
-   * present; the warning returns as soon as the transient hint clears.
-   * Pass `null` to clear.
-   */
   setWarningHint(hint: string | null): void {
     this.warningHint = hint;
   }
 
-  /**
-   * Source of the fixed `ctrl+o expand` / `ctrl+o collapse` hint on line 1:
-   * `expand` while the transcript holds collapsed tool output ctrl+o can
-   * reveal, `collapse` once it is shown, `null` when there is nothing to
-   * toggle. Read on every render so it tracks the transcript exactly.
-   */
   setExpandHintProvider(provider: () => ToolOutputExpandHint | null): void {
     this.expandHintProvider = provider;
   }
 
-  /**
-   * Source of "the strip above the editor owns the session readout right now".
-   *
-   * Read on every render, so the footer's context readout appears exactly while
-   * the strip has no numbers to show — the first steps of a session, before any
-   * turn has reported usage — and disappears the moment the strip takes over.
-   */
-  setStatsShownProbe(probe: () => boolean): void {
-    this.statsShownProbe = probe;
-  }
-
-  /**
-   * Sync both background-task badges with live counts. Each non-zero
-   * count produces its own bracketed badge on line 1; zeros hide them
-   * independently.
-   */
   setBackgroundCounts(counts: { bashTasks: number; agentTasks: number }): void {
     this.backgroundBashTaskCount = Math.max(0, counts.bashTasks);
     this.backgroundAgentCount = Math.max(0, counts.agentTasks);
-  }
-
-  setBackgroundBadgeClickHandler(handler: (() => void) | undefined): void {
-    this.onBackgroundBadgeClick = handler;
-  }
-
-  setModelSlotClickHandler(handler: (() => void) | undefined): void {
-    this.onModelSlotClick = handler;
-  }
-
-  setThinkingSlotClickHandler(handler: (() => void) | undefined): void {
-    this.onThinkingSlotClick = handler;
   }
 
   refreshGitStatus(): void {
@@ -446,15 +272,10 @@ export class FooterComponent implements Component {
 
   invalidate(): void {}
 
-  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    return this.lineRow?.handleMouse(event);
-  }
-
   render(width: number): string[] {
     const colors = currentTheme.palette;
     const state = this.state;
 
-    // ── Line 1: slots composed per status_line.items, or a user command ──
     let line1: string;
     let customLine: string | null = null;
     if (this.statusLineRunner !== null) {
@@ -463,53 +284,23 @@ export class FooterComponent implements Component {
     }
 
     if (customLine !== null) {
-      // status_line.command: the first stdout line takes over line 1.
       line1 = chalk.hex(colors.text)(customLine);
-      this.lineRow = undefined;
     } else {
       const slots = this.buildSlots(colors);
       const configured = this.state.statusLine?.items ?? null;
       const order: readonly string[] = configured ?? DEFAULT_STATUS_LINE_ITEMS;
       const composeLeft = (withTips: boolean): string => {
-        const items: ButtonRowItem[] = [];
+        const left: string[] = [];
         for (const slot of order) {
           if (!withTips && slot === 'tips') continue;
-          if (slot === 'model') {
-            if (this.modelNameText.length > 0) {
-              items.push({
-                text: this.modelNameText,
-                onClick: this.onModelSlotClick,
-                gapAfter: this.thinkingLabelText.length > 0 ? 0 : 2,
-              });
-            }
-            if (this.thinkingLabelText.length > 0) {
-              items.push({
-                text: this.thinkingLabelText,
-                onClick: this.onThinkingSlotClick,
-              });
-            }
-            continue;
-          }
           const pieces = slots[slot as keyof typeof slots];
-          if (pieces === undefined) continue;
-          for (const piece of pieces) {
-            items.push({
-              text: piece,
-              onClick: slot === 'tasks' ? this.onBackgroundBadgeClick : undefined,
-            });
-          }
+          if (pieces !== undefined) left.push(...pieces);
         }
-        this.lineRow = new ButtonRow(items);
-        return this.lineRow.renderLine();
+        return left.join('  ');
       };
       let leftLine = composeLeft(true);
       let leftWidth = visibleWidth(leftLine);
 
-      // The right side holds the fixed ctrl+o hint (while the transcript has
-      // tool output to expand or collapse) and the rotating tips, unless the
-      // tips were given an inline slot in items or dropped from items. The
-      // hint never rotates and wins over a tip that no longer fits — an
-      // inline tip included: it gives way when the hint would not fit beside it.
       const tipsInline = order.includes('tips');
       const shortcut = this.expandShortcut();
       if (tipsInline && shortcut !== null && leftWidth + 2 + visibleWidth(shortcut) > width) {
@@ -520,7 +311,7 @@ export class FooterComponent implements Component {
       const tipCandidates: string[] = [];
       if (showTips) {
         const { primary, pair } = tipsForIndex(
-          currentTipIndex(this.clock.now()),
+          currentTipIndex(),
           showsGroupingTip(state, this.runningFullscreen),
         );
         if (pair) tipCandidates.push(pair);
@@ -539,22 +330,13 @@ export class FooterComponent implements Component {
       }
     }
 
-    // ── Line 2: transient hint (bottom-left) + context readout (right) ──
-    // The session totals (turns/steps, timings, rates, cache hit, in/out) and
-    // the context readout live in the status strip above the editor, where they
-    // survive a long session instead of scrolling away with the footer. Line 2
-    // keeps only the hint that belongs to the input box, plus the context
-    // readout as a fallback for the window before the strip has any numbers —
-    // reading the same figure in both places put it on screen twice.
-    const stripOwnsReadout = this.statsShownProbe?.() === true;
-    const contextText = stripOwnsReadout
-      ? ''
-      : formatContextStatus(state.contextUsage, state.contextTokens, state.maxContextTokens);
-    const rightText = contextText;
-    const contextWidth = visibleWidth(rightText);
+    const contextText = formatContextStatus(
+      state.contextUsage,
+      state.contextTokens,
+      state.maxContextTokens,
+    );
+    const contextWidth = visibleWidth(contextText);
     let line2: string;
-    /** Whether line 2 carries anything at all, padding aside. */
-    let secondRowHasContent: boolean;
     const hint = this.transientHint ?? this.warningHint;
     if (hint) {
       const maxHintWidth = Math.max(0, width - contextWidth - 1);
@@ -565,31 +347,20 @@ export class FooterComponent implements Component {
       line2 =
         chalk.hex(colors.warning).bold(shownHint) +
         ' '.repeat(pad) +
-        chalk.hex(colors.text)(rightText);
-      secondRowHasContent = true;
+        chalk.hex(colors.text)(contextText);
     } else {
-      // A status_line.command owns line 1 outright, so the ctrl+o hint moves
-      // down here; the transient and warning hints above take precedence.
       const shortcut = customLine !== null ? this.expandShortcut() : null;
       const left =
         shortcut !== null && visibleWidth(shortcut) + 1 + contextWidth <= width
           ? chalk.hex(colors.textDim)(shortcut)
           : '';
       const leftPad = Math.max(0, width - visibleWidth(left) - contextWidth);
-      line2 = left + ' '.repeat(leftPad) + chalk.hex(colors.text)(rightText);
-      secondRowHasContent = left.length > 0 || rightText.length > 0;
+      line2 = left + ' '.repeat(leftPad) + chalk.hex(colors.text)(contextText);
     }
 
-    // A second row with nothing on it spends a row of screen on a blank line.
-    // The strip above owns the readout once a turn has reported numbers, which
-    // leaves line 2 empty in the common steady state; the footer then reports
-    // one row and the dock hands the space back to the transcript.
-    if (!secondRowHasContent) return [truncateToWidth(line1, width)];
     return [truncateToWidth(line1, width), truncateToWidth(line2, width)];
   }
 
-  /** The fixed ctrl+o hint plus the first rotating tip that still fits beside it. */
-  /** `ctrl+o expand` / `ctrl+o collapse`, or null when there is nothing to toggle. */
   private expandShortcut(): string | null {
     const hint = this.expandHintProvider?.() ?? null;
     return hint === null ? null : `ctrl+o ${hint}`;
@@ -604,18 +375,13 @@ export class FooterComponent implements Component {
     for (const tip of tips) {
       if (visibleWidth(`${shortcut}${TIP_SEPARATOR}${tip}`) <= remaining) {
         return (
-          chalk.hex(colors.textDim)(shortcut) +
-          chalk.hex(colors.textMuted)(`${TIP_SEPARATOR}${tip}`)
+          chalk.hex(colors.textDim)(shortcut) + chalk.hex(colors.textMuted)(`${TIP_SEPARATOR}${tip}`)
         );
       }
     }
     return visibleWidth(shortcut) <= remaining ? chalk.hex(colors.textDim)(shortcut) : '';
   }
 
-  /**
-   * Rendered pieces per status-line slot. Empty-content slots (e.g. no goal,
-   * outside a git repo) yield an empty list so composition just skips them.
-   */
   private buildSlots(colors: ColorPalette): Record<string, string[]> {
     const state = this.state;
     const slots: Record<string, string[]> = {
@@ -631,7 +397,7 @@ export class FooterComponent implements Component {
 
     {
       const { primary, pair } = tipsForIndex(
-        currentTipIndex(this.clock.now()),
+        currentTipIndex(),
         showsGroupingTip(state, this.runningFullscreen),
       );
       const tip = pair ?? primary;
@@ -639,29 +405,11 @@ export class FooterComponent implements Component {
     }
 
     const modes: string[] = [];
-    if (state.permissionMode === 'auto')
-      modes.push(chalk.hex(colors.warning).bold(permissionModeDisplayName('auto')));
-    if (state.permissionMode === 'yolo')
-      modes.push(chalk.hex(colors.warning).bold(permissionModeDisplayName('yolo')));
-    if (state.planMode && state.swarmMode) {
-      modes.push(renderSwarmPlanBadge('swarm-plan'));
-    } else {
-      if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
-      if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold('swarm'));
-    }
-    const helloWorldStage = state.helloWorldStage;
-    const helloWorldLabel = `hello-world${helloWorldStage === undefined ? '' : `:${helloWorldStage}`}`;
-    const helloWorldPlanLabel = `hello-world-plan${helloWorldStage === undefined ? '' : `:${helloWorldStage}`}`;
-    if (state.planMode && state.helloWorldMode && !state.swarmMode) {
-      modes.push(renderSwarmPlanBadge(helloWorldPlanLabel));
-    } else if (state.helloWorldMode) {
-      modes.push(chalk.hex(colors.accent).bold(helloWorldLabel));
-    }
+    if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.auto));
+    if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.yolo));
+    if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
+    if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold('swarm'));
     if (state.towerMode) modes.push(chalk.hex(colors.accent).bold('tower'));
-    if (state.specMode) {
-      const stage = state.specStage;
-      modes.push(chalk.hex(colors.accent).bold(stage === undefined ? 'spec' : `spec:${stage}`));
-    }
     if (modes.length > 0) slots['mode'] = [modes.join(' ')];
 
     const goalBadge = formatGoalBadge(state.goal, colors, this.goalWallClockMs(state.goal));
@@ -669,58 +417,40 @@ export class FooterComponent implements Component {
 
     const model = modelDisplayName(state);
     if (model) {
-      const thinkingLabel = thinkingSuffixLabel(state);
-      // `pulseSuffixColor` is shared with the pulse timer, which decides whether
-      // a tick would repaint anything by comparing the string this colour
-      // produces — so both paths must derive the colour identically.
-      const thinkingColor = pulseSuffixColor(this.pulsePhase, colors);
-      const modelLabel = `${model}${thinkingLabel}`;
-      if (isRainbowDancing()) {
-        this.modelNameText = renderDanceFooterModel(modelLabel);
-        this.thinkingLabelText = '';
-      } else {
-        this.modelNameText = chalk.hex(colors.text)(model);
-        this.thinkingLabelText = thinkingLabel
-          ? chalk.hex(thinkingColor)(thinkingLabel)
+      const effort = state.thinkingEffort;
+      const rawCurrentModel = state.availableModels[state.model];
+      const currentModel =
+        rawCurrentModel === undefined ? undefined : effectiveModelAlias(rawCurrentModel);
+      const hasEfforts = (currentModel?.supportEfforts?.length ?? 0) > 0;
+      const thinkingLabel =
+        effort !== 'off'
+          ? hasEfforts && effort !== 'on'
+            ? ` thinking: ${effort}`
+            : t('tui.chrome.footer.thinking')
           : '';
+      const modelLabel = `${model}${thinkingLabel}`;
+      let renderedModelLabel = chalk.hex(colors.text)(modelLabel);
+      if (isRainbowDancing()) {
+        renderedModelLabel = renderDanceFooterModel(modelLabel);
       }
-      slots['model'] = [this.modelNameText + this.thinkingLabelText];
-    } else {
-      this.modelNameText = '';
-      this.thinkingLabelText = '';
+      slots['model'] = [renderedModelLabel];
     }
 
-    // Background-task badges. `bash-*` tasks (shell processes) and `agent-*`
-    // tasks (background subagents) stay separate so the user can tell them
-    // apart at a glance.
     const taskBadges: string[] = [];
     if (this.backgroundBashTaskCount > 0) {
-      const noun = t(
-        this.backgroundBashTaskCount === 1
-          ? 'tui.chrome.footer.task_one'
-          : 'tui.chrome.footer.task_other',
-        { count: String(this.backgroundBashTaskCount) },
+      const noun = this.backgroundBashTaskCount === 1 ? 'task' : 'tasks';
+      taskBadges.push(
+        chalk.hex(colors.primary)(`[${String(this.backgroundBashTaskCount)} ${noun} running]`),
       );
-      taskBadges.push(chalk.hex(colors.primary)(`[${noun}]`));
     }
     if (this.backgroundAgentCount > 0) {
-      const noun = t(
-        this.backgroundAgentCount === 1
-          ? 'tui.chrome.footer.agent_one'
-          : 'tui.chrome.footer.agent_other',
-        { count: String(this.backgroundAgentCount) },
+      const noun = this.backgroundAgentCount === 1 ? 'agent' : 'agents';
+      taskBadges.push(
+        chalk.hex(colors.primary)(`[${String(this.backgroundAgentCount)} ${noun} running]`),
       );
-      taskBadges.push(chalk.hex(colors.primary)(`[${noun}]`));
     }
     slots['tasks'] = taskBadges;
 
-    // Environment slot: the local environment renders nothing; a remote binding
-    // shows its bare environment id ahead of the cwd — error-colored while
-    // disconnected, with the first connect-error line appended so the failure
-    // reason is visible at a glance. A pending environment (never connected or
-    // deliberately reaped while idle) is not a failure and renders dim like a
-    // ready one. While connecting, a braille spinner ticks ahead of the id (see
-    // syncEnvironmentSpinner for the bounded timer).
     const environment = state.environment;
     const remote = isRemoteEnvironment(environment);
     if (remote) {
@@ -746,16 +476,11 @@ export class FooterComponent implements Component {
       ];
     }
 
-    // A remote-bound session works on the target host, so the slot shows the
-    // binding cwd rather than the frozen local workDir. The environment-info
-    // surface (getEnvironment/listEnvironments) does not carry the remote home dir,
-    // so the remote path shortens by segments only and never claims ~ — a
-    // wrong ~ would be worse than a full path.
     const bindingCwd = remote ? environment.cwd : undefined;
     const cwd =
       bindingCwd !== undefined
-        ? shortenCwd(bindingCwd)
-        : shortenCwd(state.workDir);
+        ? shortenCwd(bindingCwd, undefined)
+        : shortenCwd(state.workDir, process.env['HOME']);
     if (cwd) slots['cwd'] = [chalk.hex(colors.textDim)(cwd)];
 
     const git = this.gitCache?.getStatus() ?? null;
@@ -772,10 +497,6 @@ export class FooterComponent implements Component {
       gitBranch: this.gitCache?.getStatus()?.branch ?? null,
       permissionMode: state.permissionMode,
       planMode: state.planMode,
-      specMode: state.specMode,
-      swarmMode: state.swarmMode,
-      helloWorldMode: state.helloWorldMode,
-      towerMode: state.towerMode,
       contextUsage: state.contextUsage,
       contextTokens: state.contextTokens,
       maxContextTokens: state.maxContextTokens,
@@ -784,106 +505,29 @@ export class FooterComponent implements Component {
     };
   }
 
-  /**
-   * Stamp when the current goal snapshot was observed, so an active goal's
-   * elapsed readout keeps advancing between snapshots. The first call stamps
-   * even for "no goal" — that observation time is the baseline every later
-   * delta is measured from.
-   */
   private syncGoalClock(goal: AppState['goal']): void {
     const key = goalSnapshotKey(goal);
-    if (this.goalObservedAtMs !== null && key === this.goalSnapshotKey) return;
+    if (key === this.goalSnapshotKey) return;
     this.goalSnapshotKey = key;
-    this.goalObservedAtMs = this.clock.now();
+    this.goalObservedAtMs = Date.now();
   }
 
   private syncGoalTimer(goal: AppState['goal']): void {
     if (goal?.status === 'active') {
       if (this.goalTimer !== null) return;
-      this.goalTimer = this.armInterval(() => {
+      this.goalTimer = setInterval(() => {
         this.onRefresh();
       }, GOAL_TIMER_INTERVAL_MS);
+      this.goalTimer.unref?.();
       return;
     }
 
     if (this.goalTimer !== null) {
-      this.clock.clearInterval(this.goalTimer);
+      clearInterval(this.goalTimer);
       this.goalTimer = null;
     }
   }
 
-  private syncPulseTimer(thinking: boolean): void {
-    if (thinking) {
-      if (this.pulseTimer !== null) return;
-      this.pulseTimer = this.armInterval(() => {
-        this.tickPulse();
-      }, THINKING_PULSE_INTERVAL_MS);
-      return;
-    }
-    if (this.pulseTimer !== null) {
-      this.clock.clearInterval(this.pulseTimer);
-      this.pulseTimer = null;
-    }
-    this.pulsePhase = 0;
-    // The gate flip that lands here is itself a state update, so the resting
-    // phase is painted by that render; the next arm starts from "unknown" and
-    // repaints once rather than trust a comparison from the previous turn.
-    this.lastPulseOutput = null;
-  }
-
-  /**
-   * Advance the breathing ramp one step, and repaint only when the step changes
-   * what the ramp draws.
-   *
-   * The ramp reaches the screen in exactly one place — the colour of the model
-   * slot's "thinking" suffix, see `pulseOutput` — so comparing that produced
-   * string answers the whole question "would this tick change a single character
-   * of the frame?". Skipping the repaint on an unchanged string is safe because
-   * nothing else about the phase is observable: `pulsePhase` is private, this
-   * timer is its only writer, and every other input the suffix depends on
-   * (model, effort, the /dance takeover, the palette) arrives through `setState`
-   * or a theme switch, both of which repaint on their own. The guard can
-   * therefore only drop repaints that would redraw the frame byte for byte.
-   *
-   * The saving is not theoretical: with colours off (NO_COLOR, a dumb terminal,
-   * piped output) chalk hands back the bare suffix and all eight phases produce
-   * the identical string, so a long "thinking" turn costs one repaint per arm
-   * instead of five per second.
-   */
-  private tickPulse(): void {
-    this.pulsePhase = (this.pulsePhase + THINKING_PULSE_STEP) % 1;
-    const produced = this.pulseOutput();
-    if (produced === this.lastPulseOutput) return;
-    this.lastPulseOutput = produced;
-    this.onRefresh();
-  }
-
-  /**
-   * The text the ramp paints, or `null` when it reaches nothing on screen: the
-   * ramp only colours the model slot's thinking suffix, so a missing model name,
-   * an empty suffix, or the /dance takeover (which renders the whole label on its
-   * own clock) all mean that a phase change draws exactly the same frame.
-   *
-   * The *coloured* string is what gets compared — not the phase, and not the
-   * colour alone — because the coloured string is what chalk actually puts on
-   * the frame: at colour level 0 every phase hands back the same characters.
-   */
-  private pulseOutput(): string | null {
-    const state = this.state;
-    if (isRainbowDancing()) return null;
-    if (modelDisplayName(state).length === 0) return null;
-    const label = thinkingSuffixLabel(state);
-    if (label.length === 0) return null;
-    return chalk.hex(pulseSuffixColor(this.pulsePhase, currentTheme.palette))(label);
-  }
-
-  /**
-   * The connecting spinner ticks on the shared braille ticker — the slot state
-   * itself only changes with the environment status. The ticker is strictly
-   * bounded to the connecting status: it starts when the slot enters
-   * connecting and stops the moment the status moves on, so no always-on
-   * ticker exists. Each frame repaints through onRefresh.
-   */
   private syncEnvironmentSpinner(environment: AppState['environment']): void {
     const connecting =
       environment !== undefined &&
@@ -899,35 +543,16 @@ export class FooterComponent implements Component {
   dispose(): void {
     this.gitCache?.dispose();
     if (this.goalTimer !== null) {
-      this.clock.clearInterval(this.goalTimer);
+      clearInterval(this.goalTimer);
       this.goalTimer = null;
     }
-    if (this.pulseTimer !== null) {
-      this.clock.clearInterval(this.pulseTimer);
-      this.pulseTimer = null;
-    }
-    this.statusLineRunner?.dispose();
-    this.statusLineRunner = null;
-  }
-
-  /**
-   * Arm a repeating timer on the injected clock. Only the system clock's
-   * handles are unref'd — a footer animation must never be the reason the
-   * process stays alive — while an injected clock (a test's fake) owns
-   * liveness itself and hands back handles whose `unref` means "cancel".
-   */
-  private armInterval(callback: () => void, intervalMs: number): RenderTimerHandle {
-    const handle = this.clock.setInterval(callback, intervalMs);
-    if (this.clock === SYSTEM_RENDER_CLOCK) handle.unref?.();
-    return handle;
     this.environmentSpinner.dispose();
   }
 
   private goalWallClockMs(goal: AppState['goal']): number | undefined {
     if (goal === null || goal === undefined) return undefined;
     if (goal.status !== 'active') return goal.wallClockMs;
-    const observedAtMs = this.goalObservedAtMs ?? this.clock.now();
-    return goal.wallClockMs + Math.max(0, this.clock.now() - observedAtMs);
+    return goal.wallClockMs + Math.max(0, Date.now() - this.goalObservedAtMs);
   }
 }
 
@@ -944,41 +569,4 @@ function goalSnapshotKey(goal: AppState['goal']): string | null {
     String(goal.budget.turnBudget),
     String(goal.budget.wallClockBudgetMs),
   ].join('\u0000');
-}
-
-/**
- * Colour the breathing ramp paints the model slot's "thinking" suffix with at a
- * given phase. Phase 0 is the resting point rather than the dim end of the ramp:
- * the render path has always painted the plain text colour when no pulse is
- * running, so the mixer is skipped there and the ramp starts and ends at full
- * brightness instead of jumping to and from it. The sine makes it ease into and
- * out of the dim end.
- */
-function pulseSuffixColor(phase: number, colors: ColorPalette): string {
-  return phase > 0
-    ? pulseHexColor(colors.textDim, colors.text, Math.sin(phase * Math.PI))
-    : colors.text;
-}
-
-function pulseHexColor(fromHex: string, toHex: string, t: number): string {
-  const clamp = (v: number): number => Math.max(0, Math.min(1, v));
-  const safe = clamp(t);
-  const from = parseHexColor(fromHex);
-  const to = parseHexColor(toHex);
-  if (from === undefined || to === undefined) return fromHex;
-  const mix = (s: number, e: number): string =>
-    Math.round(s + (e - s) * safe)
-      .toString(16)
-      .padStart(2, '0');
-  return `#${mix(from.red, to.red)}${mix(from.green, to.green)}${mix(from.blue, to.blue)}`;
-}
-
-function parseHexColor(hex: string): { red: number; green: number; blue: number } | undefined {
-  const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex);
-  if (match === null) return undefined;
-  return {
-    red: Number.parseInt(match[1]!, 16),
-    green: Number.parseInt(match[2]!, 16),
-    blue: Number.parseInt(match[3]!, 16),
-  };
 }

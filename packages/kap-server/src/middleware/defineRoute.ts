@@ -3,62 +3,6 @@ import { z } from 'zod';
 import { jsonSchema, openApiDocumentJsonSchema } from './schema';
 import { validateBody, validateParams, validateQuery } from './validate';
 
-export type UnknownKeysMode = 'strip' | 'strict' | 'catchall' | 'unknown';
-
-function unwrapZod(schema: z.ZodTypeAny): z.ZodTypeAny {
-  let current = schema;
-  const seen = new Set<z.ZodTypeAny>();
-  while (!seen.has(current)) {
-    seen.add(current);
-    const def = (current as unknown as { _zod?: { def?: Record<string, unknown> } })._zod?.def;
-    if (def === undefined) return current;
-    const pipeOut = def['out'];
-    if (pipeOut !== undefined && pipeOut !== null && typeof pipeOut === 'object') {
-      current = pipeOut as z.ZodTypeAny;
-      continue;
-    }
-    const inner = def['innerType'];
-    if (inner === undefined || inner === null) return current;
-    current = inner as z.ZodTypeAny;
-  }
-  return schema;
-}
-
-export function unknownKeysModeOf(schema: z.ZodTypeAny): UnknownKeysMode {
-  const target = unwrapZod(schema);
-  if (target instanceof z.ZodObject) {
-    const def = (target as unknown as { _zod?: { def?: { catchall?: unknown } } })._zod?.def;
-    const catchall = def?.catchall;
-    if (catchall === undefined) return 'strip';
-    const inner = (catchall as { _zod?: { def?: { type?: string } } })._zod?.def?.type;
-    if (inner === 'never') return 'strict';
-    return 'catchall';
-  }
-  if (target instanceof z.ZodUnion || target instanceof z.ZodDiscriminatedUnion) {
-    const def = (target as unknown as { _zod?: { def?: { options?: readonly z.ZodTypeAny[] } } })
-      ._zod?.def;
-    const options = def?.options ?? [];
-    if (options.length === 0) return 'unknown';
-    const modes = new Set(options.map(unknownKeysModeOf));
-    if (modes.size === 1) return [...modes][0]!;
-    return 'unknown';
-  }
-  return 'unknown';
-}
-
-export function assertStrictRequestSchema(
-  kind: 'body' | 'querystring',
-  path: string,
-  schema: z.ZodTypeAny,
-): void {
-  const mode = unknownKeysModeOf(schema);
-  if (mode === 'strict') return;
-  throw new Error(
-    `route ${path}: ${kind} schema is "${mode}" — a request-boundary schema must reject ` +
-      `unrecognized keys (use .strict() / z.strictObject, or strict-ify every union member)`,
-  );
-}
-
 function toFastifyPath(openApiPath: string): string {
   return openApiPath.replaceAll(/\{([^}]+)\}/g, ':$1');
 }
@@ -86,7 +30,7 @@ function buildErrorEnvelopeSchema(
   });
 }
 
-function buildSuccessEnvelopeSchema(successDataSchema: z.ZodTypeAny): z.ZodTypeAny {
+export function buildSuccessEnvelopeSchema(successDataSchema: z.ZodTypeAny): z.ZodTypeAny {
   return z.object({
     code: z.literal(0),
     msg: z.string(),
@@ -102,15 +46,23 @@ function buildUnifiedResponseSchema(
 ): Record<string, unknown> {
   const errorEntries = Object.entries(errors)
     .map(([code, cfg]) => [Number(code), cfg] as const)
-    .sort((a, b) => a[0] - b[0]);
+    .toSorted((a, b) => a[0] - b[0]);
 
   if (errorEntries.length === 0) {
-    return openApiDocumentJsonSchema(buildSuccessEnvelopeSchema(successDataSchema), 'output');
+    return openApiDocumentJsonSchema(
+      buildSuccessEnvelopeSchema(successDataSchema),
+      'output',
+    );
   }
 
   const variants: Record<string, unknown>[] = [];
 
-  variants.push(openApiDocumentJsonSchema(buildSuccessEnvelopeSchema(successDataSchema), 'output'));
+  variants.push(
+    openApiDocumentJsonSchema(
+      buildSuccessEnvelopeSchema(successDataSchema),
+      'output',
+    ),
+  );
 
   for (const [code, cfg] of errorEntries) {
     variants.push(
@@ -124,7 +76,9 @@ function buildUnifiedResponseSchema(
   return { oneOf: variants };
 }
 
-type InferZod<T extends z.ZodTypeAny | undefined> = T extends z.ZodTypeAny ? z.infer<T> : unknown;
+type InferZod<T extends z.ZodTypeAny | undefined> = T extends z.ZodTypeAny
+  ? z.infer<T>
+  : unknown;
 
 export interface DefineRouteOptions<
   TBody extends z.ZodTypeAny | undefined,
@@ -146,6 +100,7 @@ export interface DefineRouteOptions<
   tags?: string[];
   operationId?: string;
   consumes?: string[];
+  hide?: boolean;
 }
 
 export interface RouteDefinition<
@@ -185,11 +140,9 @@ export function defineRoute<
     preHandler.push(validateParams(options.params, options.rawErrorStatus === true));
   }
   if (options.body) {
-    assertStrictRequestSchema('body', options.path, options.body);
     preHandler.push(validateBody(options.body));
   }
   if (options.querystring) {
-    assertStrictRequestSchema('querystring', options.path, options.querystring);
     preHandler.push(validateQuery(options.querystring, options.rawErrorStatus === true));
   }
 
@@ -243,6 +196,9 @@ export function defineRoute<
   }
   if (options.consumes) {
     schema['consumes'] = options.consumes;
+  }
+  if (options.hide === true) {
+    schema['hide'] = true;
   }
 
   return {

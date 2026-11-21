@@ -14,14 +14,10 @@ if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'KimiCU\\ki
 $paths = @($candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { [IO.Path]::GetFullPath($_) })
 $sessionId = (Get-Process -Id $PID).SessionId
 $matched = @(Get-CimInstance Win32_Process -Filter "Name = 'kimi-cu.exe' AND SessionId = $sessionId" | Where-Object {
-  $raw = $_.ExecutablePath
-  if (-not $raw) { return $false }
-  try { $exe = [IO.Path]::GetFullPath($raw) } catch { return $false }
-  if ($paths -notcontains $exe) { return $false }
-  $names = @([regex]::Escape($raw), [regex]::Escape($exe)) | Select-Object -Unique
-  $alternation = ($names -join '|')
-  $pattern = '^(?:"(?:' + $alternation + ')"|(?:' + $alternation + '))\\s+(?:agent|agent-background|mcp)(?:\\s|$)'
-  return $_.CommandLine -match $pattern
+  $exe = $_.ExecutablePath
+  if (-not $exe -or $paths -notcontains $exe) { return $false }
+  $escaped = [regex]::Escape($exe)
+  return $_.CommandLine -match ('^(?:"' + $escaped + '"|' + $escaped + ')\\s+(?:agent|agent-background|mcp)(?:\\s|$)')
 })
 ${stop ? `
 foreach ($candidate in $matched) {

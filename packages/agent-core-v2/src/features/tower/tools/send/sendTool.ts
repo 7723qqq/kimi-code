@@ -1,21 +1,19 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { ISessionEventBus } from '#/app/event/eventBus';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import type { ToolExecution } from '#/tool/toolContract';
 
 import { deliverTowerMessage } from '../delivery';
 import { newTowerStore, runTowerTool } from '../support';
-import type { ITowerSendTool } from './send';
-import { TowerSendToolInputSchema, type TowerSendToolInput } from './send';
 import DESCRIPTION from './send.md?raw';
+import { ITowerSendTool, TowerSendToolInputSchema, type TowerSendToolInput } from './send';
 
 export class TowerSendTool implements ITowerSendTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerSend' as const;
-  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerSendToolInputSchema);
 
@@ -23,7 +21,7 @@ export class TowerSendTool implements ITowerSendTool {
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @ISessionEventBus private readonly sessionBus: ISessionEventBus,
-    @IAgentTaskService private readonly tasks: IAgentTaskService,
+    @IAgentToolExecutorService private readonly tasks: IAgentToolExecutorService,
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
   ) {}
 
@@ -51,7 +49,7 @@ export class TowerSendTool implements ITowerSendTool {
           const delivery = deliverTowerMessage(
             {
               sessionBus: this.sessionBus,
-              tasks: this.tasks,
+              toolExecutor: this.tasks,
               agentLifecycle: this.agentLifecycle,
               state: resolved.state,
             },
@@ -74,3 +72,4 @@ export class TowerSendTool implements ITowerSendTool {
     };
   }
 }
+

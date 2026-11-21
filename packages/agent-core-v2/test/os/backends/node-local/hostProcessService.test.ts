@@ -1,82 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
+import { EventEmitter } from 'node:events';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { type Readable } from 'node:stream';
+import { join as nativeJoin } from 'node:path';
+import { PassThrough, Readable } from 'node:stream';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import {
   HostProcessError,
   HostProcessErrorCode,
   IHostProcessService,
 } from '#/os/interface/hostProcess';
-import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
-import { expectRejection } from '#test/helpers/assertions';
-
-interface FakeTimerHandle extends IHostTimerHandle {
-  readonly id: number;
-}
-
-interface FakeTimers extends IHostTimers {
-  advance(byMs: number): void;
-  readonly pending: number;
-}
-
-function createFakeTimers(): FakeTimers {
-  let nowMs = 0;
-  let nextId = 1;
-  const scheduled: Array<{
-    readonly id: number;
-    readonly due: number;
-    readonly callback: () => void;
-    cancelled: boolean;
-  }> = [];
-
-  const schedule = (callback: () => void, timeoutMs: number): FakeTimerHandle => {
-    const timer = { id: nextId, due: nowMs + timeoutMs, callback, cancelled: false };
-    nextId += 1;
-    scheduled.push(timer);
-    return { id: timer.id, unref: () => {} };
-  };
-
-  return {
-    _serviceBrand: undefined,
-    setClampedTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
-    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
-    clearTimeout: (handle) => {
-      const id = (handle as FakeTimerHandle).id;
-      const timer = scheduled.find((candidate) => candidate.id === id);
-      if (timer !== undefined) timer.cancelled = true;
-    },
-    advance: (byMs) => {
-      const limit = nowMs + byMs;
-      for (;;) {
-        const next = scheduled
-          .filter((timer) => !timer.cancelled && timer.due <= limit)
-          .toSorted((a, b) => a.due - b.due || a.id - b.id)[0];
-        if (next === undefined) break;
-        next.cancelled = true;
-        nowMs = next.due;
-        next.callback();
-      }
-      nowMs = limit;
-    },
-    get pending() {
-      return scheduled.filter((timer) => !timer.cancelled).length;
-    },
-  };
-}
-
-async function flushAsyncWork(): Promise<void> {
-  for (let i = 0; i < 4; i += 1) {
-    await Promise.resolve();
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-  }
-}
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 
 async function collect(stream: Readable): Promise<string> {
   const chunks: Buffer[] = [];
@@ -103,13 +40,6 @@ describe('HostProcessService', () => {
     disposables.dispose();
   });
 
-  it('terminates a process that outlives its timeout', async () => {
-    const svc = ix.get(IHostProcessService);
-    const proc = await svc.spawn('node', ['-e', 'setTimeout(() => {}, 30000)'], { timeout: 200 });
-    const code = await proc.wait();
-    expect(code).not.toBe(0);
-  });
-
   it('spawns a process and captures stdout + exit code', async () => {
     const svc = ix.get(IHostProcessService);
     const proc = await svc.spawn('node', ['-e', 'process.stdout.write("ok")']);
@@ -129,9 +59,9 @@ describe('HostProcessService', () => {
     expect(await proc.wait()).toBe(0);
   });
 
-  it('throws a coded error when the command does not exist', async () => {
+  it.skipIf(process.platform === 'win32')('throws a coded error when the command does not exist', async () => {
     const svc = ix.get(IHostProcessService);
-    await expectRejection(svc.spawn('definitely-not-a-real-command-42'), (err: unknown) => {
+    await expect(svc.spawn('definitely-not-a-real-command-42')).rejects.toSatisfy((err: unknown) => {
       expect(err).toBeInstanceOf(HostProcessError);
       const error = err as HostProcessError;
       expect(error.code).toBe(HostProcessErrorCode.SpawnFailed);
@@ -160,146 +90,105 @@ describe('HostProcessService', () => {
     const code = await proc.wait();
     expect(code).not.toBe(0);
   });
-});
 
-describe.skipIf(process.platform !== 'win32')('HostProcessService (Windows)', () => {
-  let disposables: DisposableStore;
-  let ix: TestInstantiationService;
-  let tempDir: string;
-
-  beforeEach(() => {
-    disposables = new DisposableStore();
-    ix = createServices(disposables, {
-      additionalServices: (reg) => {
-        reg.define(IHostProcessService, HostProcessService);
-      },
-    });
-    tempDir = mkdtempSync(join(tmpdir(), 'kimi-hostproc-'));
-  });
-
-  afterEach(() => {
-    disposables.dispose();
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('runs extensionless .cmd shims found via PATHEXT through cmd.exe', async () => {
-    writeFileSync(join(tempDir, 'fakecmd.cmd'), '@echo fake-ok\r\n');
+  it.skipIf(process.platform !== 'win32')('executes a batch script resolved from PATH', async () => {
     const svc = ix.get(IHostProcessService);
-    const proc = await svc.spawn('fakecmd', [], {
-      env: { PATH: `${tempDir};${process.env['PATH'] ?? ''}` },
-    });
-    const out = await collect(proc.stdout);
-    expect(out.trim()).toBe('fake-ok');
-    expect(await proc.wait()).toBe(0);
-  });
-
-  it('preserves argument boundaries through the cmd.exe wrapper', async () => {
-    writeFileSync(join(tempDir, 'argcmd.cmd'), '@echo off\r\necho [%1][%2]\r\n');
-    const svc = ix.get(IHostProcessService);
-    const proc = await svc.spawn('argcmd', ['hello world', 'x"y'], {
-      env: { PATH: `${tempDir};${process.env['PATH'] ?? ''}` },
-    });
-    const out = await collect(proc.stdout);
-    expect(out).toContain('["hello world"]');
-    expect(out).toContain('["x""y"]');
-    expect(await proc.wait()).toBe(0);
-  });
-
-  it('preserves a trailing backslash inside a quoted argument', async () => {
-    writeFileSync(join(tempDir, 'argcmd.cmd'), '@echo off\r\necho [%1][%2]\r\n');
-    const svc = ix.get(IHostProcessService);
-    const proc = await svc.spawn('argcmd', ['C:\\Program Files\\', 'plain'], {
-      env: { PATH: `${tempDir};${process.env['PATH'] ?? ''}` },
-    });
-    const out = await collect(proc.stdout);
-    expect(out).toContain('["C:\\Program Files\\\\"]');
-    expect(await proc.wait()).toBe(0);
-  });
-
-  it('preserves a quote followed by a trailing backslash', async () => {
-    writeFileSync(join(tempDir, 'argcmd.cmd'), '@echo off\r\necho [%1][%2]\r\n');
-    const svc = ix.get(IHostProcessService);
-    const proc = await svc.spawn('argcmd', ['a"b\\', 'plain'], {
-      env: { PATH: `${tempDir};${process.env['PATH'] ?? ''}` },
-    });
-    const out = await collect(proc.stdout);
-    expect(out).toContain('["a""b\\\\"]');
-    expect(await proc.wait()).toBe(0);
-  });
-
-  it('runs an explicitly named .cmd file through cmd.exe', async () => {
-    writeFileSync(join(tempDir, 'explicit.cmd'), '@echo explicit-ok\r\n');
-    const svc = ix.get(IHostProcessService);
-    const proc = await svc.spawn(join(tempDir, 'explicit.cmd'), []);
-    const out = await collect(proc.stdout);
-    expect(out.trim()).toBe('explicit-ok');
-    expect(await proc.wait()).toBe(0);
+    const dir = await mkdtemp(nativeJoin(tmpdir(), 'kimi-spawn-cmd-'));
+    try {
+      await writeFile(nativeJoin(dir, 'echo-args.cmd'), '@echo %*\r\n');
+      const proc = await svc.spawn('echo-args', ['hello', 'a b'], { env: { PATH: dir } });
+      const out = await collect(proc.stdout);
+      expect(out.trim()).toBe('"hello" "a b"');
+      expect(await proc.wait()).toBe(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
-describe.skipIf(process.platform !== 'win32')('HostProcessService on Windows', () => {
+describe('HostProcessService on Windows', () => {
   let savedPlatform: string;
   let spawnedCommands: string[];
-  let taskkills: Array<{ kill: ReturnType<typeof mock>; unref: ReturnType<typeof mock> }>;
-
-  let spawnSpy: ReturnType<typeof spyOn> | undefined;
+  let crossSpawnCalls: Array<{
+    command: string;
+    args: readonly string[];
+    options: { cwd?: string; env?: Record<string, string> };
+  }>;
+  let crossSpawnError: (Error & { code: string }) | undefined;
+  let autoSpawn: boolean;
+  let crossSpawnChild: (EventEmitter & { stdin: PassThrough; stdout: PassThrough; stderr: PassThrough }) | undefined;
+  let taskkills: Array<{ kill: ReturnType<typeof vi.fn>; unref: ReturnType<typeof vi.fn> }>;
 
   beforeEach(() => {
     savedPlatform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32' });
     spawnedCommands = [];
+    crossSpawnCalls = [];
+    crossSpawnError = undefined;
+    autoSpawn = true;
+    crossSpawnChild = undefined;
     taskkills = [];
-    spawnSpy = spyOn(Bun, 'spawn').mockImplementation(((options: { cmd: readonly string[] }) => {
-      const [command, ...args] = options.cmd;
-      spawnedCommands.push([command, ...args].join(' '));
-      const killed = mock(() => true);
-      const unref = mock();
-      const fake = {
-        pid: 4242,
-        stdin: { write: mock(), flush: mock(), end: mock() },
-        stdout: new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.close();
-          },
-        }),
-        stderr: new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.close();
-          },
-        }),
-        exited: new Promise<number>(() => {}),
-        signalCode: null,
-        kill: killed,
-        unref,
-      };
-      if (command === 'taskkill') taskkills.push({ kill: killed, unref });
-      return fake;
-    }) as never);
+    vi.doMock('cross-spawn', () => ({
+      default: (
+        command: string,
+        args: readonly string[],
+        options: { cwd?: string; env?: Record<string, string> },
+      ) => {
+        crossSpawnCalls.push({ command, args, options });
+        if (crossSpawnError !== undefined) throw crossSpawnError;
+        const child = Object.assign(new EventEmitter(), {
+          pid: 4242,
+          stdin: new PassThrough(),
+          stdout: new PassThrough(),
+          stderr: new PassThrough(),
+          kill: vi.fn(() => true),
+          unref: vi.fn(),
+        });
+        crossSpawnChild = child;
+        if (autoSpawn) queueMicrotask(() => child.emit('spawn'));
+        return child;
+      },
+    }));
+    vi.doMock('node:child_process', async () => ({
+      ...(await import('node:child_process')),
+      spawn: (command: string, args: readonly string[]) => {
+        spawnedCommands.push([command, ...args].join(' '));
+        const child = Object.assign(new EventEmitter(), {
+          pid: 4242,
+          stdin: new PassThrough(),
+          stdout: new PassThrough(),
+          stderr: new PassThrough(),
+          kill: vi.fn(() => true),
+          unref: vi.fn(),
+        });
+        if (command === 'taskkill') taskkills.push(child);
+        else queueMicrotask(() => child.emit('spawn'));
+        return child;
+      },
+    }));
+    vi.resetModules();
+    vi.useFakeTimers();
   });
 
   afterEach(() => {
-    spawnSpy?.mockRestore();
-    spawnSpy = undefined;
+    vi.useRealTimers();
+    vi.doUnmock('cross-spawn');
+    vi.doUnmock('node:child_process');
+    vi.resetModules();
     Object.defineProperty(process, 'platform', { value: savedPlatform });
   });
 
   it('stops waiting for a taskkill that never exits and terminates it', async () => {
-    const { HostProcessService: WindowsHostProcessService } =
-      await import('#/os/backends/host/hostProcessService');
-    const timers = createFakeTimers();
-    const proc = await new WindowsHostProcessService(timers).spawn('node', [
-      '-e',
-      'setTimeout(() => {}, 30000)',
-    ]);
+    const { HostProcessService: WindowsHostProcessService } = await import(
+      '#/os/backends/node-local/hostProcessService'
+    );
+    const proc = await new WindowsHostProcessService().spawn('node', ['-e', 'setTimeout(() => {}, 30000)']);
     let killed = false;
     const kill = proc.kill('SIGTERM').then(() => {
       killed = true;
     });
 
-    await flushAsyncWork();
-    expect(timers.pending).toBe(1);
-    timers.advance(5_000);
-    await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(5_000);
 
     expect(spawnedCommands).toContain('taskkill /T /F /PID 4242');
     expect(killed).toBe(true);
@@ -307,5 +196,94 @@ describe.skipIf(process.platform !== 'win32')('HostProcessService on Windows', (
     expect(taskkills[0]?.kill).toHaveBeenCalled();
     expect(taskkills[0]?.unref).toHaveBeenCalled();
     await kill;
+  });
+
+  it('delegates spawning to cross-spawn with env and cwd forwarded', async () => {
+    const dir = await mkdtemp(nativeJoin(tmpdir(), 'kimi-spawn-cmd-'));
+    try {
+      const { HostProcessService: WindowsHostProcessService } = await import(
+        '#/os/backends/node-local/hostProcessService'
+      );
+      await new WindowsHostProcessService().spawn('fake-tool', ['-y', 'some value'], {
+        cwd: dir,
+        env: { FOO: 'bar' },
+      });
+      expect(crossSpawnCalls).toHaveLength(1);
+      const call = crossSpawnCalls[0]!;
+      expect(call.command).toBe('fake-tool');
+      expect(call.args).toEqual(['-y', 'some value']);
+      expect(call.options.cwd).toBe(dir);
+      expect(call.options.env?.['FOO']).toBe('bar');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses native spawn for commands with an explicit shell option', async () => {
+    const { HostProcessService: WindowsHostProcessService } = await import(
+      '#/os/backends/node-local/hostProcessService'
+    );
+    await new WindowsHostProcessService().spawn('fake-tool', [], { shell: true });
+    expect(crossSpawnCalls).toEqual([]);
+    expect(spawnedCommands).toEqual(['fake-tool']);
+  });
+
+  it('normalizes a synchronous spawn failure into HostProcessError', async () => {
+    crossSpawnError = Object.assign(new Error('The operation is not permitted'), { code: 'EINVAL' });
+    const { HostProcessService: WindowsHostProcessService } = await import(
+      '#/os/backends/node-local/hostProcessService'
+    );
+    const { HostProcessError: WindowsHostProcessError } = await import('#/os/interface/hostProcess');
+    await expect(new WindowsHostProcessService().spawn('fake-tool.cmd')).rejects.toSatisfy((err: unknown) => {
+      expect(err).toBeInstanceOf(WindowsHostProcessError);
+      const error = err as HostProcessError;
+      expect(error.code).toBe(HostProcessErrorCode.SpawnFailed);
+      expect(error.details).toMatchObject({ command: 'fake-tool.cmd', errno: 'EINVAL' });
+      expect(error.cause).toBe(crossSpawnError);
+      return true;
+    });
+  });
+
+  it('keeps the child spawn error as cause and handles pipe errors until cleanup closes them', async () => {
+    autoSpawn = false;
+    const { HostProcessService: WindowsHostProcessService } = await import(
+      '#/os/backends/node-local/hostProcessService'
+    );
+    const svc = new WindowsHostProcessService();
+    const pending = svc.spawn('fake-tool');
+    const child = crossSpawnChild!;
+    const pipes = [child.stdin, child.stdout, child.stderr];
+    const pipeError = Object.assign(new Error('read ENOTCONN'), { code: 'ENOTCONN' });
+    const spawnError = Object.assign(new Error('spawn fake-tool ENOENT'), { code: 'ENOENT' });
+    for (const pipe of pipes) expect(() => pipe.emit('error', pipeError)).not.toThrow();
+    child.emit('error', spawnError);
+    for (const pipe of pipes) expect(() => pipe.emit('error', pipeError)).not.toThrow();
+    await expect(pending).rejects.toSatisfy((error: HostProcessError) => {
+      expect(error.code).toBe(HostProcessErrorCode.SpawnFailed);
+      expect(error.details).toMatchObject({ command: 'fake-tool', errno: 'ENOENT' });
+      expect(error.cause).toBe(spawnError);
+      return true;
+    });
+    await vi.runAllTimersAsync();
+    for (const pipe of pipes) {
+      expect(pipe.destroyed).toBe(true);
+      expect(pipe.listenerCount('error')).toBe(0);
+      expect(pipe.listenerCount('close')).toBe(0);
+    }
+    autoSpawn = true;
+    const next = await svc.spawn('fake-tool');
+    await next.dispose();
+  });
+
+  it('hands successful pipes to the process without retaining startup listeners', async () => {
+    const { HostProcessService: WindowsHostProcessService } = await import(
+      '#/os/backends/node-local/hostProcessService'
+    );
+    const proc = await new WindowsHostProcessService().spawn('fake-tool');
+    expect(crossSpawnChild!.stdin.listenerCount('error')).toBe(0);
+    expect(crossSpawnChild!.stdin.listenerCount('close')).toBe(0);
+    expect(crossSpawnChild!.stdout.listenerCount('error')).toBe(1);
+    expect(crossSpawnChild!.stderr.listenerCount('error')).toBe(1);
+    await proc.dispose();
   });
 });

@@ -34,7 +34,7 @@ export abstract class Service extends Disposable implements Fiber, UnitInternals
     const frame = currentConstruction();
     if (
       frame !== undefined &&
-      frame.ctor === (new.target as unknown as new (...args: any[]) => unknown)
+      frame.ctor === (new.target as unknown as new (...args: any[]) => any)
     ) {
       this.__unitBuffer = [];
       this.config = frame.config;
@@ -42,7 +42,7 @@ export abstract class Service extends Disposable implements Fiber, UnitInternals
       this.__unitBuffer = null;
       this.config = undefined;
     }
-    this.name = this.constructor.name || 'anonymous';
+    this.name = (this.constructor as any).name || 'anonymous';
   }
 
   provide<T>(
@@ -53,7 +53,11 @@ export abstract class Service extends Disposable implements Fiber, UnitInternals
   provide<T>(id: ServiceIdentifier<T>, instance: T): FiberHandle<T>;
   provide(recipe: ServiceRecipe, opts?: FiberProvideOptions): FiberHandle;
   provide<T>(token: CollectionToken<T>, value: T): FiberHandle;
-  provide(first: any, second?: any, third?: FiberProvideOptions): FiberHandle {
+  provide(
+    first: any,
+    second?: any,
+    third?: FiberProvideOptions,
+  ): FiberHandle {
     if (this.__unitBuffer !== null) {
       const pending = new PendingFiberHandle(this._pendingName(first));
       this.__unitBuffer.push((runtime) => {
@@ -123,7 +127,7 @@ export abstract class Service extends Disposable implements Fiber, UnitInternals
     return this.__unitRuntime;
   }
 
-  private _pendingName(first: unknown): string {
+  private _pendingName(first: any): string {
     if (typeof first === 'function') {
       return (first as RecipeStatics).name ?? String(first);
     }

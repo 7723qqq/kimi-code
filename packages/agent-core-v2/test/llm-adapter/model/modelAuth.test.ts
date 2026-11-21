@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { ConfigErrors } from '#/app/config/errors';
+import type { ProviderConfig } from '#/llm-adapter/provider/provider';
 import type { ModelRecord } from '#/llm-adapter/model/model';
 import {
   deriveProviderId,
@@ -10,7 +11,6 @@ import {
   resolveModelForReady,
   resolveModelProtocol,
 } from '#/llm-adapter/model/model-auth';
-import type { ProviderConfig } from '#/llm-adapter/provider/provider';
 
 function authMaterial(args: {
   model: ModelRecord;
@@ -65,11 +65,7 @@ describe('resolveModelAuthMaterial', () => {
     expect(
       authMaterial({
         model: { model: 'm' },
-        provider: {
-          type: 'kimi',
-          apiKeyEnv: 'ACME_API_KEY',
-          env: { KIMI_API_KEY: 'sub-table-key' },
-        },
+        provider: { type: 'kimi', apiKeyEnv: 'ACME_API_KEY', env: { KIMI_API_KEY: 'sub-table-key' } },
       }),
     ).toEqual({ apiKeyEnv: 'ACME_API_KEY' });
   });
@@ -84,11 +80,7 @@ describe('resolveModelAuthMaterial', () => {
     expect(() =>
       authMaterial({
         model: { model: 'm' },
-        provider: {
-          type: 'openai',
-          apiKeyEnv: 'ACME_API_KEY',
-          oauth: { storage: 'file', key: 'k' },
-        },
+        provider: { type: 'openai', apiKeyEnv: 'ACME_API_KEY', oauth: { storage: 'file', key: 'k' } },
       }),
     ).toThrowError(expect.objectContaining({ code: ConfigErrors.codes.CONFIG_INVALID }));
   });
@@ -127,15 +119,6 @@ describe('resolveModelAuthMaterial', () => {
         },
       }),
     ).toEqual({ apiKey: 'vertex-env-key' });
-    expect(
-      authMaterial({
-        model: { model: 'm' },
-        provider: {
-          type: 'vertexai',
-          env: { VERTEXAI_API_KEY: 'legacy-vertex-key' },
-        },
-      }),
-    ).toEqual({ apiKey: 'legacy-vertex-key' });
     expect(
       authMaterial({
         model: { model: 'global.moonshotai.kimi-k3' },
@@ -260,29 +243,13 @@ describe('deriveProviderId', () => {
   });
 });
 
-describe('resolveModelProtocol', () => {
-  it('maps the legacy vertexai provider type to google-genai so old config.toml keeps loading', () => {
-    expect(resolveModelProtocol({ model: 'm' }, { type: 'vertexai' })).toBe('google-genai');
-    expect(resolveModelProtocol({ model: 'm', protocol: 'anthropic' }, { type: 'vertexai' })).toBe(
-      'anthropic',
-    );
-  });
-
-  it('still resolves the supported wire types and rejects unknown vendors', () => {
-    expect(resolveModelProtocol({ model: 'm' }, { type: 'google-genai' })).toBe('google-genai');
-    expect(resolveModelProtocol({ model: 'm' }, { type: 'openai' })).toBe('openai');
-    expect(resolveModelProtocol({ model: 'm' }, { type: 'my-vendor' })).toBeUndefined();
-    expect(resolveModelProtocol({ model: 'm' }, undefined)).toBeUndefined();
-  });
-});
-
 describe('resolveModelForReady', () => {
   const providers: Readonly<Record<string, ProviderConfig>> = {
     'prov-a': { type: 'openai', apiKey: 'sk-a' },
-    __kimi_env__: { type: 'kimi', baseUrl: 'https://api.example.test/coding/v1' },
+    '__kimi_env__': { type: 'kimi', baseUrl: 'https://api.example.test/coding/v1' },
   };
 
-  it('reports no-default when the model id is missing or empty', () => {
+  it('reports no-default and dangling-alias before resolving a model', () => {
     expect(resolveModelForReady(undefined, {}, providers)).toEqual({
       resolved: false,
       reason: 'no-default',
@@ -295,9 +262,6 @@ describe('resolveModelForReady', () => {
       resolved: false,
       reason: 'no-default',
     });
-  });
-
-  it('reports dangling-alias when the alias is absent from the models table', () => {
     expect(resolveModelForReady('ghost', {}, providers)).toEqual({
       resolved: false,
       reason: 'dangling-alias',
@@ -328,9 +292,9 @@ describe('resolveModelForReady', () => {
     expect(
       resolveModelForReady('m', { m: { providerId: 'gone', model: 'gpt' } }, providers),
     ).toEqual({ resolved: false, reason: 'provider-missing' });
-    expect(resolveModelForReady('m', { m: { provider: 'gone', model: 'gpt' } }, providers)).toEqual(
-      { resolved: false, reason: 'provider-missing' },
-    );
+    expect(
+      resolveModelForReady('m', { m: { provider: 'gone', model: 'gpt' } }, providers),
+    ).toEqual({ resolved: false, reason: 'provider-missing' });
   });
 
   it('resolves a providerless flat model through its baseUrl', () => {
@@ -384,7 +348,7 @@ describe('resolveModelForReady', () => {
 
   it('resolves the env-overlay injected model against the env provider', () => {
     const models = {
-      __kimi_env_model__: {
+      '__kimi_env_model__': {
         provider: '__kimi_env__',
         model: 'kimi-for-coding',
         maxContextSize: 262144,

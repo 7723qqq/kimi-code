@@ -1,27 +1,15 @@
-import { describe, expect, it } from 'bun:test';
+import { TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import type { WireRecord } from '@moonshot-ai/agent-core-v2/wire/record';
+import { flattenChain } from '@moonshot-ai/agent-core-v2';
+import { sliceMainRecordsAtTurn } from '@moonshot-ai/agent-core-v2/workspace/sessionLifecycle/internal/forkTurnSlice';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { TurnPrompt } from '@moonshot-ai/agent-core-v2';
-import type { WireRecord } from '@moonshot-ai/agent-core-v2';
-import { flattenChain, sliceMainRecordsAtTurn } from '@moonshot-ai/agent-core-v2';
-
-import {
-  isSurveyTurnOrigin,
-  mountSurveyTurnCounter,
-  SurveyTurnCounter,
-} from '#/session-rating/node/index';
-
-import {
-  InMemoryWireRecordPersistence,
-  testAgent,
-  type TestAgentContext,
-} from '../../agent-core-v2/test/harness';
-import { waitForAssertion, waitUntil } from './helpers/waitFor';
+import { InMemoryWireRecordPersistence, testAgent, type TestAgentContext } from '../../agent-core-v2/test/harness';
+import { isSurveyTurnOrigin, mountSurveyTurnCounter, SurveyTurnCounter } from '#/session-rating/node/index';
 
 function barrier() {
   let release = (): void => {};
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const promise = new Promise<void>((resolve) => { release = resolve; });
   return { promise, release };
 }
 
@@ -56,7 +44,7 @@ describe('survey history attachment', () => {
     await lateEntered.promise;
     const undo = ctx.rpc.undoHistory({ count: 1 });
     try {
-      await waitForAssertion(() => {
+      await vi.waitFor(() => {
         expect(ctx.dispatcher.restorePhase).toBe('restoring');
       });
       lateRead.release();
@@ -77,10 +65,7 @@ describe('survey history attachment', () => {
 
   it('can join a restore already in progress', async () => {
     const ctx = testAgent({
-      persistence: new InMemoryWireRecordPersistence([
-        userPrompt().serialize(),
-        userPrompt().serialize(),
-      ]),
+      persistence: new InMemoryWireRecordPersistence([userPrompt().serialize(), userPrompt().serialize()]),
       autoConfigure: false,
     });
     const restoring = ctx.restorePersisted();
@@ -113,9 +98,7 @@ describe('survey history attachment', () => {
     const ctx = testAgent({ persistence, autoConfigure: false });
     await ctx.restorePersisted();
     let release = (): void => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
     persistence.flush = () => gate;
     const counter = mountSurveyTurnCounter(ctx.dispatcher);
     const pending = ctx.dispatcher.dispatch(userPrompt());
@@ -163,10 +146,7 @@ describe('survey history attachment', () => {
 
   it('catches up when attached after restore and includes live prompts exactly once', async () => {
     const ctx = testAgent({
-      persistence: new InMemoryWireRecordPersistence([
-        userPrompt().serialize(),
-        userPrompt().serialize(),
-      ]),
+      persistence: new InMemoryWireRecordPersistence([userPrompt().serialize(), userPrompt().serialize()]),
       autoConfigure: false,
     });
     await ctx.restorePersisted();
@@ -181,10 +161,7 @@ describe('survey history attachment', () => {
 
   it('counts restored history and subsequent prompts through the runtime interface', async () => {
     const ctx = testAgent({
-      persistence: new InMemoryWireRecordPersistence([
-        userPrompt().serialize(),
-        userPrompt().serialize(),
-      ]),
+      persistence: new InMemoryWireRecordPersistence([userPrompt().serialize(), userPrompt().serialize()]),
       autoConfigure: false,
     });
     const counter = mountSurveyTurnCounter(ctx.dispatcher);
@@ -242,8 +219,7 @@ describe('survey turn counting', () => {
     const forward = new SurveyTurnCounter();
     const reverse = new SurveyTurnCounter();
     for (const [position, record] of records.entries()) forward.observe(record, position);
-    for (const [position, record] of [...records.entries()].toReversed())
-      reverse.observe(record, position);
+    for (const [position, record] of [...records.entries()].toReversed()) reverse.observe(record, position);
 
     expect([forward.count, reverse.count]).toEqual([3, 3]);
   });
@@ -251,42 +227,26 @@ describe('survey turn counting', () => {
 
 describe('survey turn classification', () => {
   it('uses the rating policy for user actions, automatic work and unknown origins', () => {
-    expect(
-      [
-        { kind: 'user' },
-        { kind: 'skill_activation', trigger: 'user-slash' },
-        { kind: 'plugin_command', trigger: 'user-slash' },
-        { kind: 'shell_command', phase: 'input' },
-        { kind: 'shell_command', phase: 'result' },
-        { kind: 'skill_activation', trigger: 'model' },
-        { kind: 'plugin_command', trigger: 'model' },
-        { kind: 'cron_job' },
-        { kind: 'task' },
-        { kind: 'system_trigger' },
-        { kind: 'injection' },
-        { kind: 'retry' },
-        { kind: 'future_origin' },
-        { kind: 'skill_activation' },
-        { kind: 'shell_command' },
-        null,
-      ].map(isSurveyTurnOrigin),
-    ).toEqual([
-      true,
-      true,
-      true,
-      true,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
+    expect([
+      { kind: 'user' },
+      { kind: 'skill_activation', trigger: 'user-slash' },
+      { kind: 'plugin_command', trigger: 'user-slash' },
+      { kind: 'shell_command', phase: 'input' },
+      { kind: 'shell_command', phase: 'result' },
+      { kind: 'skill_activation', trigger: 'model' },
+      { kind: 'plugin_command', trigger: 'model' },
+      { kind: 'cron_job' },
+      { kind: 'task' },
+      { kind: 'system_trigger' },
+      { kind: 'injection' },
+      { kind: 'retry' },
+      { kind: 'future_origin' },
+      { kind: 'skill_activation' },
+      { kind: 'shell_command' },
+      null,
+    ].map(isSurveyTurnOrigin)).toEqual([
+      true, true, true, true, false, false, false, false,
+      false, false, false, false, undefined, undefined, undefined, undefined,
     ]);
   });
 });
@@ -366,9 +326,9 @@ describe('survey counts across journal transformations', () => {
     await runUserTurn(ctx, 'three');
     const records = flattenChain(await ctx.persistedWireRecords());
 
-    await expect(restoredCount(sliceMainRecordsAtTurn(records, 'source', 1).records)).resolves.toBe(
-      2,
-    );
+    await expect(
+      restoredCount(sliceMainRecordsAtTurn(records, 'source', 1).records),
+    ).resolves.toBe(2);
     await expect(restoredCount(records)).resolves.toBe(3);
   });
 });

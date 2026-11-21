@@ -1,16 +1,16 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { type CollectionView } from '#/_base/di/collection';
+import { collection, type CollectionView } from '#/_base/di/collection';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { FiberState, ScopeUnits } from '#/_base/di/fiber';
 import { createDecorator, ScopeActivation } from '#/_base/di/instantiation';
 import { type InstantiationService } from '#/_base/di/instantiationService';
 import { Scope } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
-import { AgentProfileContribution } from '#/app/agentProfileCatalog/agentProfileContribution';
-import { ConfigSectionContribution } from '#/app/config/configSectionContributions';
 import { LifecycleScope } from '#/app/scopes';
+import { ConfigSectionContribution } from '#/app/config/configSectionContributions';
+import { AgentProfileContribution } from '#/app/agentProfileCatalog/agentProfileContribution';
+import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
 import { EventStateContribution } from '#/state/stateContribution';
 
 interface IAgentPlanService {
@@ -104,19 +104,15 @@ describe('Plan sample (plan-domain-plugin.manifest.ts) — API acceptance', () =
     app.accessor.get(IPlanFeature);
 
     expect(seen).toEqual(['config:+defaultPlanMode']);
-    expect(typeof featureHandle.uid).toBe('number');
+    expect(featureHandle.uid).toBeTypeOf('number');
 
     const agent = app.createChild(LifecycleScope.Agent, 'agent-1');
     expect(log).toEqual(['agent feature up']);
     expect(agent.accessor.get(IAgentPlanService).marker).toBe('plan-service');
-    const toolView = (agent.instantiation as InstantiationService).fiberHost.collectionView(
-      AgentToolContribution,
-    );
+    const toolView = (agent.instantiation as InstantiationService).fiberHost.collectionView(AgentToolContribution);
     expect(toolView.items).toHaveLength(1);
     expect(toolView.items[0]!.options.name).toBe('EnterPlanMode');
-    const wireView = (agent.instantiation as InstantiationService).fiberHost.collectionView(
-      EventStateContribution,
-    );
+    const wireView = (agent.instantiation as InstantiationService).fiberHost.collectionView(EventStateContribution);
     expect(wireView.items).toHaveLength(1);
 
     const tool = agent.instantiation.createInstance(EnterPlanModeTool);
@@ -125,10 +121,7 @@ describe('Plan sample (plan-domain-plugin.manifest.ts) — API acceptance', () =
     featureHandle.dispose();
     await app.instantiation.cascade.whenIdle();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(
-      (agent.instantiation as InstantiationService).fiberHost.collectionView(EventStateContribution)
-        .items,
-    ).toHaveLength(0);
+    expect((agent.instantiation as InstantiationService).fiberHost.collectionView(EventStateContribution).items).toHaveLength(0);
     expect(toolView.items).toHaveLength(0);
     expect(seen).toEqual(['config:+defaultPlanMode', 'config:-defaultPlanMode']);
     expect(log).toEqual(['agent feature up']);
@@ -145,7 +138,7 @@ describe('Plan sample (plan-domain-plugin.manifest.ts) — API acceptance', () =
     const app = Scope.createApp({ id: 'app' });
     const handle = app.instantiation.provide(INamed, new SyncDescriptor(Named));
     app.accessor.get(INamed);
-    expect(typeof handle.uid).toBe('number');
+    expect(handle.uid).toBeTypeOf('number');
     expect(app.instantiation.cascade.stateOf(INamed)).toBe('Active');
     app.dispose();
   });

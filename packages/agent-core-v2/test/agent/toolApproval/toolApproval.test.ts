@@ -1,12 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import type { TestInstantiationService } from '#/_base/di/test';
 import { UserCancellationError } from '#/_base/utils/abort';
-import { type ApprovalRequest, type ApprovalResponse } from '#/agent/interaction/approval';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import type { PermissionMode, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
+import type {
+  PermissionMode,
+  PermissionPolicyResult,
+} from '#/agent/permissionPolicy/types';
 import {
   IAgentPermissionRulesService,
   type PermissionApprovalResultRecord,
@@ -18,22 +21,25 @@ import {
   PermissionApprovalRequested,
   PermissionApprovalResolved,
 } from '#/agent/toolApproval/toolApprovalService';
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IBootstrapService, type HostArgs } from '#/app/bootstrap/bootstrap';
-import type { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import type { Event2 } from '#/app/event/event2';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { OrderedHookSlot } from '#/hooks';
-import { interactions } from '#/human/interaction/facade';
+import type { ToolCall } from '#human/message';
+import {
+  type ApprovalRequest,
+  type ApprovalResponse,
+} from '#/agent/interaction/approval';
 import { INTERACTION_TAG_SESSION_ID } from '#/human/interaction/interaction';
+import { interactions } from '#/human/interaction/facade';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ToolCall } from '#human/llm/message';
 
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { stubPermissionModeService } from '../permissionMode/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 const RETRY_GUIDANCE =
   "Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
@@ -42,7 +48,7 @@ interface ContextOptions {
   readonly display?: ToolInputDisplay;
   readonly description?: string;
   readonly approvalRule?: string;
-  readonly traceId?: string;
+  readonly requestId?: string;
   readonly signal?: AbortSignal;
 }
 
@@ -60,7 +66,7 @@ function makeContext(
   return {
     turnId: 1,
     signal: options.signal ?? new AbortController().signal,
-    trace: options.traceId === undefined ? undefined : { traceId: options.traceId },
+    trace: options.requestId === undefined ? undefined : { requestId: options.requestId },
     toolCall,
     toolCalls: [toolCall],
     args,
@@ -106,10 +112,7 @@ describe('AgentToolApprovalService', () => {
           IAgentScopeContext,
           makeAgentScopeContext({ agentId: 'main', agentScope: 'main' }),
         );
-        reg.defineInstance(
-          IAgentPermissionModeService,
-          stubPermissionModeService(() => mode),
-        );
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
         reg.defineInstance(IAgentPermissionRulesService, {
           _serviceBrand: undefined,
           rules: [],
@@ -119,17 +122,14 @@ describe('AgentToolApprovalService', () => {
             recorded.push(record);
           },
         });
-        reg.defineInstance(
-          ISessionContext,
-          makeSessionContext({
-            sessionId: 'test-session',
-            workspaceId: 'test-workspace',
-            sessionDir: '/tmp/test-session',
-            sessionScope: 'sessions/test-workspace/test-session',
-            metaScope: 'sessions/test-workspace/test-session/session-meta',
-            cwd: '/tmp/test-session',
-          }),
-        );
+        reg.defineInstance(ISessionContext, makeSessionContext({
+          sessionId: 'test-session',
+          workspaceId: 'test-workspace',
+          sessionDir: '/tmp/test-session',
+          sessionScope: 'sessions/test-workspace/test-session',
+          metaScope: 'sessions/test-workspace/test-session/session-meta',
+          cwd: '/tmp/test-session',
+        }));
         reg.defineInstance(ITelemetryService, recordingTelemetry(records));
         reg.defineInstance(IEventBus, eventBus);
         const dispatcher: IEventDispatcher = {
@@ -157,8 +157,8 @@ describe('AgentToolApprovalService', () => {
 
   function useBroker(
     request: (approval: ApprovalRequest) => Promise<ApprovalResponse>,
-  ): ReturnType<typeof mock<(approval: ApprovalRequest) => Promise<ApprovalResponse>>> {
-    const requestSpy = mock(request);
+  ): ReturnType<typeof vi.fn<(approval: ApprovalRequest) => Promise<ApprovalResponse>>> {
+    const requestSpy = vi.fn(request);
     const seen = new Set<string>();
     disposables.add(
       toDisposable(
@@ -170,7 +170,7 @@ describe('AgentToolApprovalService', () => {
           })) {
             if (seen.has(pending.id)) continue;
             seen.add(pending.id);
-            void requestSpy(pending.payload as ApprovalRequest).then((response) => {
+            void requestSpy(pending.payload as ApprovalRequest).then((response: unknown) => {
               interactions.respond(pending.id, response);
             });
           }
@@ -181,18 +181,21 @@ describe('AgentToolApprovalService', () => {
   }
 
   function subscribeApprovalEvents(): {
-    readonly requested: ReturnType<typeof mock>;
-    readonly resolved: ReturnType<typeof mock>;
+    readonly requested: ReturnType<typeof vi.fn>;
+    readonly resolved: ReturnType<typeof vi.fn>;
   } {
-    const requested = mock();
-    const resolved = mock();
+    const requested = vi.fn();
+    const resolved = vi.fn();
     disposables.add(eventBus.subscribe(PermissionApprovalRequested, requested));
     disposables.add(eventBus.subscribe(PermissionApprovalResolved, resolved));
     return { requested, resolved };
   }
 
   function useSubagentScope(): void {
-    ix.set(IAgentScopeContext, makeAgentScopeContext({ agentId: 'sub-1', agentScope: 'sub-1' }));
+    ix.set(
+      IAgentScopeContext,
+      makeAgentScopeContext({ agentId: 'sub-1', agentScope: 'sub-1' }),
+    );
     (eventBus as EventBusService).activateAgent(ix.get(IAgentScopeContext).agentContext);
   }
 
@@ -277,11 +280,7 @@ describe('AgentToolApprovalService', () => {
       const svc = make();
 
       await expect(
-        svc.requestToolApproval(
-          makeContext('Bash', { command: 'printf first' }),
-          ask(),
-          'fallback-ask',
-        ),
+        svc.requestToolApproval(makeContext('Bash', { command: 'printf first' }), ask(), 'fallback-ask'),
       ).resolves.toBeUndefined();
 
       expect(request).toHaveBeenCalledTimes(1);
@@ -536,13 +535,9 @@ describe('AgentToolApprovalService', () => {
         ask(),
         'exit-plan-mode-review-ask',
       );
-      const settled = promise.then(
-        () => undefined,
-        (reason: unknown) => reason,
-      );
+      const expectation = expect(promise).rejects.toThrow('approval transport closed');
       controller.abort(error);
-      const rejection = await settled;
-      expect((rejection as Error).message).toBe('approval transport closed');
+      await expectation;
 
       expect(records).toContainEqual({
         event: 'permission_approval_result',
@@ -589,12 +584,9 @@ describe('AgentToolApprovalService', () => {
         ask(),
         'fallback-ask',
       );
-      const settled = promise.then(
-        () => undefined,
-        (reason: unknown) => reason,
-      );
+      const expectation = expect(promise).rejects.toBeInstanceOf(UserCancellationError);
       controller.abort(new UserCancellationError());
-      expect(await settled).toBeInstanceOf(UserCancellationError);
+      await expectation;
 
       expect(events.requested).toHaveBeenCalledTimes(1);
       expect(events.resolved).not.toHaveBeenCalled();
@@ -608,9 +600,7 @@ describe('AgentToolApprovalService', () => {
       const broker = useBroker(async () => ({ decision: 'approved' }));
       const svc = make();
 
-      await expect(
-        svc.requestToolApproval(makeContext('Bash'), ask(), 'fallback-ask'),
-      ).resolves.toEqual({
+      await expect(svc.requestToolApproval(makeContext('Bash'), ask(), 'fallback-ask')).resolves.toEqual({
         veto: {
           output: 'Tool "Bash" needs approval, but nobody can approve it in a non-interactive run.',
           isError: true,
@@ -655,7 +645,7 @@ describe('AgentToolApprovalService', () => {
       const svc = make();
 
       await svc.requestToolApproval(
-        makeContext('bash', {}, { traceId: 'trace-approval-1' }),
+        makeContext('bash', {}, { requestId: 'trace-approval-1' }),
         ask(),
         'fallback-ask',
       );
@@ -665,7 +655,7 @@ describe('AgentToolApprovalService', () => {
         properties: expect.objectContaining({
           tool_name: 'bash',
           result: 'approved',
-          trace_id: 'trace-approval-1',
+          request_id: 'trace-approval-1',
         }),
       });
     });

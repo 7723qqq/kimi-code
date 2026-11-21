@@ -9,7 +9,9 @@ export function markTranscriptComponent(component: Component, entry: TranscriptE
   componentEntries.set(component, entry);
 }
 
-export function getTranscriptComponentEntry(component: Component): TranscriptEntry | undefined {
+export function getTranscriptComponentEntry(
+  component: Component,
+): TranscriptEntry | undefined {
   return componentEntries.get(component);
 }
 

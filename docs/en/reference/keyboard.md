@@ -107,15 +107,18 @@ After opening the help panel with `/help`, use the following keys to navigate an
 
 Set `tui_mode` to `"fullscreen"` (or pick "Fullscreen (experimental)" under "TUI mode" in `/settings`) and restart: Kimi Code CLI then renders into the terminal's alternate screen. The transcript becomes an in-app scroll area and is replayed into the terminal scrollback on exit.
 
-Both modes ship the same panels, dialogs and key bindings; fullscreen mode only adds:
+Both modes use the same panels, dialogs and key bindings. Fullscreen mouse actions use events the terminal sends to the current session, not system-wide mouse capture. If your terminal or multiplexer does not forward them, use the existing keyboard shortcuts.
 
 | Shortcut | Function |
 | --- | --- |
 | Mouse wheel | Scroll the transcript; on a panel that scrolls itself, such as the help panel, scroll that panel |
 | Mouse drag | Select transcript text and copy it to the clipboard |
-| Mouse click | Pick a row in a list dialog (model, session, provider, theme, permission, workspace trust, experiment toggle, task list, plugins, …); switch tabs by clicking a tab strip (model providers, plugin marketplace, question tabs); in the question dialog a click picks an option (click again to toggle a multi-select), opens the Other editor, or runs Submit/Cancel; the model's thinking-effort segments are clickable too; in a form panel a click on an input line puts the caret where you clicked (API key, feedback, custom registry, provider form), and in the settings forms (Astron, Coding Plan) a click selects that field |
+| Mouse click | Pick a row in a list dialog (model, session, provider, theme, permission, workspace trust, experiment toggle, task list, plugins, …); switch tabs by clicking a tab strip (model providers, plugin marketplace, question tabs); in the question dialog a click picks an option (click again to toggle a multi-select), opens the Other editor, or runs Submit/Cancel; in `/model`, clicking a thinking level edits the draft only, and `Enter` (or `Alt-S` when offered) applies it; in a form panel a click on an input line puts the caret where you clicked (API key, feedback, custom registry, provider form), and in the settings forms (Astron, Coding Plan) a click selects that field |
 | `Ctrl-Shift-F` | Search the transcript |
 | `Ctrl-Up` / `Ctrl-Down` | Jump between prompts |
+
+- In `/tasks`, click a filter, a task row, or **Enter/O output** to open its details; click **Esc back** to return. The mini panel has clickable controls to expand or close it. Stopping a task still requires keyboard confirmation.
+- In an expanded file or diff approval, click **Preview**, scroll with the wheel, and click **Back**. This leaves the approval pending. If the label does not fit, press `Ctrl-E` to open the preview and `Esc` to return.
 
 `PgUp` / `PgDn` go to the focused panel or the status strip (for example the `Updates` panel) in both modes; they never page the transcript. Use the mouse wheel to page the transcript in fullscreen mode.
 

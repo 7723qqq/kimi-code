@@ -1,16 +1,8 @@
-/**
- * The TodoList card body: a snapshot of the list the call reported, whether it
- * wrote the list or only read it. A collapsed card keeps a short list whole
- * and otherwise shows the two most telling items plus a summary of the rest;
- * ctrl+o (or a click) shows every item.
- */
-
-import { TODO_LIST_HEADER } from '@moonshot-ai/kimi-code-sdk';
 import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { OUTCOME_ROW_INDENT, TRUNCATION_ELLIPSIS } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 
 export type TodoStatus = 'pending' | 'in_progress' | 'done';
 
@@ -27,62 +19,31 @@ export interface VisibleTodos {
   readonly hiddenCounts: Record<TodoStatus, number>;
 }
 
-// A TodoList result prints the list as a header line followed by one
-// `  [status] title` row per item, for reads and writes alike; a resumed
-// session keeps only this text, not the structured display, so the card
-// parses it for both. Rows end at the first blank line (a write appends a
-// hint after one).
+const LIST_HEADER = 'Current todo list:';
+const RESULT_ROW = /^ {2}\[(pending|in_progress|done)\] (.+)$/;
 
-const RESULT_ROW = /^\s+\[(pending|in_progress|done)\] (?:(\S+): )?(.+)$/;
-
-/**
- * The list a successful TodoList result reports. Empty when it reports none
- * (a cleared list) or when a row does not parse (e.g. a title spanning lines),
- * so the card falls back to its headline instead of showing a wrong list.
- *
- * The header the tool prints carries a progress suffix
- * (`Current todo list: (overall 3/10 · 30%)`), so it is matched as a prefix
- * rather than by whole-line equality. Rows are indented by depth and carry the
- * item id before the title (`  [pending] s1: Read the file`); both the extra
- * indentation and the id are optional so a hand-written or older list still
- * parses.
- */
 export function todoListFromResult(output: string): TodoItem[] {
   const lines = output.split('\n');
-  const start = lines.findIndex((line) => line.startsWith(TODO_LIST_HEADER));
+  const start = lines.indexOf(LIST_HEADER);
   if (start === -1) return [];
   const end = lines.indexOf('', start + 1);
   const todos: TodoItem[] = [];
   for (const line of lines.slice(start + 1, end === -1 ? undefined : end)) {
     const match = RESULT_ROW.exec(line);
     if (match === null) return [];
-    todos.push({ status: match[1] as TodoStatus, title: match[3]! });
+    todos.push({ status: match[1] as TodoStatus, title: match[2]! });
   }
   return todos;
 }
 
-/** A TodoList call without `todos` only reads the list. */
 export function isTodoListRead(args: Record<string, unknown>): boolean {
   return args['todos'] === undefined;
 }
 
-/** Whether the collapsed card leaves items out, i.e. ctrl+o would reveal more. */
 export function todoCardHidesItems(todos: readonly TodoItem[]): boolean {
   return todos.length > COLLAPSED_ROWS + 1;
 }
 
-/**
- * Pick which todos a collapsed card shows. A list that is at most one item
- * longer than the cap is kept whole: the summary row would replace the single
- * hidden item and save nothing.
- *
- * The selector is order-agnostic — the TodoList tool keeps whatever order the
- * model produced and does not group items by status. Every `in_progress` item
- * goes first (capped); the remaining slots go to "what's next" — the earliest
- * `pending` items — while reserving one slot for "what just finished" — the
- * latest `done` item — when both kinds exist. If one side has too few
- * candidates, the other expands. Items are returned in their original order.
- */
 export function selectVisibleTodos(todos: readonly TodoItem[]): VisibleTodos {
   if (!todoCardHidesItems(todos)) {
     return {
@@ -139,15 +100,15 @@ export function selectVisibleTodos(todos: readonly TodoItem[]): VisibleTodos {
   };
 }
 
-const STATUS_LABELS: readonly { status: TodoStatus; key: TodoStatus }[] = [
-  { status: 'done', key: 'done' },
-  { status: 'in_progress', key: 'in_progress' },
-  { status: 'pending', key: 'pending' },
+const STATUS_LABELS: readonly { status: TodoStatus; label: string }[] = [
+  { status: 'done', label: 'done' },
+  { status: 'in_progress', label: t('tui.chrome.todoPanel.statusInProgress') },
+  { status: 'pending', label: 'pending' },
 ];
 
 export function formatHiddenCounts(counts: Record<TodoStatus, number>): string {
   return STATUS_LABELS.filter(({ status }) => counts[status] > 0)
-    .map(({ status, key }) => t(`tui.messages.todoCard.status.${key}`, { count: counts[status] }))
+    .map(({ status, label }) => `${String(counts[status])} ${label}`)
     .join(' · ');
 }
 
@@ -171,7 +132,7 @@ export class TodoCardBody implements Component {
         const suffix = distribution.length > 0 ? ` (${distribution})` : '';
         lines.push(
           currentTheme.dim(
-            `${OUTCOME_ROW_INDENT}${TRUNCATION_ELLIPSIS}${t('tui.messages.todoCard.hiddenMore', { count: hidden, distribution: suffix })}`,
+            `${OUTCOME_ROW_INDENT}${TRUNCATION_ELLIPSIS} +${String(hidden)} more${suffix} · ctrl+o to expand`,
           ),
         );
       }

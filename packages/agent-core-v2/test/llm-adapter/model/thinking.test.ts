@@ -1,19 +1,50 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
+import { ProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocolAdapterRegistry';
+import {
+  drivesThinkingThroughTraits,
+  requiresStrictThinkingValidation,
+  usesTraitDrivenThinking,
+} from '#/llm-adapter/model/thinking';
 import {
   declaredDefaultEffortForModel,
   defaultThinkingEffortForModel,
-  drivesThinkingThroughTraits,
   modelSupportsThinkingEffort,
-  requiresStrictThinkingValidation,
   resolveForcedThinkingEffort,
   resolveThinkingEffortForModel,
   resolveThinkingKeep,
-  usesTraitDrivenThinking,
-} from '#/llm-adapter/model/thinking';
-import { ProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocolAdapterRegistry';
+} from '@moonshot-ai/core/llm/thinking';
+import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';
 
 const registry = new ProtocolAdapterRegistry();
+
+function spec(input: {
+  readonly capabilities?: readonly string[];
+  readonly supportEfforts?: readonly string[];
+  readonly defaultEffort?: string;
+  readonly alwaysThinking?: boolean;
+  readonly adaptiveThinking?: boolean;
+}): LlmModelSpec {
+  const declared = new Set(input.capabilities ?? []);
+  return {
+    provider: "test",
+    name: "test",
+    capability: {
+      image_in: declared.has("image_in"),
+      video_in: declared.has("video_in"),
+      audio_in: declared.has("audio_in"),
+      thinking: declared.has("thinking") || declared.has("always_thinking"),
+      tool_use: declared.has("tool_use"),
+    },
+    thinking: {
+      supportEfforts: input.supportEfforts,
+      defaultEffort: input.defaultEffort,
+      alwaysThinking: input.alwaysThinking,
+      adaptiveThinking: input.adaptiveThinking,
+    },
+  };
+}
+
 
 describe('registry-driven vendor verdicts', () => {
   it('drivesThinkingThroughTraits: trait-driven vendors only, no string branches', () => {
@@ -43,49 +74,40 @@ describe('registry-driven vendor verdicts', () => {
 });
 
 describe('resolveThinkingEffortForModel', () => {
-  const thinkingModel = {
+  const thinkingModel = spec({
     capabilities: ['thinking'],
     supportEfforts: ['low', 'medium', 'high'],
     defaultEffort: 'high',
-  };
+  });
 
   it('prefers the normalized request, then config, then the model default', () => {
     expect(resolveThinkingEffortForModel('HIGH', undefined, thinkingModel, true)).toBe('high');
-    expect(resolveThinkingEffortForModel(undefined, { effort: 'low' }, thinkingModel, true)).toBe(
-      'low',
-    );
+    expect(resolveThinkingEffortForModel(undefined, { effort: 'low' }, thinkingModel, true)).toBe('low');
     expect(resolveThinkingEffortForModel(undefined, undefined, thinkingModel, true)).toBe('high');
-    expect(resolveThinkingEffortForModel(undefined, { enabled: false }, thinkingModel, true)).toBe(
-      'off',
-    );
+    expect(resolveThinkingEffortForModel(undefined, { enabled: false }, thinkingModel, true)).toBe('off');
   });
 
   it('picks the middle effort when the model declares no default', () => {
     expect(
-      defaultThinkingEffortForModel({
-        capabilities: ['thinking'],
-        supportEfforts: ['low', 'medium', 'high'],
-      }),
+      defaultThinkingEffortForModel(spec({ capabilities: ['thinking'], supportEfforts: ['low', 'medium', 'high'] })),
     ).toBe('medium');
-    expect(defaultThinkingEffortForModel({ capabilities: ['thinking'] })).toBe('on');
+    expect(defaultThinkingEffortForModel(spec({ capabilities: ['thinking'] }))).toBe('on');
     expect(defaultThinkingEffortForModel(undefined)).toBe('off');
   });
 
   it('normalizes unknown efforts back to the model default under kimi semantics', () => {
     expect(resolveThinkingEffortForModel('extreme', undefined, thinkingModel, true)).toBe('high');
-    expect(resolveThinkingEffortForModel('extreme', undefined, thinkingModel, false)).toBe(
-      'extreme',
-    );
+    expect(resolveThinkingEffortForModel('extreme', undefined, thinkingModel, false)).toBe('extreme');
     expect(resolveThinkingEffortForModel('on', undefined, thinkingModel, true)).toBe('high');
   });
 
   it('keeps always-thinking models on under kimi semantics', () => {
-    const always = {
+    const always = spec({
       capabilities: ['always_thinking'],
       alwaysThinking: true,
       supportEfforts: ['low', 'high'],
       defaultEffort: 'low',
-    };
+    });
     expect(resolveThinkingEffortForModel('off', undefined, always, true)).toBe('low');
     expect(resolveThinkingEffortForModel('off', undefined, thinkingModel, true)).toBe('off');
   });
@@ -100,17 +122,17 @@ describe('resolveThinkingEffortForModel', () => {
   it('declaredDefaultEffortForModel returns the declared default only when the model lists it', () => {
     expect(declaredDefaultEffortForModel(thinkingModel)).toBe('high');
     expect(
-      declaredDefaultEffortForModel({
+      declaredDefaultEffortForModel(spec({
         capabilities: ['thinking'],
         supportEfforts: ['low', 'medium'],
         defaultEffort: 'high',
-      }),
+      })),
     ).toBeUndefined();
     expect(
-      declaredDefaultEffortForModel({ capabilities: ['thinking'], supportEfforts: ['low'] }),
+      declaredDefaultEffortForModel(spec({ capabilities: ['thinking'], supportEfforts: ['low'] })),
     ).toBeUndefined();
     expect(
-      declaredDefaultEffortForModel({ supportEfforts: ['max'], defaultEffort: 'max' }),
+      declaredDefaultEffortForModel(spec({ supportEfforts: ['max'], defaultEffort: 'max' })),
     ).toBeUndefined();
     expect(declaredDefaultEffortForModel(undefined)).toBeUndefined();
   });

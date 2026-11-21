@@ -1,0 +1,450 @@
+commit 7e2c565e31fb81169a30bc924ff0f88a36f88c66
+Author:     7Sageer <sag77r@hotmail.com>
+AuthorDate: Thu Nov 19 13:19:43 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 19 13:19:43 2026 +0800
+
+    feat(tui): support multiline feedback input (#5042)
+    
+    * feat(tui): support multiline feedback input
+    
+    * feat(tui): frame feedback input like settings dialogs
+    
+    * fix(tui): honor Caps Lock Ctrl-J in the feedback dialog
+    
+    * feat(tui): thank users for sending feedback
+
+diff --git a/.changeset/feedback-multiline-input.md b/.changeset/feedback-multiline-input.md
+new file mode 100644
+index 0000000000..c6e8f44744
+--- /dev/null
++++ b/.changeset/feedback-multiline-input.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/kimi-code": minor
++---
++
++The feedback dialog accepts multiple lines, and thanks you for helping improve Kimi.
+diff --git a/apps/kimi-code/src/tui/commands/prompts.ts b/apps/kimi-code/src/tui/commands/prompts.ts
+index 268d11a4e6..87d55b7b9e 100644
+--- a/apps/kimi-code/src/tui/commands/prompts.ts
++++ b/apps/kimi-code/src/tui/commands/prompts.ts
+@@ -75,7 +75,7 @@ export interface FeedbackPromptResult {
+ 
+ export function promptFeedbackInput(host: SlashCommandHost): Promise<FeedbackPromptResult | undefined> {
+   return new Promise((resolve) => {
+-    const dialog = new FeedbackInputDialogComponent((result: FeedbackInputDialogResult) => {
++    const dialog = new FeedbackInputDialogComponent(host.state.ui, (result: FeedbackInputDialogResult) => {
+       host.restoreEditor();
+       resolve(result.kind === 'ok' ? { value: result.value } : undefined);
+     });
+diff --git a/apps/kimi-code/src/tui/components/dialogs/feedback-input-dialog.ts b/apps/kimi-code/src/tui/components/dialogs/feedback-input-dialog.ts
+index d2e3b3a7c2..d6b159cd11 100644
+--- a/apps/kimi-code/src/tui/components/dialogs/feedback-input-dialog.ts
++++ b/apps/kimi-code/src/tui/components/dialogs/feedback-input-dialog.ts
+@@ -1,13 +1,17 @@
+ import {
+   Container,
+-  Input,
++  Editor,
++  isKeyRelease,
+   Key,
+   matchesKey,
+   truncateToWidth,
+   visibleWidth,
+   type Focusable,
++  type TUI,
+ } from '@moonshot-ai/pi-tui';
++import { normalizeCapsLockedCtrl } from '#/tui/components/editor/custom-editor';
+ import { currentTheme } from '#/tui/theme';
++import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
+ 
+ export type FeedbackInputDialogResult =
+   | { readonly kind: 'ok'; readonly value: string }
+@@ -16,38 +20,51 @@ export type FeedbackInputDialogResult =
+ const TITLE = 'Send feedback to Kimi Code';
+ const SUBTITLE_DEFAULT = "Tell us what's working or what's not.";
+ const SUBTITLE_EMPTY = 'Feedback cannot be empty.';
+-const FOOTER = 'Enter to submit  ·  Esc to cancel';
++const FOOTER = 'Enter submit · Shift-Enter/Ctrl-J newline · Esc cancel';
++const MIN_FIELD_LINES = 3;
++
++class FeedbackField extends Editor {
++  protected override renderTopBorder(width: number, hiddenLineCount: number): string {
++    return hiddenLineCount > 0 ? super.renderTopBorder(width, hiddenLineCount) : '';
++  }
++
++  protected override renderBottomBorder(width: number, hiddenLineCount: number): string {
++    return hiddenLineCount > 0 ? super.renderBottomBorder(width, hiddenLineCount) : '';
++  }
++}
+ 
+ export class FeedbackInputDialogComponent extends Container implements Focusable {
+   focused = false;
+ 
+-  private readonly input = new Input();
++  private readonly input: FeedbackField;
+   private readonly onDone: (result: FeedbackInputDialogResult) => void;
+   private done = false;
+   private emptyHinted = false;
+ 
+-  constructor(onDone: (result: FeedbackInputDialogResult) => void) {
++  constructor(tui: TUI, onDone: (result: FeedbackInputDialogResult) => void) {
+     super();
+     this.onDone = onDone;
++    this.input = new FeedbackField(tui, createEditorTheme(), { paddingX: 1 });
+     this.input.onSubmit = (value) => {
+       this.submit(value);
+     };
++    this.input.onChange = () => {
++      this.emptyHinted = false;
++    };
+   }
+ 
+   handleInput(data: string): void {
+-    if (this.done) return;
++    const key = normalizeCapsLockedCtrl(data);
++    if (this.done || isKeyRelease(key)) return;
+     if (
+-      matchesKey(data, Key.escape) ||
+-      matchesKey(data, Key.ctrl('c')) ||
+-      matchesKey(data, Key.ctrl('d'))
++      matchesKey(key, Key.escape) ||
++      matchesKey(key, Key.ctrl('c')) ||
++      matchesKey(key, Key.ctrl('d'))
+     ) {
+       this.cancel();
+       return;
+     }
+-    if (this.emptyHinted) {
+-      this.emptyHinted = false;
+-    }
+-    this.input.handleInput(data);
++    this.input.handleInput(key);
+   }
+ 
+   override invalidate(): void {
+@@ -60,51 +77,45 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
+ 
+     const safeWidth = Math.max(0, width);
+     if (safeWidth <= 0) return [''];
+-    const innerWidth = Math.max(1, safeWidth - 4);
+-    const pad = '  ';
+ 
+-    const border = (s: string): string => currentTheme.fg('primary', s);
+-    const titleStyled = currentTheme.boldFg('textStrong', TITLE);
++    const rule = currentTheme.fg('primary', '─'.repeat(safeWidth));
++    const title = truncateToWidth(currentTheme.boldFg('primary', ` ${TITLE}`), safeWidth);
++    const hint = truncateToWidth(currentTheme.fg('textMuted', ` ${FOOTER}`), safeWidth);
+     const subtitleText = this.emptyHinted ? SUBTITLE_EMPTY : SUBTITLE_DEFAULT;
+-    const subtitleStyled = currentTheme.fg('textDim', subtitleText);
+-    const footerStyled = currentTheme.fg('textDim', FOOTER);
+-
+-    const titleLine = truncateToWidth(titleStyled, innerWidth, '…');
+-    const subtitleLine = truncateToWidth(subtitleStyled, innerWidth, '…');
+-    const footerLine = truncateToWidth(footerStyled, innerWidth, '…');
+-    const inputLine = this.input.render(innerWidth)[0] ?? '> ';
+-
+-    const contentLines: string[] = [
+-      titleLine,
+-      '',
+-      subtitleLine,
+-      '',
+-      inputLine,
+-      '',
+-      footerLine,
+-    ];
+-
+-    if (safeWidth < 4) {
+-      return ['', ...contentLines.map((line) => truncateToWidth(line, safeWidth, '…'))];
+-    }
++    const subtitle = truncateToWidth(currentTheme.fg('textDim', ` ${subtitleText}`), safeWidth);
++    const fieldWidth = Math.max(1, safeWidth - 2);
++    const field = this.renderField(fieldWidth).map((line) => truncateToWidth(` ${line}`, safeWidth));
+ 
+-    const lines: string[] = [
+-      '',
+-      border('╭' + '─'.repeat(safeWidth - 2) + '╮'),
+-      border('│') + ' '.repeat(safeWidth - 2) + border('│'),
+-    ];
++    return [rule, title, hint, '', subtitle, ...field, '', rule].map((line) =>
++      truncateToWidth(line, safeWidth),
++    );
++  }
+ 
+-    for (const content of contentLines) {
+-      const vis = visibleWidth(content);
+-      const rightPad = Math.max(0, innerWidth - vis);
+-      lines.push(border('│') + pad + content + ' '.repeat(rightPad) + border('│'));
++  private renderField(width: number): string[] {
++    if (width < 4) {
++      const lines = this.input.render(Math.max(1, width)).slice(1, -1);
++      while (lines.length < MIN_FIELD_LINES) lines.push('');
++      return lines;
+     }
+ 
+-    lines.push(border('│') + ' '.repeat(safeWidth - 2) + border('│'));
+-    lines.push(border('╰' + '─'.repeat(safeWidth - 2) + '╯'));
+-    lines.push('');
+-
+-    return lines.map((line) => truncateToWidth(line, safeWidth, '…'));
++    const editorWidth = width - 2;
++    const rendered = this.input.render(editorWidth);
++    const hasBorders = rendered.length >= 2;
++    const top = hasBorders ? (rendered[0] ?? '') : '';
++    const bottom = hasBorders ? (rendered.at(-1) ?? '') : '';
++    const body = hasBorders ? rendered.slice(1, -1) : [...rendered];
++    while (body.length < MIN_FIELD_LINES) body.push('');
++
++    const paint = (text: string): string => currentTheme.fg('primary', text);
++    const row = (line: string): string => {
++      const gap = Math.max(0, editorWidth - visibleWidth(line));
++      return paint('│') + line + ' '.repeat(gap) + paint('│');
++    };
++    const cap = (left: string, middle: string, right: string): string =>
++      middle.length > 0
++        ? paint(left) + middle + paint(right)
++        : paint(left + '─'.repeat(editorWidth) + right);
++    return [cap('╭', top, '╮'), ...body.map(row), cap('╰', bottom, '╯')];
+   }
+ 
+   private submit(value: string): void {
+diff --git a/apps/kimi-code/src/tui/constant/feedback.ts b/apps/kimi-code/src/tui/constant/feedback.ts
+index 204cd51d03..2b6d013bc7 100644
+--- a/apps/kimi-code/src/tui/constant/feedback.ts
++++ b/apps/kimi-code/src/tui/constant/feedback.ts
+@@ -9,7 +9,7 @@ export {
+ 
+ export const FEEDBACK_STATUS_SUBMITTING = 'Submitting feedback…';
+ export const FEEDBACK_STATUS_UPLOADING = 'Uploading attachments, this could take a few minutes…';
+-export const FEEDBACK_STATUS_SUCCESS = 'Feedback submitted, thank you!';
++export const FEEDBACK_STATUS_SUCCESS = "Thanks for taking the time to write this. It'll help us make Kimi better";
+ export const FEEDBACK_STATUS_CANCELLED = 'Feedback cancelled.';
+ export const FEEDBACK_STATUS_NETWORK_ERROR = 'Network error, failed to submit feedback.';
+ export const FEEDBACK_STATUS_FALLBACK = 'Opening GitHub Issues as fallback…';
+diff --git a/apps/kimi-code/test/tui/components/dialogs/feedback-input-dialog.test.ts b/apps/kimi-code/test/tui/components/dialogs/feedback-input-dialog.test.ts
+index 2cad7fbd75..703651f995 100644
+--- a/apps/kimi-code/test/tui/components/dialogs/feedback-input-dialog.test.ts
++++ b/apps/kimi-code/test/tui/components/dialogs/feedback-input-dialog.test.ts
+@@ -1,8 +1,8 @@
+ import { stripVTControlCharacters } from 'node:util';
+ 
+-import { visibleWidth, type Component, type Focusable } from '@moonshot-ai/pi-tui';
++import { visibleWidth, type Component, type Focusable, type TUI } from '@moonshot-ai/pi-tui';
+ import chalk from 'chalk';
+-import { beforeAll, describe, expect, it, vi } from 'vitest';
++import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+ 
+ import { promptFeedbackAttachment } from '#/tui/commands/prompts';
+ import {
+@@ -23,12 +23,28 @@ beforeAll(() => {
+   chalk.level = 3;
+ });
+ 
++afterEach(() => {
++  vi.useRealTimers();
++});
++
++function submit(dialog: FeedbackInputDialogComponent): void {
++  vi.useFakeTimers();
++  vi.advanceTimersByTime(150);
++  dialog.handleInput('\r');
++  vi.useRealTimers();
++}
++
+ function makeDialog(): {
+   dialog: FeedbackInputDialogComponent;
+   collected: FeedbackInputDialogResult[];
+ } {
+   const collected: FeedbackInputDialogResult[] = [];
+-  const dialog = new FeedbackInputDialogComponent((result) => {
++  const tui = {
++    requestRender: vi.fn(),
++    render: vi.fn(() => []),
++    terminal: { rows: 40, cols: 120 },
++  } as unknown as TUI;
++  const dialog = new FeedbackInputDialogComponent(tui, (result) => {
+     collected.push(result);
+   });
+   dialog.focused = true;
+@@ -36,27 +52,29 @@ function makeDialog(): {
+ }
+ 
+ describe('FeedbackInputDialogComponent', () => {
+-  it('renders a blue rounded box with title, subtitle, and footer', () => {
++  it('renders the settings frame with a rounded input box', () => {
+     const { dialog } = makeDialog();
+-    const text = strip(dialog.render(60).join('\n'));
++    const rendered = dialog.render(60);
++    const plain = rendered.map((line) => strip(line));
+ 
+-    expect(text).toContain('╭');
+-    expect(text).toContain('╮');
+-    expect(text).toContain('╰');
+-    expect(text).toContain('╯');
+-    expect(text).toContain('Send feedback to Kimi Code');
+-    expect(text).toContain("Tell us what's working or what's not.");
+-    expect(text).toContain('Enter to submit');
+-    expect(text).toContain('Esc to cancel');
++    expect(plain[0]).toBe('─'.repeat(60));
++    expect(plain.at(-1)).toBe('─'.repeat(60));
++    expect(plain.some((line) => line.startsWith('╭'))).toBe(false);
++    expect(plain.join('\n')).toContain('Send feedback to Kimi Code');
++    expect(plain.join('\n')).toContain("Tell us what's working or what's not.");
++    expect(plain.join('\n')).toContain('Enter submit');
++    expect(plain.join('\n')).toContain('Shift-Enter/Ctrl-J newline');
++    expect(plain.join('\n')).toContain('Esc cancel');
+   });
+ 
+-  it('uses the primary color for the border', () => {
++  it('uses the primary color for the rules and the input box', () => {
+     const { dialog } = makeDialog();
+-    const rendered = dialog.render(60).join('\n');
++    const rendered = dialog.render(60);
+     const sample = chalk.hex(darkColors.primary)('x');
+     const ansiOpen = sample.split('x')[0]!;
+-    expect(rendered).toContain(`${ansiOpen}╭`);
+-    expect(rendered).toContain(`${ansiOpen}╰`);
++    expect(rendered[0]).toContain(`${ansiOpen}─`);
++    expect(rendered.find((line) => strip(line).includes('╭'))).toContain(`${ansiOpen}╭`);
++    expect(rendered.find((line) => strip(line).includes('╰'))).toContain(`${ansiOpen}╰`);
+   });
+ 
+   it('keeps every line within narrow widths', () => {
+@@ -74,13 +92,101 @@ describe('FeedbackInputDialogComponent', () => {
+     for (const ch of 'hello world ') {
+       dialog.handleInput(ch);
+     }
+-    dialog.handleInput('\r');
++    submit(dialog);
+     expect(collected).toEqual([{ kind: 'ok', value: 'hello world' }]);
+   });
+ 
++  it('insets a three-line input box under the subtitle', () => {
++    const { dialog } = makeDialog();
++    const plain = dialog.render(60).map((line) => strip(line));
++    const top = plain.findIndex((line) => line.includes('╭'));
++    const bottom = plain.findIndex((line) => line.includes('╰'));
++
++    expect(plain[top]).toBe(` ╭${'─'.repeat(56)}╮`);
++    expect(bottom - top).toBe(4);
++    expect(plain[top - 1]).toContain("Tell us what's working or what's not.");
++    expect(plain.slice(top + 1, bottom).some((line) => line.includes('>'))).toBe(false);
++  });
++
++  it('renders and submits multiple lines', () => {
++    const { dialog, collected } = makeDialog();
++    for (const ch of 'First line') dialog.handleInput(ch);
++    dialog.handleInput('\n');
++    for (const ch of 'Second line') dialog.handleInput(ch);
++
++    const text = strip(dialog.render(60).join('\n'));
++    expect(text).toContain('First line');
++    expect(text).toContain('Second line');
++    expect(text).not.toContain('> First line');
++
++    submit(dialog);
++    expect(collected).toEqual([{ kind: 'ok', value: 'First line\nSecond line' }]);
++  });
++
++  it('inserts a newline for Caps Lock Ctrl-J and ignores its release', () => {
++    const { dialog, collected } = makeDialog();
++    for (const ch of 'first') dialog.handleInput(ch);
++    dialog.handleInput(`${ESC}[74;69u`);
++    dialog.handleInput(`${ESC}[74;69:3u`);
++    for (const ch of 'second') dialog.handleInput(ch);
++    submit(dialog);
++    expect(collected).toEqual([{ kind: 'ok', value: 'first\nsecond' }]);
++  });
++
++  it('cancels on Caps Lock Ctrl-C', () => {
++    const { dialog, collected } = makeDialog();
++    dialog.handleInput(`${ESC}[67;69u`);
++    expect(collected).toEqual([{ kind: 'cancel' }]);
++  });
++
++  it('supports Shift-Enter and editing an earlier line', () => {
++    const { dialog, collected } = makeDialog();
++    for (const ch of 'first') dialog.handleInput(ch);
++    dialog.handleInput(`${ESC}[13;2~`);
++    for (const ch of 'second') dialog.handleInput(ch);
++    dialog.handleInput(`${ESC}[A`);
++    dialog.handleInput(`${ESC}[F`);
++    dialog.handleInput('!');
++
++    submit(dialog);
++    expect(collected).toEqual([{ kind: 'ok', value: 'first!\nsecond' }]);
++  });
++
++  it('preserves newlines in bracketed paste', () => {
++    const { dialog, collected } = makeDialog();
++    dialog.handleInput(`${ESC}[200~First\r\nSecond\nThird${ESC}[201~`);
++    submit(dialog);
++
++    expect(collected).toEqual([{ kind: 'ok', value: 'First\nSecond\nThird' }]);
++  });
++
++  it('keeps undo and word deletion shortcuts', () => {
++    const { dialog, collected } = makeDialog();
++    for (const ch of 'hello world') dialog.handleInput(ch);
++    dialog.handleInput(String.fromCodePoint(23));
++    dialog.handleInput('there');
++    dialog.handleInput(String.fromCodePoint(31));
++    submit(dialog);
++
++    expect(collected).toEqual([{ kind: 'ok', value: 'hello' }]);
++  });
++
++  it('collapses a long paste and submits its expanded multiline content', () => {
++    const { dialog, collected } = makeDialog();
++    dialog.handleInput(`${ESC}[200~${Array.from({ length: 15 }, (_, i) => `line ${i + 1}`).join('\n')}${ESC}[201~`);
++
++    const text = strip(dialog.render(60).join('\n'));
++    expect(text).toContain('[paste #1 +15 lines]');
++
++    submit(dialog);
++    expect(collected).toEqual([
++      { kind: 'ok', value: Array.from({ length: 15 }, (_, i) => `line ${i + 1}`).join('\n') },
++    ]);
++  });
++
+   it('Enter on an empty input does not submit and shows an inline empty hint', () => {
+     const { dialog, collected } = makeDialog();
+-    dialog.handleInput('\r');
++    submit(dialog);
+     expect(collected).toEqual([]);
+     const text = strip(dialog.render(60).join('\n'));
+     expect(text).toContain('Feedback cannot be empty.');
+@@ -89,7 +195,7 @@ describe('FeedbackInputDialogComponent', () => {
+ 
+   it('typing again after the empty hint clears the hint', () => {
+     const { dialog, collected } = makeDialog();
+-    dialog.handleInput('\r');
++    submit(dialog);
+     expect(strip(dialog.render(60).join('\n'))).toContain('Feedback cannot be empty.');
+     dialog.handleInput('a');
+     const text = strip(dialog.render(60).join('\n'));
+@@ -114,8 +220,8 @@ describe('FeedbackInputDialogComponent', () => {
+     const { dialog, collected } = makeDialog();
+     dialog.handleInput('h');
+     dialog.handleInput('i');
+-    dialog.handleInput('\r');
+-    dialog.handleInput('\r');
++    submit(dialog);
++    submit(dialog);
+     dialog.handleInput(ESC);
+     expect(collected).toEqual([{ kind: 'ok', value: 'hi' }]);
+   });
+diff --git a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
+index 146f004d9a..ccff1c642d 100644
+--- a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
++++ b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
+@@ -3291,7 +3291,7 @@ command = "vim"
+       'k2',
+     );
+     const transcript = stripSgr(renderTranscript(driver));
+-    expect(transcript).toContain('Feedback submitted, thank you!');
++    expect(transcript).toContain("Thanks for taking the time to write this. It'll help us make Kimi better");
+     expect(transcript).toContain('Feedback ID: 3');
+     expect(transcript).toContain('attachment upload failed');
+   });

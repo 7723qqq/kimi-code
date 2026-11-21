@@ -1,29 +1,25 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { PluginUpdateNotifier } from '#/tui/controllers/plugin-update-notifier';
-import {
-  SessionEventHandler,
-  type SessionEventHost,
-} from '#/tui/controllers/session-event-handler';
-import { getBuiltInPalette } from '#/tui/theme';
+import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { TurnTimeline } from '#/tui/utils/turn-timeline';
+import { getBuiltInPalette } from '#/tui/theme';
 
 const DATASOURCE_TOOL = 'mcp__plugin-kimi-datasource_data__call_data_source_tool';
 
 function makeHost() {
   const streamingUI = {
     timeline: new TurnTimeline(),
-    setTurnId: mock(),
-    flushNow: mock(),
-    resetToolUi: mock(),
-    clearNotifyPanel: mock(),
-    markNotifyPanelEnded: mock(),
-    setStep: mock(),
-    finalizeTurn: mock(),
-    getTurnContext: mock(() => ({ turnId: 1, step: 0 })),
-    registerToolCall: mock(),
-    completeToolResult: mock(),
-    setTodoList: mock(),
+    setTurnId: vi.fn(),
+    flushNow: vi.fn(),
+    resetToolUi: vi.fn(),
+    clearNotifyPanel: vi.fn(),
+    markNotifyPanelEnded: vi.fn(),
+    setStep: vi.fn(),
+    finalizeTurn: vi.fn(),
+    getTurnContext: vi.fn(() => ({ turnId: 1, step: 0 })),
+    registerToolCall: vi.fn(),
+    completeToolResult: vi.fn(),
   };
   const host = {
     state: {
@@ -37,51 +33,46 @@ function makeHost() {
       queuedMessageDispatchPending: false,
       theme: { palette: getBuiltInPalette('dark') },
       toolOutputExpanded: false,
-      todoPanel: { getTodos: mock(() => []) },
-      transcriptContainer: { addChild: mock() },
-      ui: { requestRender: mock() },
+      transcriptContainer: { addChild: vi.fn() },
+      ui: { requestRender: vi.fn() },
     },
     session: {},
     aborted: false,
     sessionEventUnsubscribe: undefined,
     streamingUI,
-    requireSession: mock(() => ({})),
-    setAppState: mock(),
-    patchLivePane: mock(),
-    resetLivePane: mock(),
-    showError: mock(),
-    showStatus: mock(),
-    showNotice: mock(),
-    updateActivityPane: mock(),
-    track: mock(),
-    recordSessionActivity: mock(),
-    noteStepUsage: mock(),
-    noteSessionTurnStarted: mock(),
-    noteSessionStepCompleted: mock(),
-    noteSessionToolCompleted: mock(),
-    noteCompactionFinished: mock(),
-    mountEditorReplacement: mock(),
-    restoreEditor: mock(),
-    restoreInputText: mock(),
-    appendTranscriptEntry: mock(),
-    sendNormalUserInput: mock(),
-    sendQueuedMessage: mock(),
-    shiftQueuedMessage: mock(),
-    btwPanelController: { routeEvent: mock(() => false) },
+    requireSession: vi.fn(() => ({})),
+    setAppState: vi.fn(),
+    patchLivePane: vi.fn(),
+    resetLivePane: vi.fn(),
+    showError: vi.fn(),
+    showStatus: vi.fn(),
+    showNotice: vi.fn(),
+    updateActivityPane: vi.fn(),
+    track: vi.fn(),
+    recordSessionActivity: vi.fn(),
+    noteCompactionFinished: vi.fn(),
+    mountEditorReplacement: vi.fn(),
+    restoreEditor: vi.fn(),
+    restoreInputText: vi.fn(),
+    appendTranscriptEntry: vi.fn(),
+    sendNormalUserInput: vi.fn(),
+    sendQueuedMessage: vi.fn(),
+    shiftQueuedMessage: vi.fn(),
+    btwPanelController: { routeEvent: vi.fn(() => false) },
     tasksBrowserController: {},
     surveyController: {
-      notifyToolCallStarted: mock(),
-      notifyToolCallEnded: mock(),
-      notifySubagentSpawned: mock(),
+      notifyToolCallStarted: vi.fn(),
+      notifyToolCallEnded: vi.fn(),
+      notifySubagentSpawned: vi.fn(),
     },
   };
-  return { host: host as unknown as SessionEventHost, streamingUI };
+  return { host: host as never, streamingUI };
 }
 
 function makeNotifier() {
   return {
-    handleMcpToolCompleted: mock(),
-    handlePluginCommandCompleted: mock(),
+    handleMcpToolCompleted: vi.fn(),
+    handlePluginCommandCompleted: vi.fn(),
   };
 }
 
@@ -145,7 +136,6 @@ describe('SessionEventHandler plugin update notices', () => {
 
     handler.handleEvent(toolCallStarted(DATASOURCE_TOOL), sendQueued);
     handler.handleEvent(toolResult(), sendQueued);
-    // The tool result alone must not trigger the notice mid-turn.
     expect(notifier.handleMcpToolCompleted).not.toHaveBeenCalled();
 
     handler.handleEvent(turnEnded('completed'), sendQueued);
@@ -164,7 +154,6 @@ describe('SessionEventHandler plugin update notices', () => {
     handler.handleEvent(turnEnded('cancelled'), sendQueued);
     expect(notifier.handleMcpToolCompleted).not.toHaveBeenCalled();
 
-    // A later completed turn must not replay the cancelled turn's usage.
     handler.handleEvent(turnEnded('completed', 3), sendQueued);
     expect(notifier.handleMcpToolCompleted).not.toHaveBeenCalled();
   });
@@ -200,22 +189,5 @@ describe('SessionEventHandler plugin update notices', () => {
     handler.handleEvent(pluginCommandTurnStarted(), sendQueued);
     handler.handleEvent(turnEnded('cancelled', 2), sendQueued);
     expect(notifier.handlePluginCommandCompleted).not.toHaveBeenCalled();
-  });
-
-  it('drops tool start timestamps at the turn boundary', () => {
-    const { host } = makeHost();
-    const handler = new SessionEventHandler(
-      host,
-      makeNotifier() as unknown as PluginUpdateNotifier,
-    );
-
-    // A tool starts but the turn ends before its result arrives (abort /
-    // max_tokens) — the stale start time must not survive into the next turn.
-    handler.handleEvent(toolCallStarted('Bash'), sendQueued);
-    handler.handleEvent(turnEnded('completed'), sendQueued);
-
-    // A same-id result after the boundary must not count tool duration.
-    handler.handleEvent(toolResult(), sendQueued);
-    expect(host.noteSessionToolCompleted).not.toHaveBeenCalled();
   });
 });

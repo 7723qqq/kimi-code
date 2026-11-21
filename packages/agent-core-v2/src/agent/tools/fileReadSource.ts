@@ -1,7 +1,7 @@
 import { readUtf8Lines } from '#/_base/execEnv/decodeText';
+import type { HostFileHead, HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { parseDaemonFileUrl } from '#/agent/media/mediaRef';
 import type { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
-import type { HostFileHead, HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 
 export interface FileReadSource {
@@ -13,16 +13,9 @@ export interface FileReadSource {
   readLines(): AsyncIterable<string>;
 }
 
-export function withAttachmentLocation(
-  result: ExecutableToolResult,
-  source: FileReadSource,
-): ExecutableToolResult {
-  if (!result.isError || source.localPath === undefined || typeof result.output !== 'string')
-    return result;
-  return {
-    ...result,
-    output: `${result.output}\nServer-local attachment path: ${JSON.stringify(source.localPath)}`,
-  };
+export function withAttachmentLocation(result: ExecutableToolResult, source: FileReadSource): ExecutableToolResult {
+  if (!result.isError || source.localPath === undefined || typeof result.output !== 'string') return result;
+  return { ...result, output: `${result.output}\nServer-local attachment path: ${JSON.stringify(source.localPath)}` };
 }
 
 export function environmentFileSource(fs: IHostFileSystem, path: string): FileReadSource {
@@ -35,17 +28,11 @@ export function environmentFileSource(fs: IHostFileSystem, path: string): FileRe
   };
 }
 
-export async function attachmentFileSource(
-  reference: string,
-  store?: ISessionMediaStore,
-): Promise<FileReadSource> {
+export async function attachmentFileSource(reference: string, store?: ISessionMediaStore): Promise<FileReadSource> {
   const ref = parseDaemonFileUrl(reference);
   const open = async () => {
     const file = ref === undefined ? undefined : await store?.open(ref.fileId);
-    if (file === undefined)
-      throw new Error(
-        `Attachment ${JSON.stringify(reference)} is not available in the current session.`,
-      );
+    if (file === undefined) throw new Error(`Attachment ${JSON.stringify(reference)} is not available in the current session.`);
     return file;
   };
   const initial = await open();
@@ -74,8 +61,7 @@ export async function attachmentFileSource(
           size += chunk.length;
           yield chunk;
         }
-        if (size !== file.size)
-          throw new Error('Attachment changed or became unavailable while reading.');
+        if (size !== file.size) throw new Error('Attachment changed or became unavailable while reading.');
       };
       yield* readUtf8Lines(checkedStream());
     },

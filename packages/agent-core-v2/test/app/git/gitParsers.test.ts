@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { parseNumstat, parsePorcelain, parsePullRequest } from '#/app/git/gitParsers';
 
@@ -13,15 +13,9 @@ describe('parsePorcelain', () => {
   });
 
   it('classifies modified, untracked, renamed, and deleted entries', () => {
-    const out = [
-      '## dev',
-      ' M src/a.ts',
-      '?? src/b.ts',
-      'R  new.ts',
-      'old.ts',
-      'D  src/c.ts',
-      '',
-    ].join('\0');
+    const out = ['## dev', ' M src/a.ts', '?? src/b.ts', 'R  new.ts', 'old.ts', 'D  src/c.ts', ''].join(
+      '\0',
+    );
     const result = parsePorcelain(out, undefined);
     expect(result.branch).toBe('dev');
     expect(result.entries).toEqual({
@@ -39,8 +33,7 @@ describe('parsePorcelain', () => {
   });
 
   it('keeps non-ASCII paths intact', () => {
-    const path =
-      'my-ai-workspace/output/2026-08-31-bilibili-BV175t86pEre-26.8.31-总能等到回踩的.md';
+    const path = 'my-ai-workspace/output/2026-08-31-bilibili-BV175t86pEre-26.8.31-总能等到回踩的.md';
     const out = ` M ${path}\0`;
     const result = parsePorcelain(out, undefined);
     expect(result.entries).toEqual({ [path]: 'modified' });
@@ -77,6 +70,20 @@ describe('parsePullRequest', () => {
       state: 'open',
       url: 'https://github.com/acme/repo/pull/12',
     });
+  });
+
+  it('normalizes an open draft PR', () => {
+    const out = '{"number":13,"url":"https://github.com/acme/repo/pull/13","state":"OPEN","isDraft":true}';
+    expect(parsePullRequest(out)).toEqual({
+      number: 13,
+      state: 'draft',
+      url: 'https://github.com/acme/repo/pull/13',
+    });
+  });
+
+  it('keeps an open PR when isDraft is false', () => {
+    const out = '{"number":12,"url":"https://github.com/acme/repo/pull/12","state":"OPEN","isDraft":false}';
+    expect(parsePullRequest(out)?.state).toBe('open');
   });
 
   it('returns null for malformed json', () => {

@@ -1,6 +1,5 @@
-import { describe, expect, it, jest } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { OAuthUnauthorizedError } from '../src/errors';
 import {
   applyManagedApiKeyProviderModels,
   applyManagedKimiCodeLogoutConfig,
@@ -18,6 +17,7 @@ import {
   type ManagedKimiCodeModelInfo,
   type ManagedKimiConfigShape,
 } from '../src/managed-kimi-code';
+import { OAuthUnauthorizedError } from '../src/errors';
 
 function makeModelsResponse(): Response {
   return new Response(
@@ -68,8 +68,6 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('derives a full OAuth ref whose key and persisted host stay in sync', () => {
-    // Default environment collapses to the legacy ref (no persisted host), so
-    // existing production credentials keep resolving to `kimi-code.json`.
     expect(
       resolveKimiCodeOAuthRef({
         oauthHost: 'https://auth.kimi.com/',
@@ -89,8 +87,6 @@ describe('provisionManagedKimiCodeConfig', () => {
       oauthHost: 'https://auth.kimi.com',
     });
 
-    // A non-default environment yields a scoped key AND the normalized host,
-    // both derived from the same input — login and runtime cannot drift apart.
     const devRef = resolveKimiCodeOAuthRef({
       oauthHost: 'https://auth.dev.example.test/',
       baseUrl: 'https://api.dev.example.test/coding/v1',
@@ -205,8 +201,8 @@ describe('provisionManagedKimiCodeConfig', () => {
         },
       },
     };
-    const write = jest.fn();
-    const fetchMock = jest.fn(async () => makeModelsResponse());
+    const write = vi.fn();
+    const fetchMock = vi.fn(async () => makeModelsResponse());
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
@@ -284,10 +280,10 @@ describe('provisionManagedKimiCodeConfig', () => {
       baseUrl: 'https://api.dev.example.test/coding/v1',
       oauthKey,
       oauthHost: 'https://auth.dev.example.test',
-      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -322,10 +318,10 @@ describe('provisionManagedKimiCodeConfig', () => {
     await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       baseUrl,
-      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -371,11 +367,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -409,11 +405,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -444,11 +440,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -478,11 +474,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -513,11 +509,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -548,11 +544,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -583,11 +579,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -667,7 +663,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('rejects managed models that do not include a positive limit.context', async () => {
-    const fetchImpl = jest.fn(
+    const fetchImpl = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -686,7 +682,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('surfaces API error messages from model listing failures', async () => {
-    const fetchImpl = jest.fn(
+    const fetchImpl = vi.fn(
       async () =>
         new Response(JSON.stringify({ error: { message: 'quota exceeded' } }), {
           status: 429,
@@ -703,7 +699,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('classifies model listing 401 responses as OAuth unauthorized', async () => {
-    const fetchImpl = jest.fn(
+    const fetchImpl = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -725,7 +721,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('classifies membership-check 402 responses as OAuth unauthorized', async () => {
-    const fetchImpl = jest.fn(
+    const fetchImpl = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -869,7 +865,7 @@ describe('reasoning', () => {
   it('parses reasoning.type and tools.dynamic_load from the models endpoint', async () => {
     const models = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
     });
 
     expect(models[0]?.supportsThinkingType).toBe('only');
@@ -884,14 +880,14 @@ describe('reasoning', () => {
   it('maps absent reasoning to no and leaves unknown reasoning types undefined', async () => {
     const absent = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
     });
     expect(absent[1]?.supportsThinkingType).toBe('no');
     expect(absent[1]?.supportsReasoning).toBe(false);
 
     const invalid = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(
+      fetchImpl: vi.fn(
         async () =>
           new Response(
             JSON.stringify({
@@ -915,15 +911,14 @@ describe('reasoning', () => {
 
     await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
 
-    // 'only' → thinking locked on; tools.dynamic_load adds dynamically_loaded_tools.
     expect(config.models?.['kimi-code/kimi-for-coding']?.capabilities).toEqual([
       'thinking',
       'always_thinking',
@@ -932,9 +927,7 @@ describe('reasoning', () => {
       'tool_use',
       'dynamically_loaded_tools',
     ]);
-    // 'none' → no thinking capability.
     expect(config.models?.['kimi-code/kimi-plain']?.capabilities).toEqual(['tool_use']);
-    // 'both' → plain toggleable thinking.
     expect(config.models?.['kimi-code/kimi-toggle']?.capabilities).toEqual([
       'thinking',
       'tool_use',
@@ -946,10 +939,10 @@ describe('reasoning', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -981,11 +974,11 @@ describe('reasoning', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1017,11 +1010,11 @@ describe('reasoning', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1053,17 +1046,15 @@ describe('reasoning', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
 
-    // kimi-k2.5 has no reasoning object in the response — the stale
-    // thinking.enabled must not survive the refresh.
     expect(result.defaultModel).toBe('kimi-code/kimi-k2.5');
     expect(result.defaultThinking).toBe(false);
     expect(config.thinking?.enabled).toBe(false);
@@ -1090,11 +1081,11 @@ describe('reasoning', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1120,7 +1111,6 @@ describe('reasoning.effort', () => {
             display_name: 'Kimi For Coding',
           },
           {
-            // Empty / non-string entries are filtered; absent fields stay undefined.
             id: 'kimi-plain',
             limit: { context: 128000 },
             reasoning: { type: 'only', effort: { valid: ['low', '', 42] } },
@@ -1134,12 +1124,11 @@ describe('reasoning.effort', () => {
   it('parses reasoning.effort from the models endpoint', async () => {
     const models = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
     });
 
     expect(models[0]?.supportEfforts).toEqual(['low', 'high', 'max']);
     expect(models[0]?.defaultEffort).toBe('high');
-    // The empty string and number are filtered out of effort.valid.
     expect(models[1]?.supportEfforts).toEqual(['low']);
     expect(models[1]?.defaultEffort).toBeUndefined();
   });
@@ -1170,8 +1159,6 @@ describe('reasoning.effort', () => {
   });
 
   it('ignores legacy effort fields even when reasoning.effort is absent', async () => {
-    // The legacy think_efforts / support_efforts / default_effort fields are no
-    // longer read; only the nested reasoning.effort object is honored.
     const models = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
       fetchImpl: async () =>
@@ -1203,10 +1190,10 @@ describe('reasoning.effort', () => {
 
     await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: jest.fn(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: vi.fn(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: jest.fn(),
+        write: vi.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1367,21 +1354,17 @@ describe('applyManagedApiKeyProviderModels', () => {
       'my-kimi/',
     );
 
-    // The provider record is user-owned: no rewrite, no oauth, no apiKey reset.
     expect(config.providers['my-kimi']).toEqual({
       type: 'kimi',
       baseUrl: 'https://api.example.test/coding/v1',
       apiKey: 'sk-distributed-key',
     });
-    // Defaults and services are the orchestrator's / OAuth branch's business.
     expect(config.defaultModel).toBe('my-kimi/kimi-k2');
     expect(config.thinking).toEqual({ enabled: false });
     expect(config.services).toBeUndefined();
-    // Upstream-owned fields merge; hand-written extras survive.
     const alias = config.models?.['my-kimi/kimi-k2'];
     expect(alias?.['displayName']).toBe('Fresh K2');
     expect(alias?.['maxOutputSize']).toBe(4096);
-    // New upstream model added; dropped one removed; other providers untouched.
     expect(config.models?.['my-kimi/kimi-k2.5']).toBeDefined();
     expect(config.models?.['my-kimi/kimi-old']).toBeUndefined();
     expect(config.models?.['other/m1']).toBeDefined();
@@ -1437,7 +1420,7 @@ const KIMI_BASE_URL = 'https://api.kimi.com/coding/v1';
 
 describe('managed protocol routing', () => {
   it('reads protocol from the /models response', async () => {
-    const fetchImpl = jest.fn(
+    const fetchImpl = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -1453,7 +1436,7 @@ describe('managed protocol routing', () => {
   });
 
   it('maps the server "response" protocol value to openai_responses', async () => {
-    const fetchImpl = jest.fn(
+    const fetchImpl = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -1493,9 +1476,6 @@ describe('managed protocol routing', () => {
       models: [makeModelInfo('kimi-for-coding', { protocol: 'anthropic' })],
     });
 
-    // The provider stays on the kimi wire + REST base; the anthropic transport
-    // is resolved per-model at runtime, not baked into the provider config, so
-    // the REST base keeps flowing to OAuth key derivation and plugin env.
     expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toMatchObject({
       type: 'kimi',
       baseUrl: KIMI_BASE_URL,
@@ -1536,8 +1516,6 @@ describe('managed protocol routing', () => {
       baseUrl: KIMI_BASE_URL,
       models: [makeModelInfo('kimi-for-coding')],
     });
-    // The provider never leaves the kimi wire / REST base across refreshes —
-    // only the per-model protocol annotation changes.
     expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toMatchObject({
       type: 'kimi',
       baseUrl: KIMI_BASE_URL,

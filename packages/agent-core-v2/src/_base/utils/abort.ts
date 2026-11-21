@@ -4,11 +4,8 @@ export function abortError(message = 'Aborted'): Error {
   return error;
 }
 
-export function isAbortError(error: unknown): boolean {
-  if (error instanceof Error && error.name === 'AbortError') return true;
-  return (
-    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
-  );
+export function isAbortError(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 export class UserCancellationError extends Error {
@@ -27,6 +24,8 @@ export function userCancellationReason(): UserCancellationError {
 export function isUserCancellation(value: unknown): value is UserCancellationError {
   return value instanceof UserCancellationError;
 }
+
+export { abortedToolOutput } from '@moonshot-ai/core/utils/abort';
 
 export function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(abortReason(signal));
@@ -62,13 +61,10 @@ function abortReason(signal: AbortSignal): Error {
   return abortError();
 }
 
-const DEFAULT_ABORT_MESSAGES = new Set([
-  'This operation was aborted',
-  'The operation was aborted.',
-]);
+const DEFAULT_ABORT_MESSAGE = 'This operation was aborted';
 
 function isDefaultAbortReason(reason: Error): boolean {
-  return reason.name === 'AbortError' && DEFAULT_ABORT_MESSAGES.has(reason.message);
+  return reason.name === 'AbortError' && reason.message === DEFAULT_ABORT_MESSAGE;
 }
 
 export interface DeadlineAbortSignal {

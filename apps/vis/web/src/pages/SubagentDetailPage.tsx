@@ -1,12 +1,11 @@
 import { Link, useParams } from 'react-router-dom';
-
-import { ContextTab } from '../components/context/ContextTab';
-import { TabBar, useActiveTab } from '../components/layout/TabBar';
-import { Pill, type PillTone } from '../components/shared/Pill';
-import { WireTab } from '../components/wire/WireTab';
 import { useSession } from '../hooks/useSession';
-import { t } from '../i18n';
+import { TabBar, useActiveTab } from '../components/layout/TabBar';
+import { ContextTab } from '../components/context/ContextTab';
+import { WireTab } from '../components/wire/WireTab';
+import { Pill, type PillTone } from '../components/shared/Pill';
 import type { AgentInfo } from '../types';
+import { t } from '../i18n';
 
 type TabId = 'wire' | 'context';
 
@@ -23,9 +22,7 @@ export function SubagentDetailPage() {
 
   if (!sessionId || !agentId) return null;
   if (isLoading) {
-    return (
-      <div className="p-6 font-mono text-[12px] text-fg-3">{t('subagentDetail.loadingAgent')}</div>
-    );
+    return <div className="p-6 font-mono text-[12px] text-fg-3">loading agent…</div>;
   }
   if (error) {
     return (
@@ -40,15 +37,17 @@ export function SubagentDetailPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Breadcrumb + header */}
       <div className="shrink-0 border-b border-border bg-surface-1 px-4 py-3">
         <div className="flex items-center gap-2 font-mono text-[11px] text-fg-2">
-          <Link to={`/sessions/${sessionId}?tab=agents`} className="hover:text-fg-0">
-            {t('subagentDetail.backToAgents')}
+          <Link
+            to={`/sessions/${sessionId}?tab=agents`}
+            className="hover:text-fg-0"
+          >
+            ‹ back to agents
           </Link>
           <span className="text-fg-3">·</span>
           <Link to={`/sessions/${sessionId}`} className="hover:text-fg-0">
-            {t('subagentDetail.session')}
+            session
           </Link>
           <span className="text-fg-3">›</span>
           <span className="text-fg-0">{agentId}</span>
@@ -67,7 +66,7 @@ export function SubagentDetailPage() {
               ) : null}
               {agent.parentAgentId !== null ? (
                 <span className="font-mono text-[11px] text-fg-3">
-                  {t('subagentDetail.parent')} ·{' '}
+                  parent ·{' '}
                   <Link
                     to={`/sessions/${sessionId}/agents/${agent.parentAgentId}`}
                     className="text-fg-1 hover:text-fg-0"
@@ -77,21 +76,21 @@ export function SubagentDetailPage() {
                 </span>
               ) : null}
               <span className="font-mono text-[11px] text-fg-3 tabular">
-                {t(
-                  agent.wireRecordCount === 1 ? 'subagentDetail.record' : 'subagentDetail.records',
-                  { count: agent.wireRecordCount },
-                )}
-                {agent.wireProtocolVersion !== null ? ` · v${agent.wireProtocolVersion}` : ''}
+                {agent.wireRecordCount} record
+                {agent.wireRecordCount === 1 ? '' : 's'}
+                {agent.wireProtocolVersion !== null
+                  ? ` · v${agent.wireProtocolVersion}`
+                  : ''}
               </span>
               {!agent.wireExists ? (
                 <Pill tone="warning" variant="outline">
-                  {t('subagentDetail.noWire')}
+                  no wire
                 </Pill>
               ) : null}
             </>
           ) : (
             <Pill tone="error" variant="outline">
-              {t('subagentDetail.agentNotFound')}
+              agent not found
             </Pill>
           )}
         </div>
@@ -108,7 +107,7 @@ export function SubagentDetailPage() {
       <div className="flex min-h-0 flex-1 flex-col">
         {active === 'wire' ? (
           agent === null || !agent.wireExists ? (
-            <Centered>{t('subagentDetail.noWireForAgent')}</Centered>
+            <Centered>no wire records for this agent</Centered>
           ) : (
             <WireTab sessionId={sessionId} initialAgentId={agentId} />
           )
@@ -116,7 +115,7 @@ export function SubagentDetailPage() {
 
         {active === 'context' ? (
           agent === null || !agent.wireExists ? (
-            <Centered>{t('subagentDetail.noContextForAgent')}</Centered>
+            <Centered>no context for this agent</Centered>
           ) : (
             <ContextTab sessionId={sessionId} initialAgentId={agentId} />
           )

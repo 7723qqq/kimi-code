@@ -9,7 +9,6 @@ import { TRUNCATION_ELLIPSIS } from '#/tui/constant/rendering';
 import { USER_MESSAGE_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { StickyUserMessageJudgment } from '#/tui/utils/sticky-user-message';
-
 import { UserMessageComponent } from './user-message';
 
 export class StickyUserMessageComponent implements Component {
@@ -35,11 +34,10 @@ export class StickyUserMessageComponent implements Component {
     const safeWidth = Math.max(0, width);
     if (this.judgment === null || safeWidth <= 0) return [];
 
-    const text =
-      this.judgment.component instanceof UserMessageComponent
-        ? currentTheme.boldFg('roleUser', USER_MESSAGE_BULLET) +
-          this.judgment.component.colorText(this.judgment.summary)
-        : currentTheme.boldFg('roleUser', USER_MESSAGE_BULLET + this.judgment.summary);
+    const text = this.judgment.component instanceof UserMessageComponent
+      ? currentTheme.boldFg('roleUser', USER_MESSAGE_BULLET) +
+        this.judgment.component.colorText(this.judgment.summary)
+      : currentTheme.boldFg('roleUser', USER_MESSAGE_BULLET + this.judgment.summary);
     const line = truncateToWidth(text, safeWidth, TRUNCATION_ELLIPSIS);
     if (
       this.judgment.component instanceof UserMessageComponent &&

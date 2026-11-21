@@ -1,27 +1,16 @@
 import type { Command } from 'commander';
 
-import { t } from '#/i18n';
+import { kimiCodeOfficialInstallUrl } from '#/constant/app';
 import { openUrl } from '#/utils/open-url';
+import { t } from '#/i18n';
 
-export interface InstallDesktopDeps {
-  readonly stdout?: Pick<NodeJS.WriteStream, 'write'>;
-  readonly openUrl?: (url: string) => void;
+function openDesktopAppPage(): void {
+  const url = kimiCodeOfficialInstallUrl();
+  process.stdout.write(`${url}\n`);
+  openUrl(url);
 }
 
-export function registerInstallDesktopCommand(
-  program: Command,
-  deps: InstallDesktopDeps = {},
-): void {
-  const stdout = deps.stdout ?? process.stdout;
-  const open = deps.openUrl ?? openUrl;
-  const openDesktopAppPage = async (): Promise<void> => {
-    // Region resolution pulls the region/config stack; load it on dispatch.
-    const { kimiCodeOfficialInstallUrl } = await import('#/constant/region-urls');
-    const url = kimiCodeOfficialInstallUrl();
-    stdout.write(`${url}\n`);
-    open(url);
-  };
-
+export function registerInstallDesktopCommand(program: Command): void {
   program
     .command('install-desktop')
     .description(t('cli.commandDescriptions.installDesktop'))

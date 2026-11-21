@@ -1,13 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import {
-  chmod,
   lstat,
   mkdir,
-  open,
   readFile,
   readdir,
-  readlink,
   realpath,
   rename,
   rm,
@@ -21,7 +18,6 @@ import type { FileChange } from '../../shared/types';
 import { relativeFsPath } from '../utils/fs-path';
 
 const MANIFEST_VERSION = 1;
-const DEFAULT_RESTORED_FILE_MODE = 0o644;
 const SNAPSHOT_HASH = /^[a-f0-9]{64}$/;
 
 export interface BaselineSession {
@@ -80,11 +76,6 @@ export class BaselineManager {
     this.baselinesRoot = path.join(globalStorageRoot, 'baselines', hash(homeNamespace));
   }
 
-  /**
-   * Capture the file synchronously before returning control to the caller.
-   * Persistence is serialized per session and completes through the returned
-   * promise, but no `await` occurs before the original file has been read.
-   */
   async capture(session: BaselineSession, filePath: string): Promise<void> {
     const resolved = resolveSessionFile(session, filePath);
     const captured = captureOriginal(resolved.absolutePath);
@@ -305,7 +296,9 @@ export class BaselineManager {
       paths.set(pathComparisonKey(session, relativePath), relativePath);
     }
     const accepted = new Set(
-      manifest.acceptedLegacyPaths.map((relativePath) => pathComparisonKey(session, relativePath)),
+      manifest.acceptedLegacyPaths.map((relativePath) =>
+        pathComparisonKey(session, relativePath),
+      ),
     );
     for (const relativePath of await this.listLegacyPaths(session)) {
       const key = pathComparisonKey(session, relativePath);
@@ -356,7 +349,10 @@ export class BaselineManager {
   }
 
   private async writeManifest(manifest: BaselineManifestV1): Promise<void> {
-    if (Object.keys(manifest.entries).length === 0 && manifest.acceptedLegacyPaths.length === 0) {
+    if (
+      Object.keys(manifest.entries).length === 0 &&
+      manifest.acceptedLegacyPaths.length === 0
+    ) {
       await rm(this.sessionRoot(manifest.sessionId), { recursive: true, force: true });
       return;
     }
@@ -493,10 +489,7 @@ export class BaselineManager {
     }
   }
 
-  private async serialize<T>(
-    sessionIds: readonly string[],
-    operation: () => Promise<T>,
-  ): Promise<T> {
+  private async serialize<T>(sessionIds: readonly string[], operation: () => Promise<T>): Promise<T> {
     const ids = [...new Set(sessionIds)].toSorted();
     for (const id of ids) requireSessionId(id);
 
@@ -596,9 +589,7 @@ function parseManifest(value: unknown, session: BaselineSession): BaselineManife
     }
     const relativePath = resolveSessionFile(session, rawPath).relativePath;
     if (relativePath !== rawPath) {
-      throw new BaselineError(
-        `Unsafe accepted legacy path "${rawPath}" in session "${session.id}"`,
-      );
+      throw new BaselineError(`Unsafe accepted legacy path "${rawPath}" in session "${session.id}"`);
     }
     if (equivalentPath(session, acceptedLegacyPaths, relativePath) === undefined) {
       acceptedLegacyPaths.push(relativePath);
@@ -681,7 +672,10 @@ function legacyBaselineRoot(session: BaselineSession): string | undefined {
   return path.join(source, 'baseline');
 }
 
-function legacyBaselinePath(session: BaselineSession, relativePath: string): string | undefined {
+function legacyBaselinePath(
+  session: BaselineSession,
+  relativePath: string,
+): string | undefined {
   const root = legacyBaselineRoot(session);
   if (root === undefined) return undefined;
   const resolved = resolveSessionFile(session, relativePath);
@@ -704,7 +698,9 @@ async function walkLegacyBaselines(
   }
 
   for (const entry of entries) {
-    const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+    const relativePath = relativeDirectory
+      ? `${relativeDirectory}/${entry.name}`
+      : entry.name;
     if (entry.isDirectory()) {
       await walkLegacyBaselines(path.join(directory, entry.name), relativePath, result);
     } else if (entry.isFile()) {
@@ -766,87 +762,10 @@ async function restoreFile(
 
   try {
     await mkdir(path.dirname(absolutePath), { recursive: true });
-    // A symlink must keep pointing at its target, so resolve it first: the
-    // atomic rename below would otherwise replace the link with a plain file.
-    // A missing file has no link to resolve and is recreated at its own path.
-    await restoreFileAtomic(
-      (await resolvedExistingPath(absolutePath)) ?? absolutePath,
-      baseline.content,
-    );
+    await writeFile(absolutePath, baseline.content, 'utf-8');
   } catch (error) {
-    if (error instanceof BaselineError) throw error;
     throw new BaselineError(`Unable to restore file "${absolutePath}"`, { cause: error });
   }
-}
-
-/**
- * Replaces `targetPath` in one step (`write temp + rename`), reusing the
- * existing file's permission bits and flushing the new content before the
- * rename. The rename swaps the inode, so hard links break and xattrs or ACLs
- * are not carried over — an accepted trade for never leaving a truncated
- * source file behind when the process dies mid-restore.
- */
-async function restoreFileAtomic(targetPath: string, content: string): Promise<void> {
-  const mode = await restoredFileMode(targetPath);
-  const temporaryPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporaryPath, content, { encoding: 'utf-8', mode });
-    await chmod(temporaryPath, mode);
-    // Flushing is only permitted on a handle with write access on Windows,
-    // so the temp file is opened read-write even though only `sync` is called.
-    const handle = await open(temporaryPath, 'r+');
-    try {
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await rename(temporaryPath, targetPath);
-  } catch (error) {
-    await rm(temporaryPath, { force: true }).catch(() => undefined);
-    throw new BaselineError(`Unable to atomically write "${targetPath}"`, { cause: error });
-  }
-}
-
-async function restoredFileMode(targetPath: string): Promise<number> {
-  try {
-    return (await stat(targetPath)).mode;
-  } catch (error) {
-    if (isErrorCode(error, 'ENOENT')) return DEFAULT_RESTORED_FILE_MODE;
-    throw new BaselineError(`Unable to inspect the file mode of "${targetPath}"`, { cause: error });
-  }
-}
-
-async function resolvedExistingPath(candidate: string): Promise<string | undefined> {
-  try {
-    await lstat(candidate);
-  } catch (error) {
-    // The file is gone: it is recreated at this exact path, not at whatever
-    // ancestor still exists (`realExistingPath` walks up to one).
-    if (isErrorCode(error, 'ENOENT')) return undefined;
-    throw new BaselineError(`Unable to inspect restore path "${candidate}"`, { cause: error });
-  }
-  return symlinkTargetPath(candidate);
-}
-
-/**
- * The path a write must land on so that every symlink in `candidate` keeps
- * its link: the final target of a chain, which may not exist yet. A regular
- * file resolves to itself.
- */
-async function symlinkTargetPath(candidate: string): Promise<string> {
-  let current = candidate;
-  for (let depth = 0; depth < 32; depth += 1) {
-    let info;
-    try {
-      info = await lstat(current);
-    } catch (error) {
-      if (isErrorCode(error, 'ENOENT')) return current;
-      throw new BaselineError(`Unable to inspect restore path "${current}"`, { cause: error });
-    }
-    if (!info.isSymbolicLink()) return current;
-    current = path.resolve(path.dirname(current), await readlink(current));
-  }
-  throw new BaselineError(`Unable to resolve the symlink chain of "${candidate}"`);
 }
 
 async function requireContainedRestorePath(workDir: string, absolutePath: string): Promise<void> {
@@ -856,9 +775,7 @@ async function requireContainedRestorePath(workDir: string, absolutePath: string
       realExistingPath(absolutePath),
     ]);
     if (relativeFsPath(realWorkDir, realTarget) === undefined) {
-      throw new BaselineError(
-        `Refusing to restore path outside the session workspace: "${absolutePath}"`,
-      );
+      throw new BaselineError(`Refusing to restore path outside the session workspace: "${absolutePath}"`);
     }
   } catch (error) {
     if (error instanceof BaselineError) throw error;

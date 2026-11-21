@@ -1,98 +1,99 @@
-import { expect, describe, it } from "bun:test";
+import assert from "node:assert";
+import { describe, it } from "node:test";
 import { findWordBackward, findWordForward } from "../src/word-navigation.ts";
 
 describe("findWordBackward", () => {
 	it("basic words: hello world", () => {
 		const text = "hello world";
-		expect(findWordBackward(text, 11)).toBe(6);
-		expect(findWordBackward(text, 6)).toBe(0);
+		assert.strictEqual(findWordBackward(text, 11), 6);
+		assert.strictEqual(findWordBackward(text, 6), 0);
 	});
 
 	it("dotted: foo.bar", () => {
 		const text = "foo.bar";
-		expect(findWordBackward(text, 7)).toBe(4);
-		expect(findWordBackward(text, 4)).toBe(3);
-		expect(findWordBackward(text, 3)).toBe(0);
+		assert.strictEqual(findWordBackward(text, 7), 4);
+		assert.strictEqual(findWordBackward(text, 4), 3);
+		assert.strictEqual(findWordBackward(text, 3), 0);
 	});
 
 	it("colon: foo:bar", () => {
 		const text = "foo:bar";
-		expect(findWordBackward(text, 7)).toBe(4);
-		expect(findWordBackward(text, 4)).toBe(3);
-		expect(findWordBackward(text, 3)).toBe(0);
+		assert.strictEqual(findWordBackward(text, 7), 4);
+		assert.strictEqual(findWordBackward(text, 4), 3);
+		assert.strictEqual(findWordBackward(text, 3), 0);
 	});
 
 	it("path: path/to/file", () => {
 		const text = "path/to/file";
-		expect(findWordBackward(text, 12)).toBe(8);
-		expect(findWordBackward(text, 8)).toBe(7);
+		assert.strictEqual(findWordBackward(text, 12), 8);
+		assert.strictEqual(findWordBackward(text, 8), 7);
 		// "/to" is one word-like segment with "/" as punctuation boundary
-		expect(findWordBackward(text, 7)).toBe(5);
-		expect(findWordBackward(text, 5)).toBe(4);
-		expect(findWordBackward(text, 4)).toBe(0);
+		assert.strictEqual(findWordBackward(text, 7), 5);
+		assert.strictEqual(findWordBackward(text, 5), 4);
+		assert.strictEqual(findWordBackward(text, 4), 0);
 	});
 
 	it("CJK mixed", () => {
 		const text = "你好世界 test";
-		expect(findWordBackward(text, text.length)).toBe(5);
+		assert.strictEqual(findWordBackward(text, text.length), 5);
 		// Intl.Segmenter treats each CJK char as a separate word-like segment
-		expect(findWordBackward(text, 5)).toBe(2);
-		expect(findWordBackward(text, 2)).toBe(0);
+		assert.strictEqual(findWordBackward(text, 5), 2);
+		assert.strictEqual(findWordBackward(text, 2), 0);
 	});
 
 	it("whitespace at boundaries", () => {
 		const text = "  hello  ";
-		expect(findWordBackward(text, 9)).toBe(2);
-		expect(findWordBackward(text, 2)).toBe(0);
+		assert.strictEqual(findWordBackward(text, 9), 2);
+		assert.strictEqual(findWordBackward(text, 2), 0);
 	});
 
 	it("punctuation run: foo...bar", () => {
 		const text = "foo...bar";
-		expect(findWordBackward(text, 9)).toBe(6);
-		expect(findWordBackward(text, 6)).toBe(3);
-		expect(findWordBackward(text, 3)).toBe(0);
+		assert.strictEqual(findWordBackward(text, 9), 6);
+		assert.strictEqual(findWordBackward(text, 6), 3);
+		assert.strictEqual(findWordBackward(text, 3), 0);
 	});
 
 	it("cursor at 0 returns 0", () => {
-		expect(findWordBackward("hello", 0)).toBe(0);
+		assert.strictEqual(findWordBackward("hello", 0), 0);
 	});
 });
 
 describe("findWordForward", () => {
 	it("basic words: hello world", () => {
 		const text = "hello world";
-		expect(findWordForward(text, 0)).toBe(5);
-		expect(findWordForward(text, 5)).toBe(11);
+		assert.strictEqual(findWordForward(text, 0), 5);
+		assert.strictEqual(findWordForward(text, 5), 11);
 	});
 
 	it("dotted: foo.bar", () => {
 		const text = "foo.bar";
-		expect(findWordForward(text, 0)).toBe(3);
-		expect(findWordForward(text, 3)).toBe(4);
-		expect(findWordForward(text, 4)).toBe(7);
+		assert.strictEqual(findWordForward(text, 0), 3);
+		assert.strictEqual(findWordForward(text, 3), 4);
+		assert.strictEqual(findWordForward(text, 4), 7);
 	});
 
 	it("colon: foo:bar", () => {
 		const text = "foo:bar";
-		expect(findWordForward(text, 0)).toBe(3);
-		expect(findWordForward(text, 3)).toBe(4);
-		expect(findWordForward(text, 4)).toBe(7);
+		assert.strictEqual(findWordForward(text, 0), 3);
+		assert.strictEqual(findWordForward(text, 3), 4);
+		assert.strictEqual(findWordForward(text, 4), 7);
 	});
 
 	it("path: path/to/file", () => {
 		const text = "path/to/file";
-		expect(findWordForward(text, 0)).toBe(4);
-		expect(findWordForward(text, 4)).toBe(5);
-		expect(findWordForward(text, 5)).toBe(7);
-		expect(findWordForward(text, 7)).toBe(8);
-		expect(findWordForward(text, 8)).toBe(12);
+		assert.strictEqual(findWordForward(text, 0), 4);
+		assert.strictEqual(findWordForward(text, 4), 5);
+		assert.strictEqual(findWordForward(text, 5), 7);
+		assert.strictEqual(findWordForward(text, 7), 8);
+		assert.strictEqual(findWordForward(text, 8), 12);
 	});
 
 	it("CJK mixed", () => {
 		const text = "你好世界 test";
 		const firstEnd = findWordForward(text, 0);
-		expect(firstEnd > 0).toBeTruthy();
-		expect(firstEnd <= 4).toBeTruthy();
+		assert.ok(firstEnd > 0);
+		assert.ok(firstEnd <= 4);
 		// Walk to end
 		let pos = 0;
 		while (pos < text.length) {
@@ -100,24 +101,24 @@ describe("findWordForward", () => {
 			if (next === pos) break;
 			pos = next;
 		}
-		expect(pos).toBe(text.length);
+		assert.strictEqual(pos, text.length);
 	});
 
 	it("whitespace at boundaries", () => {
 		const text = "  hello  ";
-		expect(findWordForward(text, 0)).toBe(7);
-		expect(findWordForward(text, 7)).toBe(9);
+		assert.strictEqual(findWordForward(text, 0), 7);
+		assert.strictEqual(findWordForward(text, 7), 9);
 	});
 
 	it("punctuation run: foo...bar", () => {
 		const text = "foo...bar";
-		expect(findWordForward(text, 0)).toBe(3);
-		expect(findWordForward(text, 3)).toBe(6);
-		expect(findWordForward(text, 6)).toBe(9);
+		assert.strictEqual(findWordForward(text, 0), 3);
+		assert.strictEqual(findWordForward(text, 3), 6);
+		assert.strictEqual(findWordForward(text, 6), 9);
 	});
 
 	it("cursor at end returns end", () => {
-		expect(findWordForward("hello", 5)).toBe(5);
+		assert.strictEqual(findWordForward("hello", 5), 5);
 	});
 });
 
@@ -177,14 +178,14 @@ describe("atomic segments", () => {
 	};
 
 	it("backward skips word then stops before atomic marker", () => {
-		expect(findWordBackward(text, text.length, opts)).toBe(26);
+		assert.strictEqual(findWordBackward(text, text.length, opts), 26);
 	});
 
 	it("backward skips whitespace then atomic marker as one unit", () => {
-		expect(findWordBackward(text, 26, opts)).toBe(6);
+		assert.strictEqual(findWordBackward(text, 26, opts), 6);
 	});
 
 	it("forward skips atomic marker as one unit", () => {
-		expect(findWordForward(text, 6, opts)).toBe(6 + marker.length);
+		assert.strictEqual(findWordForward(text, 6, opts), 6 + marker.length);
 	});
 });

@@ -1,14 +1,14 @@
-import { describe, expect, it, mock, type Mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import { handleSwarmCommand } from '#/tui/commands/index';
+import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import { currentTheme } from '#/tui/theme';
-import { permissionModeDescription } from '#/tui/utils/permission-mode';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { PERMISSION_MODE_DESCRIPTIONS } from '#/tui/utils/permission-mode';
 
+const USAGE_NOTICE =
+  "High usage: Swarm is built for large parallel jobs and can use many times the tokens of a normal task. Start small, and run /swarm off when you're done.";
 const ENTER = '\r';
 const ESCAPE = '\u001B';
-const UP = '\u001B[A';
 const DOWN = '\u001B[B';
 
 function stripAnsi(text: string): string {
@@ -25,17 +25,11 @@ function makeHost(
     hasSession?: boolean;
     permissionMode?: 'manual' | 'auto' | 'yolo';
     swarmMode?: boolean;
-    /** The engine refuses the switch, so status never reflects the request. */
-    engineRefuses?: boolean;
   } = {},
 ) {
-  let engineMode = overrides.swarmMode ?? false;
   const session = {
-    setPermission: mock(async () => {}),
-    setSwarmMode: mock(async (enabled: boolean) => {
-      if (!overrides.engineRefuses) engineMode = enabled;
-    }),
-    getStatus: mock(async () => ({ swarmMode: engineMode })),
+    setPermission: vi.fn(async () => {}),
+    setSwarmMode: vi.fn(async () => {}),
   };
   const hasSession = overrides.hasSession ?? true;
   const host = {
@@ -46,22 +40,19 @@ function makeHost(
         swarmMode: overrides.swarmMode ?? false,
       },
       theme: currentTheme,
-      transcriptContainer: { addChild: mock() },
-      ui: { requestRender: mock() },
+      transcriptContainer: { addChild: vi.fn() },
+      ui: { requestRender: vi.fn() },
     },
     session: hasSession ? session : undefined,
     requireSession: () => session,
-    setAppState: mock((patch: Record<string, unknown>) =>
-      Object.assign(host.state.appState, patch),
-    ),
-    showError: mock(),
-    showNotice: mock(),
-    showStatus: mock(),
-    appendTranscriptEntry: mock(),
-    mountEditorReplacement: mock(),
-    restoreEditor: mock(),
-    restoreInputText: mock(),
-    sendNormalUserInput: mock(),
+    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    showError: vi.fn(),
+    showNotice: vi.fn(),
+    showStatus: vi.fn(),
+    mountEditorReplacement: vi.fn(),
+    restoreEditor: vi.fn(),
+    restoreInputText: vi.fn(),
+    sendNormalUserInput: vi.fn(),
   } as unknown as SlashCommandHost;
   return { host, session };
 }
@@ -72,18 +63,16 @@ interface TestPicker {
 }
 
 function mountedPicker(host: SlashCommandHost): TestPicker {
-  const mock = host.mountEditorReplacement as Mock<(...args: any[]) => any>;
+  const mock = host.mountEditorReplacement as ReturnType<typeof vi.fn>;
   return mock.mock.calls[0]?.[0] as TestPicker;
 }
 
-function markerAddChild(host: SlashCommandHost): Mock<(...args: any[]) => any> {
-  return host.appendTranscriptEntry as Mock<(...args: any[]) => any>;
+function markerAddChild(host: SlashCommandHost): ReturnType<typeof vi.fn> {
+  return host.state.transcriptContainer.addChild as ReturnType<typeof vi.fn>;
 }
 
 function expectSwarmMarker(host: SlashCommandHost, text: string): void {
-  const components = markerAddChild(host).mock.calls.map(
-    ([, component]) => component as TestComponent,
-  );
+  const components = markerAddChild(host).mock.calls.map(([component]) => component as TestComponent);
   const rendered = stripAnsi(components.at(-1)?.render(80).join('\n') ?? '');
   expect(rendered).toContain(text);
 }
@@ -98,6 +87,7 @@ describe('handleSwarmCommand', () => {
     expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
     expect(host.state.swarmModeEntry).toBe('task');
     expectSwarmMarker(host, 'Swarm activated');
+    expect(host.showStatus).toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
   });
@@ -110,6 +100,7 @@ describe('handleSwarmCommand', () => {
     expect(session.setSwarmMode).not.toHaveBeenCalled();
     expect(host.state.swarmModeEntry).toBeUndefined();
     expectSwarmMarker(host, 'Swarm activated');
+    expect(host.showStatus).toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
     expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
   });
 
@@ -122,7 +113,8 @@ describe('handleSwarmCommand', () => {
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expect(host.state.swarmModeEntry).toBe('manual');
     expectSwarmMarker(host, 'Swarm activated');
-    expect(host.showStatus).not.toHaveBeenCalled();
+    expect(host.showStatus).toHaveBeenCalledOnce();
+    expect(host.showStatus).toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
@@ -133,17 +125,16 @@ describe('handleSwarmCommand', () => {
 
     expect(session.setSwarmMode).not.toHaveBeenCalled();
     expect(markerAddChild(host)).not.toHaveBeenCalled();
-    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
     expect(session.setPermission).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
     const text = stripAnsi(mountedPicker(host).render(80).join('\n'));
-    expect(text).toContain('Always Ask mode can block swarm work');
-    const picker = mountedPicker(host);
-    picker.handleInput(UP);
-    picker.handleInput(UP);
-    picker.handleInput(ENTER);
+    expect(text.replaceAll(/\s+/g, ' ')).toContain(
+      'Always Ask mode asks you before Kimi Code runs commands, edits files, or takes other risky actions, and can block swarm work while agents are running.',
+    );
+    mountedPicker(host).handleInput(ENTER);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'manual');
     });
     expect(session.setPermission).toHaveBeenCalledWith('auto');
@@ -152,6 +143,7 @@ describe('handleSwarmCommand', () => {
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expect(host.state.swarmModeEntry).toBe('manual');
     expectSwarmMarker(host, 'Swarm activated');
+    expect(host.showStatus).toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
@@ -165,7 +157,8 @@ describe('handleSwarmCommand', () => {
     expect(host.state.swarmModeEntry).toBe('manual');
     expectSwarmMarker(host, 'Swarm activated');
     expect(host.showError).not.toHaveBeenCalled();
-    expect(host.showStatus).not.toHaveBeenCalled();
+    expect(host.showStatus).toHaveBeenCalledOnce();
+    expect(host.showStatus).toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
@@ -178,6 +171,7 @@ describe('handleSwarmCommand', () => {
     expect(host.setAppState).not.toHaveBeenCalledWith({ swarmMode: true });
     expect(markerAddChild(host)).not.toHaveBeenCalled();
     expect(host.showStatus).toHaveBeenCalledWith('Swarm mode is already on.');
+    expect(host.showStatus).not.toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
@@ -227,50 +221,36 @@ describe('handleSwarmCommand', () => {
 
     expect(session.setSwarmMode).not.toHaveBeenCalled();
     expect(markerAddChild(host)).not.toHaveBeenCalled();
-    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
     expect(session.setPermission).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
     const text = stripAnsi(mountedPicker(host).render(80).join('\n'));
-    expect(text).toContain('Always Ask mode can block swarm work');
+    expect(text.replaceAll(/\s+/g, ' ')).toContain(
+      'Always Ask mode asks you before Kimi Code runs commands, edits files, or takes other risky actions, and can block swarm work while agents are running.',
+    );
     expect(text).toContain('Switch to Ask When Needed and start');
     expect(text).not.toContain('Do not start');
   });
 
-  it('keeps Always Ask when confirming a Manual-mode swarm start', async () => {
+  it('defaults to Auto when confirming a Manual-mode swarm start', async () => {
     const { host, session } = makeHost({ permissionMode: 'manual' });
 
     await handleSwarmCommand(host, 'Ship feature X');
     mountedPicker(host).handleInput(ENTER);
 
-    await waitForAssertion(() => {
-      expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
-    });
-    expect(session.setPermission).not.toHaveBeenCalled();
-    expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
-    expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
-    expect(host.setAppState).not.toHaveBeenCalledWith({ permissionMode: 'auto' });
-    expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
-    expect(host.showNotice).not.toHaveBeenCalledWith('Permission mode: Never Ask');
-    expect(host.showStatus).not.toHaveBeenCalledWith(permissionModeDescription('auto'), 'warning');
-    expect(host.state.swarmModeEntry).toBe('task');
-    expectSwarmMarker(host, 'Swarm activated');
-  });
-
-  it('still switches to Auto when the cursor is moved there first', async () => {
-    const { host, session } = makeHost({ permissionMode: 'manual' });
-
-    await handleSwarmCommand(host, 'Ship feature X');
-    const picker = mountedPicker(host);
-    picker.handleInput(UP);
-    picker.handleInput(UP);
-    picker.handleInput(ENTER);
-
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).toHaveBeenCalledWith('auto');
+    expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
+    expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
+    expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'auto' });
+    expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expect(host.showNotice).toHaveBeenCalledWith('Permission mode: Never Ask');
+    expect(host.showStatus).toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.auto, 'warning');
+    expect(host.state.swarmModeEntry).toBe('task');
     expectSwarmMarker(host, 'Swarm activated');
+    expect(host.showStatus).toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
   });
 
   it('can start a Manual-mode swarm task without changing permission', async () => {
@@ -278,18 +258,21 @@ describe('handleSwarmCommand', () => {
 
     await handleSwarmCommand(host, 'Ship feature X');
     const picker = mountedPicker(host);
+    picker.handleInput(DOWN);
+    picker.handleInput(DOWN);
     picker.handleInput(ENTER);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).not.toHaveBeenCalled();
     expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
     expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
     expect(host.showNotice).not.toHaveBeenCalled();
-    expect(host.showStatus).not.toHaveBeenCalledWith(permissionModeDescription('auto'), 'warning');
+    expect(host.showStatus).not.toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.auto, 'warning');
     expect(host.state.swarmModeEntry).toBe('task');
     expectSwarmMarker(host, 'Swarm activated');
+    expect(host.showStatus).toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
   });
 
   it('can start a Manual-mode swarm task after switching to YOLO', async () => {
@@ -297,10 +280,10 @@ describe('handleSwarmCommand', () => {
 
     await handleSwarmCommand(host, 'Ship feature X');
     const picker = mountedPicker(host);
-    picker.handleInput(UP);
+    picker.handleInput(DOWN);
     picker.handleInput(ENTER);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).toHaveBeenCalledWith('yolo');
@@ -309,9 +292,10 @@ describe('handleSwarmCommand', () => {
     expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'yolo' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expect(host.showNotice).toHaveBeenCalledWith('Permission mode: Ask When Needed');
-    expect(host.showStatus).toHaveBeenCalledWith(permissionModeDescription('yolo'), 'warning');
+    expect(host.showStatus).toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.yolo, 'warning');
     expect(host.state.swarmModeEntry).toBe('task');
     expectSwarmMarker(host, 'Swarm activated');
+    expect(host.showStatus).toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
   });
 
   it('returns the command to the input box when a Manual-mode swarm start is cancelled', async () => {
@@ -325,6 +309,7 @@ describe('handleSwarmCommand', () => {
     expect(session.setPermission).not.toHaveBeenCalled();
     expect(session.setSwarmMode).not.toHaveBeenCalled();
     expect(markerAddChild(host)).not.toHaveBeenCalled();
+    expect(host.showStatus).not.toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
@@ -333,18 +318,16 @@ describe('handleSwarmCommand', () => {
     session.setPermission.mockRejectedValueOnce(new Error('denied'));
 
     await handleSwarmCommand(host, 'Ship feature X');
-    const picker = mountedPicker(host);
-    picker.handleInput(UP);
-    picker.handleInput(UP);
-    picker.handleInput(ENTER);
+    mountedPicker(host).handleInput(ENTER);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalledWith(
         expect.stringContaining('Failed to set permission mode'),
       );
     });
     expect(session.setSwarmMode).not.toHaveBeenCalled();
     expect(markerAddChild(host)).not.toHaveBeenCalled();
+    expect(host.showStatus).not.toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
@@ -353,12 +336,9 @@ describe('handleSwarmCommand', () => {
     session.setSwarmMode.mockRejectedValueOnce(new Error('denied'));
 
     await handleSwarmCommand(host, 'Ship feature X');
-    const picker = mountedPicker(host);
-    picker.handleInput(UP);
-    picker.handleInput(UP);
-    picker.handleInput(ENTER);
+    mountedPicker(host).handleInput(ENTER);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalledWith(
         expect.stringContaining('Failed to enable swarm mode'),
       );
@@ -366,6 +346,7 @@ describe('handleSwarmCommand', () => {
     expect(session.setPermission).toHaveBeenCalledWith('auto');
     expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
     expect(markerAddChild(host)).not.toHaveBeenCalled();
+    expect(host.showStatus).not.toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
@@ -379,29 +360,7 @@ describe('handleSwarmCommand', () => {
       expect.stringContaining('Failed to enable swarm mode'),
     );
     expect(markerAddChild(host)).not.toHaveBeenCalled();
+    expect(host.showStatus).not.toHaveBeenCalledWith(USAGE_NOTICE, 'warning');
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
-  });
-
-  it('reports an error when the engine refuses to enable swarm mode', async () => {
-    const { host } = makeHost({ model: '', engineRefuses: true });
-
-    await handleSwarmCommand(host, 'on');
-
-    // The engine stayed off, so claiming success would desync the footer.
-    expect(host.showError).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to enable swarm mode'),
-    );
-    expect(host.state.appState.swarmMode).toBe(false);
-  });
-
-  it('reports an error when the engine refuses to disable swarm mode', async () => {
-    const { host } = makeHost({ model: '', swarmMode: true, engineRefuses: true });
-
-    await handleSwarmCommand(host, 'off');
-
-    expect(host.showError).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to disable swarm mode'),
-    );
-    expect(host.state.appState.swarmMode).toBe(true);
   });
 });

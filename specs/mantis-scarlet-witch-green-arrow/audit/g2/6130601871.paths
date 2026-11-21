@@ -1,0 +1,8 @@
+A	.changeset/allow-resume-occupied-sessions.md
+M	packages/agent-core-v2/src/agent/loop/loopService.ts
+M	packages/agent-core-v2/src/session/sessionActivity/sessionRunGate.ts
+M	packages/agent-core-v2/src/session/sessionActivity/sessionRunGateService.ts
+M	packages/agent-core-v2/test/agent/task/rpc-events.test.ts
+M	packages/agent-core-v2/test/session/sessionActivity/sessionRunGate.test.ts
+M	packages/agent-core-v2/test/stubs.ts
+M	packages/node-sdk/test/sdk-rpc-client-v2.test.ts

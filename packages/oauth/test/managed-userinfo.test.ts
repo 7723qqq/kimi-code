@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, it, expect, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   fetchManagedUserInfo,
@@ -7,16 +7,15 @@ import {
   managedUserInfoSchema,
   parseManagedUserInfoPayload,
 } from '../src/managed-userinfo';
-import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from './stubs';
 
 afterEach(() => {
-  restoreGlobals();
-  restoreEnvs();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('kimiCodeUserInfoUrl', () => {
   it('follows the KIMI_CODE_BASE_URL override', () => {
-    setEnv('KIMI_CODE_BASE_URL', 'https://gw.example.com/');
+    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://gw.example.com/');
     expect(kimiCodeUserInfoUrl()).toBe('https://gw.example.com/me');
   });
 });
@@ -167,17 +166,17 @@ describe('parseManagedUserInfoPayload', () => {
   });
 
   it('keeps email only when it is a non-empty string', () => {
-    expect(parseManagedUserInfoPayload({ user_id: 'u_1', email: 'user@example.com' })?.email).toBe(
-      'user@example.com',
-    );
+    expect(
+      parseManagedUserInfoPayload({ user_id: 'u_1', email: 'user@example.com' })?.email,
+    ).toBe('user@example.com');
     expect(parseManagedUserInfoPayload({ user_id: 'u_1', email: '' })?.email).toBeUndefined();
     expect(parseManagedUserInfoPayload({ user_id: 'u_1', email: 42 })?.email).toBeUndefined();
   });
 
   it('accepts a numeric-string goods_version', () => {
-    expect(parseManagedUserInfoPayload({ user_id: 'u_1', goods_version: '2' })?.goodsVersion).toBe(
-      2,
-    );
+    expect(
+      parseManagedUserInfoPayload({ user_id: 'u_1', goods_version: '2' })?.goodsVersion,
+    ).toBe(2);
     expect(
       parseManagedUserInfoPayload({ user_id: 'u_1', goods_version: '' })?.goodsVersion,
     ).toBeUndefined();
@@ -186,7 +185,7 @@ describe('parseManagedUserInfoPayload', () => {
 
 describe('fetchManagedUserInfo', () => {
   it('sends only Authorization and Accept headers', async () => {
-    const fetchMock = mock(
+    const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -202,7 +201,7 @@ describe('fetchManagedUserInfo', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     await expect(fetchManagedUserInfo('https://api.example/me', 'access-token')).resolves.toEqual({
       kind: 'ok',
@@ -237,9 +236,9 @@ describe('fetchManagedUserInfo', () => {
   });
 
   it('surfaces JSON API error messages with status', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
+      vi.fn(
         async () =>
           new Response(JSON.stringify({ message: 'token expired' }), {
             status: 401,
@@ -257,10 +256,7 @@ describe('fetchManagedUserInfo', () => {
   });
 
   it('falls back to the local authorization hint on an empty 401 body', async () => {
-    setGlobal(
-      'fetch',
-      mock(async () => new Response('', { status: 401 })),
-    );
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })));
 
     const result = await fetchManagedUserInfo('https://api.example/me', 'access-token');
 
@@ -271,10 +267,7 @@ describe('fetchManagedUserInfo', () => {
   });
 
   it('falls back to the local profile hint on an empty 404 body', async () => {
-    setGlobal(
-      'fetch',
-      mock(async () => new Response('', { status: 404 })),
-    );
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })));
 
     const result = await fetchManagedUserInfo('https://api.example/me', 'access-token');
 
@@ -285,9 +278,9 @@ describe('fetchManagedUserInfo', () => {
   });
 
   it('treats a payload without user_id as malformed', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
+      vi.fn(
         async () =>
           new Response(JSON.stringify({ nickname: 'moonwalker' }), {
             status: 200,
@@ -298,16 +291,13 @@ describe('fetchManagedUserInfo', () => {
 
     const result = await fetchManagedUserInfo('https://api.example/me', 'access-token');
 
-    expect(result).toEqual({
-      kind: 'error',
-      message: 'Failed to fetch profile: malformed response.',
-    });
+    expect(result).toEqual({ kind: 'error', message: 'Failed to fetch profile: malformed response.' });
   });
 
   it('maps an aborted request to a timeout message', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async () => {
+      vi.fn(async () => {
         const error = new Error('The operation was aborted');
         error.name = 'AbortError';
         throw error;
@@ -323,9 +313,9 @@ describe('fetchManagedUserInfo', () => {
   });
 
   it('wraps network failures with the profile prefix', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async () => {
+      vi.fn(async () => {
         throw new Error('socket hang up');
       }),
     );

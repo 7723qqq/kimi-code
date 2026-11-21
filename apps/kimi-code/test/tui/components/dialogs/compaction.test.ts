@@ -1,12 +1,11 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-
 import chalk from 'chalk';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { CompactionComponent } from '#/tui/components/dialogs/compaction';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 
 afterEach(() => {
-  currentTheme.setPalette(darkColors, 'dark');
+  currentTheme.setPalette(darkColors);
 });
 
 function strip(text: string): string {
@@ -136,7 +135,7 @@ describe('CompactionComponent', () => {
     try {
       component.markDone(120, 24, 'Keep the src/tui compaction notes.');
       component.setExpanded(true);
-      currentTheme.setPalette(lightColors, 'light');
+      currentTheme.setPalette(lightColors);
       component.invalidate();
       const text = component.render(120).map(strip).join('\n');
 
@@ -150,8 +149,6 @@ describe('CompactionComponent', () => {
   });
 
   it('repaints the header with the active palette on invalidate', () => {
-    // Force truecolor so palette differences surface as ANSI codes even when
-    // the test runner has no TTY.
     const previousLevel = chalk.level;
     chalk.level = 3;
     const component = new CompactionComponent();
@@ -164,11 +161,10 @@ describe('CompactionComponent', () => {
       };
       const before = headerOf();
 
-      currentTheme.setPalette(lightColors, 'light');
+      currentTheme.setPalette(lightColors);
       component.invalidate();
       const after = headerOf();
 
-      // Same visible text, different ANSI colour codes.
       expect(strip(after)).toBe(strip(before));
       expect(after).not.toBe(before);
     } finally {

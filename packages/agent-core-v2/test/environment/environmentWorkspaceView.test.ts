@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
@@ -17,35 +17,6 @@ describe('EnvironmentWorkspaceView', () => {
     expect(view.resolve('src\\index.ts')).toBe('C:\\workspace\\project\\src\\index.ts');
     expect(view.resolve('d:\\SHARED\\file.txt')).toBe('d:\\SHARED\\file.txt');
     expect(() => view.assertAllowed(view.resolve('C:\\workspace\\project-other\\file.txt'))).toThrow('outside environment workspace');
-  });
-
-  it('passes the primary directory and its follow flag through the provider mapper', () => {
-    const view = new EnvironmentWorkspaceView(environment('one', 'win32'), {
-      workDir: 'C:\\workspace\\project',
-      primaryDir: 'C:\\workspace\\project\\.',
-      additionalDirs: ['D:\\shared'],
-      followsPrimary: true,
-    });
-
-    expect(view.primaryDir).toBe('C:\\workspace\\project');
-    expect(view.followsPrimary).toBe(true);
-    expect(view.roots).toEqual(['C:\\workspace\\project', 'D:\\shared']);
-  });
-
-  it('keeps primary fields undefined when the provider mapping omits them', () => {
-    const provider = new FakeEnvironment(
-      { environmentId: 'remote', generation: 'one' },
-      { mapWorkspaceRoots: () => ({ workDir: '/provider/repo' }) },
-    );
-    const view = new EnvironmentWorkspaceView(provider, {
-      workDir: '/repo',
-      primaryDir: '/repo',
-      additionalDirs: ['/shared'],
-      followsPrimary: true,
-    });
-
-    expect(view.primaryDir).toBeUndefined();
-    expect(view.followsPrimary).toBeUndefined();
   });
 
   it('keeps heterogeneous provider mappings and allowlists isolated', () => {

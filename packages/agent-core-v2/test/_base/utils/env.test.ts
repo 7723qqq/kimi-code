@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { parseBooleanEnv } from '#/_base/utils/env';
 
@@ -20,10 +20,7 @@ describe('parseBooleanEnv', () => {
     expect(parseBooleanEnv(value)).toBeUndefined();
   });
 
-  it.each(['flase', 'maybe', '2', 'true false'])(
-    'returns undefined for unparseable %j',
-    (value) => {
-      expect(parseBooleanEnv(value)).toBeUndefined();
-    },
-  );
+  it.each(['flase', 'maybe', '2', 'true false'])('returns undefined for unparseable %j', (value) => {
+    expect(parseBooleanEnv(value)).toBeUndefined();
+  });
 });

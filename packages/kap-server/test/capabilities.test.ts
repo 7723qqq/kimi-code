@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   capabilityStatusSchema,
   listCapabilitiesResponseSchema,
 } from '../src/protocol/rest-capability';
-import { sharedAuthHeaders, sharedServer } from './helpers/sharedServer';
+import { ensureSharedServer, sharedAuthHeaders, sharedServer, stopSharedServer } from './helpers/sharedServer';
+
+await ensureSharedServer();
+afterAll(() => stopSharedServer());
 
 interface Envelope<T> {
   code: number;
@@ -69,9 +72,9 @@ describe('server-v2 /api/v1 capabilities', () => {
   });
 
   it('validates process termination consent as a boolean', async () => {
-    const invalid = await postJson<unknown>('/api/v1/capabilities/nope:install', { stopRunningProcesses: 'true' });
+    const invalid = await postJson<unknown>('/api/v1/capabilities/nope:install', { stop_running_processes: 'true' });
     expect(invalid.body.code).toBe(40001);
-    const valid = await postJson<unknown>('/api/v1/capabilities/nope:install', { stopRunningProcesses: true });
+    const valid = await postJson<unknown>('/api/v1/capabilities/nope:install', { stop_running_processes: true });
     expect(valid.body.code).toBe(40418);
   });
 
@@ -82,10 +85,11 @@ describe('server-v2 /api/v1 capabilities', () => {
     expect(bogus.body.code).toBe(40001);
   });
 
-  it.skipIf(
-    process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64'),
-  )('rejects kimi-cu install on unsupported platforms with 40925', async () => {
-    const { body } = await postJson<unknown>('/api/v1/capabilities/kimi-cu:install');
-    expect(body.code).toBe(40925);
-  });
+  it.skipIf(process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64'))(
+    'rejects kimi-cu install on unsupported platforms with 40925',
+    async () => {
+      const { body } = await postJson<unknown>('/api/v1/capabilities/kimi-cu:install');
+      expect(body.code).toBe(40925);
+    },
+  );
 });

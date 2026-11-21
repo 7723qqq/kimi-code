@@ -1,10 +1,3 @@
-/**
- * Status report line builder for `/status`.
- *
- * It mirrors `/usage` visual language but keeps runtime status formatting
- * separate from the TUI orchestration layer.
- */
-
 import {
   effectiveModelAlias,
   type ModelAlias,
@@ -12,12 +5,10 @@ import {
   type SessionStatus,
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { PRODUCT_NAME } from '#/constant/app';
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { permissionModeDisplayName } from '#/tui/utils/permission-mode';
+import { PERMISSION_MODE_DISPLAY_NAMES } from '#/tui/utils/permission-mode';
 import {
   formatTokenCount,
   ratioSeverity,
@@ -29,15 +20,9 @@ import {
 import {
   buildExtraUsageSection,
   buildManagedUsageReportLines,
-  foldToSingleLine,
-  severityColor,
   type ManagedUsageReport,
 } from './usage-panel';
-
-/** Pad `text` to `width` visible columns (CJK-safe, unlike `padEnd`). */
-function padEndVisible(text: string, width: number): string {
-  return text + ' '.repeat(Math.max(0, width - visibleWidth(text)));
-}
+import { t } from '#/i18n';
 
 interface FieldRow {
   readonly label: string;
@@ -55,10 +40,6 @@ export interface StatusReportOptions {
   readonly permissionMode: PermissionMode;
   readonly planMode: boolean;
   readonly towerMode: boolean;
-  readonly specMode: boolean;
-  readonly swarmMode: boolean;
-  readonly helloWorldMode: boolean;
-  /** Whether the tower experiment is enabled on engine v2 — gates the Tower mode row. */
   readonly towerAvailable: boolean;
   readonly contextUsage: number;
   readonly contextTokens: number;
@@ -78,14 +59,6 @@ function displayModelName(alias: string, models: Record<string, ModelAlias>): st
   return effective?.displayName ?? effective?.model ?? alias;
 }
 
-/** `on · <stage>` while a hello-world run reports a stage, plain `on`/`off` otherwise. */
-function helloWorldStatusValue(enabled: boolean | undefined, stage: string | undefined): string {
-  if (enabled !== true) return t('tui.messages.statusPanel.off');
-  return stage === undefined
-    ? t('tui.messages.statusPanel.on')
-    : t('tui.messages.statusPanel.onWithStage', { stage });
-}
-
 function formatModelStatus(options: StatusReportOptions): string {
   const model = options.status?.model ?? options.model;
   if (model.trim().length === 0) return t('tui.messages.statusPanel.modelNotSet');
@@ -101,10 +74,10 @@ function addFieldRows(
   value: Colorize,
   errorStyle: Colorize,
 ): void {
-  const labelWidth = Math.max(10, ...rows.map((row) => visibleWidth(row.label)));
+  const labelWidth = Math.max(10, ...rows.map((row) => row.label.length));
   for (const row of rows) {
     const colorize = row.severity === 'error' ? errorStyle : value;
-    lines.push(`  ${muted(padEndVisible(row.label, labelWidth))}  ${colorize(row.value)}`);
+    lines.push(`  ${muted(row.label.padEnd(labelWidth, ' '))}  ${colorize(row.value)}`);
   }
 }
 
@@ -125,54 +98,33 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
   const value = (text: string) => currentTheme.fg('text', text);
   const muted = (text: string) => currentTheme.fg('textDim', text);
   const errorStyle = (text: string) => currentTheme.fg('error', text);
+  const severityToken = (sev: 'ok' | 'warn' | 'danger'): 'error' | 'warning' | 'success' =>
+    sev === 'danger' ? 'error' : sev === 'warn' ? 'warning' : 'success';
 
   const permission = options.status?.permission ?? options.permissionMode;
   const planMode = options.status?.planMode ?? options.planMode;
   const towerMode = options.status?.towerMode ?? options.towerMode;
-  const specMode = options.status?.specMode ?? options.specMode;
-  const swarmMode = options.status?.swarmMode ?? options.swarmMode;
-  const helloWorldMode = options.status?.helloWorldMode ?? options.helloWorldMode;
-  const sessionId =
-    options.sessionId.trim().length > 0
-      ? options.sessionId
-      : t('tui.messages.statusPanel.sessionNone');
-  const onOff = (flag: boolean | undefined): string =>
-    flag === true ? t('tui.messages.statusPanel.on') : t('tui.messages.statusPanel.off');
+  const sessionId = options.sessionId.trim().length > 0 ? options.sessionId : t('tui.messages.statusPanel.sessionNone');
   const rows: FieldRow[] = [
     { label: t('tui.messages.statusPanel.modelLabel'), value: formatModelStatus(options) },
     { label: t('tui.messages.statusPanel.directoryLabel'), value: options.workDir },
-    {
-      label: t('tui.messages.statusPanel.permissionsLabel'),
-      value: permissionModeDisplayName(permission),
-    },
-    { label: t('tui.messages.statusPanel.planModeLabel'), value: onOff(planMode) },
-    { label: t('tui.messages.statusPanel.specModeLabel'), value: onOff(specMode) },
-    { label: t('tui.messages.statusPanel.swarmModeLabel'), value: onOff(swarmMode) },
-    {
-      label: t('tui.messages.statusPanel.helloWorldModeLabel'),
-      value: helloWorldStatusValue(helloWorldMode, options.status?.helloWorldRun?.stage),
-    },
+    { label: t('tui.messages.statusPanel.permissionsLabel'), value: PERMISSION_MODE_DISPLAY_NAMES[permission] },
+    { label: t('tui.messages.statusPanel.planModeLabel'), value: planMode ? 'on' : 'off' },
   ];
   if (options.towerAvailable) {
-    rows.push({
-      label: t('tui.dialogs.experimentsSelector.features.tower.title'),
-      value: onOff(towerMode),
-    });
+    rows.push({ label: t('tui.dialogs.experimentsSelector.features.tower.title'), value: towerMode ? 'on' : 'off' });
   }
   rows.push({ label: t('tui.messages.statusPanel.sessionLabel'), value: sessionId });
   const title = options.sessionTitle?.trim();
-  if (title !== undefined && title.length > 0) {
-    rows.push({ label: t('tui.messages.statusPanel.titleLabel'), value: title });
-  }
+  if (title !== undefined && title.length > 0) rows.push({ label: t('tui.messages.statusPanel.titleLabel'), value: title });
   if (options.statusError !== undefined) {
-    rows.push({
-      label: t('tui.messages.statusPanel.warningLabel'),
-      value: foldToSingleLine(options.statusError),
-      severity: 'error',
-    });
+    rows.push({ label: t('tui.messages.statusPanel.warningLabel'), value: options.statusError, severity: 'error' });
   }
 
-  const lines: string[] = [`${accent(`>_ ${PRODUCT_NAME}`)} ${muted(`(v${options.version})`)}`, ''];
+  const lines: string[] = [
+    `${accent(`>_ ${PRODUCT_NAME}`)} ${muted(`(v${options.version})`)}`,
+    '',
+  ];
   addFieldRows(lines, rows, muted, value, errorStyle);
 
   const { ratio, tokens, maxTokens } = contextValues(options);
@@ -181,7 +133,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
   if (maxTokens > 0) {
     const safeRatio = safeUsageRatio(ratio);
     const bar = renderProgressBar(safeRatio, 20);
-    const barColoured = currentTheme.fg(severityColor(ratioSeverity(safeRatio)), bar);
+    const barColoured = currentTheme.fg(severityToken(ratioSeverity(safeRatio)), bar);
     lines.push(
       `  ${barColoured}  ${value(`${String(usagePercent(tokens, maxTokens))}%`.padStart(6, ' '))}  ` +
         muted(`(${formatTokenCount(tokens)} / ${formatTokenCount(maxTokens)})`),

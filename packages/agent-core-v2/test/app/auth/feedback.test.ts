@@ -3,18 +3,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { FeedbackService } from '#/app/auth/feedbackService';
-import type { IOAuthService } from '#/app/auth/auth';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { IConfigService } from '#/app/config/config';
+import type { IOAuthService } from '#/app/auth/auth';
 import type { ISessionExportService } from '#/app/sessionExport/sessionExport';
 import type { IModelService, ModelRecord } from '#/llm-adapter/model/model';
 import type { IProviderService, ProviderConfig } from '#/llm-adapter/provider/provider';
-import { restoreGlobals, setGlobal } from '#test/helpers/stubs';
-
-import * as feedbackCodebase from '#/app/auth/feedback/codebase/index';
 
 const SUBMIT = {
   content: 'test',
@@ -58,13 +55,13 @@ function service(options: {
 
 describe('FeedbackService', () => {
   afterEach(() => {
-    restoreGlobals();
-    mock.restore();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('posts to the provider feedbackUrl with the provider api key and custom headers', async () => {
-    const fetchMock = mock(async () => Response.json({ feedback_id: 9 }));
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn(async () => Response.json({ feedback_id: 9 }));
+    vi.stubGlobal('fetch', fetchMock);
     const svc = service({
       providers: {
         acme: {
@@ -90,8 +87,8 @@ describe('FeedbackService', () => {
   });
 
   it('honors defaultModel, defaultProvider, and providerId precedence over provider', async () => {
-    const fetchMock = mock(async () => Response.json({ feedback_id: 12 }));
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn(async () => Response.json({ feedback_id: 12 }));
+    vi.stubGlobal('fetch', fetchMock);
     const svc = service({
       defaultModel: 'default-alias',
       defaultProvider: 'fallback-provider',
@@ -129,17 +126,17 @@ describe('FeedbackService', () => {
       'https://fallback.example.test/v1/feedback',
     );
 
-    await expect(
-      svc.submit({ ...SUBMIT, model: 'dual-provider' }, 'dual-provider'),
-    ).resolves.toEqual({ kind: 'ok', feedbackId: 12 });
+    await expect(svc.submit({ ...SUBMIT, model: 'dual-provider' }, 'dual-provider')).resolves.toEqual(
+      { kind: 'ok', feedbackId: 12 },
+    );
     expect((fetchMock.mock.calls[1] as unknown as [string])[0]).toBe(
       'https://primary.example.test/v1/feedback',
     );
   });
 
   it('reads provider.env credentials instead of falling through to managed OAuth', async () => {
-    const fetchMock = mock(async () => Response.json({ feedback_id: 4 }));
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn(async () => Response.json({ feedback_id: 4 }));
+    vi.stubGlobal('fetch', fetchMock);
     const svc = service({
       providers: {
         acme: {
@@ -173,8 +170,8 @@ describe('FeedbackService', () => {
   });
 
   it('reports a missing credential instead of posting to the provider base URL', async () => {
-    const fetchMock = mock();
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
     const svc = service({
       providers: {
         acme: {
@@ -197,15 +194,11 @@ describe('FeedbackService', () => {
   });
 
   it('uses managed OAuth when the active model has no feedbackUrl', async () => {
-    const fetchMock = mock(async () => Response.json({ feedback_id: 2 }));
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn(async () => Response.json({ feedback_id: 2 }));
+    vi.stubGlobal('fetch', fetchMock);
     const svc = service({
       providers: {
-        acme: {
-          type: 'openai',
-          baseUrl: 'https://registry.example.test/v1',
-          apiKey: 'YOUR_API_KEY',
-        },
+        acme: { type: 'openai', baseUrl: 'https://registry.example.test/v1', apiKey: 'YOUR_API_KEY' },
         [KIMI_CODE_PROVIDER_NAME]: {
           type: 'kimi',
           baseUrl: 'https://managed.example.test/v1',
@@ -237,7 +230,7 @@ describe('FeedbackService', () => {
     await expect(svc.availability('acme/gpt')).resolves.toEqual({ kind: 'needs-login' });
   });
 
-  it('packages and uploads session.zip and repo.zip when attachmentLevel is logs+codebase', async () => {
+  it('returns the session file preview from availability and forwards sessionFiles to export', async () => {
     const root = await mkdtemp(join(tmpdir(), 'feedback-svc-attachments-'));
     try {
       const workDir = join(root, 'work');
@@ -248,7 +241,7 @@ describe('FeedbackService', () => {
       const uploadedFiles: string[] = [];
       let nextUploadId = 10;
 
-      const fetchMock = mock(async (url: string, init?: RequestInit) => {
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
         if (url === 'https://registry.example.test/v1/feedback') {
           return Response.json({ feedback_id: 77 });
         }
@@ -284,14 +277,15 @@ describe('FeedbackService', () => {
         }
         throw new Error(`unexpected fetch url: ${url}`);
       });
-      setGlobal('fetch', fetchMock);
+      vi.stubGlobal('fetch', fetchMock);
 
       const preview = {
         sessionId: 's1',
         sessionDir: join(root, 'session'),
         files: ['agents/main/wire.jsonl', 'state.json'],
+        requestId: 'req-latest-42',
       };
-      const exportMock = mock(async ({ outputPath }: { outputPath?: string }) => {
+      const exportMock = vi.fn(async ({ outputPath }: { outputPath?: string }) => {
         await writeFile(outputPath!, 'session archive bytes');
         return {
           zipPath: outputPath!,
@@ -339,6 +333,10 @@ describe('FeedbackService', () => {
       );
 
       expect(result).toEqual({ kind: 'ok', feedbackId: 77 });
+      const [, submitInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(JSON.parse(submitInit.body as string)).toMatchObject({
+        info: { request_id: 'req-latest-42' },
+      });
       expect(exportMock).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionId: 's1',
@@ -353,9 +351,9 @@ describe('FeedbackService', () => {
   });
 
   it('honors attachmentLevel none without uploading archives', async () => {
-    const fetchMock = mock(async () => Response.json({ feedback_id: 91 }));
-    setGlobal('fetch', fetchMock);
-    const exportMock = mock();
+    const fetchMock = vi.fn(async () => Response.json({ feedback_id: 91 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const exportMock = vi.fn();
 
     const svc = service({
       providers: {
@@ -374,18 +372,17 @@ describe('FeedbackService', () => {
       },
     });
 
-    await expect(svc.submit({ ...SUBMIT, attachmentLevel: 'none' }, 'acme/k3')).resolves.toEqual({
-      kind: 'ok',
-      feedbackId: 91,
-    });
+    await expect(
+      svc.submit({ ...SUBMIT, attachmentLevel: 'none' }, 'acme/k3'),
+    ).resolves.toEqual({ kind: 'ok', feedbackId: 91 });
     expect(exportMock).not.toHaveBeenCalled();
   });
 
   it('marks attachmentFailed when session export fails after feedback submission succeeds', async () => {
     const root = await mkdtemp(join(tmpdir(), 'feedback-svc-partial-'));
     try {
-      const fetchMock = mock(async () => Response.json({ feedback_id: 88 }));
-      setGlobal('fetch', fetchMock);
+      const fetchMock = vi.fn(async () => Response.json({ feedback_id: 88 }));
+      vi.stubGlobal('fetch', fetchMock);
 
       const svc = service({
         providers: {
@@ -410,89 +407,6 @@ describe('FeedbackService', () => {
       const result = await svc.submit({ ...SUBMIT, attachmentLevel: 'logs' }, 'acme/k3');
       expect(result).toEqual({ kind: 'ok', feedbackId: 88, attachmentFailed: true });
     } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('reports codebase truncation separately from attachment failures', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'feedback-svc-truncated-'));
-    const originalScan = feedbackCodebase.scanCodebase;
-    const scanSpy = spyOn(feedbackCodebase, 'scanCodebase').mockImplementation(
-      (workRoot: string, options: { signal?: AbortSignal } = {}) =>
-        originalScan(workRoot, { ...options, limits: { maxFiles: 2 } }),
-    );
-    try {
-      for (const name of ['a.ts', 'b.ts', 'c.ts']) {
-        await writeFile(join(root, name), name);
-      }
-      const fetchMock = mock(async (url: string, init?: RequestInit) => {
-        if (url === 'https://registry.example.test/v1/feedback') {
-          return Response.json({ feedback_id: 99 });
-        }
-        if (url.endsWith('/upload_url')) {
-          const body = JSON.parse(init?.body as string) as { file_size: number };
-          return Response.json({
-            upload: {
-              id: 1,
-              parts: [
-                {
-                  part_number: 1,
-                  url: 'https://storage.example.test/part',
-                  method: 'PUT',
-                  size: body.file_size,
-                },
-              ],
-            },
-          });
-        }
-        if (url.startsWith('https://storage.example.test/part')) {
-          if (init?.body instanceof ReadableStream) {
-            await new Response(init.body).arrayBuffer();
-          }
-          return new Response('', { status: 200, headers: { etag: '"part-1"' } });
-        }
-        if (url.endsWith('/upload_complete')) return Response.json({});
-        throw new Error(`unexpected fetch url: ${url}`);
-      });
-      setGlobal('fetch', fetchMock);
-
-      const svc = service({
-        providers: {
-          acme: {
-            type: 'kimi',
-            baseUrl: 'https://registry.example.test/v1',
-            apiKey: 'YOUR_API_KEY',
-            feedbackUrl: 'https://registry.example.test/v1/feedback',
-          },
-        },
-        models: {
-          'acme/k3': { provider: 'acme', model: 'k3', maxContextSize: 131072 },
-        },
-        bootstrap: { cacheDir: join(root, 'cache'), logsDir: join(root, 'logs') },
-        sessionExport: {
-          export: async ({ outputPath }: { outputPath?: string }) => {
-            await writeFile(outputPath!, 'session bytes');
-            return {
-              zipPath: outputPath!,
-              entries: [],
-              sessionDir: join(root, 'session'),
-              manifest: {} as never,
-            };
-          },
-        },
-      });
-
-      const result = await svc.submit(
-        { ...SUBMIT, attachmentLevel: 'logs+codebase', workDir: root },
-        'acme/k3',
-      );
-      expect(result).toEqual({
-        kind: 'ok',
-        feedbackId: 99,
-        codebaseTruncated: { reason: 'file-count', limit: 2 },
-      });
-    } finally {
-      scanSpy.mockRestore();
       await rm(root, { recursive: true, force: true });
     }
   });

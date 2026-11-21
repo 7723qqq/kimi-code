@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, parse, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,8 +54,7 @@ function parseArguments(argv) {
       help = true;
     } else if (argument === '--base-dir') {
       const value = argv[++index];
-      if (value === undefined || value.startsWith('-'))
-        throw new Error('--base-dir requires a value.');
+      if (value === undefined || value.startsWith('-')) throw new Error('--base-dir requires a value.');
       baseDir = value;
     } else {
       throw new Error(`Unknown option: ${argument}`);
@@ -78,9 +77,7 @@ async function main() {
 
 if (isMainModule(import.meta.url)) {
   main().catch((error) => {
-    console.error(
-      `Development environment setup failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`Development environment setup failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 }

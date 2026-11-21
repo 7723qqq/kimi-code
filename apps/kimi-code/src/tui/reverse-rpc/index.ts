@@ -1,6 +1,6 @@
 import type { ApprovalController } from './approval/controller';
-import { ReverseRpcModalCoordinator } from './modal-coordinator';
 import type { QuestionController } from './question/controller';
+import { ReverseRpcModalCoordinator } from './modal-coordinator';
 import type { ApprovalPanelData, QuestionPanelData } from './types';
 
 export interface ReverseRPCUIHooks {
@@ -17,13 +17,15 @@ export function registerReverseRPCHandlers(
 ): Array<() => void> {
   const modalCoordinator = new ReverseRpcModalCoordinator(uiHooks);
 
-  // Setup UI hooks for controllers
   approvalController.setUIHooks({
     showPanel: (payload) => {
       modalCoordinator.showApproval(payload);
     },
     hidePanel: () => {
       modalCoordinator.hide('approval');
+    },
+    dismissPanel: () => {
+      modalCoordinator.dismiss('approval');
     },
   });
 
@@ -33,6 +35,9 @@ export function registerReverseRPCHandlers(
     },
     hidePanel: () => {
       modalCoordinator.hide('question');
+    },
+    dismissPanel: () => {
+      modalCoordinator.dismiss('question');
     },
   });
 

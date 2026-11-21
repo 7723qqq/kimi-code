@@ -1,12 +1,14 @@
-import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
-import { GITHUB_READONLY_TOOL_NAMES } from '#/agent/tools/github/github-tools';
+import type {
+  PermissionPolicy,
+  PermissionPolicyResult,
+} from '#/agent/permissionPolicy/types';
 
 const DEFAULT_APPROVE_TOOLS = new Set([
   'Read',
   'Grep',
   'Glob',
-  'RepoMap',
+  'ReadMediaFile',
   'SetTodoList',
   'TodoList',
   'TaskList',
@@ -21,20 +23,19 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'NotifyUser',
   'Skill',
   'ExitPlanMode',
-  'EnterSpecMode',
-  'ExitSpecMode',
   'CreateGoal',
   'GetGoal',
   'SetGoalBudget',
   'UpdateGoal',
   'select_tools',
-  ...GITHUB_READONLY_TOOL_NAMES,
 ]);
 
 export class DefaultToolApprovePermissionPolicyService implements PermissionPolicy {
   readonly name = 'default-tool-approve';
 
   evaluate(context: ResolvedToolExecutionHookContext): PermissionPolicyResult | undefined {
-    return DEFAULT_APPROVE_TOOLS.has(context.toolCall.name) ? { kind: 'approve' } : undefined;
+    return DEFAULT_APPROVE_TOOLS.has(context.toolCall.name)
+      ? { kind: 'approve' }
+      : undefined;
   }
 }

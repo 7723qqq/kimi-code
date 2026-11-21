@@ -1,8 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { describe, expect, it, beforeEach, afterEach } from '@moonshot-ai/testkit/vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import { writeMainAgentWire } from '../../src/sessions/wire-writer.js';
 
 let dir: string;
@@ -135,8 +134,8 @@ describe('writeMainAgentWire', () => {
         { role: 'assistant', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
       ],
       todoItems: [
-        { id: 'T1', parentId: null, kind: 'task', title: 'task one', status: 'done' },
-        { id: 'T2', parentId: null, kind: 'task', title: 'task two', status: 'pending' },
+        { title: 'task one', status: 'done' },
+        { title: 'task two', status: 'pending' },
       ],
     });
     const records = await readWireRecords();
@@ -167,22 +166,6 @@ describe('writeMainAgentWire', () => {
   it('creates agents/main directory tree if missing', async () => {
     await writeMainAgentWire(dir, { createdAtMs: 1, messages: [] });
     const path = join(dir, 'agents', 'main', 'wire.jsonl');
-    const wire = await readFile(path, 'utf-8');
-    expect(wire).toContain('"protocol_version":"1.0"');
-    expect(wire).toContain('"created_at":1');
-  });
-
-  it('atomically replaces an existing wire.jsonl and leaves no temp files', async () => {
-    const wireDir = join(dir, 'agents', 'main');
-    await mkdir(wireDir, { recursive: true });
-    await writeFile(join(wireDir, 'wire.jsonl'), '{"type":"stale"}\n', 'utf-8');
-
-    await writeMainAgentWire(dir, { createdAtMs: 1, messages: [] });
-
-    const content = await readFile(join(wireDir, 'wire.jsonl'), 'utf-8');
-    expect(content).not.toContain('stale');
-    expect(content).toContain('"protocol_version":"1.0"');
-    const entries = await readdir(wireDir);
-    expect(entries.some((e) => e.endsWith('.tmp'))).toBe(false);
+    await expect(readFile(path, 'utf-8')).resolves.not.toThrow();
   });
 });

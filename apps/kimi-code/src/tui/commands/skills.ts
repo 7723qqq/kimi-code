@@ -53,39 +53,32 @@ export function buildSkillSlashCommands(skills: readonly SkillSummary[]): SkillS
   for (const skill of sortedSkills) {
     const key = skillCommandKey(skill);
     if (!defaultSkills.has(key)) defaultSkills.set(key, skill);
-    const commandName =
-      skill.source === 'builtin' || skill.isSubSkill === true ? skill.name : `skill:${skill.name}`;
+    const commandName = skill.source === 'builtin' || skill.isSubSkill === true ? skill.name : `skill:${skill.name}`;
     const variants = commandVariants.get(key) ?? new Set<string>();
     variants.add(commandName);
     commandVariants.set(key, variants);
   }
-  const commands = sortedSkills
-    .filter(isUserActivatableSkill)
-    .filter(isVisibleOnTui)
-    .map((skill) => {
-      const commandName =
-        skill.source === 'builtin' || skill.isSubSkill === true
-          ? skill.name
-          : `skill:${skill.name}`;
-      const key = commandName.toLowerCase();
-      const firstVisible = !commandMap.has(commandName);
-      if (!commandMap.has(commandName)) commandMap.set(commandName, skill.name);
-      if (!commandMap.has(key)) commandMap.set(key, skill.name);
-      if (
-        (defaultSkills.get(key) !== skill && firstVisible) ||
-        (commandVariants.get(key)?.size ?? 0) > 1
-      ) {
-        defaultPaths.set(commandName, skill.path);
-      }
-      return {
-        name: commandName,
-        aliases: [],
-        description: skill.description ?? '',
-        skillPath: skill.path,
-        skillSource: skill.source,
-        isSkill: true,
-        workspaceDir: skill.workspaceDir,
-      };
-    });
+  const commands = sortedSkills.filter(isUserActivatableSkill).filter(isVisibleOnTui).map((skill) => {
+    const commandName =
+      skill.source === 'builtin' || skill.isSubSkill === true
+        ? skill.name
+        : `skill:${skill.name}`;
+    const key = commandName.toLowerCase();
+    const firstVisible = !commandMap.has(commandName);
+    if (!commandMap.has(commandName)) commandMap.set(commandName, skill.name);
+    if (!commandMap.has(key)) commandMap.set(key, skill.name);
+    if ((defaultSkills.get(key) !== skill && firstVisible) || (commandVariants.get(key)?.size ?? 0) > 1) {
+      defaultPaths.set(commandName, skill.path);
+    }
+    return {
+      name: commandName,
+      aliases: [],
+      description: skill.description ?? '',
+      skillPath: skill.path,
+      skillSource: skill.source,
+      isSkill: true,
+      workspaceDir: skill.workspaceDir,
+    };
+  });
   return { commands, commandMap, defaultPaths };
 }

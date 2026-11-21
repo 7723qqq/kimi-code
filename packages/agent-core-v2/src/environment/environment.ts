@@ -35,9 +35,7 @@ export interface EnvironmentPath {
 
 export interface EnvironmentWorkspaceRoots {
   readonly workDir: string;
-  readonly primaryDir?: string;
   readonly additionalDirs?: readonly string[];
-  readonly followsPrimary?: boolean;
 }
 
 export interface EnvironmentWorkspaceMapper {

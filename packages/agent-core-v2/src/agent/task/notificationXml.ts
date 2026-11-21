@@ -1,8 +1,5 @@
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
 
-export const NOTIFICATION_TITLE_LABEL = 'Title: ';
-export const NOTIFICATION_SEVERITY_LABEL = 'Severity: ';
-
 export function renderNotificationXml(data: Record<string, unknown>): string {
   const id = stringAttr(data['id'], 'unknown');
   const category = stringAttr(data['category'], 'unknown');
@@ -19,8 +16,8 @@ export function renderNotificationXml(data: Record<string, unknown>): string {
   const lines: string[] = [
     `<notification id="${id}" category="${category}" type="${type}" source_kind="${sourceKind}" source_id="${sourceId}"${agentIdAttr}>`,
   ];
-  if (title.length > 0) lines.push(`${NOTIFICATION_TITLE_LABEL}${title}`);
-  if (severity.length > 0) lines.push(`${NOTIFICATION_SEVERITY_LABEL}${severity}`);
+  if (title.length > 0) lines.push(`Title: ${title}`);
+  if (severity.length > 0) lines.push(`Severity: ${severity}`);
   if (body.length > 0) lines.push(body);
   lines.push(...children);
 

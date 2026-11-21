@@ -1,45 +1,45 @@
 import {
-  AssistantDelta,
-  TurnCancel,
-  TurnStepStarted,
+  CompactionCancelled,
+  Error2,
+  ErrorCodes,
+  FullCompactionBegin,
+  FullCompactionCancel,
+  FullCompactionComplete,
+  IAgentBlobService,
+  IAgentConversationUndoService,
+  IAgentLoopService,
+  IEventBus,
+  IEventDispatcher,
+  ILogService,
+  InteractionRequestEvent,
+  InteractionResolvedEvent,
+  PromptCompleted,
+  SubagentSpawned,
+  type DurableAgentRuntimeParticipant,
+  type IAgentScopeHandle,
+  type IDisposable,
+} from '@moonshot-ai/agent-core-v2';
+import {
   ContextAppendLoopEvent,
   ContextAppendMessage,
   ContextApplyCompaction,
   ContextClear,
-  CompactionCancelled,
-  FullCompactionBegin,
-  FullCompactionCancel,
-  FullCompactionComplete,
-  InteractionRequestEvent,
-  InteractionResolvedEvent,
-  SubagentSpawned,
-  type DurableAgentRuntimeParticipant,
-  Error2,
-  ErrorCodes,
-  IAgentBlobService,
-  IAgentConversationUndoService,
-  IAgentLoopService,
-  TaskStarted,
-  TaskTerminatedNotice,
-  IEventBus,
-  IEventDispatcher,
-  ILogService,
-  PromptCompleted,
+} from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
+import {
+  AssistantDelta,
   ThinkingDelta,
   ToolCallDelta,
-  ToolProgress,
-  TurnEnded,
-  TurnPrompt,
-  TurnSteer,
   TurnStepInterrupted,
   TurnStepRetrying,
+  TurnStepStarted,
   TurnStepStreamReset,
-  type IAgentScopeHandle,
-  type IDisposable,
-  type ToolUpdate,
-} from '@moonshot-ai/agent-core-v2';
+} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import { TurnCancel, TurnEnded, TurnPrompt, TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import { AgentErrorEvent } from '@moonshot-ai/agent-core-v2/agent/mcp/mcpEvents';
 import { WarningIssued } from '@moonshot-ai/agent-core-v2/agent/profile/profileOps';
+import { TaskStarted } from '@moonshot-ai/agent-core-v2';
+import { ToolUpdated } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
+import { isMediaPart } from '@moonshot-ai/core/llm/message';
 
 import type {
   AssistantMessageItem,
@@ -58,24 +58,19 @@ import type {
 import {
   applyConversationRecord,
   createConversationState,
-  findToolCall,
   settleOrphanTurns,
   undoConversationTurns,
   type ConversationFork,
   type ConversationState,
   type RunningWork,
 } from './conversationFold';
-import { isMediaPart, isoTime, mediaPartOf, mediaTypeOf, mediaUrlOf } from './conversationItems';
+import { isoTime, mediaPartOf, mediaTypeOf, mediaUrlOf } from './conversationItems';
 
 const UNDOABLE_ORIGINS: ReadonlySet<string> = new Set(['user', 'skill', 'plugin_command']);
 
-type Unframed<T> = T extends unknown
-  ? Omit<T, 'session_id' | 'agent_id' | 'event_created_at'>
-  : never;
+type Unframed<T> = T extends unknown ? Omit<T, 'session_id' | 'agent_id' | 'event_created_at'> : never;
 
-export type ConversationEvent = Unframed<
-  Exclude<ConversationMessage, TurnsMessage | TurnsFailedMessage>
->;
+export type ConversationEvent = Unframed<Exclude<ConversationMessage, TurnsMessage | TurnsFailedMessage>>;
 
 export type ConversationListener = (event: ConversationEvent) => void;
 
@@ -85,11 +80,12 @@ interface LiveItem {
   item: AssistantMessageItem | ReasoningItem | ToolCallItem;
 }
 
-type LiveToolFields = Pick<ToolCallItem, 'output' | 'progress' | 'fields'>;
+type LiveToolFields = Pick<ToolCallItem, 'output' | 'fields'>;
 
 interface LiveTool {
   readonly turnId: string;
   readonly fields: LiveToolFields;
+  readonly outputOffset: number;
 }
 
 const RECORD_EVENTS = [
@@ -130,8 +126,8 @@ export class ConversationFeed implements IDisposable {
   private started = false;
   private beforeReplay: ConversationState | undefined;
   private flushQueued = false;
-  private firstReplay: ((ok: boolean) => void) | undefined;
   private disposed = false;
+  private firstReplay: ((ok: boolean) => void) | undefined;
   private readonly live = new Map<string, LiveItem>();
   private readonly tools = new Map<string, LiveTool>();
   private readonly listeners = new Set<ConversationListener>();
@@ -171,10 +167,7 @@ export class ConversationFeed implements IDisposable {
     const gone = new Set(removed);
     const anchors = this.state.anchors.filter((anchor) => gone.has(anchor.turnId)).length;
     if (!opensWithUserInput(turns[index]!) || anchors === 0) {
-      throw new Error2(
-        ErrorCodes.SESSION_UNDO_UNAVAILABLE,
-        `turn ${turnId} does not open with user input`,
-      );
+      throw new Error2(ErrorCodes.SESSION_UNDO_UNAVAILABLE, `turn ${turnId} does not open with user input`);
     }
     await this.handle.accessor.get(IAgentConversationUndoService).undo(anchors);
     return removed;
@@ -182,17 +175,13 @@ export class ConversationFeed implements IDisposable {
 
   subscribe(listener: ConversationListener): IDisposable {
     this.listeners.add(listener);
-    return {
-      dispose: () => {
-        this.listeners.delete(listener);
-      },
-    };
+    return { dispose: () => { this.listeners.delete(listener); } };
   }
 
   async page(before: number | undefined, limit: number): Promise<ConversationTurnsPage> {
+    this.flushPending();
     const turns = (this.beforeReplay ?? this.state).turns;
-    const end =
-      before === undefined ? turns.length : turns.findIndex((turn) => turn.ordinal >= before);
+    const end = before === undefined ? turns.length : turns.findIndex((turn) => turn.ordinal >= before);
     const stop = end === -1 ? turns.length : end;
     const start = Math.max(0, stop - limit);
     const selected = turns.slice(start, stop).map((turn) => this.withLive(turn));
@@ -210,8 +199,13 @@ export class ConversationFeed implements IDisposable {
     return { turns: page, has_more: start > 0 || page.length < selected.length };
   }
 
+  flushPending(): void {
+    if (this.flushQueued) this.flush();
+  }
+
   dispose(): void {
     if (this.disposed) return;
+    this.flushPending();
     this.disposed = true;
     for (const disposable of this.disposables.splice(0)) disposable.dispose();
     this.listeners.clear();
@@ -231,18 +225,10 @@ export class ConversationFeed implements IDisposable {
       bus.subscribe(ToolCallDelta, (event) => {
         this.onToolCallDelta(event.turnId, event.toolCallId, event.name, event.argumentsPart);
       }),
-      bus.subscribe(ToolProgress, (event) => {
-        this.onToolProgress(event.toolCallId, event.update);
-      }),
-      bus.subscribe(TaskTerminatedNotice, (event) => {
-        this.onTask(event.info);
+      bus.subscribe(ToolUpdated, (event) => {
+        this.onToolUpdated(event);
       }),
       bus.subscribe(TurnStepStreamReset, (event) => {
-        this.flushPending();
-        this.dropLive((entry) => entry.stepId === event.stepId);
-      }),
-      bus.subscribe(TurnStepRetrying, (event) => {
-        if (event.stepId === undefined) return;
         this.flushPending();
         this.dropLive((entry) => entry.stepId === event.stepId);
       }),
@@ -285,16 +271,12 @@ export class ConversationFeed implements IDisposable {
         };
         this.disposables.push(dispatcher.attach(participant), {
           dispose: () => {
-            reject(
-              new Error(`agent ${this.handle.id} closed before its conversation was restored`),
-            );
+            reject(new Error(`agent ${this.handle.id} closed before its conversation was restored`));
           },
         });
       });
     } else {
-      const attached = await dispatcher.attachLate(participant);
-      if (this.disposed) attached.dispose();
-      else this.disposables.push(attached);
+      this.disposables.push(await dispatcher.attachLate(participant));
     }
     this.sent = this.state.turns;
     this.started = true;
@@ -329,10 +311,6 @@ export class ConversationFeed implements IDisposable {
     });
   }
 
-  private flushPending(): void {
-    if (this.flushQueued) this.flush();
-  }
-
   private flush(): void {
     this.flushQueued = false;
     if (this.disposed || this.beforeReplay !== undefined) return;
@@ -341,9 +319,7 @@ export class ConversationFeed implements IDisposable {
     if (previous === next) return;
     this.sent = next;
     const nextById = new Map(next.map((turn) => [turn.turn_id, turn]));
-    const removed = previous
-      .filter((turn) => !nextById.has(turn.turn_id))
-      .map((turn) => turn.turn_id);
+    const removed = previous.filter((turn) => !nextById.has(turn.turn_id)).map((turn) => turn.turn_id);
     if (removed.length > 0) {
       const gone = new Set(removed);
       this.dropLive((entry) => gone.has(entry.turnId), false);
@@ -366,14 +342,9 @@ export class ConversationFeed implements IDisposable {
       this.emit({ type: 'turn.started', turn: header });
     }
     this.emitItemChanges(before, turn);
-    this.dropLive(
-      (entry) => entry.turnId === turn.turn_id && !this.liveStepOpen(turn, entry.stepId),
-    );
+    this.dropLive((entry) => entry.turnId === turn.turn_id && !this.liveStepOpen(turn, entry.stepId));
     if (previous !== undefined) this.emitTurnUpdates(previous, header);
-    if (
-      header.status === 'ended' &&
-      (previous?.status !== 'ended' || !sameJson(previous, header))
-    ) {
+    if (header.status === 'ended' && (previous?.status !== 'ended' || !sameJson(previous, header))) {
       this.emit({ type: 'turn.ended', turn: header });
     }
   }
@@ -381,13 +352,8 @@ export class ConversationFeed implements IDisposable {
   private emitTurnUpdates(previous: ConversationTurnHeader, header: ConversationTurnHeader): void {
     const earlier = new Map(previous.steps.map((step) => [step.index, step]));
     const steps = header.steps.filter((step) => !sameJson(earlier.get(step.index), step));
-    for (const step of steps)
-      this.emit({ type: 'turn.updated', turn_id: header.turn_id, step, retry: header.retry });
-    if (
-      steps.length === 0 &&
-      header.status === 'running' &&
-      !sameJson(previous.retry, header.retry)
-    ) {
+    for (const step of steps) this.emit({ type: 'turn.updated', turn_id: header.turn_id, step, retry: header.retry });
+    if (steps.length === 0 && header.status === 'running' && !sameJson(previous.retry, header.retry)) {
       this.emit({ type: 'turn.updated', turn_id: header.turn_id, retry: header.retry });
     }
   }
@@ -396,8 +362,7 @@ export class ConversationFeed implements IDisposable {
     const previous = new Map(before?.items.map((item) => [item.item_id, item]));
     const kept = new Set(turn.items.map((item) => item.item_id));
     for (const itemId of previous.keys()) {
-      if (!kept.has(itemId))
-        this.emit({ type: 'item.removed', turn_id: turn.turn_id, item_id: itemId });
+      if (!kept.has(itemId)) this.emit({ type: 'item.removed', turn_id: turn.turn_id, item_id: itemId });
     }
     for (const item of turn.items) {
       const old = previous.get(item.item_id);
@@ -410,14 +375,9 @@ export class ConversationFeed implements IDisposable {
     }
   }
 
-  private emitItemChange(
-    turnId: string,
-    before: ConversationItem | undefined,
-    after: ConversationItem,
-  ): void {
+  private emitItemChange(turnId: string, before: ConversationItem | undefined, after: ConversationItem): void {
     if (after.status === 'ended') {
-      if (before?.status !== 'ended' || !sameJson(before, after))
-        this.emit({ type: 'item.ended', turn_id: turnId, item: after });
+      if (before?.status !== 'ended' || !sameJson(before, after)) this.emit({ type: 'item.ended', turn_id: turnId, item: after });
       return;
     }
     if (before === undefined) {
@@ -426,8 +386,7 @@ export class ConversationFeed implements IDisposable {
     }
     if (before.type !== 'tool_call' || after.type !== 'tool_call') return;
     const set = changedFields(before, after);
-    if (Object.keys(set).length > 0)
-      this.emit({ type: 'item.updated', turn_id: turnId, item_id: after.item_id, set });
+    if (Object.keys(set).length > 0) this.emit({ type: 'item.updated', turn_id: turnId, item_id: after.item_id, set });
   }
 
   private onTextDelta(
@@ -445,26 +404,15 @@ export class ConversationFeed implements IDisposable {
     if (entry !== undefined) {
       if (entry.item.type === 'tool_call' || entry.item.type !== type) return;
       entry.item = { ...entry.item, text: entry.item.text + delta };
-      this.emit({
-        type: 'item.delta',
-        turn_id: target.turn.turn_id,
-        item_id: itemId,
-        field: 'text',
-        delta,
-      });
+      this.emit({ type: 'item.delta', turn_id: target.turn.turn_id, item_id: itemId, field: 'text', delta });
       return;
     }
     if (target.turn.items.some((item) => item.item_id === itemId)) return;
     const now = Date.now();
-    const base = {
-      item_id: itemId,
-      step_index: target.stepIndex,
-      status: 'running',
-      created_at: isoTime(now),
-      text: delta,
-    } as const;
-    const item: AssistantMessageItem | ReasoningItem =
-      type === 'reasoning' ? { type, ...base, started_at: isoTime(now) } : { type, ...base };
+    const base = { item_id: itemId, step_index: target.stepIndex, status: 'running', created_at: isoTime(now), text: delta } as const;
+    const item: AssistantMessageItem | ReasoningItem = type === 'reasoning'
+      ? { type, ...base, started_at: isoTime(now) }
+      : { type, ...base };
     this.live.set(itemId, { turnId: target.turn.turn_id, stepId: target.stepId, item });
     this.emit({ type: 'item.started', turn_id: target.turn.turn_id, item });
   }
@@ -481,19 +429,12 @@ export class ConversationFeed implements IDisposable {
     if (entry?.item.type === 'tool_call') {
       if (argumentsPart === undefined || argumentsPart.length === 0) return;
       entry.item = { ...entry.item, input_text: (entry.item.input_text ?? '') + argumentsPart };
-      this.emit({
-        type: 'item.delta',
-        turn_id: entry.turnId,
-        item_id: toolCallId,
-        field: 'input_text',
-        delta: argumentsPart,
-      });
+      this.emit({ type: 'item.delta', turn_id: entry.turnId, item_id: toolCallId, field: 'input_text', delta: argumentsPart });
       return;
     }
     if (name === undefined || entry !== undefined) return;
     const target = this.liveTarget(turnNumber);
-    if (target === undefined || target.turn.items.some((item) => item.item_id === toolCallId))
-      return;
+    if (target === undefined || target.turn.items.some((item) => item.item_id === toolCallId)) return;
     const now = Date.now();
     const item: ToolCallItem = {
       type: 'tool_call',
@@ -510,72 +451,25 @@ export class ConversationFeed implements IDisposable {
     this.emit({ type: 'item.started', turn_id: target.turn.turn_id, item });
   }
 
-  private onToolProgress(toolCallId: string, update: ToolUpdate): void {
+  private onToolUpdated(event: ToolUpdated): void {
     if (this.beforeReplay !== undefined) return;
     this.flushPending();
-    const target = this.runningTool(toolCallId);
+    const target = this.runningTool(event.toolCallId);
     if (target === undefined) return;
-    const fields = this.tools.get(toolCallId)?.fields ?? {};
-    if ((update.kind === 'stdout' || update.kind === 'stderr') && update.replace !== true) {
-      const text = update.text ?? '';
-      if (text.length === 0) return;
-      this.tools.set(toolCallId, {
-        turnId: target.turn.turn_id,
-        fields: { ...fields, output: (fields.output ?? '') + text },
-      });
-      this.emit({
-        type: 'item.delta',
-        turn_id: target.turn.turn_id,
-        item_id: toolCallId,
-        field: 'output',
-        delta: text,
-      });
-      return;
-    }
-    const next: LiveToolFields =
-      update.kind === 'stdout' || update.kind === 'stderr'
-        ? { ...fields, output: update.text ?? '' }
-        : {
-            ...fields,
-            progress: nextProgress(fields.progress, update),
-            fields:
-              update.kind === 'status'
-                ? { ...fields.fields, status: update.text, statusReplace: update.replace }
-                : update.kind === 'progress'
-                  ? {
-                      ...fields.fields,
-                      progress: {
-                        text: update.text,
-                        percent: update.percent,
-                        replace: update.replace,
-                      },
-                    }
-                  : fields.fields,
-          };
+    const current = this.tools.get(event.toolCallId);
+    const outputOffset = current?.outputOffset ?? 0;
     const before = this.withLiveFields(target.item);
-    this.tools.set(toolCallId, { turnId: target.turn.turn_id, fields: next });
+    const fields: LiveToolFields = { output: current?.fields.output, fields: event.fields };
+    this.tools.set(event.toolCallId, { turnId: target.turn.turn_id, fields, outputOffset });
     this.emitItemChange(target.turn.turn_id, before, this.withLiveFields(target.item));
-  }
-
-  private onTask(info: unknown): void {
-    if (this.disposed) return;
-    const link = taskLinkOf(info);
-    if (link === undefined) return;
-    this.flushPending();
-    const live = this.live.get(link.toolCallId);
-    if (live?.item.type === 'tool_call') {
-      const before = live.item;
-      live.item = { ...before, task_id: link.taskId };
-      this.emitItemChange(live.turnId, before, live.item);
-      return;
-    }
-    const found = findToolCall(this.state, link.toolCallId);
-    if (found === undefined || found.item.task_id === link.taskId) return;
-    const turns = [...this.state.turns];
-    const items = [...found.turn.items];
-    items[this.state.tools[link.toolCallId]!.itemIndex!] = { ...found.item, task_id: link.taskId };
-    turns[found.turn.ordinal] = { ...found.turn, items };
-    this.commit({ ...this.state, turns });
+    if (event.output === undefined || event.output.offset !== outputOffset || event.output.text.length === 0) return;
+    const text = event.output.text;
+    this.tools.set(event.toolCallId, {
+      turnId: target.turn.turn_id,
+      fields: { ...fields, output: (fields.output ?? '') + text },
+      outputOffset: outputOffset + Buffer.byteLength(text),
+    });
+    this.emit({ type: 'item.delta', turn_id: target.turn.turn_id, item_id: event.toolCallId, field: 'output', delta: text });
   }
 
   private notify(notice: Notice): void {
@@ -583,12 +477,8 @@ export class ConversationFeed implements IDisposable {
     this.emit({ type: 'notice', ...notice });
   }
 
-  private liveTarget(
-    turnNumber: number,
-  ): { turn: ConversationTurn; stepId: string; stepIndex: number } | undefined {
-    const turn = this.state.turns.findLast(
-      (candidate) => candidate.turn_number === turnNumber && candidate.status === 'running',
-    );
+  private liveTarget(turnNumber: number): { turn: ConversationTurn; stepId: string; stepIndex: number } | undefined {
+    const turn = this.state.turns.findLast((candidate) => candidate.turn_number === turnNumber && candidate.status === 'running');
     const step = turn === undefined ? undefined : this.state.steps[turn.turn_id]?.at(-1);
     if (turn === undefined || step === undefined || step.ended) return undefined;
     return { turn, stepId: step.id, stepIndex: step.index };
@@ -600,11 +490,12 @@ export class ConversationFeed implements IDisposable {
     return step !== undefined && !step.ended;
   }
 
-  private runningTool(
-    toolCallId: string,
-  ): { turn: ConversationTurn; item: ToolCallItem } | undefined {
-    const found = findToolCall(this.state, toolCallId);
-    return found?.item.status === 'running' ? found : undefined;
+  private runningTool(toolCallId: string): { turn: ConversationTurn; item: ToolCallItem } | undefined {
+    const turnId = this.state.tools[toolCallId]?.turnId;
+    const turn = turnId === undefined ? undefined : this.state.turns.findLast((candidate) => candidate.turn_id === turnId);
+    const item = turn?.items.find((candidate) => candidate.item_id === toolCallId);
+    if (turn === undefined || item?.type !== 'tool_call' || item.status !== 'running') return undefined;
+    return { turn, item };
   }
 
   private withLiveFields(item: ConversationItem): ConversationItem {
@@ -614,9 +505,7 @@ export class ConversationFeed implements IDisposable {
   }
 
   private withLive(turn: ConversationTurn): ConversationTurn {
-    const live = [...this.live.values()]
-      .filter((entry) => entry.turnId === turn.turn_id)
-      .map((entry) => entry.item);
+    const live = [...this.live.values()].filter((entry) => entry.turnId === turn.turn_id).map((entry) => entry.item);
     return { ...turn, items: [...turn.items.map((item) => this.withLiveFields(item)), ...live] };
   }
 
@@ -631,35 +520,26 @@ export class ConversationFeed implements IDisposable {
   private async withLoadedMedia(turn: ConversationTurn): Promise<ConversationTurn> {
     const refs = new Map<string, Media['kind']>();
     for (const media of turn.items.flatMap(mediaOf)) {
-      if (media.kind !== 'file' && media.url?.startsWith(BLOBREF_PREFIX) === true)
-        refs.set(media.url, media.kind);
+      if (media.kind !== 'file' && media.url?.startsWith(BLOBREF_PREFIX) === true) refs.set(media.url, media.kind);
     }
     if (refs.size === 0) return turn;
     const loaded = new Map<string, string>();
-    await Promise.all(
-      [...refs].map(async ([ref, kind]) => {
-        const url = await this.loadBlob(ref, kind);
-        if (url !== undefined) loaded.set(ref, url);
-      }),
-    );
-    return loaded.size === 0
-      ? turn
-      : { ...turn, items: turn.items.map((item) => withLoadedUrls(item, loaded)) };
+    await Promise.all([...refs].map(async ([ref, kind]) => {
+      const url = await this.loadBlob(ref, kind);
+      if (url !== undefined) loaded.set(ref, url);
+    }));
+    return loaded.size === 0 ? turn : { ...turn, items: turn.items.map((item) => withLoadedUrls(item, loaded)) };
   }
 
   private async loadBlob(url: string, kind: Media['kind']): Promise<string | undefined> {
     try {
-      const [loaded] = await this.handle.accessor
-        .get(IAgentBlobService)
-        .loadParts([mediaPartOf({ kind, url })]);
+      const [loaded] = await this.handle.accessor.get(IAgentBlobService).loadParts([mediaPartOf({ kind, url })]);
       return loaded === undefined || !isMediaPart(loaded) ? undefined : mediaUrlOf(loaded);
     } catch (error) {
-      this.handle.accessor
-        .get(ILogService)
-        .warn('conversation media failed to load; serving its reference', {
-          agentId: this.handle.id,
-          error,
-        });
+      this.handle.accessor.get(ILogService).warn('conversation media failed to load; serving its reference', {
+        agentId: this.handle.id,
+        error,
+      });
       return undefined;
     }
   }
@@ -668,25 +548,15 @@ export class ConversationFeed implements IDisposable {
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch (error) {
-        this.handle.accessor.get(ILogService).warn('conversation listener failed', {
-          agentId: this.handle.id,
-          error,
-        });
+      } catch {
       }
     }
   }
 }
 
 function opensWithUserInput(turn: ConversationTurn): boolean {
-  const opener = turn.items.find(
-    (item) => item.type === 'user_message' && item.placement === 'opener',
-  );
-  return (
-    turn.kind === 'agent' &&
-    opener?.type === 'user_message' &&
-    UNDOABLE_ORIGINS.has(opener.origin.kind)
-  );
+  const opener = turn.items.find((item) => item.type === 'user_message' && item.placement === 'opener');
+  return turn.kind === 'agent' && opener?.type === 'user_message' && UNDOABLE_ORIGINS.has(opener.origin.kind);
 }
 
 function headerOf(turn: ConversationTurn): ConversationTurnHeader {
@@ -703,9 +573,7 @@ function errorNotice(error: {
   readonly cause?: unknown;
 }): Notice {
   const { name, retryable, details, cause } = error;
-  const rest = Object.fromEntries(
-    Object.entries({ name, retryable, details, cause }).filter(([, value]) => value !== undefined),
-  );
+  const rest = Object.fromEntries(Object.entries({ name, retryable, details, cause }).filter(([, value]) => value !== undefined));
   return {
     level: 'error',
     title: error.message,
@@ -714,47 +582,22 @@ function errorNotice(error: {
   };
 }
 
-function mediaOf(
-  item: ConversationItem,
-): readonly { readonly kind: Media['kind'] | 'file'; readonly url?: string }[] {
+function mediaOf(item: ConversationItem): readonly { readonly kind: Media['kind'] | 'file'; readonly url?: string }[] {
   if (item.type === 'user_message') return item.attachments;
-  return item.type === 'tool_call' ? (item.media ?? []) : [];
+  return item.type === 'tool_call' ? item.media ?? [] : [];
 }
 
-function withLoadedUrls(
-  item: ConversationItem,
-  loaded: ReadonlyMap<string, string>,
-): ConversationItem {
+function withLoadedUrls(item: ConversationItem, loaded: ReadonlyMap<string, string>): ConversationItem {
   const swap = <M extends { readonly url?: string; readonly media_type?: string }>(media: M): M => {
     const url = media.url === undefined ? undefined : loaded.get(media.url);
     return url === undefined ? media : { ...media, url, media_type: mediaTypeOf(url) };
   };
   if (item.type === 'user_message') return { ...item, attachments: item.attachments.map(swap) };
-  return item.type === 'tool_call' && item.media !== undefined
-    ? { ...item, media: item.media.map(swap) }
-    : item;
+  return item.type === 'tool_call' && item.media !== undefined ? { ...item, media: item.media.map(swap) } : item;
 }
 
 function turnBytes(turn: ConversationTurn): number {
   return Buffer.byteLength(JSON.stringify(turn)) + 1;
-}
-
-function nextProgress(
-  progress: ToolCallItem['progress'],
-  update: ToolUpdate,
-): NonNullable<ToolCallItem['progress']> {
-  switch (update.kind) {
-    case 'progress':
-      return {
-        ...progress,
-        percent: update.percent ?? progress?.percent,
-        status: update.text ?? progress?.status,
-      };
-    case 'status':
-      return { ...progress, status: update.text ?? progress?.status };
-    default:
-      return { ...progress, custom_kind: update.customKind, custom_data: update.customData };
-  }
 }
 
 function changedFields<T extends object>(before: T, after: T): Partial<T> {
@@ -772,25 +615,7 @@ function sameJson(a: unknown, b: unknown): boolean {
 function canonicalJson(value: unknown): string | undefined {
   return JSON.stringify(value, (_key, field: unknown) =>
     field !== null && typeof field === 'object' && !Array.isArray(field)
-      ? Object.fromEntries(
-          Object.entries(field).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
-        )
+      ? Object.fromEntries(Object.entries(field).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
       : field,
   );
-}
-
-function taskLinkOf(info: unknown): { taskId: string; toolCallId: string } | undefined {
-  if (info === null || typeof info !== 'object') return undefined;
-  const value = info as Record<string, unknown>;
-  const taskId = value['taskId'];
-  const parent = value['parentToolCallId'];
-  const toolCallId = typeof parent === 'string' && parent.length > 0 ? parent : value['toolCallId'];
-  if (
-    typeof taskId !== 'string' ||
-    taskId.length === 0 ||
-    typeof toolCallId !== 'string' ||
-    toolCallId.length === 0
-  )
-    return undefined;
-  return { taskId, toolCallId };
 }

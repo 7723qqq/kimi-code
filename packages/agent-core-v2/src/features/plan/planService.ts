@@ -7,24 +7,23 @@ import { type IDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { Error2, ErrorCodes } from '#/errors';
 import { generateHeroSlug } from '#/_base/utils/hero-slug';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { PlanModeInjection } from '#/features/plan/injection/planModeInjection';
+import { PLAN_REJECTED_ACTIVE, PLAN_REJECTED_DEACTIVATED } from '#/features/plan/planLabels';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { registerLegacyStarting } from '#/agent/toolExecutor/legacyHooks';
 import type {
   BeforeToolExecuteEvent,
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
-import { ContextUndone } from '#/agent/undo/undoService';
-import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentTodoService } from '#/features/todo/todoService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { isHostFsNotFound } from '#/os/interface/hostFsErrors';
 import { IBlobStore } from '#/persistence/interface/blobStore';
@@ -32,6 +31,8 @@ import { realpathExistingPrefix } from '#/environment/environment';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
+import { ContextUndone } from '#/agent/undo/undoService';
 import type { ToolFileAccess } from '#/tool/toolContract';
 import {
   IAgentPlanService,
@@ -39,8 +40,13 @@ import {
   type PlanFileTarget,
 } from './plan';
 import { ExitPlanModeReview } from './exitPlanModeReview';
-import { PlanModeCancel, PlanModeEnter, PlanModeExit, planKey, PlanRevision } from './planOps';
-import { tryConvertPlanToTodos } from './planToTodoConverter';
+import {
+  PlanModeCancel,
+  PlanModeEnter,
+  PlanModeExit,
+  planKey,
+  PlanRevision,
+} from './planOps';
 
 export class AgentPlanService extends Service implements IAgentPlanService {
   declare readonly _serviceBrand: undefined;
@@ -48,7 +54,7 @@ export class AgentPlanService extends Service implements IAgentPlanService {
   private readonly review: ExitPlanModeReview;
 
   constructor(
-    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentLoopService private readonly context: IAgentLoopService,
     @IHostEnvironment private readonly hostEnvironment: IHostEnvironment,
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @IBlobStore private readonly blobs: IBlobStore,
@@ -61,7 +67,6 @@ export class AgentPlanService extends Service implements IAgentPlanService {
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentStateService private readonly agentState: IAgentStateService,
-    @IAgentTodoService private readonly todo: IAgentTodoService,
   ) {
     super();
     this.agentState.contributeState(planKey);
@@ -85,10 +90,23 @@ export class AgentPlanService extends Service implements IAgentPlanService {
 
     this._register(new PlanModeInjection(reminder, this, this.context, agentState));
     this._register(this.registerPlanGuard(toolExecutor));
+    this._register(this.context.hooks.onDidFinishStep.register('plan-rejection-stop', (context, next) => {
+      for (const tool of context.tools) {
+        if (tool.toolCall.name !== 'ExitPlanMode') continue;
+        const text = tool.outcome.message.content
+          .map((part) => part.type === 'text' ? part.text : '')
+          .join('\n');
+        if (
+          text === PLAN_REJECTED_DEACTIVATED ||
+          text === PLAN_REJECTED_ACTIVE
+        ) context.stopTurn = true;
+      }
+      return next();
+    }));
   }
 
   private registerPlanGuard(toolExecutor: IAgentToolExecutorService): IDisposable {
-    return toolExecutor.onBeforeExecuteTool((event) => this.guardToolExecution(event));
+    return registerLegacyStarting(toolExecutor, (event) => this.guardToolExecution(event));
   }
 
   private async guardToolExecution(event: BeforeToolExecuteEvent): Promise<void> {
@@ -113,9 +131,7 @@ export class AgentPlanService extends Service implements IAgentPlanService {
         return;
       }
       event.veto(
-        denyToolExecution(
-          this.toolApproval.formatDenyMessage(planModeWriteDeniedMessage(plan.path)),
-        ),
+        denyToolExecution(this.toolApproval.formatDenyMessage(planModeWriteDeniedMessage(plan.path))),
       );
       return;
     }
@@ -200,20 +216,8 @@ export class AgentPlanService extends Service implements IAgentPlanService {
   }
 
   exit(id?: string): void {
-    void this.maybeSeedTodoFromPlan();
     void this.dispatcher.dispatch(new PlanModeExit({ agentId: this.agentCtx.agentId, id }));
     this.telemetry.setContext({ mode: 'agent' });
-  }
-
-  private async maybeSeedTodoFromPlan(): Promise<void> {
-    const planData = await this.status();
-    if (planData === null) return;
-    const outcome = await tryConvertPlanToTodos(planData, this.todo, this.agentCtx.agentContext);
-    if (outcome.kind === 'converted') {
-      this.telemetry.track2('plan_to_todo_converted', {
-        item_count: outcome.count,
-      });
-    }
   }
 
   async recordRevision(): Promise<void> {

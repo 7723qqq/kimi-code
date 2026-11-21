@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
@@ -47,10 +47,9 @@ export class TowerInboxSent extends Event2<TowerInboxSentPayload> {
 }
 export interface TowerInboxSent extends TowerInboxSentPayload {}
 
-export const towerKey = defineState('tower', () => false)
-  .replayable({
-    schema: z.boolean(),
-  })
+export const towerKey = defineState('tower', () => false).replayable({
+  schema: z.boolean(),
+})
   .on(TowerModeEnter, (_s, e, ctx) => {
     ctx.emit(new AgentStatusUpdated({ agentId: e.agentId, towerMode: true }));
     return true;

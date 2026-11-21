@@ -1,12 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { TODO_LIST_TOOL_NAME, type TodoItem } from '#/features/todo/todoItem';
 import { IAgentTodoService } from '#/features/todo/todoService';
-import { ITodoListTool, TodoListInputSchema } from '#/features/todo/tools/todo-list/todo-list';
+import { TODO_LIST_TOOL_NAME, type TodoItem } from '#/features/todo/todoItem';
+import {
+  ITodoListTool,
+  TodoListInputSchema,
+} from '#/features/todo/tools/todo-list/todo-list';
+import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../../app/telemetry/stubs';
 import { createTestAgent, type TestAgentContext } from '../../../harness';
-import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
 
@@ -44,9 +47,7 @@ describe('TodoListTool', () => {
     expect(tool.description.length).toBeGreaterThan(0);
     expect(TodoListInputSchema.safeParse({}).success).toBe(true);
     expect(
-      TodoListInputSchema.safeParse({
-        todos: [{ id: 'x', parentId: null, kind: 'task', title: 'x', status: 'wip' }],
-      }).success,
+      TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'wip' }] }).success,
     ).toBe(false);
     expect(tool.parameters).toMatchObject({
       type: 'object',
@@ -58,9 +59,7 @@ describe('TodoListTool', () => {
   });
 
   it('query mode renders the current list without mutating it', async () => {
-    await seed([
-      { id: 'x', parentId: null, kind: 'task', title: 'existing', status: 'in_progress' },
-    ]);
+    await seed([{ title: 'existing', status: 'in_progress' }]);
     const tool = ctx.get(ITodoListTool);
 
     const result = await executeTool(tool, {
@@ -72,17 +71,15 @@ describe('TodoListTool', () => {
 
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Current todo list');
-    expect(result.output).toContain('[in_progress] x: existing');
-    expect(todos()).toEqual([
-      { id: 'x', parentId: null, kind: 'task', title: 'existing', status: 'in_progress' },
-    ]);
+    expect(result.output).toContain('[in_progress] existing');
+    expect(todos()).toEqual([{ title: 'existing', status: 'in_progress' }]);
   });
 
   it('write mode replaces the list and defensively copies todos', async () => {
     const tool = ctx.get(ITodoListTool);
     const input: TodoItem[] = [
-      { id: 'x', parentId: null, kind: 'task', title: 'first', status: 'pending' },
-      { id: 'x', parentId: null, kind: 'task', title: 'second', status: 'in_progress' },
+      { title: 'first', status: 'pending' },
+      { title: 'second', status: 'in_progress' },
     ];
 
     const result = await executeTool(tool, {
@@ -91,15 +88,15 @@ describe('TodoListTool', () => {
       args: { todos: input },
       signal,
     });
-    input[0] = { id: 'x', parentId: null, kind: 'task', title: 'leaked', status: 'done' };
+    input[0] = { title: 'leaked', status: 'done' };
 
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Todo list updated');
-    expect(result.output).toContain('[pending] x: first');
-    expect(result.output).toContain('[in_progress] x: second');
+    expect(result.output).toContain('[pending] first');
+    expect(result.output).toContain('[in_progress] second');
     expect(todos()).toEqual([
-      { id: 'x', parentId: null, kind: 'task', title: 'first', status: 'pending' },
-      { id: 'x', parentId: null, kind: 'task', title: 'second', status: 'in_progress' },
+      { title: 'first', status: 'pending' },
+      { title: 'second', status: 'in_progress' },
     ]);
   });
 
@@ -109,20 +106,20 @@ describe('TodoListTool', () => {
       executeTool(tool, { turnId: 1, toolCallId: callId, args: { todos: list }, signal });
 
     const midway = await write('call_1', [
-      { id: 'x', parentId: null, kind: 'task', title: 'parse config', status: 'in_progress' },
-      { id: 'x', parentId: null, kind: 'task', title: 'update callers', status: 'pending' },
+      { title: 'parse config', status: 'in_progress' },
+      { title: 'update callers', status: 'pending' },
     ]);
     const lastItem = await write('call_2', [
-      { id: 'x', parentId: null, kind: 'task', title: 'parse config', status: 'done' },
-      { id: 'x', parentId: null, kind: 'task', title: 'update callers', status: 'in_progress' },
+      { title: 'parse config', status: 'done' },
+      { title: 'update callers', status: 'in_progress' },
     ]);
     const nothingStarted = await write('call_3', [
-      { id: 'x', parentId: null, kind: 'task', title: 'parse config', status: 'done' },
-      { id: 'x', parentId: null, kind: 'task', title: 'update callers', status: 'pending' },
+      { title: 'parse config', status: 'done' },
+      { title: 'update callers', status: 'pending' },
     ]);
     const finished = await write('call_4', [
-      { id: 'x', parentId: null, kind: 'task', title: 'parse config', status: 'done' },
-      { id: 'x', parentId: null, kind: 'task', title: 'update callers', status: 'done' },
+      { title: 'parse config', status: 'done' },
+      { title: 'update callers', status: 'done' },
     ]);
 
     expect(paragraphs(midway.output)).toHaveLength(2);
@@ -142,8 +139,8 @@ describe('TodoListTool', () => {
       toolCallId: 'call_1',
       args: {
         todos: [
-          { id: 'x', parentId: null, kind: 'task', title: 'parse config', status: 'done' },
-          { id: 'x', parentId: null, kind: 'task', title: 'update callers', status: 'in_progress' },
+          { title: 'parse config', status: 'done' },
+          { title: 'update callers', status: 'in_progress' },
         ],
       },
       signal,
@@ -163,7 +160,7 @@ describe('TodoListTool', () => {
   });
 
   it('renders a done todo with a marker matching the status enum value', async () => {
-    await seed([{ id: 'x', parentId: null, kind: 'task', title: 'shipped', status: 'done' }]);
+    await seed([{ title: 'shipped', status: 'done' }]);
     const tool = ctx.get(ITodoListTool);
 
     const result = await executeTool(tool, {
@@ -174,12 +171,12 @@ describe('TodoListTool', () => {
     });
 
     expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('[done] x: shipped');
+    expect(result.output).toContain('[done] shipped');
     expect(result.output).not.toContain('[completed]');
   });
 
   it('clear mode empties the list without adding the progress-tracking reminder', async () => {
-    await seed([{ id: 'x', parentId: null, kind: 'task', title: 'x', status: 'pending' }]);
+    await seed([{ title: 'x', status: 'pending' }]);
     const tool = ctx.get(ITodoListTool);
 
     const result = await executeTool(tool, {
@@ -198,7 +195,7 @@ describe('TodoListTool', () => {
     const readExecution = await tool.resolveExecution({});
     const clearExecution = await tool.resolveExecution({ todos: [] });
     const updateExecution = await tool.resolveExecution({
-      todos: [{ id: 'x', parentId: null, kind: 'task', title: 'x', status: 'pending' }],
+      todos: [{ title: 'x', status: 'pending' }],
     });
 
     if (

@@ -1,8 +1,8 @@
 import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 
 export type SwarmModeMarkerState = 'active' | 'inactive' | 'ended';
 

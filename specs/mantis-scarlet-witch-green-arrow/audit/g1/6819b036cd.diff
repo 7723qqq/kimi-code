@@ -1,0 +1,24 @@
+commit 6819b036cd00f8dcd779e0b70105b93a947340c8
+Author:     Haozhe <yanghaozhe@moonshot.ai>
+AuthorDate: Mon Nov 16 20:25:56 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Mon Nov 16 20:25:56 2026 +0800
+
+    ci: run Nix builds for release branches (#4821)
+
+diff --git a/.github/workflows/nix-build.yml b/.github/workflows/nix-build.yml
+index abf0122b10..ad96ae01e4 100644
+--- a/.github/workflows/nix-build.yml
++++ b/.github/workflows/nix-build.yml
+@@ -4,9 +4,11 @@ on:
+   pull_request:
+     branches:
+       - main
++      - release/**
+   push:
+     branches:
+       - main
++      - release/**
+ 
+ permissions:
+   contents: read

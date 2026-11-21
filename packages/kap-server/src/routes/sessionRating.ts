@@ -37,9 +37,10 @@ export function registerSessionRatingRoutes(
         [ErrorCode.VALIDATION_FAILED]: {
           detailsSchema: z.array(z.object({ path: z.string(), message: z.string() })),
         },
+        [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
       },
       description:
-        'Evaluate the latest completed conversation turn, or report a displayed rating and its final answer',
+        'Evaluate the latest completed transcript turn, or report a displayed rating and its final answer',
       tags: ['sessions'],
     },
     async (req, reply) => {
@@ -51,23 +52,16 @@ export function registerSessionRatingRoutes(
         const completed = latest?.turn_id === request.turn_id && latest.status === 'ended';
         if (completed) await sessionRating.whenReady(session_id);
         const offer = completed ? sessionRating.evaluate(session_id) : undefined;
-        reply.send(
-          okEnvelope(
-            {
-              appearance:
-                offer === undefined ? null : { id: offer.appearanceId, survey: offer.survey },
-            },
-            req.id,
-          ),
-        );
+        reply.send(okEnvelope({
+          appearance: offer === undefined
+            ? null
+            : { id: offer.appearanceId, survey: offer.survey },
+        }, req.id));
         return;
       }
-      sessionRating.report(
-        session_id,
-        request.op === 'respond'
-          ? { type: 'respond', appearanceId: request.appearance_id, response: request.response }
-          : { type: request.op, appearanceId: request.appearance_id },
-      );
+      sessionRating.report(session_id, request.op === 'respond'
+        ? { type: 'respond', appearanceId: request.appearance_id, response: request.response }
+        : { type: request.op, appearanceId: request.appearance_id });
       reply.send(okEnvelope(null, req.id));
     },
   );

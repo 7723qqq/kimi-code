@@ -1,5 +1,4 @@
-import { describe, expect, it } from 'bun:test';
-
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 import { closeDanglingToolCalls } from '../../src/sessions/close-tool-calls.js';
 import type { NormalizedMessage } from '../../src/sessions/translator.js';
 
@@ -28,7 +27,6 @@ describe('closeDanglingToolCalls', () => {
     ];
     const out = closeDanglingToolCalls(input);
 
-    // assistant followed immediately by synthesized tool result, then user.
     expect(out).toHaveLength(4);
     expect(out[1]?.role).toBe('assistant');
     const synthesized = out[2];
@@ -38,19 +36,25 @@ describe('closeDanglingToolCalls', () => {
       type: 'text',
       text: '[tool result unavailable — session imported from kimi-cli]',
     });
-    // trailing user message survives.
     expect(out[3]).toEqual(user('still here?'));
   });
 
   it('leaves satisfied tool calls untouched', () => {
-    const input: NormalizedMessage[] = [user('do it'), assistantWithCall('tc1'), toolResult('tc1')];
+    const input: NormalizedMessage[] = [
+      user('do it'),
+      assistantWithCall('tc1'),
+      toolResult('tc1'),
+    ];
     const out = closeDanglingToolCalls(input);
     expect(out).toHaveLength(3);
     expect(out).toEqual(input);
   });
 
   it('inserts the synthesized result before any later real message', () => {
-    const input: NormalizedMessage[] = [assistantWithCall('tc1'), assistantWithCall('tc2')];
+    const input: NormalizedMessage[] = [
+      assistantWithCall('tc1'),
+      assistantWithCall('tc2'),
+    ];
     const out = closeDanglingToolCalls(input);
     expect(out.map((m) => m.role)).toEqual(['assistant', 'tool', 'assistant', 'tool']);
     expect(out[1]?.toolCallId).toBe('tc1');

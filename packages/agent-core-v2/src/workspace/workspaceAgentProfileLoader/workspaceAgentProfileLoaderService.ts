@@ -1,26 +1,23 @@
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { ILogService } from '#/_base/log/log';
-import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { TimeoutTimer } from '#/_base/utils/timer';
+import { subtreeWatchFilter } from '#/_base/utils/paths';
+import { discoverAgentFiles } from '#/workspace/workspaceAgentProfileLoader/internal/agentFileDiscovery';
+import { AgentProfileLoaderBase } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileLoader';
 import {
   AGENT_PROFILE_SOURCE_PRIORITY,
   type AgentProfileContribution,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
 import type { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { discoverAgentFiles } from '#/workspace/workspaceAgentProfileLoader/internal/agentFileDiscovery';
-import { AgentProfileLoaderBase } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileLoader';
-import {
-  projectAgentRootCandidates,
-  projectAgentRoots,
-} from '#/workspace/workspaceAgentProfileLoader/internal/agentRoots';
+import { profilesFromDiscovery } from './internal/agentProfileFromFile';
+import { projectAgentRootCandidates, projectAgentRoots } from '#/workspace/workspaceAgentProfileLoader/internal/agentRoots';
 import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { watchCandidates } from '#human/utils/watch';
 
-import { profilesFromDiscovery } from './internal/agentProfileFromFile';
-import type { IWorkspaceAgentProfileLoader } from './workspaceAgentProfileLoader';
+import { IWorkspaceAgentProfileLoader } from './workspaceAgentProfileLoader';
 
 const WATCH_DEBOUNCE_MS = 200;
 

@@ -1,9 +1,14 @@
 import { useState, type ReactNode } from 'react';
 
-import { t } from '../../i18n';
-import type { ContentPart, ProjectedMessage, ToolCall } from '../../types';
+import {
+  mediaUrlOf,
+  type CoreContentPart as ContentPart,
+  type ProjectedMessage,
+  type ToolCall,
+} from '../../types';
 import { ImagePreview } from '../shared/ImagePreview';
 import { Pill } from '../shared/Pill';
+import { t } from '../../i18n';
 
 interface MessageBubbleProps {
   message: ProjectedMessage;
@@ -24,29 +29,16 @@ function baseClass(): string {
 function UserBubble({ m }: { m: ProjectedMessage }) {
   const origin = m.message.origin;
   const originKind = origin?.kind;
-  // Badge every origin that is not a plain user prompt. This covers
-  // skill_activation, task (v2; v1: background_task), cron_job, cron_missed,
-  // retry, system_trigger, injection, hook_result, compaction_summary, etc.
   const showsOriginBadge = originKind !== undefined && originKind !== 'user';
   return (
     <article className={baseClass()} style={{ borderLeftColor: 'var(--color-user)' }}>
       <header className="mb-1 flex items-center gap-2">
-        <Pill tone="user" variant="solid">
-          {t('context.user')}
-        </Pill>
-        <span className="font-mono text-[10px] text-fg-3 tabular">
-          {t('context.line', { no: m.lineNo })}
-        </span>
+        <Pill tone="user" variant="solid">user</Pill>
+        <span className="font-mono text-[10px] text-fg-3 tabular">line {m.lineNo}</span>
         {showsOriginBadge ? (
-          <Pill tone="meta" variant="outline">
-            {originKind}
-          </Pill>
+          <Pill tone="meta" variant="outline">{originKind}</Pill>
         ) : null}
-        {m.message.isError ? (
-          <Pill tone="error" variant="outline">
-            {t('context.error')}
-          </Pill>
-        ) : null}
+        {m.message.isError ? <Pill tone="error" variant="outline">error</Pill> : null}
       </header>
       <MessageContent parts={m.message.content} />
     </article>
@@ -54,6 +46,7 @@ function UserBubble({ m }: { m: ProjectedMessage }) {
 }
 
 function AssistantBubble({ m }: { m: ProjectedMessage }) {
+  if (m.message.role !== 'assistant') return null;
   const thinkPart = m.message.content.find((p) => p.type === 'think');
   const think = thinkPart && thinkPart.type === 'think' ? thinkPart.think : undefined;
   const visibleParts = m.message.content.filter((p) => p.type !== 'think');
@@ -61,29 +54,15 @@ function AssistantBubble({ m }: { m: ProjectedMessage }) {
   return (
     <article className={baseClass()} style={{ borderLeftColor: 'var(--color-assistant)' }}>
       <header className="mb-1 flex items-center gap-2">
-        <Pill tone="assistant" variant="solid">
-          {t('context.assistant')}
-        </Pill>
-        <span className="font-mono text-[10px] text-fg-3 tabular">
-          {t('context.line', { no: m.lineNo })}
-        </span>
-        {think ? (
-          <Pill tone="config" variant="outline">
-            {t('context.think')}
-          </Pill>
-        ) : null}
+        <Pill tone="assistant" variant="solid">assistant</Pill>
+        <span className="font-mono text-[10px] text-fg-3 tabular">line {m.lineNo}</span>
+        {think ? <Pill tone="config" variant="outline">think</Pill> : null}
         {toolCalls.length > 0 ? (
           <Pill tone="tools" variant="outline">
-            {t(toolCalls.length > 1 ? 'context.toolCallsPlural' : 'context.toolCalls', {
-              count: toolCalls.length,
-            })}
+            {toolCalls.length} tool call{toolCalls.length > 1 ? 's' : ''}
           </Pill>
         ) : null}
-        {m.message.partial ? (
-          <Pill tone="warning" variant="outline">
-            {t('context.partial')}
-          </Pill>
-        ) : null}
+        {m.message.partial ? <Pill tone="warning" variant="outline">partial</Pill> : null}
       </header>
       {think ? <ThinkBlock text={think} /> : null}
       <MessageContent parts={visibleParts} />
@@ -99,10 +78,8 @@ function AssistantBubble({ m }: { m: ProjectedMessage }) {
 }
 
 function ToolBubble({ m }: { m: ProjectedMessage }) {
-  // Tool outputs are often huge (file contents, command stdout). Collapse
-  // by default so the conversation flow stays readable. Errors open by
-  // default — that's the case where the user actually needs to read.
-  const [open, setOpen] = useState(m.message.isError === true);
+  const [open, setOpen] = useState(m.message.role === 'tool' && m.message.isError === true);
+  if (m.message.role !== 'tool') return null;
   const totalChars = m.message.content.reduce((acc, p) => {
     if (p.type === 'text') return acc + p.text.length;
     return acc;
@@ -118,26 +95,20 @@ function ToolBubble({ m }: { m: ProjectedMessage }) {
         className="flex w-full items-center gap-2 text-left"
       >
         <span className="text-fg-3">{open ? '▾' : '▸'}</span>
-        <Pill tone="tool" variant="solid">
-          {t('context.tool')}
-        </Pill>
+        <Pill tone="tool" variant="solid">tool</Pill>
         {m.message.toolCallId ? (
           <span className="font-mono text-[11px] text-fg-1">
-            {t('context.call')} {m.message.toolCallId.slice(0, 12)}
+            call {m.message.toolCallId.slice(0, 12)}
           </span>
         ) : null}
-        <span className="font-mono text-[10px] text-fg-3 tabular">
-          {t('context.line', { no: m.lineNo })}
-        </span>
-        {m.message.isError ? (
-          <Pill tone="error" variant="outline">
-            {t('context.error')}
-          </Pill>
-        ) : null}
+        <span className="font-mono text-[10px] text-fg-3 tabular">line {m.lineNo}</span>
+        {m.message.isError ? <Pill tone="error" variant="outline">error</Pill> : null}
         {!open ? (
           <span className="ml-1 flex min-w-0 flex-1 items-center gap-2 font-mono text-[11px] text-fg-3">
             <span className="truncate">{preview}</span>
-            <span className="shrink-0 tabular">· {totalChars.toLocaleString()} chars</span>
+            <span className="shrink-0 tabular">
+              · {totalChars.toLocaleString()} chars
+            </span>
           </span>
         ) : null}
       </button>
@@ -154,12 +125,8 @@ function SystemBubble({ m }: { m: ProjectedMessage }) {
   return (
     <article className={baseClass()} style={{ borderLeftColor: 'var(--color-cat-config)' }}>
       <header className="mb-1 flex items-center gap-2">
-        <Pill tone="config" variant="solid">
-          {t('context.system')}
-        </Pill>
-        <span className="font-mono text-[10px] text-fg-3 tabular">
-          {t('context.line', { no: m.lineNo })}
-        </span>
+        <Pill tone="config" variant="solid">system</Pill>
+        <span className="font-mono text-[10px] text-fg-3 tabular">line {m.lineNo}</span>
       </header>
       <MessageContent parts={m.message.content} />
     </article>
@@ -177,7 +144,7 @@ function ThinkBlock({ text }: { text: string }) {
         className="flex w-full items-center gap-2 px-2 py-1 text-left font-mono text-[11px] text-fg-2 hover:text-fg-1"
       >
         <span className="text-fg-3">{open ? '▾' : '▸'}</span>
-        <span className="uppercase tracking-[0.08em]">{t('context.thinking')}</span>
+        <span className="uppercase tracking-[0.08em]">thinking</span>
         <span className="text-fg-3 tabular">{text.length}ch</span>
       </button>
       {open ? (
@@ -201,9 +168,7 @@ function ToolCallCard({ call }: { call: ToolCall }) {
         className="flex w-full items-center gap-2 px-2 py-1 text-left font-mono text-[11px] hover:bg-surface-2"
       >
         <span className="text-fg-3">{open ? '▾' : '▸'}</span>
-        <Pill tone="tools" variant="soft">
-          {t('context.call')}
-        </Pill>
+        <Pill tone="tools" variant="soft">call</Pill>
         <span className="text-fg-0">{call.name}</span>
         <span className="truncate text-fg-3">{truncate(argsStr, 80)}</span>
         <span className="ml-auto text-fg-3 tabular text-[10px]">{call.id.slice(0, 10)}</span>
@@ -235,23 +200,22 @@ function MessageContent({ parts }: { parts: readonly ContentPart[] }): ReactNode
           return <ThinkBlock key={i} text={p.think} />;
         }
         if (p.type === 'image_url') {
-          return <ImagePreview key={i} url={p.imageUrl.url} />;
+          return <ImagePreview key={i} url={mediaUrlOf(p)} />;
         }
         if (p.type === 'audio_url') {
           return (
             <div key={i} className="font-mono text-[11px] text-fg-2">
-              {t('context.audio', { url: p.audioUrl.url })}
+              [audio: {mediaUrlOf(p)}]
             </div>
           );
         }
         if (p.type === 'video_url') {
           return (
             <div key={i} className="font-mono text-[11px] text-fg-2">
-              {t('context.video', { url: p.videoUrl.url ?? '—' })}
+              [video: {mediaUrlOf(p)}]
             </div>
           );
         }
-        // Exhaustive — anything else is unexpected for ContentPart.
         return (
           <div key={i} className="font-mono text-[11px] text-fg-3">
             [{(p as { type: string }).type}]
@@ -273,8 +237,8 @@ function firstTextPreview(parts: readonly ContentPart[]): string {
       return truncate(firstLine, 100);
     }
     if (p.type === 'image_url') return t('context.image');
-    if (p.type === 'audio_url') return t('context.audio', { url: '' });
-    if (p.type === 'video_url') return t('context.video', { url: '' });
+    if (p.type === 'audio_url') return '[audio]';
+    if (p.type === 'video_url') return '[video]';
   }
   return t('context.empty');
 }

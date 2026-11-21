@@ -1,29 +1,27 @@
 import type { PermissionMode } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
-import { permissionModeDescription, permissionModeDisplayName } from '#/tui/utils/permission-mode';
+import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '#/tui/utils/permission-mode';
 
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
+import { t } from '#/i18n';
 
-function permissionOptions(): readonly ChoiceOption[] {
-  return [
-    {
-      value: 'manual',
-      label: permissionModeDisplayName('manual'),
-      description: permissionModeDescription('manual'),
-    },
-    {
-      value: 'yolo',
-      label: permissionModeDisplayName('yolo'),
-      description: permissionModeDescription('yolo'),
-    },
-    {
-      value: 'auto',
-      label: permissionModeDisplayName('auto'),
-      description: permissionModeDescription('auto'),
-    },
-  ];
-}
+const PERMISSION_OPTIONS: readonly ChoiceOption[] = [
+  {
+    value: 'manual',
+    label: PERMISSION_MODE_DISPLAY_NAMES.manual,
+    description: PERMISSION_MODE_DESCRIPTIONS.manual,
+  },
+  {
+    value: 'yolo',
+    label: PERMISSION_MODE_DISPLAY_NAMES.yolo,
+    description: PERMISSION_MODE_DESCRIPTIONS.yolo,
+  },
+  {
+    value: 'auto',
+    label: PERMISSION_MODE_DISPLAY_NAMES.auto,
+    description: PERMISSION_MODE_DESCRIPTIONS.auto,
+  },
+];
 
 function isPermissionModeChoice(value: string): value is PermissionMode {
   return value === 'manual' || value === 'auto' || value === 'yolo';
@@ -40,7 +38,7 @@ export class PermissionSelectorComponent extends ChoicePickerComponent {
   constructor(opts: PermissionSelectorOptions) {
     super({
       title: t('tui.dialogs.permissionSelector.title'),
-      options: [...permissionOptions()],
+      options: [...PERMISSION_OPTIONS],
       currentValue: opts.currentValue,
       initialValue: opts.initialValue,
       onSelect: (value) => {

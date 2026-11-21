@@ -1,21 +1,18 @@
+import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 import { t } from '#/i18n';
 
-import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
-
-function getSurveyPreferenceOptions(): readonly ChoiceOption[] {
-  return [
-    {
-      value: 'on',
-      label: t('tui.dialogs.surveyPreferenceSelector.on'),
-      description: t('tui.dialogs.surveyPreferenceSelector.onDescription'),
-    },
-    {
-      value: 'off',
-      label: t('tui.dialogs.surveyPreferenceSelector.off'),
-      description: t('tui.dialogs.surveyPreferenceSelector.offDescription'),
-    },
-  ];
-}
+const SURVEY_PREFERENCE_OPTIONS: readonly ChoiceOption[] = [
+  {
+    value: 'on',
+    label: t('tui.dialogs.surveyPreferenceSelector.on'),
+    description: t('tui.dialogs.surveyPreferenceSelector.onDescription'),
+  },
+  {
+    value: 'off',
+    label: t('tui.dialogs.surveyPreferenceSelector.off'),
+    description: t('tui.dialogs.surveyPreferenceSelector.offDescription'),
+  },
+];
 
 export interface SurveyPreferenceSelectorOptions {
   readonly currentValue: boolean;
@@ -27,7 +24,7 @@ export class SurveyPreferenceSelectorComponent extends ChoicePickerComponent {
   constructor(opts: SurveyPreferenceSelectorOptions) {
     super({
       title: t('tui.dialogs.surveyPreferenceSelector.title'),
-      options: [...getSurveyPreferenceOptions()],
+      options: [...SURVEY_PREFERENCE_OPTIONS],
       currentValue: opts.currentValue ? 'on' : 'off',
       onSelect: (value) => {
         opts.onSelect(value === 'on');

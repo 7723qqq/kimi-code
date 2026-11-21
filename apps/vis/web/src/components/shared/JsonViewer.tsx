@@ -1,16 +1,12 @@
 import { useState, memo } from 'react';
 
-import { t } from '../../i18n';
 import { CopyButton } from './CopyButton';
 
 interface JsonViewerProps {
   value: unknown;
-  /** Default-open nesting depth */
   defaultOpenDepth?: number;
 }
 
-/** Strings longer than this get an inline expand affordance instead of a
- *  truncated preview-only display. */
 const LONG_STRING_THRESHOLD = 200;
 
 export function JsonViewer({ value, defaultOpenDepth = 2 }: JsonViewerProps) {
@@ -45,23 +41,9 @@ const Node = memo(function Node({
   if (value === undefined)
     return <Leaf keyLabel={keyLabel} repr="undefined" color="text-fg-3" isLast={isLast} />;
   if (typeof value === 'boolean')
-    return (
-      <Leaf
-        keyLabel={keyLabel}
-        repr={String(value)}
-        color="text-[var(--color-cat-config)]"
-        isLast={isLast}
-      />
-    );
+    return <Leaf keyLabel={keyLabel} repr={String(value)} color="text-[var(--color-cat-config)]" isLast={isLast} />;
   if (typeof value === 'number')
-    return (
-      <Leaf
-        keyLabel={keyLabel}
-        repr={String(value)}
-        color="text-[var(--color-sev-info)]"
-        isLast={isLast}
-      />
-    );
+    return <Leaf keyLabel={keyLabel} repr={String(value)} color="text-[var(--color-sev-info)]" isLast={isLast} />;
   if (typeof value === 'string') {
     if (value.length <= LONG_STRING_THRESHOLD) {
       return (
@@ -91,18 +73,13 @@ const Node = memo(function Node({
           <span className="truncate text-[var(--color-cat-ephemeral)]">
             {`"${value.slice(0, LONG_STRING_THRESHOLD)}…"`}
           </span>
-          <span className="text-fg-3 shrink-0">
-            ({value.length.toLocaleString()} {t('jsonViewer.chars')})
-          </span>
+          <span className="text-fg-3 shrink-0">({value.length.toLocaleString()} chars)</span>
         </button>
         {open ? (
           <div className="ml-[5px] my-1 border-l border-border pl-3">
             <div className="relative border border-border bg-surface-0">
               <div className="absolute top-1 right-1 z-10">
-                <CopyButton
-                  value={value}
-                  className="border border-border bg-surface-1 px-1.5 py-0.5"
-                />
+                <CopyButton value={value} className="border border-border bg-surface-1 px-1.5 py-0.5" />
               </div>
               <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words p-2 pr-16 font-mono text-[12px] leading-[1.55] text-fg-0">
                 {value}
@@ -119,15 +96,17 @@ const Node = memo(function Node({
     return (
       <div>
         <button
-          onClick={() => {
-            setOpen((v) => !v);
-          }}
+          onClick={() =>{  setOpen((v) => !v); }}
           className="flex items-baseline gap-1 text-left hover:text-fg-0"
         >
           <span className="text-fg-3 w-3 shrink-0 inline-block">{open ? '▾' : '▸'}</span>
-          {keyLabel !== undefined ? <span className="text-fg-1">{keyLabel}</span> : null}
+          {keyLabel !== undefined ? (
+            <span className="text-fg-1">{keyLabel}</span>
+          ) : null}
           {keyLabel !== undefined ? <span className="text-fg-3">:</span> : null}
-          <span className="text-fg-3">[{value.length}]</span>
+          <span className="text-fg-3">
+            [{value.length}]
+          </span>
         </button>
         {open ? (
           <div className="border-l border-border ml-[5px] pl-3">
@@ -154,13 +133,13 @@ const Node = memo(function Node({
     return (
       <div>
         <button
-          onClick={() => {
-            setOpen((v) => !v);
-          }}
+          onClick={() =>{  setOpen((v) => !v); }}
           className="flex items-baseline gap-1 text-left hover:text-fg-0"
         >
           <span className="text-fg-3 w-3 shrink-0 inline-block">{open ? '▾' : '▸'}</span>
-          {keyLabel !== undefined ? <span className="text-fg-1">{keyLabel}</span> : null}
+          {keyLabel !== undefined ? (
+            <span className="text-fg-1">{keyLabel}</span>
+          ) : null}
           {keyLabel !== undefined ? <span className="text-fg-3">:</span> : null}
           <span className="text-fg-3">
             {'{'}

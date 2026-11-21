@@ -16,6 +16,8 @@ export interface ISessionInstructionsProvider {
 export const ISessionInstructionsProvider: ServiceIdentifier<ISessionInstructionsProvider> =
   createDecorator<ISessionInstructionsProvider>('sessionInstructionsProvider');
 
-export function sessionInstructionsProviderSeed(provider: ISessionInstructionsProvider): ScopeSeed {
+export function sessionInstructionsProviderSeed(
+  provider: ISessionInstructionsProvider,
+): ScopeSeed {
   return [[ISessionInstructionsProvider as ServiceIdentifier<unknown>, provider]];
 }

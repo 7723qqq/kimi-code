@@ -175,6 +175,14 @@ Each card: **decision** and **why not in the app**. Status is `keep` or `absorbe
 
 **Why not in the app:** Viewport key handling and focus-report consumption sit in the alternate-screen input path.
 
+### opt-in-component-click-pairing — keep
+
+**Decision:** Kimi opts into `strictComponentClicks`: only a stationary press/release on the same drawn component path can synthesize a click. A generic SGR mouse release inherits the matching primary press. Focus loss, resize, and root changes cancel pending clicks, and release rechecks the overlay order and the painted route when a container forwards a press. Mouse reporting, scrolling, selection and the standalone default do not change.
+
+**Why not in the app:** Components do not see raw SGR release codes or the alternate-screen renderer's layout and overlay order. Both component and selection fallback clicks are synthesized in this layer.
+
+**Guard:** `test/tui-alt-screen.test.ts` exercises both component click paths with actual SGR input.
+
 ### input-click-uses-prompt-width — keep
 
 **Decision:** Click-to-position in `Input` subtracts the configured prompt's visible width instead of the default two columns.

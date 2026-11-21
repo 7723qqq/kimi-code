@@ -1,15 +1,10 @@
-import { describe, expect, it } from 'bun:test';
-
 import type { Component } from '@moonshot-ai/pi-tui';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   isGenericToolResult,
   pickResultRenderer,
 } from '#/tui/components/messages/tool-renderers/registry';
-import {
-  isSpilledToolOutput,
-  stripSpillPointer,
-} from '#/tui/components/messages/tool-renderers/types';
 import { darkColors } from '#/tui/theme/colors';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
@@ -78,10 +73,12 @@ describe('tool-result registry', () => {
     expect(expanded).not.toContain('ctrl+o to expand');
   });
 
-  it("keeps a failing unknown tool's output previewed while collapsed", () => {
+  it('keeps a failing unknown tool\'s output previewed while collapsed', () => {
     const renderer = pickResultRenderer('SomethingUnknown');
     const out = strip(
-      joinRender(renderer(call('SomethingUnknown'), result('a\nb\nc\nd\ne', true), ctx)),
+      joinRender(
+        renderer(call('SomethingUnknown'), result('a\nb\nc\nd\ne', true), ctx),
+      ),
     );
     expect(out).toContain('a');
     expect(out).toContain('c');
@@ -118,21 +115,6 @@ describe('tool-result registry', () => {
     expect(out).toContain('bar');
   });
 
-  it('Read renders a media envelope result through the media summary', () => {
-    const renderer = pickResultRenderer('Read');
-    const mediaOutput = JSON.stringify([
-      { type: 'text', text: '<image path="/tmp/a.png">' },
-      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,QUJD' } },
-      { type: 'text', text: '</image>' },
-    ]);
-    const out = strip(
-      joinRender(renderer(call('Read', { path: '/tmp/a.png' }), result(mediaOutput), expandedCtx)),
-    );
-    expect(out).toContain('/tmp/a.png');
-    expect(out).toContain('image');
-    expect(out).not.toContain('base64');
-  });
-
   it('Grep renders its glance as the outcome row when collapsed', () => {
     const renderer = pickResultRenderer('Grep');
     const out = strip(
@@ -147,18 +129,6 @@ describe('tool-result registry', () => {
     expect(out).toBe('  src/a.ts, src/b.ts, src/c.ts, +2 more');
   });
 
-  it('keeps the expanded Grep glance indented when it wraps', () => {
-    const renderer = pickResultRenderer('Grep');
-    const [glance] = renderer(
-      call('Grep', { pattern: 'foo' }),
-      result('src/alpha.ts\nsrc/beta.ts\nsrc/gamma.ts\nsrc/delta.ts'),
-      expandedCtx,
-    );
-    const lines = glance!.render(24).map((line) => strip(line).trimEnd());
-    expect(lines.length).toBeGreaterThan(1);
-    for (const line of lines) expect(line).toMatch(/^ {2}\S/);
-  });
-
   it('keeps the "+N more" count when the glance samples overflow the width', () => {
     const renderer = pickResultRenderer('Grep');
     const out = strip(
@@ -171,7 +141,6 @@ describe('tool-result registry', () => {
         40,
       ),
     );
-    // The samples are cut to fit; the count in the fixed tail always survives.
     expect(out.endsWith(', +2 more')).toBe(true);
     expect(out).toContain('…');
   });
@@ -189,6 +158,18 @@ describe('tool-result registry', () => {
     );
     expect(out).toContain('src/a.ts, src/b.ts, src/c.ts, +2 more');
     expect(out).toContain('src/d.ts');
+  });
+
+  it('keeps the expanded Grep glance indented when it wraps', () => {
+    const renderer = pickResultRenderer('Grep');
+    const [glance] = renderer(
+      call('Grep', { pattern: 'foo' }),
+      result('src/alpha.ts\nsrc/beta.ts\nsrc/gamma.ts\nsrc/delta.ts'),
+      expandedCtx,
+    );
+    const lines = glance!.render(24).map((line) => strip(line).trimEnd());
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) expect(line).toMatch(/^ {2}\S/);
   });
 
   it('Grep glance strips trailing :line:text in content mode', () => {
@@ -257,13 +238,10 @@ describe('tool-result registry', () => {
   });
 
   it('keeps Glob pagination notices out of the collapsed path samples', () => {
-    const output =
-      'Showing matches 1–2 of 4.\nCharacter limit reached; only complete paths are returned.\nContinue with the same search arguments and offset=2.\na.ts\nb.ts';
+    const output = 'Showing matches 1–2 of 4.\nCharacter limit reached; only complete paths are returned.\nContinue with the same search arguments and offset=2.\na.ts\nb.ts';
     const renderer = pickResultRenderer('Glob');
     expect(strip(joinRender(renderer(call('Glob'), result(output), ctx)))).toBe('  a.ts, b.ts');
-    expect(strip(joinRender(renderer(call('Glob'), result(output), expandedCtx)))).toContain(
-      'Character limit reached',
-    );
+    expect(strip(joinRender(renderer(call('Glob'), result(output), expandedCtx)))).toContain('Character limit reached');
   });
 
   it.each([
@@ -305,11 +283,7 @@ describe('tool-result registry', () => {
   it('Write renders no body when collapsed', () => {
     const renderer = pickResultRenderer('Write');
     const out = joinRender(
-      renderer(
-        call('Write', { path: 'a.txt', content: 'a\nb\n' }),
-        result('Wrote 4 bytes to a.txt'),
-        ctx,
-      ),
+      renderer(call('Write', { path: 'a.txt', content: 'a\nb\n' }), result('Wrote 4 bytes to a.txt'), ctx),
     );
     expect(out.trim()).toBe('');
   });
@@ -340,11 +314,11 @@ describe('tool-result registry', () => {
 
   it('CreateGoal renders the created goal summary without raw JSON', () => {
     const renderer = pickResultRenderer('CreateGoal');
-    const out = strip(
-      joinRender(
-        renderer(call('CreateGoal', { objective: 'Ship feature X' }), result(goalOutput()), ctx),
-      ),
-    );
+    const out = strip(joinRender(renderer(
+      call('CreateGoal', { objective: 'Ship feature X' }),
+      result(goalOutput()),
+      ctx,
+    )));
     expect(out).toContain('Goal active: Ship feature X');
     expect(out).not.toContain('"goalId"');
   });
@@ -376,7 +350,7 @@ describe('tool-result registry', () => {
     expect(isGenericToolResult('Edit')).toBe(false);
   });
 
-  it("truncates a failing unknown tool's output by wrapped visual lines, not raw newlines", () => {
+  it('truncates a failing unknown tool\'s output by wrapped visual lines, not raw newlines', () => {
     const renderer = pickResultRenderer('SomethingUnknown');
     const longLine = 'x'.repeat(500);
     const out = strip(
@@ -407,11 +381,7 @@ describe('tool-result registry', () => {
     const renderer = pickResultRenderer('WaitFor');
     const out = strip(
       joinRender(
-        renderer(
-          call('WaitFor', { task_id: 'question-80w0h7nw' }),
-          result(waitForCompletedOutput),
-          ctx,
-        ),
+        renderer(call('WaitFor', { task_id: 'question-80w0h7nw' }), result(waitForCompletedOutput), ctx),
       ),
     );
     expect(out).toContain('✓ question-80w0h7nw completed');
@@ -463,9 +433,7 @@ describe('tool-result registry', () => {
       'status: running',
     ].join('\n');
     const renderer = pickResultRenderer('WaitFor');
-    const out = strip(
-      joinRender(renderer(call('WaitFor', { task_id: 'bash-a1' }), result(output), ctx)),
-    );
+    const out = strip(joinRender(renderer(call('WaitFor', { task_id: 'bash-a1' }), result(output), ctx)));
     expect(out).toContain('✗ bash-a1 failed');
     expect(out).toContain('+1 more finished during wait');
     expect(out).toContain('2 background tasks still running');
@@ -490,9 +458,7 @@ describe('tool-result registry', () => {
       'status: running',
     ].join('\n');
     const renderer = pickResultRenderer('WaitFor');
-    const out = strip(
-      joinRender(renderer(call('WaitFor', { task_id: 'bash-a1' }), result(output), ctx)),
-    );
+    const out = strip(joinRender(renderer(call('WaitFor', { task_id: 'bash-a1' }), result(output), ctx)));
     expect(out).toContain('2 background tasks still running');
     expect(out).toContain('bg sleep');
     expect(out).toContain('investigate flaky test');
@@ -510,11 +476,7 @@ describe('tool-result registry', () => {
     const renderer = pickResultRenderer('WaitFor');
     const out = strip(
       joinRender(
-        renderer(
-          call('WaitFor', { task_id: 'bash-x' }),
-          result('Task not found: bash-x', true),
-          ctx,
-        ),
+        renderer(call('WaitFor', { task_id: 'bash-x' }), result('Task not found: bash-x', true), ctx),
       ),
     );
     expect(out).toContain('Task not found: bash-x');
@@ -600,9 +562,7 @@ const SPILLED_OUTPUT = [
 describe('spilled tool output', () => {
   it('shows the Grep envelope as a plain outcome row instead of parsing it as results', () => {
     const renderer = pickResultRenderer('Grep');
-    const out = strip(
-      joinRender(renderer(call('Grep', { pattern: 'foo' }), result(SPILLED_OUTPUT), ctx)),
-    );
+    const out = strip(joinRender(renderer(call('Grep', { pattern: 'foo' }), result(SPILLED_OUTPUT), ctx)));
     expect(out).toBe(
       '  Tool output exceeded 50000 characters; the full output was saved to a file. …',
     );
@@ -610,49 +570,10 @@ describe('spilled tool output', () => {
 
   it('leads a spilled Bash result with the envelope line rather than the preview tail', () => {
     const renderer = pickResultRenderer('Bash');
-    const out = strip(
-      joinRender(renderer(call('Bash', { command: 'cat big.log' }), result(SPILLED_OUTPUT), ctx)),
-    );
+    const out = strip(joinRender(renderer(call('Bash', { command: 'cat big.log' }), result(SPILLED_OUTPUT), ctx)));
     expect(out).toBe(
       '  Tool output exceeded 50000 characters; the full output was saved to a file. …',
     );
-  });
-
-  it('keeps a command output that only quotes the envelope sentence as data', () => {
-    const renderer = pickResultRenderer('Bash');
-    const echoed = [
-      'Tool output exceeded 50000 characters; the full output was saved to a file.',
-      'real-data-1',
-      'real-data-2',
-      'real-data-3',
-    ].join('\n');
-    const out = strip(
-      joinRender(renderer(call('Bash', { command: 'cat log' }), result(echoed), ctx)),
-    );
-    // No `output_path:` header, so this is not the envelope: the last line leads.
-    expect(out).toBe('  … real-data-3');
-  });
-
-  it('does not read a quoted envelope sentence as a spilled result', () => {
-    expect(
-      isSpilledToolOutput(
-        'Tool output exceeded 50000 characters; the full output was saved to a file.\nreal data',
-      ),
-    ).toBe(false);
-    expect(isSpilledToolOutput(SPILLED_OUTPUT)).toBe(true);
-  });
-
-  it('keeps the data behind a per-line marker that is not the pointer block', () => {
-    const quoted = 'a\n[Per-line truncation occurred; quoted by the command\nb';
-    expect(stripSpillPointer(quoted)).toBe(quoted);
-
-    // The real pointer, with its `output_path:` line, is still dropped.
-    const pointer = [
-      '[Per-line truncation occurred; the complete output was saved to a file.',
-      'output_path: /tmp/x.txt',
-      'next_step: Use Read with output_path to page through the saved output, or Grep to search it.]',
-    ].join('\n');
-    expect(stripSpillPointer(`a\n${pointer}`)).toBe('a\n');
   });
 });
 
@@ -687,25 +608,15 @@ describe('Edit and Write results render the same way in both states', () => {
     expect(out.trim()).toBe('');
     const write = pickResultRenderer('Write');
     expect(
-      joinRender(
-        write(
-          call('Write', { path: 'a.txt', content: 'a' }),
-          result('Appended 1 bytes to a.txt'),
-          expandedCtx,
-        ),
-      ).trim(),
+      joinRender(write(call('Write', { path: 'a.txt', content: 'a' }), result('Appended 1 bytes to a.txt'), expandedCtx)).trim(),
     ).toBe('');
   });
 
   it('keeps any other successful output as an outcome row in both states', () => {
     const renderer = pickResultRenderer('Edit');
     const output = 'No changes to make: old_string and new_string are exactly the same.';
-    const collapsed = strip(
-      joinRender(renderer(call('Edit', { path: 'foo.ts' }), result(output), ctx)),
-    );
-    const expanded = strip(
-      joinRender(renderer(call('Edit', { path: 'foo.ts' }), result(output), expandedCtx)),
-    );
+    const collapsed = strip(joinRender(renderer(call('Edit', { path: 'foo.ts' }), result(output), ctx)));
+    const expanded = strip(joinRender(renderer(call('Edit', { path: 'foo.ts' }), result(output), expandedCtx)));
     expect(collapsed).toBe(`  ${output}`);
     expect(expanded).toBe(collapsed);
   });
@@ -734,66 +645,11 @@ describe('a search whose only matches were filtered as sensitive', () => {
       joinRender(
         renderer(
           call('Grep', { pattern: 'secret' }),
-          result(
-            'No non-sensitive matches found\nFiltered 2 sensitive file(s): .env, secrets.json',
-          ),
+          result('No non-sensitive matches found\nFiltered 2 sensitive file(s): .env, secrets.json'),
           ctx,
         ),
       ),
     );
-    expect(out).toBe(
-      '  No non-sensitive matches found\n  Filtered 2 sensitive file(s): .env, secrets.json',
-    );
-  });
-});
-
-describe('goal and WaitFor summaries with wide characters', () => {
-  const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/;
-  // Both summaries carry a line longer than a 100-cell terminal, so render
-  // wide enough that the card itself does the cutting, not the line wrapper.
-  const WIDE = 200;
-
-  it('cuts a CJK goal objective by cells without splitting a character', () => {
-    const objective = '运行'.repeat(60); // 240 cells, well past the 96-cell cap
-    const renderer = pickResultRenderer('GetGoal');
-    const out = strip(
-      joinRender(renderer(call('GetGoal'), result(goalOutput({ objective })), ctx), WIDE),
-    );
-    // 47 two-cell characters (94 cells) plus the one-cell ellipsis fit in 96.
-    expect(out).toContain(`Goal active: ${'运行'.repeat(23)}运…`);
-    expect(LONE_SURROGATE.test(out)).toBe(false);
-  });
-
-  it('never leaves half an emoji in a truncated goal objective', () => {
-    const renderer = pickResultRenderer('GetGoal');
-    const out = strip(
-      joinRender(
-        renderer(call('GetGoal'), result(goalOutput({ objective: '😀'.repeat(60) })), ctx),
-        WIDE,
-      ),
-    );
-    expect(out).toContain(`Goal active: ${'😀'.repeat(47)}…`);
-    expect(LONE_SURROGATE.test(out)).toBe(false);
-  });
-
-  it('cuts a CJK WaitFor task description by cells', () => {
-    const output = [
-      'wait_status: completed',
-      'task_id: bash-a1',
-      'waited_ms: 1200',
-      'timeout_ms: 30000',
-      '',
-      '[finished]',
-      'task_id: bash-a1',
-      `description: ${'运行'.repeat(40)}`,
-      'status: completed',
-    ].join('\n');
-    const renderer = pickResultRenderer('WaitFor');
-    const out = strip(
-      joinRender(renderer(call('WaitFor', { task_id: 'bash-a1' }), result(output), ctx), WIDE),
-    );
-    // 35 two-cell characters (70 cells) plus the ellipsis fit in the 72-cell cap.
-    expect(out).toContain(`✓ bash-a1 completed · ${'运行'.repeat(17)}运…`);
-    expect(LONE_SURROGATE.test(out)).toBe(false);
+    expect(out).toBe('  No non-sensitive matches found\n  Filtered 2 sensitive file(s): .env, secrets.json');
   });
 });

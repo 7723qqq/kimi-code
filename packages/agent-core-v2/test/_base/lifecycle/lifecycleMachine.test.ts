@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { LifecycleMachine, LifecycleTransitionError } from '#/_base/lifecycle/lifecycleMachine';
+import {
+  LifecycleMachine,
+  LifecycleTransitionError,
+} from '#/_base/lifecycle/lifecycleMachine';
 
 type State = 'idle' | 'running' | 'completed' | 'failed';
 
@@ -18,7 +21,9 @@ describe('LifecycleMachine', () => {
   it('rejects a synchronous switch from an invalid state', () => {
     const machine = new LifecycleMachine<State>('completed');
 
-    expect(() => machine.switch({ operation: 'start', from: 'idle', to: 'running' })).toThrowError(
+    expect(() =>
+      machine.switch({ operation: 'start', from: 'idle', to: 'running' }),
+    ).toThrowError(
       expect.objectContaining({
         reason: 'invalid_state',
         operation: 'start',
@@ -304,7 +309,11 @@ describe('LifecycleMachine', () => {
 
     expect(caught).toBeInstanceOf(AggregateError);
     expect((caught as AggregateError).cause).toBe(failure);
-    expect((caught as AggregateError).errors).toEqual([failure, rollbackFailure, deferFailure]);
+    expect((caught as AggregateError).errors).toEqual([
+      failure,
+      rollbackFailure,
+      deferFailure,
+    ]);
     expect(machine.state).toBe('failed');
   });
 
@@ -379,8 +388,8 @@ describe('LifecycleMachine', () => {
   it('exposes a dedicated transition error type', () => {
     const machine = new LifecycleMachine<State>('completed');
 
-    expect(() => machine.switch({ operation: 'start', from: 'idle', to: 'running' })).toThrow(
-      LifecycleTransitionError,
-    );
+    expect(() =>
+      machine.switch({ operation: 'start', from: 'idle', to: 'running' }),
+    ).toThrow(LifecycleTransitionError);
   });
 });

@@ -1,23 +1,20 @@
 import { execFileSync } from 'node:child_process';
-import { Error2, ErrorCodes, IEnvironmentService } from '@moonshot-ai/agent-core-v2';
+import { Error2, ErrorCodes, IEnvironmentService, IModelCatalog, ISessionManager, IWorkspaceInstanceManager, WorkspaceFsService } from '@moonshot-ai/agent-core-v2';
 import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
-
-import { HostFileSystem, HostProcessService, IModelCatalog, ISessionManager, IWorkspaceInstanceManager, WorkspaceFsService } from '@moonshot-ai/agent-core-v2';
+import { HostFileSystem } from '@moonshot-ai/agent-core-v2';
+import { HostProcessService } from '@moonshot-ai/agent-core-v2';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 import type { EnvironmentCapability } from '@moonshot-ai/agent-core-v2/environment/environment';
 import { ErrorCode } from '../src/protocol/error-codes';
 import { sendMappedError } from '../src/routes/fs';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
 import { fakeModelCatalog } from './helpers/fakeModelCatalog';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { mappingHostFs } from './helpers/mappingHostFs';
-import { removeTempHome } from './helpers/tempHome';
-import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -31,20 +28,11 @@ interface FsEntryWire {
   path: string;
   name: string;
   kind: string;
-  is_directory?: boolean;
   size?: number;
   modified_at: string;
   etag?: string;
   mime?: string;
-}
-
-async function linkDirectory(target: string, path: string): Promise<void> {
-  try {
-    await symlink(target, path, 'dir');
-  } catch (error) {
-    if (process.platform !== 'win32') throw error;
-    await symlink(target, path, 'junction');
-  }
+  is_directory?: boolean;
 }
 
 describe('server-v2 /api/v1 fs routes', () => {
@@ -72,7 +60,7 @@ describe('server-v2 /api/v1 fs routes', () => {
 
   afterEach(async () => {
     if (work !== undefined) {
-      await removeTempHome(work);
+      await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       work = undefined;
     }
   });
@@ -83,7 +71,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       home = undefined;
     }
   });
@@ -99,6 +87,24 @@ describe('server-v2 /api/v1 fs routes', () => {
     } catch {
       return false;
     }
+  }
+
+  async function createWorkspaceSession(root: string, additionalDirs: string[]): Promise<string> {
+    const workspaceRes = await fetch(`${base}/api/v1/workspaces`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ root, additional_dirs: additionalDirs }),
+    } as never);
+    const workspace = (await workspaceRes.json()) as Envelope<{ id: string }>;
+    expect(workspace.code).toBe(0);
+    const sessionRes = await fetch(`${base}/api/v1/sessions`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ workspace_id: workspace.data.id }),
+    } as never);
+    const session = (await sessionRes.json()) as Envelope<{ id: string }>;
+    expect(session.code).toBe(0);
+    return session.data.id;
   }
 
   async function createSession(): Promise<string> {
@@ -155,80 +161,77 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:read returns utf-8 content', async () => {
     await writeFile(join(work!, 'a.txt'), 'hello world');
     const id = await createSession();
-    const body = await postFs<{ content: string; encoding: string; size: number }>(id, 'read', {
-      path: 'a.txt',
-    });
+    const body = await postFs<{ content: string; encoding: string; size: number }>(
+      id,
+      'read',
+      { path: 'a.txt' },
+    );
     expect(body.code).toBe(0);
     expect(body.data.content).toBe('hello world');
     expect(body.data.encoding).toBe('utf-8');
     expect(body.data.size).toBe(11);
   });
 
-  it.each(
-    [
-      {
-        name: 'keeps a plain ASCII filename compatible',
-        posixOnly: false,
-        filename: 'plain report.pdf',
-        directory: 'docs',
-        mime: 'application/pdf',
-        fallback: 'plain report.pdf',
-        encoded: undefined,
-        bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]),
-      },
-      {
-        name: 'downloads a Unicode PDF from a Unicode directory',
-        posixOnly: false,
-        filename: '报告 （终版） 😀.pdf',
-        directory: '分析数据/归档',
-        mime: 'application/pdf',
-        fallback: '__ ____ __.pdf',
-        encoded: encodeURIComponent('报告 （终版） 😀.pdf'),
-        bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]),
-      },
-      {
-        name: 'downloads a Unicode PNG with full-width punctuation and an emoji',
-        posixOnly: false,
-        filename: '趋势图 （全角） 😀.png',
-        directory: '分析数据/stat',
-        mime: 'image/png',
-        fallback: '___ ____ __.png',
-        encoded: encodeURIComponent('趋势图 （全角） 😀.png'),
-        bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      },
-      {
-        name: 'escapes quotes and backslashes',
-        posixOnly: true,
-        filename: 'quote"back\\slash.png',
-        directory: 'docs',
-        mime: 'image/png',
-        fallback: 'quote\\"back\\\\slash.png',
-        encoded: 'quote%22back%5Cslash.png',
-        bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      },
-      {
-        name: 'removes CR and LF from the plain filename parameter',
-        posixOnly: true,
-        filename: 'line\r\nbreak.pdf',
-        directory: 'docs',
-        mime: 'application/pdf',
-        fallback: 'line__break.pdf',
-        encoded: 'line%0D%0Abreak.pdf',
-        bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]),
-      },
-    ].filter(({ posixOnly }) => !posixOnly || process.platform !== 'win32'),
-  )('$name', async ({ filename, directory, mime, fallback, encoded, bytes }) => {
+  it.each([
+    {
+      name: 'keeps a plain ASCII filename compatible',
+      posixOnly: false,
+      filename: 'plain report.pdf',
+      directory: 'docs',
+      mime: 'application/pdf',
+      fallback: 'plain report.pdf',
+      encoded: undefined,
+      bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]),
+    },
+    {
+      name: 'downloads a Unicode PDF from a Unicode directory',
+      posixOnly: false,
+      filename: '报告 （终版） 😀.pdf',
+      directory: '分析数据/归档',
+      mime: 'application/pdf',
+      fallback: '__ ____ __.pdf',
+      encoded: encodeURIComponent('报告 （终版） 😀.pdf'),
+      bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]),
+    },
+    {
+      name: 'downloads a Unicode PNG with full-width punctuation and an emoji',
+      posixOnly: false,
+      filename: '趋势图 （全角） 😀.png',
+      directory: '分析数据/stat',
+      mime: 'image/png',
+      fallback: '___ ____ __.png',
+      encoded: encodeURIComponent('趋势图 （全角） 😀.png'),
+      bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    },
+    {
+      name: 'escapes quotes and backslashes',
+      posixOnly: true,
+      filename: 'quote"back\\slash.png',
+      directory: 'docs',
+      mime: 'image/png',
+      fallback: 'quote\\"back\\\\slash.png',
+      encoded: 'quote%22back%5Cslash.png',
+      bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    },
+    {
+      name: 'removes CR and LF from the plain filename parameter',
+      posixOnly: true,
+      filename: 'line\r\nbreak.pdf',
+      directory: 'docs',
+      mime: 'application/pdf',
+      fallback: 'line__break.pdf',
+      encoded: 'line%0D%0Abreak.pdf',
+      bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a]),
+    },
+  ].filter(({ posixOnly }) => !posixOnly || process.platform !== 'win32'))('$name', async ({ filename, directory, mime, fallback, encoded, bytes }) => {
     const relative = `${directory}/${filename}`;
     await mkdir(join(work!, directory), { recursive: true });
     await writeFile(join(work!, relative), bytes);
     const id = await createSession();
     const path = relative.split('/').map(encodeURIComponent).join('/');
-    const response = await fetch(
-      `${base}/api/v1/sessions/${id}/fs/${path}:download?allow_external_symlinks=true`,
-      {
-        headers: authHeaders(server as RunningServer),
-      } as never,
-    );
+    const response = await fetch(`${base}/api/v1/sessions/${id}/fs/${path}:download?allow_external_symlinks=true`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toBe(mime);
     const disposition = response.headers.get('content-disposition') ?? '';
@@ -257,42 +260,31 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(directory.status).toBe(400);
     expect(directoryBody.code).toBe(ErrorCode.VALIDATION_FAILED);
 
-    const invalidQuery = await fetch(
-      `${base}/api/v1/sessions/${id}/fs/missing.png:download?allow_external_symlinks=invalid`,
-      {
-        headers: authHeaders(server as RunningServer),
-      } as never,
-    );
+    const invalidQuery = await fetch(`${base}/api/v1/sessions/${id}/fs/missing.png:download?allow_external_symlinks=invalid`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     const invalidQueryBody = (await invalidQuery.json()) as Envelope<null>;
     expect(invalidQuery.status).toBe(400);
     expect(invalidQueryBody.code).toBe(ErrorCode.VALIDATION_FAILED);
 
-    const missingSession = await fetch(
-      `${base}/api/v1/sessions/s_missing/fs/missing.png:download`,
-      {
-        headers: authHeaders(server as RunningServer),
-      } as never,
-    );
+    const missingSession = await fetch(`${base}/api/v1/sessions/s_missing/fs/missing.png:download`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     const missingSessionBody = (await missingSession.json()) as Envelope<null>;
     expect(missingSession.status).toBe(404);
     expect(missingSessionBody.code).toBe(ErrorCode.SESSION_NOT_FOUND);
 
     let status = 0;
     let body: Envelope<null> | undefined;
-    sendMappedError(
-      {
-        code(value: number) {
-          status = value;
-          return this;
-        },
-        send(payload: unknown) {
-          body = payload as Envelope<null>;
-        },
-      } as never,
-      { id: 'req_config' },
-      new Error2(ErrorCodes.CONFIG_INVALID, 'invalid workspace config'),
-      true,
-    );
+    sendMappedError({
+      code(value: number) {
+        status = value;
+        return this;
+      },
+      send(payload: unknown) {
+        body = payload as Envelope<null>;
+      },
+    } as never, { id: 'req_config' }, new Error2(ErrorCodes.CONFIG_INVALID, 'invalid workspace config'), true);
     expect(status).toBe(400);
     expect(body?.code).toBe(ErrorCode.VALIDATION_FAILED);
   });
@@ -309,7 +301,7 @@ describe('server-v2 /api/v1 fs routes', () => {
             { environmentId: 'remote-session', generation: 'remote-generation' },
             { capabilities: ['fs', 'process'] },
           ),
-          { fs: mappingHostFs(remote), process: new HostProcessService() },
+          { fs: new HostFileSystem(), process: new HostProcessService() },
         );
         const registration = host.registerEnvironment(environment);
         return { dispose: () => registration.remove() };
@@ -319,7 +311,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       const created = await fetch(`${base}/api/v1/sessions`, {
         method: 'POST',
         headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-        body: JSON.stringify({ metadata: { cwd: work as string }, environment_id: 'remote-session', environment_cwd: '/' }),
+        body: JSON.stringify({ metadata: { cwd: work as string }, environment_id: 'remote-session', environment_cwd: remote }),
       } as never);
       const session = (await created.json()) as Envelope<{ id: string }>;
       expect(session.code).toBe(0);
@@ -345,7 +337,6 @@ describe('server-v2 /api/v1 fs routes', () => {
   });
 
   it('fs:read maps a permission-denied host error to FS_PERMISSION_DENIED', async () => {
-    if (process.platform === 'win32') return;
     if (process.getuid?.() === 0) return;
     const file = join(work!, 'locked.txt');
     await writeFile(file, 'secret');
@@ -373,10 +364,10 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:list expands in-workspace symlink directories and keeps outside links closed', async () => {
     await mkdir(join(work!, 'real/nested'), { recursive: true });
     await writeFile(join(work!, 'real/nested/inside.txt'), '');
-    await linkDirectory(join(work!, 'real'), join(work!, 'link'));
+    await symlink(join(work!, 'real'), join(work!, 'link'));
     const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-outside-'));
     await writeFile(join(outside, 'secret.txt'), '');
-    await linkDirectory(outside, join(work!, 'outside-link'));
+    await symlink(outside, join(work!, 'outside-link'));
     try {
       const id = await createSession();
       const recursive = await postFs<{
@@ -522,10 +513,7 @@ describe('server-v2 /api/v1 fs routes', () => {
   });
 
   it('fs:list traverses ignored ancestors across wildcard glob segments', async () => {
-    await writeFile(
-      join(work!, '.gitignore'),
-      'ignored-a/\nignored-b/\nignored-dir/\nother-dir/\n',
-    );
+    await writeFile(join(work!, '.gitignore'), 'ignored-a/\nignored-b/\nignored-dir/\nother-dir/\n');
     await mkdir(join(work!, 'ignored-a'), { recursive: true });
     await mkdir(join(work!, 'ignored-b'), { recursive: true });
     await mkdir(join(work!, 'ignored-dir/sub'), { recursive: true });
@@ -590,9 +578,11 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:stat_many returns null for missing paths', async () => {
     await writeFile(join(work!, 'a.txt'), 'hi');
     const id = await createSession();
-    const body = await postFs<{ entries: Record<string, FsEntryWire | null> }>(id, 'stat_many', {
-      paths: ['a.txt', 'missing.txt'],
-    });
+    const body = await postFs<{ entries: Record<string, FsEntryWire | null> }>(
+      id,
+      'stat_many',
+      { paths: ['a.txt', 'missing.txt'] },
+    );
     expect(body.code).toBe(0);
     expect(body.data.entries['a.txt']?.kind).toBe('file');
     expect(body.data.entries['missing.txt']).toBeNull();
@@ -666,9 +656,11 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:grep finds matching lines', async () => {
     await writeFile(join(work!, 'a.txt'), 'hello world\nfoo bar\n');
     const id = await createSession();
-    const body = await postFs<{ files: { path: string; matches: unknown[] }[] }>(id, 'grep', {
-      pattern: 'hello',
-    });
+    const body = await postFs<{ files: { path: string; matches: unknown[] }[] }>(
+      id,
+      'grep',
+      { pattern: 'hello' },
+    );
     expect(body.code).toBe(0);
     expect(body.data.files.length).toBeGreaterThanOrEqual(1);
   });
@@ -679,22 +671,52 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.code).toBe(ErrorCode.FS_GIT_UNAVAILABLE);
   });
 
-  it('fs:git_status:batch reports a per-root error instead of failing the request', async () => {
-    const id = await createSession();
-    const body = await postFs<{
-      results: Record<string, unknown>;
-      errors: Record<string, { code: number; msg: string }>;
-    }>(id, 'git_status:batch', { roots: [work as string], include_pull_request: false });
-    expect(body.code).toBe(0);
-    expect(body.data.results).toEqual({});
-    expect(body.data.errors[work as string]?.code).toBe(ErrorCode.FS_GIT_UNAVAILABLE);
-  });
+  it('fs:git_status selects and scopes an additional root', async () => {
+    const extra = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-extra-'));
+    try {
+      for (const [cwd, name] of [[work!, 'main.txt'], [extra, 'extra.txt']] as const) {
+        git(cwd, 'init', '-b', 'main');
+        git(cwd, 'config', 'user.email', 'test@example.com');
+        git(cwd, 'config', 'user.name', 'Test');
+        await writeFile(join(cwd, name), 'one\n');
+        git(cwd, 'add', '-A');
+        git(cwd, 'commit', '-m', 'init');
+        await writeFile(join(cwd, name), 'one\ntwo\n');
+      }
+      const id = await createWorkspaceSession(work!, [extra]);
 
-  it('fs:pull_request maps a non-git workspace to FS_GIT_UNAVAILABLE', async () => {
-    const id = await createSession();
-    const body = await postFs<null>(id, 'pull_request', {});
-    expect(body.code).toBe(ErrorCode.FS_GIT_UNAVAILABLE);
-  });
+      const primary = await postFs<{ branch: string; entries: Record<string, string>; additions: number }>(id, 'git_status', { root: work });
+      const additional = await postFs<{ branch: string; entries: Record<string, string>; additions: number }>(id, 'git_status', { root: extra, include_pull_request: false });
+      const pullRequest = await postFs<null>(id, 'pull_request', { root: extra });
+      const batch = await postFs<{ results: Record<string, { entries: Record<string, string> }> }>(id, 'git_status:batch', { roots: [work, extra], include_pull_request: false });
+      const prBatch = await postFs<{ results: Record<string, null> }>(id, 'pull_request:batch', { roots: [work, extra] });
+      const additionalDiff = await postFs<{ path: string; diff: string }>(id, 'diff', { root: extra, path: 'extra.txt' });
+      const fileRoot = await postFs<null>(id, 'git_status', { root: 'main.txt' });
+      const outside = await postFs<null>(id, 'git_status', { root: tmpdir() });
+
+      expect(primary.code).toBe(0);
+      expect(primary.data.entries).toEqual({ 'main.txt': 'modified' });
+      expect(primary.data.additions).toBe(1);
+      expect(additional.code).toBe(0);
+      expect(additional.data.branch).toBe('main');
+      expect(additional.data.entries).toEqual({ 'extra.txt': 'modified' });
+      expect(additional.data.additions).toBe(1);
+      expect(pullRequest.code).toBe(0);
+      expect(pullRequest.data).toBeNull();
+      expect(batch.code).toBe(0);
+      expect(batch.data.results[work!]?.entries).toEqual({ 'main.txt': 'modified' });
+      expect(batch.data.results[extra]?.entries).toEqual({ 'extra.txt': 'modified' });
+      expect(prBatch.code).toBe(0);
+      expect(prBatch.data.results).toEqual({ [work!]: null, [extra]: null });
+      expect(additionalDiff.code).toBe(0);
+      expect(additionalDiff.data.path).toBe('extra.txt');
+      expect(additionalDiff.data.diff).toContain('+two');
+      expect(fileRoot.code).toBe(ErrorCode.FS_GIT_UNAVAILABLE);
+      expect(outside.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
+    } finally {
+      await rm(extra, { recursive: true, force: true });
+    }
+  }, 20000);
 
   it('rejects an unknown action with VALIDATION_FAILED', async () => {
     const id = await createSession();
@@ -717,7 +739,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-outside-'));
     try {
       await writeFile(join(outside, 'secret.txt'), 'top-secret');
-      await linkDirectory(outside, join(work!, 'docs'));
+      await symlink(outside, join(work!, 'docs'), 'dir');
       const id = await createSession();
 
       const body = await postFs<null>(id, 'read', { path: 'docs/secret.txt' });
@@ -728,20 +750,6 @@ describe('server-v2 /api/v1 fs routes', () => {
       } as never);
       const downloadBody = (await res.json()) as Envelope<null>;
       expect(downloadBody.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
-
-      const allowedRead = await postFs<{ content: string }>(id, 'read', {
-        path: 'docs/secret.txt',
-        allow_external_symlinks: true,
-      });
-      expect(allowedRead.code).toBe(0);
-      expect(allowedRead.data.content).toBe('top-secret');
-
-      const allowedDownload = await fetch(
-        `${base}/api/v1/sessions/${id}/fs/docs/secret.txt:download?allow_external_symlinks=true`,
-        { headers: authHeaders(server as RunningServer) } as never,
-      );
-      expect(allowedDownload.status).toBe(200);
-      expect(await allowedDownload.text()).toBe('top-secret');
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
@@ -749,7 +757,7 @@ describe('server-v2 /api/v1 fs routes', () => {
 
   it('serves fs actions when the session cwd itself goes through a symlink', async () => {
     const link = join(tmpdir(), `kimi-server-v2-fs-cwd-link-${process.pid}`);
-    await linkDirectory(work!, link);
+    await symlink(work!, link, 'dir');
     try {
       const res = await fetch(`${base}/api/v1/sessions`, {
         method: 'POST',
@@ -782,7 +790,7 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('workspace fs:list expands symlink directories without a session', async () => {
     await mkdir(join(work!, 'real/nested'), { recursive: true });
     await writeFile(join(work!, 'real/nested/inside.txt'), '');
-    await linkDirectory(join(work!, 'real'), join(work!, 'link'));
+    await symlink(join(work!, 'real'), join(work!, 'link'));
 
     const root = await postWorkspaceList<{
       items: FsEntryWire[];
@@ -811,7 +819,6 @@ describe('server-v2 /api/v1 fs routes', () => {
   });
 
   it('workspace fs:list maps permission errors to FS_PERMISSION_DENIED', async () => {
-    if (process.platform === 'win32') return;
     if (process.getuid?.() === 0) return;
     const blocked = join(work!, 'blocked');
     await mkdir(blocked);
@@ -827,7 +834,7 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('workspace fs:list can open external symlink directories when enabled', async () => {
     const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-workspace-outside-'));
     await writeFile(join(outside, 'secret.txt'), '');
-    await linkDirectory(outside, join(work!, 'outside-link'));
+    await symlink(outside, join(work!, 'outside-link'));
     try {
       const root = await postWorkspaceList<{
         items: FsEntryWire[];
@@ -967,6 +974,174 @@ describe('server-v2 /api/v1 fs routes', () => {
     return (await res.json()) as Envelope<T>;
   }
 
+  it('workspace fs:suggest searches registered source folders with root-specific paths', async () => {
+    const extra = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-extra-'));
+    try {
+      await writeFile(join(work!, 'primary-only.ts'), '');
+      await writeFile(join(work!, 'shared.ts'), 'primary');
+      await writeFile(join(extra, 'secondary-only.ts'), '');
+      await writeFile(join(extra, 'shared.ts'), 'secondary');
+      await writeFile(join(extra, '.gitignore'), 'ignored-shared.ts\n');
+      await writeFile(join(extra, 'ignored-shared.ts'), 'ignored');
+      const workspace = await createRegisteredWorkspace([extra]);
+      const extraShared = join(extra, 'shared.ts').split(sep).join('/');
+      const extraSecondary = join(extra, 'secondary-only.ts').split(sep).join('/');
+      const extraIgnored = join(extra, 'ignored-shared.ts').split(sep).join('/');
+
+      const shared = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: 'shared',
+      });
+      expect(shared.code).toBe(0);
+      expect(shared.data.items.map((item) => item.path)).toHaveLength(3);
+      expect(shared.data.items.map((item) => item.path)).toEqual(
+        expect.arrayContaining(['shared.ts', extraShared]),
+      );
+      expect(shared.data.items.at(-1)?.path).toBe(extraIgnored);
+
+      const withIgnored = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: 'shared',
+        follow_gitignore: false,
+      });
+      expect(withIgnored.code).toBe(0);
+      expect(withIgnored.data.items.map((item) => item.path)).toHaveLength(3);
+      expect(withIgnored.data.items.at(-1)?.path).toBe(extraIgnored);
+
+      const secondary = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: 'secondary-only',
+      });
+      expect(secondary.code).toBe(0);
+      expect(secondary.data.items.map((item) => item.path)).toEqual([extraSecondary]);
+
+      const empty = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: '',
+      });
+      expect(empty.code).toBe(0);
+      expect(empty.data.items.map((item) => item.path)).toEqual(
+        expect.arrayContaining(['primary-only.ts', 'shared.ts', extraSecondary, extraShared]),
+      );
+    } finally {
+      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
+  it('workspace fs:search searches registered source folders including cold session refs', async () => {
+    const extra = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-extra-'));
+    try {
+      await writeFile(join(work!, 'shared.ts'), 'primary');
+      await writeFile(join(extra, 'shared.ts'), 'secondary');
+      await writeFile(join(extra, 'secondary-only.ts'), '');
+      const workspace = await createRegisteredWorkspace([extra]);
+      const extraShared = join(extra, 'shared.ts').split(sep).join('/');
+      const extraSecondary = join(extra, 'secondary-only.ts').split(sep).join('/');
+
+      const shared = await postWorkspaceSearch<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: 'shared',
+      });
+      expect(shared.code).toBe(0);
+      expect(shared.data.items.map((item) => item.path)).toHaveLength(2);
+      expect(shared.data.items.map((item) => item.path)).toEqual(
+        expect.arrayContaining(['shared.ts', extraShared]),
+      );
+
+      const empty = await postWorkspaceSearch<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: '',
+      });
+      expect(empty.code).toBe(0);
+      expect(empty.data.items.map((item) => item.path)).toEqual(
+        expect.arrayContaining(['shared.ts', extraShared, extraSecondary]),
+      );
+
+      const cold = await postFs<{ items: SuggestItemWire[] }>(workspace.id, 'search', {
+        query: 'secondary-only',
+      });
+      expect(cold.code).toBe(0);
+      expect(cold.data.items.map((item) => item.path)).toEqual([extraSecondary]);
+    } finally {
+      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
+  it('workspace fs routes use the latest registered source folders after materialization', async () => {
+    const removed = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-removed-'));
+    const added = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-added-'));
+    try {
+      await writeFile(join(removed, 'removed-only.ts'), '');
+      await writeFile(join(added, 'added-only.ts'), '');
+      const workspace = await createRegisteredWorkspace([removed]);
+      const removedPath = join(removed, 'removed-only.ts').split(sep).join('/');
+      const addedPath = join(added, 'added-only.ts').split(sep).join('/');
+
+      const initial = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: 'removed-only',
+      });
+      expect(initial.code).toBe(0);
+      expect(initial.data.items.map((item) => item.path)).toEqual([removedPath]);
+
+      await updateRegisteredWorkspaceDirs(workspace.id, [removed, added]);
+      const withAdded = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: 'added-only',
+      });
+      expect(withAdded.code).toBe(0);
+      expect(withAdded.data.items.map((item) => item.path)).toEqual([addedPath]);
+
+      await updateRegisteredWorkspaceDirs(workspace.id, [added]);
+      const afterRemoval = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: 'removed-only',
+      });
+      expect(afterRemoval.code).toBe(0);
+      expect(afterRemoval.data.items).toEqual([]);
+    } finally {
+      await Promise.all([
+        rm(removed, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
+        rm(added, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
+      ]);
+    }
+  });
+
+  it('workspace fs:list respects registered source folder boundaries', async () => {
+    const extra = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-extra-'));
+    const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-outside-'));
+    try {
+      await writeFile(join(work!, 'primary.ts'), '');
+      await writeFile(join(extra, 'secondary.ts'), '');
+      await writeFile(join(outside, 'outside.ts'), '');
+      const workspace = await createRegisteredWorkspace([extra]);
+
+      const primary = await postWorkspaceList<{ items: FsEntryWire[] }>({
+        workspace: workspace.id,
+        path: '.',
+      });
+      expect(primary.code).toBe(0);
+      expect(primary.data.items.map((item) => item.path)).toEqual(['primary.ts']);
+
+      const additional = await postWorkspaceList<{ items: FsEntryWire[] }>({
+        workspace: workspace.id,
+        path: extra,
+      });
+      expect(additional.code).toBe(0);
+      expect(additional.data.items.map((item) => item.path)).toEqual(['secondary.ts']);
+
+      const rejected = await postWorkspaceList<null>({
+        workspace: workspace.id,
+        path: outside,
+      });
+      expect(rejected.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
+    } finally {
+      await Promise.all([
+        rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
+        rm(outside, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
+      ]);
+    }
+  });
 
   it('workspace fs:suggest finds files by registered workspace id', async () => {
     await writeFile(join(work!, 'epsilon.ts'), '');
@@ -987,7 +1162,7 @@ describe('server-v2 /api/v1 fs routes', () => {
 
     const previewItem = { path: 'preview.ts', name: 'preview.ts', kind: 'file' as const, score: 1, match_positions: [] };
     const finalItem = { path: 'epsilon.ts', name: 'epsilon.ts', kind: 'file' as const, score: 1, match_positions: [0] };
-    const streamSpy = spyOn(WorkspaceFsService.prototype, 'suggestStream');
+    const streamSpy = vi.spyOn(WorkspaceFsService.prototype, 'suggestStream');
     try {
       streamSpy.mockImplementation(async function* () {
         yield { phase: 'preview' as const, response: { items: [previewItem], truncated: true } };
@@ -1031,11 +1206,72 @@ describe('server-v2 /api/v1 fs routes', () => {
       expect((await reader.read()).done).toBe(false);
       controller.abort();
       await reader.cancel().catch(() => {});
-      await waitForAssertion(() => {
+      await vi.waitFor(() => {
         expect(engineSignal?.aborted).toBe(true);
       });
     } finally {
       streamSpy.mockRestore();
+    }
+  });
+
+  it('workspace fs routes keep additional dirs scoped to the requested registered workspace', async () => {
+    const shared = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-shared-'));
+    const firstOnly = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-first-'));
+    const secondOnly = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-second-'));
+    try {
+      await writeFile(join(shared, 'shared-file.ts'), '');
+      await writeFile(join(firstOnly, 'first-only.ts'), '');
+      await writeFile(join(secondOnly, 'second-only.ts'), '');
+      const create = async (additionalDirs: string[]): Promise<string> => {
+        const res = await fetch(`${base}/api/v1/workspaces`, {
+          method: 'POST',
+          headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+          body: JSON.stringify({ root: work, additional_dirs: additionalDirs }),
+        } as never);
+        const created = (await res.json()) as Envelope<{ id: string }>;
+        expect(created.code).toBe(0);
+        return created.data.id;
+      };
+      const first = await create([shared, firstOnly]);
+      const second = await create([shared, secondOnly]);
+
+      const listed = await postWorkspaceList<{ items: FsEntryWire[] }>({ workspace: first, path: shared });
+      expect(listed.code).toBe(0);
+      expect(listed.data.items.map((item) => item.name)).toContain('shared-file.ts');
+
+      const firstSearch = await postWorkspaceSearch<{ items: { path: string }[] }>({
+        workspace: first,
+        query: 'only',
+      });
+      const secondSearch = await postWorkspaceSearch<{ items: { path: string }[] }>({
+        workspace: second,
+        query: 'only',
+      });
+      expect(firstSearch.code).toBe(0);
+      expect(secondSearch.code).toBe(0);
+      expect(firstSearch.data.items.some((item) => item.path.endsWith('first-only.ts'))).toBe(true);
+      expect(firstSearch.data.items.some((item) => item.path.endsWith('second-only.ts'))).toBe(false);
+      expect(secondSearch.data.items.some((item) => item.path.endsWith('second-only.ts'))).toBe(true);
+      expect(secondSearch.data.items.some((item) => item.path.endsWith('first-only.ts'))).toBe(false);
+
+      const suggested = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
+        workspace: second,
+        query: 'shared-file',
+      });
+      expect(suggested.code).toBe(0);
+      expect(suggested.data.items.some((item) => item.path.endsWith('shared-file.ts'))).toBe(true);
+
+      const res = await fetch(`${base}/api/v1/workspaces`, {
+        headers: authHeaders(server as RunningServer),
+      } as never);
+      const workspaces = (await res.json()) as Envelope<{
+        items: { id: string; root: string; additional_dirs: string[] }[];
+      }>;
+      expect(workspaces.data.items.some((item) => [shared, firstOnly, secondOnly].includes(item.root))).toBe(false);
+    } finally {
+      await rm(shared, { recursive: true, force: true });
+      await rm(firstOnly, { recursive: true, force: true });
+      await rm(secondOnly, { recursive: true, force: true });
     }
   });
 
@@ -1182,10 +1418,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     await mkdir(join(work!, 'apps', 'desktop'));
     await writeFile(join(work!, 'apps', 'desktop', 'package.json'), '{}');
     await writeFile(join(work!, 'README.md'), '');
-    const viaWorkspace = await postWorkspaceSuggest<{
-      items: SuggestItemWire[];
-      truncated: boolean;
-    }>({
+    const viaWorkspace = await postWorkspaceSuggest<{ items: SuggestItemWire[]; truncated: boolean }>({
       workspace: work,
       query: 'apps/de',
     });
@@ -1209,16 +1442,14 @@ describe('server-v2 /api/v1 fs routes', () => {
         query: 'util',
       });
       expect(body.code).toBe(0);
-      expect(body.data.items.map((i) => i.path)).toContain(
-        join(extra, 'lib', 'util.ts').split(sep).join('/'),
-      );
+      expect(body.data.items.map((i) => i.path)).toContain(join(extra, 'lib', 'util.ts').split(sep).join('/'));
       const shared = await postRootSuggest<{ items: SuggestItemWire[] }>({
         roots: [work, extra],
         query: 'shared',
       });
       expect(shared.data.items.map((i) => i.path)).toContain('shared-name.ts');
     } finally {
-      await removeTempHome(extra);
+      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
   });
 
@@ -1236,7 +1467,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       expect(paths).toContain('top-work.ts');
       expect(paths).toContain(join(extra, 'top-extra.ts').split(sep).join('/'));
     } finally {
-      await removeTempHome(extra);
+      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
   });
 
@@ -1249,9 +1480,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       query: 'dup',
     });
     expect(nested.code).toBe(0);
-    expect(
-      nested.data.items.filter((i) => i.path === join('sub', 'dup.ts').split(sep).join('/')),
-    ).toHaveLength(1);
+    expect(nested.data.items.filter((i) => i.path === join('sub', 'dup.ts').split(sep).join('/'))).toHaveLength(1);
 
     const reversed = await postRootSuggest<{ items: SuggestItemWire[] }>({
       roots: [join(work!, 'sub'), work],
@@ -1281,7 +1510,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       expect(body.data.items).toHaveLength(2);
       expect(body.data.truncated).toBe(true);
     } finally {
-      await removeTempHome(extra);
+      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
   });
 
@@ -1329,7 +1558,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       expect(exact.data.items.map((i) => i.path)).toEqual(['.tmp']);
       expect(exact.data.truncated).toBe(true);
     } finally {
-      await removeTempHome(extra);
+      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
   });
 
@@ -1367,167 +1596,4 @@ describe('server-v2 /api/v1 fs routes', () => {
     const body = await postRootSuggest<null>({ roots: [work] });
     expect(body.code).toBe(ErrorCode.VALIDATION_FAILED);
   });
-
-
-  interface RegisteredWorkspaceWire {
-    id: string;
-    root: string;
-    additional_dirs: string[];
-  }
-
-  function rootSpecific(path: string): string {
-    return path.split(sep).join('/');
-  }
-
-  it('workspace fs:search searches registered source folders including cold session refs', async () => {
-    const extra = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-extra-'));
-    try {
-      await writeFile(join(work!, 'shared.ts'), 'primary');
-      await writeFile(join(extra, 'shared.ts'), 'secondary');
-      await writeFile(join(extra, 'secondary-only.ts'), '');
-      const workspace = await createRegisteredWorkspace([extra]);
-      const extraShared = rootSpecific(join(extra, 'shared.ts'));
-      const extraSecondary = rootSpecific(join(extra, 'secondary-only.ts'));
-
-      const shared = await postWorkspaceSearch<{ items: SuggestItemWire[] }>({
-        workspace: workspace.id,
-        query: 'shared',
-      });
-      expect(shared.code).toBe(0);
-      expect(shared.data.items.map((item) => item.path)).toHaveLength(2);
-      expect(shared.data.items.map((item) => item.path)).toEqual(
-        expect.arrayContaining(['shared.ts', extraShared]),
-      );
-
-      const empty = await postWorkspaceSearch<{ items: SuggestItemWire[] }>({
-        workspace: workspace.id,
-        query: '',
-      });
-      expect(empty.code).toBe(0);
-      expect(empty.data.items.map((item) => item.path)).toEqual(
-        expect.arrayContaining(['shared.ts', extraShared, extraSecondary]),
-      );
-
-      const cold = await postFs<{ items: SuggestItemWire[] }>(workspace.id, 'search', {
-        query: 'secondary-only',
-      });
-      expect(cold.code).toBe(0);
-      expect(cold.data.items.map((item) => item.path)).toEqual([extraSecondary]);
-    } finally {
-      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-    }
-  });
-
-  it('workspace fs:suggest searches registered source folders with root-specific paths', async () => {
-    const extra = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-extra-'));
-    try {
-      await writeFile(join(work!, 'shared.ts'), 'primary');
-      await writeFile(join(extra, 'shared.ts'), 'secondary');
-      await writeFile(join(extra, '.gitignore'), 'ignored-shared.ts\n');
-      await writeFile(join(extra, 'ignored-shared.ts'), 'ignored');
-      const workspace = await createRegisteredWorkspace([extra]);
-      const extraShared = rootSpecific(join(extra, 'shared.ts'));
-      const extraIgnored = rootSpecific(join(extra, 'ignored-shared.ts'));
-
-      const body = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
-        workspace: workspace.id,
-        query: 'shared',
-      });
-      expect(body.code).toBe(0);
-      expect(body.data.items.map((item) => item.path)).toHaveLength(3);
-      expect(body.data.items.map((item) => item.path)).toEqual(
-        expect.arrayContaining(['shared.ts', extraShared]),
-      );
-      expect(body.data.items.at(-1)?.path).toBe(extraIgnored);
-
-      const withIgnored = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
-        workspace: workspace.id,
-        query: 'shared',
-        follow_gitignore: false,
-      });
-      expect(withIgnored.code).toBe(0);
-      expect(withIgnored.data.items.map((item) => item.path)).toHaveLength(3);
-      expect(withIgnored.data.items.at(-1)?.path).toBe(extraIgnored);
-    } finally {
-      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-    }
-  });
-
-
-  it('workspace fs:list respects registered source folder boundaries', async () => {
-    const extra = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-extra-'));
-    const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-outside-'));
-    try {
-      await writeFile(join(work!, 'primary.ts'), '');
-      await writeFile(join(extra, 'secondary.ts'), '');
-      await writeFile(join(outside, 'outside.ts'), '');
-      const workspace = await createRegisteredWorkspace([extra]);
-
-      const primary = await postWorkspaceList<{ items: { path: string }[] }>({
-        workspace: workspace.id,
-        path: '.',
-        depth: 1,
-      });
-      expect(primary.code).toBe(0);
-      expect(primary.data.items.map((item) => item.path)).toEqual(['primary.ts']);
-
-      const additional = await postWorkspaceList<{ items: { path: string }[] }>({
-        workspace: workspace.id,
-        path: extra,
-        depth: 1,
-      });
-      expect(additional.code).toBe(0);
-      expect(additional.data.items.map((item) => item.path)).toEqual(['secondary.ts']);
-
-      const rejected = await postWorkspaceList<null>({
-        workspace: workspace.id,
-        path: outside,
-        depth: 1,
-      });
-      expect(rejected.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
-    } finally {
-      await Promise.all([
-        rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
-        rm(outside, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
-      ]);
-    }
-  });
-
-  it('workspace fs routes use the latest registered source folders', async () => {
-    const first = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-first-'));
-    const second = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-second-'));
-    try {
-      await writeFile(join(first, 'first-only.ts'), '');
-      await writeFile(join(second, 'second-only.ts'), '');
-      const workspace = await createRegisteredWorkspace([first]);
-
-      const before = await postWorkspaceSearch<{ items: SuggestItemWire[] }>({
-        workspace: workspace.id,
-        query: 'only',
-      });
-      expect(before.code).toBe(0);
-      expect(before.data.items.map((item) => item.path)).toContain(
-        rootSpecific(join(first, 'first-only.ts')),
-      );
-
-      const patched = await fetch(`${base}/api/v1/workspaces/${workspace.id}`, {
-        method: 'PATCH',
-        headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-        body: JSON.stringify({ additional_dirs: [second] }),
-      } as never);
-      const patchedBody = (await patched.json()) as Envelope<RegisteredWorkspaceWire>;
-      expect(patchedBody.code).toBe(0);
-
-      const after = await postWorkspaceSearch<{ items: SuggestItemWire[] }>({
-        workspace: workspace.id,
-        query: 'only',
-      });
-      expect(after.code).toBe(0);
-      expect(after.data.items.map((item) => item.path)).toContain(
-        rootSpecific(join(second, 'second-only.ts')),
-      );
-    } finally {
-      await rm(first, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-      await rm(second, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-    }
-  });});
+});

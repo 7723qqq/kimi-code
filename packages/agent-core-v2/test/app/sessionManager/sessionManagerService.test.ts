@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, jest, mock, type Mock } from 'bun:test';
 import { IEnvironmentService } from '#/app/environment/environment';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { Emitter, Event } from '#/_base/event';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
@@ -57,6 +57,11 @@ function makeSessionManager(
   const environments = {
     ready: Promise.resolve(),
     current: (id: string) => environmentRegistryOf(workspaces)?.current(id),
+    acquireWhenReady: (binding: { environmentId: string }, required: never) => {
+      const registry = environmentRegistryOf(workspaces);
+      if (registry === undefined) throw new Error('environment registry is not stubbed');
+      return registry.acquireWhenReady(binding, required);
+    },
     acquire: (binding: { environmentId: string }, required: never) => {
       const registry = environmentRegistryOf(workspaces);
       if (registry === undefined) throw new Error('environment registry is not stubbed');
@@ -79,10 +84,6 @@ function makeSessionManager(
         realpath: async (path: string) => path,
       } as unknown as IHostFileSystem),
     overrides.locks ?? new InMemorySessionLockService(),
-    undefined as never,
-    undefined as never,
-    undefined as never,
-    undefined as never,
   );
 }
 
@@ -126,11 +127,11 @@ function workspaceManager(workspace: WorkspaceInstance): IWorkspaceInstanceManag
 } {
   const leases: WorkspaceLease[] = [];
   return {
-    acquire: mock(async () => {
+    acquire: vi.fn(async () => {
       let disposed = false;
       const lease = {
         instance: workspace,
-        dispose: mock(() => {
+        dispose: vi.fn(() => {
           if (disposed) return;
           disposed = true;
         }),
@@ -535,7 +536,7 @@ describe('SessionManager', () => {
     (first.service as { create: unknown }).create = async () => {
       throw new Error('boom');
     };
-    const disposeFirst = mock();
+    const disposeFirst = vi.fn();
     (first.service as { dispose: unknown }).dispose = disposeFirst;
     let generation = 'generation-1';
     const workspace = {
@@ -614,7 +615,7 @@ describe('SessionManager closeIfIdle', () => {
       },
     } as unknown as ISessionScopeHandle;
     let manager: SessionManager;
-    const resume = mock(async (
+    const resume = vi.fn(async (
       sessionId: string,
       _options: unknown,
       source: SessionCreateSource = 'resume',
@@ -622,7 +623,7 @@ describe('SessionManager closeIfIdle', () => {
       if (manager.get(sessionId) === undefined) didCreate.fire({ sessionId, handle, source });
       return handle;
     });
-    const close = mock(async (sessionId: string, _reason: SessionCloseReason = 'exit') => {
+    const close = vi.fn(async (sessionId: string, _reason: SessionCloseReason = 'exit') => {
       didClose.fire({ sessionId });
     });
     const service = {
@@ -650,27 +651,28 @@ describe('SessionManager closeIfIdle', () => {
       { locks },
     );
     managers.push(manager);
-    return { manager, handle, resume, close, locks, activeAt: state.activeAt };
+    return { manager, handle, resume, close, locks };
   }
 
   const create = (fake: ReturnType<typeof setup>): Promise<ISessionScopeHandle> =>
     fake.manager.create({ sessionId: 'session-1', workDir: '/workspace' } as never);
 
+  beforeEach(() => vi.useFakeTimers());
+
   afterEach(() => {
-    jest.useRealTimers();
     for (const manager of managers) manager.dispose();
     managers.length = 0;
+    vi.useRealTimers();
   });
 
   it('reclaims after the activity idle timeout and reloads only once', async () => {
     const fake = setup();
-    jest.setSystemTime(fake.activeAt);
     expect(await fake.manager.closeIfIdle('session-1', 0)).toBe(false);
     await create(fake);
-    jest.setSystemTime(fake.activeAt + 999);
+    vi.setSystemTime(Date.now() + 999);
     expect(await fake.manager.closeIfIdle('session-1', 1000)).toBe(false);
     await fake.manager.resume('session-1');
-    jest.setSystemTime(fake.activeAt + 1000);
+    vi.setSystemTime(Date.now() + 1);
     expect(await fake.manager.closeIfIdle('session-1', 1000)).toBe(true);
     expect(fake.manager.get('session-1')).toBeUndefined();
     await fake.manager.resume('session-1');
@@ -678,13 +680,6 @@ describe('SessionManager closeIfIdle', () => {
     await fake.manager.resume('session-1');
     expect(fake.close.mock.calls[0]?.[1]).toBe('reclaim');
     expect(fake.resume.mock.calls.map((call) => call[2])).toEqual(['resume', 'reclaimed', 'resume']);
-  });
-
-  it('restores the real clock before the next test starts', async () => {
-    const before = Date.now();
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(Date.now()).toBeGreaterThan(before);
-    expect(jest.isFakeTimers()).toBe(false);
   });
 
   const eligibilityCases: Array<[string, Guards]> = [
@@ -747,10 +742,10 @@ describe('SessionManager controller retirement', () => {
   function liveProgram(): {
     readonly registry: EnvironmentRegistry;
     readonly program: Program;
-    readonly controllers: { readonly service: SessionLifecycleService; readonly dispose: Mock<() => unknown> }[];
+    readonly controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof vi.fn> }[];
   } {
     const registry = new EnvironmentRegistry();
-    const controllers: { readonly service: SessionLifecycleService; readonly dispose: Mock<() => unknown> }[] = [];
+    const controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof vi.fn> }[] = [];
     let nextSession = 0;
     const program = new Program(
       'workspace',
@@ -764,6 +759,7 @@ describe('SessionManager controller retirement', () => {
           id: 'workspace',
           name: 'workspace',
           root: '/workspace',
+          kind: 'implicit',
           createdAt: 0,
           lastOpenedAt: 0,
         },
@@ -777,7 +773,7 @@ describe('SessionManager controller retirement', () => {
           const didClose = new Emitter<SessionClosedEvent>();
           const didArchive = new Emitter<SessionArchivedEvent>();
           const live = new Map<string, ISessionScopeHandle>();
-          const dispose = mock(() => {
+          const dispose = vi.fn(() => {
             input.onDispose();
             didCreate.dispose();
             didClose.dispose();
@@ -822,7 +818,7 @@ describe('SessionManager controller retirement', () => {
         },
       } as never,
     );
-    const createGeneration = mock(() => {
+    const createGeneration = vi.fn(() => {
       const lease = registry.acquire({ environmentId: 'local' }, ['fs', 'process']);
       const id = lease.environment.identity.generation;
       lease.dispose();
@@ -1059,6 +1055,27 @@ describe('SessionManager creation environment', () => {
     });
   });
 
+  it.each(['/remote//project', 'C:/remote//project'])('resolves trust-check cwd %s without requesting SSH authentication', async (defaultCwd) => {
+    const { options } = setup(configWith({
+      default: 'password-only',
+      'password-only': { type: 'ssh', host: 'example.test', defaultCwd },
+    }));
+    const connect = vi.fn(async () => { throw new Error('password input is not available yet'); });
+    connectableEnvironment(registry, { environmentId: 'password-only', connect });
+    const acquire = vi.spyOn(registry, 'acquireWhenReady');
+
+    const resolved = await manager.resolveCreationEnvironment({ workDir: '/workspace' });
+
+    expect(resolved).toEqual({
+      workspaceId: 'workspace-1',
+      environmentId: 'password-only',
+      environmentCwd: defaultCwd.startsWith('C:') ? String.raw`C:\remote\project` : '/remote/project',
+    });
+    expect(acquire).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    expect(options).toEqual([]);
+  });
+
   it('normalizes a declared remote cwd before handing it to the controller', async () => {
     const { options } = setup(configWith({ sandbox: { command: 'sandbox', defaultCwd: '/remote//project/./sub/..' } }), true);
     await manager.create({ workDir: '/workspace', environmentId: 'sandbox' });
@@ -1114,11 +1131,11 @@ describe('reloadOnStale', () => {
 
   it('reloads the session and retries once after a stale rejection', async () => {
     const { accessor, order, reloaded } = staleAccessor();
-    const run = jest
+    const run = vi
       .fn<() => Promise<string>>()
       .mockRejectedValueOnce(new Error2(ErrorCodes.SESSION_STALE, 'stale'))
       .mockResolvedValue('done');
-    const onReloaded = mock(async (session: ISessionScopeHandle) => {
+    const onReloaded = vi.fn(async (session: ISessionScopeHandle) => {
       order.push(`reloaded:${session === reloaded}`);
     });
 
@@ -1131,7 +1148,7 @@ describe('reloadOnStale', () => {
   it('reloads but rethrows the stale rejection when retry is off', async () => {
     const { accessor, order } = staleAccessor();
     const stale = new Error2(ErrorCodes.SESSION_STALE, 'stale');
-    const run = mock(async () => {
+    const run = vi.fn(async () => {
       throw stale;
     });
 

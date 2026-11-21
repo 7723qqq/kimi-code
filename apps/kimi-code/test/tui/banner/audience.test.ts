@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   meetsBannerAudience,
@@ -121,9 +121,7 @@ describe('meetsBannerAudience', () => {
     it('matches only the same account region', () => {
       expect(meetsBannerAudience({ region: 'cn' }, loggedIn)).toBe(true);
       expect(meetsBannerAudience({ region: 'oversea' }, loggedIn)).toBe(false);
-      expect(
-        meetsBannerAudience({ region: 'oversea' }, { ...loggedIn, accountRegion: 'oversea' }),
-      ).toBe(true);
+      expect(meetsBannerAudience({ region: 'oversea' }, { ...loggedIn, accountRegion: 'oversea' })).toBe(true);
     });
 
     it('normalizes case and surrounding whitespace', () => {
@@ -154,10 +152,10 @@ describe('meetsBannerAudience', () => {
 
 describe('resolveBannerAudienceContext', () => {
   const fetcherReturning = (result: unknown): BannerUserInfoFetcher =>
-    mock().mockResolvedValue(result) as unknown as BannerUserInfoFetcher;
+    vi.fn().mockResolvedValue(result) as unknown as BannerUserInfoFetcher;
 
   it('returns anonymous without any request when there is no access token', async () => {
-    const fetchUserInfo = mock();
+    const fetchUserInfo = vi.fn();
     const ctx = await resolveBannerAudienceContext(undefined, { fetchUserInfo });
     expect(ctx).toEqual({ login: 'anonymous' });
     expect(fetchUserInfo).not.toHaveBeenCalled();
@@ -168,16 +166,8 @@ describe('resolveBannerAudienceContext', () => {
       kind: 'ok',
       userInfo: { userLevel: 27, goodsVersion: 1, region: 'REGION_CN' },
     });
-    const ctx = await resolveBannerAudienceContext('token', {
-      fetchUserInfo,
-      baseUrl: 'https://example.com',
-    });
-    expect(ctx).toEqual({
-      login: 'logged_in',
-      userLevel: 27,
-      goodsVersion: 1,
-      accountRegion: 'cn',
-    });
+    const ctx = await resolveBannerAudienceContext('token', { fetchUserInfo, baseUrl: 'https://example.com' });
+    expect(ctx).toEqual({ login: 'logged_in', userLevel: 27, goodsVersion: 1, accountRegion: 'cn' });
   });
 
   it('requests the /me URL of the resolved base URL with the bearer token', async () => {
@@ -185,10 +175,7 @@ describe('resolveBannerAudienceContext', () => {
       kind: 'ok',
       userInfo: { userLevel: 10, region: 'REGION_CN' },
     });
-    await resolveBannerAudienceContext('token', {
-      fetchUserInfo,
-      baseUrl: 'https://example.com/coding/v1/',
-    });
+    await resolveBannerAudienceContext('token', { fetchUserInfo, baseUrl: 'https://example.com/coding/v1/' });
     expect(fetchUserInfo).toHaveBeenCalledWith('https://example.com/coding/v1/me', 'token');
   });
 
@@ -197,16 +184,8 @@ describe('resolveBannerAudienceContext', () => {
       kind: 'ok',
       userInfo: { userLevel: 10, region: 'REGION_SOMEWHERE' },
     });
-    const ctx = await resolveBannerAudienceContext('token', {
-      fetchUserInfo,
-      baseUrl: 'https://example.com',
-    });
-    expect(ctx).toEqual({
-      login: 'logged_in',
-      userLevel: 10,
-      goodsVersion: undefined,
-      accountRegion: undefined,
-    });
+    const ctx = await resolveBannerAudienceContext('token', { fetchUserInfo, baseUrl: 'https://example.com' });
+    expect(ctx).toEqual({ login: 'logged_in', userLevel: 10, goodsVersion: undefined, accountRegion: undefined });
   });
 
   it('maps REGION_OVERSEA to the oversea account region', async () => {
@@ -214,20 +193,14 @@ describe('resolveBannerAudienceContext', () => {
       kind: 'ok',
       userInfo: { userLevel: 10, region: 'REGION_OVERSEA' },
     });
-    const ctx = await resolveBannerAudienceContext('token', {
-      fetchUserInfo,
-      baseUrl: 'https://example.com',
-    });
+    const ctx = await resolveBannerAudienceContext('token', { fetchUserInfo, baseUrl: 'https://example.com' });
     expect(ctx).toMatchObject({ login: 'logged_in', accountRegion: 'oversea' });
   });
 
   it('treats 401, 402, and 403 as anonymous', async () => {
     for (const status of [401, 402, 403]) {
       const fetchUserInfo = fetcherReturning({ kind: 'error', status, message: 'denied' });
-      const ctx = await resolveBannerAudienceContext('token', {
-        fetchUserInfo,
-        baseUrl: 'https://example.com',
-      });
+      const ctx = await resolveBannerAudienceContext('token', { fetchUserInfo, baseUrl: 'https://example.com' });
       expect(ctx).toEqual({ login: 'anonymous' });
     }
   });
@@ -236,13 +209,10 @@ describe('resolveBannerAudienceContext', () => {
     const cases: BannerUserInfoFetcher[] = [
       fetcherReturning({ kind: 'error', status: 500, message: 'boom' }),
       fetcherReturning({ kind: 'error', message: 'timeout' }),
-      mock().mockRejectedValue(new Error('network down')) as unknown as BannerUserInfoFetcher,
+      vi.fn().mockRejectedValue(new Error('network down')) as unknown as BannerUserInfoFetcher,
     ];
     for (const fetchUserInfo of cases) {
-      const ctx = await resolveBannerAudienceContext('token', {
-        fetchUserInfo,
-        baseUrl: 'https://example.com',
-      });
+      const ctx = await resolveBannerAudienceContext('token', { fetchUserInfo, baseUrl: 'https://example.com' });
       expect(ctx).toEqual({ login: 'unknown' });
     }
   });

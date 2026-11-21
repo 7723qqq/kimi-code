@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-
 import { visibleWidth } from '@moonshot-ai/pi-tui';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { TruncatedOutputComponent } from '#/tui/components/messages/tool-renderers/truncated';
 import { setRenderCacheEnabled } from '#/tui/utils/render-cache';
+
 
 function strip(text: string): string {
   return text.replaceAll(/\[[0-9;]*m/g, '');
@@ -104,9 +104,6 @@ describe('TruncatedOutputComponent', () => {
   });
 
   it('renders output verbatim, including literal <system> text in file content', () => {
-    // Tool metadata no longer travels inside `output` (it rides the result's
-    // `note` side channel), so the renderer must not eat user data that
-    // merely contains the literal tag.
     const component = new TruncatedOutputComponent(
       '<system>literal text from a user file</system>\n<image path="/tmp/x.png">',
       { expanded: true, isError: false },

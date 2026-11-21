@@ -1,0 +1,3 @@
+A	.changeset/background-task-tail-utf8.md
+M	packages/agent-core-v2/src/agent/task/persist.ts
+M	packages/agent-core-v2/test/agent/task/persist.test.ts

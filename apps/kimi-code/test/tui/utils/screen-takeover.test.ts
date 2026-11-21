@@ -1,11 +1,10 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import type { Component, Terminal } from '@moonshot-ai/pi-tui';
 import { Text, TuiAltScreen, TuiMainScreen } from '@moonshot-ai/pi-tui';
 
 import { beginScreenTakeover, endScreenTakeover } from '#/tui/utils/screen-takeover';
 
-/** Minimal Terminal stub: takeover logic never starts the terminal. */
 function stubTerminal(): Terminal {
   return {
     start: () => {},
@@ -29,6 +28,7 @@ function stubTerminal(): Terminal {
     clearScreen: () => {},
     setTitle: () => {},
     setProgress: () => {},
+    setProgramStatus: () => {},
   };
 }
 
@@ -56,7 +56,6 @@ describe('screen-takeover', () => {
     const ui = new TuiAltScreen(stubTerminal());
     const mainRoot = line('main-layout');
     ui.setLayoutRoot(mainRoot);
-    // The root children list is unused in fullscreen and stays empty.
     expect(ui.children).toHaveLength(0);
 
     const viewer = line('viewer');

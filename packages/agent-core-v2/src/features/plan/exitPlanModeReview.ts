@@ -1,5 +1,7 @@
-import { PlanReviewDecision, reviewDecisionFromLabel } from '#/agent/interaction/reviewDecisions';
-import type { ApprovalResponse, PermissionPolicyResolution } from '#/agent/permissionPolicy/types';
+import type {
+  ApprovalResponse,
+  PermissionPolicyResolution,
+} from '#/agent/permissionPolicy/types';
 import type { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import type {
   BeforeExecuteDecision,
@@ -10,6 +12,7 @@ import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import type { IAgentPlanService } from './plan';
+import { PLAN_REJECTED_ACTIVE, PLAN_REJECTED_DEACTIVATED, REJECT_AND_EXIT_LABEL } from './planLabels';
 
 type PlanReviewDisplay = Extract<ToolInputDisplay, { kind: 'plan_review' }>;
 type PlanReviewOption = NonNullable<PlanReviewDisplay['options']>[number];
@@ -41,10 +44,7 @@ export class ExitPlanModeReview {
           has_options: display.options !== undefined,
         },
         resolveApproval: (result) => this.approvalResult(result, display),
-        resolveNonInteractive: () => ({
-          kind: 'deny',
-          message: PLAN_REVIEW_NON_INTERACTIVE_MESSAGE,
-        }),
+        resolveNonInteractive: () => ({ kind: 'deny', message: PLAN_REVIEW_NON_INTERACTIVE_MESSAGE }),
       },
       'exit-plan-mode-review-ask',
     );
@@ -59,13 +59,12 @@ export class ExitPlanModeReview {
     }
 
     const selected = selectedExitPlanModeOption(display.options, result.selectedLabel);
-    const decision = reviewDecisionFromLabel(result.selectedLabel);
     this.plan.exit();
 
     if (result.selectedLabel !== undefined && result.selectedLabel.length > 0) {
       this.trackPlanTelemetry('plan_resolved', {
         outcome: 'approved',
-        chosen_option: decision ?? result.selectedLabel,
+        chosen_option: result.selectedLabel,
       });
     } else {
       this.trackPlanTelemetry('plan_resolved', { outcome: 'approved' });
@@ -99,21 +98,19 @@ export class ExitPlanModeReview {
       };
     }
 
-    const decision = reviewDecisionFromLabel(result.selectedLabel);
-    if (decision === PlanReviewDecision.REJECT_AND_EXIT) {
+    if (result.selectedLabel === REJECT_AND_EXIT_LABEL) {
       this.plan.exit();
       return {
         kind: 'result',
         result: {
           isError: true,
-          stopTurn: true,
-          output: 'Plan rejected by user. Plan mode deactivated.',
+          output: PLAN_REJECTED_DEACTIVATED,
         },
       };
     }
 
     const feedback = result.feedback ?? '';
-    if (decision === PlanReviewDecision.REVISE || feedback.length > 0) {
+    if (result.selectedLabel === 'Revise' || feedback.length > 0) {
       return {
         kind: 'result',
         result: {
@@ -130,8 +127,7 @@ export class ExitPlanModeReview {
       kind: 'result',
       result: {
         isError: true,
-        stopTurn: true,
-        output: 'Plan rejected by user. Plan mode remains active.',
+        output: PLAN_REJECTED_ACTIVE,
       },
     };
   }
@@ -142,14 +138,13 @@ export class ExitPlanModeReview {
       return;
     }
 
-    const decision = reviewDecisionFromLabel(result.selectedLabel);
-    if (decision === PlanReviewDecision.REJECT_AND_EXIT) {
+    if (result.selectedLabel === REJECT_AND_EXIT_LABEL) {
       this.trackPlanTelemetry('plan_resolved', { outcome: 'rejected_and_exited' });
       return;
     }
 
     const feedback = result.feedback ?? '';
-    if (decision === PlanReviewDecision.REVISE || feedback.length > 0) {
+    if (result.selectedLabel === 'Revise' || feedback.length > 0) {
       this.trackPlanTelemetry('plan_resolved', {
         outcome: 'revise',
         has_feedback: feedback.length > 0,

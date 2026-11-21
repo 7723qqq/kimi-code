@@ -1,8 +1,8 @@
 import type { Readable, Writable } from 'node:stream';
 
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 import { Error2, type Error2Options } from '#/_base/errors/errors';
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 export interface HostProcessOptions {
   readonly cwd?: string;
@@ -48,16 +48,21 @@ export const OsProcessErrors = {
   },
   info: {
     'os.process.spawn_failed': {
+      title: 'Failed to spawn process',
       retryable: false,
       public: true,
+      action: 'Check that the command exists and is executable.',
     },
     'os.process.kill_failed': {
+      title: 'Failed to kill process',
       retryable: false,
       public: true,
     },
     'shell.git_bash_not_found': {
+      title: 'Git Bash not found',
       retryable: false,
       public: true,
+      action: 'Install Git for Windows so shell commands can run under Git Bash.',
     },
   },
 } as const satisfies ErrorDomain;

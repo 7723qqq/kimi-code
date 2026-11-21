@@ -66,7 +66,6 @@ export async function startCallbackServer(): Promise<CallbackServer> {
     unusedSockets.delete(req.socket);
     handle(req, res);
   });
-
   server.on('connection', (socket) => {
     unusedSockets.add(socket);
     socket.once('close', () => unusedSockets.delete(socket));
@@ -74,12 +73,6 @@ export async function startCallbackServer(): Promise<CallbackServer> {
 
   function handle(req: IncomingMessage, res: ServerResponse): void {
     if (req.method !== 'GET' || req.url === undefined) {
-      res.writeHead(404).end();
-      return;
-    }
-    const address = server.address() as AddressInfo | null;
-    const expectedHost = address !== null ? `127.0.0.1:${address.port}` : undefined;
-    if (expectedHost !== undefined && req.headers.host !== expectedHost) {
       res.writeHead(404).end();
       return;
     }
@@ -94,14 +87,16 @@ export async function startCallbackServer(): Promise<CallbackServer> {
       res.writeHead(404).end();
       return;
     }
-    const errorParam = url.searchParams.get('error');
     res.setHeader('connection', 'close');
+    const errorParam = url.searchParams.get('error');
     if (errorParam !== null) {
       const description = url.searchParams.get('error_description') ?? '';
       res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(ERROR_HTML);
       settle({
         status: 'rejected',
-        reason: new Error(`OAuth error: ${errorParam}${description ? ` — ${description}` : ''}`),
+        reason: new Error(
+          `OAuth error: ${errorParam}${description ? ` — ${description}` : ''}`,
+        ),
       });
       return;
     }
@@ -135,7 +130,6 @@ export async function startCallbackServer(): Promise<CallbackServer> {
       server.close(() => {
         resolve();
       });
-
       for (const socket of unusedSockets) socket.destroy();
     });
     return closeServerPromise;
@@ -160,7 +154,8 @@ export async function startCallbackServer(): Promise<CallbackServer> {
       const onAbort = () => {
         settle({
           status: 'rejected',
-          reason: signal?.reason instanceof Error ? signal.reason : new Error('OAuth flow aborted'),
+          reason:
+            signal?.reason instanceof Error ? signal.reason : new Error('OAuth flow aborted'),
         });
       };
       const cleanup = () => {

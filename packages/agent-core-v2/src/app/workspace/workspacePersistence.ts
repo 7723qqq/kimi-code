@@ -13,17 +13,36 @@ export interface PersistedWorkspaceEntry {
 }
 
 export interface PersistedWorkspaceFile {
-  readonly version: number;
+  readonly version?: number;
   readonly workspaces: Record<string, PersistedWorkspaceEntry>;
   readonly deleted_workspace_ids: string[];
   readonly idempotency_keys?: Record<string, string>;
 }
 
+export interface PersistedWorkspaceMigration {
+  readonly source_file: string;
+  readonly source_version?: number;
+  readonly source_sha256: string;
+  readonly migrated_at: string;
+}
+
+export interface PersistedProjectsFile {
+  readonly schema_version: number;
+  readonly projects: Record<string, PersistedWorkspaceEntry>;
+  readonly deleted_project_ids: string[];
+  readonly idempotency_keys?: Record<string, string>;
+  readonly migration?: PersistedWorkspaceMigration;
+}
+
 export interface WorkspaceCatalog {
   readonly workspaces: readonly Workspace[];
   readonly deletedIds: readonly string[];
-  readonly idempotencyKeys?: Record<string, string>;
+  readonly idempotencyKeys?: Readonly<Record<string, string>>;
 }
+
+export type WorkspaceCatalogMutator = (
+  current: WorkspaceCatalog,
+) => WorkspaceCatalog | Promise<WorkspaceCatalog>;
 
 export interface IWorkspacePersistence {
   readonly _serviceBrand: undefined;
@@ -31,9 +50,7 @@ export interface IWorkspacePersistence {
   readonly onDidChange: Event<void>;
 
   load(): Promise<WorkspaceCatalog | undefined>;
-  save(catalog: WorkspaceCatalog): Promise<void>;
-  update<T>(mutate: (catalog: WorkspaceCatalog) => T | Promise<T>): Promise<T>;
-  stamp(): Promise<string | undefined>;
+  update(mutator: WorkspaceCatalogMutator): Promise<void>;
 }
 
 export const IWorkspacePersistence: ServiceIdentifier<IWorkspacePersistence> =

@@ -1,4 +1,7 @@
 export const en = {
+  execution: {
+    incompleteCompletion: 'Work remains unfinished. The model repeated a non-executing or unsupported stopping reply after a completion audit; the runtime is continuing the authorized task instead of marking it complete.',
+  },
   // ============================================================================
   // agent-core errors
   // ============================================================================
@@ -111,6 +114,8 @@ export const en = {
 
   session: {
     newSession: 'New Session',
+    removedDefaultModel:
+      'Default model "{{model}}" is not configured. The previous session model "{{previousModel}}" was preserved. Use /model or restart with -m to select an available model.',
   },
 
   tools: {
@@ -434,6 +439,7 @@ export const en = {
   // kap-server service manager strings
   // ============================================================================
   remoteControl: {
+    invalidProxy: 'Remote Control proxy configuration is invalid; connecting directly.',
     disconnected: 'Remote Control disconnected: {{error}}',
     connectionSilent: 'Remote Control {{label}} connection silent for {{seconds}}s; reconnecting…',
     messageError: 'Remote Control message error: {{error}}',

@@ -13,7 +13,6 @@ function startsNewTurn(message: ContextMessage): boolean {
     case 'cron_job':
     case 'cron_missed':
     case 'task':
-    case 'retry':
       return true;
     case 'system_trigger':
       return origin.name !== 'stop_hook';
@@ -26,14 +25,14 @@ function startsNewTurn(message: ContextMessage): boolean {
   }
 }
 
-function isToolCallRound(message: ContextMessage): boolean {
+function isToolCallRound(
+  message: ContextMessage,
+): message is Extract<ContextMessage, { readonly role: 'assistant' }> {
   return message.role === 'assistant' && message.toolCalls.length > 0;
 }
 
 function isNudge(message: ContextMessage): boolean {
-  return (
-    message.origin?.kind === 'injection' && message.origin.variant === NOTIFY_USER_NUDGE_VARIANT
-  );
+  return message.origin?.kind === 'injection' && message.origin.variant === NOTIFY_USER_NUDGE_VARIANT;
 }
 
 export interface NotifyStreak {

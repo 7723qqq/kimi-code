@@ -1,20 +1,8 @@
-/**
- * Scenario: top-level CLI option parsing, validation, and help discovery.
- * Responsibilities: accepted arguments map to CLIOptions and invalid combinations fail early.
- * Wiring: Commander is real; command handlers and output sinks are local test boundaries.
- * Run: cd apps/kimi-code && bun test --isolate test/cli/options.test.ts
- */
-
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { createProgram } from '#/cli/commands';
 import type { CLIOptions } from '#/cli/options';
-import {
-  OptionConflictError,
-  OUTPUT_FORMAT_ENV,
-  resolveOutputFormat,
-  validateOptions,
-} from '#/cli/options';
+import { OptionConflictError, OUTPUT_FORMAT_ENV, resolveOutputFormat, validateOptions } from '#/cli/options';
 
 function parse(argv: string[]): CLIOptions {
   let captured: CLIOptions | undefined;
@@ -56,6 +44,7 @@ describe('CLI options parsing', () => {
       expect(opts.agent).toBeUndefined();
       expect(opts.agentFiles).toEqual([]);
       expect(opts.addDirs).toEqual([]);
+      expect(opts.environment).toBeUndefined();
     });
   });
 
@@ -405,17 +394,11 @@ describe('CLI options parsing', () => {
   });
 
   describe('--agent / --agent-file', () => {
-    it('describes agent selectors as per-invocation', () => {
-      const help = createProgram(
-        '0.1.0-test',
-        () => {},
-        () => {},
-      ).helpInformation();
+    it('describes agent selectors as new-session-only', () => {
+      const help = createProgram('0.1.0-test', () => {}, () => {}).helpInformation();
       const normalizedHelp = help.replaceAll(/\s+/g, ' ');
 
-      expect(normalizedHelp).toContain(
-        'Agent profile to use for this invocation (v2 engine only).',
-      );
+      expect(normalizedHelp).toContain('Agent profile to start the new session with.');
       expect(normalizedHelp).not.toContain('print-mode invocation');
     });
 
@@ -438,9 +421,9 @@ describe('CLI options parsing', () => {
     });
 
     it('rejects repeated --agent-file', () => {
-      expect(() => parse(['-p', 'hi', '--agent-file', 'a.md', '--agent-file', 'b.md'])).toThrow(
-        '--agent-file may only be specified once.',
-      );
+      expect(() =>
+        parse(['-p', 'hi', '--agent-file', 'a.md', '--agent-file', 'b.md']),
+      ).toThrow('--agent-file may only be specified once.');
     });
 
     it('rejects combining --agent with --agent-file', () => {
@@ -523,6 +506,28 @@ describe('CLI options parsing', () => {
     });
   });
 
+  describe('--environment', () => {
+    for (const resumeArgs of [
+      ['--session', 'ses_123'],
+      ['--continue'],
+    ]) {
+      it(`rejects --environment with ${resumeArgs.join(' ')}`, () => {
+        const opts = parse(['--environment', 'dev-box', ...resumeArgs]);
+        expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+        expect(() => validateOptions(opts)).toThrow(
+          'Cannot combine --environment with --session/--continue',
+        );
+      });
+    }
+  });
+
+  describe('--environment-cwd', () => {
+    it('requires --environment', () => {
+      const opts = parse(['--environment-cwd', '/remote/work']);
+      expect(() => validateOptions(opts)).toThrow('--environment-cwd requires --environment.');
+    });
+  });
+
   describe('--add-dir', () => {
     it('parses one additional workspace directory', () => {
       expect(parse(['--add-dir', '/shared']).addDirs).toEqual(['/shared']);
@@ -589,22 +594,15 @@ describe('CLI options parsing', () => {
         () => {},
       );
       const commandNames: string[] = program.commands
-        .filter(
-          (command) =>
-            !command.name().startsWith('__') &&
-            !(command as unknown as { _hidden?: boolean })._hidden,
-        )
+        .filter((command) => !command.name().startsWith('__') && !(command as unknown as { _hidden?: boolean })._hidden)
         .map((command) => command.name());
       expect(commandNames).toEqual([
         'export',
         'fork',
         'provider',
         'session',
-        'shells',
-        'snapshot',
         'acp',
         'web',
-        'server',
         'rc',
         'login',
         'doctor',
@@ -616,6 +614,7 @@ describe('CLI options parsing', () => {
         'upgrade',
       ]);
     });
+
   });
 
   describe('rejected flags', () => {

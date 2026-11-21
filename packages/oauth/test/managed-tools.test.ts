@@ -1,19 +1,10 @@
-/**
- * Scenario: the managed `/tools` chat_title request contract, including
- * response validation, API failures, timeouts, and transport errors.
- * Wiring: the real request builder with only the external fetch boundary
- * stubbed. Run with:
- * `bun test packages/oauth/test/managed-tools.test.ts`.
- */
-
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { fetchChatTitle, kimiCodeToolsUrl } from '../src/managed-tools';
-import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from './stubs';
 
 afterEach(() => {
-  restoreGlobals();
-  restoreEnvs();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('kimiCodeToolsUrl', () => {
@@ -22,21 +13,21 @@ describe('kimiCodeToolsUrl', () => {
   });
 
   it('honours KIMI_CODE_BASE_URL and trims trailing slashes', () => {
-    setEnv('KIMI_CODE_BASE_URL', 'https://example.test/v9///');
+    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://example.test/v9///');
     expect(kimiCodeToolsUrl()).toBe('https://example.test/v9/tools');
   });
 });
 
 describe('fetchChatTitle', () => {
   it('POSTs the chat_title method with bearer auth and returns the title on 200', async () => {
-    const fetchMock = mock(
+    const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify({ title: 'Go nil pointer 错误排查' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await fetchChatTitle(
       'https://api.example/tools',
@@ -62,14 +53,14 @@ describe('fetchChatTitle', () => {
   });
 
   it('keeps protocol headers authoritative when custom header casing differs', async () => {
-    const fetchMock = mock(
+    const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify({ title: '标题' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     await fetchChatTitle('https://api.example/tools', 'access-token', 'user: hi', {
       headers: {
@@ -89,9 +80,9 @@ describe('fetchChatTitle', () => {
   });
 
   it('trims surrounding whitespace from the title', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
+      vi.fn(
         async () =>
           new Response(JSON.stringify({ title: '  标题  \n' }), {
             status: 200,
@@ -106,9 +97,9 @@ describe('fetchChatTitle', () => {
   });
 
   it('returns an error when the server omits the title', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
+      vi.fn(
         async () =>
           new Response(JSON.stringify({ ok: true }), {
             status: 200,
@@ -126,9 +117,9 @@ describe('fetchChatTitle', () => {
   });
 
   it('returns an error with status when the server responds 401', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async () => new Response('', { status: 401 })),
+      vi.fn(async () => new Response('', { status: 401 })),
     );
 
     const result = await fetchChatTitle('https://api.example/tools', 'tok', 'user: hi');
@@ -140,9 +131,9 @@ describe('fetchChatTitle', () => {
   });
 
   it('surfaces API error messages from failed generations', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
+      vi.fn(
         async () =>
           new Response(JSON.stringify({ error: { message: 'title rejected' } }), {
             status: 400,
@@ -157,9 +148,9 @@ describe('fetchChatTitle', () => {
   });
 
   it('returns a timeout error when the request aborts', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
+      vi.fn(
         (_url: string, init?: RequestInit) =>
           new Promise<Response>((_, reject) => {
             init?.signal?.addEventListener('abort', () => {
@@ -182,9 +173,9 @@ describe('fetchChatTitle', () => {
   });
 
   it('returns a generic error message on network failure', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async () => {
+      vi.fn(async () => {
         throw new TypeError('network down');
       }),
     );
@@ -197,9 +188,9 @@ describe('fetchChatTitle', () => {
   });
 
   it('reports an external abort as an abort, not a timeout', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
+      vi.fn(
         (_url: string, init?: RequestInit) =>
           new Promise<Response>((_, reject) => {
             const rejectAbort = () => {
@@ -231,10 +222,10 @@ describe('fetchChatTitle', () => {
   });
 
   it('fails fast on an already-aborted external signal', async () => {
-    const fetchMock = mock(async () => {
+    const fetchMock = vi.fn(async () => {
       throw new Error('fetch should not start when the signal is pre-aborted');
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
     const external = new AbortController();
     external.abort();
 
@@ -248,9 +239,9 @@ describe('fetchChatTitle', () => {
   });
 
   it('removes the external abort listener once the request settles', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
+      vi.fn(
         async () =>
           new Response(JSON.stringify({ title: '标题' }), {
             status: 200,
@@ -259,8 +250,8 @@ describe('fetchChatTitle', () => {
       ),
     );
     const external = new AbortController();
-    const addSpy = spyOn(external.signal, 'addEventListener');
-    const removeSpy = spyOn(external.signal, 'removeEventListener');
+    const addSpy = vi.spyOn(external.signal, 'addEventListener');
+    const removeSpy = vi.spyOn(external.signal, 'removeEventListener');
 
     await fetchChatTitle('https://api.example/tools', 'tok', 'user: hi', {
       signal: external.signal,

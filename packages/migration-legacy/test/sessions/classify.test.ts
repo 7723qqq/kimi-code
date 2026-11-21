@@ -1,8 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it, beforeEach, afterEach } from '@moonshot-ai/testkit/vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import { classifyLegacySession } from '../../src/sessions/classify.js';
 import { listBucketSessions, type LegacySessionRef } from '../../src/sessions/source.js';
 
@@ -48,8 +47,7 @@ describe('classifyLegacySession', () => {
   it('real: context.jsonl carries a user/assistant/tool message', async () => {
     await makeSession('uuid4', {
       'state.json': '{}',
-      'context.jsonl':
-        '{"role":"_system_prompt","content":"hi"}\n{"role":"user","content":"hello"}\n',
+      'context.jsonl': '{"role":"_system_prompt","content":"hi"}\n{"role":"user","content":"hello"}\n',
       'wire.jsonl': '',
     });
     expect(await classify('uuid4')).toBe('real');

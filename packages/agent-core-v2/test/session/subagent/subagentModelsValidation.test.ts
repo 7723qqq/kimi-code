@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -6,7 +6,10 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { IConfigService } from '#/app/config/config';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import { SECONDARY_MODEL_SECTION, SUBAGENT_SECTION } from '#/session/subagent/configSection';
+import {
+  SECONDARY_MODEL_SECTION,
+  SUBAGENT_SECTION,
+} from '#/session/subagent/configSection';
 import { ISessionSubagentModelsValidationService } from '#/session/subagent/subagentModelsValidation';
 import { SessionSubagentModelsValidationService } from '#/session/subagent/subagentModelsValidationService';
 
@@ -40,7 +43,31 @@ describe('SessionSubagentModelsValidationService', () => {
             { details: { model: id } },
           );
         }
-        return { id, ...modelMeta.get(id) } as Model;
+        const {
+          capabilities,
+          supportEfforts,
+          defaultEffort,
+          offEffort,
+          alwaysThinking,
+          adaptiveThinking,
+          ...rest
+        } = modelMeta.get(id) ?? {};
+        return {
+          ...rest,
+          id,
+          spec: {
+            provider: 'stub',
+            name: id,
+            capability: capabilities,
+            thinking: {
+              supportEfforts,
+              defaultEffort,
+              offEffort,
+              alwaysThinking,
+              adaptiveThinking,
+            },
+          },
+        } as Model;
       },
     } as unknown as IModelCatalog);
     ix.set(
@@ -150,7 +177,9 @@ describe('SessionSubagentModelsValidationService', () => {
     expect(isError2(error)).toBe(true);
     expect((error as Error2).code).toBe(ErrorCodes.CONFIG_INVALID);
     expect((error as Error2).message).toContain('"provider/typo"');
-    expect((error as Error2).message).toContain('Available models: provider/fast, provider/smart.');
+    expect((error as Error2).message).toContain(
+      'Available models: provider/fast, provider/smart.',
+    );
   });
 
   it('accepts "primary" as an ordinary pool alias', () => {
@@ -302,7 +331,9 @@ describe('SessionSubagentModelsValidationService', () => {
     const error = resolve();
     expect(isError2(error)).toBe(true);
     expect((error as Error2).code).toBe(ErrorCodes.CONFIG_INVALID);
-    expect((error as Error2).message).toContain('model "provider/plain" does not support thinking');
+    expect((error as Error2).message).toContain(
+      'model "provider/plain" does not support thinking',
+    );
   });
 
   it('constructs fine when default_effort is off even for a non-thinking pool model', () => {

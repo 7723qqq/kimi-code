@@ -1,26 +1,26 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createUserMessage, type ToolDescription } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
+import { createUserMessage, type ToolDescription } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
 import {
   kimiAnthropicTrait,
   kimiConnection,
   kimiOpenAITrait,
   kimiResponsesTrait,
-} from '#/llm-kimi/trait';
+} from '#human/llm-kimi/trait';
 import {
   createAnthropicRequester,
   prepareAnthropicRequest,
-} from '#/llm/requester/bases/anthropic/requester';
+} from '#human/llm/requester/bases/anthropic/requester';
 import {
   createOpenAIResponsesRequester,
   prepareOpenAIResponsesRequest,
-} from '#/llm/requester/bases/openai-responses/requester';
-import { createOpenAIRequester, prepareOpenAIRequest } from '#/llm/requester/bases/openai/requester';
-import type { LlmRequestEvent } from '#/llm/requester/requester';
+} from '#human/llm/requester/bases/openai-responses/requester';
+import { createOpenAIRequester, prepareOpenAIRequest } from '#human/llm/requester/bases/openai/requester';
+import type { LlmRequestEvent } from '#human/llm/requester/requester';
 
-import { startMockUpstream, type MockUpstream } from '../../../../test/helpers/mockUpstream';
+import { startMockUpstream, type MockUpstream } from '../helpers/mockUpstream';
 
 const TOOLS: readonly ToolDescription[] = [
   {

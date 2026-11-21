@@ -16,21 +16,21 @@ import {
   toLlmStreamErrorMessage,
   toLlmTransportErrorMessage,
   type LlmRemoteErrorMessage,
-} from '#/llm/errors';
-import { NO_FINISH, type FinishInfo, type FinishReason } from '#/llm/finish-reason';
-import { type Message, type StreamedMessagePart, type ToolDescription } from '#/llm/message';
-import { reasoningEffortForModel } from '#/llm/modelFamily';
+} from '#human/llm/errors';
+import { NO_FINISH, type FinishInfo, type FinishReason } from '#human/llm/finish-reason';
+import { type Message, type StreamedMessagePart, type ToolDescription } from '#human/message';
+import { reasoningEffortForModel } from '#human/llm/modelFamily';
 import type {
   FormatRequestInput,
   ProtocolFormat,
   StreamParser,
   StreamParserOptions,
-} from '#/llm/protocol/format';
-import { toolResultToPlainText } from '#/llm/protocol/patterns';
-import { applyPatterns } from '#/llm/protocol/rewrite';
-import type { ToolMessageConversion } from '#/llm/requester/requester';
-import type { ResponseFormat } from '#/llm/response-format';
-import type { LlmLogger } from '#/log/log';
+} from '#human/llm/protocol/format';
+import { toolResultToPlainText } from '#human/llm/protocol/patterns';
+import { applyPatterns } from '#human/llm/protocol/rewrite';
+import type { ToolMessageConversion } from '#human/llm/requester/requester';
+import type { ResponseFormat } from '#human/llm/response-format';
+import type { LlmLogger } from '#human/log/log';
 
 import type { OpenAIRawChunk, OpenAIRawStreamToolCallDelta, OpenAIWireMessage } from './contract';
 import { lowerMessage } from './lower';
@@ -284,7 +284,7 @@ export function createOpenAIFormat(log?: LlmLogger): OpenAIProtocolFormat {
         if (typeof chunk.id === 'string' && chunk.id.length > 0) {
           sink.onMessageId?.(chunk.id);
         }
-        const defaultUsage = parseOpenAIUsage(chunk.usage, log);
+        const defaultUsage = parseOpenAIUsage(chunk.usage ?? chunk.choices?.[0]?.usage, log);
         const usage =
           options?.resolveUsage === undefined
             ? defaultUsage
@@ -365,13 +365,19 @@ function openAIErrorMessage(body: OpenAIErrorBody | undefined): string {
   return typeof body?.message === 'string' ? body.message : '';
 }
 
-function openAIErrorCode(error: RawOpenAISDKAPIError, body: OpenAIErrorBody | undefined): string | undefined {
+function openAIErrorCode(
+  error: RawOpenAISDKAPIError,
+  body: OpenAIErrorBody | undefined,
+): string | undefined {
   const own = typeof error.code === 'string' ? error.code : undefined;
   if (own !== undefined) return own;
   return typeof body?.code === 'string' ? body.code : undefined;
 }
 
-function openAIErrorType(error: RawOpenAISDKAPIError, body: OpenAIErrorBody | undefined): string | undefined {
+function openAIErrorType(
+  error: RawOpenAISDKAPIError,
+  body: OpenAIErrorBody | undefined,
+): string | undefined {
   const own = typeof error.type === 'string' ? error.type : undefined;
   if (own !== undefined) return own;
   return typeof body?.type === 'string' ? body.type : undefined;

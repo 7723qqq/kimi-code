@@ -1,46 +1,43 @@
+import { open } from 'node:fs/promises';
+
 import { join } from 'pathe';
 import { ulid } from 'ulid';
-import { writeFile } from 'node:fs/promises';
 
 import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
-import { classifyGating } from './gating';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { ILogService } from '#/_base/log/log';
+import { isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentMemoryInjectionState } from '#/agent/injection/memoryInjectionState';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
 import { legacyProjectIdFromCwd, projectIdFromCwd } from '#/app/memory/memoryPaths';
+import type { MemoryEntry } from '#/app/memory/memoryPaths';
 import { IMemoryStore } from '#/app/memory/memoryStore';
+import { createMemoryVisibilityContext } from '#/app/memory/memoryVisibility';
 import { LifecycleScope } from '#/app/scopes';
-import { alreadyRendered, markRendered } from '#/agent/injection/renderedLines';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
+import { accessibility } from './accessibility';
 import { activate } from './activate';
+import { recentActivity } from './activity';
 import type { AuditEntry } from './audit';
-import {
-  appendAudit,
-  auditPath,
-  readAudit,
-  type AuditKind,
-} from './audit';
+import { appendAudit, auditPath, readAudit, type AuditKind } from './audit';
+import { clusterIncremental, coocClusterThreshold } from './cluster';
 import {
   applyWriteRules,
   codeAllowsEmbeddings,
   filterRecallItems,
   orderConflictGroups,
 } from './code';
-import {
-  createHttpEmbeddingsClient,
-  resolveEmbeddingsOptions,
-  type EmbeddingsClient,
-} from './embeddings';
 import { DEFAULT_CODE } from './code/defaults';
 import { loadCodeFile } from './code/load';
-import { clusterIncremental, coocClusterThreshold } from './cluster';
-import { compareByText } from './terms';
-import { accessibility } from './accessibility';
+import {
+  approveProposal as approveProposalInStore,
+  proposeRule as proposeRuleInStore,
+} from './code/proposals';
 import {
   applyDecay,
   applyMotivatedForgetting,
@@ -49,26 +46,35 @@ import {
   pruneEdges,
   restoreCaptured,
 } from './decay';
-import { collectSchemaLinks } from './schema';
-import { interleave, rankByNeedGain } from './scheduler';
-import { noteFingerprint, noteTerms } from './dedupe';
-import { encodeAtoms } from './encode';
-import { distillProcedures } from './procedure';
+import { noteFingerprint } from './dedupe';
 import {
-  approveProposal as approveProposalInStore,
-  proposeRule as proposeRuleInStore,
-} from './code/proposals';
+  createHttpEmbeddingsClient,
+  resolveEmbeddingsOptions,
+  type EmbeddingsClient,
+} from './embeddings';
+import { encodeAtoms } from './encode';
 import { ASSOCIATIVE_MEMORY_FLAG_ID } from './flag';
+import { classifyGating } from './gating';
+import { LegacyMemoryMigration, sessionMemoryScopeKey } from './legacyMemoryMigration';
+import { updateConfidence } from './metacognition';
 import { ASSOCIATIVE_MEMORY_PARAMS } from './params';
-import { MEMORY_DATA_BOUNDARY, renderRecall } from './render';
+import { distillProcedures } from './procedure';
+import { MEMORY_DATA_BOUNDARY, renderRecallWithItems } from './render';
+import { interleave, rankByNeedGain } from './scheduler';
+import { collectSchemaLinks } from './schema';
 import { AssociativeMemoryStore } from './store';
+import { compareByText } from './terms';
+import { hebbianConnect, sharesContentTerm } from './train';
+import type { LegacyMemoryOrigin } from './types';
 import type {
   AssociativeMemoryExport,
   AssociativeMemoryList,
   AssociativeMemoryStats,
   Atom,
   Cooccurrence,
+  Concept,
   Edge,
+  Procedure,
   HardRule,
   ListOptions,
   MemoryCode,
@@ -85,18 +91,11 @@ import type {
   MemorySource,
 } from './types';
 import { computeDf, cosine } from './vector';
-import { recentActivity } from './activity';
-import { updateConfidence } from './metacognition';
 import { WorkingBuffer } from './workingBuffer';
-import { hebbianConnect, sharesContentTerm } from './train';
 
 export interface IAssociativeMemoryService {
   readonly _serviceBrand: undefined;
-  writeNote(
-    text: string,
-    scope?: MemoryScopeSelector,
-    source?: MemorySource,
-  ): Promise<WriteResult>;
+  writeNote(text: string, scope?: MemoryScopeSelector, source?: MemorySource): Promise<WriteResult>;
   recall(query: RecallQuery): Promise<RecallResult>;
   pin(id: string): Promise<void>;
   forget(id: string): Promise<void>;
@@ -118,8 +117,9 @@ export interface IAssociativeMemoryService {
   codeBlock(): Promise<string>;
 }
 
-export const IAssociativeMemoryService =
-  createDecorator<IAssociativeMemoryService>('associativeMemoryService');
+export const IAssociativeMemoryService = createDecorator<IAssociativeMemoryService>(
+  'associativeMemoryService',
+);
 
 const storeRootName = 'associative-memory';
 const codeFileName = 'code.md';
@@ -157,76 +157,47 @@ function mostRecent(atoms: readonly Atom[], limit: number): readonly Atom[] {
 }
 const MAX_NOTES = 8000;
 const stores = new Map<string, StoreHandle>();
-const MAX_OPEN_STORES = 8;
-
 interface StoreHandle {
   readonly pending: Promise<AssociativeMemoryStore>;
   refs: number;
-  idleSince: number;
+  closing?: Promise<void>;
 }
 
-function acquireStore(
-  key: string,
-  open: () => Promise<AssociativeMemoryStore>,
-): Promise<AssociativeMemoryStore> {
+function acquireStore(key: string, open: () => Promise<AssociativeMemoryStore>): StoreHandle {
   let handle = stores.get(key);
-  if (handle === undefined) {
-    handle = { pending: open(), refs: 0, idleSince: 0 };
-    stores.set(key, handle);
-    handle.pending.catch(() => {
-      if (stores.get(key) === handle) stores.delete(key);
+  if (handle === undefined || handle.closing !== undefined) {
+    const previous = handle?.closing;
+    const next = { pending: previous === undefined ? open() : previous.then(open), refs: 0 };
+    stores.set(key, next);
+    void next.pending.catch(() => {
+      if (stores.get(key) === next) stores.delete(key);
     });
+    handle = next;
   }
   handle.refs += 1;
-  handle.idleSince = 0;
-  return handle.pending;
+  return handle;
 }
 
-function releaseStore(key: string): void {
-  const handle = stores.get(key);
-  if (handle === undefined) return;
-  handle.refs = Math.max(0, handle.refs - 1);
-  if (handle.refs === 0) handle.idleSince = Date.now();
+function releaseStore(key: string, handle: StoreHandle): Promise<void> {
+  if (handle.closing !== undefined) return handle.closing;
+  handle.refs -= 1;
+  if (handle.refs > 0) return Promise.resolve();
+  handle.closing = handle.pending
+    .then((store) => store.close())
+    .finally(() => {
+      if (stores.get(key) === handle) stores.delete(key);
+    });
+  return handle.closing;
 }
 
-function trimStores(): void {
-  if (stores.size <= MAX_OPEN_STORES) return;
-  const idle = [...stores.entries()]
-    .filter(([, handle]) => handle.refs === 0 && handle.idleSince > 0)
-    .sort((a, b) => a[1].idleSince - b[1].idleSince);
-  for (const [key, handle] of idle) {
-    if (stores.size <= MAX_OPEN_STORES) return;
-    stores.delete(key);
-    void handle.pending
-      .then((store) => store.close())
-      .catch(() => {
-        return undefined;
-      });
-  }
-}
-
-const noteShapes = new WeakMap<NoteRecord, { fingerprint: string; terms: readonly string[] }>();
-
-function noteShape(note: NoteRecord): { fingerprint: string; terms: readonly string[] } {
-  const cached = noteShapes.get(note);
-  if (cached !== undefined) return cached;
-  const shape = { fingerprint: noteFingerprint(note.text), terms: noteTerms(note.text) };
-  noteShapes.set(note, shape);
-  return shape;
-}
-
-export class AssociativeMemoryService
-  extends Disposable
-  implements IAssociativeMemoryService
-{
+export class AssociativeMemoryService extends Disposable implements IAssociativeMemoryService {
   declare readonly _serviceBrand: undefined;
 
   private code: MemoryCode = DEFAULT_CODE;
   private codeLoaded = false;
   private codeMtimeMs = 0;
-  private queue: Promise<unknown> = Promise.resolve();
   private migratedProjectScope = false;
-  private legacyMemoryImported = false;
+  private legacyMemoryMigration: LegacyMemoryMigration | undefined;
   private embeddingsClient: EmbeddingsClient | undefined;
   private embeddingsResolved = false;
   private embeddingsResolvedAt = 0;
@@ -236,8 +207,7 @@ export class AssociativeMemoryService
   private lastRecallCue: string | undefined;
   private lastGatingMode = 'retrieve';
   private writesSinceMaintain = 0;
-  private readonly storeKeys = new Set<string>();
-  private readonly storePending = new Map<string, Promise<AssociativeMemoryStore>>();
+  private readonly storeHandles = new Map<string, StoreHandle>();
   private lastRecallIds: readonly string[] = [];
   private previousRecallIds: readonly string[] = [];
   private readonly working = new WorkingBuffer(24, 6 * 60 * 60 * 1000);
@@ -250,6 +220,7 @@ export class AssociativeMemoryService
     @IAgentContextMemoryService private readonly contextMemory: IAgentContextMemoryService,
     @ISessionContext private readonly session: ISessionContext,
     @IMemoryStore private readonly memoryStore: IMemoryStore,
+    @IAgentMemoryInjectionState private readonly injectionState: IAgentMemoryInjectionState,
   ) {
     super();
     this.reminders.register('associative_memory_signal', ({ isNewTurn }) => {
@@ -262,8 +233,9 @@ export class AssociativeMemoryService
     });
     this._register(
       toDisposable(() => {
-        for (const key of this.storeKeys) releaseStore(key);
-        this.storeKeys.clear();
+        void this.releaseStores().catch((error) =>
+          this.log.warn('associative memory close failed', { error }),
+        );
       }),
     );
   }
@@ -273,30 +245,61 @@ export class AssociativeMemoryService
   }
 
   private async importLegacyMemory(): Promise<void> {
-    if (this.legacyMemoryImported) return;
-    this.legacyMemoryImported = true;
     if (!this.enabled()) return;
-    let paths: readonly string[];
-    try {
-      paths = await this.memoryStore.list();
-    } catch (error) {
-      this.log.warn('associativeMemory.importLegacy.failed', { error });
-      return;
-    }
-    for (const path of paths) {
-      try {
-        const entry = await this.memoryStore.get(path);
-        if (entry === undefined) continue;
-        await this.writeNote(
-          entry.body,
-          entry.scope === 'global' ? 'global' : 'project',
-          'legacy',
+    this.legacyMemoryMigration ??= new LegacyMemoryMigration({
+      source: this.memoryStore,
+      visibility: () =>
+        createMemoryVisibilityContext(
+          this.session.cwd || this.bootstrap.cwd,
+          this.session.sessionId,
+        ),
+      openStore: async (key) => {
+        if (key === this.projectKey()) await this.projectScopeKey();
+        return this.ensureStore(key);
+      },
+      importEntry: (entry, store, noteId, origin) =>
+        this.importLegacyEntry(entry, store, noteId, origin),
+      retireNote: async (store, noteId) => {
+        const ids = new Set(
+          store
+            .listAtoms()
+            .filter((atom) => atom.noteId === noteId && !atom.pinned)
+            .map((atom) => atom.id),
         );
-      } catch (error) {
-        this.log.warn('associativeMemory.importLegacy.entryFailed', { path, error });
-      }
+        await this.retireAtoms(store, ids, this.now());
+      },
+      now: () => this.now(),
+      log: this.log,
+    });
+    await this.legacyMemoryMigration.run();
+  }
+
+  private async importLegacyEntry(
+    entry: MemoryEntry,
+    store: AssociativeMemoryStore,
+    noteId: string,
+    origin: LegacyMemoryOrigin,
+  ): Promise<void> {
+    const code = await this.ensureCode();
+    const gate = applyWriteRules(entry.body, code.rules);
+    if (!gate.allowed) {
+      await this.recordAudit('write_blocked', {
+        scope: store.scopeKey,
+        rules: gate.matches.map((rule) => rule.id),
+      });
+      throw new Error('Legacy memory is blocked by the current memory code');
     }
-    this.memoryStore.setReadOnly(true);
+    const existing = await store.getNoteById(noteId);
+    const note = existing ?? {
+      id: noteId,
+      scopeKey: store.scopeKey,
+      text: entry.body,
+      createdAt: entry.updatedAt,
+      source: 'legacy' as const,
+      legacyOrigin: origin,
+    };
+    if (existing === undefined) await store.putNote(note);
+    await this.trainNote(store, note, existing !== undefined);
   }
 
   async writeNote(
@@ -324,52 +327,63 @@ export class AssociativeMemoryService
       });
       return { noteId: '', atomIds: [], blockedByCode: true, scope, decision: 'blocked' };
     }
-    const store = await this.ensureStore(scope === 'global' ? globalScopeKey : await this.projectScopeKey());
-    const now = this.now();
-    const scopeKey = store.scopeKey;
-    const gating = classifyGating({
-      sameCueRepeated: this.lastWriteText !== undefined && noteFingerprint(this.lastWriteText) === noteFingerprint(text),
-      unstableRecall: this.lastRecallIds.length === 0 && store.listNotes().length > 0,
-      newScopeOrTopic: store.listNotes().length === 0,
-      positiveFeedback: false,
-    });
-    this.lastWriteText = text;
+    const store = await this.ensureStore(
+      scope === 'global' ? globalScopeKey : await this.projectScopeKey(),
+    );
+    return store.runExclusive(async () => {
+      const now = this.now();
+      const scopeKey = store.scopeKey;
+      const gating = classifyGating({
+        sameCueRepeated:
+          this.lastWriteText !== undefined &&
+          noteFingerprint(this.lastWriteText) === noteFingerprint(text),
+        unstableRecall: this.lastRecallIds.length === 0 && store.listNotes().length > 0,
+        newScopeOrTopic: store.listNotes().length === 0,
+        positiveFeedback: false,
+      });
+      this.lastWriteText = text;
 
-    const candidate = this.findMergeCandidate(store, text);
-    if (candidate !== undefined) {
-      await this.reinforceNote(store, candidate.note, now);
-      await this.recordAudit('write_noop', {
+      const candidate = await this.findMergeCandidate(store, text);
+      if (candidate !== undefined) {
+        await this.reinforceNote(store, candidate.note, now);
+        await this.recordAudit('write_noop', {
+          scope,
+          noteId: candidate.note.id,
+          discarded: text.slice(0, AUDIT_TEXT_LIMIT),
+          gating: gating.mode,
+        });
+        return {
+          noteId: candidate.note.id,
+          atomIds: [],
+          blockedByCode: false,
+          scope,
+          decision: 'noop',
+        };
+      }
+
+      const note: NoteRecord = {
+        id: `note_${ulid()}`,
+        scopeKey,
+        text,
+        createdAt: now,
+        source,
+      };
+      await store.putNote(note);
+      const atomIds = await this.trainNote(store, note);
+      await this.recordAudit('write_allowed', {
         scope,
-        noteId: candidate.note.id,
-        discarded: text.slice(0, AUDIT_TEXT_LIMIT),
+        noteId: note.id,
+        atoms: atomIds.length,
         gating: gating.mode,
       });
       return {
-        noteId: candidate.note.id,
-        atomIds: [],
+        noteId: note.id,
+        atomIds: [...atomIds],
         blockedByCode: false,
         scope,
-        decision: 'noop',
+        decision: 'added',
       };
-    }
-
-    const note: NoteRecord = {
-      id: `note_${ulid()}`,
-      scopeKey,
-      text,
-      createdAt: now,
-      source,
-    };
-    await store.putNote(note);
-    const atomIds = await this.enqueue(() => this.trainNote(store, note));
-    await this.recordAudit('write_allowed', { scope, noteId: note.id, atoms: atomIds.length, gating: gating.mode });
-    return {
-      noteId: note.id,
-      atomIds: [...atomIds],
-      blockedByCode: false,
-      scope,
-      decision: 'added',
-    };
+    });
   }
 
   private async recordActivationCooccurrence(
@@ -423,7 +437,8 @@ export class AssociativeMemoryService
     for (const link of collectSchemaLinks(trace, ASSOCIATIVE_MEMORY_PARAMS)) {
       const id = `${link.from}?${link.to}`;
       for (const store of stores) {
-        if (store.getAtom(link.from) === undefined || store.getAtom(link.to) === undefined) continue;
+        if (store.getAtom(link.from) === undefined || store.getAtom(link.to) === undefined)
+          continue;
         const existing = store.getEdge(id);
         await store.putEdge({
           id,
@@ -489,15 +504,13 @@ export class AssociativeMemoryService
     }
   }
 
-  private findMergeCandidate(
+  private async findMergeCandidate(
     store: AssociativeMemoryStore,
     text: string,
-  ): { readonly note: NoteRecord } | undefined {
-    const fingerprint = noteFingerprint(text);
-    for (const note of store.listNotes()) {
-      if (noteShape(note).fingerprint === fingerprint) return { note };
-    }
-    return undefined;
+  ): Promise<{ readonly note: NoteRecord } | undefined> {
+    const note = await store.findNoteByFingerprint(noteFingerprint(text), text);
+    if (note === undefined) return undefined;
+    return { note };
   }
 
   private async reinforceNote(
@@ -535,7 +548,6 @@ export class AssociativeMemoryService
     doomed: ReadonlySet<string>,
     now: number,
   ): Promise<void> {
-    await this.detachAtomLinks(store, doomed);
     for (const id of doomed) {
       const atom = store.getAtom(id);
       if (atom === undefined) continue;
@@ -547,8 +559,8 @@ export class AssociativeMemoryService
     for (const edge of store.listEdges()) {
       if (edge.from === id || edge.to === id) await store.deleteEdge(edge.id);
     }
-    await store.deleteConcept(id);
-    await store.deleteProcedure(id);
+    await store.deleteConcept(id, true);
+    await store.deleteProcedure(id, true);
   }
 
   async recall(query: RecallQuery): Promise<RecallResult> {
@@ -559,7 +571,8 @@ export class AssociativeMemoryService
     await this.maybeMaintain(scoped);
     const gating = classifyGating({
       sameCueRepeated: this.lastRecallCue === query.cue,
-      unstableRecall: this.previousRecallIds.length > 0 &&
+      unstableRecall:
+        this.previousRecallIds.length > 0 &&
         (this.previousRecallIds.length !== this.lastRecallIds.length ||
           this.previousRecallIds.some((id, index) => id !== this.lastRecallIds[index])),
       newScopeOrTopic: false,
@@ -574,14 +587,26 @@ export class AssociativeMemoryService
     } catch (error) {
       this.log.warn('associative memory cue embedding failed; using sparse matching', { error });
     }
+    const atoms = query.includeHistory
+      ? (await Promise.all(scoped.map((store) => store.allAtoms()))).flat()
+      : scoped.flatMap((store) => store.listAtoms());
+    const concepts = query.includeHistory
+      ? (await Promise.all(scoped.map((store) => store.allRecords('concept')))).flat()
+      : scoped.flatMap((store) => store.listConcepts());
+    const edges = query.includeHistory
+      ? (await Promise.all(scoped.map((store) => store.allRecords('edge')))).flat()
+      : scoped.flatMap((store) => store.listEdges());
+    const procedures = query.includeHistory
+      ? (await Promise.all(scoped.map((store) => store.allRecords('procedure')))).flat()
+      : scoped.flatMap((store) => store.listProcedures());
     const result = activate(
       query,
-      scoped.flatMap((store) => store.listAtoms()),
-      scoped.flatMap((store) => store.listConcepts()),
-      scoped.flatMap((store) => store.listEdges()),
+      atoms,
+      concepts,
+      edges,
       ASSOCIATIVE_MEMORY_PARAMS,
       this.now(),
-      scoped.flatMap((store) => store.listProcedures()),
+      procedures,
       cueDense,
     );
     await this.persistSchemaLinks(scoped, result.trace, this.now());
@@ -609,7 +634,6 @@ export class AssociativeMemoryService
         includeHistory: false,
         scope: 'all',
       });
-      const sessionKey = this.session.sessionId;
       const injectedAt = this.now();
       this.working.touch(message, injectedAt);
       const sources = new Map<string, MemorySource>();
@@ -626,7 +650,7 @@ export class AssociativeMemoryService
           removed: result.items.length - trusted.length,
         });
       }
-      const fresh = trusted.filter((item) => !alreadyRendered(sessionKey, item.text));
+      const fresh = trusted.filter((item) => !this.injectionState.has(item.text));
       if (fresh.length === 0) {
         const silent = this.working.reactivate(message, injectedAt);
         if (silent.length === 0) return '';
@@ -635,14 +659,16 @@ export class AssociativeMemoryService
           .map((item) => `- ${item.text}`)
           .join('\n')}`;
       }
-      markRendered(sessionKey, fresh.map((item) => item.text));
-      const injectedStores = await this.storesFor('all');
-      await this.touchInjected(injectedStores, fresh, injectedAt);
-      await this.recordActivationCooccurrence(injectedStores, fresh, injectedAt);
-      return renderRecall(
+      const rendered = renderRecallWithItems(
         { items: fresh, trace: result.trace },
         ASSOCIATIVE_MEMORY_PARAMS.injectionMaxTokens,
       );
+      if (rendered.items.length === 0) return '';
+      const injectedStores = await this.storesFor('all');
+      await this.touchInjected(injectedStores, rendered.items, injectedAt);
+      await this.recordActivationCooccurrence(injectedStores, rendered.items, injectedAt);
+      this.injectionState.mark(rendered.items.map((item) => item.text));
+      return rendered.text;
     } catch (error) {
       this.log.warn('associative memory signal block failed', { error });
       return '';
@@ -716,43 +742,55 @@ export class AssociativeMemoryService
   async stats(scope: MemoryScopeSelector = 'all'): Promise<AssociativeMemoryStats> {
     if (!this.enabled()) {
       return {
-        atoms: 0, concepts: 0, procedures: 0, edges: 0, notes: 0, suppressed: 0, pinned: 0,
-        meanConfidence: 0, workingItems: 0,
+        atoms: 0,
+        concepts: 0,
+        procedures: 0,
+        edges: 0,
+        notes: 0,
+        suppressed: 0,
+        pinned: 0,
+        meanConfidence: 0,
+        workingItems: 0,
         sourceCounts: { user: 0, tool: 0, external: 0, legacy: 0 },
         gatingMode: this.lastGatingMode,
       };
     }
     try {
       const scoped = await this.storesFor(scope);
-      const atoms = scoped
-        .flatMap((store) => store.listAtoms())
-        .filter((atom) => !atom.isDeleted);
-      const concepts = scoped.flatMap((store) => store.listConcepts());
+      const counts = scoped.map((store) => store.counts());
+      const sum = (
+        field:
+          | 'atoms'
+          | 'concepts'
+          | 'edges'
+          | 'notes'
+          | 'procedures'
+          | 'suppressed'
+          | 'pinned'
+          | 'confidenceSum',
+      ) => counts.reduce((total, value) => total + value[field], 0);
+      const atoms = sum('atoms');
       const sourceCounts: Record<MemorySource, number> = {
         user: 0,
         tool: 0,
         external: 0,
         legacy: 0,
       };
-      for (const store of scoped) {
-        for (const note of store.listNotes()) sourceCounts[note.source ?? 'legacy'] += 1;
+      for (const source of ['user', 'tool', 'external', 'legacy'] as const) {
+        sourceCounts[source] = counts.reduce(
+          (total, value) => total + value.sourceCounts[source],
+          0,
+        );
       }
       return {
-        atoms: atoms.length,
-        concepts: concepts.length,
-        edges: scoped.reduce((sum, store) => sum + store.listEdges().length, 0),
-        notes: scoped.reduce((sum, store) => sum + store.listNotes().length, 0),
-        procedures: scoped.reduce((sum, store) => sum + store.listProcedures().length, 0),
-        suppressed:
-          atoms.filter((atom) => atom.suppressed).length +
-          concepts.filter((concept) => concept.suppressed).length,
-        pinned:
-          atoms.filter((atom) => atom.pinned).length +
-          concepts.filter((concept) => concept.pinned).length,
-        meanConfidence:
-          atoms.length === 0
-            ? 0
-            : atoms.reduce((sum, atom) => sum + atom.confidence, 0) / atoms.length,
+        atoms,
+        concepts: sum('concepts'),
+        edges: sum('edges'),
+        notes: sum('notes'),
+        procedures: sum('procedures'),
+        suppressed: sum('suppressed'),
+        pinned: sum('pinned'),
+        meanConfidence: atoms === 0 ? 0 : sum('confidenceSum') / atoms,
         workingItems: this.working.snapshot(this.now()).size,
         sourceCounts,
         gatingMode: this.lastGatingMode,
@@ -760,8 +798,15 @@ export class AssociativeMemoryService
     } catch (error) {
       this.log.warn('associative memory stats failed', { error });
       return {
-        atoms: 0, concepts: 0, procedures: 0, edges: 0, notes: 0, suppressed: 0, pinned: 0,
-        meanConfidence: 0, workingItems: 0,
+        atoms: 0,
+        concepts: 0,
+        procedures: 0,
+        edges: 0,
+        notes: 0,
+        suppressed: 0,
+        pinned: 0,
+        meanConfidence: 0,
+        workingItems: 0,
         sourceCounts: { user: 0, tool: 0, external: 0, legacy: 0 },
         gatingMode: this.lastGatingMode,
       };
@@ -773,55 +818,68 @@ export class AssociativeMemoryService
     await this.importLegacyMemory();
     const scoped = await this.storesFor(options.scope);
     const limit = options.limit ?? ASSOCIATIVE_MEMORY_PARAMS.listLimit;
-    const atoms =
-      options.kind === 'concept' || options.kind === 'procedure'
-        ? []
-        : scoped
-            .flatMap((store) => store.listAtoms())
-            .filter((atom) => !atom.isDeleted)
-            .toSorted((a, b) => b.lastActivatedAt - a.lastActivatedAt)
+    let atoms: Atom[] = [];
+    let concepts: Concept[] = [];
+    let procedures: Procedure[] = [];
+    const recent = (a: { lastActivatedAt: number }, b: { lastActivatedAt: number }) =>
+      b.lastActivatedAt - a.lastActivatedAt;
+    for (const store of scoped) {
+      if (options.kind === undefined || options.kind === 'atom') {
+        for await (const page of store.atomPages()) {
+          atoms = [...atoms, ...page.filter((atom) => !atom.isDeleted)]
+            .sort(
+              (a, b) =>
+                recent(a, b) || a.noteId.localeCompare(b.noteId) || a.spanStart - b.spanStart,
+            )
             .slice(0, limit);
-    const concepts =
-      options.kind === 'atom' || options.kind === 'procedure'
-        ? []
-        : scoped
-            .flatMap((store) => store.listConcepts())
-            .toSorted((a, b) => b.lastActivatedAt - a.lastActivatedAt)
-            .slice(0, limit);
-    const procedures =
-      options.kind === 'atom' || options.kind === 'concept'
-        ? []
-        : scoped
-            .flatMap((store) => store.listProcedures())
-            .toSorted((a, b) => b.lastActivatedAt - a.lastActivatedAt)
-            .slice(0, limit);
+        }
+      }
+      if (options.kind === undefined || options.kind === 'concept') {
+        for await (const page of store.recordPages('concept'))
+          concepts = [...concepts, ...page].sort(recent).slice(0, limit);
+      }
+      if (options.kind === undefined || options.kind === 'procedure') {
+        for await (const page of store.recordPages('procedure'))
+          procedures = [...procedures, ...page].sort(recent).slice(0, limit);
+      }
+    }
     return { atoms, concepts, procedures };
   }
 
   async export(scope: MemoryScopeSelector = 'all'): Promise<AssociativeMemoryExport> {
     if (!this.enabled()) return { path: '', atoms: 0, concepts: 0, notes: 0 };
+    await this.importLegacyMemory();
     const scoped = await this.storesFor(scope);
-    const atoms = scoped.flatMap((store) => store.listAtoms());
-    const concepts = scoped.flatMap((store) => store.listConcepts());
-    const notes = scoped.flatMap((store) => store.listNotes());
-    const edges = scoped.flatMap((store) => store.listEdges());
-    const procedures = scoped.flatMap((store) => store.listProcedures());
-    const audit = await this.audit(200);
     const path = join(this.session.cwd || this.bootstrap.cwd, 'memory-export.json');
-    await writeFile(
-      path,
-      `${JSON.stringify({
-        exportedAt: new Date(this.now()).toISOString(),
-        atoms,
-        concepts,
-        procedures,
-        edges,
-        notes,
-        audit,
-      })}\n`,
-      'utf8',
-    );
-    return { path, atoms: atoms.length, concepts: concepts.length, notes: notes.length };
+    const output = await open(path, 'w');
+    const counts = { atoms: 0, concepts: 0, notes: 0 };
+    try {
+      await output.writeFile(`{"exportedAt":${JSON.stringify(new Date(this.now()).toISOString())}`);
+      for (const [key, kind] of [
+        ['atoms', 'atom'],
+        ['concepts', 'concept'],
+        ['procedures', 'procedure'],
+        ['edges', 'edge'],
+        ['notes', 'note'],
+      ] as const) {
+        await output.writeFile(`,${JSON.stringify(key)}:[`);
+        let count = 0;
+        for (const store of scoped) {
+          const pages = kind === 'atom' ? store.atomPages() : store.recordPages(kind);
+          for await (const page of pages) {
+            for (const record of page) {
+              await output.writeFile(`${count++ === 0 ? '' : ','}${JSON.stringify(record)}`);
+            }
+          }
+        }
+        await output.writeFile(']');
+        if (key === 'atoms' || key === 'concepts' || key === 'notes') counts[key] = count;
+      }
+      await output.writeFile(`,"audit":${JSON.stringify(await this.audit(200))}}\n`);
+    } finally {
+      await output.close();
+    }
+    return { path, ...counts };
   }
 
   async replay(limit = 10): Promise<ReplayResult> {
@@ -830,7 +888,7 @@ export class AssociativeMemoryService
     const now = this.now();
     const edges = store.listEdges();
     const ranked = rankByNeedGain(
-      store.listAtoms().filter((atom) => atom.replayPriority > 0),
+      (await store.allAtoms()).filter((atom) => !atom.isDeleted && atom.replayPriority > 0),
       (atom) => accessibility(atom, edges, now, ASSOCIATIVE_MEMORY_PARAMS),
       (atom) => atom.replayPriority,
       (left, right) => compareByText(left, right),
@@ -906,10 +964,7 @@ export class AssociativeMemoryService
     return readAudit(auditPath(this.bootstrap.storeDir, storeRootName), limit);
   }
 
-  async reconsolidate(
-    targetId: string | undefined,
-    text: string,
-  ): Promise<ReconsolidateResult> {
+  async reconsolidate(targetId: string | undefined, text: string): Promise<ReconsolidateResult> {
     if (!this.enabled() || text.trim().length === 0) {
       return { noteId: '', atomIds: [], superseded: false };
     }
@@ -928,13 +983,14 @@ export class AssociativeMemoryService
     const now = this.now();
     const atoms = store.listAtoms();
     const df = computeDf(atoms);
-    const encoded = encodeAtoms(
-      { id: `note_${ulid()}`, scopeKey: target.scopeKey, text },
-      df,
-      atoms.length,
-      now,
-      ASSOCIATIVE_MEMORY_PARAMS,
-    );
+    const note: NoteRecord = {
+      id: `note_${ulid()}`,
+      scopeKey: target.scopeKey,
+      text,
+      createdAt: now,
+      source: store.getNote(target.noteId)?.source ?? 'tool',
+    };
+    const encoded = encodeAtoms(note, df, atoms.length, now, ASSOCIATIVE_MEMORY_PARAMS);
     let newAtoms = encoded;
     try {
       const embeddings = await this.ensureEmbeddings();
@@ -946,8 +1002,7 @@ export class AssociativeMemoryService
       this.log.warn('associative memory embeddings failed during reconsolidation', { error });
     }
     const neighbors = this.neighborsOf(store, target.id);
-    const mismatch =
-      newAtoms[0] === undefined ? 0 : cosine(newAtoms[0].vector, target.vector);
+    const mismatch = newAtoms[0] === undefined ? 0 : cosine(newAtoms[0].vector, target.vector);
     const updatable =
       mismatch > ASSOCIATIVE_MEMORY_PARAMS.reconsolidateNovelThreshold &&
       mismatch < ASSOCIATIVE_MEMORY_PARAMS.reconsolidateMergeThreshold;
@@ -977,19 +1032,20 @@ export class AssociativeMemoryService
         await this.recordAudit('supersede', { from: newAtoms[0]?.id, to: id });
       }
     }
-    for (const atom of newAtoms) await store.putAtom(atom);
+    await store.putNote(note);
+    await this.persistTrainedAtoms(store, newAtoms, now, trained.edges);
     for (const id of trained.deleted) await store.deleteEdge(id);
     for (const edge of trained.edges) await store.putEdge(edge);
-    await store.putNote({
-      id: `note_${ulid()}`,
-      scopeKey: target.scopeKey,
-      text,
-      createdAt: now,
-      source: store.getNote(target.noteId)?.source ?? 'tool',
-    });
     await this.maintain(store, now);
-    await this.recordAudit('reconsolidate', { targetId: target.id, newAtomIds: newAtoms.map((atom) => atom.id) });
-    return { noteId: newAtoms[0]?.noteId ?? '', atomIds: newAtoms.map((atom) => atom.id), superseded };
+    await this.recordAudit('reconsolidate', {
+      targetId: target.id,
+      newAtomIds: newAtoms.map((atom) => atom.id),
+    });
+    return {
+      noteId: newAtoms[0]?.noteId ?? '',
+      atomIds: newAtoms.map((atom) => atom.id),
+      superseded,
+    };
   }
 
   private async findAtomStore(
@@ -1050,11 +1106,13 @@ export class AssociativeMemoryService
   async rebuild(scope: MemoryScopeSelector = 'all'): Promise<void> {
     if (!this.enabled()) return;
     for (const store of await this.storesFor(scope)) {
-      const notes = store.listNotes();
-      await store.clearGraph();
-      for (const note of notes) {
-        await this.trainNote(store, note);
-      }
+      await store.runExclusive(async () => {
+        await store.clearDerived();
+        for await (const page of store.recordPages('note')) {
+          for (const note of page) await this.trainNote(store, note, true);
+        }
+        await this.pruneAndEnforceBudgets(store);
+      });
     }
     this.lastRecallIds = [];
     await this.recordAudit('rebuild', { scope });
@@ -1063,11 +1121,23 @@ export class AssociativeMemoryService
   private async trainNote(
     store: AssociativeMemoryStore,
     note: NoteRecord,
+    rebuilding = false,
   ): Promise<readonly string[]> {
     const now = this.now();
     const atoms = store.listAtoms();
     const df = computeDf(atoms);
     let newAtoms = encodeAtoms(note, df, atoms.length, now, ASSOCIATIVE_MEMORY_PARAMS);
+    if (rebuilding) {
+      const restored: Atom[] = [];
+      for (const encoded of newAtoms) {
+        const previous = await store.getAtomById(encoded.id);
+        if (previous !== undefined) {
+          if (!previous.isDeleted && !previous.suppressed && previous.validUntil === undefined)
+            restored.push(previous);
+        } else restored.push(encoded);
+      }
+      newAtoms = restored;
+    }
     try {
       const embeddings = await this.ensureEmbeddings();
       if (embeddings !== undefined && newAtoms.length > 0) {
@@ -1104,7 +1174,7 @@ export class AssociativeMemoryService
         await this.recordAudit('supersede', { from: note.id, to: id });
       }
     }
-    for (const atom of newAtoms) await store.putAtom(atom);
+    await this.persistTrainedAtoms(store, newAtoms, now, trained.edges);
     for (const id of trained.deleted) await store.deleteEdge(id);
     for (const edge of trained.edges) await store.putEdge(edge);
     await this.induceForgetting(store, newAtoms);
@@ -1121,12 +1191,29 @@ export class AssociativeMemoryService
     const atomIds = newAtoms.map((atom) => atom.id);
     await store.putNote(note);
     this.writesSinceMaintain += 1;
+    await this.enforceBudgets(store, now);
     if (this.writesSinceMaintain >= MAINTAIN_EVERY_WRITES) {
       this.writesSinceMaintain = 0;
       await this.pruneAndEnforceBudgets(store);
     }
     if (now - this.lastMaintainedAt >= MAINTAIN_INTERVAL_MS) await this.maybeMaintain([store]);
     return atomIds;
+  }
+
+  private async persistTrainedAtoms(
+    store: AssociativeMemoryStore,
+    atoms: readonly Atom[],
+    now: number,
+    edges: readonly Edge[],
+  ): Promise<void> {
+    const evicted = await store.putAtoms(atoms, now, edges);
+    if (evicted.length > 0) {
+      await this.recordAudit('evict_atoms', {
+        scope: store.scopeKey,
+        count: evicted.length,
+        ids: evicted.slice(0, AUDIT_ID_LIMIT),
+      });
+    }
   }
 
   private async maybeMaintain(stores: readonly AssociativeMemoryStore[]): Promise<void> {
@@ -1239,10 +1326,7 @@ export class AssociativeMemoryService
       kept.set(edge.id, edge);
     }
     for (const edge of edges) {
-      if (
-        edge.kind === 'schema' &&
-        now - edge.lastUsedAt > ASSOCIATIVE_MEMORY_PARAMS.schemaTtlMs
-      ) {
+      if (edge.kind === 'schema' && now - edge.lastUsedAt > ASSOCIATIVE_MEMORY_PARAMS.schemaTtlMs) {
         await store.deleteEdge(edge.id);
         continue;
       }
@@ -1269,19 +1353,16 @@ export class AssociativeMemoryService
   private async enforceBudgets(store: AssociativeMemoryStore, now: number): Promise<void> {
     const live = store
       .listAtoms()
-      .filter((atom) => !atom.suppressed && atom.validUntil === undefined);
+      .filter((atom) => !atom.pinned && !atom.suppressed && atom.validUntil === undefined);
     const maxAtoms = this.atomBudget();
     if (live.length > maxAtoms) {
       const incident = store.listEdges();
       const retired = live
-        .filter((atom) => !atom.pinned)
         .map((atom) => ({
           atom,
           score: accessibility(atom, incident, now, ASSOCIATIVE_MEMORY_PARAMS),
         }))
-        .toSorted(
-          (left, right) => left.score - right.score || compareByText(left.atom, right.atom),
-        )
+        .toSorted((left, right) => left.score - right.score || compareByText(left.atom, right.atom))
         .slice(0, live.length - maxAtoms)
         .map((entry) => entry.atom);
       if (retired.length > 0) {
@@ -1293,18 +1374,6 @@ export class AssociativeMemoryService
           ids: [...retiredIds].slice(0, AUDIT_ID_LIMIT),
         });
       }
-    }
-    const notes = store.listNotes();
-    const maxNotes = this.noteBudget();
-    if (notes.length <= maxNotes) return;
-    const liveNotes = new Set(store.listAtoms().map((atom) => atom.noteId));
-    const removable = notes
-      .filter((note) => !liveNotes.has(note.id))
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .slice(0, notes.length - maxNotes);
-    for (const note of removable) await store.deleteNote(note.id);
-    if (removable.length > 0) {
-      await this.recordAudit('evict_notes', { scope: store.scopeKey, count: removable.length });
     }
   }
 
@@ -1356,18 +1425,27 @@ export class AssociativeMemoryService
     }
   }
 
+  private async releaseStores(): Promise<void> {
+    const closing = [...this.storeHandles].map(([key, handle]) => releaseStore(key, handle));
+    this.storeHandles.clear();
+    await Promise.all(closing);
+  }
+
   private async ensureStore(scopeKey: string): Promise<AssociativeMemoryStore> {
-    const key = join(this.bootstrap.storeDir, storeRootName, scopeKey);
-    let pending = this.storePending.get(key);
-    if (pending === undefined) {
-      this.storeKeys.add(key);
-      pending = acquireStore(key, () =>
-        AssociativeMemoryStore.open(scopeKey, join(this.bootstrap.storeDir, storeRootName)),
-      );
-      this.storePending.set(key, pending);
-      trimStores();
+    const root = join(this.bootstrap.storeDir, storeRootName);
+    const key = join(root, scopeKey);
+    const current = this.storeHandles.get(key);
+    if (current !== undefined) return current.pending;
+    const handle = acquireStore(key, () =>
+      AssociativeMemoryStore.open(scopeKey, root, this.noteBudget(), this.atomBudget()),
+    );
+    this.storeHandles.set(key, handle);
+    try {
+      return await handle.pending;
+    } catch (error) {
+      if (this.storeHandles.get(key) === handle) this.storeHandles.delete(key);
+      throw error;
     }
-    return pending;
   }
 
   private async storesFor(
@@ -1375,7 +1453,17 @@ export class AssociativeMemoryService
   ): Promise<readonly AssociativeMemoryStore[]> {
     if (scope === 'global') return [await this.ensureStore(globalScopeKey)];
     if (scope === 'project') return [await this.ensureStore(await this.projectScopeKey())];
-    return [await this.ensureStore(await this.projectScopeKey()), await this.ensureStore(globalScopeKey)];
+    const scoped = [
+      await this.ensureStore(await this.projectScopeKey()),
+      await this.ensureStore(globalScopeKey),
+    ];
+    if (typeof this.session.sessionId === 'string' && this.session.sessionId.length > 0) {
+      const key = sessionMemoryScopeKey(this.session.sessionId);
+      const path = join(this.bootstrap.storeDir, storeRootName, key);
+      const { existsSync } = await import('node:fs');
+      if (this.storeHandles.has(path) || existsSync(path)) scoped.push(await this.ensureStore(key));
+    }
+    return scoped;
   }
 
   protected atomBudget(): number {
@@ -1421,35 +1509,40 @@ export class AssociativeMemoryService
   private async projectScopeKey(): Promise<string> {
     const key = this.projectKey();
     if (this.migratedProjectScope) return key;
-    this.migratedProjectScope = true;
     const cwd = this.session.cwd || this.bootstrap.cwd;
-    const legacyKeys = new Set<string>([
-      legacyProjectIdFromCwd(cwd),
-      legacyProjectIdFromCwd(this.bootstrap.cwd),
-      projectIdFromCwd(this.bootstrap.cwd),
-    ]);
+    const legacyKeys = new Set<string>([legacyProjectIdFromCwd(cwd)]);
     legacyKeys.delete(key);
-    for (const legacyKey of legacyKeys) await this.renameLegacyStore(legacyKey, key);
+    for (const legacyKey of legacyKeys) {
+      if (!(await this.renameLegacyStore(legacyKey, key))) {
+        throw new Error(
+          'Associative memory scope migration failed; retry after the store is available',
+        );
+      }
+    }
+    this.migratedProjectScope = true;
     return key;
   }
 
-  private async renameLegacyStore(from: string, to: string): Promise<void> {
+  private async renameLegacyStore(from: string, to: string): Promise<boolean> {
     const root = join(this.bootstrap.storeDir, storeRootName);
     const fromKey = join(root, from);
     const toKey = join(root, to);
     try {
       const { existsSync } = await import('node:fs');
-      if (!existsSync(fromKey) || existsSync(toKey)) return;
+      if (!existsSync(fromKey) || existsSync(toKey)) return true;
       const handle = stores.get(fromKey);
       if (handle !== undefined) {
-        stores.delete(fromKey);
-        await handle.pending.then((store) => store.close()).catch(() => undefined);
+        if (handle.refs > 0) return false;
+        await (handle.closing ?? releaseStore(fromKey, handle));
+        if (stores.has(fromKey)) return false;
       }
       const { rename } = await import('node:fs/promises');
       await rename(fromKey, toKey);
       this.log.debug('associative memory project scope migrated', { from, to });
+      return true;
     } catch (error) {
       this.log.warn('associative memory project scope migration failed', { from, to, error });
+      return false;
     }
   }
 
@@ -1469,18 +1562,12 @@ export class AssociativeMemoryService
     const history = this.contextMemory.get();
     for (let index = history.length - 1; index >= 0; index--) {
       const message = history[index];
-      if (message?.role !== 'user') continue;
+      if (message === undefined || !isRealUserInput(message)) continue;
       for (const part of message.content ?? []) {
         if ('text' in part && part.text) return part.text;
       }
     }
     return '';
-  }
-
-  private enqueue<T>(job: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(job, job);
-    this.queue = next.catch(() => {});
-    return next;
   }
 }
 

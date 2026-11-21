@@ -1,9 +1,4 @@
-import type {
-  ContentPart,
-  ContextMessage,
-  PromptOrigin,
-  ToolCall,
-} from '@moonshot-ai/kimi-code-sdk';
+import type { ContentPart, ContextMessage, PromptOrigin, ToolCall } from '@moonshot-ai/kimi-code-sdk';
 
 import { isUserPromptSubmitHookPart, withoutUserPromptSubmitHookParts } from './message-replay';
 
@@ -56,8 +51,6 @@ export function formatContentPartMd(part: ContentPart): string {
       return '[audio]';
     case 'video_url':
       return '[video]';
-    case 'document_url':
-      return '[document]';
     default:
       return `[${(part as ContentPart).type}]`;
   }
@@ -106,10 +99,6 @@ const INTERNAL_ORIGINS = new Set<PromptOrigin['kind']>([
   'system_trigger',
   'compaction_summary',
   'hook_result',
-  // Cron fires are stored as user-role records carrying a `<cron-fire ...>`
-  // XML envelope meant only for the model. Replay and the TUI projector
-  // already hide them; the markdown exporter must do the same or the raw
-  // protocol XML leaks into the user-facing export.
   'cron_job',
   'cron_missed',
 ]);
@@ -148,9 +137,6 @@ function formatTurnMd(messages: readonly ContextMessage[], turnNumber: number): 
 
     if (msg.role === 'user') {
       lines.push('### User', '');
-      // A daemon-ref media part is self-contained and renders as
-      // `[image]`/`[video]` below; a standalone `<media path>` tag is user
-      // text and exports verbatim.
       for (const part of withoutUserPromptSubmitHookParts(msg.content)) {
         const text = formatContentPartMd(part);
         if (text.trim()) {
@@ -211,7 +197,10 @@ function buildOverview(
     }
   }
 
-  const toolCallCount = history.reduce((sum, msg) => sum + msg.toolCalls.length, 0);
+  const toolCallCount = history.reduce(
+    (sum, msg) => sum + msg.toolCalls.length,
+    0,
+  );
 
   return [
     '## Overview',

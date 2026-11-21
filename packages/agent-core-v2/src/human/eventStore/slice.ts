@@ -1,4 +1,4 @@
-import type { BranchRef } from '#/store/types';
+import type { BranchRef } from '#human/store/types';
 
 import type { InternalEvent } from './events';
 

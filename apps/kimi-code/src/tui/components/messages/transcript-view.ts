@@ -1,8 +1,8 @@
 import { ScrollView, VStack, type Component, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
-import type { TranscriptContainer } from '#/tui/components/messages/transcript-container';
 import { StickyUserMessageComponent } from '#/tui/components/messages/sticky-user-message';
+import { TranscriptContainer } from '#/tui/components/messages/transcript-container';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { StickyUserMessageIndex } from '#/tui/utils/sticky-user-message';
 
@@ -58,7 +58,6 @@ export class TranscriptView extends VStack {
     return this.scrollView.viewportHeight;
   }
 
-  /** Runs `toggle` while keeping the line at the top of the viewport in place. */
   withAnchoredScroll(toggle: () => void): void {
     if (this.scrollView.isFollowingEnd) {
       toggle();
@@ -69,7 +68,6 @@ export class TranscriptView extends VStack {
     this.scrollView.scrollTo(scrollTop, { disableFollow: true });
   }
 
-  /** Runs `toggle` while keeping the view anchored to the transcript end. */
   withBottomAnchor(toggle: () => void, removedLines: number): void {
     if (this.scrollView.isFollowingEnd) {
       toggle();

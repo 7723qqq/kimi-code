@@ -1,54 +1,34 @@
-import type { ThinkingEffort } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Key,
   matchesKey,
   truncateToWidth,
-  visibleWidth,
   wrapTextWithAnsi,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
-  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
+import type { ThinkingEffort } from '@moonshot-ai/kimi-code-sdk';
+
 import { currentTheme } from '#/tui/theme';
-import { DialogMouse, mouseDispatch, regionAt, type ListRowRegion } from '#/tui/utils/mouse';
 
 import { effortLabel } from './model-selector';
+import { t } from '#/i18n';
 
 export interface EffortSelectorOptions {
   readonly title?: string;
-  /** Selectable thinking efforts for the current model (e.g. ["off","low","high","max"]). */
   readonly efforts: readonly ThinkingEffort[];
-  /** Currently active effort (highlighted). */
   readonly currentValue: ThinkingEffort;
   readonly onSelect: (effort: ThinkingEffort) => void;
-  /** When provided, Alt+S applies the choice to the current session only. */
   readonly onSessionOnlySelect?: (effort: ThinkingEffort) => void;
   readonly onCancel: () => void;
-  /** When set, rendered as warning-colored lines directly below the key-hint
-   * line; wraps instead of truncating when it exceeds the width (e.g. the
-   * mid-conversation switch cost notice). */
   readonly warning?: string;
+  readonly descriptions?: Readonly<Record<string, string>>;
 }
 
-/**
- * Horizontal segmented picker for the `/effort` command.
- *
- * Mirrors the thinking control rendered under `/model` (see
- * `renderThinkingControl` in model-selector.ts): a single row of segments,
- * the active one wrapped in `[ ]`. ←/→ step the active segment, Enter
- * commits, and Alt+S (when provided) applies session-only.
- */
 export class EffortSelectorComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: EffortSelectorOptions;
   private activeIndex: number;
-  /** Columns each segment occupied in the last render, for pointer hits. */
-  private readonly segmentRegions: ListRowRegion[] = [];
-  private readonly mouse = new DialogMouse(() => this.focused);
 
   constructor(opts: EffortSelectorOptions) {
     super();
@@ -80,52 +60,14 @@ export class EffortSelectorComponent extends Container implements Focusable {
     }
   }
 
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouseEvent(event));
-  }
-
-  private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    const handoff = this.mouse.handoff(event);
-    if (handoff !== undefined) return handoff;
-
-    if (event.type === 'wheel') {
-      const direction = this.mouse.wheel(event);
-      if (direction === 0) return { handled: true };
-      const next = Math.max(
-        0,
-        Math.min(this.opts.efforts.length - 1, this.activeIndex + direction),
-      );
-      if (next === this.activeIndex) return { handled: true };
-      this.activeIndex = next;
-      return { handled: true, render: true };
-    }
-
-    if (event.type !== 'press' && event.type !== 'click') return undefined;
-    const segment = regionAt(this.segmentRegions, event);
-    if (segment === undefined) return undefined;
-
-    this.activeIndex = segment.index;
-    if (event.type === 'click' && !this.mouse.settling(event)) {
-      this.opts.onSelect(this.opts.efforts[segment.index]!);
-    }
-    return { handled: true, render: true };
-  }
-
   override render(width: number): string[] {
-    const hintParts = [
-      t('tui.dialogs.effortSelector.hintSwitch'),
-      t('tui.dialogs.effortSelector.hintSelect'),
-    ];
-    if (this.opts.onSessionOnlySelect !== undefined)
-      hintParts.push(t('tui.dialogs.effortSelector.hintSessionOnly'));
+    const hintParts = [t('tui.dialogs.effortSelector.hintSwitch'), t('tui.dialogs.effortSelector.hintSelect')];
+    if (this.opts.onSessionOnlySelect !== undefined) hintParts.push(t('tui.dialogs.effortSelector.hintSessionOnly'));
     hintParts.push(t('tui.dialogs.effortSelector.hintCancel'));
 
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg(
-        'primary',
-        ` ${this.opts.title ?? t('tui.dialogs.effortSelector.title')}`,
-      ),
+      currentTheme.boldFg('primary', ` ${this.opts.title ?? t('tui.dialogs.effortSelector.title')}`),
       currentTheme.fg('textMuted', ` ${hintParts.join(' · ')}`),
     ];
     if (this.opts.warning !== undefined) {
@@ -141,21 +83,9 @@ export class EffortSelectorComponent extends Container implements Focusable {
         ? currentTheme.boldFg('primary', `[ ${label} ]`)
         : currentTheme.fg('text', `  ${label}  `);
     });
-    const row = lines.length;
-    this.segmentRegions.length = 0;
-    let column = 2;
-    for (let i = 0; i < segments.length; i++) {
-      const segmentWidth = visibleWidth(segments[i]!);
-      this.segmentRegions.push({
-        start: row,
-        end: row + 1,
-        columnStart: column,
-        columnEnd: column + segmentWidth,
-        index: i,
-      });
-      column += segmentWidth + 2;
-    }
     lines.push(`  ${segments.join('  ')}`);
+    const description = this.opts.descriptions?.[this.opts.efforts[this.activeIndex]!];
+    if (description !== undefined) lines.push(currentTheme.fg('textMuted', ` ${description}`));
 
     lines.push('');
     lines.push(currentTheme.fg('primary', '─'.repeat(width)));

@@ -1,4 +1,4 @@
-import { llmStatusErrorMessage, type LlmErrorMessage } from '#/llm/errors';
+import { llmStatusErrorMessage, type LlmErrorMessage } from '#human/llm/errors';
 
 export const DEFAULT_MAX_RETRY_ATTEMPTS = 10;
 

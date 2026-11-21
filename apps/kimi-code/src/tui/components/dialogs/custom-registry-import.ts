@@ -1,15 +1,3 @@
-/**
- * CustomRegistryImportDialog — blue rounded box that collects a custom
- * registry URL and an optional Bearer token before importing the registry's
- * provider entries.
- *
- * Geometry mirrors `ApiKeyInputDialogComponent` so the chrome stays
- * consistent with the API-key login flow. Two fields, switched with
- * Tab / Shift-Tab / Up / Down; Enter advances to the next field (and submits
- * on the last field), Esc cancels. Only the URL is required — public
- * registries take an empty token.
- */
-
 import {
   Container,
   Input,
@@ -18,14 +6,10 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
-  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { DialogMouse, inputPressAt, mouseDispatch, type InputFrame } from '#/tui/utils/mouse';
+import { t } from '#/i18n';
 
 export interface CustomRegistryImportValue {
   readonly url: string;
@@ -36,21 +20,11 @@ export type CustomRegistryImportResult =
   | { readonly kind: 'ok'; readonly value: CustomRegistryImportValue }
   | { readonly kind: 'cancel' };
 
-function getTitle(): string {
-  return t('tui.dialogs.customRegistryImport.title');
-}
-function getSubtitleDefault(): string {
-  return t('tui.dialogs.customRegistryImport.subtitleDefault');
-}
-function getSubtitleUrlEmpty(): string {
-  return t('tui.dialogs.customRegistryImport.subtitleUrlEmpty');
-}
-function getFooterNotLast(): string {
-  return t('tui.dialogs.customRegistryImport.footerNotLast');
-}
-function getFooterLast(): string {
-  return t('tui.dialogs.customRegistryImport.footerLast');
-}
+const TITLE = t('tui.dialogs.customRegistryImport.title');
+const SUBTITLE_DEFAULT = t('tui.dialogs.customRegistryImport.subtitleDefault');
+const SUBTITLE_URL_EMPTY = t('tui.dialogs.customRegistryImport.subtitleUrlEmpty');
+const FOOTER_NOT_LAST = t('tui.dialogs.customRegistryImport.footerNotLast');
+const FOOTER_LAST = t('tui.dialogs.customRegistryImport.footerLast');
 
 type FieldId = 'url' | 'token';
 
@@ -58,7 +32,6 @@ function maskInputLine(raw: string): string {
   const prefix = '> ';
   if (!raw.startsWith(prefix)) return raw;
 
-  // Strip trailing padding spaces so they stay as spaces.
   let end = raw.length;
   while (end > prefix.length && raw[end - 1] === ' ') {
     end--;
@@ -66,12 +39,10 @@ function maskInputLine(raw: string): string {
   const padding = raw.slice(end);
   const content = raw.slice(prefix.length, end);
 
-  // Protect ANSI escape sequences (reverse-video cursor, IME marker, etc.)
-  // while masking every other visible character.
   const parts = content.split(/(\u001B(?:\[[0-9;]*m|_pi:c\u0007))/);
   const maskedContent = parts
     .map((part, index) => {
-      if (index % 2 === 1) return part; // ANSI sequence
+      if (index % 2 === 1) return part;
       return part.replaceAll(/[^ ]/g, '•');
     })
     .join('');
@@ -88,17 +59,14 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
   private activeField: FieldId = 'url';
   private done = false;
   private hint: 'none' | 'url-empty' = 'none';
-  /** Where the last render put each input line, in the dialog's own frame. */
-  private urlFrame: InputFrame = { row: -1, column: 0 };
-  private tokenFrame: InputFrame = { row: -1, column: 0 };
-  private readonly mouse = new DialogMouse(() => this.focused);
 
-  constructor(onDone: (result: CustomRegistryImportResult) => void, defaultUrl: string = '') {
+  constructor(
+    onDone: (result: CustomRegistryImportResult) => void,
+    defaultUrl: string = '',
+  ) {
     super();
     this.onDone = onDone;
     if (defaultUrl.length > 0) this.urlInput.setValue(defaultUrl);
-    // Enter on the URL field advances to the token field; Enter on the token
-    // (last) field submits.
     this.urlInput.onSubmit = () => {
       this.focusField('token');
     };
@@ -159,12 +127,12 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
     const pad = '  ';
 
     const border = (s: string): string => currentTheme.fg('primary', s);
-    const titleStyled = currentTheme.boldFg('textStrong', getTitle());
-    const subtitleText = this.hint === 'url-empty' ? getSubtitleUrlEmpty() : getSubtitleDefault();
+    const titleStyled = currentTheme.boldFg('textStrong', TITLE);
+    const subtitleText = this.hint === 'url-empty' ? SUBTITLE_URL_EMPTY : SUBTITLE_DEFAULT;
     const subtitleStyled = currentTheme.fg('textDim', subtitleText);
     const footerStyled = currentTheme.fg(
       'textDim',
-      this.activeField === 'url' ? getFooterNotLast() : getFooterLast(),
+      this.activeField === 'url' ? FOOTER_NOT_LAST : FOOTER_LAST,
     );
 
     const urlLabelText = t('tui.dialogs.customRegistryImport.urlLabel');
@@ -200,16 +168,10 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
       '',
       footerLine,
     ];
-    const urlIndex = contentLines.indexOf(urlInputLine);
-    const tokenIndex = contentLines.indexOf(tokenInputLine);
 
     if (safeWidth < 4) {
-      this.urlFrame = { row: 1 + urlIndex, column: 0 };
-      this.tokenFrame = { row: 1 + tokenIndex, column: 0 };
       return ['', ...contentLines.map((line) => truncateToWidth(line, safeWidth, '…'))];
     }
-    this.urlFrame = { row: 3 + urlIndex, column: 3 };
-    this.tokenFrame = { row: 3 + tokenIndex, column: 3 };
 
     const lines: string[] = [
       '',
@@ -228,28 +190,6 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
     lines.push('');
 
     return lines.map((line) => truncateToWidth(line, safeWidth, '…'));
-  }
-
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouseEvent(event));
-  }
-
-  private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (this.done) return undefined;
-    const handoff = this.mouse.handoff(event);
-    if (handoff !== undefined) return handoff;
-
-    const urlHit = inputPressAt(this.urlInput, event, this.urlFrame);
-    if (urlHit !== undefined) {
-      this.focusField('url');
-      return urlHit;
-    }
-    const tokenHit = inputPressAt(this.tokenInput, event, this.tokenFrame);
-    if (tokenHit !== undefined) {
-      this.focusField('token');
-      return tokenHit;
-    }
-    return undefined;
   }
 
   private toggleField(): void {

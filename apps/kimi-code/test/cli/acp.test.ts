@@ -1,33 +1,14 @@
-/**
- * `kimi acp`
- *
- * Verifies that the ACP sub-command is registered on the program and that
- * the action wires `@moonshot-ai/acp-server`'s `runAcpServer` (the real server
- * is stubbed so the test doesn't actually take over stdio). The module is
- * loaded via a lazy dynamic import in the action, so the mock intercepts that
- * import.
- */
+import { Command, Option } from 'commander';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import type { Mock } from 'bun:test';
-
-import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
-import { Command } from 'commander';
-
-import { restoreEnvs } from '#test/helpers/stubs';
-
-void mock.module('@moonshot-ai/acp-server', () => ({
-  runAcpServer: mock(async () => undefined),
+void vi.mock('@moonshot-ai/acp-server', () => ({
+  runAcpServer: vi.fn(async () => undefined),
 }));
 
 import { runAcpServer } from '@moonshot-ai/acp-server';
 
 import { registerAcpCommand } from '#/cli/sub/acp';
 import { getDataDir } from '#/utils/paths';
-
-// `mock.module` swaps the implementation at runtime, but the imported binding
-// keeps its real signature, so the assertions below need the mock surface.
-const runAcpServerMock = runAcpServer as unknown as Mock<typeof runAcpServer>;
 
 class ExitCalled extends Error {
   constructor(public code: number | string | null | undefined) {
@@ -36,21 +17,21 @@ class ExitCalled extends Error {
 }
 
 describe('kimi acp', () => {
-  let exitSpy: ReturnType<typeof spyOn>;
-  let stderrSpy: ReturnType<typeof spyOn>;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    runAcpServerMock.mockClear();
-    exitSpy = spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
+    vi.mocked(runAcpServer).mockClear();
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
       throw new ExitCalled(code);
     }) as never);
-    stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
     exitSpy.mockRestore();
     stderrSpy.mockRestore();
-    restoreEnvs();
+    vi.unstubAllEnvs();
   });
 
   it('registers an `acp` subcommand on the program', () => {
@@ -68,8 +49,8 @@ describe('kimi acp', () => {
 
     await expect(program.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
 
-    expect(runAcpServerMock).toHaveBeenCalledTimes(1);
-    const optsArg = runAcpServerMock.mock.calls[0]?.[0];
+    expect(runAcpServer).toHaveBeenCalledTimes(1);
+    const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0];
     expect(optsArg).toEqual(
       expect.objectContaining({
         homeDir: getDataDir(),
@@ -88,7 +69,7 @@ describe('kimi acp', () => {
 
       await expect(program.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
 
-      const optsArg = runAcpServerMock.mock.calls[0]?.[0];
+      const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0];
       expect(optsArg).toEqual(
         expect.objectContaining({
           homeDir: '/tmp/kimi-debug',
@@ -113,7 +94,7 @@ describe('kimi acp', () => {
 
       await expect(program.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
 
-      const optsArg = runAcpServerMock.mock.calls[0]?.[0] as {
+      const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0] as {
         terminalAuthEnv?: unknown;
       };
       expect(optsArg.terminalAuthEnv).toBeUndefined();
@@ -124,59 +105,64 @@ describe('kimi acp', () => {
     }
   });
 
-  it('advertises process.execPath on a native install and argv[1] on a script install', async () => {
-    const detectSpy = spyOn(await import('#/cli/update/source'), 'detectNativeInstall');
+  it('forwards process.argv[1] as terminalAuthLegacyCommand', async () => {
+    const program = new Command('kimi').exitOverride();
+    registerAcpCommand(program);
 
-    detectSpy.mockReturnValue({ native: true, kind: 'bun' });
-    const nativeProgram = new Command('kimi').exitOverride();
-    registerAcpCommand(nativeProgram);
-    await expect(nativeProgram.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
-    const nativeOpts = runAcpServerMock.mock.calls[0]?.[0] as {
+    await expect(program.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
+
+    const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0] as {
       terminalAuthLegacyCommand?: string;
     };
-    // A single-file build's argv[1] is a /$bunfs virtual path that no client
-    // can spawn; execPath is the real binary.
-    expect(nativeOpts.terminalAuthLegacyCommand).toBe(process.execPath);
+    expect(typeof optsArg.terminalAuthLegacyCommand).toBe('string');
+    expect((optsArg.terminalAuthLegacyCommand ?? '').length).toBeGreaterThan(0);
+    expect(optsArg.terminalAuthLegacyCommand).toBe(process.argv[1]);
+  });
 
-    runAcpServerMock.mockClear();
-    detectSpy.mockReturnValue({ native: false });
-    const scriptProgram = new Command('kimi').exitOverride();
-    registerAcpCommand(scriptProgram);
-    await expect(scriptProgram.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
-    const scriptOpts = runAcpServerMock.mock.calls[0]?.[0] as {
-      terminalAuthLegacyCommand?: string;
-    };
-    // A global script install's bin IS the script, so pointing at execPath
-    // would advertise node/bun itself.
-    expect(scriptOpts.terminalAuthLegacyCommand).toBe(process.argv[1]);
-    detectSpy.mockRestore();
+  it('rejects a root-level --environment instead of silently ignoring it', async () => {
+    const program = new Command('kimi').exitOverride().enablePositionalOptions();
+    program.addOption(new Option('--environment <id>').hideHelp());
+    registerAcpCommand(program);
+
+    await expect(
+      program.parseAsync(['node', 'kimi', '--environment', 'dev-box', 'acp']),
+    ).rejects.toThrow(ExitCalled);
+
+    expect(runAcpServer).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const stderr = stderrSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('');
+    expect(stderr).toContain("--environment");
+    expect(stderr).toContain('acp');
   });
 
   it('exits without starting the ACP server when --login is passed', async () => {
-    // Stub the SDK harness so runLoginFlow doesn't hit a real OAuth endpoint:
-    // harness.auth.login resolves immediately and triggers exit 0.
-    const loginStub = mock(async () => ({ providerName: 'kimi-code' }));
-    void mock.module('@moonshot-ai/kimi-code-sdk', () => ({
-      ...sdkModule,
-      // The login flow boots the v2-backed SDK harness (`createKimiHarness`).
-      createKimiHarness: () =>
-        ({
-          auth: { login: loginStub },
-        }) as unknown as ReturnType<typeof sdkModule.createKimiHarness>,
-    }));
+    const loginStub = vi.fn(async () => ({ providerName: 'kimi-code' }));
+    vi.doMock('@moonshot-ai/kimi-code-sdk', async () => {
+      const actual = await import('@moonshot-ai/kimi-code-sdk');
+      return {
+        ...actual,
+        createKimiHarness: () =>
+          ({
+            auth: { login: loginStub },
+          }) as unknown as ReturnType<typeof actual.createKimiHarness>,
+      };
+    });
+    vi.resetModules();
+    const { registerAcpCommand: freshRegister } = await import('#/cli/sub/acp');
     try {
       const program = new Command('kimi').exitOverride();
-      registerAcpCommand(program);
+      freshRegister(program);
 
       await expect(program.parseAsync(['node', 'kimi', 'acp', '--login'])).rejects.toThrow(
         ExitCalled,
       );
 
       expect(loginStub).toHaveBeenCalledTimes(1);
-      expect(runAcpServerMock).not.toHaveBeenCalled();
+      expect(runAcpServer).not.toHaveBeenCalled();
       expect(exitSpy).toHaveBeenCalledWith(0);
     } finally {
-      mock.restore();
+      vi.doUnmock('@moonshot-ai/kimi-code-sdk');
+      vi.resetModules();
     }
   });
 });

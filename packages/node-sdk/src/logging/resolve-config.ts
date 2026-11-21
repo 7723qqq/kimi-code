@@ -1,5 +1,4 @@
-import { join } from 'node:path';
-
+import { resolveGlobalLogPath } from './logger';
 import type { LogLevel, LoggingConfig } from './types';
 
 export const DEFAULT_LOG_LEVEL: LogLevel = 'info';
@@ -11,10 +10,6 @@ export const DEFAULT_SESSION_FILES = 3;
 export interface ResolveLoggingInput {
   readonly homeDir: string;
   readonly env?: NodeJS.ProcessEnv | undefined;
-}
-
-export function resolveGlobalLogPath(homeDir: string): string {
-  return join(homeDir, 'logs', 'kimi-code.log');
 }
 
 export function resolveLoggingConfig(input: ResolveLoggingInput): LoggingConfig {

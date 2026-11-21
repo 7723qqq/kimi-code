@@ -1,6 +1,5 @@
 import { sliceByColumn, visibleWidth } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import {
   TRANSCRIPT_GROUP_TAIL_ELAPSED_MS,
   TRANSCRIPT_TAIL_ENTER_MS,
@@ -28,6 +27,7 @@ import {
   type Instant,
   type TimelineReader,
 } from '#/tui/utils/turn-timeline';
+import { t } from '#/i18n';
 
 type NonEmpty<T> = readonly [T, ...T[]];
 
@@ -75,40 +75,39 @@ export interface GroupView {
 
 interface ToolKind {
   readonly events: readonly SummaryEvent['kind'][];
-  readonly verbKey: string;
-  readonly presentKey: string;
-  readonly pastKey: string;
+  readonly present: string;
+  readonly past: string;
+  readonly noun?: readonly [singular: string, plural: string];
   readonly countsPaths?: true;
+  readonly category: string;
   readonly names: 'subject' | 'row';
 }
 
-const SUMMARY = 'tui.messages.transcriptGroups.summary';
-const VERBS = 'tui.messages.transcriptGroups.verbs';
-const TAIL = 'tui.messages.transcriptGroups.tail';
-
 const OTHER_TOOLS: ToolKind = {
   events: ['query', 'other'],
-  verbKey: 'tool',
-  presentKey: 'usingTool',
-  pastKey: 'tool',
+  present: 'using',
+  past: 'used',
+  noun: ['tool', 'tools'],
+  category: t('tui.messages.transcriptGroups.category.tool'),
   names: 'row',
 };
 
 export const TOOL_KINDS: readonly ToolKind[] = [
-  { events: ['read'], verbKey: 'read', presentKey: 'reading', pastKey: 'read', countsPaths: true, names: 'subject' },
-  { events: ['search'], verbKey: 'search', presentKey: 'searching', pastKey: 'search', names: 'subject' },
-  { events: ['fetch'], verbKey: 'fetch', presentKey: 'fetching', pastKey: 'fetch', names: 'subject' },
-  { events: ['webSearch'], verbKey: 'webSearch', presentKey: 'webSearching', pastKey: 'webSearch', names: 'subject' },
-  { events: ['skill'], verbKey: 'skill', presentKey: 'loadingSkill', pastKey: 'skill', names: 'subject' },
-  { events: ['todo'], verbKey: 'todo', presentKey: 'updatingTodos', pastKey: 'todos', names: 'subject' },
-  { events: ['command'], verbKey: 'command', presentKey: 'runningCommand', pastKey: 'command', names: 'subject' },
-  { events: ['edit'], verbKey: 'edit', presentKey: 'editing', pastKey: 'edit', countsPaths: true, names: 'subject' },
-  { events: ['taskCheck'], verbKey: 'taskCheck', presentKey: 'checkingTask', pastKey: 'taskCheck', names: 'subject' },
-  { events: ['mcp'], verbKey: 'mcp', presentKey: 'callingMcp', pastKey: 'mcp', names: 'subject' },
+  { events: ['read'], present: 'reading', past: 'read', noun: ['file', 'files'], countsPaths: true, category: t('tui.messages.transcriptGroups.category.read'), names: 'subject' },
+  { events: ['search'], present: 'searching', past: 'searched', noun: ['pattern', 'patterns'], category: t('tui.messages.transcriptGroups.category.search'), names: 'subject' },
+  { events: ['fetch'], present: 'fetching', past: 'fetched', noun: ['page', 'pages'], category: t('tui.messages.transcriptGroups.category.fetch'), names: 'subject' },
+  { events: ['webSearch'], present: 'running', past: 'ran', noun: ['web search', 'web searches'], category: t('tui.messages.transcriptGroups.category.webSearch'), names: 'subject' },
+  { events: ['skill'], present: 'loading', past: 'loaded', noun: ['skill', 'skills'], category: t('tui.messages.transcriptGroups.category.skill'), names: 'subject' },
+  { events: ['todo'], present: 'updating todos', past: t('tui.messages.transcriptGroups.summary.todos'), category: 'updating todos', names: 'subject' },
+  { events: ['command'], present: 'running', past: 'ran', noun: ['command', 'commands'], category: t('tui.messages.transcriptGroups.category.command'), names: 'subject' },
+  { events: ['edit'], present: 'editing', past: 'edited', noun: ['file', 'files'], countsPaths: true, category: t('tui.messages.transcriptGroups.category.edit'), names: 'subject' },
+  { events: ['taskCheck'], present: 'checking', past: 'checked', noun: ['task', 'tasks'], category: t('tui.messages.transcriptGroups.category.taskCheck'), names: 'subject' },
+  { events: ['mcp'], present: 'calling', past: 'called', noun: ['time', 'times'], category: 'calling', names: 'subject' },
   OTHER_TOOLS,
 ];
 
 const BLANK: TailView = { kind: 'blank' };
+const UNKNOWN_TOOL = t('tui.messages.transcriptGroups.tail.unknownTool');
 
 interface MemberState {
   readonly item: LogicalTranscriptItem;
@@ -234,7 +233,7 @@ function deriveTitle(members: NonEmpty<MemberState>, now: Instant): GroupTitleVi
   }
   return {
     kind: 'summary',
-    text: capitalize(fragments.length > 0 ? fragments.join(', ') : categoryOf(members)),
+    text: capitalize(fragments.length > 0 ? fragments.join(t('tui.migration.listSeparator')) : categoryOf(members)),
     added,
     removed,
     failed: counted.filter((member) => member.status.kind === 'failed').length,
@@ -243,34 +242,32 @@ function deriveTitle(members: NonEmpty<MemberState>, now: Instant): GroupTitleVi
 }
 
 function thoughtFragment(thoughts: readonly MemberState[]): string {
-  if (thoughts.some((member) => member.status.kind === 'running')) return t(`${SUMMARY}.thinking`);
+  if (thoughts.some((member) => member.status.kind === 'running')) return 'thinking';
   let totalMs = 0;
   for (const { item } of thoughts) {
-    if (item.event.kind !== 'thought' || item.event.durationMs === undefined) return t(`${SUMMARY}.thought`);
+    if (item.event.kind !== 'thought' || item.event.durationMs === undefined) return 'thought';
     totalMs += item.event.durationMs;
   }
-  return t(`${SUMMARY}.thoughtFor`, { duration: formatDuration(totalMs) });
+  return t('tui.messages.transcriptGroups.summary.thoughtFor', { duration: formatDuration(totalMs) });
 }
 
 function countFragment(bucket: Bucket): string {
   const { kind, members } = bucket;
   const present = members.some((member) => member.status.kind === 'running');
-  const key = present ? kind.presentKey : kind.pastKey;
+  const verb = withServer(present ? kind.present : kind.past, bucket.server);
+  if (kind.noun === undefined) return verb;
   const count = kind.countsPaths === true
     ? new Set(members.map((member) => pathOf(member.item.event))).size
     : members.length;
-  const params: Record<string, string | number> = { count };
-  if (bucket.server !== undefined) params['server'] = bucket.server;
-  return t(summaryKey(key, count), params);
+  return `${verb} ${String(count)} ${count === 1 ? kind.noun[0] : kind.noun[1]}`;
 }
 
 function categoryOf(members: NonEmpty<MemberState>): string {
   for (const { item } of members) {
     const kind = kindOf(item.event);
-    if (kind === undefined) continue;
-    return withServer(t(`tui.messages.transcriptGroups.category.${kind.verbKey}`), serverOf(item.event));
+    if (kind !== undefined) return withServer(kind.category, serverOf(item.event));
   }
-  return t(`tui.messages.transcriptGroups.category.${OTHER_TOOLS.verbKey}`);
+  return OTHER_TOOLS.category;
 }
 
 function bucketsOf(members: readonly MemberState[]): readonly Bucket[] {
@@ -329,25 +326,22 @@ function tailBody(tail: TailView): string {
     case 'running': return runningBody(tail.kinds, Infinity, Infinity);
     case 'thinking':
     case 'thought': return tail.text;
-    case 'preparing':
-      return t(`${TAIL}.preparing`, { tool: tail.tool ?? t(`${TAIL}.unknownTool`) });
-    case 'waiting': return t(`${TAIL}.waiting`);
+    case 'preparing': return `Preparing ${tail.tool ?? UNKNOWN_TOOL}`;
+    case 'waiting': return t('tui.messages.transcriptGroups.tail.waiting');
   }
 }
 
 function runningKind(bucket: Bucket): RunningKind {
   const [first, ...rest] = bucket.members;
   const name = (member: MemberState): string => nameOf(bucket.kind, member.item);
-  const verb = withServer(t(`${VERBS}.${bucket.kind.verbKey}`), bucket.server);
-  return { verb, names: [name(first), ...rest.map(name)] };
+  return { verb: withServer(bucket.kind.present, bucket.server), names: [name(first), ...rest.map(name)] };
 }
 
 function runningBody(kinds: NonEmpty<RunningKind>, perKind: number, nameWidth: number): string {
   return capitalize(kinds.map((kind) => {
     const shown = kind.names.slice(0, perKind).map((name) => clip(name, nameWidth));
     const hidden = kind.names.length - shown.length;
-    const more = hidden > 0 ? t(`${TAIL}.more`, { count: hidden }) : '';
-    return `${kind.verb} ${shown.join(', ')}${more}`;
+    return `${kind.verb} ${shown.join(', ')}${hidden > 0 ? ` +${String(hidden)} more` : ''}`;
   }).join('; '));
 }
 
@@ -403,9 +397,4 @@ function withServer(text: string, server: string | undefined): string {
 
 function capitalize(text: string): string {
   return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
-}
-
-function summaryKey(key: string, count: number): string {
-  const plural = key === 'todos' || key === 'updatingTodos' ? '' : count === 1 ? '_one' : '_other';
-  return `${SUMMARY}.${key}${plural}`;
 }

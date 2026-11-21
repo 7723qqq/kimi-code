@@ -1,5 +1,6 @@
+import { join } from 'node:path';
+
 import { extractError, formatEntry, redactCtx } from './formatter';
-import { resolveLoggingConfig } from './resolve-config';
 import { RotatingFileSink } from './sinks';
 import {
   type LogContext,
@@ -75,13 +76,6 @@ export function getRootLogger(): RootLogger {
   return getRootInternal();
 }
 
-export function configureDiagnosticLogging(input: {
-  readonly homeDir: string;
-  readonly env?: NodeJS.ProcessEnv | undefined;
-}): Promise<void> {
-  return getRootInternal().configure(resolveLoggingConfig(input));
-}
-
 export function flushDiagnosticLogs(): Promise<boolean> {
   return getRootInternal().flush();
 }
@@ -110,7 +104,11 @@ class LoggerImpl implements Logger {
     return new LoggerImpl({ ...this.boundCtx, ...ctx });
   }
 
-  private emitAt(level: Exclude<LogLevel, 'off'>, message: string, payload: LogPayload): void {
+  private emitAt(
+    level: Exclude<LogLevel, 'off'>,
+    message: string,
+    payload: LogPayload,
+  ): void {
     const root = getRootInternal();
     if (!root.isConfigured()) return;
     try {
@@ -123,7 +121,8 @@ class LoggerImpl implements Logger {
         ctx,
         error,
       });
-    } catch {}
+    } catch {
+    }
   }
 }
 
@@ -147,10 +146,9 @@ function sameLoggingConfig(a: LoggingConfig, b: LoggingConfig): boolean {
   );
 }
 
-function resolvePayload(payload: LogPayload): {
-  ctx: LogContext | undefined;
-  error: LogEntry['error'];
-} {
+function resolvePayload(
+  payload: LogPayload,
+): { ctx: LogContext | undefined; error: LogEntry['error'] } {
   if (payload === undefined || payload === null) {
     return { ctx: undefined, error: undefined };
   }
@@ -205,4 +203,8 @@ export async function __resetRootLoggerForTest(): Promise<void> {
     await existing.__shutdownForTest();
   }
   globalAny[ROOT_SYMBOL] = undefined;
+}
+
+export function resolveGlobalLogPath(homeDir: string): string {
+  return join(homeDir, 'logs', 'kimi-code.log');
 }

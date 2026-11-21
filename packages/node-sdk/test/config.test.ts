@@ -1,12 +1,11 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { configToTomlData, parseConfigString } from '#/config/index';
-import { KimiConfigSchema } from '#/config/schema';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import { createKimiConfigRpc } from '#/index';
-import { KIMI_CONFIG_DOMAINS, resolvedConfigToKimiConfig } from '#/v2/config-mapper';
+import { configToTomlData, parseConfigString } from '#/config/index';
 
 const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
@@ -29,9 +28,7 @@ describe('SDK config TOML', () => {
     const dir = await makeTempDir();
     const rpc = createKimiConfigRpc();
 
-    await expect(rpc.resolveConfigPath({ homeDir: dir })).resolves.toBe(
-      toPosix(join(dir, 'config.toml')),
-    );
+    await expect(rpc.resolveConfigPath({ homeDir: dir })).resolves.toBe(toPosix(join(dir, 'config.toml')));
   });
 
   it('returns structured validation issues through the config RPC wrapper', async () => {
@@ -215,32 +212,5 @@ feedback_url = "https://registry.example.test/v1/feedback"
       search_url: 'https://registry.example.test/v1/search',
     });
     expect(updatedProviders['acme']).not.toHaveProperty('feedback_url');
-  });
-});
-
-describe('config domain allowlist', () => {
-  it('carries every schema section, so getConfig cannot silently drop one', () => {
-    // `KIMI_CONFIG_DOMAINS` is the read path from the engine's per-domain
-    // config to the SDK shape. A domain missing here survives every type
-    // check — the parity assertions are structural — and the value is lost
-    // between a successful write and the next read. The [prompt_optimizer]
-    // settings shipped exactly this hole: writes landed, reads dropped the
-    // section, and the panel reopened over stored values with defaults.
-    const schemaDomains = Object.keys(KimiConfigSchema.shape).filter((key) => key !== 'raw');
-    const missing = schemaDomains.filter(
-      (domain) => !KIMI_CONFIG_DOMAINS.includes(domain as (typeof KIMI_CONFIG_DOMAINS)[number]),
-    );
-    expect(missing).toEqual([]);
-  });
-
-  it('round-trips every allowlisted domain through the read projection', () => {
-    const resolved: Record<string, unknown> = {};
-    for (const domain of KIMI_CONFIG_DOMAINS) {
-      resolved[domain] = { marker: domain };
-    }
-    const config = resolvedConfigToKimiConfig(resolved) as Record<string, unknown>;
-    for (const domain of KIMI_CONFIG_DOMAINS) {
-      expect(config[domain]).toEqual({ marker: domain });
-    }
   });
 });

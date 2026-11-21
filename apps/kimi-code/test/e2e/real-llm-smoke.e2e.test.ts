@@ -1,30 +1,17 @@
-/**
- * Real-LLM smoke. Opt-in only — runs when `KIMI_E2E_REAL=1` is set, so
- * `make test` / CI never touches the network. Goes through the SDK's
- * `KimiHarness` entry and round-trips one real prompt. Requires provider
- * credentials on disk.
- *
- * Env knobs:
- *   KIMI_E2E_REAL     — set to "1" to enable this suite
- *   KIMI_E2E_MODEL    — model alias override (default: config's default)
- *   KIMI_E2E_PROMPT   — prompt text (default: "Reply with a single word: hi")
- *   KIMI_E2E_WORKDIR  — workspace directory (default: /tmp/kimi-e2e)
- */
-
-import { describe, expect, test } from 'bun:test';
 import { mkdirSync } from 'node:fs';
 import process from 'node:process';
 
 import { createKimiHarness, type Event } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, test } from '@moonshot-ai/testkit/vitest';
 
-import { createKimiCodeHostIdentity, getVersion } from '#/cli/version';
-import { readE2EFlags } from '#test/helpers/e2e-flags';
+import { createKimiCodeHostIdentity } from '#/cli/host-identity';
+import { getVersion } from '#/cli/version';
 
 const DEFAULT_PROMPT = 'Reply with a single word: hi';
 const DEFAULT_WORKDIR = '/tmp/kimi-e2e';
 const TURN_TIMEOUT_MS = 60_000;
 
-const ENABLED = readE2EFlags(process.env).real;
+const ENABLED = process.env['KIMI_E2E_REAL'] === '1';
 type TurnEndedEvent = Extract<Event, { readonly type: 'turn.ended' }>;
 
 describe.skipIf(!ENABLED)('SDK e2e — real LLM smoke', () => {

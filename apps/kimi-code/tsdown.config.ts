@@ -42,6 +42,7 @@ export default defineConfig({
   },
   deps: {
     onlyBundle: false,
+    neverBundle: ['canvas'],
   },
   outputOptions: {
     entryFileNames: 'main.mjs',

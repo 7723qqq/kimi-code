@@ -29,3 +29,8 @@
 # Verified: `detectLocale()` under `bun` returns 'en' via `detectLocaleNode()`,
 # never touching this line's browser branch.
 packages/i18n-shared/src/detect.ts:navigator.language 1
+
+# Bun accepts Worker resourceLimits and ignores it, so the search worker's
+# maxOldGenerationSizeMb cap is not enforced on this runtime. The worker still
+# starts; the failure mode is an unbounded heap, not a wrong result.
+packages/kap-server/src/search/worker/host.ts:resourceLimits 1

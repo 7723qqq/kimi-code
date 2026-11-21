@@ -6,11 +6,14 @@ import {
   type AgentActorContext,
   type AgentActorRestoreEvent,
 } from '#/agent/actorService/agentActorService';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
-import type { ContextInjectionContext, ContextInjectionResult } from '#/features/reminder/types';
+import type {
+  ContextInjectionContext,
+  ContextInjectionResult,
+} from '#/features/reminder/types';
 import { IHostClock } from '#/os/interface/hostClock';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -36,9 +39,7 @@ interface DateChangeDiscloseEvent {
   readonly seed: DateDisclosure;
 }
 
-let cachedLocalDateFormat:
-  | { readonly timeZone: string; readonly format: Intl.DateTimeFormat }
-  | undefined;
+let cachedLocalDateFormat: { readonly timeZone: string; readonly format: Intl.DateTimeFormat } | undefined;
 
 function localDateFormat(timeZone: string): Intl.DateTimeFormat {
   if (cachedLocalDateFormat?.timeZone !== timeZone) {
@@ -76,7 +77,7 @@ const dateChangeInjection = fromCallback(({
 }) => {
   const runtime = input.runtime;
   const reminder = runtime.get(IAgentReminderService);
-  const profile = runtime.get(IAgentProfileService);
+  const profile = runtime.get(IAgentLoopService);
   const clock = runtime.get(IHostClock);
   const sessionContext = runtime.get(ISessionContext);
   const bindingCwd = (): string | undefined => {
@@ -169,13 +170,9 @@ export interface IAgentDateChangeService {
   readonly _serviceBrand: undefined;
 }
 
-export const IAgentDateChangeService =
-  createDecorator<IAgentDateChangeService>('agentDateChangeService');
+export const IAgentDateChangeService = createDecorator<IAgentDateChangeService>('agentDateChangeService');
 
-export class AgentDateChangeService
-  extends AgentActorService<null>
-  implements IAgentDateChangeService
-{
+export class AgentDateChangeService extends AgentActorService<null> implements IAgentDateChangeService {
   declare readonly _serviceBrand: undefined;
 
   constructor(

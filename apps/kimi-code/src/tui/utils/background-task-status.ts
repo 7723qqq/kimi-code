@@ -1,18 +1,7 @@
-/**
- * Format a `BackgroundTaskInfo` snapshot into the transcript card data
- * consumed by `BackgroundAgentStatusComponent`.
- *
- * Background tasks have several statuses (running / completed / failed /
- * timed_out / killed / lost) but the transcript card only renders three
- * visual phases (started / completed / failed). The
- * mapping packs the extra nuance — exit code, kill reason, lost-reason
- * — into the dim detail line so the user still sees it.
- */
-
 import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@moonshot-ai/kimi-code-sdk';
 
+import type { BackgroundAgentStatusData, BackgroundAgentStatusPhase } from '@/tui/types';
 import { t } from '#/i18n';
-import type { BackgroundAgentStatusData, BackgroundAgentStatusPhase } from '#/tui/types';
 
 const MAX_DETAIL_LENGTH = 240;
 
@@ -50,17 +39,17 @@ function headlineFor(info: BackgroundTaskInfo): string {
   const subject = subjectFor(info);
   switch (info.status) {
     case 'running':
-      return t('tui.messages.bgTaskStarted', { subject });
+      return `${subject} started in background`;
     case 'completed':
-      return t('tui.messages.bgTaskCompleted', { subject });
+      return `${subject} completed in background`;
     case 'failed':
-      return t('tui.messages.bgTaskFailed', { subject });
+      return `${subject} failed in background`;
     case 'timed_out':
-      return t('tui.messages.bgTaskTimedOut', { subject });
+      return `${subject} timed out`;
     case 'killed':
-      return t('tui.messages.bgTaskStopped', { subject });
+      return `${subject} stopped`;
     case 'lost':
-      return t('tui.messages.bgTaskLost', { subject });
+      return `${subject} lost`;
   }
 }
 
@@ -76,11 +65,7 @@ function detailFor(info: BackgroundTaskInfo): string | undefined {
   }
   if (info.status === 'killed') {
     const reason = truncate(info.stopReason);
-    parts.push(
-      reason !== undefined
-        ? t('tui.messages.bgTaskStoppedReason', { reason })
-        : t('tui.messages.bgTaskStopped', { subject: '' }),
-    );
+    parts.push(reason !== undefined ? `stopped — ${reason}` : 'stopped');
   }
   if (info.status === 'failed') {
     const reason = truncate(info.stopReason);
@@ -94,12 +79,6 @@ function detailFor(info: BackgroundTaskInfo): string | undefined {
   return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
-/**
- * Build a transcript card payload for a background task lifecycle
- * snapshot. The returned phase drives bullet color in the renderer
- * (`BackgroundAgentStatusComponent`); the detail line carries the extra
- * status nuance (exit code, kill reason, etc.).
- */
 export function formatBackgroundTaskTranscript(
   info: BackgroundTaskInfo,
 ): BackgroundAgentStatusData {

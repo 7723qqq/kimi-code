@@ -15,32 +15,44 @@ export const StorageErrors = {
   retryable: ['storage.io_failed', 'storage.locked'],
   info: {
     'storage.not_found': {
+      title: 'Stored value not found',
       retryable: false,
       public: true,
     },
     'storage.decode_failed': {
+      title: 'Stored value could not be decoded',
       retryable: false,
       public: true,
+      action: 'Inspect the stored document; it is not valid for its declared format.',
     },
     'storage.corrupted': {
+      title: 'Stored data is corrupted',
       retryable: false,
       public: true,
+      action: 'Inspect the backing store; the corrupted entry must be repaired or dropped.',
     },
     'storage.io_failed': {
+      title: 'Storage I/O failed',
       retryable: true,
       public: true,
     },
     'storage.locked': {
+      title: 'Storage is locked',
       retryable: true,
       public: true,
+      action: 'Another process holds the store; close it or retry later.',
     },
     'storage.permission_denied': {
+      title: 'Storage permission denied',
       retryable: false,
       public: true,
+      action: 'Check the permissions of the storage directory.',
     },
     'storage.disk_full': {
+      title: 'Storage disk full',
       retryable: false,
       public: true,
+      action: 'Free up disk space and retry.',
     },
   },
 } as const satisfies ErrorDomain;
@@ -117,10 +129,6 @@ export interface StorageReadRange {
   readonly end: number;
 }
 
-export interface StorageListOptions {
-  readonly recursive?: boolean;
-}
-
 export interface IFileSystemStorageService {
   readonly _serviceBrand: undefined;
 
@@ -133,13 +141,8 @@ export interface IFileSystemStorageService {
     source: AsyncIterable<Uint8Array>,
     options?: StorageWriteOptions,
   ): Promise<void>;
-  append(
-    scope: string,
-    key: string,
-    data: Uint8Array,
-    options?: StorageAppendOptions,
-  ): Promise<void>;
-  list(scope: string, prefix?: string, options?: StorageListOptions): Promise<readonly string[]>;
+  append(scope: string, key: string, data: Uint8Array, options?: StorageAppendOptions): Promise<void>;
+  list(scope: string, prefix?: string): Promise<readonly string[]>;
   delete(scope: string, key: string): Promise<void>;
   size(scope: string, key: string): Promise<number | undefined>;
   sizeSync(scope: string, key: string): number | undefined;

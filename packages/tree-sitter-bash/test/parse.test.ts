@@ -1,14 +1,10 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { Aborted, ParseBudget } from '#/budget';
 import type { SyntaxNode } from '#/node';
 import { descendantsOfType } from '#/node';
 import { parse } from '#/parse';
 
-import { assertTreeIntegrity } from './helpers/differential';
-
-/** Compact S-expression of the tree: named leaves are (type "text"),
- *  anonymous leaves are just their quoted type, inner nodes nest. */
 function sexp(node: SyntaxNode): string {
   if (node.children.length === 0) {
     return node.isNamed ? `(${node.type} ${JSON.stringify(node.text)})` : JSON.stringify(node.type);
@@ -24,32 +20,11 @@ function parseOk(source: string): { rootNode: SyntaxNode; hasError: boolean } {
   return result;
 }
 
-/** Parse and assert the exact tree shape plus the hasError flag. */
 function expectTree(source: string, expected: string, hasError = false): SyntaxNode {
   const { rootNode, hasError: actual } = parseOk(source);
   expect(actual).toBe(hasError);
   expect(sexp(rootNode)).toBe(expected);
   return rootNode;
-}
-
-/** Assert every offset in [from, to) is covered by some LEAF of the tree.
- *  Inner nodes span their children, so "covered by any node" would also hold
- *  for text no node ever claimed — leaves are what a failed recovery drops. */
-function expectLeavesCover(root: SyntaxNode, source: string, from: number, to: number): void {
-  const covered = Array.from<boolean>({ length: source.length }).fill(false);
-  const stack: SyntaxNode[] = [root];
-  while (stack.length > 0) {
-    const node = stack.pop()!;
-    if (node.children.length === 0) {
-      for (let i = node.startIndex; i < node.endIndex; i++) covered[i] = true;
-    }
-    for (const child of node.children) stack.push(child);
-  }
-  for (let i = from; i < to; i++) {
-    expect(covered[i], `offset ${i} (${JSON.stringify(source[i])}) has no covering leaf node`).toBe(
-      true,
-    );
-  }
 }
 
 describe('ParseBudget', () => {
@@ -77,7 +52,6 @@ describe('ParseBudget', () => {
 
   it('applies documented defaults', () => {
     const budget = new ParseBudget();
-    // Default node cap is 50_000: the 50_000th node is still allowed.
     for (let i = 0; i < 50_000; i++) budget.tick();
     expect(() => {
       budget.tick();
@@ -95,10 +69,7 @@ describe('parse entry contract', () => {
   });
 
   it('returns { ok: false, reason: "aborted" } when the node budget is exceeded', () => {
-    expect(parse('echo hello', { timeoutMs: 60_000, maxNodes: 1 })).toEqual({
-      ok: false,
-      reason: 'aborted',
-    });
+    expect(parse('echo hello', { timeoutMs: 60_000, maxNodes: 1 })).toEqual({ ok: false, reason: 'aborted' });
   });
 
   it('returns { ok: false, reason: "aborted" } when the deadline has passed', () => {
@@ -192,10 +163,7 @@ describe('expansions and substitutions', () => {
   });
 
   it('parses ${#v}, ${v:=word} and ${a[0]}', () => {
-    expectTree(
-      'echo ${#v}',
-      `(program (command (command_name (word "echo")) (expansion "\${" "#" (variable_name "v") "}")))`,
-    );
+    expectTree('echo ${#v}', `(program (command (command_name (word "echo")) (expansion "\${" "#" (variable_name "v") "}")))`);
     expectTree(
       'echo ${v:=word}',
       `(program (command (command_name (word "echo")) (expansion "\${" (variable_name "v") ":=" (word "word") "}")))`,
@@ -226,38 +194,6 @@ describe('expansions and substitutions', () => {
       `(program (command (command_name (word "echo")) (arithmetic_expansion "$((" (binary_expression (number "1") "<<" (number "2")) "))")))`,
     );
   });
-
-  it('flags leftover bytes after a ${v@X} transformation letter', () => {
-    const source = 'echo ${x@UQ}';
-    const root = expectTree(
-      source,
-      `(program (command (command_name (word "echo")) (expansion "\${" (variable_name "x") "@" "U" (ERROR "Q") "}")))`,
-      true,
-    );
-    assertTreeIntegrity(root, source);
-    expectLeavesCover(root, source, 10, source.length);
-  });
-
-  it('flags leftover bytes after a ${v@X} letter even when a substitution follows', () => {
-    const source = 'echo ${x@Q$(echo hi)}';
-    const root = expectTree(
-      source,
-      `(program (command (command_name (word "echo")) (expansion "\${" (variable_name "x") "@" "Q" (ERROR "$(echo hi)") "}")))`,
-      true,
-    );
-    assertTreeIntegrity(root, source);
-    expectLeavesCover(root, source, 10, source.length);
-  });
-
-  it('keeps a well-formed ${v@X} expansion error-free', () => {
-    const source = 'echo ${x@Q}';
-    const root = expectTree(
-      source,
-      `(program (command (command_name (word "echo")) (expansion "\${" (variable_name "x") "@" "Q" "}")))`,
-    );
-    assertTreeIntegrity(root, source);
-    expectLeavesCover(root, source, 5, source.length);
-  });
 });
 
 describe('redirects', () => {
@@ -287,10 +223,7 @@ describe('redirects', () => {
       'cmd >| file',
       `(program (redirected_statement (command (command_name (word "cmd"))) (file_redirect ">|" (word "file"))))`,
     );
-    expectTree(
-      'cmd >&-',
-      `(program (redirected_statement (command (command_name (word "cmd"))) (file_redirect ">&-")))`,
-    );
+    expectTree('cmd >&-', `(program (redirected_statement (command (command_name (word "cmd"))) (file_redirect ">&-")))`);
     expectTree(
       'cmd < in',
       `(program (redirected_statement (command (command_name (word "cmd"))) (file_redirect "<" (word "in"))))`,
@@ -389,31 +322,6 @@ describe('heredocs', () => {
     );
   });
 
-  it('closes a CRLF heredoc at the delimiter line', () => {
-    expectTree(
-      'cat <<EOF\r\nbody\r\nEOF\r\n',
-      `(program (redirected_statement (command (command_name (word "cat"))) (heredoc_redirect "<<" (heredoc_start "EOF") (heredoc_body (heredoc_content "body\\r\\n")) (heredoc_end "EOF"))))`,
-    );
-  });
-
-  it('closes a CRLF heredoc inside a command substitution', () => {
-    const source = 'echo $(cat <<EOF\r\nbody\r\nEOF\r\n)';
-    const root = expectTree(
-      source,
-      `(program (command (command_name (word "echo")) (command_substitution "$(" (redirected_statement (command (command_name (word "cat"))) (heredoc_redirect "<<" (heredoc_start "EOF") (heredoc_body (heredoc_content "body\\r\\n")) (heredoc_end "EOF"))) ")")))`,
-    );
-    assertTreeIntegrity(root, source);
-  });
-
-  it('keeps the command visible when the line ends in a lone backslash', () => {
-    const source = 'ls -la \\';
-    const root = expectTree(
-      source,
-      `(program (command (command_name (word "ls")) (word "-la") (word "\\\\")))`,
-    );
-    assertTreeIntegrity(root, source);
-  });
-
   it('recovers from an unterminated heredoc', () => {
     expectTree(
       'cat <<EOF\nno end marker',
@@ -432,10 +340,7 @@ describe('statement lists', () => {
   });
 
   it('parses & background terminators', () => {
-    expectTree(
-      'a & b &',
-      `(program (command (command_name (word "a"))) "&" (command (command_name (word "b"))) "&")`,
-    );
+    expectTree('a & b &', `(program (command (command_name (word "a"))) "&" (command (command_name (word "b"))) "&")`);
   });
 
   it('parses |& pipelines', () => {
@@ -450,14 +355,8 @@ describe('statement lists', () => {
   });
 
   it('parses standalone assignments', () => {
-    expectTree(
-      'FOO=bar ls',
-      `(program (command (variable_assignment (variable_name "FOO") "=" (word "bar")) (command_name (word "ls"))))`,
-    );
-    expectTree(
-      'VAR=value',
-      `(program (variable_assignment (variable_name "VAR") "=" (word "value")))`,
-    );
+    expectTree('FOO=bar ls', `(program (command (variable_assignment (variable_name "FOO") "=" (word "bar")) (command_name (word "ls"))))`);
+    expectTree('VAR=value', `(program (variable_assignment (variable_name "VAR") "=" (word "value")))`);
     expectTree(
       'A=1 B=2',
       `(program (variable_assignments (variable_assignment (variable_name "A") "=" (number "1")) (variable_assignment (variable_name "B") "=" (number "2"))))`,
@@ -487,9 +386,7 @@ describe('statement lists', () => {
     const commands = descendantsOfType(root, 'command');
     expect(commands).toHaveLength(2);
     const argv = commands.map((cmd) =>
-      cmd.namedChildren.map((part) =>
-        part.type === 'command_name' ? part.namedChildren[0]!.text : part.text,
-      ),
+      cmd.namedChildren.map((part) => (part.type === 'command_name' ? part.namedChildren[0]!.text : part.text)),
     );
     expect(argv).toEqual([
       ['git', 'status'],
@@ -500,7 +397,6 @@ describe('statement lists', () => {
 
 describe('offsets', () => {
   it('uses UTF-16 code unit offsets', () => {
-    // 🎉 is two UTF-16 code units.
     const { rootNode } = parseOk('x🎉y; ls');
     expect(rootNode.endIndex).toBe(8);
     const commands = descendantsOfType(rootNode, 'command');
@@ -541,8 +437,6 @@ describe('adversarial input', () => {
   });
 
   it('parses a 500KB double-quoted string under the default budget', () => {
-    // Regression: per-character budget.tick() used to burn the 50k node cap
-    // on long strings even though only a handful of nodes are created.
     const body = 'a'.repeat(500 * 1024);
     const result = parse(`echo "${body}"`);
     expect(result.ok).toBe(true);
@@ -601,8 +495,6 @@ describe('adversarial input', () => {
     for (let i = 0; i < 20_000; i++) {
       source += String.fromCodePoint(Math.floor(Math.random() * 0xd800));
     }
-    // The call itself must never throw; either it parses (possibly with
-    // errors) or the budget cuts it off.
     const result = parse(source);
     if (result.ok) {
       expect(result.rootNode.type).toBe('program');

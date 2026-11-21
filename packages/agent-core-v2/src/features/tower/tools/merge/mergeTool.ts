@@ -1,26 +1,25 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentTowerService } from '#/features/tower/tower';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import type { ToolExecution } from '#/tool/toolContract';
 
 import { newTowerStore, runTowerTool, TOWER_MAIN_AGENT_ONLY } from '../support';
-import { ITowerMergeTool, TowerMergeToolInputSchema, type TowerMergeToolInput } from './merge';
 import DESCRIPTION from './merge.md?raw';
+import { ITowerMergeTool, TowerMergeToolInputSchema, type TowerMergeToolInput } from './merge';
 
 export class TowerMergeTool implements ITowerMergeTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerMerge' as const;
-  readonly sideEffect = ToolSideEffects.write;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerMergeToolInputSchema);
 
   constructor(
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-    @IAgentTaskService private readonly tasks: IAgentTaskService,
+    @IAgentToolExecutorService private readonly tasks: IAgentToolExecutorService,
     @IAgentTowerService private readonly tower: IAgentTowerService,
   ) {}
 
@@ -40,8 +39,13 @@ export class TowerMergeTool implements ITowerMergeTool {
           const result = await this.tower.withBranchLease(args.branch, () =>
             store.merge(args.branch, { activeAgentIds: () => this.activeAgentIds() }),
           );
-          const { status, mergeCommit, conflictsWith, evaluatedBranchTip, currentBranchTip } =
-            result;
+          const {
+            status,
+            mergeCommit,
+            conflictsWith,
+            evaluatedBranchTip,
+            currentBranchTip,
+          } = result;
           if (status === 'advanced') {
             if (result.noop === true) {
               return {
@@ -92,9 +96,7 @@ export class TowerMergeTool implements ITowerMergeTool {
           } else if (allClosed) {
             lines.push(`The mission is now marked merged. ${teardownHint}`);
           } else {
-            lines.push(
-              'The mission is now marked merged. Continue with the remaining missions in Dependency Flow order.',
-            );
+            lines.push('The mission is now marked merged. Continue with the remaining missions in Dependency Flow order.');
           }
           return { output: lines.join('\n') };
         }),
@@ -103,11 +105,11 @@ export class TowerMergeTool implements ITowerMergeTool {
 
   private activeAgentIds(): ReadonlySet<string> {
     return new Set(
-      this.tasks
-        .list(true)
-        .flatMap((task) =>
-          task.kind === 'agent' && task.agentId !== undefined ? [task.agentId] : [],
-        ),
+      this.tasks.handlers().flatMap((handler) => {
+        const task = handler.snapshot().fields.task;
+        return task?.kind === 'agent' && task.agentId !== undefined ? [task.agentId] : [];
+      }),
     );
   }
 }
+

@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,11 +13,11 @@ import {
   type ManagedUsageResult,
   type ManagedUserInfoResult,
 } from '@moonshot-ai/agent-core-v2/app/auth/oauthProtocol';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { removeTempHome } from './helpers/tempHome';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -42,7 +41,7 @@ describe('server-v2 GET /api/v1/oauth/usage', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });
@@ -94,7 +93,7 @@ describe('server-v2 GET /api/v1/oauth/usage', () => {
   }
 
   it('returns the ok quota payload in the camelCase domain shape', async () => {
-    const getManagedUsage = mock(async () => ({
+    const getManagedUsage = vi.fn(async () => ({
       kind: 'ok' as const,
       quota: {
         usages: {
@@ -135,7 +134,7 @@ describe('server-v2 GET /api/v1/oauth/usage', () => {
   });
 
   it('passes through the error payload and forwards the provider query', async () => {
-    const getManagedUsage = mock(async (_provider?: string) => ({
+    const getManagedUsage = vi.fn(async (_provider?: string) => ({
       kind: 'error' as const,
       message: 'Authorization failed.',
       status: 401,
@@ -166,14 +165,12 @@ describe('server-v2 GET /api/v1/oauth/userinfo', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });
 
-  function oauthStub(
-    getManagedUserInfo: IOAuthServiceType['getManagedUserInfo'],
-  ): IOAuthServiceType {
+  function oauthStub(getManagedUserInfo: IOAuthServiceType['getManagedUserInfo']): IOAuthServiceType {
     return {
       _serviceBrand: undefined,
       startLogin: async () => {
@@ -220,7 +217,7 @@ describe('server-v2 GET /api/v1/oauth/userinfo', () => {
   }
 
   it('returns the ok profile payload in the camelCase domain shape', async () => {
-    const getManagedUserInfo = mock(async () => ({
+    const getManagedUserInfo = vi.fn(async () => ({
       kind: 'ok' as const,
       userInfo: {
         userId: 'u_123',
@@ -265,7 +262,7 @@ describe('server-v2 GET /api/v1/oauth/userinfo', () => {
   });
 
   it('passes through the error payload and forwards the provider query', async () => {
-    const getManagedUserInfo = mock(async (_provider?: string) => ({
+    const getManagedUserInfo = vi.fn(async (_provider?: string) => ({
       kind: 'error' as const,
       message: 'Authorization failed.',
       status: 401,

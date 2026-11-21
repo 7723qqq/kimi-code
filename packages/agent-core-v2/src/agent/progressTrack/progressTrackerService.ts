@@ -2,6 +2,7 @@ import { createDecorator } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { legacyDidExecuteContext } from '#/agent/toolExecutor/legacyHooks';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
@@ -41,9 +42,10 @@ export class ProgressTrackerService extends Service implements IProgressTrackerS
   ) {
     super();
     this._register(
-      toolExecutor.hooks.onDidExecuteTool.register('progress-track', async (ctx, next) => {
-        this.observeToolRound(ctx);
-        await next(ctx);
+      toolExecutor.registerHook({
+        afterExecute: async (context) => {
+          this.observeToolRound(legacyDidExecuteContext(context));
+        },
       }),
     );
     this._register(

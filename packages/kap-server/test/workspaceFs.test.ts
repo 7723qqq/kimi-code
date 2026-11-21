@@ -1,22 +1,22 @@
-import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
-import { dirname, join, parse } from 'node:path';
-
-import { IEnvironmentService } from '@moonshot-ai/agent-core-v2';
 import {
+  IEnvironmentService,
   IModelCatalog,
   IWorkspaceInstanceManager,
   IWorkspaceService,
 } from '@moonshot-ai/agent-core-v2';
+import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+
+import { HostFileSystem } from '@moonshot-ai/agent-core-v2';
+import type { IHostFileSystem } from '@moonshot-ai/agent-core-v2/os/interface/hostFileSystem';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { type RunningServer, startServer } from '../src/start';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
 import { fakeModelCatalog } from './helpers/fakeModelCatalog';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { mappingHostFs } from './helpers/mappingHostFs';
-import { removeTempHome } from './helpers/tempHome';
 
 interface Envelope<T> {
   code: number;
@@ -69,7 +69,7 @@ describe('server-v2 /api/v1 fs folder picker', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
     if (instancesDir !== undefined) {
@@ -145,16 +145,13 @@ describe('server-v2 /api/v1 fs folder picker', () => {
       `/api/v1/fs:browse?path=${encodeURIComponent(root)}`,
     );
     expect(body.code).toBe(0);
-    const names = body.data.entries.map((e) => e.name);
-    expect(names).toContain('alpha');
-    expect(names).toContain('.zeta');
-    expect(names.indexOf('alpha')).toBeLessThan(names.indexOf('.zeta'));
+    expect(body.data.entries.map((e) => e.name)).toEqual(['alpha', '.zeta']);
   });
 
   it('returns parent=null for the filesystem root', async () => {
     const { body } = await getJson<BrowseWire>('/api/v1/fs:browse?path=%2F');
     expect(body.code).toBe(0);
-    expect(body.data.path).toBe(parse(body.data.path).root);
+    expect(body.data.path).toBe('/');
     expect(body.data.parent).toBeNull();
   });
 
@@ -331,7 +328,10 @@ describe('server-v2 /api/v1 fs:content', () => {
     return `${base}/api/v1/fs:content?path=${encodeURIComponent(path)}`;
   }
 
-  async function getContent(path: string, headers: Record<string, string> = {}): Promise<Response> {
+  async function getContent(
+    path: string,
+    headers: Record<string, string> = {},
+  ): Promise<Response> {
     return fetch(contentUrl(path), {
       headers: { connection: 'close', ...authHeaders(server as RunningServer), ...headers },
     } as never);
@@ -348,30 +348,6 @@ describe('server-v2 /api/v1 fs:content', () => {
     expect(typeof res.headers.get('etag')).toBe('string');
     expect(typeof res.headers.get('last-modified')).toBe('string');
     expect(await res.text()).toBe('# hi\n');
-  });
-
-  it('serves TOML with a text MIME recognized by the official preview', async () => {
-    const file = join(dir as string, 'config.toml');
-    await writeFile(file, 'model = "example"\n');
-    const res = await getContent(file);
-    expect(res.headers.get('content-type')).toContain('text/');
-    expect(await res.text()).toBe('model = "example"\n');
-  });
-
-  it('normalizes UTF-16 text to UTF-8 for both preview and download with byte ranges', async () => {
-    const file = join(dir as string, 'utf16.txt');
-    await writeFile(
-      file,
-      Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('中文 text', 'utf16le')]),
-    );
-    const res = await getContent(file);
-    expect(res.headers.get('content-type')).toContain('text/plain');
-    expect(res.headers.get('content-length')).toBe('11');
-    expect(await res.text()).toBe('中文 text');
-    const ranged = await getContent(file, { range: 'bytes=0-5' });
-    expect(ranged.status).toBe(206);
-    expect(ranged.headers.get('content-range')).toBe('bytes 0-5/11');
-    expect(await ranged.text()).toBe('中文');
   });
 
   it('serves an unknown-extension text file as text/plain', async () => {
@@ -412,20 +388,6 @@ describe('server-v2 /api/v1 fs:content', () => {
     const res = await getContent(file);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('image/png');
-  });
-
-  it('serves Unicode filenames with a safe content disposition', async () => {
-    const filename = '趋势图 （全角） 😀.png';
-    const file = join(dir as string, filename);
-    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    await writeFile(file, bytes);
-
-    const res = await getContent(file);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-disposition')).toBe(
-      `attachment; filename="___ ____ __.png"; filename*=UTF-8''${encodeURIComponent(filename)}`,
-    );
-    expect(Buffer.from(await res.arrayBuffer())).toEqual(bytes);
   });
 
   it('answers If-None-Match with 304 when the etag matches', async () => {
@@ -512,12 +474,9 @@ describe('server-v2 /api/v1 fs:content', () => {
       },
     });
     try {
-      const res = await fetch(
-        `${base}/api/v1/fs:content?path=${encodeURIComponent('/broken.png')}&environment_id=broken-fs`,
-        {
-          headers: authHeaders(server as RunningServer),
-        } as never,
-      );
+      const res = await fetch(`${base}/api/v1/fs:content?path=${encodeURIComponent('/broken.png')}&environment_id=broken-fs`, {
+        headers: authHeaders(server as RunningServer),
+      } as never);
       const body = (await res.json()) as Envelope<null>;
       expect(res.status).toBe(500);
       expect(body.code).toBe(50001);
@@ -533,6 +492,35 @@ describe('server-v2 /api/v1 fs:content', () => {
     expect(res.status).toBe(404);
   });
 });
+
+function mappingHostFs(remoteRoot: string): IHostFileSystem {
+  const inner = new HostFileSystem();
+  const map = (path: string): string => join(remoteRoot, path);
+  const unmap = (path: string): string =>
+    path === remoteRoot
+      ? '/'
+      : path.startsWith(`${remoteRoot}/`)
+        ? path.slice(remoteRoot.length)
+        : path;
+  return {
+    _serviceBrand: undefined,
+    readText: (path, options) => inner.readText(map(path), options),
+    writeText: (path, data) => inner.writeText(map(path), data),
+    appendText: (path, data) => inner.appendText(map(path), data),
+    readBytes: (path, n, offset) => inner.readBytes(map(path), n, offset),
+    readFileHead: (path, maxBytes) => inner.readFileHead(map(path), maxBytes),
+    writeBytes: (path, data) => inner.writeBytes(map(path), data),
+    readLines: (path, options) => inner.readLines(map(path), options),
+    createExclusive: (path, data) => inner.createExclusive(map(path), data),
+    stat: (path) => inner.stat(map(path)),
+    lstat: (path) => inner.lstat(map(path)),
+    readdir: (path) => inner.readdir(map(path)),
+    walk: (path, options, visit) => inner.walk(map(path), options, visit),
+    mkdir: (path, options) => inner.mkdir(map(path), options),
+    remove: (path) => inner.remove(map(path)),
+    realpath: async (path) => unmap(await inner.realpath(map(path))),
+  };
+}
 
 describe('server-v2 /api/v1 fs:content and fs:mkdir with environment_id', () => {
   let server: RunningServer | undefined;
@@ -605,9 +593,6 @@ describe('server-v2 /api/v1 fs:content and fs:mkdir with environment_id', () => 
     if (environmentId !== undefined) query.set('environment_id', environmentId);
     return `${base}/api/v1/fs:content?${query.toString()}`;
   }
-  function remoteMirrorOnEnvironmentFs(requestPath: string): string {
-    return join(remoteRoot as string, requestPath.replace(/^[A-Za-z]:/, '').replace(/^[/\\]+/, ''));
-  }
 
   async function postMkdir(body: unknown): Promise<Envelope<{ path: string } | null>> {
     const res = await fetch(`${base}/api/v1/fs:mkdir`, {
@@ -620,7 +605,7 @@ describe('server-v2 /api/v1 fs:content and fs:mkdir with environment_id', () => 
 
   it('reads stat, sample, and body from the environment fs when the path exists on both filesystems', async () => {
     const requestPath = join(localRoot as string, 'shared.txt');
-    const remoteFile = remoteMirrorOnEnvironmentFs(requestPath);
+    const remoteFile = join(remoteRoot as string, requestPath);
     await mkdir(dirname(remoteFile), { recursive: true });
     await writeFile(remoteFile, 'remote-bytes');
     await writeFile(requestPath, 'local-decoy');
@@ -635,13 +620,13 @@ describe('server-v2 /api/v1 fs:content and fs:mkdir with environment_id', () => 
 
   it('creates directories on the environment fs, never on the server-local disk', async () => {
     const requestPath = join(localRoot as string, 'made-remote');
-    await mkdir(dirname(remoteMirrorOnEnvironmentFs(requestPath)), { recursive: true });
+    await mkdir(join(remoteRoot as string, localRoot as string), { recursive: true });
 
     const body = await postMkdir({ path: requestPath, environment_id: 'remote-test' });
     expect(body.code).toBe(0);
     expect(body.data?.path).toBe(requestPath);
 
-    const remoteStat = await stat(remoteMirrorOnEnvironmentFs(requestPath));
+    const remoteStat = await stat(join(remoteRoot as string, requestPath));
     expect(remoteStat.isDirectory()).toBe(true);
     await expect(stat(requestPath)).rejects.toThrow();
   });

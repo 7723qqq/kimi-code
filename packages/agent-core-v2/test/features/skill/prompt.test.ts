@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { renderModelToolSkillPrompt, renderUserSlashSkillPrompt } from '#/features/skill/prompt';
+import {
+  renderModelToolSkillPrompt,
+  renderUserSlashSkillPrompt,
+} from '#/features/skill/prompt';
 
 describe('renderSkillLoadedBlock skill directory', () => {
   const base = {

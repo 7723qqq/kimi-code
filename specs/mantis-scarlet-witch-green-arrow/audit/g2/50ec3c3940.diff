@@ -1,0 +1,71 @@
+commit 50ec3c3940a3f265cf1b99123d6d2ebf9c23aaa0
+Author:     qer <wbxl2000@outlook.com>
+AuthorDate: Wed Nov 18 19:54:24 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Wed Nov 18 19:54:24 2026 +0800
+
+    feat(agent-core-v2): expose session and workspace IDs in Bash tool env (#5053)
+
+diff --git a/.changeset/bash-session-workspace-env.md b/.changeset/bash-session-workspace-env.md
+new file mode 100644
+index 0000000000..773eb3aea7
+--- /dev/null
++++ b/.changeset/bash-session-workspace-env.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/kimi-code": patch
++---
++
++Expose `KIMI_CODE_SESSION_ID` and `KIMI_CODE_WORKSPACE_ID` in `Bash` tool child processes.
+diff --git a/docs/en/reference/tools.md b/docs/en/reference/tools.md
+index c85eed4195..f0a9d9da9f 100644
+--- a/docs/en/reference/tools.md
++++ b/docs/en/reference/tools.md
+@@ -50,7 +50,7 @@ Use `offset` (default 0) and `head_limit` (default 100) to page through matching
+ - `description`: background task description; required when `run_in_background=true`
+ - `disable_timeout`: whether to remove the timeout limit for background tasks
+ 
+-Foreground mode blocks the current turn until the command completes or times out, and the TUI streams stdout and stderr into the running `Bash` tool card while the command is still active. By default, a foreground command that hits its timeout is not killed — it keeps running as a background task (bounded by the 600s default background timeout); to restore kill-on-timeout, set [`bash_auto_background_on_timeout`](../configuration/config-files.md#background) to `false` under `[background]`. The 600s background default is configurable via [`bash_task_timeout_s`](../configuration/config-files.md#background) (`0` = no timeout) and defaults to no timeout in print mode (`kimi -p`). Background mode returns a task ID immediately and automatically notifies the Agent when the task finishes. stdin is always closed — interactive commands receive EOF immediately. A two-phase termination strategy (SIGTERM → 5-second grace period → SIGKILL) ensures reliable process cleanup when a task is stopped or hits its background timeout. On Windows, Git Bash is used by default.
++Foreground mode blocks the current turn until the command completes or times out, and the TUI streams stdout and stderr into the running `Bash` tool card while the command is still active. By default, a foreground command that hits its timeout is not killed — it keeps running as a background task (bounded by the 600s default background timeout); to restore kill-on-timeout, set [`bash_auto_background_on_timeout`](../configuration/config-files.md#background) to `false` under `[background]`. The 600s background default is configurable via [`bash_task_timeout_s`](../configuration/config-files.md#background) (`0` = no timeout) and defaults to no timeout in print mode (`kimi -p`). Background mode returns a task ID immediately and automatically notifies the Agent when the task finishes. Every execution exposes `KIMI_CODE_SESSION_ID` and `KIMI_CODE_WORKSPACE_ID` for the active session and workspace in the child process environment. stdin is always closed — interactive commands receive EOF immediately. A two-phase termination strategy (SIGTERM → 5-second grace period → SIGKILL) ensures reliable process cleanup when a task is stopped or hits its background timeout. On Windows, Git Bash is used by default.
+ 
+ ## Web Tools
+ 
+diff --git a/docs/zh/reference/tools.md b/docs/zh/reference/tools.md
+index 8d0af2f3d6..91a4084401 100644
+--- a/docs/zh/reference/tools.md
++++ b/docs/zh/reference/tools.md
+@@ -50,7 +50,7 @@
+ - `description`：后台任务描述，`run_in_background=true` 时必填
+ - `disable_timeout`：后台任务是否取消超时限制
+ 
+-前台模式会阻塞当前轮次，直到命令结束或超时；命令运行期间，TUI 会把 stdout 和 stderr 流式显示在正在运行的 `Bash` 工具卡片中。前台命令超时后默认不会被终止，而是转为后台任务继续运行（受 600 秒默认后台超时约束）；如需恢复超时即终止的行为，将 `[background]` 的 [`bash_auto_background_on_timeout`](../configuration/config-files.md#background) 设为 `false`。600 秒的默认后台超时可通过 [`bash_task_timeout_s`](../configuration/config-files.md#background) 配置（`0` = 无超时），且在 print 模式（`kimi -p`）下默认无超时。后台模式立即返回任务 ID，任务结束时自动通知 Agent。stdin 始终被关闭，交互式命令会立即收到 EOF。任务被停止或后台超时时采用两阶段终止策略（SIGTERM → 5 秒宽限期 → SIGKILL），确保进程可靠结束。Windows 平台默认使用 Git Bash。
++前台模式会阻塞当前轮次，直到命令结束或超时；命令运行期间，TUI 会把 stdout 和 stderr 流式显示在正在运行的 `Bash` 工具卡片中。前台命令超时后默认不会被终止，而是转为后台任务继续运行（受 600 秒默认后台超时约束）；如需恢复超时即终止的行为，将 `[background]` 的 [`bash_auto_background_on_timeout`](../configuration/config-files.md#background) 设为 `false`。600 秒的默认后台超时可通过 [`bash_task_timeout_s`](../configuration/config-files.md#background) 配置（`0` = 无超时），且在 print 模式（`kimi -p`）下默认无超时。后台模式立即返回任务 ID，任务结束时自动通知 Agent。每次执行都会在子进程环境中注入当前会话的 `KIMI_CODE_SESSION_ID` 与所属工作区的 `KIMI_CODE_WORKSPACE_ID`。stdin 始终被关闭，交互式命令会立即收到 EOF。任务被停止或后台超时时采用两阶段终止策略（SIGTERM → 5 秒宽限期 → SIGKILL），确保进程可靠结束。Windows 平台默认使用 Git Bash。
+ 
+ ## 网络类
+ 
+diff --git a/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts b/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts
+index 2fe54aa00b..05ef564a74 100644
+--- a/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts
++++ b/packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts
+@@ -176,6 +176,8 @@ export class BashTool implements IBashTool {
+       TERM: 'dumb',
+       GIT_TERMINAL_PROMPT: process.env['GIT_TERMINAL_PROMPT'] ?? '0',
+       SHELL: env.shellPath,
++      KIMI_CODE_SESSION_ID: this.ctx.sessionId,
++      KIMI_CODE_WORKSPACE_ID: this.ctx.workspaceId,
+     };
+ 
+     return processService.spawn(env.shellPath, ['-c', shellCommand], { cwd: effectiveCwd, env: noninteractiveEnv });
+diff --git a/packages/agent-core-v2/test/os/backends/node-local/tools/bash.test.ts b/packages/agent-core-v2/test/os/backends/node-local/tools/bash.test.ts
+index cd8ca476b8..b405bdc522 100644
+--- a/packages/agent-core-v2/test/os/backends/node-local/tools/bash.test.ts
++++ b/packages/agent-core-v2/test/os/backends/node-local/tools/bash.test.ts
+@@ -540,6 +540,8 @@ describe('BashTool', () => {
+       NO_COLOR: '1',
+       TERM: 'dumb',
+       GIT_TERMINAL_PROMPT: process.env['GIT_TERMINAL_PROMPT'] ?? '0',
++      KIMI_CODE_SESSION_ID: 's',
++      KIMI_CODE_WORKSPACE_ID: 'w',
+     });
+     expect(proc.stdin.end).toHaveBeenCalledTimes(1);
+     expect(result).toMatchObject({

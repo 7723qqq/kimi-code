@@ -1,12 +1,13 @@
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
 
+import { isAbsolute, resolve } from 'node:path';
+
+import { resolveConfigPath, type KimiConfigValidationIssue } from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
-import type { z } from 'zod';
+import { z } from 'zod';
 
+import { getTuiConfigPath, parseTuiConfig } from '#/tui/config';
 import { t } from '#/i18n';
-import { getDataDir } from '#/utils/paths';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -17,7 +18,7 @@ type MaybePromise<T> = T | Promise<T>;
 export interface DoctorDeps {
   readonly cwd: () => string;
   readonly defaultConfigPath: () => MaybePromise<string>;
-  readonly defaultTuiConfigPath: () => MaybePromise<string>;
+  readonly defaultTuiConfigPath: () => string;
   readonly stdout: WritableLike;
   readonly stderr: WritableLike;
   readonly exit: (code: number) => never;
@@ -35,7 +36,6 @@ interface CheckSpec {
   readonly label: 'config.toml' | 'tui.toml';
   readonly path: string;
   readonly explicit: boolean;
-  /** Throws on invalid content; may return a non-fatal warning message. */
   readonly parse: (text: string, path: string) => MaybePromise<string | void>;
 }
 
@@ -49,7 +49,7 @@ interface CheckResult {
 interface ResolvedDoctorDeps {
   readonly cwd: () => string;
   readonly defaultConfigPath: () => MaybePromise<string>;
-  readonly defaultTuiConfigPath: () => MaybePromise<string>;
+  readonly defaultTuiConfigPath: () => string;
   readonly stdout: WritableLike;
   readonly stderr: WritableLike;
   readonly exit: (code: number) => never;
@@ -111,26 +111,16 @@ async function runDoctorCommand(
 function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): ResolvedDoctorDeps {
   return {
     cwd: deps?.cwd ?? (() => process.cwd()),
-    defaultConfigPath: deps?.defaultConfigPath ?? (() => join(getDataDir(), 'config.toml')),
-    // `#/tui/config` pulls the zod schema stack; resolve the default lazily so
-    // registering the command group stays free of it.
-    defaultTuiConfigPath:
-      deps?.defaultTuiConfigPath ??
-      (async () => {
-        const { getTuiConfigPath } = await import('#/tui/config');
-        return getTuiConfigPath();
-      }),
+    defaultConfigPath: deps?.defaultConfigPath ?? (() => resolveConfigPath({})),
+    defaultTuiConfigPath: deps?.defaultTuiConfigPath ?? getTuiConfigPath,
     stdout: deps?.stdout ?? process.stdout,
     stderr: deps?.stderr ?? process.stderr,
     exit: deps?.exit ?? ((code) => process.exit(code)),
     fileExists: deps?.fileExists ?? existsSync,
-    readTextFile: deps?.readTextFile ?? ((path) => readFile(path, 'utf-8')),
+    readTextFile: deps?.readTextFile ?? ((path) => Bun.file(path).text()),
     validateConfigToml:
       deps?.validateConfigToml ??
       (async (text, filePath) => {
-        // Default v2 route: validate with the agent-core-v2 section registry
-        // instead of a whole-document schema. Loaded lazily so the v2 module
-        // graph stays off the doctor's startup path.
         const { validateConfigTomlV2 } = await import('../v2/validate-config');
         return validateConfigTomlV2(text, filePath);
       }),
@@ -154,17 +144,24 @@ async function buildCheckSpecs(
 
   if (options.target === 'tui') {
     return [
-      makeTuiSpec(await resolveTuiTargetPath(deps, options.path, cwd), options.path !== undefined),
+      makeTuiSpec(
+        resolveTuiTargetPath(deps, options.path, cwd),
+        options.path !== undefined,
+      ),
     ];
   }
 
   return [
     makeConfigSpec(await deps.defaultConfigPath(), false, deps),
-    makeTuiSpec(await deps.defaultTuiConfigPath(), false),
+    makeTuiSpec(deps.defaultTuiConfigPath(), false),
   ];
 }
 
-function makeConfigSpec(path: string, explicit: boolean, deps: ResolvedDoctorDeps): CheckSpec {
+function makeConfigSpec(
+  path: string,
+  explicit: boolean,
+  deps: ResolvedDoctorDeps,
+): CheckSpec {
   return {
     label: 'config.toml',
     path,
@@ -180,8 +177,7 @@ function makeTuiSpec(path: string, explicit: boolean): CheckSpec {
     label: 'tui.toml',
     path,
     explicit,
-    parse: async (text) => {
-      const { parseTuiConfig } = await import('#/tui/config');
+    parse: (text) => {
       parseTuiConfig(text);
     },
   };
@@ -208,7 +204,7 @@ async function checkTomlFile(deps: ResolvedDoctorDeps, spec: CheckSpec): Promise
       label: spec.label,
       path: spec.path,
       status: 'ERROR',
-      message: await formatErrorMessage(error, spec.path),
+      message: formatErrorMessage(error, spec.path),
     };
   }
 }
@@ -225,7 +221,7 @@ function resolveTuiTargetPath(
   deps: ResolvedDoctorDeps,
   input: string | undefined,
   cwd: string,
-): MaybePromise<string> {
+): string {
   return input === undefined ? deps.defaultTuiConfigPath() : resolveInputPath(input, cwd);
 }
 
@@ -246,10 +242,7 @@ function formatSuccess(results: readonly CheckResult[]): string {
 
 function formatFailure(results: readonly CheckResult[], issueCount: number): string {
   return [
-    t('tui.statusMessages.doctorFoundIssues', {
-      count: String(issueCount),
-      plural: issueCount === 1 ? '' : 's',
-    }),
+    `Kimi doctor found ${String(issueCount)} ${issueCount === 1 ? 'issue' : 'issues'}.`,
     '',
     ...formatResults(results),
     '',
@@ -269,7 +262,7 @@ function formatResults(results: readonly CheckResult[]): string[] {
   return lines;
 }
 
-async function formatErrorMessage(error: unknown, filePath: string): Promise<string> {
+function formatErrorMessage(error: unknown, filePath: string): string {
   const validationIssues = findValidationIssues(error);
   if (validationIssues !== undefined) {
     return [
@@ -279,7 +272,7 @@ async function formatErrorMessage(error: unknown, filePath: string): Promise<str
     ].join('\n');
   }
 
-  const zodError = await findZodError(error);
+  const zodError = findZodError(error);
   if (zodError !== undefined) {
     return [
       t('tui.statusMessages.doctorInvalidConfig', { path: filePath }),
@@ -290,13 +283,7 @@ async function formatErrorMessage(error: unknown, filePath: string): Promise<str
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Validation-issue shape both the v2 config validator and the legacy SDK surfaced in `error.details`. */
-interface ConfigValidationIssue {
-  readonly path: readonly (string | number)[];
-  readonly message: string;
-}
-
-function findValidationIssues(error: unknown): readonly ConfigValidationIssue[] | undefined {
+function findValidationIssues(error: unknown): readonly KimiConfigValidationIssue[] | undefined {
   if (!(error instanceof Error)) return undefined;
   const details = 'details' in error ? error.details : undefined;
   if (!isRecord(details)) return undefined;
@@ -304,11 +291,11 @@ function findValidationIssues(error: unknown): readonly ConfigValidationIssue[] 
   return isValidationIssueArray(validationIssues) ? validationIssues : undefined;
 }
 
-function isValidationIssueArray(value: unknown): value is readonly ConfigValidationIssue[] {
+function isValidationIssueArray(value: unknown): value is readonly KimiConfigValidationIssue[] {
   return Array.isArray(value) && value.every(isValidationIssue);
 }
 
-function isValidationIssue(value: unknown): value is ConfigValidationIssue {
+function isValidationIssue(value: unknown): value is KimiConfigValidationIssue {
   if (!isRecord(value) || typeof value['message'] !== 'string') return false;
   const path = value['path'];
   return (
@@ -321,10 +308,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-async function findZodError(error: unknown): Promise<z.ZodError | undefined> {
-  const { ZodError } = await import('zod');
-  if (error instanceof ZodError) return error;
-  if (error instanceof Error && error.cause instanceof ZodError) return error.cause;
+function findZodError(error: unknown): z.ZodError | undefined {
+  if (error instanceof z.ZodError) return error;
+  if (error instanceof Error && error.cause instanceof z.ZodError) return error.cause;
   return undefined;
 }
 

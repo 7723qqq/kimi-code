@@ -1,9 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
+import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { type CollectionView } from '#/_base/di/collection';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator } from '#/_base/di/instantiation';
-import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
+import { Service } from '#/_base/di/service';
+import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -11,10 +13,11 @@ import {
   registerScopedService,
   type ScopeSeed,
 } from '#/_base/di/scope';
-import { Service } from '#/_base/di/service';
 import { createServices } from '#/_base/di/test';
+import { IEventBus } from '#/app/event/eventBus';
 import { Emitter, Event } from '#/_base/event';
-import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import type { ProfileData } from '#/agent/profile/profile';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 import { AgentToolActivationService } from '#/agent/toolActivation/toolActivationService';
@@ -53,8 +56,6 @@ import '#/agent/tools/task/task-output/taskOutputTool';
 import '#/agent/tools/task/task-stop/taskStopTool';
 import '#/features/todo/tools/todo-list/todoListTool';
 import '#/agent/tools/web-search/webSearchTool';
-import { IEventBus } from '#/app/event/eventBus';
-import { LifecycleScope } from '#/app/scopes';
 
 class StubTool implements AgentTool {
   declare readonly _serviceBrand: undefined;
@@ -136,7 +137,9 @@ class DynamicToolProvider extends Service {
 const ICollectionProbe = createDecorator<CollectionProbe>('activationTestCollectionProbe');
 class CollectionProbe extends Service {
   declare readonly _serviceBrand: undefined;
-  constructor(@AgentToolContribution readonly view: CollectionView<AgentToolContribution>) {
+  constructor(
+    @AgentToolContribution readonly view: CollectionView<AgentToolContribution>,
+  ) {
     super();
   }
 }
@@ -170,7 +173,7 @@ describe('AgentToolActivationService', () => {
     const ix = createServices(disposables, {
       strict: true,
       additionalServices: (reg) => {
-        reg.definePartialInstance(IAgentProfileService, {
+        reg.definePartialInstance(IAgentLoopService, {
           data: () => profileData as ProfileData,
         });
         reg.definePartialInstance(IEventBus, {
@@ -291,9 +294,7 @@ describe('AgentToolActivationService', () => {
   });
 
   it('keeps Agent registered with the same identity when process availability changes', async () => {
-    const agentOptions = savedContributions.find(
-      (record) => record.options.name === 'Agent',
-    )!.options;
+    const agentOptions = savedContributions.find((record) => record.options.name === 'Agent')!.options;
     registerAgentToolService(IAgentStubTool, AgentStubTool, agentOptions);
     const ix = createActivationHost();
     const registry = ix.get(IAgentToolRegistryService);
@@ -532,7 +533,7 @@ describe('AgentToolActivationService', () => {
 
     function agentSeeds(extra: ScopeSeed = []): ScopeSeed {
       return [
-        [IAgentProfileService, { data: () => profileData as ProfileData }],
+        [IAgentLoopService, { data: () => profileData as ProfileData }],
         [IEventBus, { subscribe: () => toDisposable(() => {}) }],
         [IAgentEnvironmentService, { _serviceBrand: undefined, ...environmentStub }],
         ...extra,

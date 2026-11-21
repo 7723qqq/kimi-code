@@ -9,10 +9,7 @@ import { EnvironmentError } from './environmentRegistry';
 export function normalizeRemoteCwd(cwd: string): string {
   const path = /^[A-Za-z]:[\\/]/.test(cwd) ? win32Path : posixPath;
   if (cwd.includes('\0') || !path.isAbsolute(cwd)) {
-    throw new EnvironmentError(
-      'environment.invalid_cwd',
-      'remote cwd must be an absolute POSIX or Windows path; relative paths and ~ are not expanded',
-    );
+    throw new EnvironmentError('environment.invalid_cwd', 'remote cwd must be an absolute POSIX or Windows path; relative paths and ~ are not expanded');
   }
   return path.resolve(cwd);
 }
@@ -46,9 +43,7 @@ function createEnvironmentWorkspace(pathClass: PathClass): EnvironmentWorkspaceM
   return {
     mapRoots: (roots) => ({
       workDir: path.resolve(roots.workDir),
-      primaryDir: roots.primaryDir === undefined ? undefined : path.resolve(roots.primaryDir),
       additionalDirs: roots.additionalDirs?.map((root) => path.resolve(root)),
-      followsPrimary: roots.followsPrimary,
     }),
   };
 }

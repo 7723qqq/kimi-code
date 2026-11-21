@@ -1,14 +1,12 @@
 import { createDecorator } from '#/_base/di/instantiation';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { NOTIFY_USER_GUIDANCE } from '#/app/agentProfileCatalog/profile-shared';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
-import { LifecycleScope } from '#/app/scopes';
-import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-
 import { notifyUserAvailable } from './notifyUserAvailability';
 
 export interface ISessionNotify {
@@ -37,25 +35,18 @@ export class SessionNotify implements ISessionNotify {
   private async load(initial: boolean): Promise<void> {
     const scope = this.context.scope('notify');
     const stored = await this.store.get<{ enabled: boolean }>(scope, 'state.json');
-    if (stored?.enabled === true) {
-      this.enabled = true;
+    if (stored !== undefined && typeof stored.enabled === 'boolean') {
+      this.enabled = stored.enabled;
       return;
     }
-    if (initial) {
-      this.enabled = true;
-      await this.store.set(scope, 'state.json', { enabled: true });
-      return;
-    }
-    let enabled = false;
-    const tolerate = { onTruncate: () => {} };
+    let enabled = initial;
     for await (const record of this.journal.read<WireRecord>(
       this.context.scope('agents/main'),
       AGENT_WIRE_RECORD_KEY,
-      tolerate,
     )) {
       if (record.type !== 'profile.bind' || typeof record['systemPrompt'] !== 'string') continue;
       enabled =
-        record['systemPrompt'].includes(NOTIFY_USER_GUIDANCE) ||
+        record['systemPrompt'].includes('When `NotifyUser` is available, use it proactively') ||
         record['systemPrompt'].includes(
           'The `NotifyUser` tool is your channel to the user while you work',
         );

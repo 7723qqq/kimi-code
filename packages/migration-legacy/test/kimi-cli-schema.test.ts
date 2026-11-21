@@ -1,5 +1,4 @@
-import { describe, expect, it } from 'bun:test';
-
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 import { OldKimiJsonSchema, OldSessionStateSchema } from '../src/kimi-cli-schema.js';
 
 describe('OldKimiJsonSchema', () => {

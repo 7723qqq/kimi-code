@@ -1,60 +1,49 @@
-/**
- * `kimi export`
- *
- * Verifies the CLI layer: argument handling, previous-session confirmation,
- * error reporting, and delegation to the session export implementation.
- */
-
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
+import { Command } from 'commander';
+import { afterEach, beforeEach, describe, expect, it, vi, requireActual } from '@moonshot-ai/testkit/vitest';
+
+import { handleExport, registerExportCommand } from '#/cli/sub/export';
+import { resetKimiRegionCache } from '#/utils/region';
+import type { ExportDeps } from '#/cli/sub/export';
 import type {
   ExportSessionInput,
   ExportSessionManifest,
   ExportSessionResult,
   SessionSummary,
 } from '@moonshot-ai/kimi-code-sdk';
-import { Command } from 'commander';
-
-import { handleExport, registerExportCommand } from '#/cli/sub/export';
-import type { ExportDeps } from '#/cli/sub/export';
-import { resetKimiRegionCache } from '#/utils/region';
-
-import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 let tmp: string;
 
-const requireReal = createRequire(import.meta.url);
-
 type CreateKimiDeviceId = typeof createKimiDeviceIdFn;
 
-const mocks = (() => ({
-  kimiHarnessConstructor: jest.fn(),
-  harnessEnsureConfigFile: jest.fn(),
-  harnessGetConfig: jest.fn(async () => ({
+const mocks = vi.hoisted(() => ({
+  kimiHarnessConstructor: vi.fn(),
+  harnessEnsureConfigFile: vi.fn(),
+  harnessGetConfig: vi.fn(async () => ({
     providers: {},
     defaultModel: 'k2',
     telemetry: true,
   })),
-  harnessGetCachedAccessToken: jest.fn(),
-  harnessExportSession: jest.fn(),
-  harnessClose: jest.fn(async () => {}),
-  harnessTrack: jest.fn(),
-  createKimiDeviceId: jest.fn<CreateKimiDeviceId>(() => 'device-1'),
-  initializeTelemetry: jest.fn(),
-  shutdownTelemetry: jest.fn(),
-  telemetryTrack: jest.fn(),
-  setTelemetryContext: jest.fn(),
-  withTelemetryContext: jest.fn(),
-  resolveKimiHome: jest.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-export-home'),
+  harnessGetCachedAccessToken: vi.fn(),
+  harnessExportSession: vi.fn(),
+  harnessClose: vi.fn(async () => {}),
+  harnessTrack: vi.fn(),
+  createKimiDeviceId: vi.fn<CreateKimiDeviceId>(() => 'device-1'),
+  initializeTelemetry: vi.fn(),
+  shutdownTelemetry: vi.fn(),
+  telemetryTrack: vi.fn(),
+  setTelemetryContext: vi.fn(),
+  withTelemetryContext: vi.fn(),
+  resolveKimiHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-export-home'),
   harnessCreatesDeviceIdOnConstruction: false,
-}))();
+}));
 
-jest.mock('@moonshot-ai/kimi-code-sdk', () => {
+void vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
+  const actual = await import('@moonshot-ai/kimi-code-sdk');
   const createFakeHarness = (options: { readonly homeDir?: string } | undefined) => {
     const homeDir = options?.homeDir ?? '/tmp/kimi-export-home';
     if (mocks.harnessCreatesDeviceIdOnConstruction) {
@@ -73,7 +62,7 @@ jest.mock('@moonshot-ai/kimi-code-sdk', () => {
     };
   };
   return {
-    ...requireReal('@moonshot-ai/kimi-code-sdk'),
+    ...actual,
     resolveKimiHome: mocks.resolveKimiHome,
     createKimiHarness: (...args: unknown[]) => {
       mocks.kimiHarnessConstructor(...args);
@@ -82,13 +71,18 @@ jest.mock('@moonshot-ai/kimi-code-sdk', () => {
   };
 });
 
-jest.mock('@moonshot-ai/kimi-code-oauth', () => ({
-  ...requireReal('@moonshot-ai/kimi-code-oauth'),
-  createKimiDeviceId: mocks.createKimiDeviceId,
-  KIMI_CODE_PROVIDER_NAME: 'kimi-code',
-}));
+void vi.mock('@moonshot-ai/kimi-code-oauth', () => {
+  const actual = requireActual(
+    '@moonshot-ai/kimi-code-oauth',
+  );
+  return {
+    ...actual,
+    createKimiDeviceId: mocks.createKimiDeviceId,
+    KIMI_CODE_PROVIDER_NAME: 'kimi-code',
+  };
+});
 
-jest.mock('@moonshot-ai/kimi-telemetry', () => ({
+void vi.mock('@moonshot-ai/kimi-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,
   shutdownTelemetry: mocks.shutdownTelemetry,
   track: mocks.telemetryTrack,
@@ -97,18 +91,16 @@ jest.mock('@moonshot-ai/kimi-telemetry', () => ({
 }));
 
 beforeEach(() => {
-  // Pin region to cn: the telemetry endpoint assertion must not follow the
-  // dev machine's own login/marker state.
-  setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+  vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
   resetKimiRegionCache();
   tmp = mkdtempSync(join(tmpdir(), 'kimi-export-'));
 });
 
 afterEach(() => {
-  restoreEnvs();
+  vi.unstubAllEnvs();
   resetKimiRegionCache();
   rmSync(tmp, { recursive: true, force: true });
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   mocks.harnessGetConfig.mockResolvedValue({
     providers: {},
     defaultModel: 'k2',
@@ -172,7 +164,7 @@ function makeDeps(overrides: Partial<ExportDeps> = {}): {
       exportInputs.push(input);
       return makeResult(input.id, input.outputPath ?? join(tmp, `${input.id}.zip`));
     },
-    confirmPreviousSession: async () => 'yes',
+    confirmPreviousSession: async () => true,
     getInstallSource: async () => 'npm-global',
     getShellEnv: () => ({ term: 'xterm-256color', shell: '/bin/zsh' }),
     version: '1.0.0-test',
@@ -234,16 +226,7 @@ describe('kimi export', () => {
     expect(exitCodes).toEqual([]);
     expect(stderr).toEqual([]);
     expect(listedWorkDirs).toEqual([]);
-    expect(exportInputs).toEqual([
-      {
-        id: 'ses_test123456',
-        outputPath: output,
-        includeGlobalLog: true,
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
-    ]);
+    expect(exportInputs).toEqual([{ id: 'ses_test123456', outputPath: output, includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
     expect(stdout.join('').trim()).toBe(output);
   });
 
@@ -252,15 +235,7 @@ describe('kimi export', () => {
 
     await runExport(deps, { sessionId: 'session_default_output' });
 
-    expect(exportInputs).toEqual([
-      {
-        id: 'session_default_output',
-        includeGlobalLog: true,
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
-    ]);
+    expect(exportInputs).toEqual([{ id: 'session_default_output', includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
     expect(stdout.join('').trim()).toBe(join(tmp, 'session_default_output.zip'));
   });
 
@@ -298,16 +273,7 @@ describe('kimi export', () => {
     await runExport(deps, { output });
 
     expect(exitCodes).toEqual([]);
-    expect(exportInputs).toEqual([
-      {
-        id: 'ses_fallback',
-        outputPath: output,
-        includeGlobalLog: true,
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
-    ]);
+    expect(exportInputs).toEqual([{ id: 'ses_fallback', outputPath: output, includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
     expect(stdout.join('').trim()).toBe(output);
   });
 
@@ -318,7 +284,7 @@ describe('kimi export', () => {
       listSessions: async () => [previous],
       confirmPreviousSession: async (summary) => {
         summaries.push(summary);
-        return 'no';
+        return false;
       },
     });
 
@@ -349,16 +315,7 @@ describe('kimi export', () => {
     await runExport(deps, { output: join(tmp, 'yes.zip'), yes: true });
 
     expect(exitCodes).toEqual([]);
-    expect(exportInputs).toEqual([
-      {
-        id: 'ses_yes',
-        outputPath: join(tmp, 'yes.zip'),
-        includeGlobalLog: true,
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
-    ]);
+    expect(exportInputs).toEqual([{ id: 'ses_yes', outputPath: join(tmp, 'yes.zip'), includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
   });
 
   it('describes the user-facing command without implementation details', () => {
@@ -376,7 +333,7 @@ describe('kimi export', () => {
     const previous = makeSummary('ses_global_log');
     const { deps, stdout, exitCodes, exportInputs } = makeDeps({
       listSessions: async () => [previous],
-      confirmPreviousSession: async () => 'yes',
+      confirmPreviousSession: async () => true,
     });
     const program = new Command('kimi');
     registerExportCommand(program, deps);
@@ -384,14 +341,7 @@ describe('kimi export', () => {
     await program.parseAsync(['node', 'kimi', 'export', '--no-include-global-log', '-y']);
 
     expect(exitCodes).toEqual([]);
-    expect(exportInputs).toEqual([
-      {
-        id: 'ses_global_log',
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
-    ]);
+    expect(exportInputs).toEqual([{ id: 'ses_global_log', version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
     expect(stdout.join('').trim()).toBe(join(tmp, 'ses_global_log.zip'));
   });
 
@@ -414,13 +364,7 @@ describe('kimi export', () => {
 
     expect(exitCodes).toEqual([]);
     expect(exportInputs).toEqual([
-      {
-        id: 'ses_after_id',
-        outputPath: output,
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
+      { id: 'ses_after_id', outputPath: output, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } },
     ]);
   });
 
@@ -456,8 +400,8 @@ describe('kimi export', () => {
         },
       }),
     );
-    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledTimes(1);
-    expect(mocks.harnessGetConfig).toHaveBeenCalledTimes(1);
+    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledOnce();
+    expect(mocks.harnessGetConfig).toHaveBeenCalledOnce();
     expect(mocks.createKimiDeviceId).toHaveBeenCalledWith(
       '/tmp/kimi-export-home',
       expect.objectContaining({ onFirstLaunch: expect.any(Function) }),
@@ -478,7 +422,6 @@ describe('kimi export', () => {
       getAccessToken: expect.any(Function),
       onUnexpectedError: expect.any(Function),
     });
-    // The endpoint resolver defers to the active region profile at flush time.
     const telemetryOptions = mocks.initializeTelemetry.mock.calls[0]![0] as {
       endpoint: () => string;
     };

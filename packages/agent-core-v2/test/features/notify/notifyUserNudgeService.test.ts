@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+import { appendContext } from '../../agent/contextMemory/stubs';
 
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -13,8 +13,8 @@ import { NOTIFY_USER_NUDGE_VARIANT } from '#/features/notify/notifyUserNudge';
 import { NOTIFY_USER_TOOL_NAME } from '#/features/notify/tools/notify-user/notify-user';
 import type { ExecutableTool } from '#/tool/toolContract';
 
-import { runWillBeginStepHooks } from '../../agent/loop/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { runWillBeginStepHooks } from '../../agent/loop/stubs';
 import { createTestAgent, type TestAgentContext } from '../../harness';
 
 const notifyToolStub: ExecutableTool = {
@@ -33,24 +33,23 @@ function messageText(message: ContextMessage): string {
 
 describe('AgentNotifyUserNudgeService', () => {
   let ctx: TestAgentContext;
-  let context: IAgentContextMemoryService;
+  let context: IAgentLoopService;
   let loop: IAgentLoopService;
   let flags: FlagService;
   let telemetry: TelemetryRecord[];
 
   function nudgeInjections(): readonly ContextMessage[] {
     return context
-      .get()
+      .history()
       .filter(
         (message) =>
-          message.origin?.kind === 'injection' &&
-          message.origin.variant === NOTIFY_USER_NUDGE_VARIANT,
+          message.origin?.kind === 'injection' && message.origin.variant === NOTIFY_USER_NUDGE_VARIANT,
       );
   }
 
   function appendSilentRounds(count: number): void {
     for (let index = 0; index < count; index += 1) {
-      context.append({
+      appendContext(context,{
         role: 'assistant',
         content: [],
         toolCalls: [
@@ -64,17 +63,16 @@ describe('AgentNotifyUserNudgeService', () => {
     telemetry = [];
     ctx = createTestAgent({ autoConfigure: false, telemetry: recordingTelemetry(telemetry) });
     Object.assign(ctx.get(IBootstrapService).args, { uiCapabilities });
-    context = ctx.get(IAgentContextMemoryService);
+    context = ctx.get(IAgentLoopService);
     loop = ctx.get(IAgentLoopService);
     flags = ctx.get(IFlagService) as FlagService;
     flags.setConfigOverrides({ [NOTIFY_USER_FLAG_ID]: true });
     const registry = ctx.get(IAgentToolRegistryService);
     if (registry.resolve(NOTIFY_USER_TOOL_NAME) === undefined) registry.register(notifyToolStub);
     await ctx.restorePersisted();
-    context.append({
+    appendContext(context,{
       role: 'user',
       content: [{ type: 'text', text: 'do the thing' }],
-      toolCalls: [],
       origin: { kind: 'user' },
     });
     ctx.configure();
@@ -122,7 +120,7 @@ describe('AgentNotifyUserNudgeService', () => {
 
   it('counts a step of parallel tool calls as a single round', async () => {
     await start([NOTIFY_USER_UI_CAPABILITY]);
-    context.append({
+    appendContext(context,{
       role: 'assistant',
       content: [],
       toolCalls: Array.from({ length: 8 }, (_, index) => ({
@@ -143,7 +141,7 @@ describe('AgentNotifyUserNudgeService', () => {
 
   it('does not nudge on mid-turn text before the round threshold', async () => {
     await start([NOTIFY_USER_UI_CAPABILITY]);
-    context.append({
+    appendContext(context,{
       role: 'assistant',
       content: [{ type: 'text', text: 'Checking the parser first.' }],
       toolCalls: [{ type: 'function', id: 'call_mid', name: 'Bash', arguments: '{}' }],
@@ -157,11 +155,9 @@ describe('AgentNotifyUserNudgeService', () => {
     appendSilentRounds(8);
     await runWillBeginStepHooks(loop);
     expect(nudgeInjections()).toHaveLength(0);
-    expect(telemetry.filter((record) => record.event === 'notify_user_nudge_shown')).toHaveLength(
-      0,
-    );
+    expect(telemetry.filter((record) => record.event === 'notify_user_nudge_shown')).toHaveLength(0);
 
-    context.append({
+    appendContext(context,{
       role: 'assistant',
       content: [{ type: 'text', text: 'Halfway through the checks.' }],
       toolCalls: [{ type: 'function', id: 'call_mid', name: 'Bash', arguments: '{}' }],

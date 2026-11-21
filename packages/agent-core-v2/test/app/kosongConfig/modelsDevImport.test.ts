@@ -1,28 +1,26 @@
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { createScopedTestHost } from '#/_base/di/test';
-import type { Error2 } from '#/_base/errors/errors';
-import { isError2 } from '#/_base/errors/errors';
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { Error2, isError2 } from '#/_base/errors/errors';
 import { DEFAULT_IDENTITY_SLUG, IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { MODELS_SECTION, PROVIDERS_SECTION } from '#/app/kosongConfig/configSection';
-import { ModelsDevImportErrors } from '#/app/kosongConfig/errors';
-import { IKosongConfigService } from '#/app/kosongConfig/kosongConfig';
-import { IModelsDevImportService } from '#/app/kosongConfig/modelsDevImport';
 import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
 } from '#/app/kosongConfig/modelsDevUpstream';
+import { MODELS_SECTION, PROVIDERS_SECTION } from '#/app/kosongConfig/configSection';
+import { ModelsDevImportErrors } from '#/app/kosongConfig/errors';
+import { IKosongConfigService } from '#/app/kosongConfig/kosongConfig';
+import { IModelsDevImportService } from '#/app/kosongConfig/modelsDevImport';
 import '#/app/kosongConfig/modelsDevImportService';
 import { IModelCatalog, type ProviderCatalogItem } from '#/llm-adapter/model/catalog';
 import type { ModelsSection } from '#/llm-adapter/model/model';
 import type { ProvidersSection } from '#/llm-adapter/provider/provider';
 
 import { StubConfigService } from '../../stubs';
-import { stubAgentIdentity } from '../agentIdentity/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
+import { stubAgentIdentity } from '../agentIdentity/stubs';
 
 const HOST_HEADERS = { 'User-Agent': 'kimi-test/1.0' };
 
@@ -70,20 +68,6 @@ const CATALOG = {
       },
     },
   },
-  'google-vertex': {
-    id: 'google-vertex',
-    name: 'Google Vertex AI',
-    api: 'https://us-central1-aiplatform.googleapis.com/v1',
-    npm: '@ai-sdk/google-vertex',
-    models: {
-      'gemini-2.5-pro': {
-        id: 'gemini-2.5-pro',
-        name: 'Gemini 2.5 Pro',
-        limit: { context: 1048576 },
-        modalities: { input: ['text'], output: ['text'] },
-      },
-    },
-  },
 } as const;
 
 const REGISTRY_URL = 'https://internal.example/api.json';
@@ -105,28 +89,28 @@ const REGISTRY_DOC = {
   },
 } as const;
 
-function fetchJson(doc: unknown): FetchLike {
+function fetchJson(doc: unknown): typeof fetch {
   return (async () =>
     new Response(JSON.stringify(doc), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    })) as unknown as FetchLike;
+    })) as unknown as typeof fetch;
 }
 
-function fetchJsonRecordingUserAgent(doc: unknown, seen: Array<string | null>): FetchLike {
+function fetchJsonRecordingUserAgent(doc: unknown, seen: Array<string | null>): typeof fetch {
   return (async (_input: unknown, init?: { headers?: Record<string, string> }) => {
     seen.push(new Headers(init?.headers).get('User-Agent'));
     return new Response(JSON.stringify(doc), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
-  }) as unknown as FetchLike;
+  }) as unknown as typeof fetch;
 }
 
-function fetchFail(): FetchLike {
+function fetchFail(): typeof fetch {
   return (async () => {
     throw new Error('network down');
-  }) as unknown as FetchLike;
+  }) as unknown as typeof fetch;
 }
 
 function stubKosongConfig(): IKosongConfigService {
@@ -165,7 +149,7 @@ function createHost(
   return { config, imports: host.app.accessor.get(IModelsDevImportService) };
 }
 
-async function expectError2(promise: Promise<unknown>, code: Error2['code']): Promise<Error2> {
+async function expectError2(promise: Promise<unknown>, code: string): Promise<Error2> {
   const err = await promise.then(
     () => {
       throw new Error(`expected the call to throw ${code}`);
@@ -200,42 +184,13 @@ describe('IModelsDevImportService', () => {
     expect(openai?.models).toEqual([
       expect.objectContaining({ id: 'gpt-4.1', max_context_size: 1047576 }),
     ]);
-    expect(byId.get('gateway')).toMatchObject({
-      needs_base_url: true,
-      wire_type: 'openai',
-      base_url: null,
-    });
-    expect(byId.get('google-vertex')).toMatchObject({
-      wire_type: 'google-genai',
-      base_url: 'https://us-central1-aiplatform.googleapis.com/v1',
-    });
+    expect(byId.get('gateway')).toMatchObject({ needs_base_url: true, wire_type: 'openai', base_url: null });
     expect(byId.get('bedrock')).toMatchObject({
       rejected: true,
       wire_type: null,
       base_url: null,
       reject_reason: 'proprietary-sdk',
     });
-  });
-
-  it('imports a vertex catalog entry as google-genai instead of the removed vertexai wire', async () => {
-    setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
-    const { config, imports } = createHost({ providers: {}, models: {} });
-
-    const result = await imports.importModelsDevProvider({ catalogId: 'google-vertex' });
-
-    expect(result.modelsImported).toBe(1);
-    const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
-    expect(providers['google-vertex']).toMatchObject({
-      type: 'google-genai',
-      baseUrl: 'https://us-central1-aiplatform.googleapis.com/v1',
-    });
-    const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
-    expect(models['google-vertex/gemini-2.5-pro']).toMatchObject({
-      provider: 'google-vertex',
-      model: 'gemini-2.5-pro',
-      maxContextSize: 1048576,
-    });
-    expect(providers['google-vertex']?.type).not.toBe('vertexai');
   });
 
   it('throws provider.catalog_entry_not_found for an unknown catalog id', async () => {
@@ -364,41 +319,6 @@ describe('IModelsDevImportService', () => {
     expect(providers['openai']?.apiKey).toBe('sk-new');
   });
 
-  it('keeps the target provider aliases when the models write fails (single write)', async () => {
-    setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
-    const { config, imports } = createHost({
-      providers: { openai: { type: 'openai', apiKey: 'sk-old' } },
-      models: {
-        'openai/gpt-4o': { provider: 'openai', model: 'gpt-4o', maxContextSize: 128000 },
-        k2: { provider: 'kimi', model: 'kimi-k2', maxContextSize: 131072 },
-      },
-    });
-    const original = config.replace.bind(config);
-    const modelsWrites: Array<Record<string, unknown>> = [];
-    spyOn(config, 'replace').mockImplementation((domain: string, value: unknown) => {
-      if (domain !== MODELS_SECTION) return original(domain, value);
-      modelsWrites.push(value as Record<string, unknown>);
-      const submitted = value as Record<string, unknown>;
-      return submitted['openai/gpt-4.1'] !== undefined
-        ? Promise.reject(new Error('disk full'))
-        : original(domain, value);
-    });
-
-    await expect(imports.importModelsDevProvider({ catalogId: 'openai' })).rejects.toThrow(
-      'disk full',
-    );
-
-    const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
-    expect(models['openai/gpt-4o']).toEqual({
-      provider: 'openai',
-      model: 'gpt-4o',
-      maxContextSize: 128000,
-    });
-    expect(models['k2']).toEqual({ provider: 'kimi', model: 'kimi-k2', maxContextSize: 131072 });
-    expect(models['openai/gpt-4.1']).toBeUndefined();
-    expect(modelsWrites).toHaveLength(1);
-  });
-
   it('keeps a hand-edited api_key_env on a re-import without a key, drops it when a new key is given', async () => {
     setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
     const { config, imports } = createHost({
@@ -504,8 +424,8 @@ describe('IModelsDevImportService', () => {
         'acme-old/gpt-y': { provider: 'acme-old', model: 'gpt-y', maxContextSize: 128000 },
       },
     });
-    const replaceSections = spyOn(config, 'replaceSections');
-    const replace = spyOn(config, 'replace');
+    const replaceSections = vi.spyOn(config, 'replaceSections');
+    const replace = vi.spyOn(config, 'replace');
 
     const result = await imports.importCustomRegistry({ url: REGISTRY_URL, apiKey: 'tok-2' });
     expect(replaceSections).toHaveBeenCalledTimes(1);

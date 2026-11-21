@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
+
+import { pino } from 'pino';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   IBootstrapService,
@@ -14,7 +16,6 @@ import {
   ITelemetryService,
   noopTelemetryService,
 } from '@moonshot-ai/agent-core-v2';
-import { pino } from 'pino';
 
 import { listLiveServerInstances } from '../src/instanceRegistry';
 import {
@@ -24,7 +25,6 @@ import {
 } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authedFetch } from './helpers/auth';
-import { removeTempHome } from './helpers/tempHome';
 
 describe('server-v2 boot', () => {
   let server: RunningServer | undefined;
@@ -36,7 +36,7 @@ describe('server-v2 boot', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });
@@ -55,7 +55,7 @@ describe('server-v2 boot', () => {
 
     const healthz = await fetch(`${base}/api/v1/healthz`);
     expect(healthz.status).toBe(200);
-    const healthBody = (await healthz.json()) as {
+    const healthBody = await healthz.json() as {
       code: number;
       data: { ok: boolean };
       request_id: string;
@@ -66,7 +66,7 @@ describe('server-v2 boot', () => {
 
     const meta = await authedFetch(server, base, '/api/v1/meta');
     expect(meta.status).toBe(200);
-    const metaBody = (await meta.json()) as {
+    const metaBody = await meta.json() as {
       code: number;
       data: { server_id: string; server_version: string; capabilities: Record<string, boolean> };
     };
@@ -77,7 +77,7 @@ describe('server-v2 boot', () => {
 
     const auth = await authedFetch(server, base, '/api/v1/auth');
     expect(auth.status).toBe(200);
-    const authBody = (await auth.json()) as {
+    const authBody = await auth.json() as {
       code: number;
       data: { models_ready: boolean; providers_count: number };
     };
@@ -87,7 +87,7 @@ describe('server-v2 boot', () => {
 
     const oauthPoll = await authedFetch(server, base, '/api/v1/oauth/login');
     expect(oauthPoll.status).toBe(200);
-    const oauthBody = (await oauthPoll.json()) as { code: number; data: null };
+    const oauthBody = await oauthPoll.json() as { code: number; data: null };
     expect(oauthBody.code).toBe(0);
     expect(oauthBody.data).toBeNull();
   });
@@ -109,7 +109,7 @@ describe('server-v2 boot', () => {
 
     const base = `http://127.0.0.1:${server.port}`;
     const meta = await authedFetch(server, base, '/api/v1/meta');
-    const metaBody = (await meta.json()) as {
+    const metaBody = await meta.json() as {
       code: number;
       data: { server_version: string };
     };
@@ -199,7 +199,7 @@ describe('server-v2 boot', () => {
   it('does not shut down a host-injected telemetry service when server telemetry is disabled', async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-host-telemetry-'));
     await writeFile(join(home, 'config.toml'), 'telemetry = false\n', 'utf8');
-    const shutdown = mock(async () => {});
+    const shutdown = vi.fn(async () => {});
 
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
@@ -220,7 +220,7 @@ describe('server-v2 boot', () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-telemetry-failure-'));
     const storage = new InMemoryStorageService();
     const write = storage.write.bind(storage);
-    spyOn(storage, 'write').mockImplementation(async (scope, key, data, options) => {
+    vi.spyOn(storage, 'write').mockImplementation(async (scope, key, data, options) => {
       if (scope === 'telemetry') throw new Error('telemetry storage unavailable');
       await write(scope, key, data, options);
     });
@@ -464,7 +464,7 @@ describe('server-v2 boot — port retry', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });

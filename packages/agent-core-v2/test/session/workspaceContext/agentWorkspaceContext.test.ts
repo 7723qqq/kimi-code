@@ -1,5 +1,5 @@
 import { IEnvironmentService } from '#/app/environment/environment';
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { Emitter, Event } from '#/_base/event';
 import { createScopedTestHost } from '#/_base/di/test';
@@ -34,7 +34,10 @@ interface AgentHarness {
   readonly binding: IAgentEnvironmentBindingService & { apply(next: EnvironmentBinding): void };
 }
 
-function setup(options: { readonly sessionCwd?: string } = {}) {
+function setup(options: {
+  readonly sessionCwd?: string;
+  readonly primaryByWorkspace?: Readonly<Record<string, string>>;
+} = {}) {
   const registry = new EnvironmentRegistry();
   registry.register(fakeEnvironment('local', 'local-one'));
   registry.register(fakeEnvironment('remote', 'remote-one'));
@@ -54,7 +57,7 @@ function setup(options: { readonly sessionCwd?: string } = {}) {
   const workspaceInfo = {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    primaryByWorkspace: {},
+    primaryByWorkspace: options.primaryByWorkspace ?? {},
     additionalDirs: ['/extra'],
     onDidChange: () => ({ dispose: () => {} }),
   };
@@ -94,7 +97,10 @@ function setup(options: { readonly sessionCwd?: string } = {}) {
       agentContext: stubAgentContext(agentId, 1),
       scope: (subKey?: string) => subKey ?? '',
     };
-    const environment = new AgentEnvironmentService(scopeContext, binding, registry as unknown as IEnvironmentService, eventBus, session, workspaceInfo);
+    const environment = new AgentEnvironmentService(scopeContext, binding, registry as unknown as IEnvironmentService, eventBus, session, workspaceInfo, {
+      _serviceBrand: undefined,
+      decorate: (lease) => lease,
+    });
     const shadow = new AgentWorkspaceContextService(sessionState, {
       current: environment,
       onDidChange: () => ({ dispose: () => {} }),

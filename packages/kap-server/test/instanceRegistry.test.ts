@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   createInstanceRegistry,
@@ -34,6 +35,7 @@ interface DiskInstance {
   started_at: number;
   heartbeat_at: number;
   host_version?: string;
+  product?: string;
 }
 
 function writeInstance(serverId: string, fields: Partial<DiskInstance> & { pid: number }): void {
@@ -87,10 +89,18 @@ describe('createInstanceRegistry — register / release', () => {
     expect(existsSync(filePath)).toBe(false);
   });
 
-  it('records host_version when provided', async () => {
+  it('records host_version and product when provided', async () => {
     const registry = createInstanceRegistry({ instancesDir, now: () => 1 });
-    const reg = await registry.register({ ...baseInfo, serverVersion: '1.2.3' });
-    expect(readInstance(reg.serverId).host_version).toBe('1.2.3');
+    const reg = await registry.register({
+      ...baseInfo,
+      serverVersion: '1.2.3',
+      product: 'kimi-code-desktop',
+    });
+    const disk = readInstance(reg.serverId);
+    expect(disk.host_version).toBe('1.2.3');
+    expect(disk.product).toBe('kimi-code-desktop');
+    const live = await registry.listLive();
+    expect(live[0]?.product).toBe('kimi-code-desktop');
     await reg.release();
   });
 
@@ -260,27 +270,19 @@ describe('startServer — instance registry wiring', () => {
 
   it('lets two servers share one homeDir, each registering a distinct instance and port', async () => {
     home = mkdtempSync(join(tmpdir(), 'kimi-server-multi-server-'));
-    const a = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
+    const a = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     servers.push(a);
-    const b = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
+    const b = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     servers.push(b);
 
     expect(b.port).not.toBe(a.port);
 
     const live = await listLiveServerInstances(home);
     expect(live).toHaveLength(2);
+    expect(live.map((i) => i.product)).toEqual([
+      TEST_HOST_IDENTITY.productName,
+      TEST_HOST_IDENTITY.productName,
+    ]);
     expect(new Set(live.map((i) => i.serverId)).size).toBe(2);
     expect(live.map((i) => i.port).sort((x, y) => x - y)).toEqual(
       [a.port, b.port].sort((x, y) => x - y),
@@ -290,21 +292,9 @@ describe('startServer — instance registry wiring', () => {
 
   it('removes its instance file on close so peers no longer list it', async () => {
     home = mkdtempSync(join(tmpdir(), 'kimi-server-multi-server-'));
-    const a = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
+    const a = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     servers.push(a);
-    const b = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
+    const b = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     servers.push(b);
     expect(await listLiveServerInstances(home)).toHaveLength(2);
 

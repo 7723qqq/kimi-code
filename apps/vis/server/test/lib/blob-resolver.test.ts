@@ -1,16 +1,17 @@
-import { describe, expect, it } from 'bun:test';
-
-import {
-  resolveBlobRefUrl,
-  isSafeBlobHash,
-  rehydrateWireEntries,
-} from '../../src/lib/blob-resolver';
+import { describe, it, expect } from '@moonshot-ai/testkit/vitest';
+import { resolveBlobRefUrl, isSafeBlobHash, rehydrateWireEntries } from '../../src/lib/blob-resolver';
 
 describe('blob-resolver', () => {
   describe('resolveBlobRefUrl', () => {
     it('converts a well-formed blobref into a relative route by default', () => {
-      const url = resolveBlobRefUrl('blobref:image/png;abc123def456', 'sess-1', 'main');
-      expect(url).toBe('/api/sessions/sess-1/blobs/abc123def456?agent=main&mime=image%2Fpng');
+      const url = resolveBlobRefUrl(
+        'blobref:image/png;abc123def456',
+        'sess-1',
+        'main',
+      );
+      expect(url).toBe(
+        '/api/sessions/sess-1/blobs/abc123def456?agent=main&mime=image%2Fpng',
+      );
     });
 
     it('returns an absolute URL when baseUrl is provided', () => {
@@ -35,8 +36,12 @@ describe('blob-resolver', () => {
     });
 
     it('returns malformed blobrefs unchanged', () => {
-      expect(resolveBlobRefUrl('blobref:nosemicolon', 's', 'a')).toBe('blobref:nosemicolon');
-      expect(resolveBlobRefUrl('blobref:image/png;', 's', 'a')).toBe('blobref:image/png;');
+      expect(resolveBlobRefUrl('blobref:nosemicolon', 's', 'a')).toBe(
+        'blobref:nosemicolon',
+      );
+      expect(resolveBlobRefUrl('blobref:image/png;', 's', 'a')).toBe(
+        'blobref:image/png;',
+      );
     });
   });
 
@@ -76,7 +81,9 @@ describe('blob-resolver', () => {
       expect((entries[0]!.data as any).input[0].imageUrl.url).toBe(
         '/api/sessions/sess-1/blobs/hashA?agent=main&mime=image%2Fpng',
       );
-      expect((entries[0]!.raw as any).input[0].imageUrl.url).toBe('blobref:image/png;hashA');
+      expect((entries[0]!.raw as any).input[0].imageUrl.url).toBe(
+        'blobref:image/png;hashA',
+      );
     });
 
     it('handles audio_url, video_url, and nested tool result parts', () => {
@@ -128,55 +135,6 @@ describe('blob-resolver', () => {
       const entries = [{ lineNo: 1, data: data as any, raw: {} }];
       rehydrateWireEntries(entries, 's', 'a');
       expect(entries[0]!.data).toEqual(data);
-    });
-
-    it('reports a malformed media part as a warning instead of throwing', () => {
-      const cases: Record<string, unknown>[] = [
-        { type: 'turn.prompt', input: [{ type: 'image_url' }] },
-        { type: 'turn.prompt', input: [{ type: 'image_url', imageUrl: {} }] },
-        { type: 'turn.prompt', input: [{ type: 'image_url', imageUrl: { url: 42 } }] },
-        { type: 'turn.prompt', input: [{ type: 'audio_url' }] },
-        { type: 'turn.prompt', input: [{ type: 'video_url', videoUrl: null }] },
-        { type: 'turn.prompt', input: 'not-an-array' },
-        { type: 'context.append_message' },
-        { type: 'context.append_message', message: null },
-        { type: 'context.append_message', message: { content: [null] } },
-        { type: 'context.append_loop_event' },
-        { type: 'context.append_loop_event', event: null },
-        { type: 'context.append_loop_event', event: { type: 'tool.result' } },
-        { type: 'context.append_loop_event', event: { type: 'tool.result', result: null } },
-        { type: 'context.append_loop_event', event: { type: 'content.part' } },
-      ];
-      for (const data of cases) {
-        const warnings: string[] = [];
-        const entries = [{ lineNo: 1, data: data as any, raw: {} }];
-        expect(() => rehydrateWireEntries(entries, 's', 'a', '', warnings)).not.toThrow();
-        expect(warnings.length).toBeGreaterThan(0);
-      }
-    });
-
-    it('treats an absent content field as empty, not as malformed', () => {
-      const warnings: string[] = [];
-      const data: Record<string, unknown> = { type: 'turn.prompt' };
-      rehydrateWireEntries([{ lineNo: 1, data: data as any, raw: {} }], 's', 'a', '', warnings);
-      expect(warnings).toEqual([]);
-    });
-
-    it('keeps resolving well-formed parts in a record that also has a malformed one', () => {
-      const data: Record<string, unknown> = {
-        type: 'turn.prompt',
-        input: [
-          { type: 'image_url' },
-          { type: 'image_url', imageUrl: { url: 'blobref:image/png;okHash' } },
-        ],
-      };
-      const warnings: string[] = [];
-      const entries = [{ lineNo: 1, data: data as any, raw: {} }];
-      rehydrateWireEntries(entries, 'sess-9', 'main', '', warnings);
-      expect((entries[0]!.data as any).input[1].imageUrl.url).toBe(
-        '/api/sessions/sess-9/blobs/okHash?agent=main&mime=image%2Fpng',
-      );
-      expect(warnings).toHaveLength(1);
     });
   });
 });

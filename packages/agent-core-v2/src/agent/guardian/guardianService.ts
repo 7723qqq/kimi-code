@@ -8,7 +8,7 @@ import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/tool
 import { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
-import type { Message } from '#/llm-adapter/contract/message';
+import { createSystemMessage, createUserMessage, type Message } from '@moonshot-ai/core/llm/message';
 
 export const GUARDIAN_REVIEW_MAX_TOKENS = 256;
 export const GUARDIAN_CIRCUIT_CONSECUTIVE_DENIALS = 3;
@@ -179,8 +179,8 @@ export class GuardianService extends Disposable implements IAgentGuardianService
       'Assess this action now. Output ONLY the JSON verdict.',
     ].join('\n');
     return [
-      { role: 'system', content: [{ type: 'text', text: GUARDIAN_SYSTEM_PROMPT }], toolCalls: [] },
-      { role: 'user', content: [{ type: 'text', text: userText }], toolCalls: [] },
+      createSystemMessage(GUARDIAN_SYSTEM_PROMPT),
+      createUserMessage(userText),
     ];
   }
 

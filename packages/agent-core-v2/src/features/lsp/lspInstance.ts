@@ -1,6 +1,7 @@
 import { basename } from 'pathe';
 
-import { Error2, ErrorCodes } from '#/errors';
+import { Error2 } from '#/errors';
+import { LspErrors } from './errors';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 
@@ -116,13 +117,13 @@ export class LspInstance {
     } catch (error) {
       this.connection.dispose();
       throw error instanceof LspTimeoutError
-        ? new Error2(ErrorCodes.LSP_SERVER_FAILED, error.message, { cause: error })
+        ? new Error2(LspErrors.codes.LSP_SERVER_FAILED, error.message, { cause: error })
         : error;
     }
     const positionEncoding = result.capabilities.positionEncoding;
     if (positionEncoding !== undefined && positionEncoding !== 'utf-16') {
       throw new Error2(
-        ErrorCodes.LSP_UNSUPPORTED_OPERATION,
+        LspErrors.codes.LSP_UNSUPPORTED_OPERATION,
         `LSP server "${this.config.command}" uses position encoding "${positionEncoding}"; only utf-16 is supported`,
       );
     }

@@ -1,7 +1,8 @@
+import { LifecycleScope } from '#/app/scopes';
+
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { encodeWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
-import { LifecycleScope } from '#/app/scopes';
+import { encodeWorkDirKey, isWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
 import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
 import {
   readSessionIndexEntries,
@@ -16,12 +17,12 @@ import { IWorkspaceAliases } from './workspaceAliases';
 
 interface CatalogSnapshot {
   readonly byId: ReadonlyMap<string, Workspace>;
-  readonly idsByRootKey: ReadonlyMap<string, readonly string[]>;
-  readonly stamp: string | undefined;
+  readonly wdIdsByRootKey: ReadonlyMap<string, readonly string[]>;
 }
 
 interface SessionIndexSnapshot {
   readonly idsByRootKey: ReadonlyMap<string, readonly string[]>;
+  readonly rootKeyById: ReadonlyMap<string, string>;
 }
 
 function rootKeyIndex<T>(
@@ -47,10 +48,10 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
   declare readonly _serviceBrand: undefined;
 
   private catalogCache: CatalogSnapshot | undefined;
-  private sessionIndexCache:
-    | { snapshot: SessionIndexSnapshot; size: number | undefined }
+  private sessionIndexCache: { snapshot: SessionIndexSnapshot; size: number | undefined } | undefined;
+  private catalogPromise:
+    | Promise<{ snapshot: CatalogSnapshot; generation: number }>
     | undefined;
-  private catalogPromise: Promise<{ snapshot: CatalogSnapshot; generation: number }> | undefined;
   private sessionIndexPromise:
     | Promise<{ snapshot: SessionIndexSnapshot; generation: number }>
     | undefined;
@@ -81,28 +82,30 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
   }
 
   async resolveAliasIds(id: string): Promise<readonly string[]> {
+    if (!isWorkDirKey(id)) return [id];
     for (;;) {
       const generation = this.invalidationGeneration;
       const [catalog, index] = await Promise.all([this.catalog(), this.sessionIndex()]);
       if (generation !== this.invalidationGeneration) continue;
       const entry = catalog.byId.get(id);
-      if (entry === undefined) return [id];
-      const rootKey = workspaceRootKey(entry.root);
-      const fromCatalog = catalog.idsByRootKey.get(rootKey);
+      const rootKey =
+        entry !== undefined ? workspaceRootKey(entry.root) : index.rootKeyById.get(id);
+      if (rootKey === undefined) return [id];
+      const fromCatalog = catalog.wdIdsByRootKey.get(rootKey);
       const fromIndex = index.idsByRootKey.get(rootKey);
-      if (fromCatalog === undefined) return fromIndex ?? [id];
-      if (fromIndex === undefined) return fromCatalog;
-      const merged = [...fromCatalog];
-      for (const alias of fromIndex) {
-        if (!merged.includes(alias)) merged.push(alias);
+      const merged = fromCatalog === undefined ? [id] : [...fromCatalog];
+      if (!merged.includes(id)) merged.push(id);
+      if (fromIndex !== undefined) {
+        for (const alias of fromIndex) {
+          if (!merged.includes(alias)) merged.push(alias);
+        }
       }
       return merged;
     }
   }
 
   private async catalog(): Promise<CatalogSnapshot> {
-    const cache = this.catalogCache;
-    if (cache !== undefined && (await this.store.stamp()) === cache.stamp) return cache;
+    if (this.catalogCache !== undefined) return this.catalogCache;
     this.catalogPromise ??= this.loadCatalog();
     const { snapshot, generation } = await this.catalogPromise;
     if (generation !== this.invalidationGeneration) return this.catalog();
@@ -116,16 +119,14 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
         this.catalogMergePrimed = true;
       }
       const generation = this.invalidationGeneration;
-      const stamp = await this.store.stamp();
       const workspaces = (await this.store.load())?.workspaces ?? [];
       const snapshot: CatalogSnapshot = {
         byId: new Map(workspaces.map((ws) => [ws.id, ws] as const)),
-        idsByRootKey: rootKeyIndex(
-          workspaces,
+        wdIdsByRootKey: rootKeyIndex(
+          workspaces.filter((ws) => isWorkDirKey(ws.id)),
           (ws) => ws.root,
           (ws) => ws.id,
         ),
-        stamp,
       };
       if (generation === this.invalidationGeneration) {
         this.catalogCache = snapshot;
@@ -150,19 +151,19 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
     return snapshot;
   }
 
-  private async loadSessionIndex(): Promise<{
-    snapshot: SessionIndexSnapshot;
-    generation: number;
-  }> {
+  private async loadSessionIndex(): Promise<{ snapshot: SessionIndexSnapshot; generation: number }> {
     try {
       const generation = this.invalidationGeneration;
       const entries = await readSessionIndexEntries(this.storage);
+      const rootKeyById = new Map<string, string>();
+      for (const entry of entries) {
+        rootKeyById.set(encodeWorkDirKey(entry.workDir), workspaceRootKey(entry.workDir));
+      }
       const snapshot: SessionIndexSnapshot = {
-        idsByRootKey: rootKeyIndex(
-          entries,
-          (entry) => entry.workDir,
-          (entry) => encodeWorkDirKey(entry.workDir),
+        idsByRootKey: rootKeyIndex(entries, (entry) => entry.workDir, (entry) =>
+          encodeWorkDirKey(entry.workDir),
         ),
+        rootKeyById,
       };
       if (generation === this.invalidationGeneration) {
         this.sessionIndexCache = {

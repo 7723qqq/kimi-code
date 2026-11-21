@@ -5,9 +5,10 @@ const globalOriginals = new Map<string, PropertyDescriptor | undefined>();
 const globalHolder = globalThis as unknown as Record<string, unknown>;
 
 export function setEnv(name: string, value: string | undefined): void {
-  if (!envOriginals.has(name)) envOriginals.set(name, process.env[name]);
-  if (value === undefined) delete process.env[name];
-  else process.env[name] = value;
+  const key = process.platform === 'win32' ? name.toUpperCase() : name;
+  if (!envOriginals.has(key)) envOriginals.set(key, process.env[key]);
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
 }
 
 export function restoreEnvs(): void {

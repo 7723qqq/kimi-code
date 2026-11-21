@@ -19,7 +19,7 @@ export function parsePlanToTodos(content: string): readonly TodoItem[] | null {
       nextLeafIndex = 1;
       items.push({
         id,
-        parentId: null,
+        parentId: undefined,
         kind: 'milestone',
         title: heading.title.trim(),
         status: 'pending',

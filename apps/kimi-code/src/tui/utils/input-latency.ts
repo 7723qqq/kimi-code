@@ -1,25 +1,7 @@
-// src/tui/utils/input-latency.ts
-//
-// Debug-only input→render latency probe, enabled with KIMI_TUI_INPUT_LATENCY=1.
-// Registers a pi-tui input listener (event timestamps) and mounts a
-// non-capturing overlay in the top-right corner whose render() drains the
-// queue: each pending input event is stamped against the frame that first
-// renders after it, and the overlay shows the live stats (last / p50 / p95 /
-// p99 / max, plus >100ms / >300ms / >1s counters and the five worst samples).
-// Optional JSONL sink: KIMI_TUI_INPUT_LATENCY_LOG=<path> appends one record
-// per event for post-hoc analysis.
-//
-// The measured latency is "input event → start of the first frame rendered
-// after it" — it includes input handling and the 16ms render throttle, and
-// underestimates by the frame's own diff/write tail (sub-ms to a few ms),
-// which is the right granularity for diagnosing >100ms stalls.
-
 import { appendFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-
 import type { Component, TUI } from '@moonshot-ai/pi-tui';
 
-/** Rolling sample cap for the percentile window. */
 const MAX_SAMPLES = 500;
 
 export interface LatencySample {
@@ -27,8 +9,6 @@ export interface LatencySample {
   at: string;
 }
 
-/** The pure stats core (exported for tests): feed it input→render latencies
- *  and it keeps the rolling window, counters, and the five worst samples. */
 export class LatencyStats {
   last = 0;
   events = 0;
@@ -46,7 +26,7 @@ export class LatencyStats {
     if (latency > 1000) this.over1000++;
     this.samples.push(latency);
     if (this.samples.length > MAX_SAMPLES) this.samples.shift();
-    const smallestKept = this.worst.at(-1)?.latency ?? -1;
+    const smallestKept = this.worst[this.worst.length - 1]?.latency ?? -1;
     if (this.worst.length < 5 || latency >= smallestKept) {
       this.worst.push({ latency, at });
       this.worst.sort((a, b) => b.latency - a.latency);
@@ -56,7 +36,7 @@ export class LatencyStats {
 
   percentile(p: number): number {
     if (this.samples.length === 0) return 0;
-    const sorted = [...this.samples].toSorted((a, b) => a - b);
+    const sorted = [...this.samples].sort((a, b) => a - b);
     return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)]!;
   }
 
@@ -75,7 +55,6 @@ export class LatencyStats {
   }
 }
 
-/** Install the probe on a running TUI (call only when the env flag is set). */
 export function installInputLatencyProbe(tui: TUI): void {
   const stats = new LatencyStats();
   const pending: number[] = [];
@@ -96,11 +75,7 @@ export function installInputLatencyProbe(tui: TUI): void {
         for (const t of pending.splice(0)) {
           const latency = now - t;
           stats.record(latency, at);
-          if (logPath)
-            appendFileSync(
-              logPath,
-              `${JSON.stringify({ t: new Date().toISOString(), latencyMs: Math.round(latency) })}\n`,
-            );
+          if (logPath) appendFileSync(logPath, `${JSON.stringify({ t: new Date().toISOString(), latencyMs: Math.round(latency) })}\n`);
         }
       }
       return stats.formatLines();

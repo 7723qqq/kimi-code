@@ -1,26 +1,11 @@
-// apps/vis/server/src/lib/task-store.ts
-//
-// Read-only reader for background tasks, persisted by the engine under each
-// spawning agent's homedir at `<agentDir>/tasks/<taskId>.json`
-// (+ `tasks/<taskId>/output.log`). Main-agent reads may also receive the
-// legacy session root as a fallback.
-//
-// The visualizer never writes these files; it mirrors the engine's on-disk
-// layout (`packages/agent-core-v2/src/agent/task/persist.ts`) for reading only:
-//   - the same `VALID_TASK_ID` guard, so a corrupt / hand-edited filename
-//     cannot turn a log path into a traversal primitive;
-//   - the same legacy snake_case → current camelCase normalization, so old
-//     sessions list identically to how the CLI would list them.
-
 import { open, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { StringDecoder } from 'node:string_decoder';
 
-import type { BackgroundTaskInfo, BackgroundTaskStatus } from './agent-record-types';
+import type {
+  BackgroundTaskInfo,
+  BackgroundTaskStatus,
+} from './agent-record-types';
 
-/** Task id format: `{prefix}-{8 chars of [0-9a-z]}`. Mirror of the engine's
- *  `VALID_TASK_ID` (`agent/task/persist.ts`). Enforced before deriving any
- *  output path so neither `../` nor a legacy `bg_<hex>` id can escape. */
 const VALID_TASK_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{8}$/;
 
 export function isSafeTaskId(id: string): boolean {
@@ -38,14 +23,6 @@ function taskOutputFile(agentDir: string, taskId: string): string {
   return join(tasksDirOf(agentDir), taskId, 'output.log');
 }
 
-/**
- * Enumerate all persisted background tasks for a session, normalized to the
- * current `BackgroundTaskInfo` shape and sorted newest-first by start time.
- *
- * Silently skips: filenames that don't match `VALID_TASK_ID`, files that fail
- * to read/parse, and records that are neither the current nor the legacy
- * task shape — matching the engine's tolerant `listTasks`.
- */
 export async function listBackgroundTasks(
   agentDir: string,
   fallbackDir?: string,
@@ -58,7 +35,6 @@ export async function listBackgroundTasks(
       if (!primary.reservedIds.has(task.keyId)) out.push(task);
     }
   }
-  // Newest first; tasks with no start time sort last.
   out.sort((a, b) => (b.task.startedAt ?? 0) - (a.task.startedAt ?? 0));
   return out.map((entry) => entry.task);
 }
@@ -105,7 +81,6 @@ export interface TaskOutputMetadata {
   size: number;
 }
 
-/** Presence and byte size of a task's `output.log`. */
 export async function taskOutputMetadata(
   agentDir: string,
   taskId: string,
@@ -122,7 +97,6 @@ export async function taskOutputMetadata(
   }
 }
 
-/** Byte size of a task's `output.log` (0 when absent, empty, or unreadable). */
 export async function taskOutputSizeBytes(
   agentDir: string,
   taskId: string,
@@ -132,34 +106,13 @@ export async function taskOutputSizeBytes(
 }
 
 export interface TaskOutputWindow {
-  /** Byte offset this window starts at (clamped to >= 0). */
   offset: number;
-  /** Byte offset immediately after this window — pass it as the next
-   *  `offset` to page forward. Exact (server-computed bytesRead), so paging
-   *  never drifts even if a window boundary splits a multi-byte char. */
   nextOffset: number;
-  /** Total byte size of the log on disk. */
   size: number;
-  /** UTF-8 decoded window content. A trailing multi-byte sequence that the
-   *  window boundary cut in half is dropped here and carried into the next
-   *  window (see `carryBytes`), never rendered as U+FFFD. */
   content: string;
-  /** Bytes at the end of this window that do not form a complete UTF-8
-   *  sequence. They are NOT part of `content`; the next window starting at
-   *  `nextOffset` re-reads them (windows are byte-ranged, so no data is
-   *  lost). 0..3. */
-  carryBytes: number;
-  /** True when this window reaches EOF. */
   eof: boolean;
 }
 
-/**
- * Read a byte window of a task's `output.log`.
- *
- * Reads at most `maxBytes` bytes starting at byte `offset`. A window past EOF
- * is clamped to whatever remains; an offset at/after EOF yields empty content.
- * Mirrors the engine's `readTaskOutputBytes` so large logs page identically.
- */
 export async function readTaskOutput(
   agentDir: string,
   taskId: string,
@@ -171,49 +124,21 @@ export async function readTaskOutput(
   const limit = Math.max(0, Math.trunc(maxBytes));
   const handle = await openTaskOutput(agentDir, taskId, fallbackDir);
   if (handle === undefined) {
-    return { offset: start, nextOffset: start, size: 0, content: '', carryBytes: 0, eof: true };
+    return { offset: start, nextOffset: start, size: 0, content: '', eof: true };
   }
   try {
     const size = (await handle.stat()).size;
     if (limit === 0 || start >= size) {
-      return {
-        offset: start,
-        nextOffset: start,
-        size,
-        content: '',
-        carryBytes: 0,
-        eof: start >= size,
-      };
+      return { offset: start, nextOffset: start, size, content: '', eof: start >= size };
     }
     const length = Math.min(limit, size - start);
     const buffer = Buffer.allocUnsafe(length);
     const { bytesRead } = await handle.read(buffer, 0, length, start);
-    const atEof = start + bytesRead >= size;
-    const decoder = new StringDecoder('utf8');
-    let content = decoder.write(buffer.subarray(0, bytesRead));
-    // Bytes the decoder is still holding: a trailing sequence the window cut
-    // in half. Re-encoding the emitted text measures them exactly (the decoder
-    // only emits complete characters from write()).
-    let carryBytes = Math.max(0, bytesRead - Buffer.byteLength(content, 'utf8'));
-    if (atEof || carryBytes >= bytesRead) {
-      // EOF: flush the incomplete tail as a replacement char rather than
-      // carrying bytes no later window will read. carryBytes >= bytesRead
-      // would otherwise leave nextOffset unmoved (a window smaller than one
-      // character) and page forever.
-      content += decoder.end();
-      carryBytes = 0;
-    }
-    const nextOffset = start + bytesRead - carryBytes;
-    return {
-      offset: start,
-      nextOffset,
-      size,
-      content,
-      carryBytes,
-      eof: atEof,
-    };
+    const content = buffer.toString('utf-8', 0, bytesRead);
+    const nextOffset = start + bytesRead;
+    return { offset: start, nextOffset, size, content, eof: nextOffset >= size };
   } catch {
-    return { offset: start, nextOffset: start, size: 0, content: '', carryBytes: 0, eof: true };
+    return { offset: start, nextOffset: start, size: 0, content: '', eof: true };
   } finally {
     await handle.close();
   }
@@ -244,8 +169,6 @@ function isMissingPath(error: unknown): boolean {
     (error as NodeJS.ErrnoException).code === 'ENOENT'
   );
 }
-
-// ── normalization (ported from agent-core-v2/agent/task/persist.ts) ────────
 
 type ReadablePersistedTask = Record<string, unknown>;
 
@@ -383,7 +306,10 @@ function legacyStatusToCurrent(task: ReadablePersistedTask): unknown {
 }
 
 function isReadablePersistedTask(obj: unknown): obj is ReadablePersistedTask {
-  return isRecord(obj) && (typeof obj['taskId'] === 'string' || typeof obj['task_id'] === 'string');
+  return (
+    isRecord(obj) &&
+    (typeof obj['taskId'] === 'string' || typeof obj['task_id'] === 'string')
+  );
 }
 
 function isLegacyPersistedTask(
@@ -423,5 +349,8 @@ function isNullableFiniteNumber(value: unknown): value is number | null {
 }
 
 function isCurrentTaskStatus(value: unknown): value is BackgroundTaskStatus {
-  return typeof value === 'string' && CURRENT_TASK_STATUSES.has(value as BackgroundTaskStatus);
+  return (
+    typeof value === 'string' &&
+    CURRENT_TASK_STATUSES.has(value as BackgroundTaskStatus)
+  );
 }

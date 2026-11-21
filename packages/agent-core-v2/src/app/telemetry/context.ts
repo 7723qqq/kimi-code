@@ -8,7 +8,6 @@ export interface SessionTelemetryContext {
 
 export interface AgentTelemetryContext {
   readonly agent_id: string;
-
   readonly mode: 'agent' | 'plan' | 'spec';
   readonly provider_type?: string;
   readonly protocol?: string;
@@ -16,14 +15,14 @@ export interface AgentTelemetryContext {
 
 export interface TurnTelemetryContext {
   readonly turn_id?: number;
-  readonly trace_id?: string;
+  readonly request_id?: string;
   readonly thinking_effort?: string;
 }
 
 export interface TelemetryContextPatch
-  extends
-    Partial<SessionTelemetryContext>,
+  extends Partial<SessionTelemetryContext>,
     Partial<AgentTelemetryContext>,
     Partial<TurnTelemetryContext> {
   readonly model?: string;
+  readonly trace_id?: string;
 }

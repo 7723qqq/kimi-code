@@ -1,11 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-
+import type { TurnStartedEvent } from '@moonshot-ai/kimi-code-sdk';
 import {
   DEFAULT_SURVEY_POPUP_PAYLOAD,
   SurveyPopupConfigFeed,
   type SurveyPopupPayload,
 } from '@moonshot-ai/kimi-code-product/session-rating/node';
-import type { TurnStartedEvent } from '@moonshot-ai/kimi-code-sdk';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import {
@@ -65,7 +64,7 @@ interface Harness {
   readonly timers: TimerDriver;
   readonly clock: { mono: number; wall: number };
   elapse(ms: number): Promise<void>;
-  readonly track: ReturnType<typeof jest.fn>;
+  readonly track: ReturnType<typeof vi.fn>;
   readonly editor: {
     inputMode: 'prompt' | 'bash';
     autocompleteActive: boolean;
@@ -90,7 +89,7 @@ interface HarnessOptions extends Partial<SurveyControllerDeps> {
 function createHarness(deps: HarnessOptions = {}): Harness {
   const clock = { mono: 0, wall: 1_700_000_000_000 };
   const timers = createTimerDriver();
-  const track = jest.fn();
+  const track = vi.fn();
   const writes: number[] = [];
   const container = new GutterContainer(1, 1);
   let editorText = '';
@@ -124,7 +123,7 @@ function createHarness(deps: HarnessOptions = {}): Harness {
       availableModels: {},
       availableProviders: {},
     },
-    ui: { requestRender: jest.fn() },
+    ui: { requestRender: vi.fn() },
   };
   let randomCallCount = 0;
   let appearanceCounter = 0;
@@ -381,7 +380,7 @@ describe('SurveyController model route', () => {
 
 describe('SurveyController config feed', () => {
   it('fires the injected refresh once at mount and not on session reset', async () => {
-    const refreshConfig = jest.fn();
+    const refreshConfig = vi.fn();
     const harness = createHarness({ refreshConfig });
     await harness.flush();
     expect(refreshConfig).toHaveBeenCalledTimes(1);
@@ -1207,6 +1206,9 @@ describe('SurveyController interaction', () => {
     expect(harness.controller.handlePreInput(ESC)).toBe(false);
   });
 
+
+
+
   it('resets in-session pacing on session reset', async () => {
     const harness = createHarness();
     await harness.flush();
@@ -1226,7 +1228,7 @@ describe('SurveyController interaction', () => {
     await harness.appear();
     expect(harness.container.children).toHaveLength(0);
   });
-  it('cancels the pending digit selection when a cursor key passes through to the draft', async () => {
+    it('cancels the pending digit selection when a cursor key passes through to the draft', async () => {
     const harness = createHarness();
     await harness.flush();
     await harness.appear();

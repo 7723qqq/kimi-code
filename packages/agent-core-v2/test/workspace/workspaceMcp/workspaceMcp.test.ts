@@ -1,30 +1,19 @@
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  mock,
-  spyOn,
-  type Mock,
-} from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo as HttpAddress } from 'node:net';
 import { tmpdir } from 'node:os';
 
-import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { join } from 'pathe';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from '@moonshot-ai/testkit/vitest';
+
+import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { AsyncEmitter, Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
@@ -35,7 +24,7 @@ import {
   type McpServerStatus,
 } from '#/mcpCore/connection-manager';
 import { McpOAuthService, type McpOAuthEvent } from '#/mcpCore/oauth/service';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { ISessionEphemeralMcpServers } from '#/session/mcp/ephemeralMcpServers';
 import { MergedMcpConnectionView } from '#/session/mcp/mergedConnectionView';
@@ -55,8 +44,6 @@ import {
   type McpServersChangeEvent,
   type McpTunables,
 } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
-import { asGlobalFetch } from '#test/helpers/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubLog } from '../../_base/log/stubs';
 import { registerAgentIdentityStub } from '../../app/agentIdentity/stubs';
@@ -66,23 +53,6 @@ import {
   startInProcessHttpMcpServer,
   stdioFixture,
 } from '../../mcpCore/stubs';
-
-const realFetch = globalThis.fetch;
-beforeAll(() => {
-  globalThis.fetch = asGlobalFetch(
-    async (input: Parameters<FetchLike>[0], init?: Parameters<FetchLike>[1]) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (url.startsWith('https://mcp.example.test')) {
-        throw new TypeError(`blocked external request to ${url}`);
-      }
-      return realFetch(input, init);
-    },
-  );
-});
-
-afterAll(() => {
-  globalThis.fetch = realFetch;
-});
 
 function stdioServer(): McpServerConfig {
   return {
@@ -122,7 +92,7 @@ describe('WorkspaceMcpService', () => {
     current = {};
     trackedSessions = [];
     tunablesValue = {};
-    tunablesFn = mock(() => tunablesValue);
+    tunablesFn = vi.fn(() => tunablesValue);
     configChanges = disposables.add(new AsyncEmitter<McpServersChangeEvent>());
     tunablesChanges = disposables.add(new Emitter<McpTunables>());
     assemblyEvents = disposables.add(new Emitter<SessionWillCreateEvent>());
@@ -135,7 +105,7 @@ describe('WorkspaceMcpService', () => {
   });
 
   afterEach(async () => {
-    mock.restore();
+    vi.restoreAllMocks();
     await manager?.shutdown();
     await oauthService.dispose();
     disposables.dispose();
@@ -166,10 +136,7 @@ describe('WorkspaceMcpService', () => {
         const environment = Object.assign(
           new FakeEnvironment(
             { environmentId: 'local', generation: 'test-generation' },
-            {
-              capabilities: ['process'],
-              pathClass: process.platform === 'win32' ? 'win32' : 'posix',
-            },
+            { capabilities: ['process'] },
           ),
           { process: new HostProcessService() },
         );
@@ -205,9 +172,9 @@ describe('WorkspaceMcpService', () => {
 
   it('connects the config snapshot in the initial load', async () => {
     current = { alpha: stdioServer(), beta: stdioServer() };
-    const connectAll = spyOn(McpConnectionManager.prototype, 'connectAll').mockResolvedValue(
-      undefined,
-    );
+    const connectAll = vi
+      .spyOn(McpConnectionManager.prototype, 'connectAll')
+      .mockResolvedValue(undefined);
 
     const service = createService();
     manager = service.connectionManager();
@@ -227,7 +194,7 @@ describe('WorkspaceMcpService', () => {
 
     expect(manager.get('alpha')?.status).toBe('connected');
     expect(tunablesFn).toHaveBeenCalled();
-    const reschedule = spyOn(manager, 'rescheduleRetries');
+    const reschedule = vi.spyOn(manager, 'rescheduleRetries');
     tunablesChanges.fire({ reconnectInitialDelayMs: 25, reconnectMaxDelayMs: 100 });
     expect(reschedule).toHaveBeenCalledTimes(1);
   }, 20000);
@@ -256,12 +223,12 @@ describe('WorkspaceMcpService', () => {
     const service = createService();
     manager = service.connectionManager();
     await service.ready;
-    const reconnect = spyOn(manager, 'reconnect').mockResolvedValue(undefined);
+    const reconnect = vi.spyOn(manager, 'reconnect').mockResolvedValue(undefined);
 
     Object.defineProperty(primaryDirs, 'primary', { get: () => '/next-primary' });
     dirsChanges.fire();
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(reconnect).toHaveBeenCalledWith('defaulted');
     });
     expect(reconnect).not.toHaveBeenCalledWith('explicit');
@@ -274,19 +241,19 @@ describe('WorkspaceMcpService', () => {
     const connectAllStarted = new Promise<void>((resolve) => {
       signalConnectAllStarted = resolve;
     });
-    spyOn(McpConnectionManager.prototype, 'connectAll').mockImplementation(
+    vi.spyOn(McpConnectionManager.prototype, 'connectAll').mockImplementation(
       () =>
         new Promise<void>((resolve) => {
           signalConnectAllStarted();
           settleConnectAll = resolve;
         }),
     );
-    const connect = spyOn(McpConnectionManager.prototype, 'connect').mockResolvedValue(
-      undefined as never,
-    );
-    const markRemoved = spyOn(McpConnectionManager.prototype, 'markRemoved').mockResolvedValue(
-      true as never,
-    );
+    const connect = vi
+      .spyOn(McpConnectionManager.prototype, 'connect')
+      .mockResolvedValue(undefined as never);
+    const markRemoved = vi
+      .spyOn(McpConnectionManager.prototype, 'markRemoved')
+      .mockResolvedValue(true as never);
 
     const service = createService();
     manager = service.connectionManager();
@@ -301,7 +268,7 @@ describe('WorkspaceMcpService', () => {
 
     settleConnectAll();
     await service.ready;
-    await waitForAssertion(
+    await vi.waitFor(
       () => {
         expect(markRemoved).toHaveBeenCalledWith('alpha');
         expect(connect).toHaveBeenCalledWith('beta', stdioServer());
@@ -313,7 +280,7 @@ describe('WorkspaceMcpService', () => {
   it('sessionHandle admits servers connecting before ready settles and freezes the baseline after', async () => {
     current = { alpha: stdioServer() };
     let settleConnectAll: () => void = () => undefined;
-    spyOn(McpConnectionManager.prototype, 'connectAll').mockImplementation(function (
+    vi.spyOn(McpConnectionManager.prototype, 'connectAll').mockImplementation(function (
       this: McpConnectionManager,
       servers: Readonly<Record<string, McpServerConfig>>,
     ) {
@@ -329,7 +296,7 @@ describe('WorkspaceMcpService', () => {
     manager = service.connectionManager();
     const handle = service.sessionHandle();
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(manager?.get('alpha')).toBeDefined();
     });
     expect(handle.isBaselineServer('alpha')).toBe(true);
@@ -394,7 +361,7 @@ describe('WorkspaceMcpService', () => {
   it('sessionOverlay freezes the workspace baseline on workspace ready even while the overlay connect is pending', async () => {
     current = { base: stdioServer() };
     let settleOverlay: () => void = () => undefined;
-    spyOn(McpConnectionManager.prototype, 'connectAll').mockImplementation(function (
+    vi.spyOn(McpConnectionManager.prototype, 'connectAll').mockImplementation(function (
       this: McpConnectionManager,
       servers: Readonly<Record<string, McpServerConfig>>,
     ) {
@@ -504,7 +471,7 @@ describe('WorkspaceMcpService', () => {
 
       const sessionCwd = mkdtempSync(join(tmpdir(), 'kimi-session-mcp-cwd-'));
       const servers = { eph: stdioServer() };
-      const sessionOverlay = spyOn(service, 'sessionOverlay');
+      const sessionOverlay = vi.spyOn(service, 'sessionOverlay');
       const { event, contributed, disposers } = willCreateEvent(servers, sessionCwd);
       assemblyEvents.fire(event);
 
@@ -514,7 +481,7 @@ describe('WorkspaceMcpService', () => {
       await overlay.handle.ready;
       expect(overlay.handle.connectionManager.get('eph')?.status).toBe('connected');
 
-      const shutdown = spyOn(overlay, 'shutdown');
+      const shutdown = vi.spyOn(overlay, 'shutdown');
       expect(disposers).toHaveLength(1);
       disposers[0]!();
       expect(shutdown).toHaveBeenCalledTimes(1);
@@ -527,7 +494,7 @@ describe('WorkspaceMcpService', () => {
       manager = service.connectionManager();
       await service.ready;
 
-      const sessionOverlay = spyOn(service, 'sessionOverlay');
+      const sessionOverlay = vi.spyOn(service, 'sessionOverlay');
       const { event, contributed, disposers } = willCreateEvent({}, cwd);
       assemblyEvents.fire(event);
 
@@ -541,7 +508,7 @@ describe('WorkspaceMcpService', () => {
       manager = service.connectionManager();
       await service.ready;
 
-      const sessionOverlay = spyOn(service, 'sessionOverlay');
+      const sessionOverlay = vi.spyOn(service, 'sessionOverlay');
       const { event, contributed, disposers } = willCreateEvent(
         { eph: stdioServer() },
         cwd,
@@ -582,14 +549,16 @@ describe('WorkspaceMcpService', () => {
       status: McpServerStatus,
       url: string = SERVER_URL,
     ): Mock<(name: string) => Promise<void>> {
-      spyOn(McpConnectionManager.prototype, 'get').mockReturnValue({
+      vi.spyOn(McpConnectionManager.prototype, 'get').mockReturnValue({
         name: 'notion',
         transport: 'http',
         status,
         toolCount: 0,
       });
-      spyOn(McpConnectionManager.prototype, 'getRemoteServerUrl').mockReturnValue(url);
-      return spyOn(McpConnectionManager.prototype, 'reconnectAndJoin').mockResolvedValue(undefined);
+      vi.spyOn(McpConnectionManager.prototype, 'getRemoteServerUrl').mockReturnValue(url);
+      return vi
+        .spyOn(McpConnectionManager.prototype, 'reconnectAndJoin')
+        .mockResolvedValue(undefined);
     }
 
     async function startRefreshFailingServer(): Promise<{
@@ -645,7 +614,7 @@ describe('WorkspaceMcpService', () => {
         .getProvider('notion', SERVER_URL)
         .saveTokens({ access_token: 'a', token_type: 'Bearer' });
 
-      await waitForAssertion(() => {
+      await vi.waitFor(() => {
         expect(reconnectAndJoin).toHaveBeenCalledWith('notion');
       });
     });
@@ -668,11 +637,11 @@ describe('WorkspaceMcpService', () => {
       manager = service.connectionManager();
       await service.ready;
       const reconnectAndJoin = mockManagerEntry('connected');
-      const forgetProvider = spyOn(oauthService, 'forgetProvider');
+      const forgetProvider = vi.spyOn(oauthService, 'forgetProvider');
 
       await oauthService.invalidate('notion', SERVER_URL, 'all');
 
-      await waitForAssertion(() => {
+      await vi.waitFor(() => {
         expect(reconnectAndJoin).toHaveBeenCalledWith('notion');
       });
       expect(forgetProvider).toHaveBeenCalledWith('notion', SERVER_URL);
@@ -683,7 +652,7 @@ describe('WorkspaceMcpService', () => {
       manager = service.connectionManager();
       await service.ready;
       const reconnectAndJoin = mockManagerEntry('needs-auth', 'https://other.example.test/mcp');
-      const forgetProvider = spyOn(oauthService, 'forgetProvider');
+      const forgetProvider = vi.spyOn(oauthService, 'forgetProvider');
 
       await oauthService
         .getProvider('notion', SERVER_URL)
@@ -698,15 +667,16 @@ describe('WorkspaceMcpService', () => {
       manager = service.connectionManager();
       await service.ready;
       mockManagerEntry('pending');
-      const reconnectAfterCurrent = spyOn(
-        McpConnectionManager.prototype,
-        'reconnectAfterCurrent',
-      ).mockResolvedValue(undefined);
+      const reconnectAfterCurrent = vi
+        .spyOn(McpConnectionManager.prototype, 'reconnectAfterCurrent')
+        .mockResolvedValue(undefined);
       let notifyStatus: ((entry: McpServerEntry) => void) | undefined;
-      spyOn(McpConnectionManager.prototype, 'onStatusChange').mockImplementation((listener) => {
-        notifyStatus = listener;
-        return () => undefined;
-      });
+      vi.spyOn(McpConnectionManager.prototype, 'onStatusChange').mockImplementation(
+        (listener) => {
+          notifyStatus = listener;
+          return () => undefined;
+        },
+      );
 
       await oauthService
         .getProvider('notion', SERVER_URL)
@@ -714,7 +684,7 @@ describe('WorkspaceMcpService', () => {
       expect(reconnectAfterCurrent).not.toHaveBeenCalled();
 
       notifyStatus?.({ name: 'notion', transport: 'http', status: 'connected', toolCount: 0 });
-      await waitForAssertion(() => {
+      await vi.waitFor(() => {
         expect(reconnectAfterCurrent).toHaveBeenCalledWith('notion');
       });
     });
@@ -723,7 +693,7 @@ describe('WorkspaceMcpService', () => {
       const service = createService();
       manager = service.connectionManager();
       await service.ready;
-      spyOn(McpConnectionManager.prototype, 'get')
+      vi.spyOn(McpConnectionManager.prototype, 'get')
         .mockReturnValueOnce({
           name: 'notion',
           transport: 'http',
@@ -736,18 +706,17 @@ describe('WorkspaceMcpService', () => {
           status: 'needs-auth',
           toolCount: 0,
         });
-      spyOn(McpConnectionManager.prototype, 'getRemoteServerUrl').mockReturnValue(SERVER_URL);
-      spyOn(McpConnectionManager.prototype, 'onStatusChange').mockReturnValue(() => undefined);
-      const reconnectAfterCurrent = spyOn(
-        McpConnectionManager.prototype,
-        'reconnectAfterCurrent',
-      ).mockResolvedValue(undefined);
+      vi.spyOn(McpConnectionManager.prototype, 'getRemoteServerUrl').mockReturnValue(SERVER_URL);
+      vi.spyOn(McpConnectionManager.prototype, 'onStatusChange').mockReturnValue(() => undefined);
+      const reconnectAfterCurrent = vi
+        .spyOn(McpConnectionManager.prototype, 'reconnectAfterCurrent')
+        .mockResolvedValue(undefined);
 
       await oauthService
         .getProvider('notion', SERVER_URL)
         .saveTokens({ access_token: 'a', token_type: 'Bearer' });
 
-      await waitForAssertion(() => {
+      await vi.waitFor(() => {
         expect(reconnectAfterCurrent).toHaveBeenCalledWith('notion');
       });
     });
@@ -757,7 +726,7 @@ describe('WorkspaceMcpService', () => {
       manager = service.connectionManager();
       await service.ready;
       const reconnectAndJoin = mockManagerEntry('connected');
-      const forgetProvider = spyOn(oauthService, 'forgetProvider');
+      const forgetProvider = vi.spyOn(oauthService, 'forgetProvider');
 
       const provider = oauthService.getProvider('notion', SERVER_URL);
       await provider.ready;
@@ -772,7 +741,7 @@ describe('WorkspaceMcpService', () => {
       manager = service.connectionManager();
       await service.ready;
       const reconnectAndJoin = mockManagerEntry('connected');
-      const forgetProvider = spyOn(oauthService, 'forgetProvider');
+      const forgetProvider = vi.spyOn(oauthService, 'forgetProvider');
 
       const provider = oauthService.getProvider('notion', SERVER_URL);
       await provider.ready;

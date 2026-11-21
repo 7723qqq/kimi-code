@@ -1,29 +1,18 @@
-import { t } from '#/i18n';
-
 import { FollowUpBehaviorSchema, type FollowUpBehavior } from '../../config';
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
+import { t } from '#/i18n';
 
-function followUpBehaviorOptions(
-  ctrlEnterRecognized: boolean,
-): readonly (ChoiceOption & { readonly value: FollowUpBehavior })[] {
+function followUpBehaviorOptions(ctrlEnterRecognized: boolean): readonly (ChoiceOption & { readonly value: FollowUpBehavior })[] {
   return [
     {
       value: 'queue',
       label: t('tui.dialogs.followUpBehaviorSelector.queue'),
-      description: t(
-        ctrlEnterRecognized
-          ? 'tui.dialogs.followUpBehaviorSelector.queueDescCtrlEnter'
-          : 'tui.dialogs.followUpBehaviorSelector.queueDesc',
-      ),
+      description: `Enter queues follow-ups until Kimi finishes.${ctrlEnterRecognized ? ' Ctrl-Enter steers one.' : ''}`,
     },
     {
       value: 'steer',
       label: t('tui.dialogs.followUpBehaviorSelector.steer'),
-      description: t(
-        ctrlEnterRecognized
-          ? 'tui.dialogs.followUpBehaviorSelector.steerDescCtrlEnter'
-          : 'tui.dialogs.followUpBehaviorSelector.steerDescCtrlQ',
-      ),
+      description: `Enter steers follow-ups into the current turn. ${ctrlEnterRecognized ? 'Ctrl-Enter' : 'Ctrl-Q'} queues one.`,
     },
   ];
 }

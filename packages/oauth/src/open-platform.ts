@@ -236,7 +236,7 @@ export async function fetchOpenPlatformModels(
   // selected here. Kept for reference; loadSystemCAs/systemCaFetch are dead
   // code.
   const effectiveFetch =
-    fetchImpl ?? (platform.id === 'astron' ? (systemCaFetch as typeof fetch) : fetch);
+    fetchImpl ?? (platform.id === 'astron' ? (systemCaFetch as unknown as typeof fetch) : fetch);
   const res = await effectiveFetch(`${platform.baseUrl.replace(/\/+$/, '')}/models`, {
     headers: {
       ...parseKimiCodeCustomHeaders(),

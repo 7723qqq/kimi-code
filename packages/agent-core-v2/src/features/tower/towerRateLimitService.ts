@@ -1,8 +1,9 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IConfigService } from '#/app/config/config';
-
-import { ITowerRateLimitService, type TowerRateLimitSnapshot } from './towerRateLimit';
+import {
+  ITowerRateLimitService,
+  type TowerRateLimitSnapshot,
+} from './towerRateLimit';
 
 export const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2_000;
 export const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 180_000;
@@ -99,11 +100,7 @@ export class TowerRateLimitService extends Disposable implements ITowerRateLimit
 
   budget(): number {
     this.governor.maybeRecover();
-    const maxRunningTasks = resolveAgentTaskConfig(this.config)?.maxRunningTasks;
-    return Math.max(
-      1,
-      Math.min(this.governor.getCapacity(), maxRunningTasks ?? TOWER_DEFAULT_MAX_RUNNING_AGENTS),
-    );
+    return Math.max(1, Math.min(this.governor.getCapacity(), TOWER_DEFAULT_MAX_RUNNING_AGENTS));
   }
 
   acquire(): { readonly ok: true } | { readonly ok: false; readonly reason: string } {

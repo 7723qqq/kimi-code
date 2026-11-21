@@ -1,8 +1,10 @@
-import { existsSync } from 'node:fs';
 import { readFile, readdir, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { OldKimiJsonSchema } from './kimi-cli-schema.js';
+import { readSourceConfig } from './source-config.js';
+import { defaultPlansSourceDir } from './steps/plans.js';
 import {
   sourceMcpJson,
   sourceCredentialsDir,
@@ -12,6 +14,12 @@ import {
   sourceKimiJson,
   sourceSkillsDir,
 } from './paths.js';
+import type {
+  MigrationPlan,
+  SessionEntry,
+  SessionMigrationFailure,
+  WorkDirEntry,
+} from './types.js';
 import { classifyLegacySession } from './sessions/classify.js';
 import {
   listBucketSessions,
@@ -19,14 +27,6 @@ import {
   type LegacySessionRef,
 } from './sessions/source.js';
 import { oldMd5BucketName } from './sessions/workdir-bucket.js';
-import { readSourceConfig } from './source-config.js';
-import { defaultPlansSourceDir } from './steps/plans.js';
-import type {
-  MigrationPlan,
-  SessionEntry,
-  SessionMigrationFailure,
-  WorkDirEntry,
-} from './types.js';
 
 const MD5_HEX_RE = /^[0-9a-f]{32}$/;
 
@@ -35,11 +35,7 @@ interface WorkdirMeta {
   readonly kaos: string;
 }
 
-export async function detectMigration(opts: {
-  sourcePath: string;
-  skillsSourcePath?: string;
-  plansSourcePath?: string;
-}): Promise<MigrationPlan> {
+export async function detectMigration(opts: { sourcePath: string; skillsSourcePath?: string; plansSourcePath?: string }): Promise<MigrationPlan> {
   const src = opts.sourcePath;
 
   const sourceConfig = await readSourceConfig(src);
@@ -49,7 +45,9 @@ export async function detectMigration(opts: {
   const hasSkills = await dirHasEntries(opts.skillsSourcePath ?? sourceSkillsDir(src));
   const hasPlans = await dirHasEntries(opts.plansSourcePath ?? defaultPlansSourceDir());
 
-  const credentialFiles = await listDirSafe(sourceCredentialsDir(src), (n) => n.endsWith('.json'));
+  const credentialFiles = await listDirSafe(sourceCredentialsDir(src), (n) =>
+    n.endsWith('.json'),
+  );
   const oauthCredentials = new Set<string>(
     credentialFiles.map((n) => n.slice(0, -'.json'.length)).filter((n) => n.length > 0),
   );
@@ -71,7 +69,6 @@ export async function detectMigration(opts: {
   const detectedPlugins = await listDirSafe(sourcePluginsDir(src), () => true);
   const detectedMcpOauthServers = await detectMcpOauthServers(src);
 
-  // Reverse-lookup workdir from kimi.json
   const workdirMap = new Map<string, WorkdirMeta>();
   try {
     const text = await readFile(sourceKimiJson(src), 'utf-8');
@@ -79,9 +76,7 @@ export async function detectMigration(opts: {
     for (const wd of parsed.work_dirs) {
       workdirMap.set(oldMd5BucketName(wd.path), { path: wd.path, kaos: wd.kaos });
     }
-  } catch {
-    // no kimi.json or unparseable — sessions list will be empty
-  }
+  } catch {}
 
   const workdirs: WorkDirEntry[] = [];
   let totalSessions = 0;
@@ -92,9 +87,6 @@ export async function detectMigration(opts: {
     const bucketNames = await readdir(sessionsRoot);
     for (const bucketName of bucketNames) {
       const bucketPath = join(sessionsRoot, bucketName);
-      // Skip non-local-kaos buckets (`<kaos>_<md5>`), which cannot be
-      // represented by the local Kimi Code runtime. Every other unknown
-      // bucket is user data we failed to map and must remain visible.
       if (!MD5_HEX_RE.test(bucketName)) {
         const separator = bucketName.lastIndexOf('_');
         if (separator > 0 && MD5_HEX_RE.test(bucketName.slice(separator + 1))) continue;
@@ -230,7 +222,10 @@ function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function listDirSafe(dir: string, filter: (name: string) => boolean): Promise<string[]> {
+async function listDirSafe(
+  dir: string,
+  filter: (name: string) => boolean,
+): Promise<string[]> {
   try {
     const names = await readdir(dir);
     return names.filter(filter);
@@ -247,16 +242,12 @@ async function readWireMtime(ref: LegacySessionRef): Promise<number> {
   if (ref.sessionDir !== undefined) {
     try {
       return (await stat(join(ref.sessionDir, 'wire.jsonl'))).mtimeMs;
-    } catch {
-      // fall through to the context payload's mtime
-    }
+    } catch {}
   }
   if (ref.contextPath !== undefined) {
     try {
       return (await stat(ref.contextPath)).mtimeMs;
-    } catch {
-      // fall through
-    }
+    } catch {}
   }
   return 0;
 }

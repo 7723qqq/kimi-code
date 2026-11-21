@@ -28,32 +28,6 @@ const UNSUPPORTED_RUNTIME_FIELDS = [
   'bootstrap',
 ] as const;
 
-const KNOWN_TOP_LEVEL_FIELDS = [
-  'name',
-  'displayName',
-  'version',
-  'description',
-  'shortDescription',
-  'longDescription',
-  'keywords',
-  'author',
-  'developerName',
-  'email',
-  'websiteURL',
-  'homepage',
-  'license',
-  'skills',
-  'agents',
-  'commands',
-  'hooks',
-  'mcpServers',
-  'interface',
-  'sessionStart',
-  'skillInstructions',
-  'systemPrompt',
-  'systemPromptPath',
-] as const;
-
 export interface ParsedManifestResult {
   readonly manifest?: PluginManifest;
   readonly interfaceLocales?: Readonly<Record<string, PluginInterface>>;
@@ -170,14 +144,8 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
     systemPrompt,
   };
 
-  return {
-    manifest,
-    interfaceLocales: await readInterfaceLocales(pluginRoot, manifest, diagnostics),
-    manifestKind,
-    manifestPath,
-    shadowedManifestPath,
-    diagnostics,
-  };
+  const interfaceLocales = await readInterfaceLocales(pluginRoot, manifest, diagnostics);
+  return { manifest, interfaceLocales, manifestKind, manifestPath, shadowedManifestPath, diagnostics };
 }
 
 function recordUnsupportedRuntimeFields(
@@ -191,57 +159,6 @@ function recordUnsupportedRuntimeFields(
       message: `"${field}" is present but not supported by Kimi plugins`,
     });
   }
-  recordUnknownFields(raw, diagnostics);
-}
-
-function recordUnknownFields(raw: Record<string, unknown>, diagnostics: PluginDiagnostic[]): void {
-  const known: ReadonlySet<string> = new Set(KNOWN_TOP_LEVEL_FIELDS);
-  const unsupported: ReadonlySet<string> = new Set(UNSUPPORTED_RUNTIME_FIELDS);
-  for (const key of Object.keys(raw)) {
-    if (known.has(key) || unsupported.has(key)) continue;
-    const near = nearestField(key, KNOWN_TOP_LEVEL_FIELDS);
-    diagnostics.push({
-      severity: 'warn',
-      message:
-        near === undefined
-          ? `"${key}" is not a recognized plugin field and was ignored`
-          : `"${key}" is not a recognized plugin field and was ignored; did you mean "${near}"?`,
-    });
-  }
-}
-
-function nearestField(key: string, candidates: readonly string[]): string | undefined {
-  const normalized = normalizeFieldName(key);
-  let best: string | undefined;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const candidate of candidates) {
-    const distance = editDistance(normalized, normalizeFieldName(candidate));
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = candidate;
-    }
-  }
-  const threshold = Math.max(1, Math.floor(normalized.length / 3));
-  return bestDistance <= threshold ? best : undefined;
-}
-
-function normalizeFieldName(name: string): string {
-  return name.replaceAll(/[_-]/g, '').toLowerCase();
-}
-
-function editDistance(a: string, b: string): number {
-  let previous = Array.from({ length: b.length + 1 }, (_unused, index) => index);
-  for (let i = 1; i <= a.length; i += 1) {
-    const current = [i];
-    for (let j = 1; j <= b.length; j += 1) {
-      const substitution = (previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1);
-      const insertion = (current[j - 1] ?? 0) + 1;
-      const deletion = (previous[j] ?? 0) + 1;
-      current.push(Math.min(substitution, insertion, deletion));
-    }
-    previous = current;
-  }
-  return previous[b.length] ?? 0;
 }
 
 async function resolveDirListField(
@@ -526,7 +443,11 @@ async function listMarkdownFilesRecursive(root: string): Promise<readonly Plugin
   return out;
 }
 
-async function walkMarkdown(root: string, dir: string, out: PluginCommandEntry[]): Promise<void> {
+async function walkMarkdown(
+  root: string,
+  dir: string,
+  out: PluginCommandEntry[],
+): Promise<void> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -698,10 +619,7 @@ function stringField(raw: Record<string, unknown>, key: string): string | undefi
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
-function stringArrayField(
-  raw: Record<string, unknown>,
-  key: string,
-): readonly string[] | undefined {
+function stringArrayField(raw: Record<string, unknown>, key: string): readonly string[] | undefined {
   const value = raw[key];
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === 'string')) {
     return undefined;

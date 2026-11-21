@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from 'bun:test';
+import { describe, expect, expectTypeOf, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   agentTelemetryContextProperties,

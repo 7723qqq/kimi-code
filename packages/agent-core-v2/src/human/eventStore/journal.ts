@@ -1,7 +1,7 @@
-import type { Branch } from '#/store/branch';
-import type { Tree } from '#/store/tree';
-import type { AppendInput, EntryLine } from '#/store/types';
-import { isOffloadedPayload } from '#/store/types';
+import type { Branch } from '#human/store/branch';
+import type { Tree } from '#human/store/tree';
+import type { AppendInput, EntryLine } from '#human/store/types';
+import { isOffloadedPayload } from '#human/store/types';
 
 export interface JournalRecord {
   branch: string;

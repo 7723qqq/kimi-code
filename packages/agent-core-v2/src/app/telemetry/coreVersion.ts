@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
+
 const PACKAGE_NAME = '@moonshot-ai/agent-core-v2';
 const UNKNOWN_VERSION = 'unknown';
 const MAX_WALK_UP = 8;
@@ -14,7 +15,7 @@ export function resolveCoreVersion(): string {
 
 function walkForPackageVersion(): string {
   try {
-    let dir = import.meta.dirname;
+    let dir = dirname(Bun.fileURLToPath(import.meta.url));
     for (let i = 0; i < MAX_WALK_UP; i++) {
       const candidate = resolve(dir, 'package.json');
       if (existsSync(candidate)) {
@@ -30,6 +31,7 @@ function walkForPackageVersion(): string {
       if (parent === dir) break;
       dir = parent;
     }
-  } catch {}
+  } catch {
+  }
   return UNKNOWN_VERSION;
 }

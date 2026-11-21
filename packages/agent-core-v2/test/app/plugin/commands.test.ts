@@ -1,9 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expandCommandArguments, loadPluginCommand, parseCommandText } from '#/app/plugin/commands';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
+import {
+  expandCommandArguments,
+  loadPluginCommand,
+  parseCommandText,
+} from '#/app/plugin/commands';
 
 describe('plugin command parser', () => {
   let dir: string;
@@ -57,9 +62,7 @@ describe('plugin command parser', () => {
       description: 'Deploy',
       body: 'Body',
     });
-    await expect(
-      loadPluginCommand({ commandPath: join(dir, 'missing.md'), pluginId: 'demo' }),
-    ).resolves.toBeUndefined();
+    await expect(loadPluginCommand({ commandPath: join(dir, 'missing.md'), pluginId: 'demo' })).resolves.toBeUndefined();
   });
 
   it('expands $ARGUMENTS and appends args when no placeholder exists', () => {

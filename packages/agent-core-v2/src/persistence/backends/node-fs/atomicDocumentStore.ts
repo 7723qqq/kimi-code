@@ -1,18 +1,15 @@
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+
+import { IFileSystemStorageService, StorageError, StorageErrors } from '#/persistence/interface/storage';
 import {
   IAtomicDocumentStore,
   IAtomicTomlDocumentStore,
   type DocumentCodec,
 } from '#/persistence/interface/atomicDocumentStore';
-import {
-  IFileSystemStorageService,
-  StorageError,
-  StorageErrors,
-} from '#/persistence/interface/storage';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();

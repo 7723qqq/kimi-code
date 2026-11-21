@@ -1,13 +1,5 @@
-/**
- * Diff preview rendering as plain ANSI strings.
- *
- * computeDiffLines is self-contained — it does not borrow from a React diff
- * view — and outputs formatted text lines instead of React elements.
- */
-
 import chalk from 'chalk';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 
 export type DiffLineKind = 'context' | 'add' | 'delete';
@@ -48,44 +40,6 @@ export function computeDiffLines(
 ): DiffLine[] {
   const oldLines = oldText ? oldText.split('\n') : [];
   const newLines = newText ? newText.split('\n') : [];
-
-  // The LCS table is O(m*n) in time and memory, and both sides come from
-  // model-generated tool input. Past the cell budget, fall back to a linear
-  // prefix/suffix diff so a whole-file rewrite cannot freeze the UI.
-  const result =
-    oldLines.length * newLines.length > MAX_DIFF_DP_CELLS
-      ? computePrefixSuffixDiffLines(oldLines, newLines, oldStart, newStart)
-      : computeLcsDiffLines(oldLines, newLines, oldStart, newStart);
-
-  // While the text is still streaming, suppress trailing delete lines.
-  // They are likely artefacts of newText not having arrived yet rather
-  // than genuine deletions.
-  if (isIncomplete && result.length > 0) {
-    let lastNonDelete = result.length - 1;
-    while (lastNonDelete >= 0 && result[lastNonDelete]!.kind === 'delete') {
-      lastNonDelete--;
-    }
-    if (lastNonDelete >= 0) {
-      result.length = lastNonDelete + 1;
-    } else {
-      // Every line would be shown as deleted; suppress them all so the
-      // UI doesn't flash a wall of red before newText starts arriving.
-      result.length = 0;
-    }
-  }
-
-  return result;
-}
-
-/** LCS cell-count budget: ~2e6 cells ≈ a 1400×1400 line diff. */
-const MAX_DIFF_DP_CELLS = 2_000_000;
-
-function computeLcsDiffLines(
-  oldLines: string[],
-  newLines: string[],
-  oldStart: number,
-  newStart: number,
-): DiffLine[] {
   const m = oldLines.length;
   const n = newLines.length;
 
@@ -123,46 +77,19 @@ function computeLcsDiffLines(
   for (let k = reversed.length - 1; k >= 0; k--) {
     result.push(reversed[k]!);
   }
-  return result;
-}
 
-function computePrefixSuffixDiffLines(
-  oldLines: string[],
-  newLines: string[],
-  oldStart: number,
-  newStart: number,
-): DiffLine[] {
-  const maxCommon = Math.min(oldLines.length, newLines.length);
-  let prefix = 0;
-  while (prefix < maxCommon && oldLines[prefix] === newLines[prefix]) {
-    prefix++;
-  }
-  let suffix = 0;
-  while (
-    suffix < maxCommon - prefix &&
-    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
-  ) {
-    suffix++;
+  if (isIncomplete && result.length > 0) {
+    let lastNonDelete = result.length - 1;
+    while (lastNonDelete >= 0 && result[lastNonDelete]!.kind === 'delete') {
+      lastNonDelete--;
+    }
+    if (lastNonDelete >= 0) {
+      result.length = lastNonDelete + 1;
+    } else {
+      result.length = 0;
+    }
   }
 
-  const result: DiffLine[] = [];
-  for (let i = 0; i < prefix; i++) {
-    result.push({ kind: 'context', lineNum: newStart + i, code: newLines[i]! });
-  }
-  for (let i = prefix; i < oldLines.length - suffix; i++) {
-    result.push({ kind: 'delete', lineNum: oldStart + i, code: oldLines[i]! });
-  }
-  for (let j = prefix; j < newLines.length - suffix; j++) {
-    result.push({ kind: 'add', lineNum: newStart + j, code: newLines[j]! });
-  }
-  const newTail = newLines.length - suffix;
-  for (let k = 0; k < suffix; k++) {
-    result.push({
-      kind: 'context',
-      lineNum: newStart + newTail + k,
-      code: newLines[newTail + k]!,
-    });
-  }
   return result;
 }
 
@@ -202,7 +129,11 @@ export function renderDiffLines(
 
   const hidden = changedLines.length - shown.length;
   if (hidden > 0) {
-    output.push(s.meta(`     … ${t('tui.diffPreview.moreChangesHidden', { n: hidden })}`));
+    output.push(
+      s.meta(
+        `     … ${String(hidden)} more change${hidden > 1 ? 's' : ''} hidden (ctrl+o to expand)`,
+      ),
+    );
   }
 
   return output;
@@ -280,15 +211,6 @@ function formatDiffRow(line: DiffLine, s: DiffStyles): string {
   return gutter + '  ' + line.code;
 }
 
-/**
- * Render a diff with surrounding context, eliding unchanged middle
- * regions between change clusters with a `… N unchanged lines …`
- * separator. When `maxLines` is set, the body is capped at a cluster
- * boundary and a `ctrl+o to expand` footer is appended.
- *
- * Used by Edit's call preview where we want to show *what changed*
- * with enough context to read the change, but not the whole file.
- */
 export function renderDiffLinesClustered(
   oldText: string,
   newText: string,
@@ -337,14 +259,10 @@ export function renderDiffLinesClustered(
           truncated = true;
           break;
         }
-        output.push(s.meta(`     … ${t('tui.diffPreview.unchangedLines', { n: gap })}`));
+        output.push(s.meta(`     … ${String(gap)} unchanged line${gap > 1 ? 's' : ''} …`));
         body++;
       }
     }
-    // Emit cluster rows one at a time; allow mid-cluster truncation so
-    // a single huge cluster (e.g. the whole file replaced inline) still
-    // shows the leading lines instead of degenerating to "N changes
-    // hidden" with no body at all.
     for (let i = cluster.start; i <= cluster.end; i++) {
       if (body >= cap) {
         truncated = true;
@@ -363,7 +281,9 @@ export function renderDiffLinesClustered(
     if (hidden > 0) {
       const hint = opts.expandKeyHint ?? 'ctrl+o';
       output.push(
-        s.meta(`     … ${t('tui.diffPreview.moreChangesHiddenWithHint', { n: hidden, hint })}`),
+        s.meta(
+          `     … ${String(hidden)} more change${hidden > 1 ? 's' : ''} hidden (${hint} to expand)`,
+        ),
       );
     }
   }

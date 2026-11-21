@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'bun:test';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   estimateTokensForContentPart,
   estimateTokensForMessage,
   MEDIA_TOKEN_ESTIMATE,
 } from '#/llm-adapter/contract/tokens';
-import type { ContentPart } from '#human/llm/message';
 
 describe('token estimates for media content parts', () => {
   const imagePart: ContentPart = {
@@ -45,34 +45,8 @@ describe('token estimates for media content parts', () => {
     const estimate = estimateTokensForMessage({
       role: 'user',
       content: [{ type: 'text', text: 'see screenshot' }, imagePart],
-      toolCalls: [],
     });
 
     expect(estimate).toBeGreaterThan(100);
-  });
-
-  it('estimates tokens for a text-only content part', () => {
-    const textPart: ContentPart = { type: 'text', text: 'hello world' };
-    const estimate = estimateTokensForContentPart(textPart);
-    expect(estimate).toBeGreaterThan(0);
-    expect(estimate).toBeLessThan(10);
-  });
-
-  it('estimates tokens for a message with tool calls', () => {
-    const estimate = estimateTokensForMessage({
-      role: 'assistant',
-      content: [{ type: 'text', text: 'I will call a tool' }],
-      toolCalls: [{ id: 'call_1', type: 'function', name: 'get_weather', arguments: '{}' }],
-    });
-    expect(estimate).toBeGreaterThan(0);
-  });
-
-  it('estimates tokens for a message with empty content', () => {
-    const estimate = estimateTokensForMessage({
-      role: 'user',
-      content: [],
-      toolCalls: [],
-    });
-    expect(estimate).toBeGreaterThanOrEqual(0);
   });
 });

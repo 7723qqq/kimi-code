@@ -36,9 +36,11 @@ export {
 } from './agent';
 export {
   createScriptedGenerate,
-  requesterFromGenerateFn,
-  type LegacyGenerateFn,
-  type LegacyGenerateResult,
+  createMockProvider,
+  createMockProviderRequester,
+  providerHttpError,
+  type MockProviderHandler,
+  type MockProviderResponse,
 } from './scripted-generate';
 export {
   DEFAULT_TEST_SYSTEM_PROMPT,
@@ -47,7 +49,6 @@ export {
   generateInputSnapshot,
   generateInputsSnapshot,
   normalizeGenerateInput,
-  renderSnapshot,
   type EventSnapshot,
   type EventSnapshotEntry,
   type GenerateCall,

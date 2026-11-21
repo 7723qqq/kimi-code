@@ -1,4 +1,4 @@
-import { fromCallback } from '#/xstate2';
+import { fromCallback } from '#human/xstate2';
 
 import type { ExternalEvent } from './events';
 import type { CombinedState, EventStore, SliceMap } from './eventStore';

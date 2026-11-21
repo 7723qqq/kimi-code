@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { ContentPart } from '#/llm/message';
-import { imagePricingForModel } from '#/llm/modelFamily';
+import type { ContentPart } from '#human/message';
+import { imagePricingForModel } from '#human/llm/modelFamily';
 import {
   estimateTokens,
   estimateTokensForContentPart,
@@ -10,7 +10,7 @@ import {
   estimateTokensForMessages,
   estimateTokensForTools,
   MEDIA_TOKEN_ESTIMATE,
-} from '#/llm/tokens';
+} from '#human/llm/tokens';
 
 const plainTextMessage = { role: 'user', content: [{ type: 'text', text: 'Hello world' }] };
 

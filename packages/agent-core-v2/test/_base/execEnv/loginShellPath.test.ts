@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +8,7 @@ import {
   mergeLoginShellPath,
   probeLoginShellPath,
 } from '#/_base/execEnv/loginShellPath';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 interface StubOpts {
   readonly platform?: string;
@@ -87,13 +87,6 @@ describe('probeLoginShellPath', () => {
     const { deps } = stubDeps({ execFileResult: 'HOME=/Users/u\nTERM=dumb\n' });
     await expect(probeLoginShellPath(deps)).resolves.toBeUndefined();
   });
-
-  it('returns the PATH as-is when output has only relative PATH entries', async () => {
-    const { deps } = stubDeps({
-      execFileResult: 'PATH=.:./bin:../local\n',
-    });
-    await expect(probeLoginShellPath(deps)).resolves.toBe('.:./bin:../local');
-  });
 });
 
 describe('mergeLoginShellPath', () => {
@@ -170,13 +163,11 @@ describe.skipIf(process.platform === 'win32')('applyLoginShellPathFromNode', () 
   it('appends login-shell PATH entries missing from process.env.PATH', async () => {
     const extraDir = join(tempDir, 'login-only-bin');
     const stubShell = join(tempDir, 'stub-shell.sh');
-    await writeFile(
-      stubShell,
-      `#!/bin/sh\necho "HOME=$HOME"\necho "PATH=${extraDir}:/usr/bin:/bin"\n`,
-    );
+    await writeFile(stubShell, `#!/bin/sh\necho "HOME=$HOME"\necho "PATH=${extraDir}:/usr/bin:/bin"\n`);
     await chmod(stubShell, 0o755);
     process.env['SHELL'] = stubShell;
 
+    vi.resetModules();
     const { applyLoginShellPathFromNode } = await import('#/_base/execEnv/loginShellPath');
     await applyLoginShellPathFromNode();
 

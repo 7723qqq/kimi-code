@@ -1,10 +1,9 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';
 import { defineState } from '#/state/state';
 
-import type { AgentTaskNotificationContext } from './task';
 import type { AgentTaskInfo } from './types';
 
 export type TaskModelState = Map<string, AgentTaskInfo>;
@@ -28,7 +27,6 @@ export interface TaskStarted {
 const taskTerminatedSchema = z.object({
   agentId: z.string(),
   info: z.custom<AgentTaskInfo>(),
-  outputTail: z.string().optional(),
 });
 
 export class TaskTerminated extends AgentEvent2<z.infer<typeof taskTerminatedSchema>> {
@@ -39,7 +37,6 @@ export class TaskTerminated extends AgentEvent2<z.infer<typeof taskTerminatedSch
 export interface TaskTerminated {
   readonly agentId: string;
   readonly info: AgentTaskInfo;
-  readonly outputTail?: string;
 }
 
 export interface TaskTerminatedNoticePayload {
@@ -53,44 +50,9 @@ export class TaskTerminatedNotice extends AgentEvent2<TaskTerminatedNoticePayloa
 }
 export interface TaskTerminatedNotice extends TaskTerminatedNoticePayload {}
 
-export class TaskNotified extends AgentEvent2<AgentTaskNotificationContext> {
-  static override readonly type = 'task.notified';
-  static override readonly observable = true;
-}
-export interface TaskNotified extends AgentTaskNotificationContext {}
-
-export interface TaskOutputPayload {
-  readonly agentId: string;
-  readonly taskId: string;
-  readonly chunk?: string;
-  readonly outputSizeBytes: number;
-}
-
-export class TaskOutput extends AgentEvent2<TaskOutputPayload> {
-  static override readonly type = 'task.output';
-  static override readonly observable = true;
-}
-export interface TaskOutput extends TaskOutputPayload {}
-
-const taskWaitDeliveredSchema = z.object({
-  agentId: z.string(),
-  keys: z.array(z.string()),
-});
-
-export class TaskWaitDelivered extends AgentEvent2<z.infer<typeof taskWaitDeliveredSchema>> {
-  static override readonly type = 'task.waitDelivered';
-  static override readonly durable = true;
-  static override readonly schema = taskWaitDeliveredSchema;
-}
-export interface TaskWaitDelivered {
-  readonly agentId: string;
-  readonly keys: string[];
-}
-
-export const taskKey = defineState('task', (): TaskModelState => new Map())
-  .replayable({
-    schema: z.custom<TaskModelState>(),
-  })
+export const taskKey = defineState('task', (): TaskModelState => new Map()).replayable({
+  schema: z.custom<TaskModelState>(),
+})
   .on(TaskStarted, (s, e) => {
     s.set(e.info.taskId, e.info);
   })

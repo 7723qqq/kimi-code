@@ -1,11 +1,15 @@
-import type { SessionSummary as V2SessionSummary } from '@moonshot-ai/agent-core-v2';
-import type { PlanData } from '@moonshot-ai/agent-core-v2';
-import type { UsageStatus } from '@moonshot-ai/agent-core-v2';
-import type { GoalChange, GoalSnapshot } from '@moonshot-ai/agent-core-v2/contract';
-import type { CompactionResult } from '@moonshot-ai/agent-core-v2/contract';
-import type { ModelCapability, ProviderConfig } from '@moonshot-ai/kosong';
+import type {
+  ModelCapability,
+  SessionSummary as V2SessionSummary,
+} from '@moonshot-ai/agent-core-v2';
+import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';
+import type { GoalChange, GoalSnapshot } from '@moonshot-ai/agent-core-v2/features/goal/types';
+import type { PlanData } from '@moonshot-ai/agent-core-v2/features/plan/plan';
+import type { CompactionResult } from '@moonshot-ai/agent-core-v2/agent/fullCompaction/types';
+import type { UsageStatus } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
 
 import type { AgentContextData, ContextMessage } from '#/context';
+import type { ProviderConfig } from '#/model-provider';
 import type { PermissionApprovalResultRecord, PermissionData, PermissionMode } from '#/permission';
 import type { BackgroundTaskInfo } from '#/task';
 import type { ToolInfo } from '#/tool';
@@ -16,6 +20,7 @@ export interface AgentConfigData {
   cwd: string;
   provider?: ProviderConfig;
   modelAlias?: string;
+  model?: LlmModelSpec;
   modelCapabilities: ModelCapability;
   profileName?: string;
   subagentNames?: readonly string[];
@@ -80,8 +85,6 @@ export interface ResumedAgentState {
   readonly permission: PermissionData;
   readonly plan: PlanData;
   readonly swarmMode?: boolean | undefined;
-  readonly helloWorldMode?: boolean | undefined;
-  readonly helloWorldStage?: string | undefined;
   readonly usage: UsageStatus;
   readonly tools: readonly ToolInfo[];
   readonly toolStore?: Readonly<Record<string, unknown>>;
@@ -134,5 +137,7 @@ export function isAgentReplayUserTurnMessage(message: ContextMessage): boolean {
       return false;
     case 'system_trigger':
       return message.origin.name === 'goal_continuation';
+    default:
+      return false;
   }
 }

@@ -1,11 +1,10 @@
+
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
+
 import { KIMI_REGION_PROFILES, OAuthUnauthorizedError } from '@moonshot-ai/kimi-code-oauth';
 import { gt, valid } from 'semver';
-
-import type { FetchLike } from '#/_base/utils/fetchLike';
-import { isRecord } from '#/_base/utils/guards';
 
 export function isMissingMarketplaceTokenError(error: unknown): boolean {
   return (
@@ -17,14 +16,44 @@ export function isMissingMarketplaceTokenError(error: unknown): boolean {
 export const KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV = 'KIMI_CODE_PLUGIN_MARKETPLACE_URL';
 
 export const PLUGIN_MARKETPLACE_CLASSIFICATIONS = ['official', 'third_party'] as const;
-export const PLUGIN_MARKETPLACE_CLIENTS = ['desktop', 'cli'] as const;
 export const PLUGIN_MARKETPLACE_TIERS = ['official', 'curated'] as const;
 export const PLUGIN_MARKETPLACE_PLATFORMS = ['macos', 'windows', 'linux', 'cloud'] as const;
+export const PLUGIN_MARKETPLACE_CLIENTS = ['desktop', 'cli'] as const;
 
 export type PluginMarketplaceClassification = (typeof PLUGIN_MARKETPLACE_CLASSIFICATIONS)[number];
-export type PluginClient = (typeof PLUGIN_MARKETPLACE_CLIENTS)[number];
 export type PluginMarketplaceTier = (typeof PLUGIN_MARKETPLACE_TIERS)[number];
 export type PluginMarketplacePlatform = 'darwin' | 'win32' | 'linux' | 'cloud';
+export type PluginClient = (typeof PLUGIN_MARKETPLACE_CLIENTS)[number];
+
+export function pluginClientForIdentity(identity: string): PluginClient {
+  return identity === 'kimi_code_desktop' ? 'desktop' : 'cli';
+}
+
+export function marketplaceEntrySupportsClient(
+  entry: Pick<PluginMarketplaceEntry, 'clients'>,
+  client: PluginClient,
+): boolean {
+  return entry.clients === undefined || entry.clients.includes(client);
+}
+
+export function marketplaceEntryInstallableOnHost(
+  entry: Pick<PluginMarketplaceEntry, 'clients' | 'platforms'>,
+  client: PluginClient,
+  platform: NodeJS.Platform,
+): boolean {
+  if (!marketplaceEntrySupportsClient(entry, client)) return false;
+  return entry.platforms === undefined || entry.platforms.some((candidate) => candidate === platform);
+}
+
+export function marketplaceEntryVisibleOnHost(
+  entry: Pick<PluginMarketplaceEntry, 'clients' | 'platforms'>,
+  client: PluginClient,
+  platform: NodeJS.Platform,
+): boolean {
+  if (!marketplaceEntrySupportsClient(entry, client)) return false;
+  if (entry.platforms === undefined) return true;
+  return entry.platforms.some((candidate) => candidate === platform) || entry.platforms.every((candidate) => candidate === 'cloud');
+}
 
 export interface PluginMarketplaceLocalizedText {
   readonly displayName?: string;
@@ -51,7 +80,6 @@ export interface PluginMarketplaceEntry {
   readonly displayName: string;
   readonly source: string;
   readonly classification?: PluginMarketplaceClassification;
-  readonly clients?: readonly PluginClient[];
   readonly tier?: PluginMarketplaceTier;
   readonly version?: string;
   readonly description?: string;
@@ -64,6 +92,7 @@ export interface PluginMarketplaceEntry {
   readonly filename?: string;
   readonly cliDescription?: string;
   readonly locale?: PluginMarketplaceLocale;
+  readonly clients?: readonly PluginClient[];
   readonly platforms?: readonly PluginMarketplacePlatform[];
   readonly distribution?: PluginMarketplaceDistribution;
   readonly billing?: unknown;
@@ -90,45 +119,7 @@ export interface MarketplaceLocation {
 export interface ReadPluginMarketplaceOptions {
   readonly source: string;
   readonly workDir: string;
-
-  readonly homeDir?: string;
-  readonly fetchImpl?: FetchLike;
-  readonly sourceCheckoutLocation?: () => Promise<MarketplaceLocation | undefined>;
-}
-
-export function pluginClientForIdentity(identity: string): PluginClient {
-  return identity === 'kimi_code_desktop' ? 'desktop' : 'cli';
-}
-
-export function marketplaceEntrySupportsClient(
-  entry: Pick<PluginMarketplaceEntry, 'clients'>,
-  client: PluginClient,
-): boolean {
-  return entry.clients === undefined || entry.clients.includes(client);
-}
-
-export function marketplaceEntryInstallableOnHost(
-  entry: Pick<PluginMarketplaceEntry, 'clients' | 'platforms'>,
-  client: PluginClient,
-  platform: NodeJS.Platform,
-): boolean {
-  if (!marketplaceEntrySupportsClient(entry, client)) return false;
-  return (
-    entry.platforms === undefined || entry.platforms.some((candidate) => candidate === platform)
-  );
-}
-
-export function marketplaceEntryVisibleOnHost(
-  entry: Pick<PluginMarketplaceEntry, 'clients' | 'platforms'>,
-  client: PluginClient,
-  platform: NodeJS.Platform,
-): boolean {
-  if (!marketplaceEntrySupportsClient(entry, client)) return false;
-  if (entry.platforms === undefined) return true;
-  return (
-    entry.platforms.some((candidate) => candidate === platform) ||
-    entry.platforms.every((candidate) => candidate === 'cloud')
-  );
+  readonly fetchImpl?: typeof fetch;
 }
 
 export function pluginMarketplaceUrl(baseUrl: string): string {
@@ -138,10 +129,7 @@ export function pluginMarketplaceUrl(baseUrl: string): string {
 }
 
 const TRUSTED_PLUGIN_MARKETPLACE_URLS = new Set(
-  [
-    ...Object.values(KIMI_REGION_PROFILES).map((profile) => profile.baseUrl),
-    'https://coding.deva.msh.team/coding/v1',
-  ].map(pluginMarketplaceUrl),
+  Object.values(KIMI_REGION_PROFILES).map((profile) => pluginMarketplaceUrl(profile.baseUrl)),
 );
 
 export function isTrustedPluginMarketplaceUrl(source: string): boolean {
@@ -166,11 +154,7 @@ export function computeUpdateStatus(
   return { kind: 'up-to-date', version: local };
 }
 
-export function resolveMarketplaceLocation(
-  source: string,
-  workDir: string,
-  home: string = homedir(),
-): MarketplaceLocation {
+export function resolveMarketplaceLocation(source: string, workDir: string): MarketplaceLocation {
   const trimmed = source.trim();
   if (trimmed.length === 0) {
     throw new Error(`${KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV} cannot be empty.`);
@@ -182,31 +166,20 @@ export function resolveMarketplaceLocation(
     const path = Bun.fileURLToPath(trimmed);
     return { raw: trimmed, kind: 'local', resolved: path };
   }
-  return { raw: trimmed, kind: 'local', resolved: resolveLocalPath(trimmed, workDir, home) };
+  return { raw: trimmed, kind: 'local', resolved: resolveLocalPath(trimmed, workDir) };
 }
 
 export async function readPluginMarketplace(
   options: ReadPluginMarketplaceOptions,
 ): Promise<{ raw: string; location: MarketplaceLocation }> {
-  const location = resolveMarketplaceLocation(options.source, options.workDir, options.homeDir);
-  const fetchImpl = options.fetchImpl ?? fetch;
-  try {
-    return { raw: await readMarketplaceText(location, fetchImpl), location };
-  } catch (error) {
-    const fallback =
-      options.sourceCheckoutLocation !== undefined
-        ? await options.sourceCheckoutLocation()
-        : undefined;
-    if (fallback === undefined) throw error;
-    return { raw: await readMarketplaceText(fallback, fetchImpl), location: fallback };
-  }
+  const location = resolveMarketplaceLocation(options.source, options.workDir);
+  return {
+    raw: await readMarketplaceText(location, options.fetchImpl ?? fetch),
+    location,
+  };
 }
 
-export function parsePluginMarketplace(
-  raw: string,
-  location: MarketplaceLocation,
-  home: string = homedir(),
-): PluginMarketplace {
+export function parsePluginMarketplace(raw: string, location: MarketplaceLocation): PluginMarketplace {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -227,27 +200,13 @@ export function parsePluginMarketplace(
   return {
     source: location.resolved,
     version: stringField(parsed, 'version'),
-    plugins: rawPlugins.map((entry, index) => parseMarketplaceEntry(entry, index, location, home)),
+    plugins: rawPlugins.map((entry, index) => parseMarketplaceEntry(entry, index, location)),
   };
-}
-
-export function withBuiltInEntries(
-  marketplace: PluginMarketplace,
-  builtIns: readonly PluginMarketplaceEntry[],
-): PluginMarketplace {
-  const builtInIds = new Set(builtIns.map((entry) => entry.id));
-  const catalogById = new Map(marketplace.plugins.map((entry) => [entry.id, entry]));
-  const catalog = marketplace.plugins.filter((entry) => !builtInIds.has(entry.id));
-  const enrichedBuiltIns = builtIns.map((entry) => {
-    const version = catalogById.get(entry.id)?.version;
-    return version === undefined ? entry : { ...entry, version };
-  });
-  return { ...marketplace, plugins: [...catalog, ...enrichedBuiltIns] };
 }
 
 export async function withLatestVersions(
   marketplace: PluginMarketplace,
-  fetchImpl: FetchLike,
+  fetchImpl: typeof fetch,
 ): Promise<PluginMarketplace> {
   const plugins = await Promise.all(
     marketplace.plugins.map(async (entry) => {
@@ -261,7 +220,7 @@ export async function withLatestVersions(
 
 async function readMarketplaceText(
   location: MarketplaceLocation,
-  fetchImpl: FetchLike,
+  fetchImpl: typeof fetch,
 ): Promise<string> {
   if (location.kind === 'local') {
     return Bun.file(location.resolved).text();
@@ -277,32 +236,28 @@ function parseMarketplaceEntry(
   value: unknown,
   index: number,
   location: MarketplaceLocation,
-  home: string,
 ): PluginMarketplaceEntry {
   if (!isRecord(value)) {
     throw new TypeError(`Plugin marketplace entry ${index + 1} must be an object.`);
   }
   const id = requiredString(value, 'id', index);
   validateMarketplaceEntryType(value, id);
-  const source =
-    stringField(value, 'source') ?? stringField(value, 'url') ?? stringField(value, 'downloadUrl');
+  const source = stringField(value, 'source') ??
+    stringField(value, 'url') ??
+    stringField(value, 'downloadUrl');
   if (source === undefined) {
     throw new Error(`Plugin marketplace entry ${id} must define "source".`);
   }
-  const resolvedSource = resolveEntrySource(source, location, home);
+  const resolvedSource = resolveEntrySource(source, location);
   const distribution = parseDistribution(value['distribution'], id);
-  const tier =
-    distribution === undefined
-      ? parseMarketplaceTier(value, id)
-      : distribution.category === 'official'
-        ? 'official'
-        : 'curated';
+  const tier = distribution === undefined
+    ? parseMarketplaceTier(value, id)
+    : distribution.category === 'official' ? 'official' : 'curated';
   return {
     id,
     displayName: stringField(value, 'displayName') ?? stringField(value, 'name') ?? id,
     source: resolvedSource,
-    classification:
-      distribution?.category ??
+    classification: distribution?.category ??
       (tier === 'official' ? 'official' : tier === 'curated' ? 'third_party' : undefined),
     tier,
     version: stringField(value, 'version') ?? deriveVersionFromGithubSource(resolvedSource),
@@ -315,8 +270,8 @@ function parseMarketplaceEntry(
     sha256sum: parseSha256sum(value, id),
     filename: stringField(value, 'filename'),
     cliDescription: stringField(value, 'cliDescription'),
-    clients: parseClients(value['clients']),
     locale: parseLocale(value['locale'], id),
+    clients: parseClients(value['clients']),
     platforms: parsePlatforms(value['platforms'], id),
     distribution,
     billing: value['billing'],
@@ -355,19 +310,10 @@ function parseMarketplaceTier(
   );
 }
 
-function parseClients(value: unknown): readonly PluginClient[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) return [];
-  return [
-    ...new Set(
-      value.filter((client): client is PluginClient =>
-        (PLUGIN_MARKETPLACE_CLIENTS as readonly unknown[]).includes(client),
-      ),
-    ),
-  ];
-}
-
-function parseDistribution(value: unknown, id: string): PluginMarketplaceDistribution | undefined {
+function parseDistribution(
+  value: unknown,
+  id: string,
+): PluginMarketplaceDistribution | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) {
     throw new TypeError(`Plugin marketplace entry ${id} must define "distribution".`);
@@ -385,6 +331,14 @@ function parseDistribution(value: unknown, id: string): PluginMarketplaceDistrib
     weight: numberField(value, 'weight', id),
     userLevel: value['userLevel'],
   };
+}
+
+function parseClients(value: unknown): readonly PluginClient[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((client): client is PluginClient =>
+    PLUGIN_MARKETPLACE_CLIENTS.includes(client as PluginClient)
+  ))];
 }
 
 function parsePlatforms(
@@ -415,74 +369,6 @@ function parseSha256sum(value: Record<string, unknown>, id: string): string | un
   return sha256sum;
 }
 
-function parseLocale(value: unknown, id: string): PluginMarketplaceLocale | undefined {
-  if (value === undefined) return undefined;
-  if (!isRecord(value)) {
-    throw new TypeError(`Plugin marketplace entry ${id} "locale" must be an object.`);
-  }
-  const locale: Record<string, string | PluginMarketplaceLocalizedText | undefined> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (typeof entry === 'string') {
-      locale[key] = entry;
-      continue;
-    }
-    if (!isRecord(entry)) {
-      throw new TypeError(
-        `Plugin marketplace entry ${id} "locale.${key}" must be a string or an object.`,
-      );
-    }
-    locale[key] = {
-      displayName: stringField(entry, 'displayName'),
-      cliDescription: stringField(entry, 'cliDescription'),
-      longDescription: stringField(entry, 'longDescription'),
-      shortDescription: stringField(entry, 'shortDescription'),
-    };
-  }
-  return locale;
-}
-
-function booleanField(
-  value: Record<string, unknown>,
-  field: string,
-  id: string,
-): boolean | undefined {
-  const raw = value[field];
-  if (raw === undefined) return undefined;
-  if (typeof raw !== 'boolean') {
-    throw new TypeError(`Plugin marketplace entry ${id} "${field}" must be a boolean.`);
-  }
-  return raw;
-}
-
-function numberField(
-  value: Record<string, unknown>,
-  field: string,
-  id: string,
-): number | undefined {
-  const raw = value[field];
-  if (raw === undefined) return undefined;
-  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
-    throw new TypeError(`Plugin marketplace entry ${id} "${field}" must be a number.`);
-  }
-  return raw;
-}
-
-function resolveEntrySource(source: string, location: MarketplaceLocation, home: string): string {
-  const trimmed = source.trim();
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return trimmed;
-  }
-  if (trimmed.startsWith('file://')) return Bun.fileURLToPath(trimmed);
-  if (trimmed === '~' || trimmed.startsWith('~/')) {
-    return resolveLocalPath(trimmed, '', home);
-  }
-  if (isAbsolute(trimmed)) return trimmed;
-  if (location.kind === 'remote') {
-    return new URL(trimmed, location.resolved).toString();
-  }
-  return resolve(dirname(location.resolved), trimmed);
-}
-
 function deriveVersionFromGithubSource(source: string): string | undefined {
   let url: URL;
   try {
@@ -509,7 +395,7 @@ function deriveVersionFromGithubSource(source: string): string | undefined {
 
 async function resolveLatestGithubRelease(
   source: string,
-  fetchImpl: FetchLike,
+  fetchImpl: typeof fetch,
 ): Promise<string | undefined> {
   const repo = parseGithubRepo(source);
   if (repo === undefined) return undefined;
@@ -540,7 +426,7 @@ function parseGithubRepo(source: string): { owner: string; repo: string } | unde
 async function fetchLatestReleaseTag(
   owner: string,
   repo: string,
-  fetchImpl: FetchLike,
+  fetchImpl: typeof fetch,
 ): Promise<string | undefined> {
   const url = `https://github.com/${owner}/${repo}/releases/latest`;
   const resp = await fetchImpl(url, { redirect: 'manual' });
@@ -562,9 +448,74 @@ async function fetchLatestReleaseTag(
   }
 }
 
-function resolveLocalPath(input: string, workDir: string, home: string = homedir()): string {
-  if (input === '~') return home;
-  if (input.startsWith('~/')) return join(home, input.slice(2));
+function parseLocale(value: unknown, id: string): PluginMarketplaceLocale | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new TypeError(`Plugin marketplace entry ${id} "locale" must be an object.`);
+  }
+  const locale: Record<string, string | PluginMarketplaceLocalizedText> = {};
+  const defaultLocale = stringField(value, 'defaultLocale');
+  if (defaultLocale !== undefined) locale['defaultLocale'] = defaultLocale;
+  for (const [key, block] of Object.entries(value)) {
+    if (key === 'defaultLocale') continue;
+    if (!isRecord(block)) {
+      throw new TypeError(`Plugin marketplace entry ${id} locale "${key}" must be an object.`);
+    }
+    locale[key] = {
+      displayName: stringField(block, 'displayName'),
+      cliDescription: stringField(block, 'cliDescription'),
+      longDescription: stringField(block, 'longDescription'),
+      shortDescription: stringField(block, 'shortDescription'),
+    };
+  }
+  return locale;
+}
+
+function booleanField(
+  value: Record<string, unknown>,
+  field: string,
+  id: string,
+): boolean | undefined {
+  const raw = value[field];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'boolean') {
+    throw new TypeError(`Plugin marketplace entry ${id} "distribution.${field}" must be a boolean.`);
+  }
+  return raw;
+}
+
+function numberField(
+  value: Record<string, unknown>,
+  field: string,
+  id: string,
+): number | undefined {
+  const raw = value[field];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    throw new TypeError(`Plugin marketplace entry ${id} "distribution.${field}" must be a number.`);
+  }
+  return raw;
+}
+
+function resolveEntrySource(source: string, location: MarketplaceLocation): string {
+  const trimmed = source.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+  if (trimmed.startsWith('file://')) return Bun.fileURLToPath(trimmed);
+  if (trimmed === '~' || trimmed.startsWith('~/')) {
+    return resolveLocalPath(trimmed, '');
+  }
+  if (isAbsolute(trimmed)) return trimmed;
+  if (location.kind === 'remote') {
+    return new URL(trimmed, location.resolved).toString();
+  }
+  return resolve(dirname(location.resolved), trimmed);
+}
+
+function resolveLocalPath(input: string, workDir: string): string {
+  if (input === '~') return homedir();
+  if (input.startsWith('~/')) return join(homedir(), input.slice(2));
   return isAbsolute(input) ? input : resolve(workDir, input);
 }
 
@@ -594,6 +545,10 @@ function stringArrayField(
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
   return out.length > 0 ? out : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function formatParseError(error: unknown): string {

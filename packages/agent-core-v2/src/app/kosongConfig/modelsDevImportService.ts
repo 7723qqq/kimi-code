@@ -9,16 +9,15 @@ import {
   type CustomRegistrySource,
   type ManagedKimiConfigShape,
 } from '@moonshot-ai/kimi-code-oauth';
-
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
-import { isRecord } from '#/_base/utils/guards';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
 import { IModelCatalog } from '#/llm-adapter/model/catalog';
 import { type ModelsSection } from '#/llm-adapter/model/model';
 import { type ProviderConfig, type ProvidersSection } from '#/llm-adapter/provider/provider';
+import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
 
 import {
   DEFAULT_MODEL_SECTION,
@@ -29,7 +28,6 @@ import {
 } from './configSection';
 import { ModelsDevImportErrors } from './errors';
 import { IKosongConfigService } from './kosongConfig';
-import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
 import {
   IModelsDevImportService,
   PROVIDER_ID_PATTERN,
@@ -75,7 +73,10 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const catalog = await getModelsDevCatalog(await this.outboundUserAgent());
     const entry = modelsDevEntry(catalog, catalogId);
     if (entry === undefined) {
-      throw new Error2(codes.CATALOG_ENTRY_NOT_FOUND, `catalog entry ${catalogId} does not exist`);
+      throw new Error2(
+        codes.CATALOG_ENTRY_NOT_FOUND,
+        `catalog entry ${catalogId} does not exist`,
+      );
     }
     return toModelsDevProviderItem(catalogId, entry);
   }
@@ -86,7 +87,9 @@ export class ModelsDevImportService implements IModelsDevImportService {
     return this.enqueueWrite(() => this.doImportModelsDevProvider(options));
   }
 
-  importCustomRegistry(options: ImportCustomRegistryOptions): Promise<ImportCustomRegistryResult> {
+  importCustomRegistry(
+    options: ImportCustomRegistryOptions,
+  ): Promise<ImportCustomRegistryResult> {
     return this.enqueueWrite(() => this.doImportCustomRegistry(options));
   }
 
@@ -112,7 +115,10 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const catalog = await getModelsDevCatalog(await this.outboundUserAgent());
     const entry = modelsDevEntry(catalog, catalogId);
     if (entry === undefined) {
-      throw new Error2(codes.CATALOG_ENTRY_NOT_FOUND, `catalog entry ${catalogId} does not exist`);
+      throw new Error2(
+        codes.CATALOG_ENTRY_NOT_FOUND,
+        `catalog entry ${catalogId} does not exist`,
+      );
     }
 
     const resolution = resolveModelsDevImport(entry, options.baseUrl);
@@ -170,9 +176,11 @@ export class ModelsDevImportService implements IModelsDevImportService {
     await config.replace(PROVIDERS_SECTION, { ...providers, [targetId]: provider });
 
     const records = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
-    const nextModels = Object.fromEntries(
+    const withoutTarget = Object.fromEntries(
       Object.entries(records).filter(([, record]) => record.provider !== targetId),
     );
+    await config.replace(MODELS_SECTION, withoutTarget);
+    const nextModels = { ...withoutTarget };
     for (const model of models) {
       nextModels[`${targetId}/${model.id}`] = modelsDevModelToRecord(targetId, model);
     }
@@ -202,7 +210,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     let entries: Record<string, CustomRegistryProviderEntry>;
     try {
       entries = await fetchCustomRegistry(source, {
-        fetchImpl: upstreamFetch() as unknown as typeof fetch,
+        fetchImpl: upstreamFetch(),
         userAgent: await this.outboundUserAgent(),
         signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
       });
@@ -263,9 +271,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const hadDefault = previousDefault !== undefined && previousDefault.trim().length > 0;
     if (
       options.setDefaultWhenUnset !== false &&
-      !hadDefault &&
-      firstEntry !== undefined &&
-      firstModelKey !== undefined
+      !hadDefault && firstEntry !== undefined && firstModelKey !== undefined
     ) {
       next.defaultModel = `${firstEntry.id}/${firstModelKey}`;
     }
@@ -321,7 +327,10 @@ async function seedDefaultModelWhenUnset(config: IConfigService, alias: string):
   await config.replace(DEFAULT_MODEL_SECTION, alias);
 }
 
-function registryKeyFromExisting(providers: ProvidersSection, url: string): string | undefined {
+function registryKeyFromExisting(
+  providers: ProvidersSection,
+  url: string,
+): string | undefined {
   for (const provider of Object.values(providers)) {
     if (!isRecord(provider)) continue;
     const source = provider['source'];
@@ -331,6 +340,10 @@ function registryKeyFromExisting(providers: ProvidersSection, url: string): stri
     }
   }
   return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function truncateUpstreamMessage(err: unknown, limit = 300): string {

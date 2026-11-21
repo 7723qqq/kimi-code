@@ -1,15 +1,15 @@
 import { Disposable, MutableDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { ref, type LiveRef } from '#/_base/di/instantiation';
+import { IWorkspaceService } from '#/app/workspace/workspace';
+import { IWorkspacePersistence } from '#/app/workspace/workspacePersistence';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IntervalTimer } from '#/_base/utils/timer';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
-import type { SessionIndexDegradedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IWorkspaceService } from '#/app/workspace/workspace';
-import { IWorkspacePersistence } from '#/app/workspace/workspacePersistence';
+import type { SessionIndexDegradedEvent } from '#/app/telemetry/events';
 import {
   SESSION_INDEX_KEY,
   SESSION_INDEX_SCOPE,
@@ -52,6 +52,7 @@ import {
 } from './sessionIndexModel';
 import { SessionIndexProjector } from './sessionIndexProjector';
 import {
+  deleteSessionSummary,
   listSessionIds,
   listWorkspaceIds,
   readSessionSummary,
@@ -60,6 +61,7 @@ import {
 
 const RECONCILE_INTERVAL_MS = 60_000;
 const DEGRADED_RETRY_MS = 5_000;
+const SCHEMA_MISMATCH_REASON = 'schema mismatch';
 const TIE_REPAIR_LIMIT = 1_000;
 const UNBOUNDED = Number.MAX_SAFE_INTEGER;
 
@@ -164,7 +166,12 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     try {
       this.primarySnapshot ??= await this.primaryByWorkspace();
       const manifest = await this.queryStore.getCheckpoint(SESSION_INDEX_MANIFEST);
-      if (manifest === undefined || manifest.schemaVersion !== SESSION_INDEX_SCHEMA_VERSION) {
+      if (
+        manifest !== undefined &&
+        manifest.schemaVersion !== SESSION_INDEX_SCHEMA_VERSION
+      ) {
+        this.markSchemaMismatch();
+      } else if (manifest === undefined) {
         const projection = this.ensureProjection();
         if (deadlineMs === undefined) {
           await projection;
@@ -175,6 +182,11 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
               setTimeout(resolve, deadlineMs);
             }),
           ]);
+        }
+        const published = await this.queryStore.getCheckpoint(SESSION_INDEX_MANIFEST);
+        if (published !== undefined) {
+          this.generation = published.seq;
+          this.markReady();
         }
       } else {
         this.generation = manifest.seq;
@@ -209,19 +221,16 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
               .getCheckpoint(SESSION_INDEX_MANIFEST)
               .catch(() => undefined);
             if (published === undefined) throw error;
-            this.log.warn(
-              'session index startup reconciliation failed; serving the published generation',
-              {
-                error: String(error),
-              },
-            );
+            this.log.warn('session index startup reconciliation failed; serving the published generation', {
+              error: String(error),
+            });
           }
         }
-      }
-      const published = await this.queryStore.getCheckpoint(SESSION_INDEX_MANIFEST);
-      if (published !== undefined) {
-        this.generation = published.seq;
-        this.markReady();
+        const published = await this.queryStore.getCheckpoint(SESSION_INDEX_MANIFEST);
+        if (published !== undefined && published.schemaVersion === SESSION_INDEX_SCHEMA_VERSION) {
+          this.generation = published.seq;
+          this.markReady();
+        }
       }
     } catch (error) {
       this.markDegraded('prepare failed', error);
@@ -316,6 +325,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
 
   private async tick(): Promise<void> {
     if (!this.readModelEnabled()) return;
+    if (this.statusReason === SCHEMA_MISMATCH_REASON) return;
     if (this.state === 'degraded') {
       void this.prepare();
       return;
@@ -330,7 +340,11 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
       }
       this.generation = manifest.seq;
       if (await this.manifestFresh(manifest)) return;
-      await this.projector.reconcile(manifest.seq);
+      if (!(await this.manifestPrimariesFresh(manifest))) {
+        await this.ensureProjection();
+      } else {
+        await this.projector.reconcile(manifest.seq);
+      }
     } catch (error) {
       this.log.warn('session index reconciliation failed', { error: String(error) });
     }
@@ -344,6 +358,12 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     this.statusReason = undefined;
     this.lastDegradedKey = undefined;
     this.ensureReconcileTimer();
+  }
+
+  private markSchemaMismatch(): void {
+    this.markDegraded(SCHEMA_MISMATCH_REASON);
+    this.nextPrepareRetryAt = Number.POSITIVE_INFINITY;
+    this.reconcileTimer.cancel();
   }
 
   private markDegraded(reason: string, error?: unknown): void {
@@ -411,7 +431,12 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
       async (generation) => {
         await this.queryStore.delete(sessionCollection(generation), id);
       },
-      () => Promise.resolve(),
+      // The read model is authoritative once published, but while it is still
+      // `preparing` (or when it is disabled) reads fall back to the persisted
+      // source. Deleting only the read model loses the delete in that window:
+      // `listRecent` would keep returning the session. Drop the persisted
+      // summary too so both paths agree.
+      () => this.removeLegacy(id),
     );
     try {
       await markSessionDirty(this.storage, this.sessionsScope, id);
@@ -431,7 +456,9 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     }
     if (this.state === 'preparing') return legacy();
     if (this.state === 'degraded') {
-      if (Date.now() >= this.nextPrepareRetryAt) void this.prepare();
+      if (this.statusReason !== SCHEMA_MISMATCH_REASON && Date.now() >= this.nextPrepareRetryAt) {
+        void this.prepare();
+      }
       return legacy();
     }
     let manifest: Checkpoint | undefined;
@@ -540,7 +567,10 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     return this.mergePending(page, query, queued, cursor.position);
   }
 
-  private async countFromReadModel(generation: number, query: SessionCountQuery): Promise<number> {
+  private async countFromReadModel(
+    generation: number,
+    query: SessionCountQuery,
+  ): Promise<number> {
     const counters = sessionCountersCollection(generation);
     const restricted = query.workspaceIds;
     const workspaceIds = restricted ?? (await this.queryStore.listKeys(counters));
@@ -621,11 +651,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     generation: number,
     query: SessionListQuery,
   ): Promise<
-    | {
-        filter: QueryFilter;
-        bounds: ColumnBounds;
-        position?: { u: number; id: string; before: boolean };
-      }
+    | { filter: QueryFilter; bounds: ColumnBounds; position?: { u: number; id: string; before: boolean } }
     | undefined
   > {
     const id = query.before ?? query.after;
@@ -639,7 +665,10 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
       return {
         bounds: { lte: u },
         filter: {
-          $or: [{ updatedAt: { $lt: u } }, { updatedAt: u, id: { $lt: id } }],
+          $or: [
+            { updatedAt: { $lt: u } },
+            { updatedAt: u, id: { $lt: id } },
+          ],
         },
         position: { u, id, before: true },
       };
@@ -647,7 +676,10 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     return {
       bounds: { gte: u },
       filter: {
-        $or: [{ updatedAt: { $gt: u } }, { updatedAt: u, id: { $gt: id } }],
+        $or: [
+          { updatedAt: { $gt: u } },
+          { updatedAt: u, id: { $gt: id } },
+        ],
       },
       position: { u, id, before: false },
     };
@@ -657,7 +689,9 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     const filter: Record<string, unknown> = {};
     if (query.workspaceIds !== undefined) {
       filter['workspaceId'] =
-        query.workspaceIds.length === 1 ? query.workspaceIds[0] : { $in: [...query.workspaceIds] };
+        query.workspaceIds.length === 1
+          ? query.workspaceIds[0]
+          : { $in: [...query.workspaceIds] };
     }
     if (query.childOf !== undefined) {
       filter[`custom.${PARENT_SESSION_ID_KEY}`] = query.childOf;
@@ -669,6 +703,20 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
 
   private get sessionsScope(): string {
     return this.bootstrap.scope('sessions');
+  }
+
+  /**
+   * Remove a session from the persisted source the legacy readers scan.
+   * The workspace is resolved through the same hint `getLegacy` uses; when it
+   * cannot be resolved, fall back to scanning the known workspaces.
+   */
+  private async removeLegacy(id: string): Promise<void> {
+    const hinted = await this.workspaceHintFor(id);
+    const workspaceIds =
+      hinted !== undefined ? [hinted] : await listWorkspaceIds(this.storage, this.sessionsScope);
+    for (const workspaceId of workspaceIds) {
+      await deleteSessionSummary(this.docs, this.storage, this.sessionsScope, workspaceId, id);
+    }
   }
 
   private async listLegacy(query: SessionListQuery): Promise<Page<SessionSummary>> {
@@ -711,18 +759,14 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     const previous = this.primarySnapshot;
     this.primarySnapshot = next;
     if (previous !== undefined && samePrimaryByWorkspace(previous, next)) return;
-    if (!this.readModelEnabled() || this.state === 'uninitialized' || this.state === 'preparing') {
-      return;
-    }
+    if (!this.readModelEnabled() || this.state === 'uninitialized' || this.state === 'preparing') return;
     await this.ensureProjection();
   }
 
   private async primaryByWorkspace(): Promise<Readonly<Record<string, string>>> {
     const workspaces = this.workspaces.current;
     if (workspaces === undefined) return {};
-    return Object.fromEntries(
-      (await workspaces.list()).map((workspace) => [workspace.id, workspace.root]),
-    );
+    return Object.fromEntries((await workspaces.list()).map((workspace) => [workspace.id, workspace.root]));
   }
 
   private async getLegacy(id: string): Promise<SessionSummary | undefined> {
@@ -785,11 +829,9 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   private workspaceIdFromSessionDir(sessionDir: string): string | undefined {
     const root = this.storage.pathFor(this.sessionsScope, '');
     if (root === undefined) return undefined;
-    const rootSlash = root.replaceAll('\\', '/');
-    const prefix = rootSlash.endsWith('/') ? rootSlash : `${rootSlash}/`;
-    const dirSlash = sessionDir.replaceAll('\\', '/');
-    if (!dirSlash.startsWith(prefix)) return undefined;
-    const rest = dirSlash.slice(prefix.length);
+    const prefix = root.endsWith('/') ? root : `${root}/`;
+    if (!sessionDir.startsWith(prefix)) return undefined;
+    const rest = sessionDir.slice(prefix.length);
     const slash = rest.indexOf('/');
     if (slash <= 0) return undefined;
     return rest.slice(0, slash);
@@ -808,7 +850,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   ): Promise<SessionSummary[]> {
     const primaryByWorkspace = await this.primaryByWorkspace();
     let collected: SessionSummary[];
-    if (this.readModelEnabled() && (this.state === 'uninitialized' || this.state === 'preparing')) {
+    if (this.readModelEnabled()) {
       const { summaries } = await this.projector.sharedScanForRead();
       collected =
         workspaceIds === undefined
@@ -818,11 +860,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
       const ids = workspaceIds ?? (await listWorkspaceIds(this.storage, this.sessionsScope));
       collected = [];
       for (const workspaceId of ids) {
-        for (const sessionId of await listSessionIds(
-          this.storage,
-          this.sessionsScope,
-          workspaceId,
-        )) {
+        for (const sessionId of await listSessionIds(this.storage, this.sessionsScope, workspaceId)) {
           const summary = await readSessionSummary(
             this.docs,
             this.sessionsScope,

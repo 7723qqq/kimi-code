@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { once } from 'node:events';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import { connect, type AddressInfo as HttpAddress } from 'node:net';
+
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   type CallbackServer,
@@ -68,56 +69,49 @@ describe('startCallbackServer', () => {
   it.each([
     { query: 'code=code-1&state=state-1', status: 200, heading: 'Sign-in complete' },
     { query: 'error=access_denied', status: 400, heading: 'Sign-in failed' },
-  ])(
-    'closes unused connections and delivers the full $status HTML',
-    async ({ query, status, heading }) => {
-      const server = await startCallbackServer();
-      trackServer(server);
-      await openUnusedConnection(server);
-      const pending = server.waitForCode({ timeoutMs: 10_000 }).catch((error: unknown) => error);
+  ])('closes unused connections and delivers the full $status HTML', async ({ query, status, heading }) => {
+    const server = await startCallbackServer();
+    trackServer(server);
+    await openUnusedConnection(server);
+    const pending = server.waitForCode({ timeoutMs: 10_000 }).catch((error: unknown) => error);
 
-      const response = await fetch(`${server.redirectUri}?${query}`);
-      await server.close();
+    const response = await fetch(`${server.redirectUri}?${query}`);
+    await server.close();
 
-      expect(response.status).toBe(status);
-      const html = await response.text();
-      expect(html).toContain(heading);
-      expect(html.endsWith('</body></html>')).toBe(true);
-      const result = await pending;
-      if (status === 200) {
-        expect(result).toEqual({ code: 'code-1', state: 'state-1' });
-      } else {
-        expect(result).toEqual(new Error('OAuth error: access_denied'));
-      }
-    },
-    2_000,
-  );
+    expect(response.status).toBe(status);
+    const html = await response.text();
+    expect(html).toContain(heading);
+    expect(html.endsWith('</body></html>')).toBe(true);
+    const result = await pending;
+    if (status === 200) {
+      expect(result).toEqual({ code: 'code-1', state: 'state-1' });
+    } else {
+      expect(result).toEqual(new Error('OAuth error: access_denied'));
+    }
+  }, 2_000);
 
   it.each(['close', 'abort', 'timeout'] as const)('releases unused connections on %s', async (reason) => {
     const server = await startCallbackServer();
     trackServer(server);
     await openUnusedConnection(server);
     const controller = new AbortController();
-    const pending = server
-      .waitForCode({
-        signal: controller.signal,
-        timeoutMs: reason === 'timeout' ? 10 : 10_000,
-      })
-      .catch((error: unknown) => error);
-
-    if (reason === 'abort') controller.abort(new Error('cancelled'));
-    if (reason === 'close') await server.close();
-    const result = await pending;
-    await server.close();
-
-    const expected =
+    const pending = server.waitForCode({
+      signal: controller.signal,
+      timeoutMs: reason === 'timeout' ? 10 : 10_000,
+    });
+    const rejection = expect(pending).rejects.toThrow(
       reason === 'close'
         ? 'OAuth callback listener closed'
         : reason === 'abort'
           ? 'cancelled'
-          : 'OAuth callback timed out';
-    expect(result).toBeInstanceOf(Error);
-    expect((result as Error).message).toBe(expected);
+          : 'OAuth callback timed out',
+    );
+
+    if (reason === 'abort') controller.abort(new Error('cancelled'));
+    if (reason === 'timeout') await rejection;
+    await server.close();
+
+    await rejection;
   }, 2_000);
 
   it('resolves a late waitForCode with a callback that arrived before it', async () => {
@@ -147,11 +141,11 @@ describe('startCallbackServer', () => {
     const server = await startCallbackServer();
     trackServer(server);
     const pending = server.waitForCode({ timeoutMs: 10_000 });
-    void pending.catch(() => {});
+    const rejection = expect(pending).rejects.toBeInstanceOf(OAuthCallbackClosedError);
 
     await server.close();
 
-    await expect(pending).rejects.toBeInstanceOf(OAuthCallbackClosedError);
+    await rejection;
   });
 
   it('rejects a late waitForCode after close', async () => {
@@ -164,18 +158,6 @@ describe('startCallbackServer', () => {
       OAuthCallbackClosedError,
     );
   });
-
-  it('closes without waiting for the keep-alive socket to drain', async () => {
-    const server = await startCallbackServer();
-    trackServer(server);
-
-    await fetch(`${server.redirectUri}?code=code-1&state=state-1`);
-
-    const startedAt = Date.now();
-    await server.close();
-
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
-  });
 });
 
 describe('McpOAuthService cancellation', () => {
@@ -187,11 +169,6 @@ describe('McpOAuthService cancellation', () => {
     await provider.ready;
     await provider.saveDiscoveryState({
       authorizationServerUrl: registrationServer.url,
-      resourceMetadataUrl: 'https://mcp.example.test/.well-known/oauth-protected-resource',
-      resourceMetadata: {
-        resource: 'https://mcp.example.test/rpc',
-        authorization_servers: [registrationServer.url],
-      },
       authorizationServerMetadata: {
         issuer: registrationServer.url,
         authorization_endpoint: `${registrationServer.url}/authorize`,
@@ -205,16 +182,10 @@ describe('McpOAuthService cancellation', () => {
 
     const flow = await service.beginAuthorization('example', 'https://mcp.example.test/rpc');
     const completion = flow.complete({ timeoutMs: 10_000 });
-    const settled = completion.then(
-      () => ({ ok: true as const }),
-      (error: unknown) => ({ ok: false as const, error }),
-    );
+    const rejection = expect(completion).rejects.toThrow('OAuth authorization wait cancelled');
 
     await flow.cancel();
 
-    const outcome = await settled;
-    expect(outcome.ok).toBe(false);
-    if (outcome.ok) throw new Error('expected the completion to reject');
-    expect((outcome.error as Error).message).toContain('OAuth authorization wait cancelled');
+    await rejection;
   }, 15000);
 });

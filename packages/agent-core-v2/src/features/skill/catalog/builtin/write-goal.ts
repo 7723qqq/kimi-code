@@ -1,6 +1,5 @@
-import { parseSkillText } from '#/features/skill/catalog/parser';
 import type { SkillDefinition } from '#/features/skill/catalog/types';
-
+import { parseSkillText } from '#/features/skill/catalog/parser';
 import WRITE_GOAL_BODY from './write-goal.md?raw';
 
 const PSEUDO_PATH = 'builtin://write-goal';

@@ -1,6 +1,7 @@
 export * from './cache';
 export * from './degrade';
-export * from './image-formats';
+// image-formats is vocabulary (pure policy data); it lives in #human/media.
+export * from '../../media/image-formats';
 export * from './imageCompressionCaption';
 export * from './mime';
 export * from './pathTag';

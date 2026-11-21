@@ -1,24 +1,23 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { ISessionEventBus } from '#/app/event/eventBus';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import type { ToolExecution } from '#/tool/toolContract';
 
 import { deliverTowerMessage } from '../delivery';
 import { newTowerStore, runTowerTool } from '../support';
+import DESCRIPTION from './complete.md?raw';
 import {
   ITowerCompleteTool,
   TowerCompleteToolInputSchema,
   type TowerCompleteToolInput,
 } from './complete';
-import DESCRIPTION from './complete.md?raw';
 
 export class TowerCompleteTool implements ITowerCompleteTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerComplete' as const;
-  readonly sideEffect = ToolSideEffects.write;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerCompleteToolInputSchema);
 
@@ -26,7 +25,7 @@ export class TowerCompleteTool implements ITowerCompleteTool {
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @ISessionEventBus private readonly sessionBus: ISessionEventBus,
-    @IAgentTaskService private readonly tasks: IAgentTaskService,
+    @IAgentToolExecutorService private readonly tasks: IAgentToolExecutorService,
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
   ) {}
 
@@ -51,7 +50,7 @@ export class TowerCompleteTool implements ITowerCompleteTool {
               ? deliverTowerMessage(
                   {
                     sessionBus: this.sessionBus,
-                    tasks: this.tasks,
+                    toolExecutor: this.tasks,
                     agentLifecycle: this.agentLifecycle,
                     state: resolved.state,
                   },

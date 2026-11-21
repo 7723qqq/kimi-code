@@ -1,4 +1,4 @@
-import { createActor, type ActorRefFrom } from '#/xstate2';
+import { createActor, type ActorRefFrom } from '#human/xstate2';
 
 import type {
   Interaction,
@@ -130,11 +130,7 @@ export function createInteractionFacade(
 
     enqueue<TPayload>(req: InteractionRequest<TPayload>): Interaction {
       const agentId = req.tags?.[INTERACTION_TAG_AGENT_ID];
-      const id =
-        req.id ??
-        (agentId === undefined
-          ? `interaction-${nextId++}`
-          : `${String(agentId)}:interaction-${nextId++}`);
+      const id = req.id ?? (agentId === undefined ? `interaction-${nextId++}` : `${String(agentId)}:interaction-${nextId++}`);
       const existing = records().get(id);
       if (existing !== undefined && !existing.resolved) {
         throw new Error(`Interaction "${id}" is already pending`);

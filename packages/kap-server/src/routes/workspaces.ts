@@ -1,30 +1,27 @@
-import { isAbsolute, join, normalize, resolve } from 'node:path';
-
 import {
   IBootstrapService,
   IHostFileSystem,
-  IWorkspaceInstanceManager,
   IWorkspaceService,
   IWorkspaceSessions,
   IWorkspaceTrust,
   IWorkspaceTrustStore,
   type Scope,
   type Workspace,
-  workspaceRootKey,
 } from '@moonshot-ai/agent-core-v2';
+import { workspaceRootKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { isAbsolute, join, normalize, resolve } from 'node:path';
+
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
-import { detailsSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import {
-  addDirRequestSchema,
-  addDirResponseSchema,
   createWorkspaceRequestSchema,
   createWorkspaceResponseSchema,
   deleteWorkspaceResponseSchema,
+  listWorkspacesQuerySchema,
   listWorkspacesResponseSchema,
   projectConfigDirsQuerySchema,
   projectConfigDirsResponseSchema,
@@ -36,13 +33,14 @@ import {
   workspaceTrustResponseSchema,
 } from '../protocol/rest-workspace';
 import type { Workspace as WorkspaceWire } from '../protocol/workspace';
+import { collectFromHosts, hostProjects, type HostSources } from '../services/hosts/hostFanout';
 
 interface WorkspaceRouteHost {
   get(
     path: string,
     options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
     handler: (
-      req: { id: string },
+      req: { id: string; query: unknown },
       reply: { send(payload: unknown): unknown },
     ) => Promise<void> | void,
   ): unknown;
@@ -72,30 +70,34 @@ interface WorkspaceRouteHost {
   ): unknown;
 }
 
-export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): void {
-  const duplicateDirDetailsSchema = z.array(
-    z.object({ path: z.string(), directory: z.string() }),
-  );
+const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
+const duplicateDirDetailsSchema = z.array(z.object({ path: z.string(), directory: z.string() }));
 
+export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope, hosts?: HostSources): void {
   const listRoute = defineRoute(
     {
       method: 'GET',
       path: '/workspaces',
+      querystring: listWorkspacesQuerySchema,
       success: { data: listWorkspacesResponseSchema },
-      description: 'List registered workspaces',
+      description:
+        'List registered workspaces. hosts=include adds the projects created on each SSH host, tagged with host_id',
       tags: ['workspaces'],
     },
     async (req, reply) => {
       const items = await core.accessor.get(IWorkspaceService).list();
       const projected = await Promise.all(items.map((ws) => toWireWorkspace(core, ws)));
-      reply.send(okEnvelope({ items: projected }, req.id));
+      if (req.query.hosts !== 'include' || hosts === undefined) {
+        reply.send(okEnvelope({ items: projected }, req.id));
+        return;
+      }
+      const remote = await collectFromHosts(hosts, (session) => hostProjects<WorkspaceWire>(session));
+      reply.send(
+        okEnvelope({ items: [...projected, ...remote.items] }, req.id),
+      );
     },
   );
-  app.get(
-    listRoute.path,
-    listRoute.options,
-    listRoute.handler as Parameters<WorkspaceRouteHost['get']>[2],
-  );
+  app.get(listRoute.path, listRoute.options, listRoute.handler as Parameters<WorkspaceRouteHost['get']>[2]);
 
   const createRoute = defineRoute(
     {
@@ -182,11 +184,7 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
       const existing = await registry.get(workspace_id);
       if (existing === undefined) {
         reply.send(
-          errEnvelope(
-            ErrorCode.WORKSPACE_NOT_FOUND,
-            `workspace ${workspace_id} does not exist`,
-            req.id,
-          ),
+          errEnvelope(ErrorCode.WORKSPACE_NOT_FOUND, `workspace ${workspace_id} does not exist`, req.id),
         );
         return;
       }
@@ -210,11 +208,7 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
       });
       if (ws === undefined) {
         reply.send(
-          errEnvelope(
-            ErrorCode.WORKSPACE_NOT_FOUND,
-            `workspace ${workspace_id} does not exist`,
-            req.id,
-          ),
+          errEnvelope(ErrorCode.WORKSPACE_NOT_FOUND, `workspace ${workspace_id} does not exist`, req.id),
         );
         return;
       }
@@ -246,11 +240,7 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
       const existing = await registry.get(workspace_id);
       if (existing === undefined) {
         reply.send(
-          errEnvelope(
-            ErrorCode.WORKSPACE_NOT_FOUND,
-            `workspace ${workspace_id} does not exist`,
-            req.id,
-          ),
+          errEnvelope(ErrorCode.WORKSPACE_NOT_FOUND, `workspace ${workspace_id} does not exist`, req.id),
         );
         return;
       }
@@ -323,8 +313,7 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
       errors: {
         [ErrorCode.WORKSPACE_NOT_FOUND]: {},
       },
-      description:
-        'Revoke persisted workspace trust (project-level MCP config unloads unless process or config overrides apply)',
+      description: 'Revoke persisted workspace trust (project-level MCP config unloads unless process or config overrides apply)',
       tags: ['workspaces'],
     },
     async (req, reply) => {
@@ -361,11 +350,7 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
       const existing = await registry.get(workspace_id);
       if (existing === undefined) {
         reply.send(
-          errEnvelope(
-            ErrorCode.WORKSPACE_NOT_FOUND,
-            `workspace ${workspace_id} does not exist`,
-            req.id,
-          ),
+          errEnvelope(ErrorCode.WORKSPACE_NOT_FOUND, `workspace ${workspace_id} does not exist`, req.id),
         );
         return;
       }
@@ -388,11 +373,7 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
         const stat = await hostFs.stat(resolved);
         if (!stat.isDirectory) {
           reply.send(
-            errEnvelope(
-              ErrorCode.FS_PATH_NOT_FOUND,
-              `path ${req.body.path} is not a directory`,
-              req.id,
-            ),
+            errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, `path ${req.body.path} is not a directory`, req.id),
           );
           return;
         }
@@ -405,11 +386,7 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
       const ws = await registry.setPrimary(workspace_id, resolved);
       if (ws === undefined) {
         reply.send(
-          errEnvelope(
-            ErrorCode.WORKSPACE_NOT_FOUND,
-            `workspace ${workspace_id} does not exist`,
-            req.id,
-          ),
+          errEnvelope(ErrorCode.WORKSPACE_NOT_FOUND, `workspace ${workspace_id} does not exist`, req.id),
         );
         return;
       }
@@ -440,85 +417,6 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
     projectConfigDirsRoute.path,
     projectConfigDirsRoute.options,
     projectConfigDirsRoute.handler as Parameters<WorkspaceRouteHost['get']>[2],
-  );
-
-  const addDirRoute = defineRoute(
-    {
-      method: 'POST',
-      path: '/workspaces/{workspace_id}/add-dir',
-      params: workspaceIdParamSchema,
-      body: addDirRequestSchema,
-      success: { data: addDirResponseSchema },
-      errors: {
-        [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
-        [ErrorCode.FS_PATH_NOT_FOUND]: {},
-        [ErrorCode.WORKSPACE_NOT_FOUND]: {},
-      },
-      description: 'Add an additional directory to the workspace',
-      tags: ['workspaces'],
-    },
-    async (req, reply) => {
-      const { workspace_id } = req.params;
-      const ws = await core.accessor.get(IWorkspaceService).get(workspace_id);
-      if (ws === undefined) {
-        reply.send(
-          errEnvelope(
-            ErrorCode.WORKSPACE_NOT_FOUND,
-            `workspace ${workspace_id} does not exist`,
-            req.id,
-          ),
-        );
-        return;
-      }
-      const resolved = resolveAdditionalDirPath(core, ws.root, req.body.path);
-      const hostFs = core.accessor.get(IHostFileSystem);
-      try {
-        const stat = await hostFs.stat(resolved);
-        if (!stat.isDirectory) {
-          reply.send(
-            errEnvelope(
-              ErrorCode.FS_PATH_NOT_FOUND,
-              `path ${req.body.path} is not a directory`,
-              req.id,
-            ),
-          );
-          return;
-        }
-      } catch {
-        reply.send(
-          errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, `path ${req.body.path} does not exist`, req.id),
-        );
-        return;
-      }
-      const lease = await core.accessor
-        .get(IWorkspaceInstanceManager)
-        .acquire({ workspaceId: workspace_id, root: ws.root });
-      let result: Awaited<ReturnType<typeof lease.instance.program.dirs.addDir>>;
-      try {
-        result = await lease.instance.program.dirs.addDir({
-          path: req.body.path,
-          persist: req.body.persist,
-        });
-      } finally {
-        lease.dispose();
-      }
-      reply.send(
-        okEnvelope(
-          {
-            project_root: result.projectRoot,
-            config_path: result.configPath,
-            additional_dirs: [...result.additionalDirs],
-            persisted: result.persisted,
-          },
-          req.id,
-        ),
-      );
-    },
-  );
-  app.post(
-    addDirRoute.path,
-    addDirRoute.options,
-    addDirRoute.handler as Parameters<WorkspaceRouteHost['post']>[2],
   );
 }
 
@@ -583,11 +481,7 @@ async function resolveTrust(
   const ws = await core.accessor.get(IWorkspaceService).get(workspaceId);
   if (ws === undefined) {
     reply.send(
-      errEnvelope(
-        ErrorCode.WORKSPACE_NOT_FOUND,
-        `workspace ${workspaceId} does not exist`,
-        requestId,
-      ),
+      errEnvelope(ErrorCode.WORKSPACE_NOT_FOUND, `workspace ${workspaceId} does not exist`, requestId),
     );
     return undefined;
   }

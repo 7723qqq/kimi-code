@@ -1,6 +1,6 @@
 {
   "name": "@moonshot-ai/kimi-code-product",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "description": "Kimi Code product logic shared by clients and hosts.",
   "bugs": {
@@ -38,6 +38,7 @@
     "clean": "rm -rf dist"
   },
   "devDependencies": {
+    "@moonshot-ai/testkit": "workspace:*",
     "@types/semver": "^7.7.0"
   },
   "dependencies": {

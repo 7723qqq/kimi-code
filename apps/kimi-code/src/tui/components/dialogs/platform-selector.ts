@@ -1,9 +1,9 @@
 import { OPEN_PLATFORMS } from '@moonshot-ai/kimi-code-oauth';
 
-import { t } from '#/i18n';
 import { KIMI_CODE_GLOBAL_PLATFORM_VALUE } from '#/utils/region';
 
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
+import { t } from '#/i18n';
 
 const KIMI_CODE_MAINLAND_CN_OPTION: ChoiceOption = {
   value: 'kimi-code',

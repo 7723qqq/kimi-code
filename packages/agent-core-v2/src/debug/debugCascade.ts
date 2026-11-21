@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import type { CascadeAction, UnitState } from '#/_base/di/cascadeEngine';
 import { createDecorator } from '#/_base/di/instantiation';
 import { Event2 } from '#/app/event/event2';
@@ -59,4 +59,5 @@ export interface IDebugCascadeService {
   dispose(scopePath: string, token: string): Promise<void>;
 }
 
-export const IDebugCascadeService = createDecorator<IDebugCascadeService>('debugCascadeService');
+export const IDebugCascadeService =
+  createDecorator<IDebugCascadeService>('debugCascadeService');

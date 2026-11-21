@@ -1,15 +1,19 @@
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { fileURLToPath } from 'node:url';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 
-import type { McpOAuthScheduledTask, McpOAuthScheduler } from '#/mcpCore/oauth/service';
+import type { ToolDescription as KosongTool } from '#human/message';
 import type { McpOAuthStore } from '#/mcpCore/oauth/store';
+import type {
+  McpOAuthScheduledTask,
+  McpOAuthScheduler,
+} from '#/mcpCore/oauth/service';
 import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
 import type {
   ExecutableTool,
@@ -17,30 +21,28 @@ import type {
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
-import type { ToolDescription as KosongTool } from '#human/llm/message';
 
 export const fixturesDir = fileURLToPath(new URL('./fixtures/', import.meta.url));
-export const stdioFixture = fileURLToPath(
-  new URL('./fixtures/mock-stdio-server.mjs', import.meta.url),
-);
-export const cwdStdioFixture = fileURLToPath(
-  new URL('./fixtures/cwd-stdio-server.mjs', import.meta.url),
-);
-export const slowStdioFixture = fileURLToPath(
-  new URL('./fixtures/slow-stdio-server.mjs', import.meta.url),
-);
-export const slowToolStdioFixture = fileURLToPath(
-  new URL('./fixtures/slow-tool-stdio-server.mjs', import.meta.url),
-);
-export const hangingListStdioFixture = fileURLToPath(
-  new URL('./fixtures/hanging-list-stdio-server.mjs', import.meta.url),
-);
-export const crashAfterConnectFixture = fileURLToPath(
-  new URL('./fixtures/crash-after-connect-stdio-server.mjs', import.meta.url),
-);
-export const stderrThenExitFixture = fileURLToPath(
-  new URL('./fixtures/stderr-then-exit-stdio-server.mjs', import.meta.url),
-);
+export const stdioFixture = fileURLToPath(new URL('./fixtures/mock-stdio-server.mjs', import.meta.url));
+export const cwdStdioFixture = fileURLToPath(new URL('./fixtures/cwd-stdio-server.mjs', import.meta.url));
+export const slowStdioFixture = new URL('./fixtures/slow-stdio-server.mjs', import.meta.url)
+  .pathname;
+export const slowToolStdioFixture = new URL(
+  './fixtures/slow-tool-stdio-server.mjs',
+  import.meta.url,
+).pathname;
+export const hangingListStdioFixture = new URL(
+  './fixtures/hanging-list-stdio-server.mjs',
+  import.meta.url,
+).pathname;
+export const crashAfterConnectFixture = new URL(
+  './fixtures/crash-after-connect-stdio-server.mjs',
+  import.meta.url,
+).pathname;
+export const stderrThenExitFixture = new URL(
+  './fixtures/stderr-then-exit-stdio-server.mjs',
+  import.meta.url,
+).pathname;
 
 export function createMemoryMcpOAuthStore(): McpOAuthStore {
   const data = new Map<string, unknown>();
@@ -239,7 +241,8 @@ export async function startAnonymousDiscoveryHttpMcpServer(opts?: {
       }
       res.writeHead(401, {
         'content-type': 'application/json',
-        'www-authenticate': 'Bearer realm="mcp"',
+        'www-authenticate':
+          'Bearer realm="mcp", resource_metadata="http://x/.well-known/oauth-protected-resource"',
       });
       res.end(JSON.stringify({ error: 'unauthorized' }));
     });

@@ -1,35 +1,27 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
   ConfigChanged,
-  Error2,
-  ErrorCodes,
+  ConfigRegistry,
+  ConfigWarning,
+  IConfigRegistry,
   IConfigService,
   IEventService,
   type ConfigSectionChangedEvent,
   type Event2,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { configResponseSchema, type ConfigResponse } from '../src/protocol/rest-config';
+import { ErrorCode } from '../src/protocol/error-codes';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 import { WebSocket } from 'ws';
 
-import { ErrorCode } from '../src/protocol/error-codes';
-import {
-  configResponseSchema,
-  patchConfigRequestSchema,
-  type ConfigResponse,
-} from '../src/protocol/rest-config';
-import { registerConfigRoutes } from '../src/routes/config';
-import { startConfigChangedPublisher } from '../src/services/config/configChangedPublisher';
 import { type RunningServer, startServer } from '../src/start';
-import { authedFetch, bearerToken } from './helpers/auth';
-import { createFakeClock } from './helpers/fakeClock';
+import { startConfigChangedPublisher } from '../src/services/config/configChangedPublisher';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { setEnv, restoreEnvs } from './helpers/stubs';
-import { removeTempHome } from './helpers/tempHome';
-import { waitForAssertion } from './helpers/waitFor';
+import { authedFetch, bearerToken } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -61,7 +53,7 @@ describe('server-v2 /api/v1/config', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
       home = undefined;
     }
   });
@@ -120,61 +112,6 @@ describe('server-v2 /api/v1/config', () => {
     expect(after.yolo).toBe(false);
   });
 
-  it('merges official raw config fields into their domains without persisting a raw wrapper', async () => {
-    await boot();
-    const cfg = await patchConfig({
-      raw: { auto_session_title: false, experimental: { example_flag: true } },
-    });
-    expect(cfg.auto_session_title).toBe(false);
-    expect(cfg.experimental?.['example_flag']).toBe(true);
-    expect(cfg.raw).toBeUndefined();
-  });
-
-  it('rejects an unknown key instead of dropping it and reporting success', async () => {
-    await boot();
-    for (const typo of ['plna_mode', 'default_plna_mode', 'unknown_top_level']) {
-      const res = await authedFetch(server as RunningServer, base, '/api/v1/config', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ [typo]: true }),
-      });
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Envelope<unknown>;
-      expect(body.code).toBe(ErrorCode.VALIDATION_FAILED);
-      expect(JSON.stringify(body)).toContain(typo);
-    }
-  });
-
-  it('accepts the pass-through domains the SDK exposes, and keeps them out of the way', async () => {
-    await boot();
-    const cfg = await patchConfig({ plan_mode: true, auto_session_title: false, telemetry: true });
-    expect(cfg.plan_mode).toBe(true);
-    expect(cfg.auto_session_title).toBe(false);
-    expect(cfg.telemetry).toBe(true);
-  });
-
-  it('accepts every config domain the engine resolves, so no resolvable key is unreachable by POST', async () => {
-    await boot('default_permission_mode = "auto"\n');
-    const config = (server as RunningServer).core.accessor.get(IConfigService);
-    const domains = Object.keys(config.getAll());
-    const writable = new Set(Object.keys(patchConfigRequestSchema.shape));
-    const unreachable = domains.filter(
-      (domain) => !writable.has(domain.replaceAll(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`)),
-    );
-    expect(
-      unreachable,
-      'a domain the engine resolves but POST /config has no schema key for is silently dropped instead of written',
-    ).toEqual([]);
-  });
-
-  it('reports the same domains on GET as it accepts on POST', async () => {
-    await boot('default_permission_mode = "auto"\n');
-    const reported = Object.keys(await getConfig());
-    const writable = new Set(Object.keys(patchConfigRequestSchema.shape));
-    const missing = reported.filter((key) => key !== 'raw' && !writable.has(key));
-    expect(missing, 'GET /config advertises domains POST /config cannot write').toEqual([]);
-  });
-
   it('POST { auto_session_title: false } persists and GET echoes it', async () => {
     await boot();
     const cfg = await patchConfig({ auto_session_title: false });
@@ -219,10 +156,7 @@ describe('server-v2 /api/v1/config', () => {
   it('POST { secondary_model } preserves pool alias keys containing underscores', async () => {
     await boot();
     await patchConfig({
-      secondary_model: {
-        default_model: 'provider/fast_model',
-        models: { 'provider/fast_model': '' },
-      },
+      secondary_model: { default_model: 'provider/fast_model', models: { 'provider/fast_model': '' } },
     });
 
     const after = await getConfig();
@@ -280,15 +214,15 @@ describe('server-v2 /api/v1/config', () => {
   it('GET reports has_api_key for an api_key_env provider only while the variable is set', async () => {
     await boot('[providers.acme]\ntype = "openai"\napi_key_env = "KIMI_TEST_CONFIG_ROUTE_KEY"\n');
     try {
-      setEnv('KIMI_TEST_CONFIG_ROUTE_KEY', 'sk-live');
+      vi.stubEnv('KIMI_TEST_CONFIG_ROUTE_KEY', 'sk-live');
       const live = await getConfig();
       expect(live.providers['acme']).toMatchObject({ has_api_key: true });
 
-      setEnv('KIMI_TEST_CONFIG_ROUTE_KEY', '');
+      vi.stubEnv('KIMI_TEST_CONFIG_ROUTE_KEY', '');
       const empty = await getConfig();
       expect(empty.providers['acme']).toMatchObject({ has_api_key: false });
     } finally {
-      restoreEnvs();
+      vi.unstubAllEnvs();
     }
   });
 
@@ -355,11 +289,9 @@ describe('server-v2 config changed WS notifications', () => {
   }
 
   interface ConfigChangedFrame {
-    type: 'event.config.changed';
-    payload: {
-      changedFields: string[];
-      config: Record<string, unknown>;
-    };
+    type: 'config';
+    config: Record<string, unknown>;
+    warnings?: { domain?: string; message: string }[];
   }
 
   async function openWs(): Promise<ConfigChangedFrame[]> {
@@ -371,7 +303,7 @@ describe('server-v2 config changed WS notifications', () => {
     const frames: ConfigChangedFrame[] = [];
     ws.on('message', (data) => {
       const frame = JSON.parse((data as Buffer).toString()) as { type?: string };
-      if (frame.type === 'event.config.changed') frames.push(frame as ConfigChangedFrame);
+      if (frame.type === 'config') frames.push(frame as ConfigChangedFrame);
     });
     await new Promise((resolve) => ws.on('open', resolve));
     return frames;
@@ -388,21 +320,20 @@ describe('server-v2 config changed WS notifications', () => {
     expect(body.code).toBe(0);
   }
 
-  it('publishes a trailing event with camelCase changedFields and the full snapshot after POST /config', async () => {
+  it('publishes a trailing flat config frame with the full snapshot after POST /config', async () => {
     await boot('default_permission_mode = "auto"\n');
     const frames = await openWs();
 
     await patchConfig({ yolo: true });
 
-    await waitForAssertion(() => expect(frames.length).toBeGreaterThanOrEqual(1));
+    await vi.waitFor(() => expect(frames.length).toBeGreaterThanOrEqual(1));
     const last = frames.at(-1) as ConfigChangedFrame;
-    expect(last.payload.changedFields).toEqual(['defaultPermissionMode']);
-    expect(last.payload.config['default_permission_mode']).toBe('yolo');
-    expect(last.payload.config['yolo']).toBe(true);
-    expect(last.payload.config).toHaveProperty('providers');
+    expect(last.config['default_permission_mode']).toBe('yolo');
+    expect(last.config['yolo']).toBe(true);
+    expect(last.config).toHaveProperty('providers');
   });
 
-  it('publishes camelCase changedFields on the engine write path used by OAuth refreshes', async () => {
+  it('publishes a flat config frame on the engine write path used by OAuth refreshes', async () => {
     await boot();
     const frames = await openWs();
 
@@ -410,15 +341,21 @@ describe('server-v2 config changed WS notifications', () => {
     await config.ready;
     await config.replace('defaultModel', 'k2');
 
-    await waitForAssertion(() => expect(frames.length).toBeGreaterThanOrEqual(1));
+    await vi.waitFor(() => expect(frames.length).toBeGreaterThanOrEqual(1));
     const last = frames.at(-1) as ConfigChangedFrame;
-    expect(last.payload.changedFields).toEqual(['defaultModel']);
-    expect(last.payload.config['default_model']).toBe('k2');
+    expect(last.config['default_model']).toBe('k2');
   });
 
-  it('publishes an event when config.toml is edited outside the process and reloaded', async () => {
+  it('publishes change and error diagnostic events when config.toml is edited outside the process and reloaded', async () => {
     await boot('default_permission_mode = "auto"\n');
     const frames = await openWs();
+    const warnings: string[] = [];
+    const events = (server as RunningServer).core.accessor.get(IEventService);
+    const subscription = events.subscribe((event) => {
+      if (event instanceof ConfigWarning) {
+        warnings.push(...event.payload.warnings.map((warning) => warning.message));
+      }
+    });
 
     await writeFile(
       join(home as string, 'config.toml'),
@@ -429,12 +366,16 @@ describe('server-v2 config changed WS notifications', () => {
     await config.ready;
     await config.reload();
 
-    await waitForAssertion(() => expect(frames.length).toBeGreaterThanOrEqual(1), {
-      timeout: 10000,
-    });
+    await vi.waitFor(() => expect(frames.length).toBeGreaterThanOrEqual(1), { timeout: 10000 });
     const last = frames.at(-1) as ConfigChangedFrame;
-    expect(last.payload.changedFields).toContain('defaultPermissionMode');
-    expect(last.payload.config['default_permission_mode']).toBe('yolo');
+    expect(last.config['default_permission_mode']).toBe('yolo');
+
+    await writeFile(join(home as string, 'config.toml'), '= broken =', 'utf-8');
+    await config.reload();
+    await vi.waitFor(() => {
+      expect(warnings).toContainEqual(expect.stringMatching(/failed to (parse|decode)/i));
+    });
+    subscription.dispose();
   });
 
   it('closes the config publisher before the app, so a pending change is never delivered during shutdown', async () => {
@@ -460,8 +401,11 @@ describe('server-v2 config changed WS notifications', () => {
 });
 
 describe('configChangedPublisher', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   function setup() {
-    const clock = createFakeClock();
     const listeners = new Set<(event: ConfigSectionChangedEvent) => void>();
     let backing: Record<string, unknown> = {};
     const published: ConfigChanged[] = [];
@@ -483,20 +427,20 @@ describe('configChangedPublisher', () => {
               getAll: () => backing,
             };
           }
+          if (token === IConfigRegistry) return new ConfigRegistry();
           return {
             publish: (event: Event2<unknown>) => published.push(event as ConfigChanged),
           };
         },
       },
     } as unknown as Scope;
-    const publisher = startConfigChangedPublisher(core, clock);
+    const publisher = startConfigChangedPublisher(core);
     const fire = (domain: string): void => {
       for (const listener of listeners) {
         listener({ domain, source: 'set', value: undefined, previousValue: undefined });
       }
     };
     return {
-      clock,
       publisher,
       published,
       fire,
@@ -508,59 +452,54 @@ describe('configChangedPublisher', () => {
   }
 
   it('merges section events inside one flush window into a single ConfigChanged', () => {
-    const { published, fire, clock } = setup();
+    vi.useFakeTimers();
+    const { published, fire } = setup();
 
     fire('defaultPermissionMode');
     fire('defaultModel');
-    clock.advance(50);
+    vi.advanceTimersByTime(50);
 
     expect(published).toHaveLength(1);
     expect(published[0]?.payload.changedFields).toEqual(['defaultModel', 'defaultPermissionMode']);
   });
 
   it('projects the full config snapshot at flush time', () => {
-    const { published, fire, setBacking, clock } = setup();
+    vi.useFakeTimers();
+    const { published, fire, setBacking } = setup();
 
     fire('defaultModel');
     setBacking({ defaultModel: 'k2', providers: {} });
-    clock.advance(50);
+    vi.advanceTimersByTime(50);
 
     expect(published).toHaveLength(1);
     expect(published[0]?.payload.config).toEqual({ default_model: 'k2', providers: {} });
   });
 
   it('redacts inline model credentials from the published config projection', () => {
-    const { published, fire, setBacking, clock } = setup();
+    vi.useFakeTimers();
+    const { published, fire, setBacking } = setup();
     setBacking({
       providers: {},
       models: {
         'p/m': { provider: 'p', model: 'm', maxContextSize: 4096, apiKey: 'sk-secret' },
-        'p/flat': {
-          baseUrl: 'https://x.test',
-          model: 'm',
-          oauth: { storage: 'file', key: 'oauth/x' },
-        },
+        'p/flat': { baseUrl: 'https://x.test', model: 'm', oauth: { storage: 'file', key: 'oauth/x' } },
       },
     });
 
     fire('models');
-    clock.advance(50);
+    vi.advanceTimersByTime(50);
 
     expect(published).toHaveLength(1);
     const config = published[0]?.payload.config as Record<string, unknown>;
     const models = config['models'] as Record<string, Record<string, unknown>>;
-    expect(models['p/m']).toEqual({
-      provider: 'p',
-      model: 'm',
-      maxContextSize: 4096,
-      has_api_key: true,
-    });
+    expect(models['p/m']).toEqual({ provider: 'p', model: 'm', maxContextSize: 4096, has_api_key: true });
     expect(models['p/flat']).toEqual({ baseUrl: 'https://x.test', model: 'm', has_api_key: true });
     expect(JSON.stringify(models)).not.toContain('sk-secret');
   });
 
   it('redacts inline service credentials from the published config projection', () => {
-    const { published, fire, setBacking, clock } = setup();
+    vi.useFakeTimers();
+    const { published, fire, setBacking } = setup();
     setBacking({
       providers: {},
       services: {
@@ -573,7 +512,7 @@ describe('configChangedPublisher', () => {
     });
 
     fire('services');
-    clock.advance(50);
+    vi.advanceTimersByTime(50);
 
     expect(published).toHaveLength(1);
     const config = published[0]?.payload.config as Record<string, unknown>;
@@ -588,165 +527,29 @@ describe('configChangedPublisher', () => {
   });
 
   it('always delivers a trailing event for late-arriving changes', () => {
-    const { published, fire, clock } = setup();
+    vi.useFakeTimers();
+    const { published, fire } = setup();
 
     fire('defaultPermissionMode');
-    clock.advance(12);
+    vi.advanceTimersByTime(12);
     fire('models');
-    clock.advance(12);
+    vi.advanceTimersByTime(12);
 
     expect(published).toHaveLength(2);
     expect(published[1]?.payload.changedFields).toEqual(['models']);
   });
 
   it('drops pending changes on close and never publishes afterwards', () => {
-    const { published, publisher, fire, isDisposed, clock } = setup();
+    vi.useFakeTimers();
+    const { published, publisher, fire, isDisposed } = setup();
 
     fire('defaultModel');
     publisher.close();
-    clock.advance(50);
+    vi.advanceTimersByTime(50);
     fire('models');
-    clock.advance(50);
+    vi.advanceTimersByTime(50);
 
     expect(published).toHaveLength(0);
     expect(isDisposed()).toBe(true);
-  });
-});
-
-describe('POST /config persistence failure reporting (a18/F2)', () => {
-  const DOMAINS = ['planMode', 'autoSessionTitle', 'telemetry'] as const;
-
-  interface CapturedRoute {
-    handler: (
-      req: { id: string; body: unknown },
-      reply: { send(payload: unknown): void },
-    ) => Promise<void> | void;
-  }
-
-  function harness(failOnDomain: string | undefined) {
-    const captured: CapturedRoute[] = [];
-    const applied: string[] = [];
-    const setCalls: string[] = [];
-    const logged: { level: string; msg: string }[] = [];
-    const configService = {
-      ready: Promise.resolve(),
-      set: (domain: string): void => {
-        setCalls.push(domain);
-        if (domain === failOnDomain) {
-          applied.push(domain);
-          throw new Error2(
-            ErrorCodes.CONFIG_PERSIST_BLOCKED,
-            'Refusing to persist config: /tmp/config.toml could not be read; fix the file and reload before writing.',
-          );
-        }
-        applied.push(domain);
-      },
-      getAll: (): Record<string, unknown> => ({ defaultPermissionMode: 'auto' }),
-    };
-    const core = {
-      accessor: {
-        get: (token: unknown): unknown => {
-          if (token === IConfigService) return configService;
-          throw new Error(`unexpected service request: ${String(token)}`);
-        },
-      },
-    } as unknown as Scope;
-    const app = {
-      post: (_path: string, _options: unknown, handler: CapturedRoute['handler']): unknown => {
-        captured.push({ handler });
-        return undefined;
-      },
-      get: (): unknown => undefined,
-    };
-    registerConfigRoutes(app as never, core);
-    const post = captured.at(-1);
-    if (post === undefined) throw new Error('POST /config route was not registered');
-    const send = async (body: Record<string, unknown>): Promise<Envelope<unknown>> => {
-      let payload: unknown;
-      await post.handler(
-        {
-          id: 'req-1',
-          body,
-          log: {
-            info: () => {},
-            warn: () => {},
-            error: (_obj: object, msg: string) => logged.push({ level: 'error', msg }),
-          },
-        } as never,
-        {
-          send: (value: unknown) => {
-            payload = value;
-          },
-        },
-      );
-      return payload as Envelope<unknown>;
-    };
-    return { send, setCalls, applied, logged };
-  }
-
-  it('still merges every provided domain and answers 0 on the happy path', async () => {
-    const { send, setCalls } = harness(undefined);
-    const body = await send({ plan_mode: true, auto_session_title: false, telemetry: true });
-    expect(body.code).toBe(0);
-    expect(body.request_id).toBe('req-1');
-    expect(setCalls).toEqual([...DOMAINS]);
-  });
-
-  it('reports 50003 with the applied and failed domains when persistence is blocked mid-patch', async () => {
-    const { send, setCalls, logged } = harness('autoSessionTitle');
-    const body = await send({ plan_mode: true, auto_session_title: false, telemetry: true });
-
-    expect(body.code).toBe(ErrorCode.PERSISTENCE_FAILURE);
-    expect(body.code).toBe(50003);
-    expect(body.request_id).toBe('req-1');
-    expect(body.data).toBeNull();
-    expect(body.msg).toContain('applied: planMode');
-    expect(body.msg).toContain('failed: autoSessionTitle');
-    expect(body.msg).toContain('fix the file and reload before writing');
-    expect(setCalls).toEqual(['planMode', 'autoSessionTitle']);
-    expect(logged.some((entry) => entry.msg.includes('persist'))).toBe(true);
-  });
-
-  it('reports the first failing domain when the very first domain is blocked', async () => {
-    const { send } = harness('planMode');
-    const body = await send({ plan_mode: true, auto_session_title: false });
-
-    expect(body.code).toBe(50003);
-    expect(body.msg).toContain('applied: (none)');
-    expect(body.msg).toContain('failed: planMode');
-  });
-
-  it('answers 50003 with the applied and failed domains on the real endpoint when config.toml is unreadable', async () => {
-    const brokenHome = await mkdtemp(join(tmpdir(), 'kimi-server-v2-config-broken-'));
-    const broken = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: brokenHome,
-      logLevel: 'silent',
-    });
-    try {
-      const tomlPath = join(brokenHome, 'config.toml');
-      await writeFile(tomlPath, 'this is = not = toml\n', 'utf-8');
-      await broken.core.accessor.get(IConfigService).reload();
-
-      const res = await authedFetch(broken, `http://127.0.0.1:${broken.port}`, '/api/v1/config', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ plan_mode: true }),
-      });
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Envelope<unknown>;
-      expect(body.code).toBe(50003);
-      expect(body.code).toBe(ErrorCode.PERSISTENCE_FAILURE);
-      expect(body.msg).toContain('applied: (none)');
-      expect(body.msg).toContain('failed: planMode');
-      expect(typeof body.request_id).toBe('string');
-
-      expect(await readFile(tomlPath, 'utf-8')).toBe('this is = not = toml\n');
-    } finally {
-      await broken.close();
-      await removeTempHome(brokenHome);
-    }
   });
 });

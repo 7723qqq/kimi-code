@@ -11,30 +11,26 @@ import {
   type OAuthClientMetadata,
   type OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
-import type { FetchLike } from '@moonshot-ai/kimi-code-oauth';
 import { OAuthTokenTransaction } from '@moonshot-ai/kimi-code-oauth';
 
 import { BugIndicatingError } from '#/errors';
 
 import { KIMI_MCP_CLIENT_NAME } from '../client-shared';
-import {
-  canonicalMcpOAuthResource,
-  META_SUFFIX,
-  mcpOAuthStoreKey,
-  type McpOAuthStore,
-  type McpOAuthStoreMeta,
-} from './store';
+import { canonicalMcpOAuthResource, mcpOAuthStoreKey, type McpOAuthStore } from './store';
 
 const TOKENS_SUFFIX = '-tokens.json';
 const CLIENT_SUFFIX = '-client.json';
 const DISCOVERY_SUFFIX = '-discovery.json';
+export const META_SUFFIX = '-meta.json';
 const PASSIVE_REDIRECT_URI = 'http://127.0.0.1:3118/callback';
-
-export { META_SUFFIX };
-export type { McpOAuthStoreMeta };
 
 export interface StoredMcpOAuthTokens extends OAuthTokens {
   readonly obtained_at?: number;
+}
+
+export interface McpOAuthStoreMeta {
+  readonly serverName: string;
+  readonly serverUrl: string;
 }
 
 export interface McpOAuthProviderOptions {
@@ -183,8 +179,8 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     await this.tokenTransaction.save(tokens);
   }
 
-  createOAuthFetch(fetchFn: FetchLike = globalThis.fetch): FetchLike {
-    return this.tokenTransaction.createFetch(fetchFn);
+  createOAuthFetch(fetchFn: typeof fetch = globalThis.fetch): typeof fetch {
+    return this.tokenTransaction.createFetch(fetchFn) as unknown as typeof fetch;
   }
 
   redirectToAuthorization(url: URL): void {
@@ -288,7 +284,7 @@ function registeredRedirectUri(info: OAuthClientInformationMixed | undefined): s
 
 export function createMcpOAuthFetch(
   provider: OAuthClientProvider | undefined,
-  fetchFn: FetchLike | undefined,
-): FetchLike | undefined {
+  fetchFn: typeof fetch | undefined,
+): typeof fetch | undefined {
   return provider instanceof McpOAuthClientProvider ? provider.createOAuthFetch(fetchFn) : fetchFn;
 }

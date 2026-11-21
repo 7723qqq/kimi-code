@@ -1,51 +1,62 @@
 import type { IDisposable } from '#/_base/di/lifecycle';
+import { Service } from "#/_base/di/service";
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Service } from '#/_base/di/service';
-import { Emitter, type Event } from '#/_base/event';
-import { ILogService } from '#/_base/log/log';
-import { isAbortError } from '#/_base/utils/abort';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
-import { closeTrailingOpenToolExchange } from '#/agent/contextMemory/openToolExchange';
+import { defineState } from '#/state/state';
+import { estimateTokensForMessage } from "#/llm-adapter/contract/tokens";
+import { buildCompactionSummaryText, buildContextCompactionShape, isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
+import { ContextApplyCompaction } from '#/agent/contextMemory/contextEvents';
+import { historyFromContext } from '#/agent/loop/history';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
+import { llmErrorName, llmErrorRequestId, type LlmOutcome } from '@moonshot-ai/core/llm/response';
+import { retryBackoffDelay, sleepForRetry } from '#/_base/utils/retry';
 import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
-import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
-import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
-import { agentContextOfScope, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { isAbortError } from '#/_base/utils/abort';
+import type { ProfileModelContext } from '#/agent/profile/profile';
+import {
+  agentContextOfScope,
+  IAgentScopeContext,
+} from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
+import { IAgentTodoService } from '#/features/todo/todoService';
+import { renderTodoList } from '#/features/todo/todoItem';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import type { WireLineRange } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
+import {
+  APIContextOverflowError,
+  APIEmptyResponseError,
+  APIStatusError,
+  errorDiagnostics,
+  errorFromLlmMessage,
+  isLlmErrorMessage,
+  isRetryableGenerateError,
+} from '#/llm-adapter/contract/errors';
+import { createUserMessage, type Message } from '@moonshot-ai/core/llm/message';
+import { emptyUsage, grandTotal, inputTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 import { IEventBus } from '#/app/event/eventBus';
-import { LifecycleScope } from '#/app/scopes';
 import type { CompactionFailedEvent, CompactionFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import {
-  ErrorCodes,
-  Error2,
-  isCodedError,
-  isError2,
-  toKimiErrorPayload,
-} from '#/errors';
-import { IAgentTodoService } from '#/features/todo/todoService';
-import { IAgentTaskService } from '#/agent/task/task';
-import { IAssociativeMemoryService } from '#/features/associativeMemory/service';
-import { OrderedHookSlot } from '#/hooks';
-import { APIContextOverflowError } from '#/llm-adapter/contract/errors';
-import { createUserMessage, type Message } from '#/llm-adapter/contract/message';
-import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
-import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { ErrorCodes, Error2, fromErrorPayload, isCodedError, isError2, toKimiErrorPayload, unwrapErrorCause } from "#/errors";
+import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { defineState } from '#/state/state';
-import { IWireService } from '#/wire/wire';
-import type { ToolDescription as Tool } from '#human/llm/message';
-import { inputTotal, type TokenUsage } from '#human/llm/usage';
-
+import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 import { renderCompactionInstruction } from './compactionInstruction';
-import { generateCompactionSummary } from './compactionGeneration';
-import { applyCompactionRound, nonHistoryStateFingerprint } from './compactionApply';
+import { renderContextRecoveryPointer } from './contextRecovery';
+import {
+  IAgentFullCompactionService,
+  type FullCompactionInput,
+  type FullCompactionTask,
+} from './fullCompaction';
+import {
+  RuntimeCompactionStrategy,
+  type CompactionStrategy,
+} from './strategy';
 import {
   CompactionBlocked,
   CompactionCancelled,
@@ -57,24 +68,19 @@ import {
   FullCompactionComplete,
 } from './compactionOps';
 import {
-  assistantUsageTotal,
-  buildHistoryTokenProfile,
-  findAPIStatusError,
-  takeRecentMessagesWithinTokenBudget,
-  type HistoryTokenProfile,
-} from './compactionUtils';
-import {
-  IAgentFullCompactionService,
-  type FullCompactionInput,
-  type FullCompactionTask,
-} from './fullCompaction';
-import { RuntimeCompactionStrategy, type CompactionStrategy } from './strategy';
-import { type CompactionBeginData, type CompactionResult } from './types';
+  type CompactionBeginData,
+  type CompactionResult,
+} from './types';
+import { Emitter, type Event } from '#/_base/event';
+import { OrderedHookSlot } from '#/hooks';
 
 export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
 const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS = 128 * 1024;
 const OVERFLOW_CONTEXT_SAFETY_RATIO = 0.85;
+const COMPLETION_BUDGET_ESTIMATE_MARGIN_RATIO = 0.02;
 const OVERFLOW_STATUS_RECOVERY_RATIO = 0.5;
+const MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS = 3;
+const COMPACTION_OVERFLOW_SHRINK_RATIOS = [0.7, 0.5, 0.35] as const;
 
 type CompactionTelemetryProperties = Pick<
   CompactionFinishedEvent,
@@ -86,6 +92,19 @@ interface ActiveCompaction extends FullCompactionTask {
   readonly quiescence?: IDisposable;
   trace?: LLMRequestTrace;
   blockedByTurn: boolean;
+}
+
+interface CompactionAttemptResult {
+  readonly summary: string;
+  readonly usage: TokenUsage | null;
+  readonly requestId?: string;
+}
+
+class CompactionTruncatedError extends Error {
+  constructor() {
+    super('Compaction response was truncated before producing a complete summary.');
+    this.name = 'CompactionTruncatedError';
+  }
 }
 
 export const fullCompactionCompactionCountInTurnKey = defineState<number>(
@@ -121,14 +140,10 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   private _compacting: ActiveCompaction | null = null;
 
   constructor(
-    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @ISessionTokenCountingService private readonly tokenCounting: ISessionTokenCountingService,
-    @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
-    @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
     @IAgentScopeContext private readonly agent: IAgentScopeContext,
     @IAgentTodoService private readonly todo: IAgentTodoService,
-    @IAgentTaskService private readonly task: IAgentTaskService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IEventBus private readonly eventBus: IEventBus,
@@ -136,8 +151,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     @IAgentStateService private readonly states: IAgentStateService,
     @IWireService private readonly wire: IWireService,
     @ISessionRunGate private readonly runGate: ISessionRunGate,
-    @IAssociativeMemoryService private readonly associativeMemory: IAssociativeMemoryService,
-    @ILogService private readonly log: ILogService,
   ) {
     super();
     this.states.contributeState(fullCompactionKey);
@@ -157,7 +170,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         await next();
       }),
     );
-    this._register(this.eventBus.subscribe(TurnStarted, () => this.resetForTurn()));
+    this._register(
+      this.eventBus.subscribe(TurnStarted, () => this.resetForTurn()),
+    );
     this._register(
       this.eventBus.subscribe(TurnEnded, () => {
         this.activeTurnId = undefined;
@@ -229,16 +244,16 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     if (active !== null) {
       this.telemetry.track2('cancel', {
         from: 'compacting',
-        trace_id: active.traceId,
+        request_id: active.requestId,
       });
     }
     active?.abortController.abort();
   }
 
   private getEffectiveMaxContextTokens(): number {
-    const capability = this.profile.data().modelCapabilities;
-    const configured = capability.max_input_tokens ?? capability.max_context_tokens;
-    const modelAlias = this.profile.data().modelAlias;
+    const model = this.loopService.resolveModelContext().model;
+    const configured = model.maxInputSize ?? model.maxContextSize ?? 0;
+    const modelAlias = this.loopService.data().modelAlias;
     const observed =
       modelAlias === undefined ? undefined : this.observedMaxContextTokensByModel.get(modelAlias);
     if (observed === undefined) return configured;
@@ -247,20 +262,20 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   }
 
   private resolveModelContextWithEffectiveMax(): ProfileModelContext {
-    const resolved = this.profile.resolveModelContext();
+    const resolved = this.loopService.resolveModelContext();
     const effectiveMax = this.getEffectiveMaxContextTokens();
     return {
       ...resolved,
-      modelCapabilities: {
-        ...resolved.modelCapabilities,
-        max_context_tokens: effectiveMax,
-        max_input_tokens: effectiveMax,
+      model: {
+        ...resolved.model,
+        maxContextSize: effectiveMax,
+        maxInputSize: effectiveMax,
       },
     };
   }
 
   private currentRequestTokens(): number {
-    return this.historyRequestTokens(this.context.get());
+    return this.historyRequestTokens(this.loopService.history());
   }
 
   private historyRequestTokens(messages: readonly Message[]): number {
@@ -281,14 +296,10 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
 
   private requestTokens(messages: readonly Message[]): number {
     return this.tokenCounting.requestSize({
-      systemPrompt: this.profile.getSystemPrompt(),
-      tools: this.defaultTools().filter((tool) => tool.deferred !== true),
+      systemPrompt: this.loopService.getSystemPrompt(),
+      tools: this.toolSelect.defaultTools().filter((tool) => tool.deferred !== true),
       messages,
     });
-  }
-
-  private defaultTools(): readonly Tool[] {
-    return this.toolSelect.defaultTools();
   }
 
   private shouldRecoverFromContextOverflow(
@@ -296,18 +307,28 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     estimatedRequestTokens = this.currentRequestTokens(),
   ): boolean {
     if (isCodedError(error) && error.code === ErrorCodes.CONTEXT_OVERFLOW) return true;
+    if (isLlmErrorMessage(error)) {
+      if (error.kind === 'context_overflow') return true;
+      if ((error.kind !== 'status' && error.kind !== 'request_too_large') || error.statusCode !== 413) return false;
+      const effectiveMax = this.getEffectiveMaxContextTokens();
+      return (
+        effectiveMax > 0 &&
+        estimatedRequestTokens >= effectiveMax * OVERFLOW_STATUS_RECOVERY_RATIO
+      );
+    }
     const statusError = findAPIStatusError(error);
     if (statusError instanceof APIContextOverflowError) return true;
     if (statusError === undefined || statusError.statusCode !== 413) return false;
     const effectiveMax = this.getEffectiveMaxContextTokens();
     return (
-      effectiveMax > 0 && estimatedRequestTokens >= effectiveMax * OVERFLOW_STATUS_RECOVERY_RATIO
+      effectiveMax > 0 &&
+      estimatedRequestTokens >= effectiveMax * OVERFLOW_STATUS_RECOVERY_RATIO
     );
   }
 
   private observeContextOverflow(estimatedRequestTokens: number): void {
     if (!Number.isFinite(estimatedRequestTokens) || estimatedRequestTokens <= 0) return;
-    const modelAlias = this.profile.data().modelAlias;
+    const modelAlias = this.loopService.data().modelAlias;
     if (modelAlias === undefined) return;
     const observed = Math.max(
       1,
@@ -327,8 +348,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     if (!this.reserveCompactionSlot(data.source)) return false;
 
     const tokenCount = this.validateCompactionStart(data.source);
-    const quiescence =
-      data.source === 'manual' ? this.loopService.tryAcquireQuiescence() : undefined;
+    const quiescence = data.source === 'manual'
+      ? this.loopService.tryAcquireQuiescence()
+      : undefined;
     if (data.source === 'manual' && quiescence === undefined) {
       throw new Error2(
         ErrorCodes.COMPACTION_UNABLE,
@@ -371,7 +393,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   }
 
   private validateCompactionStart(source: CompactionBeginData['source']): number {
-    const history = this.context.get();
+    const history = this.loopService.history();
     if (history.length === 0) {
       throw new Error2(ErrorCodes.COMPACTION_UNABLE, 'No messages to compact in current history.');
     }
@@ -409,8 +431,8 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         tokenCount,
         originTurnId,
         quiescence,
-        get traceId() {
-          return this.trace?.traceId;
+        get requestId() {
+          return this.trace?.requestId;
         },
         blockedByTurn: false,
       },
@@ -455,7 +477,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     this.consecutiveOverflowCompactions = 0;
   }
 
-  private async recoverFromContextOverflow(context: LoopErrorContext): Promise<boolean> {
+  private async recoverFromContextOverflow(
+    context: LoopErrorContext,
+  ): Promise<boolean> {
     this.recordOverflowRecovery(context.error);
     const didStartCompaction = this.beginAutoCompaction();
     if (!didStartCompaction && !this._compacting) return false;
@@ -505,7 +529,8 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     ) {
       return false;
     }
-    if (!this.strategy.shouldCompact(this.tokenCountWithPending())) return false;
+    const shouldCompact = this.strategy.shouldCompact(this.tokenCountWithPending());
+    if (!shouldCompact) return false;
     return this.beginAutoCompaction(throwOnLimit);
   }
 
@@ -514,13 +539,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     const maxCompactions = this.strategy.maxCompactionPerTurn;
     if (this.compactionCountInTurn >= maxCompactions) {
       if (throwOnLimit) {
-        throw new Error2(
-          ErrorCodes.CONTEXT_OVERFLOW,
-          `Compaction limit exceeded (${String(maxCompactions)})`,
-          {
-            details: { maxCompactions },
-          },
-        );
+        throw new Error2(ErrorCodes.CONTEXT_OVERFLOW, `Compaction limit exceeded (${String(maxCompactions)})`, {
+          details: { maxCompactions },
+        });
       }
       return false;
     }
@@ -532,7 +553,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     if (active === null) return;
     active.blockedByTurn = true;
     this.propagateBlockingAbort(active, signal);
-    void this.dispatcher.dispatch(new CompactionBlocked({ agentId: this.agent.agentId, turnId }));
+    void this.dispatcher.dispatch(
+      new CompactionBlocked({ agentId: this.agent.agentId, turnId }),
+    );
     try {
       await active.promise;
     } catch (error) {
@@ -557,7 +580,8 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     error: unknown,
   ): boolean {
     return (
-      signal?.aborted === true && (active.abortController.signal.aborted || isAbortError(error))
+      signal?.aborted === true &&
+      (active.abortController.signal.aborted || isAbortError(error))
     );
   }
 
@@ -608,21 +632,11 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     data: Readonly<CompactionBeginData>,
   ): Promise<CompactionResult> {
     const startedAt = Date.now();
-    const originalHistory = [...this.context.get()];
-    const applyDeps = {
-      context: this.context,
-      todo: this.todo,
-      task: this.task,
-      associativeMemory: this.associativeMemory,
-      log: this.log,
-      wire: this.wire,
-      states: this.states,
-      estimateText: (text: string) => this.tokenCounting.estimateText(text),
-    };
-    const nonHistoryStateBefore = nonHistoryStateFingerprint(applyDeps);
+    this.loopService.flushReminders();
+    const originalHistory = [...this.loopService.history()];
     const tokensBefore = this.historyRequestTokens(originalHistory);
-    const generationState = { retryCount: 0 };
-    let thinkingEffort = this.profile.data().thinkingLevel;
+    let retryCount = 0;
+    let thinkingEffort = this.loopService.data().thinkingLevel;
 
     try {
       const signal = active.abortController.signal;
@@ -630,9 +644,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
 
       await this.hooks.onWillCompact.run(active);
 
-      const resolvedModel = this.profile.resolveModelContext();
+      const resolvedModel = this.loopService.resolveModelContext();
       thinkingEffort = resolvedModel.thinkingLevel;
-      const maxContextTokens = resolvedModel.modelCapabilities.max_context_tokens;
+      const maxContextTokens = resolvedModel.model.maxContextSize ?? 0;
       const defaultCompactionCap =
         maxContextTokens > 0
           ? Math.min(maxContextTokens, DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS)
@@ -640,66 +654,194 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       const compactionMaxOutputSize = resolvedModel.maxOutputSize ?? defaultCompactionCap;
 
       const instruction = renderCompactionInstruction({ customInstruction: data.instruction });
+
+      const maxAttempts = resolvedModel.compactionMaxAttempts ?? MAX_COMPACTION_RETRY_ATTEMPTS;
+      let attempt: CompactionAttemptResult | undefined;
+      let historyForModel: readonly ContextMessage[] = originalHistory;
+      let droppedCount = 0;
+      let overflowShrinkCount = 0;
+      let requestAttempts = 0;
+      let cacheProbePending = true;
       const instructionMessage = createUserMessage(instruction);
       const tokenProfile = buildHistoryTokenProfile(
         originalHistory,
         this.requestTokens([]),
         (message) => this.tokenCounting.estimateMessage(message),
       );
-
-      const maxAttempts = resolvedModel.compactionMaxAttempts ?? MAX_COMPACTION_RETRY_ATTEMPTS;
-      let droppedCount = 0;
-      const generation = await generateCompactionSummary({
-        state: generationState,
-        history: originalHistory,
-        instruction,
-        signal,
-        maxAttempts,
+      const preShrunkHistory = this.preShrinkHistoryToWindowBudget(
+        historyForModel,
+        instructionMessage,
         compactionMaxOutputSize,
-        originTurnId: active.originTurnId,
         tokenProfile,
-        getEffectiveMaxContextTokens: () => this.getEffectiveMaxContextTokens(),
-        llmRequester: this.llmRequester,
-        preShrinkHistory: (history, maxOutputSize) =>
-          this.preShrinkHistoryToWindowBudget(history, instructionMessage, maxOutputSize, tokenProfile),
-        shouldRecoverFromContextOverflow: (error, estimatedTokens) =>
-          this.shouldRecoverFromContextOverflow(error, estimatedTokens),
-        observeContextOverflow: (estimatedTokens) => this.observeContextOverflow(estimatedTokens),
-        setTrace: (trace) => {
-          active.trace = trace;
-        },
-      });
-      const attempt = generation.attempt;
-      droppedCount = generation.droppedCount;
-
-      const apply = await applyCompactionRound(
-        applyDeps,
-        {
-          attemptSummary: attempt.summary,
-          attemptUsage: attempt.usage,
-          originalHistory,
-          nonHistoryStateBefore,
-          tokensBefore,
-          droppedCount,
-          requestOverheadTokens: this.requestTokens([]),
-          inFlightTurn: this.inFlightTurnOf(this.context.get()),
-        },
-        signal,
-        () => {
-          const active = this._compacting;
-          if (active !== null) {
-            this.cancelActive(active);
-          }
-          throw compactionCancelledReason(active);
-        },
       );
-      const result = {
-        summary: apply.summary,
-        tokensBefore: apply.tokensBefore,
-        tokensAfter: apply.tokensAfter,
-        compactedCount: apply.compactedCount,
-        droppedCount: apply.droppedCount,
-      };
+      droppedCount += historyForModel.length - preShrunkHistory.length;
+      historyForModel = preShrunkHistory;
+      while (true) {
+        const messagesToCompact = historyForModel;
+        const messages: Message[] = [...messagesToCompact, instructionMessage];
+        const estimatedCompactionRequestTokens =
+          messagesToCompact.length === originalHistory.length
+            ? this.historyRequestTokens(originalHistory) +
+              this.tokenCounting.estimateMessage(instructionMessage)
+            : tokenProfile.estimateRequest(messages);
+        const effectiveMaxTokens = this.getEffectiveMaxContextTokens();
+        const usedContextTokens =
+          effectiveMaxTokens > 0
+            ? estimatedCompactionRequestTokens +
+              Math.ceil(effectiveMaxTokens * COMPLETION_BUDGET_ESTIMATE_MARGIN_RATIO)
+            : undefined;
+        requestAttempts += 1;
+
+        try {
+          const source = {
+            type: 'operation',
+            turnId: active.originTurnId,
+            requestKind: 'full_compaction',
+            logFields: { droppedCount },
+          } as const;
+          const requester = await this.loopService.requester.prepareOperation({
+            maxOutputSize: compactionMaxOutputSize,
+            promptCacheProbe: cacheProbePending ? 'compaction' : undefined,
+            source: () => source,
+            onTrace: (trace) => {
+              active.trace = trace;
+            },
+          }, signal);
+          const outcome = await requester.generate(
+            { content: { messages: historyFromContext(messages), usedTokens: usedContextTokens }, profile: {} },
+            { signal },
+          );
+          if (outcome.type === 'failed') throw errorFromLlmMessage(outcome.error, outcome.diagnostics);
+          if (outcome.type === 'aborted') {
+            const message = outcome.reason instanceof Error ? outcome.reason.message : 'The operation was aborted.';
+            throw new DOMException(message, 'AbortError');
+          }
+          cacheProbePending = false;
+          attempt = collectSummary(outcome);
+          break;
+        } catch (error) {
+          const isContextOverflow = this.shouldRecoverFromContextOverflow(
+            error,
+            estimatedCompactionRequestTokens,
+          );
+          if (isContextOverflow) {
+            this.observeContextOverflow(estimatedCompactionRequestTokens);
+            overflowShrinkCount += 1;
+            if (
+              overflowShrinkCount > MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS ||
+              requestAttempts >= maxAttempts ||
+              messagesToCompact.length <= 1
+            ) {
+              throw error;
+            }
+            const before = messagesToCompact.length;
+            historyForModel = shrinkCompactionHistoryAfterOverflow(
+              messagesToCompact,
+              overflowShrinkCount,
+              tokenProfile.estimateMessage,
+            );
+            if (historyForModel.length === 0) throw error;
+            droppedCount += before - historyForModel.length;
+            retryCount = 0;
+            continue;
+          }
+          const unwrappedError = unwrapErrorCause(error);
+          if (
+            (error instanceof CompactionTruncatedError ||
+              (unwrappedError instanceof APIEmptyResponseError &&
+                unwrappedError.finishReason !== 'filtered')) &&
+            messagesToCompact.length > 1
+          ) {
+            if (requestAttempts >= maxAttempts) {
+              throw error;
+            }
+            const reduced = dropOldestMessageAndLeadingToolResults(messagesToCompact);
+            droppedCount += messagesToCompact.length - reduced.length;
+            historyForModel = reduced;
+            retryCount = 0;
+            continue;
+          }
+          if (!isRetryableGenerateError(unwrappedError)) {
+            throw error;
+          }
+          if (requestAttempts >= maxAttempts) {
+            throw error;
+          }
+          await sleepForRetry(retryBackoffDelay(retryCount), signal);
+          retryCount += 1;
+        }
+      }
+
+      if (attempt === undefined) {
+        throw new APIEmptyResponseError(
+          'The compaction response did not contain a usable summary.',
+        );
+      }
+
+      if (!historySafeToCompact(this.loopService.history(), originalHistory)) {
+        const active = this._compacting;
+        if (active !== null) {
+          this.cancelActive(active);
+        }
+        throw compactionCancelledReason(active);
+      }
+
+      const summary = await this.postProcessSummary(attempt.summary);
+      const wireLines = await this.captureWireLines();
+      signal.throwIfAborted();
+      const recoveryFooter = this.renderRecoveryFooter(wireLines);
+      const summaryText = buildCompactionSummaryText(summary);
+      const contextSummary = recoveryFooter === undefined ? summaryText : `${summaryText}\n\n${recoveryFooter}`;
+      const summaryOutputTokens = attempt.usage === null
+        ? undefined
+        : attempt.usage.output +
+          (recoveryFooter === undefined ? 0 : this.tokenCounting.estimateText(recoveryFooter));
+      const dropped = droppedCount === 0 ? undefined : droppedCount;
+      this.loopService.flushReminders();
+      const currentHistory = [...this.loopService.history()];
+      if (!historySafeToCompact(currentHistory, originalHistory)) {
+        const active = this._compacting;
+        if (active !== null) this.cancelActive(active);
+        throw compactionCancelledReason(active);
+      }
+      const compacted = buildContextCompactionShape(currentHistory, {
+        summary,
+        contextSummary,
+        compactedCount: originalHistory.length,
+        tokensBefore,
+        summaryOutputTokens,
+        requestOverheadTokens: this.requestTokens([]),
+        droppedCount: dropped,
+      }, {
+        text: (text) => this.tokenCounting.estimateText(text),
+        message: (message) => this.tokenCounting.estimateMessage(message),
+        messages: (messages) => this.tokenCounting.estimateMessages(messages),
+      });
+      if (!this.loopService.replaceHistory(historyFromContext(compacted.messages), 'compaction', () => {
+        void this.dispatcher.dispatch(new ContextApplyCompaction({
+          agentId: this.agent.agentId,
+          summary: compacted.summary,
+          contextSummary: compacted.contextSummary,
+          compactedCount: compacted.compactedCount,
+          tokensBefore: compacted.tokensBefore,
+          tokensAfter: compacted.tokensAfter,
+          summaryOutputTokens,
+          keptUserMessageCount: compacted.keptUserMessageCount,
+          keptHeadUserMessageCount: compacted.keptHeadUserMessageCount,
+          appendedInjectionCount: compacted.appendedInjectionCount,
+          droppedCount: dropped,
+          wireLines,
+        }));
+        this.tokenCounting.rebase(this.agent.agentContext, {
+          length: compacted.messages.length,
+          tokens: compacted.tokensAfter,
+          measured: false,
+        });
+      })) {
+        throw new Error2(ErrorCodes.INTERNAL, 'Loop rejected compacted history');
+      }
+      const { messages: _messages, ...result } = compacted;
+      void _messages;
 
       const properties: CompactionFinishedEvent = {
         turn_id: active.originTurnId,
@@ -709,10 +851,10 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         duration_ms: Date.now() - startedAt,
         compacted_count: result.compactedCount,
         dropped_count: result.droppedCount,
-        retry_count: generationState.retryCount,
+        retry_count: retryCount,
         round: 1,
         thinking_effort: thinkingEffort,
-        trace_id: attempt.traceId,
+        request_id: attempt.requestId,
         ...usageTelemetry(attempt.usage),
       };
       this.telemetry.track2('compaction_finished', properties);
@@ -725,12 +867,15 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         tokens_before: tokensBefore,
         duration_ms: Date.now() - startedAt,
         round: 1,
-        retry_count: generationState.retryCount,
+        retry_count: retryCount,
         thinking_effort: thinkingEffort,
-        error_type: error instanceof Error ? error.name : 'Unknown',
-        trace_id: findAPIStatusError(error)?.traceId ?? active.traceId,
+        error_type: isLlmErrorMessage(error) ? llmErrorName(error) : error instanceof Error ? error.name : 'Unknown',
+        request_id: findRequestId(error) ?? active.requestId,
       };
       this.telemetry.track2('compaction_failed', properties);
+      if (isLlmErrorMessage(error) && error.kind === 'auth') {
+        throw fromErrorPayload(toKimiErrorPayload(error));
+      }
       if (
         isError2(error) &&
         (error.code === ErrorCodes.AUTH_LOGIN_REQUIRED ||
@@ -738,7 +883,11 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       ) {
         throw error;
       }
-      throw new Error2(ErrorCodes.COMPACTION_FAILED, String(error), { cause: error });
+      throw new Error2(
+        ErrorCodes.COMPACTION_FAILED,
+        isLlmErrorMessage(error) ? `${llmErrorName(error)}: ${error.message}` : String(error),
+        { cause: error },
+      );
     }
   }
 
@@ -769,24 +918,246 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     return preShrunk.length === 0 ? history : preShrunk;
   }
 
-  private inFlightTurnOf(history: readonly ContextMessage[]): ContextMessage[] {
-    if (this.loopService.snapshot().state !== 'running') return [];
-    let lastUserIndex = -1;
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (isRealUserInput(history[i]!)) {
-        lastUserIndex = i;
-        break;
-      }
+  private async postProcessSummary(summary: string): Promise<string> {
+    const todos = this.todo.get();
+    if (todos.length === 0) {
+      return summary;
     }
-    if (lastUserIndex === -1) return [];
-    return closeTrailingOpenToolExchange(history.slice(lastUserIndex + 1));
+    return `${summary.trim()}\n\n${renderTodoList(todos, '## TODO List')}`;
+  }
+
+  private async captureWireLines(): Promise<WireLineRange | undefined> {
+    try {
+      await this.wire.flush();
+    } catch (error) {
+      onUnexpectedError(error);
+      return undefined;
+    }
+    const end = this.wire.lineCount();
+    const previous = this.states.get(fullCompactionWireRangesKey).at(-1);
+    const start = Math.max(previous?.end ?? 0, this.wire.lastContextClearLine() ?? 0) + 1;
+    if (end < start) return undefined;
+    return { start, end };
+  }
+
+  private renderRecoveryFooter(wireLines: WireLineRange | undefined): string | undefined {
+    if (wireLines === undefined) return undefined;
+    const journalPath = this.wire.journalPath();
+    if (journalPath === undefined) return undefined;
+    const windows = [...this.states.get(fullCompactionWireRangesKey), wireLines];
+    return renderContextRecoveryPointer({ journalPath, windows });
   }
 
   private tokenCountWithPending(): number {
     const counted = this.tokenCounting.get(agentContextOfScope(this.agent)).size;
-    const usageAnchored = this.usageAnchoredRequestTokens(this.context.get());
+    const usageAnchored = this.usageAnchoredRequestTokens(this.loopService.history());
     return usageAnchored === undefined ? counted : Math.max(counted, usageAnchored);
   }
+}
+
+interface HistoryTokenProfile {
+  readonly overheadTokens: number;
+  readonly estimateMessage: (message: Message) => number;
+  readonly estimateRequest: (messages: readonly Message[]) => number;
+}
+
+function assistantUsageTotal(message: Message): number | undefined {
+  if (message.role !== 'assistant') return undefined;
+  const usage = (message as ContextMessage).usage ?? message.attributes?.usage;
+  if (usage === undefined) return undefined;
+  const total = grandTotal(usage);
+  return total !== undefined && Number.isFinite(total) && total > 0 ? total : undefined;
+}
+
+function buildHistoryTokenProfile(
+  history: readonly ContextMessage[],
+  baseOverheadTokens: number,
+  estimateBase: (message: Message) => number,
+): HistoryTokenProfile {
+  const weights = history.map((message) => estimateBase(message));
+  const anchors: { index: number; tokens: number }[] = [];
+  for (let i = 0; i < history.length; i++) {
+    const tokens = assistantUsageTotal(history[i]!);
+    if (tokens !== undefined) {
+      anchors.push({ index: i, tokens });
+    }
+  }
+  if (anchors.length === 0) {
+    return {
+      overheadTokens: baseOverheadTokens,
+      estimateMessage: estimateBase,
+      estimateRequest: (messages) => {
+        let total = baseOverheadTokens;
+        for (const message of messages) total += estimateBase(message);
+        return total;
+      },
+    };
+  }
+
+  for (let k = anchors.length - 2; k >= 0; k--) {
+    if (anchors[k]!.tokens > anchors[k + 1]!.tokens) {
+      anchors[k]!.tokens = anchors[k + 1]!.tokens;
+    }
+  }
+
+  let prevIndex = -1;
+  let prevTokens = baseOverheadTokens;
+  for (let k = 0; k < anchors.length; k++) {
+    const { index, tokens } = anchors[k]!;
+    let spanEstimate = 0;
+    for (let j = prevIndex + 1; j <= index; j++) {
+      spanEstimate += weights[j]!;
+    }
+    const measuredDelta = tokens - prevTokens;
+    if (measuredDelta > spanEstimate) {
+      distributeExcessTokens(
+        weights,
+        prevIndex + 1,
+        index,
+        spanEstimate,
+        measuredDelta - spanEstimate,
+      );
+    }
+    prevIndex = index;
+    prevTokens = tokens;
+  }
+
+  const byMessage = new Map<Message, number>();
+  for (let i = 0; i < history.length; i++) {
+    byMessage.set(history[i]!, weights[i]!);
+  }
+  const estimateMessage = (message: Message): number =>
+    byMessage.get(message) ?? estimateBase(message);
+  return {
+    overheadTokens: baseOverheadTokens,
+    estimateMessage,
+    estimateRequest: (messages) => {
+      let total = baseOverheadTokens;
+      for (const message of messages) total += estimateMessage(message);
+      return total;
+    },
+  };
+}
+
+function distributeExcessTokens(
+  weights: number[],
+  start: number,
+  end: number,
+  spanEstimate: number,
+  excess: number,
+): void {
+  if (excess <= 0 || start > end) return;
+  if (spanEstimate <= 0) {
+    weights[end] = (weights[end] ?? 0) + excess;
+    return;
+  }
+  const baseSlice = weights.slice(start, end + 1);
+  let distributed = 0;
+  for (let j = start; j <= end; j++) {
+    const add = Math.floor((excess * baseSlice[j - start]!) / spanEstimate);
+    weights[j] = weights[j]! + add;
+    distributed += add;
+  }
+  weights[end] = weights[end]! + (excess - distributed);
+}
+
+function findAPIStatusError(error: unknown): APIStatusError | undefined {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (current !== undefined && current !== null && !seen.has(current)) {
+    if (current instanceof APIStatusError) return current;
+    seen.add(current);
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return undefined;
+}
+
+function findRequestId(error: unknown): string | undefined {
+  const diagnostics = errorDiagnostics(error);
+  const diagnosticRequestId = diagnostics?.['requestId'];
+  if (typeof diagnosticRequestId === 'string') return diagnosticRequestId;
+  if (isLlmErrorMessage(error)) {
+    const requestId = llmErrorRequestId(error);
+    if (requestId !== undefined) return requestId;
+  }
+  return findAPIStatusError(error)?.requestId ?? undefined;
+}
+
+function collectSummary(outcome: Extract<LlmOutcome, { type: 'done' }>): CompactionAttemptResult {
+  if (outcome.finish?.finishReason === 'truncated') {
+    throw new CompactionTruncatedError();
+  }
+
+  const summary = outcome.message.content
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('')
+    .trim();
+  if (summary.length === 0) {
+    throw new APIEmptyResponseError(
+      'The compaction response did not contain a non-empty summary.',
+    );
+  }
+
+  return { summary, usage: outcome.usage ?? emptyUsage(), requestId: outcome.requestId };
+}
+
+function historySafeToCompact(
+  current: readonly ContextMessage[],
+  original: readonly ContextMessage[],
+): boolean {
+  if (current.length < original.length) return false;
+  if (!original.every((message, index) => message === current[index])) return false;
+  return current
+    .slice(original.length)
+    .every((message) => isRealUserInput(message) || message.origin?.kind === 'injection');
+}
+
+function shrinkCompactionHistoryAfterOverflow<T extends Message>(
+  messages: readonly T[],
+  attempt: number,
+  estimateMessage: (message: T) => number = estimateTokensForMessage,
+): T[] {
+  if (messages.length <= 1) return messages.slice();
+  const ratio = COMPACTION_OVERFLOW_SHRINK_RATIOS[
+    Math.min(attempt - 1, COMPACTION_OVERFLOW_SHRINK_RATIOS.length - 1)
+  ]!;
+  let totalTokens = 0;
+  for (const message of messages) totalTokens += estimateMessage(message);
+  const tokenBudget = Math.floor(totalTokens * ratio);
+  return takeRecentMessagesWithinTokenBudget(messages, tokenBudget, estimateMessage);
+}
+
+function takeRecentMessagesWithinTokenBudget<T extends Message>(
+  messages: readonly T[],
+  tokenBudget: number,
+  estimateMessage: (message: T) => number = estimateTokensForMessage,
+): T[] {
+  let start = messages.length;
+  let tokens = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const messageTokens = estimateMessage(messages[i]!);
+    if (tokens + messageTokens > tokenBudget) break;
+    tokens += messageTokens;
+    start = i;
+  }
+  if (start === 0) start = 1;
+  return dropLeadingToolResults(messages.slice(start));
+}
+
+function dropOldestMessageAndLeadingToolResults<T extends { readonly role: string }>(
+  messages: readonly T[],
+): T[] {
+  if (messages.length <= 1) return messages.slice();
+  return dropLeadingToolResults(messages.slice(1));
+}
+
+function dropLeadingToolResults<T extends { readonly role: string }>(messages: readonly T[]): T[] {
+  let start = 0;
+  while (start < messages.length && messages[start]!.role === 'tool') {
+    start += 1;
+  }
+  return messages.slice(start);
 }
 
 function usageTelemetry(usage: TokenUsage | null): CompactionTelemetryProperties {

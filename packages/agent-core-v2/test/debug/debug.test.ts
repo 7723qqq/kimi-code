@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { collection, type CollectionView } from '#/_base/di/collection';
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -9,15 +9,15 @@ import { ServiceCollection } from '#/_base/di/serviceCollection';
 import { Emitter } from '#/_base/event';
 import { IEventService } from '#/app/event/event';
 import type { Event2 } from '#/app/event/event2';
+import { EventService } from '#/app/event/eventService';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { EventService } from '#/app/event/eventService';
-import type { DiUnitChanged } from '#/debug/debugCascade';
-import { DI_UNIT_CHANGED_EVENT } from '#/debug/debugCascade';
+import { DI_UNIT_CHANGED_EVENT, DiUnitChanged } from '#/debug/debugCascade';
 import { DebugCascadeService } from '#/debug/debugCascadeService';
 import { DebugGraphService } from '#/debug/debugGraphService';
 import { DebugLedgerService } from '#/debug/debugLedgerService';
 import { DebugEventsService } from '#/features/debugEvents/debugEventsService';
+
 
 interface IRoot {
   label: string;
@@ -94,6 +94,7 @@ function makeTree(): { app: InstantiationService; ws: InstantiationService } {
   ws.debugLabel = 'workspace:ws1';
   return { app, ws };
 }
+
 
 describe('debug domain — IDebugLedgerService', () => {
   it('tree() exposes units, ledger entries, and children recursively', () => {
@@ -185,7 +186,9 @@ describe('debug domain — IDebugCascadeService', () => {
     const wsGroup = pending.find((group) => group.scopePath === 'app/workspace:ws1');
     expect(wsGroup?.waiting ?? []).toEqual([]);
     const appGroup = pending.find((group) => group.scopePath === 'app');
-    expect(appGroup?.failed).toEqual([{ token: 'debug-boom', error: 'boom construction failed' }]);
+    expect(appGroup?.failed).toEqual([
+      { token: 'debug-boom', error: 'boom construction failed' },
+    ]);
     app.dispose();
   });
 
@@ -257,7 +260,9 @@ describe('debug domain — IDebugCascadeService', () => {
     const service = new DebugCascadeService(app, events);
 
     app.provide(IRoot, new SyncDescriptor(Root));
-    const rootEvents = events.published.filter((event) => event.type === DI_UNIT_CHANGED_EVENT);
+    const rootEvents = events.published.filter(
+      (event) => event.type === DI_UNIT_CHANGED_EVENT,
+    );
     expect(rootEvents).toContainEqual(
       expect.objectContaining({
         type: DI_UNIT_CHANGED_EVENT,

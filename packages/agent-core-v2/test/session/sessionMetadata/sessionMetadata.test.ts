@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -9,24 +9,23 @@ import { ILogService } from '#/_base/log/log';
 import { IEventService } from '#/app/event/event';
 import type { Event2 } from '#/app/event/event2';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
-import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { ISessionLockService } from '#/persistence/interface/sessionLock';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataService';
+import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
 import { ISessionStateService } from '#/session/state/sessionState';
-import { SessionStateService } from '#/session/state/sessionStateService';
 import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
-import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
+import { SessionStateService } from '#/session/state/sessionStateService';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
+import { ISessionLockService } from '#/persistence/interface/sessionLock';
 
-import { stubLog } from '../../_base/log/stubs';
 import { stubSessionIndexMirror } from '../../app/sessionIndex/stubs';
+import { stubLog } from '../../_base/log/stubs';
 
 const META_SCOPE = 'sessions/wd_test/s1/session-meta';
 
@@ -95,7 +94,7 @@ describe('SessionMetadata', () => {
 
   afterEach(() => {
     disposables.dispose();
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   it('creates an initial document on first read', async () => {
@@ -107,6 +106,14 @@ describe('SessionMetadata', () => {
       custom: {},
     });
     expect((await meta.read()).createdAt).toBeGreaterThan(0);
+  });
+
+  it('retains the host cwd in metadata and the read model for a remote session', async () => {
+    const meta = ix.get(ISessionMetadata);
+    await meta.ready;
+    await meta.update({ environmentId: 'remote', environmentCwd: '/remote/project' });
+    expect((await meta.read()).cwd).toBe(makeContext().cwd);
+    expect(mirror.recorded.at(-1)).toMatchObject({ cwd: makeContext().cwd });
   });
 
   it('exposes the live effective cwd while preserving explicit and remote bindings', async () => {
@@ -436,14 +443,14 @@ describe('SessionMetadata', () => {
     const meta = ix.get(ISessionMetadata);
 
     await meta.setGeneratedTitleIfUncustomized('generated title');
-    await expect(
-      store.get<Record<string, unknown>>(META_SCOPE, 'state.json'),
-    ).resolves.toMatchObject({ titleKind: 'generated', isCustomTitle: false });
+    await expect(store.get<Record<string, unknown>>(META_SCOPE, 'state.json')).resolves.toMatchObject(
+      { titleKind: 'generated', isCustomTitle: false },
+    );
 
     await meta.setTitle('user title');
-    await expect(
-      store.get<Record<string, unknown>>(META_SCOPE, 'state.json'),
-    ).resolves.toMatchObject({ titleKind: 'custom', isCustomTitle: true });
+    await expect(store.get<Record<string, unknown>>(META_SCOPE, 'state.json')).resolves.toMatchObject(
+      { titleKind: 'custom', isCustomTitle: true },
+    );
   });
 
   it('does not downgrade a modern titleKind on a legacy false marker', async () => {
@@ -478,7 +485,7 @@ describe('SessionMetadata', () => {
     [{ titleKind: 'generated' as const }, 'generated'],
     [{ customTitle: 'legacy title' }, 'custom'],
     [{}, 'replaceable'],
-  ] as const)('normalizes title state %j to titleKind %s', async (fields, expectedKind) => {
+  ])('normalizes title state %j to titleKind %s', async (fields, expectedKind) => {
     const store = ix.get(IAtomicDocumentStore);
     const title = 'customTitle' in fields ? undefined : 'some title';
     await store.set(META_SCOPE, 'state.json', {
@@ -514,7 +521,7 @@ describe('SessionMetadata', () => {
 
     const first = ix.get(ISessionMetadata);
     await first.ready;
-    const setSpy = jest.spyOn(store, 'set');
+    const setSpy = vi.spyOn(store, 'set');
     const fresh = createFreshMetadata(ix);
     await fresh.ready;
 
@@ -536,7 +543,7 @@ describe('SessionMetadata', () => {
       releaseWrite = resolve;
     });
     let shouldBlock = true;
-    jest.spyOn(store, 'set').mockImplementation(async (scope, key, value) => {
+    vi.spyOn(store, 'set').mockImplementation(async (scope, key, value) => {
       if (shouldBlock) {
         shouldBlock = false;
         markWriteStarted?.();
@@ -761,13 +768,13 @@ describe('SessionMetadata', () => {
       release = resolve;
     });
     const realSet = store.set.bind(store);
-    jest.spyOn(store, 'set').mockImplementation(async (...args: Parameters<typeof store.set>) => {
+    vi.spyOn(store, 'set').mockImplementation(async (...args: Parameters<typeof store.set>) => {
       await gate;
       return realSet(...args);
     });
 
     const writing = meta.setTitle('held');
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(store.set).toHaveBeenCalled();
     });
     locks.release('s1');

@@ -1,13 +1,16 @@
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
-import { isDangerousCommandGuardEnabled } from '#/agent/permissionRules/configSection';
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import {
   IBashParserService,
   type BashParseResult,
   type BashSyntaxNode,
 } from '#/app/bashParser/bashParser';
 import { IConfigService } from '#/app/config/config';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { isDangerousCommandGuardEnabled } from '#/agent/permissionRules/configSection';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import type {
+  PermissionPolicy,
+  PermissionPolicyResult,
+} from '#/agent/permissionPolicy/types';
 
 const PARSE_OPTIONS = { timeoutMs: 500, maxNodes: 10_000 } as const;
 
@@ -59,15 +62,6 @@ const PRIVILEGE_VALUE_OPTIONS: ReadonlySet<string> = new Set([
 ]);
 
 const NESTED_SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'dash', 'zsh', 'ksh', 'ash']);
-
-const NESTED_SHELL_VALUE_OPTIONS: ReadonlySet<string> = new Set([
-  '-o',
-  '+o',
-  '-O',
-  '+O',
-  '--init-file',
-  '--rcfile',
-]);
 
 const LAUNCH_WRAPPERS: ReadonlySet<string> = new Set([
   'env',
@@ -140,7 +134,9 @@ export class DangerousCommandAskPermissionPolicyService implements PermissionPol
     const verdict =
       command === undefined
         ? ({ kind: 'unanalyzable' } as const)
-        : analyzeSource(command, 0, (source) => this.bashParser.parse(source, PARSE_OPTIONS));
+        : analyzeSource(command, 0, (source) =>
+            this.bashParser.parse(source, PARSE_OPTIONS),
+          );
     if (verdict === undefined) return undefined;
     if (verdict.kind === 'dangerous') {
       return { kind: 'ask', reason: { dangerous_command: verdict.command } };
@@ -233,15 +229,11 @@ function analyzeInvocation(
     for (let i = 0; i < args.length; i += 1) {
       const arg = args[i]!;
       if (arg === '--') break;
-      if (arg.startsWith('-')) {
-        if (NESTED_SHELL_VALUE_OPTIONS.has(arg)) {
-          i += 1;
-          continue;
-        }
-        if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(arg)) payloadIndex = i + 1;
-        continue;
+      if (/^-[a-zA-Z]+$/.test(arg)) {
+        if (arg.includes('c')) payloadIndex = i + 1;
+      } else {
+        break;
       }
-      break;
     }
     if (payloadIndex < 0) return dropped ? { kind: 'unanalyzable' } : undefined;
     const payload = args[payloadIndex];

@@ -1,6 +1,6 @@
-import type { Message, ToolCall } from '#/llm/message';
-import type { ToolCallIdPolicy } from '#/llm/requester/requester';
-import { SyntaxRequestFormatError } from '#/llm/syntax-errors';
+import type { Message, ToolCall } from '#human/message';
+import type { ToolCallIdPolicy } from '#human/llm/requester/requester';
+import { SyntaxRequestFormatError } from '#human/llm/syntax-errors';
 
 const EMPTY_TOOL_CALL_ID = 'tool_call';
 const TOOL_CALL_ID_SAFE_CHARS = /[^a-zA-Z0-9_-]/g;

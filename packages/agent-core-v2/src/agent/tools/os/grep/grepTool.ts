@@ -1,21 +1,14 @@
 import { normalize } from 'pathe';
 
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { IOAuthService } from '#/app/auth/auth';
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
+import {
+  ToolAccesses,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import {
-  ensureRgPath,
-  rgUnavailableMessage,
-  type RgProbe,
-} from '#/os/backends/host/tools/rgLocator';
-import {
-  DEFAULT_TIMEOUT_MS,
-  MAX_OUTPUT_BYTES,
-  runRgOnce,
-  shouldRetryRipgrepEagain,
-  type RunRgResult,
-} from '#/os/backends/host/tools/runRg';
+import { IOAuthService } from '#/app/auth/auth';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { isHostFsNotFound } from '#/os/interface/hostFsErrors';
@@ -23,9 +16,8 @@ import type { IHostProcessService } from '#/os/interface/hostProcess';
 import { acquireOrWhenReady, IAgentEnvironmentService, pinnedGeneration } from '#/agent/environmentBinding/agentEnvironment';
 import type { Environment } from '#/environment/environment';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import {
   resolvePathAccessPath,
   type PathClass,
@@ -33,20 +25,24 @@ import {
   SENSITIVE_DOT_VARIANT_SUFFIXES,
   type WorkspaceConfig,
 } from '#/tool/path-access';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
-  RepoMutations,
-  ToolAccesses,
-  ToolSideEffects,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-
-import { type GrepInput, GrepInputSchema, IGrepTool } from './grep';
+  ensureRgPath,
+  rgUnavailableMessage,
+  type RgProbe,
+} from '#/os/backends/node-local/tools/rgLocator';
+import {
+  DEFAULT_TIMEOUT_MS,
+  MAX_OUTPUT_BYTES,
+  runRgOnce,
+  shouldRetryRipgrepEagain,
+  type RunRgResult,
+} from '#/os/backends/node-local/tools/runRg';
 import GREP_DESCRIPTION from './grep.md?raw';
+import { type GrepInput, GrepInputSchema, IGrepTool } from './grep';
 
 const RG_MAX_COLUMNS = 500;
-const RG_MAX_THREADS = 4;
 const DEFAULT_HEAD_LIMIT = 250;
 const MTIME_STAT_CONCURRENCY = 32;
 
@@ -71,8 +67,6 @@ const CONTENT_LINE_RE = /^(.*?)([:-])(\d+)\2/;
 export class GrepTool implements IGrepTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Grep' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description = GREP_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GrepInputSchema);
   constructor(
@@ -288,7 +282,13 @@ export class GrepTool implements IGrepTool {
 
     const contentIncludesLineNumbers = mode === 'content' && args['-n'] !== false;
     const displayedLines = limited.map((line) =>
-      formatDisplayLine(line, mode, workspace.workspaceDir, pathClass, contentIncludesLineNumbers),
+      formatDisplayLine(
+        line,
+        mode,
+        workspace.workspaceDir,
+        pathClass,
+        contentIncludesLineNumbers,
+      ),
     );
     const contentBody = displayedLines.join('\n');
     const visibleBody =
@@ -316,13 +316,15 @@ export class GrepTool implements IGrepTool {
         const proc = await processService.spawn(command, rest, { cwd });
         try {
           proc.stdin.end();
-        } catch {}
+        } catch {
+        }
         proc.stdout.resume();
         proc.stderr.resume();
         const exitCode = await proc.wait();
         try {
           void proc.dispose();
-        } catch {}
+        } catch {
+        }
         return { exitCode };
       },
     };
@@ -345,7 +347,8 @@ export class GrepTool implements IGrepTool {
           try {
             const mtimeMs = (await fs.stat(path)).mtimeMs ?? 0;
             mtime = Math.trunc(mtimeMs / 1000);
-          } catch {}
+          } catch {
+          }
         }
         return { line, mtime, index };
       },
@@ -428,9 +431,7 @@ function buildRgArgs(
 ): string[] {
   const cmd: string[] = [rgPath];
   if (singleThreaded) cmd.push('-j', '1');
-  else cmd.push('-j', String(RG_MAX_THREADS));
   cmd.push('--hidden');
-  if (args.include_ignored !== true) cmd.push('--no-require-git');
   const mode = args.output_mode ?? 'files_with_matches';
   if (mode !== 'content') {
     cmd.push('--max-columns', String(RG_MAX_COLUMNS));

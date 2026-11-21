@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { BtwPanelComponent } from '#/tui/components/panes/btw-panel';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';

@@ -1,8 +1,7 @@
+import type { Message } from '@moonshot-ai/core/llm/message';
 import type { ProfileModelContext } from '#/agent/profile/profile';
-import type { Message } from '#/llm-adapter/contract/message';
-import { estimateTokensForMessage } from '#/llm-adapter/contract/tokens';
-
 import type { CompactionSource } from './types';
+import { estimateTokensForMessage } from '#/llm-adapter/contract/tokens';
 
 export interface CompactionConfig {
   triggerRatio: number;
@@ -42,7 +41,7 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
   constructor(
     private readonly context: () => ProfileModelContext,
     private readonly estimateMessage: (message: Message) => number = estimateTokensForMessage,
-  ) {}
+  ) { }
 
   shouldCompact(usedSize: number): boolean {
     return this.delegate().shouldCompact(usedSize);
@@ -75,7 +74,7 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
   private delegate(): DefaultCompactionStrategy {
     const model = this.context();
     return new DefaultCompactionStrategy(
-      () => model.modelCapabilities.max_input_tokens ?? model.modelCapabilities.max_context_tokens,
+      () => model.model.maxInputSize ?? model.model.maxContextSize ?? 0,
       this.config(model),
       this.estimateMessage,
     );
@@ -83,9 +82,7 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
 
   private windowDelegate(): DefaultCompactionStrategy {
     return new DefaultCompactionStrategy(
-      () =>
-        this.context().modelCapabilities.max_input_tokens ??
-        this.context().modelCapabilities.max_context_tokens,
+      () => this.context().model.maxInputSize ?? this.context().model.maxContextSize ?? 0,
       DEFAULT_COMPACTION_CONFIG,
       this.estimateMessage,
     );
@@ -104,12 +101,13 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
   }
 }
 
+
 export class DefaultCompactionStrategy implements CompactionStrategy {
   constructor(
     protected readonly maxSizeProvider: () => number,
     protected readonly config: CompactionConfig = DEFAULT_COMPACTION_CONFIG,
     protected readonly estimateMessage: (message: Message) => number = estimateTokensForMessage,
-  ) {}
+  ) { }
 
   protected get maxSize(): number {
     return this.maxSizeProvider();
@@ -118,25 +116,26 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   shouldCompact(usedSize: number): boolean {
     if (this.maxSize <= 0) return false;
     return (
-      usedSize >= this.maxSize * this.config.triggerRatio || this.shouldUseReservedContext(usedSize)
+      usedSize >= this.maxSize * this.config.triggerRatio ||
+      this.shouldUseReservedContext(usedSize)
     );
   }
 
   shouldBlock(usedSize: number): boolean {
     if (this.maxSize <= 0) return false;
     return (
-      usedSize >= this.maxSize * this.config.blockRatio || this.shouldUseReservedContext(usedSize)
+      usedSize >= this.maxSize * this.config.blockRatio ||
+      this.shouldUseReservedContext(usedSize)
     );
   }
 
   private shouldUseReservedContext(usedSize: number): boolean {
     const reservedSize = this.config.reservedContextSize;
-    return (
-      reservedSize > 0 && reservedSize < this.maxSize && usedSize + reservedSize >= this.maxSize
-    );
+    return reservedSize > 0 && reservedSize < this.maxSize && usedSize + reservedSize >= this.maxSize;
   }
 
   computeCompactCount(messages: readonly Message[], source: CompactionSource): number {
+
     if (source === 'manual') {
       for (let i = messages.length - 1; i > 0; i--) {
         if (canSplitAfter(messages, i)) {
@@ -145,6 +144,7 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
       }
       return 0;
     }
+
 
     let recentMessages = 1;
     let recentUserMessages = 0;
@@ -164,10 +164,9 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
         bestN = splitIndex + 1;
       }
 
-      const reachesMax =
-        recentMessages >= this.config.maxRecentMessages ||
-        recentUserMessages >= this.config.maxRecentUserMessages ||
-        recentSize >= this.maxSize * this.config.maxRecentSizeRatio;
+      const reachesMax = recentMessages >= this.config.maxRecentMessages
+        || recentUserMessages >= this.config.maxRecentUserMessages
+        || recentSize >= this.maxSize * this.config.maxRecentSizeRatio;
       if (reachesMax && bestN !== undefined) {
         break;
       }
@@ -196,7 +195,10 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
     return bestN ?? messages.length;
   }
 
-  private fitCompactCountToWindow(messages: readonly Message[], compactedCount: number): number {
+  private fitCompactCountToWindow(
+    messages: readonly Message[],
+    compactedCount: number,
+  ): number {
     if (this.maxSize <= 0 || compactedCount <= 0) {
       return compactedCount;
     }

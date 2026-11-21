@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import { downloadToFile, runCommand } from '#/app/capability/host';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 
@@ -69,14 +69,14 @@ describe('capability host downloadToFile', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  function fakeFetchWith(body: ReadableStream): FetchLike {
+  function fakeFetchWith(body: ReadableStream): typeof fetch {
     return (() =>
       Promise.resolve(
         new Response(body, {
           status: 200,
           headers: { 'content-length': '100' },
         }),
-      )) as unknown as FetchLike;
+      )) as unknown as typeof fetch;
   }
 
   it('aborts a response whose byte stream goes quiet', async () => {

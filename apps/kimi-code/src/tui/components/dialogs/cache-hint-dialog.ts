@@ -1,12 +1,3 @@
-/**
- * CacheHintDialog — shown when a resumed (or long-idle) session's context
- * cache has almost certainly expired, so the next turn re-sends the whole
- * history uncached. Offers compact / new session / continue / never.
- *
- * Layout mirrors the list-dialog spec (DESIGN.md): top border, title, hint,
- * body line, then options with right-column descriptions.
- */
-
 import {
   Container,
   matchesKey,
@@ -14,22 +5,13 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
-
-import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { formatIdleDuration } from '#/tui/utils/cache-hint';
-import {
-  mouseDispatch,
-  ListMouseRouter,
-  type ListRowRegion,
-  searchableListCursor,
-} from '#/tui/utils/mouse';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import { formatTokenCount } from '#/utils/usage/usage-format';
+import { t } from '#/i18n';
 
 export type CacheHintAction = 'compact' | 'new' | 'continue' | 'never';
 
@@ -39,26 +21,24 @@ interface CacheHintOption {
   readonly description?: string;
 }
 
-function getOptions(): readonly CacheHintOption[] {
-  return [
-    {
-      value: 'compact',
-      label: t('tui.dialogs.cacheHint.compactLabel'),
-      description: t('tui.dialogs.cacheHint.compactDesc'),
-    },
-    {
-      value: 'new',
-      label: t('tui.dialogs.cacheHint.newLabel'),
-      description: t('tui.dialogs.cacheHint.newDesc'),
-    },
-    {
-      value: 'continue',
-      label: t('tui.dialogs.cacheHint.continueLabel'),
-      description: t('tui.dialogs.cacheHint.continueDesc'),
-    },
-    { value: 'never', label: t('tui.dialogs.cacheHint.neverLabel') },
-  ];
-}
+const OPTIONS: readonly CacheHintOption[] = [
+  {
+    value: 'compact',
+    label: t('tui.dialogs.cacheHint.compactLabel'),
+    description: t('tui.dialogs.cacheHint.compactDesc'),
+  },
+  {
+    value: 'new',
+    label: t('tui.dialogs.cacheHint.newLabel'),
+    description: t('tui.dialogs.cacheHint.newDesc'),
+  },
+  {
+    value: 'continue',
+    label: t('tui.dialogs.cacheHint.continueLabel'),
+    description: t('tui.dialogs.cacheHint.continueDesc'),
+  },
+  { value: 'never', label: "Don't ask me again" },
+];
 
 export interface CacheHintDialogOptions {
   readonly idleSeconds: number;
@@ -71,22 +51,16 @@ export class CacheHintDialogComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: CacheHintDialogOptions;
   private readonly list: SearchableList<CacheHintOption>;
-  private readonly mouse: ListMouseRouter<CacheHintOption>;
 
   constructor(opts: CacheHintDialogOptions) {
     super();
     this.opts = opts;
     this.list = new SearchableList({
-      items: getOptions(),
+      items: OPTIONS,
       toSearchText: (o) => o.label,
       initialIndex: 0,
       searchable: false,
     });
-    this.mouse = new ListMouseRouter(
-      searchableListCursor(() => this.list),
-      (option) => this.opts.onSelect(option.value),
-      { isFocused: () => this.focused },
-    );
   }
 
   handleInput(data: string): void {
@@ -102,26 +76,21 @@ export class CacheHintDialogComponent extends Container implements Focusable {
     this.list.handleKey(data);
   }
 
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouse.handleMouse(event));
-  }
-
   override render(width: number): string[] {
     const view = this.list.view();
-    const title = t('tui.dialogs.cacheHint.title', {
-      idle: formatIdleDuration(this.opts.idleSeconds),
-      tokens: formatTokenCount(this.opts.totalTokens),
-    });
+    const title = t('tui.dialogs.cacheHint.title', { idle: formatIdleDuration(this.opts.idleSeconds), tokens: formatTokenCount(this.opts.totalTokens) });
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
       currentTheme.boldFg('primary', ` ${title}`),
-      currentTheme.fg('textMuted', t('tui.dialogs.cacheHint.navHint')),
+      currentTheme.fg('textMuted', ' ↑↓ navigate · Enter select · Esc cancel'),
       '',
-      currentTheme.fg('text', t('tui.dialogs.cacheHint.expired')),
+      currentTheme.fg(
+        'text',
+        t('tui.dialogs.cacheHint.expired'),
+      ),
     ];
 
-    const maxLabelWidth = Math.max(...getOptions().map((o) => visibleWidth(o.label)));
-    const regions: ListRowRegion[] = [];
+    const maxLabelWidth = Math.max(...OPTIONS.map((o) => visibleWidth(o.label)));
     for (let i = view.page.start; i < view.page.end; i++) {
       const opt = view.items[i]!;
       const isSelected = i === view.selectedIndex;
@@ -134,11 +103,8 @@ export class CacheHintDialogComponent extends Container implements Focusable {
         const gap = maxLabelWidth - visibleWidth(opt.label) + 4;
         line += ' '.repeat(gap) + currentTheme.fg('textMuted', opt.description);
       }
-      const start = lines.length;
       lines.push(line);
-      regions.push({ start, end: lines.length, index: i });
     }
-    this.mouse.setRegions(regions);
 
     lines.push('');
     lines.push(currentTheme.fg('primary', '─'.repeat(width)));

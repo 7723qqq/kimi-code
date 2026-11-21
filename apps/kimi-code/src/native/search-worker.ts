@@ -14,7 +14,7 @@ import {
 } from './native-assets';
 
 export type KapSearchWorkerInstallStatus =
-  | { readonly status: 'not-packaged' }
+  | { readonly status: 'not-sea' }
   | { readonly status: 'asset-missing' }
   | {
       readonly status: 'installed';
@@ -33,17 +33,11 @@ function errorCode(error: unknown): string {
   return error instanceof Error ? error.name : 'UNKNOWN';
 }
 
-/**
- * Install the embedded global-search worker without making optional
- * extraction fatal. Without it the search service resolves no worker entry
- * inside the single-file binary and reports the index as degraded;
- * `[database] search = false` restores the in-process host.
- */
 export function installKapSearchWorker(
   options: NativeAssetOptions = {},
 ): KapSearchWorkerInstallStatus {
   const source = options.source ?? getEmbeddedAssetSource();
-  if (source === null) return { status: 'not-packaged' };
+  if (source === null) return { status: 'not-sea' };
 
   let assetSha256: string | undefined;
   try {

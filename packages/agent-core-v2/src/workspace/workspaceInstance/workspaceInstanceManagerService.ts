@@ -88,16 +88,13 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
   ) {
     this.workspaceStoreSubscription = this.workspaceStore.onDidChange(() => {
       for (const instance of this.instances.values()) {
-        void this.workspaces
-          .get(instance.id)
-          .then((workspace) => {
-            if (workspace !== undefined && this.instances.get(instance.id) === instance) {
-              instance.update(workspace);
-            }
-          })
-          .catch((error) => {
-            this.log.warn('workspace metadata refresh failed', { workspaceId: instance.id, error });
-          });
+        void this.workspaces.get(instance.id).then((workspace) => {
+          if (workspace !== undefined && this.instances.get(instance.id) === instance) {
+            instance.update(workspace);
+          }
+        }).catch((error) => {
+          this.log.warn('workspace metadata refresh failed', { workspaceId: instance.id, error });
+        });
       }
     });
   }

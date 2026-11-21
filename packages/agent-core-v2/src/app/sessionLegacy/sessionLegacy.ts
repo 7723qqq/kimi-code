@@ -1,5 +1,6 @@
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { GoalSnapshot } from '#/features/goal/types';
+
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 export interface SessionWireFields {
   readonly id: string;

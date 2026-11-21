@@ -1,15 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { AppMcpOAuthService, IMcpOAuthService } from '#/app/mcpConfig/oauthService';
+import {
+  AppMcpOAuthService,
+  IMcpOAuthService,
+} from '#/app/mcpConfig/oauthService';
 import { IMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
 
 import { stubLog } from '../../_base/log/stubs';
-import { createMemoryMcpOAuthStore } from '../../mcpCore/stubs';
 import { deferredAgentIdentityStub } from '../agentIdentity/stubs';
+import { createMemoryMcpOAuthStore } from '../../mcpCore/stubs';
 
 describe('App MCP OAuth bootstrap', () => {
   let disposables: DisposableStore;
@@ -19,7 +22,7 @@ describe('App MCP OAuth bootstrap', () => {
   });
 
   afterEach(() => {
-    mock.restore();
+    vi.restoreAllMocks();
     disposables.dispose();
   });
 
@@ -29,7 +32,7 @@ describe('App MCP OAuth bootstrap', () => {
     const listed = new Promise<void>((resolve) => {
       signalList = resolve;
     });
-    const list = mock(async (prefix?: string) => {
+    const list = vi.fn(async (prefix?: string) => {
       signalList();
       return memory.list(prefix);
     });
@@ -59,7 +62,7 @@ describe('App MCP OAuth bootstrap', () => {
 
   it('does not start the proactive refresh sweep after shutdown before identity resolution', async () => {
     const memory = createMemoryMcpOAuthStore();
-    const list = mock(memory.list);
+    const list = vi.fn(memory.list);
     const identity = deferredAgentIdentityStub({ slug: 'test-agent' });
     const ix = createServices(disposables, {
       strict: true,
@@ -94,12 +97,12 @@ describe('App MCP OAuth bootstrap', () => {
     const listStarted = new Promise<void>((resolve) => {
       signalList = resolve;
     });
-    const list = mock(async () => {
+    const list = vi.fn(async () => {
       signalList();
       await listed;
       return ['credential-meta.json'];
     });
-    const read = mock();
+    const read = vi.fn();
     const identity = deferredAgentIdentityStub({ slug: 'test-agent' });
     const ix = createServices(disposables, {
       strict: true,

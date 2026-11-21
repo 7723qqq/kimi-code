@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createUserMessage, type Message } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
-import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
-import type { LlmClientContext } from '#/llm/requester/requester';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
+import { createUserMessage, type Message } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import { createAnthropicRequester } from '#human/llm/requester/bases/anthropic/requester';
+import { createOpenAIRequester } from '#human/llm/requester/bases/openai/requester';
+import type { LlmClientContext } from '#human/llm/requester/requester';
 
 const model: LlmModel = {
   provider: 'test',

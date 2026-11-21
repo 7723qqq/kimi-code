@@ -1,6 +1,6 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { IDisposable } from '#/_base/di/lifecycle';
 import type { Event } from '#/_base/event';
+import type { IDisposable } from '#/_base/di/lifecycle';
 
 export type TaskState = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 

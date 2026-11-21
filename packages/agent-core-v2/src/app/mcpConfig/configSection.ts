@@ -10,8 +10,6 @@ export const McpSectionSchema = z.object({
   startupTimeoutMs: McpTimeoutMsSchema.optional(),
   toolTimeoutMs: McpTimeoutMsSchema.optional(),
   defaultDeferred: z.boolean().optional(),
-  autoDeferToolThreshold: z.number().int().min(0).max(1_000_000).optional(),
-  compactToolSchemas: z.boolean().optional(),
   reconnectInitialDelayMs: McpTimeoutMsSchema.optional(),
   reconnectMaxDelayMs: McpTimeoutMsSchema.optional(),
 });
@@ -20,7 +18,6 @@ export type McpSection = z.infer<typeof McpSectionSchema>;
 
 export const MCP_STARTUP_TIMEOUT_ENV = 'KIMI_MCP_STARTUP_TIMEOUT_MS';
 export const MCP_TOOL_TIMEOUT_ENV = 'KIMI_MCP_TOOL_TIMEOUT_MS';
-export const MCP_AUTO_DEFER_TOOL_THRESHOLD_ENV = 'KIMI_MCP_AUTO_DEFER_TOOL_THRESHOLD';
 export const MCP_RECONNECT_INITIAL_DELAY_ENV = 'KIMI_MCP_RECONNECT_INITIAL_DELAY_MS';
 export const MCP_RECONNECT_MAX_DELAY_ENV = 'KIMI_MCP_RECONNECT_MAX_DELAY_MS';
 
@@ -31,18 +28,9 @@ function parseTimeoutMsEnv(raw: string): number | undefined {
     : undefined;
 }
 
-function parseAutoDeferToolThresholdEnv(raw: string): number | undefined {
-  const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 1_000_000 ? parsed : undefined;
-}
-
 export const mcpEnvBindings: EnvBindings<McpSection> = envBindings(McpSectionSchema, {
   startupTimeoutMs: { env: MCP_STARTUP_TIMEOUT_ENV, parse: parseTimeoutMsEnv },
   toolTimeoutMs: { env: MCP_TOOL_TIMEOUT_ENV, parse: parseTimeoutMsEnv },
-  autoDeferToolThreshold: {
-    env: MCP_AUTO_DEFER_TOOL_THRESHOLD_ENV,
-    parse: parseAutoDeferToolThresholdEnv,
-  },
   reconnectInitialDelayMs: { env: MCP_RECONNECT_INITIAL_DELAY_ENV, parse: parseTimeoutMsEnv },
   reconnectMaxDelayMs: { env: MCP_RECONNECT_MAX_DELAY_ENV, parse: parseTimeoutMsEnv },
 });

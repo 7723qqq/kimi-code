@@ -1,7 +1,6 @@
-import { describe, expect, it } from 'bun:test';
-
-import type { AgentInfo } from '../../src/lib/agent-record-types';
+import { describe, it, expect } from '@moonshot-ai/testkit/vitest';
 import { buildAgentTree, compareAgentIds } from '../../src/lib/agent-tree';
+import type { AgentInfo } from '../../src/lib/agent-record-types';
 
 function info(overrides: Partial<AgentInfo> & Pick<AgentInfo, 'agentId'>): AgentInfo {
   return {
@@ -45,7 +44,6 @@ describe('agent-tree', () => {
     expect(tree).toHaveLength(2);
     const ids = tree.map((n) => n.agentId).sort();
     expect(ids).toEqual(['agent-0', 'main']);
-    // orphan is still a root, no children attached anywhere
     const orphan = tree.find((n) => n.agentId === 'agent-0')!;
     expect(orphan.children).toEqual([]);
   });
@@ -61,15 +59,8 @@ describe('agent-tree', () => {
 
   it('orders agents by numeric suffix, main first (agent-2 before agent-10)', () => {
     const mk = (id: string): AgentInfo => ({
-      agentId: id,
-      type: id === 'main' ? 'main' : 'sub',
-      parentAgentId: id === 'main' ? null : 'main',
-      profileName: null,
-      homedir: '',
-      wireExists: true,
-      wireRecordCount: 0,
-      wireProtocolVersion: null,
-      swarmItem: null,
+      agentId: id, type: id === 'main' ? 'main' : 'sub', parentAgentId: id === 'main' ? null : 'main',
+      profileName: null, homedir: '', wireExists: true, wireRecordCount: 0, wireProtocolVersion: null, swarmItem: null,
     });
     const tree = buildAgentTree([mk('main'), mk('agent-10'), mk('agent-2')]);
     const order = [tree[0]!.agentId, ...tree[0]!.children.map((c) => c.agentId)];
@@ -85,11 +76,6 @@ describe('agent-tree', () => {
   });
 
   it('compareAgentIds is a deterministic total order when agent-N and foreign ids mix', () => {
-    // 'agent-1a' is a foreign/hand-edited id reachable via state.json keys or
-    // discoverAgentsFromDisk directory names — it does not match agent-N.
-    // Under the new rule: all agent-N ids sort numerically first, then any
-    // non-agent-N id by localeCompare. Sorting any permutation must yield the
-    // same order; the OLD comparator was intransitive and order-dependent here.
     const forward = ['agent-2', 'agent-1a', 'agent-10'];
     const reverse = [...forward].reverse();
     const expected = ['agent-2', 'agent-10', 'agent-1a'];

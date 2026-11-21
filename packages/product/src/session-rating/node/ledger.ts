@@ -1,5 +1,5 @@
-import type { RatingReport, RatingTrackContext } from '../common/types';
 import type { SurveyEventName, SurveyEventProperties } from './event-properties';
+import type { RatingReport, RatingTrackContext } from '../common/types';
 
 export const RATING_REPORT_RETENTION_MS = 10 * 60 * 1000;
 export const RATING_REPORT_CAPACITY = 1024;
@@ -60,8 +60,9 @@ export class SessionRatingLedger {
     if (report.type === 'shown') {
       if (wasShown) return;
       entry.shown = true;
-      entry.expiresAt =
-        entry.detachedAt === undefined ? Infinity : entry.detachedAt + RATING_REPORT_RETENTION_MS;
+      entry.expiresAt = entry.detachedAt === undefined
+        ? Infinity
+        : entry.detachedAt + RATING_REPORT_RETENTION_MS;
     } else {
       this.entries.delete(report.appearanceId);
     }

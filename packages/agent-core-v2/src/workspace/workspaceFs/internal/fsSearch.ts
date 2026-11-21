@@ -23,7 +23,10 @@ export function computeFuzzyScore(name: string, queryLower: string): number {
   return Math.min(1, Math.max(0, score));
 }
 
-export function computeMatchPositions(pathStr: string, queryLower: string): number[] {
+export function computeMatchPositions(
+  pathStr: string,
+  queryLower: string,
+): number[] {
   if (queryLower.length === 0) return [];
   const lower = pathStr.toLowerCase();
   const out: number[] = [];
@@ -56,20 +59,14 @@ export function globCanMatchBelow(rel: string, globs: readonly string[]): boolea
   return false;
 }
 
-function globSegmentsMatchPrefix(
-  globSegments: readonly string[],
-  relSegments: readonly string[],
-): boolean {
+function globSegmentsMatchPrefix(globSegments: readonly string[], relSegments: readonly string[]): boolean {
   const g = globSegments.length;
   const r = relSegments.length;
   const width = r + 1;
   const dp = new Uint8Array((g + 1) * width);
   for (let gi = g; gi >= 0; gi--) {
     const head = gi < g ? globSegments[gi]! : undefined;
-    const headMatch =
-      head !== undefined && head !== '**' && head !== ''
-        ? picomatch(head, { dot: true, nonegate: true })
-        : undefined;
+    const headMatch = head !== undefined && head !== '**' && head !== '' ? picomatch(head, { dot: true, nonegate: true }) : undefined;
     for (let ri = r; ri >= 0; ri--) {
       const at = gi * width + ri;
       if (ri === r) {

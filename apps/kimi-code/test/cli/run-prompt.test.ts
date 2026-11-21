@@ -1,30 +1,44 @@
-/**
- * `kimi -p` print-mode entry and shared print-mode utilities.
- *
- * `runPrompt` now always dispatches to the native v2 runner
- * (`cli/v2/run-v2-print.ts`) — the agent-core-v2 engine is the only engine, so
- * there is no legacy `createKimiHarness` path left to exercise. This suite
- * covers the v2 dispatch and the shared utilities (`raceWithTimeout`,
- * `installPromptTerminationCleanup`, model resolution, signal exit codes).
- */
-
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { runPrompt } from '#/cli/run-prompt';
-import {
-  configuredModel,
-  installPromptTerminationCleanup,
-  requireConfiguredModel,
-  signalExitCode,
-  raceWithTimeout,
-} from '#/cli/run-prompt';
-import { createFakeClock } from '#test/helpers/fake-clock';
 
-const mocks = (() => ({
-  runV2Print: mock(async () => {}),
-}))();
+const mocks = vi.hoisted(() => ({
+  runV2Print: vi.fn(
+    async (
+      opts: { readonly outputFormat?: string },
+      version: string,
+      io?: {
+        readonly stdout?: { write(chunk: string): boolean };
+        readonly stderr?: { write(chunk: string): boolean };
+      },
+    ) => {
+      const stdout = io?.stdout ?? process.stdout;
+      const stderr = io?.stderr ?? process.stderr;
+      const outputFormat = opts?.outputFormat ?? 'text';
+      if (outputFormat === 'stream-json') {
+        stdout.write(
+          `${JSON.stringify({ role: 'meta', type: 'system.version', version })}\n`,
+        );
+        stdout.write(`${JSON.stringify({ role: 'assistant', content: 'hello world' })}\n`);
+        stdout.write(
+          `${JSON.stringify({
+            role: 'meta',
+            type: 'session.resume_hint',
+            session_id: 'ses_prompt',
+            command: 'kimi -r ses_prompt',
+            content: 'To resume this session: kimi -r ses_prompt',
+          })}\n`,
+        );
+        return;
+      }
+      stderr.write(`kimi version ${version}\n`);
+      stdout.write('• hello world\n\n');
+      stderr.write('To resume this session: kimi -r ses_prompt\n');
+    },
+  ),
+}));
 
-void mock.module('../../src/cli/v2/run-v2-print', () => ({
+void vi.mock('../../src/cli/v2/run-v2-print', () => ({
   runV2Print: mocks.runV2Print,
 }));
 
@@ -47,188 +61,49 @@ function opts(overrides: Partial<Parameters<typeof runPrompt>[0]> = {}) {
   };
 }
 
+function writer(columns?: number) {
+  let text = '';
+  return {
+    columns,
+    write: vi.fn((chunk: string) => {
+      text += chunk;
+      return true;
+    }),
+    text: () => text,
+  };
+}
+
 describe('runPrompt', () => {
-  beforeEach(() => {
-    mocks.runV2Print.mockClear();
-  });
-
   afterEach(() => {
-    mock.clearAllMocks();
+    vi.clearAllMocks();
   });
 
-  it('dispatches to the native v2 runner with the CLI options', async () => {
-    const cliOpts = opts({ prompt: 'ship it', model: 'kimi-code/k2.5' });
+  it('emits the version first in text mode', async () => {
+    const stdout = writer();
+    const stderr = writer();
 
-    await runPrompt(cliOpts, '1.2.3-test');
+    await runPrompt(opts(), '1.2.3-test', { stdout, stderr });
 
-    expect(mocks.runV2Print).toHaveBeenCalledTimes(1);
-    expect(mocks.runV2Print).toHaveBeenCalledWith(cliOpts, '1.2.3-test', {});
+    expect(mocks.runV2Print).toHaveBeenCalled();
+    expect(stderr.write).toHaveBeenNthCalledWith(1, 'kimi version 1.2.3-test\n');
+    expect(stderr.text().startsWith('kimi version 1.2.3-test\n')).toBe(true);
+    expect(stdout.text()).toBe('• hello world\n\n');
   });
 
-  it('forwards the injected stdout/stderr/process io to the v2 runner', async () => {
-    const stdout = { write: mock(() => true) };
-    const stderr = { write: mock(() => true) };
-    const processMock = {
-      once: mock(),
-      off: mock(),
-      exit: mock(),
-    };
+  it('emits the version first in stream-json mode', async () => {
+    const stdout = writer();
+    const stderr = writer();
 
-    await runPrompt(opts(), '1.2.3-test', { stdout, stderr, process: processMock });
-
-    expect(mocks.runV2Print).toHaveBeenCalledWith(opts(), '1.2.3-test', {
+    await runPrompt(opts({ outputFormat: 'stream-json' }), '1.2.3-test', {
       stdout,
       stderr,
-      process: processMock,
     });
-  });
 
-  it('propagates v2 runner failures to the caller', async () => {
-    mocks.runV2Print.mockRejectedValueOnce(new Error('provider error'));
-
-    await expect(runPrompt(opts(), '1.2.3-test')).rejects.toThrow('provider error');
-  });
-});
-
-describe('configuredModel / requireConfiguredModel', () => {
-  it('picks the first non-empty model', () => {
-    expect(configuredModel(undefined, '', 'k2')).toBe('k2');
-    expect(configuredModel('kimi-code/k2.5', 'k2')).toBe('kimi-code/k2.5');
-    expect(configuredModel()).toBeUndefined();
-  });
-
-  it('requireConfiguredModel throws with the friendly message when none is set', () => {
-    expect(requireConfiguredModel('k2')).toBe('k2');
-    expect(() => requireConfiguredModel(undefined, '')).toThrow('No model configured');
-  });
-});
-
-describe('signalExitCode', () => {
-  it('maps signals to 128+signum', () => {
-    expect(signalExitCode('SIGINT')).toBe(130);
-    expect(signalExitCode('SIGTERM')).toBe(143);
-    expect(signalExitCode('SIGHUP')).toBe(129);
-    expect(signalExitCode('SIGQUIT')).toBe(143);
-  });
-});
-
-describe('installPromptTerminationCleanup', () => {
-  function fakeProcess() {
-    const listeners = new Map<NodeJS.Signals, () => Promise<void> | void>();
-    return {
-      once: mock((signal: NodeJS.Signals, listener: () => Promise<void> | void) => {
-        listeners.set(signal, listener);
-      }),
-      off: mock((signal: NodeJS.Signals, listener: () => Promise<void> | void) => {
-        if (listeners.get(signal) === listener) {
-          listeners.delete(signal);
-        }
-      }),
-      exit: mock(),
-      listener: (signal: NodeJS.Signals) => listeners.get(signal),
-    };
-  }
-
-  it('registers SIGINT/SIGTERM/SIGHUP handlers that clean up then exit', async () => {
-    const processMock = fakeProcess();
-    const cleanup = mock(async () => {});
-
-    installPromptTerminationCleanup(processMock, cleanup);
-
-    expect(processMock.listener('SIGINT')).toBeDefined();
-    expect(processMock.listener('SIGTERM')).toBeDefined();
-    expect(processMock.listener('SIGHUP')).toBeDefined();
-
-    await processMock.listener('SIGINT')?.();
-
-    expect(cleanup).toHaveBeenCalledTimes(1);
-    expect(processMock.exit).toHaveBeenCalledWith(130);
-  });
-
-  it('deduplicates concurrent signals into one cleanup and exit', async () => {
-    const processMock = fakeProcess();
-    let releaseCleanup!: () => void;
-    const cleanup = mock(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseCleanup = resolve;
-        }),
+    expect(mocks.runV2Print).toHaveBeenCalled();
+    const lines = stdout.text().split('\n');
+    expect(lines[0]).toBe(
+      '{"role":"meta","type":"system.version","version":"1.2.3-test"}',
     );
-
-    installPromptTerminationCleanup(processMock, cleanup);
-
-    const first = processMock.listener('SIGINT')?.();
-    const second = processMock.listener('SIGTERM')?.();
-    await Promise.resolve();
-    releaseCleanup();
-    await Promise.all([first, second]);
-
-    expect(cleanup).toHaveBeenCalledTimes(1);
-    expect(processMock.exit).toHaveBeenCalledWith(130);
-  });
-
-  it('removes the handlers when the returned disposer runs', () => {
-    const processMock = fakeProcess();
-
-    const dispose = installPromptTerminationCleanup(processMock, mock());
-    dispose();
-
-    expect(processMock.listener('SIGINT')).toBeUndefined();
-    expect(processMock.listener('SIGTERM')).toBeUndefined();
-    expect(processMock.listener('SIGHUP')).toBeUndefined();
-  });
-
-  it('exits even when cleanup fails', async () => {
-    const processMock = fakeProcess();
-
-    installPromptTerminationCleanup(processMock, async () => {
-      throw new Error('cleanup failed');
-    });
-
-    // The exit still runs in the finally block; the cleanup rejection
-    // propagates to the (already-exiting) caller.
-    await expect(processMock.listener('SIGTERM')?.()).rejects.toThrow('cleanup failed');
-    expect(processMock.exit).toHaveBeenCalledWith(143);
-  });
-});
-
-describe('raceWithTimeout', () => {
-  it('propagates a fast rejection (cleanup failure must surface)', async () => {
-    await expect(raceWithTimeout(Promise.reject(new Error('close failed')), 1000)).rejects.toThrow(
-      'close failed',
-    );
-  });
-
-  it('resolves when the timeout wins and swallows the late rejection', async () => {
-    const clock = createFakeClock(0);
-    let settled = false;
-    const done = raceWithTimeout(
-      new Promise<void>((_, reject) => {
-        clock.setTimeout(() => reject(new Error('late rejection')), 2000);
-      }),
-      1000,
-      clock,
-    ).then(() => {
-      settled = true;
-    });
-
-    clock.advance(1000);
-    await done;
-    expect(settled).toBe(true);
-
-    // The late rejection must not surface as an unhandled rejection.
-    clock.advance(2000);
-    await Promise.resolve();
-    expect(settled).toBe(true);
-  });
-
-  it('propagates a fast rejection without waiting for the timeout', async () => {
-    const clock = createFakeClock(0);
-
-    await expect(
-      raceWithTimeout(Promise.reject(new Error('close failed')), 1000, clock),
-    ).rejects.toThrow('close failed');
-
-    expect(clock.activeTimers).toBe(0);
+    expect(stderr.text()).toBe('');
   });
 });

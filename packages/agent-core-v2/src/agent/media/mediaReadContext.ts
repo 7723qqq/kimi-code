@@ -6,52 +6,11 @@ import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnviro
 import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
 import type { VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
 import { LifecycleScope } from '#/app/scopes';
-import type { VideoUploadEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import type { ModelRequester } from '#/llm-adapter/model/model-requester';
-
-export interface VideoUploadTelemetry {
-  readonly client: ITelemetryService;
-  readonly props?: Pick<VideoUploadEvent, 'model' | 'provider_type' | 'protocol'>;
-}
-
-export function createVideoUploader(
-  requester: Pick<ModelRequester, 'uploadVideo'> | undefined,
-  telemetry?: VideoUploadTelemetry,
-): VideoUploader | undefined {
-  const uploadVideo = requester?.uploadVideo;
-  if (uploadVideo === undefined) return undefined;
-  const bound = uploadVideo.bind(requester);
-  if (telemetry === undefined) return (input, options) => bound(input, options);
-
-  return async (input, options) => {
-    const startedAt = Date.now();
-    const base = {
-      ...telemetry.props,
-      mime_type: input.mimeType,
-      size_bytes: input.data.length,
-    };
-    const track = (props: VideoUploadEvent): void => {
-      try {
-        telemetry.client.track2('video_upload', props);
-      } catch {}
-    };
-    try {
-      const part = await bound(input, options);
-      track({ ...base, outcome: 'success', duration_ms: Date.now() - startedAt });
-      return part;
-    } catch (error) {
-      track({
-        ...base,
-        outcome: 'error',
-        duration_ms: Date.now() - startedAt,
-        error_type: error instanceof Error ? error.name : 'Unknown',
-      });
-      throw error;
-    }
-  };
-}
+import { videoUploaderFor } from '#/llm-adapter/model/media';
+import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
+import { createVideoUploader } from './registerMediaTools';
 
 export interface IMediaReadContext {
   readonly _serviceBrand: undefined;
@@ -67,6 +26,7 @@ export class MediaReadContextService extends Service implements IMediaReadContex
   constructor(
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
+    @IProtocolAdapterRegistry private readonly protocolRegistry: IProtocolAdapterRegistry,
     @IAgentEnvironmentService private readonly runtime: IAgentEnvironmentService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
@@ -80,14 +40,14 @@ export class MediaReadContextService extends Service implements IMediaReadContex
     let model: Model | undefined;
     if (modelAlias !== '') {
       try {
-        const requester = this.modelCatalog.getRequester(modelAlias);
-        model = requester.model;
-        videoUploader = createVideoUploader(requester, {
+        model = this.modelCatalog.get(modelAlias);
+        const request = this.protocolRegistry.request(model);
+        videoUploader = createVideoUploader(videoUploaderFor(model, request), {
           client: this.telemetry,
           props: {
             model: modelAlias,
-            provider_type: model?.providerType ?? model?.protocol,
-            protocol: model?.protocol,
+            provider_type: model.providerType ?? model.protocol,
+            protocol: model.protocol,
           },
         });
       } catch {
@@ -97,7 +57,8 @@ export class MediaReadContextService extends Service implements IMediaReadContex
     return {
       capabilities: this.profile.getModelCapabilities(),
       videoUploader,
-      inlineVideoSupported: model?.protocol !== 'openai' && model?.protocol !== 'openai_responses',
+      inlineVideoSupported:
+        model?.protocol !== 'openai' && model?.protocol !== 'openai_responses',
       providerType: model?.providerType,
       telemetry: this.telemetry,
     };

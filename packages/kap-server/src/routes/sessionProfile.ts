@@ -4,13 +4,11 @@ import {
   Error2,
   ISessionContext,
   ISessionMetadata,
-  ISessionManager,
-  IWorkspaceService,
   PARENT_SESSION_ID_KEY,
   resumeSessionById,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import type { SessionWireFields } from '@moonshot-ai/agent-core-v2';
+import type { SessionWireFields } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionLegacy';
 import type { UpdateSessionProfileRequest } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 
 const RESERVED_METADATA_KEYS: ReadonlySet<string> = new Set([
@@ -41,21 +39,7 @@ export async function updateSessionProfile(
   sessionId: string,
   body: Pick<UpdateSessionProfileRequest, 'title' | 'metadata'>,
 ): Promise<SessionWireFields> {
-  let session = await resumeSessionById(core.accessor, sessionId);
-  const requestedCwd = body.metadata?.['cwd'];
-  if (requestedCwd !== undefined && typeof requestedCwd !== 'string') {
-    throw new Error2(ErrorCodes.REQUEST_INVALID, 'metadata.cwd must be a directory path');
-  }
-  if (
-    session !== undefined &&
-    typeof requestedCwd === 'string' &&
-    requestedCwd !== session.accessor.get(ISessionContext).cwd
-  ) {
-    const workspace = await core.accessor.get(IWorkspaceService).createOrTouch(requestedCwd);
-    session = await core.accessor
-      .get(ISessionManager)
-      .move(sessionId, { workspaceId: workspace.id, root: workspace.root });
-  }
+  const session = await resumeSessionById(core.accessor, sessionId);
   if (session === undefined) {
     throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
   }
@@ -68,11 +52,7 @@ export async function updateSessionProfile(
   if (body.metadata !== undefined && Object.keys(body.metadata).length > 0) {
     const stored = (await metadata.read()).custom;
     await metadata.update({
-      custom: {
-        ...stored,
-        ...customSessionMetadata(body.metadata),
-        ...reservedSessionMetadata(stored),
-      },
+      custom: { ...customSessionMetadata(body.metadata), ...reservedSessionMetadata(stored) },
     });
   }
 

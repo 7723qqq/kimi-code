@@ -1,53 +1,26 @@
 import { z } from 'zod';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { LlmCredentialProvider } from '#human/llm/requester/requester';
-import type { TokenUsage } from '#human/llm/usage';
 
-import type { ModelCapability } from '../contract/capability';
+import type { LlmEndpoint, LlmModelSpec } from '@moonshot-ai/core/llm/request';
 import type { Protocol, ProtocolProviderOptions } from '../protocol/protocol';
 import type { ProviderConfig } from '../provider/provider';
+
 import type { ModelRecord, ModelUpgrade } from './model';
 import { effectiveModelConfig } from './model-auth';
-import type {
-  ModelRequestEvent,
-  ModelRequestInput,
-  ModelRequestParams,
-  ModelRequester,
-} from './model-requester';
 
 export interface Model {
   readonly id: string;
-  readonly name: string;
   readonly aliases: readonly string[];
   readonly protocol: Protocol;
-  readonly baseUrl?: string;
-  readonly headers: Readonly<Record<string, string>>;
-
-  readonly capabilities: ModelCapability;
-  readonly maxContextSize: number;
-  readonly maxInputSize?: number;
+  readonly spec: LlmModelSpec;
+  readonly endpoint: LlmEndpoint;
   readonly maxOutputSize?: number;
   readonly displayName?: string;
   readonly reasoningKey?: string;
-  readonly supportEfforts?: readonly string[];
-  readonly defaultEffort?: string;
-  readonly alwaysThinking: boolean;
-  readonly adaptiveThinking?: boolean;
   readonly providerType?: string;
   readonly providerName: string;
-
-  readonly credentialProvider?: LlmCredentialProvider;
   readonly providerOptions?: ProtocolProviderOptions;
-}
-
-export interface ModelPingResult {
-  readonly ok: boolean;
-  readonly durationMs: number;
-  readonly text?: string;
-  readonly finishReason?: string;
-  readonly usage?: TokenUsage;
-  readonly error?: string;
 }
 
 export const modelCatalogItemSchema = z.object({
@@ -68,7 +41,11 @@ export const modelCatalogItemSchema = z.object({
 });
 export type ModelCatalogItem = z.infer<typeof modelCatalogItemSchema>;
 
-export const providerCatalogStatusSchema = z.enum(['connected', 'error', 'unconfigured']);
+export const providerCatalogStatusSchema = z.enum([
+  'connected',
+  'error',
+  'unconfigured',
+]);
 export type ProviderCatalogStatus = z.infer<typeof providerCatalogStatusSchema>;
 
 export const providerCatalogItemSchema = z.object({
@@ -113,11 +90,14 @@ export function toProtocolModel(
   return {
     provider: model.providerName,
     model: model.id,
-    display_name: model.displayName ?? model.name ?? model.id,
-    max_context_size: model.maxContextSize,
+    display_name: model.displayName ?? model.spec.name,
+    max_context_size: model.spec.maxContextSize ?? 0,
     capabilities: effectiveModelConfig(record, providerType ?? model.providerType).capabilities,
-    support_efforts: model.supportEfforts === undefined ? undefined : [...model.supportEfforts],
-    default_effort: model.defaultEffort,
+    support_efforts:
+      model.spec.thinking?.supportEfforts === undefined
+        ? undefined
+        : [...model.spec.thinking.supportEfforts],
+    default_effort: model.spec.thinking?.defaultEffort,
     upgrade: toProtocolModelUpgrade(record.upgrade),
   };
 }
@@ -189,14 +169,6 @@ export interface IModelCatalog {
   readonly _serviceBrand: undefined;
 
   get(id: string): Model;
-  getRequester(id: string): ModelRequester;
-  generate(
-    id: string,
-    input: ModelRequestInput,
-    signal?: AbortSignal,
-    params?: ModelRequestParams,
-  ): AsyncIterable<ModelRequestEvent>;
-  ping(id: string): Promise<ModelPingResult>;
   findByName(name: string): readonly string[];
 
   listModels(): Promise<readonly ModelCatalogItem[]>;

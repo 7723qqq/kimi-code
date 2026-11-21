@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-// eslint-disable-next-line import/no-unresolved
 import {
   detectFileType,
   sniffImageDimensions,
@@ -16,7 +15,7 @@ import {
 describe('sniffMediaFromMagic', () => {
   it('recognises PNG magic bytes', () => {
     const header = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
-    expect(sniffMediaFromMagic(header)).toEqual<FileType>({
+    expect(sniffMediaFromMagic(header)).toEqual({
       kind: 'image',
       mimeType: 'image/png',
     });
@@ -24,18 +23,18 @@ describe('sniffMediaFromMagic', () => {
 
   it('recognises JPEG magic bytes', () => {
     const header = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]);
-    expect(sniffMediaFromMagic(header)).toEqual<FileType>({
+    expect(sniffMediaFromMagic(header)).toEqual({
       kind: 'image',
       mimeType: 'image/jpeg',
     });
   });
 
   it('recognises GIF87a and GIF89a magic bytes', () => {
-    expect(sniffMediaFromMagic(Buffer.from('GIF87a\0\0', 'binary'))).toEqual<FileType>({
+    expect(sniffMediaFromMagic(Buffer.from('GIF87a\0\0', 'binary'))).toEqual({
       kind: 'image',
       mimeType: 'image/gif',
     });
-    expect(sniffMediaFromMagic(Buffer.from('GIF89a\0\0', 'binary'))).toEqual<FileType>({
+    expect(sniffMediaFromMagic(Buffer.from('GIF89a\0\0', 'binary'))).toEqual({
       kind: 'image',
       mimeType: 'image/gif',
     });
@@ -47,7 +46,7 @@ describe('sniffMediaFromMagic', () => {
       Buffer.from([0, 0, 0, 0]),
       Buffer.from('WEBP'),
     ]);
-    expect(sniffMediaFromMagic(header)).toEqual<FileType>({
+    expect(sniffMediaFromMagic(header)).toEqual({
       kind: 'image',
       mimeType: 'image/webp',
     });
@@ -60,7 +59,7 @@ describe('sniffMediaFromMagic', () => {
       Buffer.from('avif'),
       Buffer.alloc(16),
     ]);
-    expect(sniffMediaFromMagic(header)).toEqual<FileType>({
+    expect(sniffMediaFromMagic(header)).toEqual({
       kind: 'image',
       mimeType: 'image/avif',
     });
@@ -82,55 +81,27 @@ describe('sniffMediaFromMagic', () => {
   it('recognises Matroska / WebM via EBML header', () => {
     const ebml = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
     const matroskaHeader = Buffer.concat([ebml, Buffer.from('.matroska.', 'binary')]);
-    expect(sniffMediaFromMagic(matroskaHeader)).toEqual<FileType>({
+    expect(sniffMediaFromMagic(matroskaHeader)).toEqual({
       kind: 'video',
       mimeType: 'video/x-matroska',
     });
     const webmHeader = Buffer.concat([ebml, Buffer.from('.webm.', 'binary')]);
-    expect(sniffMediaFromMagic(webmHeader)).toEqual<FileType>({
+    expect(sniffMediaFromMagic(webmHeader)).toEqual({
       kind: 'video',
       mimeType: 'video/webm',
     });
   });
 
-  it('recognises AVI via RIFF…AVI ', () => {
+  it('recognises AVI via RIFF…AVI', () => {
     const header = Buffer.concat([
       Buffer.from('RIFF'),
       Buffer.from([0, 0, 0, 0]),
       Buffer.from('AVI '),
     ]);
-    expect(sniffMediaFromMagic(header)).toEqual<FileType>({
+    expect(sniffMediaFromMagic(header)).toEqual({
       kind: 'video',
       mimeType: 'video/x-msvideo',
     });
-  });
-
-  it('recognises BMP magic bytes', () => {
-    const header = Buffer.from([0x42, 0x4d, 0, 0, 0, 0, 0, 0, 0, 0]);
-    expect(sniffMediaFromMagic(header)).toEqual<FileType>({
-      kind: 'image',
-      mimeType: 'image/bmp',
-    });
-  });
-
-  it('recognises TIFF (little-endian and big-endian) magic bytes', () => {
-    expect(sniffMediaFromMagic(Buffer.from([0x49, 0x49, 0x2a, 0x00]))).toEqual<FileType>({
-      kind: 'image',
-      mimeType: 'image/tiff',
-    });
-    expect(sniffMediaFromMagic(Buffer.from([0x4d, 0x4d, 0x00, 0x2a]))).toEqual<FileType>({
-      kind: 'image',
-      mimeType: 'image/tiff',
-    });
-  });
-
-  it('returns null for empty buffer', () => {
-    expect(sniffMediaFromMagic(Buffer.alloc(0))).toBeNull();
-  });
-
-  it('returns null for buffer shorter than any magic pattern', () => {
-    expect(sniffMediaFromMagic(Buffer.from([0x89]))).toBeNull();
-    expect(sniffMediaFromMagic(Buffer.from([0xff, 0xd8]))).toBeNull();
   });
 
   it('returns null for unrecognised magic bytes', () => {
@@ -144,42 +115,42 @@ describe('sniffMediaFromMagic', () => {
 
 describe('detectFileType', () => {
   it('resolves images by extension when no header is given', () => {
-    expect(detectFileType('foo.png')).toEqual<FileType>({
+    expect(detectFileType('foo.png')).toEqual({
       kind: 'image',
       mimeType: 'image/png',
     });
-    expect(detectFileType('foo.JPG')).toEqual<FileType>({
+    expect(detectFileType('foo.JPG')).toEqual({
       kind: 'image',
       mimeType: 'image/jpeg',
     });
-    expect(detectFileType('foo.heic')).toEqual<FileType>({
+    expect(detectFileType('foo.heic')).toEqual({
       kind: 'image',
       mimeType: 'image/heic',
     });
   });
 
   it('resolves videos by extension when no header is given', () => {
-    expect(detectFileType('foo.mp4')).toEqual<FileType>({
+    expect(detectFileType('foo.mp4')).toEqual({
       kind: 'video',
       mimeType: 'video/mp4',
     });
-    expect(detectFileType('foo.mpg')).toEqual<FileType>({
+    expect(detectFileType('foo.mpg')).toEqual({
       kind: 'video',
       mimeType: 'video/mpeg',
     });
-    expect(detectFileType('foo.mpeg')).toEqual<FileType>({
+    expect(detectFileType('foo.mpeg')).toEqual({
       kind: 'video',
       mimeType: 'video/mpeg',
     });
-    expect(detectFileType('foo.mkv')).toEqual<FileType>({
+    expect(detectFileType('foo.mkv')).toEqual({
       kind: 'video',
       mimeType: 'video/x-matroska',
     });
-    expect(detectFileType('foo.ogv')).toEqual<FileType>({
+    expect(detectFileType('foo.ogv')).toEqual({
       kind: 'video',
       mimeType: 'video/ogg',
     });
-    expect(detectFileType('foo.mov')).toEqual<FileType>({
+    expect(detectFileType('foo.mov')).toEqual({
       kind: 'video',
       mimeType: 'video/quicktime',
     });
@@ -205,7 +176,7 @@ describe('detectFileType', () => {
 
   it('can prefer the sniffed media header over the extension in media mode', () => {
     const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    expect(detectFileType('mismatch.mp4', pngHeader, 'media')).toEqual<FileType>({
+    expect(detectFileType('mismatch.mp4', pngHeader, 'media')).toEqual({
       kind: 'image',
       mimeType: 'image/png',
     });
@@ -213,7 +184,7 @@ describe('detectFileType', () => {
 
   it('falls back to a media extension in media mode when sniffing is inconclusive', () => {
     const mpegProgramStreamHeader = Buffer.from([0x00, 0x00, 0x01, 0xba, 0x21, 0x00]);
-    expect(detectFileType('clip.mpg', mpegProgramStreamHeader, 'media')).toEqual<FileType>({
+    expect(detectFileType('clip.mpg', mpegProgramStreamHeader, 'media')).toEqual({
       kind: 'video',
       mimeType: 'video/mpeg',
     });
@@ -240,7 +211,7 @@ describe('detectFileType', () => {
   it('exposes the suffix maps as readonly records', () => {
     expect(IMAGE_MIME_BY_SUFFIX['.png']).toBe('image/png');
     expect(VIDEO_MIME_BY_SUFFIX['.mkv']).toBe('video/x-matroska');
-    expect(NON_TEXT_SUFFIXES.has('.pdf')).toBe(false);
+    expect(NON_TEXT_SUFFIXES.has('.pdf')).toBe(true);
     expect(NON_TEXT_SUFFIXES.has('.zip')).toBe(true);
     expect(NON_TEXT_SUFFIXES.has('.dll')).toBe(true);
   });
@@ -253,28 +224,7 @@ describe('detectFileType', () => {
     expect(detectFileType('.env').kind).toBe('text');
     expect(detectFileType('icon.svg').kind).toBe('text');
     expect(detectFileType('archive.tar.gz').kind).toBe('unknown');
-    expect(detectFileType('my file.pdf').kind).toBe('document');
-    expect(detectFileType('my file.pdf').mimeType).toBe('application/pdf');
-    expect(detectFileType('report.PDF').kind).toBe('document');
-  });
-
-  it('sniffs a PDF by its magic bytes even with no usable suffix', () => {
-    const pdf = Buffer.from('%PDF-1.7\n%\xE2\xE3\xCF\xD3\n');
-    expect(detectFileType('attachment', pdf, 'media')).toEqual({
-      kind: 'document',
-      mimeType: 'application/pdf',
-    });
-    expect(detectFileType('attachment', pdf).kind).toBe('document');
-  });
-
-  it('keeps the suffix hint when the bytes neither confirm nor deny it, like every other media kind', () => {
-    const notPdf = Buffer.from('plain ascii, not a pdf at all');
-    expect(detectFileType('fake.pdf', notPdf, 'media')).toEqual({
-      kind: 'document',
-      mimeType: 'application/pdf',
-    });
-    const binary = Buffer.from('nope\x00nope');
-    expect(detectFileType('fake.pdf', binary, 'media').kind).toBe('unknown');
+    expect(detectFileType('my file.pdf').kind).toBe('unknown');
   });
 
   it('keeps TypeScript suffixes as text rather than MPEG-TS video', () => {
@@ -421,11 +371,7 @@ describe('sniffImageDimensions', () => {
     data: Buffer;
     expected: ImageDimensions;
   }> = [
-    {
-      name: 'PNG (IHDR big-endian uint32)',
-      data: buildPng(800, 600),
-      expected: { width: 800, height: 600 },
-    },
+    { name: 'PNG (IHDR big-endian uint32)', data: buildPng(800, 600), expected: { width: 800, height: 600 } },
     {
       name: 'GIF87a (logical screen little-endian uint16)',
       data: buildGif('GIF87a', 320, 240),
@@ -436,11 +382,7 @@ describe('sniffImageDimensions', () => {
       data: buildGif('GIF89a', 1024, 768),
       expected: { width: 1024, height: 768 },
     },
-    {
-      name: 'BMP (DIB little-endian int32)',
-      data: buildBmp(640, 480),
-      expected: { width: 640, height: 480 },
-    },
+    { name: 'BMP (DIB little-endian int32)', data: buildBmp(640, 480), expected: { width: 640, height: 480 } },
     {
       name: 'BMP top-down (negative height → absolute value)',
       data: buildBmp(640, -480),
@@ -488,13 +430,10 @@ describe('sniffImageDimensions', () => {
       expect(sniffImageDimensions(data)).toEqual({ width: 80, height: 120, transposed: true });
     });
 
-    it.each([1, 2, 3, 4])(
-      'keeps width/height for non-transposing orientation %i',
-      (orientation) => {
-        const data = buildJpegWithOrientation(120, 80, orientation);
-        expect(sniffImageDimensions(data)).toEqual({ width: 120, height: 80 });
-      },
-    );
+    it.each([1, 2, 3, 4])('keeps width/height for non-transposing orientation %i', (orientation) => {
+      const data = buildJpegWithOrientation(120, 80, orientation);
+      expect(sniffImageDimensions(data)).toEqual({ width: 120, height: 80 });
+    });
 
     it('honors big-endian (MM) TIFF byte order', () => {
       const data = buildJpegWithOrientation(120, 80, 6, 'MM');

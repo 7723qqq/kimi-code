@@ -5,17 +5,16 @@ import type {
   FeedbackSubmitInput,
   FeedbackSubmitResult,
 } from '@moonshot-ai/agent-core-v2/app/auth/feedback';
-import type {
-  HelloWorldModeTrigger,
-  HelloWorldRunItemId,
-  HelloWorldStage,
-} from '@moonshot-ai/agent-core-v2/features/helloWorld/agent/helloWorld';
+import type { PromptPredictionCancelReason } from '@moonshot-ai/agent-core-v2/features/promptPrediction/promptPrediction';
 import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2/features/swarm/agent/swarm';
-import { errorMessage } from '@moonshot-ai/runtime-shared';
 
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, KimiError, makeErrorPayload } from '#/errors';
-import type { ApprovalHandler, Event, QuestionHandler } from '#/events';
+import type {
+  ApprovalHandler,
+  Event,
+  QuestionHandler,
+} from '#/events';
 import type { ExperimentalFeatureState } from '#/flag';
 import type {
   ApprovalRequest,
@@ -46,6 +45,7 @@ import type {
   ImportCustomRegistryOptions,
   ImportCustomRegistryResult,
   GetCronTasksResult,
+  InstallPluginInput,
   GlobalMcpServerAuthStatus,
   McpManagedServerInfo,
   McpServerConfig,
@@ -59,14 +59,12 @@ import type {
   McpServerInfo,
   McpStartupMetrics,
   McpTestResult,
-  OperationRecord,
   PermissionMode,
   PluginInfo,
   PluginSummary,
   ReloadSummary,
   CompactOptions,
   SessionPlan,
-  SpecSnapshot,
   SessionStatus,
   SessionTodoItem,
   SessionUsage,
@@ -84,11 +82,11 @@ import type {
   SessionEnvironmentState,
   SkillSummary,
   PluginCommandDef,
-  SuggestFilesInput,
-  SuggestFilesResult,
   GitPullRequest,
   GitQueryInput,
   GitStatusSummary,
+  SuggestFilesInput,
+  SuggestFilesResult,
   Unsubscribe,
   UploadFileOptions,
   WorkspaceTrustInfo,
@@ -110,27 +108,6 @@ export interface SessionPromptWithSkillsRpcInput extends SessionPromptRpcInput {
 
 export interface SessionIdRpcInput {
   readonly sessionId: string;
-}
-
-export interface OptimizePromptRpcInput extends SessionIdRpcInput {
-  readonly text: string;
-  readonly recentTurns?: readonly string[];
-  /**
-   * Deadline for the whole rewrite. Absent means the engine's own default, so
-   * a caller that has just been told the default is too short can retry with a
-   * longer one instead of failing again.
-   */
-  readonly timeoutMs?: number;
-  /**
-   * Thinking effort for the rewriter's fork. Absent means the fork follows the
-   * main agent's level.
-   */
-  readonly thinking?: string;
-  /**
-   * Cancels the rewrite. The wait is a full LLM round-trip, so without this
-   * the caller has no way to give up on it.
-   */
-  readonly signal?: AbortSignal;
 }
 
 export interface ImportContextRpcInput extends SessionIdRpcInput {
@@ -167,29 +144,9 @@ export interface SetSessionPlanModeRpcInput extends SessionIdRpcInput {
   readonly enabled: boolean;
 }
 
-export interface SetSessionSpecModeRpcInput extends SessionIdRpcInput {
-  readonly enabled: boolean;
-}
-
 export type SetSessionSwarmModeRpcInput =
   | (SessionIdRpcInput & { readonly enabled: true; readonly trigger: SwarmModeTrigger })
   | (SessionIdRpcInput & { readonly enabled: false });
-
-export type SetSessionHelloWorldModeRpcInput =
-  | (SessionIdRpcInput & {
-      readonly enabled: true;
-      readonly trigger: HelloWorldModeTrigger;
-      readonly task?: string;
-    })
-  | (SessionIdRpcInput & { readonly enabled: false });
-
-export interface SetSessionHelloWorldStageRpcInput extends SessionIdRpcInput {
-  readonly stage: HelloWorldStage | 'next';
-}
-
-export interface WaiveHelloWorldRunItemRpcInput extends SessionIdRpcInput {
-  readonly item: HelloWorldRunItemId;
-}
 
 export interface SetSessionTowerModeRpcInput extends SessionIdRpcInput {
   readonly enabled: boolean;
@@ -249,15 +206,6 @@ export abstract class SDKRpcClientBase {
     return this.interactiveAgentScope.run(agentId, fn);
   }
 
-  /**
-   * Engine-language channel, optional because only an in-process client can
-   * honour it. `SDKRpcClientV2` overrides both; a transport-backed client
-   * leaves them undefined and `KimiHarness` degrades to a no-op.
-   */
-  setEngineLocale?(locale: 'en' | 'zh'): void;
-
-  engineLocale?(): 'en' | 'zh';
-
   abstract createSession(input: CreateSessionOptions): Promise<SessionSummary>;
 
   abstract resumeSession(input: ResumeSessionInput): Promise<ResumedSessionSummary>;
@@ -276,12 +224,17 @@ export abstract class SDKRpcClientBase {
 
   abstract listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]>;
 
+  async getWorkspaceAdditionalDirs(_workDir: string): Promise<readonly string[]> {
+    throw new KimiError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'Workspace additional directories are not implemented for this engine',
+    );
+  }
+
   abstract getWorkspaceTrustInfo(
     workDir: string,
     options?: WorkspaceTrustInfoOptions,
   ): Promise<WorkspaceTrustInfo>;
-
-  abstract getWorkspaceAdditionalDirs(workDir: string): Promise<readonly string[]>;
 
   abstract trustWorkspace(workDir: string): Promise<void>;
 
@@ -387,10 +340,7 @@ export abstract class SDKRpcClientBase {
 
   abstract cancelMcpServerAuth(flowId: string): Promise<void>;
 
-  abstract resetGlobalMcpServerAuth(
-    name: string,
-    options?: { readonly cwd?: string },
-  ): Promise<void>;
+  abstract resetGlobalMcpServerAuth(name: string, options?: { readonly cwd?: string }): Promise<void>;
 
   abstract resetMcpServerAuth(
     locator: McpServerLocator,
@@ -429,7 +379,21 @@ export abstract class SDKRpcClientBase {
 
   abstract startBtw(input: SessionIdRpcInput): Promise<string>;
 
-  abstract optimizePrompt(input: OptimizePromptRpcInput): Promise<string>;
+  async predictNextPrompt(_input: {
+    sessionId: string;
+    predictionId: string;
+    expectedTurnId: number;
+  }): Promise<string | null> {
+    return null;
+  }
+
+  async cancelPromptPrediction(_input: {
+    sessionId: string;
+    predictionId: string;
+    reason?: PromptPredictionCancelReason;
+  }): Promise<boolean> {
+    return false;
+  }
 
   abstract cancel(input: SessionIdRpcInput): Promise<void>;
 
@@ -447,15 +411,7 @@ export abstract class SDKRpcClientBase {
 
   abstract setPlanMode(input: SetSessionPlanModeRpcInput): Promise<void>;
 
-  abstract setSpecMode(input: SetSessionSpecModeRpcInput): Promise<void>;
-
   abstract setSwarmMode(input: SetSessionSwarmModeRpcInput): Promise<void>;
-
-  abstract setHelloWorldMode(input: SetSessionHelloWorldModeRpcInput): Promise<void>;
-
-  abstract setHelloWorldStage(input: SetSessionHelloWorldStageRpcInput): Promise<void>;
-
-  abstract waiveHelloWorldRunItem(input: WaiveHelloWorldRunItemRpcInput): Promise<void>;
 
   abstract swarm(input: SessionPromptRpcInput): Promise<void>;
 
@@ -470,8 +426,6 @@ export abstract class SDKRpcClientBase {
 
   abstract getPlan(input: SessionIdRpcInput): Promise<SessionPlan>;
 
-  abstract getSpec(input: SessionIdRpcInput): Promise<SpecSnapshot | null>;
-
   abstract clearPlan(input: SessionIdRpcInput): Promise<void>;
 
   abstract compact(input: SessionIdRpcInput & CompactOptions): Promise<void>;
@@ -481,16 +435,6 @@ export abstract class SDKRpcClientBase {
   abstract getTodos(input: SessionIdRpcInput): Promise<readonly SessionTodoItem[]>;
 
   abstract undoHistory(input: SessionIdRpcInput & { count: number }): Promise<void>;
-
-  abstract listOperations(
-    input: SessionIdRpcInput & { limit?: number },
-  ): Promise<readonly OperationRecord[]>;
-
-  abstract undoOperation(input: SessionIdRpcInput): Promise<OperationRecord>;
-
-  abstract redoOperation(input: SessionIdRpcInput): Promise<OperationRecord>;
-
-  abstract restoreOperation(input: SessionIdRpcInput & { targetId: string }): Promise<OperationRecord>;
 
   abstract takeOverSessionLock(input: SessionIdRpcInput): Promise<void>;
 
@@ -539,9 +483,7 @@ export abstract class SDKRpcClientBase {
 
   abstract getGoal(input: SessionIdRpcInput): Promise<GoalToolResult>;
 
-  abstract editGoalObjective(
-    input: SessionIdRpcInput & EditGoalObjectiveInput,
-  ): Promise<GoalSnapshot>;
+  abstract editGoalObjective(input: SessionIdRpcInput & EditGoalObjectiveInput): Promise<GoalSnapshot>;
 
   abstract pauseGoal(input: SessionIdRpcInput): Promise<GoalSnapshot>;
 
@@ -567,7 +509,7 @@ export abstract class SDKRpcClientBase {
 
   abstract listPlugins(): Promise<readonly PluginSummary[]>;
 
-  abstract installPlugin(source: string): Promise<PluginSummary>;
+  abstract installPlugin(input: string | InstallPluginInput): Promise<PluginSummary>;
 
   abstract setPluginEnabled(id: string, enabled: boolean): Promise<void>;
 
@@ -702,4 +644,8 @@ export abstract class SDKRpcClientBase {
       isError: true,
     };
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

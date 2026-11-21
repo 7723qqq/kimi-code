@@ -1,7 +1,5 @@
 import { gt, prerelease, valid } from 'semver';
 
-import { t } from '#/i18n';
-
 import {
   type ChannelSelection,
   type InstallSource,
@@ -35,11 +33,10 @@ export function resolveUpdateChannel(
 
 export function formatUpdateChannelWarning(selection: ChannelSelection): string | null {
   if (selection.origin !== 'invalid') return null;
-  return `${t('cli.updates.channelIgnored', {
-    name: UPDATE_CHANNEL_ENV,
-    raw: JSON.stringify(selection.raw),
-    channel: selection.channel,
-  })}\n`;
+  return (
+    `warning: ignoring ${UPDATE_CHANNEL_ENV}=${JSON.stringify(selection.raw)}; ` +
+    `expected "stable" or "canary". Using ${selection.channel}.\n`
+  );
 }
 
 export function decideUpdate(

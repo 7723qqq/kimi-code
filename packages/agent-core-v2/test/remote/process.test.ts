@@ -1,28 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { jest, mock, spyOn } from 'bun:test';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
-  const deadline = Date.now() + (opts?.timeout ?? 1000);
-  for (;;) {
-    try {
-      await fn();
-      return;
-    } catch {
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-}
-
-
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { RemoteExecConnection } from '#/remote/client/connection';
 import { RemoteProcessService } from '#/os/backends/remote/remoteProcess';
 import { PROCESS_EXITED_METHOD } from '#/remote/protocol/methods';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { ProcessManager } from '#/remote/server/processManager';
 import {
   connectInProcess,
@@ -88,7 +74,7 @@ async function startProcess(
   return raw.nextResponse(id);
 }
 
-describe.skipIf(process.platform === 'win32')('process group over a subprocess loopback', () => {
+describe('process group over a subprocess loopback', () => {
   let connection: RemoteExecConnection;
   let spawned: SpawnedExecutor;
   let processes: RemoteProcessService;
@@ -246,7 +232,7 @@ describe.skipIf(process.platform === 'win32')('process group over a subprocess l
   }, 15_000);
 });
 
-describe.skipIf(process.platform === 'win32')('process output backpressure', () => {
+describe('process output backpressure', () => {
   it('bounds an unread flood and resumes losslessly once the consumer catches up', async () => {
     const { connection, loopback } = await connectInProcess();
     const processes = new RemoteProcessService(connection, '/tmp', '/bin/bash');
@@ -275,7 +261,7 @@ describe.skipIf(process.platform === 'win32')('process output backpressure', () 
   }, 15_000);
 });
 
-describe.skipIf(process.platform === 'win32')('stdin write chain recovery', () => {
+describe('stdin write chain recovery', () => {
   it('exempts process/write from the request timeout and settles pending writes when the process dies', async () => {
     const { connection, loopback } = await connectInProcess({
       connect: { requestCallTimeoutMs: 400 },
@@ -310,7 +296,7 @@ describe.skipIf(process.platform === 'win32')('stdin write chain recovery', () =
   }, 15_000);
 });
 
-describe.skipIf(process.platform === 'win32')('process protocol semantics', () => {
+describe('process protocol semantics', () => {
   it('rejects reusing a finished process id while its group is being terminated', async () => {
     const loopback = createInProcessLoopback();
     const raw = new RawClient(loopback);
@@ -322,7 +308,7 @@ describe.skipIf(process.platform === 'win32')('process protocol semantics', () =
         argv: ['sh', '-c', 'trap "" TERM; sleep 300 </dev/null >/dev/null 2>&1 & echo $!; exit 0'],
         cwd: '/tmp',
       });
-      await viWaitFor(() => {
+      await vi.waitFor(() => {
         expect(raw.notifications('process/closed')).toHaveLength(1);
       });
       childPid = Number(raw.notifications('process/output').map((event) => fromB64(event['chunkBase64'] as string)).join('').trim());
@@ -486,7 +472,7 @@ describe.skipIf(process.platform === 'win32')('process protocol semantics', () =
       }
     }
     expect(childPid).toBeGreaterThan(0);
-    await viWaitFor(() => {
+    await vi.waitFor(() => {
       expect(raw.notifications('process/closed')).toHaveLength(1);
     });
     expect(isAlive(childPid)).toBe(true);
@@ -523,7 +509,7 @@ describe('shutdown of a process that is still starting', () => {
     const internals = manager as unknown as {
       startPipe(entry: { child?: typeof child; pid: number }, argv: string[], cwd: string, env: unknown): Promise<void>;
     };
-    spyOn(internals, 'startPipe').mockImplementation(async (entry) => {
+    vi.spyOn(internals, 'startPipe').mockImplementation(async (entry) => {
       await held;
       entry.child = child;
       entry.pid = pid;
@@ -534,7 +520,7 @@ describe('shutdown of a process that is still starting', () => {
         argv: [process.execPath, script],
         cwd: tmpdir(),
       });
-      await viWaitFor(() => {
+      await vi.waitFor(() => {
         expect(internals.startPipe).toHaveBeenCalled();
       });
       const terminating = manager.terminateAll();
@@ -543,6 +529,7 @@ describe('shutdown of a process that is still starting', () => {
       await terminating;
       await waitForDeath(pid, 2_000);
     } finally {
+      vi.restoreAllMocks();
       if (isAlive(pid)) await child.kill('SIGKILL');
       await child.dispose();
       manager.dispose();
@@ -551,9 +538,10 @@ describe('shutdown of a process that is still starting', () => {
   });
 });
 
-describe.skipIf(process.platform === 'win32')('finished process-group ownership', () => {
+describe('finished process-group ownership', () => {
   it('does not evict live groups at the former cache limit and reaps missing groups', async () => {
-    const kill = spyOn(process, 'kill').mockImplementation(() => true);
+    vi.useFakeTimers();
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
     const manager = new ProcessManager(() => {}, new HostProcessService());
     const internals = manager as unknown as {
       processes: Map<string, unknown>;
@@ -567,19 +555,19 @@ describe.skipIf(process.platform === 'win32')('finished process-group ownership'
         internals.maybeClose(entry);
       }
       expect(internals.exitedGroups.size).toBe(4097);
-      await Bun.sleep(5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
       expect(internals.exitedGroups.size).toBe(4097);
       kill.mockImplementation(() => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); });
-      await Bun.sleep(5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
       expect(internals.exitedGroups.size).toBe(0);
-    } finally { manager.dispose(); kill.mockRestore(); }
+    } finally { manager.dispose(); kill.mockRestore(); vi.useRealTimers(); }
   });
 
   it('does not retain POSIX process groups for a Windows executor', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     const platform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32' });
-    const kill = spyOn(process, 'kill').mockImplementation(() => true);
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
     const manager = new ProcessManager(() => {}, new HostProcessService());
     const internals = manager as unknown as {
       processes: Map<string, unknown>;
@@ -598,35 +586,35 @@ describe.skipIf(process.platform === 'win32')('finished process-group ownership'
       internals.processes.set(entry.processId, entry);
       internals.maybeClose(entry);
       expect(internals.exitedGroups.size).toBe(0);
-      expect(jest.getTimerCount()).toBe(0);
-      jest.advanceTimersByTime(10_000);
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(10_000);
       expect(kill).not.toHaveBeenCalled();
     } finally {
       manager.dispose();
       kill.mockRestore();
       Object.defineProperty(process, 'platform', { value: platform });
-      jest.useRealTimers();
+      vi.useRealTimers();
     }
   });
 
   it('does not schedule a grace kill for a Windows executor', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     const platform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32' });
     const manager = new ProcessManager(() => {}, new HostProcessService());
     const internals = manager as unknown as {
       beginTermination(entry: unknown): Promise<void>;
     };
-    const entry = { child: { kill: mock(async () => {}) }, killTimer: undefined };
+    const entry = { child: { kill: vi.fn(async () => {}) }, killTimer: undefined };
     try {
       await internals.beginTermination(entry);
       expect(entry.child.kill).toHaveBeenCalledWith('SIGTERM');
       expect(entry.killTimer).toBeUndefined();
-      expect(jest.getTimerCount()).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
       manager.dispose();
       Object.defineProperty(process, 'platform', { value: platform });
-      jest.useRealTimers();
+      vi.useRealTimers();
     }
   });
 });

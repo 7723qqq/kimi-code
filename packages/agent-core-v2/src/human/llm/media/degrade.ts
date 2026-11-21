@@ -1,5 +1,5 @@
-import type { ContentPart, Message } from '#/llm/message';
-import type { LlmRecovery } from '#/llm/requester/recovery';
+import type { ContentPart, Message } from '#human/message';
+import type { LlmRecovery } from '#human/llm/requester/recovery';
 
 export const MEDIA_DEGRADE_KEEP_RECENT = 2;
 

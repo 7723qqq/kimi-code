@@ -1,43 +1,38 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-
+import * as vscode from "vscode";
 import type {
+  McpManagedServerInfo,
   McpServerConfig as SdkMcpServerConfig,
   McpTestResult,
-} from '@moonshot-ai/kimi-code-sdk';
-import * as vscode from 'vscode';
+} from "@moonshot-ai/kimi-code-sdk";
 
-import { Events, Methods } from '../../shared/bridge';
+import { Events, Methods } from "../../shared/bridge";
 import {
   MCP_SECRET_MASK,
-  type MCPServerCatalog,
   type MCPServerConfig,
   type MCPTestResult,
   type UpdateMCPServerRequest,
-} from '../../shared/legacy-sdk';
-import type { Handler } from './types';
+} from "../../shared/legacy-sdk";
+import type { Handler } from "./types";
 
 const SENSITIVE_MCP_KEY_WORDS = new Set([
-  'authorization',
-  'cookie',
-  'credential',
-  'credentials',
-  'passwd',
-  'password',
-  'secret',
-  'token',
+  "authorization",
+  "cookie",
+  "credential",
+  "credentials",
+  "passwd",
+  "password",
+  "secret",
+  "token",
 ]);
 
-interface NameParams {
-  name: string;
-}
+interface NameParams { name: string }
 
 export const mcpHandlers: Record<string, Handler<any, any>> = {
-  [Methods.GetMCPServers]: async (_, ctx): Promise<MCPServerCatalog> => {
+  [Methods.GetMCPServers]: async (_, ctx): Promise<MCPServerConfig[]> => {
     return listWorkspaceServers(ctx);
   },
 
-  [Methods.AddMCPServer]: async (params: MCPServerConfig, ctx): Promise<MCPServerCatalog> => {
+  [Methods.AddMCPServer]: async (params: MCPServerConfig, ctx): Promise<MCPServerConfig[]> => {
     const server = restoreMaskedSecrets(undefined, params);
     await ctx.harness.addMcpServer(toSdkServer(server));
     const servers = await listWorkspaceServers(ctx);
@@ -48,11 +43,11 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
   [Methods.UpdateMCPServer]: async (
     params: UpdateMCPServerRequest | MCPServerConfig,
     ctx,
-  ): Promise<MCPServerCatalog> => {
+  ): Promise<MCPServerConfig[]> => {
     const request = normalizeUpdateRequest(params);
-    const current = (await ctx.harness.listMcpServers()).find(
-      (server) => server.name === request.originalName,
-    );
+    const current = (
+      await ctx.harness.listMcpServers({ cwd: ctx.workDir ?? undefined })
+    ).find((server) => server.name === request.originalName);
     const edited = restoreMaskedSecrets(current, request.server);
     const next = mergeEditableServer(current, edited, request.replaceEditableFields);
     await updateOrRenameServer(ctx.harness, request.originalName, current, next);
@@ -61,7 +56,7 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
     return servers;
   },
 
-  [Methods.RemoveMCPServer]: async ({ name }: NameParams, ctx): Promise<MCPServerCatalog> => {
+  [Methods.RemoveMCPServer]: async ({ name }: NameParams, ctx): Promise<MCPServerConfig[]> => {
     await ctx.harness.removeMcpServer(name);
     const servers = await listWorkspaceServers(ctx);
     ctx.broadcast(Events.MCPServersChanged, servers);
@@ -114,11 +109,9 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
 
   [Methods.TestMCP]: async ({ name }: NameParams, ctx): Promise<MCPTestResult> => {
     void vscode.window.showInformationMessage(`Kimi: Testing MCP server "${name}"...`);
-    const result = toWebviewTestResult(
-      await ctx.harness.testMcpServer(name, {
-        cwd: ctx.workDir ?? undefined,
-      }),
-    );
+    const result = toWebviewTestResult(await ctx.harness.testMcpServer(name, {
+      cwd: ctx.workDir ?? undefined,
+    }));
     if (!result.success) {
       ctx.logError(`MCP server test failed for "${name}"`, new Error(result.output));
     }
@@ -126,150 +119,61 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
   },
 };
 
-/**
- * The workspace-aware server list shown in the modal. The mutation RPCs
- * (add/update/remove) return a list resolved without a cwd, so the webview
- * refresh after every mutation must re-list with the workspace cwd —
- * otherwise project-layer entries drop out of the modal until the next full
- * load. Unreadable or malformed project config files surface as `warnings`
- * instead of silently dropping the servers they declare.
- */
-async function readProjectMcpServers(
-  workDir: string,
-): Promise<{ servers: SdkMcpServerConfig[]; warnings: string[] }> {
-  const candidates = [join(workDir, '.mcp.json'), join(workDir, '.kimi-code', 'mcp.json')];
-  const results: SdkMcpServerConfig[] = [];
-  const warnings: string[] = [];
-  for (const file of candidates) {
-    let content: string;
-    try {
-      content = await readFile(file, 'utf-8');
-    } catch (error) {
-      if (isFileMissing(error)) continue;
-      warnings.push(`${file}: ${describeError(error)}`);
-      continue;
-    }
-    let parsed: { mcpServers?: Record<string, any> };
-    try {
-      parsed = JSON.parse(content) as { mcpServers?: Record<string, any> };
-    } catch (error) {
-      warnings.push(`${file}: ${describeError(error)}`);
-      continue;
-    }
-    if (parsed.mcpServers && typeof parsed.mcpServers === 'object') {
-      for (const [name, cfg] of Object.entries(parsed.mcpServers)) {
-        if (cfg && typeof cfg === 'object') {
-          results.push({
-            name,
-            ...cfg,
-            mutable: false,
-            source: 'project',
-            origin: file,
-          });
-        }
-      }
-    }
-  }
-  return { servers: results, warnings };
+async function listWorkspaceServers(ctx: Parameters<Handler>[1]): Promise<MCPServerConfig[]> {
+  return toWebviewServers(await ctx.harness.listMcpServers({ cwd: ctx.workDir ?? undefined }));
 }
 
-function isFileMissing(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT';
-}
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-async function listWorkspaceServers(ctx: Parameters<Handler>[1]): Promise<MCPServerCatalog> {
-  // The cwd makes the engine resolve the project layer itself, so entries it
-  // can read are present even when a project file is malformed.
-  const globalServers = await ctx.harness.listMcpServers({ cwd: ctx.workDir ?? undefined });
-  if (ctx.workDir) {
-    const { servers: projectServers, warnings } = await readProjectMcpServers(ctx.workDir);
-    const map = new Map<string, SdkMcpServerConfig>();
-    for (const server of projectServers) {
-      map.set(server.name, server);
-    }
-    for (const server of globalServers) {
-      map.set(server.name, server);
-    }
-    return {
-      servers: toWebviewServers(Array.from(map.values()), ctx.harness.homeDir),
-      ...(warnings.length > 0 ? { warnings } : {}),
-    };
-  }
-  return { servers: toWebviewServers(globalServers, ctx.harness.homeDir) };
-}
-
-function toWebviewServers(
-  servers: readonly SdkMcpServerConfig[],
-  homeDir?: string,
-): MCPServerConfig[] {
+function toWebviewServers(servers: readonly McpManagedServerInfo[]): MCPServerConfig[] {
   return servers
-    .filter((server) => server.transport === 'stdio' || server.transport === 'http')
+    .filter((server) => server.transport === "stdio" || server.transport === "http")
     .map((server) => {
-      // The management view's source/origin/mutable tags stay in the webview
-      // payload so the panel can hide mutating controls on read-only entries;
-      // only the nested plugin origin detail is dropped.
-      const config: any = {
-        source: 'global',
-        origin: homeDir ? join(homeDir, 'mcp.json') : undefined,
-        mutable: true,
-        ...server,
-      };
-      if (config.transport === 'stdio') {
+      const { plugin: _plugin, ...config } = server;
+      if (config.transport === "stdio") {
         return { ...config, env: maskSecretValues(config.env) } as MCPServerConfig;
       }
       return { ...config, headers: maskSecretValues(config.headers) } as MCPServerConfig;
     });
 }
 
-function maskSecretValues(
-  values: Record<string, string> | undefined,
-): Record<string, string> | undefined {
+function maskSecretValues(values: Record<string, string> | undefined): Record<string, string> | undefined {
   if (values === undefined) return undefined;
-  return Object.fromEntries(
-    Object.entries(values).map(([key, value]) => [
-      key,
-      isSensitiveMcpKey(key) ? MCP_SECRET_MASK : value,
-    ]),
-  );
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => [
+    key,
+    isSensitiveMcpKey(key) ? MCP_SECRET_MASK : value,
+  ]));
 }
 
 function isSensitiveMcpKey(key: string): boolean {
   const words = key
-    .replaceAll(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
-  const compact = words.join('');
-  return (
-    words.some((word) => SENSITIVE_MCP_KEY_WORDS.has(word)) ||
-    words.includes('key') ||
-    compact === 'proxyauthorization' ||
-    compact === 'setcookie' ||
-    compact.endsWith('apikey') ||
-    compact.endsWith('accesskey') ||
-    compact.endsWith('privatekey')
-  );
+  const compact = words.join("");
+  return words.some((word) => SENSITIVE_MCP_KEY_WORDS.has(word))
+    || words.includes("key")
+    || compact === "proxyauthorization"
+    || compact === "setcookie"
+    || compact.endsWith("apikey")
+    || compact.endsWith("accesskey")
+    || compact.endsWith("privatekey");
 }
 
 function restoreMaskedSecrets(
   current: SdkMcpServerConfig | undefined,
   edited: MCPServerConfig,
 ): MCPServerConfig {
-  if (edited.transport === 'stdio') {
-    const currentEnv = current?.transport === 'stdio' ? current.env : undefined;
+  if (edited.transport === "stdio") {
+    const currentEnv = current?.transport === "stdio" ? current.env : undefined;
     return {
       ...edited,
-      env: restoreMaskedRecord('environment variable', currentEnv, edited.env, false),
+      env: restoreMaskedRecord("environment variable", currentEnv, edited.env, false),
     };
   }
-  const currentHeaders = current?.transport === 'http' ? current.headers : undefined;
+  const currentHeaders = current?.transport === "http" ? current.headers : undefined;
   return {
     ...edited,
-    headers: restoreMaskedRecord('header', currentHeaders, edited.headers, true),
+    headers: restoreMaskedRecord("header", currentHeaders, edited.headers, true),
   };
 }
 
@@ -280,18 +184,14 @@ function restoreMaskedRecord(
   caseInsensitiveKeys: boolean,
 ): Record<string, string> | undefined {
   if (edited === undefined) return undefined;
-  return Object.fromEntries(
-    Object.entries(edited).map(([key, value]) => {
-      if (value !== MCP_SECRET_MASK) return [key, value];
-      const stored = findStoredSecret(current, key, caseInsensitiveKeys);
-      if (stored === undefined) {
-        throw new Error(
-          `Cannot preserve masked MCP ${label} "${key}" because no stored value exists`,
-        );
-      }
-      return [key, stored];
-    }),
-  );
+  return Object.fromEntries(Object.entries(edited).map(([key, value]) => {
+    if (value !== MCP_SECRET_MASK) return [key, value];
+    const stored = findStoredSecret(current, key, caseInsensitiveKeys);
+    if (stored === undefined) {
+      throw new Error(`Cannot preserve masked MCP ${label} "${key}" because no stored value exists`);
+    }
+    return [key, stored];
+  }));
 }
 
 function findStoredSecret(
@@ -303,27 +203,25 @@ function findStoredSecret(
   if (Object.hasOwn(current, key)) return current[key];
   if (!caseInsensitiveKeys) return undefined;
   const normalized = key.toLowerCase();
-  const match = Object.entries(current).find(
-    ([storedKey]) => storedKey.toLowerCase() === normalized,
-  );
+  const match = Object.entries(current).find(([storedKey]) => storedKey.toLowerCase() === normalized);
   return match?.[1];
 }
 
 function toSdkServer(server: MCPServerConfig): SdkMcpServerConfig {
   const name = server.name.trim();
-  if (server.transport === 'stdio') {
+  if (server.transport === "stdio") {
     return {
       name,
-      transport: 'stdio',
-      command: server.command?.trim() ?? '',
+      transport: "stdio",
+      command: server.command?.trim() ?? "",
       args: server.args,
       env: server.env,
     };
   }
   return {
     name,
-    transport: 'http',
-    url: server.url?.trim() ?? '',
+    transport: "http",
+    url: server.url?.trim() ?? "",
     headers: server.headers,
     auth: server.auth,
     bearerTokenEnvVar: server.bearerTokenEnvVar,
@@ -353,12 +251,14 @@ function mergeReleasedFormUpdate(
   return { ...current, ...defined } as SdkMcpServerConfig;
 }
 
-function normalizeUpdateRequest(params: UpdateMCPServerRequest | MCPServerConfig): {
+function normalizeUpdateRequest(
+  params: UpdateMCPServerRequest | MCPServerConfig,
+): {
   readonly originalName: string;
   readonly server: MCPServerConfig;
   readonly replaceEditableFields: boolean;
 } {
-  if ('server' in params) {
+  if ("server" in params) {
     return {
       originalName: params.originalName.trim(),
       server: params.server,
@@ -374,8 +274,8 @@ function normalizeUpdateRequest(params: UpdateMCPServerRequest | MCPServerConfig
 
 async function updateOrRenameServer(
   harness: Pick<
-    Parameters<Handler>[1]['harness'],
-    'addMcpServer' | 'updateMcpServer' | 'removeMcpServer'
+    Parameters<Handler>[1]["harness"],
+    "addMcpServer" | "updateMcpServer" | "removeMcpServer"
   >,
   originalName: string,
   current: SdkMcpServerConfig | undefined,
@@ -404,9 +304,9 @@ function toWebviewTestResult(result: McpTestResult): MCPTestResult {
 
 function sanitizeMcpDiagnostic(output: string): string {
   return output
-    .replaceAll(/\bBearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
+    .replaceAll(/\bBearer\s+[^\s,;]+/gi, "Bearer [redacted]")
     .replaceAll(
       /(["']?(?:authorization|cookie|credentials?|password|passwd|secret|token|api[-_ ]?key)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)/gi,
-      '$1[redacted]',
+      "$1[redacted]",
     );
 }

@@ -1,9 +1,13 @@
 import { type IDisposable, toDisposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import { LifecycleScope } from '#/app/scopes';
 
-import type { TelemetryContextPatch, TelemetryPrimitive, TelemetryProperties } from './context';
+import type {
+  TelemetryContextPatch,
+  TelemetryPrimitive,
+  TelemetryProperties,
+} from './context';
 import {
   type StrictPropertyCheck,
   type TelemetryEventName,
@@ -204,7 +208,10 @@ class BoundTelemetryService
   }
 
   withContext(patch: TelemetryContextPatch): ITelemetryService {
-    return new TelemetrySnapshotView(this.root, applyPatch(this.ambient(), patch));
+    return new TelemetrySnapshotView(
+      this.root,
+      applyPatch(this.ambient(), patch),
+    );
   }
 
   setContext(patch: TelemetryContextPatch): void {

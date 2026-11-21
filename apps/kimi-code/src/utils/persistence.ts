@@ -1,13 +1,5 @@
-/**
- * Small persistence helpers for CLI-owned data files.
- *
- * This module is intentionally for non-config files only. User-facing
- * configuration is owned by core/SDK; do not route `config.toml` through
- * these helpers.
- */
-
 import { mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { appendFile, link, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, link, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
 import type { z } from 'zod';
@@ -18,10 +10,6 @@ function isNotFound(error: unknown): boolean {
   );
 }
 
-/**
- * Hard links need filesystem support: FAT/exFAT (and some network mounts)
- * answer link() with ENOTSUP/ENOSYS/EPERM instead.
- */
 function isHardLinkUnsupported(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code;
   return code === 'ENOTSUP' || code === 'ENOSYS' || code === 'EPERM';
@@ -49,7 +37,7 @@ export async function readJsonFile<T>(
 ): Promise<T> {
   let raw: string;
   try {
-    raw = await readFile(filePath, 'utf-8');
+    raw = await Bun.file(filePath).text();
   } catch (error) {
     if (isNotFound(error)) return fallback;
     throw error;
@@ -92,17 +80,6 @@ export function writeJsonFileSync<T>(filePath: string, schema: z.ZodType<T>, val
   }
 }
 
-/**
- * Create `filePath` with `content` only while the path is still free —
- * atomically, and throwing EEXIST when it is already taken.
- *
- * Primary primitive: hard-link a fully written temp file into place, so the
- * destination is never observable in an empty/partial state. Filesystems
- * without hard-link support (FAT/exFAT, some network mounts) fall back to an
- * exclusive create + write — whose create→write gap IS observable, so readers
- * of such files must grant young unparseable content a publish grace before
- * treating it as corrupt (see the update install lock for an example).
- */
 export async function createFileIfAbsent(filePath: string, content: string): Promise<void> {
   assertNonConfigWrite(filePath);
   await mkdir(dirname(filePath), { recursive: true });
@@ -118,10 +95,13 @@ export async function createFileIfAbsent(filePath: string, content: string): Pro
   }
 }
 
-export async function readJsonlFile<T>(filePath: string, lineSchema: z.ZodType<T>): Promise<T[]> {
+export async function readJsonlFile<T>(
+  filePath: string,
+  lineSchema: z.ZodType<T>,
+): Promise<T[]> {
   let raw: string;
   try {
-    raw = await readFile(filePath, 'utf-8');
+    raw = await Bun.file(filePath).text();
   } catch (error) {
     if (isNotFound(error)) return [];
     throw error;
@@ -135,9 +115,7 @@ export async function readJsonlFile<T>(filePath: string, lineSchema: z.ZodType<T
       const parsed = JSON.parse(trimmed) as unknown;
       const result = lineSchema.safeParse(parsed);
       if (result.success) entries.push(result.data);
-    } catch {
-      // JSONL is append-only user data; tolerate bad rows and keep the rest.
-    }
+    } catch {}
   }
   return entries;
 }

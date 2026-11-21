@@ -1,50 +1,23 @@
-/**
- * `kimi acp` sub-command.
- *
- * Starts the Agent Client Protocol (ACP) server backed directly by the
- * DI × Scope agent engine (`agent-core-v2`) over stdio, so ACP-compatible
- * clients can drive a kimi-code session.
- *
- * Wire-up:
- *  - `--login` pivots into the shared device-code login flow (the entry point
- *    ACP clients hit via the first-class `AuthMethodTerminal` path, re-invoking
- *    the agent binary with the advertised `args:['--login']`).
- *  - `KIMI_CODE_HOME` (if set) is forwarded into `authMethods[0].env` so the
- *    login subprocess writes its token under the same data root the server
- *    reads from, and the absolute path to this binary is advertised as the
- *    legacy `_meta['terminal-auth'].command` fallback. Under a Bun single-file
- *    build that path is `process.execPath`: `argv[1]` is then a virtual
- *    `/$bunfs/...` path and every client `spawn` of it fails with ENOENT. For
- *    an npm/bun-global script install the binary to spawn IS the script, so
- *    `argv[1]` stays.
- *
- * `@moonshot-ai/acp-server` (and its `agent-core-v2` engine) is loaded via a
- * lazy dynamic import so parsing the CLI does not initialize the ACP engine —
- * mirroring the `kimi web` v2 routing in `#/cli/sub/web/run.ts`.
- */
-
 import type { Command } from 'commander';
 
-import { detectNativeInstall } from '#/cli/update/source';
 import { getVersion } from '#/cli/version';
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
-import { t } from '#/i18n';
 import { getDataDir } from '#/utils/paths';
 
 import { parseRegionFlag, runLoginFlow } from './login-flow';
+import { t } from '#/i18n';
 
 export function registerAcpCommand(parent: Command): void {
   parent
     .command('acp')
     .description(t('cli.commandDescriptions.acp'))
-    .option('--login', t('cli.optionDescriptions.acpLogin'), false)
+    .option(
+      '--login',
+      t('cli.optionDescriptions.acpLogin'),
+      false,
+    )
     .option('--region <region>', t('cli.optionDescriptions.acpRegion'))
     .action(async (opts: { login?: boolean; region?: string }) => {
-      // The root program accepts `--environment <id>` (commands.ts), so
-      // `kimi --environment <id> acp` parses cleanly — but ACP sessions are
-      // bound to the ACP client's own environment (the reverse-RPC fs/terminal
-      // bridge), never to a configured [environments] entry. Reject loudly
-      // instead of silently dropping the flag.
       const rootOptions = parent.opts<{ environment?: string; environmentCwd?: string }>();
       if (rootOptions.environment !== undefined) {
         process.stderr.write(
@@ -64,25 +37,12 @@ export function registerAcpCommand(parent: Command): void {
         });
         return;
       }
-      // Forward `KIMI_CODE_HOME` (if set) into `authMethods[0].env` so the
-      // login subprocess clients spawn for terminal-auth writes its token
-      // under the same data root the ACP server reads from.
       const sandboxHome = process.env[KIMI_CODE_HOME_ENV];
       const terminalAuthEnv =
         sandboxHome !== undefined && sandboxHome.length > 0
           ? { [KIMI_CODE_HOME_ENV]: sandboxHome }
           : undefined;
-      // Legacy `_meta.terminal-auth` fallback for clients that don't yet
-      // honor the first-class `type:'terminal'`. `command` is the absolute
-      // path to this very binary so the client can spawn it for login: a
-      // single-file build must report `execPath`, while a script install
-      // (`dist/main.mjs` invoked by node/bun) must keep `argv[1]` — pointing
-      // a script install at `execPath` would advertise the runtime.
-      const argv1 = process.argv[1];
-      const legacyCommand =
-        detectNativeInstall().native || argv1 === undefined || argv1.length === 0
-          ? process.execPath
-          : argv1;
+      const legacyCommand = process.argv[1];
       try {
         const { runAcpServer } = await import('@moonshot-ai/acp-server');
         await runAcpServer({
@@ -95,9 +55,7 @@ export function registerAcpCommand(parent: Command): void {
         });
         process.exit(0);
       } catch (error) {
-        process.stderr.write(
-          t('tui.statusMessages.acpFatalError', { error: String(error) }) + '\n',
-        );
+        process.stderr.write(`acp server: fatal error: ${String(error)}\n`);
         process.exit(1);
       }
     });

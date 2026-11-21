@@ -1,12 +1,11 @@
+import { Hono } from 'hono';
 import { join } from 'node:path';
 
-import { Hono } from 'hono';
-
 import { KIMI_CODE_HOME } from '../config';
-import { rehydrateWireEntries } from '../lib/blob-resolver';
-import { projectContext } from '../lib/context-projector';
 import { isSafeAgentId, readSessionDetail } from '../lib/session-store';
+import { rehydrateWireEntries } from '../lib/blob-resolver';
 import { readAgentWire } from '../lib/wire-reader';
+import { projectContext } from '../lib/context-projector';
 
 export function contextRoute(home: string = KIMI_CODE_HOME): Hono {
   const r = new Hono();
@@ -25,11 +24,11 @@ export function contextRoute(home: string = KIMI_CODE_HOME): Hono {
       return c.json({ error: 'agent wire not found', code: 'NOT_FOUND' }, 404);
     }
     try {
-      const wire = await readAgentWire(join(detail.sessionDir, 'agents', agentId, 'wire.jsonl'));
+      const wire = await readAgentWire(
+        join(detail.sessionDir, 'agents', agentId, 'wire.jsonl'),
+      );
       const baseUrl = new URL(c.req.url).origin;
-      rehydrateWireEntries(wire.records, id, agentId, baseUrl, wire.warnings);
-      // `?history=full` reconstructs the FULL pre-compaction/undo/clear history
-      // for debugging; the default mirrors the model's-eye post-compaction view.
+      rehydrateWireEntries(wire.records, id, agentId, baseUrl);
       const mode = c.req.query('history') === 'full' ? 'full' : 'model';
       const proj = projectContext(wire.records, mode);
       return c.json({
@@ -43,12 +42,9 @@ export function contextRoute(home: string = KIMI_CODE_HOME): Hono {
         planMode: proj.planMode,
         goal: proj.goal,
         swarm: proj.swarm,
-        // Projector-level caveats (malformed records skipped while folding)
-        // ride the same channel as the wire-reader/blob-resolver ones.
-        warnings: [...wire.warnings, ...proj.warnings],
       });
-    } catch (error) {
-      const msg = (error as Error).message;
+    } catch (err) {
+      const msg = (err as Error).message;
       return c.json({ error: msg, code: 'READ_ERROR' }, 500);
     }
   });

@@ -1,32 +1,29 @@
-import { IAgentGoalJudgeService } from '#/agent/goal/judge/goalJudgeService';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
+import { type ToolExecution } from '#/tool/toolContract';
+
 import { GOAL_OBJECTIVE_EDITED_TOOL_RESULT, IAgentGoalService } from '#/features/goal/goalService';
 import {
   buildGoalBlockedReasonPrompt,
   buildGoalCompletionSummaryPrompt,
 } from '#/features/goal/tools/outcome-prompts';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { RepoMutations, ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
+import DESCRIPTION from './update-goal.md?raw';
 import {
   UpdateGoalToolInputSchema,
   IUpdateGoalTool,
   type UpdateGoalToolInput,
 } from './update-goal';
-import DESCRIPTION from './update-goal.md?raw';
 
 export class UpdateGoalTool implements IUpdateGoalTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'UpdateGoal' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(UpdateGoalToolInputSchema);
 
   constructor(
     @IAgentGoalService private readonly goal: IAgentGoalService,
-    @IAgentGoalJudgeService private readonly judge: IAgentGoalJudgeService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
   ) {}
 
@@ -42,11 +39,9 @@ export class UpdateGoalTool implements IUpdateGoalTool {
 
     const status = args.status;
     const currentGoal = this.goal.getGoal().goal;
-    const goalIsActive = currentGoal?.status === 'active';
 
     return {
       description: `Setting goal status: ${status}`,
-      stopBatchAfterThis: status !== 'active' && goalIsActive,
       approvalRule: this.name,
       execute: async ({ turnId }) => {
         const goalAtExecution = this.goal.getGoal().goal;
@@ -67,21 +62,6 @@ export class UpdateGoalTool implements IUpdateGoalTool {
           return { output: GOAL_OBJECTIVE_EDITED_TOOL_RESULT };
         }
         if (status === 'complete') {
-          const verdict = await this.judge.evaluate(goalAtExecution);
-          if (!verdict.ok) {
-            if (verdict.impossible) {
-              const blocked = await this.goal.markBlocked({ reason: verdict.reason }, 'model');
-              if (blocked === null) {
-                return { output: 'Goal not blocked: no active goal.' };
-              }
-              return { output: buildGoalBlockedReasonPrompt(blocked), stopTurn: true };
-            }
-            return {
-              output:
-                `Goal completion rejected by judge: ${verdict.reason}\n` +
-                'Continue working toward the goal objective.',
-            };
-          }
           const completed = await this.goal.markComplete({}, 'model');
           if (completed === null) {
             return { output: 'Goal not completed: no active goal.' };
@@ -119,3 +99,4 @@ function changedGoalOutput(status: UpdateGoalToolInput['status']): string {
   if (status === 'complete') return 'Goal not completed: the current goal changed.';
   return 'Goal not blocked: the current goal changed.';
 }
+

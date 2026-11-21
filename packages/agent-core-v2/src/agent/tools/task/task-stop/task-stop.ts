@@ -14,7 +14,5 @@ export const TaskStopInputSchema = z.object({
 
 export type TaskStopInput = z.infer<typeof TaskStopInputSchema>;
 
-export interface ITaskStopTool extends AgentTool<TaskStopInput> {
-  readonly _serviceBrand: undefined;
-}
+export interface ITaskStopTool extends AgentTool<TaskStopInput> { readonly _serviceBrand: undefined }
 export const ITaskStopTool = createDecorator<ITaskStopTool>('taskStopTool');

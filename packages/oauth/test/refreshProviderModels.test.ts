@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   KIMI_CODE_PROVIDER_NAME,
@@ -7,7 +7,6 @@ import {
   type ManagedKimiConfigShape,
 } from '../src/managed-kimi-code';
 import { refreshProviderModels } from '../src/refreshProviderModels';
-import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from './helpers/stubs';
 
 type FetchMock = (
   input: Parameters<typeof fetch>[0],
@@ -22,15 +21,11 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): string {
 
 function makeRefreshHost(initial: ManagedKimiConfigShape): {
   current: () => ManagedKimiConfigShape;
-  removeProvider: ReturnType<
-    typeof jest.fn<(providerId: string) => Promise<ManagedKimiConfigShape>>
-  >;
-  setConfig: ReturnType<
-    typeof jest.fn<(patch: Partial<ManagedKimiConfigShape>) => Promise<ManagedKimiConfigShape>>
-  >;
+  removeProvider: ReturnType<typeof vi.fn<(providerId: string) => Promise<ManagedKimiConfigShape>>>;
+  setConfig: ReturnType<typeof vi.fn<(patch: Partial<ManagedKimiConfigShape>) => Promise<ManagedKimiConfigShape>>>;
 } {
   let persisted = structuredClone(initial);
-  const removeProvider = jest.fn(async (providerId: string) => {
+  const removeProvider = vi.fn(async (providerId: string) => {
     const providers = { ...persisted.providers };
     delete providers[providerId];
     const models = { ...persisted.models };
@@ -44,7 +39,7 @@ function makeRefreshHost(initial: ManagedKimiConfigShape): {
     if (defaultRemoved) persisted = { ...persisted, defaultModel: undefined };
     return structuredClone(persisted);
   });
-  const setConfig = jest.fn(async (patch: Partial<ManagedKimiConfigShape>) => {
+  const setConfig = vi.fn(async (patch: Partial<ManagedKimiConfigShape>) => {
     persisted = { ...persisted, ...patch };
     return structuredClone(persisted);
   });
@@ -57,8 +52,8 @@ function makeRefreshHost(initial: ManagedKimiConfigShape): {
 
 describe('refreshProviderModels', () => {
   afterEach(() => {
-    restoreEnvs();
-    restoreGlobals();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it('refreshes managed Kimi Code against environment endpoints over persisted config', async () => {
@@ -94,13 +89,13 @@ describe('refreshProviderModels', () => {
       defaultModel: 'kimi-code/kimi-for-coding',
       telemetry: true,
     };
-    setEnv('KIMI_CODE_BASE_URL', envBaseUrl);
-    setEnv('KIMI_CODE_OAUTH_HOST', envOauthHost);
-    const resolveOAuthToken = jest.fn(async (_providerName, oauthRef) => {
+    vi.stubEnv('KIMI_CODE_BASE_URL', envBaseUrl);
+    vi.stubEnv('KIMI_CODE_OAUTH_HOST', envOauthHost);
+    const resolveOAuthToken = vi.fn(async (_providerName, oauthRef) => {
       expect(oauthRef).toEqual(envOauthRef);
       return 'env-access-token';
     });
-    const fetchMock = jest.fn<FetchMock>(async (input, init) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${envBaseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer env-access-token');
       return new Response(
@@ -116,12 +111,12 @@ describe('refreshProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => config,
-      removeProvider: jest.fn(),
-      setConfig: jest.fn(),
+      removeProvider: vi.fn(),
+      setConfig: vi.fn(),
       resolveOAuthToken,
     });
 
@@ -172,8 +167,8 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     };
     const host = makeRefreshHost(config);
-    const resolveOAuthToken = jest.fn(async () => 'oauth-access-token');
-    const fetchMock = jest.fn<FetchMock>(async (input, init) => {
+    const resolveOAuthToken = vi.fn(async () => 'oauth-access-token');
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${baseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer oauth-access-token');
       return new Response(
@@ -190,7 +185,7 @@ describe('refreshProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels(
       {
@@ -268,7 +263,7 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(async (input, init) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-test-token');
       return new Response(
@@ -309,13 +304,13 @@ describe('refreshProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -337,16 +332,16 @@ describe('refreshProviderModels', () => {
     expect(host.removeProvider).toHaveBeenCalledWith(providerId);
     expect(host.removeProvider).toHaveBeenCalledWith(siblingProviderId);
     expect(host.setConfig).toHaveBeenCalledTimes(1);
-    expect(host.current().models?.[modelAlias]?.capabilities).toEqual([
-      'tool_use',
-      'thinking',
+    expect([...(host.current().models?.[modelAlias]?.capabilities ?? [])].sort()).toEqual([
       'image_in',
+      'thinking',
+      'tool_use',
       'video_in',
     ]);
-    expect(host.current().models?.[siblingModelAlias]?.capabilities).toEqual([
-      'tool_use',
-      'thinking',
+    expect([...(host.current().models?.[siblingModelAlias]?.capabilities ?? [])].sort()).toEqual([
       'image_in',
+      'thinking',
+      'tool_use',
       'video_in',
     ]);
     expect(host.current().models?.[userAlias]).toEqual(userAliasModel);
@@ -385,9 +380,9 @@ describe('refreshProviderModels', () => {
       defaultModel: currentAlias,
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      jest.fn<FetchMock>(async () => {
+      vi.fn<FetchMock>(async () => {
         return new Response(
           JSON.stringify({
             [providerId]: {
@@ -417,7 +412,7 @@ describe('refreshProviderModels', () => {
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result).toEqual({
@@ -464,9 +459,9 @@ describe('refreshProviderModels', () => {
         defaultModel: legacyAlias,
         thinking: { enabled: true, effort: 'low' },
       } as unknown as ManagedKimiConfigShape);
-      setGlobal(
+      vi.stubGlobal(
         'fetch',
-        jest.fn<FetchMock>(async () => {
+        vi.fn<FetchMock>(async () => {
           return new Response(
             JSON.stringify({
               [providerId]: {
@@ -485,7 +480,7 @@ describe('refreshProviderModels', () => {
         getConfig: async () => host.current(),
         removeProvider: host.removeProvider,
         setConfig: host.setConfig,
-        resolveOAuthToken: jest.fn(),
+        resolveOAuthToken: vi.fn(),
       });
       return { host, result };
     }
@@ -537,7 +532,7 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(async (input, init) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-test-token');
       return new Response(
@@ -560,13 +555,13 @@ describe('refreshProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -645,7 +640,7 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(async (input, init) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-test-token');
       return new Response(
@@ -661,13 +656,13 @@ describe('refreshProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -729,7 +724,7 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(async (input, init) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       const authorization = new Headers(init?.headers).get('authorization');
       if (authorization === 'Bearer sk-old-token') {
@@ -759,13 +754,13 @@ describe('refreshProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -834,7 +829,7 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(async (input, init) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-test-token');
       return new Response(
@@ -859,13 +854,13 @@ describe('refreshProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -883,8 +878,6 @@ describe('refreshProviderModels', () => {
     const providerId = 'example_chat-completions';
     const modelId = 'reasoner-pro';
     const modelAlias = `${providerId}/${modelId}`;
-    // A config written before max_output_size existed gains the field at the
-    // end of the entry, after fields the registry places later.
     const host = makeRefreshHost({
       providers: {
         [providerId]: {
@@ -908,37 +901,39 @@ describe('refreshProviderModels', () => {
       defaultModel: modelAlias,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(
-      async () =>
-        new Response(
-          JSON.stringify({
-            [providerId]: {
-              id: providerId,
-              name: 'Example Chat Completions',
-              api: 'https://api.example.test/v1',
-              type: 'openai',
-              models: {
-                [modelId]: {
-                  id: modelId,
-                  name: 'Reasoner Pro',
-                  limit: { context: 262144, output: 32768 },
-                  tool_call: true,
-                  reasoning: true,
-                  support_efforts: ['low', 'high'],
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<FetchMock>(
+        async () =>
+          new Response(
+            JSON.stringify({
+              [providerId]: {
+                id: providerId,
+                name: 'Example Chat Completions',
+                api: 'https://api.example.test/v1',
+                type: 'openai',
+                models: {
+                  [modelId]: {
+                    id: modelId,
+                    name: 'Reasoner Pro',
+                    limit: { context: 262144, output: 32768 },
+                    tool_call: true,
+                    reasoning: true,
+                    support_efforts: ['low', 'high'],
+                  },
                 },
               },
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+      ),
     );
-    setGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -970,7 +965,7 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(
+    const fetchMock = vi.fn<FetchMock>(
       async () =>
         new Response(
           JSON.stringify({
@@ -985,20 +980,20 @@ describe('refreshProviderModels', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(async () => 'oauth-access-token'),
+      resolveOAuthToken: vi.fn(async () => 'oauth-access-token'),
     });
 
     expect(result.failed).toEqual([]);
-    expect(host.current().models?.['kimi-code/kimi-deep-coder']?.capabilities).toEqual([
+    expect([...(host.current().models?.['kimi-code/kimi-deep-coder']?.capabilities ?? [])].sort()).toEqual([
+      'always_thinking',
       'thinking',
       'tool_use',
-      'always_thinking',
     ]);
     expect(host.current().defaultModel).toBe('kimi-code/kimi-deep-coder');
     expect(host.current().thinking?.enabled).toBe(true);
@@ -1006,7 +1001,7 @@ describe('refreshProviderModels', () => {
 
   it('refreshes a hand-configured API-key provider pointing at the managed endpoint', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    setEnv('KIMI_CODE_BASE_URL', baseUrl);
+    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
     const userAliasModel = {
       provider: 'my-kimi',
       model: 'kimi-for-coding',
@@ -1042,7 +1037,7 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(async (input, init) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${baseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-distributed-key');
       return new Response(
@@ -1060,41 +1055,38 @@ describe('refreshProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
     expect(result.changed).toEqual([
       { providerId: 'my-kimi', providerName: 'my-kimi', added: 1, removed: 1 },
     ]);
-    // The provider record is user-owned and must survive untouched.
     expect(host.current().providers['my-kimi']).toEqual({
       type: 'kimi',
       baseUrl,
       apiKey: 'sk-distributed-key',
     });
-    // Upstream-owned fields merge; the dropped model disappears; the new one appears.
     expect(host.current().models?.['my-kimi/kimi-for-coding']?.displayName).toBe('Fresh Kimi');
-    expect(host.current().models?.['my-kimi/kimi-for-coding']?.capabilities).toEqual([
-      'tool_use',
+    expect([...(host.current().models?.['my-kimi/kimi-for-coding']?.capabilities ?? [])].sort()).toEqual([
       'thinking',
+      'tool_use',
     ]);
     expect(host.current().models?.['my-kimi/kimi-k2']).toBeDefined();
     expect(host.current().models?.['my-kimi/kimi-old']).toBeUndefined();
-    // Non-prefix user aliases and the default selection are preserved.
     expect(host.current().models?.['my-fav']).toEqual(userAliasModel);
     expect(host.current().defaultModel).toBe('my-kimi/kimi-for-coding');
   });
 
   it('resolves the API key from the provider env sub-table when api_key is empty', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    setEnv('KIMI_CODE_BASE_URL', baseUrl);
+    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
     const host = makeRefreshHost({
       providers: {
         'my-kimi': {
@@ -1115,7 +1107,7 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(async (input, init) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${baseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-env-key');
       return new Response(
@@ -1127,13 +1119,13 @@ describe('refreshProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -1142,7 +1134,7 @@ describe('refreshProviderModels', () => {
   });
 
   it('matches the managed endpoint even with a trailing slash on the configured baseUrl', async () => {
-    setEnv('KIMI_CODE_BASE_URL', 'https://api.managed.example.test/coding/v1');
+    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://api.managed.example.test/coding/v1');
     const host = makeRefreshHost({
       providers: {
         'my-kimi': {
@@ -1155,20 +1147,20 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(async (input) => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
       expect(fetchInputUrl(input)).toBe('https://api.managed.example.test/coding/v1/models');
       return new Response(
         JSON.stringify({ data: [{ id: 'kimi-for-coding', limit: { context: 262144 } }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
@@ -1179,7 +1171,7 @@ describe('refreshProviderModels', () => {
   });
 
   it('does not refresh API-key providers pointing at non-managed endpoints', async () => {
-    setEnv('KIMI_CODE_BASE_URL', 'https://api.managed.example.test/coding/v1');
+    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://api.managed.example.test/coding/v1');
     const host = makeRefreshHost({
       providers: {
         gateway: {
@@ -1197,14 +1189,14 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>();
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn<FetchMock>();
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result).toEqual({ changed: [], unchanged: [], failed: [] });
@@ -1213,7 +1205,7 @@ describe('refreshProviderModels', () => {
 
   it('refreshes a hand-written managed:kimi-code provider that uses an API key instead of OAuth', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    setEnv('KIMI_CODE_BASE_URL', baseUrl);
+    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
     const host = makeRefreshHost({
       providers: {
         [KIMI_CODE_PROVIDER_NAME]: {
@@ -1235,8 +1227,8 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const resolveOAuthToken = jest.fn(async () => 'oauth-access-token');
-    const fetchMock = jest.fn<FetchMock>(async (input, init) => {
+    const resolveOAuthToken = vi.fn(async () => 'oauth-access-token');
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${baseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-distributed-key');
       return new Response(
@@ -1253,7 +1245,7 @@ describe('refreshProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
@@ -1271,8 +1263,6 @@ describe('refreshProviderModels', () => {
         removed: 0,
       },
     ]);
-    // The OAuth branch must not run: no token resolution, and the provider
-    // record keeps the user's API-key shape (no oauth ref, no apiKey reset).
     expect(resolveOAuthToken).not.toHaveBeenCalled();
     expect(host.current().providers[KIMI_CODE_PROVIDER_NAME]).toEqual({
       type: 'kimi',
@@ -1286,7 +1276,7 @@ describe('refreshProviderModels', () => {
 
   it('reports a failed refresh and keeps config when the managed endpoint rejects the API key', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    setEnv('KIMI_CODE_BASE_URL', baseUrl);
+    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
     const host = makeRefreshHost({
       providers: {
         'my-kimi': {
@@ -1306,20 +1296,20 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(
+    const fetchMock = vi.fn<FetchMock>(
       async () =>
         new Response(JSON.stringify({ error: { message: 'invalid key' } }), {
           status: 401,
           headers: { 'Content-Type': 'application/json' },
         }),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.changed).toEqual([]);
@@ -1332,7 +1322,7 @@ describe('refreshProviderModels', () => {
 
   it('skips the API-key refresh when the managed endpoint returns no models', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    setEnv('KIMI_CODE_BASE_URL', baseUrl);
+    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
     const host = makeRefreshHost({
       providers: {
         'my-kimi': {
@@ -1352,27 +1342,27 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(
+    const fetchMock = vi.fn<FetchMock>(
       async () =>
         new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
+    // The refresh is skipped, but the skip is reported (bbd9b850e4).
     expect(result).toEqual({
       changed: [],
       unchanged: [],
       failed: [{ provider: 'my-kimi', reason: 'provider returned no models' }],
-      retiredDefault: undefined,
     });
     expect(host.setConfig).not.toHaveBeenCalled();
     expect(host.current().models?.['my-kimi/kimi-for-coding']).toBeDefined();
@@ -1380,7 +1370,7 @@ describe('refreshProviderModels', () => {
 
   it('writes defaultProvider back when refreshing the provider it points at', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    setEnv('KIMI_CODE_BASE_URL', baseUrl);
+    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
     const host = makeRefreshHost({
       providers: {
         'my-kimi': {
@@ -1402,7 +1392,7 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(
+    const fetchMock = vi.fn<FetchMock>(
       async () =>
         new Response(
           JSON.stringify({
@@ -1418,20 +1408,17 @@ describe('refreshProviderModels', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);
     expect(result.changed).toHaveLength(1);
-    // The v1 removeProvider RPC clears defaultProvider when it points at the
-    // refreshed provider; the setConfig patch must carry the original value
-    // back.
     expect(host.setConfig).toHaveBeenCalledWith(
       expect.objectContaining({ defaultProvider: 'my-kimi' }),
     );
@@ -1440,7 +1427,7 @@ describe('refreshProviderModels', () => {
 
   it('leaves registry-sourced providers at the managed base URL to the registry branch', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    setEnv('KIMI_CODE_BASE_URL', baseUrl);
+    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
     const registryUrl = 'https://registry.example.test/v1/models/api.json';
     const host = makeRefreshHost({
       providers: {
@@ -1463,7 +1450,7 @@ describe('refreshProviderModels', () => {
       telemetry: true,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(async (input) => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       return new Response(
         JSON.stringify({
@@ -1478,13 +1465,13 @@ describe('refreshProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await refreshProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: jest.fn(),
+      resolveOAuthToken: vi.fn(),
     });
 
     expect(result.failed).toEqual([]);

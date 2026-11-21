@@ -1,16 +1,15 @@
-import { constants, createReadStream } from 'node:fs';
-import { access, mkdtemp, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { kimiCdnContentUrl } from '@moonshot-ai/kimi-code-oauth';
 
-import { errorMessage } from '#/_base/utils/errorMessage';
 import { Error2 } from '#/errors';
 
 import { installResolvedMarketplacePlugin } from '../../plugin/pluginService';
 import { CapabilityErrors } from '../errors';
-import { downloadToFile, runCommand, type CommandResult, type FetchLike } from '../host';
+import { downloadToFile, runCommand } from '../host';
 import type {
   CapabilityDetectResult,
   CapabilityEntry,
@@ -45,76 +44,8 @@ const WINDOWS_DOCTOR_SCRIPT =
   "if ($env:KIMI_CU_WINDOWS_HOME) { $candidates += (Join-Path $env:KIMI_CU_WINDOWS_HOME 'kimi-cu.exe') }; " +
   "if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'KimiCU\\kimi-cu.exe') }; " +
   "if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'KimiCU\\kimi-cu.exe') }; " +
-  '$exe = $candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1; ' +
+  "$exe = $candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1; " +
   'if (-not $exe) { exit 3 }; & $exe doctor; exit $LASTEXITCODE';
-
-export function windowsCuExeCandidates(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): string[] {
-  const candidates: Array<string | undefined> = [env['KIMI_CU_WINDOWS_EXE']];
-  const home = env['KIMI_CU_WINDOWS_HOME'];
-  if (home) {
-    candidates.push(path.win32.join(home, 'kimi-cu.exe'));
-  }
-  const localAppData = env['LOCALAPPDATA'];
-  if (localAppData) {
-    candidates.push(path.win32.join(localAppData, 'KimiCU', 'kimi-cu.exe'));
-  }
-  const programFiles = env['ProgramFiles'];
-  if (programFiles) {
-    candidates.push(path.win32.join(programFiles, 'KimiCU', 'kimi-cu.exe'));
-  }
-  return candidates.filter(
-    (candidate): candidate is string =>
-      candidate !== undefined && candidate.trim().length > 0,
-  );
-}
-
-export async function resolveWindowsCuExe(
-  candidates: readonly string[],
-): Promise<string | undefined> {
-  for (const candidate of candidates) {
-    const isFile = await stat(candidate).then(
-      (entry) => entry.isFile(),
-      () => false,
-    );
-    if (isFile) return candidate;
-  }
-  return undefined;
-}
-
-async function verifyDownloadedChecksum(
-  url: string,
-  filePath: string,
-  fetchImpl: FetchLike | undefined,
-): Promise<void> {
-  const checksumPath = `${filePath}.sha256`;
-  try {
-    await downloadToFile(`${url}.sha256`, checksumPath, undefined, fetchImpl);
-  } catch {
-    return;
-  }
-  try {
-    const expected = (await Bun.file(checksumPath).text()).trim().split(/\s+/)[0];
-    if (expected === undefined || !/^[0-9a-f]{64}$/i.test(expected)) {
-      return;
-    }
-    const actual = await sha256File(filePath);
-    if (expected.toLowerCase() !== actual) {
-      throw new Error(`Checksum mismatch for ${url}: expected ${expected}, got ${actual}`);
-    }
-  } finally {
-    await rm(checksumPath, { force: true }).catch(() => {});
-  }
-}
-
-async function sha256File(filePath: string): Promise<string> {
-  const hash = new Bun.CryptoHasher('sha256');
-  for await (const chunk of createReadStream(filePath)) {
-    hash.update(chunk);
-  }
-  return hash.digest('hex');
-}
 
 interface PluginLayerConfig {
   readonly id: string;
@@ -173,15 +104,24 @@ export function windowsPowerShellPath(
   systemRoot = process.env['SystemRoot'] ?? DEFAULT_WINDOWS_SYSTEM_ROOT,
 ): string {
   const root = path.win32.isAbsolute(systemRoot) ? systemRoot : DEFAULT_WINDOWS_SYSTEM_ROOT;
-  return path.win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  return path.win32.join(
+    root,
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe',
+  );
 }
 
 export function windowsPowerShell7Path(
-  programFiles = process.env['ProgramW6432'] ??
+  programFiles =
+    process.env['ProgramW6432'] ??
     process.env['ProgramFiles'] ??
     DEFAULT_WINDOWS_PROGRAM_FILES,
 ): string {
-  const root = path.win32.isAbsolute(programFiles) ? programFiles : DEFAULT_WINDOWS_PROGRAM_FILES;
+  const root = path.win32.isAbsolute(programFiles)
+    ? programFiles
+    : DEFAULT_WINDOWS_PROGRAM_FILES;
   return path.win32.join(root, 'PowerShell', '7', 'pwsh.exe');
 }
 
@@ -197,6 +137,10 @@ export async function readAppBundleVersion(infoPlistPath: string): Promise<strin
 
 function appleScriptQuote(script: string): string {
   return script.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function powerShellStringLiteral(value: string): string {
@@ -251,24 +195,23 @@ async function installPluginLayer(
   if (marketplace !== undefined && entry?.version === undefined) {
     throw new Error(`Marketplace plugin "${config.id}" has no version in the current catalog`);
   }
-  const summary =
-    marketplace === undefined
-      ? await installResolvedMarketplacePlugin(
-          ctx.plugins,
-          { marketplaceId: config.id },
-          {
-            source: config.zipUrl,
-            catalogId: config.id,
-            origin: 'marketplace',
-            expectedPluginId: config.id,
-            fetchImpl: fetch,
-          },
-        )
-      : await ctx.plugins.installPlugin({
-          marketplaceId: config.id,
-          expectedVersion: entry!.version,
-          expectedSha256: entry!.sha256sum,
-        });
+  const summary = marketplace === undefined
+    ? await installResolvedMarketplacePlugin(
+        ctx.plugins,
+        { marketplaceId: config.id },
+        {
+          source: config.zipUrl,
+          catalogId: config.id,
+          origin: 'marketplace',
+          expectedPluginId: config.id,
+          fetchImpl: fetch,
+        },
+      )
+    : await ctx.plugins.installPlugin({
+        marketplaceId: config.id,
+        expectedVersion: entry!.version,
+        expectedSha256: entry!.sha256sum,
+      });
   if (!summary.enabled) {
     await ctx.plugins.setPluginEnabled({ id: config.id, enabled: true });
   }
@@ -319,17 +262,8 @@ function shQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-export function elevatedSwapScript(from: string, to: string, staged: string): string {
-  const backup = `${to}.bak`;
-  return (
-    `set -e; rm -rf ${shQuote(backup)}; rm -rf ${shQuote(staged)}; ` +
-    `/usr/bin/ditto ${shQuote(from)} ${shQuote(staged)}; ` +
-    `if [ -e ${shQuote(to)} ]; then /bin/mv ${shQuote(to)} ${shQuote(backup)}; fi; ` +
-    `if ! /bin/mv ${shQuote(staged)} ${shQuote(to)}; then ` +
-    `if [ -e ${shQuote(backup)} ]; then /bin/mv ${shQuote(backup)} ${shQuote(to)}; fi; ` +
-    `exit 1; fi; ` +
-    `rm -rf ${shQuote(backup)}`
-  );
+export function elevatedDittoScript(from: string, to: string): string {
+  return `/usr/bin/ditto ${shQuote(from)} ${shQuote(to)}`;
 }
 
 function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
@@ -380,7 +314,9 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
     }
   }
 
-  async function removeLegacyMcpRegistration(legacy: LegacyMcpFile | undefined): Promise<boolean> {
+  async function removeLegacyMcpRegistration(
+    legacy: LegacyMcpFile | undefined,
+  ): Promise<boolean> {
     if (legacy === undefined) return false;
 
     const nextServers = { ...legacy.servers };
@@ -448,13 +384,12 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
     } else {
       const granted =
         permissions !== undefined && permissions.accessibility && permissions.screenRecording;
-      const missingPermissions =
-        permissions === undefined
-          ? undefined
-          : [
-              ...(permissions.accessibility ? [] : ['accessibility']),
-              ...(permissions.screenRecording ? [] : ['screenRecording']),
-            ].join(',');
+      const missingPermissions = permissions === undefined
+        ? undefined
+        : [
+            ...(permissions.accessibility ? [] : ['accessibility']),
+            ...(permissions.screenRecording ? [] : ['screenRecording']),
+          ].join(',');
       steps.push(
         {
           id: 'permissions',
@@ -501,63 +436,25 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
     });
   }
 
-  async function leftoverStagingPaths(): Promise<string[]> {
-    const entries = await readdir(applicationsDir).catch(() => [] as string[]);
-    return entries
-      .filter((entry) => /^KimiCU\.app\.(new-\d+-\d+|bak(-\d+-\d+)?)$/.test(entry))
-      .map((entry) => path.join(applicationsDir, entry));
-  }
-
-  async function removeLeftoverStagingEntries(): Promise<void> {
-    for (const leftover of await leftoverStagingPaths()) {
-      await rm(leftover, { recursive: true, force: true }).catch(() => undefined);
-    }
-  }
-
   async function moveAppIntoPlace(unzippedApp: string): Promise<void> {
-    const tail = `${process.pid}-${Date.now()}`;
-    const staged = `${appPath}.new-${tail}`;
-    const backup = `${appPath}.bak-${tail}`;
-    await removeLeftoverStagingEntries();
-    const direct = await runCommand(ctx.hostProcess, 'ditto', [unzippedApp, staged], {
+    await rm(appPath, { recursive: true, force: true }).catch(() => undefined);
+    const direct = await runCommand(ctx.hostProcess, 'ditto', [unzippedApp, appPath], {
       timeout: commandTimeoutMs,
     });
-    if (direct.code !== 0) {
-      const script = appleScriptQuote(elevatedSwapScript(unzippedApp, appPath, staged));
-      const elevated = await runCommand(
-        ctx.hostProcess,
-        'osascript',
-        ['-e', `do shell script "${script}" with administrator privileges`],
-        { timeout: 120_000 },
-      );
-      if (elevated.code !== 0) {
-        throw new Error(
-          `Failed to install ${APP_BUNDLE} into ${applicationsDir} ` +
-            `(direct: ${direct.stderr.trim() || direct.code}; elevated: ${elevated.stderr.trim() || elevated.code})`,
-        );
-      }
-      await stopOldProcesses();
-      return;
-    }
-    await stopOldProcesses();
-    const hadPrevious = await exists(appPath);
-    if (hadPrevious) {
-      await rename(appPath, backup);
-    }
-    const placed = await rename(staged, appPath).then(
-      () => true,
-      () => false,
+    if (direct.code === 0) return;
+    const script = appleScriptQuote(elevatedDittoScript(unzippedApp, appPath));
+    const elevated = await runCommand(
+      ctx.hostProcess,
+      'osascript',
+      ['-e', `do shell script "${script}" with administrator privileges`],
+      { timeout: 120_000 },
     );
-    if (!placed) {
-      if (hadPrevious) {
-        await rename(backup, appPath).catch(() => undefined);
-      }
+    if (elevated.code !== 0) {
       throw new Error(
-        `Failed to install ${APP_BUNDLE} into ${applicationsDir}: ` +
-          `the staged bundle could not replace the installed app`,
+        `Failed to install ${APP_BUNDLE} into ${applicationsDir} ` +
+          `(direct: ${direct.stderr.trim() || direct.code}; elevated: ${elevated.stderr.trim() || elevated.code})`,
       );
     }
-    await rm(backup, { recursive: true, force: true }).catch(() => undefined);
   }
 
   async function install(report: CapabilityInstallReporter): Promise<string | undefined> {
@@ -596,17 +493,13 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
 
         report('app');
         const unzipDir = path.join(workDir, 'unzipped');
-        const unzipped = await runCommand(
-          ctx.hostProcess,
-          'ditto',
-          ['-x', '-k', zipPath, unzipDir],
-          {
-            timeout: 120_000,
-          },
-        );
+        const unzipped = await runCommand(ctx.hostProcess, 'ditto', ['-x', '-k', zipPath, unzipDir], {
+          timeout: 120_000,
+        });
         if (unzipped.code !== 0) {
           throw new Error(`Failed to unzip KimiCU.app: ${unzipped.stderr || unzipped.stdout}`);
         }
+        await stopOldProcesses();
         await moveAppIntoPlace(path.join(unzipDir, APP_BUNDLE));
         await runCommand(ctx.hostProcess, 'xattr', ['-dr', 'com.apple.quarantine', appPath], {
           timeout: commandTimeoutMs,
@@ -638,9 +531,12 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
       stepStates.get('permissions.screenRecording') !== 'ok'
     ) {
       report('permissions');
-      await runCommand(ctx.hostProcess, appBin, ['request-permissions', '--ax', '--screen'], {
-        timeout: PERMISSIONS_TIMEOUT_MS,
-      }).catch(() => undefined);
+      await runCommand(
+        ctx.hostProcess,
+        appBin,
+        ['request-permissions', '--ax', '--screen'],
+        { timeout: PERMISSIONS_TIMEOUT_MS },
+      ).catch(() => undefined);
     }
     return undefined;
   }
@@ -660,7 +556,8 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
 function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
   const supported = ctx.platform === 'win32' && ctx.arch === 'x64';
   const probeTimeoutMs = ctx.detectProbeTimeoutMs ?? DETECT_PROBE_TIMEOUT_MS;
-  const installerProbeTimeoutMs = ctx.detectProbeTimeoutMs ?? WINDOWS_INSTALLER_PROBE_TIMEOUT_MS;
+  const installerProbeTimeoutMs =
+    ctx.detectProbeTimeoutMs ?? WINDOWS_INSTALLER_PROBE_TIMEOUT_MS;
   const installTimeoutMs = ctx.commandTimeoutMs ?? WINDOWS_INSTALL_TIMEOUT_MS;
   const powershellPath = windowsPowerShellPath();
   const powershell7Path = windowsPowerShell7Path();
@@ -694,10 +591,21 @@ function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry 
     );
   }
 
-  function runtimeStepFrom(result: CommandResult): {
+  async function runtimeStep(command: string): Promise<{
     readonly step: CapabilityStep;
     readonly version?: string;
-  } {
+  }> {
+    let result: Awaited<ReturnType<typeof runCommand>>;
+    try {
+      result = await runCommand(
+        ctx.hostProcess,
+        command,
+        ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_DOCTOR_SCRIPT],
+        { timeout: probeTimeoutMs },
+      );
+    } catch (error) {
+      return { step: { id: 'runtime', state: 'failed', detail: errorMessage(error) } };
+    }
     if (result.code === 3) {
       return { step: { id: 'runtime', state: 'missing' } };
     }
@@ -725,53 +633,10 @@ function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry 
       : { step: { id: 'runtime', state: 'ok', detail: doctor.version }, version: doctor.version };
   }
 
-  async function runtimeStep(command: string): Promise<{
-    readonly step: CapabilityStep;
-    readonly version?: string;
-  }> {
-    let result: Awaited<ReturnType<typeof runCommand>>;
-    try {
-      result = await runCommand(
-        ctx.hostProcess,
-        command,
-        ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_DOCTOR_SCRIPT],
-        { timeout: probeTimeoutMs },
-      );
-    } catch (error) {
-      return { step: { id: 'runtime', state: 'failed', detail: errorMessage(error) } };
-    }
-    return runtimeStepFrom(result);
-  }
-
-  async function directRuntimeStep(exe: string): Promise<
-    | {
-        readonly step: CapabilityStep;
-        readonly version?: string;
-      }
-    | undefined
-  > {
-    let result: CommandResult;
-    try {
-      result = await runCommand(ctx.hostProcess, exe, ['doctor'], { timeout: probeTimeoutMs });
-    } catch (error) {
-      return { step: { id: 'runtime', state: 'failed', detail: errorMessage(error) } };
-    }
-    if (result.code === -1 && result.stdout.length === 0) return undefined;
-    return runtimeStepFrom(result);
-  }
-
   async function detectRuntimeStep(): Promise<{
     readonly step: CapabilityStep;
     readonly version?: string;
   }> {
-    const exe = await resolveWindowsCuExe(windowsCuExeCandidates());
-    if (exe === undefined) {
-      return { step: { id: 'runtime', state: 'missing' } };
-    }
-
-    const direct = await directRuntimeStep(exe);
-    if (direct !== undefined) return direct;
-
     const systemRuntime = await runtimeStep(powershellPath);
     if (systemRuntime.step.state !== 'failed') return systemRuntime;
 
@@ -828,17 +693,15 @@ function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry 
       const workDir = await mkdtemp(path.join(tmpdir(), 'kimi-cu-windows-install-'));
       try {
         const setupPath = path.join(workDir, 'setup_windows.ps1');
-        const setupUrl = kimiCdnContentUrl('kimi-computer-use-windows/latest/setup_windows.ps1');
         report('download', 0);
         await downloadToFile(
-          setupUrl,
+          kimiCdnContentUrl('kimi-computer-use-windows/latest/setup_windows.ps1'),
           setupPath,
           (percent) => {
             report('download', percent);
           },
           ctx.fetchImpl,
         );
-        await verifyDownloadedChecksum(setupUrl, setupPath, ctx.fetchImpl);
 
         report('runtime');
         const installed = await runCommand(

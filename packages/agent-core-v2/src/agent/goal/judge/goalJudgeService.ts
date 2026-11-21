@@ -9,8 +9,7 @@ import {
 } from '#/agent/llmRequester/llmRequester';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { Message } from '#/app/llmProtocol/message';
-import { createUserMessage, extractText } from '#/app/llmProtocol/message';
+import { createUserMessage, extractText, type Message } from '@moonshot-ai/core/llm/message';
 import { LifecycleScope } from '#/app/scopes';
 import type { GoalSnapshot } from '#/features/goal/types';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -80,7 +79,7 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
   ): Promise<JudgeVerdict> {
     const history = this.context.get();
     const judgeUser = buildJudgeUserPrompt(goal.objective, goal.completionCriterion);
-    const messages: Message[] = [...history, createUserMessage(judgeUser)];
+    const messages: readonly Message[] = [...history, createUserMessage(judgeUser)];
 
     const modelContext = this.profile.resolveModelContext();
     const maxOutputSize = Math.min(modelContext.maxOutputSize ?? 4096, 4096);

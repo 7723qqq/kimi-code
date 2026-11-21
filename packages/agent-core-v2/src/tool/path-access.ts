@@ -81,10 +81,6 @@ export function isSensitiveFile(path: string): boolean {
   return false;
 }
 
-export function isProjectLocalConfigPath(targetPath: string): boolean {
-  return targetPath.replaceAll('\\', '/').toLowerCase().endsWith('/.kimi-code/local.toml');
-}
-
 export type PathClass = 'posix' | 'win32';
 export type PathSecurityCode =
   | 'PATH_OUTSIDE_WORKSPACE'
@@ -167,9 +163,7 @@ export function canonicalizePath(
       `Cannot resolve "${path}" against non-absolute cwd "${cwd}".`,
     );
   }
-  const abs = pathe.isAbsolute(normalizedPath)
-    ? normalizedPath
-    : pathe.resolve(cwd, normalizedPath);
+  const abs = pathe.isAbsolute(normalizedPath) ? normalizedPath : pathe.resolve(cwd, normalizedPath);
   return pathe.normalize(abs);
 }
 
@@ -185,6 +179,10 @@ export function isWithinDirectory(
   if (comparableCandidate === comparableBase) return true;
   const prefix = comparableBase.endsWith('/') ? comparableBase : comparableBase + '/';
   return comparableCandidate.startsWith(prefix);
+}
+
+export function isProjectLocalConfigPath(targetPath: string): boolean {
+  return targetPath.replaceAll('\\', '/').toLowerCase().endsWith('/.kimi-code/local.toml');
 }
 
 export interface PathRealpathResolver {

@@ -1,11 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
 import type { PluginSummary } from '@moonshot-ai/kimi-code-sdk';
 
-import { kimiCodePluginMarketplaceUrl } from '#/constant/region-urls';
+import { kimiCodePluginMarketplaceUrl } from '#/constant/app';
 import {
   PluginUpdateNotifier,
   type PluginUpdateNotifierSession,
@@ -19,7 +20,6 @@ function makePluginSummary(overrides: Partial<PluginSummary> = {}): PluginSummar
     displayName: 'Kimi Datasource',
     version: '3.3.0',
     enabled: true,
-    origin: 'custom',
     state: 'ok',
     skillCount: 0,
     mcpServerCount: 1,
@@ -28,8 +28,10 @@ function makePluginSummary(overrides: Partial<PluginSummary> = {}): PluginSummar
     commandCount: 0,
     hasErrors: false,
     source: 'zip-url',
-    originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
+    origin: 'marketplace',
+    catalogId: 'kimi-datasource',
     installedAt: '2026-01-01T00:00:00.000Z',
+    originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
     ...overrides,
   };
 }
@@ -64,13 +66,13 @@ interface HarnessOptions {
 
 function makeHarness(options: HarnessOptions = {}) {
   const session: PluginUpdateNotifierSession = {
-    listMcpServers: mock(async () =>
+    listMcpServers: vi.fn(async () =>
       (options.mcpServers ?? ['plugin-kimi-datasource:data']).map((name) => ({ name })),
     ),
-    listPlugins: mock(async () => options.installed ?? [makePluginSummary()]),
+    listPlugins: vi.fn(async () => options.installed ?? [makePluginSummary()]),
   };
-  const notify = mock();
-  const loadMarketplace = mock(
+  const notify = vi.fn();
+  const loadMarketplace = vi.fn(
     options.loadMarketplace ?? (async () => options.marketplace ?? makeMarketplace()),
   );
   return { session, notify, loadMarketplace };
@@ -91,6 +93,8 @@ describe('PluginUpdateNotifier', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     await rm(tempDir, { recursive: true, force: true });
   });
 
@@ -112,8 +116,6 @@ describe('PluginUpdateNotifier', () => {
     expect(harness.notify).toHaveBeenCalledWith(EXPECTED_MESSAGE);
 
     harness.notify.mockClear();
-    // Follow-up checks run but hit the persisted "already notified" record
-    // instead of notifying again.
     await notifier.handleMcpToolCompleted(DATASOURCE_TOOL);
     expect(harness.notify).not.toHaveBeenCalled();
     await notifier.handlePluginCommandCompleted('kimi-datasource');
@@ -145,7 +147,6 @@ describe('PluginUpdateNotifier', () => {
     const notifier = makeNotifier(harness);
 
     await notifier.handlePluginCommandCompleted('local-only');
-    // No marketplace entry — the check bails before even listing plugins.
     expect(harness.session.listPlugins).not.toHaveBeenCalled();
     expect(harness.notify).not.toHaveBeenCalled();
   });
@@ -160,26 +161,88 @@ describe('PluginUpdateNotifier', () => {
     const notifier = makeNotifier(harness);
 
     await notifier.handlePluginCommandCompleted('kimi-datasource');
-    // A custom catalog may advertise anything under any id — the check bails
-    // before comparing versions.
     expect(harness.session.listPlugins).not.toHaveBeenCalled();
     expect(harness.notify).not.toHaveBeenCalled();
   });
 
   it('does not notify for a same-id fork installed from a local path', async () => {
     const harness = makeHarness({
-      installed: [makePluginSummary({ source: 'local-path', originalSource: undefined })],
+      installed: [
+        makePluginSummary({
+          source: 'local-path',
+          originalSource: undefined,
+          origin: 'custom',
+          catalogId: undefined,
+        }),
+      ],
     });
     const notifier = makeNotifier(harness);
 
     await notifier.handlePluginCommandCompleted('kimi-datasource');
-    // Provenance is not official, so the marketplace version is irrelevant.
     expect(harness.notify).not.toHaveBeenCalled();
   });
 
+  it('does not notify for a same-id custom ZIP that uses an official URL', async () => {
+    const harness = makeHarness({
+      installed: [makePluginSummary({ origin: 'custom', catalogId: undefined })],
+    });
+    const notifier = makeNotifier(harness);
+
+    await notifier.handlePluginCommandCompleted('kimi-datasource');
+    expect(harness.notify).not.toHaveBeenCalled();
+  });
+
+  it('does not notify for a custom fork of a built-in capability plugin', async () => {
+    const harness = makeHarness({
+      marketplace: {
+        source: kimiCodePluginMarketplaceUrl(),
+        plugins: [makeMarketplaceEntry('kimi-cu', 'Kimi Computer Use', '1.0.0')],
+      },
+      installed: [
+        makePluginSummary({
+          id: 'kimi-cu',
+          displayName: 'Custom Computer Use',
+          version: '0.1.0',
+          source: 'local-path',
+          originalSource: undefined,
+          origin: 'custom',
+          catalogId: undefined,
+        }),
+      ],
+    });
+    const notifier = makeNotifier(harness);
+
+    await notifier.handlePluginCommandCompleted('kimi-cu');
+    expect(harness.notify).not.toHaveBeenCalled();
+  });
+
+  it('notifies a legacy WebBridge install about the renamed marketplace entry', async () => {
+    const harness = makeHarness({
+      marketplace: {
+        source: kimiCodePluginMarketplaceUrl(),
+        plugins: [makeMarketplaceEntry('kimi-browser-extension', 'Kimi Browser Extension', '2.0.0')],
+      },
+      installed: [
+        makePluginSummary({
+          id: 'kimi-webbridge',
+          displayName: 'Kimi WebBridge',
+          version: '1.0.0',
+          origin: 'unknown',
+          catalogId: undefined,
+          originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-webbridge.zip',
+        }),
+      ],
+    });
+    const notifier = makeNotifier(harness);
+
+    await notifier.handlePluginCommandCompleted('kimi-webbridge');
+    expect(harness.notify).toHaveBeenCalledWith(
+      'Update detected: Kimi WebBridge 2.0.0 is available. ' +
+        'Run /plugins to install the latest version from the Official Marketplace.',
+    );
+  });
+
   it('resolves plugin tools whose qualified name core truncated before the separator', async () => {
-    // Server part exactly 50 chars: the 64-char truncation cuts the whole
-    // `__` separator and tool name, leaving `mcp__<server>_<hash>`.
     const serverName = `plugin-kimi-datasource:${'s'.repeat(27)}`;
     const sanitized = `plugin-kimi-datasource_${'s'.repeat(27)}`;
     expect(`mcp__${sanitized}`.length).toBe(55);
@@ -198,7 +261,6 @@ describe('PluginUpdateNotifier', () => {
 
     await notifier.handlePluginCommandCompleted('kimi-datasource');
     expect(harness.notify).toHaveBeenCalledWith(EXPECTED_MESSAGE);
-    // Plugin commands resolve the plugin id directly — no MCP server lookup.
     expect(harness.session.listMcpServers).not.toHaveBeenCalled();
   });
 
@@ -209,14 +271,11 @@ describe('PluginUpdateNotifier', () => {
     await notifier.handlePluginCommandCompleted('kimi-datasource');
     expect(first.notify).toHaveBeenCalledTimes(1);
 
-    // A new notifier (fresh app run) against the same state file stays silent
-    // for the already-notified version…
     const second = makeHarness({ marketplace: makeMarketplace('3.4.0') });
     const secondNotifier = makeNotifier(second);
     await secondNotifier.handlePluginCommandCompleted('kimi-datasource');
     expect(second.notify).not.toHaveBeenCalled();
 
-    // …but reminds once the marketplace moves to a newer version.
     const third = makeHarness({ marketplace: makeMarketplace('3.5.0') });
     const thirdNotifier = makeNotifier(third);
     await thirdNotifier.handlePluginCommandCompleted('kimi-datasource');
@@ -245,20 +304,43 @@ describe('PluginUpdateNotifier', () => {
     expect(harness.notify).toHaveBeenCalledWith(EXPECTED_MESSAGE);
   });
 
+  it('refreshes plugin slash commands after a background availability reload', async () => {
+    vi.stubEnv('KIMI_CODE_HOME', tempDir);
+    vi.stubEnv('KIMI_CODE_PLUGIN_MARKETPLACE_URL', 'https://marketplace.test/catalog');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      plugins: makeMarketplace().plugins,
+    }), { status: 200 })));
+    const harness = makeHarness();
+    const reloadPlugins = vi.fn(async () => undefined);
+    const refreshPluginCommands = vi.fn(async () => undefined);
+    const notifier = new PluginUpdateNotifier({
+      getSession: () => harness.session,
+      workDir: tempDir,
+      notify: harness.notify,
+      reloadPlugins,
+      refreshPluginCommands,
+      stateFile,
+    });
+
+    await notifier.handlePluginCommandCompleted('kimi-datasource');
+
+    expect(reloadPlugins).toHaveBeenCalledOnce();
+    expect(refreshPluginCommands).toHaveBeenCalledOnce();
+    expect(refreshPluginCommands.mock.invocationCallOrder[0]).toBeGreaterThan(
+      reloadPlugins.mock.invocationCallOrder[0]!,
+    );
+  });
+
   it('refreshes the memoized MCP server map when a lookup misses', async () => {
     const harness = makeHarness({ mcpServers: [] });
     let servers: readonly string[] = [];
-    harness.session.listMcpServers = mock(async () => servers.map((name) => ({ name })));
+    harness.session.listMcpServers = vi.fn(async () => servers.map((name) => ({ name })));
     const notifier = makeNotifier(harness);
 
-    // The plugin's MCP server is not registered yet (the plugin gets
-    // installed later in the same app run, applied on /reload or /new).
     await notifier.handleMcpToolCompleted(DATASOURCE_TOOL);
     expect(harness.session.listMcpServers).toHaveBeenCalled();
     expect(harness.notify).not.toHaveBeenCalled();
 
-    // After the reload the new server shows up; the next completion must
-    // refresh the memoized map instead of silently staying unresolved.
     servers = ['plugin-kimi-datasource:data'];
     await notifier.handleMcpToolCompleted(DATASOURCE_TOOL);
     expect(harness.notify).toHaveBeenCalledWith(EXPECTED_MESSAGE);
@@ -279,6 +361,7 @@ describe('PluginUpdateNotifier', () => {
           id: 'another-plugin',
           displayName: 'Another Plugin',
           version: '1.0.0',
+          catalogId: 'another-plugin',
         }),
       ],
     });
@@ -290,7 +373,6 @@ describe('PluginUpdateNotifier', () => {
     ]);
 
     expect(harness.notify).toHaveBeenCalledTimes(2);
-    // Both entries must survive in the persisted state — no lost update.
     const state = await readPluginUpdateNoticeState(stateFile);
     expect(state.notified).toEqual({
       'kimi-datasource': '3.4.0',

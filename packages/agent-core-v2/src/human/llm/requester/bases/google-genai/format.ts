@@ -10,21 +10,21 @@ import {
   toLlmStatusErrorMessage,
   toLlmStreamErrorMessage,
   type LlmRemoteErrorMessage,
-} from '#/llm/errors';
-import { NO_FINISH, type FinishInfo, type FinishReason } from '#/llm/finish-reason';
+} from '#human/llm/errors';
+import { NO_FINISH, type FinishInfo, type FinishReason } from '#human/llm/finish-reason';
 import type {
   Message,
   StreamedMessagePart,
   ThinkPart,
   ToolCall,
   ToolDescription,
-} from '#/llm/message';
-import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
-import { mergeConsecutiveUsers } from '#/llm/protocol/patterns';
-import { applyPatterns } from '#/llm/protocol/rewrite';
-import type { ResponseFormat } from '#/llm/response-format';
-import { ThinkingConfigError, type ThinkingEffort } from '#/llm/thinking';
-import type { TokenUsage } from '#/llm/usage';
+} from '#human/message';
+import type { FormatRequestInput, ProtocolFormat } from '#human/llm/protocol/format';
+import { mergeConsecutiveUsers } from '#human/llm/protocol/patterns';
+import { applyPatterns } from '#human/llm/protocol/rewrite';
+import type { ResponseFormat } from '#human/llm/response-format';
+import { ThinkingConfigError, type ThinkingEffort } from '#human/llm/thinking';
+import type { TokenUsage } from '#human/llm/usage';
 
 import type { GoogleContent } from './contract';
 import { buildRawIdById, buildToolNameById, lowerMessage } from './lower';

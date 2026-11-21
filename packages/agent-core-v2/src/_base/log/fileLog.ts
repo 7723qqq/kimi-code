@@ -1,6 +1,5 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { mkdir, open, rename, stat, unlink } from 'node:fs/promises';
-
 import { dirname } from 'pathe';
 
 import { formatEntry, type FormatOptions } from './formatter';
@@ -65,7 +64,8 @@ export class RotatingFileWriter {
     this.closed = true;
     try {
       await this.flush();
-    } catch {}
+    } catch {
+    }
   }
 
   flushSync(): void {

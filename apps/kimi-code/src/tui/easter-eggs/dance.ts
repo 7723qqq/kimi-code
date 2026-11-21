@@ -1,26 +1,12 @@
-/**
- * `/dance` easter egg — everything it needs lives in this one file: the
- * rainbow text coloring, the animation state machine, and the command handler.
- * Removing the feature is "delete this file + its import sites".
- *
- * It is deliberately NOT registered in BUILTIN_SLASH_COMMANDS, so it stays out
- * of `/help` and autocomplete; `executeSlashCommand` calls the handler as a
- * fallback after builtin/skill resolution, so a real command or a same-named
- * skill always wins.
- */
-
-import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-
-import { t } from '#/i18n';
+import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 
 import type { SlashCommandHost } from '../commands/dispatch';
 import type { ParsedSlashInput } from '../commands/types';
 import { currentTheme } from '../theme';
+import { t } from '#/i18n';
 
-/** Frame interval for the rainbow flow animation. */
 export const DANCE_FRAME_MS = 110;
-/** How long the rainbow flows before settling (fading out, or freezing). */
 export const DANCE_FLOW_MS = 3000;
 
 const DARK_RAINBOW = [
@@ -47,12 +33,9 @@ const LIGHT_RAINBOW = [
 ] as const;
 
 function getDanceRainbowPalette(): readonly [string, ...string[]] {
-  return currentTheme.isLight ? LIGHT_RAINBOW : DARK_RAINBOW;
+  return currentTheme.palette.text === '#1A1A1A' ? LIGHT_RAINBOW : DARK_RAINBOW;
 }
 
-export { getDanceRainbowPalette };
-
-/** Paint a string character-by-character through a palette, skipping spaces. */
 export function rainbowText(
   text: string,
   colors: readonly [string, ...string[]],
@@ -71,11 +54,8 @@ export function rainbowText(
     .join('');
 }
 
-/** Read-only view of the dance state for components that only render it. */
 export interface RainbowDanceView {
-  /** Whether consumers should paint themselves in rainbow at all. */
   readonly colored: boolean;
-  /** Palette offset, advancing while the rainbow flows. */
   readonly phase: number;
 }
 
@@ -85,37 +65,6 @@ export interface RainbowDanceController extends RainbowDanceView {
   dispose(): void;
 }
 
-/** The only scheduler the dance needs; injectable so tests need no fake globals. */
-export interface DanceTimers {
-  setInterval(callback: () => void, intervalMs: number): unknown;
-  clearInterval(handle: unknown): void;
-  setTimeout(callback: () => void, delayMs: number): unknown;
-  clearTimeout(handle: unknown): void;
-}
-
-/**
- * Default timers: the real globals. The frame interval is unref'd so this
- * decoration is never what holds the event loop open on its own (a handle
- * without `unref` — e.g. a browser-style numeric id — is left alone).
- */
-export const SYSTEM_DANCE_TIMERS: DanceTimers = {
-  setInterval: (callback, intervalMs) => {
-    const handle: unknown = setInterval(callback, intervalMs);
-    if (typeof handle === 'object' && handle !== null) {
-      const unref = (handle as { unref?: unknown }).unref;
-      if (typeof unref === 'function') (unref as () => void).call(handle);
-    }
-    return handle;
-  },
-  clearInterval: (handle) => {
-    clearInterval(handle as ReturnType<typeof setInterval>);
-  },
-  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
-  clearTimeout: (handle) => {
-    clearTimeout(handle as ReturnType<typeof setTimeout>);
-  },
-};
-
 let currentDanceController: RainbowDanceController | undefined;
 let currentDanceView: RainbowDanceView | undefined;
 
@@ -124,12 +73,9 @@ export function setRainbowDance(dance: RainbowDanceController | undefined): void
   currentDanceView = dance;
 }
 
-export function installRainbowDance(
-  requestRender: () => void,
-  timers: DanceTimers = SYSTEM_DANCE_TIMERS,
-): () => void {
+export function installRainbowDance(requestRender: () => void): () => void {
   currentDanceController?.dispose();
-  const dance = new RainbowDance(requestRender, timers);
+  const dance = new RainbowDance(requestRender);
   setRainbowDance(dance);
   return () => {
     dance.dispose();
@@ -172,23 +118,15 @@ export function renderDanceFooterModel(modelLabel: string): string {
   return rainbowText(modelLabel, getDanceRainbowPalette(), currentDanceView?.phase ?? 0);
 }
 
-/**
- * Drives the rainbow: a single timer advances a shared `phase` and asks the UI
- * to repaint. Lives independently of any component, so the welcome banner
- * scrolling away or being rebuilt never disturbs the animation. Three states:
- * off (default), flowing, and a frozen static rainbow.
- */
 export class RainbowDance implements RainbowDanceController {
   private currentPhase = 0;
   private isColored = false;
-  private frameTimer: { readonly handle: unknown } | null = null;
-  private flowStopTimer: { readonly handle: unknown } | null = null;
+  private frameTimer: ReturnType<typeof setInterval> | null = null;
+  private flowStopTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly requestRender: () => void;
-  private readonly timers: DanceTimers;
 
-  constructor(requestRender: () => void, timers: DanceTimers = SYSTEM_DANCE_TIMERS) {
+  constructor(requestRender: () => void) {
     this.requestRender = requestRender;
-    this.timers = timers;
   }
 
   get colored(): boolean {
@@ -199,31 +137,19 @@ export class RainbowDance implements RainbowDanceController {
     return this.currentPhase;
   }
 
-  /**
-   * Flow the rainbow for `DANCE_FLOW_MS`, then settle:
-   *  - `hold: false` → fade back to the default (uncolored) banner.
-   *  - `hold: true`  → freeze into a static rainbow that stays on.
-   */
   start(opts: { hold: boolean }): void {
     this.clearTimers();
     this.isColored = true;
-    this.frameTimer = {
-      handle: this.timers.setInterval(() => {
-        // Phase just increments; rainbowText() takes it modulo the *current*
-        // palette length, so the dance never needs to know the palette size.
-        this.currentPhase += 1;
-        this.requestRender();
-      }, DANCE_FRAME_MS),
-    };
-    this.flowStopTimer = {
-      handle: this.timers.setTimeout(() => {
-        this.settle(opts.hold);
-      }, DANCE_FLOW_MS),
-    };
+    this.frameTimer = setInterval(() => {
+      this.currentPhase += 1;
+      this.requestRender();
+    }, DANCE_FRAME_MS);
+    this.flowStopTimer = setTimeout(() => {
+      this.settle(opts.hold);
+    }, DANCE_FLOW_MS);
     this.requestRender();
   }
 
-  /** Turn the rainbow off — back to the default colors. */
   stop(): void {
     this.clearTimers();
     this.isColored = false;
@@ -231,15 +157,10 @@ export class RainbowDance implements RainbowDanceController {
     this.requestRender();
   }
 
-  /**
-   * Clear timers without repainting — for shutdown, where the UI is going
-   * away and a final render would be wasted or write to a stopped terminal.
-   */
   dispose(): void {
     this.clearTimers();
   }
 
-  /** End the flow: freeze the rainbow (hold) or fade back to default. */
   private settle(hold: boolean): void {
     this.clearTimers();
     if (!hold) {
@@ -251,31 +172,20 @@ export class RainbowDance implements RainbowDanceController {
 
   private clearTimers(): void {
     if (this.frameTimer !== null) {
-      this.timers.clearInterval(this.frameTimer.handle);
+      clearInterval(this.frameTimer);
       this.frameTimer = null;
     }
     if (this.flowStopTimer !== null) {
-      this.timers.clearTimeout(this.flowStopTimer.handle);
+      clearTimeout(this.flowStopTimer);
       this.flowStopTimer = null;
     }
   }
 }
 
-/**
- * Handle `/dance`:
- *   /dance       flow for a few seconds, then fade back to the default colors
- *   /dance on    flow, then freeze into a static rainbow that stays on
- *   /dance off   turn the rainbow off
- *
- * Returns true when it claimed the input.
- */
 export function tryHandleDanceCommand(host: SlashCommandHost, parsed: ParsedSlashInput): boolean {
   if (parsed.name !== 'dance') return false;
   if (currentDanceController === undefined) return false;
 
-  // The status line dims the whole message, which buried the command in the
-  // hint. Paint just the command in the brand color (bold) so it reads as a
-  // command; chalk nesting resumes the dim run right after it.
   const cmd = (text: string): string => currentTheme.boldFg('primary', text);
 
   const sub = parsed.args.trim().toLowerCase();

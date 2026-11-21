@@ -3,12 +3,9 @@ import { basename, dirname, join, parse, relative } from 'node:path';
 
 import { Disposable, DisposableMap } from '#/_base/di/lifecycle';
 import type { ILogService } from '#/_base/log/log';
-import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { TimeoutTimer } from '#/_base/utils/timer';
-import {
-  isSkillScanExcludedEntry,
-  MAX_SKILL_SCAN_DEPTH,
-} from '#/features/skill/catalog/fileSkillDiscovery';
+import { subtreeWatchFilter } from '#/_base/utils/paths';
+import { isSkillScanExcludedEntry, MAX_SKILL_SCAN_DEPTH } from '#/features/skill/catalog/fileSkillDiscovery';
 import { configuredRootCandidates } from '#/features/skill/catalog/skillRoots';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { isWatchEnabled, watch, watchCandidates, type WatchHandle } from '#human/utils/watch';
@@ -35,18 +32,12 @@ export class ConfiguredSkillRootWatcher extends Disposable {
     private readonly onChange: () => void,
   ) {
     super();
-    this.registered =
-      options.dirs.length === 0 ? Promise.resolve() : this.watchSkillRoots(options.dirs);
+    this.registered = options.dirs.length === 0 ? Promise.resolve() : this.watchSkillRoots(options.dirs);
   }
 
   private async watchSkillRoots(dirs: readonly string[]): Promise<void> {
     if (!isWatchEnabled()) return;
-    const candidates = await configuredRootCandidates(
-      dirs,
-      this.options.cwd,
-      this.options.osHomeDir,
-      this.options.fs,
-    );
+    const candidates = await configuredRootCandidates(dirs, this.options.cwd, this.options.osHomeDir, this.options.fs);
     await this.updateWatches(candidates);
   }
 
@@ -71,11 +62,7 @@ export class ConfiguredSkillRootWatcher extends Disposable {
         if (parent === undefined) continue;
         const entryPath = join(parent, basename(entry));
         const resolvedEntry = await resolve(entry);
-        if (
-          entry === candidate ||
-          resolvedEntry === undefined ||
-          relative(entryPath, resolvedEntry) !== ''
-        ) {
+        if (entry === candidate || resolvedEntry === undefined || relative(entryPath, resolvedEntry) !== '') {
           plan.set(`entry:${entryPath}`, { path: parent, entry: entryPath });
         }
       }
@@ -85,21 +72,17 @@ export class ConfiguredSkillRootWatcher extends Disposable {
       if (this.watches.has(key)) continue;
       const logFailure = (error: unknown) => {
         if (!this._store.isDisposed) {
-          this.options.log?.warn(
-            `${this.options.source} skill watcher failed for ${entry ?? path}: ${String(error)}`,
-          );
+          this.options.log?.warn(`${this.options.source} skill watcher failed for ${entry ?? path}: ${String(error)}`);
         }
       };
       try {
-        const handle =
-          entry === undefined
-            ? this.watchTarget(path)
-            : watch(path, {
-                ignored: (changed) =>
-                  relative(path, changed) !== '' && relative(entry, changed) !== '',
-                listing: false,
-                recursive: false,
-              });
+        const handle = entry === undefined
+          ? this.watchTarget(path)
+          : watch(path, {
+              ignored: (changed) => relative(path, changed) !== '' && relative(entry, changed) !== '',
+              listing: false,
+              recursive: false,
+            });
         this.watches.set(key, handle);
         handle.onDidChange(() => {
           if (entry !== undefined) void this.updateWatches(candidates);

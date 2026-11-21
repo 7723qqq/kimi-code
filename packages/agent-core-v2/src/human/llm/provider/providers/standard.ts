@@ -1,11 +1,11 @@
-import type { ProviderConnection } from '#/llm/protocol/connection';
-import { createProvider } from '#/llm/provider/definition';
-import { anthropicBase } from '#/llm/requester/bases/anthropic/requester';
-import { antigravityBase } from '#/llm/requester/bases/antigravity/requester';
-import type { AntigravityTrait } from '#/llm/requester/bases/antigravity/trait';
-import { googleGenAIBase } from '#/llm/requester/bases/google-genai/requester';
-import { openAIResponsesBase } from '#/llm/requester/bases/openai-responses/requester';
-import { openAIBase } from '#/llm/requester/bases/openai/requester';
+import type { ProviderConnection } from '#human/llm/protocol/connection';
+import { createProvider } from '#human/llm/provider/definition';
+import { anthropicBase } from '#human/llm/requester/bases/anthropic/requester';
+import { antigravityBase } from '#human/llm/requester/bases/antigravity/requester';
+import type { AntigravityTrait } from '#human/llm/requester/bases/antigravity/trait';
+import { googleGenAIBase } from '#human/llm/requester/bases/google-genai/requester';
+import { openAIResponsesBase } from '#human/llm/requester/bases/openai-responses/requester';
+import { openAIBase } from '#human/llm/requester/bases/openai/requester';
 
 const openAIConnection: ProviderConnection = {
   endpoint: () => ({ apiKeyEnv: 'OPENAI_API_KEY', baseUrlEnv: 'OPENAI_BASE_URL' }),

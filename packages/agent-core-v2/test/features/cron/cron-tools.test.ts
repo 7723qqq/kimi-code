@@ -1,10 +1,19 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import type { CronJobOrigin } from '#/agent/contextMemory/types';
-import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { type IAgentCronService } from '#/features/cron/cronService';
+
+import type {
+  ExecutableTool,
+  ExecutableToolResult,
+  RunnableToolExecution,
+  ToolExecution,
+} from '#/tool/toolContract';
 import type { CronTask, CronTaskInit } from '#/features/cron/cronTask';
-import { computeNextCronRun, parseCronExpression } from '#/features/cron/internal/cron-expr';
+import { type IAgentCronService } from '#/features/cron/cronService';
+import {
+  computeNextCronRun,
+  parseCronExpression,
+} from '#/features/cron/internal/cron-expr';
 import { renderCronFireXml } from '#/features/cron/internal/format';
 import {
   jitteredNextCronRunMs,
@@ -19,14 +28,7 @@ import type { CronDeleteInput } from '#/features/cron/tools/cron-delete/cron-del
 import { CronDeleteTool } from '#/features/cron/tools/cron-delete/cronDeleteTool';
 import type { CronListInput } from '#/features/cron/tools/cron-list/cron-list';
 import { CronListTool } from '#/features/cron/tools/cron-list/cronListTool';
-import type {
-  ExecutableTool,
-  ExecutableToolResult,
-  RunnableToolExecution,
-  ToolExecution,
-} from '#/tool/toolContract';
-
-import { renderSnapshot } from '../../harness/snapshots';
+import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 
 const WALL_ANCHOR = 1_700_000_000_000;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -54,13 +56,11 @@ interface ToolHarness {
   now(): number;
 }
 
-function createToolHarness(
-  options: {
-    readonly now?: number;
-    readonly noJitter?: boolean;
-    readonly disabled?: boolean;
-  } = {},
-): ToolHarness {
+function createToolHarness(options: {
+  readonly now?: number;
+  readonly noJitter?: boolean;
+  readonly disabled?: boolean;
+} = {}): ToolHarness {
   let now = options.now ?? WALL_ANCHOR;
   const noJitter = options.noJitter ?? true;
   let disabled = options.disabled ?? false;
@@ -229,7 +229,7 @@ describe('CronCreateTool', () => {
     expect(task.id).toMatch(/^[0-9a-f]{8}$/);
     expect(harness.scheduled).toEqual([task]);
     expect(harness.scheduledAgentIds).toEqual(['main']);
-    expect(renderSnapshot(scrubCronOutput(out))).toMatchInlineSnapshot(`
+    expect(scrubCronOutput(out)).toMatchInlineSnapshot(`
       "id: <id>
       cron: */5 * * * *
       humanSchedule: every 5 minutes
@@ -311,10 +311,7 @@ describe('CronCreateTool', () => {
     const tool = new CronCreateTool(harness.cron, scopeContext);
 
     for (let i = 0; i < MAX_CRON_JOBS_PER_SESSION; i++) {
-      harness.store.add(
-        { cron: '*/5 * * * *', prompt: `seed-${i}`, recurring: true },
-        harness.now(),
-      );
+      harness.store.add({ cron: '*/5 * * * *', prompt: `seed-${i}`, recurring: true }, harness.now());
     }
 
     const output = assertError(
@@ -333,10 +330,7 @@ describe('CronCreateTool', () => {
     const tool = new CronCreateTool(harness.cron, scopeContext);
 
     for (let i = 0; i < MAX_CRON_JOBS_PER_SESSION - 1; i++) {
-      harness.store.add(
-        { cron: '*/5 * * * *', prompt: `seed-${i}`, recurring: true },
-        harness.now(),
-      );
+      harness.store.add({ cron: '*/5 * * * *', prompt: `seed-${i}`, recurring: true }, harness.now());
     }
 
     const first = tool.resolveExecution({
@@ -353,20 +347,16 @@ describe('CronCreateTool', () => {
       throw new Error('expected runnable executions');
     }
 
-    assertSuccess(
-      await first.execute({
-        turnId: 0,
-        toolCallId: 'first',
-        signal: new AbortController().signal,
-      }),
-    );
-    const output = assertError(
-      await second.execute({
-        turnId: 0,
-        toolCallId: 'second',
-        signal: new AbortController().signal,
-      }),
-    );
+    assertSuccess(await first.execute({
+      turnId: 0,
+      toolCallId: 'first',
+      signal: new AbortController().signal,
+    }));
+    const output = assertError(await second.execute({
+      turnId: 0,
+      toolCallId: 'second',
+      signal: new AbortController().signal,
+    }));
 
     expect(output).toBe(`Cron job cap reached (max ${MAX_CRON_JOBS_PER_SESSION} per session).`);
     expect(harness.store.list()).toHaveLength(MAX_CRON_JOBS_PER_SESSION);
@@ -416,13 +406,11 @@ describe('CronCreateTool', () => {
     if (!isRunnableExecution(execution)) throw new Error('expected runnable execution');
 
     harness.advance(6 * 60_000);
-    assertSuccess(
-      await execution.execute({
-        turnId: 0,
-        toolCallId: 'test-call',
-        signal: new AbortController().signal,
-      }),
-    );
+    assertSuccess(await execution.execute({
+      turnId: 0,
+      toolCallId: 'test-call',
+      signal: new AbortController().signal,
+    }));
 
     expect(harness.store.list()[0]!.createdAt).toBe(harness.now());
   });
@@ -460,10 +448,7 @@ describe('CronCreateTool', () => {
 describe('CronDeleteTool', () => {
   it('deletes an existing task and emits deletion through the manager', async () => {
     const harness = createToolHarness();
-    const task = harness.store.add(
-      { cron: '*/5 * * * *', prompt: 'ping', recurring: true },
-      harness.now(),
-    );
+    const task = harness.store.add({ cron: '*/5 * * * *', prompt: 'ping', recurring: true }, harness.now());
     const tool = new CronDeleteTool(harness.cron, scopeContext);
 
     const output = assertSuccess(await runTool<CronDeleteInput>(tool, { id: task.id }));
@@ -505,8 +490,7 @@ describe('CronListTool', () => {
     const harness = createToolHarness();
     const tool = new CronListTool(harness.cron, scopeContext);
 
-    expect(renderSnapshot(assertSuccess(await runTool<CronListInput>(tool, {}))))
-      .toMatchInlineSnapshot(`
+    expect(assertSuccess(await runTool<CronListInput>(tool, {}))).toMatchInlineSnapshot(`
       "cron_jobs: 0
       No cron jobs scheduled."
     `);
@@ -519,7 +503,7 @@ describe('CronListTool', () => {
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
 
-    expect(renderSnapshot(scrubCronOutput(output))).toMatchInlineSnapshot(`
+    expect(scrubCronOutput(output)).toMatchInlineSnapshot(`
       "cron_jobs: 1
       id: <id>
       cron: */5 * * * *
@@ -556,7 +540,7 @@ describe('CronListTool', () => {
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
 
-    expect(renderSnapshot(scrubCronOutput(output))).toMatchInlineSnapshot(`
+    expect(scrubCronOutput(output)).toMatchInlineSnapshot(`
       "cron_jobs: 2
       id: <id>
       cron: */5 * * * *
@@ -581,14 +565,11 @@ describe('CronListTool', () => {
   it('flags recurring tasks older than seven days as stale', async () => {
     const harness = createToolHarness();
     const tool = new CronListTool(harness.cron, scopeContext);
-    harness.store.add(
-      { cron: '*/5 * * * *', prompt: 'old', recurring: true },
-      harness.now() - 8 * MS_PER_DAY,
-    );
+    harness.store.add({ cron: '*/5 * * * *', prompt: 'old', recurring: true }, harness.now() - 8 * MS_PER_DAY);
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
 
-    expect(renderSnapshot(scrubCronOutput(output))).toMatchInlineSnapshot(`
+    expect(scrubCronOutput(output)).toMatchInlineSnapshot(`
       "cron_jobs: 1
       id: <id>
       cron: */5 * * * *
@@ -629,7 +610,7 @@ describe('CronListTool', () => {
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
 
-    expect(renderSnapshot(scrubCronOutput(output))).toMatchInlineSnapshot(`
+    expect(scrubCronOutput(output)).toMatchInlineSnapshot(`
       "cron_jobs: 1
       id: <id>
       cron: garbage

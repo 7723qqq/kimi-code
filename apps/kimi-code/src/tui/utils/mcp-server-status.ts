@@ -1,8 +1,5 @@
-import type { Event, McpServerInfo } from '@moonshot-ai/kimi-code-sdk';
-
+import type { McpServerInfo, McpServerStatusEvent } from '@moonshot-ai/kimi-code-sdk';
 import { t } from '#/i18n';
-
-type McpServerStatusEvent = Extract<Event, { type: 'mcp.server.status' }>;
 
 export type McpServerStatusSnapshot = McpServerInfo | McpServerStatusEvent['server'];
 
@@ -22,8 +19,6 @@ function mcpStartupStatusPriority(status: McpServerStatusSnapshot['status']): nu
       return 4;
     case 'removed':
       return 5;
-    default:
-      return 6;
   }
 }
 
@@ -36,7 +31,9 @@ export function selectMcpStartupStatusRows(
     .slice(0, MCP_STARTUP_STATUS_ROW_LIMIT);
 }
 
-export function formatMcpStartupStatusSummary(servers: readonly McpServerStatusSnapshot[]): string {
+export function formatMcpStartupStatusSummary(
+  servers: readonly McpServerStatusSnapshot[],
+): string {
   let failed = 0;
   let needsAuth = 0;
   let connecting = 0;
@@ -67,13 +64,13 @@ export function formatMcpStartupStatusSummary(servers: readonly McpServerStatusS
   }
 
   const parts: string[] = [];
-  if (failed > 0) parts.push(t('tui.messages.mcpStatusFailed', { count: failed }));
+  if (failed > 0) parts.push(`${failed} failed`);
   if (needsAuth > 0) parts.push(t('tui.messages.mcpStatusNeedsAuth', { count: needsAuth }));
-  if (connecting > 0) parts.push(t('tui.messages.mcpStatusConnecting', { count: connecting }));
-  if (connected > 0) parts.push(t('tui.messages.mcpStatusConnected', { count: connected }));
-  if (disabled > 0) parts.push(t('tui.messages.mcpStatusDisabled', { count: disabled }));
-  if (removed > 0) parts.push(t('tui.messages.mcpStatusRemoved', { count: removed }));
-  return parts.join(', ');
+  if (connecting > 0) parts.push(`${connecting} connecting`);
+  if (connected > 0) parts.push(`${connected} connected`);
+  if (disabled > 0) parts.push(`${disabled} disabled`);
+  if (removed > 0) parts.push(`${removed} removed`);
+  return parts.join(t('tui.migration.listSeparator'));
 }
 
 export function mcpServerStatusKey(server: McpServerStatusSnapshot): string {

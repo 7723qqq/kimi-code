@@ -1,19 +1,3 @@
-/**
- * Builds the line content for the `/goal` status box. The lines are rendered
- * inside a {@link UsagePanelComponent} (the same bordered box as `/usage`), so
- * this module only owns the goal-specific layout:
- *
- *   ▌ <objective> (blockquote left-trail, wrapped)
- *   ▌ ✓ <completion criterion>
- *
- *   Status     complete — <reason>        (terminal goals only)
- *   Running    4m 12s
- *   Turns      7
- *   Tokens     128.4k
- *   Stop       after 20 turns (7/20)      (or a dim "no stop condition" note)
- */
-
-import type { GoalSnapshot, GoalStatus } from '@moonshot-ai/kimi-code-sdk';
 import {
   Text,
   truncateToWidth,
@@ -21,27 +5,21 @@ import {
   wrapTextWithAnsi,
   type Component,
 } from '@moonshot-ai/pi-tui';
+import type { GoalSnapshot, GoalStatus } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import { MESSAGE_INDENT } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
-import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 import { formatTokenCount } from '#/utils/usage/usage-format';
-
 import { formatGoalElapsed } from './goal-format';
 import { UsagePanelComponent } from './usage-panel';
+import { t } from '#/i18n';
 
 const WRAP_WIDTH = 72;
 const MAX_OBJECTIVE_LINES = 6;
 const MAX_CRITERION_LINES = 3;
 const LABEL_WIDTH = 11;
-
-/** Pad `text` to `width` visible columns (CJK-safe, unlike `padEnd`). */
-function padEndVisible(text: string, width: number): string {
-  return text + ' '.repeat(Math.max(0, width - visibleWidth(text)));
-}
 
 function renderLifecycleLine(label: string, width: number): string[] {
   if (width <= 0) return [''];
@@ -57,11 +35,6 @@ function renderLifecycleLine(label: string, width: number): string[] {
   ];
 }
 
-/**
- * The "Goal set" confirmation shown after `/goal <objective>`. The objective is
- * rendered as the following user prompt, so this message only marks the state
- * change in the transcript.
- */
 export class GoalSetMessageComponent implements Component {
   invalidate(): void {}
 
@@ -74,7 +47,10 @@ export class UpcomingGoalAddedMessageComponent implements Component {
   invalidate(): void {}
 
   render(width: number): string[] {
-    return renderLifecycleLine(t('tui.messages.goalPanel.upcomingAdded'), width);
+    return renderLifecycleLine(
+      t('tui.messages.goalPanel.upcomingAdded'),
+      width,
+    );
   }
 }
 
@@ -113,48 +89,23 @@ export class GoalCompletionMessageComponent implements Component {
 }
 
 export class GoalStatusMessageComponent implements Component {
-  /** Box built once per width; recreated only when the width changes. */
-  private panel: UsagePanelComponent | undefined;
-  private panelWidth = -1;
-  private renderCache: { width: number; lines: string[] } | undefined;
-
   constructor(private readonly goal: GoalSnapshot) {}
 
-  invalidate(): void {
-    // Drop the memoized box and the panel behind it: the next render rebuilds
-    // both, so a palette (or locale) switch repaints the body *and* the title.
-    this.renderCache = undefined;
-    this.panel = undefined;
-  }
+  invalidate(): void {}
 
   render(width: number): string[] {
-    const safeWidth = Math.max(0, width);
-    if (
-      isRenderCacheEnabled() &&
-      this.renderCache !== undefined &&
-      this.renderCache.width === safeWidth
-    ) {
-      return this.renderCache.lines;
-    }
-
-    if (this.panel === undefined || this.panelWidth !== safeWidth) {
-      const panelContentWidth = Math.max(1, safeWidth - 6);
-      this.panel = new UsagePanelComponent(
-        () => buildGoalReportLines(this.goal, panelContentWidth),
-        'primary',
-        goalPanelTitle(this.goal),
-      );
-      this.panelWidth = safeWidth;
-    }
-    const rendered = ['', ...this.panel.render(safeWidth)];
-    if (isRenderCacheEnabled()) this.renderCache = { width: safeWidth, lines: rendered };
-    return rendered;
+    const panelContentWidth = Math.max(1, width - 6);
+    const panel = new UsagePanelComponent(
+      () => buildGoalReportLines(this.goal, panelContentWidth),
+      'primary',
+      goalPanelTitle(this.goal),
+    );
+    return ['', ...panel.render(width)];
   }
 }
 
-/** Box title, e.g. ` Goal · active `. */
 export function goalPanelTitle(goal: GoalSnapshot): string {
-  return t('tui.messages.goalPanel.title', { status: statusLabel(goal.status) });
+  return ` Goal · ${goal.status} `;
 }
 
 export function buildGoalReportLines(goal: GoalSnapshot, wrapWidth: number = WRAP_WIDTH): string[] {
@@ -162,51 +113,37 @@ export function buildGoalReportLines(goal: GoalSnapshot, wrapWidth: number = WRA
   const bar = (s: string) => currentTheme.fg(statusColor, s);
   const value = (s: string) => currentTheme.fg('text', s);
   const muted = (s: string) => currentTheme.fg('textDim', s);
-  // `complete` is the terminal outcome (the completion card); everything else
-  // (active / paused / blocked) is a persisted, resumable goal that still shows
-  // its stop condition. A reason is worth surfacing for stopped / complete states.
   const isComplete = goal.status === 'complete';
   const reason = goal.terminalReason;
   const showReason =
     (goal.status === 'paused' && reason !== undefined) || goal.status === 'blocked' || isComplete;
   const lines: string[] = [];
 
-  // Condition as a blockquote left-trail. Reserve the visible "▌ " prefix before
-  // wrapping so the panel doesn't clip rows that exactly fit the panel interior.
   const blockquoteWrapWidth = Math.max(1, wrapWidth - visibleWidth('▌ '));
   for (const line of wrap(goal.objective, blockquoteWrapWidth, MAX_OBJECTIVE_LINES)) {
     lines.push(`${bar('▌')} ${value(line)}`);
   }
   if (goal.completionCriterion !== undefined) {
-    for (const line of wrap(
-      `✓ ${goal.completionCriterion}`,
-      blockquoteWrapWidth,
-      MAX_CRITERION_LINES,
-    )) {
+    for (const line of wrap(`✓ ${goal.completionCriterion}`, blockquoteWrapWidth, MAX_CRITERION_LINES)) {
       lines.push(`${bar('▌')} ${muted(line)}`);
     }
   }
   lines.push('');
 
-  const row = (label: string, val: string): string =>
-    `${muted(padEndVisible(label, LABEL_WIDTH))}${val}`;
+  const row = (label: string, val: string): string => `${muted(label.padEnd(LABEL_WIDTH))}${val}`;
 
   if (showReason) {
     lines.push(
       row(
         t('tui.messages.goalPanel.statusLabel'),
-        currentTheme.fg(statusColor, statusLabel(goal.status)) +
+        currentTheme.fg(statusColor, goal.status) +
           (reason !== undefined ? muted(` — ${reason}`) : ''),
       ),
     );
   }
-  lines.push(
-    row(t('tui.messages.goalPanel.runningLabel'), value(formatGoalElapsed(goal.wallClockMs))),
-  );
+  lines.push(row(t('tui.messages.goalPanel.runningLabel'), value(formatGoalElapsed(goal.wallClockMs))));
   lines.push(row(t('tui.messages.goalPanel.turnsLabel'), value(`${goal.turnsUsed}`)));
-  lines.push(
-    row(t('tui.messages.goalPanel.tokensLabel'), value(formatTokenCount(goal.tokensUsed))),
-  );
+  lines.push(row(t('tui.messages.goalPanel.tokensLabel'), value(formatTokenCount(goal.tokensUsed))));
   if (!isComplete) {
     const stop = formatStopRow(goal);
     lines.push(
@@ -218,33 +155,19 @@ export function buildGoalReportLines(goal: GoalSnapshot, wrapWidth: number = WRA
   return lines;
 }
 
-/** The configured hard stop(s), or null when the goal is unbounded. */
 function formatStopRow(goal: GoalSnapshot): string | null {
   const { budget } = goal;
   const parts: string[] = [];
   if (budget.turnBudget !== null) {
-    parts.push(
-      t('tui.messages.goalPanel.stopTurns', {
-        turnBudget: budget.turnBudget,
-        turnsUsed: goal.turnsUsed,
-      }),
-    );
+    parts.push(t('tui.messages.goalPanel.stopTurns', { turnBudget: budget.turnBudget, turnsUsed: goal.turnsUsed }));
   }
   if (budget.tokenBudget !== null) {
-    parts.push(
-      t('tui.messages.goalPanel.stopTokens', {
-        tokenBudget: formatTokenCount(budget.tokenBudget),
-      }),
-    );
+    parts.push(t('tui.messages.goalPanel.stopTokens', { tokenBudget: formatTokenCount(budget.tokenBudget) }));
   }
   if (budget.wallClockBudgetMs !== null) {
-    parts.push(
-      t('tui.messages.goalPanel.stopTime', {
-        duration: formatGoalElapsed(budget.wallClockBudgetMs),
-      }),
-    );
+    parts.push(`after ${formatGoalElapsed(budget.wallClockBudgetMs)}`);
   }
-  return parts.length > 0 ? parts.join(', ') : null;
+  return parts.length > 0 ? parts.join(t('tui.migration.listSeparator')) : null;
 }
 
 function statusToken(status: GoalStatus): ColorToken {
@@ -254,32 +177,12 @@ function statusToken(status: GoalStatus): ColorToken {
     case 'complete':
       return 'success';
     case 'blocked':
-    case 'budget_limited':
-    case 'usage_limited':
       return 'warning';
     case 'paused':
       return 'textDim';
   }
 }
 
-function statusLabel(status: GoalStatus): string {
-  switch (status) {
-    case 'active':
-      return t('tui.messages.goalPanel.statusActive');
-    case 'complete':
-      return t('tui.messages.goalPanel.statusComplete');
-    case 'blocked':
-      return t('tui.messages.goalPanel.statusBlocked');
-    case 'paused':
-      return t('tui.messages.goalPanel.statusPaused');
-    case 'budget_limited':
-      return t('tui.messages.goalPanel.statusBudgetLimited');
-    case 'usage_limited':
-      return t('tui.messages.goalPanel.statusUsageLimited');
-  }
-}
-
-/** Word-wrap to `width`, capped at `maxLines` (last line gets an ellipsis when clipped). */
 function wrap(text: string, width: number, maxLines: number): string[] {
   const safeWidth = Math.max(1, width);
   const lines = wrapTextWithAnsi(text.replaceAll(/\s+/g, ' ').trim(), safeWidth);

@@ -1,19 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-
-import { waitForAssertion } from '#test/helpers/waitFor';
-
-async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
-  const deadline = Date.now() + (opts?.timeout ?? 1000);
-  for (;;) {
-    try {
-      await fn();
-      return;
-    } catch {
-      if (Date.now() > deadline) throw new Error('waitFor timed out');
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-}
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+import { appendContext } from '../../agent/contextMemory/stubs';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
@@ -26,36 +12,39 @@ import { Event } from '#/_base/event';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import '#/agent/profile/profileService';
 import { ProfileBind } from '#/agent/profile/profileOps';
+import type { ProfileBindingSnapshot } from '#/agent/profile/profile';
 import { TOWER_WORKER_PROFILE } from '#/features/tower/tower';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
+import { IAgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifier';
 import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
 import { McpConnectionManager } from '#/mcpCore/connection-manager';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import '#/agent/permissionMode/permissionModeService';
-import { PERMISSION_SECTION } from '#/agent/permissionRules/configSection';
-import { IProjectPermissionRulesService } from '#/agent/permissionRules/projectPermissionRules';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
 import '#/agent/permissionRules/permissionRulesService';
+import { PERMISSION_SECTION } from '#/agent/permissionRules/configSection';
+import { IProjectPermissionRulesService } from '#/agent/permissionRules/projectPermissionRules';
+
 import {
   permissionModeConfiguredKey,
   permissionModeKey,
 } from '#/agent/permissionMode/permissionModeOps';
 import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { IAgentEnvironmentOverlay, IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { AgentReminderService, IAgentReminderService } from '#/features/reminder/reminderService';
-import '#/agent/contextMemory/contextMemoryService';
 import { INHERITED_IN_FLIGHT_TOOL_OUTPUT } from '#/agent/contextMemory/openToolExchange';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
+import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { IModelCatalog } from '#/llm-adapter/model/catalog';
-import type { ToolCall } from '#/human/llm/message';
+import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
+import type { ToolCall } from '#human/message';
 import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
 import { IHostClock } from '#/os/interface/hostClock';
 import { ISessionStateService } from '#/session/state/sessionState';
@@ -100,7 +89,6 @@ import { IFlagService } from '#/app/flag/flag';
 import { ISessionNotify } from '#/features/notify/sessionNotify';
 import { ISessionEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import '#/app/event/eventBusService';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
 import { ILogService } from '#/_base/log/log';
@@ -120,11 +108,8 @@ import { createWireMetadataRecord, type WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import type {
-  MachineEngine,
-  MachineEngineAttachBundle,
-} from '#/agent/loop/machine/engine';
-import type { AgentEventStore } from '#human/agent/slices';
+import { contextFromHistoryEntry } from '#/agent/loop/history';
+import type { Message } from '@moonshot-ai/core/llm/message';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
@@ -136,6 +121,7 @@ import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionT
 import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import '#/agent/toolActivation/toolActivationService';
+import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
@@ -178,65 +164,11 @@ const pluginServiceStub = {
   pluginSkillRoots: async () => [],
   enabledSessionStarts: async () => [],
   enabledMcpServers: async () => ({}),
+  mcpServerEntries: async () => [],
   enabledHooks: async () => [],
+  enabledSystemPrompts: async () => [],
+  hasLoadedSnapshot: () => true,
 } as unknown as IPluginService;
-
-function stubAttachStore(): AgentEventStore {
-  return {
-    ref: { tree: 'test', branch: 'main' },
-    getState: () => ({
-      history: [],
-      queue: [],
-      notifications: [],
-      reminders: [],
-      turnIndex: { nextTurnId: 0 },
-    }),
-    subscribe: () => () => {},
-    dispatch: () => Promise.resolve({ kind: 'entry', seq: 0, ts: 0, type: 'noop', payload: null }),
-    registerSlice: () => Promise.resolve(() => {}),
-    reset: () => Promise.resolve(),
-    flush: () => Promise.resolve(),
-    close: () => Promise.resolve(),
-  } as unknown as AgentEventStore;
-}
-
-function stubAttachEngine(): MachineEngine {
-  return {
-    submit: () => {},
-    steer: () => {},
-    notify: () => {},
-    remind: () => {},
-    cancelQueueItem: () => {},
-    abort: () => {},
-    pause: () => {},
-    resume: () => {},
-    resetHistory: () => Promise.resolve(),
-    resetJournal: () => Promise.resolve(),
-    stop: () => {},
-    snapshot: () => ({
-      running: false,
-      aborting: false,
-      waitingForBackground: false,
-      paused: false,
-      queue: [],
-      queueLength: 0,
-      queueIds: [],
-      notificationCount: 0,
-      reminderCount: 0,
-      backgroundCount: 0,
-    }),
-    currentStep: () => 0,
-    lastFinish: () => undefined,
-    handleToolProgress: () => {},
-  };
-}
-
-function stubAttachBundle(): MachineEngineAttachBundle {
-  return {
-    store: stubAttachStore(),
-    request: { model: { provider: 'test', model: 'test' } },
-  } as unknown as MachineEngineAttachBundle;
-}
 
 function recordingAppendLog(initial: readonly WireRecord[] = []): {
   readonly appended: WireRecord[];
@@ -285,15 +217,19 @@ function recordingAppendLog(initial: readonly WireRecord[] = []): {
 describe('AgentLifecycleService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let registerAgent: ReturnType<typeof jest.fn<ISessionMetadata['registerAgent']>>;
+  let registerAgent: ReturnType<typeof vi.fn<ISessionMetadata['registerAgent']>>;
   let atomicDocs: Map<string, unknown>;
-  let permissionModeSetMode: ReturnType<typeof jest.fn>;
-  let stopAllOnExit: ReturnType<typeof jest.fn>;
-  let suppressAllTerminalNotifications: ReturnType<typeof jest.fn>;
+  let permissionModeSetMode: ReturnType<typeof vi.fn>;
+  let stopAllOnExit: ReturnType<typeof vi.fn>;
+  let suppressAllTerminalNotifications: ReturnType<typeof vi.fn>;
   let loopActiveTurnId: number | undefined;
   let loopPendingPromptIds: string[];
-  let loopCancel: ReturnType<typeof jest.fn<IAgentLoopService['cancel']>>;
-  let loopSettled: ReturnType<typeof jest.fn<IAgentLoopService['settled']>>;
+  let loopCancel: ReturnType<typeof vi.fn<IAgentLoopService['cancel']>>;
+  let loopSettled: ReturnType<typeof vi.fn<IAgentLoopService['settled']>>;
+  let loopStart: ReturnType<typeof vi.fn<IAgentLoopService['start']>>;
+  let loopClose: ReturnType<typeof vi.fn<IAgentLoopService['close']>>;
+  let loopSetProfile: ReturnType<typeof vi.fn<IAgentLoopService['setProfile']>>;
+  let loopProfileSequence: ProfileBindingSnapshot[];
   let beforeExecuteListeners: number;
   let didExecuteHookIds: string[];
 
@@ -303,6 +239,10 @@ describe('AgentLifecycleService', () => {
     ix = disposables.add(new TestInstantiationService());
     ix.set(ISessionStateService, new SessionStateService());
     ix.set(IAgentStateService, new AgentStateService());
+    ix.stub(IAgentEnvironmentOverlay, {
+      _serviceBrand: undefined,
+      decorate: (lease) => lease,
+    });
     ix.set(ISessionEventBus, new SyncDescriptor(EventBusService));
     ix.get(IAgentStateService).contributeState(permissionModeKey);
     ix.get(IAgentStateService).contributeState(permissionModeConfiguredKey);
@@ -310,7 +250,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.stub(IBlobStore, new BlobStoreService(new InMemoryStorageService()));
     ix.set(ISessionMediaStore, new SyncDescriptor(SessionMediaStoreService));
-    registerAgent = jest.fn<ISessionMetadata['registerAgent']>().mockResolvedValue(undefined);
+    registerAgent = vi.fn<ISessionMetadata['registerAgent']>().mockResolvedValue(undefined);
     atomicDocs = new Map();
     ix.stub(ISessionContext, {
       _serviceBrand: undefined,
@@ -334,6 +274,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(IEnvironmentService, {
       onDidChange: () => ({ dispose: () => {} }),
       _serviceBrand: undefined,
+      current: () => undefined,
       inspect: (binding) => new FakeEnvironment({ ...binding, generation: `${binding.environmentId}-one` }),
       acquire: (binding) => ({
         environment: new FakeEnvironment({ ...binding, generation: `${binding.environmentId}-one` }),
@@ -374,6 +315,7 @@ describe('AgentLifecycleService', () => {
       _serviceBrand: undefined,
       homeDir: '/tmp/kimi-agentLifecycle-home',
       cwd: '/tmp/kimi-agentLifecycle-home',
+      args: {},
       getEnv: () => undefined,
     } as unknown as IBootstrapService);
     ix.stub(IFlagService, {
@@ -422,7 +364,11 @@ describe('AgentLifecycleService', () => {
       register: () => ({ dispose: () => {} }),
       resolve: () => undefined,
       list: () => [],
+      listReferences: () => [],
     } as unknown as IAgentToolRegistryService);
+    ix.stub(IAgentMediaToolsRegistrar, {
+      _serviceBrand: undefined,
+    } as IAgentMediaToolsRegistrar);
     beforeExecuteListeners = 0;
     didExecuteHookIds = [];
     ix.stub(IAgentToolExecutorService, {
@@ -432,6 +378,16 @@ describe('AgentLifecycleService', () => {
         return { dispose: () => {} };
       },
       onWillExecuteTool: () => ({ dispose: () => {} }),
+      registerLegacyStarting: () => {
+        beforeExecuteListeners += 1;
+        return { dispose: () => {} };
+      },
+      registerHook: (hook: { afterExecute?: unknown }) => {
+        beforeExecuteListeners += 1;
+        if (hook.afterExecute !== undefined) didExecuteHookIds.push('toolDedupe');
+        return { dispose: () => {} };
+      },
+      handlers: () => [{ snapshot: () => ({ status: 'success' }), stop: stopAllOnExit }],
       hooks: {
         onDidExecuteTool: {
           register: (id: string) => {
@@ -443,7 +399,7 @@ describe('AgentLifecycleService', () => {
     } as unknown as IAgentToolExecutorService);
     loopActiveTurnId = undefined;
     loopPendingPromptIds = [];
-    loopCancel = jest.fn<IAgentLoopService['cancel']>((target) => {
+    loopCancel = vi.fn<IAgentLoopService['cancel']>((target) => {
       if (target?.promptId !== undefined) {
         loopPendingPromptIds = loopPendingPromptIds.filter((id) => id !== target.promptId);
         return true;
@@ -453,13 +409,57 @@ describe('AgentLifecycleService', () => {
       }
       return true;
     });
-    loopSettled = jest.fn<IAgentLoopService['settled']>(async () => {
+    loopSettled = vi.fn<IAgentLoopService['settled']>(async () => {
       if (loopActiveTurnId !== undefined || loopPendingPromptIds.length > 0) {
         throw new Error('Agent loop did not settle');
       }
     });
-    ix.stub(IAgentLoopService, {
+    const loopHistory: ContextMessage[] = [];
+    let closePromise: Promise<void> | undefined;
+    let loopProfile: ProfileBindingSnapshot = { thinkingLevel: 'off', systemPrompt: '' };
+    loopProfileSequence = [];
+    const loopStub = {
       _serviceBrand: undefined,
+      start: vi.fn(async () => {}),
+      baselineTools: () => [],
+      data: () => ({
+        ...(loopProfileSequence.length > 0 ? loopProfileSequence.shift()! : loopProfile),
+        modelCapabilities: UNKNOWN_CAPABILITY,
+      }),
+      setProfile: vi.fn(async (profile: ProfileBindingSnapshot) => {
+        loopProfile = { ...profile };
+        const lifecycle = ix.get(IAgentLifecycleService);
+        const current = lifecycle.list().at(-1)!;
+        await lifecycle.handleOf(current.agentId)!.accessor.get(IEventDispatcher).dispatch(new ProfileBind({
+          agentId: current.agentId,
+          modelAlias: profile.modelAlias,
+          profileName: profile.profileName,
+          thinkingEffort: profile.thinkingLevel,
+          systemPrompt: profile.systemPrompt,
+          environmentDisclosure: profile.environmentDisclosure,
+          renderGeneration: profile.renderGeneration,
+          agentsMdPaths: profile.agentsMdPaths,
+          activeToolNames: profile.activeToolNames,
+          disallowedTools: profile.disallowedTools ?? [],
+          subagents: profile.subagents,
+        }));
+      }),
+      bindProfile: vi.fn(async () => {}),
+      applyBindingSnapshot: vi.fn(async () => {}),
+      setModel: vi.fn(async (model: string) => ({ model })),
+      history: () => loopHistory,
+      historyRevision: () => 0,
+      replaceHistory: (entries: readonly Message[]) => {
+        loopHistory.splice(0, loopHistory.length, ...entries.map((entry) => contextFromHistoryEntry(entry)));
+        return true;
+      },
+      initializeHistory: async (entries: readonly Message[]) => {
+        loopHistory.splice(0, loopHistory.length, ...entries.map((entry) => contextFromHistoryEntry(entry)));
+      },
+      remind: (...entries: readonly Message[]) => {
+        loopHistory.push(...entries.map((entry) => contextFromHistoryEntry(entry)));
+      },
+      flushReminders: () => {},
       hooks: {
         onWillBeginStep: { register: () => ({ dispose: () => {} }) },
         onDidFinishStep: { register: () => ({ dispose: () => {} }) },
@@ -470,8 +470,9 @@ describe('AgentLifecycleService', () => {
         activeTurnId: loopActiveTurnId,
         activePromptId: undefined,
         queue: loopPendingPromptIds.map((promptId) => ({
-          message: { role: 'user', content: [] },
-          meta: { promptId },
+          role: 'user' as const,
+          content: [],
+          attributes: { promptId },
         })),
         notificationCount: 0,
         paused: false,
@@ -481,22 +482,34 @@ describe('AgentLifecycleService', () => {
       }),
       cancel: loopCancel,
       settled: loopSettled,
-      tryAcquireQuiescence: jest.fn(() => ({ dispose: jest.fn() })),
-      buildAttachBundle: () => stubAttachBundle(),
-      attachEngine: () => stubAttachEngine(),
-    } as unknown as IAgentLoopService);
+      tryAcquireQuiescence: vi.fn(() => ({ dispose: vi.fn() })),
+      close: vi.fn(() => closePromise ??= (async () => {
+        for (const handler of ix.get(IAgentToolExecutorService).handlers()) {
+          await handler.stop('Session closed');
+        }
+      })()),
+    };
+    loopStart = loopStub.start;
+    loopClose = loopStub.close;
+    loopSetProfile = loopStub.setProfile;
+    ix.stub(IAgentLoopService, loopStub as unknown as IAgentLoopService);
     ix.stub(ITelemetryService, {
       _serviceBrand: undefined,
       track2: () => {},
+      setContext: () => {},
       withContext: () => ({
         _serviceBrand: undefined,
         track2: () => {},
+        setContext: () => {},
       }) as unknown as ITelemetryService,
     } as unknown as ITelemetryService);
     ix.stub(IHostEnvironment, { _serviceBrand: undefined } as IHostEnvironment);
     ix.stub(IHostFileSystem, { _serviceBrand: undefined } as IHostFileSystem);
     ix.stub(IHostClock, { _serviceBrand: undefined } as IHostClock);
-    ix.stub(IModelCatalog, { _serviceBrand: undefined } as IModelCatalog);
+    ix.stub(IModelCatalog, {
+      _serviceBrand: undefined,
+      get: () => ({ spec: { provider: 'stub', name: 'stub', capability: {} } }),
+    } as unknown as IModelCatalog);
     ix.stub(ISessionTokenCountingService, {
       estimateText: () => 0,
       estimateMessage: () => 0,
@@ -508,18 +521,29 @@ describe('AgentLifecycleService', () => {
     } as IProtocolAdapterRegistry);
     ix.stub(IBuiltinAgentProfileLoader, {
       _serviceBrand: undefined,
-    } as IBuiltinAgentProfileLoader);
-    ix.stub(IAgentIdentity, { _serviceBrand: undefined } as IAgentIdentity);
+      list: () => [],
+    } as unknown as IBuiltinAgentProfileLoader);
+    ix.stub(IAgentIdentity, {
+      _serviceBrand: undefined,
+      resolved: async () => ({ displayName: 'test' }),
+    } as unknown as IAgentIdentity);
     ix.stub(IAgentAgentsMdReminderService, {
       _serviceBrand: undefined,
     } as IAgentAgentsMdReminderService);
+    ix.stub(IAgentChangeNotifierService, {
+      _serviceBrand: undefined,
+      seedBeliefs: async () => {},
+    } as unknown as IAgentChangeNotifierService);
     ix.stub(ISessionAgentProfileCatalog, {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
-      get: () => undefined,
-      getDefault: () => {
-        throw new Error('catalog resolution is not expected');
-      },
+      get: (name: string) => name === DEFAULT_AGENT_PROFILE_NAME
+        ? { name, renderSystemPrompt: () => ({ text: 'test system prompt' }) }
+        : undefined,
+      getDefault: () => ({
+        name: DEFAULT_AGENT_PROFILE_NAME,
+        renderSystemPrompt: () => ({ text: 'test system prompt' }),
+      }),
       list: () => [],
       load: () => Promise.resolve(),
       reload: () => Promise.resolve(),
@@ -545,7 +569,7 @@ describe('AgentLifecycleService', () => {
       disabledTools: [],
       onDidChange: Event.None as Event<void>,
     } satisfies ISessionToolPolicyGate);
-    permissionModeSetMode = jest.fn();
+    permissionModeSetMode = vi.fn();
     ix.stub(IAgentPermissionModeService, {
       _serviceBrand: undefined,
       mode: 'manual',
@@ -573,8 +597,8 @@ describe('AgentLifecycleService', () => {
       }),
       isBaselineServer: () => true,
     } satisfies ISessionMcpHandle);
-    stopAllOnExit = jest.fn(async () => []);
-    suppressAllTerminalNotifications = jest.fn(async () => {});
+    stopAllOnExit = vi.fn(async () => []);
+    suppressAllTerminalNotifications = vi.fn(async () => {});
     ix.stub(IAgentTaskService, {
       _serviceBrand: undefined,
       stopAllOnExit,
@@ -600,7 +624,7 @@ describe('AgentLifecycleService', () => {
   });
   afterEach(() => {
     disposables.dispose();
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   function contributeTodoService(): void {
@@ -651,7 +675,7 @@ describe('AgentLifecycleService', () => {
     expect((dispatcher as unknown as { wire: IWireService }).wire).toBe(
       handle.accessor.get(IWireService),
     );
-    const flush = jest.spyOn(dispatcher, 'flush');
+    const flush = vi.spyOn(dispatcher, 'flush');
     await svc.remove(svc.get('main')!);
     expect(flush).toHaveBeenCalled();
   });
@@ -748,8 +772,10 @@ describe('AgentLifecycleService', () => {
     }
   });
 
-  it('create failure after scope creation keeps the context active through async teardown', async () => {
-    registerAgent.mockRejectedValueOnce(new Error('boom'));
+  it('create and close failures after scope creation keep the context active through async teardown', async () => {
+    const failure = new Error('boom');
+    loopStart.mockRejectedValueOnce(failure);
+    loopClose.mockRejectedValueOnce(failure);
     const svc = ix.get(IAgentLifecycleService);
     const bus = ix.get(ISessionEventBus);
     const seen: string[] = [];
@@ -785,7 +811,7 @@ describe('AgentLifecycleService', () => {
     };
     process.on('unhandledRejection', onUnhandled);
     try {
-      await expect(svc.create({ agentId: 'main' })).rejects.toThrow('boom');
+      await expect(svc.create({ agentId: 'main' })).rejects.toBe(failure);
       expect(seen).toEqual(['delivered']);
       expect(unhandled).toEqual([]);
     } finally {
@@ -827,10 +853,6 @@ describe('AgentLifecycleService', () => {
 
     expect(stopAllOnExit).toHaveBeenCalledWith('Session closed');
     expect(loopSettled).toHaveBeenCalled();
-    expect(suppressAllTerminalNotifications).toHaveBeenCalledTimes(1);
-    expect(suppressAllTerminalNotifications.mock.invocationCallOrder[0]).toBeLessThan(
-      loopSettled.mock.invocationCallOrder[0]!,
-    );
     expect(stopAllOnExit.mock.invocationCallOrder[0]).toBeGreaterThan(
       loopSettled.mock.invocationCallOrder[0]!,
     );
@@ -850,7 +872,7 @@ describe('AgentLifecycleService', () => {
     expect(closed).toEqual(['main']);
 
     await svc.remove(main);
-    expect(stopAllOnExit).toHaveBeenCalledTimes(1);
+    expect(stopAllOnExit).toHaveBeenCalledOnce();
   });
 
   it('remove waits for prompt intake to drain before disposing the agent scope', async () => {
@@ -861,8 +883,10 @@ describe('AgentLifecycleService', () => {
     });
     loopSettled.mockImplementationOnce(() => {
       markDrainStarted();
-      return new Promise<void>((resolve) => {
-        releaseDrain = resolve;
+      return new Promise<undefined>((resolve) => {
+        releaseDrain = () => {
+          resolve(undefined);
+        };
       });
     });
     const svc = ix.get(IAgentLifecycleService);
@@ -886,13 +910,17 @@ describe('AgentLifecycleService', () => {
     const main = await svc.create({ agentId: 'main' });
     const disposed: string[] = [];
     disposables.add(svc.onDidClose((agent) => disposed.push(agent.agentId)));
-    loopSettled.mockImplementation(() => new Promise<void>(() => {}));
-    const removal = svc.remove(main);
+    loopSettled.mockImplementation(() => new Promise<undefined>(() => {}));
+    vi.useFakeTimers();
+    try {
+      const removal = svc.remove(main);
+      await vi.advanceTimersByTimeAsync(3_000);
 
-    await waitForAssertion(() => {
       expect(disposed).toEqual(['main']);
-    }, { timeout: 10_000 });
-    await removal;
+      await removal;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('remove cancels queued turns before waiting for the active turn to settle', async () => {
@@ -908,7 +936,7 @@ describe('AgentLifecycleService', () => {
       { promptId: 'q3' },
       undefined,
     ]);
-    expect(loopSettled).toHaveBeenCalledTimes(1);
+    expect(loopSettled).toHaveBeenCalledOnce();
   });
 
   it('remove waits for an active full compaction to reject after aborting it', async () => {
@@ -1039,19 +1067,36 @@ describe('AgentLifecycleService', () => {
     ix.stub(IAppendLogStore, log.store);
     const svc = ix.get(IAgentLifecycleService);
 
-    await svc.create({ agentId: 'main' });
+    await svc.create({
+      agentId: 'main',
+      initialProfile: {
+        profileName: 'agent',
+        modelAlias: 'mock-model',
+        thinkingLevel: 'off',
+        systemPrompt: 'initial',
+        disallowedTools: [],
+      },
+    });
 
     expect(log.appended[0]).toMatchObject({
       type: 'metadata',
       protocol_version: createWireMetadataRecord().protocol_version,
     });
+    expect(log.appended.filter((record) => record.type === 'profile.bind')).toHaveLength(1);
+    expect(loopSetProfile).toHaveBeenCalledOnce();
+    expect(loopStart).toHaveBeenCalledOnce();
+    expect(loopSetProfile.mock.invocationCallOrder[0]).toBeLessThan(
+      loopStart.mock.invocationCallOrder[0]!,
+    );
   });
 
   it('does not re-seal a wire log that already has records', async () => {
     const existing: WireRecord = {
-      type: 'turn.prompt',
-      input: [{ type: 'text', text: 'existing' }],
-      origin: { kind: 'user' },
+      type: 'profile.bind',
+      agentId: 'main',
+      thinkingEffort: 'off',
+      systemPrompt: 'existing',
+      disallowedTools: [],
     };
     const log = recordingAppendLog([existing]);
     ix.stub(IAppendLogStore, log.store);
@@ -1060,6 +1105,9 @@ describe('AgentLifecycleService', () => {
     await svc.create({ agentId: 'main' });
 
     expect(log.appended.some((record) => record.type === 'metadata')).toBe(false);
+    expect(log.appended.some((record) => record.type === 'profile.bind')).toBe(false);
+    expect(loopSetProfile).not.toHaveBeenCalled();
+    expect(loopStart).toHaveBeenCalledOnce();
   });
 
   it('leaves permission mode at the default when permissionMode is omitted', async () => {
@@ -1083,23 +1131,56 @@ describe('AgentLifecycleService', () => {
     expect(svc.handleOf('main')!.accessor.get(IAgentStateService).get(permissionModeKey)).toBe('auto');
   });
 
-  it('seeds [permission] config rules into the agent rules service', async () => {
+  it('loads configured permission rules into a new Agent', async () => {
+    const rule = { decision: 'deny', scope: 'user', pattern: 'Read(/secret.txt)' };
     ix.stub(IConfigService, {
       ready: Promise.resolve(),
       assertValid: () => {},
-      get: ((section: string) =>
-        section === PERMISSION_SECTION
-          ? { rules: [{ decision: 'deny', scope: 'user', pattern: 'Bash(rm *)' }] }
-          : undefined) as IConfigService['get'],
+      get: ((section: unknown) =>
+        section === PERMISSION_SECTION ? { rules: [rule] } : undefined) as IConfigService['get'],
       onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
     } as unknown as IConfigService);
 
     const svc = ix.get(IAgentLifecycleService);
     await svc.create({ agentId: 'main' });
 
-    expect(svc.handleOf('main')!.accessor.get(IAgentPermissionRulesService).rules).toEqual([
-      { decision: 'deny', scope: 'user', pattern: 'Bash(rm *)' },
-    ]);
+    expect(svc.handleOf('main')!.accessor.get(IAgentPermissionRulesService).rules).toEqual([rule]);
+  });
+
+  it('loads configured permission rules into a subagent', async () => {
+    const rule = { decision: 'deny', scope: 'user', pattern: 'Bash(curl *)' };
+    ix.stub(IConfigService, {
+      ready: Promise.resolve(),
+      assertValid: () => {},
+      get: ((section: unknown) =>
+        section === PERMISSION_SECTION ? { rules: [rule] } : undefined) as IConfigService['get'],
+      onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
+    } as unknown as IConfigService);
+
+    const svc = ix.get(IAgentLifecycleService);
+    await svc.create({ agentId: 'agent-1' });
+
+    expect(svc.handleOf('agent-1')!.accessor.get(IAgentPermissionRulesService).rules).toEqual([rule]);
+  });
+
+  it('loads the current permission rules when restoring an Agent', async () => {
+    const rule = { decision: 'deny', scope: 'user', pattern: 'Bash(curl *)' };
+    ix.stub(IAppendLogStore, recordingAppendLog([
+      createWireMetadataRecord(1),
+      { type: 'permission.set_mode', mode: 'manual', time: 2 },
+    ]).store);
+    ix.stub(IConfigService, {
+      ready: Promise.resolve(),
+      assertValid: () => {},
+      get: ((section: unknown) =>
+        section === PERMISSION_SECTION ? { rules: [rule] } : 'manual') as IConfigService['get'],
+      onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
+    } as unknown as IConfigService);
+
+    const svc = ix.get(IAgentLifecycleService);
+    await svc.create({ agentId: 'main' });
+
+    expect(svc.handleOf('main')!.accessor.get(IAgentPermissionRulesService).rules).toEqual([rule]);
   });
 
   it('keeps the restored permission mode instead of overwriting it with the default', async () => {
@@ -1290,7 +1371,7 @@ describe('AgentLifecycleService', () => {
     const main = await svc.create({ agentId: 'main' });
 
     expect(svc.handleOf('main')!.accessor.get(IAgentTodoService).get()).toEqual([
-      { id: 'T1', parentId: null, kind: 'task', title: 'bridged', status: 'pending' },
+      { title: 'bridged', status: 'pending' },
     ]);
     expect(svc.handleOf('main')!.accessor.get(IAgentCronService).list()).toEqual([
       { id: 'cron-1', cron: '0 9 * * *', prompt: 'ping', recurring: true, createdAt: 1, lastFiredAt: undefined },
@@ -1302,7 +1383,6 @@ describe('AgentLifecycleService', () => {
     const configReady = new Promise<void>((resolve) => { releaseConfig = resolve; });
     ix.stub(IConfigService, {
       ready: configReady,
-      assertValid: () => {},
       get: ((section: unknown) => section === CRON_SECTION
         ? { debug: false, noJitter: true, noStale: false, disabled: false, manualTick: true }
         : undefined) as IConfigService['get'],
@@ -1316,7 +1396,7 @@ describe('AgentLifecycleService', () => {
       created = true;
       return agent;
     });
-    await viWaitFor(() => { expect(registerAgent).toHaveBeenCalledTimes(1); });
+    await vi.waitFor(() => { expect(registerAgent).toHaveBeenCalledOnce(); });
 
     expect(created).toBe(false);
 
@@ -1353,15 +1433,16 @@ describe('AgentLifecycleService', () => {
     const svc = ix.get(IAgentLifecycleService);
     await svc.create({ agentId: 'main' });
     await svc.create({ agentId: 'worker-1' });
-    void svc.handleOf('worker-1')!.accessor.get(IEventDispatcher).dispatch(
-      new ProfileBind({
-        agentId: 'worker-1',
-        profileName: TOWER_WORKER_PROFILE,
-        thinkingEffort: 'off',
-        systemPrompt: '',
-        disallowedTools: [],
-      }),
-    );
+    await svc.handleOf('worker-1')!.accessor.get(IAgentLoopService).setProfile({
+      profileName: TOWER_WORKER_PROFILE,
+      thinkingLevel: 'off',
+      systemPrompt: '',
+      disallowedTools: [],
+    });
+    loopProfileSequence = [
+      { thinkingLevel: 'off', systemPrompt: '' },
+      { profileName: TOWER_WORKER_PROFILE, thinkingLevel: 'off', systemPrompt: '' },
+    ];
 
     svc.broadcastPermissionMode('yolo');
 
@@ -1384,15 +1465,19 @@ describe('AgentLifecycleService', () => {
       token_type: 'Bearer',
     } satisfies OAuthTokens);
 
-    const tokenKeys = [...atomicDocs.keys()].filter(
-      (key) => key.startsWith('credentials/mcp/') && key.endsWith('-tokens.json'),
+    const tokenEntries = [...atomicDocs.entries()].filter(
+      ([key]) => key.startsWith('credentials/mcp/') && key.endsWith('-tokens.json'),
     );
-    expect(tokenKeys).toEqual([expect.stringMatching(/^credentials\/mcp\/linear-[a-f0-9]{24}-tokens\.json$/)]);
-
-    await expect(provider.tokens()).resolves.toMatchObject({
-      access_token: 'session-token',
-      token_type: 'Bearer',
-    });
+    expect(tokenEntries).toEqual([
+      [
+        expect.stringMatching(/^credentials\/mcp\/linear-[a-f0-9]{24}-tokens\.json$/),
+        {
+          access_token: 'session-token',
+          token_type: 'Bearer',
+          obtained_at: expect.any(Number),
+        },
+      ],
+    ]);
   });
 
   it('returns an agent without waiting for the MCP handle readiness', async () => {
@@ -1429,11 +1514,10 @@ describe('AgentLifecycleService', () => {
     const svc = ix.get(IAgentLifecycleService);
     const create = svc.create({ agentId: 'main' });
 
-    const early = svc.handleOf('main');
-    expect(early).toBeDefined();
-
     const joined = svc.create({ agentId: 'main' });
     await registerCalled;
+    const early = svc.handleOf('main');
+    expect(early).toBeDefined();
     releaseRegister();
     const handle = await joined;
     const created = await create;
@@ -1465,8 +1549,8 @@ describe('AgentLifecycleService', () => {
 
   function stubPersistedAgents(
     agents: Record<string, AgentMeta>,
-  ): ReturnType<typeof jest.fn<ISessionMetadata['registerAgent']>> {
-    const tracked = jest.fn<ISessionMetadata['registerAgent']>(async (agentId, meta) => {
+  ): ReturnType<typeof vi.fn<ISessionMetadata['registerAgent']>> {
+    const tracked = vi.fn<ISessionMetadata['registerAgent']>(async (agentId, meta) => {
       agents[agentId] = meta;
     });
     ix.stub(ISessionMetadata, {
@@ -1549,10 +1633,9 @@ describe('AgentLifecycleService', () => {
     const svc = ix.get(IAgentLifecycleService);
     await svc.create({ agentId: 'main' });
     const child = await svc.fork(agentContextOf(svc.handleOf('main')!), { agentId: 'agent-btw' });
-    svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).append({
+    appendContext(svc.handleOf(child.agentId)!.accessor.get(IAgentLoopService), {
       role: 'user',
       content: [{ type: 'text', text: 'persisted side question' }],
-      toolCalls: [],
     });
     await svc.remove(svc.get(child.agentId)!);
     expect(svc.handleOf(child.agentId)).toBeUndefined();
@@ -1560,7 +1643,7 @@ describe('AgentLifecycleService', () => {
     const rebuilt = await getOrRestoreAgent(sessionHandle(), child.agentId);
 
     expect(rebuilt).toBeDefined();
-    const restored = rebuilt!.accessor.get(IAgentContextMemoryService).get();
+    const restored = rebuilt!.accessor.get(IAgentLoopService).history();
     expect(
       restored.some(
         (m) =>
@@ -1593,7 +1676,7 @@ describe('AgentLifecycleService', () => {
 
     expect(rebuilt).toBeDefined();
     expect(beforeExecuteListeners - beforeRebuild).toBe(baseline + 1);
-    const restored = rebuilt!.accessor.get(IAgentContextMemoryService).get();
+    const restored = rebuilt!.accessor.get(IAgentLoopService).history();
     expect(
       restored.some((m) =>
         m.content.some((p) => p.type === 'text' && p.text.includes(SIDE_QUESTION_SYSTEM_REMINDER)),
@@ -1623,7 +1706,7 @@ describe('AgentLifecycleService', () => {
   it('fork copies the bound profile snapshot without catalog resolution', async () => {
     const svc = ix.get(IAgentLifecycleService);
     const source = await svc.create({ agentId: 'main' });
-    svc.handleOf('main')!.accessor.get(IAgentProfileService).applyBindingSnapshot({
+    await svc.handleOf('main')!.accessor.get(IAgentLoopService).setProfile({
       profileName: 'deleted-profile',
       thinkingLevel: 'high',
       systemPrompt: 'original prompt',
@@ -1671,17 +1754,18 @@ describe('AgentLifecycleService', () => {
       arguments: '{}',
     };
     const history: ContextMessage[] = [
-      { role: 'user', content: [{ type: 'text', text: 'analyze this repo' }], toolCalls: [] },
+      { role: 'user', content: [{ type: 'text', text: 'analyze this repo' }] },
       { role: 'assistant', content: [], toolCalls: [agentCall], partial: true },
     ];
-    sourceHandle.accessor.get(IAgentContextMemoryService).append(...history);
+    appendContext(sourceHandle.accessor.get(IAgentLoopService), ...history);
 
     const child = await svc.fork(agentContextOf(sourceHandle), { agentId: 'forked' });
 
-    const seeded = svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).get();
+    const seeded = svc.handleOf(child.agentId)!.accessor.get(IAgentLoopService).history();
     expect(seeded).toHaveLength(3);
     expect(seeded[0]).toMatchObject({ role: 'user' });
-    expect(seeded[1]).toMatchObject({ role: 'assistant', partial: undefined });
+    expect(seeded[1]).toMatchObject({ role: 'assistant' });
+    expect(seeded[1]?.partial).toBeUndefined();
     expect(seeded[2]).toMatchObject({
       role: 'tool',
       toolCallId: 'call_agent',
@@ -1696,7 +1780,7 @@ describe('AgentLifecycleService', () => {
     const child = await svc.fork(agentContextOf(svc.handleOf(source.agentId)!), { agentId: 'forked' });
 
     expect(
-      svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).get(),
+      svc.handleOf(child.agentId)!.accessor.get(IAgentLoopService).history(),
     ).toEqual([]);
   });
 
@@ -1738,7 +1822,7 @@ describe('AgentLifecycleService', () => {
   it('fork records the inherited profile in the subagent metadata', async () => {
     const svc = ix.get(IAgentLifecycleService);
     const source = await svc.create({ agentId: 'main' });
-    svc.handleOf('main')!.accessor.get(IAgentProfileService).applyBindingSnapshot({
+    await svc.handleOf('main')!.accessor.get(IAgentLoopService).setProfile({
       profileName: 'coder',
       thinkingLevel: 'off',
       systemPrompt: 'coder prompt',

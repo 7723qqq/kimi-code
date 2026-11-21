@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { strictEqual } from 'node:assert';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -11,7 +11,7 @@ import {
   CompactionCompleted,
   getLiveSessionById,
   IEventBus,
-  IAgentProfileService,
+  IAgentLoopService,
   IEventDispatcher,
   ISessionManager,
   ISessionMetadata,
@@ -22,21 +22,21 @@ import {
   type CompactionResult,
   type TelemetryAppenderRecord,
 } from '@moonshot-ai/agent-core-v2';
+import { ContextAppendMessage } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
+import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import {
-  ContextAppendMessage,
-  TurnEnded,
-  TurnPrompt,
-  TurnStarted,
-} from '@moonshot-ai/agent-core-v2';
-import { ToolCallStarted, ToolResultEvent } from '@moonshot-ai/agent-core-v2';
-import { pino } from 'pino';
-
+  ToolCallStarted,
+  ToolResultEvent,
+} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 import type { SessionRatingResult } from '../src/protocol/rest-session-rating';
+import { pino } from 'pino';
+import { afterAll, beforeAll, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
 import { type RunningServer, startServer } from '../src/start';
 import { ensureMainAgent } from '../src/transport/mainAgent';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -59,8 +59,6 @@ function serverEnv(extra: Record<string, string>): Record<string, string | undef
 }
 
 class RatingClient {
-  private readonly turnNumbers = new Map<string, number>();
-
   constructor(private readonly server: RunningServer) {}
 
   async request<T = unknown>(path: string, body?: unknown): Promise<Envelope<T>> {
@@ -85,41 +83,24 @@ class RatingClient {
     return ensureMainAgent(session);
   }
 
-  async finishUserTurn(
-    sessionId: string,
-    during?: (bus: IEventBus) => void,
-    turnId = (this.turnNumbers.get(sessionId) ?? 0) + 1,
-  ): Promise<void> {
-    this.turnNumbers.set(sessionId, turnId);
+  async finishUserTurn(sessionId: string, during?: (bus: IEventBus) => void, turnId = 1): Promise<void> {
     const agent = await this.mainAgent(sessionId);
-    expect((await this.request(`/api/v1/sessions/${sessionId}/agents/main/turns`)).code).toBe(0);
+    strictEqual((await this.request(`/api/v1/sessions/${sessionId}/agents/main/turns`)).code, 0);
     const bus = agent.accessor.get(IEventBus);
     const dispatcher = agent.accessor.get(IEventDispatcher);
     const origin = { kind: 'user' } as const;
-    await dispatcher.dispatch(
-      new TurnPrompt({ agentId: MAIN_AGENT_ID, turnId, input: [], origin }),
-    );
+    await dispatcher.dispatch(new TurnPrompt({ agentId: MAIN_AGENT_ID, input: [], origin, turnId }));
     await dispatcher.dispatch(
       new ContextAppendMessage({
         agentId: MAIN_AGENT_ID,
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: 'Please rate.' }],
-          toolCalls: [],
-          origin,
-        },
+        message: { role: 'user', content: [{ type: 'text', text: 'Please rate.' }], origin },
       }),
     );
-    await dispatcher.dispatch(new TurnStarted({ agentId: MAIN_AGENT_ID, turnId, origin }));
+    bus.publish(new TurnStarted({ agentId: MAIN_AGENT_ID, turnId, origin }));
     during?.(bus);
-    await dispatcher.dispatch(
-      new TurnEnded({
-        agentId: MAIN_AGENT_ID,
-        turnId,
-        reason: 'completed',
-        traceId: 'trace-1',
-      }),
-    );
+    await dispatcher.dispatch(new TurnEnded({
+      agentId: MAIN_AGENT_ID, turnId, reason: 'completed', requestId: 'trace-1',
+    }));
   }
 
   async latestTurnId(sessionId: string): Promise<string> {
@@ -133,8 +114,7 @@ class RatingClient {
 
   async evaluate(sessionId: string, turnId?: string): Promise<Envelope<SessionRatingResult>> {
     return this.request(`/api/v1/sessions/${sessionId}/rating`, {
-      op: 'evaluate',
-      turn_id: turnId ?? (await this.latestTurnId(sessionId)),
+      op: 'evaluate', turn_id: turnId ?? await this.latestTurnId(sessionId),
     });
   }
 
@@ -149,16 +129,13 @@ class RatingClient {
 
   report(sessionId: string, appearanceId: string, op: 'shown' | 'abandon') {
     return this.request<null>(`/api/v1/sessions/${sessionId}/rating`, {
-      op,
-      appearance_id: appearanceId,
+      op, appearance_id: appearanceId,
     });
   }
 
   respond(sessionId: string, appearanceId: string, response: string) {
     return this.request<null>(`/api/v1/sessions/${sessionId}/rating`, {
-      op: 'respond',
-      appearance_id: appearanceId,
-      response,
+      op: 'respond', appearance_id: appearanceId, response,
     });
   }
 }
@@ -193,9 +170,7 @@ describe('session rating preview', () => {
 
   afterAll(async () => {
     await server.close();
-    await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(
-      () => undefined,
-    );
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   function previewEvents(): [unknown, unknown, unknown][] {
@@ -207,8 +182,7 @@ describe('session rating preview', () => {
 
   it('returns no offer for an unloaded session', async () => {
     expect(await client.evaluate('unknown-session', 'turn-1')).toMatchObject({
-      code: 0,
-      data: { appearance: null },
+      code: 0, data: { appearance: null },
     });
   });
 
@@ -219,9 +193,8 @@ describe('session rating preview', () => {
     { op: 'undo', appearance_id: 'old' },
     { op: 'respond', appearance_id: 'old', response: 'invalid' },
   ])('rejects a malformed or removed operation %j', async (body) => {
-    expect(await client.request('/api/v1/sessions/unknown-session/rating', body)).toMatchObject({
-      code: 40001,
-    });
+    expect(await client.request('/api/v1/sessions/unknown-session/rating', body))
+      .toMatchObject({ code: 40001 });
   });
 
   it('only records a display when the client confirms it', async () => {
@@ -277,9 +250,7 @@ describe('session rating preview outside development', () => {
 
   afterAll(async () => {
     await server.close();
-    await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(
-      () => undefined,
-    );
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   it('ignores the preview switch when debug endpoints are off', async () => {
@@ -335,7 +306,7 @@ describe('session rating lifecycle', () => {
     const id = await ratings.createSession(home);
     await ratings.finishUserTurn(id);
     await expect(ratings.evaluate(id)).resolves.toMatchObject({ data: { appearance: null } });
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       if (configRequests === 0) throw new Error('survey_popup has not been fetched yet');
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -372,9 +343,7 @@ describe('session rating lifecycle', () => {
   afterAll(async () => {
     await server.close();
     await new Promise((resolve) => configServer.close(resolve));
-    await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(
-      () => undefined,
-    );
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   it('does not settle on close and accepts an answer after the scope is disposed', async () => {
@@ -384,14 +353,13 @@ describe('session rating lifecycle', () => {
     expect(ratingEvents(id)).toEqual([['appeared', undefined, 1]]);
     await client.respond(id, appearance, 'good');
     expect(ratingEvents(id)).toEqual([
-      ['appeared', undefined, 1],
-      ['responded', 'good', 1],
+      ['appeared', undefined, 1], ['responded', 'good', 1],
     ]);
   });
 
   it('identifies the managed model and its trace for the kfc check', async () => {
     const id = await client.createSession(home);
-    await (await client.mainAgent(id)).accessor.get(IAgentProfileService).setModel('kimi-code/k3');
+    await (await client.mainAgent(id)).accessor.get(IAgentLoopService).setModel('kimi-code/k3');
     await client.openRating(id);
 
     const appeared = records.find(
@@ -408,8 +376,7 @@ describe('session rating lifecycle', () => {
   });
 
   it.each(['archive', 'delete', 'reload'] as const)(
-    'accepts a delayed answer after %s without automatically abandoning it',
-    async (action) => {
+    'accepts a delayed answer after %s without automatically abandoning it', async (action) => {
       const id = await client.createSession(home);
       const appearance = await client.openRating(id);
       await client.request(`/api/v1/sessions/${id}:${action}`, {});
@@ -418,8 +385,7 @@ describe('session rating lifecycle', () => {
       await client.respond(id, appearance, 'bad');
       await client.report(id, appearance, 'abandon');
       expect(ratingEvents(id)).toEqual([
-        ['appeared', undefined, 1],
-        ['responded', 'fine', 1],
+        ['appeared', undefined, 1], ['responded', 'fine', 1],
       ]);
     },
   );
@@ -428,22 +394,16 @@ describe('session rating lifecycle', () => {
     const id = await client.createSession(home);
     await client.finishUserTurn(id);
     const oldAppearance = await client.openRating(id);
-    await getLiveSessionById(server.core.accessor, id)
-      ?.accessor.get(ISessionMetadata)
+    await getLiveSessionById(server.core.accessor, id)?.accessor.get(ISessionMetadata)
       .registerAgent('sub-restored', { type: 'sub', labels: { profileName: 'coder' } });
     await client.request(`/api/v1/sessions/${id}:reload`, {});
     await client.openRating(id);
     await client.respond(id, oldAppearance, 'good');
     expect(ratingEvents(id)).toEqual([
-      ['appeared', undefined, 2],
-      ['appeared', undefined, 3],
-      ['responded', 'good', 2],
+      ['appeared', undefined, 2], ['appeared', undefined, 3], ['responded', 'good', 2],
     ]);
-    expect(
-      records
-        .filter((r) => r.event === 'feedback_survey' && r.context['session_id'] === id)
-        .map((r) => r.properties['subagent_count']),
-    ).toEqual([0, 1, 0]);
+    expect(records.filter((r) => r.event === 'feedback_survey' && r.context['session_id'] === id)
+      .map((r) => r.properties['subagent_count'])).toEqual([0, 1, 0]);
   });
 
   it('rejects an old turn without consuming the newer turn evaluation', async () => {
@@ -459,8 +419,7 @@ describe('session rating lifecycle', () => {
     if (result.data.appearance === null) throw new Error('expected an offer');
     await client.respond(id, result.data.appearance.id, 'good');
     expect(ratingEvents(id)).toEqual([
-      ['appeared', undefined, 2],
-      ['responded', 'good', 2],
+      ['appeared', undefined, 2], ['responded', 'good', 2],
     ]);
   });
 
@@ -469,10 +428,7 @@ describe('session rating lifecycle', () => {
     await client.finishUserTurn(id);
     const turnId = await client.latestTurnId(id);
     const results = await Promise.all([client.evaluate(id, turnId), client.evaluate(id, turnId)]);
-    expect(results.map((r) => r.data.appearance?.survey ?? null).toSorted()).toEqual([
-      null,
-      'session',
-    ]);
+    expect(results.map((r) => r.data.appearance?.survey ?? null).toSorted()).toEqual([null, 'session']);
   });
 
   it('does not discard an earlier answer when the next evaluation arrives first', async () => {
@@ -482,10 +438,8 @@ describe('session rating lifecycle', () => {
     await client.respond(id, second, 'bad');
     await client.respond(id, first, 'good');
     expect(ratingEvents(id)).toEqual([
-      ['appeared', undefined, 1],
-      ['appeared', undefined, 2],
-      ['responded', 'bad', 2],
-      ['responded', 'good', 1],
+      ['appeared', undefined, 1], ['appeared', undefined, 2],
+      ['responded', 'bad', 2], ['responded', 'good', 1],
     ]);
   });
 
@@ -498,8 +452,7 @@ describe('session rating lifecycle', () => {
     expect(ratingEvents(id)).toEqual([['appeared', undefined, 1]]);
     await client.respond(id, appearance, 'good');
     expect(ratingEvents(id)).toEqual([
-      ['appeared', undefined, 1],
-      ['responded', 'good', 1],
+      ['appeared', undefined, 1], ['responded', 'good', 1],
     ]);
   });
 
@@ -507,9 +460,7 @@ describe('session rating lifecycle', () => {
     const id = await client.createSession(home);
     await client.openRating(id, (bus) => {
       const turn = { agentId: MAIN_AGENT_ID, turnId: 1 };
-      bus.publish(
-        new ToolCallStarted({ ...turn, toolCallId: 'call-agent', name: 'Agent', args: {} }),
-      );
+      bus.publish(new ToolCallStarted({ origin: 'loop', ...turn, toolCallId: 'call-agent', name: 'Agent', args: {} }));
       bus.publish(
         new SubagentSpawned({
           subagentId: 'sub-1',
@@ -519,10 +470,8 @@ describe('session rating lifecycle', () => {
           model: 'model-a',
         }),
       );
-      bus.publish(new ToolResultEvent({ ...turn, toolCallId: 'call-agent', output: 'done' }));
-      bus.publish(
-        new ToolCallStarted({ ...turn, toolCallId: 'call-read', name: 'Read', args: {} }),
-      );
+      bus.publish(new ToolResultEvent({ origin: 'loop', ...turn, toolCallId: 'call-agent', output: 'done' }));
+      bus.publish(new ToolCallStarted({ origin: 'loop', ...turn, toolCallId: 'call-read', name: 'Read', args: {} }));
       bus.publish(
         new CompactionCompleted({
           agentId: MAIN_AGENT_ID,
@@ -562,7 +511,7 @@ describe('session rating lifecycle', () => {
 
   it('resumes and evaluates a completed turn for a cold session', async () => {
     const id = await client.createSession(home);
-    await (await client.mainAgent(id)).accessor.get(IAgentProfileService).setModel('kimi-code/k3');
+    await (await client.mainAgent(id)).accessor.get(IAgentLoopService).setModel('kimi-code/k3');
     await client.finishUserTurn(id, undefined, 0);
     const turnId = await client.latestTurnId(id);
     expect(await server.core.accessor.get(ISessionManager).closeIfIdle(id, 0)).toBe(true);
@@ -585,10 +534,7 @@ describe('session rating lifecycle', () => {
     await closeSessionById(server.core.accessor, id);
     expect(await client.respond(id, 'unknown', 'good')).toMatchObject({ code: 0, data: null });
     expect(getLiveSessionById(server.core.accessor, id)).toBeUndefined();
-    expect(await client.evaluate(id, 'turn-1')).toMatchObject({
-      code: 0,
-      data: { appearance: null },
-    });
+    expect(await client.evaluate(id, 'turn-1')).toMatchObject({ code: 0, data: { appearance: null } });
   });
 
   it('does not recover unfinished appearances after server restart', async () => {

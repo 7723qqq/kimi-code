@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { ConsoleAppender } from '#/app/telemetry/consoleAppender';
 
@@ -19,10 +19,7 @@ describe('ConsoleAppender', () => {
 
   it('uses a custom prefix', () => {
     const lines: string[] = [];
-    const appender = new ConsoleAppender({
-      prefix: '[dbg]',
-      log: (message) => lines.push(message),
-    });
+    const appender = new ConsoleAppender({ prefix: '[dbg]', log: (message) => lines.push(message) });
     appender.track({ event: 'evt', context: {}, properties: {} });
     expect(lines[0]).toBe('[dbg] evt');
   });

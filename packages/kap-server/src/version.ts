@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 
+
 let cached: string | undefined;
 
 export function getServerVersion(): string {

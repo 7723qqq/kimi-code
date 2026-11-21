@@ -1,24 +1,21 @@
+import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 
-import type { KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
 import { join } from 'pathe';
+
+import type { KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { createAppScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
+import {
+  IFileSystemStorageService,
+} from '#/persistence/interface/storage';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { FileSkillDiscovery } from '#/features/skill/catalog/fileSkillDiscovery';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-
-import { resolveKimiHome } from './home';
 
 export type HostUiCapability = 'update_panel';
-
-export interface PluginNodeRunner {
-  readonly command: string;
-  readonly args: readonly string[];
-}
 
 export interface HostArgs {
   readonly agentFiles?: readonly string[];
@@ -28,7 +25,6 @@ export interface HostArgs {
   readonly replyStyleGuide?: string;
   readonly nonInteractive?: boolean;
   readonly uiCapabilities?: readonly HostUiCapability[];
-  readonly pluginNodeRunner?: PluginNodeRunner;
 }
 
 export interface HostArgsInput {
@@ -39,7 +35,6 @@ export interface HostArgsInput {
   readonly replyStyleGuide?: string;
   readonly nonInteractive?: boolean;
   readonly uiCapabilities?: readonly HostUiCapability[];
-  readonly pluginNodeRunner?: PluginNodeRunner;
 }
 
 export function resolveHostArgs(input: HostArgsInput | undefined): HostArgs {
@@ -51,7 +46,6 @@ export function resolveHostArgs(input: HostArgsInput | undefined): HostArgs {
     replyStyleGuide: input?.replyStyleGuide,
     nonInteractive: input?.nonInteractive,
     uiCapabilities: input?.uiCapabilities,
-    pluginNodeRunner: input?.pluginNodeRunner,
   };
 }
 
@@ -134,7 +128,12 @@ export function resolveBootstrapOptions(input: BootstrapInput): IBootstrapOption
 }
 
 export function bootstrapSeed(input: BootstrapInput): ScopeSeed {
-  return [[IBootstrapOptions as ServiceIdentifier<unknown>, resolveBootstrapOptions(input)]];
+  return [
+    [
+      IBootstrapOptions as ServiceIdentifier<unknown>,
+      resolveBootstrapOptions(input),
+    ],
+  ];
 }
 
 export interface BootstrapResult {
@@ -152,13 +151,35 @@ export function bootstrap(input: BootstrapInput, extraSeeds: ScopeSeed = []): Bo
 function storageSeed(options: IBootstrapOptions): ScopeSeed {
   const file = (): SyncDescriptor<IFileSystemStorageService> =>
     new SyncDescriptor(FileStorageService, [options.homeDir, 0o700, 0o600]);
-  return [[IFileSystemStorageService as ServiceIdentifier<unknown>, file()]];
+  return [
+    [IFileSystemStorageService as ServiceIdentifier<unknown>, file()],
+  ];
 }
 
 function skillSeed(): ScopeSeed {
   return [
-    [ISkillDiscovery as ServiceIdentifier<unknown>, new SyncDescriptor(FileSkillDiscovery, [])],
+    [
+      ISkillDiscovery as ServiceIdentifier<unknown>,
+      new SyncDescriptor(FileSkillDiscovery, []),
+    ],
   ];
 }
 
-export { ensureKimiHome, resolveConfigPath, resolveKimiHome } from './home';
+export function resolveKimiHome(
+  homeDir?: string,
+  env: NodeJS.ProcessEnv = process.env,
+  osHomeDir: string = homedir(),
+): string {
+  return homeDir ?? env['KIMI_CODE_HOME'] ?? join(osHomeDir, '.kimi-code');
+}
+
+export function resolveConfigPath(input: {
+  readonly homeDir?: string;
+  readonly configPath?: string;
+}): string {
+  return input.configPath ?? join(resolveKimiHome(input.homeDir), 'config.toml');
+}
+
+export function ensureKimiHome(homeDir: string): void {
+  mkdirSync(homeDir, { recursive: true, mode: 0o700 });
+}

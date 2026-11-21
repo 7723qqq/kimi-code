@@ -1,29 +1,35 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from 'pathe';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
 import { Emitter, Event } from '#/_base/event';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { type ResolvedAgentProfile } from '#/agent/profile/profile';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifier';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { Environment, EnvironmentCapability, EnvironmentStatus } from '#/environment/environment';
 import { stubAgentEnvironment } from '../../environment/stubs';
 import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { DEFAULT_PRODUCT_NAME } from '#/app/agentProfileCatalog/profile-shared';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { EnabledPluginSystemPrompt } from '#/app/plugin/types';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
+import type { SkillCatalog } from '#/features/skill/catalog/types';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import {
   BUILTIN_SKILL_SOURCE_ID,
   PLUGIN_SKILL_SOURCE_ID,
 } from '#/features/skill/catalog/skillSource';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { DEFAULT_PRODUCT_NAME } from '#/app/agentProfileCatalog/profile-shared';
 import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 
 import { stubAgentIdentity } from '../../app/agentIdentity/stubs';
+
 import {
   agentService,
   appService,
@@ -35,11 +41,6 @@ import {
   type TestAgentOptions,
   type TestAgentServiceOverride,
 } from '../../harness';
-import { type ResolvedAgentProfile } from '#/agent/profile/profile';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { type SkillCatalog } from '#/features/skill/catalog/types';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 
 const profile: ResolvedAgentProfile = normalizeAgentProfile({
   name: 'agents-profile',
@@ -83,7 +84,7 @@ const exactProfile: ResolvedAgentProfile = normalizeAgentProfile({
   tools: ['Read', 'Write'],
 });
 
-describe('AgentProfileService.applyProfile', () => {
+describe('AgentLoopService.applyProfile', () => {
   let ctx: TestAgentContext;
   let homeDir: string;
   let workDir: string;
@@ -99,10 +100,9 @@ describe('AgentProfileService.applyProfile', () => {
     await rm(workDir, { recursive: true, force: true });
   });
 
-  function buildContext(...extra: readonly (TestAgentServiceOverride | TestAgentOptions)[]): {
-    ctx: TestAgentContext;
-    profile: IAgentProfileService;
-  } {
+  function buildContext(
+    ...extra: readonly (TestAgentServiceOverride | TestAgentOptions)[]
+  ): { ctx: TestAgentContext; profile: IAgentLoopService } {
     const fs = new HostFileSystem();
     ctx = createTestAgent(
       execEnvServices({ hostFs: fs }),
@@ -110,7 +110,7 @@ describe('AgentProfileService.applyProfile', () => {
       { cwd: workDir },
       ...extra,
     );
-    return { ctx, profile: ctx.get(IAgentProfileService) };
+    return { ctx, profile: ctx.get(IAgentLoopService) };
   }
 
   describe('custom identity', () => {
@@ -131,7 +131,9 @@ describe('AgentProfileService.applyProfile', () => {
     });
 
     it('keeps the built-in product name when no identity is configured', async () => {
-      const { profile: svc } = buildContext(appService(IAgentIdentity, stubAgentIdentity()));
+      const { profile: svc } = buildContext(
+        appService(IAgentIdentity, stubAgentIdentity()),
+      );
 
       await svc.applyProfile(selfNaming);
 
@@ -167,7 +169,7 @@ describe('AgentProfileService.applyProfile', () => {
   });
 
   it('seeds change-notifier beliefs from the applied profile context', async () => {
-    const seedBeliefs = jest.fn<IAgentChangeNotifierService['seedBeliefs']>();
+    const seedBeliefs = vi.fn<IAgentChangeNotifierService['seedBeliefs']>();
     await writeFile(join(workDir, 'AGENTS.md'), 'project instructions', 'utf-8');
     const { profile: svc } = buildContext(
       agentService(IAgentChangeNotifierService, {
@@ -326,15 +328,15 @@ describe('AgentProfileService.applyProfile', () => {
 
   it('injects enabled plugin system-prompt sections into the rendered prompt', async () => {
     const sections = {
-      value: [
-        { pluginId: 'demo', content: 'Always cite sources.' },
-      ] as readonly EnabledPluginSystemPrompt[],
+      value: [{ pluginId: 'demo', content: 'Always cite sources.' }] as readonly EnabledPluginSystemPrompt[],
     };
     const { profile: svc } = buildContext(appService(IPluginService, pluginStub(sections)));
 
     await svc.applyProfile(pluginProfile);
 
-    expect(svc.data().systemPrompt).toBe('<!-- From: plugin demo -->\nAlways cite sources.');
+    expect(svc.data().systemPrompt).toBe(
+      '<!-- From: plugin demo -->\nAlways cite sources.',
+    );
   });
 
   it('keeps the rendered prompt frozen when the plugin skill source reloads', async () => {
@@ -554,6 +556,7 @@ function pluginStub(
     enabledSessionStarts: async () => [],
     enabledSystemPrompts: async () => sections.value,
     enabledMcpServers: async () => ({}),
+    mcpServerEntries: async () => [],
     enabledHooks: async () => [],
     listPluginCommands: async () => [],
   } as unknown as IPluginService;

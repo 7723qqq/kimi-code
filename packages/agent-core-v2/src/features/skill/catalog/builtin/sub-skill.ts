@@ -1,6 +1,5 @@
-import { parseSkillText } from '#/features/skill/catalog/parser';
 import type { SkillDefinition } from '#/features/skill/catalog/types';
-
+import { parseSkillText } from '#/features/skill/catalog/parser';
 import CONSOLIDATE_BODY from './sub-skill/consolidate/SKILL.md?raw';
 import REVIEW_BODY from './sub-skill/review/SKILL.md?raw';
 import PARENT_BODY from './sub-skill/SKILL.md?raw';
@@ -30,10 +29,12 @@ function makeBuiltin(
   };
 }
 
-export const SUB_SKILL_PARENT = makeBuiltin(PARENT_BODY, 'sub-skill', 'builtin://sub-skill', {
-  disableModelInvocation: true,
-  'has-sub-skill': true,
-});
+export const SUB_SKILL_PARENT = makeBuiltin(
+  PARENT_BODY,
+  'sub-skill',
+  'builtin://sub-skill',
+  { disableModelInvocation: true, 'has-sub-skill': true },
+);
 
 export const SUB_SKILL_REVIEW = makeBuiltin(
   REVIEW_BODY,

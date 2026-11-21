@@ -40,10 +40,7 @@ export interface ISessionManager {
     readonly environmentCwd?: string;
   }>;
   create(options: CreateManagedSessionOptions): Promise<ISessionScopeHandle>;
-  resume(
-    sessionId: string,
-    options?: ResumeSessionOptions,
-  ): Promise<ISessionScopeHandle | undefined>;
+  resume(sessionId: string, options?: ResumeSessionOptions): Promise<ISessionScopeHandle | undefined>;
   get(sessionId: string): ISessionScopeHandle | undefined;
   status(sessionId: string): Promise<SessionSummary | undefined>;
   whenResumeSettled(sessionId: string): Promise<void>;
@@ -53,20 +50,12 @@ export interface ISessionManager {
   ): Promise<T>;
   list(): readonly ISessionScopeHandle[];
   close(sessionId: string): Promise<void>;
-  move(
-    sessionId: string,
-    destination: { readonly workspaceId: string; readonly root: string },
-  ): Promise<ISessionScopeHandle>;
   closeIfIdle(sessionId: string, idleTimeoutMs: number): Promise<boolean>;
   archive(sessionId: string): Promise<void>;
-  restore(
-    sessionId: string,
-    options?: ResumeSessionOptions,
-  ): Promise<ISessionScopeHandle | undefined>;
+  restore(sessionId: string, options?: ResumeSessionOptions): Promise<ISessionScopeHandle | undefined>;
   delete(sessionId: string): Promise<void>;
   fork(options: ForkSessionOptions): Promise<SessionMeta>;
   createChild(options: CreateChildSessionOptions): Promise<SessionMeta>;
 }
 
-export const ISessionManager: ServiceIdentifier<ISessionManager> =
-  createDecorator<ISessionManager>('sessionManager');
+export const ISessionManager: ServiceIdentifier<ISessionManager> = createDecorator<ISessionManager>('sessionManager');

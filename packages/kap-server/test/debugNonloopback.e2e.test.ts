@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -18,7 +19,8 @@ afterEach(async () => {
   for (const r of running.splice(0)) {
     try {
       await r.close();
-    } catch {}
+    } catch {
+    }
   }
   for (const dir of createdDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });

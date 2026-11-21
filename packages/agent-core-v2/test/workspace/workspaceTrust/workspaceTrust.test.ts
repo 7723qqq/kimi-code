@@ -1,28 +1,28 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
-import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { FileProjectLocalConfigService } from '#/persistence/backends/node-fs/projectLocalConfigService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService, type ConfigSectionChangedEvent } from '#/app/config/config';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { FileSkillDiscovery } from '#/features/skill/catalog/fileSkillDiscovery';
+import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
+import { projectRootsForDirs } from '#/features/skill/catalog/skillRoots';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { WORKSPACE_TRUST_SECTION } from '#/workspace/workspaceTrust/configSection';
-import {
-  deleteWorkspaceTrust,
-  readWorkspaceTrust,
-  writeWorkspaceTrust,
-} from '#/workspace/workspaceTrust/trustRecord';
 import {
   IWorkspaceTrust,
   type WorkspaceTrustChange,
@@ -33,24 +33,34 @@ import {
   workspaceTrustTrustedKey,
 } from '#/workspace/workspaceTrust/workspaceTrustService';
 import {
+  deleteWorkspaceTrust,
+  readWorkspaceTrust,
+  writeWorkspaceTrust,
+} from '#/workspace/workspaceTrust/trustRecord';
+import { WorkspaceTrustDisclosureService } from '#/workspace/workspaceTrust/trustDisclosureService';
+import {
   IWorkspaceTrustStore,
   WorkspaceTrustStore,
 } from '#/workspace/workspaceTrust/workspaceTrustStore';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { stubConfigService } from '../../app/config/stubs';
 import { registerStateServices } from '../../state/stubs';
+import { stubLog } from '../../_base/log/stubs';
 
 describe('WorkspaceTrustService', () => {
   let homeDir: string;
   let cwd: string;
   let disposables: DisposableStore;
+  let workspaceTrustEnabled: boolean;
+  let configChanges: Emitter<ConfigSectionChangedEvent>;
 
   beforeEach(() => {
     homeDir = mkdtempSync(join(tmpdir(), 'kimi-workspace-trust-home-'));
     cwd = mkdtempSync(join(tmpdir(), 'kimi-workspace-trust-cwd-'));
     disposables = new DisposableStore();
+    workspaceTrustEnabled = true;
+    configChanges = disposables.add(new Emitter<ConfigSectionChangedEvent>());
   });
 
   afterEach(async () => {
@@ -60,6 +70,26 @@ describe('WorkspaceTrustService', () => {
       rm(cwd, { recursive: true, force: true }),
     ]);
   });
+
+  function trustConfigService(): IConfigService {
+    return {
+      ...stubConfigService(),
+      get: (<T = unknown,>(domain: string): T =>
+        (domain === WORKSPACE_TRUST_SECTION
+          ? { requireTrust: workspaceTrustEnabled }
+          : undefined) as T) as IConfigService['get'],
+      onDidSectionChange: configChanges.event,
+    };
+  }
+
+  function fireTrustConfigChange(previousEnabled: boolean): void {
+    configChanges.fire({
+      domain: WORKSPACE_TRUST_SECTION,
+      source: 'reload',
+      value: { requireTrust: workspaceTrustEnabled },
+      previousValue: { requireTrust: previousEnabled },
+    });
+  }
 
   function createService(
     root: string,
@@ -90,12 +120,12 @@ describe('WorkspaceTrustService', () => {
           onDidChange: dirsChange.event,
         });
         reg.defineInstance(IBootstrapService, stubBootstrap(homeDir, env));
+        reg.defineInstance(IConfigService, trustConfigService());
         reg.defineInstance(
           IAtomicDocumentStore,
           new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
         );
         reg.defineInstance(ITelemetryService, noopTelemetryService);
-        reg.defineInstance(IConfigService, stubConfigService());
         if (sharedStore === undefined) {
           reg.define(IWorkspaceTrustStore, WorkspaceTrustStore);
         } else {
@@ -126,7 +156,7 @@ describe('WorkspaceTrustService', () => {
       first.dirs.primary = other;
       first.dirs.additionalDirs = [cwd];
       first.dirsChange.fire();
-      await waitForAssertion(() => {
+      await vi.waitFor(() => {
         expect(first.service.isTrusted()).toBe(true);
       });
       expect(await first.service.get()).toBe(true);
@@ -153,24 +183,68 @@ describe('WorkspaceTrustService', () => {
     expect(await service.get()).toBe(false);
   });
 
-  it('trusts the workspace when KIMI_CODE_TRUST_WORKSPACE is set', async () => {
-    const { service } = createService(cwd, undefined, {
+  it('honors KIMI_CODE_TRUST_WORKSPACE only when it parses as true', async () => {
+    const { service: trusted } = createService(cwd, undefined, {
       [TRUST_WORKSPACE_ENV]: '1',
     });
-    await service.ready;
+    await trusted.ready;
 
-    expect(service.isTrusted()).toBe(true);
-    expect(await service.get()).toBe(true);
-  });
+    expect(trusted.isTrusted()).toBe(true);
+    expect(await trusted.get()).toBe(true);
 
-  it('ignores KIMI_CODE_TRUST_WORKSPACE values that do not parse as true', async () => {
-    const { service } = createService(cwd, undefined, {
+    const { service: untrusted } = createService(cwd, undefined, {
       [TRUST_WORKSPACE_ENV]: '0',
     });
-    await service.ready;
+    await untrusted.ready;
 
+    expect(untrusted.isTrusted()).toBe(false);
+    expect(await untrusted.get()).toBe(false);
+  });
+
+  it('toggles the trust gate from config without changing persistence semantics', async () => {
+    const events: WorkspaceTrustChange[] = [];
+    const { service, states } = createService(cwd, events);
+    await service.ready;
+    expect(service.isTrusted()).toBe(false);
+
+    workspaceTrustEnabled = false;
+    fireTrustConfigChange(true);
+    expect(service.isTrusted()).toBe(true);
+    expect(await service.get()).toBe(true);
+    expect(states.get(workspaceTrustTrustedKey)).toBe(false);
+
+    await service.trust();
+    await service.untrust();
+    expect(service.isTrusted()).toBe(true);
+
+    workspaceTrustEnabled = true;
+    fireTrustConfigChange(false);
     expect(service.isTrusted()).toBe(false);
     expect(await service.get()).toBe(false);
+    expect(states.get(workspaceTrustTrustedKey)).toBe(false);
+    expect(events).toEqual([
+      { trusted: false },
+      { trusted: true },
+      { trusted: false },
+      { trusted: false },
+    ]);
+
+    await writeWorkspaceTrust(
+      new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
+      cwd,
+      1,
+    );
+    workspaceTrustEnabled = false;
+    const restored = createService(cwd);
+    expect(await restored.service.get()).toBe(true);
+    expect(restored.states.get(workspaceTrustTrustedKey)).toBe(false);
+
+    workspaceTrustEnabled = true;
+    fireTrustConfigChange(false);
+    await vi.waitFor(() => {
+      expect(restored.states.get(workspaceTrustTrustedKey)).toBe(true);
+    });
+    expect(await restored.service.get()).toBe(true);
   });
 
   it('keeps persistence semantics under KIMI_CODE_TRUST_WORKSPACE', async () => {
@@ -186,7 +260,7 @@ describe('WorkspaceTrustService', () => {
     await service.untrust();
     expect(states.get(workspaceTrustTrustedKey)).toBe(false);
     expect(service.isTrusted()).toBe(true);
-    expect(events).toEqual([{ trusted: true }, { trusted: false }]);
+    expect(events.map((event) => event.trusted)).toEqual([true, false]);
   });
 
   it('trust() flips the state, fires once, and stays idempotent', async () => {
@@ -199,7 +273,7 @@ describe('WorkspaceTrustService', () => {
 
     expect(service.isTrusted()).toBe(true);
     expect(await service.get()).toBe(true);
-    expect(events).toEqual([{ trusted: true }]);
+    expect(events.map((event) => event.trusted)).toEqual([true]);
   });
 
   it('untrust() revokes the state and both directions stay idempotent', async () => {
@@ -213,7 +287,7 @@ describe('WorkspaceTrustService', () => {
     await service.untrust();
 
     expect(service.isTrusted()).toBe(false);
-    expect(events).toEqual([{ trusted: true }, { trusted: false }]);
+    expect(events.map((event) => event.trusted)).toEqual([true, false]);
   });
 
   it('keeps the marker across a restart', async () => {
@@ -285,20 +359,21 @@ describe('WorkspaceTrustService', () => {
       if (unavailable) throw failure;
       return read<T>(scope, key);
     };
-    const trustStore = disposables.add(
-      new WorkspaceTrustStore(
-        docs,
-        noopTelemetryService,
-        stubBootstrap(homeDir),
-        stubConfigService(),
-      ),
-    );
+    const trustStore = disposables.add(new WorkspaceTrustStore(
+      docs,
+      noopTelemetryService,
+      stubBootstrap(homeDir),
+      trustConfigService(),
+    ));
     const entry = trustStore.forRoot(cwd);
 
     await expect(entry.get()).rejects.toBe(failure);
 
     const { service } = createService(cwd, undefined, {}, trustStore);
     await expect(service.ready).rejects.toBe(failure);
+    workspaceTrustEnabled = false;
+    await expect(service.get()).resolves.toBe(true);
+    workspaceTrustEnabled = true;
     unavailable = false;
 
     await service.ready;
@@ -317,14 +392,12 @@ describe('WorkspaceTrustService', () => {
       if (unavailable) throw failure;
       return read<T>(scope, key);
     };
-    const store = disposables.add(
-      new WorkspaceTrustStore(
-        docs,
-        noopTelemetryService,
-        stubBootstrap(homeDir),
-        stubConfigService(),
-      ),
-    );
+    const store = disposables.add(new WorkspaceTrustStore(
+      docs,
+      noopTelemetryService,
+      stubBootstrap(homeDir),
+      trustConfigService(),
+    ));
     const entry = store.forRoot(cwd);
     const events: WorkspaceTrustChange[] = [];
     entry.onDidChange((change) => events.push(change));
@@ -431,14 +504,12 @@ describe('WorkspaceTrustService', () => {
       '{',
       'utf8',
     );
-    const store = disposables.add(
-      new WorkspaceTrustStore(
-        docs,
-        noopTelemetryService,
-        stubBootstrap(homeDir),
-        stubConfigService(),
-      ),
-    );
+    const store = disposables.add(new WorkspaceTrustStore(
+      docs,
+      noopTelemetryService,
+      stubBootstrap(homeDir),
+      trustConfigService(),
+    ));
     const entry = store.forRoot(firstRoot);
 
     await entry.ready;
@@ -461,14 +532,12 @@ describe('WorkspaceTrustService', () => {
       await blocked;
       return read<T>(scope, key);
     };
-    const store = disposables.add(
-      new WorkspaceTrustStore(
-        docs,
-        noopTelemetryService,
-        stubBootstrap(homeDir),
-        stubConfigService(),
-      ),
-    );
+    const store = disposables.add(new WorkspaceTrustStore(
+      docs,
+      noopTelemetryService,
+      stubBootstrap(homeDir),
+      trustConfigService(),
+    ));
     const entry = store.forRoot(cwd);
     const events: WorkspaceTrustChange[] = [];
     entry.onDidChange((change) => events.push(change));
@@ -490,14 +559,12 @@ describe('WorkspaceTrustService', () => {
         if (event === 'workspace_trust_changed') changes.push(properties);
       },
     };
-    const store = disposables.add(
-      new WorkspaceTrustStore(
-        new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
-        telemetry,
-        stubBootstrap(homeDir),
-        stubConfigService(),
-      ),
-    );
+    const store = disposables.add(new WorkspaceTrustStore(
+      new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
+      telemetry,
+      stubBootstrap(homeDir),
+      trustConfigService(),
+    ));
     const entry = store.forRoot(cwd);
 
     await entry.trust();
@@ -508,19 +575,147 @@ describe('WorkspaceTrustService', () => {
     expect(changes).toEqual([{ trusted: true }, { trusted: false }]);
   });
 
-  it('treats every workspace as trusted when the trust gate is turned off in config', async () => {
-    const store = disposables.add(
-      new WorkspaceTrustStore(
-        new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
-        noopTelemetryService,
-        stubBootstrap(homeDir),
-        stubConfigService({ [WORKSPACE_TRUST_SECTION]: { requireTrust: false } }),
-      ),
+  it('discloses skills and source paths from additional workspace dirs', async () => {
+    const secondary = mkdtempSync(join(tmpdir(), 'kimi-workspace-trust-secondary-'));
+    const skillRoot = join(secondary, '.kimi-code', 'skills');
+    const skillDir = join(skillRoot, 'trust-secondary');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      '---\nname: trust-secondary\ndescription: from secondary\n---\nbody',
+      'utf8',
     );
-    const entry = store.forRoot(cwd);
+    const fs = new HostFileSystem();
+    const roots = await projectRootsForDirs([cwd, secondary]);
+    const discovered = await new FileSkillDiscovery(stubLog()).discover(roots);
+    const catalog = new InMemorySkillCatalog();
+    for (const skill of discovered.skills) catalog.register(skill);
+    catalog.addRoots(discovered.scannedRoots);
+    const service = new WorkspaceTrustDisclosureService(
+      { cwd, workspaceId: 'wm_test' } as never,
+      fs,
+      stubBootstrap(homeDir),
+      { get: () => true } as never,
+      {
+        readAdditionalDirs: async () => ({
+          projectRoot: cwd,
+          configPath: join(cwd, '.kimi-code', 'local.toml'),
+          additionalDirs: [],
+        }),
+        resolveAdditionalDirs: async (_baseDir: string, dirs: readonly string[]) => [...dirs],
+      } as never,
+      { ready: Promise.resolve(), primary: cwd, sharedAdditionalDirs: [secondary] } as never,
+      { ready: Promise.resolve(), get: async () => false } as never,
+      { ready: Promise.resolve(), catalog, reloadSources: async () => undefined } as never,
+      { ready: Promise.resolve() } as never,
+      { entries: () => [] } as never,
+      { ready: Promise.resolve(), snapshot: { agentsMdPaths: [] } } as never,
+      stubLog(),
+    );
 
-    expect(entry.isTrusted()).toBe(true);
-    expect(await entry.get()).toBe(true);
-    expect(entry.isPersistedTrusted()).toBe(false);
+    try {
+      const result = await service.describeGatedActivation();
+      const realSkillRoot = await fs.realpath(skillRoot);
+
+      expect(result.instructionSources.skills).toContain('trust-secondary');
+      expect(result.instructionSources.paths).toContain(`${realSkillRoot}/`);
+      expect(result.additionalDirs).toContain(realSkillRoot);
+      expect(result.additionalDirSources).toContain(realSkillRoot);
+    } finally {
+      await rm(secondary, { recursive: true, force: true });
+    }
+  });
+
+  it('awaits the current workspace reload before disclosing skills', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const catalog = new InMemorySkillCatalog();
+    const skill = {
+      name: 'reload-secondary',
+      description: 'Reload secondary',
+      source: 'project' as const,
+      path: '/secondary/.kimi-code/skills/reload-secondary/SKILL.md',
+      dir: '/secondary/.kimi-code/skills/reload-secondary',
+      metadata: { type: 'prompt' as const },
+      content: 'Reload secondary',
+    };
+    const reloadSources = vi.fn(async () => {
+      await blocked;
+      catalog.register(skill);
+    });
+    const fs = new HostFileSystem();
+    const service = new WorkspaceTrustDisclosureService(
+      { cwd, workspaceId: 'wm_test' } as never,
+      fs,
+      stubBootstrap(homeDir),
+      { get: () => true } as never,
+      {
+        readAdditionalDirs: async () => ({
+          projectRoot: cwd,
+          configPath: join(cwd, '.kimi-code', 'local.toml'),
+          additionalDirs: [],
+        }),
+        resolveAdditionalDirs: async (_baseDir: string, dirs: readonly string[]) => [...dirs],
+      } as never,
+      { ready: Promise.resolve(), primary: cwd, sharedAdditionalDirs: [] } as never,
+      { ready: Promise.resolve(), get: async () => false } as never,
+      { ready: Promise.resolve(), catalog, reloadSources } as never,
+      { ready: Promise.resolve() } as never,
+      { entries: () => [] } as never,
+      { ready: Promise.resolve(), snapshot: { agentsMdPaths: [] } } as never,
+      stubLog(),
+    );
+
+    const pending = service.describeGatedActivation();
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(reloadSources).toHaveBeenCalledWith(['workspace']));
+    expect(settled).toBe(false);
+
+    release();
+    const result = await pending;
+    expect(result.instructionSources.skills).toContain('reload-secondary');
+  });
+
+  it('expands home-relative pending dirs without discovering their skills', async () => {
+    const secondary = mkdtempSync(join(tmpdir(), 'kimi-workspace-trust-home-'));
+    const skillRoot = join(secondary, '.kimi-code', 'skills');
+    await mkdir(join(skillRoot, 'home-only'), { recursive: true });
+    await writeFile(
+      join(skillRoot, 'home-only', 'SKILL.md'),
+      '---\nname: home-only\ndescription: Home-only skill\n---\nbody',
+      'utf8',
+    );
+    const fs = new HostFileSystem();
+    const service = new WorkspaceTrustDisclosureService(
+      { cwd, workspaceId: 'wm_test' } as never,
+      fs,
+      stubBootstrap(homeDir),
+      { get: () => true } as never,
+      new FileProjectLocalConfigService(stubBootstrap(homeDir), fs, secondary),
+      { ready: Promise.resolve(), primary: cwd, sharedAdditionalDirs: [] } as never,
+      { ready: Promise.resolve(), get: async () => false } as never,
+      { ready: Promise.resolve(), catalog: new InMemorySkillCatalog(), reloadSources: async () => undefined } as never,
+      { ready: Promise.resolve() } as never,
+      { entries: () => [] } as never,
+      { ready: Promise.resolve(), snapshot: { agentsMdPaths: [] } } as never,
+      stubLog(),
+    );
+
+    try {
+      const result = await service.describeGatedActivation(['~']);
+      const realSecondary = await fs.realpath(secondary);
+
+      expect(result.additionalDirs).toEqual([realSecondary]);
+      expect(result.additionalDirSources).toEqual([realSecondary]);
+      expect(result.instructionSources.skills).not.toContain('home-only');
+      expect(result.instructionSources.paths).not.toContain(`${await fs.realpath(skillRoot)}/`);
+    } finally {
+      await rm(secondary, { recursive: true, force: true });
+    }
   });
 });

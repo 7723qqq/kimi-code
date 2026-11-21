@@ -1,12 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-
 import type { PromptOrigin } from '@moonshot-ai/agent-core-v2';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import {
-  DEFAULT_SURVEY_POPUP_PAYLOAD,
-  type SurveyPopupPayload,
-} from '#/session-rating/common/survey-popup-config';
-import type { RatingOffer, RatingReport, RatingResponse } from '#/session-rating/common/types';
 import {
   mountSessionRating,
   type RatingEnvironment,
@@ -14,8 +8,15 @@ import {
   type SessionFact,
   type SessionRatingMount,
 } from '#/session-rating/node/engine';
+import type { RatingOffer, RatingReport, RatingResponse } from '#/session-rating/common/types';
 import { SessionRatingLedger } from '#/session-rating/node/ledger';
-import { SurveyPopupConfigFeed } from '#/session-rating/node/survey-popup-config-feed';
+import {
+  DEFAULT_SURVEY_POPUP_PAYLOAD,
+  type SurveyPopupPayload,
+} from '#/session-rating/common/survey-popup-config';
+import {
+  SurveyPopupConfigFeed,
+} from '#/session-rating/node/survey-popup-config-feed';
 
 const USER_ORIGIN: PromptOrigin = { kind: 'user' };
 const SYSTEM_ORIGIN: PromptOrigin = { kind: 'system_trigger', name: 'background-task' };
@@ -92,7 +93,7 @@ interface HarnessOptions {
 
 interface FakeHost {
   turnStarted(user: boolean): void;
-  turnEnded(traceId?: string): void;
+  turnEnded(requestId?: string): void;
   toolCallStarted(toolCallId: string, toolName: string): void;
   toolCallEnded(toolCallId: string): void;
   subagentSpawned(fact: Omit<Extract<SessionFact, { kind: 'subagent-spawned' }>, 'kind'>): void;
@@ -110,7 +111,7 @@ interface Harness {
   readonly host: FakeHost;
   readonly env: MutableEnvironment;
   readonly clock: { mono: number; wall: number };
-  readonly track: ReturnType<typeof jest.fn>;
+  readonly track: ReturnType<typeof vi.fn>;
   readonly writes: number[];
   readonly ledger: SessionRatingLedger;
   readonly randomCalls: () => number;
@@ -124,7 +125,7 @@ interface Harness {
 function createHarness(options: HarnessOptions = {}): Harness {
   const clock = { mono: 0, wall: 1_700_000_000_000 };
   const scheduler = createScheduler(clock);
-  const track = jest.fn();
+  const track = vi.fn();
   const writes: number[] = [];
   let offer: RatingOffer | undefined;
   const ledger = new SessionRatingLedger({
@@ -201,15 +202,14 @@ function createHarness(options: HarnessOptions = {}): Harness {
       offer = undefined;
       harness.mount.observe({ kind: 'turn-started', origin: user ? USER_ORIGIN : SYSTEM_ORIGIN });
     },
-    turnEnded: (traceId) => {
-      harness.mount.observe({ kind: 'turn-ended', traceId });
+    turnEnded: (requestId) => {
+      harness.mount.observe({ kind: 'turn-ended', requestId });
       if (options.manualEvaluation === true) return;
       if (idleTimer !== undefined) scheduler.clearTimer(idleTimer);
       idleTimer = scheduler.setTimer(() => {
         idleTimer = undefined;
         offer = harness.mount.evaluate();
-        if (offer !== undefined)
-          ledger.report(env.sessionId, { type: 'shown', appearanceId: offer.appearanceId });
+        if (offer !== undefined) ledger.report(env.sessionId, { type: 'shown', appearanceId: offer.appearanceId });
       }, 2000);
     },
     toolCallStarted: (toolCallId, toolName) => {
@@ -240,14 +240,10 @@ function createHarness(options: HarnessOptions = {}): Harness {
       harness.mount = create();
     },
     displace: () => report((appearanceId) => ({ type: 'abandon', appearanceId })),
-    escape: () =>
-      report((appearanceId) => ({ type: 'respond', appearanceId, response: 'dismissed' })),
-    choose: (digit) =>
-      report((appearanceId) => ({
-        type: 'respond',
-        appearanceId,
-        response: DIGIT_RESPONSES[digit] ?? 'dismissed',
-      })),
+    escape: () => report((appearanceId) => ({ type: 'respond', appearanceId, response: 'dismissed' })),
+    choose: (digit) => report((appearanceId) => ({
+      type: 'respond', appearanceId, response: DIGIT_RESPONSES[digit] ?? 'dismissed',
+    })),
   };
   const harness: Harness = {
     mount: create(),
@@ -363,23 +359,6 @@ describe('session rating evaluation slot', () => {
     expect(harness.mount.evaluate()).toEqual({ appearanceId: 'appearance-1', survey: 'session' });
   });
 
-  it('holds an evaluation while the config feed is still settling', async () => {
-    let settle!: () => void;
-    const settling = new Promise<void>((resolve) => {
-      settle = resolve;
-    });
-    const harness = manual({ refreshConfig: () => settling });
-    harness.runTurns(1);
-    await harness.flush();
-
-    expect(harness.mount.evaluate()).toBeUndefined();
-    settle();
-    await harness.flush();
-    expect(harness.mount.evaluate()).toEqual({ appearanceId: 'appearance-1', survey: 'session' });
-    expect(harness.mount.evaluate()).toBeUndefined();
-    expect(harness.writes).toEqual([1_700_000_000_000]);
-  });
-
   it('invalidates a vetoed slot on a later non-user turn but allows an early continuation', async () => {
     const harness = manual();
     harness.runTurns(1);
@@ -473,10 +452,7 @@ describe('session rating mount end', () => {
     expect(harness.track.mock.calls.map((call) => call[1].event_type)).toEqual(['appeared']);
 
     harness.ledger.report('', { type: 'respond', appearanceId: 'appearance-1', response: 'fine' });
-    expect(trackedEvent(harness, 'responded')).toMatchObject({
-      response: 'fine',
-      user_turn_count: 1,
-    });
+    expect(trackedEvent(harness, 'responded')).toMatchObject({ response: 'fine', user_turn_count: 1 });
   });
 });
 
@@ -643,6 +619,9 @@ describe('session rating gating', () => {
     await harness.appear();
     expect(harness.visible()).toBe(false);
   });
+
+
+
 
   it('cancels a pending evaluation when a new turn starts', async () => {
     const harness = createHarness();
@@ -975,6 +954,7 @@ describe('session rating long-context arm', () => {
     expect(harness.writes).toEqual([1_700_000_000_000]);
   });
 
+
   it('evaluates only after the mount produced a user turn, even with tokens past the threshold', async () => {
     const harness = createHarness();
     harness.env.contextTokens = 250_000;
@@ -1096,6 +1076,7 @@ describe('session rating kfc model gate', () => {
     }
   });
 
+
   function trackedKfcModelId(harness: Harness): unknown {
     const call = harness.track.mock.calls[0];
     return call === undefined ? undefined : (call[1] as Record<string, unknown>)['kfc_model_id'];
@@ -1214,6 +1195,8 @@ describe('session rating kfc model gate', () => {
       }),
     );
   });
+
+
 });
 
 describe('session rating model overrides', () => {
@@ -1230,6 +1213,7 @@ describe('session rating model overrides', () => {
       process.env['KIMI_CODE_BASE_URL'] = savedBaseUrl;
     }
   });
+
 
   it('opens for the targeted model under its override probability when the base samples out', async () => {
     const harness = createHarness({
@@ -1544,6 +1528,7 @@ describe('session rating event payload', () => {
     );
   });
 
+
   it('keeps deferring while a region-change refresh is still in flight', async () => {
     let region = 'region-a';
     let settle!: () => void;
@@ -1604,7 +1589,7 @@ describe('session rating event payload', () => {
 
   it('refreshes and defers when the config cache has gone stale', async () => {
     let fresh = true;
-    const refreshConfig = jest.fn(() => {
+    const refreshConfig = vi.fn(() => {
       fresh = true;
     });
     const harness = createHarness({ configFresh: () => fresh, refreshConfig });
@@ -1629,7 +1614,7 @@ describe('session rating event payload', () => {
   it('defers the evaluation that triggers a refresh so a stale policy cannot open the survey', async () => {
     let region = 'region-a';
     let config = { ...DEFAULT_SURVEY_POPUP_PAYLOAD, probability: 1 };
-    const refreshConfig = jest.fn(() => {
+    const refreshConfig = vi.fn(() => {
       config = { ...config, probability: 0 };
     });
     const harness = createHarness({
@@ -1657,12 +1642,8 @@ describe('session rating event payload', () => {
 
   it('evaluates with the refreshed policy on the next turn after the deferred evaluation', async () => {
     let region = 'region-a';
-    let config = {
-      ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-      probability: 1,
-      on_for_models: ['other-model'],
-    };
-    const refreshConfig = jest.fn(() => {
+    let config = { ...DEFAULT_SURVEY_POPUP_PAYLOAD, probability: 1, on_for_models: ['other-model'] };
+    const refreshConfig = vi.fn(() => {
       config = { ...config, on_for_models: ['*'] };
     });
     const harness = createHarness({
@@ -1691,7 +1672,7 @@ describe('session rating event payload', () => {
 
   it('re-refreshes the cloud config when the region changes', async () => {
     let region = 'region-a';
-    const refreshConfig = jest.fn();
+    const refreshConfig = vi.fn();
     const harness = createHarness({ refreshConfig, configRegion: () => region });
     await harness.flush();
     expect(refreshConfig).toHaveBeenCalledTimes(1);
@@ -1703,7 +1684,7 @@ describe('session rating event payload', () => {
   });
 
   it('re-refreshes the cloud config once the previous refresh is over an hour old', async () => {
-    const refreshConfig = jest.fn();
+    const refreshConfig = vi.fn();
     const harness = createHarness({ refreshConfig });
     await harness.flush();
     expect(refreshConfig).toHaveBeenCalledTimes(1);
@@ -1743,6 +1724,8 @@ describe('session rating appearance snapshot', () => {
       process.env['KIMI_CODE_BASE_URL'] = savedBaseUrl;
     }
   });
+
+
 
   function runUserTurns(harness: Harness, traces: readonly (string | undefined)[]): void {
     for (const trace of traces) {

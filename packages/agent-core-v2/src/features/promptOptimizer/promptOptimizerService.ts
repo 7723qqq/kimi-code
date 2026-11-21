@@ -9,6 +9,7 @@ import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2 } from '#/errors';
+import { PromptOptimizerErrors } from './errors';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 
@@ -55,7 +56,7 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
   ): Promise<string> {
     if (!this.flags.enabled(PROMPT_OPTIMIZER_FLAG_ID)) {
       throw new Error2(
-        ErrorCodes.PROMPT_OPTIMIZER_DISABLED,
+        PromptOptimizerErrors.codes.PROMPT_OPTIMIZER_DISABLED,
         'The prompt optimizer is disabled. Turn on the prompt_optimizer experimental flag to use it.',
       );
     }
@@ -66,11 +67,11 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
     const thinking = context.thinking ?? configured?.effort;
     const draft = text.trim();
     if (draft.length === 0) {
-      throw new Error2(ErrorCodes.PROMPT_OPTIMIZER_EMPTY_DRAFT, 'There is no prompt to rewrite.');
+      throw new Error2(PromptOptimizerErrors.codes.PROMPT_OPTIMIZER_EMPTY_DRAFT, 'There is no prompt to rewrite.');
     }
     if (draft.length > PROMPT_OPTIMIZER_MAX_INPUT_LENGTH) {
       throw new Error2(
-        ErrorCodes.PROMPT_OPTIMIZER_INPUT_TOO_LONG,
+        PromptOptimizerErrors.codes.PROMPT_OPTIMIZER_INPUT_TOO_LONG,
         `The draft is ${String(draft.length)} characters, over the ${String(PROMPT_OPTIMIZER_MAX_INPUT_LENGTH)} limit. Shorten it and try again.`,
         { details: { length: draft.length, limit: PROMPT_OPTIMIZER_MAX_INPUT_LENGTH } },
       );
@@ -79,7 +80,7 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
     if (key !== undefined) {
       if (this.inFlight.has(key)) {
         throw new Error2(
-          ErrorCodes.PROMPT_OPTIMIZER_BUSY,
+          PromptOptimizerErrors.codes.PROMPT_OPTIMIZER_BUSY,
           'A prompt rewrite is already running for this session.',
         );
       }
@@ -123,7 +124,7 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
           ?.formatDenyMessage(PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE) ??
         PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE;
       const allowedTools: ReadonlySet<string> = new Set(PROMPT_OPTIMIZER_TOOLS);
-      child.accessor.get(IAgentToolExecutorService)?.onBeforeExecuteTool((event) => {
+      child.accessor.get(IAgentToolExecutorService)?.registerLegacyStarting((event) => {
         if (allowedTools.has(event.toolCall.name)) return;
         event.veto(denyToolExecution(reason));
       });
@@ -142,19 +143,19 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
       const prompt = buildOptimizerInput(draft, context, explicitTurns);
       let rewritten = await runOnce(prompt);
       if (rewritten.length === 0) {
-        throw new Error2(ErrorCodes.PROMPT_OPTIMIZER_NO_OUTPUT, 'The optimizer returned no text.');
+        throw new Error2(PromptOptimizerErrors.codes.PROMPT_OPTIMIZER_NO_OUTPUT, 'The optimizer returned no text.');
       }
       if (rewritten.length > PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH) {
         rewritten = await runOnce(`${prompt}\n\n${PROMPT_OPTIMIZER_COMPRESS_INSTRUCTION}`);
         if (rewritten.length === 0) {
           throw new Error2(
-            ErrorCodes.PROMPT_OPTIMIZER_NO_OUTPUT,
+            PromptOptimizerErrors.codes.PROMPT_OPTIMIZER_NO_OUTPUT,
             'The optimizer returned no text.',
           );
         }
         if (rewritten.length > PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH) {
           throw new Error2(
-            ErrorCodes.PROMPT_OPTIMIZER_OUTPUT_TOO_LONG,
+            PromptOptimizerErrors.codes.PROMPT_OPTIMIZER_OUTPUT_TOO_LONG,
             `The rewrite is ${String(rewritten.length)} characters, over the ${String(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH)} limit, after one retry. Shorten the draft.`,
             { details: { length: rewritten.length, limit: PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH } },
           );
@@ -164,7 +165,7 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
     } catch (error) {
       if (deadline.timedOut()) {
         throw new Error2(
-          ErrorCodes.PROMPT_OPTIMIZER_TIMEOUT,
+          PromptOptimizerErrors.codes.PROMPT_OPTIMIZER_TIMEOUT,
           `The rewrite did not finish within ${String(timeoutMs)}ms.`,
           {
             details: { timeoutMs },

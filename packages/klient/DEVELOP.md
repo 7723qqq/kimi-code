@@ -38,11 +38,16 @@ adapts the engine's `IFileService` streams in both directions.
 - One shared conformance suite (`test/helpers/conformance.ts`) runs unchanged
   against every transport — one test file per transport under `test/`. Add
   new **global** facade coverage there, not per-transport.
-- `test/e2e/legacy/` + `test/e2e/harness/` — the legacy `/api/v1` live
-  suites (moved from server-e2e). They skip unless `KIMI_SERVER_URL` points
-  at a running server and **must keep running unchanged**; the v1 surface
-  has no in-memory equivalent, so these stay live-server-only — do not try
-  to run them against the in-process transports.
+- `test/e2e/legacy/` + `test/e2e/harness/` — `/api/v1` wire suites and their
+  HTTP/WebSocket test client (moved from server-e2e). Most live suites skip
+  without a reachable server; use `KIMI_SERVER_URL` to select one. Do not
+  replace the v1 surface with in-process transports.
+- `test/e2e/legacy/refresh-replay.test.ts` always runs through testkit's Bun
+  fixtures with a real authenticated KAP server and a protocol-level fake
+  model. Reconnect uses `subscribe` followed by its response and a fresh
+  `turns` snapshot, not the removed hello/cursor replay protocol. The shared
+  `DaemonClientOptions.token` authenticates JSON, multipart and WebSocket
+  requests; it is not written into report traces.
 - The retired `scenarios/` scripts were rewritten as suites: image-upload
   and terminal (v1-only surfaces) live in `test/e2e/legacy/`.
 

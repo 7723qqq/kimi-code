@@ -1,3 +1,4 @@
+import { onUnexpectedError, safelyCallListener } from './errors/unexpectedError';
 import {
   Disposable,
   DisposableStore,
@@ -6,7 +7,6 @@ import {
   type IDisposableDebugLabel,
 } from './di/lifecycle';
 import { LinkedList } from './di/util/linkedList';
-import { onUnexpectedError, safelyCallListener } from './errors/unexpectedError';
 
 export interface Event<T> {
   (
@@ -109,15 +109,8 @@ export interface IWaitUntil {
 
 export type IWaitUntilData<T> = Omit<T, 'waitUntil' | 'signal'>;
 
-interface AsyncDeliveryEntry<T> {
-  seq: number;
-  deliver: (event: T) => void;
-  data: IWaitUntilData<T>;
-}
-
 export class AsyncEmitter<T extends IWaitUntil> extends Emitter<T> {
-  private _asyncDeliveryQueue?: LinkedList<AsyncDeliveryEntry<T>>;
-  private _asyncDeliverySeq = 0;
+  private _asyncDeliveryQueue?: LinkedList<[(event: T) => void, IWaitUntilData<T>]>;
 
   async fireAsyncConcurrent(data: IWaitUntilData<T>, signal: AbortSignal): Promise<void> {
     if (this.isDisposed || this._listeners === undefined || signal.aborted) {
@@ -144,22 +137,17 @@ export class AsyncEmitter<T extends IWaitUntil> extends Emitter<T> {
 
     this._asyncDeliveryQueue ??= new LinkedList();
     for (const entry of this._listeners) {
-      const seq = ++this._asyncDeliverySeq;
-      const deliver = (event: T): void => {
-        entry.listener.call(entry.thisArg, event);
-      };
-      this._asyncDeliveryQueue.push({ seq, deliver, data });
+      this._asyncDeliveryQueue.push([
+        (event) => {
+          entry.listener.call(entry.thisArg, event);
+        },
+        data,
+      ]);
     }
 
-    let watermark = Number.POSITIVE_INFINITY;
     while (this._asyncDeliveryQueue.size > 0 && !signal.aborted) {
-      const head = this._asyncDeliveryQueue.peek();
-      if (head === undefined || head.seq > watermark) {
-        break;
-      }
-      this._asyncDeliveryQueue.shift();
-      watermark = this._asyncDeliverySeq;
-      await this.deliverAsync(head.deliver, head.data, signal);
+      const [deliver, eventData] = this._asyncDeliveryQueue.shift()!;
+      await this.deliverAsync(deliver, eventData, signal);
     }
   }
 
@@ -257,7 +245,11 @@ export namespace Event {
 
   export function map<I, O>(event: Event<I>, map: (i: I) => O): Event<O> {
     return (listener, thisArg, disposables) =>
-      event((i) => listener.call(thisArg, map(i)), undefined, disposables);
+      event(
+        (i) => listener.call(thisArg, map(i)),
+        undefined,
+        disposables,
+      );
   }
 
   export function filter<T>(event: Event<T>, filter: (e: T) => boolean): Event<T> {

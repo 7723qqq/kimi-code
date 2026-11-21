@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto';
 import { closeSync, fsyncSync, openSync } from 'node:fs';
 import * as nodeFs from 'node:fs';
 import { open, rename, unlink } from 'node:fs/promises';
-
 import { dirname } from 'pathe';
 
 export async function syncDir(dirPath: string): Promise<void> {
@@ -54,7 +53,8 @@ export async function writeFileAtomicDurable(
     if (!renamed) {
       try {
         await unlink(tmpPath);
-      } catch {}
+      } catch {
+      }
     }
   }
 }
@@ -107,7 +107,8 @@ export async function atomicWrite(
     if (!renamed) {
       try {
         await unlink(tmpPath);
-      } catch {}
+      } catch {
+      }
     }
   }
 }
@@ -160,7 +161,8 @@ export async function atomicWriteStream(
     if (!renamed) {
       try {
         await unlink(tmpPath);
-      } catch {}
+      } catch {
+      }
     }
   }
 }

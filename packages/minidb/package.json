@@ -52,5 +52,8 @@
     "bench:open": "bun bench/open-lifecycle.ts",
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
     "test:heavy": "bun test --isolate --timeout 30000 --path-ignore-patterns='**/node_modules/**'"
+  },
+  "devDependencies": {
+    "@moonshot-ai/testkit": "workspace:*"
   }
 }

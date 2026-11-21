@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-
 import { api } from '../api';
 import type { SessionSummary } from '../types';
 
@@ -32,7 +31,6 @@ export function useDeleteSession() {
   });
 }
 
-/** Import a debug zip; refreshes the session list on success. */
 export function useImportZip() {
   const qc = useQueryClient();
   return useMutation({

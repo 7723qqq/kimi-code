@@ -1,23 +1,12 @@
-/**
- * Tests for the CLI telemetry bootstrap helpers, focusing on the
- * `kimi web` / `kimi server run` host wiring added in `cli/telemetry.ts`.
- */
-
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { createRequire } from 'node:module';
-
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 import { resetKimiRegionCache } from '#/utils/region';
 
-import { setEnv, restoreEnvs } from '../helpers/stubs';
-
-const requireReal = createRequire(import.meta.url);
-
-const mocks = (() => ({
-  initializeTelemetry: jest.fn(),
-  createKimiDeviceId: jest.fn(() => 'device-123'),
-  resolveKimiHome: jest.fn(() => '/home/.kimi-code'),
-  resolveConfigPath: jest.fn(() => '/home/.kimi-code/config.toml'),
-  loadRuntimeConfigSafe: jest.fn(
+const mocks = vi.hoisted(() => ({
+  initializeTelemetry: vi.fn(),
+  createKimiDeviceId: vi.fn(() => 'device-123'),
+  resolveKimiHome: vi.fn(() => '/home/.kimi-code'),
+  resolveConfigPath: vi.fn(() => '/home/.kimi-code/config.toml'),
+  loadRuntimeConfigSafe: vi.fn(
     (): {
       config: { defaultModel?: string; telemetry?: boolean };
       fileError: Error | undefined;
@@ -26,40 +15,41 @@ const mocks = (() => ({
       fileError: undefined,
     }),
   ),
-  getCachedAccessToken: jest.fn(async () => 'tok'),
-}))();
+  getCachedAccessToken: vi.fn(async () => 'tok'),
+}));
 
-jest.mock('@moonshot-ai/kimi-telemetry', () => ({
+void vi.mock('@moonshot-ai/kimi-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,
-  setTelemetryContext: jest.fn(),
-  track: jest.fn(),
-  withTelemetryContext: jest.fn(),
+  setTelemetryContext: vi.fn(),
+  track: vi.fn(),
+  withTelemetryContext: vi.fn(),
 }));
 
-const realOAuth = requireReal('@moonshot-ai/kimi-code-oauth');
-const realSdk = requireReal('@moonshot-ai/kimi-code-sdk');
+void vi.mock('@moonshot-ai/kimi-code-oauth', async () => {
+  const actual = await import('@moonshot-ai/kimi-code-oauth');
+  return {
+    ...actual,
+    createKimiDeviceId: mocks.createKimiDeviceId,
+    KIMI_CODE_PROVIDER_NAME: 'managed:kimi-code',
+  };
+});
 
-jest.mock('@moonshot-ai/kimi-code-oauth', () => ({
-  // Spread the real module: the SDK's v2 client pulls agent-core-v2 into the
-  // import graph, which subclasses KimiOAuthToolkit from this package.
-  ...realOAuth,
-  createKimiDeviceId: mocks.createKimiDeviceId,
-  KIMI_CODE_PROVIDER_NAME: 'managed:kimi-code',
-}));
-
-jest.mock('@moonshot-ai/kimi-code-sdk', () => ({
-  ...realSdk,
-  resolveKimiHome: mocks.resolveKimiHome,
-  resolveConfigPath: mocks.resolveConfigPath,
-  loadRuntimeConfigSafe: mocks.loadRuntimeConfigSafe,
-  KimiAuthFacade: jest.fn(function () {
-    return { getCachedAccessToken: mocks.getCachedAccessToken };
-  }),
-}));
+void vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
+  const actual = await import('@moonshot-ai/kimi-code-sdk');
+  return {
+    ...actual,
+    resolveKimiHome: mocks.resolveKimiHome,
+    resolveConfigPath: mocks.resolveConfigPath,
+    loadRuntimeConfigSafe: mocks.loadRuntimeConfigSafe,
+    KimiAuthFacade: vi.fn(function () {
+      return { getCachedAccessToken: mocks.getCachedAccessToken };
+    }),
+  };
+});
 
 describe('initializeServerTelemetry', () => {
   beforeEach(() => {
-    setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+    vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
     resetKimiRegionCache();
     mocks.initializeTelemetry.mockClear();
     mocks.loadRuntimeConfigSafe.mockClear();
@@ -70,7 +60,7 @@ describe('initializeServerTelemetry', () => {
   });
 
   afterEach(() => {
-    restoreEnvs();
+    vi.unstubAllEnvs();
     resetKimiRegionCache();
   });
 
@@ -88,8 +78,6 @@ describe('initializeServerTelemetry', () => {
         homeDir: '/home/.kimi-code',
       }),
     );
-    // The returned client wraps the module functions so core + the host share
-    // the same underlying client.
     expect(client).toEqual(
       expect.objectContaining({
         track: expect.any(Function),
@@ -97,9 +85,6 @@ describe('initializeServerTelemetry', () => {
         setContext: expect.any(Function),
       }),
     );
-    // The first dynamic import pulls in the whole SDK/oauth chain (~3s idle,
-    // more under full-suite transform contention) — give it headroom past the
-    // 5s default timeout.
   }, 20000);
 
   it('disables telemetry when config.toml sets telemetry = false', async () => {

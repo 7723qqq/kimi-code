@@ -1,29 +1,32 @@
-import { IInstantiationService } from '#/_base/di/instantiation';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Service } from '#/_base/di/service';
+import { IInstantiationService } from "#/_base/di/instantiation";
+import { Service } from "#/_base/di/service";
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { AutoModeApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/auto-mode-approve';
 import { AutoModeAskUserQuestionDenyPermissionPolicyService } from '#/agent/permissionPolicy/policies/auto-mode-ask-user-question-deny';
 import { DangerousCommandAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/dangerous-command-ask';
-import { CompactionAuthorizationGuardPermissionPolicyService } from '#/agent/permissionPolicy/policies/compaction-authorization-guard';
 import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';
 import { FallbackAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/fallback-ask';
 import { GitControlPathAccessAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/git-control-path-access-ask';
 import { GitCwdWriteApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/git-cwd-write-approve';
-import { GuardianReviewPermissionPolicyService } from '#/agent/permissionPolicy/policies/guardian-review';
 import { SensitiveFileAccessAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/sensitive-file-access-ask';
 import { SessionApprovalHistoryPermissionPolicyService } from '#/agent/permissionPolicy/policies/session-approval-history';
 import { UserConfiguredAllowPermissionPolicyService } from '#/agent/permissionPolicy/policies/user-configured-allow';
 import { UserConfiguredAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/user-configured-ask';
 import { UserConfiguredDenyPermissionPolicyService } from '#/agent/permissionPolicy/policies/user-configured-deny';
 import { YoloModeApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/yolo-mode-approve';
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import {
+  IAgentPermissionPolicyService,
+  type PermissionPolicyEvaluation,
+} from './permissionPolicy';
+import type { PermissionPolicy } from "./types";
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
-import { IAgentPermissionPolicyService, type PermissionPolicyEvaluation } from './permissionPolicy';
-import type { PermissionPolicy } from './types';
-
-export class AgentPermissionPolicyService extends Service implements IAgentPermissionPolicyService {
+export class AgentPermissionPolicyService
+  extends Service
+  implements IAgentPermissionPolicyService
+{
   declare readonly _serviceBrand: undefined;
 
   private readonly policies: readonly PermissionPolicy[];
@@ -36,7 +39,6 @@ export class AgentPermissionPolicyService extends Service implements IAgentPermi
     this.policies = [
       this.instantiation.createInstance(AutoModeAskUserQuestionDenyPermissionPolicyService),
       this.instantiation.createInstance(UserConfiguredDenyPermissionPolicyService),
-      this.instantiation.createInstance(CompactionAuthorizationGuardPermissionPolicyService),
       ...(bootstrap.args.nonInteractive
         ? []
         : [this.instantiation.createInstance(DangerousCommandAskPermissionPolicyService)]),
@@ -46,7 +48,6 @@ export class AgentPermissionPolicyService extends Service implements IAgentPermi
       this.instantiation.createInstance(UserConfiguredAllowPermissionPolicyService),
       this.instantiation.createInstance(SensitiveFileAccessAskPermissionPolicyService),
       this.instantiation.createInstance(GitControlPathAccessAskPermissionPolicyService),
-      this.instantiation.createInstance(GuardianReviewPermissionPolicyService),
       this.instantiation.createInstance(YoloModeApprovePermissionPolicyService),
       this.instantiation.createInstance(DefaultToolApprovePermissionPolicyService),
       this.instantiation.createInstance(GitCwdWriteApprovePermissionPolicyService),

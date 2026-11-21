@@ -1,7 +1,7 @@
 import { toDisposable } from '#/_base/di/lifecycle';
+import { appendContext } from '../../agent/contextMemory/stubs';
 import { isCompactionSummaryMessage } from '#/agent/contextMemory/compactionHandoff';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
-import type { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { IAgentLoopService } from '#/agent/loop/loop';
 import type { IEventBus } from '#/app/event/eventBus';
 import type { IAgentReminderService } from '#/features/reminder/reminderService';
@@ -14,13 +14,11 @@ import type {
   ReminderNotification,
 } from '#/features/reminder/types';
 
-export function createReminderStub(
-  input: {
-    register?<D>(variant: string, provider: ContextInjectionProvider<D>): { dispose(): void };
-    notify?(content: string, notification: ReminderNotification): void;
-    reconcileWhenIdle?(variant: string): Promise<void>;
-  } = {},
-): IAgentReminderService {
+export function createReminderStub(input: {
+  register?<D>(variant: string, provider: ContextInjectionProvider<D>): { dispose(): void };
+  notify?(content: string, notification: ReminderNotification): void;
+  reconcileWhenIdle?(variant: string): Promise<void>;
+} = {}): IAgentReminderService {
   return {
     _serviceBrand: undefined,
     register: input.register ?? (() => toDisposable(() => {})),
@@ -31,7 +29,7 @@ export function createReminderStub(
 
 export function createReminderHarness(
   loop: IAgentLoopService,
-  context: IAgentContextMemoryService,
+  context: IAgentLoopService,
   eventBus?: IEventBus,
 ): IAgentReminderService {
   const entries = new Map<string, ContextInjectionProvider>();
@@ -43,7 +41,7 @@ export function createReminderHarness(
     const isNewTurn = firstStepOfTurn || rearm;
     rearm = false;
     for (const [variant, provider] of entries) {
-      const history = context.get();
+      const history = context.history();
       const positions = history.flatMap((message, index) =>
         message.origin?.kind === 'injection' && message.origin.variant === variant ? [index] : [],
       );
@@ -53,8 +51,9 @@ export function createReminderHarness(
         injectedPositions: positions,
         lastInjectedAt,
         lastInjection,
-        lastDisclosure:
-          lastInjection?.origin?.kind === 'injection' ? lastInjection.origin.disclosure : undefined,
+        lastDisclosure: lastInjection?.origin?.kind === 'injection'
+          ? lastInjection.origin.disclosure
+          : undefined,
         isNewTurn,
       });
       if (value === undefined) continue;
@@ -66,41 +65,49 @@ export function createReminderHarness(
       const content = result.content;
       if (typeof content === 'string') {
         if (content.trim().length === 0) continue;
-        context.append({
+        appendContext(context,{
           role: 'user',
           content: [{ type: 'text', text: wrapSystemReminder(content) }],
-          toolCalls: [],
           origin,
         });
         continue;
       }
       if (Array.isArray(content)) {
         if (content.length === 0) continue;
-        context.append({ role: 'user', content: [...content], toolCalls: [], origin });
+        appendContext(context,{ role: 'user', content: [...content], origin });
         continue;
       }
       const message = (content as { readonly message: ContextInjectionMessage }).message;
-      if (
-        message.content.length === 0 &&
-        (message.tools === undefined || message.tools.length === 0)
-      ) {
+      if (message.content.length === 0 && (message.tools === undefined || message.tools.length === 0)) {
         continue;
       }
-      context.append({
-        role: message.role,
-        content: [...message.content],
-        toolCalls: [],
-        tools: message.tools,
-        origin,
-      });
+      if (message.role === 'system') {
+        appendContext(context,{
+          role: 'system',
+          content: [...message.content],
+          tools: message.tools === undefined ? undefined : [...message.tools],
+          origin,
+        });
+      } else {
+        appendContext(context,{ role: 'user', content: [...message.content], origin });
+      }
     }
     await next();
   });
   return createReminderStub({
     register: (variant, provider) => {
       entries.set(variant, provider as ContextInjectionProvider);
-      return toDisposable(() => {
-        entries.delete(variant);
+      return toDisposable(() => { entries.delete(variant); });
+    },
+    notify: (content, notification) => {
+      appendContext(context, {
+        role: 'user',
+        content: [{ type: 'text', text: wrapSystemReminder(content) }],
+        origin: {
+          kind: 'injection',
+          variant: notification.variant,
+          ownerPromptId: notification.ownerPromptId,
+        },
       });
     },
   });

@@ -1,9 +1,11 @@
 import { diagramKind, render, type DiagramKind, type MermaidArt, type Role } from 'lovely-mermaid';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 
-export type MermaidDrawResult = { status: 'ok'; art: MermaidArt | null } | { status: 'error' };
+export type MermaidDrawResult =
+  | { status: 'ok'; art: MermaidArt | null }
+  | { status: 'error' };
 
 export function drawMermaid(source: string): MermaidDrawResult {
   try {
@@ -13,16 +15,14 @@ export function drawMermaid(source: string): MermaidDrawResult {
   }
 }
 
-export function couldNotDrawMessage(): string {
-  return t('tui.messages.mermaidCouldNotDraw');
-}
+export const COULD_NOT_DRAW_MESSAGE = t('tui.messages.mermaidCouldNotDraw');
 
 export function undrawnDiagramReason(source: string): string {
-  if (safeDiagramKind(source) !== null) return couldNotDrawMessage();
+  if (safeDiagramKind(source) !== null) return COULD_NOT_DRAW_MESSAGE;
   const identifier = firstDiagramIdentifier(source);
   return identifier === undefined
-    ? couldNotDrawMessage()
-    : t('tui.messages.mermaidUnsupportedDiagram', { identifier });
+    ? COULD_NOT_DRAW_MESSAGE
+    : t('tui.messages.mermaidUnsupportedDiagram', { identifier: identifier });
 }
 
 function safeDiagramKind(source: string): DiagramKind | null {

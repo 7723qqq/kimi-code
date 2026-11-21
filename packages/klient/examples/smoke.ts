@@ -1,21 +1,12 @@
-/**
- * Assert-based smoke check for klient against an in-process engine (memory
- * transport). Exercises the `global` facade end-to-end: env snapshot, read
- * models, a workspace round-trip, a provider set/delete round-trip with the
- * `kosong.providers.changed` event, an anonymous-provider set/delete
- * round-trip with the `kosong.models.changed` event, the read-only model
- * catalog, and the error path.
- *
- *   cd packages/klient && bun run smoke
- */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
+
+
 import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
 import { createKlient } from '@moonshot-ai/klient/memory';
-
-import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
 
 function assert(cond: boolean, message: string): asserts cond {
   if (!cond) throw new Error(`assertion failed: ${message}`);
@@ -46,7 +37,6 @@ async function main(): Promise<void> {
     assert(Array.isArray(workspaces), 'workspaces.list returns an array');
     console.log('[ok] workspaces.list ->', workspaces.length);
 
-    // Provider round-trip with the klient-level event.
     const seen: string[] = [];
     const sub = klient.events.on('kosong.providers.changed', (event) => {
       seen.push(...event.added, ...event.changed, ...event.removed);
@@ -65,7 +55,6 @@ async function main(): Promise<void> {
     sub.dispose();
     console.log('[ok] kosong addProvider/getProvider/removeProvider + kosong.providers.changed');
 
-    // Anonymous provider round-trip (single-model, all fields inline).
     const seenModels: string[] = [];
     const modelSub = klient.events.on('kosong.models.changed', (event) => {
       seenModels.push(...event.added, ...event.changed, ...event.removed);
@@ -86,7 +75,6 @@ async function main(): Promise<void> {
     modelSub.dispose();
     console.log('[ok] kosong anonymous addProvider/removeProvider + kosong.models.changed');
 
-    // The read-only catalog projection over the same materialization.
     assert(
       Array.isArray(await klient.global.kosong.listModels()),
       'kosong.listModels returns an array',

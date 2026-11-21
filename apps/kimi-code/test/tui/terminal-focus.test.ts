@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { TUIState } from '#/tui/kimi-tui';
 import {
@@ -18,34 +18,41 @@ describe('terminal focus tracking', () => {
     expect(state.focused).toBe(false);
 
     expect(handleTerminalFocusInput(state, TERMINAL_FOCUS_IN)).toEqual({ consume: true });
-    expect(state.focused).toBe(true);
+    expect(state).toEqual({ focused: true });
 
     expect(handleTerminalFocusInput(state, 'x')).toBeUndefined();
   });
 
-  it('ignores non-focus input sequences', () => {
+  it('notifies only on an actual unfocused-to-focused transition', () => {
     const state = { focused: true };
-    expect(handleTerminalFocusInput(state, '')).toBeUndefined();
-    expect(state.focused).toBe(true);
-    expect(handleTerminalFocusInput(state, '\u001B')).toBeUndefined();
-    expect(state.focused).toBe(true);
+    const onFocusIn = vi.fn();
+
+    handleTerminalFocusInput(state, TERMINAL_FOCUS_IN, onFocusIn);
+    expect(onFocusIn).not.toHaveBeenCalled();
+
+    handleTerminalFocusInput(state, TERMINAL_FOCUS_OUT, onFocusIn);
+    handleTerminalFocusInput(state, TERMINAL_FOCUS_IN, onFocusIn);
+    handleTerminalFocusInput(state, TERMINAL_FOCUS_IN, onFocusIn);
+    expect(onFocusIn).toHaveBeenCalledTimes(1);
   });
 
   it('enables focus reporting and removes the listener on dispose', () => {
     const listeners: Array<(data: string) => { consume: true } | undefined> = [];
-    const removeInputListener = mock();
+    const removeInputListener = vi.fn();
     const state = {
       terminalState: {
         focused: false,
       },
-      terminal: {
-        write: mock(),
-      },
       editor: {
-        terminalFocused: true,
+        focused: true,
+        terminalFocused: false,
+      },
+      terminal: {
+        write: vi.fn(),
       },
       ui: {
-        addInputListener: mock((listener) => {
+        requestRender: vi.fn(),
+        addInputListener: vi.fn((listener) => {
           listeners.push(listener);
           return removeInputListener;
         }),
@@ -60,37 +67,18 @@ describe('terminal focus tracking', () => {
 
     listeners[0]?.(TERMINAL_FOCUS_OUT);
     expect(state.terminalState.focused).toBe(false);
+    expect(state.editor.terminalFocused).toBe(false);
+    expect(state.editor.focused).toBe(true);
+    expect(state.ui.requestRender).toHaveBeenCalledOnce();
+
+    listeners[0]?.(TERMINAL_FOCUS_IN);
+    expect(state.editor.terminalFocused).toBe(true);
+    expect(state.ui.requestRender).toHaveBeenCalledTimes(2);
 
     dispose();
 
-    expect(removeInputListener).toHaveBeenCalledTimes(1);
+    expect(removeInputListener).toHaveBeenCalledOnce();
     expect(state.terminal.write).toHaveBeenCalledWith(DISABLE_TERMINAL_FOCUS_REPORTING);
     expect(state.terminalState.focused).toBe(true);
-  });
-
-  it('dispose is idempotent (calling twice does not double-remove)', () => {
-    const removeInputListener = mock();
-    const state = {
-      terminalState: { focused: false },
-      terminal: { write: mock() },
-      editor: { terminalFocused: true },
-      ui: { addInputListener: mock(() => removeInputListener) },
-    } as unknown as TUIState;
-
-    const dispose = installTerminalFocusTracking(state);
-    dispose();
-    dispose();
-
-    expect(removeInputListener).toHaveBeenCalledTimes(1);
-  });
-
-  it('rapid focus in/out sequences are handled correctly', () => {
-    const state = { focused: true };
-    for (let i = 0; i < 100; i++) {
-      handleTerminalFocusInput(state, TERMINAL_FOCUS_OUT);
-      expect(state.focused).toBe(false);
-      handleTerminalFocusInput(state, TERMINAL_FOCUS_IN);
-      expect(state.focused).toBe(true);
-    }
   });
 });

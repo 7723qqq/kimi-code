@@ -7,8 +7,7 @@ import {
   type ServicesAccessor,
 } from './instantiation';
 import { InstantiationService, Trace } from './instantiationService';
-import type { DisposableStore } from './lifecycle';
-import { dispose, isDisposable, toDisposable, type IDisposable } from './lifecycle';
+import { DisposableStore, dispose, isDisposable, toDisposable, type IDisposable } from './lifecycle';
 import { ServiceCollection } from './serviceCollection';
 
 type AnyConstructor<T = unknown> = new (...args: any[]) => T;
@@ -18,12 +17,10 @@ interface IServiceMock<T> {
   service?: any;
 }
 
-const isSinonSpyLike = (fn: Function): fn is sinon.SinonSpy => fn && 'callCount' in fn;
+const isSinonSpyLike = (fn: Function): fn is sinon.SinonSpy =>
+  fn && 'callCount' in fn;
 
-export class TestInstantiationService
-  extends InstantiationService
-  implements IDisposable, ServicesAccessor
-{
+export class TestInstantiationService extends InstantiationService implements IDisposable, ServicesAccessor {
   private readonly _classStubs = new Map<Function, unknown>();
   private readonly _parentTestService?: TestInstantiationService;
 
@@ -68,11 +65,17 @@ export class TestInstantiationService
   }
 
   public override createInstance<T>(descriptor: SyncDescriptor0<T>): T;
-  public override createInstance<Ctor extends AnyConstructor, R extends InstanceType<Ctor>>(
+  public override createInstance<
+    Ctor extends AnyConstructor,
+    R extends InstanceType<Ctor>,
+  >(
     ctor: Ctor,
     ...args: GetLeadingNonServiceArgs<ConstructorParameters<Ctor>>
   ): R;
-  public override createInstance(ctorOrDescriptor: any, ...rest: unknown[]): unknown {
+  public override createInstance(
+    ctorOrDescriptor: any,
+    ...rest: unknown[]
+  ): unknown {
     const stub =
       ctorOrDescriptor instanceof SyncDescriptor
         ? this._getClassStub(ctorOrDescriptor.ctor)
@@ -130,11 +133,7 @@ export class TestInstantiationService
     }
 
     const serviceMock: IServiceMock<T> = { id, service };
-    const stubObject = this._create(
-      serviceMock,
-      { stub: true },
-      Boolean(service && !property),
-    ) as Record<string, unknown>;
+    const stubObject = this._create(serviceMock, { stub: true }, Boolean(service && !property)) as Record<string, unknown>;
     const replacement = this._createReplacement(value);
 
     const current = stubObject[property] as { restore?: () => void } | undefined;
@@ -162,7 +161,12 @@ export class TestInstantiationService
     fnProperty?: string,
     value?: V,
   ): V extends Function ? sinon.SinonSpy : sinon.SinonStub;
-  public stubPromise(arg1?: any, arg2?: any, arg3?: any, arg4?: any): unknown {
+  public stubPromise(
+    arg1?: any,
+    arg2?: any,
+    arg3?: any,
+    arg4?: any,
+  ): unknown {
     arg3 = typeof arg2 === 'string' ? Promise.resolve(arg3) : arg3;
     arg4 = typeof arg2 !== 'string' && typeof arg3 === 'string' ? Promise.resolve(arg4) : arg4;
     return this.stub(arg1, arg2, arg3, arg4);
@@ -209,7 +213,8 @@ export class TestInstantiationService
   private _createService<T>(serviceMock: IServiceMock<T>, opts: SinonOptions): T {
     const existing = this._serviceCollection.get(serviceMock.id);
     const source =
-      serviceMock.service ?? (existing instanceof SyncDescriptor ? existing.ctor : undefined);
+      serviceMock.service
+      ?? (existing instanceof SyncDescriptor ? existing.ctor : undefined);
     const service = this._createStub(source);
     service.sinonOptions = opts;
     return service as T;
@@ -239,7 +244,7 @@ export class TestInstantiationService
     return Boolean(service?.sinonOptions?.[key]);
   }
 
-  private _isServiceMock(arg: unknown): arg is IServiceMock<unknown> {
+  private _isServiceMock(arg: any): arg is IServiceMock<unknown> {
     return typeof arg === 'object' && arg !== null && 'id' in arg;
   }
 
@@ -291,7 +296,7 @@ export function createServices(
   options: CreateServicesOptions = {},
 ): TestInstantiationService {
   const serviceCollection = new ServiceCollection();
-  const instanceIds = new Set<ServiceIdentifier<unknown>>();
+  const instanceIds = new Set<ServiceIdentifier<any>>();
 
   const register = <T>(
     id: ServiceIdentifier<T>,
@@ -329,17 +334,15 @@ export function createServices(
   const instantiationService = disposables.add(
     new TestInstantiationService(serviceCollection, options.strict ?? false),
   );
-  disposables.add(
-    toDisposable(() => {
-      const serviceDisposables: IDisposable[] = [];
-      for (const id of instanceIds) {
-        const instance = serviceCollection.get(id);
-        if (isDisposable(instance)) {
-          serviceDisposables.push(instance);
-        }
+  disposables.add(toDisposable(() => {
+    const serviceDisposables: IDisposable[] = [];
+    for (const id of instanceIds) {
+      const instance = serviceCollection.get(id);
+      if (isDisposable(instance)) {
+        serviceDisposables.push(instance);
       }
-      dispose(serviceDisposables);
-    }),
-  );
+    }
+    dispose(serviceDisposables);
+  }));
   return instantiationService;
 }

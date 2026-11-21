@@ -1,12 +1,13 @@
 import type { IWaitUntil } from '#/_base/event';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
+
 import type {
   ExecutableTool,
   ExecutableToolResult,
   RunnableToolExecution,
   ToolAccesses,
 } from '#/tool/toolContract';
-import type { ToolCall } from '#human/llm/message';
 
 export interface ToolExecutionHookContext {
   readonly turnId: number;
@@ -25,6 +26,7 @@ export interface ResolvedToolExecutionHookContext extends ToolExecutionHookConte
 export interface BeforeExecuteDecision {
   readonly veto?: ExecutableToolResult;
   readonly executionMetadata?: unknown;
+  readonly allow?: true;
 }
 
 export interface BeforeToolExecuteEvent extends ResolvedToolExecutionHookContext {
@@ -47,7 +49,6 @@ export type ToolExecutionOutcome =
   | 'resolution-failed'
   | 'vetoed'
   | 'aborted'
-  | 'hook-failed'
   | 'synthetic'
   | 'skipped';
 
@@ -55,5 +56,4 @@ export interface ToolDidExecuteContext extends ToolExecutionHookContext {
   readonly outcome: ToolExecutionOutcome;
   readonly accesses?: ToolAccesses;
   result: ExecutableToolResult;
-  stopTurn?: boolean;
 }

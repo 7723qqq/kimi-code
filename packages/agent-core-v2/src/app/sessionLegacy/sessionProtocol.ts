@@ -1,10 +1,7 @@
 import { z } from 'zod';
 
 import { isoDateTimeSchema } from '#/_base/utils/isoDateTime';
-import type {
-  SessionPendingInteraction,
-  SessionTurnOutcome,
-} from '#/session/sessionActivity/sessionActivity';
+import type { SessionPendingInteraction, SessionTurnOutcome } from '#/session/sessionActivity/sessionActivity';
 
 export const sessionWarningSchema = z.object({
   code: z.string(),
@@ -37,11 +34,10 @@ export const sessionAgentConfigSchema = z.object({
   permission_mode: promptPermissionModeSchema.optional(),
   plan_mode: z.boolean().optional(),
   swarm_mode: z.boolean().optional(),
-  hello_world_mode: z.boolean().optional(),
   tower_mode: z.boolean().optional(),
   tower_base: z.string().min(1).optional(),
   goal_objective: z.string().optional(),
-  goal_control: z.enum(['pause', 'resume', 'cancel']).optional(),
+  goal_control: z.enum(['pause', 'resume', 'cancel', 'edit']).optional(),
 });
 export type SessionAgentConfig = z.infer<typeof sessionAgentConfigSchema>;
 
@@ -64,14 +60,11 @@ export const permissionRuleSchema = z.object({
 });
 export type PermissionRule = z.infer<typeof permissionRuleSchema>;
 
-export const updateSessionProfileRequestSchema = z
-  .object({
-    title: z.string().min(1).optional(),
-    metadata: sessionMetadataSchema.partial().optional(),
-    agent_config: sessionAgentConfigPartialSchema.optional(),
-    permission_rules: z.array(permissionRuleSchema).optional(),
-  })
-  .strict();
+export const updateSessionProfileRequestSchema = z.object({
+  title: z.string().min(1).optional(),
+  metadata: sessionMetadataSchema.partial().optional(),
+  agent_config: sessionAgentConfigPartialSchema.optional(),
+});
 export type UpdateSessionProfileRequest = z.infer<typeof updateSessionProfileRequestSchema>;
 
 export interface SessionUsage {
@@ -115,12 +108,7 @@ export interface SessionCreatedEvent {
 export interface SessionStatusChangedEvent {
   readonly type: 'event.session.status_changed';
   readonly status: 'idle' | 'running' | 'awaiting_approval' | 'awaiting_question' | 'aborted';
-  readonly previous_status:
-    | 'idle'
-    | 'running'
-    | 'awaiting_approval'
-    | 'awaiting_question'
-    | 'aborted';
+  readonly previous_status: 'idle' | 'running' | 'awaiting_approval' | 'awaiting_question' | 'aborted';
   readonly current_prompt_id?: string;
 }
 

@@ -1,22 +1,28 @@
+
 import { extname } from 'node:path';
+import { Readable } from 'node:stream';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { isFileId } from '#/app/file/fileService';
 import { LifecycleScope } from '#/app/scopes';
+import { isFileId } from '#/app/file/fileService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
 import {
   AUDIO_MIME_BY_SUFFIX,
+  buildDaemonFileUrl,
   IMAGE_MIME_BY_SUFFIX,
   mediaExtensionForMime,
+  parseDaemonFileUrl,
   VIDEO_MIME_BY_SUFFIX,
 } from './mediaRef';
 import {
   ISessionMediaStore,
+  type SessionMediaContent,
   type SessionMediaFile,
   type SessionMediaMaterializeInput,
+  type SessionMediaPutInput,
 } from './sessionMediaStore';
 
 interface SessionMediaMetadata {
@@ -36,6 +42,35 @@ export class SessionMediaStoreService implements ISessionMediaStore {
     @IAtomicDocumentStore private readonly documents: IAtomicDocumentStore,
   ) {
     this.scope = sessionContext.scope('media');
+  }
+
+  async put(input: SessionMediaPutInput): Promise<string> {
+    const fileId = `f_${new Bun.CryptoHasher('sha256')
+      .update(input.mimeType)
+      .update('\0')
+      .update(input.bytes)
+      .digest('hex')}`;
+    await this.materialize({
+      fileId,
+      size: input.bytes.byteLength,
+      name: input.filename,
+      mimeType: input.mimeType,
+      stream: () => Readable.from([input.bytes]),
+      signal: input.signal,
+    });
+    return buildDaemonFileUrl(fileId);
+  }
+
+  async get(
+    reference: string,
+    signal?: AbortSignal,
+  ): Promise<SessionMediaContent | undefined> {
+    const fileId = parseDaemonFileUrl(reference)?.fileId ?? (isFileId(reference) ? reference : undefined);
+    if (fileId === undefined) return undefined;
+    const file = await this.open(fileId);
+    if (file === undefined) return undefined;
+    const bytes = await readStream(file.stream(), signal);
+    return { bytes, mimeType: file.mediaType, filename: file.name };
   }
 
   pathFor(fileId: string, ext: string): string | undefined {
@@ -92,6 +127,7 @@ export class SessionMediaStoreService implements ISessionMediaStore {
         signal: input.signal,
       });
     }
+    input.signal?.throwIfAborted();
     await this.documents.set(this.scope, this.metadataKey(input.fileId), {
       version: 1,
       key,
@@ -138,8 +174,31 @@ export class SessionMediaStoreService implements ISessionMediaStore {
   private async findKey(fileId: string): Promise<string | undefined> {
     const keys = await this.storage.list(this.scope, fileId);
     return keys.find(
-      (key) => key === fileId || (key.startsWith(`${fileId}.`) && !key.includes('.tmp.')),
+      (key) =>
+        key === fileId || (key.startsWith(`${fileId}.`) && !key.includes('.tmp.')),
     );
+  }
+}
+
+async function readStream(
+  stream: AsyncIterable<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  const onAbort = (): void => {
+    const reason = signal?.reason instanceof Error ? signal.reason : undefined;
+    (stream as AsyncIterable<Uint8Array> & { destroy?(error?: Error): void }).destroy?.(reason);
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
+  const chunks: Uint8Array[] = [];
+  try {
+    signal?.throwIfAborted();
+    for await (const chunk of stream) {
+      signal?.throwIfAborted();
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
   }
 }
 

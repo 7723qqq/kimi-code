@@ -1,6 +1,9 @@
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 
-import type { ExportSessionManifest, ShellEnvironment } from './sessionExport';
+import type {
+  ExportSessionManifest,
+  ShellEnvironment,
+} from './sessionExport';
 import type { SessionWireScan } from './wire-scan';
 
 export interface ExportSessionManifestSummary {

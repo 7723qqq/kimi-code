@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 const sourceRoot = join(import.meta.dirname, '../../src');
 const kapSourceRoot = join(import.meta.dirname, '../../../kap-server/src');
@@ -32,9 +33,7 @@ describe('environment architecture boundaries', () => {
     const workspaceInstance = source('workspace/workspaceInstance/workspaceInstance.ts');
     const program = source('program/program.ts');
     const dependencies = source('program/programDependencies.ts');
-    const workspaceSources = sourceFiles('workspace')
-      .map((path) => readFileSync(path, 'utf8'))
-      .join('\n');
+    const workspaceSources = sourceFiles('workspace').map((path) => readFileSync(path, 'utf8')).join('\n');
     expect(workspaceInstance).not.toContain('createScopedChildHandle');
     expect(program).not.toContain('ServicesAccessor');
     expect(program).not.toContain('readonly accessor');
@@ -59,6 +58,7 @@ describe('environment architecture boundaries', () => {
       'agent/tools/os/read/readTool.ts',
       'agent/tools/os/write/writeTool.ts',
       'agent/tools/edit/editTool.ts',
+      'agent/tools/read-media-file/readMediaFileTool.ts',
     ]) {
       const contents = source(path);
       expect(contents).toContain('new EnvironmentWorkspaceView(');

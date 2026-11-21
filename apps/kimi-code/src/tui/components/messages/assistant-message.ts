@@ -1,22 +1,7 @@
-/**
- * Renders an assistant message using pi-tui Markdown.
- *
- * Displays a white bullet prefix with markdown content indented
- * to align after the bullet.
- */
-
-import {
-  Container,
-  truncateToWidth,
-  visibleWidth,
-  type Component,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
-} from '@moonshot-ai/pi-tui';
+import { Container, truncateToWidth, visibleWidth, type Component, type TuiMouseDispatchResult, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
 
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { MESSAGE_INDENT } from '#/tui/constant/rendering';
-import { STREAMING_MARKDOWN_TAIL_CHARS } from '#/tui/constant/streaming';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
@@ -54,17 +39,9 @@ export class AssistantMessageComponent implements Component {
     this.markRenderDirty();
   }
 
-  updateContent(text: string, opts?: AssistantMarkdownOptions): void {    const transient = opts?.transient === true;
-    // While streaming (transient), render only a bounded tail so re-lexing +
-    // re-wrapping the still-growing draft on the main thread stays O(tail)
-    // per flush instead of O(full) — a large message otherwise blocks the
-    // event loop (ESC/Ctrl+C and rendering both freeze). The final
-    // non-transient pass renders the complete text.
-    const displayText = (
-      transient && text.length > STREAMING_MARKDOWN_TAIL_CHARS
-        ? text.slice(-STREAMING_MARKDOWN_TAIL_CHARS)
-        : text
-    ).trim();
+  updateContent(text: string, opts?: AssistantMarkdownOptions): void {
+    const displayText = text.trim();
+    const transient = opts?.transient === true;
 
     if (displayText === this.lastText && transient === this.lastTransient) return;
 
@@ -104,21 +81,17 @@ export class AssistantMessageComponent implements Component {
     this.markdown.setText(displayText);
   }
 
-  /** Bumped when the message appears or disappears, which changes how a projection treats it. */
   get transcriptProjectionVersion(): number {
     return this.projectionVersion;
   }
 
-  /** Whether the message currently draws anything; an empty one stays transparent. */
   get hasVisibleContent(): boolean {
     return this.lastText.length > 0;
   }
 
   invalidate(): void {
-    // Markdown caches ANSI colour codes keyed on (text, width).  When the
-    // theme changes the cached strings contain stale colours, so we rebuild
-    // the Markdown child with the new theme while preserving transient mode.
-    this.markRenderDirty();    this.contentContainer.clear();
+    this.markRenderDirty();
+    this.contentContainer.clear();
     this.markdown = undefined;
 
     if (this.lastText.trim().length > 0) {

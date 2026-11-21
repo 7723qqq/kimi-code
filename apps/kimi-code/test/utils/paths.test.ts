@@ -1,12 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   getBinDir,
   getDataDir,
   getInputHistoryFile,
+  getLogDir,
   getUpdateInstallStateFile,
   getUpdateStateFile,
 } from '#/utils/paths';
@@ -34,6 +36,17 @@ describe('getDataDir', () => {
   it('returns KIMI_CODE_HOME even if it is a relative path', () => {
     process.env['KIMI_CODE_HOME'] = 'relative/path';
     expect(getDataDir()).toBe('relative/path');
+  });
+});
+
+describe('getLogDir', () => {
+  it('returns <dataDir>/logs', () => {
+    expect(getLogDir()).toBe(join(homedir(), '.kimi-code', 'logs'));
+  });
+
+  it('respects KIMI_CODE_HOME', () => {
+    process.env['KIMI_CODE_HOME'] = '/z';
+    expect(getLogDir()).toBe(join('/z', 'logs'));
   });
 });
 

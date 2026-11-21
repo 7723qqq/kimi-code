@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';
@@ -14,7 +14,9 @@ const pluginSessionStartSchema = z.object({
   content: z.string().nullable(),
 });
 
-export class PluginSessionStartEvent extends AgentEvent2<z.infer<typeof pluginSessionStartSchema>> {
+export class PluginSessionStartEvent extends AgentEvent2<
+  z.infer<typeof pluginSessionStartSchema>
+> {
   static override readonly type = 'plugin.session_start';
   static override readonly durable = true;
   static override readonly schema = pluginSessionStartSchema;

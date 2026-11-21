@@ -1,30 +1,20 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-/* oxlint-disable eslint-plugin-jest/no-standalone-expect -- zipIt is a conditional alias of `it` */
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
+import { PluginAvailabilityStore } from '#/app/plugin/availability';
 import { PluginManager } from '#/app/plugin/manager';
-import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
 
 import { stubSkill } from '../../features/skill/catalog/stubs';
 
-const hasZipBinary = (() => {
-  try {
-    execFileSync('zip', ['-v'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-})();
-const zipIt = hasZipBinary ? it : it.skip;
-
 async function isolatedTmpdir(): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), 'kimi-isolated-tmp-'));
-  setEnv('TMPDIR', dir);
+  vi.stubEnv('TMPDIR', dir);
   return dir;
 }
 
@@ -139,9 +129,9 @@ interface MockGithubFetchOptions {
 
 function mockGithubFetch(options: MockGithubFetchOptions): void {
   const commitSha = '1111111111111111111111111111111111111111';
-  setGlobal(
+  vi.stubGlobal(
     'fetch',
-    mock(async (input: Parameters<FetchLike>[0], init?: RequestInit) => {
+    vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (/^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/latest$/.test(url)) {
         options.onReleaseLookup?.();
@@ -161,14 +151,14 @@ function mockGithubFetch(options: MockGithubFetchOptions): void {
         return new Response(options.tarball, { status: 200 });
       }
       throw new Error(`mockGithubFetch: unexpected url ${url}`);
-    }) as FetchLike,
+    }) as unknown as typeof fetch,
   );
 }
 
 describe('PluginManager consumption plane', () => {
   afterEach(() => {
-    restoreGlobals();
-    restoreEnvs();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('pluginSkillRoots() returns only enabled plugins skills paths', async () => {
@@ -351,31 +341,28 @@ describe('PluginManager consumption plane', () => {
     await rm(isolated, { recursive: true, force: true });
   });
 
-  zipIt(
-    'removes the zip temp dir and reports the original source when a zip plugin has no manifest',
-    async () => {
-      const home = await makeKimiHome();
-      const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-no-manifest-'));
-      await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
-      const isolated = await isolatedTmpdir();
-      const url = await serveOnce(await zipDir(sourceRoot));
-      const manager = new PluginManager({ kimiHomeDir: home });
-      await manager.load();
+  it('removes the zip temp dir and reports the original source when a zip plugin has no manifest', async () => {
+    const home = await makeKimiHome();
+    const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-no-manifest-'));
+    await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
+    const isolated = await isolatedTmpdir();
+    const url = await serveOnce(await zipDir(sourceRoot));
+    const manager = new PluginManager({ kimiHomeDir: home });
+    await manager.load();
 
-      let message = '';
-      await manager.install(url).catch((error: Error) => {
-        message = error.message;
-      });
+    let message = '';
+    await manager.install(url).catch((error: Error) => {
+      message = error.message;
+    });
 
-      expect(message).toContain(url);
-      expect(message).not.toContain('kimi-plugin-zip');
-      expect(await zipTempLeftovers(isolated)).toEqual([]);
-      await rm(sourceRoot, { recursive: true, force: true });
-      await rm(isolated, { recursive: true, force: true });
-    },
-  );
+    expect(message).toContain(url);
+    expect(message).not.toContain('kimi-plugin-zip');
+    expect(await zipTempLeftovers(isolated)).toEqual([]);
+    await rm(sourceRoot, { recursive: true, force: true });
+    await rm(isolated, { recursive: true, force: true });
+  });
 
-  zipIt('reports the GitHub URL when a GitHub plugin tarball has no manifest', async () => {
+  it('reports the GitHub URL when a GitHub plugin tarball has no manifest', async () => {
     const home = await makeKimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-no-manifest-'));
     await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
@@ -397,7 +384,7 @@ describe('PluginManager consumption plane', () => {
     await rm(isolated, { recursive: true, force: true });
   });
 
-  zipIt('removes the zip temp dir when a GitHub plugin tarball has no manifest', async () => {
+  it('removes the zip temp dir when a GitHub plugin tarball has no manifest', async () => {
     const home = await makeKimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-no-manifest-'));
     await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
@@ -430,7 +417,7 @@ describe('PluginManager consumption plane', () => {
     await rm(sourceRoot, { recursive: true, force: true });
   });
 
-  zipIt('removes the zip temp dir after a successful zip install', async () => {
+  it('removes the zip temp dir after a successful zip install', async () => {
     const home = await makeKimiHome();
     const root = await makePlugin('zip-demo');
     const isolated = await isolatedTmpdir();
@@ -752,7 +739,7 @@ describe('PluginManager consumption plane', () => {
     expect(manager.enabledHooks()).toEqual([]);
   });
 
-  zipIt('install() from /tree/<tag-shaped-ref> pins the resolved commit', async () => {
+  it('install() from /tree/<tag-shaped-ref> pins the resolved commit', async () => {
     const home = await makeKimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-tag-'));
     await writeFile(
@@ -764,9 +751,9 @@ describe('PluginManager consumption plane', () => {
     const commitSha = '1111111111111111111111111111111111111111';
 
     let codeloadPath = '';
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async (input: Parameters<FetchLike>[0]) => {
+      vi.fn(async (input: Parameters<typeof fetch>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.endsWith('/commits/v5.1.0.atom')) {
@@ -779,7 +766,7 @@ describe('PluginManager consumption plane', () => {
           return new Response(zipBuffer, { status: 200 });
         }
         throw new Error(`unexpected url ${url}`);
-      }) as FetchLike,
+      }) as unknown as typeof fetch,
     );
 
     const manager = new PluginManager({ kimiHomeDir: home });
@@ -791,7 +778,7 @@ describe('PluginManager consumption plane', () => {
     await rm(sourceRoot, { recursive: true, force: true });
   });
 
-  zipIt('install() from /releases/tag/<tag> pins the tag commit', async () => {
+  it('install() from /releases/tag/<tag> pins the tag commit', async () => {
     const home = await makeKimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-release-'));
     await writeFile(
@@ -803,9 +790,9 @@ describe('PluginManager consumption plane', () => {
     const commitSha = '1111111111111111111111111111111111111111';
 
     let codeloadPath = '';
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async (input: Parameters<FetchLike>[0]) => {
+      vi.fn(async (input: Parameters<typeof fetch>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.endsWith('/commits/v5.1.0.atom')) {
@@ -818,7 +805,7 @@ describe('PluginManager consumption plane', () => {
           return new Response(zipBuffer, { status: 200 });
         }
         throw new Error(`unexpected url ${url}`);
-      }) as FetchLike,
+      }) as unknown as typeof fetch,
     );
 
     const manager = new PluginManager({ kimiHomeDir: home });
@@ -830,7 +817,7 @@ describe('PluginManager consumption plane', () => {
     await rm(sourceRoot, { recursive: true, force: true });
   });
 
-  zipIt('install() from github /tree/<branch> bypasses the GitHub API', async () => {
+  it('install() from github /tree/<branch> bypasses the GitHub API', async () => {
     const home = await makeKimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-branch-'));
     await writeFile(
@@ -863,46 +850,43 @@ describe('PluginManager consumption plane', () => {
     expect((record as { marketplace?: unknown }).marketplace).toBeUndefined();
   });
 
-  zipIt(
-    'install() from github URL overwrites an existing zip-url install (CDN migration)',
-    async () => {
-      const home = await makeKimiHome();
+  it('install() from github URL overwrites an existing zip-url install (CDN migration)', async () => {
+    const home = await makeKimiHome();
 
-      const cdnSource = await mkdtemp(path.join(tmpdir(), 'plugin-cdn-'));
-      await writeFile(
-        path.join(cdnSource, 'kimi.plugin.json'),
-        JSON.stringify({ name: 'superpowers', version: '5.0.0' }),
-        'utf8',
-      );
-      const cdnUrl = await serveOnce(await zipDir(cdnSource));
+    const cdnSource = await mkdtemp(path.join(tmpdir(), 'plugin-cdn-'));
+    await writeFile(
+      path.join(cdnSource, 'kimi.plugin.json'),
+      JSON.stringify({ name: 'superpowers', version: '5.0.0' }),
+      'utf8',
+    );
+    const cdnUrl = await serveOnce(await zipDir(cdnSource));
 
-      const manager = new PluginManager({ kimiHomeDir: home });
-      await manager.load();
-      const first = await manager.install(cdnUrl);
-      expect(first.source).toBe('zip-url');
-      await manager.setEnabled('superpowers', false);
+    const manager = new PluginManager({ kimiHomeDir: home });
+    await manager.load();
+    const first = await manager.install(cdnUrl);
+    expect(first.source).toBe('zip-url');
+    await manager.setEnabled('superpowers', false);
 
-      const ghSource = await mkdtemp(path.join(tmpdir(), 'plugin-gh-migrate-'));
-      await writeFile(
-        path.join(ghSource, 'kimi.plugin.json'),
-        JSON.stringify({ name: 'superpowers', version: '5.1.0' }),
-        'utf8',
-      );
-      mockGithubFetch({ releaseTag: 'v5.1.0', tarball: await zipDir(ghSource) });
+    const ghSource = await mkdtemp(path.join(tmpdir(), 'plugin-gh-migrate-'));
+    await writeFile(
+      path.join(ghSource, 'kimi.plugin.json'),
+      JSON.stringify({ name: 'superpowers', version: '5.1.0' }),
+      'utf8',
+    );
+    mockGithubFetch({ releaseTag: 'v5.1.0', tarball: await zipDir(ghSource) });
 
-      const updated = await manager.install('https://github.com/wbxl2000/superpowers');
-      expect(updated.source).toBe('github');
-      expect(updated.manifest?.version).toBe('5.1.0');
-      expect(updated.enabled).toBe(false);
-      expect(updated.installedAt).toBe(first.installedAt);
-      expect(updated.originalSource).toBe('https://github.com/wbxl2000/superpowers');
-      expect(updated.github?.ref).toEqual({ kind: 'tag', value: 'v5.1.0' });
-      expect(manager.list()).toHaveLength(1);
+    const updated = await manager.install('https://github.com/wbxl2000/superpowers');
+    expect(updated.source).toBe('github');
+    expect(updated.manifest?.version).toBe('5.1.0');
+    expect(updated.enabled).toBe(false);
+    expect(updated.installedAt).toBe(first.installedAt);
+    expect(updated.originalSource).toBe('https://github.com/wbxl2000/superpowers');
+    expect(updated.github?.ref).toEqual({ kind: 'tag', value: 'v5.1.0' });
+    expect(manager.list()).toHaveLength(1);
 
-      await rm(cdnSource, { recursive: true, force: true });
-      await rm(ghSource, { recursive: true, force: true });
-    },
-  );
+    await rm(cdnSource, { recursive: true, force: true });
+    await rm(ghSource, { recursive: true, force: true });
+  });
 
   it('enabledMcpServers() runs stdio node plugins via the bundled Electron Node under an Electron host', async () => {
     const home = await makeKimiHome();
@@ -956,53 +940,259 @@ describe('PluginManager consumption plane', () => {
     expect(JSON.stringify(server)).not.toContain('ELECTRON_RUN_AS_NODE');
   });
 
-  it('enabledMcpServers() runs stdio node plugins through the host runner when the host declares it', async () => {
+  it('isolates shared installations by client and reconciles availability changes without reinstalling', async () => {
     const home = await makeKimiHome();
-    const root = await makePlugin('demo', {
-      mcpServers: { data: { command: 'node', args: ['./bin/data.mjs'] } },
+    const source = 'https://marketplace.test/plugins/marketplace';
+    const root = await makePlugin('host-only', {
+      skills: true,
+      agents: true,
+      sessionStartSkill: 'demo-skill',
+      systemPrompt: 'from plugin',
+      mcpServers: { docs: { transport: 'stdio', command: 'node', args: ['server.js'] } },
+      hooks: [{ event: 'PreToolUse', command: './guard.sh', timeout: 10 }],
+      commands: { 'demo.md': '---\ndescription: Demo command\n---\nRun demo' },
     });
-    const manager = new PluginManager({
-      kimiHomeDir: home,
-      pluginNodeRunner: { command: process.execPath, args: ['__plugin_run_node'] },
+    const availability = new PluginAvailabilityStore(home);
+    const desktop = new PluginManager({ kimiHomeDir: home, client: 'desktop', availability });
+    await desktop.load();
+    await desktop.install(root, {
+      origin: 'marketplace',
+      catalogId: 'host-only',
+      marketplaceSource: source,
     });
-    await manager.load();
-    await manager.install(root);
-    const managedRoot = await managedPluginRoot(manager, 'demo');
+    const catalog = (clients: readonly ('desktop' | 'cli')[]) => ({
+      source,
+      plugins: [{
+        id: 'host-only',
+        displayName: 'Host only',
+        source: 'https://cdn.example.test/host-only.zip',
+        clients,
+      }],
+    });
+    const expectVisibility = async (manager: PluginManager, visible: boolean): Promise<void> => {
+      const count = visible ? 1 : 0;
+      expect(manager.summaries()).toHaveLength(count);
+      expect(manager.get('host-only') !== undefined).toBe(visible);
+      expect(manager.info('host-only') !== undefined).toBe(visible);
+      expect(manager.pluginSkillRoots()).toHaveLength(count);
+      expect(manager.pluginAgentRoots()).toHaveLength(count);
+      expect(manager.enabledHooks()).toHaveLength(count);
+      expect(await manager.enabledCommands()).toHaveLength(count);
+      expect(manager.enabledSessionStarts()).toHaveLength(count);
+      expect(manager.enabledSystemPrompts()).toHaveLength(count);
+      expect(Object.keys(manager.enabledMcpServers())).toHaveLength(count);
+      expect(manager.mcpServerEntries()).toHaveLength(count);
+    };
 
-    const server = manager.enabledMcpServers()['plugin-demo:data'];
-    expect(server).toEqual(
-      expect.objectContaining({
-        command: process.execPath,
-        args: ['__plugin_run_node', './bin/data.mjs'],
-        cwd: managedRoot,
-        env: expect.objectContaining({
-          KIMI_CODE_HOME: home,
-          KIMI_PLUGIN_ROOT: managedRoot,
-        }),
-      }),
-    );
+    await availability.update(catalog(['desktop']));
+    await desktop.reload();
+    await expectVisibility(desktop, true);
+    const cli = new PluginManager({ kimiHomeDir: home, client: 'cli' });
+    await cli.load();
+    await expectVisibility(cli, false);
+    await expect(cli.setEnabled('host-only', false)).rejects.toThrow('not installed');
+    await expect(cli.remove('host-only')).rejects.toThrow('not installed');
+
+    await availability.update(catalog(['desktop', 'cli']));
+    await cli.reload();
+    await expectVisibility(cli, true);
+
+    await availability.update(catalog(['desktop']));
+    await cli.reload();
+    await expectVisibility(cli, false);
+    await desktop.reload();
+    await expectVisibility(desktop, true);
+
+    await availability.update(catalog(['desktop', 'cli']));
+    await cli.reload();
+    await expectVisibility(cli, true);
+    const persisted = JSON.parse(
+      await readFile(path.join(home, 'plugins', 'installed.json'), 'utf8'),
+    ) as { plugins: Array<{ id: string; enabled: boolean }> };
+    expect(persisted.plugins).toEqual([
+      expect.objectContaining({ id: 'host-only', enabled: true }),
+    ]);
   });
 
-  it('enabledMcpServers() keeps the declared runner prefix before the plugin entry', async () => {
+  it('preserves provenance when cached catalogs reuse a plugin id', async () => {
     const home = await makeKimiHome();
-    const root = await makePlugin('demo', {
-      mcpServers: { data: { command: 'node', args: ['./bin/data.mjs'] } },
+    const availability = new PluginAvailabilityStore(home);
+    const artifactSource = 'https://cdn.example.test/default/plugin.zip';
+    await availability.update({
+      source: 'https://marketplace.test/default',
+      plugins: [{
+        id: 'shared-plugin',
+        displayName: 'Default',
+        source: artifactSource,
+        clients: ['desktop'],
+      }],
     });
-    const manager = new PluginManager({
-      kimiHomeDir: home,
-      pluginNodeRunner: { command: 'runner', args: ['--pre', 'main.ts'] },
+    await availability.update({
+      source: 'https://marketplace.test/custom',
+      plugins: [{
+        id: 'shared-plugin',
+        displayName: 'Custom',
+        source: 'https://cdn.example.test/custom/plugin.zip',
+        clients: ['cli'],
+      }],
     });
-    await manager.load();
-    await manager.install(root);
-    const managedRoot = await managedPluginRoot(manager, 'demo');
+    const record = {
+      id: 'shared-plugin',
+      origin: 'marketplace' as const,
+      catalogId: 'shared-plugin',
+      originalSource: artifactSource,
+    };
+    expect(availability.supports(record, 'desktop', process.platform)).toBe(true);
+    expect(availability.supports(record, 'cli', process.platform)).toBe(false);
+    expect(availability.supports(
+      { ...record, originalSource: 'https://cdn.example.test/unknown/plugin.zip' },
+      'desktop',
+      process.platform,
+    )).toBe(false);
+  });
 
-    const server = manager.enabledMcpServers()['plugin-demo:data'];
-    expect(server).toEqual(
-      expect.objectContaining({
-        command: 'runner',
-        args: ['--pre', 'main.ts', './bin/data.mjs'],
-        cwd: managedRoot,
+  it('requires artifact provenance before applying availability to legacy unknown installs', async () => {
+    const home = await makeKimiHome();
+    const availability = new PluginAvailabilityStore(home);
+    const artifactSource = 'https://cdn.example.test/official/plugin.zip';
+    await availability.update({
+      source: 'https://marketplace.test/default',
+      plugins: [{
+        id: 'shared-plugin',
+        displayName: 'Official',
+        source: artifactSource,
+        clients: ['desktop'],
+      }],
+    });
+    const record = {
+      id: 'shared-plugin',
+      origin: 'unknown' as const,
+      originalSource: artifactSource,
+    };
+    expect(availability.supports(record, 'desktop', process.platform)).toBe(true);
+    expect(availability.supports(record, 'cli', process.platform)).toBe(false);
+    expect(availability.supports(
+      { ...record, originalSource: '/tmp/shared-plugin' },
+      'cli',
+      process.platform,
+    )).toBe(true);
+    expect(availability.supports(
+      { ...record, originalSource: undefined },
+      'cli',
+      process.platform,
+    )).toBe(true);
+  });
+
+  it('serializes availability writes from independent stores', async () => {
+    const home = await makeKimiHome();
+    const first = new PluginAvailabilityStore(home);
+    const second = new PluginAvailabilityStore(home);
+    await Promise.all([
+      first.update({
+        source: 'https://marketplace.test/first',
+        plugins: [{ id: 'first', displayName: 'First', source: 'https://cdn.example.test/first.zip' }],
       }),
+      second.update({
+        source: 'https://marketplace.test/second',
+        plugins: [{ id: 'second', displayName: 'Second', source: 'https://cdn.example.test/second.zip' }],
+      }),
+    ]);
+    const persisted = JSON.parse(
+      await readFile(path.join(home, 'plugins', 'availability.json'), 'utf8'),
+    ) as { sources: Record<string, unknown> };
+    expect(Object.keys(persisted.sources).toSorted()).toEqual([
+      `sha256:${createHash('sha256').update('https://marketplace.test/first').digest('hex')}`,
+      `sha256:${createHash('sha256').update('https://marketplace.test/second').digest('hex')}`,
+    ].toSorted());
+  });
+
+  it('reports invalid availability caches and retains the last valid policy', async () => {
+    const home = await makeKimiHome();
+    const source = 'https://marketplace.test/default';
+    const artifactSource = 'https://cdn.example.test/demo.zip';
+    const availability = new PluginAvailabilityStore(home);
+    await availability.update({
+      source,
+      plugins: [{ id: 'demo', displayName: 'Demo', source: artifactSource, clients: ['desktop'] }],
+    });
+    const record = {
+      id: 'demo',
+      origin: 'marketplace' as const,
+      catalogId: 'demo',
+      marketplaceSource: source,
+      originalSource: artifactSource,
+    };
+    expect(availability.supports(record, 'cli', process.platform)).toBe(false);
+
+    const filePath = path.join(home, 'plugins', 'availability.json');
+    await writeFile(filePath, '{', 'utf8');
+    await expect(availability.refresh()).rejects.toThrow();
+    expect(availability.supports(record, 'cli', process.platform)).toBe(false);
+    await writeFile(filePath, JSON.stringify({
+      version: 1,
+      sources: { [source]: { demo: { clients: 'desktop', checkedAt: '2026-01-01T00:00:00.000Z' } } },
+    }), 'utf8');
+    await expect(availability.refresh()).rejects.toThrow('Invalid plugin availability cache');
+    expect(availability.supports(record, 'cli', process.platform)).toBe(false);
+  });
+
+  it('propagates availability persistence failures', async () => {
+    const home = await makeKimiHome();
+    await mkdir(path.join(home, 'plugins', 'availability.json'), { recursive: true });
+    const availability = new PluginAvailabilityStore(home);
+    await expect(availability.update({
+      source: 'https://marketplace.test/default',
+      plugins: [{ id: 'demo', displayName: 'Demo', source: 'https://cdn.example.test/demo.zip' }],
+    })).rejects.toThrow();
+  });
+
+  it('hashes authenticated provenance and migrates plaintext availability entries', async () => {
+    const home = await makeKimiHome();
+    await mkdir(path.join(home, 'plugins'), { recursive: true });
+    const marketplaceSource = 'https://marketplace.test/catalog?token=legacy-secret';
+    const artifactSource = 'https://cdn.example.test/plugin.zip?signature=legacy-signature';
+    await writeFile(
+      path.join(home, 'plugins', 'availability.json'),
+      JSON.stringify({
+        version: 1,
+        sources: {
+          [marketplaceSource]: {
+            demo: { clients: ['desktop'], artifactSource, checkedAt: '2026-01-01T00:00:00.000Z' },
+          },
+        },
+      }),
+      'utf8',
     );
+    const availability = new PluginAvailabilityStore(home);
+    await availability.refresh();
+    const record = {
+      id: 'demo',
+      origin: 'marketplace' as const,
+      catalogId: 'demo',
+      marketplaceSource,
+      originalSource: artifactSource,
+    };
+    expect(availability.supports(record, 'desktop', process.platform)).toBe(true);
+    expect(availability.supports(record, 'cli', process.platform)).toBe(false);
+
+    await availability.update({
+      source: marketplaceSource,
+      plugins: [{ id: 'demo', displayName: 'Demo', source: artifactSource, clients: ['desktop', 'cli'] }],
+    });
+    const text = await readFile(path.join(home, 'plugins', 'availability.json'), 'utf8');
+    expect(text).not.toContain('legacy-secret');
+    expect(text).not.toContain('legacy-signature');
+    expect(text).not.toContain('marketplace.test');
+    expect(text).not.toContain('cdn.example.test');
+    const persisted = JSON.parse(text) as {
+      sources: Record<string, { demo: { artifactSourceKey: string; artifactSource?: string } }>;
+    };
+    const sourceKey = `sha256:${createHash('sha256').update(marketplaceSource).digest('hex')}`;
+    expect(Object.keys(persisted.sources)).toEqual([sourceKey]);
+    expect(persisted.sources[sourceKey]?.demo.artifactSourceKey).toBe(
+      `sha256:${createHash('sha256').update(artifactSource).digest('hex')}`,
+    );
+    expect(persisted.sources[sourceKey]?.demo.artifactSource).toBeUndefined();
+    expect(availability.supports(record, 'cli', process.platform)).toBe(true);
   });
 });

@@ -1,5 +1,6 @@
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
+
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
 import type { SkillDiscoveryResult } from './skillDiscovery';
 import { ISkillDiscovery } from './skillDiscovery';

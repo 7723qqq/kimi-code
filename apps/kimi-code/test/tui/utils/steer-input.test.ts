@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import type { PromptPart } from '@moonshot-ai/kimi-code-sdk';
 
@@ -50,8 +50,6 @@ describe('combineSteerInput', () => {
       head: [{ type: 'text', text: 'a ' }] as PromptPart[],
     },
   ])('drops the separator $name', ({ first, head }) => {
-    // Inserting '\n\n' there would strand a whitespace-only text part between
-    // the two media parts, which `normalizePromptInput` rejects.
     const refPart2 = {
       type: 'image_url',
       imageUrl: { url: 'kimi-file://f_2?path=%2Fcache%2Ff_2.png' },
@@ -61,8 +59,6 @@ describe('combineSteerInput', () => {
   });
 
   it('treats a standalone <media path> tag as plain user text', () => {
-    // Extraction no longer authors machine tags, so a tag in the input is
-    // user text: it merges with adjacent text instead of staying atomic.
     const tag = '<image path="/cache/f_1.png"></image>';
     const result = combineSteerInput([
       {
@@ -108,11 +104,8 @@ describe('takeDeliveredSteerBatches', () => {
     const first = { text: 'hello ', entries: ['hello '] };
     const second = { text: 'world', entries: ['world'] };
     expect(takeDeliveredSteerBatches([combined], 'hello world').delivered).toEqual([combined]);
-    let pending: Array<{ readonly text: string; readonly entries: readonly string[] }> = [
-      first,
-      second,
-    ];
-    const delivered: Array<{ readonly text: string; readonly entries: readonly string[] }> = [];
+    let pending: Array<{ readonly text: string; readonly entries: readonly string[] }> = [first, second];
+    const delivered = [];
     for (const text of ['hello ', 'world']) {
       const step = takeDeliveredSteerBatches(pending, text);
       delivered.push(...step.delivered);
@@ -123,25 +116,22 @@ describe('takeDeliveredSteerBatches', () => {
   });
 
   it('drops skill and hook text that carries a source marker', () => {
-    expect(
-      steerEventParts([
-        { type: 'text', text: 'skill instructions', meta: { source: 'skill activation' } },
-        { type: 'text', text: 'check src/app.ts' },
-        { type: 'text', text: 'hook note', meta: { source: 'user prompt submit hook' } },
-        { type: 'image_url' },
-      ]),
-    ).toEqual({ texts: ['check src/app.ts'], hasMedia: true });
+    expect(steerEventParts([
+      { type: 'text', text: 'skill instructions', meta: { source: 'skill activation' } },
+      { type: 'text', text: 'check src/app.ts' },
+      { type: 'text', text: 'hook note', meta: { source: 'user prompt submit hook' } },
+      { type: 'image_url' },
+    ])).toEqual({ texts: ['check src/app.ts'], hasMedia: true });
   });
 
   it('clears a steer when skill activation text is prepended', () => {
     const batch = { text: 'check src/app.ts', entries: ['check src/app.ts'] };
-    const eventText =
-      [
-        'User activated the skill "review". Follow the loaded skill instructions.',
-        '<skill-loaded name="review">',
-        'Review the change.',
-        '</skill-loaded>',
-      ].join('\n') + 'check src/app.ts';
+    const eventText = [
+      'User activated the skill "review". Follow the loaded skill instructions.',
+      '<skill-loaded name="review">',
+      'Review the change.',
+      '</skill-loaded>',
+    ].join('\n') + 'check src/app.ts';
     const result = takeDeliveredSteerBatches([batch], eventText);
     expect(result.delivered).toEqual([batch]);
     expect(result.pending).toEqual([]);

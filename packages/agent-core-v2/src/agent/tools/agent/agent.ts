@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
-import { DEFAULT_PROFILE_NAME } from '#/session/subagent/spawn';
 import { type AgentTool } from '#/tool/toolContract';
+import { DEFAULT_PROFILE_NAME } from '#/session/subagent/spawn';
 
 export { DEFAULT_PROFILE_NAME };
 export const RESUMED_LABEL = 'subagent';
@@ -19,9 +19,7 @@ export const SubagentToolInputSchema = z.preprocess(
     const hasSubagentType =
       typeof normalized['subagent_type'] === 'string' && normalized['subagent_type'].length > 0;
     const hasFork = normalized['fork'] === true;
-    const hasBackend =
-      typeof normalized['backend'] === 'string' && normalized['backend'].trim().length > 0;
-    if (!hasSubagentType && !hasResumeId && !hasFork && !hasBackend) {
+    if (!hasSubagentType && !hasResumeId && !hasFork) {
       normalized['subagent_type'] = DEFAULT_PROFILE_NAME;
     } else if (!hasSubagentType) {
       delete normalized['subagent_type'];
@@ -61,12 +59,6 @@ export const SubagentToolInputSchema = z.preprocess(
       .describe(
         'Which model to run the subagent on: one of the aliases listed under "Available models" in this tool description. When omitted, the configured default model is used. Ignored when resuming — resumed subagents keep their own model.',
       ),
-    backend: z
-      .string()
-      .optional()
-      .describe(
-        'Run the task on an external agent CLI backend (see "Available backends" in this tool description) instead of an in-process subagent. Cannot be combined with subagent_type, resume, fork, model, or run_in_background.',
-      ),
   }),
 );
 
@@ -96,7 +88,6 @@ export const SUBAGENT_STOPPED_MESSAGE = 'The subagent was stopped before it fini
 
 export interface ISubagentTool extends AgentTool<SubagentToolInput> {
   readonly _serviceBrand: undefined;
-
   invalidateProfileDescriptions(): void;
 }
 

@@ -1,65 +1,34 @@
-/**
- * Custom editor extending pi-tui Editor with app-level keybindings.
- */
-
 import {
   Editor,
+  FAKE_CURSOR_END,
+  FAKE_CURSOR_START,
   isKeyRelease,
   matchesKey,
   Key,
   SelectList,
+  truncateToWidth,
+  visibleWidth,
   type SelectItem,
   type TUI,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
-import { wrapWithSideBorders } from '#/tui/components/chrome/panel-frame';
-import type { StatusSurfaceKey } from '#/tui/components/chrome/status-surface/region';
 import type { SubmitKey } from '#/tui/config';
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
-import { findInlineSkillTokens } from '#/tui/utils/inline-skill-tokens';
 import { printableChar } from '#/tui/utils/printable-key';
 
 import { extractAtPrefix } from './file-mention-provider';
+import { findInlineSkillTokens } from '../../utils/inline-skill-tokens';
 import { WrappingSelectList } from './wrapping-select-list';
+import { t } from '#/i18n';
 
-// oxlint-disable-next-line no-control-regex -- ESC (\x1b) is required to match ANSI SGR escape sequences
 const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 
 const PASTE_MARKER_RE = /\[paste #(\d+)(?: (?:\+\d+ lines|\d+ chars))?\]/g;
-
-/** Media extensions accepted for drag & drop attachment (case-insensitive). */
-const DROP_MEDIA_EXT_RE = /\.(?:png|jpe?g|gif|webp|bmp|pdf)$/i;
-
-/**
- * When terminal input is exactly one media file path (drag & drop inserts
- * the path as a single chunk; a pasted path arrives the same way), return
- * the path. Quoted paths (`"C:\a\b.png"`) and bare paths without spaces
- * (`C:\a\b.png`, `/a/b.png`) are recognized; anything else — multi-token
- * text, relative names, or a path that is not a supported media file —
- * returns undefined.
- */
-function extractSingleMediaPath(input: string): string | undefined {
-  const trimmed = input.trim();
-  if (trimmed.length === 0) return undefined;
-  const quoted = /^"([^"\n]+)"$/.exec(trimmed);
-  const candidate = quoted?.[1] ?? trimmed;
-  if (!/[\\/]/.test(candidate)) return undefined;
-  if (!DROP_MEDIA_EXT_RE.test(candidate)) return undefined;
-  if (quoted === null && /\s/.test(candidate)) return undefined;
-  return candidate;
-}
 const BRACKET_PASTE_START = '\u001B[200~';
 const BRACKET_PASTE_END = '\u001B[201~';
 
-// Kitty keyboard protocol CSI-u sequence: ESC [ keycode ; modifier[:eventType] u.
-// We intentionally match only the simple two-field form — enough to rewrite
-// `ctrl+<LETTER>` with caps_lock into `ctrl+<letter>` without caps_lock.
-// oxlint-disable-next-line no-control-regex -- ESC (\x1b) is required to match CSI
 const KITTY_CSI_U = /^\u001B\[(\d+);(\d+)((?::\d+)*)u$/;
-// Kitty modifier bit layout: shift=1, alt=2, ctrl=4, super=8, hyper=16,
-// meta=32, caps_lock=64, num_lock=128. Reported value is `mask + 1`.
 const CAPS_LOCK_BIT = 64;
 const CTRL_BIT = 4;
 const SHIFT_BIT = 1;
@@ -79,27 +48,11 @@ interface AutocompleteTriggerInternals {
   requestAutocomplete: (options: { force: boolean; explicitTab: boolean }) => void;
 }
 
-// Mirror pi-tui's private SLASH_COMMAND_SELECT_LIST_LAYOUT
-// (dist/components/editor.js); keep in sync when bumping pi-tui.
 const SLASH_COMMAND_SELECT_LIST_LAYOUT = {
   minPrimaryColumnWidth: 12,
   maxPrimaryColumnWidth: 32,
 } as const;
 
-/**
- * Workaround for a pi-tui bug that surfaces when Kitty keyboard protocol
- * is active AND caps_lock is on. In that state terminals emit, e.g.,
- * `ESC[68;69u` for ctrl+d (codepoint=68=`D`, modifier=ctrl|caps_lock).
- * pi-tui's `matchesKittySequence` masks `caps_lock` out of the *modifier*
- * but leaves the *codepoint* capitalised, so `matchesKey(data, "ctrl+d")`
- * (which expects codepoint=100=`d`) fails and every ctrl-shortcut is
- * silently dropped.
- *
- * We rewrite the sequence back to its unlocked form before dispatching,
- * but only when ctrl is held and shift is not — i.e. exactly the
- * `ctrl+<letter>` case. Plain uppercase (caps_lock only, no ctrl) and
- * explicit ctrl+shift+<letter> are left alone.
- */
 export function normalizeCapsLockedCtrl(data: string): string {
   const m = data.match(KITTY_CSI_U);
   if (m === null) return data;
@@ -117,7 +70,6 @@ export function normalizeCapsLockedCtrl(data: string): string {
   return `\u001B[${String(loweredCodepoint)};${String(strippedModifier)}${tail}u`;
 }
 
-/** Convert a visible-char index (ANSI-stripped) back to an index into the raw ANSI-bearing string. */
 function mapVisibleIdxToRaw(line: string, visibleIdx: number): number {
   let visibleCount = 0;
   let i = 0;
@@ -147,25 +99,12 @@ function alternateSubmitKey(data: string): Exclude<SubmitKey, 'enter'> | undefin
 
 interface CustomEditorOptions {
   disablePasteBurst?: boolean;
-  onAutocompleteError?: (error: unknown) => void;
 }
 
-// pi-tui's fake cursor: the grapheme under the caret in reverse video.
 const BLOCK_CURSOR = /\u001B\[7m(.*?)\u001B\[0m/u;
 
 export class CustomEditor extends Editor {
-  /**
-   * The prompt keeps Home/End for cursor movement and routes PageUp/PageDown
-   * to the status strip, so the fullscreen renderer must not take those keys
-   * for transcript scrolling. `ownsViewportSearchKey` stays unset on purpose:
-   * Ctrl-Shift-F must still open transcript search from the editor.
-   */
-  readonly ownsViewportKeys = true;
   public onEscape?: () => void;
-  /**
-   * Fired for every input that is not a lone Escape. Used to disarm a pending
-   * double-Esc so only two consecutive Escape presses trigger the shortcut.
-   */
   public onNonEscapeInput?: () => void;
   public onPreInput?: (data: string) => boolean;
   public onCtrlD?: () => void;
@@ -173,97 +112,27 @@ export class CustomEditor extends Editor {
   public onToggleToolExpand?: () => void;
   public onOpenExternalEditor?: () => void;
   public onCtrlS?: () => void;
-  public onOptimizePrompt?: () => void;
-  /** Return `true` to consume Ctrl+B; return `false`/`undefined` to fall through to the editor default (cursor-left). */
   public onCtrlB?: () => boolean;
-  /**
-   * Route a status-strip key to whichever region owns it; return `true` to
-   * consume.
-   *
-   * One callback covers what used to be four (`onToggleTodoExpand`,
-   * `onScrollTodo`, `onPageNotify`, `onNotifyPanelKey`): the strip decides
-   * internally which region the key applies to — fold, page or scroll — so the
-   * editor does not need to know which panels exist. A `false` return means
-   * nothing claimed the key and the editor's own binding should run — that
-   * fall-through is what keeps an idle `Ctrl+T` from being swallowed on a
-   * strip with nothing to fold.
-   *
-   * `[`/`]` are accepted as aliases of `PgUp`/`PgDn`: in fullscreen those are
-   * already bound to the transcript's paging (`tui.altScreen.pageUp`), so a
-   * strip-local binding cannot claim them there.
-   */
-  public onStatusSurfaceKey?: (key: StatusSurfaceKey) => boolean;
-  /**
-   * Whether the status strip currently holds the keyboard.
-   *
-   * Plain ↑/↓ belong to prompt history unless a region is focused; `Shift+↑/↓`
-   * is the strip's own scroll gesture and needs no focus.
-   */
-  public onStatusSurfaceFocused?: () => boolean;
-  /**
-   * Route a raw key to the status strip before {@link statusSurfaceKeyOf} gets
-   * it; return `true` to consume.
-   *
-   * `StatusSurfaceKey` is a normalized vocabulary, so it cannot carry printable
-   * text (an approval's rejection reason) or the Ctrl shortcuts a panel owns
-   * with no normalized name (`Ctrl+E` preview, `Ctrl+O`). Those go here, ahead
-   * of the mapping, so a panel whose inline input is active keeps Enter, Esc,
-   * ↑/↓ and the digits for itself instead of having them read as answers.
-   */
-  public onStatusSurfaceRawInput?: (data: string) => boolean;
+  public onPageNotify?: () => boolean;
   public onUndo?: () => void;
   public onTextPaste?: () => void;
-  /**
-   * Called when ↑ is pressed in an empty editor. Return `true` to consume
-   * the key (e.g. recalled a queued message); return `false` to fall
-   * through so pi-tui's built-in history navigation runs.
-   */
   public onUpArrowEmpty?: () => boolean;
   public onDownArrowEmpty?: () => boolean;
   public onShiftTab?: () => void;
-  /** 'bash' when entering a `!` shell command. The `!` is never part of the
-   *  text buffer — it is a separate mode + prompt symbol (see handleInput). */
   public inputMode: 'prompt' | 'bash' = 'prompt';
   public onInputModeChange?: (mode: 'prompt' | 'bash') => void;
   public connectedAbove = false;
   public borderHighlighted = false;
-  /** Terminal window focus, tracked separately from this component's keyboard focus. */
   public terminalFocused = true;
-  /**
-   * True while a prompt rewrite is in flight. The border takes a distinct
-   * colour and carries a label, so the wait is visible instead of looking like
-   * a frozen UI.
-   *
-   * This lives on the editor rather than being applied by the host through
-   * `borderColor`, because typing during the rewrite runs
-   * `updateEditorBorderHighlight`, which reassigns `borderColor` and would
-   * otherwise wipe the busy signal while the request is still outstanding.
-   */
-  public optimizing = false;
-  /**
-   * Called when the user triggers "paste image" (Ctrl-V on Unix,
-   * Alt-V on Windows — Ctrl-V is terminal-reserved there). Return
-   * `true` to consume the key (image was read and handled); return
-   * `false` to let the key fall through to the normal paste path.
-   * The callback may be async; CustomEditor queues subsequent keystrokes until
-   * it settles before dispatching them.
-   */
   public onPasteImage?: () => Promise<boolean>;
-  /**
-   * Called when a single media file path arrives as terminal input (drag &
-   * drop into the terminal, or a pasted path). Return `true` to consume the
-   * input (the path was attached as media); return `false` to fall through
-   * so the path is inserted as plain text.
-   */
-  public onPasteMediaPath?: (path: string) => boolean;
 
   private consumingPaste = false;
   private consumeBuffer = '';
-  /** Serialize paste callbacks so Enter/typing cannot overtake an image paste. */
   private pasteInFlight = false;
   private readonly pasteInputQueue: string[] = [];
   private argumentHints: ReadonlyMap<string, string> = new Map();
   private skillCommandNames: ReadonlySet<string> = new Set();
+  private promptPrediction: string | undefined;
   private currentSubmitKey: SubmitKey = 'enter';
 
   get submitKey(): SubmitKey {
@@ -278,12 +147,23 @@ export class CustomEditor extends Editor {
     this.skillCommandNames = names;
   }
 
+  setPromptPrediction(text: string | undefined): void {
+    this.promptPrediction = text;
+  }
+
+  getPromptPrediction(): string | undefined {
+    return this.promptPrediction;
+  }
+
+  acceptPromptPrediction(): boolean {
+    const text = this.promptPrediction;
+    if (text === undefined || this.getText().length > 0) return false;
+    this.promptPrediction = undefined;
+    this.setText(text);
+    return true;
+  }
+
   constructor(tui: TUI, options: CustomEditorOptions = {}) {
-    // paddingX: 4 reserves column 0 for the left vertical border (│),
-    // column 1 as a single space between border and prompt, column 2 for
-    // the `>` prompt token, and column 3 as the space between prompt and
-    // content. The right side mirrors with 3 padding columns and the right
-    // border at the last column.
     const theme = createEditorTheme();
     super(tui, theme, {
       paddingX: 4,
@@ -291,10 +171,6 @@ export class CustomEditor extends Editor {
       inlineSlashTrigger: true,
     });
 
-    // pi-tui keeps `createAutocompleteList` private; shadow it with an
-    // instance property so slash command menus render descriptions wrapped
-    // to at most two lines. Non-slash completion (paths, @ mentions) keeps
-    // pi-tui's single-line list.
     (this as unknown as AutocompleteListFactoryInternals).createAutocompleteList = (
       prefix,
       items,
@@ -310,16 +186,14 @@ export class CustomEditor extends Editor {
       return new SelectList(items, this.getAutocompleteMaxVisible(), theme.selectList);
     };
 
-    // pi-tui auto-triggers autocomplete for `/` (and letters in a slash
-    // context) with force:false, which routes through the slash-command
-    // branch. In bash mode `/` is a path separator, not a command prefix, so
-    // shadow the trigger to request file path completion (force:true) instead.
-    // Prompt mode keeps the original force:false behaviour. `tryTriggerAutocomplete`
-    // is private in pi-tui's typings but a plain prototype method at runtime.
     const triggerInternals = this as unknown as AutocompleteTriggerInternals;
     triggerInternals.tryTriggerAutocomplete = (explicitTab = false) => {
       triggerInternals.requestAutocomplete({ force: this.inputMode === 'bash', explicitTab });
     };
+  }
+
+  override setDisablePasteBurst(disabled: boolean): void {
+    super.setDisablePasteBurst(disabled);
   }
 
   public setInputMode(mode: 'prompt' | 'bash'): void {
@@ -346,8 +220,6 @@ export class CustomEditor extends Editor {
       const text = this.getText();
       const offset = lines.slice(0, line).reduce((sum, l) => sum + l.length + 1, 0) + start;
       const newText = text.slice(0, offset) + content + text.slice(offset + match[0].length);
-      // Keep the paste registry intact: the text still holds other live markers
-      // whose entries a plain setText would drop (upstream resets the registry).
       this.setText(newText, { preservePasteRegistry: true });
       return true;
     }
@@ -364,8 +236,6 @@ export class CustomEditor extends Editor {
   }
 
   private cancelAutocompleteActivity(): void {
-    // pi-tui exposes `isShowingAutocomplete()` but keeps cancellation private.
-    // Kimi needs Esc to win over app-level cancel while the slash menu request is active.
     (this as unknown as AutocompleteInternals).cancelAutocomplete();
   }
 
@@ -376,9 +246,6 @@ export class CustomEditor extends Editor {
     const isBash = this.inputMode === 'bash';
     const text = this.getText().trimStart();
     if (!isBash) {
-      // Paint the leading slash command on the first content line only, then
-      // inline skill tokens on every content line (multi-line prompts can
-      // reference skills anywhere).
       const original = lines[firstContentIdx];
       if (original !== undefined) {
         let highlighted = original;
@@ -406,12 +273,7 @@ export class CustomEditor extends Editor {
       for (let i = firstContentIdx + 1; i < lines.length - 1; i++) {
         const original = lines[i];
         if (original === undefined) continue;
-        const inline = highlightInlineSkillTokens(
-          original,
-          this.skillCommandNames,
-          null,
-          'primary',
-        );
+        const inline = highlightInlineSkillTokens(original, this.skillCommandNames, null, 'primary');
         if (inline !== undefined) {
           lines[i] = inline;
         }
@@ -422,6 +284,17 @@ export class CustomEditor extends Editor {
       const line = lines[firstContentIdx];
       if (line !== undefined) {
         lines[firstContentIdx] = injectArgumentHint(line, hint, this.getText().length, width);
+      }
+    }
+    if (
+      this.promptPrediction !== undefined &&
+      this.inputMode === 'prompt' &&
+      this.getText().length === 0 &&
+      !this.hasAutocompleteActivity()
+    ) {
+      const line = lines[firstContentIdx];
+      if (line !== undefined) {
+        lines[firstContentIdx] = injectPromptPrediction(line, this.promptPrediction, width);
       }
     }
     const firstContent = lines[firstContentIdx];
@@ -435,38 +308,26 @@ export class CustomEditor extends Editor {
         lines[firstContentIdx] = withPrompt;
       }
     }
-    // `this.borderColor` is pi-tui's per-render paint function. The host may
-    // overwrite it (e.g. plan-mode / slash-context highlight via
-    // `editor.borderColor = chalk.hex(primary)`), so we route corners and
-    // side bars through the same hook to stay in sync.
-    //
-    // The busy state overrides both the colour and the label: a rewrite is in
-    // flight, so that is the most important thing the border can say.
-    const paint = this.optimizing
-      ? (s: string) => currentTheme.fg('borderFocus', s)
-      : (s: string) => this.borderColor(s);
-    const label = this.optimizing
-      ? ` ${currentTheme.boldFg('borderFocus', t('tui.messages.promptOptimizingLabel'))} `
-      : isBash
-        ? ` ${currentTheme.boldFg('shellMode', t('tui.messages.shellModeLabel'))} `
-        : undefined;
-    // While another component holds the keyboard or the terminal window is
-    // inactive, the editor looks inactive: no block cursor (pi-tui draws it
-    // focused or not), and the whole box fades.
     const inactive = !this.focused || !this.terminalFocused;
     const framed = wrapWithSideBorders(
-      inactive ? lines.map((line) => line.replace(BLOCK_CURSOR, '$1')) : lines,
-      paint,
+      inactive
+        ? lines.map((line) =>
+            line
+              .replace(BLOCK_CURSOR, '$1')
+              .replaceAll(FAKE_CURSOR_START, '')
+              .replaceAll(FAKE_CURSOR_END, ''),
+          )
+        : lines,
+      (s: string) => this.borderColor(s),
       {
-        connectedAbove: this.connectedAbove && !this.borderHighlighted && !this.optimizing,
-        label,
+        connectedAbove: this.connectedAbove && !this.borderHighlighted,
+        label: isBash ? ` ${currentTheme.boldFg('shellMode', t('tui.messages.shellModeLabel'))} ` : undefined,
       },
     );
     return inactive ? framed.map((line) => currentTheme.fade(line)) : framed;
   }
 
   private computeArgumentHint(): string | undefined {
-    // Argument hints describe slash commands, which do not exist in bash mode.
     if (this.inputMode === 'bash') return undefined;
     const text = this.getText();
     const match = /^\/(\S+)( ?)$/.exec(text);
@@ -489,18 +350,11 @@ export class CustomEditor extends Editor {
       return;
     }
 
-    // Clipboard reads are asynchronous. Queue every key received while a
-    // paste callback is in flight and replay it once the callback settles
-    // (clipboard read + placeholder insert — compression and the daemon
-    // upload continue in the background off this path), so Enter cannot
-    // submit a draft that is still missing the pasted image.
     if (this.pasteInFlight) {
       this.pasteInputQueue.push(normalized);
       return;
     }
 
-    // Any input other than a lone Escape breaks a pending double-Esc sequence,
-    // so the shortcut only fires for two consecutive Escape presses.
     if (!matchesKey(normalized, Key.escape)) {
       this.onNonEscapeInput?.();
     }
@@ -509,8 +363,6 @@ export class CustomEditor extends Editor {
       return;
     }
 
-    // When a paste marker was just expanded, discard the trailing bracketed
-    // paste data that the terminal sends alongside the Ctrl-V keystroke.
     if (this.consumingPaste) {
       this.consumeBuffer += normalized;
       if (this.consumeBuffer.includes(BRACKET_PASTE_END)) {
@@ -520,8 +372,6 @@ export class CustomEditor extends Editor {
       return;
     }
 
-    // If a bracketed paste arrives while the cursor sits on an existing
-    // paste marker, expand that marker instead of pasting new content.
     if (normalized.includes(BRACKET_PASTE_START) && this.expandPasteMarkerAtCursor()) {
       if (!normalized.includes(BRACKET_PASTE_END)) {
         this.consumingPaste = true;
@@ -529,12 +379,6 @@ export class CustomEditor extends Editor {
       return;
     }
 
-    // Paste image binding — platform-aware:
-    //   Windows terminals reserve Ctrl-V for their own paste handling
-    //   (e.g. Windows Terminal's Ctrl+V shortcut), so we listen for
-    //   Alt-V there. Everywhere else Ctrl-V pastes. When the host
-    //   reports no image available, we fall through to pi-tui's
-    //   normal paste path so text from the clipboard still works.
     const pasteKey = process.platform === 'win32' ? 'alt+v' : Key.ctrl('v');
     if (matchesKey(normalized, pasteKey)) {
       if (this.expandPasteMarkerAtCursor()) {
@@ -552,9 +396,6 @@ export class CustomEditor extends Editor {
             if (!handled) pasteAsText();
           })
           .catch(() => {
-            // A rejecting image-paste handler must not leak an unhandled
-            // rejection (the CLI turns those into a silent exit) — treat it
-            // the same as "no image available" and fall back to text paste.
             pasteAsText();
           })
           .finally(() => {
@@ -592,63 +433,12 @@ export class CustomEditor extends Editor {
       return;
     }
 
-    if (matchesKey(normalized, Key.ctrl('p'))) {
-      // Only consume the key when the host actually wires an optimizer;
-      // otherwise fall through so the editor default stays available.
-      if (this.onOptimizePrompt !== undefined) {
-        this.onOptimizePrompt();
-        return;
-      }
-    }
-
     if (matchesKey(normalized, Key.ctrl('b'))) {
-      // Only consume the key when the handler actually detached something;
-      // otherwise fall through so readline's backward-char still works at the
-      // idle prompt.
       if (this.onCtrlB?.() === true) return;
     }
 
-    if (matchesKey(normalized, Key.ctrl('t'))) {
-      // Only consume the key when the status strip actually folds or unfolds
-      // something; otherwise fall through to the editor default. The strip
-      // decides — it is the one that knows whether its fold target currently
-      // conceals rows.
-      if (this.onStatusSurfaceKey?.('toggle') === true) return;
-    }
-
-    if (matchesKey(normalized, 'shift+up') || matchesKey(normalized, 'shift+down')) {
-      // Only consume when the strip actually scrolled, so the keys keep falling
-      // through in the common case.
-      const direction = matchesKey(normalized, 'shift+up') ? 'up' : 'down';
-      if (this.onStatusSurfaceKey?.(direction) === true) return;
-    }
-
     if (matchesKey(normalized, Key.ctrl('n'))) {
-      // Only consume the key when the strip grabbed or released panel focus;
-      // otherwise fall through to the editor default.
-      if (this.onStatusSurfaceKey?.('focus') === true) return;
-    }
-
-    // A focused region owns ←/→ (channel switching), ↑/↓ (paging), PgUp/PgDn,
-    // Esc (release focus), Enter (commit the highlighted choice) and the digit
-    // keys (quick-pick by the printed number); when nothing is focused the
-    // handler returns false and every key falls through to the normal editor
-    // behavior below. Active autocomplete outranks the strip: its menu needs the
-    // same keys for selection and dismissal.
-    if (!this.hasAutocompleteActivity()) {
-      // Raw keys first: a panel with an active inline input needs the text, the
-      // digits and Enter itself, all of which `statusSurfaceKeyOf` would flatten
-      // or drop.
-      if (this.onStatusSurfaceRawInput?.(normalized) === true) return;
-      const panelKey = statusSurfaceKeyOf(normalized);
-      const bareArrow = panelKey === 'up' || panelKey === 'down';
-      if (bareArrow && this.onStatusSurfaceFocused?.() !== true) {
-        // No region owns the keyboard, so the bare arrows stay with prompt
-        // history and cursor movement; `Shift+↑/↓` above scrolls the strip
-        // without moving focus.
-      } else if (panelKey !== undefined && this.onStatusSurfaceKey?.(panelKey) === true) {
-        return;
-      }
+      if (this.onPageNotify?.() === true) return;
     }
 
     if (matchesKey(normalized, 'shift+tab')) {
@@ -660,9 +450,6 @@ export class CustomEditor extends Editor {
       this.onUndo?.();
     }
 
-    // Exit bash mode: Backspace/Escape on an empty `!` prompt returns to prompt
-    // mode. Because the `!` is not in the buffer, "deleting" it is really
-    // "delete on empty bash input".
     if (
       this.inputMode === 'bash' &&
       this.getText().length === 0 &&
@@ -676,7 +463,6 @@ export class CustomEditor extends Editor {
     if (matchesKey(normalized, Key.up)) {
       if (this.getText().length === 0 && this.onUpArrowEmpty) {
         if (this.onUpArrowEmpty()) return;
-        // fall through to super so Editor's built-in history navigation runs
       }
     }
 
@@ -695,17 +481,10 @@ export class CustomEditor extends Editor {
       return;
     }
 
-    // The strip owns Tab while it holds the keyboard: `Tab` walks between its
-    // two columns, and only the surface knows that geometry. Without a focused
-    // region the handler returns false and Tab is swallowed as before.
     if (matchesKey(normalized, Key.tab) && !this.isShowingAutocomplete()) {
-      if (this.onStatusSurfaceKey?.('cycleColumn') === true) return;
       return;
     }
 
-    // Enter bash mode: typing `!` at the start of an empty prompt. The `!` is
-    // not inserted into the buffer — it becomes the mode + prompt symbol, so the
-    // cursor never has to skip over it and submit never has to strip it.
     if (
       this.inputMode === 'prompt' &&
       printableChar(normalized) === '!' &&
@@ -717,19 +496,6 @@ export class CustomEditor extends Editor {
     }
 
     const emptyPromptBeforeInput = this.inputMode === 'prompt' && this.getText().length === 0;
-
-    // Drag & drop (and pasted paths): terminals insert the dropped file's
-    // path as a single chunk of input. When that chunk is exactly one media
-    // path, attach it immediately (placeholder in the editor) instead of
-    // leaving a bare path that only converts on submit. Falls through to
-    // plain text when the path is not a readable media file.
-    if (this.onPasteMediaPath !== undefined) {
-      const mediaPath = extractSingleMediaPath(normalized);
-      if (mediaPath !== undefined && this.onPasteMediaPath(mediaPath)) {
-        return;
-      }
-    }
-
     const submitKey = alternateSubmitKey(normalized);
     if (submitKey === undefined) {
       super.handleInput(normalized);
@@ -742,10 +508,6 @@ export class CustomEditor extends Editor {
       }
     }
 
-    // Enter bash mode when `!...` is pasted into an empty prompt. The typed path
-    // above handles the single `!` keystroke; this catches bracketed / Ctrl-V
-    // pastes whose content starts with `!`. Strip the leading `!` so the buffer
-    // holds only the command, exactly like the typed path.
     if (emptyPromptBeforeInput && this.inputMode === 'prompt' && this.getText().startsWith('!')) {
       this.inputMode = 'bash';
       this.onInputModeChange?.('bash');
@@ -772,26 +534,14 @@ export class CustomEditor extends Editor {
     };
     if (editor.requestAutocomplete === undefined) return;
     const trigger = (): void => {
-      // Use force:false so slash-aware logic runs: commands with argument
-      // completions return their subcommands, commands without them return
-      // null. force:true would bypass the slash branch and fall through to
-      // path completion, wrongly popping up the file list.
       editor.requestAutocomplete?.({ force: false, explicitTab: false });
     };
 
-    // Reopen path / argument completion right after a `/` is typed
-    // (e.g. `/add-dir /` or an `@dir/` mention).
     if (textBeforeCursor.endsWith('/')) {
       const isAtMention = extractAtPrefix(textBeforeCursor) !== null;
       if (isAtMention) {
         trigger();
       } else if (this.inputMode === 'bash') {
-        // In bash mode `/` is a path separator, not a slash command. A bare
-        // leading `/` is already handled by the tryTriggerAutocomplete shadow
-        // in the constructor; this branch covers the inline case (e.g. `ls /`,
-        // `cat /etc/`, `/add-dir/`) that pi-tui never auto-triggers. force:true
-        // is required so pi-tui's own slash-command handling is bypassed —
-        // force:false would let it pop up subcommand completions.
         if (textBeforeCursor.trimStart() !== '/') {
           editor.requestAutocomplete?.({ force: true, explicitTab: false });
         }
@@ -804,11 +554,6 @@ export class CustomEditor extends Editor {
       return;
     }
 
-    // After accepting a slash command name via Tab, pi-tui inserts a trailing
-    // space and closes the menu without triggering argument completion. Reopen
-    // it so subcommands (e.g. `/goal ` → status/pause/…) show immediately.
-    // Skipped in bash mode: `/` is a path there, and force:false would let
-    // pi-tui's own slash-command handling pop up subcommand completions.
     if (
       this.inputMode !== 'bash' &&
       textBeforeCursor.endsWith(' ') &&
@@ -820,13 +565,6 @@ export class CustomEditor extends Editor {
   }
 }
 
-/**
- * Return a copy of `line` with the first `/token` coloured using `hex`.
- * For `/goal next manage`, also colour the command-path tokens.
- * `line` may already contain SGR escapes (cursor inverse, etc.); we
- * locate `/` via visible-index math so ANSI pass-through survives.
- * Returns `undefined` if no token is found.
- */
 export function highlightFirstSlashToken(line: string, token: 'primary'): string | undefined {
   const visible = stripSgr(line);
   const range = leadingSlashTokenRange(visible);
@@ -841,12 +579,9 @@ export function highlightFirstSlashToken(line: string, token: 'primary'): string
 function leadingSlashTokenRange(visible: string): { start: number; end: number } | null {
   const slashIdx = visible.indexOf('/');
   if (slashIdx < 0) return null;
-  // Guard: only paint when `/` is the first non-whitespace character
-  // on the line (avoids colouring a mid-sentence slash).
   for (let i = 0; i < slashIdx; i++) {
     if (visible[i] !== ' ' && visible[i] !== '\t') return null;
   }
-  // Token ends at the next whitespace (or the visible end).
   let endVisible = slashIdx + 1;
   while (endVisible < visible.length) {
     const ch = visible[endVisible];
@@ -858,11 +593,6 @@ function leadingSlashTokenRange(visible: string): { start: number; end: number }
   return { start: slashIdx, end: endVisible };
 }
 
-/**
- * Highlight inline skill tokens in `line`. A token is painted only when it
- * names a known skill; `exclude` (the already-painted leading slash command
- * range) is skipped so the leading command is not painted twice.
- */
 export function highlightInlineSkillTokens(
   line: string,
   skillCommandNames: ReadonlySet<string>,
@@ -929,21 +659,9 @@ function highlightVisibleRanges(
   return out + line.slice(rawCursor);
 }
 
-// Mirrors the editor's paddingX (see constructor). The hint is spliced into
-// the first content line, which starts with this many spaces of left padding.
 const EDITOR_LEFT_PADDING = 4;
-// pi-tui renders the end-of-input cursor as an inverse-video space.
 const CURSOR_BLOCK = '\u001B[7m \u001B[0m';
 
-/**
- * Splice a dimmed argument-hint ghost string into the first content line.
- *
- * The hint is purely visual: it is appended after the typed command (and
- * after the cursor block when one is rendered) so the cursor stays at the
- * end of the real input. It consumes trailing padding space, so the line
- * width is preserved; if it would overflow the box it is truncated with an
- * ellipsis. Returns the line unchanged when there is no room for a hint.
- */
 function injectArgumentHint(
   line: string,
   hint: string,
@@ -953,8 +671,6 @@ function injectArgumentHint(
   const cursorIdx = line.indexOf(CURSOR_BLOCK);
   const cursorPresent = cursorIdx !== -1;
   const contentWidth = Math.max(1, width - EDITOR_LEFT_PADDING * 2);
-  // Room left in the content area after the typed text (and cursor). The hint
-  // must fit within this so the rendered line keeps its width.
   const available = contentWidth - realTextLength - (cursorPresent ? 1 : 0);
   const trimmed = truncateHint(hint, available);
   if (trimmed.length === 0) return line;
@@ -962,9 +678,6 @@ function injectArgumentHint(
   const insertAt = cursorPresent
     ? cursorIdx + CURSOR_BLOCK.length
     : mapVisibleIdxToRaw(line, EDITOR_LEFT_PADDING + realTextLength);
-  // Everything after the insertion point is trailing padding + right padding
-  // (plain spaces). Replace it with the hint followed by the remaining spaces
-  // so the visible line width is preserved.
   const trailing = line.length - insertAt;
   return line.slice(0, insertAt) + colored + ' '.repeat(Math.max(0, trailing - trimmed.length));
 }
@@ -976,16 +689,23 @@ function truncateHint(hint: string, maxLen: number): string {
   return `${hint.slice(0, maxLen - 1)}…`;
 }
 
-/**
- * Overlay a terminal-style `> ` prompt symbol on the first content line.
- * Column 0 is reserved for the left vertical border (overlaid later by
- * wrapWithSideBorders); column 1 is a single-space gap, so the `>` token
- * lives at column 2 with column 3 separating it from content.
- * Relies on the editor being configured with `paddingX >= 4` so the line
- * starts with at least four literal spaces. Emits no SGR so the terminal's
- * default foreground colour renders the symbol. Returns `undefined` if the
- * line is too short or doesn't begin with the expected padding.
- */
+function injectPromptPrediction(line: string, prediction: string, width: number): string {
+  const cursorIdx = line.indexOf(CURSOR_BLOCK);
+  const cursorPresent = cursorIdx !== -1;
+  const contentWidth = Math.max(1, width - EDITOR_LEFT_PADDING * 2);
+  const available = contentWidth - (cursorPresent ? 1 : 0);
+  if (available <= 0) return line;
+  const preview = prediction.replaceAll(/\s+/g, ' ').trim();
+  const trimmed = truncateToWidth(preview, available, '…');
+  if (trimmed.length === 0) return line;
+  const insertAt = cursorPresent
+    ? cursorIdx + CURSOR_BLOCK.length
+    : mapVisibleIdxToRaw(line, EDITOR_LEFT_PADDING);
+  const trailing = line.slice(insertAt);
+  const remaining = Math.max(0, visibleWidth(trailing) - visibleWidth(trimmed));
+  return line.slice(0, insertAt) + currentTheme.fg('textMuted', trimmed) + ' '.repeat(remaining);
+}
+
 export function injectPromptSymbol(
   line: string,
   symbol = '>',
@@ -999,30 +719,40 @@ export function injectPromptSymbol(
   return '  ' + rendered + ' ' + line.slice(4);
 }
 
-/**
- * Map a raw key to the status surface's vocabulary, or `undefined` when the
- * strip has no interest in it.
- *
- * Enter and the digit keys are included because a focused region may commit a
- * choice with them: the approval prints a number per option and accepts Enter
- * for the highlighted one. The region itself decides whether the key means
- * anything (an unfocused strip returns false), so this stays a pure mapping.
- *
- * `[`/`]` alias PgUp/PgDn; digits are decoded through `printableChar` so they
- * still match under a Kitty-protocol terminal.
- */
-export function statusSurfaceKeyOf(data: string): StatusSurfaceKey | undefined {
-  if (matchesKey(data, Key.left)) return 'left';
-  if (matchesKey(data, Key.right)) return 'right';
-  if (matchesKey(data, Key.up)) return 'up';
-  if (matchesKey(data, Key.down)) return 'down';
-  if (matchesKey(data, Key.pageUp) || matchesKey(data, '[')) return 'pageUp';
-  if (matchesKey(data, Key.pageDown) || matchesKey(data, ']')) return 'pageDown';
-  if (matchesKey(data, Key.enter)) return 'enter';
-  if (matchesKey(data, Key.escape)) return 'escape';
-  const digit = printableChar(data);
-  if (digit.length === 1 && digit >= '1' && digit <= '9') {
-    return `digit${digit}` as StatusSurfaceKey;
-  }
-  return undefined;
+export function wrapWithSideBorders(
+  lines: string[],
+  paint: (s: string) => string,
+  options: { readonly connectedAbove?: boolean; readonly label?: string } = {},
+): string[] {
+  let seenTop = false;
+  return lines.map((line) => {
+    const plain = stripSgr(line);
+    if (plain.length > 0 && plain[0] === '─') {
+      const isTop = !seenTop;
+      const leftCorner = seenTop ? '╰' : options.connectedAbove === true ? '├' : '╭';
+      const rightCorner = seenTop ? '╯' : options.connectedAbove === true ? '┤' : '╮';
+      seenTop = true;
+      if (plain.length === 1) return paint(leftCorner);
+      const middle = plain.slice(1, -1);
+      if (isTop && options.label !== undefined && /^─+$/.test(middle)) {
+        const labelWidth = visibleWidth(options.label);
+        if (labelWidth <= middle.length) {
+          return (
+            paint(leftCorner) +
+            options.label +
+            paint('─'.repeat(middle.length - labelWidth)) +
+            paint(rightCorner)
+          );
+        }
+      }
+      return paint(leftCorner + middle + rightCorner);
+    }
+    if (line.length === 0) return line;
+    const firstCh = line[0];
+    const lastCh = line.at(-1);
+    const head = firstCh === ' ' ? paint('│') : (firstCh ?? '');
+    const tail = line.length > 1 && lastCh === ' ' ? paint('│') : (lastCh ?? '');
+    if (line.length === 1) return head;
+    return head + line.slice(1, -1) + tail;
+  });
 }

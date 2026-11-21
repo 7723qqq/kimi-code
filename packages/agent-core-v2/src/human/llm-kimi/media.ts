@@ -1,5 +1,5 @@
-import type { ProviderMediaContribution } from '#/llm/media/upload';
-import { modelKey, type LlmModel } from '#/llm/model';
+import type { ProviderMediaContribution } from '#human/llm/media/upload';
+import { modelKey, type LlmModel } from '#human/llm/model';
 
 import { KimiFiles, type KimiFilesFetch } from './files';
 import { KIMI_DEFAULT_BASE_URL } from './trait';

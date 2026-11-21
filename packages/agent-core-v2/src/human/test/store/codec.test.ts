@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import { encodeHeader, encodeLine, parseHeader, parseLine } from '#/store/internal/codec';
-import type { BranchHeader, EntryLine } from '#/store/types';
+import { encodeHeader, encodeLine, parseHeader, parseLine } from '#human/store/internal/codec';
+import type { BranchHeader, EntryLine } from '#human/store/types';
 
 describe('codec header', () => {
   it('round-trips a minimal header', () => {

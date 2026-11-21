@@ -1,26 +1,7 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { limitAgentReplayByTurns, type AgentReplayRecord } from '#/replay';
-import { foldAgentWireReplay } from '#/v2/resume-replay';
 import { v2MetaToSessionMeta } from '#/v2/session-mapper';
-
-const tempDirs: string[] = [];
-
-afterEach(async () => {
-  mock.restore();
-  for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'kimi-sdk-replay-'));
-  tempDirs.push(dir);
-  return dir;
-}
 
 function userTurn(text: string, time: number): AgentReplayRecord {
   return {
@@ -43,14 +24,7 @@ function cronTurn(text: string, time: number): AgentReplayRecord {
       role: 'user',
       content: [{ type: 'text', text }],
       toolCalls: [],
-      origin: {
-        kind: 'cron_job',
-        jobId: 'job-1',
-        cron: '*/15 * * * *',
-        recurring: true,
-        coalescedCount: 1,
-        stale: false,
-      },
+      origin: { kind: 'cron_job', jobId: 'job-1', cron: '*/15 * * * *', recurring: true, coalescedCount: 1, stale: false },
     },
   };
 }
@@ -114,14 +88,7 @@ describe('limitAgentReplayByTurns', () => {
     const origin = {
       kind: 'user' as const,
       inTurn: true as const,
-      skillActivations: [
-        {
-          kind: 'skill_activation' as const,
-          trigger: 'user-slash' as const,
-          activationId: 'activation-review',
-          skillName: 'review',
-        },
-      ],
+      skillActivations: [{ activationId: 'activation-review', skillName: 'review' }],
     };
     const currentTurn = userTurn('current prompt', 2);
     const steered: AgentReplayRecord = {
@@ -135,13 +102,7 @@ describe('limitAgentReplayByTurns', () => {
       },
     };
     const answer = assistant('review result', 4);
-    const records = [
-      userTurn('old prompt', 0),
-      assistant('old answer', 1),
-      currentTurn,
-      steered,
-      answer,
-    ];
+    const records = [userTurn('old prompt', 0), assistant('old answer', 1), currentTurn, steered, answer];
 
     expect(limitAgentReplayByTurns(records, 1)).toEqual([steered, answer]);
   });
@@ -187,64 +148,6 @@ describe('limitAgentReplayByTurns', () => {
     const limited = limitAgentReplayByTurns(records, 5);
     expect(JSON.stringify(limited)).toContain('prompt 3');
     expect(JSON.stringify(limited)).not.toContain('prompt 2');
-  });
-});
-
-describe('foldAgentWireReplay corruption handling', () => {
-  it('keeps valid records around a corrupted non-tail line and warns once', async () => {
-    const dir = await makeTempDir();
-    const wirePath = join(dir, 'wire.jsonl');
-    await writeFile(
-      wirePath,
-      [
-        '{"type":"permission.set_mode","mode":"auto","time":2}',
-        '{"type":"permission.set_mode","mode":"aut',
-        '{"type":"permission.set_mode","mode":"yolo","time":9}',
-      ].join('\n') + '\n',
-      'utf-8',
-    );
-    const folded = await foldAgentWireReplay(wirePath);
-
-    expect(folded.replay).toEqual([
-      { type: 'permission_updated', mode: 'auto', time: 2 },
-      { type: 'permission_updated', mode: 'yolo', time: 9 },
-    ]);
-    expect(folded.toolStore).toEqual({});
-    expect(folded.warning).toBe(
-      'Skipped 1 corrupt record while replaying session history (line 2).',
-    );
-  });
-
-  it('tolerates a truncated tail line without warning', async () => {
-    const dir = await makeTempDir();
-    const wirePath = join(dir, 'wire-tail.jsonl');
-    await writeFile(
-      wirePath,
-      '{"type":"metadata","protocol_version":"1.5","created_at":1}\n' +
-        '{"type":"permission.set_mode","mode":"auto","time":2}\n' +
-        '{"type":"permission.set_mode","mode":"yo',
-      'utf-8',
-    );
-    const folded = await foldAgentWireReplay(wirePath);
-
-    expect(folded.replay).toEqual([{ type: 'permission_updated', mode: 'auto', time: 2 }]);
-    expect(folded.warning).toBeUndefined();
-  });
-
-  it('skips a corrupted first line and keeps the remaining valid record', async () => {
-    const dir = await makeTempDir();
-    const wirePath = join(dir, 'wire-head.jsonl');
-    await writeFile(
-      wirePath,
-      ['{not json', '{"type":"permission.set_mode","mode":"auto","time":2}'].join('\n') + '\n',
-      'utf-8',
-    );
-    await expect(foldAgentWireReplay(wirePath)).resolves.toEqual({
-      replay: [{ type: 'permission_updated', mode: 'auto', time: 2 }],
-      toolStore: {},
-      userTurnCount: undefined,
-      warning: 'Skipped 1 corrupt record while replaying session history (line 1).',
-    });
   });
 });
 

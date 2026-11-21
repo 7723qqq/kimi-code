@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';
@@ -14,7 +14,9 @@ const contextAppendMessageSchema = z.object({
   message: contextMessageSchema,
 });
 
-export class ContextAppendMessage extends AgentEvent2<z.infer<typeof contextAppendMessageSchema>> {
+export class ContextAppendMessage extends AgentEvent2<
+  z.infer<typeof contextAppendMessageSchema>
+> {
   static override readonly type = 'context.append_message';
   static override readonly durable = true;
   static override readonly schema = contextAppendMessageSchema;
@@ -33,7 +35,7 @@ export class ContextAppendLoopEvent extends AgentEvent2<
   z.infer<typeof contextAppendLoopEventSchema>
 > {
   static override readonly type = 'context.append_loop_event';
-  static override readonly durable = true;
+  static override readonly durable = false;
   static override readonly schema = contextAppendLoopEventSchema;
 }
 export interface ContextAppendLoopEvent {

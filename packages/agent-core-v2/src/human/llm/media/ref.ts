@@ -1,4 +1,4 @@
-import type { ContentPart } from '#/llm/message';
+import type { ContentPart } from '#human/message';
 
 const MEDIA_REF_SCHEME = 'media://';
 

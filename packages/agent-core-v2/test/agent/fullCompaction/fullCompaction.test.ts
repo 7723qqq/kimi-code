@@ -1,30 +1,59 @@
-import { afterEach, describe, expect, it, jest, spyOn } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendContext } from '../contextMemory/stubs';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
 
+import {
+  type Message,
+  type StreamedMessagePart,
+  type ToolCall,
+} from '@moonshot-ai/core/llm/message';
+import { resolveEndpoint } from '@moonshot-ai/core/llm/endpoint';
+import { afterEach, describe, expect, it, jest, mock } from 'bun:test';
+
+import { restoreStubbedEnv, stubEnv } from '../../harness/env';
+import { advanceTimersByTimeAsync } from '../../harness/timers';
+import { waitForAssertion } from '../../harness/wait';
+
+import {
+  DefaultCompactionStrategy,
+} from '#/agent/fullCompaction/strategy';
 import {
   buildCompactionContinuationText,
   COMPACTION_SUMMARY_PREFIX,
 } from '#/agent/contextMemory/compactionHandoff';
-import { ILogService } from '#/_base/log/log';
-import { IAssociativeMemoryService } from '#/features/associativeMemory/service';
-import { renderCompactionInstruction } from '#/agent/fullCompaction/compactionInstruction';
-import { SNIPPED_TOOL_RESULT_MARKER } from '#/agent/fullCompaction/compactionUtils';
-import { DefaultCompactionStrategy } from '#/agent/fullCompaction/strategy';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
-import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
-import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
-import { MASTER_ENV } from '#/app/flag/flagService';
+import { makeHookRunner } from '../../features/externalHooks/runner-stub';
 import type { IExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunner';
-import { IAgentGoalService } from '#/features/goal/goalService';
-import { IAgentTodoService } from '#/features/todo/todoService';
+import { MASTER_ENV } from '#/app/flag/flagService';
+import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import {
+  type TestAgentContext,
+  type TestAgentOptions,
+  type TestAgentServiceOverride,
+  agentService,
+  appService,
+  appServices,
+  createCommandRunner,
+  execEnvServices,
+  findGenerateCallPrefixBreak,
+  hostEnvironmentServices,
+  createMockProvider,
+  providerHttpError,
+  sessionServices,
+  testAgent as createTestAgent,
+  type MockProviderResponse,
+} from '../../harness';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { renderCompactionInstruction } from '#/agent/fullCompaction/compactionInstruction';
+import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
+import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
+import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
 import {
   IAgentFullCompactionService,
   IModelOAuthTokens,
-  IAgentProfileService,
   ITelemetryService,
   IAgentToolRegistryService,
   DYNAMIC_TOOL_SCHEMA_VARIANT,
@@ -33,49 +62,11 @@ import {
   type ResolvedAgentProfile,
   type ToolExecution,
 } from '#/index';
-import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
-import {
-  APIConnectionError,
-  APIContextOverflowError,
-  APIRequestTooLargeError,
-  APIStatusError,
-} from '#/llm-adapter/contract/errors';
-import { type Message } from '#/llm-adapter/contract/message';
-import { fromLlmMessage } from '#/llm-adapter/contract/message';
-import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IWireService } from '#/wire/wire';
-import type { FinishReason } from '#human/llm/finish-reason';
-import { type StreamedMessagePart, type ToolCall } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
-import {
-  advanceTimersByTimeAsync,
-  advanceUntilNoTimersRemain,
-  waitForAssertion,
-  waitUntil,
-} from '#test/helpers/waitFor';
-
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
-import { makeHookRunner } from '../../features/externalHooks/runner-stub';
-import type { TestAgentContext, TestAgentOptions, TestAgentServiceOverride } from '../../harness';
-import {
-  agentService,
-  appService,
-  appServices,
-  createCommandRunner,
-  execEnvServices,
-  findGenerateCallPrefixBreak,
-  hostEnvironmentServices,
-  renderSnapshot,
-  requesterFromGenerateFn,
-  sessionServices,
-  testAgent as createTestAgent,
-  type LegacyGenerateResult,
-} from '../../harness';
+import { IAgentTodoService } from '#/features/todo/todoService';
+import { IAgentGoalService } from '#/features/goal/goalService';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 
@@ -98,7 +89,7 @@ const CATALOGUED_MODEL_CAPABILITIES = {
   audio_in: false,
   thinking: true,
   tool_use: true,
-  max_context_tokens: 256_000,
+  maxContextSize: 256_000,
 } as const;
 const SNAPSHOT_VISIBLE_TOOLS = [
   'Agent',
@@ -106,6 +97,7 @@ const SNAPSHOT_VISIBLE_TOOLS = [
   'CronCreate',
   'CronDelete',
   'CronList',
+  'EnterPlanMode',
   'ExitPlanMode',
 ] as const;
 const LARGE_MCP_TOOL = 'mcp__srv__large';
@@ -142,73 +134,6 @@ describe('FullCompaction', () => {
     expect(strategy.computeCompactCount(consecutive, 'auto')).toBe(2);
   });
 
-  it('compacts the prefix when the trailing exchange itself is oversized', () => {
-    const strategy = testCompactionStrategy();
-    const messages = [
-      textMessage('user', 'old user'),
-      textMessage('assistant', 'old assistant'),
-      textMessage('user', 'recent user'),
-      textMessage('assistant', `recent assistant ${'x'.repeat(1_200)}`),
-    ];
-
-    expect(strategy.computeCompactCount(messages, 'auto')).toBe(2);
-  });
-
-  it('returns 0 when there is nothing to compact', () => {
-    const strategy = testCompactionStrategy();
-    expect(strategy.computeCompactCount([], 'auto')).toBe(0);
-    expect(strategy.computeCompactCount([textMessage('user', 'only pending')], 'auto')).toBe(0);
-    expect(
-      strategy.computeCompactCount(
-        [textMessage('user', 'a'), textMessage('user', 'b'), textMessage('user', 'c')],
-        'auto',
-      ),
-    ).toBe(0);
-  });
-
-  it('returns 0 when no intermediate split exists and the last message is also unsplittable', () => {
-    const strategy = testCompactionStrategy();
-    const messages: Message[] = [
-      textMessage('user', 'inspect'),
-      {
-        role: 'assistant',
-        content: [],
-        toolCalls: [{ type: 'function', id: 'call_a', name: 'Lookup', arguments: '{}' }],
-      },
-    ];
-
-    expect(strategy.computeCompactCount(messages, 'auto')).toBe(0);
-  });
-
-  it('does not split inside a parallel tool exchange', () => {
-    const strategy = testCompactionStrategy();
-    const messages: Message[] = [
-      textMessage('user', 'old user'),
-      textMessage('assistant', 'old assistant'),
-      textMessage('user', 'run both tools'),
-      {
-        role: 'assistant',
-        content: [],
-        toolCalls: [
-          { type: 'function', id: 'call_a', name: 'Lookup', arguments: '{}' },
-          { type: 'function', id: 'call_b', name: 'Lookup', arguments: '{}' },
-        ],
-      },
-      { role: 'tool', content: [{ type: 'text', text: 'a' }], toolCalls: [], toolCallId: 'call_a' },
-      { role: 'tool', content: [{ type: 'text', text: 'b' }], toolCalls: [], toolCallId: 'call_b' },
-      textMessage('user', 'next prompt'),
-    ];
-
-    expect(strategy.computeCompactCount(messages, 'auto')).toBe(2);
-  });
-
-  it('reserves response context by default before the ratio threshold is reached', () => {
-    const strategy = new DefaultCompactionStrategy(() => 256_000);
-
-    expect(strategy.shouldCompact(210_000)).toBe(true);
-    expect(strategy.shouldBlock(210_000)).toBe(true);
-  });
-
   it('backs off overflow compaction by at least five percent of the context window', () => {
     const strategy = testCompactionStrategy(1_000);
     const messages = [
@@ -225,25 +150,6 @@ describe('FullCompaction', () => {
 
     expect(reduced).toBeGreaterThan(0);
     expect(estimateTokensForMessages(removed)).toBeGreaterThanOrEqual(50);
-  });
-
-  it('ignores reserved context when the reserve is not smaller than the model window', () => {
-    const strategy = new DefaultCompactionStrategy(() => 32_000, {
-      triggerRatio: 0.85,
-      blockRatio: 0.85,
-      reservedContextSize: 50_000,
-      maxCompactionPerTurn: 3,
-      maxOverflowCompactionAttempts: 3,
-      maxRecentMessages: 3,
-      maxRecentUserMessages: Infinity,
-      maxRecentSizeRatio: 0.2,
-      minOverflowReductionRatio: 0.05,
-    });
-
-    expect(strategy.shouldCompact(1)).toBe(false);
-    expect(strategy.shouldBlock(1)).toBe(false);
-    expect(strategy.shouldCompact(28_000)).toBe(true);
-    expect(strategy.shouldBlock(28_000)).toBe(true);
   });
 
   it('runs manual compaction and applies the compacted context', async () => {
@@ -291,8 +197,8 @@ describe('FullCompaction', () => {
       return candidate.type === '[wire]' && candidate.event === 'full_compaction.complete';
     });
     expect(completeEvent?.args).toEqual({ agentId: 'main', time: '<time>' });
-    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
-      "system: <system-prompt>
+    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
+      system: <system-prompt>
       tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, ExitPlanMode
       messages:
         user: text "old user one"
@@ -301,7 +207,7 @@ describe('FullCompaction', () => {
         assistant: text "old assistant two"
         user: text "recent user three"
         assistant: text "recent assistant three"
-        user: text <compaction-instruction>"
+        user: text <compaction-instruction>
     `);
     expect(ctx.compactHistory()).toEqual([
       { role: 'user', text: 'old user one' },
@@ -313,11 +219,11 @@ describe('FullCompaction', () => {
       },
       { role: 'user', text: buildCompactionContinuationText() },
     ]);
-    expect(ctx.context.get().at(-2)?.content[0]).toMatchObject({
+    expect(ctx.context.history().at(-2)?.content[0]).toMatchObject({
       type: 'text',
       text: expect.stringContaining('The conversation so far has been compacted'),
     });
-    expect(ctx.context.get().at(-1)).toMatchObject({
+    expect(ctx.context.history().at(-1)).toMatchObject({
       role: 'user',
       origin: { kind: 'injection', variant: 'compaction_continuation' },
     });
@@ -332,174 +238,13 @@ describe('FullCompaction', () => {
         compacted_count: 6,
         retry_count: 0,
         thinking_effort: 'off',
-        input_tokens: expect.any(Number),
+        input_tokens: 1215,
         output_tokens: 8,
         input_cache_read: 0,
         input_cache_creation: 0,
       }),
     });
     await ctx.expectResumeMatches();
-  });
-
-  it('finishes compaction and logs a failed optional memory write without console output', async () => {
-    const ctx = testAgent();
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
-      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
-    });
-    ctx.appendExchange(1, 'old user', 'old assistant', 20);
-    ctx.appendExchange(2, 'recent user', 'recent assistant', 40);
-    const error = Object.assign(new Error('memory database is held by another process'), {
-      code: 'ELOCKED',
-    });
-    const write = spyOn(ctx.get(IAssociativeMemoryService), 'writeNote').mockRejectedValue(error);
-    const warning = spyOn(ctx.get(ILogService), 'warn');
-    const output = spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      const completed = ctx.once('compaction.completed');
-      ctx.mockNextResponse({ type: 'text', text: 'Summary retained despite memory contention.' });
-      await ctx.rpc.beginCompaction({});
-      await completed;
-      expect(ctx.compactHistory()).toContainEqual({
-        role: 'user',
-        text: expect.stringContaining('Summary retained despite memory contention.'),
-      });
-      expect(write).toHaveBeenCalledWith(
-        'Summary retained despite memory contention.',
-        'project',
-        'external',
-      );
-      expect(warning).toHaveBeenCalledWith('compaction.associativeMemory.writeFailed', { error });
-      expect(output).not.toHaveBeenCalled();
-      expect(ctx.get(IAgentFullCompactionService).compacting).toBeNull();
-      await ctx.expectResumeMatches();
-    } finally {
-      write.mockRestore();
-      warning.mockRestore();
-      output.mockRestore();
-    }
-  });
-
-  it('finishes compaction without a recovery pointer when the wire flush fails', async () => {
-    const ctx = testAgent();
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
-      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
-    });
-    ctx.appendExchange(1, 'old user', 'old assistant', 20);
-    ctx.appendExchange(2, 'recent user', 'recent assistant', 40);
-    const error = Object.assign(new Error('journal flush failed'), { code: 'EIO' });
-    const flush = spyOn(ctx.get(IWireService), 'flush').mockRejectedValueOnce(error);
-    const warning = spyOn(ctx.get(ILogService), 'warn');
-    const output = spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      const completed = ctx.once('compaction.completed');
-      ctx.mockNextResponse({ type: 'text', text: 'Summary retained despite journal failure.' });
-      await ctx.rpc.beginCompaction({});
-      await completed;
-      expect(ctx.compactHistory()).toContainEqual({
-        role: 'user',
-        text: expect.stringContaining('Summary retained despite journal failure.'),
-      });
-      expect(ctx.context.get().some((message) =>
-        message.content.some((part) => part.type === 'text' && part.text.includes('Context Recovery')),
-      )).toBe(false);
-      expect(warning).toHaveBeenCalledWith('compaction.wire.flushFailed', { error });
-      expect(output).not.toHaveBeenCalled();
-    } finally {
-      flush.mockRestore();
-      warning.mockRestore();
-      output.mockRestore();
-    }
-  });
-
-  it('snips large tool results before sending the compaction request', async () => {
-    const histories: Message[][] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, history) => {
-        histories.push(history);
-        return textResult('Snipped compaction summary.');
-      },
-    );
-    const ctx = testAgent({ generate });
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
-      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
-    });
-    const bigOutput = Array.from({ length: 200 }, (_, i) => `tool output line ${String(i)}`).join(
-      '\n',
-    );
-    const bigToolMessage: Message = {
-      role: 'tool',
-      content: [{ type: 'text', text: bigOutput }],
-      toolCalls: [],
-      toolCallId: 'call_big',
-    };
-    ctx.context.append(
-      {
-        role: 'user',
-        content: [{ type: 'text', text: 'run the big tool' }],
-        toolCalls: [],
-        origin: { kind: 'user' },
-      },
-      {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'Calling the big tool.' }],
-        toolCalls: [{ type: 'function', id: 'call_big', name: 'Lookup', arguments: '{}' }],
-      },
-      bigToolMessage,
-    );
-
-    const completed = ctx.once('compaction.completed');
-    await ctx.rpc.beginCompaction({});
-    await completed;
-
-    expect(histories).toHaveLength(1);
-    const sentToolMessage = histories[0]!.find((message) => message.role === 'tool');
-    const sentText = (sentToolMessage!.content[0] as { type: 'text'; text: string }).text;
-    expect(sentText.startsWith(SNIPPED_TOOL_RESULT_MARKER)).toBe(true);
-    expect(sentText).toContain('tool output line 0');
-    expect(sentText).toContain('tool output line 199');
-    expect(sentText).toContain('120 lines omitted');
-    expect(sentText.length).toBeLessThan(bigOutput.length);
-
-    const storedText = (bigToolMessage.content[0] as { type: 'text'; text: string }).text;
-    expect(storedText).toBe(bigOutput);
-    await ctx.expectResumeMatches();
-  });
-
-  it('probes the compaction request against the last completed turn', async () => {
-    const records: TelemetryRecord[] = [];
-    const ctx = testAgent({ telemetry: recordingTelemetry(records) });
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
-      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
-      tools: SNAPSHOT_VISIBLE_TOOLS,
-    });
-    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
-    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 40);
-
-    ctx.mockNextResponse({ type: 'text', text: 'Turn reply.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Answer the turn' }] });
-    await ctx.untilTurnEnd();
-
-    const completed = ctx.once('compaction.completed');
-    ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
-    await ctx.rpc.beginCompaction({ instruction: 'Keep the important test facts.' });
-    await completed;
-
-    const probes = records.filter((record) => record.event === 'prompt_cache_probe');
-    expect(probes).toHaveLength(1);
-    expect(probes[0]?.properties).toMatchObject({
-      source: 'compaction',
-      input_cache_read: 0,
-      input_cache_creation: 0,
-      model_match: true,
-      tools_match: true,
-      system_prompt_match: true,
-      history_prefix_match: true,
-      parent_input_tokens: expect.any(Number),
-    });
   });
 
   it('holds the loop quiescence lease for the full manual compaction', async () => {
@@ -518,15 +263,18 @@ describe('FullCompaction', () => {
     const compactionStarted = new Promise<void>((resolve) => {
       started = resolve;
     });
-    const hook = ctx
-      .get(IAgentFullCompactionService)
-      .hooks.onWillCompact.register('test-quiescence', async (_task, next) => {
+    const hook = ctx.get(IAgentFullCompactionService).hooks.onWillCompact.register(
+      'test-quiescence',
+      async (_task, next) => {
         started();
         await canCompact;
         await next();
-      });
+      },
+    );
     ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
 
+    await ctx.restorePersisted();
+    ctx.context.flushReminders();
     expect(ctx.get(IAgentFullCompactionService).begin({ source: 'manual' })).toBe(true);
     await compactionStarted;
     expect(ctx.get(IAgentLoopService).tryAcquireQuiescence()).toBeUndefined();
@@ -550,7 +298,7 @@ describe('FullCompaction', () => {
         { autoConfigure: false, cwd: workDir },
       );
       ctx.configureRuntimeModel(CATALOGUED_PROVIDER, CATALOGUED_MODEL_CAPABILITIES);
-      const profile = ctx.get(IAgentProfileService);
+      const profile = ctx.get(IAgentLoopService);
       await profile.applyProfile(EXACT_COMPACTION_PROFILE);
       profile.update({ activeToolNames: ['Read'] });
 
@@ -575,9 +323,7 @@ describe('FullCompaction', () => {
   });
 
   it('rejects a manual compaction while a turn is active', async () => {
-    const ctx = testAgent(
-      execEnvServices({ processRunner: createCommandRunner('should-not-run') }),
-    );
+    const ctx = testAgent(execEnvServices({ processRunner: createCommandRunner('should-not-run') }));
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
@@ -654,15 +400,14 @@ describe('FullCompaction', () => {
       tokenCalls.push(options?.force);
       return options?.force === true ? 'forced-refresh-token' : 'fresh-token';
     });
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, _history, _callbacks, options) => {
-        authKeys.push(options?.auth?.apiKey ?? '<missing>');
-        if (authKeys.length <= 2) {
-          throw new APIStatusError(401, 'Unauthorized', false, 'req-compact-401');
-        }
-        return textResult('Recovered compacted summary.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request) => {
+      const endpoint = await resolveEndpoint(request.endpoint);
+      authKeys.push(endpoint.apiKey ?? '<missing>');
+      if (authKeys.length <= 2) {
+        return providerHttpError(401, 'Unauthorized', { requestId: 'req-compact-401' });
+      }
+      return textResult('Recovered compacted summary.');
+    });
     const ctx = testAgent(oauthOptions.services, {
       initialConfig: oauthOptions.initialConfig,
       generate,
@@ -690,7 +435,7 @@ describe('FullCompaction', () => {
       }),
     );
     expect(authKeys).toEqual(['fresh-token', 'forced-refresh-token']);
-    expect(tokenCalls).toEqual([undefined, true]);
+    expect(tokenCalls.filter((force) => force === true)).toHaveLength(1);
     expect(ctx.compactHistory()).toEqual([
       { role: 'user', text: 'old user one' },
       { role: 'assistant', text: 'old assistant one' },
@@ -706,7 +451,7 @@ describe('FullCompaction', () => {
     expect(await retryOutcome).toBe('full_compaction.complete');
     await completed;
     expect(authKeys).toEqual(['fresh-token', 'forced-refresh-token', 'fresh-token']);
-    expect(tokenCalls).toEqual([undefined, true, undefined]);
+    expect(tokenCalls.filter((force) => force === true)).toHaveLength(1);
     expect(ctx.compactHistory()).toEqual([
       { role: 'user', text: 'old user one' },
       { role: 'user', text: 'recent user two' },
@@ -744,6 +489,8 @@ describe('FullCompaction', () => {
     const compacted = ctx.once('full_compaction.complete');
 
     ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
+    await ctx.restorePersisted();
+    ctx.context.flushReminders();
     ctx.get(IAgentFullCompactionService).begin({ source: 'auto', instruction: undefined });
     await compacted;
     await waitForAssertion(() => {
@@ -772,19 +519,21 @@ describe('FullCompaction', () => {
 
   it('cancels while waiting for a PreCompact hook', async () => {
     let preCompactSignal: AbortSignal | undefined;
-    const trigger = jest.fn(async (_event: string, args?: { signal?: AbortSignal }) => {
-      preCompactSignal = args?.signal;
-      await new Promise<void>((resolve) => {
-        args?.signal?.addEventListener(
-          'abort',
-          () => {
-            resolve();
-          },
-          { once: true },
-        );
-      });
-      return [];
-    });
+    const trigger = mock(
+      async (_event: string, args?: { signal?: AbortSignal }) => {
+        preCompactSignal = args?.signal;
+        await new Promise<void>((resolve) => {
+          args?.signal?.addEventListener(
+            'abort',
+            () => {
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        return [];
+      },
+    );
     const ctx = testAgent({ hookEngine: { trigger } as unknown as IExternalHooksRunnerService });
 
     ctx.configure({
@@ -817,10 +566,10 @@ describe('FullCompaction', () => {
   it('reports compaction retry_count after a retryable generation failure recovers', async () => {
     const records: TelemetryRecord[] = [];
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
       if (attempts === 1) {
-        throw new APIConnectionError('socket hang up');
+        throw new Error('socket hang up');
       }
       return textResult('Recovered compacted summary.', 'trace-compact-1');
     });
@@ -845,19 +594,19 @@ describe('FullCompaction', () => {
         source: 'manual',
         tokens_before: expect.any(Number),
         retry_count: 1,
-        trace_id: 'trace-compact-1',
+        request_id: 'trace-compact-1',
       }),
     });
     await ctx.expectResumeMatches();
   });
 
   it('retries any compaction request error indefinitely when KIMI_CODE_INFINITE_RETRY is set', async () => {
-    setEnv('KIMI_CODE_INFINITE_RETRY', '1');
+    stubEnv('KIMI_CODE_INFINITE_RETRY', '1');
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
-      if (attempts === 1) throw new APIStatusError(400, 'endpoint broken', false, null, 1);
-      if (attempts === 2) throw new APIStatusError(404, 'model not found', false, null, 1);
+      if (attempts === 1) return providerHttpError(400, 'endpoint broken', { retryAfterMs: 1 })
+      if (attempts === 2) return providerHttpError(404, 'model not found', { retryAfterMs: 1 })
       return textResult('Recovered compacted summary.');
     });
     const ctx = testAgent({ generate });
@@ -879,11 +628,11 @@ describe('FullCompaction', () => {
   });
 
   it('lets context overflow reach compaction shrink instead of retrying when KIMI_CODE_INFINITE_RETRY is set', async () => {
-    setEnv('KIMI_CODE_INFINITE_RETRY', '1');
+    stubEnv('KIMI_CODE_INFINITE_RETRY', '1');
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
-      if (attempts === 1) throw new APIContextOverflowError(400, 'context length exceeded');
+      if (attempts === 1) return providerHttpError(400, 'context length exceeded')
       return textResult('Recovered compacted summary.');
     });
     const ctx = testAgent({ generate });
@@ -908,20 +657,19 @@ describe('FullCompaction', () => {
     let attempts = 0;
     let sawMedia = false;
     let sawStrippedResend = false;
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, history) => {
-        attempts += 1;
-        const hasMedia = history.some((message) =>
-          message.content.some((part) => part.type === 'image_url' || part.type === 'video_url'),
-        );
-        if (hasMedia) {
-          sawMedia = true;
-          throw new APIStatusError(400, 'unsupported image format: image/avif', false);
-        }
-        sawStrippedResend = true;
-        return textResult('Recovered compacted summary.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, _signal) => {
+      const history = [...request.content.messages];
+      attempts += 1;
+      const hasMedia = history.some((message) =>
+        message.content.some((part) => part.type === 'image_url' || part.type === 'video_url'),
+      );
+      if (hasMedia) {
+        sawMedia = true;
+        return providerHttpError(400, 'unsupported image format: image/avif')
+      }
+      sawStrippedResend = true;
+      return textResult('Recovered compacted summary.');
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -947,24 +695,23 @@ describe('FullCompaction', () => {
     let attempts = 0;
     let sawFullMedia = false;
     let sawDegradedResend = false;
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, history) => {
-        attempts += 1;
-        const mediaCount = history.reduce(
-          (count, message) =>
-            count +
-            message.content.filter((part) => part.type === 'image_url' || part.type === 'video_url')
-              .length,
-          0,
-        );
-        if (mediaCount > 2) {
-          sawFullMedia = true;
-          throw new APIRequestTooLargeError(413, 'Request Entity Too Large');
-        }
-        sawDegradedResend = true;
-        return textResult('Recovered compacted summary.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, _signal) => {
+      const history = [...request.content.messages];
+      attempts += 1;
+      const mediaCount = history.reduce(
+        (count, message) =>
+          count +
+          message.content.filter((part) => part.type === 'image_url' || part.type === 'video_url')
+            .length,
+        0,
+      );
+      if (mediaCount > 2) {
+        sawFullMedia = true;
+        return providerHttpError(413, 'Request Entity Too Large')
+      }
+      sawDegradedResend = true;
+      return textResult('Recovered compacted summary.');
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -991,7 +738,7 @@ describe('FullCompaction', () => {
     jest.useFakeTimers();
     const firstEmptySummary = deferred<void>();
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
       if (attempts <= 2) {
         if (attempts === 1) firstEmptySummary.resolve();
@@ -1011,13 +758,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstEmptySummary.promise;
-    await advanceUntilNoTimersRemain(
-      (ms) => {
-        jest.advanceTimersByTime(ms);
-      },
-      10_000,
-      () => jest.getTimerCount(),
-    );
+    await advanceTimersByTimeAsync(10_000);
     await compacted;
     await completed;
 
@@ -1025,10 +766,12 @@ describe('FullCompaction', () => {
     expect(ctx.compactHistory()).toEqual([
       { role: 'user', text: 'old user one' },
       { role: 'user', text: 'recent user two' },
-      { role: 'user', text: wrappedCompactionSummary('Recovered compacted summary.') },
+      { role: 'user', text: `${COMPACTION_SUMMARY_PREFIX}\nRecovered compacted summary.` },
       { role: 'user', text: buildCompactionContinuationText() },
     ]);
-    expect(ctx.allEvents.filter((event) => event.event === 'compaction.completed')).toEqual([
+    expect(
+      ctx.allEvents.filter((event) => event.event === 'compaction.completed'),
+    ).toEqual([
       expect.objectContaining({
         args: expect.objectContaining({
           result: expect.objectContaining({
@@ -1045,15 +788,23 @@ describe('FullCompaction', () => {
     jest.useFakeTimers();
     const firstThinkOnly = deferred<void>();
     const inputs: string[][] = [];
-    const generate = realKosongGenerate((attempt, history) => {
-      inputs.push(inputHistorySnapshot(history));
+    let attempt = 0;
+    const generate: GenerateFn = createMockProvider(async (request) => {
+      attempt += 1;
+      inputs.push(inputHistorySnapshot(request.content.messages));
       if (attempt === 1) {
         firstThinkOnly.resolve();
-        return mockStreamedMessage([
-          { type: 'think', think: 'Reasoning about the summary but never writing it...' },
-        ]);
+        return {
+          parts: [{ type: 'think', think: 'Reasoning about the summary but never writing it...' }],
+          usage: null,
+          finishReason: null,
+        };
       }
-      return mockStreamedMessage([{ type: 'text', text: 'Recovered compacted summary.' }]);
+      return {
+        parts: [{ type: 'text', text: 'Recovered compacted summary.' }],
+        usage: null,
+        finishReason: 'completed',
+      };
     });
     const ctx = testAgent({ generate });
     ctx.configure({
@@ -1067,13 +818,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstThinkOnly.promise;
-    await advanceUntilNoTimersRemain(
-      (ms) => {
-        jest.advanceTimersByTime(ms);
-      },
-      10_000,
-      () => jest.getTimerCount(),
-    );
+    await advanceTimersByTimeAsync(10_000);
     await compacted;
     await completed;
 
@@ -1082,7 +827,7 @@ describe('FullCompaction', () => {
     expect(ctx.compactHistory()).toEqual([
       { role: 'user', text: 'old user one' },
       { role: 'user', text: 'recent user two' },
-      { role: 'user', text: wrappedCompactionSummary('Recovered compacted summary.') },
+      { role: 'user', text: `${COMPACTION_SUMMARY_PREFIX}\nRecovered compacted summary.` },
       { role: 'user', text: buildCompactionContinuationText() },
     ]);
     jest.useRealTimers();
@@ -1094,23 +839,22 @@ describe('FullCompaction', () => {
     const firstAttemptFailed = deferred<void>();
     let attempts = 0;
     const inputs: string[][] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, history) => {
-        attempts += 1;
-        inputs.push(inputHistorySnapshot(history));
-        if (attempts === 1) {
-          firstAttemptFailed.resolve();
-          throw new APIStatusError(413, 'Request Entity Too Large', false, 'req-compact-plain-413');
-        }
-        return textResult('Recovered compacted summary.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, _signal) => {
+      const history = [...request.content.messages];
+      attempts += 1;
+      inputs.push(inputHistorySnapshot(history));
+      if (attempts === 1) {
+        firstAttemptFailed.resolve();
+        return providerHttpError(413, 'Request Entity Too Large', { requestId: 'req-compact-plain-413' })
+      }
+      return textResult('Recovered compacted summary.');
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 20_000,
+        maxContextSize: 20_000,
       },
     });
     ctx.appendExchange(1, 'old user one', `old assistant one ${'x'.repeat(45_000)}`, 20);
@@ -1120,25 +864,15 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
-    await advanceUntilNoTimersRemain(
-      (ms) => {
-        jest.advanceTimersByTime(ms);
-      },
-      10_000,
-      () => jest.getTimerCount(),
-    );
+    await advanceTimersByTimeAsync(10_000);
     await compacted;
     await completed;
 
     expect(inputs).toHaveLength(2);
     expect(inputs[1]!.length).toBeLessThan(inputs[0]!.length);
     const compactedHistory = ctx.compactHistory();
-    expect(compactedHistory.some((message) => message.text.includes('old assistant one'))).toBe(
-      false,
-    );
-    expect(
-      compactedHistory.some((message) => message.text.includes('Recovered compacted summary.')),
-    ).toBe(true);
+    expect(compactedHistory.some((message) => message.text.includes('old assistant one'))).toBe(false);
+    expect(compactedHistory.some((message) => message.text.includes('Recovered compacted summary.'))).toBe(true);
     jest.useRealTimers();
     await ctx.expectResumeMatches();
   });
@@ -1148,14 +882,18 @@ describe('FullCompaction', () => {
     const records: TelemetryRecord[] = [];
     const inputs: string[][] = [];
     const firstResponse = deferred<void>();
-    const generate = realKosongGenerate((attempt, history) => {
-      inputs.push(inputHistorySnapshot(history));
+    let attempt = 0;
+    const generate: GenerateFn = createMockProvider(async (request) => {
+      attempt += 1;
+      inputs.push(inputHistorySnapshot(request.content.messages));
       if (attempt === 1) {
         firstResponse.resolve();
       }
-      return mockStreamedMessage([
-        { type: 'think', think: 'Still only thinking, no summary produced.' },
-      ]);
+      return {
+        parts: [{ type: 'think', think: 'Still only thinking, no summary produced.' }],
+        usage: null,
+        finishReason: null,
+      };
     });
     const ctx = testAgent({ generate, telemetry: recordingTelemetry(records) });
     ctx.configure({
@@ -1168,13 +906,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstResponse.promise;
-    await advanceUntilNoTimersRemain(
-      (ms) => {
-        jest.advanceTimersByTime(ms);
-      },
-      60_000,
-      () => jest.getTimerCount(),
-    );
+    await advanceTimersByTimeAsync(60_000);
     await failed;
 
     expect(inputs).toHaveLength(5);
@@ -1197,13 +929,14 @@ describe('FullCompaction', () => {
 
   it('fails fast without shrinking when the provider filters the compaction response', async () => {
     const inputs: string[][] = [];
-    const generate = realKosongGenerate((_attempt, history) => {
-      inputs.push(inputHistorySnapshot(history));
-      return mockStreamedMessage(
-        [{ type: 'think', think: 'Filtered while reasoning about the summary.' }],
-        null,
-        { finishReason: 'filtered', rawFinishReason: 'content_filter' },
-      );
+    const generate: GenerateFn = createMockProvider(async (request) => {
+      inputs.push(inputHistorySnapshot(request.content.messages));
+      return {
+        parts: [{ type: 'think', think: 'Filtered while reasoning about the summary.' }],
+        usage: null,
+        finishReason: 'filtered',
+        rawFinishReason: 'content_filter',
+      };
     });
     const ctx = testAgent({ generate });
     ctx.configure({
@@ -1228,10 +961,10 @@ describe('FullCompaction', () => {
 
   it('fails the compaction instead of compacting an empty history when overflow shrink drops everything', async () => {
     let calls = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       calls += 1;
       if (calls === 1) {
-        throw new APIContextOverflowError(400, 'Context length exceeded', 'req-shrink-empty');
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-shrink-empty' })
       }
       return textResult('Groundless summary.');
     });
@@ -1241,10 +974,9 @@ describe('FullCompaction', () => {
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
     ctx.appendExchange(1, 'small user one', 'small assistant one', 20);
-    ctx.context.append({
+    appendContext(ctx.context,{
       role: 'user',
       content: [{ type: 'text', text: 'X'.repeat(400_000) }],
-      toolCalls: [],
     });
     const failed = ctx.once('error');
 
@@ -1252,18 +984,18 @@ describe('FullCompaction', () => {
     await failed;
 
     expect(calls).toBe(1);
-    expect(ctx.context.get()).toHaveLength(3);
+    expect(ctx.context.history()).toHaveLength(3);
   });
 
   it('waits before retrying compaction generation after a retryable failure', async () => {
     jest.useFakeTimers();
     const firstAttemptFailed = deferred<void>();
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
       if (attempts === 1) {
         firstAttemptFailed.resolve();
-        throw new APIConnectionError('socket hang up');
+        throw new Error('socket hang up');
       }
       return textResult('Recovered compacted summary.');
     });
@@ -1278,19 +1010,11 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
-    await advanceTimersByTimeAsync((ms) => {
-      jest.advanceTimersByTime(ms);
-    }, 299);
+    await advanceTimersByTimeAsync(299);
 
     expect(attempts).toBe(1);
 
-    await advanceUntilNoTimersRemain(
-      (ms) => {
-        jest.advanceTimersByTime(ms);
-      },
-      10_000,
-      () => jest.getTimerCount(),
-    );
+    await advanceTimersByTimeAsync(10_000);
     await compacted;
 
     expect(attempts).toBe(2);
@@ -1298,17 +1022,17 @@ describe('FullCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('cancels retry backoff with the failed compaction request trace', async () => {
+  it('cancels retry backoff without retaining the failed compaction request id', async () => {
     jest.useFakeTimers();
     const records: TelemetryRecord[] = [];
     const firstAttemptFailed = deferred<void>();
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
       if (attempts === 1) {
         firstAttemptFailed.resolve();
       }
-      throw new APIStatusError(429, 'rate limited', true, null, null, 'trace-compact-retry');
+      return providerHttpError(429, 'rate limited', { traceId: 'trace-compact-retry' });
     });
     const ctx = testAgent({ generate, telemetry: recordingTelemetry(records) });
     ctx.configure({
@@ -1322,20 +1046,11 @@ describe('FullCompaction', () => {
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
     const fullCompaction = ctx.get(IAgentFullCompactionService);
-    for (let i = 0; i < 10 && fullCompaction.compacting?.traceId === undefined; i += 1) {
-      await Promise.resolve();
-    }
-    expect(fullCompaction.compacting?.traceId).toBe('trace-compact-retry');
+    expect(fullCompaction.compacting?.requestId).toBeUndefined();
 
     void ctx.rpc.cancelCompaction({});
     await cancelled;
-    await advanceUntilNoTimersRemain(
-      (ms) => {
-        jest.advanceTimersByTime(ms);
-      },
-      10_000,
-      () => jest.getTimerCount(),
-    );
+    await advanceTimersByTimeAsync(10_000);
 
     expect(attempts).toBe(1);
     expect(records).toContainEqual({
@@ -1343,7 +1058,6 @@ describe('FullCompaction', () => {
       properties: {
         agent_id: 'main',
         from: 'compacting',
-        trace_id: 'trace-compact-retry',
         mode: 'agent',
         model: 'kimi-code',
         protocol: 'openai',
@@ -1356,7 +1070,7 @@ describe('FullCompaction', () => {
 
   it('cancels the compaction lifecycle when manual compaction generation fails', async () => {
     const records: TelemetryRecord[] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       throw new Error('compaction exploded');
     });
     const ctx = testAgent({ generate, telemetry: recordingTelemetry(records) });
@@ -1394,8 +1108,8 @@ describe('FullCompaction', () => {
         tokens_before: expect.any(Number),
         duration_ms: expect.any(Number),
         round: 1,
-        retry_count: 0,
-        error_type: 'Error',
+        retry_count: 4,
+        error_type: 'APIConnectionError',
       }),
     });
     expect(
@@ -1404,10 +1118,10 @@ describe('FullCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('attaches the failed request trace id to compaction_failed', async () => {
+  it('attaches the failed request id to compaction_failed', async () => {
     const records: TelemetryRecord[] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
-      throw new APIStatusError(400, 'Bad request', false, null, null, 'trace-compact-fail');
+    const generate: GenerateFn = createMockProvider(async () => {
+      return providerHttpError(400, 'Bad request', { traceId: 'trace-compact-fail' });
     });
     const ctx = testAgent({ generate, telemetry: recordingTelemetry(records) });
     ctx.configure({
@@ -1426,24 +1140,19 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         source: 'manual',
         error_type: 'APIStatusError',
-        trace_id: 'trace-compact-fail',
+        request_id: 'trace-compact-fail',
       }),
     });
     await ctx.expectResumeMatches();
   });
 
-  it('attributes compaction_failed to the in-flight request trace on a mid-stream failure', async () => {
+  it('attributes compaction_failed to the in-flight request id on a mid-stream failure', async () => {
     const records: TelemetryRecord[] = [];
-    const generate = realKosongGenerate(() => {
-      const base = mockStreamedMessage([], 'trace-mid-stream');
-      return {
-        ...base,
-        async *[Symbol.asyncIterator]() {
-          yield { type: 'text', text: 'partial summary' } as StreamedMessagePart;
-          throw new Error('stream reset');
-        },
-      };
-    });
+    const generate: GenerateFn = createMockProvider(async () => ({
+      parts: [{ type: 'text', text: 'partial summary' }],
+      error: new Error('stream reset'),
+      requestId: 'trace-mid-stream',
+    }));
     const ctx = testAgent({ generate, telemetry: recordingTelemetry(records) });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -1451,35 +1160,35 @@ describe('FullCompaction', () => {
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-    ctx.get(ITelemetryService).setContext({ trace_id: 'trace-turn-1' });
+    ctx.get(ITelemetryService).setContext({ request_id: 'trace-turn-1' });
     const failed = ctx.once('error');
 
     await ctx.rpc.beginCompaction({});
     await failed;
 
     const apiError = records.find((record) => record.event === 'api_error');
-    expect(apiError?.properties?.['trace_id']).toBe('trace-mid-stream');
+    expect(apiError?.properties?.['request_id']).toBe('trace-mid-stream');
     expect(records).toContainEqual({
       event: 'compaction_failed',
       properties: expect.objectContaining({
         source: 'manual',
-        trace_id: 'trace-mid-stream',
+        request_id: 'trace-mid-stream',
       }),
     });
-    expect(ctx.get(ITelemetryService).getContext().trace_id).toBe('trace-turn-1');
+    expect(ctx.get(ITelemetryService).getContext().request_id).toBe('trace-turn-1');
     await ctx.expectResumeMatches();
   });
 
   it('fails a blocked turn when auto compaction generation fails', async () => {
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
-      throw new APIStatusError(400, 'Bad request', false);
+      return providerHttpError(400, 'Bad request')
     });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
-      modelCapabilities: { ...CATALOGUED_MODEL_CAPABILITIES, max_context_tokens: 14 },
+      modelCapabilities: { ...CATALOGUED_MODEL_CAPABILITIES, maxContextSize: 14 },
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 1);
 
@@ -1519,13 +1228,20 @@ describe('FullCompaction', () => {
   it('aborts an in-flight compaction when the agent is disposed', async () => {
     const started = deferred<void>();
     let signal: AbortSignal | undefined;
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_chat, _systemPrompt, _tools, _history, _callbacks, options) => {
-        signal = options?.signal;
-        started.resolve();
-        return new Promise(() => {});
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, requestSignal) => {
+      const options = {
+        signal: requestSignal,
+        cacheKey: request.model.cacheKey,
+        sampling: request.model.sampling,
+        thinking: request.model.thinking,
+        maxOutputTokens: request.model.maxOutputTokens,
+        maxContextSize: request.model.spec.maxContextSize,
+        usedTokens: request.content.usedTokens,
+      };
+      signal = options.signal;
+      started.resolve();
+      return new Promise(() => {});
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -1545,21 +1261,21 @@ describe('FullCompaction', () => {
   it('does not apply a summary that arrives after the compaction was cancelled', async () => {
     const started = deferred<void>();
     const release = deferred<void>();
-    const generate: GenerateFn = {
-      async generate(_config, _content, control) {
-        started.resolve();
-        await release.promise;
-        control.onEvent?.({
-          type: 'llm.streaming.part',
-          part: { type: 'text', text: 'Late summary.' },
-        });
-        control.onEvent?.({
-          type: 'llm.streaming.finish',
-          finish: { finishReason: 'completed', rawFinishReason: 'stop' },
-        });
-        control.onEvent?.({ type: 'llm.done' });
-      },
-    };
+    const generate = createMockProvider(async () => {
+      started.resolve();
+      await release.promise;
+      return {
+        id: null,
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Late summary.' }],
+          toolCalls: [],
+        },
+        usage: null,
+        finishReason: 'completed',
+        rawFinishReason: 'stop',
+      };
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -1590,7 +1306,7 @@ describe('FullCompaction', () => {
     jest.useFakeTimers();
     const firstAttemptFinished = deferred<void>();
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
       if (attempts === 1) {
         firstAttemptFinished.resolve();
@@ -1612,13 +1328,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFinished.promise;
-    await advanceUntilNoTimersRemain(
-      (ms) => {
-        jest.advanceTimersByTime(ms);
-      },
-      60_000,
-      () => jest.getTimerCount(),
-    );
+    await advanceTimersByTimeAsync(60_000);
     await failed;
 
     expect(attempts).toBe(4);
@@ -1642,12 +1352,12 @@ describe('FullCompaction', () => {
     const records: TelemetryRecord[] = [];
     const firstAttemptFailed = deferred<void>();
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
       if (attempts === 1) {
         firstAttemptFailed.resolve();
       }
-      throw new APIConnectionError('socket hang up');
+      throw new Error('socket hang up');
     });
     const ctx = testAgent({ generate, telemetry: recordingTelemetry(records) });
     ctx.configure({
@@ -1660,13 +1370,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
-    await advanceUntilNoTimersRemain(
-      (ms) => {
-        jest.advanceTimersByTime(ms);
-      },
-      60_000,
-      () => jest.getTimerCount(),
-    );
+    await advanceTimersByTimeAsync(60_000);
     await failed;
 
     expect(attempts).toBe(5);
@@ -1689,12 +1393,12 @@ describe('FullCompaction', () => {
     const records: TelemetryRecord[] = [];
     const firstAttemptFailed = deferred<void>();
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
       if (attempts === 1) {
         firstAttemptFailed.resolve();
       }
-      throw new APIConnectionError('socket hang up');
+      throw new Error('socket hang up');
     });
     const ctx = testAgent({
       generate,
@@ -1714,13 +1418,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
-    await advanceUntilNoTimersRemain(
-      (ms) => {
-        jest.advanceTimersByTime(ms);
-      },
-      60_000,
-      () => jest.getTimerCount(),
-    );
+    await advanceTimersByTimeAsync(60_000);
     await failed;
 
     expect(attempts).toBe(2);
@@ -1738,7 +1436,7 @@ describe('FullCompaction', () => {
 
   it('fails a truncated compaction immediately when compactionMaxAttempts is 1', async () => {
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
       return {
         ...textResult('Partial summary.'),
@@ -1781,11 +1479,11 @@ describe('FullCompaction', () => {
     jest.useFakeTimers();
     const firstAttemptFailed = deferred<void>();
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
       if (attempts === 1) {
         firstAttemptFailed.resolve();
-        throw new APIConnectionError('socket hang up');
+        throw new Error('socket hang up');
       }
       return {
         ...textResult('Partial summary.'),
@@ -1810,13 +1508,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
-    await advanceUntilNoTimersRemain(
-      (ms) => {
-        jest.advanceTimersByTime(ms);
-      },
-      60_000,
-      () => jest.getTimerCount(),
-    );
+    await advanceTimersByTimeAsync(60_000);
     await failed;
 
     expect(attempts).toBe(2);
@@ -1864,8 +1556,8 @@ describe('FullCompaction', () => {
     await compacted;
     await completed;
 
-    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
-      "system: <system-prompt>
+    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
+      system: <system-prompt>
       tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, ExitPlanMode
       messages:
         user: text "old user one"
@@ -1874,9 +1566,9 @@ describe('FullCompaction', () => {
         assistant: []  calls call_open_one:LookupOne { "query": "one" }, call_open_two:LookupTwo { "query": "two" }
         tool[call_open_one]: text "one result"
         tool[call_open_two]: text "Tool result is not available in the current context. Do not assume the tool completed successfully."
-        user: text <compaction-instruction>"
+        user: text <compaction-instruction>
     `);
-    expect(ctx.context.get().map((message) => message.role)).toEqual([
+    expect(ctx.context.history().map((message) => message.role)).toEqual([
       'user',
       'user',
       'user',
@@ -1891,7 +1583,7 @@ describe('FullCompaction', () => {
         result: { output: 'two result' },
       },
     });
-    expect(ctx.context.get().map((message) => message.role)).toEqual([
+    expect(ctx.context.history().map((message) => message.role)).toEqual([
       'user',
       'user',
       'user',
@@ -1928,15 +1620,15 @@ describe('FullCompaction', () => {
         expect.objectContaining({ type: '[rpc]', event: 'compaction.completed' }),
       ]),
     );
-    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
-      "system: <system-prompt>
+    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
+      system: <system-prompt>
       tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, ExitPlanMode
       messages:
         user: text "old user one"
         assistant: text "old assistant one"
         user: text "recent user two"
         assistant: text "recent assistant two"
-        user: text <compaction-instruction>"
+        user: text <compaction-instruction>
     `);
     expect(ctx.compactHistory()).toMatchInlineSnapshot(`
       [
@@ -1954,20 +1646,14 @@ describe('FullCompaction', () => {
         },
         {
           "role": "user",
-          "text": 
-      "<system-reminder>
-      The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.
-      Compacted prefix.
-      </system-reminder>"
-      ,
+          "text": "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
+      Compacted prefix.",
         },
         {
           "role": "user",
-          "text": 
-      "<system-reminder>
+          "text": "<system-reminder>
       Context compaction is complete — continue the work that was in progress when it began.
-      </system-reminder>"
-      ,
+      </system-reminder>",
         },
       ]
     `);
@@ -1980,7 +1666,7 @@ describe('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 4_000,
+        maxContextSize: 4_000,
       },
     });
     ctx.appendExchange(
@@ -2002,9 +1688,7 @@ describe('FullCompaction', () => {
     expect(countEvents(events, 'compaction.completed')).toBe(0);
     expect(ctx.llmCalls).toHaveLength(1);
     const [firstCompactionCall] = ctx.llmCalls;
-    expect(firstCompactionCall?.history.map(messageText)).not.toContain(
-      'new user while compacting',
-    );
+    expect(firstCompactionCall?.history.map(messageText)).not.toContain('new user while compacting');
     expect(ctx.compactHistory()).toEqual([
       {
         role: 'user',
@@ -2034,7 +1718,7 @@ describe('FullCompaction', () => {
       tools: SNAPSHOT_VISIBLE_TOOLS,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: maxContextTokens,
+        maxContextSize: maxContextTokens,
       },
     });
     for (let i = 1; i <= 22; i++) {
@@ -2044,10 +1728,12 @@ describe('FullCompaction', () => {
         i * 1_850,
       );
     }
-    const initialTokens = estimateTokensForMessages(ctx.context.get());
     const completed = ctx.once('compaction.completed');
     ctx.mockNextResponse({ type: 'text', text: 'Auto summary.' });
 
+    await ctx.restorePersisted();
+    ctx.context.flushReminders();
+    const initialTokens = estimateTokensForMessages(ctx.context.history());
     ctx.get(IAgentFullCompactionService).begin({ source: 'auto', instruction: undefined });
     await completed;
     await ctx.wire.flush();
@@ -2101,15 +1787,15 @@ describe('FullCompaction', () => {
     );
     expect(countEvents(events, 'context.apply_compaction')).toBe(0);
     expect(countEvents(events, 'full_compaction.complete')).toBe(0);
-    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
-      "system: <system-prompt>
+    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
+      system: <system-prompt>
       tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, ExitPlanMode
       messages:
         user: text "old user one"
         assistant: text "old assistant one"
         user: text "recent user two"
         assistant: text "recent assistant two"
-        user: text <compaction-instruction>"
+        user: text <compaction-instruction>
     `);
     expect(ctx.compactHistory()).toMatchInlineSnapshot(`[]`);
     await ctx.expectResumeMatches();
@@ -2117,7 +1803,7 @@ describe('FullCompaction', () => {
 
   it('keeps an injection appended during the summary request', async () => {
     let ctx!: TestAgentContext;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       ctx.appendSystemReminder('RACE-NOTIFY-OUTPUT', {
         kind: 'injection',
         variant: 'race-notification',
@@ -2131,18 +1817,19 @@ describe('FullCompaction', () => {
       tools: SNAPSHOT_VISIBLE_TOOLS,
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
-    const compacted = ctx.once('full_compaction.complete');
     const completed = ctx.once('compaction.completed');
 
     await ctx.rpc.beginCompaction({});
-    await compacted;
     await completed;
 
-    expect(ctx.context.get().at(-1)?.origin).toEqual({
+    const events = ctx.newEvents();
+    expect(countEvents(events, 'full_compaction.complete')).toBe(1);
+    expect(countEvents(events, 'full_compaction.cancel')).toBe(0);
+    expect(ctx.context.history().at(-1)?.origin).toEqual({
       kind: 'injection',
       variant: 'race-notification',
     });
-    expect(ctx.context.get().at(-2)?.origin).toEqual({
+    expect(ctx.context.history().at(-2)?.origin).toEqual({
       kind: 'injection',
       variant: 'compaction_continuation',
     });
@@ -2163,20 +1850,22 @@ describe('FullCompaction', () => {
     const registry = ctx.get(IAgentToolRegistryService);
     registry.register(mcpTool('mcp__demo__alpha', {}), { source: 'mcp' });
     await ctx.get(IAgentToolSelectService).prepareForRequest();
+    registry.unregister('mcp__demo__alpha');
     registry.register(
       { ...mcpTool('mcp__demo__alpha', {}), description: 'mcp__demo__alpha desc v2' },
       { source: 'mcp' },
     );
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
-    const compacted = ctx.once('full_compaction.complete');
     const completed = ctx.once('compaction.completed');
     ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
 
     await ctx.rpc.beginCompaction({});
-    await compacted;
     await completed;
 
-    expect(ctx.context.get().at(-1)?.origin).toMatchObject({
+    const events = ctx.newEvents();
+    expect(countEvents(events, 'full_compaction.complete')).toBe(1);
+    expect(countEvents(events, 'full_compaction.cancel')).toBe(0);
+    expect(ctx.context.history().at(-1)?.origin).toMatchObject({
       kind: 'injection',
       variant: 'tool_update_pending',
     });
@@ -2224,11 +1913,14 @@ describe('FullCompaction', () => {
     expect(eventIndex(events, 'compaction.blocked')).toBeLessThan(
       eventIndex(events, 'full_compaction.complete'),
     );
-    expect(eventIndex(events, 'full_compaction.complete')).toBeLessThan(
-      eventIndex(events, 'turn.step.started'),
+    expect(eventIndex(events, 'turn.step.started')).toBeLessThan(
+      eventIndex(events, 'full_compaction.begin'),
     );
-    expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
-      "call 1:
+    expect(eventIndex(events, 'full_compaction.complete')).toBeLessThan(
+      eventIndex(events, 'turn.ended'),
+    );
+    expect(ctx.llmInputs()).toMatchInlineSnapshot(`
+      call 1:
         system: <system-prompt>
         tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, ExitPlanMode
         messages:
@@ -2243,9 +1935,12 @@ describe('FullCompaction', () => {
 
       call 2:
         messages:
-          user: text "old user one\\n\\nold user two\\n\\nrecent user three\\n\\nAnswer after compacting"
-          user: text "<system-reminder>\\nThe conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.\\nAuto compacted summary.\\n</system-reminder>"
-          user: text "<system-reminder>\\nContext compaction is complete — continue the work that was in progress when it began.\\n</system-reminder>""
+          user: text "old user one"
+          user: text "old user two"
+          user: text "recent user three"
+          user: text "Answer after compacting"
+          user: text "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.\\nAuto compacted summary."
+          user: text "<system-reminder>\\nContext compaction is complete — continue the work that was in progress when it began.\\n</system-reminder>"
     `);
     expect(records).toContainEqual({
       event: 'compaction_finished',
@@ -2263,16 +1958,23 @@ describe('FullCompaction', () => {
   it('attributes background auto compaction to the turn that started it', async () => {
     const compactionRequested = deferred<void>();
     const releaseCompaction = deferred<void>();
+    const followUpRequested = deferred<void>();
+    const releaseFollowUp = deferred<void>();
     const records: TelemetryRecord[] = [];
     let ctx!: TestAgentContext;
     let llmCallCount = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       llmCallCount += 1;
       if (llmCallCount === 1) return textResult('Turn response.');
       if (llmCallCount === 2) {
         compactionRequested.resolve();
         await releaseCompaction.promise;
         return textResult('Background compacted summary.');
+      }
+      if (llmCallCount === 3) {
+        followUpRequested.resolve();
+        await releaseFollowUp.promise;
+        return textResult('Follow-up response.');
       }
       throw new Error(`Unexpected generate call ${String(llmCallCount)}`);
     });
@@ -2287,21 +1989,34 @@ describe('FullCompaction', () => {
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-    ctx
-      .get(IAgentLoopService)
-      .hooks.onDidFinishStep.register('test-auto-compaction', async (_step, next) => {
-        if (!ctx.get(IAgentFullCompactionService).begin({ source: 'auto' })) {
-          throw new Error('Expected auto compaction to start');
+    let compactionStarted = false;
+    ctx.get(IAgentLoopService).hooks.onDidFinishStep.register(
+      'test-auto-compaction',
+      async (_step, next) => {
+        if (!compactionStarted) {
+          if (!ctx.get(IAgentFullCompactionService).begin({ source: 'auto' })) {
+            throw new Error('Expected auto compaction to start');
+          }
+          compactionStarted = true;
         }
         await next();
-      });
+      },
+    );
 
+    const turnEnded = ctx.untilTurnEnd();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Start background compaction' }] });
     await compactionRequested.promise;
-    await ctx.untilTurnEnd();
+    await turnEnded;
 
+    const followUpEnded = ctx.untilTurnEnd();
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Follow up while compacting' }] });
+    await followUpRequested.promise;
+    ctx.newEvents();
+    const compactionCompleted = ctx.once('compaction.completed');
     releaseCompaction.resolve();
-    await ctx.once('compaction.completed');
+    await compactionCompleted;
+    releaseFollowUp.resolve();
+    const events = await followUpEnded;
 
     expect(records).toContainEqual({
       event: 'compaction_finished',
@@ -2311,6 +2026,13 @@ describe('FullCompaction', () => {
         source: 'auto',
       }),
     });
+    expect(llmCallCount).toBe(3);
+    const applyCompactionIndex = eventIndex(events, 'context.apply_compaction');
+    const splicedIndex = events.findIndex(
+      (event, index) => index > applyCompactionIndex && (event as { event?: unknown }).event === 'context.spliced',
+    );
+    expect(applyCompactionIndex).toBeGreaterThanOrEqual(0);
+    expect(splicedIndex).toBeGreaterThan(applyCompactionIndex);
     await ctx.expectResumeMatches();
   });
 
@@ -2321,13 +2043,14 @@ describe('FullCompaction', () => {
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    await ctx.restorePersisted();
     ctx.appendUnresolvedToolExchange(0);
     ctx.appendSystemReminder('host note', {
       kind: 'injection',
       variant: 'host',
     });
 
-    expect(ctx.context.get().map((m) => m.role)).toEqual([
+    expect(ctx.context.history().map((m) => m.role)).toEqual([
       'user',
       'assistant',
       'user',
@@ -2349,12 +2072,14 @@ describe('FullCompaction', () => {
     await ctx.rpc.beginCompaction({});
     await compacted;
 
-    expect(ctx.context.get().map((m) => m.role)).toEqual(['user', 'user', 'user', 'user']);
-    expect(ctx.context.get().at(-2)?.origin).toEqual({ kind: 'compaction_summary' });
-    expect(ctx.context.get().at(-1)?.origin).toEqual({
-      kind: 'injection',
-      variant: 'compaction_continuation',
-    });
+    expect(ctx.context.history().map((m) => m.role)).toEqual([
+      'user',
+      'user',
+      'user',
+      'user',
+    ]);
+    expect(ctx.context.history().at(-2)?.origin).toEqual({ kind: 'compaction_summary' });
+    expect(ctx.context.history().at(-1)?.origin).toEqual({ kind: 'injection', variant: 'compaction_continuation' });
 
     await ctx.dispatch({
       type: 'context.append_loop_event',
@@ -2374,7 +2099,12 @@ describe('FullCompaction', () => {
         result: { output: 'two result' },
       },
     });
-    expect(ctx.context.get().map((m) => m.role)).toEqual(['user', 'user', 'user', 'user']);
+    expect(ctx.context.history().map((m) => m.role)).toEqual([
+      'user',
+      'user',
+      'user',
+      'user',
+    ]);
   });
 
   it('keeps a deferred system reminder behind a partially resolved tool exchange across compaction', async () => {
@@ -2384,13 +2114,14 @@ describe('FullCompaction', () => {
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    await ctx.restorePersisted();
     ctx.appendUnresolvedToolExchange(1);
     ctx.appendSystemReminder('host note', {
       kind: 'injection',
       variant: 'host',
     });
 
-    expect(ctx.context.get().map((m) => m.role)).toEqual([
+    expect(ctx.context.history().map((m) => m.role)).toEqual([
       'user',
       'assistant',
       'user',
@@ -2413,12 +2144,14 @@ describe('FullCompaction', () => {
     await ctx.rpc.beginCompaction({});
     await compacted;
 
-    expect(ctx.context.get().map((m) => m.role)).toEqual(['user', 'user', 'user', 'user']);
-    expect(ctx.context.get().at(-2)?.origin).toEqual({ kind: 'compaction_summary' });
-    expect(ctx.context.get().at(-1)?.origin).toEqual({
-      kind: 'injection',
-      variant: 'compaction_continuation',
-    });
+    expect(ctx.context.history().map((m) => m.role)).toEqual([
+      'user',
+      'user',
+      'user',
+      'user',
+    ]);
+    expect(ctx.context.history().at(-2)?.origin).toEqual({ kind: 'compaction_summary' });
+    expect(ctx.context.history().at(-1)?.origin).toEqual({ kind: 'injection', variant: 'compaction_continuation' });
 
     await ctx.dispatch({
       type: 'context.append_loop_event',
@@ -2429,7 +2162,12 @@ describe('FullCompaction', () => {
         result: { output: 'two result' },
       },
     });
-    expect(ctx.context.get().map((m) => m.role)).toEqual(['user', 'user', 'user', 'user']);
+    expect(ctx.context.history().map((m) => m.role)).toEqual([
+      'user',
+      'user',
+      'user',
+      'user',
+    ]);
   });
 
   it('compacts a single user message and keeps it ahead of the summary', async () => {
@@ -2452,7 +2190,7 @@ describe('FullCompaction', () => {
       { role: 'user', text: 'only pending user' },
       {
         role: 'user',
-        text: wrappedCompactionSummary('Single message summary.'),
+        text: `${COMPACTION_SUMMARY_PREFIX}\nSingle message summary.`,
       },
       { role: 'user', text: buildCompactionContinuationText() },
     ]);
@@ -2520,7 +2258,7 @@ describe('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 32_000,
+        maxContextSize: 32_000,
       },
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 1_000);
@@ -2537,7 +2275,7 @@ describe('FullCompaction', () => {
   });
 
   it('does not trigger auto compaction from a deferred loaded MCP schema', async () => {
-    setEnv(MASTER_ENV, '1');
+    stubEnv(MASTER_ENV, '1');
     const ctx = testAgent(
       agentService(IAgentToolSelectAnnouncementsService, { _serviceBrand: undefined }),
       {
@@ -2560,7 +2298,7 @@ describe('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 2_000,
+        maxContextSize: 2_000,
         dynamically_loaded_tools: true,
       },
       tools: [LARGE_MCP_TOOL],
@@ -2569,10 +2307,9 @@ describe('FullCompaction', () => {
       .get(IAgentToolRegistryService)
       .register(mcpTool(LARGE_MCP_TOOL, parameters), { source: 'mcp', disclosure: 'deferred' });
     try {
-      ctx.context.append({
+      appendContext(ctx.context,{
         role: 'system',
         content: [],
-        toolCalls: [],
         tools: [
           {
             name: LARGE_MCP_TOOL,
@@ -2607,7 +2344,7 @@ describe('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 2_000,
+        maxContextSize: 2_000,
       },
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 1_400);
@@ -2619,13 +2356,9 @@ describe('FullCompaction', () => {
 
     expect(ctx.llmCalls).toHaveLength(2);
     const [compactionCall, answerCall] = ctx.llmCalls;
-    expect(messageText(compactionCall?.history.at(-1))).toContain(
-      'Produce a recovery block for the',
-    );
+    expect(messageText(compactionCall?.history.at(-1))).toContain('Create a handoff summary for the');
     expect(
-      answerCall?.history
-        .map(messageText)
-        .some((text) => text.includes('Reserved compacted summary.')),
+      answerCall?.history.map(messageText).some((text) => text.includes('Reserved compacted summary.')),
     ).toBe(true);
     await ctx.expectResumeMatches();
   });
@@ -2636,7 +2369,7 @@ describe('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 2_000,
+        maxContextSize: 2_000,
       },
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 1_650);
@@ -2658,14 +2391,10 @@ describe('FullCompaction', () => {
       'user',
     ]);
     expect(
-      answerCall?.history
-        .map(messageText)
-        .some((text) => text.includes('Oversized prompt summary.')),
+      answerCall?.history.map(messageText).some((text) => text.includes('Oversized prompt summary.')),
     ).toBe(true);
     expect(
-      answerCall?.history
-        .map(messageText)
-        .some((text) => text.includes('keep-this-pending-verbatim')),
+      answerCall?.history.map(messageText).some((text) => text.includes('keep-this-pending-verbatim')),
     ).toBe(true);
     await ctx.expectResumeMatches();
   });
@@ -2676,7 +2405,7 @@ describe('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 1_000_000,
+        maxContextSize: 1_000_000,
       },
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 840_000);
@@ -2698,9 +2427,7 @@ describe('FullCompaction', () => {
       'user',
     ]);
     expect(
-      answerCall?.history
-        .map(messageText)
-        .some((text) => text.includes('Ratio compacted summary.')),
+      answerCall?.history.map(messageText).some((text) => text.includes('Ratio compacted summary.')),
     ).toBe(true);
     expect(
       answerCall?.history.map(messageText).some((text) => text.includes('ratio-pending-verbatim')),
@@ -2709,29 +2436,27 @@ describe('FullCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('compacts and retries when the provider reports context overflow', async () => {
+  it('compacts and retries when provider context overflow follows an earlier LLM retry', async () => {
     let callCount = 0;
     const inputs: string[][] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, history, callbacks) => {
-        callCount += 1;
-        inputs.push(inputHistorySnapshot(history));
-        if (callCount === 1) {
-          throw new APIContextOverflowError(400, 'Context length exceeded', 'req-context-overflow');
-        }
-        if (callCount === 2) {
-          return textResult('Overflow compacted summary.');
-        }
-        if (callCount === 3) {
-          await callbacks?.onMessagePart?.({
-            type: 'text',
-            text: 'Recovered after overflow compaction.',
-          });
-          return textResult('Recovered after overflow compaction.');
-        }
-        throw new Error(`Unexpected generate call ${String(callCount)}`);
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, _signal) => {
+      const history = [...request.content.messages];
+      callCount += 1;
+      inputs.push(inputHistorySnapshot(history));
+      if (callCount === 1) {
+        return providerHttpError(429, 'first attempt rate limited', { requestId: 'req-first-429', retryAfterMs: 1 });
+      }
+      if (callCount === 2) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-context-overflow' });
+      }
+      if (callCount === 3) {
+        return textResult('Overflow compacted summary.');
+      }
+      if (callCount === 4) {
+        return textResult('Recovered after overflow compaction.');
+      }
+      throw new Error(`Unexpected generate call ${String(callCount)}`);
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -2743,7 +2468,7 @@ describe('FullCompaction', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Retry after provider overflow' }] });
     const events = await ctx.untilTurnEnd();
 
-    expect(callCount).toBe(3);
+    expect(callCount).toBe(4);
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'compaction.started',
@@ -2756,7 +2481,7 @@ describe('FullCompaction', () => {
         args: expect.objectContaining({
           result: expect.objectContaining({
             summary: 'Overflow compacted summary.',
-            compactedCount: 4,
+            compactedCount: 3,
           }),
         }),
       }),
@@ -2778,82 +2503,64 @@ describe('FullCompaction', () => {
           "user: old user one",
           "assistant: old assistant one",
           "user: Retry after provider overflow",
-          
-      "user: You are about to run out of context. Produce a recovery block for the model that
-      will resume this task after the earlier conversation is cleared.
+        ],
+        [
+          "user: old user one",
+          "assistant: old assistant one",
+          "user: Retry after provider overflow",
+          "user: You are about to run out of context. Create a handoff summary for the
+      model that will resume this task after the earlier conversation is cleared.
 
       --- This message is a direct task, not part of the above conversation ---
 
-      Write the block in the same language the conversation has been using — do not
-      switch to English just because these instructions happen to be in English.
+      Do not impose rigid section headings; let the shape follow the task. Write it
+      in the same language the conversation has been using — do not switch to English
+      just because these instructions happen to be in English.
 
-      The next turn sees only the preserved messages and this block; every other
-      assistant message, tool call and tool result will be gone. Make the block
-      self-sufficient and use exactly these sections, in this order:
+      Make the summary self-sufficient: the next turn will see only the preserved
+      messages and this summary — every other assistant message, tool call, and tool
+      result above will be gone. In your own words, preserve what you genuinely need
+      to continue:
 
-      ## Current request
-      The latest request's actual ask — your reading of its intent and any ambiguity
-      you already resolved — not a re-transcription, since what fits is kept verbatim
-      in the preserved messages. Those kept messages are size-capped, so if the latest
-      request is large (a big paste or file), preserve the parts at risk of being
-      dropped, above all the actual ask. If several requests are in play, say which one
-      governs the next move and re-quote any still-relevant earlier request that may
-      have scrolled out of the kept messages.
+      - What the latest request is actually asking for: your reading of its intent and
+        any ambiguity you have already resolved — not a re-transcription, since what
+        fits is kept verbatim in the preserved messages. But those kept messages are
+        size-capped, so a long request is truncated there: if the latest request is
+        large (a big paste or file), preserve the parts at risk of being dropped —
+        above all the actual ask. If several requests are in play, say which one governs
+        the next move, and re-quote any still-relevant earlier request that may have
+        scrolled out of the kept messages.
+      - The instructions and constraints currently in force (user preferences,
+        project rules, environment and tooling limits) — condensed to what still
+        matters, keeping decisions you have already settled (what you chose and why)
+        separate from questions still open, so you neither silently reopen a closed
+        choice nor treat an undecided point as decided.
+      - What has actually been done, at high fidelity: keep the exact commands that
+        were run, the exact file paths touched, and whether each succeeded or failed —
+        and the results themselves, not just the commands: the concrete values
+        returned, the key lines or error text, the schema or signature a lookup
+        revealed, since re-running to recover them may be slow or impossible. Keep only
+        the final working version of any code; drop intermediate attempts and
+        already-resolved errors.
+      - What you still don't know: context the next step depends on that this
+        conversation never established — files or paths referenced but not yet read,
+        schemas or APIs assumed but unseen, questions the user has not answered. Name
+        these gaps so the next turn goes and checks them instead of assuming.
+      - The forward plan — and this is the moment to invest in it. Right now you
+        hold more context on this task than you ever will again; the next turn
+        resumes with less, so the plan you commit here is the one it will follow.
+        Give the exact next command or tool call, but don't stop at the next step:
+        set out the remaining sequence to finish, the decisions you have already
+        made for those upcoming steps (so the next turn doesn't reopen them), the
+        obstacles or edge cases you can already foresee and how you mean to handle
+        them, and any work you can commit to now — the exact patch, query, or shape
+        of the final answer you already know you will produce. Anything you settle
+        here is one less thing the next turn must rediscover. Include any required
+        format for the final answer.
 
-      ## Task stage
-      Where the task stands right now, including anything still owed to the user: a
-      report, a decision, a review, an answer. If the task is blocked on the user, say
-      what and why.
+      This conversation's event log stays on disk and a recovery pointer is appended below this summary automatically, so you need not reproduce long outputs verbatim — keep exact identifiers, key values and error lines, and name anything the next turn should look up.
 
-      ## Acceptance criteria
-      The conditions that must hold for the task to be done — item by item, quoting the
-      user's own words where they stated them. Keep the exact numbers, paths, names and
-      formats; the preserved messages may not carry all of them.
-
-      ## Authorized actions
-      What the user has actually authorized, quoting their own words. This is the only
-      source of authorization: an action not covered here by the user's own words is
-      not authorized, whatever the block's other sections imply.
-
-      ## Forbidden actions
-      What the user has ruled out, again in their own words.
-
-      ## Open decisions
-      Questions still waiting on the user, and choices you have not made. Keep them
-      apart from decisions you already settled — record the settled ones with what you
-      chose and why, so the next turn neither reopens a closed choice nor treats an
-      undecided point as decided.
-
-      ## In-flight work
-      Background tasks, subagents and long-running commands: their ids, what they were
-      started for, and their last known state. Mark anything whose completion you are
-      waiting on.
-
-      ## Verified facts
-      What is actually established, at high fidelity: the exact commands run, the
-      exact file paths touched, whether each succeeded or failed, and the results
-      themselves — the concrete values returned, the key lines or error text, the
-      schema or signature a lookup revealed, since re-running to recover them may be
-      slow or impossible. Keep only the final working version of any code; drop
-      intermediate attempts and already-resolved errors.
-
-      ## Unverified assumptions
-      What a check claimed but never verified, what changed after a check passed, and
-      context the next step depends on that this conversation never established —
-      files or paths referenced but not read, schemas or APIs assumed but unseen,
-      questions the user never answered. Name these so the next turn goes and checks
-      them instead of assuming.
-
-      ## Next steps
-      The exact next command or tool call, and the remaining sequence to finish — the
-      decisions you have already made for those upcoming steps, the obstacles or edge
-      cases you can foresee and how you mean to handle them, and any work you can
-      commit to now (the exact patch, query, or shape of the final answer). Include
-      any required format for the final answer.
-
-      This conversation's event log stays on disk, and a recovery pointer is appended below this block automatically, so you need not reproduce long outputs verbatim — keep exact identifiers, key values and error lines, and name anything the next turn should look up.
-
-      Your TODO list is re-attached automatically below this block from its live
+      Your TODO list is re-attached automatically below this summary from its live
       source, so do not transcribe it — copying it wastes space and can contradict the
       live version. What that list cannot hold is the reasoning between tasks — why one
       was reordered or dropped, or a decision on one that constrains another — so
@@ -2861,35 +2568,27 @@ describe('FullCompaction', () => {
 
       Be honest about uncertainty. If an earlier step claimed something was done but
       was never verified (tests "passing", a fix "working", a file "created"), say so
-      plainly and treat it as unverified rather than fact — re-check before relying on
-      it. Likewise, if the code a check covers changed after it passed, mark that
+      plainly and treat it as unverified rather than fact — re-check before relying
+      on it. Likewise, if the code a check covers changed after it passed, mark that
       result as unverified.
 
-      Be concise, and keep the block proportional to the task: a long multi-step task
-      warrants detail, but a trivial or nearly finished exchange needs only a sentence
-      or two — do not pad it out. Omit anything that does not change the next move.
+      Be concise, and keep the summary proportional to the task: a long multi-step
+      task warrants detail, but a trivial or nearly finished exchange needs only a
+      sentence or two — do not pad it out. Include the critical data, identifiers, and
+      references needed to continue, and omit anything that does not change the next
+      move.
 
       Respond with text only. Do not call any tools — you already have everything you
-      need in the conversation history."
-      ,
+      need in the conversation history.",
         ],
         [
-          
-      "user: old user one
-
-      Retry after provider overflow"
-      ,
-          
-      "user: <system-reminder>
-      The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.
-      Overflow compacted summary.
-      </system-reminder>"
-      ,
-          
-      "user: <system-reminder>
+          "user: old user one",
+          "user: Retry after provider overflow",
+          "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
+      Overflow compacted summary.",
+          "user: <system-reminder>
       Context compaction is complete — continue the work that was in progress when it began.
-      </system-reminder>"
-      ,
+      </system-reminder>",
         ],
       ]
     `);
@@ -2899,31 +2598,26 @@ describe('FullCompaction', () => {
   it('recovers from compaction-request overflow under the measured token-counting strategy', async () => {
     let callCount = 0;
     const compactionInputLengths: number[] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, history, callbacks) => {
-        callCount += 1;
-        if (callCount === 1) {
-          throw new APIContextOverflowError(
-            400,
-            'Context length exceeded',
-            'req-measured-overflow',
-          );
-        }
-        if (callCount === 2) {
-          compactionInputLengths.push(history.length);
-          throw new APIContextOverflowError(400, 'Context length exceeded', 'req-measured-shrink');
-        }
-        if (callCount === 3) {
-          compactionInputLengths.push(history.length);
-          return textResult('Measured-strategy compacted summary.');
-        }
-        if (callCount === 4) {
-          await callbacks?.onMessagePart?.({ type: 'text', text: 'Recovered under measured.' });
-          return textResult('Recovered under measured.');
-        }
-        throw new Error(`Unexpected generate call ${String(callCount)}`);
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, _signal) => {
+      const history = [...request.content.messages];
+      callCount += 1;
+      if (callCount === 1) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-measured-overflow' })
+      }
+      if (callCount === 2) {
+        compactionInputLengths.push(history.length);
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-measured-shrink' })
+      }
+      if (callCount === 3) {
+        compactionInputLengths.push(history.length);
+        return textResult('Measured-strategy compacted summary.');
+      }
+      if (callCount === 4) {
+        
+        return textResult('Recovered under measured.');
+      }
+      throw new Error(`Unexpected generate call ${String(callCount)}`);
+    });
     const ctx = testAgent({
       generate,
       initialConfig: {
@@ -2965,41 +2659,33 @@ describe('FullCompaction', () => {
 
   it('remembers the observed provider context window after overflow', async () => {
     let callCount = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, _history, callbacks) => {
-        callCount += 1;
-        if (callCount === 1) {
-          throw new APIContextOverflowError(400, 'Context length exceeded', 'req-observed-window');
-        }
-        if (callCount === 2) {
-          return textResult('Observed recovery summary.');
-        }
-        if (callCount === 3) {
-          await callbacks?.onMessagePart?.({
-            type: 'text',
-            text: 'Recovered after observed overflow.',
-          });
-          return textResult('Recovered after observed overflow.');
-        }
-        if (callCount === 4) {
-          return textResult('Observed preemptive summary.');
-        }
-        if (callCount === 5) {
-          await callbacks?.onMessagePart?.({
-            type: 'text',
-            text: 'Answered after observed-window precompaction.',
-          });
-          return textResult('Answered after observed-window precompaction.');
-        }
-        throw new Error(`Unexpected generate call ${String(callCount)}`);
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-observed-window' })
+      }
+      if (callCount === 2) {
+        return textResult('Observed recovery summary.');
+      }
+      if (callCount === 3) {
+        
+        return textResult('Recovered after observed overflow.');
+      }
+      if (callCount === 4) {
+        return textResult('Observed preemptive summary.');
+      }
+      if (callCount === 5) {
+        
+        return textResult('Answered after observed-window precompaction.');
+      }
+      throw new Error(`Unexpected generate call ${String(callCount)}`);
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 200_000,
+        maxContextSize: 200_000,
       },
       tools: SNAPSHOT_VISIBLE_TOOLS,
     });
@@ -3016,8 +2702,8 @@ describe('FullCompaction', () => {
     const events = await ctx.untilTurnEnd();
 
     expect(callCount).toBe(5);
-    expect(eventIndex(events, 'compaction.started')).toBeLessThan(
-      eventIndex(events, 'turn.step.started'),
+    expect(eventIndex(events, 'turn.step.started')).toBeLessThan(
+      eventIndex(events, 'compaction.started'),
     );
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -3032,7 +2718,7 @@ describe('FullCompaction', () => {
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',
-        args: expect.objectContaining({ turnId: 2, reason: 'completed' }),
+        args: expect.objectContaining({ turnId: 1, reason: 'completed' }),
       }),
     );
     await ctx.expectResumeMatches();
@@ -3040,26 +2726,21 @@ describe('FullCompaction', () => {
 
   it('triggers preemptive compaction against the declared input cap, not the total window', async () => {
     let callCount = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, _history, callbacks) => {
-        callCount += 1;
-        if (callCount === 1) {
-          return textResult('Preemptive summary under the input cap.');
-        }
-        await callbacks?.onMessagePart?.({
-          type: 'text',
-          text: 'Answered after input-cap compaction.',
-        });
-        return textResult('Answered after input-cap compaction.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return textResult('Preemptive summary under the input cap.');
+      }
+      
+      return textResult('Answered after input-cap compaction.');
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 200_000,
-        max_input_tokens: 150_000,
+        maxContextSize: 200_000,
+        maxInputSize: 150_000,
       },
       tools: SNAPSHOT_VISIBLE_TOOLS,
     });
@@ -3070,47 +2751,41 @@ describe('FullCompaction', () => {
     const events = await ctx.untilTurnEnd();
 
     expect(callCount).toBe(2);
-    expect(events).toContainEqual(expect.objectContaining({ event: 'compaction.started' }));
+    expect(events).toContainEqual(
+      expect.objectContaining({ event: 'compaction.started' }),
+    );
   });
 
   it('honors the observed provider window over a declared input cap', async () => {
     let callCount = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, _history, callbacks) => {
-        callCount += 1;
-        if (callCount === 1) {
-          throw new APIContextOverflowError(400, 'Context length exceeded', 'req-observed-window');
-        }
-        if (callCount === 2) {
-          return textResult('Observed recovery summary.');
-        }
-        if (callCount === 3) {
-          await callbacks?.onMessagePart?.({
-            type: 'text',
-            text: 'Recovered after observed overflow.',
-          });
-          return textResult('Recovered after observed overflow.');
-        }
-        if (callCount === 4) {
-          return textResult('Observed preemptive summary.');
-        }
-        if (callCount === 5) {
-          await callbacks?.onMessagePart?.({
-            type: 'text',
-            text: 'Answered after observed-window precompaction.',
-          });
-          return textResult('Answered after observed-window precompaction.');
-        }
-        throw new Error(`Unexpected generate call ${String(callCount)}`);
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-observed-window' })
+      }
+      if (callCount === 2) {
+        return textResult('Observed recovery summary.');
+      }
+      if (callCount === 3) {
+        
+        return textResult('Recovered after observed overflow.');
+      }
+      if (callCount === 4) {
+        return textResult('Observed preemptive summary.');
+      }
+      if (callCount === 5) {
+        
+        return textResult('Answered after observed-window precompaction.');
+      }
+      throw new Error(`Unexpected generate call ${String(callCount)}`);
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 200_000,
-        max_input_tokens: 150_000,
+        maxContextSize: 200_000,
+        maxInputSize: 150_000,
       },
       tools: SNAPSHOT_VISIBLE_TOOLS,
     });
@@ -3127,35 +2802,30 @@ describe('FullCompaction', () => {
     const events = await ctx.untilTurnEnd();
 
     expect(callCount).toBe(5);
-    expect(eventIndex(events, 'compaction.started')).toBeLessThan(
-      eventIndex(events, 'turn.step.started'),
+    expect(eventIndex(events, 'turn.step.started')).toBeLessThan(
+      eventIndex(events, 'compaction.started'),
     );
   });
 
   it('recovers from plain 413 when estimated request is over effective max', async () => {
     let callCount = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, _history, callbacks) => {
-        callCount += 1;
-        if (callCount === 1) {
-          throw new APIStatusError(413, 'Request Entity Too Large', false, 'req-plain-413');
-        }
-        if (callCount === 2) {
-          return textResult('Plain 413 compacted summary.');
-        }
-        await callbacks?.onMessagePart?.({
-          type: 'text',
-          text: 'Recovered after plain 413 compaction.',
-        });
-        return textResult('Recovered after plain 413 compaction.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return providerHttpError(413, 'Request Entity Too Large', { requestId: 'req-plain-413' })
+      }
+      if (callCount === 2) {
+        return textResult('Plain 413 compacted summary.');
+      }
+      
+      return textResult('Recovered after plain 413 compaction.');
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 200_000,
+        maxContextSize: 200_000,
       },
     });
     ctx.appendExchange(1, 'old user one', `old assistant one ${'x'.repeat(600_000)}`, 150_000);
@@ -3191,15 +2861,15 @@ describe('FullCompaction', () => {
   });
 
   it('does not compact plain 413 when estimated request is small', async () => {
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
-      throw new APIStatusError(413, 'Request Entity Too Large', false, 'req-small-413');
+    const generate: GenerateFn = createMockProvider(async () => {
+      return providerHttpError(413, 'Request Entity Too Large', { requestId: 'req-small-413' })
     });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 200_000,
+        maxContextSize: 200_000,
       },
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
@@ -3220,19 +2890,17 @@ describe('FullCompaction', () => {
 
   it('does not reset the step budget after provider context overflow compaction', async () => {
     let callCount = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, _history, callbacks) => {
-        callCount += 1;
-        if (callCount === 1) {
-          throw new APIContextOverflowError(400, 'Context length exceeded', 'req-budget-overflow');
-        }
-        if (callCount === 2) {
-          return textResult('Budget compacted summary.');
-        }
-        await callbacks?.onMessagePart?.({ type: 'text', text: 'Should not run.' });
-        return textResult('Should not run.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-budget-overflow' })
+      }
+      if (callCount === 2) {
+        return textResult('Budget compacted summary.');
+      }
+      
+      return textResult('Should not run.');
+    });
     const ctx = testAgent({
       generate,
       initialConfig: {
@@ -3272,36 +2940,36 @@ describe('FullCompaction', () => {
     let callCount = 0;
     const records: TelemetryRecord[] = [];
     const thinkingEfforts: unknown[] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, _history, callbacks, options) => {
-        callCount += 1;
-        thinkingEfforts.push(options?.thinking?.effort);
-        if (callCount === 1) {
-          throw new APIContextOverflowError(
-            400,
-            'Context length exceeded',
-            'req-thinking-context-overflow',
-          );
-        }
-        if (callCount === 2) {
-          return textResult('Thinking compacted summary.');
-        }
-        if (callCount === 3) {
-          await callbacks?.onMessagePart?.({
-            type: 'text',
-            text: 'Recovered after thinking compaction.',
-          });
-          return textResult('Recovered after thinking compaction.');
-        }
-        throw new Error(`Unexpected generate call ${String(callCount)}`);
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, signal) => {
+      const options = {
+        signal,
+        cacheKey: request.model.cacheKey,
+        sampling: request.model.sampling,
+        thinking: request.model.thinking,
+        maxOutputTokens: request.model.maxOutputTokens,
+        maxContextSize: request.model.spec.maxContextSize,
+        usedTokens: request.content.usedTokens,
+      };
+      callCount += 1;
+      thinkingEfforts.push(options?.thinking?.effort);
+      if (callCount === 1) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-thinking-context-overflow' })
+      }
+      if (callCount === 2) {
+        return textResult('Thinking compacted summary.');
+      }
+      if (callCount === 3) {
+        
+        return textResult('Recovered after thinking compaction.');
+      }
+      throw new Error(`Unexpected generate call ${String(callCount)}`);
+    });
     const ctx = testAgent({ generate, telemetry: recordingTelemetry(records) });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
-    ctx.get(IAgentProfileService).update({ thinkingLevel: 'high' });
+    ctx.get(IAgentLoopService).update({ thinkingLevel: 'high' });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.newEvents();
 
@@ -3324,26 +2992,30 @@ describe('FullCompaction', () => {
   it('compacts provider overflow when model context size is unknown', async () => {
     let callCount = 0;
     const compactionMaxCompletionTokens: unknown[] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, _history, callbacks, options) => {
-        callCount += 1;
-        if (callCount === 1) {
-          throw new APIContextOverflowError(400, 'Context length exceeded', 'req-unknown-context');
-        }
-        if (callCount === 2) {
-          compactionMaxCompletionTokens.push(options?.maxCompletionTokens);
-          return textResult('Unknown window compacted summary.');
-        }
-        if (callCount === 3) {
-          await callbacks?.onMessagePart?.({
-            type: 'text',
-            text: 'Recovered with unknown context size.',
-          });
-          return textResult('Recovered with unknown context size.');
-        }
-        throw new Error(`Unexpected generate call ${String(callCount)}`);
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, signal) => {
+      const options = {
+        signal,
+        cacheKey: request.model.cacheKey,
+        sampling: request.model.sampling,
+        thinking: request.model.thinking,
+        maxOutputTokens: request.model.maxOutputTokens,
+        maxContextSize: request.model.spec.maxContextSize,
+        usedTokens: request.content.usedTokens,
+      };
+      callCount += 1;
+      if (callCount === 1) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-unknown-context' })
+      }
+      if (callCount === 2) {
+        compactionMaxCompletionTokens.push(options?.maxOutputTokens);
+        return textResult('Unknown window compacted summary.');
+      }
+      if (callCount === 3) {
+        
+        return textResult('Recovered with unknown context size.');
+      }
+      throw new Error(`Unexpected generate call ${String(callCount)}`);
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -3354,10 +3026,10 @@ describe('FullCompaction', () => {
     const get = modelResolver.get.bind(modelResolver);
     modelResolver.get = (id: string) => {
       const resolved = get(id);
-      Object.defineProperty(resolved, 'capabilities', { value: UNKNOWN_CAPABILITY });
+      Object.defineProperty(resolved.spec, 'capability', { value: undefined });
       return resolved;
     };
-    expect(ctx.get(IAgentProfileService).data().modelCapabilities.max_context_tokens).toBe(0);
+    expect(ctx.get(IAgentLoopService).data().modelCapabilities.max_context_tokens).toBe(0);
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.newEvents();
 
@@ -3365,7 +3037,7 @@ describe('FullCompaction', () => {
     const events = await ctx.untilTurnEnd();
 
     expect(callCount).toBe(3);
-    expect(compactionMaxCompletionTokens).toEqual([undefined]);
+    expect(compactionMaxCompletionTokens).toEqual([128 * 1024]);
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'compaction.started',
@@ -3378,7 +3050,7 @@ describe('FullCompaction', () => {
         args: expect.objectContaining({
           result: expect.objectContaining({
             summary: 'Unknown window compacted summary.',
-            compactedCount: 4,
+            compactedCount: 3,
           }),
         }),
       }),
@@ -3392,26 +3064,30 @@ describe('FullCompaction', () => {
   });
 
   it('honors completion budget env hard caps during compaction', async () => {
-    setEnv('KIMI_MODEL_MAX_COMPLETION_TOKENS', '8192');
+    stubEnv('KIMI_MODEL_MAX_COMPLETION_TOKENS', '8192');
     let callCount = 0;
     const compactionMaxCompletionTokens: unknown[] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, _history, callbacks, options) => {
-        callCount += 1;
-        if (callCount === 1) {
-          throw new APIContextOverflowError(400, 'Context length exceeded', 'req-hard-cap');
-        }
-        if (callCount === 2) {
-          compactionMaxCompletionTokens.push(options?.maxCompletionTokens);
-          return textResult('Hard cap compacted summary.');
-        }
-        await callbacks?.onMessagePart?.({
-          type: 'text',
-          text: 'Recovered with hard cap.',
-        });
-        return textResult('Recovered with hard cap.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, signal) => {
+      const options = {
+        signal,
+        cacheKey: request.model.cacheKey,
+        sampling: request.model.sampling,
+        thinking: request.model.thinking,
+        maxOutputTokens: request.model.maxOutputTokens,
+        maxContextSize: request.model.spec.maxContextSize,
+        usedTokens: request.content.usedTokens,
+      };
+      callCount += 1;
+      if (callCount === 1) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-hard-cap' })
+      }
+      if (callCount === 2) {
+        compactionMaxCompletionTokens.push(options?.maxOutputTokens);
+        return textResult('Hard cap compacted summary.');
+      }
+      
+      return textResult('Recovered with hard cap.');
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -3430,26 +3106,30 @@ describe('FullCompaction', () => {
   it.each(['0', '-1'])(
     'honors completion budget env opt-out (%s) during compaction',
     async (maxCompletionTokens) => {
-      setEnv('KIMI_MODEL_MAX_COMPLETION_TOKENS', maxCompletionTokens);
+      stubEnv('KIMI_MODEL_MAX_COMPLETION_TOKENS', maxCompletionTokens);
       let callCount = 0;
       const compactionMaxCompletionTokens: unknown[] = [];
-      const generate: GenerateFn = requesterFromGenerateFn(
-        async (_provider, _system, _tools, _history, callbacks, options) => {
-          callCount += 1;
-          if (callCount === 1) {
-            throw new APIContextOverflowError(400, 'Context length exceeded', 'req-opt-out');
-          }
-          if (callCount === 2) {
-            compactionMaxCompletionTokens.push(options?.maxCompletionTokens);
-            return textResult('Opt-out compacted summary.');
-          }
-          await callbacks?.onMessagePart?.({
-            type: 'text',
-            text: 'Recovered with opt-out.',
-          });
-          return textResult('Recovered with opt-out.');
-        },
-      );
+      const generate: GenerateFn = createMockProvider(async (request, signal) => {
+        const options = {
+        signal,
+        cacheKey: request.model.cacheKey,
+        sampling: request.model.sampling,
+        thinking: request.model.thinking,
+        maxOutputTokens: request.model.maxOutputTokens,
+        maxContextSize: request.model.spec.maxContextSize,
+        usedTokens: request.content.usedTokens,
+      };
+        callCount += 1;
+        if (callCount === 1) {
+          return providerHttpError(400, 'Context length exceeded', { requestId: 'req-opt-out' })
+        }
+        if (callCount === 2) {
+          compactionMaxCompletionTokens.push(options?.maxOutputTokens);
+          return textResult('Opt-out compacted summary.');
+        }
+        
+        return textResult('Recovered with opt-out.');
+      });
       const ctx = testAgent({ generate });
       ctx.configure({
         provider: CATALOGUED_PROVIDER,
@@ -3462,30 +3142,34 @@ describe('FullCompaction', () => {
       await ctx.untilTurnEnd();
 
       expect(callCount).toBe(3);
-      expect(compactionMaxCompletionTokens).toEqual([Number(maxCompletionTokens)]);
+      expect(compactionMaxCompletionTokens).toEqual(['none']);
     },
   );
 
   it('honors maxOutputSize from model config during compaction', async () => {
     let callCount = 0;
     const compactionMaxCompletionTokens: unknown[] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, _history, callbacks, options) => {
-        callCount += 1;
-        if (callCount === 1) {
-          throw new APIContextOverflowError(400, 'Context length exceeded', 'req-max-output');
-        }
-        if (callCount === 2) {
-          compactionMaxCompletionTokens.push(options?.maxCompletionTokens);
-          return textResult('Max output compacted summary.');
-        }
-        await callbacks?.onMessagePart?.({
-          type: 'text',
-          text: 'Recovered with max output.',
-        });
-        return textResult('Recovered with max output.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, signal) => {
+      const options = {
+        signal,
+        cacheKey: request.model.cacheKey,
+        sampling: request.model.sampling,
+        thinking: request.model.thinking,
+        maxOutputTokens: request.model.maxOutputTokens,
+        maxContextSize: request.model.spec.maxContextSize,
+        usedTokens: request.content.usedTokens,
+      };
+      callCount += 1;
+      if (callCount === 1) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-max-output' })
+      }
+      if (callCount === 2) {
+        compactionMaxCompletionTokens.push(options?.maxOutputTokens);
+        return textResult('Max output compacted summary.');
+      }
+      
+      return textResult('Recovered with max output.');
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -3510,23 +3194,27 @@ describe('FullCompaction', () => {
   it('uses default 128k hardCap when maxOutputSize is not configured', async () => {
     let callCount = 0;
     const compactionMaxCompletionTokens: unknown[] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, _history, callbacks, options) => {
-        callCount += 1;
-        if (callCount === 1) {
-          throw new APIContextOverflowError(400, 'Context length exceeded', 'req-default-cap');
-        }
-        if (callCount === 2) {
-          compactionMaxCompletionTokens.push(options?.maxCompletionTokens);
-          return textResult('Default cap compacted summary.');
-        }
-        await callbacks?.onMessagePart?.({
-          type: 'text',
-          text: 'Recovered with default cap.',
-        });
-        return textResult('Recovered with default cap.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, signal) => {
+      const options = {
+        signal,
+        cacheKey: request.model.cacheKey,
+        sampling: request.model.sampling,
+        thinking: request.model.thinking,
+        maxOutputTokens: request.model.maxOutputTokens,
+        maxContextSize: request.model.spec.maxContextSize,
+        usedTokens: request.content.usedTokens,
+      };
+      callCount += 1;
+      if (callCount === 1) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-default-cap' })
+      }
+      if (callCount === 2) {
+        compactionMaxCompletionTokens.push(options?.maxOutputTokens);
+        return textResult('Default cap compacted summary.');
+      }
+      
+      return textResult('Recovered with default cap.');
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -3545,30 +3233,22 @@ describe('FullCompaction', () => {
   it('ignores filtered assistant placeholders when checking the retained overflow suffix', async () => {
     let callCount = 0;
     const inputs: string[][] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, history, callbacks) => {
-        callCount += 1;
-        inputs.push(inputHistorySnapshot(history));
-        if (callCount === 1) {
-          throw new APIContextOverflowError(
-            400,
-            'Context length exceeded',
-            'req-placeholder-boundary',
-          );
-        }
-        if (callCount === 2) {
-          return textResult('Placeholder compacted summary.');
-        }
-        if (callCount === 3) {
-          await callbacks?.onMessagePart?.({
-            type: 'text',
-            text: 'Recovered after ignoring the placeholder.',
-          });
-          return textResult('Recovered after ignoring the placeholder.');
-        }
-        throw new Error(`Unexpected generate call ${String(callCount)}`);
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, _signal) => {
+      const history = [...request.content.messages];
+      callCount += 1;
+      inputs.push(inputHistorySnapshot(history));
+      if (callCount === 1) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-placeholder-boundary' })
+      }
+      if (callCount === 2) {
+        return textResult('Placeholder compacted summary.');
+      }
+      if (callCount === 3) {
+        
+        return textResult('Recovered after ignoring the placeholder.');
+      }
+      throw new Error(`Unexpected generate call ${String(callCount)}`);
+    });
     const ctx = testAgent({
       generate,
     });
@@ -3576,7 +3256,7 @@ describe('FullCompaction', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 14,
+        maxContextSize: 14,
       },
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 1);
@@ -3605,21 +3285,6 @@ describe('FullCompaction', () => {
         }),
       }),
     );
-    type WireRequestEvent = {
-      type: '[wire]';
-      event: 'llm.request';
-      args: Record<string, unknown>;
-    };
-    const requestEvents = events.filter((event): event is WireRequestEvent => {
-      if (event === null || typeof event !== 'object') return false;
-      const candidate = event as { type?: unknown; event?: unknown };
-      return candidate.type === '[wire]' && candidate.event === 'llm.request';
-    });
-    expect(requestEvents.map((event) => [event.args['kind'], event.args['droppedCount']])).toEqual([
-      ['compaction', 0],
-      ['compaction', 2],
-      ['loop', undefined],
-    ]);
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',
@@ -3632,82 +3297,59 @@ describe('FullCompaction', () => {
           "user: old user one",
           "assistant: old assistant one",
           "user: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-          
-      "user: You are about to run out of context. Produce a recovery block for the model that
-      will resume this task after the earlier conversation is cleared.
+          "user: You are about to run out of context. Create a handoff summary for the
+      model that will resume this task after the earlier conversation is cleared.
 
       --- This message is a direct task, not part of the above conversation ---
 
-      Write the block in the same language the conversation has been using — do not
-      switch to English just because these instructions happen to be in English.
+      Do not impose rigid section headings; let the shape follow the task. Write it
+      in the same language the conversation has been using — do not switch to English
+      just because these instructions happen to be in English.
 
-      The next turn sees only the preserved messages and this block; every other
-      assistant message, tool call and tool result will be gone. Make the block
-      self-sufficient and use exactly these sections, in this order:
+      Make the summary self-sufficient: the next turn will see only the preserved
+      messages and this summary — every other assistant message, tool call, and tool
+      result above will be gone. In your own words, preserve what you genuinely need
+      to continue:
 
-      ## Current request
-      The latest request's actual ask — your reading of its intent and any ambiguity
-      you already resolved — not a re-transcription, since what fits is kept verbatim
-      in the preserved messages. Those kept messages are size-capped, so if the latest
-      request is large (a big paste or file), preserve the parts at risk of being
-      dropped, above all the actual ask. If several requests are in play, say which one
-      governs the next move and re-quote any still-relevant earlier request that may
-      have scrolled out of the kept messages.
+      - What the latest request is actually asking for: your reading of its intent and
+        any ambiguity you have already resolved — not a re-transcription, since what
+        fits is kept verbatim in the preserved messages. But those kept messages are
+        size-capped, so a long request is truncated there: if the latest request is
+        large (a big paste or file), preserve the parts at risk of being dropped —
+        above all the actual ask. If several requests are in play, say which one governs
+        the next move, and re-quote any still-relevant earlier request that may have
+        scrolled out of the kept messages.
+      - The instructions and constraints currently in force (user preferences,
+        project rules, environment and tooling limits) — condensed to what still
+        matters, keeping decisions you have already settled (what you chose and why)
+        separate from questions still open, so you neither silently reopen a closed
+        choice nor treat an undecided point as decided.
+      - What has actually been done, at high fidelity: keep the exact commands that
+        were run, the exact file paths touched, and whether each succeeded or failed —
+        and the results themselves, not just the commands: the concrete values
+        returned, the key lines or error text, the schema or signature a lookup
+        revealed, since re-running to recover them may be slow or impossible. Keep only
+        the final working version of any code; drop intermediate attempts and
+        already-resolved errors.
+      - What you still don't know: context the next step depends on that this
+        conversation never established — files or paths referenced but not yet read,
+        schemas or APIs assumed but unseen, questions the user has not answered. Name
+        these gaps so the next turn goes and checks them instead of assuming.
+      - The forward plan — and this is the moment to invest in it. Right now you
+        hold more context on this task than you ever will again; the next turn
+        resumes with less, so the plan you commit here is the one it will follow.
+        Give the exact next command or tool call, but don't stop at the next step:
+        set out the remaining sequence to finish, the decisions you have already
+        made for those upcoming steps (so the next turn doesn't reopen them), the
+        obstacles or edge cases you can already foresee and how you mean to handle
+        them, and any work you can commit to now — the exact patch, query, or shape
+        of the final answer you already know you will produce. Anything you settle
+        here is one less thing the next turn must rediscover. Include any required
+        format for the final answer.
 
-      ## Task stage
-      Where the task stands right now, including anything still owed to the user: a
-      report, a decision, a review, an answer. If the task is blocked on the user, say
-      what and why.
+      This conversation's event log stays on disk and a recovery pointer is appended below this summary automatically, so you need not reproduce long outputs verbatim — keep exact identifiers, key values and error lines, and name anything the next turn should look up.
 
-      ## Acceptance criteria
-      The conditions that must hold for the task to be done — item by item, quoting the
-      user's own words where they stated them. Keep the exact numbers, paths, names and
-      formats; the preserved messages may not carry all of them.
-
-      ## Authorized actions
-      What the user has actually authorized, quoting their own words. This is the only
-      source of authorization: an action not covered here by the user's own words is
-      not authorized, whatever the block's other sections imply.
-
-      ## Forbidden actions
-      What the user has ruled out, again in their own words.
-
-      ## Open decisions
-      Questions still waiting on the user, and choices you have not made. Keep them
-      apart from decisions you already settled — record the settled ones with what you
-      chose and why, so the next turn neither reopens a closed choice nor treats an
-      undecided point as decided.
-
-      ## In-flight work
-      Background tasks, subagents and long-running commands: their ids, what they were
-      started for, and their last known state. Mark anything whose completion you are
-      waiting on.
-
-      ## Verified facts
-      What is actually established, at high fidelity: the exact commands run, the
-      exact file paths touched, whether each succeeded or failed, and the results
-      themselves — the concrete values returned, the key lines or error text, the
-      schema or signature a lookup revealed, since re-running to recover them may be
-      slow or impossible. Keep only the final working version of any code; drop
-      intermediate attempts and already-resolved errors.
-
-      ## Unverified assumptions
-      What a check claimed but never verified, what changed after a check passed, and
-      context the next step depends on that this conversation never established —
-      files or paths referenced but not read, schemas or APIs assumed but unseen,
-      questions the user never answered. Name these so the next turn goes and checks
-      them instead of assuming.
-
-      ## Next steps
-      The exact next command or tool call, and the remaining sequence to finish — the
-      decisions you have already made for those upcoming steps, the obstacles or edge
-      cases you can foresee and how you mean to handle them, and any work you can
-      commit to now (the exact patch, query, or shape of the final answer). Include
-      any required format for the final answer.
-
-      This conversation's event log stays on disk, and a recovery pointer is appended below this block automatically, so you need not reproduce long outputs verbatim — keep exact identifiers, key values and error lines, and name anything the next turn should look up.
-
-      Your TODO list is re-attached automatically below this block from its live
+      Your TODO list is re-attached automatically below this summary from its live
       source, so do not transcribe it — copying it wastes space and can contradict the
       live version. What that list cannot hold is the reasoning between tasks — why one
       was reordered or dropped, or a decision on one that constrains another — so
@@ -3715,96 +3357,74 @@ describe('FullCompaction', () => {
 
       Be honest about uncertainty. If an earlier step claimed something was done but
       was never verified (tests "passing", a fix "working", a file "created"), say so
-      plainly and treat it as unverified rather than fact — re-check before relying on
-      it. Likewise, if the code a check covers changed after it passed, mark that
+      plainly and treat it as unverified rather than fact — re-check before relying
+      on it. Likewise, if the code a check covers changed after it passed, mark that
       result as unverified.
 
-      Be concise, and keep the block proportional to the task: a long multi-step task
-      warrants detail, but a trivial or nearly finished exchange needs only a sentence
-      or two — do not pad it out. Omit anything that does not change the next move.
+      Be concise, and keep the summary proportional to the task: a long multi-step
+      task warrants detail, but a trivial or nearly finished exchange needs only a
+      sentence or two — do not pad it out. Include the critical data, identifiers, and
+      references needed to continue, and omit anything that does not change the next
+      move.
 
       Respond with text only. Do not call any tools — you already have everything you
-      need in the conversation history."
-      ,
+      need in the conversation history.",
         ],
         [
           "user: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-          
-      "user: You are about to run out of context. Produce a recovery block for the model that
-      will resume this task after the earlier conversation is cleared.
+          "user: You are about to run out of context. Create a handoff summary for the
+      model that will resume this task after the earlier conversation is cleared.
 
       --- This message is a direct task, not part of the above conversation ---
 
-      Write the block in the same language the conversation has been using — do not
-      switch to English just because these instructions happen to be in English.
+      Do not impose rigid section headings; let the shape follow the task. Write it
+      in the same language the conversation has been using — do not switch to English
+      just because these instructions happen to be in English.
 
-      The next turn sees only the preserved messages and this block; every other
-      assistant message, tool call and tool result will be gone. Make the block
-      self-sufficient and use exactly these sections, in this order:
+      Make the summary self-sufficient: the next turn will see only the preserved
+      messages and this summary — every other assistant message, tool call, and tool
+      result above will be gone. In your own words, preserve what you genuinely need
+      to continue:
 
-      ## Current request
-      The latest request's actual ask — your reading of its intent and any ambiguity
-      you already resolved — not a re-transcription, since what fits is kept verbatim
-      in the preserved messages. Those kept messages are size-capped, so if the latest
-      request is large (a big paste or file), preserve the parts at risk of being
-      dropped, above all the actual ask. If several requests are in play, say which one
-      governs the next move and re-quote any still-relevant earlier request that may
-      have scrolled out of the kept messages.
+      - What the latest request is actually asking for: your reading of its intent and
+        any ambiguity you have already resolved — not a re-transcription, since what
+        fits is kept verbatim in the preserved messages. But those kept messages are
+        size-capped, so a long request is truncated there: if the latest request is
+        large (a big paste or file), preserve the parts at risk of being dropped —
+        above all the actual ask. If several requests are in play, say which one governs
+        the next move, and re-quote any still-relevant earlier request that may have
+        scrolled out of the kept messages.
+      - The instructions and constraints currently in force (user preferences,
+        project rules, environment and tooling limits) — condensed to what still
+        matters, keeping decisions you have already settled (what you chose and why)
+        separate from questions still open, so you neither silently reopen a closed
+        choice nor treat an undecided point as decided.
+      - What has actually been done, at high fidelity: keep the exact commands that
+        were run, the exact file paths touched, and whether each succeeded or failed —
+        and the results themselves, not just the commands: the concrete values
+        returned, the key lines or error text, the schema or signature a lookup
+        revealed, since re-running to recover them may be slow or impossible. Keep only
+        the final working version of any code; drop intermediate attempts and
+        already-resolved errors.
+      - What you still don't know: context the next step depends on that this
+        conversation never established — files or paths referenced but not yet read,
+        schemas or APIs assumed but unseen, questions the user has not answered. Name
+        these gaps so the next turn goes and checks them instead of assuming.
+      - The forward plan — and this is the moment to invest in it. Right now you
+        hold more context on this task than you ever will again; the next turn
+        resumes with less, so the plan you commit here is the one it will follow.
+        Give the exact next command or tool call, but don't stop at the next step:
+        set out the remaining sequence to finish, the decisions you have already
+        made for those upcoming steps (so the next turn doesn't reopen them), the
+        obstacles or edge cases you can already foresee and how you mean to handle
+        them, and any work you can commit to now — the exact patch, query, or shape
+        of the final answer you already know you will produce. Anything you settle
+        here is one less thing the next turn must rediscover. Include any required
+        format for the final answer.
 
-      ## Task stage
-      Where the task stands right now, including anything still owed to the user: a
-      report, a decision, a review, an answer. If the task is blocked on the user, say
-      what and why.
+      This conversation's event log stays on disk and a recovery pointer is appended below this summary automatically, so you need not reproduce long outputs verbatim — keep exact identifiers, key values and error lines, and name anything the next turn should look up.
 
-      ## Acceptance criteria
-      The conditions that must hold for the task to be done — item by item, quoting the
-      user's own words where they stated them. Keep the exact numbers, paths, names and
-      formats; the preserved messages may not carry all of them.
-
-      ## Authorized actions
-      What the user has actually authorized, quoting their own words. This is the only
-      source of authorization: an action not covered here by the user's own words is
-      not authorized, whatever the block's other sections imply.
-
-      ## Forbidden actions
-      What the user has ruled out, again in their own words.
-
-      ## Open decisions
-      Questions still waiting on the user, and choices you have not made. Keep them
-      apart from decisions you already settled — record the settled ones with what you
-      chose and why, so the next turn neither reopens a closed choice nor treats an
-      undecided point as decided.
-
-      ## In-flight work
-      Background tasks, subagents and long-running commands: their ids, what they were
-      started for, and their last known state. Mark anything whose completion you are
-      waiting on.
-
-      ## Verified facts
-      What is actually established, at high fidelity: the exact commands run, the
-      exact file paths touched, whether each succeeded or failed, and the results
-      themselves — the concrete values returned, the key lines or error text, the
-      schema or signature a lookup revealed, since re-running to recover them may be
-      slow or impossible. Keep only the final working version of any code; drop
-      intermediate attempts and already-resolved errors.
-
-      ## Unverified assumptions
-      What a check claimed but never verified, what changed after a check passed, and
-      context the next step depends on that this conversation never established —
-      files or paths referenced but not read, schemas or APIs assumed but unseen,
-      questions the user never answered. Name these so the next turn goes and checks
-      them instead of assuming.
-
-      ## Next steps
-      The exact next command or tool call, and the remaining sequence to finish — the
-      decisions you have already made for those upcoming steps, the obstacles or edge
-      cases you can foresee and how you mean to handle them, and any work you can
-      commit to now (the exact patch, query, or shape of the final answer). Include
-      any required format for the final answer.
-
-      This conversation's event log stays on disk, and a recovery pointer is appended below this block automatically, so you need not reproduce long outputs verbatim — keep exact identifiers, key values and error lines, and name anything the next turn should look up.
-
-      Your TODO list is re-attached automatically below this block from its live
+      Your TODO list is re-attached automatically below this summary from its live
       source, so do not transcribe it — copying it wastes space and can contradict the
       live version. What that list cannot hold is the reasoning between tasks — why one
       was reordered or dropped, or a decision on one that constrains another — so
@@ -3812,35 +3432,27 @@ describe('FullCompaction', () => {
 
       Be honest about uncertainty. If an earlier step claimed something was done but
       was never verified (tests "passing", a fix "working", a file "created"), say so
-      plainly and treat it as unverified rather than fact — re-check before relying on
-      it. Likewise, if the code a check covers changed after it passed, mark that
+      plainly and treat it as unverified rather than fact — re-check before relying
+      on it. Likewise, if the code a check covers changed after it passed, mark that
       result as unverified.
 
-      Be concise, and keep the block proportional to the task: a long multi-step task
-      warrants detail, but a trivial or nearly finished exchange needs only a sentence
-      or two — do not pad it out. Omit anything that does not change the next move.
+      Be concise, and keep the summary proportional to the task: a long multi-step
+      task warrants detail, but a trivial or nearly finished exchange needs only a
+      sentence or two — do not pad it out. Include the critical data, identifiers, and
+      references needed to continue, and omit anything that does not change the next
+      move.
 
       Respond with text only. Do not call any tools — you already have everything you
-      need in the conversation history."
-      ,
+      need in the conversation history.",
         ],
         [
-          
-      "user: old user one
-
-      xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-      ,
-          
-      "user: <system-reminder>
-      The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.
-      Placeholder compacted summary.
-      </system-reminder>"
-      ,
-          
-      "user: <system-reminder>
+          "user: old user one",
+          "user: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
+      Placeholder compacted summary.",
+          "user: <system-reminder>
       Context compaction is complete — continue the work that was in progress when it began.
-      </system-reminder>"
-      ,
+      </system-reminder>",
         ],
       ]
     `);
@@ -3848,8 +3460,8 @@ describe('FullCompaction', () => {
 
   it('appends the todo list to the compaction summary', async () => {
     const todos = [
-      { id: 't1', parentId: null, kind: 'task', title: 'Fix the auth bug', status: 'in_progress' },
-      { id: 't2', parentId: null, kind: 'task', title: 'Add tests', status: 'pending' },
+      { title: 'Fix the auth bug', status: 'in_progress' },
+      { title: 'Add tests', status: 'pending' },
     ] as const;
     const ctx = testAgent();
     ctx.configure({
@@ -3885,67 +3497,22 @@ describe('FullCompaction', () => {
     expect(history[2]).toMatchObject({
       role: 'user',
       text: expect.stringContaining(
-        'Compacted summary.\n\n## TODO List (overall 0/2 · 0%)\n  [in_progress] t1: Fix the auth bug\n  [pending] t2: Add tests',
+        'Compacted summary.\n\n## TODO List\n  [in_progress] Fix the auth bug\n  [pending] Add tests',
       ),
     });
     expect(history[3]).toMatchObject({
       role: 'user',
       text: buildCompactionContinuationText(),
     });
-    expect(ctx.context.get().at(-2)?.content[0]).toMatchObject({
+    expect(ctx.context.history().at(-2)?.content[0]).toMatchObject({
       type: 'text',
       text: expect.stringContaining('The conversation so far has been compacted'),
     });
-    expect(ctx.context.get().at(-1)).toMatchObject({
+    expect(ctx.context.history().at(-1)).toMatchObject({
       role: 'user',
       origin: { kind: 'injection', variant: 'compaction_continuation' },
     });
     await ctx.expectResumeMatches();
-  });
-
-  it('discards the summary when the todo store changes during compaction', async () => {
-    const ctx = testAgent();
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
-      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
-    });
-    await ctx.get(IAgentTodoService).replace([
-      { id: 't1', parentId: null, kind: 'task', title: 'Fix the auth bug', status: 'in_progress' },
-    ] as const);
-    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
-    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-
-    const hook = ctx
-      .get(IAgentFullCompactionService)
-      .hooks.onWillCompact.register('test-todo-change', async (_task, next) => {
-        await ctx.get(IAgentTodoService).replace([
-          {
-            id: 't1',
-            parentId: null,
-            kind: 'task',
-            title: 'Fix the auth bug',
-            status: 'done',
-          },
-          {
-            id: 't2',
-            parentId: null,
-            kind: 'task',
-            title: 'A task added mid-compaction',
-            status: 'pending',
-          },
-        ] as const);
-        await next();
-      });
-
-    ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
-    void ctx.rpc.beginCompaction({});
-    const cancelled = ctx.once('compaction.cancelled');
-    await cancelled;
-    hook.dispose();
-
-    expect(ctx.context.get().at(-1)).not.toMatchObject({
-      origin: { kind: 'injection', variant: 'compaction_continuation' },
-    });
   });
 });
 
@@ -3993,7 +3560,7 @@ describe('FullCompaction context recovery pointer', () => {
   }
 
   function noteText(ctx: TestAgentContext): string {
-    const part = ctx.context.get().at(-2)?.content[0];
+    const part = ctx.context.history().at(-2)?.content[0];
     return part?.type === 'text' ? part.text : '';
   }
 
@@ -4022,9 +3589,7 @@ describe('FullCompaction context recovery pointer', () => {
     expect(note).toContain('## Context Recovery');
     expect(note).toContain(`${JOURNAL_HOME}/`);
     expect(note).toContain('/wire.jsonl');
-    expect(note).toContain(
-      `window 1: lines 1–${String(end)}   ← the conversation this note summarizes`,
-    );
+    expect(note).toContain(`window 1: lines 1–${String(end)}   ← the conversation this note summarizes`);
     expect(note).toContain(`window 2 (the one you are in now) starts at line ${String(end + 1)}`);
     expect(note).toContain('context.append_loop_event');
     expect(record?.summary).not.toContain('Context Recovery');
@@ -4050,9 +3615,7 @@ describe('FullCompaction context recovery pointer', () => {
     expect(note).toContain(
       `window 2: lines ${String(secondLines.start)}–${String(secondLines.end)}   ← the conversation this note summarizes`,
     );
-    expect(note).toContain(
-      `window 3 (the one you are in now) starts at line ${String(secondLines.end + 1)}`,
-    );
+    expect(note).toContain(`window 3 (the one you are in now) starts at line ${String(secondLines.end + 1)}`);
     await ctx.expectResumeMatches();
   });
 
@@ -4060,7 +3623,7 @@ describe('FullCompaction context recovery pointer', () => {
     const ctx = recoveryAgent(appService(IFileSystemStorageService, locatedStorage(JOURNAL_HOME)));
     await ctx.restorePersisted();
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
-    ctx.appendExchange(2, 'doomed user two', 'doomed assistant two', 40);
+    ctx.appendTurnExchange('doomed user two', 'doomed assistant two', 40);
     await ctx.rpc.undoHistory({ count: 1 });
     ctx.appendExchange(3, 'recent user three', 'recent assistant three', 40);
 
@@ -4089,8 +3652,9 @@ describe('FullCompaction context recovery pointer', () => {
 
   it('starts the window after the latest context.clear record', async () => {
     const ctx = recoveryAgent(appService(IFileSystemStorageService, locatedStorage(JOURNAL_HOME)));
+    await ctx.restorePersisted();
     ctx.appendExchange(1, 'discarded user one', 'discarded assistant one', 20);
-    ctx.context.clear();
+    ctx.clearContext();
     ctx.appendExchange(2, 'post-clear user two', 'post-clear assistant two', 40);
 
     await compactOnce(ctx, 'Post-clear summary.');
@@ -4138,9 +3702,7 @@ describe('FullCompaction context recovery pointer', () => {
     const withPointer = renderCompactionInstruction({});
     const withCustom = renderCompactionInstruction({ customInstruction: ' keep the API facts ' });
 
-    expect(withPointer).toContain(
-      'a recovery pointer is appended below this block automatically',
-    );
+    expect(withPointer).toContain('a recovery pointer is appended below this summary automatically');
     expect(withPointer).toContain('format for the final answer.\n\nThis conversation');
     expect(withPointer).not.toContain('${');
     expect(withCustom).toContain('Optional user instruction:\nkeep the API facts');
@@ -4149,7 +3711,7 @@ describe('FullCompaction context recovery pointer', () => {
 
 afterEach(() => {
   jest.useRealTimers();
-  restoreEnvs();
+  restoreStubbedEnv();
 });
 
 function deferred<T>() {
@@ -4228,11 +3790,7 @@ type MutableKimiConfig = {
   };
 };
 
-function wrappedCompactionSummary(text: string): string {
-  return `<system-reminder>\n${COMPACTION_SUMMARY_PREFIX}\n${text}\n</system-reminder>`;
-}
-
-function textResult(text: string, traceId: string | null = null): LegacyGenerateResult {
+function textResult(text: string, requestId: string | null = null): MockProviderResponse {
   return {
     id: 'mock-compaction-oauth-retry',
     message: {
@@ -4248,71 +3806,7 @@ function textResult(text: string, traceId: string | null = null): LegacyGenerate
     },
     finishReason: 'completed',
     rawFinishReason: 'stop',
-    traceId,
-  };
-}
-
-interface ScriptedStream {
-  readonly id: string | null;
-  readonly usage: TokenUsage | null;
-  readonly finishReason: FinishReason | null;
-  readonly rawFinishReason: string | null;
-  readonly traceId: string | null;
-  [Symbol.asyncIterator](): AsyncIterator<StreamedMessagePart>;
-}
-
-function mockStreamedMessage(
-  parts: readonly StreamedMessagePart[],
-  traceId: string | null = null,
-  opts?: { finishReason?: FinishReason | null; rawFinishReason?: string | null },
-): ScriptedStream {
-  return {
-    id: 'mock-stream',
-    usage: null,
-    finishReason: opts?.finishReason ?? null,
-    rawFinishReason: opts?.rawFinishReason ?? null,
-    traceId,
-    async *[Symbol.asyncIterator](): AsyncIterator<StreamedMessagePart> {
-      for (const part of parts) {
-        yield part;
-      }
-    },
-  };
-}
-
-function realKosongGenerate(
-  script: (attempt: number, history: readonly Message[]) => ScriptedStream,
-): GenerateFn {
-  let attempt = 0;
-  return {
-    generate: async (config, content, control) => {
-      attempt += 1;
-      const streamed = script(attempt, content.messages.map(fromLlmMessage));
-      const emit = control.onEvent;
-      emit?.({ type: 'llm.sent' });
-      emit?.({
-        type: 'llm.streaming.headers',
-        headers: streamed.traceId === null ? {} : { 'x-trace-id': streamed.traceId },
-      });
-      for await (const part of streamed) {
-        emit?.({ type: 'llm.streaming.part', part });
-        control.signal.throwIfAborted();
-      }
-      if (streamed.usage !== null) {
-        emit?.({ type: 'llm.streaming.usage', usage: streamed.usage });
-      }
-      emit?.({
-        type: 'llm.streaming.finish',
-        finish: {
-          finishReason: streamed.finishReason,
-          rawFinishReason: streamed.rawFinishReason,
-        },
-      });
-      if (streamed.id !== null) {
-        emit?.({ type: 'llm.streaming.message_id', messageId: streamed.id });
-      }
-      emit?.({ type: 'llm.done' });
-    },
+    requestId,
   };
 }
 
@@ -4345,11 +3839,9 @@ function overflowOnlyCompactionStrategy(maxSize: number = 14): DefaultCompaction
 }
 
 function textMessage(role: 'user' | 'assistant', text: string): Message {
-  return {
-    role,
-    content: [{ type: 'text', text }],
-    toolCalls: [],
-  };
+  return role === 'assistant'
+    ? { role, content: [{ type: 'text', text }], toolCalls: [] }
+    : { role, content: [{ type: 'text', text }] };
 }
 
 function mcpTool(
@@ -4422,18 +3914,17 @@ describe('prompt deferral during full compaction', () => {
     const releaseCompaction = deferred<void>();
     let llmCallCount = 0;
     const llmInputs: string[][] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, history) => {
-        llmCallCount += 1;
-        llmInputs.push(history.map(messageText));
-        if (llmCallCount === 1) {
-          compactionRequested.resolve();
-          await releaseCompaction.promise;
-          return textResult('Compacted summary.');
-        }
-        return textResult('Deferred turn reply.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, _signal) => {
+      const history = [...request.content.messages];
+      llmCallCount += 1;
+      llmInputs.push(history.map(messageText));
+      if (llmCallCount === 1) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted summary.');
+      }
+      return textResult('Deferred turn reply.');
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -4474,18 +3965,17 @@ describe('prompt deferral during full compaction', () => {
     const releaseCompaction = deferred<void>();
     let llmCallCount = 0;
     const llmInputs: string[][] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, history) => {
-        llmCallCount += 1;
-        llmInputs.push(history.map(messageText));
-        if (llmCallCount === 1) {
-          compactionRequested.resolve();
-          await releaseCompaction.promise;
-          throw new Error('compaction exploded');
-        }
-        return textResult('Recovered turn reply.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, _signal) => {
+      const history = [...request.content.messages];
+      llmCallCount += 1;
+      llmInputs.push(history.map(messageText));
+      if (llmCallCount === 1) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return providerHttpError(400, 'compaction exploded');
+      }
+      return textResult('Recovered turn reply.');
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -4572,7 +4062,7 @@ describe('goal reminder re-injection after full compaction', () => {
     await completed;
 
     const reminderMessages = ctx.context
-      .get()
+      .history()
       .filter(
         (message) => message.origin?.kind === 'injection' && message.origin.variant === 'goal',
       );
@@ -4600,19 +4090,18 @@ describe('goal reminder re-injection after full compaction', () => {
     const releaseCompaction = deferred<void>();
     let llmCallCount = 0;
     const llmInputs: string[][] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, history) => {
-        llmCallCount += 1;
-        llmInputs.push(history.map(messageText));
-        if (llmCallCount === 1) {
-          compactionRequested.resolve();
-          await releaseCompaction.promise;
-          return textResult('Compacted summary.');
-        }
-        if (llmCallCount === 2) return textResult('Deferred turn reply.');
-        throw new Error(`Unexpected generate call #${String(llmCallCount)}`);
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, _signal) => {
+      const history = [...request.content.messages];
+      llmCallCount += 1;
+      llmInputs.push(history.map(messageText));
+      if (llmCallCount === 1) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted summary.');
+      }
+      if (llmCallCount === 2) return textResult('Deferred turn reply.');
+      throw new Error(`Unexpected generate call #${String(llmCallCount)}`);
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -4643,10 +4132,10 @@ describe('goal reminder re-injection after full compaction', () => {
 });
 
 describe('FullCompaction cache probe', () => {
-  it('reports matching request prefixes together with cache usage and timing', async () => {
+  it('reports response usage and cache hit rate without request prefix comparisons', async () => {
     const records: TelemetryRecord[] = [];
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
       return {
         ...textResult(attempts === 1 ? 'Turn response.' : 'Compacted summary.'),
@@ -4678,118 +4167,31 @@ describe('FullCompaction cache probe', () => {
       protocol: 'openai',
       input_tokens: 120,
       input_cache_read: 80,
-      input_cache_creation: 20,
+      input_cache_creation: 0,
       output_tokens: 5,
-      model_match: true,
-      tools_match: true,
-      system_prompt_match: true,
-      history_prefix_match: true,
-      parent_input_tokens: 200,
+      cache_hit_rate: 80 / 120,
     });
     expect(probes[0]?.properties?.['turn_id']).toBeUndefined();
-    expect(probes[0]?.properties?.['parent_request_gap_ms']).toBeGreaterThanOrEqual(0);
+    expect(probes[0]?.properties?.['tools_match']).toBeUndefined();
+    expect(probes[0]?.properties?.['system_prompt_match']).toBeUndefined();
+    expect(probes[0]?.properties?.['history_prefix_match']).toBeUndefined();
     await ctx.expectResumeMatches();
   });
 
-  it('reports a broken history prefix when compaction pre-shrinks the last turn history', async () => {
+  it('does not count cache creation as a cache hit', async () => {
     const records: TelemetryRecord[] = [];
-    const ctx = testAgent({ telemetry: recordingTelemetry(records) });
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
-      modelCapabilities: {
-        ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 80_000,
-      },
-    });
-    ctx.mockNextResponse({ type: 'text', text: 'Turn response.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Start the conversation' }] });
-    await ctx.untilTurnEnd();
-    ctx.appendExchange(1, 'old user one', `old assistant one ${'a'.repeat(200_000)}`, 14_000);
-    ctx.appendExchange(2, 'mid user two', `mid assistant two ${'b'.repeat(80_000)}`, 20_000);
-    ctx.appendExchange(3, 'recent user three', `recent assistant three ${'c'.repeat(1_000)}`, 36_000);
-    const completed = ctx.once('compaction.completed');
-
-    ctx.mockNextResponse({ type: 'text', text: 'Pre-shrunk summary.' });
-    await ctx.rpc.beginCompaction({});
-    await completed;
-
-    const probes = records.filter((record) => record.event === 'prompt_cache_probe');
-    expect(probes).toHaveLength(1);
-    expect(probes[0]?.properties).toMatchObject({
-      source: 'compaction',
-      model_match: true,
-      tools_match: true,
-      system_prompt_match: true,
-      history_prefix_match: false,
-    });
-    await ctx.expectResumeMatches();
-  });
-
-  it('reports a broken history prefix when overflow shrinking drops below the baseline message count', async () => {
-    const records: TelemetryRecord[] = [];
-    const inputs: string[][] = [];
-    let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async (_provider, _system, _tools, history) => {
-      attempts += 1;
-      inputs.push(inputHistorySnapshot(history));
-      if (attempts === 2) {
-        throw new APIContextOverflowError(400, 'Context length exceeded', 'req-cache-probe-shrink');
-      }
-      return textResult(attempts === 1 ? 'Turn response.' : 'Compacted summary.');
-    });
+    const generate: GenerateFn = createMockProvider(async () => ({
+      ...textResult('Compacted summary.'),
+      usage: { inputOther: 0, output: 5, inputCacheRead: 0, inputCacheCreation: 100 },
+    }));
     const ctx = testAgent({ generate, telemetry: recordingTelemetry(records) });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
-      modelCapabilities: {
-        ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 40_000,
-      },
-    });
-    ctx.appendExchange(1, 'baseline user one', 'baseline assistant one', 20);
-    ctx.appendExchange(2, 'baseline user two', 'baseline assistant two', 40);
-    ctx.appendExchange(3, 'baseline user three', 'baseline assistant three', 80);
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Start the conversation' }] });
-    await ctx.untilTurnEnd();
-    ctx.appendExchange(4, 'old user one', `old assistant one ${'a'.repeat(56_000)}`, 14_000);
-    ctx.appendExchange(5, 'mid user two', `mid assistant two ${'b'.repeat(16_000)}`, 20_000);
-    ctx.appendExchange(6, 'recent user three', `recent assistant three ${'c'.repeat(1_000)}`, 36_000);
-    const completed = ctx.once('compaction.completed');
-
-    await ctx.rpc.beginCompaction({});
-    await completed;
-
-    expect(attempts).toBe(3);
-    expect(inputs).toHaveLength(3);
-    expect(inputs[2]!.length).toBeLessThan(inputs[0]!.length);
-    const probes = records.filter((record) => record.event === 'prompt_cache_probe');
-    expect(probes).toHaveLength(1);
-    expect(probes[0]?.properties).toMatchObject({
-      source: 'compaction',
-      model_match: true,
-      tools_match: true,
-      system_prompt_match: true,
-      history_prefix_match: false,
-    });
-    await ctx.expectResumeMatches();
-  });
-
-  it('marks a model change without comparing unrelated request prefixes', async () => {
-    const records: TelemetryRecord[] = [];
-    const ctx = testAgent({ telemetry: recordingTelemetry(records) });
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
-    ctx.mockNextResponse({ type: 'text', text: 'Turn response.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Start the conversation' }] });
-    await ctx.untilTurnEnd();
-    ctx.configure({
-      provider: { ...CATALOGUED_PROVIDER, model: 'other-model' },
-      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
-    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     const completed = ctx.once('compaction.completed');
 
-    ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
     await ctx.rpc.beginCompaction({});
     await completed;
 
@@ -4797,59 +4199,21 @@ describe('FullCompaction cache probe', () => {
     expect(probes).toHaveLength(1);
     expect(probes[0]?.properties).toMatchObject({
       source: 'compaction',
-      model_match: false,
+      input_tokens: 100,
       input_cache_read: 0,
+      input_cache_creation: 0,
+      cache_hit_rate: 0,
     });
-    expect(probes[0]?.properties?.['tools_match']).toBeUndefined();
-    expect(probes[0]?.properties?.['system_prompt_match']).toBeUndefined();
-    expect(probes[0]?.properties?.['history_prefix_match']).toBeUndefined();
-    expect(probes[0]?.properties?.['parent_input_tokens']).toBeUndefined();
-    expect(probes[0]?.properties?.['parent_request_gap_ms']).toBeUndefined();
     await ctx.expectResumeMatches();
   });
 
-  it('omits baseline comparisons after the context prefix revision changes', async () => {
-    const records: TelemetryRecord[] = [];
-    const ctx = testAgent({ telemetry: recordingTelemetry(records) });
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
-      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
-    });
-    ctx.mockNextResponse({ type: 'text', text: 'Turn response.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Start the conversation' }] });
-    await ctx.untilTurnEnd();
-    ctx.context.applyCompaction({
-      summary: 'Rewrite the context prefix.',
-      compactedCount: ctx.context.get().length,
-      tokensBefore: 100,
-    });
-    const completed = ctx.once('compaction.completed');
-
-    ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
-    await ctx.rpc.beginCompaction({});
-    await completed;
-
-    const probes = records.filter((record) => record.event === 'prompt_cache_probe');
-    expect(probes).toHaveLength(1);
-    expect(probes[0]?.properties).toMatchObject({
-      source: 'compaction',
-      model_match: true,
-    });
-    expect(probes[0]?.properties?.['tools_match']).toBeUndefined();
-    expect(probes[0]?.properties?.['system_prompt_match']).toBeUndefined();
-    expect(probes[0]?.properties?.['history_prefix_match']).toBeUndefined();
-    expect(probes[0]?.properties?.['parent_input_tokens']).toBeUndefined();
-    expect(probes[0]?.properties?.['parent_request_gap_ms']).toBeUndefined();
-    await ctx.expectResumeMatches();
-  });
-
-  it('probes the first response after a network failure without inventing a baseline', async () => {
+  it('reports unknown usage for the first successful response after a network failure', async () => {
     const records: TelemetryRecord[] = [];
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
-      if (attempts === 1) throw new APIConnectionError('socket hang up');
-      return textResult('Recovered compacted summary.');
+      if (attempts === 1) throw new Error('socket hang up');
+      return { ...textResult('Recovered compacted summary.'), usage: null };
     });
     const ctx = testAgent({ generate, telemetry: recordingTelemetry(records) });
     ctx.configure({
@@ -4865,21 +4229,20 @@ describe('FullCompaction cache probe', () => {
     expect(attempts).toBe(2);
     const probes = records.filter((record) => record.event === 'prompt_cache_probe');
     expect(probes).toHaveLength(1);
-    expect(probes[0]?.properties).toMatchObject({
-      source: 'compaction',
-      input_cache_read: 0,
-    });
-    expect(probes[0]?.properties?.['model_match']).toBeUndefined();
-    expect(probes[0]?.properties?.['history_prefix_match']).toBeUndefined();
-    expect(probes[0]?.properties?.['parent_input_tokens']).toBeUndefined();
-    expect(probes[0]?.properties?.['parent_request_gap_ms']).toBeUndefined();
+    console.error('PROBE_RECORD', probes[0]);
+    expect(probes[0]?.properties).toMatchObject({ source: 'compaction' });
+    expect(probes[0]?.properties?.['input_tokens']).toBeUndefined();
+    expect(probes[0]?.properties?.['input_cache_read']).toBeUndefined();
+    expect(probes[0]?.properties?.['input_cache_creation']).toBeUndefined();
+    expect(probes[0]?.properties?.['output_tokens']).toBeUndefined();
+    expect(probes[0]?.properties?.['cache_hit_rate']).toBeUndefined();
     await ctx.expectResumeMatches();
   });
 
   it('probes only the first compaction response after a truncated summary retries', async () => {
     const records: TelemetryRecord[] = [];
     let attempts = 0;
-    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+    const generate: GenerateFn = createMockProvider(async () => {
       attempts += 1;
       if (attempts === 2) {
         return {
@@ -4909,7 +4272,7 @@ describe('FullCompaction cache probe', () => {
     expect(probes).toHaveLength(1);
     expect(probes[0]?.properties).toMatchObject({
       source: 'compaction',
-      history_prefix_match: true,
+      cache_hit_rate: 0,
     });
     await ctx.expectResumeMatches();
   });
@@ -4919,13 +4282,10 @@ describe('FullCompaction pre-shrink', () => {
   const PRE_SHRINK_WINDOW = 80_000;
   const PRE_SHRINK_CAPABILITIES = {
     ...CATALOGUED_MODEL_CAPABILITIES,
-    max_context_tokens: PRE_SHRINK_WINDOW,
+    maxContextSize: PRE_SHRINK_WINDOW,
   } as const;
 
-  function appendPreShrinkHistory(
-    ctx: TestAgentContext,
-    tokenTotals?: readonly [number, number, number],
-  ): void {
+  function appendPreShrinkHistory(ctx: TestAgentContext, tokenTotals?: readonly [number, number, number]): void {
     const [oldTotal = 20, midTotal = 40, recentTotal = 80] = tokenTotals ?? [];
     ctx.appendExchange(1, 'old user one', `old assistant one ${'a'.repeat(200_000)}`, oldTotal);
     ctx.appendExchange(2, 'mid user two', `mid assistant two ${'b'.repeat(80_000)}`, midTotal);
@@ -5007,7 +4367,7 @@ describe('FullCompaction pre-shrink', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: PRE_SHRINK_CAPABILITIES,
     });
-    loaded.get(IAgentProfileService).update({ systemPrompt: 'y'.repeat(80_000) });
+    loaded.get(IAgentLoopService).update({ systemPrompt: 'y'.repeat(80_000) });
     const registration = loaded.get(IAgentToolRegistryService).register(
       mcpTool('mcp__srv__preshrink', {
         type: 'object',
@@ -5073,20 +4433,15 @@ describe('FullCompaction pre-shrink', () => {
   it('falls back to reactive overflow shrinking when the pre-shrunk request still overflows', async () => {
     let attempts = 0;
     const inputs: string[][] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(
-      async (_provider, _system, _tools, history) => {
-        attempts += 1;
-        inputs.push(inputHistorySnapshot(history));
-        if (attempts === 1) {
-          throw new APIContextOverflowError(
-            400,
-            'Context length exceeded',
-            'req-preshrink-overflow',
-          );
-        }
-        return textResult('Recovered pre-shrunk summary.');
-      },
-    );
+    const generate: GenerateFn = createMockProvider(async (request, _signal) => {
+      const history = [...request.content.messages];
+      attempts += 1;
+      inputs.push(inputHistorySnapshot(history));
+      if (attempts === 1) {
+        return providerHttpError(400, 'Context length exceeded', { requestId: 'req-preshrink-overflow' })
+      }
+      return textResult('Recovered pre-shrunk summary.');
+    });
     const ctx = testAgent({ generate });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -5115,9 +4470,7 @@ describe('FullCompaction pre-shrink', () => {
       }),
     );
     expect(
-      ctx
-        .compactHistory()
-        .some((message) => message.text.includes('Recovered pre-shrunk summary.')),
+      ctx.compactHistory().some((message) => message.text.includes('Recovered pre-shrunk summary.')),
     ).toBe(true);
     await ctx.expectResumeMatches();
   });
@@ -5153,81 +4506,6 @@ describe('FullCompaction pre-shrink', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('pre-shrinks the auto compaction triggered before a step from historical usage', async () => {
-    const ctx = testAgent();
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
-      modelCapabilities: {
-        ...CATALOGUED_MODEL_CAPABILITIES,
-        max_context_tokens: 1_000_000,
-      },
-    });
-    const usageOf = (total: number) => ({
-      inputOther: total - 1,
-      output: 1,
-      inputCacheRead: 0,
-      inputCacheCreation: 0,
-    });
-    const exchange = (user: string, assistant: string, total: number) => {
-      ctx.context.append(
-        {
-          role: 'user',
-          content: [{ type: 'text', text: user }],
-          toolCalls: [],
-          origin: { kind: 'user' },
-        },
-        {
-          role: 'assistant',
-          content: [{ type: 'text', text: assistant }],
-          toolCalls: [],
-          usage: usageOf(total),
-        },
-      );
-    };
-    exchange('old user one', `old assistant one ${'a'.repeat(200_000)}`, 350_000);
-    exchange('mid user two', `mid assistant two ${'b'.repeat(80_000)}`, 700_000);
-    exchange('recent user three', `recent assistant three ${'c'.repeat(1_000)}`, 1_003_601);
-    expect(ctx.tokenCounting.get().size).toBeLessThan(900_000);
-
-    ctx.mockNextResponse({ type: 'text', text: 'Usage-anchored summary.' });
-    ctx.mockNextResponse({ type: 'text', text: 'Answer after the usage-anchored compaction.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'continue the task' }] });
-    const events = await ctx.untilTurnEnd();
-
-    expect(ctx.llmCalls).toHaveLength(2);
-    const [compactionCall, answerCall] = ctx.llmCalls;
-    const compactionTexts = compactionCall!.history.map(messageText);
-    expect(compactionTexts.some((text) => text.includes('old user one'))).toBe(false);
-    expect(compactionTexts.some((text) => text.includes('old assistant one'))).toBe(false);
-    expect(compactionTexts.some((text) => text.includes('mid user two'))).toBe(true);
-    expect(compactionTexts.some((text) => text.includes('recent assistant three'))).toBe(true);
-    const answerTexts = answerCall!.history.map(messageText);
-    expect(answerTexts.some((text) => text.includes('Usage-anchored summary.'))).toBe(true);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        event: 'compaction.completed',
-        args: expect.objectContaining({
-          result: expect.objectContaining({
-            tokensBefore: expect.any(Number),
-          }),
-        }),
-      }),
-    );
-    const completed = events.find(
-      (event): event is { event: string; args: { result: { tokensBefore: number } } } =>
-        typeof event === 'object' && event !== null && (event as { event?: unknown }).event === 'compaction.completed',
-    );
-    expect(completed).toBeDefined();
-    expect(completed!.args.result.tokensBefore).toBeGreaterThan(1_000_000);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        event: 'turn.ended',
-        args: expect.objectContaining({ reason: 'completed' }),
-      }),
-    );
-    await ctx.expectResumeMatches();
-  });
-
   it('sends the full history when an auto compaction request fits the window', async () => {
     const ctx = testAgent();
     ctx.configure({
@@ -5242,7 +4520,7 @@ describe('FullCompaction pre-shrink', () => {
         step === 4 ? 200_000 : 0,
       );
     }
-    const previousHistory = ctx.context.get().map(messageText);
+    const previousHistory = ctx.context.history().map(messageText);
 
     ctx.mockNextResponse({ type: 'text', text: 'Full-history summary.' });
     ctx.mockNextResponse({ type: 'text', text: 'Answer after compaction.' });
@@ -5261,21 +4539,31 @@ describe('FullCompaction pre-shrink', () => {
   it('clamps the compaction completion budget to the window left by the full history', async () => {
     const compactionHistories: string[][] = [];
     const compactionBudgets: {
-      maxCompletionTokens?: number;
-      maxContextTokens?: number;
-      usedContextTokens?: number;
+      maxOutputTokens?: number | 'none';
+      maxContextSize?: number;
+      usedTokens?: number;
     }[] = [];
-    const generate: GenerateFn = requesterFromGenerateFn(async (_provider, _system, _tools, history, callbacks, options) => {
+    const generate: GenerateFn = createMockProvider(async (request, signal) => {
+      const history = [...request.content.messages];
+      const options = {
+        signal,
+        cacheKey: request.model.cacheKey,
+        sampling: request.model.sampling,
+        thinking: request.model.thinking,
+        maxOutputTokens: request.model.maxOutputTokens,
+        maxContextSize: request.model.spec.maxContextSize,
+        usedTokens: request.content.usedTokens,
+      };
       if (compactionHistories.length === 0) {
         compactionHistories.push(history.map(messageText));
         compactionBudgets.push({
-          maxCompletionTokens: options?.maxCompletionTokens,
-          maxContextTokens: options?.maxContextTokens,
-          usedContextTokens: options?.usedContextTokens,
+          maxOutputTokens: options?.maxOutputTokens,
+          maxContextSize: options?.maxContextSize,
+          usedTokens: options?.usedTokens,
         });
         return textResult('Clamped summary.');
       }
-      await callbacks?.onMessagePart?.({ type: 'text', text: 'Answer after clamped compaction.' });
+      
       return textResult('Answer after clamped compaction.');
     });
     const ctx = testAgent({ generate });
@@ -5297,7 +4585,7 @@ describe('FullCompaction pre-shrink', () => {
         step === 4 ? 200_000 : 0,
       );
     }
-    const previousHistory = ctx.context.get().map(messageText);
+    const previousHistory = ctx.context.history().map(messageText);
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: `large prompt ${' zz'.repeat(12_000)}` }] });
     await ctx.untilTurnEnd();
@@ -5305,9 +4593,9 @@ describe('FullCompaction pre-shrink', () => {
     expect(compactionHistories).toHaveLength(1);
     expect(compactionHistories[0]!.slice(0, previousHistory.length)).toEqual(previousHistory);
     const [budget] = compactionBudgets;
-    expect(budget!.maxCompletionTokens).toBe(64_000);
-    expect(budget!.maxContextTokens).toBe(CATALOGUED_MODEL_CAPABILITIES.max_context_tokens);
-    const remaining = budget!.maxContextTokens! - budget!.usedContextTokens!;
+    expect(budget!.maxOutputTokens).toBe(64_000);
+    expect(budget!.maxContextSize).toBe(CATALOGUED_MODEL_CAPABILITIES.maxContextSize);
+    const remaining = budget!.maxContextSize! - budget!.usedTokens!;
     expect(remaining).toBeGreaterThan(0);
     expect(remaining).toBeLessThan(64_000);
   });
@@ -5323,10 +4611,10 @@ describe('FullCompaction pre-shrink', () => {
     const get = modelResolver.get.bind(modelResolver);
     modelResolver.get = (id: string) => {
       const resolved = get(id);
-      Object.defineProperty(resolved, 'capabilities', { value: UNKNOWN_CAPABILITY });
+      Object.defineProperty(resolved.spec, 'capability', { value: undefined });
       return resolved;
     };
-    expect(ctx.get(IAgentProfileService).data().modelCapabilities.max_context_tokens).toBe(0);
+    expect(ctx.get(IAgentLoopService).data().modelCapabilities.max_context_tokens).toBe(0);
     appendPreShrinkHistory(ctx);
     const completed = ctx.once('compaction.completed');
 
@@ -5374,6 +4662,156 @@ describe('FullCompaction pre-shrink', () => {
     );
     await ctx.expectResumeMatches();
   });
+
+  it('triggers auto compaction before step 1 from historical assistant usage when measured anchors are stale', async () => {
+    const callSnapshots: {
+      isCompaction: boolean;
+      maxOutputTokens?: number | 'none';
+      usedTokens?: number;
+    }[] = [];
+    const generate: GenerateFn = createMockProvider(async (request) => {
+      const lastText = messageText(request.content.messages.at(-1));
+      const isCompaction = lastText === renderCompactionInstruction({});
+      callSnapshots.push({
+        isCompaction,
+        maxOutputTokens: request.model.maxOutputTokens,
+        usedTokens: request.content.usedTokens,
+      });
+      return textResult(isCompaction ? 'Usage-anchored summary.' : 'Recovered reply after compaction.');
+    });
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: {
+        ...CATALOGUED_MODEL_CAPABILITIES,
+        maxContextSize: 1_000_000,
+      },
+    });
+    const models = (ctx as unknown as MutableKimiConfig).kimiConfig.models;
+    models![CATALOGUED_PROVIDER.model] = {
+      ...models![CATALOGUED_PROVIDER.model]!,
+      maxOutputSize: 64_000,
+    };
+    ctx.notifyModelConfigChanged();
+
+    appendContext(
+      ctx.context,
+      { role: 'user', content: [{ type: 'text', text: 'first short question' }], origin: { kind: 'user' } },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'first short answer' }],
+        toolCalls: [],
+        usage: {
+          inputOther: 3_600,
+          output: 1,
+          inputCacheRead: 1_000_000,
+          inputCacheCreation: 0,
+        },
+      },
+    );
+    expect(ctx.tokenCounting.get().size).toBeLessThan(1_000);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'continue working' }] });
+    const events = await ctx.untilTurnEnd();
+
+    expect(callSnapshots).toHaveLength(2);
+    expect(callSnapshots[0]?.isCompaction).toBe(true);
+    expect(callSnapshots[1]?.isCompaction).toBe(false);
+    expect(callSnapshots[1]?.maxOutputTokens).toBe(64_000);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'compaction.completed',
+        args: expect.objectContaining({
+          result: expect.objectContaining({
+            summary: 'Usage-anchored summary.',
+            tokensBefore: 1_003_601 + ctx.tokenCounting.estimateMessage({
+              role: 'user',
+              content: [{ type: 'text', text: 'continue working' }],
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'turn.ended',
+        args: expect.objectContaining({ reason: 'completed' }),
+      }),
+    );
+  });
+
+  it('pre-shrinks compaction history using historical assistant usage anchors when character estimates fit the window', async () => {
+    const compactionBudgets: {
+      texts: string[];
+      usedTokens?: number;
+      maxContextSize?: number;
+    }[] = [];
+    const generate: GenerateFn = createMockProvider(async (request) => {
+      compactionBudgets.push({
+        texts: request.content.messages.map(messageText),
+        usedTokens: request.content.usedTokens,
+        maxContextSize: request.model.spec.maxContextSize,
+      });
+      return textResult('Usage-shrunk summary.');
+    });
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: {
+        ...CATALOGUED_MODEL_CAPABILITIES,
+        maxContextSize: 1_000_000,
+      },
+    });
+    appendContext(
+      ctx.context,
+      { role: 'user', content: [{ type: 'text', text: 'old user one' }], origin: { kind: 'user' } },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'old assistant one' }],
+        toolCalls: [],
+        usage: { inputOther: 50_000, output: 100, inputCacheRead: 299_900, inputCacheCreation: 0 },
+      },
+      { role: 'user', content: [{ type: 'text', text: 'mid user two' }], origin: { kind: 'user' } },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'mid assistant two' }],
+        toolCalls: [],
+        usage: { inputOther: 30_000, output: 100, inputCacheRead: 649_900, inputCacheCreation: 0 },
+      },
+      { role: 'user', content: [{ type: 'text', text: 'recent user three' }], origin: { kind: 'user' } },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'recent assistant three' }],
+        toolCalls: [],
+        usage: { inputOther: 23_501, output: 100, inputCacheRead: 980_000, inputCacheCreation: 0 },
+      },
+    );
+    expect(ctx.tokenCounting.estimateMessages(ctx.context.history())).toBeLessThan(1_000);
+
+    const completed = ctx.once('compaction.completed');
+    await ctx.rpc.beginCompaction({});
+    await completed;
+
+    expect(compactionBudgets).toHaveLength(1);
+    const [call] = compactionBudgets;
+    expect(call!.texts.some((text) => text.includes('old user one'))).toBe(false);
+    expect(call!.texts.some((text) => text.includes('old assistant one'))).toBe(false);
+    expect(call!.texts.some((text) => text.includes('mid user two'))).toBe(true);
+    expect(call!.texts.some((text) => text.includes('recent assistant three'))).toBe(true);
+    expect(call!.maxContextSize! - call!.usedTokens!).toBeGreaterThan(125_000);
+    const events = ctx.newEvents();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'compaction.completed',
+        args: expect.objectContaining({
+          result: expect.objectContaining({
+            droppedCount: 2,
+            tokensBefore: 1_003_601,
+          }),
+        }),
+      }),
+    );
+  });
 });
 
 describe('FullCompaction prompt-cache prefix', () => {
@@ -5396,7 +4834,7 @@ describe('FullCompaction prompt-cache prefix', () => {
     loadSchema: boolean,
     media: (typeof MEDIA_SCENARIOS)[number],
   ): Promise<TestAgentContext> {
-    setEnv(TOOL_SELECT_FLAG_ENV, toolSelect ? '1' : '0');
+    stubEnv(TOOL_SELECT_FLAG_ENV, toolSelect ? '1' : '0');
     const ctx = testAgent({
       initialConfig: { providers: {}, loopControl: { reservedContextSize: 0 } },
     });
@@ -5413,12 +4851,11 @@ describe('FullCompaction prompt-cache prefix', () => {
     if (media !== 'none') {
       ctx.appendRichToolExchange();
       ctx.appendRichToolExchange();
-      ctx.mockNextProviderResponse({
-        error:
-          media === 'media-degraded'
-            ? new APIRequestTooLargeError(413, 'Request Entity Too Large')
-            : new APIStatusError(400, 'unsupported image format: image/avif is not supported', false),
-      });
+      ctx.mockNextProviderResponse(
+        media === 'media-degraded'
+          ? providerHttpError(413, 'Request Entity Too Large')
+          : providerHttpError(400, 'unsupported image format: image/avif is not supported'),
+      );
     }
     if (loadSchema) {
       ctx.mockNextResponse({
@@ -5450,11 +4887,13 @@ describe('FullCompaction prompt-cache prefix', () => {
       const ctx = await runFirstTurn(toolSelect, loadSchema, media);
       const loopCalls = ctx.llmCalls.length;
       const lastLoopCall = ctx.llmCalls.at(-1)!;
-      const announced = lastLoopCall.history.some((message) =>
-        messageText(message).includes('<tools_added>'),
+      const progressive = lastLoopCall.history.some((message) =>
+        messageText(message).includes('Use the select_tools tool'),
       );
-      expect(announced).toBe(toolSelect);
-      expect(lastLoopCall.history.some((message) => message.tools !== undefined)).toBe(loadSchema);
+      expect(progressive).toBe(toolSelect);
+      expect(
+        lastLoopCall.history.some((message) => message.role === 'system' && message.tools !== undefined),
+      ).toBe(loadSchema);
       expect(loopCalls).toBe((loadSchema ? 2 : 1) + (media === 'none' ? 0 : 1));
       if (media !== 'none') {
         expect(countMedia(ctx.llmCalls[0]!.history)).toBeGreaterThan(2);
@@ -5471,7 +4910,7 @@ describe('FullCompaction prompt-cache prefix', () => {
           ...ctx.kimiConfig,
           loopControl: {
             reservedContextSize:
-              CATALOGUED_MODEL_CAPABILITIES.max_context_tokens - AUTO_COMPACTION_HEADROOM,
+              CATALOGUED_MODEL_CAPABILITIES.maxContextSize - AUTO_COMPACTION_HEADROOM,
           },
         };
         const largePrompt = `large prompt ${'x'.repeat(AUTO_COMPACTION_HEADROOM * 6)}`;

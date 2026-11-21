@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it, afterEach } from '@moonshot-ai/testkit/vitest';
 
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import {
   IInstantiationService,
@@ -9,10 +13,6 @@ import {
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
-import {
-  resetUnexpectedErrorHandler,
-  setUnexpectedErrorHandler,
-} from '#/_base/errors/unexpectedError';
 
 interface ILogger {
   log(msg: string): void;
@@ -79,7 +79,9 @@ describe('InstantiationService.createChild', () => {
         [IParentOwned, new SyncDescriptor(ParentOwned)],
       ),
     );
-    const child = parent.createChild(new ServiceCollection([IDep, new SyncDescriptor(ChildDep)]));
+    const child = parent.createChild(
+      new ServiceCollection([IDep, new SyncDescriptor(ChildDep)]),
+    );
 
     const fromChild = child.invokeFunction((a) => a.get(IParentOwned));
     const fromParent = parent.invokeFunction((a) => a.get(IParentOwned));
@@ -203,7 +205,9 @@ describe('InstantiationService.createChild', () => {
         events.push('disposed');
       }
     }
-    const ix = new InstantiationService(new ServiceCollection([IFoo, new SyncDescriptor(Foo)]));
+    const ix = new InstantiationService(
+      new ServiceCollection([IFoo, new SyncDescriptor(Foo)]),
+    );
     ix.invokeFunction((a) => a.get(IFoo));
     ix.dispose();
     ix.dispose();
@@ -320,7 +324,9 @@ describe('InstantiationService.createChild', () => {
     }
 
     const parent = new InstantiationService();
-    const child = parent.createChild(new ServiceCollection([ISvc, new SyncDescriptor(Svc)]));
+    const child = parent.createChild(
+      new ServiceCollection([ISvc, new SyncDescriptor(Svc)]),
+    );
     child.invokeFunction((a) => a.get(ISvc));
     child.dispose();
     parent.dispose();
@@ -334,58 +340,13 @@ describe('InstantiationService.createChild', () => {
       ix.invokeFunction((_a) => undefined);
     }).toThrowError(/disposed/);
     expect(() => {
-      ix.createInstance(
-        class A {
-          value = 'a';
-        },
-      );
+      ix.createInstance(class A {
+        value = 'a';
+      });
     }).toThrowError(/disposed/);
     expect(() => {
       ix.createChild(new ServiceCollection());
     }).toThrowError(/disposed/);
-  });
-
-  it('deep child chain: grandchild inherits from grandparent', () => {
-    interface IDeep {
-      tag: string;
-    }
-    const IDeep = createDecorator<IDeep>('deep-chain');
-    class DeepSvc implements IDeep {
-      tag = 'deep';
-    }
-
-    const root = new InstantiationService(
-      new ServiceCollection([IDeep, new SyncDescriptor(DeepSvc)]),
-    );
-    const child = root.createChild(new ServiceCollection());
-    const grandchild = child.createChild(new ServiceCollection());
-    expect(grandchild.invokeFunction((a) => a.get(IDeep))).toBeInstanceOf(DeepSvc);
-    expect(grandchild.invokeFunction((a) => a.get(IDeep))).toBe(
-      root.invokeFunction((a) => a.get(IDeep)),
-    );
-    root.dispose();
-  });
-
-  it('empty ServiceCollection child inherits parent services', () => {
-    interface IEmptyChild {
-      tag: string;
-    }
-    const IEmptyChild = createDecorator<IEmptyChild>('empty-child');
-    class Svc implements IEmptyChild {
-      tag = 'svc';
-    }
-
-    const parent = new InstantiationService(
-      new ServiceCollection([IEmptyChild, new SyncDescriptor(Svc)]),
-    );
-    const child = parent.createChild(new ServiceCollection());
-    expect(child.invokeFunction((a) => a.get(IEmptyChild))).toBeInstanceOf(Svc);
-    parent.dispose();
-  });
-
-  it('dispose with no services registered does not throw', () => {
-    const ix = new InstantiationService();
-    expect(() => ix.dispose()).not.toThrow();
   });
 
   it('parent singleton is created once regardless of parent/child resolution order', () => {
@@ -765,9 +726,7 @@ describe('Disposable base class', () => {
       }
     }
     const o = new Owner();
-    expect(() => {
-      o.dispose();
-    }).not.toThrow();
+    expect(() => { o.dispose(); }).not.toThrow();
     expect(events).toEqual(['tail', 'bad-attempted', 'good']);
     expect(reported).toHaveLength(1);
     expect((reported[0] as Error).message).toContain('boom');

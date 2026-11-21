@@ -1,6 +1,10 @@
-import { afterEach, describe, expect, expectTypeOf, it, mock } from 'bun:test';
-import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+
+/** Skill paths travel POSIX-style; match them that way on Windows. */
+const wirePath = (value: string): string => value.replaceAll('\\', '/');
 import { join } from 'node:path';
+
+import { afterEach, describe, expect, expectTypeOf, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   createKimiHarness,
@@ -11,8 +15,11 @@ import {
 } from '#/index';
 import type { SDKRpcClientBase } from '#/rpc';
 
-import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
-import { setEnv, restoreEnvs } from './stubs';
+import {
+  makeTempDir,
+  removeTempDirs,
+  waitForSDKEvent,
+} from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
 const { Session } = await import('#/index');
@@ -22,7 +29,6 @@ const tempDirs: string[] = [];
 const CONFIG_ENV_PATTERN =
   /^(KIMI_MODEL_|KIMI_LOOP_|KIMI_MCP_|KIMI_WEB_|KIMI_IMAGE_|KIMI_CODE_BACKGROUND_|KIMI_CODE_MODEL_CATALOG_)/;
 
-/** Keep ambient env from injecting providers/models into the v2 engine. */
 function scrubConfigEnv(): () => void {
   const saved: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -40,7 +46,7 @@ function scrubConfigEnv(): () => void {
 
 afterEach(async () => {
   await removeTempDirs(tempDirs);
-  restoreEnvs();
+  vi.unstubAllEnvs();
 });
 
 describe('Session skills', () => {
@@ -74,10 +80,10 @@ describe('Session skills', () => {
       });
       const ended = waitForSDKEvent(session, (event) => event.type === 'turn.ended');
 
-      await session.promptWithSkills('Review this change.', [
-        { name: 'review' },
-        { name: 'security' },
-      ]);
+      await session.promptWithSkills(
+        'Review this change.',
+        [{ name: 'review' }, { name: 'security' }],
+      );
       await ended;
       unsubscribe();
 
@@ -97,7 +103,6 @@ describe('Session skills', () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-work-');
     const additionalDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-additional-');
-    const additionalRoot = (await realpath(additionalDir)).replaceAll('\\', '/');
     await writeSkill(workDir, 'review', [
       '---',
       'name: review',
@@ -124,7 +129,9 @@ describe('Session skills', () => {
       const session = await harness.createSession({ id: 'ses_sdk_skill_variants', workDir });
       const variants = (await session.listSkills()).filter((skill) => skill.name === 'review');
       expect(variants).toHaveLength(2);
-      const secondary = variants.find((skill) => skill.workspaceDir === additionalRoot)!;
+      // Match on the unique temp suffix: the skill path is realpath-resolved, so it
+      // carries the long home name while `mkdtemp` hands back the 8.3 short form.
+      const secondary = variants.find((skill) => skill.path.includes('kimi-sdk-skills-additional-'))!;
       expect(secondary.workspaceDir).toContain('kimi-sdk-skills-additional-');
       const activated = waitForSDKEvent(session, (event) => event.type === 'skill.activated');
 
@@ -136,14 +143,8 @@ describe('Session skills', () => {
         skillSource: 'project',
       });
 
-      const bundledSession = await harness.createSession({
-        id: 'ses_sdk_skill_variant_bundle',
-        workDir,
-      });
-      const bundledActivation = waitForSDKEvent(
-        bundledSession,
-        (event) => event.type === 'skill.activated',
-      );
+      const bundledSession = await harness.createSession({ id: 'ses_sdk_skill_variant_bundle', workDir });
+      const bundledActivation = waitForSDKEvent(bundledSession, (event) => event.type === 'skill.activated');
       await bundledSession.promptWithSkills('/skill:review', [
         { name: 'review', path: secondary.path },
       ]);
@@ -293,8 +294,8 @@ describe('Session skills', () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-home-');
     const processHome = await makeTempDir(tempDirs, 'kimi-sdk-skills-process-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-work-');
-    setEnv('HOME', processHome);
-    setEnv('KIMI_CODE_HOME', homeDir);
+    vi.stubEnv('HOME', processHome);
+    vi.stubEnv('KIMI_CODE_HOME', homeDir);
     await writeLegacyUserSkill(processHome, 'sdk-real-home-only', 'SDK real home skill');
     await writeBrandUserSkill(homeDir, 'sdk-sandbox-only', 'SDK sandbox skill');
     const harness = createKimiHarness({ identity: TEST_IDENTITY });
@@ -317,7 +318,7 @@ describe('Session skills', () => {
       state: 'queued',
       steered: false,
     } as const;
-    const promptWithSkills = mock(async () => submission);
+    const promptWithSkills = vi.fn(async () => submission);
     const session = new Session({
       id: 'ses_skill_steer_option',
       workDir: '/tmp/work',
@@ -327,9 +328,7 @@ describe('Session skills', () => {
     const result = await session.promptWithSkills(
       '/review src/app.ts',
       [{ name: 'review', args: 'src/app.ts' }],
-      {
-        steerIfActive: true,
-      },
+      { steerIfActive: true },
     );
     expect(result).toEqual(submission);
     expect(promptWithSkills).toHaveBeenLastCalledWith({
@@ -357,10 +356,10 @@ describe('Session skills', () => {
   });
 
   it('rejects empty names before calling RPC and rejects after close', async () => {
-    const activateSkill = mock(async () => {});
-    const closeSession = mock(async (_input: { readonly sessionId: string }) => {});
-    const clearSessionHandlers = mock();
-    const listSkills = mock(async () => []);
+    const activateSkill = vi.fn(async () => {});
+    const closeSession = vi.fn(async (_input: { readonly sessionId: string }) => {});
+    const clearSessionHandlers = vi.fn();
+    const listSkills = vi.fn(async () => []);
     const session = new Session({
       id: 'ses_skill_validation',
       workDir: '/tmp/work',
@@ -392,12 +391,12 @@ describe('Session skills', () => {
   });
 
   it('finalizes local close state when the core close RPC fails', async () => {
-    const closeSession = mock(async (_input: { readonly sessionId: string }) => {
+    const closeSession = vi.fn(async (_input: { readonly sessionId: string }) => {
       throw new Error('flush failed');
     });
-    const clearSessionHandlers = mock();
-    const listSkills = mock(async () => []);
-    const activateSkill = mock(async () => {});
+    const clearSessionHandlers = vi.fn();
+    const listSkills = vi.fn(async () => []);
+    const activateSkill = vi.fn(async () => {});
     const session = new Session({
       id: 'ses_close_failed',
       workDir: '/tmp/work',

@@ -14,7 +14,15 @@ function estimateTokens(text: string): number {
 }
 
 export function renderRecall(result: RecallResult, maxTokens: number): string {
+  return renderRecallWithItems(result, maxTokens).text;
+}
+
+export function renderRecallWithItems(
+  result: RecallResult,
+  maxTokens: number,
+): { text: string; items: readonly RecallItem[] } {
   const lines: string[] = [];
+  const included: RecallItem[] = [];
   let used = 0;
   let cursor = 0;
   while (cursor < result.items.length) {
@@ -25,11 +33,14 @@ export function renderRecall(result: RecallResult, maxTokens: number): string {
     const cost = rendered.reduce((total, line) => total + estimateTokens(line), 0);
     if (lines.length > 0 && used + cost > maxTokens) break;
     lines.push(...rendered);
+    included.push(...group);
     used += cost;
     cursor += size;
   }
-  if (lines.length === 0) return '';
-  return `${MEMORY_DATA_BOUNDARY}\n${lines.join('\n')}`;
+  return {
+    text: lines.length === 0 ? '' : `${MEMORY_DATA_BOUNDARY}\n${lines.join('\n')}`,
+    items: included,
+  };
 }
 
 function groupLength(items: readonly RecallItem[], start: number): number {

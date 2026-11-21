@@ -1,8 +1,14 @@
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 
-import type { ExternalHooksRunnerTriggerArgs } from '../app/externalHooksRunner';
 import { runHook } from './runHook';
-import type { HookBlockDecision, HookDef, HookMatcherValue, HookResult } from './types';
+import type {
+  HookBlockDecision,
+  HookDef,
+  HookMatcherValue,
+  HookResult,
+} from './types';
+
+import type { ExternalHooksRunnerTriggerArgs } from '../app/externalHooksRunner';
 
 const DEFAULT_HOOK_TIMEOUT_SECONDS = 30;
 
@@ -34,7 +40,6 @@ export async function runMatchedHooks(
   event: string,
   args: ExternalHooksRunnerTriggerArgs,
   callbacks: HookRunCallbacks = {},
-  failClosed = false,
 ): Promise<HookResult[]> {
   const matcherValue = matcherValueText(args.matcherValue);
   const cwd = args.cwd ?? '';
@@ -68,7 +73,6 @@ export async function runMatchedHooks(
         cwd: hook.cwd ?? (cwd === '' ? undefined : cwd),
         env: hook.env,
         signal: args.signal,
-        failClosed,
       }),
     ),
   );

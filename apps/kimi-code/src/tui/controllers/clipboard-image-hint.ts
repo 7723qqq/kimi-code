@@ -1,16 +1,11 @@
 import type { TUI } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { clipboardHasImage } from '#/utils/clipboard/clipboard-has-image';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '#/utils/render-clock';
 
-import type { FooterComponent } from '../components/chrome/footer';
 import { FOCUS_DEBOUNCE_MS, HINT_DISPLAY_MS } from '../constant/clipboard-image-hint';
 import { TERMINAL_FOCUS_IN, TERMINAL_FOCUS_OUT } from '../utils/terminal-focus';
+import type { FooterComponent } from '../components/chrome/footer';
+import { t } from '#/i18n';
 
 export interface ClipboardImageHintHost {
   readonly ui: TUI;
@@ -19,40 +14,23 @@ export interface ClipboardImageHintHost {
   requestRender(): void;
 }
 
-export interface ClipboardImageHintDeps {
-  readonly clock?: Pick<RenderClock, 'setTimeout' | 'clearTimeout'>;
-  readonly platform?: NodeJS.Platform;
-}
-
-function getPasteImageShortcut(platform: NodeJS.Platform): string {
-  return platform === 'win32' ? 'Alt+V' : 'Ctrl+V';
+function getPasteImageShortcut(): string {
+  return process.platform === 'win32' ? 'Alt+V' : 'Ctrl+V';
 }
 
 export class ClipboardImageHintController {
   private readonly host: ClipboardImageHintHost;
-  private readonly clock: Pick<RenderClock, 'setTimeout' | 'clearTimeout'>;
-  private readonly platform: NodeJS.Platform;
   private disposeInputListener: (() => void) | undefined;
-  private debounceTimer: RenderTimerHandle | undefined;
-  private clearHintTimer: RenderTimerHandle | undefined;
+  private debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  private clearHintTimer: ReturnType<typeof setTimeout> | undefined;
   private lastHintText: string | undefined;
   private checkGeneration = 0;
   private focused = true;
-  // Whether the controller has completed its first clipboard observation since
-  // start. The first observation only establishes a baseline: an image already
-  // in the clipboard when the session starts is not "new", so it must not
-  // trigger a hint during initialization.
   private initialized = false;
-  // Whether a detected clipboard image is allowed to trigger a hint. After
-  // showing a hint for an image it disarms so the same lingering image does
-  // not nag on every focus. A focus check that finds the clipboard empty
-  // re-arms it, so the next genuinely new image notifies again.
   private armed = true;
 
-  constructor(host: ClipboardImageHintHost, deps: ClipboardImageHintDeps = {}) {
+  constructor(host: ClipboardImageHintHost) {
     this.host = host;
-    this.clock = deps.clock ?? SYSTEM_RENDER_CLOCK;
-    this.platform = deps.platform ?? process.platform;
   }
 
   start(): void {
@@ -91,22 +69,19 @@ export class ClipboardImageHintController {
     this.clearDebounceTimer();
     this.checkGeneration += 1;
     const generation = this.checkGeneration;
-    this.debounceTimer = this.clock.setTimeout(
-      () => void this.runCheck(generation),
-      FOCUS_DEBOUNCE_MS,
-    );
+    this.debounceTimer = setTimeout(() => void this.runCheck(generation), FOCUS_DEBOUNCE_MS);
   }
 
   private clearDebounceTimer(): void {
     if (this.debounceTimer !== undefined) {
-      this.clock.clearTimeout(this.debounceTimer);
+      clearTimeout(this.debounceTimer);
       this.debounceTimer = undefined;
     }
   }
 
   private clearClearHintTimer(): void {
     if (this.clearHintTimer !== undefined) {
-      this.clock.clearTimeout(this.clearHintTimer);
+      clearTimeout(this.clearHintTimer);
       this.clearHintTimer = undefined;
     }
   }
@@ -152,9 +127,6 @@ export class ClipboardImageHintController {
     if (generation !== this.checkGeneration) return;
     if (!this.focused) return;
 
-    // First observation after start only establishes the baseline. An image
-    // already in the clipboard when the session began is not "new", so we
-    // record the state and stay quiet instead of nagging during initialization.
     if (!this.initialized) {
       this.initialized = true;
       this.armed = !hasImage;
@@ -162,25 +134,20 @@ export class ClipboardImageHintController {
     }
 
     if (!hasImage) {
-      // Clipboard holds no image, so the next image that appears is a new one
-      // worth notifying about. Re-arm and bail out.
       this.armed = true;
       return;
     }
 
-    // Same image we already notified about — stay quiet until it changes.
     if (!this.armed) return;
 
-    const hintText = t('tui.messages.clipboardImageHint', {
-      shortcut: getPasteImageShortcut(this.platform),
-    });
+    const hintText = t('tui.messages.clipboardImageHint', { shortcut: getPasteImageShortcut() });
     this.clearClearHintTimer();
     this.lastHintText = hintText;
     this.armed = false;
     this.host.footer.setTransientHint(hintText);
     this.host.requestRender();
 
-    this.clearHintTimer = this.clock.setTimeout(() => {
+    this.clearHintTimer = setTimeout(() => {
       this.clearOwnedHint();
     }, HINT_DISPLAY_MS);
   }

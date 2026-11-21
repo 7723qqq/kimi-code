@@ -1,10 +1,8 @@
 import { Text, truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
-import { sanitizeShellOutputPreservingSgr } from '#/tui/utils/shell-output';
 
 import { outcomeRows } from './outcome';
 import type { ResultRenderer } from './types';
@@ -22,12 +20,6 @@ export function trimTrailingEmptyLines(lines: string[]): string[] {
   return lines.slice(0, end);
 }
 
-/**
- * Component that renders tool output with wrap-aware line truncation.
- * Uses pi-tui's Text component to compute actual visual wrapped lines,
- * then caps at PREVIEW_LINES. This handles long single-line output (e.g.
- * JSON blobs) that would otherwise wrap to dozens of visual rows.
- */
 export class TruncatedOutputComponent implements Component {
   private textComponent: Text;
   private readonly expanded: boolean;
@@ -35,7 +27,6 @@ export class TruncatedOutputComponent implements Component {
   private readonly indent: number;
   private readonly expandHint: boolean;
   private readonly tail: boolean;
-  /** Whether the last collapsed render cut rows; kept while expanded so the footer can still offer collapse. */
   private truncatedAtLastRender = false;
   private renderCache: { width: number; source: string[]; lines: string[] } | undefined;
 
@@ -46,15 +37,8 @@ export class TruncatedOutputComponent implements Component {
       isError: boolean | undefined;
       maxLines?: number;
       indent?: number;
-      // When false, the truncation footer omits the "ctrl+o to expand" promise
-      // (for contexts whose output is fixed-truncated and never expands).
       expandHint?: boolean;
-      // When true, collapsed rendering keeps the latest visual rows instead of
-      // the first rows. This is useful for live output from a running command.
       tail?: boolean;
-      // Foreground colour for successful (non-error) output. Defaults to
-      // `textDim`; Bash passes `textMuted` so its result sits one shade below
-      // the `textDim` command. Error output always uses `error`.
       color?: keyof ColorPalette;
     },
   ) {
@@ -63,12 +47,7 @@ export class TruncatedOutputComponent implements Component {
     this.indent = options.indent ?? DEFAULT_INDENT;
     this.expandHint = options.expandHint ?? true;
     this.tail = options.tail ?? false;
-    // Expanded bodies light up on ctrl+o and errors preview in full even when
-    // collapsed, so this path must sanitize too: keep SGR colours, strip every
-    // other terminal control sequence (cursor moves, clears, `\r`, …).
-    const cleaned = trimTrailingEmptyLines(
-      sanitizeShellOutputPreservingSgr(output).split('\n'),
-    ).join('\n');
+    const cleaned = trimTrailingEmptyLines(output.split('\n')).join('\n');
     const successColor = options.color ?? 'textDim';
     this.textComponent = new Text(
       options.isError ? currentTheme.fg('error', cleaned) : currentTheme.fg(successColor, cleaned),
@@ -78,7 +57,6 @@ export class TruncatedOutputComponent implements Component {
   }
 
   invalidate(): void {
-    // Text component caches wrapped lines; invalidate on terminal resize.
     this.renderCache = undefined;
     this.textComponent.invalidate();
   }
@@ -89,15 +67,12 @@ export class TruncatedOutputComponent implements Component {
     return ' '.repeat(indentWidth) + currentTheme.dim(truncateToWidth(hint, hintWidth, '…'));
   }
 
-  /** Whether the collapsed preview last cut rows away, which ctrl+o reveals. */
   wasTruncated(): boolean {
     return this.truncatedAtLastRender;
   }
 
   render(width: number): string[] {
     const contentLines = this.textComponent.render(width);
-    // Collapsing swaps the hidden rows for a one-line hint, so a single
-    // hidden row would render at the same height as the full output.
     this.truncatedAtLastRender = contentLines.length > this.maxLines + 1;
 
     if (this.expanded || contentLines.length <= this.maxLines + 1) {
@@ -108,33 +83,29 @@ export class TruncatedOutputComponent implements Component {
       return this.renderCache.lines;
     }
 
-    const remaining = contentLines.length - this.maxLines;
-    let lines: string[];
-    if (this.tail) {
-      const shown = contentLines.slice(contentLines.length - this.maxLines);
-      lines = [
-        this.renderHint(
-          width,
-          t('tui.statusMessages.truncatedEarlierLines', { remaining: String(remaining) }),
-        ),
-        ...shown,
-      ];
-    } else {
-      const shown = contentLines.slice(0, this.maxLines);
-      const hint = this.expandHint
-        ? t('tui.statusMessages.truncatedMoreLinesExpandable', { remaining: String(remaining) })
-        : t('tui.statusMessages.truncatedMoreLines', { remaining: String(remaining) });
-      lines = [...shown, this.renderHint(width, hint)];
-    }
+    const lines = this.collapse(width, contentLines);
     if (isRenderCacheEnabled()) this.renderCache = { width, source: contentLines, lines };
     return lines;
   }
+
+  private collapse(width: number, contentLines: string[]): string[] {
+    const remaining = contentLines.length - this.maxLines;
+    if (this.tail) {
+      const shown = contentLines.slice(contentLines.length - this.maxLines);
+      return [
+        this.renderHint(width, `… (${String(remaining)} earlier lines)`),
+        ...shown,
+      ];
+    }
+
+    const shown = contentLines.slice(0, this.maxLines);
+    const hint = this.expandHint
+      ? `… (${String(remaining)} more lines, ctrl+o to expand)`
+      : `… (${String(remaining)} more lines)`;
+    return [...shown, this.renderHint(width, hint)];
+  }
 }
 
-// Collapsed cards show the header plus the outcome rows: a successful result
-// is shown whole when short, otherwise contributes its first non-empty line,
-// and the rest waits for the global ctrl+o expand; errors always keep their
-// multi-line preview so a failure is never reduced to a single line.
 export const renderTruncated: ResultRenderer = (_toolCall, result, ctx) => {
   if (!result.output) return [];
   if (!ctx.expanded && result.is_error !== true) return outcomeRows(result.output, 'first');

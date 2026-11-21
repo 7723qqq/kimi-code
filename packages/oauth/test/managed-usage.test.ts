@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, it, expect, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   fetchManagedUsage,
@@ -10,20 +10,15 @@ import {
   managedUsageResultSchema,
   parseManagedUsagePayload,
 } from '../src/managed-usage';
-import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from './stubs';
 
 afterEach(() => {
-  restoreGlobals();
-  restoreEnvs();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('kimiCodeBaseUrl', () => {
   it('strips trailing slashes from the KIMI_CODE_BASE_URL override', () => {
-    // The env value must be normalized at the source: provision persists it
-    // verbatim while the model refresh rewrites it normalized, and the
-    // deep-equal diff between the two shapes would fire a spurious
-    // providers-changed event mid-login.
-    setEnv('KIMI_CODE_BASE_URL', 'https://gw.example.com/');
+    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://gw.example.com/');
     expect(kimiCodeBaseUrl()).toBe('https://gw.example.com');
     expect(kimiCodeUsageUrl()).toBe('https://gw.example.com/usages');
   });
@@ -38,7 +33,7 @@ describe('isManagedKimiCodeBaseUrl', () => {
   });
 
   it('matches against the KIMI_CODE_BASE_URL override as the sole benchmark', () => {
-    setEnv('KIMI_CODE_BASE_URL', 'https://gw.example.com/coding/v1/');
+    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://gw.example.com/coding/v1/');
     expect(isManagedKimiCodeBaseUrl('https://gw.example.com/coding/v1')).toBe(true);
     expect(isManagedKimiCodeBaseUrl('https://api.kimi.com/coding/v1')).toBe(false);
     expect(isManagedKimiCodeBaseUrl('https://api.kimi.ai/coding/v1')).toBe(false);
@@ -187,15 +182,15 @@ describe('managedUsageResultSchema', () => {
       },
     };
     expect(managedUsageResultSchema.parse(ok)).toEqual(ok);
-    expect(managedUsageResultSchema.parse({ kind: 'error', message: 'nope', status: 401 })).toEqual(
-      { kind: 'error', message: 'nope', status: 401 },
-    );
+    expect(
+      managedUsageResultSchema.parse({ kind: 'error', message: 'nope', status: 401 }),
+    ).toEqual({ kind: 'error', message: 'nope', status: 401 });
   });
 });
 
 describe('fetchManagedUsage', () => {
   it('sends only Authorization and Accept headers', async () => {
-    const fetchMock = mock(
+    const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -205,7 +200,7 @@ describe('fetchManagedUsage', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     await expect(fetchManagedUsage('https://api.example/usages', 'access-token')).resolves.toEqual({
       kind: 'ok',
@@ -230,9 +225,9 @@ describe('fetchManagedUsage', () => {
   });
 
   it('surfaces JSON API error messages with status', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(
+      vi.fn(
         async () =>
           new Response(JSON.stringify({ message: 'token expired' }), {
             status: 401,
@@ -250,10 +245,7 @@ describe('fetchManagedUsage', () => {
   });
 
   it('falls back to the local usage hint on an empty 404 body', async () => {
-    setGlobal(
-      'fetch',
-      mock(async () => new Response('', { status: 404 })),
-    );
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })));
 
     const result = await fetchManagedUsage('https://api.example/usages', 'access-token');
 
@@ -265,9 +257,9 @@ describe('fetchManagedUsage', () => {
   });
 
   it('maps an aborted request to a timeout message', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async () => {
+      vi.fn(async () => {
         const error = new Error('The operation was aborted');
         error.name = 'AbortError';
         throw error;
@@ -280,9 +272,9 @@ describe('fetchManagedUsage', () => {
   });
 
   it('wraps network failures with the usage prefix', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async () => {
+      vi.fn(async () => {
         throw new Error('socket hang up');
       }),
     );

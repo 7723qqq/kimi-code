@@ -1,4 +1,4 @@
-import { providerImagePolicy } from '#human/llm/media/image-formats';
+import { providerImagePolicy } from '@moonshot-ai/core/llm/protocol/kit/media';
 
 import { IMAGE_MIME_BY_SUFFIX, sniffMediaFromMagic } from './file-type';
 
@@ -66,7 +66,7 @@ export function unsupportedImageMimeFromUrl(url: string, providerType?: string):
 }
 
 export function parseImageDataUrl(url: string): { mimeType: string; base64: string } | null {
-  const match = /^data:([^;,]+)(?:;[^;,]+)*?;base64,(.*)$/is.exec(url);
+  const match = /^data:([^;,]+)(?:;[^;,]+)*?;base64,(.*)$/si.exec(url);
   if (match === null) return null;
   return { mimeType: match[1]!, base64: match[2]! };
 }
@@ -82,7 +82,7 @@ export function isModelAcceptedImageMime(mimeType: string, providerType?: string
 export function buildImageConversionGuidance(
   path: string,
   mimeType: string,
-  osKind: string | undefined,
+  osKind: string,
 ): string {
   const converted = path.replace(/\.[^./\\]+$/, '') + '.jpg';
   return (
@@ -122,7 +122,7 @@ export function buildOversizedImageConversionGuidance(
 function imageConversionCommand(
   path: string,
   converted: string,
-  osKind: string | undefined,
+  osKind: string,
   format: UnsupportedImageFormatInfo | undefined,
 ): string {
   const magick = `magick "${path}" "${converted}"`;

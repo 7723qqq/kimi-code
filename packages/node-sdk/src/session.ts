@@ -1,12 +1,9 @@
-import type {
-  HelloWorldModeTrigger,
-  HelloWorldRunItemId,
-  HelloWorldStage,
-  SwarmModeTrigger,
-} from '@moonshot-ai/agent-core-v2';
+import type { PromptPredictionCancelReason } from '@moonshot-ai/agent-core-v2/features/promptPrediction/promptPrediction';
+import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2/features/swarm/agent/swarm';
 
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, KimiError, type KimiErrorCode } from '#/errors';
+
 import {
   type ApprovalHandler,
   type Event,
@@ -28,11 +25,11 @@ import type {
   GetCronTasksResult,
   GoalSnapshot,
   GoalToolResult,
+  InstallPluginInput,
   JsonObject,
   McpServerConfig,
   McpServerInfo,
   McpStartupMetrics,
-  OperationRecord,
   PermissionMode,
   PluginInfo,
   PluginSummary,
@@ -44,7 +41,6 @@ import type {
   ResumedSessionState,
   ResumedSessionSummary,
   SessionPlan,
-  SpecSnapshot,
   SessionStatus,
   SessionSummary,
   SessionEnvironmentsInfo,
@@ -189,13 +185,12 @@ export class Session {
     options?: { readonly steerIfActive?: boolean },
   ): Promise<PromptSubmissionResult> {
     this.ensureOpen();
-    const submitted = await this.rpc.promptWithSkills({
+    return this.rpc.promptWithSkills({
       sessionId: this.id,
       input: normalizePromptInput(input),
       skills,
       steerIfActive: options?.steerIfActive,
     });
-    return submitted;
   }
 
   /** Execute a user-initiated `!` shell command (silent — does not prompt the
@@ -221,11 +216,10 @@ export class Session {
 
   async steer(input: string | PromptInput): Promise<PromptSubmissionResult> {
     this.ensureOpen();
-    const submitted = await this.rpc.steer({
+    return this.rpc.steer({
       sessionId: this.id,
       input: normalizePromptInput(input),
     });
-    return submitted;
   }
 
   async swarm(input: string | PromptInput): Promise<void> {
@@ -270,24 +264,20 @@ export class Session {
     return this.rpc.startBtw({ sessionId: this.id });
   }
 
-  async optimizePrompt(
-    text: string,
-    options?: {
-      recentTurns?: readonly string[];
-      timeoutMs?: number;
-      thinking?: string;
-      signal?: AbortSignal;
-    },
-  ): Promise<string> {
+  async predictNextPrompt(input: {
+    predictionId: string;
+    expectedTurnId: number;
+  }): Promise<string | null> {
     this.ensureOpen();
-    return this.rpc.optimizePrompt({
-      sessionId: this.id,
-      text,
-      recentTurns: options?.recentTurns,
-      timeoutMs: options?.timeoutMs,
-      thinking: options?.thinking,
-      signal: options?.signal,
-    });
+    return this.rpc.predictNextPrompt({ sessionId: this.id, ...input });
+  }
+
+  async cancelPromptPrediction(
+    predictionId: string,
+    reason?: PromptPredictionCancelReason,
+  ): Promise<boolean> {
+    this.ensureOpen();
+    return this.rpc.cancelPromptPrediction({ sessionId: this.id, predictionId, reason });
   }
 
   async cancel(): Promise<void> {
@@ -393,7 +383,10 @@ export class Session {
   async setSwarmMode(enabled: boolean, trigger: SwarmModeTrigger): Promise<void> {
     this.ensureOpen();
     if (typeof enabled !== 'boolean') {
-      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Session swarm mode must be a boolean');
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'Session swarm mode must be a boolean',
+      );
     }
     if (enabled) {
       await this.rpc.setSwarmMode({ sessionId: this.id, enabled: true, trigger });
@@ -402,39 +395,19 @@ export class Session {
     }
   }
 
-  async setHelloWorldMode(
-    enabled: boolean,
-    trigger: HelloWorldModeTrigger,
-    task?: string,
-  ): Promise<void> {
-    this.ensureOpen();
-    if (typeof enabled !== 'boolean') {
-      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Session hello-world mode must be a boolean');
-    }
-    if (enabled) {
-      await this.rpc.setHelloWorldMode({ sessionId: this.id, enabled: true, trigger, task });
-    } else {
-      await this.rpc.setHelloWorldMode({ sessionId: this.id, enabled: false });
-    }
-  }
-
-  async setHelloWorldStage(stage: HelloWorldStage | 'next'): Promise<void> {
-    this.ensureOpen();
-    await this.rpc.setHelloWorldStage({ sessionId: this.id, stage });
-  }
-
-  async waiveHelloWorldItem(item: HelloWorldRunItemId): Promise<void> {
-    this.ensureOpen();
-    await this.rpc.waiveHelloWorldRunItem({ sessionId: this.id, item });
-  }
-
   async setTowerMode(enabled: boolean, base?: string): Promise<void> {
     this.ensureOpen();
     if (typeof enabled !== 'boolean') {
-      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Session tower mode must be a boolean');
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'Session tower mode must be a boolean',
+      );
     }
     if (base !== undefined && typeof base !== 'string') {
-      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Session tower mode base must be a string');
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'Session tower mode base must be a string',
+      );
     }
     await this.rpc.setTowerMode({ sessionId: this.id, enabled, base });
   }
@@ -447,16 +420,6 @@ export class Session {
   async getPlan(): Promise<SessionPlan> {
     this.ensureOpen();
     return this.rpc.getPlan({ sessionId: this.id });
-  }
-
-  async getSpec(): Promise<SpecSnapshot | null> {
-    this.ensureOpen();
-    return this.rpc.getSpec({ sessionId: this.id });
-  }
-
-  async setSpecMode(enabled: boolean): Promise<void> {
-    this.ensureOpen();
-    await this.rpc.setSpecMode({ sessionId: this.id, enabled });
   }
 
   async clearPlan(): Promise<void> {
@@ -481,26 +444,6 @@ export class Session {
   async undoHistory(count: number = 1): Promise<void> {
     this.ensureOpen();
     await this.rpc.undoHistory({ sessionId: this.id, count });
-  }
-
-  async listOperations(limit?: number): Promise<readonly OperationRecord[]> {
-    this.ensureOpen();
-    return this.rpc.listOperations({ sessionId: this.id, limit });
-  }
-
-  async undoOperation(): Promise<OperationRecord> {
-    this.ensureOpen();
-    return this.rpc.undoOperation({ sessionId: this.id });
-  }
-
-  async redoOperation(): Promise<OperationRecord> {
-    this.ensureOpen();
-    return this.rpc.redoOperation({ sessionId: this.id });
-  }
-
-  async restoreOperation(targetId: string): Promise<OperationRecord> {
-    this.ensureOpen();
-    return this.rpc.restoreOperation({ sessionId: this.id, targetId });
   }
 
   /**
@@ -587,7 +530,10 @@ export class Session {
    * `<sessionDir>/tasks/<taskId>/output.log`. `tail` caps the returned
    * string to that many trailing characters.
    */
-  async getBackgroundTaskOutput(taskId: string, options: { tail?: number } = {}): Promise<string> {
+  async getBackgroundTaskOutput(
+    taskId: string,
+    options: { tail?: number } = {},
+  ): Promise<string> {
     this.ensureOpen();
     const trimmedTaskId = normalizeRequiredString(
       taskId,
@@ -608,7 +554,10 @@ export class Session {
    * for unknown or already-terminal task ids are no-ops at the core
    * level — this method does not throw in those cases.
    */
-  async stopBackgroundTask(taskId: string, options: { reason?: string } = {}): Promise<void> {
+  async stopBackgroundTask(
+    taskId: string,
+    options: { reason?: string } = {},
+  ): Promise<void> {
     this.ensureOpen();
     const trimmedTaskId = normalizeRequiredString(
       taskId,
@@ -664,12 +613,6 @@ export class Session {
     this.ensureOpen();
     return this.rpc.handlePrintMainTurnCompleted({ sessionId: this.id });
   }
-
-  // --- Goal lifecycle ---------------------------------------------------
-  // Deterministic user/host control surface. There is intentionally no
-  // `updateGoal`: the goal's terminal status is decided by the model via the
-  // in-conversation UpdateGoal tool (or the goal driver on budget/error), not
-  // by the host.
 
   async createGoal(input: CreateGoalInput): Promise<GoalSnapshot> {
     this.ensureOpen();
@@ -755,9 +698,9 @@ export class Session {
     return this.rpc.listPlugins();
   }
 
-  async installPlugin(source: string): Promise<PluginSummary> {
+  async installPlugin(input: string | InstallPluginInput): Promise<PluginSummary> {
     this.ensureOpen();
-    return this.rpc.installPlugin(source);
+    return this.rpc.installPlugin(input);
   }
 
   async setPluginEnabled(id: string, enabled: boolean): Promise<void> {
@@ -786,7 +729,11 @@ export class Session {
     return capabilityRpc(this.rpc).installCapability(id, options);
   }
 
-  async setPluginMcpServerEnabled(id: string, server: string, enabled: boolean): Promise<void> {
+  async setPluginMcpServerEnabled(
+    id: string,
+    server: string,
+    enabled: boolean,
+  ): Promise<void> {
     this.ensureOpen();
     await this.rpc.setPluginMcpServerEnabled(id, server, enabled);
   }
@@ -808,7 +755,7 @@ export class Session {
 
   async activateSkill(
     name: string,
-    args?: string | undefined,
+    args?: string,
     options?: { readonly path?: string },
   ): Promise<void> {
     this.ensureOpen();
@@ -829,13 +776,16 @@ export class Session {
   async activatePluginCommand(
     pluginId: string,
     commandName: string,
-    args?: string | undefined,
+    args?: string,
   ): Promise<void> {
     this.ensureOpen();
     const normalizedPluginId = pluginId.trim();
     const normalizedCommandName = commandName.trim();
     if (normalizedPluginId.length === 0 || normalizedCommandName.length === 0) {
-      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Plugin id and command name cannot be empty');
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'Plugin id and command name cannot be empty',
+      );
     }
     const commandArgs = normalizeOptionalString(args);
     await this.rpc.activatePluginCommand({
@@ -942,20 +892,16 @@ function normalizePromptInput(input: string | PromptInput): PromptInput {
           );
         }
         break;
-      case 'document_url':
-        if (part.documentUrl.url.trim().length === 0) {
-          throw new KimiError(
-            ErrorCodes.REQUEST_PROMPT_INPUT_EMPTY,
-            'Prompt input cannot contain empty document URLs',
-          );
-        }
-        break;
     }
   }
   return input;
 }
 
-function normalizeRequiredString(value: string, message: string, code: KimiErrorCode): string {
+function normalizeRequiredString(
+  value: string,
+  message: string,
+  code: KimiErrorCode,
+): string {
   const normalized = value.trim();
   if (normalized.length === 0) {
     throw new KimiError(code, message);

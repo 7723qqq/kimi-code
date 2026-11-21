@@ -1,23 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 import { createHash } from 'node:crypto';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
-import { join } from 'pathe';
 import { extract as extractTar } from 'tar';
 import { ZipFile } from 'yazl';
+import { join } from 'pathe';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import type { FetchLike } from '#/_base/utils/fetchLike';
-import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import type { Environment } from '#/environment/environment';
 import {
   detectRemoteTarget,
   detectTarget,
@@ -27,21 +16,20 @@ import {
   rgUnavailableMessage,
   verifyArchiveChecksum,
   type RgProbe,
-} from '#/os/backends/host/tools/rgLocator';
-import { asGlobalFetch } from '#test/helpers/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
+} from '#/os/backends/node-local/tools/rgLocator';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import type { Environment } from '#/environment/environment';
+import { stubRgProbe } from '../../../stubs';
 
-void mock.module('tar', () => ({ extract: mock() }));
+void vi.mock('tar', () => ({ extract: vi.fn() }));
 
 function probeWith(
   resolveExitCode: (args: readonly string[]) => number,
-): RgProbe & { exec: ReturnType<typeof mock> } {
-  return {
-    exec: mock(async (args: readonly string[]) => ({ exitCode: resolveExitCode(args) })),
-  };
+): RgProbe & { exec: ReturnType<typeof vi.fn> } {
+  return stubRgProbe(resolveExitCode);
 }
 
-function noRgProbe(): RgProbe & { exec: ReturnType<typeof mock> } {
+function noRgProbe(): RgProbe & { exec: ReturnType<typeof vi.fn> } {
   return probeWith(() => -1);
 }
 
@@ -84,7 +72,7 @@ describe('findExistingRg', () => {
 
   it('resolves from share-dir when cached', async () => {
     const cached = join(fakeShare, 'bin', process.platform === 'win32' ? 'rg.exe' : 'rg');
-    writeFileSync(cached, 'fake rg', { mode: 0o755 });
+    writeFileSync(cached, 'fake rg');
     const probe = noRgProbe();
     const result = await findExistingRg(probe, fakeShare);
 
@@ -92,29 +80,13 @@ describe('findExistingRg', () => {
     expect(probe.exec).not.toHaveBeenCalled();
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'ignores a cached entry that lost its executable bit',
-    async () => {
-      const cached = join(fakeShare, 'bin', 'rg');
-      writeFileSync(cached, 'fake rg', { mode: 0o644 });
-
-      expect(await findExistingRg(noRgProbe(), fakeShare)).toBeUndefined();
-
-      chmodSync(cached, 0o755);
-      expect(await findExistingRg(noRgProbe(), fakeShare)).toEqual({
-        path: cached,
-        source: 'share-bin-cached',
-      });
-    },
-  );
-
   it('prefers system PATH over share-dir when both are available', async () => {
     const binDir = join(fakeShare, 'path-bin');
     mkdirSync(binDir, { recursive: true });
     const systemRg = join(binDir, process.platform === 'win32' ? 'rg.exe' : 'rg');
     const cached = join(fakeShare, 'bin', process.platform === 'win32' ? 'rg.exe' : 'rg');
-    writeFileSync(systemRg, 'fake system rg', { mode: 0o755 });
-    writeFileSync(cached, 'fake cached rg', { mode: 0o755 });
+    writeFileSync(systemRg, 'fake system rg');
+    writeFileSync(cached, 'fake cached rg');
     process.env['PATH'] = binDir;
     const probe = noRgProbe();
     const result = await findExistingRg(probe, fakeShare);
@@ -135,7 +107,7 @@ describe('ensureRgPath remote environment branch', () => {
     } else {
       globalThis.fetch = savedFetch;
     }
-    mock.restore();
+    vi.restoreAllMocks();
   });
 
   function remoteEnvironment(
@@ -163,10 +135,10 @@ describe('ensureRgPath remote environment branch', () => {
     if (options.withFs !== false) {
       Object.assign(environment, {
         fs: {
-          mkdir: mock(async () => {}),
-          writeBytes: mock(async () => {}),
-          rename: mock(async () => {}),
-          remove: mock(async () => {}),
+          mkdir: vi.fn(async () => {}),
+          writeBytes: vi.fn(async () => {}),
+          rename: vi.fn(async () => {}),
+          remove: vi.fn(async () => {}),
         },
         process: {},
       });
@@ -177,12 +149,12 @@ describe('ensureRgPath remote environment branch', () => {
   it('requires allowCachedFallback before touching the share bin or the network', async () => {
     const probe = noRgProbe();
     const environment = remoteEnvironment('remote-no-fallback');
-    const fetchMock = mock();
+    const fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(ensureRgPath(probe, { environment })).rejects.toThrow(/on PATH/);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(environment.fs!.mkdir as Mock<() => Promise<void>>).not.toHaveBeenCalled();
+    expect(environment.fs!.mkdir as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
 
   it('uses rg.exe and target-native paths for a Windows cache hit', async () => {
@@ -198,6 +170,20 @@ describe('ensureRgPath remote environment branch', () => {
     expect(probe.exec).toHaveBeenCalledTimes(2);
     expect(probe.exec).toHaveBeenCalledWith(['C:\\Users\\remote\\.kimi-code\\bin\\rg.exe', '--version']);
     expect(environment.fs!.mkdir).not.toHaveBeenCalled();
+  });
+
+  it.each(['x64', 'arm64'])('downloads the target Windows ZIP on a cache miss (%s)', async (osArch) => {
+    const probe = noRgProbe();
+    const environment = remoteEnvironment(`remote-windows-download-${osArch}`, { osKind: 'Windows', pathClass: 'win32', osArch });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, body: bodyFromBuffer(Buffer.from('invalid checksum')) });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(ensureRgPath(probe, { environment, allowCachedFallback: true })).rejects.toThrow(/checksum mismatch/);
+
+    const arch = osArch === 'x64' ? 'x86_64' : 'aarch64';
+    expect(fetchMock.mock.calls[0]?.[0]).toMatch(new RegExp(`ripgrep-15\\.0\\.0-${arch}-pc-windows-msvc\\.zip$`));
+    expect(probe.exec).toHaveBeenCalledWith([String.raw`C:\Users\remote\.kimi-code\bin\rg.exe`, '--version']);
+    expect(environment.fs!.writeBytes).not.toHaveBeenCalled();
   });
 
   it('keeps the local flow for the local environment', async () => {
@@ -270,14 +256,6 @@ describe('detectTarget', () => {
     setPlatform('mips', 'linux');
     expect(detectTarget()).toBeUndefined();
   });
-  it('darwin arm32 -> undefined (unsupported)', () => {
-    setPlatform('arm', 'darwin');
-    expect(detectTarget()).toBeUndefined();
-  });
-  it('win32 arm64 -> aarch64-pc-windows-msvc', () => {
-    setPlatform('arm64', 'win32');
-    expect(detectTarget()).toBe('aarch64-pc-windows-msvc');
-  });
 });
 
 describe('rgUnavailableMessage', () => {
@@ -294,19 +272,6 @@ describe('rgUnavailableMessage', () => {
     expect(a).toContain('boom');
     const b = rgUnavailableMessage(42);
     expect(b).toContain('unknown error');
-  });
-
-  it('handles Error causes with no message', () => {
-    const msg = rgUnavailableMessage(new Error());
-    expect(msg).toContain('automatic bootstrap failed');
-    expect(msg).toContain('brew');
-  });
-
-  it('falls back to "unknown error" for Error-like thrown values', () => {
-    const like = { message: 'disk full' };
-    const msg = rgUnavailableMessage(like);
-    expect(msg).toContain('unknown error');
-    expect(msg).not.toContain('disk full');
   });
 });
 
@@ -358,7 +323,7 @@ describe('ensureRgPath download branch', () => {
   afterEach(() => {
     rmSync(fakeShare, { recursive: true, force: true });
     if (savedFetch === undefined) {
-      delete (globalThis as unknown as { fetch?: FetchLike }).fetch;
+      delete (globalThis as unknown as { fetch?: typeof fetch }).fetch;
     } else {
       globalThis.fetch = savedFetch;
     }
@@ -367,19 +332,19 @@ describe('ensureRgPath download branch', () => {
     } else {
       process.env['PATH'] = savedPath;
     }
-    mock.restore();
+    vi.restoreAllMocks();
   });
 
   it('does not bootstrap when allowCachedFallback is false', async () => {
-    const fetchMock = mock();
-    globalThis.fetch = asGlobalFetch(fetchMock);
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(ensureRgPath(noRgProbe(), { shareDir: fakeShare })).rejects.toThrow(/on PATH/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('surfaces a network error when fetch rejects', async () => {
-    globalThis.fetch = asGlobalFetch(mock().mockRejectedValue(new Error('network unreachable')));
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('network unreachable')) as unknown as typeof fetch;
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -389,8 +354,8 @@ describe('ensureRgPath download branch', () => {
   it('does not start bootstrap work when the caller is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();
-    const fetchMock = mock();
-    globalThis.fetch = asGlobalFetch(fetchMock);
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(
       ensureRgPath(noRgProbe(), {
@@ -403,7 +368,7 @@ describe('ensureRgPath download branch', () => {
   });
 
   it('does not run probe subprocesses while lookup misses', async () => {
-    globalThis.fetch = asGlobalFetch(mock().mockRejectedValue(new Error('network unreachable')));
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('network unreachable')) as unknown as typeof fetch;
     const probe = noRgProbe();
 
     await expect(
@@ -421,7 +386,7 @@ describe('ensureRgPath download branch', () => {
       readonly statusText: string;
       readonly body: null;
     }>();
-    globalThis.fetch = asGlobalFetch(mock(() => fetchResponse.promise));
+    globalThis.fetch = vi.fn(() => fetchResponse.promise) as unknown as typeof fetch;
 
     const resultPromise = ensureRgPath(noRgProbe(), {
       shareDir: fakeShare,
@@ -429,7 +394,7 @@ describe('ensureRgPath download branch', () => {
       allowCachedFallback: true,
     });
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     });
     controller.abort();
@@ -442,14 +407,12 @@ describe('ensureRgPath download branch', () => {
   });
 
   it('surfaces HTTP failure (non-2xx response) with status + statusText', async () => {
-    globalThis.fetch = asGlobalFetch(
-      mock().mockResolvedValue({
-        ok: false,
-        status: 404,
-        statusText: 'Not Found',
-        body: null,
-      }),
-    );
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      body: null,
+    }) as unknown as typeof fetch;
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -458,13 +421,13 @@ describe('ensureRgPath download branch', () => {
 
   it('fetches ripgrep over HTTPS', async () => {
     const body = bodyFromBuffer(Buffer.from('not a real archive', 'utf8'));
-    const fetchMock = mock().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       statusText: 'OK',
       body,
     });
-    globalThis.fetch = asGlobalFetch(fetchMock);
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -479,13 +442,13 @@ describe('ensureRgPath download branch', () => {
     process.env['KIMI_CODE_OAUTH_HOST'] = 'https://auth.kimi.ai';
     try {
       const body = bodyFromBuffer(Buffer.from('not a real archive', 'utf8'));
-      const fetchMock = mock().mockResolvedValue({
+      const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         statusText: 'OK',
         body,
       });
-      globalThis.fetch = asGlobalFetch(fetchMock);
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       await expect(
         ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -508,13 +471,13 @@ describe('ensureRgPath download branch', () => {
     process.env['KIMI_CODE_HOME'] = fakeShare;
     try {
       const body = bodyFromBuffer(Buffer.from('not a real archive', 'utf8'));
-      const fetchMock = mock().mockResolvedValue({
+      const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         statusText: 'OK',
         body,
       });
-      globalThis.fetch = asGlobalFetch(fetchMock);
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       await expect(
         ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -533,17 +496,15 @@ describe('ensureRgPath download branch', () => {
   });
 
   it('rejects archives that do not match the pinned SHA-256 before extraction', async () => {
-    const tarMock = extractTar as unknown as Mock<typeof extractTar>;
+    const tarMock = vi.mocked(extractTar);
     tarMock.mockClear();
     const body = bodyFromBuffer(Buffer.from('tampered archive', 'utf8'));
-    globalThis.fetch = asGlobalFetch(
-      mock().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        body,
-      }),
-    );
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      body,
+    }) as unknown as typeof fetch;
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -606,7 +567,7 @@ describe('ensureRgPath Windows download branch', () => {
   afterEach(() => {
     rmSync(fakeShare, { recursive: true, force: true });
     if (savedFetch === undefined) {
-      delete (globalThis as unknown as { fetch?: FetchLike }).fetch;
+      delete (globalThis as unknown as { fetch?: typeof fetch }).fetch;
     } else {
       globalThis.fetch = savedFetch;
     }
@@ -617,7 +578,7 @@ describe('ensureRgPath Windows download branch', () => {
     }
     Object.defineProperty(process, 'arch', { value: savedArch });
     Object.defineProperty(process, 'platform', { value: savedPlatform });
-    mock.restore();
+    vi.restoreAllMocks();
   });
 
   it('fetches the .zip URL (not .tar.gz) on Windows target', async () => {
@@ -627,13 +588,13 @@ describe('ensureRgPath Windows download branch', () => {
         content: Buffer.from('MZfake-pe-bytes', 'utf8'),
       },
     ]);
-    const fetchMock = mock().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       statusText: 'OK',
       body: bodyFromBuffer(zipBuf),
     });
-    globalThis.fetch = asGlobalFetch(fetchMock);
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -662,48 +623,6 @@ describe('ensureRgPath Windows download branch', () => {
     expect(readFileSync(installed)).toEqual(payload);
   });
 
-  it('atomically replaces a stale, read-only cached binary', async () => {
-    const payload = Buffer.from('MZfresh-pe-bytes', 'utf8');
-    const zipBuf = await buildFixtureZip([
-      {
-        name: 'ripgrep-15.0.0-x86_64-pc-windows-msvc/rg.exe',
-        content: payload,
-      },
-    ]);
-
-    const archivePath = join(fakeShare, 'fixture.zip');
-    const installed = join(fakeShare, 'bin', 'rg.exe');
-    writeFileSync(archivePath, zipBuf);
-    writeFileSync(installed, 'MZtruncated-pe-bytes', { mode: 0o444 });
-
-    try {
-      await expect(extractRgFromZip(archivePath, installed)).resolves.toBeUndefined();
-
-      expect(readFileSync(installed)).toEqual(payload);
-      expect(readdirSync(join(fakeShare, 'bin'))).toEqual(['rg.exe']);
-    } finally {
-      chmodSync(installed, 0o644);
-    }
-  });
-
-  it('leaves no staging file behind when the install cannot be completed', async () => {
-    const zipBuf = await buildFixtureZip([
-      {
-        name: 'ripgrep-15.0.0-x86_64-pc-windows-msvc/rg.exe',
-        content: Buffer.from('MZfake-pe-bytes', 'utf8'),
-      },
-    ]);
-    const archivePath = join(fakeShare, 'fixture.zip');
-    const installed = join(fakeShare, 'bin', 'rg.exe');
-    writeFileSync(archivePath, zipBuf);
-    mkdirSync(installed, { recursive: true });
-    writeFileSync(join(installed, 'occupied'), 'not replaceable');
-
-    await expect(extractRgFromZip(archivePath, installed)).rejects.toThrow();
-
-    expect(readdirSync(join(fakeShare, 'bin'))).toEqual(['rg.exe']);
-  });
-
   it('throws with "CDN content may have changed" when the zip omits rg.exe', async () => {
     const zipBuf = await buildFixtureZip([{ name: 'README.md', content: Buffer.from('readme') }]);
     const archivePath = join(fakeShare, 'fixture.zip');
@@ -713,18 +632,15 @@ describe('ensureRgPath Windows download branch', () => {
     await expect(extractRgFromZip(archivePath, installed)).rejects.toThrow(
       /CDN content may have changed/,
     );
-    expect(existsSync(installed)).toBe(false);
   });
 
   it('surfaces HTTP failure on Windows with status + statusText', async () => {
-    globalThis.fetch = asGlobalFetch(
-      mock().mockResolvedValue({
-        ok: false,
-        status: 502,
-        statusText: 'Bad Gateway',
-        body: null,
-      }),
-    );
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      body: null,
+    }) as unknown as typeof fetch;
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),

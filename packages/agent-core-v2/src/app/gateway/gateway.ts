@@ -8,11 +8,6 @@ export interface IRestGateway {
     agentId: string,
     input: string,
   ): Promise<{ readonly turn_id: number } | undefined>;
-  steer(
-    sessionId: string,
-    agentId: string,
-    content: string,
-  ): Promise<{ readonly turn_id: number } | undefined>;
   cancel(sessionId: string, agentId: string, reason?: string): Promise<void>;
   getStatus(sessionId: string): Promise<unknown>;
   flushLogs(sessionId: string): Promise<void>;
@@ -29,4 +24,5 @@ export interface IWSGateway {
   broadcast(sessionId: string, event: unknown): void;
 }
 
-export const IWSGateway: ServiceIdentifier<IWSGateway> = createDecorator<IWSGateway>('wsGateway');
+export const IWSGateway: ServiceIdentifier<IWSGateway> =
+  createDecorator<IWSGateway>('wsGateway');

@@ -1,8 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { describe, expect, it, beforeEach, afterEach } from '@moonshot-ai/testkit/vitest';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import { migrateMcpStep } from '../../src/steps/mcp.js';
 
 let src: string;
@@ -53,9 +52,17 @@ describe('migrateMcpStep', () => {
   it('no source mcp.json: nothing happens', async () => {
     const r = await migrateMcpStep({ sourceHome: src, targetHome: tgt });
     expect(r.mergedServers).toEqual([]);
+    expect(r.sourceUnreadable).toBe(false);
   });
 
-  it("drops MCP server entries kimi-code's schema rejects", async () => {
+  it('reports sourceUnreadable for an unparseable source mcp.json', async () => {
+    await writeFile(join(src, 'mcp.json'), 'not json {{{');
+    const r = await migrateMcpStep({ sourceHome: src, targetHome: tgt });
+    expect(r.mergedServers).toEqual([]);
+    expect(r.sourceUnreadable).toBe(true);
+  });
+
+  it('drops MCP server entries kimi-code\'s schema rejects', async () => {
     await writeFile(
       join(src, 'mcp.json'),
       JSON.stringify({
@@ -81,12 +88,23 @@ describe('migrateMcpStep', () => {
     await writeFile(join(tgt, 'mcp.json'), 'this is not json {{{');
     const r = await migrateMcpStep({ sourceHome: src, targetHome: tgt });
     expect(r.wroteSiblingDueToConflict).toBe(true);
-    // The user's malformed file is left untouched — no data loss.
     expect(await readFile(join(tgt, 'mcp.json'), 'utf-8')).toBe('this is not json {{{');
-    // Migrated servers land in the sibling instead.
     const sibling = JSON.parse(
       await readFile(join(tgt, 'mcp.migrated-from-kimi-cli.json'), 'utf-8'),
     );
     expect(sibling.mcpServers.foo.command).toBe('foo');
+  });
+});
+
+describe('migrateMcpStep read-failure classification', () => {
+  it('reports sourceUnreadable when mcp.json exists but cannot be read', async () => {
+    await mkdir(join(src, 'mcp.json'), { recursive: true });
+    const r = await migrateMcpStep({ sourceHome: src, targetHome: tgt });
+    expect(r.sourceUnreadable).toBe(true);
+  });
+
+  it('reports no unreadable flag when mcp.json is simply absent', async () => {
+    const r = await migrateMcpStep({ sourceHome: src, targetHome: tgt });
+    expect(r.sourceUnreadable).toBe(false);
   });
 });

@@ -25,10 +25,9 @@ export function parsePorcelain(
     if (record.length < 4) continue;
     const xy = record.slice(0, 2);
     const repoPath = record.slice(3);
-    const wirePath =
-      pathPrefix !== '' && repoPath.startsWith(pathPrefix)
-        ? repoPath.slice(pathPrefix.length)
-        : repoPath;
+    const wirePath = pathPrefix !== '' && repoPath.startsWith(pathPrefix)
+      ? repoPath.slice(pathPrefix.length)
+      : repoPath;
 
     if (xy.startsWith('R') || xy.startsWith('C')) {
       i++;

@@ -1,42 +1,12 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { EnvironmentError, EnvironmentRegistry } from '#/environment/environmentRegistry';
-import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 import { fakeEnvironment } from './stubs';
-
-const DRAIN_TIMEOUT_MS = 25;
-
-interface ScheduledTimer {
-  readonly timeoutMs: number;
-  readonly callback: () => void;
-  cleared: boolean;
-}
-
-interface ControlledTimerHandle extends IHostTimerHandle {
-  readonly timer: ScheduledTimer;
-}
-
-function makeControlledTimers(): { timers: IHostTimers; scheduled: ScheduledTimer[] } {
-  const scheduled: ScheduledTimer[] = [];
-  const timers: IHostTimers = {
-    _serviceBrand: undefined,
-    setClampedTimeout: (callback, timeoutMs) => timers.setTimeout(callback, timeoutMs),
-    setTimeout: (callback, timeoutMs) => {
-      const timer: ScheduledTimer = { timeoutMs, callback, cleared: false };
-      scheduled.push(timer);
-      return { unref: () => {}, timer } satisfies ControlledTimerHandle;
-    },
-    clearTimeout: (handle) => {
-      (handle as ControlledTimerHandle).timer.cleared = true;
-    },
-  };
-  return { timers, scheduled };
-}
 
 describe('EnvironmentRegistry', () => {
   let registry: EnvironmentRegistry;
   beforeEach(() => {
-    registry = new EnvironmentRegistry({ drainTimeoutMs: DRAIN_TIMEOUT_MS });
+    registry = new EnvironmentRegistry();
   });
 
   it('rejects conflicts', () => {
@@ -44,28 +14,23 @@ describe('EnvironmentRegistry', () => {
     expect(() => registry.register(fakeEnvironment('local', 'two'))).toThrow(EnvironmentError);
   });
 
-  it('unregisters a removed environment at once and retires it once its leases drain', async () => {
+  it('removes the current environment without waiting on held leases', async () => {
     const first = fakeEnvironment('local', 'one');
     const second = fakeEnvironment('local', 'two');
     const registration = registry.register(first);
     const lease = registry.acquire({ environmentId: 'local' }, ['fs']);
-
-    const removal = registration.remove();
-    expect(registry.current('local')).toBeUndefined();
+    await registration.remove();
     registry.register(second);
-    expect(registry.acquire({ environmentId: 'local' }).environment).toBe(second);
     expect(lease.environment).toBe(first);
-    expect(first.disposed).toBe(false);
-
-    lease.dispose();
-    await removal;
     expect(first.disposed).toBe(true);
+    expect(registry.acquire({ environmentId: 'local' }).environment).toBe(second);
+    lease.dispose();
   });
 
   it('drains a removed environment after its lease is released', async () => {
     const first = fakeEnvironment('local', 'one');
     const originalDispose = first.dispose.bind(first);
-    const dispose = mock(originalDispose);
+    const dispose = vi.fn(originalDispose);
     Object.assign(first, { dispose });
     const registration = registry.register(first);
     const lease = registry.acquire({ environmentId: 'local' });
@@ -78,59 +43,22 @@ describe('EnvironmentRegistry', () => {
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 
-  it('disposes a removed environment only after the injected drain timer advances', async () => {
-    const { timers, scheduled } = makeControlledTimers();
-    const controlledRegistry = new EnvironmentRegistry({
-      drainTimeoutMs: DRAIN_TIMEOUT_MS,
-      timers,
-    });
-    const first = fakeEnvironment('local', 'one');
-    const dispose = mock(() => {
-      first.disposed = true;
-    });
-    Object.assign(first, { dispose });
-    const registration = controlledRegistry.register(first);
-    const lease = controlledRegistry.acquire({ environmentId: 'local' });
+  it('disposes a removed environment after the drain timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const first = fakeEnvironment('local', 'one');
+      const registration = registry.register(first);
+      const lease = registry.acquire({ environmentId: 'local' });
+      const removal = registration.remove();
 
-    let settled = false;
-    const removal = registration.remove().then(() => {
-      settled = true;
-      return settled;
-    });
-    await Promise.resolve();
-    expect(scheduled).toHaveLength(1);
-    expect(scheduled[0]?.timeoutMs).toBe(DRAIN_TIMEOUT_MS);
-    expect(settled).toBe(false);
-    expect(dispose).not.toHaveBeenCalled();
-    expect(first.disposed).toBe(false);
+      await vi.advanceTimersByTimeAsync(5000);
+      await removal;
 
-    scheduled[0]!.callback();
-    expect(await removal).toBe(true);
-    expect(settled).toBe(true);
-    expect(dispose).toHaveBeenCalledTimes(1);
-    expect(first.disposed).toBe(true);
-    expect(scheduled[0]?.cleared).toBe(true);
-    lease.dispose();
-  });
-
-  it('cancels the drain timer when the last lease is released before the timeout', async () => {
-    const { timers, scheduled } = makeControlledTimers();
-    const controlledRegistry = new EnvironmentRegistry({
-      drainTimeoutMs: DRAIN_TIMEOUT_MS,
-      timers,
-    });
-    const first = fakeEnvironment('local', 'one');
-    const registration = controlledRegistry.register(first);
-    const lease = controlledRegistry.acquire({ environmentId: 'local' });
-    const removal = registration.remove();
-    await Promise.resolve();
-    expect(scheduled).toHaveLength(1);
-    expect(first.disposed).toBe(false);
-
-    lease.dispose();
-    await removal;
-    expect(first.disposed).toBe(true);
-    expect(scheduled[0]?.cleared).toBe(true);
+      expect(first.disposed).toBe(true);
+      lease.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not fallback when a environment is missing', () => {

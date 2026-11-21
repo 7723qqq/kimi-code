@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import type { Message } from '#/llm-adapter/contract/message';
+import type { Message } from '@moonshot-ai/core/llm/message';
 import {
   estimateTokens,
   estimateTokensForContentPart,
@@ -9,19 +9,18 @@ import {
   estimateTokensForTools,
   MEDIA_TOKEN_ESTIMATE,
 } from '#/llm-adapter/contract/tokens';
-import { addUsage, emptyUsage, grandTotal, inputTotal } from '#human/llm/usage';
+import { addUsage, emptyUsage, grandTotal, inputTotal } from '@moonshot-ai/core/llm/usage';
 
 describe('TokenUsage aggregation', () => {
-  it('emptyUsage is all zeros', () => {
+  it('emptyUsage leaves cache read unknown', () => {
     expect(emptyUsage()).toEqual({
       inputOther: 0,
       output: 0,
-      inputCacheRead: 0,
       inputCacheCreation: 0,
     });
   });
 
-  it('addUsage sums every counter', () => {
+  it('addUsage sums known counters and preserves unknown cache reads', () => {
     const a = { inputOther: 1, output: 2, inputCacheRead: 3, inputCacheCreation: 4 };
     const b = { inputOther: 10, output: 20, inputCacheRead: 30, inputCacheCreation: 40 };
     expect(addUsage(a, b)).toEqual({
@@ -30,12 +29,20 @@ describe('TokenUsage aggregation', () => {
       inputCacheRead: 33,
       inputCacheCreation: 44,
     });
+    expect(addUsage(a, { ...b, inputCacheRead: undefined })).toEqual({
+      inputOther: 11,
+      output: 22,
+      inputCacheRead: undefined,
+      inputCacheCreation: 44,
+    });
   });
 
-  it('inputTotal sums all input counters, grandTotal adds output', () => {
+  it('inputTotal sums known input counters and preserves unknown totals', () => {
     const usage = { inputOther: 5, output: 7, inputCacheRead: 11, inputCacheCreation: 13 };
     expect(inputTotal(usage)).toBe(29);
     expect(grandTotal(usage)).toBe(36);
+    expect(inputTotal({ ...usage, inputCacheRead: undefined })).toBeUndefined();
+    expect(grandTotal({ ...usage, inputCacheRead: undefined })).toBeUndefined();
   });
 });
 
@@ -70,7 +77,6 @@ describe('estimateTokensForMessage(s)', () => {
     const message: Message = {
       role: 'user',
       content: [{ type: 'text', text: 'hello world' }],
-      toolCalls: [],
     };
     const first = estimateTokensForMessage(message);
     message.content.push({ type: 'text', text: 'mutated after the fact' });
@@ -80,16 +86,10 @@ describe('estimateTokensForMessage(s)', () => {
 
   it('counts media parts with the flat media estimate', () => {
     expect(
-      estimateTokensForContentPart({
-        type: 'image_url',
-        imageUrl: { url: 'data:image/png;base64,AAAA' },
-      }),
+      estimateTokensForContentPart({ type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } }),
     ).toBe(MEDIA_TOKEN_ESTIMATE);
     expect(
-      estimateTokensForContentPart({
-        type: 'video_url',
-        videoUrl: { url: 'data:video/mp4;base64,AAAA' },
-      }),
+      estimateTokensForContentPart({ type: 'video_url', videoUrl: { url: 'data:video/mp4;base64,AAAA' } }),
     ).toBe(MEDIA_TOKEN_ESTIMATE);
     expect(estimateTokensForContentPart({ type: 'think', think: 'abcd' })).toBe(1);
   });
@@ -99,9 +99,9 @@ describe('estimateTokensForTools', () => {
   it('counts name, description, and serialized parameters', () => {
     const tool = { name: 'read', description: 'Read a file', parameters: { type: 'object' } };
     const expected =
-      estimateTokens(tool.name) +
-      estimateTokens(tool.description) +
-      estimateTokens(JSON.stringify(tool.parameters));
+      estimateTokens('read') +
+      estimateTokens('Read a file') +
+      estimateTokens(JSON.stringify({ type: 'object' }));
     expect(estimateTokensForTools([tool])).toBe(expected);
   });
 });

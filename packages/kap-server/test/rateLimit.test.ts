@@ -1,11 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
 import Fastify, { type FastifyInstance } from 'fastify';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { createAuthHook } from '../src/middleware/auth';
-import { createAuthFailureLimiter, type AuthFailureLimiter } from '../src/middleware/rateLimit';
+import {
+  createAuthFailureLimiter,
+  type AuthFailureLimiter,
+} from '../src/middleware/rateLimit';
 import type { IAuthTokenService } from '../src/services/auth/authTokenService';
-import { createFakeClock } from './helpers/fakeClock';
 
 const TOKEN = 'test-token';
 const IP_A = '203.0.113.10';
@@ -141,14 +142,13 @@ describe('createAuthHook bypass policy (URL encoding)', () => {
 });
 
 describe('createAuthFailureLimiter (unit)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('bans a source at the threshold and clears the ban after banMs', () => {
-    const clock = createFakeClock();
-    const limiter = createAuthFailureLimiter({
-      maxFailures: 2,
-      windowMs: 1_000,
-      banMs: 500,
-      clock,
-    });
+    vi.useFakeTimers();
+    const limiter = createAuthFailureLimiter({ maxFailures: 2, windowMs: 1_000, banMs: 500 });
     try {
       expect(limiter.isBanned('1.2.3.4')).toBe(false);
       limiter.recordFailure('1.2.3.4');
@@ -156,9 +156,9 @@ describe('createAuthFailureLimiter (unit)', () => {
       limiter.recordFailure('1.2.3.4');
       expect(limiter.isBanned('1.2.3.4')).toBe(true);
 
-      clock.advance(499);
+      vi.advanceTimersByTime(499);
       expect(limiter.isBanned('1.2.3.4')).toBe(true);
-      clock.advance(1);
+      vi.advanceTimersByTime(1);
       expect(limiter.isBanned('1.2.3.4')).toBe(false);
     } finally {
       limiter.dispose();
@@ -166,16 +166,11 @@ describe('createAuthFailureLimiter (unit)', () => {
   });
 
   it('resets the failure count once the window elapses', () => {
-    const clock = createFakeClock();
-    const limiter = createAuthFailureLimiter({
-      maxFailures: 2,
-      windowMs: 1_000,
-      banMs: 500,
-      clock,
-    });
+    vi.useFakeTimers();
+    const limiter = createAuthFailureLimiter({ maxFailures: 2, windowMs: 1_000, banMs: 500 });
     try {
       limiter.recordFailure('5.5.5.5');
-      clock.advance(1_001);
+      vi.advanceTimersByTime(1_001);
       limiter.recordFailure('5.5.5.5');
       expect(limiter.isBanned('5.5.5.5')).toBe(false);
     } finally {
@@ -184,13 +179,8 @@ describe('createAuthFailureLimiter (unit)', () => {
   });
 
   it('tracks sources independently', () => {
-    const clock = createFakeClock();
-    const limiter = createAuthFailureLimiter({
-      maxFailures: 1,
-      windowMs: 1_000,
-      banMs: 500,
-      clock,
-    });
+    vi.useFakeTimers();
+    const limiter = createAuthFailureLimiter({ maxFailures: 1, windowMs: 1_000, banMs: 500 });
     try {
       limiter.recordFailure('9.9.9.9');
       expect(limiter.isBanned('9.9.9.9')).toBe(true);

@@ -1,15 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { release } from 'node:os';
 
-import { kimiRegionProfile, type KimiRegionResolution } from '@moonshot-ai/kimi-code-oauth';
+import {
+  kimiRegionProfile,
+  type KimiRegionResolution,
+} from '@moonshot-ai/kimi-code-oauth';
 
 import type { ServicesAccessor } from '#/_base/di/instantiation';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IRegionService } from '#/app/region/region';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
+import type { ITelemetryAppender, TelemetryAppenderRecord } from './telemetry';
+import type { TelemetryProperties } from './context';
 import {
   type CloudContext,
   type CloudPrimitive,
@@ -18,10 +22,8 @@ import {
   type EnrichedCloudEvent,
   isCloudPrimitive,
 } from './cloudTransport';
-import type { TelemetryProperties } from './context';
 import { resolveCoreVersion } from './coreVersion';
 import { cleanTelemetryProperties } from './privacy';
-import type { ITelemetryAppender, TelemetryAppenderRecord } from './telemetry';
 
 export interface CloudAppenderOptions {
   readonly storage: IFileSystemStorageService;
@@ -39,11 +41,9 @@ export interface CloudAppenderOptions {
   readonly endpoint?: string;
   readonly flushThreshold?: number;
   readonly flushIntervalMs?: number;
-  readonly fetchImpl?: FetchLike;
+  readonly fetchImpl?: typeof fetch;
   readonly retryBackoffsMs?: readonly number[];
   readonly requestTimeoutMs?: number;
-  readonly maxDiskFiles?: number;
-  readonly maxDiskBytes?: number;
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly now?: () => number;
 }
@@ -73,7 +73,6 @@ export function createCloudAppender(
 
 const DEFAULT_FLUSH_THRESHOLD = 50;
 const DEFAULT_FLUSH_INTERVAL_MS = 30_000;
-const PRUNE_EVERY_N_TICKS = 20;
 
 export class CloudAppender implements ITelemetryAppender {
   private readonly transport: CloudTransport;
@@ -106,8 +105,6 @@ export class CloudAppender implements ITelemetryAppender {
       fetchImpl: options.fetchImpl,
       retryBackoffsMs: options.retryBackoffsMs,
       requestTimeoutMs: options.requestTimeoutMs,
-      maxDiskFiles: options.maxDiskFiles,
-      maxDiskBytes: options.maxDiskBytes,
       sleep: options.sleep,
       now: options.now,
     });
@@ -119,7 +116,8 @@ export class CloudAppender implements ITelemetryAppender {
     const enriched: EnrichedCloudEvent = {
       event_id: randomUUID().replaceAll('-', ''),
       device_id: this.deviceId,
-      session_id: typeof ambientSessionId === 'string' ? ambientSessionId : this.sessionId,
+      session_id:
+        typeof ambientSessionId === 'string' ? ambientSessionId : this.sessionId,
       event: record.event,
       timestamp: Date.now() / 1000,
       properties: cleanTelemetryProperties(sanitizeProperties(record.properties)),
@@ -165,14 +163,8 @@ export class CloudAppender implements ITelemetryAppender {
 
   startPeriodicFlush(): void {
     if (this.flushTimer !== null) return;
-    void this.pruneDiskEvents();
-    let ticks = 0;
     this.flushTimer = setInterval(() => {
       void this.flush().catch(() => {});
-      ticks += 1;
-      if (ticks % PRUNE_EVERY_N_TICKS === 0) {
-        void this.pruneDiskEvents();
-      }
     }, this.flushIntervalMs);
     this.flushTimer.unref?.();
   }
@@ -185,10 +177,6 @@ export class CloudAppender implements ITelemetryAppender {
 
   async retryDiskEvents(): Promise<void> {
     await this.transport.retryDiskEvents();
-  }
-
-  async pruneDiskEvents(): Promise<void> {
-    await this.transport.pruneExpiredDiskEvents().catch(() => undefined);
   }
 }
 
@@ -207,14 +195,6 @@ function sanitizeProperties(input?: TelemetryProperties): CloudProperties {
   return out;
 }
 
-function isBunRuntime(): boolean {
-  return typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
-}
-
-function runtimeVersion(): string {
-  return process.versions['bun'] ?? process.versions.node;
-}
-
 function buildContext(options: CloudAppenderOptions): CloudContext {
   const { bootstrap } = options;
   const context: CloudContext = {
@@ -222,10 +202,10 @@ function buildContext(options: CloudAppenderOptions): CloudContext {
     client_version: bootstrap.clientIdentity.version,
     version: bootstrap.clientIdentity.version,
     core_version: resolveCoreVersion(),
-    runtime: isBunRuntime() ? 'bun' : 'node',
+    runtime: 'node',
     platform: bootstrap.platform,
     arch: bootstrap.arch,
-    node_version: runtimeVersion(),
+    node_version: process.versions.node,
     os_version: release(),
     ci: bootstrap.getEnv('CI') !== undefined,
     locale: options.locale ?? bootstrap.getEnv('LANG') ?? '',

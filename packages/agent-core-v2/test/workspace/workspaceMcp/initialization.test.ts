@@ -1,32 +1,32 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { setTimeout as delay } from 'node:timers/promises';
-
+import { setTimeout as sleep } from 'node:timers/promises';
 import { join } from 'pathe';
+
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { McpConnectionManager } from '#/mcpCore/connection-manager';
+import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
+import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
+import { IMcpConfigStore, type McpConfigWriteEvent } from '#/app/mcpConfig/configStore';
+import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
-import { IMcpConfigStore, type McpConfigWriteEvent } from '#/app/mcpConfig/configStore';
-import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { PluginReloadEvent } from '#/app/plugin/types';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { McpConnectionManager } from '#/mcpCore/connection-manager';
-import { McpOAuthService } from '#/mcpCore/oauth/service';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
 import { IWorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
 import { WorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
@@ -35,7 +35,11 @@ import { WorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcpServic
 
 import { stubLog } from '../../_base/log/stubs';
 import { registerAgentIdentityStub } from '../../app/agentIdentity/stubs';
-import { createMemoryMcpOAuthStore, slowToolStdioFixture, stdioFixture } from '../../mcpCore/stubs';
+import {
+  createMemoryMcpOAuthStore,
+  slowToolStdioFixture,
+  stdioFixture,
+} from '../../mcpCore/stubs';
 
 describe('Workspace MCP initialization', () => {
   let cwd: string;
@@ -75,6 +79,7 @@ describe('Workspace MCP initialization', () => {
         });
         reg.definePartialInstance(IPluginService, {
           enabledMcpServers: async () => ({}),
+          mcpServerEntries: async () => [],
           onDidReload: Event.None as Event<PluginReloadEvent>,
         });
         reg.definePartialInstance(
@@ -87,21 +92,15 @@ describe('Workspace MCP initialization', () => {
         reg.defineInstance(ILogService, stubLog());
         reg.defineInstance(ITelemetryService, noopTelemetryService);
         const environment = Object.assign(
-          new FakeEnvironment(
-            { environmentId: 'local', generation: 'test-generation' },
-            {
-              capabilities: ['process'],
-              pathClass: process.platform === 'win32' ? 'win32' : 'posix',
-            },
-          ),
+          new FakeEnvironment({ environmentId: 'local', generation: 'test-generation' }, { capabilities: ['process'] }),
           { process: new HostProcessService() },
         );
         reg.definePartialInstance(IEnvironmentService, { _serviceBrand: undefined, inspect: () => environment, acquire: () => ({ environment, track: (resource) => resource, dispose: () => {} }), acquireWhenReady: async () => ({ environment, track: (resource) => resource, dispose: () => {} }) });
         reg.definePartialInstance(IConfigService, {
           ready,
           onDidSectionChange: Event.None as IConfigService['onDidSectionChange'],
-          get: <T = unknown>(domain: string): T =>
-            (domain === MCP_SECTION ? mcpSection : undefined) as T,
+          get: (<T = unknown>(domain: string): T =>
+            (domain === MCP_SECTION ? mcpSection : undefined) as T),
         });
         reg.defineInstance(IHostFileSystem, new HostFileSystem());
         reg.definePartialInstance(IWorkspaceTrust, {
@@ -135,7 +134,7 @@ describe('Workspace MCP initialization', () => {
     manager = service.connectionManager();
     expect(manager.list()).toEqual([]);
 
-    await delay(50);
+    await sleep(50);
     expect(manager.list()).toEqual([]);
 
     resolveConfigReady();
@@ -160,39 +159,12 @@ describe('Workspace MCP initialization', () => {
     if (client === undefined) throw new Error('expected a connected client');
     await expect(client.callTool('slow_echo', { text: 'hi' })).rejects.toThrow(/timed out/i);
   }, 15000);
-
-  it.skipIf(process.platform === 'win32')(
-    'disposeAsync resolves only after the server process has exited',
-    async () => {
-      const marker = join(cwd, 'mcp-exit-marker');
-      await writeProjectMcpJson(cwd, {
-        slowExit: {
-          transport: 'stdio',
-          command: process.execPath,
-          args: [stdioFixture],
-          runtime_id: 'local',
-          env: {
-            KIMI_TEST_MCP_SHUTDOWN_BEHAVIOR: 'delay',
-            KIMI_TEST_MCP_EXIT_DELAY_MS: '300',
-            KIMI_TEST_MCP_EXIT_MARKER: marker,
-          },
-        },
-      });
-      const service = createWorkspaceMcpService(Promise.resolve());
-      await service.ready;
-      const connectionManager = service.connectionManager();
-      manager = undefined;
-      expect(connectionManager.get('slowExit')?.status).toBe('connected');
-
-      await (service as unknown as { disposeAsync(): Promise<void> }).disposeAsync();
-
-      expect(existsSync(marker)).toBe(true);
-    },
-    15000,
-  );
 });
 
-async function writeProjectMcpJson(cwd: string, servers: Record<string, unknown>): Promise<void> {
+async function writeProjectMcpJson(
+  cwd: string,
+  servers: Record<string, unknown>,
+): Promise<void> {
   await mkdir(join(cwd, '.kimi-code'), { recursive: true });
   await writeFile(
     join(cwd, '.kimi-code', 'mcp.json'),

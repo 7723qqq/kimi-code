@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { existsSync } from 'node:fs';
 
 import { runLocalCli } from './local-cli.mjs';
@@ -17,9 +17,12 @@ async function main() {
   await verifyInputs(options);
   for (const file of options.files) {
     console.log(`Publishing verified package ${file}...`);
-    runLocalCli('@vscode/vsce', 'vsce', ['publish', '--packagePath', file, '--skip-duplicate'], {
-      cwd: extensionRoot,
-    });
+    runLocalCli(
+      '@vscode/vsce',
+      'vsce',
+      ['publish', '--packagePath', file, '--skip-duplicate'],
+      { cwd: extensionRoot },
+    );
   }
 }
 
@@ -27,7 +30,7 @@ async function verifyInputs(options) {
   for (let index = 0; index < options.targets.length; index += 1) {
     const file = options.files[index];
     if (!existsSync(file)) {
-      throw new Error(`Missing VSIX ${file}. Run bun run package:platform first.`);
+      throw new Error(`Missing VSIX ${file}. Run pnpm run package:platform first.`);
     }
     await verifyVsix(file, options.targets[index], { sourceRoot: extensionRoot });
   }
@@ -35,9 +38,7 @@ async function verifyInputs(options) {
 
 if (isMainModule(import.meta.url)) {
   main().catch((error) => {
-    console.error(
-      `Marketplace publish failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`Marketplace publish failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 }

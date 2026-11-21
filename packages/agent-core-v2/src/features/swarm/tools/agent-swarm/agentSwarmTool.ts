@@ -1,36 +1,33 @@
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import {
+  ToolAccesses,
+  type ExecutableToolContext,
+  type ExecutableToolErrorResult,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+import { Error2, ErrorCodes } from '#/errors';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
-import { Error2, ErrorCodes } from '#/errors';
+import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { resolveSwarmTimeoutMs } from '#/features/swarm/configSection';
-import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
-import {
-  buildSubagentModelSummary,
-  exposesSubagentModelChoice,
-  stripSubagentForkParameter,
-  stripSubagentModelParameter,
-} from '#/session/subagent/configSection';
-import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
 import {
   FORK_EXPERIMENTAL_UNAVAILABLE,
   FORK_WITH_RESUME_UNAVAILABLE,
   forkIncompatibility,
   type SubagentSpawnPlan,
 } from '#/session/subagent/spawn';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { toInputJsonSchema } from '#/tool/input-schema';
+import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import {
-  RepoMutations,
-  ToolAccesses,
-  ToolSideEffects,
-  type ExecutableToolContext,
-  type ExecutableToolErrorResult,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-
+  buildSubagentModelSummary,
+  exposesSubagentModelChoice,
+  stripSubagentForkParameter,
+  stripSubagentModelParameter,
+} from '#/session/subagent/configSection';
 import {
   AgentSwarmToolInputSchema,
   IAgentSwarmTool,
@@ -38,8 +35,8 @@ import {
   PROMPT_TEMPLATE_PLACEHOLDER,
   type AgentSwarmToolInput,
 } from './agent-swarm';
-import AGENT_SWARM_FORK_DESCRIPTION from './agent-swarm-fork.md?raw';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
+import AGENT_SWARM_FORK_DESCRIPTION from './agent-swarm-fork.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
 
@@ -82,8 +79,6 @@ interface SwarmRunResult {
 export class AgentSwarmTool implements IAgentSwarmTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'AgentSwarm' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
 
   get parameters(): Record<string, unknown> {
     const parameters = exposesSubagentModelChoice(this.config)
@@ -103,7 +98,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
-    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentLoopService private readonly profile: IAgentLoopService,
   ) {
     this.callerAgentId = scopeContext.agentId;
   }
@@ -327,15 +322,11 @@ function renderSwarmResults(results: readonly SwarmRunResult[]): string {
   for (const result of results) {
     const agentId = result.agentId === undefined ? '' : ` agent_id="${result.agentId}"`;
     const mode = result.spec.kind === 'resume' ? ' mode="resume"' : '';
-    const item =
-      result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
+    const item = result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
     const state = result.state === undefined ? '' : ` state="${result.state}"`;
     const stopReason =
-      result.stopReason === undefined
-        ? ''
-        : ` stop_reason="${escapeXmlAttribute(result.stopReason)}"`;
-    const body =
-      result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
+      result.stopReason === undefined ? '' : ` stop_reason="${escapeXmlAttribute(result.stopReason)}"`;
+    const body = result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
     lines.push(
       `<subagent${mode}${agentId}${item}${state} outcome="${result.status}"${stopReason}>${body}</subagent>`,
     );

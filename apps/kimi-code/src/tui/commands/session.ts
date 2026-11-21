@@ -3,22 +3,17 @@ import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { detectInstallSource } from '#/cli/update/source';
-import { t } from '#/i18n';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { detectShellEnvironment } from '#/utils/process/shell-env';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
-
-import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
+import { LLM_NOT_SET_MESSAGE, NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
 import { isAbortError } from '../utils/errors';
 import { formatErrorMessage } from '../utils/event-payload';
 import { buildExportMarkdown } from '../utils/export-markdown';
 import { sessionWorkDir } from '../utils/session-work-dir';
 import type { SlashCommandHost } from './dispatch';
-
-// ---------------------------------------------------------------------------
-// Session commands
-// ---------------------------------------------------------------------------
+import { t } from '#/i18n';
 
 export async function handleTitleCommand(host: SlashCommandHost, args: string): Promise<void> {
   const title = args.trim();
@@ -26,7 +21,7 @@ export async function handleTitleCommand(host: SlashCommandHost, args: string): 
     const current = host.state.appState.sessionTitle;
     host.showStatus(
       current !== null && current.length > 0
-        ? t('tui.statusMessages.sessionTitle', { title: current })
+        ? `Session title: ${current}`
         : t('tui.statusMessages.sessionTitleNotSet', { sessionId: host.state.appState.sessionId }),
     );
     return;
@@ -34,8 +29,6 @@ export async function handleTitleCommand(host: SlashCommandHost, args: string): 
 
   let session = host.session;
   if (session === undefined) {
-    // Setting a title needs a live session; lazy-create it on first use (the
-    // bare read-only form above works session-less).
     session = await host.ensureSession();
     if (session === undefined) return;
   }
@@ -55,7 +48,7 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
   void args;
   const session = host.session;
   if (session === undefined) {
-    host.showError(getNoActiveSessionMessage());
+    host.showError(NO_ACTIVE_SESSION_MESSAGE);
     return;
   }
 
@@ -66,20 +59,13 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
       await forked.close();
     } catch (error) {
       const msg = formatErrorMessage(error);
-      host.showError(t('tui.messages.sessionForkReleaseFailed', { forkId, message: msg }));
+      host.showError(`Session forked (${forkId}), but failed to release its environment: ${msg}`);
       return;
     }
-    // Stay in the source session: switching to the fork would close the
-    // source, killing its in-flight turn and background tasks. The fork is
-    // an independent copy the user can switch to explicitly via /sessions,
-    // or enter from a new CLI process with the printed resume command.
     const command = forkResumeCommand(host.state.appState.workDir, forkId);
     let clipboardNote: string;
     try {
       const method = await copyTextToClipboard(command);
-      // OSC 52 delivery is fire-and-forget: terminals without OSC 52 support
-      // silently drop the sequence, so only native delivery may claim success
-      // (same wording convention as /copy).
       clipboardNote =
         method === 'native'
           ? t('tui.messages.sessionForkCommandCopied')
@@ -87,7 +73,11 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
     } catch {
       clipboardNote = t('tui.messages.sessionForkCommandCopyFailed');
     }
-    host.showStatus(t('tui.messages.sessionForkedNotice', { forkId, command, clipboardNote }));
+    host.showStatus(
+      `Session forked (${forkId}). Still in the original session; switch to the fork via /sessions.\n` +
+        `  To enter the fork in a new process, run: ${command}\n` +
+        `  ${clipboardNote}`,
+    );
   } catch (error) {
     const msg = formatErrorMessage(error);
     host.showError(t('tui.statusMessages.sessionFailedToFork', { message: msg }));
@@ -96,10 +86,6 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
 
 function forkResumeCommand(workDir: string, forkId: string): string {
   const dir = quoteShellArg(workDir);
-  // cmd.exe's `cd` only updates the given drive's remembered directory — a
-  // terminal on a different drive stays put, and the resume then runs in the
-  // wrong working directory. `pushd` switches drive + directory in both
-  // cmd.exe and PowerShell (`cd /d` would break PowerShell).
   const changeDir = process.platform === 'win32' ? `pushd ${dir}` : `cd ${dir}`;
   return `${changeDir} && kimi --resume ${quoteShellArg(forkId)}`;
 }
@@ -107,7 +93,7 @@ function forkResumeCommand(workDir: string, forkId: string): string {
 export async function handleExportMdCommand(host: SlashCommandHost, args: string): Promise<void> {
   const session = host.session;
   if (session === undefined) {
-    host.showError(getNoActiveSessionMessage());
+    host.showError(NO_ACTIVE_SESSION_MESSAGE);
     return;
   }
 
@@ -125,10 +111,9 @@ export async function handleExportMdCommand(host: SlashCommandHost, args: string
     const defaultName = `kimi-export-${shortId}-${timestamp}.md`;
 
     const trimmedArgs = args.trim();
-    const outputPath =
-      trimmedArgs.length > 0
-        ? resolve(trimmedArgs)
-        : resolve(host.state.appState.workDir, defaultName);
+    const outputPath = trimmedArgs.length > 0
+      ? resolve(trimmedArgs)
+      : resolve(host.state.appState.workDir, defaultName);
 
     const md = buildExportMarkdown({
       sessionId: session.id,
@@ -142,10 +127,7 @@ export async function handleExportMdCommand(host: SlashCommandHost, args: string
     await writeFile(outputPath, md, 'utf-8');
 
     const linked = toTerminalHyperlink(outputPath, pathToFileURL(outputPath).href);
-    host.showNotice(
-      t('tui.statusMessages.sessionExportComplete', { count: context.history.length }),
-      linked,
-    );
+    host.showNotice(t('tui.statusMessages.sessionExportComplete', { count: String(context.history.length) }), linked);
   } catch (error) {
     const msg = formatErrorMessage(error);
     host.showError(t('tui.statusMessages.sessionFailedToExport', { message: msg }));
@@ -155,7 +137,7 @@ export async function handleExportMdCommand(host: SlashCommandHost, args: string
 export async function handleExportDebugZipCommand(host: SlashCommandHost): Promise<void> {
   const session = host.session;
   if (session === undefined) {
-    host.showError(getNoActiveSessionMessage());
+    host.showError(NO_ACTIVE_SESSION_MESSAGE);
     return;
   }
 
@@ -181,7 +163,7 @@ export async function handleExportDebugZipCommand(host: SlashCommandHost): Promi
 export async function handleInitCommand(host: SlashCommandHost): Promise<void> {
   const session = host.session;
   if (host.state.appState.model.trim().length === 0 || session === undefined) {
-    host.showError(getLlmNotSetMessage());
+    host.showError(LLM_NOT_SET_MESSAGE);
     return;
   }
 
@@ -202,7 +184,7 @@ export async function handleInitCommand(host: SlashCommandHost): Promise<void> {
       return;
     }
     const msg = error instanceof Error ? error.message : String(error);
-    host.failSessionRequest(t('tui.messages.sessionInitFailed', { msg }));
+    host.failSessionRequest(`Init failed: ${msg}`);
   } finally {
     host.deferUserMessages = false;
   }

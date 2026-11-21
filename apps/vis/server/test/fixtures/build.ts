@@ -1,16 +1,13 @@
 import { cp, mkdir, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
-/** Copy a fixture session into a temporary KIMI_CODE_HOME. */
 export async function buildSessionFixture(name: string): Promise<{
   home: string;
   sessionDir: string;
   cleanup: () => Promise<void>;
 }> {
-  // fileURLToPath (not URL.pathname) — on Windows the latter yields `/G:/...`,
-  // which node:fs then mis-resolves into a doubled drive prefix (`G:\G:\...`).
   const src = fileURLToPath(new URL(`./sessions/${name}`, import.meta.url));
   const home = await mkdtemp();
   const sessionsDir = join(home, 'sessions', 'wd_test_000000000000');
@@ -18,7 +15,6 @@ export async function buildSessionFixture(name: string): Promise<{
   await mkdir(sessionsDir, { recursive: true });
   await cp(src, sessionDir, { recursive: true });
 
-  // Write session_index.jsonl.
   await writeFile(
     join(home, 'session_index.jsonl'),
     JSON.stringify({
@@ -36,10 +32,7 @@ export async function buildSessionFixture(name: string): Promise<{
 }
 
 async function mkdtemp(): Promise<string> {
-  const base = join(
-    tmpdir(),
-    `vis-fixture-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  );
+  const base = join(tmpdir(), `vis-fixture-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   await mkdir(base, { recursive: true });
   return base;
 }

@@ -1,9 +1,6 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-
-import chalk from 'chalk';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { ShellRunComponent } from '#/tui/components/messages/shell-run';
-import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 
 function stripTheme(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
@@ -13,8 +10,6 @@ describe('ShellRunComponent hardening', () => {
   let component: ShellRunComponent | undefined;
 
   afterEach(() => {
-    // Always clear the 1s timer so it can't keep the test process alive or
-    // fire requestRender after the test ends.
     component?.dispose();
     component = undefined;
   });
@@ -219,11 +214,7 @@ describe('ShellRunComponent hasHiddenContent', () => {
     expect(c.hasHiddenContent()).toBe(false);
 
     const foldable = create();
-    foldable.finish(
-      Array.from({ length: 12 }, (_, i) => `row ${String(i + 1)}`).join('\n'),
-      '',
-      false,
-    );
+    foldable.finish(Array.from({ length: 12 }, (_, i) => `row ${String(i + 1)}`).join('\n'), '', false);
     foldable.render(100);
     expect(foldable.hasHiddenContent()).toBe(true);
   });
@@ -240,107 +231,8 @@ describe('ShellRunComponent hasHiddenContent when finished while expanded', () =
   it('still reports the rows a collapse would hide, without a prior collapsed render', () => {
     component = new ShellRunComponent(() => {});
     component.setExpanded(true);
-    component.finish(
-      Array.from({ length: 20 }, (_, i) => `row ${String(i + 1)}`).join('\n'),
-      '',
-      false,
-    );
+    component.finish(Array.from({ length: 20 }, (_, i) => `row ${String(i + 1)}`).join('\n'), '', false);
     component.render(100);
     expect(component.hasHiddenContent()).toBe(true);
-  });
-});
-
-describe('ShellRunComponent line-count caching', () => {
-  let component: ShellRunComponent | undefined;
-
-  afterEach(() => {
-    component?.dispose();
-    component = undefined;
-  });
-
-  function create(): ShellRunComponent {
-    component = new ShellRunComponent(() => {});
-    return component;
-  }
-
-  function rows(n: number): string {
-    return Array.from({ length: n }, (_, i) => `row-${String(i + 1).padStart(2, '0')}`).join('\n');
-  }
-
-  it('keeps the preview cap boundary the same across repeated probes and a rebuild', () => {
-    const atCap = create();
-    // 11 physical lines hides one row, which the hint row replaces.
-    atCap.finish(rows(11), '', false);
-    atCap.render(80);
-    expect(atCap.hasHiddenContent()).toBe(false);
-    expect(atCap.hasHiddenContent()).toBe(false);
-
-    const overCap = create();
-    overCap.finish(rows(12), '', false);
-    overCap.render(80);
-    expect(overCap.hasHiddenContent()).toBe(true);
-    // The cached count survives the rebuild a theme switch triggers.
-    overCap.invalidate();
-    expect(overCap.hasHiddenContent()).toBe(true);
-  });
-});
-
-describe('ShellRunComponent theme repaint', () => {
-  let component: ShellRunComponent | undefined;
-
-  afterEach(() => {
-    component?.dispose();
-    component = undefined;
-  });
-
-  /** The truecolor foreground sequence chalk emits for a `#rrggbb` value. */
-  function fgCode(hex: string): string {
-    const r = Number.parseInt(hex.slice(1, 3), 16);
-    const g = Number.parseInt(hex.slice(3, 5), 16);
-    const b = Number.parseInt(hex.slice(5, 7), 16);
-    return `\u001B[38;2;${r};${g};${b}m`;
-  }
-
-  it('rebuilds a finished card from the active palette when invalidated', () => {
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    try {
-      component = new ShellRunComponent(() => {});
-      component.finish('done', '', false);
-      const before = component.render(80).join('\n');
-      expect(before).toContain(fgCode(darkColors.textDim));
-
-      currentTheme.setPalette(lightColors, 'light');
-      // The render cache still holds the old palette's colours until the
-      // component is told to rebuild.
-      expect(component.render(80).join('\n')).toBe(before);
-
-      component.invalidate();
-      const after = component.render(80).join('\n');
-      expect(after).toContain(fgCode(lightColors.textDim));
-      expect(after).not.toContain(fgCode(darkColors.textDim));
-    } finally {
-      currentTheme.setPalette(darkColors, 'dark');
-      chalk.level = previousLevel;
-    }
-  });
-
-  it('re-renders the running label from the active palette when invalidated', () => {
-    const previousLevel = chalk.level;
-    chalk.level = 3;
-    try {
-      component = new ShellRunComponent(() => {});
-      component.append('working\n');
-      expect(component.render(80).join('\n')).toContain(fgCode(darkColors.textDim));
-
-      currentTheme.setPalette(lightColors, 'light');
-      component.invalidate();
-      const after = component.render(80).join('\n');
-      expect(after).toContain(fgCode(lightColors.textDim));
-      expect(after).not.toContain(fgCode(darkColors.textDim));
-    } finally {
-      currentTheme.setPalette(darkColors, 'dark');
-      chalk.level = previousLevel;
-    }
   });
 });

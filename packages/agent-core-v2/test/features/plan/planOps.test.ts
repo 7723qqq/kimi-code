@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { ContextAppendMessage, ContextUndo } from '#/agent/contextMemory/contextEvents';
-import { IAgentStateService } from '#/agent/state/agentState';
+import {
+  ContextAppendMessage,
+  ContextUndo,
+} from '#/agent/contextMemory/contextEvents';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import {
@@ -14,14 +16,15 @@ import {
   planKey,
   PlanRevision,
 } from '#/features/plan/planOps';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
+import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import {
   registerTestAgentWire,
@@ -59,13 +62,7 @@ function buildHost(key: string, agentId: string = MAIN_AGENT_ID): Host {
   const dispatcher = registerTestEventDispatcher(ix);
   const agentState = ix.get(IAgentStateService);
   agentState.contributeState(planKey);
-  return {
-    wire,
-    dispatcher,
-    agentState,
-    log: ix.get(IAppendLogStore),
-    eventBus: ix.get(IEventBus),
-  };
+  return { wire, dispatcher, agentState, log: ix.get(IAppendLogStore), eventBus: ix.get(IEventBus) };
 }
 
 beforeEach(() => {
@@ -81,10 +78,7 @@ afterEach(() => disposables.dispose());
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(
-    testWireScope(SCOPE, key),
-    AGENT_WIRE_RECORD_KEY,
-  )) {
+  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
     out.push(record);
   }
   return out;
@@ -101,7 +95,7 @@ describe('plan ops (wire-backed)', () => {
     });
 
     await dispatcher.dispatch(new PlanModeCancel({ agentId: MAIN_AGENT_ID, id: 'p1' }));
-    expect(agentState.get(planKey)).toEqual({ active: false, lastTransition: 'cancel' });
+    expect(agentState.get(planKey)).toEqual({ active: false });
 
     await dispatcher.dispatch(new PlanModeEnter({ agentId: MAIN_AGENT_ID, id: 'p2' }));
     await dispatcher.dispatch(new PlanModeExit({ agentId: MAIN_AGENT_ID }));
@@ -126,13 +120,11 @@ describe('plan ops (wire-backed)', () => {
   it('cancel and exit both deactivate plan mode but emit distinct record types', async () => {
     await dispatcher.dispatch(new PlanModeEnter({ agentId: MAIN_AGENT_ID, id: 'p1' }));
     await dispatcher.dispatch(new PlanModeCancel({ agentId: MAIN_AGENT_ID, id: 'p1' }));
-    expect(agentState.get(planKey).active).toBe(false);
-    expect(agentState.get(planKey).lastTransition).toBe('cancel');
+    expect(agentState.get(planKey)).toEqual({ active: false });
 
     await dispatcher.dispatch(new PlanModeEnter({ agentId: MAIN_AGENT_ID, id: 'p2' }));
     await dispatcher.dispatch(new PlanModeExit({ agentId: MAIN_AGENT_ID, id: 'p2' }));
-    expect(agentState.get(planKey).active).toBe(false);
-    expect(agentState.get(planKey).lastTransition).toBe('exit');
+    expect(agentState.get(planKey)).toEqual({ active: false });
 
     const records = await readRecords();
     expect(records.map((record) => record.type)).toEqual([
@@ -156,31 +148,6 @@ describe('plan ops (wire-backed)', () => {
     expect(agentState.get(planKey)).toBe(active);
   });
 
-  it('records how the most recent plan session ended', async () => {
-    await dispatcher.dispatch(new PlanModeEnter({ agentId: MAIN_AGENT_ID, id: 'p1' }));
-    await dispatcher.dispatch(new PlanModeCancel({ agentId: MAIN_AGENT_ID, id: 'p1' }));
-    expect(agentState.get(planKey).lastTransition).toBe('cancel');
-
-    await dispatcher.dispatch(new PlanModeEnter({ agentId: MAIN_AGENT_ID, id: 'p2' }));
-    await dispatcher.dispatch(new PlanModeExit({ agentId: MAIN_AGENT_ID, id: 'p2' }));
-    expect(agentState.get(planKey).lastTransition).toBe('exit');
-  });
-
-  it('keeps the last transition across a re-entry', async () => {
-    await dispatcher.dispatch(new PlanModeEnter({ agentId: MAIN_AGENT_ID, id: 'p1' }));
-    await dispatcher.dispatch(new PlanModeExit({ agentId: MAIN_AGENT_ID, id: 'p1' }));
-    await dispatcher.dispatch(new PlanModeEnter({ agentId: MAIN_AGENT_ID, id: 'p2' }));
-
-    expect(agentState.get(planKey).active).toBe(true);
-    expect(agentState.get(planKey).lastTransition).toBe('exit');
-  });
-
-  it('does not record a transition when cancel arrives while inactive', async () => {
-    await dispatcher.dispatch(new PlanModeCancel({ agentId: MAIN_AGENT_ID }));
-
-    expect(agentState.get(planKey).lastTransition).toBeUndefined();
-  });
-
   it('ignores an invalid undo count without corrupting checkpoint state', async () => {
     await dispatcher.dispatch(
       new ContextAppendMessage({
@@ -188,7 +155,6 @@ describe('plan ops (wire-backed)', () => {
         message: {
           role: 'user',
           content: [{ type: 'text', text: 'keep me' }],
-          toolCalls: [],
           origin: { kind: 'user' },
         },
       }),
@@ -198,7 +164,7 @@ describe('plan ops (wire-backed)', () => {
     await dispatcher.dispatch(new ContextUndo({ agentId: MAIN_AGENT_ID, count: 0.5 }));
 
     expect(agentState.get(planKey)).toBe(checkpointed);
-    expect(agentState.get(planKey).active).toBe(false);
+    expect(agentState.get(planKey)).toEqual({ active: false });
   });
 
   it('replay rebuilds active state silently', async () => {
@@ -228,8 +194,8 @@ describe('plan ops (wire-backed)', () => {
       cancelled.log,
       testWireScope(SCOPE, 'plan-replay-cancel'),
       [
-        { type: 'plan_mode.enter', id: 'p1', planFilePath: '/w/plan/p1.md' },
-        { type: 'plan_mode.cancel', id: 'p1' },
+      { type: 'plan_mode.enter', id: 'p1', planFilePath: '/w/plan/p1.md' },
+      { type: 'plan_mode.cancel', id: 'p1' },
       ],
     );
     expect(cancelled.agentState.get(planKey).active).toBe(false);
@@ -341,13 +307,14 @@ describe('plan ops (wire-backed)', () => {
     expect(host.agentState.get(planKey)).toEqual({
       active: false,
       revisionCount: { p1: 1 },
-      lastTransition: 'exit',
     });
 
     await host.dispatcher.dispatch(new PlanModeEnter({ agentId: MAIN_AGENT_ID, id: 'p1' }));
     expect(host.agentState.get(planKey).revisionCount).toEqual({ p1: 1 });
 
-    expect(emissions.filter((e) => (e as { type: string }).type === 'plan.revision')).toEqual([
+    expect(
+      emissions.filter((e) => (e as { type: string }).type === 'plan.revision'),
+    ).toEqual([
       expect.objectContaining({
         type: 'plan.revision',
         id: 'p1',

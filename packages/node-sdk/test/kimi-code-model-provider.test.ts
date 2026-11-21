@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +9,7 @@ import {
   OAuthUnauthorizedError,
   RetryableRefreshError,
 } from '@moonshot-ai/kimi-code-oauth';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { ErrorCodes, KimiError, KimiForCodingProvider } from '#/index';
 
@@ -23,7 +23,7 @@ describe('KimiForCodingProvider OAuth error mapping', () => {
   });
 
   afterEach(async () => {
-    mock.restore();
+    vi.restoreAllMocks();
     await rm(homeDir, { recursive: true, force: true });
   });
 
@@ -33,7 +33,7 @@ describe('KimiForCodingProvider OAuth error mapping', () => {
   }
 
   it('maps unauthorized token failures to auth.login_required', async () => {
-    spyOn(KimiOAuthToolkit.prototype, 'ensureFresh').mockRejectedValue(
+    vi.spyOn(KimiOAuthToolkit.prototype, 'ensureFresh').mockRejectedValue(
       new OAuthUnauthorizedError('No token for "kimi-code". Run /login to authenticate.'),
     );
 
@@ -50,7 +50,7 @@ describe('KimiForCodingProvider OAuth error mapping', () => {
     ];
 
     for (const tokenError of tokenErrors) {
-      spyOn(KimiOAuthToolkit.prototype, 'ensureFresh').mockRejectedValue(tokenError);
+      vi.spyOn(KimiOAuthToolkit.prototype, 'ensureFresh').mockRejectedValue(tokenError);
 
       const auth = resolveAuth();
       const caught = await auth(async () => 'ok').catch((error: unknown) => error);
@@ -62,13 +62,13 @@ describe('KimiForCodingProvider OAuth error mapping', () => {
         cause: tokenError,
       });
 
-      mock.restore();
+      vi.restoreAllMocks();
     }
   });
 
   it('rethrows unrecognized OAuth errors raw instead of guessing a category', async () => {
     const oauthError = new OAuthError('Token refresh failed (HTTP 400).');
-    spyOn(KimiOAuthToolkit.prototype, 'ensureFresh').mockRejectedValue(oauthError);
+    vi.spyOn(KimiOAuthToolkit.prototype, 'ensureFresh').mockRejectedValue(oauthError);
 
     const auth = resolveAuth();
     await expect(auth(async () => 'ok')).rejects.toBe(oauthError);

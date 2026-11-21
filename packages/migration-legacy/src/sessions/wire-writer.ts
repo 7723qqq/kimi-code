@@ -1,9 +1,6 @@
-import { mkdir } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-
-import type { TodoItem } from '@moonshot-ai/agent-core-v2';
-
-import { atomicWrite } from '../atomic-write.js';
+import type { TodoItem } from '@moonshot-ai/agent-core-v2/features/todo/todoItem';
 import type { NormalizedMessage } from './translator.js';
 import { buildTurnRecords, splitIntoTurns, type WireRecord } from './turn-structure.js';
 
@@ -30,11 +27,6 @@ export async function writeMainAgentWire(sessionDir: string, input: WireWriteInp
     created_at: input.createdAtMs,
   };
   const lines: string[] = [JSON.stringify(metadata)];
-  // Bare `context.append_message` records alone leave the engine's turn clock
-  // at zero on resume: the first live turn would be numbered t0 and collide
-  // with the imported history turn the transcript grouping also numbers t0.
-  // Interleaving synthesized turn.prompt/turn.ended records advances the clock
-  // past the imported turns, so live turns get fresh ids.
   const turns = splitIntoTurns(input.messages);
   const turnRecords = buildTurnRecords(turns, { agentId: 'main', time: input.createdAtMs });
   const withTasks = insertSubagentTaskRecords(turnRecords, input.subagentTasks ?? []);
@@ -52,9 +44,6 @@ export async function writeMainAgentWire(sessionDir: string, input: WireWriteInp
       }),
     );
   }
-  // kimi-cli keeps the session todo list in state.json; v2 replays it from a
-  // durable tools.update_store wire record, so a migrated session must carry
-  // its todos here or the todo card shows up empty after resume.
   if (input.todoItems !== undefined && input.todoItems.length > 0) {
     lines.push(
       JSON.stringify({
@@ -66,14 +55,9 @@ export async function writeMainAgentWire(sessionDir: string, input: WireWriteInp
       }),
     );
   }
-  await atomicWrite(join(wireDir, 'wire.jsonl'), lines.join('\n') + '\n');
+  await writeFile(join(wireDir, 'wire.jsonl'), lines.join('\n') + '\n', 'utf-8');
 }
 
-// task.started goes right before the assistant message carrying the Agent
-// tool call, task.terminated right after the tool result message — the same
-// positions a native run would have written them at. When the tool call is
-// not found (protocol too old to carry SubagentEvent links), the pair is
-// appended after the turn records instead of being dropped.
 export function insertSubagentTaskRecords(
   records: readonly WireRecord[],
   tasks: readonly { readonly started: WireRecord; readonly terminated: WireRecord }[],
@@ -99,11 +83,7 @@ export function insertSubagentTaskRecords(
         ) {
           callIndex = i;
         }
-        if (
-          resultIndex === -1 &&
-          message.role === 'tool' &&
-          message.toolCallId === parentToolCallId
-        ) {
+        if (resultIndex === -1 && message.role === 'tool' && message.toolCallId === parentToolCallId) {
           resultIndex = i;
         }
       }

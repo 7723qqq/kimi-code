@@ -1,14 +1,14 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   ProvidersSectionSchema,
   providersFromToml,
   providersToToml,
 } from '#/app/kosongConfig/configSection';
-import { type ProviderConfig } from '#/llm-adapter/provider/provider';
 import { ProviderService } from '#/llm-adapter/provider/provider-service';
+import { type ProviderConfig } from '#/llm-adapter/provider/provider';
 
-describe('ProviderTypeSchema (enum validation)', () => {
+describe('ProviderTypeSchema (free-form vendor identity)', () => {
   it('parses unregistered vendor names — resolve-time validation, not parse-time', () => {
     const parsed = ProvidersSectionSchema.parse({
       'my-vendor': { type: 'a-vendor-registered-elsewhere', baseUrl: 'https://example.com/v1' },
@@ -67,18 +67,16 @@ describe('providers TOML transforms', () => {
         oauth: { storage: 'file', key: 'oauth/acme' },
       },
     };
-    const next = providersToToml({ acme: { type: 'openai', apiKey: 'sk-new' } }, raw) as Record<
-      string,
-      Record<string, unknown>
-    >;
+    const next = providersToToml(
+      { acme: { type: 'openai', apiKey: 'sk-new' } },
+      raw,
+    ) as Record<string, Record<string, unknown>>;
     expect(next['acme']).toEqual({ type: 'openai', api_key: 'sk-new' });
   });
 });
 
 describe('ProviderService', () => {
-  function createService(
-    providers: Readonly<Record<string, ProviderConfig>> = {},
-  ): ProviderService {
+  function createService(providers: Readonly<Record<string, ProviderConfig>> = {}): ProviderService {
     const service = new ProviderService();
     service.loadAll({ ...providers }, undefined);
     return service;
@@ -139,10 +137,7 @@ describe('ProviderService', () => {
     service.loadAll({ moonshot: { type: 'kimi' } }, undefined);
     expect(events).toHaveLength(0);
 
-    service.loadAll(
-      { moonshot: { type: 'kimi' }, other: { baseUrl: 'https://example.com' } },
-      undefined,
-    );
+    service.loadAll({ moonshot: { type: 'kimi' }, other: { baseUrl: 'https://example.com' } }, undefined);
     expect(events).toEqual([{ added: ['other'], removed: [], changed: [] }]);
   });
 

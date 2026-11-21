@@ -1,12 +1,7 @@
-import { describe, expect, it, mock } from 'bun:test';
-
+import { describe, expect, it, onTestFinished, vi } from '@moonshot-ai/testkit/vitest';
+import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import type { WorkspaceTrustInfo } from '@moonshot-ai/kimi-code-sdk';
-
-import {
-  TrustPromptComponent,
-  type TrustPromptChoice,
-} from '#/tui/components/dialogs/trust-prompt';
-import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
+import { TrustPromptComponent } from '#/tui/components/dialogs/trust-prompt';
 
 function info(overrides: Partial<WorkspaceTrustInfo> = {}): WorkspaceTrustInfo {
   return {
@@ -22,6 +17,22 @@ function info(overrides: Partial<WorkspaceTrustInfo> = {}): WorkspaceTrustInfo {
 function render(prompt: TrustPromptComponent, width = 80): string[] {
   return prompt.render(width).map((line) => line.replaceAll(/\u001B\[[0-9;]*m/g, ''));
 }
+function mouse(type: 'move' | 'press' | 'release' | 'click', y: number): TuiMouseEvent {
+  return {
+    type,
+    button: type === 'move' ? 'none' : 'left',
+    x: 4,
+    y,
+    screenX: 4,
+    screenY: y,
+    width: 80,
+    height: 24,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  };
+}
+
 const workDir = '/tmp/example-project';
 function mixedInfo(): WorkspaceTrustInfo {
   return info({
@@ -61,7 +72,7 @@ describe('TrustPromptComponent', () => {
       workDir,
       info: mixedInfo(),
       getAvailableRows: () => 23,
-      onSelect: mock(),
+      onSelect: vi.fn(),
     });
     const lines = render(prompt);
     const text = lines.join('\n');
@@ -89,14 +100,14 @@ describe('TrustPromptComponent', () => {
       expect(text).not.toContain(hidden);
   });
   it('distinguishes empty activation from unreadable configuration', () => {
-    const empty = new TrustPromptComponent({ workDir, info: info(), onSelect: mock() });
+    const empty = new TrustPromptComponent({ workDir, info: info(), onSelect: vi.fn() });
     expect(render(empty).join('\n')).toContain(
       'No project integrations or instructions to activate.',
     );
     const failed = new TrustPromptComponent({
       workDir,
       info: info({ warnings: ['Could not inspect MCP configuration.'] }),
-      onSelect: mock(),
+      onSelect: vi.fn(),
     });
     const text = render(failed).join('\n');
     expect(text).toContain('Could not inspect MCP configuration.');
@@ -120,7 +131,7 @@ describe('TrustPromptComponent', () => {
         additionalDirSources: [`${workDir}/.kimi-code/local.toml`],
       }),
       getAvailableRows: () => rows,
-      onSelect: mock(),
+      onSelect: vi.fn(),
     });
     const pages: string[] = [];
     for (let i = 0; i < 30; i += 1) {
@@ -139,9 +150,9 @@ describe('TrustPromptComponent', () => {
     expect(pages.join('\n')).not.toContain('/outside/directory-');
     expect(pages.join('\n')).not.toContain('more');
     prompt.handleInput('\u001B[D');
-    expect(render(prompt, 60).join('\n')).toBe(pages.at(-2)!);
+    expect(render(prompt, 60).join('\n')).toBe(pages.at(-2));
     prompt.handleInput('\u001B[6~');
-    expect(render(prompt, 60).join('\n')).toBe(pages.at(-1)!);
+    expect(render(prompt, 60).join('\n')).toBe(pages.at(-1));
     rows = 60;
     expect(render(prompt, 60).join('\n')).not.toContain('page');
   });
@@ -154,7 +165,7 @@ describe('TrustPromptComponent', () => {
         gatedAdditionalDirs: ['/outside/\u001B[2Jdirectory\u0007'],
         additionalDirSources: ['/outside/\u001B[2Jconfig\u0007'],
       }),
-      onSelect: mock(),
+      onSelect: vi.fn(),
     });
     const text = render(prompt).join('\n');
     expect(text).not.toContain('\u001B');
@@ -164,7 +175,7 @@ describe('TrustPromptComponent', () => {
   });
   it('pauses confirmation in a tiny terminal and restores it after resizing', () => {
     let rows = 4;
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const prompt = new TrustPromptComponent({
       workDir,
       info: mixedInfo(),
@@ -182,6 +193,25 @@ describe('TrustPromptComponent', () => {
     prompt.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith('trust');
   });
+  it('moves selection with the pointer and activates the same choice on click', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const onSelect = vi.fn();
+    const prompt = new TrustPromptComponent({ workDir, info: info(), onSelect });
+    prompt.focused = true;
+    const row = render(prompt).findIndex((line) => line.includes('Exit'));
+
+    expect(prompt.handleMouse(mouse('move', row))).toEqual({ handled: true, render: true });
+    expect(render(prompt)[row]).toContain('❯ Exit');
+    expect(onSelect).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(300);
+    for (const type of ['press', 'release', 'click'] as const) prompt.handleMouse(mouse(type, row));
+    expect(onSelect).toHaveBeenCalledWith('distrust');
+  });
+
   it('preserves default trust, selection, and escape behavior', () => {
     for (const { keys, expected } of [
       { keys: ['\r'], expected: 'trust' },
@@ -189,32 +219,11 @@ describe('TrustPromptComponent', () => {
       { keys: ['\u001B[B', '\r'], expected: 'distrust' },
       { keys: ['\u001B'], expected: 'distrust' },
     ]) {
-      const onSelect = mock();
+      const onSelect = vi.fn();
       const prompt = new TrustPromptComponent({ workDir, info: info(), onSelect });
       render(prompt);
       for (const key of keys) prompt.handleInput(key);
       expect(onSelect).toHaveBeenCalledWith(expected);
     }
-  });
-});
-
-describe('TrustPromptComponent — mouse', () => {
-  it('picks the choice under the pointer', () => {
-    const onSelect = mock<(choice: TrustPromptChoice) => void>();
-    const prompt = new TrustPromptComponent({
-      workDir,
-      info: info(),
-      onSelect,
-    });
-    pastSettlingWindow();
-    prompt.focused = true;
-    const rows = render(prompt);
-    const row = rows.findIndex((line) => line.includes('Trust and continue'));
-    expect(row).toBeGreaterThan(0);
-
-    for (const type of ['press', 'release', 'click'] as const) {
-      prompt.handleMouse(mouse(type, row));
-    }
-    expect(onSelect).toHaveBeenCalledWith('trust');
   });
 });

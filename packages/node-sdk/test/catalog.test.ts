@@ -1,6 +1,5 @@
-import { describe, expect, it, mock } from 'bun:test';
-
 import type { KimiConfig } from '#/index';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   applyCatalogProvider,
@@ -35,10 +34,8 @@ const model: CatalogModel = {
 
 describe('fetchCatalog', () => {
   it('fetches and returns the catalog map', async () => {
-    const catalog = {
-      anthropic: { id: 'anthropic', models: { x: { id: 'x', limit: { context: 1000 } } } },
-    };
-    const fetchMock = mock(async () => catalogResponse(catalog));
+    const catalog = { anthropic: { id: 'anthropic', models: { x: { id: 'x', limit: { context: 1000 } } } } };
+    const fetchMock = vi.fn(async () => catalogResponse(catalog));
     const result = await fetchCatalog('https://x/api.json', {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
@@ -46,26 +43,29 @@ describe('fetchCatalog', () => {
   });
 
   it('throws CatalogFetchError on HTTP error', async () => {
-    const fetchMock = mock(async () => catalogResponse('no', 500));
+    const fetchMock = vi.fn(async () => catalogResponse('no', 500));
     await expect(
       fetchCatalog('https://x', { fetchImpl: fetchMock as unknown as typeof fetch }),
     ).rejects.toBeInstanceOf(CatalogFetchError);
   });
 
   it('throws on a non-object payload', async () => {
-    const fetchMock = mock(async () => catalogResponse([1, 2]));
+    const fetchMock = vi.fn(async () => catalogResponse([1, 2]));
     await expect(
       fetchCatalog('https://x', { fetchImpl: fetchMock as unknown as typeof fetch }),
     ).rejects.toThrow(/Unexpected catalog response/);
   });
 
   it('sends the given User-Agent, and none by default', async () => {
-    const fetchMock = mock(async () => catalogResponse({}));
+    const fetchMock = vi.fn(async () => catalogResponse({}));
 
-    await fetchCatalog('https://x/api.json', {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      userAgent: 'kimi-code-cli/1.2.3',
-    });
+    await fetchCatalog(
+      'https://x/api.json',
+      {
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        userAgent: 'kimi-code-cli/1.2.3',
+      },
+    );
     const withUa = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const withUaHeaders = withUa[1].headers as Record<string, string>;
     expect(withUaHeaders['User-Agent']).toBe('kimi-code-cli/1.2.3');
@@ -165,7 +165,6 @@ describe('applyCatalogProvider', () => {
   });
 
   it('writes declared effort levels from reasoning_options into the model alias', () => {
-    // The models.dev `kimi-for-coding` provider shape for `k3`.
     const models = catalogProviderModels({
       id: 'kimi-for-coding',
       models: {
@@ -204,9 +203,6 @@ describe('applyCatalogProvider', () => {
   });
 
   it('writes per-model protocol/baseUrl overrides and the input-limited context size', () => {
-    // The zenmux gateway shape: provider defaults to the OpenAI wire, one
-    // model is served over Anthropic on its own endpoint; plus a gpt-5-style
-    // input cap below the total context window.
     const models = catalogProviderModels({
       id: 'gateway',
       npm: '@ai-sdk/openai-compatible',
@@ -281,7 +277,6 @@ describe('applyCatalogProvider', () => {
       thinking: true,
     });
 
-    // No off option: thinking is locked on for a model that always reasons.
     expect(config.models?.['gateway/gpt-5']).toMatchObject({
       capabilities: ['thinking', 'tool_use'].map((c) => (c === 'thinking' ? 'always_thinking' : c)),
       supportEfforts: ['low', 'medium', 'high'],
@@ -289,7 +284,6 @@ describe('applyCatalogProvider', () => {
     expect(config.models?.['gateway/gpt-5']?.capabilities).not.toContain('thinking');
     expect(config.models?.['gateway/gpt-5']?.offEffort).toBeUndefined();
 
-    // 'none' becomes the off encoding; the level list stays selectable-only.
     expect(config.models?.['gateway/grok-4']).toMatchObject({
       capabilities: ['thinking', 'tool_use'],
       supportEfforts: ['low', 'medium', 'high'],

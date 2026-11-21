@@ -1,14 +1,8 @@
-/**
- * FileTokenStorage tests — round-trip persistence + permission checks.
- *
- * Scope guards: tokens never leak to process.env or other files; permission
- * 0600 is enforced; corrupted files return undefined rather than throwing.
- */
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { FileTokenStorage } from '../src/storage';
 import type { TokenInfo } from '../src/types';
@@ -71,15 +65,11 @@ describe('FileTokenStorage', () => {
     expect(parsed['accessToken']).toBeUndefined();
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'writes the credentials file with mode 0600',
-    async () => {
-      await storage.save('kimi-code', sampleToken());
-      const stat = statSync(join(dir, 'kimi-code.json'));
-      // eslint-disable-next-line no-bitwise
-      expect(stat.mode & 0o777).toBe(0o600);
-    },
-  );
+  it.skipIf(process.platform === 'win32')('writes the credentials file with mode 0600', async () => {
+    await storage.save('kimi-code', sampleToken());
+    const stat = statSync(join(dir, 'kimi-code.json'));
+    expect(stat.mode & 0o777).toBe(0o600);
+  });
 
   it('remove() deletes the file; load() then returns undefined', async () => {
     await storage.save('kimi-code', sampleToken());
@@ -136,17 +126,13 @@ describe('FileTokenStorage', () => {
     expect(names).toEqual(['kimi-code']);
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'creates the credentials dir with mode 0700 if missing',
-    async () => {
-      const freshDir = join(dir, 'nested', 'sub');
-      const s = new FileTokenStorage(freshDir);
-      await s.save('kimi-code', sampleToken());
-      const stat = statSync(freshDir);
-      // eslint-disable-next-line no-bitwise
-      expect(stat.mode & 0o777).toBe(0o700);
-    },
-  );
+  it.skipIf(process.platform === 'win32')('creates the credentials dir with mode 0700 if missing', async () => {
+    const freshDir = join(dir, 'nested', 'sub');
+    const s = new FileTokenStorage(freshDir);
+    await s.save('kimi-code', sampleToken());
+    const stat = statSync(freshDir);
+    expect(stat.mode & 0o777).toBe(0o700);
+  });
 
   it('refuses path-traversal names on save (B1)', async () => {
     await expect(storage.save('../../etc/passwd', sampleToken())).rejects.toThrow(
@@ -170,12 +156,7 @@ describe('FileTokenStorage', () => {
     await expect(storage.save('', sampleToken())).rejects.toThrow(/Invalid token name/);
   });
 
-  // ── atomic save leaves no .tmp sibling ────────────────────────────────
-
   it('save() leaves no *.tmp.* sibling once the rename completes', async () => {
-    // Atomic save must clean up its temp artefact after rename. Uses
-    // `target.tmp.<pid>.<rand>` then renameSync; this test asserts the
-    // resulting directory contains only the canonical file.
     await storage.save('kimi-code', sampleToken());
     const { readdirSync } = await import('node:fs');
     const entries = readdirSync(dir);
@@ -185,8 +166,6 @@ describe('FileTokenStorage', () => {
   });
 
   it('save() + load() preserves expires_in and expires_at roundtrip', async () => {
-    // The wire format records both `expires_at` and `expires_in`; the
-    // load path must restore both fields without loss.
     const token = sampleToken({ expiresAt: 1_800_000_000, expiresIn: 7200 });
     await storage.save('kimi-code', token);
     const loaded = await storage.load('kimi-code');
@@ -195,8 +174,6 @@ describe('FileTokenStorage', () => {
   });
 
   it('load() of a wire payload missing scope/token_type uses safe defaults', async () => {
-    // A legacy file written without the optional `scope` / `token_type`
-    // fields must still load; the defaults come from `tokenFromWire`.
     const file = join(dir, 'kimi-code.json');
     writeFileSync(
       file,
@@ -212,7 +189,6 @@ describe('FileTokenStorage', () => {
     const loaded = await storage.load('kimi-code');
     expect(loaded?.accessToken).toBe('a');
     expect(loaded?.refreshToken).toBe('r');
-    // Defaults should be strings (empty / 'Bearer'), never undefined.
     expect(typeof loaded?.scope).toBe('string');
     expect(typeof loaded?.tokenType).toBe('string');
   });

@@ -2,26 +2,27 @@ import { randomUUID } from 'node:crypto';
 
 import type { PromptOrigin } from '@moonshot-ai/agent-core-v2';
 
-import {
-  evaluateSurveyGate,
-  type LongContextArmGateInput,
-  type SessionArmGateInput,
-} from '../common/gates';
-import {
-  resolveSurveyPopupConfig,
-  type SurveyPopupConfig,
-  type SurveyPopupPayload,
-} from '../common/survey-popup-config';
-import type { RatingOffer, SurveyAppearance, SurveyKind } from '../common/types';
+import { isSurveyTurnOrigin, type SurveyTurnRecovery } from './survey-turns';
+
 import type { RatingCooldownStore } from './cooldown-store';
 import {
   buildSurveyEventProperties,
   SURVEY_EVENT_NAMES,
   type SurveyEventEnvironmentFields,
 } from './event-properties';
+import {
+  evaluateSurveyGate,
+  type LongContextArmGateInput,
+  type SessionArmGateInput,
+} from '../common/gates';
 import { kfcModelIdOf, type RatingModelRoute } from './kfc';
 import { SessionRatingLedger, type RatingTracker } from './ledger';
-import { isSurveyTurnOrigin, type SurveyTurnRecovery } from './survey-turns';
+import type { RatingOffer, SurveyAppearance, SurveyKind } from '../common/types';
+import {
+  resolveSurveyPopupConfig,
+  type SurveyPopupConfig,
+  type SurveyPopupPayload,
+} from '../common/survey-popup-config';
 
 const SESSION_RATING_IDLE_MS = 2000;
 const SESSION_INIT_PARENT_TOOL_CALL_ID = 'generate-agents-md';
@@ -29,7 +30,7 @@ const TOWER_WORKER_PROFILE_NAME = 'tower-worker';
 
 export type SessionFact =
   | { readonly kind: 'turn-started'; readonly origin: PromptOrigin | undefined }
-  | { readonly kind: 'turn-ended'; readonly traceId?: string }
+  | { readonly kind: 'turn-ended'; readonly requestId?: string }
   | { readonly kind: 'tool-call-started'; readonly toolCallId: string; readonly toolName: string }
   | { readonly kind: 'tool-call-ended'; readonly toolCallId: string }
   | {
@@ -51,7 +52,7 @@ export interface RatingEnvironment {
   readonly sessionId: string;
   readonly currentModel: string;
   readonly model: RatingModelRoute;
-  readonly cumulativeTokens: number;
+  readonly cumulativeTokens: number | undefined;
   readonly contextTokens: number;
   readonly permissionMode: string;
   readonly thinkingEffort: string;
@@ -120,7 +121,7 @@ class SessionRatingMountImpl implements SessionRatingMount {
   private currentTurnUserOrigin: boolean | undefined;
   private turnInProgress = false;
   private evaluationPending = false;
-  private pendingTraceId: string | undefined;
+  private pendingRequestId: string | undefined;
   private idleSince: number | undefined;
   private userTurnsSinceMount = 0;
   private recoveredUserTurns = 0;
@@ -150,7 +151,7 @@ class SessionRatingMountImpl implements SessionRatingMount {
         this.turnStarted(isSurveyTurnOrigin(fact.origin) === true);
         return;
       case 'turn-ended':
-        this.turnEnded(fact.traceId);
+        this.turnEnded(fact.requestId);
         return;
       case 'tool-call-started':
         this.toolCallCount += 1;
@@ -169,8 +170,7 @@ class SessionRatingMountImpl implements SessionRatingMount {
   }
 
   recover(recovery: SurveyTurnRecovery): void {
-    if (this.ended || this.turnInProgress || this.evaluationPending || this.userTurnsSinceMount > 0)
-      return;
+    if (this.ended || this.turnInProgress || this.evaluationPending || this.userTurnsSinceMount > 0) return;
     this.recoveredUserTurns = recovery.userTurnCount;
     this.userTurnsSinceMount = recovery.userTurnCount;
     if (recovery.firstPromptAt !== undefined) {
@@ -178,18 +178,17 @@ class SessionRatingMountImpl implements SessionRatingMount {
     }
     if (isSurveyTurnOrigin(recovery.origin) !== true) return;
     this.evaluationPending = true;
-    this.pendingTraceId = recovery.traceId;
-    this.idleSince =
-      recovery.endedAt === undefined
-        ? this.now()
-        : this.now() - Math.max(0, this.wallNow() - recovery.endedAt);
+    this.pendingRequestId = recovery.requestId;
+    this.idleSince = recovery.endedAt === undefined
+      ? this.now()
+      : this.now() - Math.max(0, this.wallNow() - recovery.endedAt);
   }
 
   evaluate(): RatingOffer | undefined {
     if (this.ended || !this.evaluationPending || this.turnInProgress) return undefined;
+    this.evaluationPending = false;
     try {
       if (!this.deps.config.readyForEvaluation()) return undefined;
-      this.evaluationPending = false;
       const persisted = this.deps.cooldown.read();
       if (persisted !== undefined) {
         this.globalLastShownAt = Math.max(persisted, this.globalLastShownAt ?? 0);
@@ -221,13 +220,13 @@ class SessionRatingMountImpl implements SessionRatingMount {
     if (!userOrigin) return;
     this.userTurnsSinceMount += 1;
     this.evaluationPending = false;
-    this.pendingTraceId = undefined;
+    this.pendingRequestId = undefined;
   }
 
-  private turnEnded(traceId: string | undefined): void {
+  private turnEnded(requestId: string | undefined): void {
     if (this.currentTurnUserOrigin === true) {
       this.evaluationPending = true;
-      this.pendingTraceId = traceId;
+      this.pendingRequestId = requestId;
     }
     this.currentTurnUserOrigin = undefined;
     this.turnInProgress = false;
@@ -338,7 +337,7 @@ class SessionRatingMountImpl implements SessionRatingMount {
       context: { sessionId: environment.sessionId },
       track: this.deps.track,
     });
-    this.pendingTraceId = undefined;
+    this.pendingRequestId = undefined;
     this.lastShownAt = this.now();
     this.userTurnsAtLastShown = this.userTurnsSinceMount;
     if (survey === 'long_context') this.longContextShownThisMount = true;
@@ -357,7 +356,7 @@ class SessionRatingMountImpl implements SessionRatingMount {
     return {
       current_model: environment.currentModel,
       kfc_model_id: kfcModelId,
-      kfc_trace_id: kfcModelId === undefined ? undefined : this.pendingTraceId,
+      kfc_trace_id: kfcModelId === undefined ? undefined : this.pendingRequestId,
       user_turn_count:
         environment.historyUserTurnCount === undefined
           ? undefined

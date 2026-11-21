@@ -1,0 +1,3 @@
+A	.changeset/fix-btw-stale-session.md
+M	packages/node-sdk/src/sdk-rpc-client-v2.ts
+M	packages/node-sdk/test/sdk-rpc-client-v2.test.ts

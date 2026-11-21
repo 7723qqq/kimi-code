@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 
 import { pino, type Logger } from 'pino';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -38,7 +38,8 @@ afterEach(async () => {
   for (const r of running.splice(0)) {
     try {
       await r.close();
-    } catch {}
+    } catch {
+    }
   }
   for (const dir of createdDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });
@@ -54,13 +55,7 @@ describe('public-bind gate', () => {
   it('refuses to bind 0.0.0.0 without --insecure-no-tls', async () => {
     const home = await tmpHome();
     await expect(
-      startServer({
-        hostIdentity: TEST_HOST_IDENTITY,
-        host: '0.0.0.0',
-        port: 0,
-        homeDir: home,
-        logLevel: 'silent',
-      }),
+      startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '0.0.0.0', port: 0, homeDir: home, logLevel: 'silent' }),
     ).rejects.toThrow(/without TLS/);
   });
 
@@ -162,9 +157,7 @@ describe('auth-failure rate limit on a real bind', () => {
       }
     }
     expect(lastStatus).toBe(429);
-    const body = (await (
-      await fetch(url, { headers: { authorization: 'Bearer wrong' } })
-    ).json()) as {
+    const body = (await (await fetch(url, { headers: { authorization: 'Bearer wrong' } })).json()) as {
       code: number;
     };
     expect(body.code).toBe(42901);

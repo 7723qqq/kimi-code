@@ -19,11 +19,9 @@ export const remoteControlStatusSchema = z.object({
 });
 export type RemoteControlStatusResponse = z.infer<typeof remoteControlStatusSchema>;
 
-export const setRemoteControlRequestSchema = z
-  .object({
-    enabled: z.boolean(),
-  })
-  .strict();
+export const setRemoteControlRequestSchema = z.object({
+  enabled: z.boolean(),
+});
 export type SetRemoteControlRequest = z.infer<typeof setRemoteControlRequestSchema>;
 
 export const remoteControlDeviceSchema = z.object({
@@ -50,11 +48,9 @@ export const remoteControlDeviceParamsSchema = z.object({
 });
 export type RemoteControlDeviceParams = z.infer<typeof remoteControlDeviceParamsSchema>;
 
-export const renameRemoteControlDeviceRequestSchema = z
-  .object({
-    alias: z.string().trim().min(1).max(50),
-  })
-  .strict();
+export const renameRemoteControlDeviceRequestSchema = z.object({
+  alias: z.string().trim().min(1).max(50),
+});
 export type RenameRemoteControlDeviceRequest = z.infer<
   typeof renameRemoteControlDeviceRequestSchema
 >;

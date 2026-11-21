@@ -1,6 +1,11 @@
 import { log, type Logger } from '@moonshot-ai/kimi-code-sdk';
 import { track as trackTelemetry, type TelemetryProperties } from '@moonshot-ai/kimi-telemetry';
 
+import { INTERACTIVE_UPDATE_CHECK_TIMEOUT_MS } from '#/constant/app';
+
+import { refreshUpdateCache } from '#/cli/update/refresh';
+import { decideUpdate, formatUpdateChannelWarning, resolveUpdateChannel } from '#/cli/update/select';
+import { detectInstallSource } from '#/cli/update/source';
 import {
   canAutoInstall,
   installCommandFor,
@@ -13,19 +18,13 @@ import {
   type InstallPromptChoiceValue,
   type InstallPromptOptions,
 } from '#/cli/update/prompt';
-import { refreshUpdateCache } from '#/cli/update/refresh';
-import { decideUpdate, formatUpdateChannelWarning, resolveUpdateChannel } from '#/cli/update/select';
-import { detectInstallSource } from '#/cli/update/source';
-import {
-  NPM_PACKAGE_NAME,
-  type ActionableUpdatePlan,
-  type InstallIntent,
-  type InstallSource,
-  type UpdateCache,
-  type UpdateChannel,
+import type {
+  ActionableUpdatePlan,
+  InstallIntent,
+  InstallSource,
+  UpdateCache,
+  UpdateChannel,
 } from '#/cli/update/types';
-import { INTERACTIVE_UPDATE_CHECK_TIMEOUT_MS } from '#/constant/app';
-import { t } from '#/i18n';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -82,7 +81,7 @@ export async function handleUpgrade(
       currentVersion,
       error,
     });
-    deps.stderr.write(t('tui.statusMessages.upgradeCheckFailed', { reason }) + '\n');
+    deps.stderr.write(`error: failed to check for updates: ${reason}\n`);
     return 1;
   }
 
@@ -95,15 +94,11 @@ export async function handleUpgrade(
       currentVersion,
       plan: plan.kind,
     });
-    deps.stdout.write(
-      t('tui.statusMessages.upgradeAlreadyUpToDate', {
-        version: formatDisplayVersion(currentVersion),
-      }) + '\n',
-    );
+    deps.stdout.write(`Kimi Code is already up to date (${formatDisplayVersion(currentVersion)}).\n`);
     return 0;
   }
 
-  const source = sourceHint ?? (await deps.detectInstallSource().catch(() => 'unsupported' as const));
+  const source = sourceHint ?? await deps.detectInstallSource().catch(() => 'unsupported' as const);
   const target = plan.target;
   const intent: InstallIntent = plan.kind;
   const installCommand = installCommandFor(source, target.version, deps.platform, target.channel);
@@ -119,7 +114,8 @@ export async function handleUpgrade(
     source,
     intent,
   };
-  if (!canAutoInstall(source, deps.platform) || (!deps.yes && !deps.isInteractive)) {
+  const sourceCanAutoInstall = canAutoInstall(source, deps.platform);
+  if (!sourceCanAutoInstall || (!deps.yes && !deps.isInteractive)) {
     trackUpgradeEvent(deps.track, 'upgrade_command_manual_command', eventBase);
     logUpgradeInfo(deps.logger, 'manual upgrade command shown', logBase);
     deps.stdout.write(renderManualUpdateMessage(currentVersion, plan, source, installCommand));
@@ -157,11 +153,8 @@ export async function handleUpgrade(
     });
     logUpgradeWarn(deps.logger, 'manual upgrade install failed', { ...logBase, error });
     deps.stderr.write(
-      t('tui.statusMessages.updateInstallFailedWarning', {
-        package: NPM_PACKAGE_NAME,
-        version: target.version,
-        error: formatErrorMessage(error),
-      }) + '\n',
+      `warning: failed to install @moonshot-ai/kimi-code@${target.version}: ` +
+        `${formatErrorMessage(error)}\n`,
     );
     return 1;
   }
@@ -201,31 +194,17 @@ function trackUpgradeEvent(
 ): void {
   try {
     track(event, properties);
-  } catch {
-    // Telemetry must never affect upgrade flow.
-  }
+  } catch {}
 }
 
-function logUpgradeInfo(
-  logger: UpgradeLogger,
-  message: string,
-  payload: Record<string, unknown>,
-): void {
+function logUpgradeInfo(logger: UpgradeLogger, message: string, payload: Record<string, unknown>): void {
   try {
     logger.info(message, payload);
-  } catch {
-    // Diagnostic logging must never affect upgrade flow.
-  }
+  } catch {}
 }
 
-function logUpgradeWarn(
-  logger: UpgradeLogger,
-  message: string,
-  payload: Record<string, unknown>,
-): void {
+function logUpgradeWarn(logger: UpgradeLogger, message: string, payload: Record<string, unknown>): void {
   try {
     logger.warn(message, payload);
-  } catch {
-    // Diagnostic logging must never affect upgrade flow.
-  }
+  } catch {}
 }

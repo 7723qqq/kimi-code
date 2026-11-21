@@ -1,5 +1,5 @@
-import { parseSlashInput } from '../commands/parse';
 import type { InlineSkillActivation } from '../types';
+import { parseSlashInput } from '../commands/parse';
 
 export interface InlineSkillToken {
   readonly commandName: string;
@@ -23,11 +23,8 @@ export function rebaseInlineSkillActivations(
 }
 
 export interface FindInlineSkillTokensOptions {
-  /** Decide whether a syntactically valid token names a known skill. */
   readonly isKnownSkill: (commandName: string) => boolean;
-  /** Include tokens with an empty command name (a bare trailing `/`). */
   readonly allowEmpty?: boolean;
-  /** Also treat a `/` at the very start of the input as a token. */
   readonly includeLeading?: boolean;
 }
 
@@ -58,11 +55,7 @@ export function findInlineSkillTokens(
     }
 
     const commandName = text.slice(i + 1, end);
-    if (
-      commandName.includes('/') &&
-      (!isLeadingSlash || parseSlashInput(text.slice(i, end)) === null)
-    )
-      continue;
+    if (commandName.includes('/') && (!isLeadingSlash || parseSlashInput(text.slice(i, end)) === null)) continue;
     if (commandName.length === 0 && options.allowEmpty !== true) continue;
     if (!options.isKnownSkill(commandName)) continue;
 
@@ -73,18 +66,11 @@ export function findInlineSkillTokens(
 }
 
 export interface ExtractInlineSkillActivationsOptions {
-  /** Also treat a `/` at the very start of the input as a skill token. */
   readonly includeLeading?: boolean;
   readonly skillVariantPathForCommand?: (commandName: string, tokenStart: number) => string | undefined;
   readonly defaultSkillPathForCommand?: (commandName: string) => string | undefined;
 }
 
-/**
- * Resolve the skill tokens of `text` through `skillCommandMap` (command name →
- * skill name, with the same `skill:` prefix fallback as the leading-command
- * path) and return the deduplicated activations in first-occurrence order.
- * Unknown tokens, paths, URLs, and fractions are ignored.
- */
 export function extractInlineSkillActivations(
   text: string,
   skillCommandMap: ReadonlyMap<string, string>,

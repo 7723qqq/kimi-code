@@ -1,14 +1,9 @@
-import {
-  UnauthorizedError,
-  type OAuthClientProvider,
-} from '@modelcontextprotocol/sdk/client/auth.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { SSEClientTransport, SseError } from '@modelcontextprotocol/sdk/client/sse.js';
-import type { FetchLike } from '@moonshot-ai/kimi-code-oauth';
-
 import { ErrorCodes, Error2 } from '#/errors';
+import type { McpServerSseConfig } from './config-schema';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import { SSEClientTransport, SseError } from '@modelcontextprotocol/sdk/client/sse.js';
 
-import { buildMcpRemoteHeaders, classifyRemoteStartupError } from './client-remote';
 import {
   buildRequestOptions,
   KIMI_MCP_CLIENT_NAME,
@@ -19,7 +14,8 @@ import {
   type SessionEvidence,
   type SessionEvidenceListener,
 } from './client-shared';
-import type { McpServerSseConfig } from './config-schema';
+import { buildMcpRemoteHeaders, classifyRemoteStartupError } from './client-remote';
+import { createMcpOAuthFetch } from './oauth/provider';
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
 export interface SseMcpClientOptions {
@@ -28,7 +24,7 @@ export interface SseMcpClientOptions {
   readonly startupTimeoutMs?: number;
   readonly toolCallTimeoutMs?: number;
   readonly envLookup?: (name: string) => string | undefined;
-  readonly fetch?: FetchLike;
+  readonly fetch?: typeof fetch;
   readonly oauthProvider?: OAuthClientProvider;
 }
 
@@ -44,7 +40,7 @@ export class SseMcpClient implements MCPClient {
   private sessionEvidenceListener: SessionEvidenceListener | undefined;
   private lastTransportError: Error | undefined;
   private pendingSessionEvidence: SessionEvidence | undefined;
-  private hardEvidenceFired = false;
+  private sessionEvidenceFired = false;
 
   constructor(private readonly config: McpServerSseConfig, options: SseMcpClientOptions = {}) {
     const envLookup = options.envLookup ?? ((name) => process.env[name]);
@@ -52,7 +48,7 @@ export class SseMcpClient implements MCPClient {
 
     this.transport = new SSEClientTransport(new URL(config.url), {
       requestInit: headers !== undefined ? { headers } : undefined,
-      fetch: options.fetch,
+      fetch: createMcpOAuthFetch(options.oauthProvider, options.fetch),
       authProvider: options.oauthProvider,
     });
     this.client = new Client({
@@ -71,7 +67,10 @@ export class SseMcpClient implements MCPClient {
     this.started = true;
     this.installTransportHooks();
     try {
-      await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
+      await this.client.connect(
+        this.transport,
+        buildRequestOptions(this.startupTimeoutMs, undefined),
+      );
     } catch (error) {
       await this.closeStartedClient();
       throw classifyRemoteStartupError(this.config, error);
@@ -101,7 +100,7 @@ export class SseMcpClient implements MCPClient {
   async listTools(): Promise<MCPToolDefinition[]> {
     const result = await this.client.listTools(
       undefined,
-      buildRequestOptions(this.startupTimeoutMs),
+      buildRequestOptions(this.startupTimeoutMs, undefined),
     );
     return result.tools.map(toMcpToolDefinition);
   }
@@ -145,8 +144,8 @@ export class SseMcpClient implements MCPClient {
   }
 
   private fireSessionEvidence(evidence: SessionEvidence): void {
-    if (this.hardEvidenceFired) return;
-    if (evidence.kind === 'hard') this.hardEvidenceFired = true;
+    if (this.sessionEvidenceFired) return;
+    this.sessionEvidenceFired = true;
     const listener = this.sessionEvidenceListener;
     if (listener !== undefined) {
       listener(evidence);
@@ -157,7 +156,6 @@ export class SseMcpClient implements MCPClient {
 }
 
 export function isTerminalSseTransportError(error: Error): boolean {
-  if (error instanceof UnauthorizedError) return true;
   if (error.name === 'UnauthorizedError') return true;
   return error instanceof SseError && error.code !== undefined;
 }

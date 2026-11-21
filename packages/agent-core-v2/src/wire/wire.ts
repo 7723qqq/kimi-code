@@ -1,5 +1,4 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { IDisposable } from '#/_base/di/lifecycle';
 
 import type { IAgentJournal } from './journal';
 import type { RecordDehydrator, WireRecord } from './record';
@@ -17,11 +16,12 @@ export interface IWireService extends IAgentJournal {
 
   seal(): Promise<void>;
   appendRecord(record: WireRecord, dehydrate?: RecordDehydrator): void;
-  onDidAppendRecord(listener: (record: WireRecord) => void): IDisposable;
   readJournal(): AsyncIterable<WireRecord>;
   readRestorable(): AsyncIterable<WireRecord>;
   readRestoreChains(): Promise<WireRestoreChains>;
   readHumanChain(): readonly WireLine[];
+  readLoopChain(): readonly WireLine[];
+  readHumanJournal(): readonly WireLine[];
   flush(): Promise<void>;
   drainPersisted(): Promise<void>;
   lineCount(): number;

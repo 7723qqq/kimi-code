@@ -1,16 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 import { resolveKimiRegionDetailed } from '@moonshot-ai/kimi-code-oauth';
 
 import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
-import { CloudAppender, type CloudAppenderOptions } from '#/app/telemetry/cloudAppender';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { CloudAppender, type CloudAppenderOptions } from '#/app/telemetry/cloudAppender';
 
 import { stubBootstrap, stubClientIdentity } from '../bootstrap/stubs';
 
@@ -46,10 +46,7 @@ function statusResponse(status: number): Response {
 }
 
 function baseOptions(
-  overrides: Partial<CloudAppenderOptions> & {
-    homeDir?: string;
-    bootstrapEnv?: NodeJS.ProcessEnv;
-  } = {},
+  overrides: Partial<CloudAppenderOptions> & { homeDir?: string; bootstrapEnv?: NodeJS.ProcessEnv } = {},
 ): CloudAppenderOptions {
   const { homeDir: dir = '', storage, bootstrapEnv, ...rest } = overrides;
   const env = { ...process.env, ...bootstrapEnv };

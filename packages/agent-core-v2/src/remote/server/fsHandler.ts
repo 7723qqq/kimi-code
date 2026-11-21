@@ -1,6 +1,6 @@
 import { isAbsolute } from 'node:path';
 
-import { type HostFileSystem, walkDirectoryTree } from '#/os/backends/host/hostFsService';
+import { type HostFileSystem, walkDirectoryTree } from '#/os/backends/node-local/hostFsService';
 import type { HostFileStat } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors, toHostFsError } from '#/os/interface/hostFsErrors';
 
@@ -271,7 +271,7 @@ export class FsHandler {
     const from = requireAbsolutePath(params, 'from');
     const to = requireAbsolutePath(params, 'to');
     try {
-      await this.fs.rename!(from, to);
+      await this.fs.rename(from, to);
       return EMPTY;
     } catch (error) {
       throw fsDomainError(error, { path: from, op: 'rename' });

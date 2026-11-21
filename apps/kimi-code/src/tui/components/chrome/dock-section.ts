@@ -1,15 +1,3 @@
-/**
- * DockSection — a panel made of a fixed head, a body and a fixed foot.
- *
- * Inline (regular mode, no `DockLayout`) the three parts simply stack and the
- * host's GutterContainer pads them. Docked (fullscreen) the section sits in
- * the layout tree itself: each part carries its own gutter, the body lives in
- * a ScrollView capped at `maxBodyRows` and scrolls with the wheel, and the
- * head and foot never shrink — so a long body cannot push the foot (options,
- * key hints) off the screen. A part that takes focus on a click hands it to
- * the whole section.
- */
-
 import {
   ScrollView,
   VStack,
@@ -20,7 +8,6 @@ import {
 } from '@moonshot-ai/pi-tui';
 
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
-import { ScrollMouseRouter } from '#/tui/utils/mouse';
 
 import { GutterContainer } from './gutter-container';
 
@@ -30,17 +17,7 @@ export interface DockLayout {
 
 export type DockPart = 'head' | 'body' | 'foot';
 
-/**
- * Keeps the scrollbar column reserved but paints the bar only while the body
- * overflows, so a short body shows no track and a long one always shows where
- * it is.
- */
 class OverflowScrollView extends ScrollView {
-  private readonly mouse = new ScrollMouseRouter((_direction, delta) => {
-    this.scrollBy(delta);
-    return true;
-  }, true);
-
   override get isScrollbarVisible(): boolean {
     return this.canScroll;
   }
@@ -52,9 +29,8 @@ class OverflowScrollView extends ScrollView {
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    // Consume the wheel here so the renderer's fallback cannot hand overscroll to the transcript.
     if (event.type !== 'wheel') return undefined;
-    this.mouse.handleMouse(event);
+    this.scrollBy(event.wheelDelta ?? 0);
     return { handled: true, target: mouseTarget(this, event) };
   }
 }
@@ -81,12 +57,7 @@ export abstract class DockSection extends VStack {
         handleMouse: (event) => {
           const result = this.handlePartMouse(part, event);
           if (result?.focus !== true) return result;
-          return {
-            ...result,
-            handled: true,
-            focusTarget: this,
-            target: mouseTarget(component, event),
-          };
+          return { ...result, handled: true, focusTarget: this, target: mouseTarget(component, event) };
         },
       };
       return component;
@@ -106,17 +77,11 @@ export abstract class DockSection extends VStack {
     this.addChild(padded(view('foot')), { shrink: 0 });
   }
 
-  /** Scroll a docked body by `lines`; false when it did not move (inline, or already at the edge). */
   scrollBody(lines: number): boolean {
     if (this.bodyScroll === undefined) return false;
     return this.bodyScroll.scrollBy(lines) !== lines;
   }
 
-  /**
-   * Whether a docked body is taller than its rows, judged from a head or foot
-   * render at `partWidth`: the body renders one column narrower (the
-   * scrollbar's), and the last layout covers a dock squeezed below the cap.
-   */
   protected bodyOverflows(partWidth: number): boolean {
     if (this.layout === undefined || this.bodyScroll === undefined) return false;
     return (
@@ -131,10 +96,7 @@ export abstract class DockSection extends VStack {
 
   protected abstract renderPart(part: DockPart, width: number): string[];
 
-  protected handlePartMouse(
-    _part: DockPart,
-    _event: TuiMouseEvent,
-  ): TuiMouseEventResult | undefined {
+  protected handlePartMouse(_part: DockPart, _event: TuiMouseEvent): TuiMouseEventResult | undefined {
     return undefined;
   }
 }

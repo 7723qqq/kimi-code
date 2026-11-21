@@ -13,7 +13,7 @@
  * Allocation is estimated with the V8 sampling heap profiler including
  * objects collected by minor/major GC, i.e. it measures churn, not retention.
  *
- * Run from repo root: bun packages/pi-tui/test/render-churn-bench.ts
+ * Run from packages/tui: node test/render-churn-bench.ts
  */
 
 import { Session } from "node:inspector/promises";
@@ -57,6 +57,7 @@ class NullTerminal implements Terminal {
 	clearScreen(): void {}
 	setTitle(_title: string): void {}
 	setProgress(_active: boolean): void {}
+	setProgramStatus(): void {}
 }
 
 /** Editor stand-in: caches lines per (text, width), re-renders when text changes. */

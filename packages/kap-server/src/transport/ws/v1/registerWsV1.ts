@@ -1,18 +1,17 @@
 import type { Scope } from '@moonshot-ai/agent-core-v2';
 import { WebSocketServer } from 'ws';
 
-import { selectWsBearerProtocol } from '../bearerProtocol';
 import { type IConnectionRegistry } from '../connectionRegistry';
-import type { BroadcastLogger, SessionEventBroadcaster } from './sessionEventBroadcaster';
+import type { SessionEventBroadcaster } from './sessionEventBroadcaster';
 import { createTaskSource } from './taskRequests';
 import { WsConnectionV1 } from './wsConnectionV1';
+import { selectWsBearerProtocol } from '../bearerProtocol';
 
 export const WS_PATH = '/api/v1/ws';
 
 export interface RegisterWsV1Options {
   readonly registry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
-  readonly logger?: BroadcastLogger;
   readonly flushIntervalMs?: number;
   readonly maxBatchSize?: number;
   readonly highWaterMarkBytes?: number;
@@ -20,7 +19,6 @@ export interface RegisterWsV1Options {
 }
 
 export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketServer {
-  void core;
   const wss = new WebSocketServer({ noServer: true, handleProtocols: selectWsBearerProtocol });
   const { registry, broadcaster } = opts;
   const taskSource = createTaskSource(core);
@@ -33,7 +31,6 @@ export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketS
       connectionRegistry: registry,
       remoteAddress: req.socket.remoteAddress ?? null,
       userAgent: req.headers['user-agent'] ?? null,
-      logger: opts.logger,
       flushIntervalMs: opts.flushIntervalMs,
       maxBatchSize: opts.maxBatchSize,
       highWaterMarkBytes: opts.highWaterMarkBytes,

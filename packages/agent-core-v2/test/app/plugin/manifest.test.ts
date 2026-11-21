@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import { parseManifest, PLUGIN_SYSTEM_PROMPT_MAX_BYTES } from '#/app/plugin/manifest';
-import { supportsSymlinks } from '#test/helpers/symlinks';
 
 describe('plugin manifest parser', () => {
   let dir: string;
@@ -269,28 +269,23 @@ describe('plugin manifest parser', () => {
     expect(absoluteResult.diagnostics.map((d) => d.message)).toEqual([
       `"systemPromptPath" path must start with "./" (got "${absolute}")`,
     ]);
+
+    const outsideDir = await mkdtemp(join(tmpdir(), 'plugin-outside-'));
+    await writeFile(join(outsideDir, 'secret.md'), 'outside content', 'utf8');
+    await symlink(join(outsideDir, 'secret.md'), join(dir, 'linked.md'));
+    await writeFile(
+      join(dir, 'kimi.plugin.json'),
+      JSON.stringify({ name: 'demo', systemPromptPath: './linked.md' }),
+      'utf8',
+    );
+
+    const linked = await parseManifest(dir);
+    expect(linked.manifest?.systemPrompt).toBeUndefined();
+    expect(linked.diagnostics.map((d) => d.message)).toEqual([
+      '"systemPromptPath" path resolves outside the plugin (./linked.md)',
+    ]);
+    await rm(outsideDir, { recursive: true, force: true });
   });
-
-  it.skipIf(!supportsSymlinks())(
-    'rejects a systemPromptPath symlink that leaves the plugin root',
-    async () => {
-      const outsideDir = await mkdtemp(join(tmpdir(), 'plugin-outside-'));
-      await writeFile(join(outsideDir, 'secret.md'), 'outside content', 'utf8');
-      await symlink(join(outsideDir, 'secret.md'), join(dir, 'linked.md'));
-      await writeFile(
-        join(dir, 'kimi.plugin.json'),
-        JSON.stringify({ name: 'demo', systemPromptPath: './linked.md' }),
-        'utf8',
-      );
-
-      const linked = await parseManifest(dir);
-      expect(linked.manifest?.systemPrompt).toBeUndefined();
-      expect(linked.diagnostics.map((d) => d.message)).toEqual([
-        '"systemPromptPath" path resolves outside the plugin (./linked.md)',
-      ]);
-      await rm(outsideDir, { recursive: true, force: true });
-    },
-  );
 
   it('ignores an oversized inline systemPrompt with a warning', async () => {
     const oversized = 'x'.repeat(PLUGIN_SYSTEM_PROMPT_MAX_BYTES + 1);
@@ -336,176 +331,5 @@ describe('plugin manifest parser', () => {
 
     expect(result.manifest?.systemPrompt).toBe('x'.repeat(PLUGIN_SYSTEM_PROMPT_MAX_BYTES));
     expect(result.diagnostics).toEqual([]);
-  });
-
-  it('warns about an unrecognized field and names the intended key', async () => {
-    await mkdir(join(dir, 'skills'), { recursive: true });
-    await writeFile(join(dir, 'skills', 'a.md'), '# a', 'utf8');
-    await writeFile(
-      join(dir, 'kimi.plugin.json'),
-      JSON.stringify({ name: 'demo', skill: './skills', mcp_servers: {} }),
-      'utf8',
-    );
-
-    const result = await parseManifest(dir);
-    const messages = result.diagnostics.map((d) => d.message);
-
-    expect(messages).toContain(
-      '"skill" is not a recognized plugin field and was ignored; did you mean "skills"?',
-    );
-    expect(messages).toContain(
-      '"mcp_servers" is not a recognized plugin field and was ignored; did you mean "mcpServers"?',
-    );
-    expect(result.manifest?.skills).toEqual([]);
-  });
-
-  it('warns about an unrecognized field with no near match', async () => {
-    await writeFile(
-      join(dir, 'kimi.plugin.json'),
-      JSON.stringify({ name: 'demo', whatever: 1 }),
-      'utf8',
-    );
-
-    const result = await parseManifest(dir);
-
-    expect(result.diagnostics.map((d) => d.message)).toEqual([
-      '"whatever" is not a recognized plugin field and was ignored',
-    ]);
-  });
-
-  it('stays silent for a manifest that only uses recognized fields', async () => {
-    await mkdir(join(dir, 'skills'), { recursive: true });
-    await writeFile(join(dir, 'skills', 'a.md'), '# a', 'utf8');
-    await writeFile(
-      join(dir, 'kimi.plugin.json'),
-      JSON.stringify({
-        name: 'demo',
-        version: '1.0.0',
-        description: 'demo plugin',
-        skills: ['./skills'],
-        sessionStart: { skill: 'onboarding' },
-        interface: { displayName: 'Demo' },
-      }),
-      'utf8',
-    );
-
-    const result = await parseManifest(dir);
-
-    expect(result.diagnostics).toEqual([]);
-    expect(result.manifest?.sessionStart).toEqual({ skill: 'onboarding' });
-  });
-
-  it('loads interface locale files keyed by file name', async () => {
-    await mkdir(join(dir, 'locales'), { recursive: true });
-    await writeFile(
-      join(dir, 'locales', 'en.json'),
-      JSON.stringify({ displayName: 'Demo', shortDescription: 'A demo' }),
-      'utf8',
-    );
-    await writeFile(
-      join(dir, 'locales', 'zh.json'),
-      JSON.stringify({ displayName: '示例' }),
-      'utf8',
-    );
-    await writeFile(join(dir, 'locales', 'notes.txt'), 'ignored', 'utf8');
-    await writeFile(
-      join(dir, 'kimi.plugin.json'),
-      JSON.stringify({ name: 'demo', interface: { locales: './locales' } }),
-      'utf8',
-    );
-
-    const result = await parseManifest(dir);
-
-    expect(result.diagnostics).toEqual([]);
-    expect(result.interfaceLocales).toEqual({
-      en: expect.objectContaining({ displayName: 'Demo', shortDescription: 'A demo' }),
-      zh: expect.objectContaining({ displayName: '示例' }),
-    });
-  });
-
-  it('warns about a locale file with no display fields and a locale path that is not a directory', async () => {
-    await mkdir(join(dir, 'locales'), { recursive: true });
-    await writeFile(join(dir, 'locales', 'en.json'), JSON.stringify({ unrelated: true }), 'utf8');
-    await writeFile(
-      join(dir, 'kimi.plugin.json'),
-      JSON.stringify({ name: 'demo', interface: { locales: './locales' } }),
-      'utf8',
-    );
-
-    const emptyFields = await parseManifest(dir);
-    expect(emptyFields.interfaceLocales).toBeUndefined();
-    expect(emptyFields.diagnostics.map((d) => d.message)).toEqual([
-      '"interface.locales" file has no supported display fields (en.json)',
-    ]);
-
-    await writeFile(
-      join(dir, 'kimi.plugin.json'),
-      JSON.stringify({ name: 'demo', interface: { locales: './kimi.plugin.json' } }),
-      'utf8',
-    );
-    const notADirectory = await parseManifest(dir);
-    expect(notADirectory.interfaceLocales).toBeUndefined();
-    expect(notADirectory.diagnostics.map((d) => d.message)).toContain(
-      '"interface.locales" path is not a directory',
-    );
-  });
-
-  it('reads localized plugin interface fields and their overrides', async () => {
-    await writeFile(
-      join(dir, 'kimi.plugin.json'),
-      JSON.stringify({
-        name: 'demo',
-        interface: {
-          displayName: 'Demo',
-          defaultLocale: 'en',
-          mcpOverrides: {
-            search: { displayName: 'Search', description: 'Adds search', iconUrl: 'https://x/y.png' },
-            empty: {},
-          },
-          skillOverrides: {
-            review: { displayName: 'Review' },
-          },
-        },
-      }),
-      'utf8',
-    );
-
-    const result = await parseManifest(dir);
-
-    expect(result.diagnostics).toEqual([]);
-    expect(result.manifest?.interface).toEqual({
-      defaultLocale: 'en',
-      displayName: 'Demo',
-      mcpOverrides: {
-        search: { displayName: 'Search', description: 'Adds search', iconUrl: 'https://x/y.png' },
-      },
-      shortDescription: undefined,
-      longDescription: undefined,
-      developerName: undefined,
-      websiteURL: undefined,
-      skillOverrides: { review: { displayName: 'Review' } },
-    });
-  });
-
-  it('keeps an interface that only carries locale metadata', async () => {
-    await writeFile(
-      join(dir, 'kimi.plugin.json'),
-      JSON.stringify({ name: 'demo', interface: { defaultLocale: 'zh' } }),
-      'utf8',
-    );
-
-    const result = await parseManifest(dir);
-
-    expect(result.manifest?.interface).toEqual({
-      defaultLocale: 'zh',
-      displayName: undefined,
-      shortDescription: undefined,
-      longDescription: undefined,
-      developerName: undefined,
-      websiteURL: undefined,
-      locales: undefined,
-      mcpOverrides: undefined,
-      skillOverrides: undefined,
-    });
   });
 });

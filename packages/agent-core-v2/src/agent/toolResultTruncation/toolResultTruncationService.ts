@@ -1,26 +1,21 @@
 import { randomUUID } from 'node:crypto';
-
-import { basename, join, normalize } from 'pathe';
-
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { codePointBoundaryStart, sliceOnCodePointBoundary } from '#/_base/text/code-points';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import {
-  renderAppendedPointer,
-  renderReplacedPointer,
-  renderUnpersistedPointer,
-} from '#/tool/outputPointer';
+  codePointBoundaryStart,
+  sliceOnCodePointBoundary,
+} from '#/_base/text/code-points';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import {
   DEFAULT_TOOL_RESULT_MAX_CHARS,
   DEFAULT_TOOL_RESULT_MAX_RETAINED_CHARS,
   type ExecutableToolResult,
 } from '#/tool/toolContract';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
-import type { ContentPart } from '#human/llm/message';
-
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { basename, join, normalize } from 'pathe';
 import {
   IAgentToolResultTruncationService,
   type ToolResultTruncationInput,
@@ -130,9 +125,7 @@ export class ToolResultTruncationService implements IAgentToolResultTruncationSe
   isWireJournalPath(path: string): boolean {
     const sessionsDir = normalize(join(this.bootstrap.homeDir, this.bootstrap.scope('sessions')));
     const normalized = normalize(path);
-    return (
-      normalized.startsWith(`${sessionsDir}/`) && basename(normalized) === AGENT_WIRE_RECORD_KEY
-    );
+    return normalized.startsWith(`${sessionsDir}/`) && basename(normalized) === AGENT_WIRE_RECORD_KEY;
   }
 
   private async saveToolResult(
@@ -153,7 +146,10 @@ export class ToolResultTruncationService implements IAgentToolResultTruncationSe
   }
 }
 
-function shapeOutput(output: ExecutableToolResult['output'], maxLineChars: number): ShapedOutput {
+function shapeOutput(
+  output: ExecutableToolResult['output'],
+  maxLineChars: number,
+): ShapedOutput {
   if (typeof output === 'string') {
     const shaped = shapeStringPerLine(output, maxLineChars);
     return { output: shaped.text, textChars: shaped.text.length, hasMedia: false };
@@ -226,15 +222,19 @@ function renderAppendedSpillPointer(
   suffix: string,
   hasMedia: boolean,
 ): string {
-  const pointer = renderAppendedPointer({
-    path: outputPath,
-    totalSize: totalChars,
-    unit: 'chars',
-    preserved: preservedChars,
-    hasMedia,
-  });
-  if (suffix.length === 0) return pointer;
-  return `${pointer}\n\n${suffix}`;
+  const firstLine =
+    totalChars > preservedChars
+      ? `[Per-line truncation occurred; only the first ${String(preservedChars)} characters (of ${String(totalChars)}) were saved to a file.`
+      : hasMedia
+        ? '[Per-line truncation occurred; the complete text output was saved to a file (media parts stay attached to this result).'
+        : '[Per-line truncation occurred; the complete output was saved to a file.';
+  const lines = [
+    firstLine,
+    `output_path: ${outputPath}`,
+    'next_step: Use Read with output_path to page through the saved output, or Grep to search it.]',
+  ];
+  if (suffix.length > 0) lines.push('', suffix);
+  return lines.join('\n');
 }
 
 function appendToToolResultOutput(
@@ -265,22 +265,26 @@ function renderPersistedToolResult(
   suffix: string,
   hasMedia: boolean,
 ): string {
+  const partial = preservedChars < totalChars;
   const lines = [
-    renderReplacedPointer({
-      path: outputPath,
-      totalSize: totalChars,
-      unit: 'chars',
-      preserved: preservedChars,
-      maxSize: maxChars,
-      toolName,
-      toolCallId,
-      byteSize:
-        preservedChars === previewText.length
-          ? Buffer.byteLength(previewText, 'utf8')
-          : undefined,
-      hasMedia,
-    }),
+    partial
+      ? `Tool output exceeded ${String(maxChars)} characters; the first ${String(preservedChars)} characters (of ${String(totalChars)}) were saved to a file.`
+      : hasMedia
+        ? `Tool output exceeded ${String(maxChars)} characters; the full text output was saved to a file (media parts stay attached to this result).`
+        : `Tool output exceeded ${String(maxChars)} characters; the full output was saved to a file.`,
+    `tool_name: ${toolName}`,
+    `tool_call_id: ${toolCallId}`,
+    partial
+      ? `output_size_chars: ${String(totalChars)} (only the first ${String(preservedChars)} characters were preserved)`
+      : `output_size_chars: ${String(totalChars)}`,
   ];
+  if (preservedChars === previewText.length) {
+    lines.push(`output_size_bytes: ${String(Buffer.byteLength(previewText, 'utf8'))}`);
+  }
+  lines.push(
+    `output_path: ${outputPath}`,
+    'next_step: Use Read with output_path to page through the saved output, or Grep to search it.',
+  );
   appendPreviewLines(lines, previewText);
   if (suffix.length > 0) lines.push('', suffix);
   return lines.join('\n');
@@ -295,13 +299,10 @@ function renderUnpersistedToolResult(
   suffix: string,
 ): string {
   const lines = [
-    renderUnpersistedPointer({
-      totalSize: totalChars,
-      unit: 'chars',
-      maxSize: maxChars,
-      toolName,
-      toolCallId,
-    }),
+    `Tool output exceeded ${String(maxChars)} characters and could not be saved to a file; only this preview is available.`,
+    `tool_name: ${toolName}`,
+    `tool_call_id: ${toolCallId}`,
+    `output_size_chars: ${String(totalChars)}`,
   ];
   appendPreviewLines(lines, previewText);
   if (suffix.length > 0) lines.push('', suffix);
@@ -328,7 +329,9 @@ function dropInlineSuffixLines(suffix: string, shapedText: string): string {
   if (suffix.length === 0) return '';
   const lines = suffix.split('\n');
   if (!lines.some((line) => line.length > 0 && shapedText.includes(line))) return suffix;
-  return lines.filter((line) => line.length > 0 && !shapedText.includes(line)).join('\n');
+  return lines
+    .filter((line) => line.length > 0 && !shapedText.includes(line))
+    .join('\n');
 }
 
 function safeToolResultFileStem(toolName: string, toolCallId: string): string {

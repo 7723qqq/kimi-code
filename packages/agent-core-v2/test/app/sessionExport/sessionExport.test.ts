@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   appendFile,
   type FileHandle,
@@ -15,24 +14,25 @@ import {
   unlink,
   writeFile,
 } from 'node:fs/promises';
-import * as fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 import { basename, dirname, join, resolve } from 'pathe';
 import { open as openZip } from 'yauzl';
 
-import { type ServiceIdentifier, type ServicesAccessor } from '#/_base/di/instantiation';
-import { DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
-import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
+import { Disposable, DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
 import {
   createServices,
   type ServiceRegistration,
   type TestInstantiationService,
 } from '#/_base/di/test';
-import { ILogService, type ILogService as LogService } from '#/_base/log/log';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
+import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
+import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
+import { ILogService, type ILogService as LogService } from '#/_base/log/log';
+import { IWireService } from '#/wire/wire';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { openZipSource, type ZipSource } from '#/app/sessionExport/file-source';
 import {
   type ExportSessionManifest,
@@ -44,32 +44,34 @@ import {
 } from '#/app/sessionExport/sessionExportService';
 import { writeExportZip } from '#/app/sessionExport/zip';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
-import {
-  ISessionManager,
-  type UnguardedSessionLifecycle,
-} from '#/app/sessionManager/sessionManager';
+import { ISessionManager, type UnguardedSessionLifecycle } from '#/app/sessionManager/sessionManager';
+import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import { IWorkspaceService } from '#/app/workspace/workspace';
 import { Error2 } from '#/errors';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionRequestAttributionService } from '#/session/requestAttribution/requestAttribution';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { IWireService } from '#/wire/wire';
-import { supportsSymlinks } from '#test/helpers/symlinks';
 
-import { stubLog } from '../../_base/log/stubs';
-import { stubAgentContext } from '../../agent/agentContext/stubs';
-import { stubAgentWire } from '../../wire/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
+import { stubLog } from '../../_base/log/stubs';
+import { stubAgentWire } from '../../wire/stubs';
+import { stubAgentContext } from '../../agent/agentContext/stubs';
 
-const fsOpenHook = (() => ({
+const fsOpenHook = vi.hoisted(() => ({
   afterOpen: undefined as ((path: string, handle: FileHandle) => Promise<void>) | undefined,
-}))();
+}));
 
-const actualFsOpen = fsPromises.open;
-spyOn(fsPromises, 'open').mockImplementation((async (...args: Parameters<typeof actualFsOpen>) => {
-  const handle = await actualFsOpen(...args);
-  await fsOpenHook.afterOpen?.(String(args[0]), handle);
-  return handle;
-}) as typeof actualFsOpen);
+void vi.mock('node:fs/promises', async () => {
+  const actual = await import('node:fs/promises');
+  return {
+    ...actual,
+    open: async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args);
+      await fsOpenHook.afterOpen?.(String(args[0]), handle);
+      return handle;
+    },
+  };
+});
 
 const noopDisposable: IDisposable = { dispose: () => {} };
 const noopEvent = () => noopDisposable;
@@ -324,9 +326,9 @@ describe('sessionExport', () => {
       await expect(handle.stat()).rejects.toMatchObject({ code: 'EBADF' });
     }
     await expect(stat(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(
-      (await readdir(tmp)).filter((entry) => entry.startsWith('.kimi-session-export-')),
-    ).toEqual([]);
+    expect((await readdir(tmp)).filter((entry) => entry.startsWith('.kimi-session-export-'))).toEqual(
+      [],
+    );
   });
 
   it('omits the optional global log when the configured file is missing', async () => {
@@ -660,58 +662,55 @@ describe('sessionExport', () => {
     await expect(readdir(tmp)).resolves.toEqual([]);
   });
 
-  it.skipIf(!supportsSymlinks())(
-    'does not follow an output symlink swapped during compression',
-    async () => {
-      const tmp = await mkdtemp(join(tmpdir(), 'session-export-test-'));
-      const statePath = join(tmp, 'state.json');
-      const safeTarget = join(tmp, 'safe-output');
-      const outputPath = join(tmp, 'export.zip');
-      const state = Buffer.from('{"state":"preserved"}\n', 'utf8');
-      await writeFile(statePath, state);
-      await writeFile(safeTarget, 'safe\n', 'utf8');
-      await symlink(safeTarget, outputPath);
-      const readStarted = deferred();
-      const allowRead = deferred();
-      const payload = Buffer.from('payload', 'utf8');
-      const stream = Readable.from(
-        (async function* (): AsyncGenerator<Buffer> {
-          readStarted.resolve();
-          await allowRead.promise;
-          yield payload;
-        })(),
-      );
-      const source: ZipSource = {
-        stream,
-        size: payload.length,
-        mtime: new Date(0),
-        mode: 0o600,
-        identity: { device: -1n, inode: -1n },
-        close: async () => {
-          stream.destroy();
-        },
-      };
+  it('does not follow an output symlink swapped during compression', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'session-export-test-'));
+    const statePath = join(tmp, 'state.json');
+    const safeTarget = join(tmp, 'safe-output');
+    const outputPath = join(tmp, 'export.zip');
+    const state = Buffer.from('{"state":"preserved"}\n', 'utf8');
+    await writeFile(statePath, state);
+    await writeFile(safeTarget, 'safe\n', 'utf8');
+    await symlink(safeTarget, outputPath);
+    const readStarted = deferred();
+    const allowRead = deferred();
+    const payload = Buffer.from('payload', 'utf8');
+    const stream = Readable.from(
+      (async function* (): AsyncGenerator<Buffer> {
+        readStarted.resolve();
+        await allowRead.promise;
+        yield payload;
+      })(),
+    );
+    const source: ZipSource = {
+      stream,
+      size: payload.length,
+      mtime: new Date(0),
+      mode: 0o600,
+      identity: { device: -1n, inode: -1n },
+      close: async () => {
+        stream.destroy();
+      },
+    };
 
-      const writing = writeExportZip({
-        outputPath,
-        manifest: testManifest('ses_symlink_swap'),
-        sessionDir: tmp,
-        sessionFiles: [],
-        extraEntries: [{ source, target: 'controlled.bin' }],
-      });
-      await readStarted.promise;
-      await unlink(outputPath);
-      await symlink(statePath, outputPath);
-      allowRead.resolve();
-      await writing;
+    const writing = writeExportZip({
+      outputPath,
+      manifest: testManifest('ses_symlink_swap'),
+      sessionDir: tmp,
+      sessionFiles: [],
+      extraEntries: [{ source, target: 'controlled.bin' }],
+    });
+    await readStarted.promise;
+    await unlink(outputPath);
+    await symlink(statePath, outputPath);
+    allowRead.resolve();
+    await writing;
 
-      await expect(readFile(statePath)).resolves.toEqual(state);
-      await expect(readFile(safeTarget, 'utf8')).resolves.toBe('safe\n');
-      expect((await lstat(outputPath)).isSymbolicLink()).toBe(false);
-      await expect(readZipEntry(outputPath, 'controlled.bin')).resolves.toEqual(payload);
-      expect((await readdir(tmp)).toSorted()).toEqual(['export.zip', 'safe-output', 'state.json']);
-    },
-  );
+    await expect(readFile(statePath)).resolves.toEqual(state);
+    await expect(readFile(safeTarget, 'utf8')).resolves.toBe('safe\n');
+    expect((await lstat(outputPath)).isSymbolicLink()).toBe(false);
+    await expect(readZipEntry(outputPath, 'controlled.bin')).resolves.toEqual(payload);
+    expect((await readdir(tmp)).toSorted()).toEqual(['export.zip', 'safe-output', 'state.json']);
+  });
 
   it('throws a coded error when the session is unknown', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'session-export-test-'));
@@ -743,7 +742,7 @@ describe('sessionExport', () => {
     expect(fallbackResult.entries).toEqual(['manifest.json', 'logs/global/kimi-code.log']);
   });
 
-  it('previews session files excluding file-history', async () => {
+  it('previews session files excluding file-history and resolves the latest main requestId', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'session-export-preview-'));
     const sessionDir = join(tmp, 'sessions', 'ws_live', 'ses_live');
     await mkdir(join(sessionDir, 'agents', 'main'), { recursive: true });
@@ -770,6 +769,7 @@ describe('sessionExport', () => {
         },
         sessionLog: stubLog(),
         agentWire: { flush: async () => {} },
+        lastRequestId: 'req-turn-2',
       }),
     });
 
@@ -777,6 +777,7 @@ describe('sessionExport', () => {
       sessionId: 'ses_live',
       sessionDir,
       files: ['agents/main/wire.jsonl', 'state.json'],
+      requestId: 'req-turn-2',
     });
   });
 
@@ -950,7 +951,6 @@ function registerSessionExportServices(
     ): Promise<T> => work({ archive: async () => {}, restore: async () => undefined }),
     list: () => (options.lifecycleHandle === undefined ? [] : [options.lifecycleHandle]),
     close: async () => {},
-    move: async () => { throw new Error('move should not be called by session export'); },
     closeIfIdle: async () => false,
     archive: async () => {},
     restore: async () => options.lifecycleHandle,
@@ -969,7 +969,16 @@ function registerSessionExportServices(
       id,
       root: `/workspaces/${id}`,
       name: id,
-      kind: 'implicit' as const,
+      kind: 'implicit',
+      additionalDirs: [],
+      createdAt: 1,
+      lastOpenedAt: 2,
+    }),
+    create: async (input) => ({
+      id: 'ws_created',
+      root: input.root,
+      name: 'created',
+      kind: 'implicit',
       additionalDirs: [],
       createdAt: 1,
       lastOpenedAt: 2,
@@ -978,16 +987,13 @@ function registerSessionExportServices(
       id: 'ws_created',
       root,
       name: 'created',
-      kind: 'implicit' as const,
+      kind: 'implicit',
       additionalDirs: [],
       createdAt: 1,
       lastOpenedAt: 2,
     }),
-    update: async () => undefined,
-    create: async () => {
-      throw new Error('create should not be called by session export');
-    },
     touch: async () => undefined,
+    update: async () => undefined,
     setPrimary: async () => undefined,
     readProjectConfigDirs: async () => [],
     delete: async () => {},
@@ -999,6 +1005,7 @@ function liveSessionHandle(options: {
   readonly meta: SessionMeta;
   readonly sessionLog: LogService;
   readonly agentWire: Pick<ReturnType<typeof stubAgentWire>, 'flush'>;
+  readonly lastRequestId?: string;
 }): ISessionScopeHandle {
   const agentHandle = testAgentHandle(options.agentWire);
   const lifecycle = stubAgentLifecycle([agentHandle]);
@@ -1009,14 +1016,22 @@ function liveSessionHandle(options: {
       [ISessionMetadata, stubSessionMetadata(options.meta)],
       [ILogService, options.sessionLog],
       [IAgentLifecycleService, lifecycle],
+      [
+        ISessionRequestAttributionService,
+        {
+          _serviceBrand: undefined,
+          of: () => ({ lastRequestId: options.lastRequestId }),
+          noteUserInput: () => {},
+          noteActiveRequest: () => {},
+          noteSubagentDispatch: () => ({}),
+        } satisfies ISessionRequestAttributionService,
+      ],
     ]),
     dispose: () => {},
   };
 }
 
-function testAgentHandle(
-  agentWire: Pick<ReturnType<typeof stubAgentWire>, 'flush'>,
-): IAgentScopeHandle {
+function testAgentHandle(agentWire: Pick<ReturnType<typeof stubAgentWire>, 'flush'>): IAgentScopeHandle {
   return {
     id: 'main',
     kind: LifecycleScope.Agent,

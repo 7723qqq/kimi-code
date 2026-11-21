@@ -1,75 +1,38 @@
-/**
- * Constants for the /feedback command — endpoints, telemetry keys, and
- * the status messages shown around the feedback submission flow.
- *
- * Dialog-internal copy (the box title, subtitle, footer) lives next to
- * the dialog component itself, since it is part of that component's
- * visual contract.
- */
-
 import { FEEDBACK_VERSION_PREFIX } from '#/constant/app';
 import { t } from '#/i18n';
 
-export { FEEDBACK_ISSUE_URL, FEEDBACK_TELEMETRY_EVENT, FEEDBACK_VERSION_PREFIX } from '#/constant/app';
-export { kimiCodeSignupUrl } from '#/constant/region-urls';
+export {
+  FEEDBACK_ISSUE_URL,
+  FEEDBACK_TELEMETRY_EVENT,
+  FEEDBACK_VERSION_PREFIX,
+  kimiCodeSignupUrl,
+} from '#/constant/app';
 
-export function getFeedbackStatusSubmitting(): string {
-  return t('tui.messages.feedbackSubmitting');
-}
-export function getFeedbackStatusSuccess(): string {
-  return t('tui.messages.feedbackSubmitted');
-}
-export function getFeedbackStatusCancelled(): string {
-  return t('tui.messages.feedbackCancelled');
-}
-export function getFeedbackStatusNetworkError(): string {
-  return t('tui.messages.feedbackNetworkError');
-}
-export function getFeedbackStatusFallback(): string {
-  return t('tui.messages.feedbackOpeningGithub');
-}
-export function getFeedbackStatusNotSignedIn(): string {
-  return t('tui.messages.feedbackNotSignedIn');
-}
-export function getFeedbackStatusUploadFailed(): string {
-  return t('tui.messages.feedbackSentUploadFailed');
-}
+export const FEEDBACK_STATUS_SUBMITTING = t('tui.messages.feedbackSubmitting');
+export const FEEDBACK_STATUS_UPLOADING = 'Uploading attachments, this could take a few minutes…';
+export const FEEDBACK_STATUS_SUCCESS = "Thanks for taking the time to write this. It'll help us make Kimi better";
+export const FEEDBACK_STATUS_CANCELLED = t('tui.messages.feedbackCancelled');
+export const FEEDBACK_STATUS_NETWORK_ERROR = t('tui.messages.feedbackNetworkError');
+export const FEEDBACK_STATUS_FALLBACK = t('tui.messages.feedbackOpeningGithub');
+export const FEEDBACK_STATUS_NOT_SIGNED_IN =
+  "You're not signed in. Sign up or leave feedback on GitHub:";
+export const FEEDBACK_STATUS_UPLOAD_FAILED =
+  t('tui.messages.feedbackSentUploadFailed');
 
-/**
- * Status line for a codebase attachment that uploaded successfully but only
- * after the scan hit its file-count/archive-size cap: the archive the backend
- * received is a prefix of the repository, which must not be reported as a
- * complete attachment.
- */
-export function getFeedbackStatusCodebaseTruncated(exceeded: {
-  readonly reason: 'file-count' | 'total-size';
-  readonly limit: number;
-}): string {
-  return exceeded.reason === 'file-count'
-    ? t('tui.messages.feedbackCodebaseTruncatedFileCount', { limit: String(exceeded.limit) })
-    : t('tui.messages.feedbackCodebaseTruncatedTotalSize', { limit: String(exceeded.limit) });
-}
-
-/**
- * Remote-bound sessions cannot package their codebase: the scanner reads this
- * machine's filesystem, not the remote one.
- */
-export function getFeedbackStatusRemoteCodebaseUnsupported(): string {
-  return t('tui.messages.feedbackRemoteCodebaseUnsupported');
+export function feedbackHttpErrorMessage(status: number): string {
+  return `Failed to submit feedback (HTTP ${String(status)}).`;
 }
 
 export function feedbackSessionLine(sessionId: string): string {
-  return t('tui.messages.feedbackSession', { sessionId });
+  return `Session: ${sessionId}`;
 }
 
 export function feedbackIdLine(feedbackId: number): string {
-  return t('tui.messages.feedbackId', { id: String(feedbackId) });
+  return `Feedback ID: ${String(feedbackId)}`;
 }
 
-// Hint shown beneath session-level error messages in the TUI to point users
-// at the `/export-debug-zip` workflow so they can share diagnostics with us.
 export function errorReportHintLine(): string {
-  return t('tui.messages.feedbackPersistHint');
+  return "If this persists, run `/export-debug-zip` and share the file with us for diagnosis. Please don't share it publicly.";
 }
 
 export function withFeedbackVersionPrefix(version: string): string {

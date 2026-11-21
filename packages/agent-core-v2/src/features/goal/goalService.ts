@@ -6,16 +6,16 @@ import { createDecorator, IInstantiationService } from '#/_base/di/instantiation
 import { MutableDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { abortError } from '#/_base/utils/abort';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import {
   AgentActorService,
   type AgentActorContext,
   type AgentActorRestoreEvent,
 } from '#/agent/actorService/agentActorService';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { ContextAppendMessage } from '#/agent/contextMemory/contextEvents';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
-import { GoalPauseReason } from '#/agent/interaction/engineMessages';
+import { GoalInjection, GOAL_WAIT_FOR_GUIDANCE } from '#/features/goal/injection/goalInjection';
 import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
 import { LoopErrors } from '#/agent/loop/errors';
 import {
@@ -31,26 +31,30 @@ import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { registerLegacyStarting } from '#/agent/toolExecutor/legacyHooks';
+import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import type { BeforeToolExecuteEvent } from '#/agent/toolExecutor/toolHooks';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
 import { type UsageRecordedContext } from '#/agent/usage/usage';
 import { IConfigService } from '#/app/config/config';
-import { registerEvent2Class } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
+import { registerEvent2Class } from '#/app/event/event2';
 import { IFlagService } from '#/app/flag/flag';
 import type { GoalBudgetProperties } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ErrorCodes, Error2, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
-import { GoalInjection, GOAL_WAIT_FOR_GUIDANCE } from '#/features/goal/injection/goalInjection';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
+import {
+  ErrorCodes,
+  Error2,
+  toKimiErrorPayload,
+  type KimiErrorPayload,
+} from '#/errors';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { Forked } from '#/session/agentLifecycle/forked';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ExecutableToolResult } from '#/tool/toolContract';
-import { chargeableTokens } from '#human/llm/usage';
 
 import type { GoalReasonInput, ResumeGoalInput } from './goal';
 import { IGoalDeadlineScheduler } from './goalDeadlineScheduler';
@@ -102,14 +106,14 @@ const GOAL_CONTINUATION_ORIGIN: PromptOrigin = {
   kind: 'system_trigger',
   name: 'goal_continuation',
 };
-const GOAL_RATE_LIMIT_PAUSE_REASON = GoalPauseReason.RATE_LIMIT;
-const GOAL_PROVIDER_CONNECTION_PAUSE_PREFIX = GoalPauseReason.PROVIDER_CONNECTION;
-const GOAL_PROVIDER_AUTH_PAUSE_PREFIX = GoalPauseReason.PROVIDER_AUTH;
-const GOAL_PROVIDER_API_PAUSE_PREFIX = GoalPauseReason.PROVIDER_API;
-const GOAL_MODEL_CONFIG_PAUSE_PREFIX = GoalPauseReason.MODEL_CONFIG;
-const GOAL_RUNTIME_PAUSE_PREFIX = GoalPauseReason.RUNTIME;
-const GOAL_CONTINUATION_FAILURE_PAUSE_PREFIX = GoalPauseReason.CONTINUATION_FAILURE;
-const GOAL_PROVIDER_FILTERED_PAUSE_REASON = GoalPauseReason.PROVIDER_FILTERED;
+const GOAL_RATE_LIMIT_PAUSE_REASON = 'Paused after provider rate limit';
+const GOAL_PROVIDER_CONNECTION_PAUSE_PREFIX = 'Paused after provider connection error';
+const GOAL_PROVIDER_AUTH_PAUSE_PREFIX = 'Paused after provider authentication error';
+const GOAL_PROVIDER_API_PAUSE_PREFIX = 'Paused after provider API error';
+const GOAL_MODEL_CONFIG_PAUSE_PREFIX = 'Paused after model configuration error';
+const GOAL_RUNTIME_PAUSE_PREFIX = 'Paused after runtime error';
+const GOAL_CONTINUATION_FAILURE_PAUSE_PREFIX = 'Paused after goal continuation failure';
+const GOAL_PROVIDER_FILTERED_PAUSE_REASON = 'Paused after provider safety policy block';
 const GOAL_BUDGET_BLOCK_PREFIX = 'Blocked after goal budget reached';
 const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';
 
@@ -158,8 +162,6 @@ const GOAL_CONTINUATION_PROMPT = [
   'threshold is met and you cannot make meaningful progress without user input or an',
   'external-state change, call UpdateGoal with `blocked`; do not keep reporting the blocker while',
   'leaving the goal active. Do not ask the user for input unless a real blocker prevents progress.',
-  'When you end a goal turn with work remaining, do not write a progress report; the runtime',
-  'continues automatically. Report only when the goal is complete, blocked, or needs a user decision.',
 ].join(' ');
 
 const GOAL_STEP_CAP_CONTINUATION_PROMPT = [
@@ -230,7 +232,7 @@ interface GoalDeadlineClearEvent {
 
 type GoalEffectEvent = GoalDeadlineRefreshEvent | GoalDeadlineClearEvent;
 type GoalActorEvent = GoalCommitEvent | AgentActorRestoreEvent | GoalEffectEvent;
-type GoalActorSnapshot = Snapshot<unknown> & { readonly context: GoalActorContext };
+type GoalActorSnapshot = Snapshot<unknown> & { readonly context: GoalActorContext; };
 
 function isGoalForkClearedReminder(message: ContextMessage | undefined): boolean {
   const origin = message?.origin;
@@ -281,11 +283,7 @@ function isObjectiveEditedSinceTurnStart(context: GoalOperationContext, turnId: 
   return revision !== undefined && revision !== context.effects.objectiveRevision;
 }
 
-async function createGoal(
-  context: GoalOperationContext,
-  input: CreateGoalInput,
-  actor: GoalActor = 'user',
-): Promise<GoalSnapshot> {
+async function createGoal(context: GoalOperationContext, input: CreateGoalInput, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
   assertSupportedAgent(context);
   const objective = validateObjective(context, input.objective);
   prepareForGoalCreation(context, input.replace === true);
@@ -297,8 +295,6 @@ async function createGoal(
       objective,
       completionCriterion: normalizeCompletionCriterion(input.completionCriterion),
       wallClockResumedAt,
-      createdAt: wallClockResumedAt,
-      updatedAt: wallClockResumedAt,
     }),
   );
   context.effects.liveWallClockStartedAt = context.runtime.get(IGoalDeadlineScheduler).now();
@@ -306,9 +302,7 @@ async function createGoal(
   const state = requireState(context);
   refreshWallClockDeadline(context, state);
   emitGoalUpdated(context, toSnapshot(context, state));
-  context.runtime
-    .get(ITelemetryService)
-    .track2('goal_created', { actor, replace: input.replace === true });
+  context.runtime.get(ITelemetryService).track2('goal_created', { actor, replace: input.replace === true });
   return toSnapshot(context, state);
 }
 
@@ -326,11 +320,7 @@ function validateObjective(context: GoalOperationContext, value: string): string
   return objective;
 }
 
-async function editGoalObjective(
-  context: GoalOperationContext,
-  input: EditGoalObjectiveInput,
-  actor: GoalActor = 'user',
-): Promise<GoalSnapshot> {
+async function editGoalObjective(context: GoalOperationContext, input: EditGoalObjectiveInput, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
   assertSupportedAgent(context);
   const state = requireState(context);
   if (state.status === 'complete') {
@@ -361,11 +351,7 @@ function prepareForGoalCreation(context: GoalOperationContext, replace: boolean)
   clearInternal(context, 'system');
 }
 
-async function pauseGoal(
-  context: GoalOperationContext,
-  input: GoalReasonInput = {},
-  actor: GoalActor = 'user',
-): Promise<GoalSnapshot> {
+async function pauseGoal(context: GoalOperationContext, input: GoalReasonInput = {}, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
   assertSupportedAgent(context);
   const state = requireState(context);
   if (state.status === 'paused') return toSnapshot(context, state);
@@ -378,8 +364,7 @@ async function pauseGoal(
   return applyLifecycle(context, state, 'paused', input.reason, actor);
 }
 
-async function pauseActiveGoal(
-  context: GoalOperationContext,
+async function pauseActiveGoal(context: GoalOperationContext,
   input: GoalReasonInput = {},
   actor: GoalActor = 'runtime',
 ): Promise<GoalSnapshot | null> {
@@ -389,11 +374,7 @@ async function pauseActiveGoal(
   return applyLifecycle(context, state, 'paused', input.reason, actor);
 }
 
-async function resumeGoal(
-  context: GoalOperationContext,
-  input: ResumeGoalInput = {},
-  actor: GoalActor = 'user',
-): Promise<GoalSnapshot> {
+async function resumeGoal(context: GoalOperationContext, input: ResumeGoalInput = {}, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
   assertSupportedAgent(context);
   const state = requireState(context);
   if (state.status === 'active') return toSnapshot(context, state);
@@ -420,25 +401,19 @@ async function resumeGoal(
       throw error;
     }
   } else if (continuePaused && context.effects.liveTurnId !== undefined) {
-    context.effects.resumeContinuation = {
-      turnId: context.effects.liveTurnId,
-      goalId: state.goalId,
-    };
+    context.effects.resumeContinuation = { turnId: context.effects.liveTurnId, goalId: state.goalId };
   }
   return snapshot;
 }
 
-async function setBudgetLimits(
-  context: GoalOperationContext,
-  input: { readonly budgetLimits: GoalBudgetLimits },
+async function setBudgetLimits(context: GoalOperationContext,
+  input: { readonly budgetLimits: GoalBudgetLimits; },
   actor: GoalActor = 'user',
 ): Promise<GoalSnapshot> {
   assertSupportedAgent(context);
   const state = requireState(context);
   const budgetLimits = { ...state.budgetLimits, ...input.budgetLimits };
-  void context.runtime.dispatch(
-    new GoalUpdate({ agentId: context.runtime.agent.agentId, budgetLimits }),
-  );
+  void context.runtime.dispatch(new GoalUpdate({ agentId: context.runtime.agent.agentId, budgetLimits }));
   const next = requireState(context);
   emitGoalUpdated(context, toSnapshot(context, next));
   context.runtime.get(ITelemetryService).track2('goal_budget_set', {
@@ -451,18 +426,12 @@ async function setBudgetLimits(
   return toSnapshot(context, next);
 }
 
-async function cancelGoal(
-  context: GoalOperationContext,
-  _input: GoalReasonInput = {},
-  actor: GoalActor = 'user',
-): Promise<GoalSnapshot> {
+async function cancelGoal(context: GoalOperationContext, _input: GoalReasonInput = {}, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
   assertSupportedAgent(context);
   const state = requireState(context);
   const snapshot = toSnapshot(context, state);
   if (state.status === 'active' && context.effects.liveTurnId !== undefined) {
-    context.runtime
-      .get(IAgentLoopService)
-      .cancel({ turnId: context.effects.liveTurnId }, abortError('Goal cancelled'));
+    context.runtime.get(IAgentLoopService).cancel({ turnId: context.effects.liveTurnId }, abortError('Goal cancelled'));
   }
   clearInternal(context, actor);
   if (actor === 'user') {
@@ -473,8 +442,7 @@ async function cancelGoal(
   return snapshot;
 }
 
-async function markBlocked(
-  context: GoalOperationContext,
+async function markBlocked(context: GoalOperationContext,
   input: GoalReasonInput = {},
   actor: GoalActor = 'runtime',
 ): Promise<GoalSnapshot | null> {
@@ -487,8 +455,7 @@ async function markBlocked(
   return snapshot;
 }
 
-async function markComplete(
-  context: GoalOperationContext,
+async function markComplete(context: GoalOperationContext,
   input: GoalReasonInput = {},
   actor: GoalActor = 'model',
 ): Promise<GoalSnapshot | null> {
@@ -504,26 +471,14 @@ async function markComplete(
   return snapshot;
 }
 
-function dispatchCompletion(
-  context: GoalOperationContext,
-  state: GoalState,
-  reason: string | undefined,
-  actor: GoalActor,
-): void {
+function dispatchCompletion(context: GoalOperationContext, state: GoalState, reason: string | undefined, actor: GoalActor): void {
   const wallClockMs = settleWallClock(context, state);
   void context.runtime.dispatch(
-    new GoalUpdate({
-      agentId: context.runtime.agent.agentId,
-      status: 'complete',
-      reason,
-      wallClockMs,
-      actor,
-    }),
+    new GoalUpdate({ agentId: context.runtime.agent.agentId, status: 'complete', reason, wallClockMs, actor }),
   );
 }
 
-function emitCompletion(
-  context: GoalOperationContext,
+function emitCompletion(context: GoalOperationContext,
   state: GoalState,
   snapshot: GoalSnapshot,
   reason: string | undefined,
@@ -538,18 +493,12 @@ function emitCompletion(
   });
 }
 
-async function pauseOnInterrupt(
-  context: GoalOperationContext,
-  input: GoalReasonInput = {},
-): Promise<GoalSnapshot | null> {
+async function pauseOnInterrupt(context: GoalOperationContext, input: GoalReasonInput = {}): Promise<GoalSnapshot | null> {
   assertSupportedAgent(context);
   return pauseActiveGoal(context, input, 'user');
 }
 
-async function recordTokenUsage(
-  context: GoalOperationContext,
-  tokenDelta: number,
-): Promise<GoalSnapshot | null> {
+async function recordTokenUsage(context: GoalOperationContext, tokenDelta: number): Promise<GoalSnapshot | null> {
   assertSupportedAgent(context);
   return accountTokenUsage(context, tokenDelta);
 }
@@ -559,17 +508,11 @@ async function incrementTurn(context: GoalOperationContext): Promise<GoalSnapsho
   return incrementGoalTurn(context);
 }
 
-function accountTokenUsage(
-  context: GoalOperationContext,
-  tokenDelta: number,
-  goalId?: string,
-): GoalSnapshot | null {
+function accountTokenUsage(context: GoalOperationContext, tokenDelta: number, goalId?: string): GoalSnapshot | null {
   const state = context.runtime.getState().goal;
   if (state === null || state.status !== 'active' || !matchesGoal(state, goalId)) return null;
   const tokensUsed = state.tokensUsed + Math.max(0, tokenDelta);
-  void context.runtime.dispatch(
-    new GoalUpdate({ agentId: context.runtime.agent.agentId, tokensUsed }),
-  );
+  void context.runtime.dispatch(new GoalUpdate({ agentId: context.runtime.agent.agentId, tokensUsed }));
   const next = requireState(context);
   return blockIfBudgetReached(context, next) ?? toSnapshot(context, next);
 }
@@ -578,20 +521,14 @@ function incrementGoalTurn(context: GoalOperationContext, goalId?: string): Goal
   const state = context.runtime.getState().goal;
   if (state === null || state.status !== 'active' || !matchesGoal(state, goalId)) return null;
   const turnsUsed = state.turnsUsed + 1;
-  void context.runtime.dispatch(
-    new GoalUpdate({ agentId: context.runtime.agent.agentId, turnsUsed }),
-  );
+  void context.runtime.dispatch(new GoalUpdate({ agentId: context.runtime.agent.agentId, turnsUsed }));
   const next = requireState(context);
   emitGoalUpdated(context, toSnapshot(context, next));
   context.runtime.get(ITelemetryService).track2('goal_continued', { turns_used: next.turnsUsed });
   return toSnapshot(context, next);
 }
 
-function handleTurnLaunched(
-  context: GoalOperationContext,
-  turnId: number,
-  origin: TurnStarted['origin'],
-): void {
+function handleTurnLaunched(context: GoalOperationContext, turnId: number, origin: TurnStarted['origin']): void {
   context.effects.liveTurnId = turnId;
   context.effects.goalTurnTargets.delete(turnId);
   context.effects.exhaustedTurnBudgetGoals.delete(turnId);
@@ -611,9 +548,9 @@ function handleTurnLaunched(
       context.effects.goalDrivenTurns.set(turnId, state.goalId);
     }
   }
-  context.effects.pendingContinuationGoals.delete(turnId);
   context.effects.goalOutcomeToolResultTurns.delete(turnId);
   context.effects.goalOutcomeContinuationTurns.delete(turnId);
+  context.effects.pendingContinuationGoals.delete(turnId);
   context.effects.turnObjectiveRevisions.set(turnId, context.effects.objectiveRevision);
 }
 
@@ -638,10 +575,7 @@ function adoptStarterTurn(context: GoalOperationContext, actor: GoalActor): void
   context.effects.goalStarterTurns.add(turnId);
 }
 
-async function handleBeforeStep(
-  context: GoalOperationContext,
-  ctx: BeforeStepContext,
-): Promise<void> {
+async function handleBeforeStep(context: GoalOperationContext, ctx: BeforeStepContext): Promise<void> {
   const goalId = context.effects.goalDrivenTurns.get(ctx.turnId);
   if (goalId === undefined) return;
   if (context.effects.countedGoalTurns.has(ctx.turnId)) return;
@@ -654,12 +588,22 @@ function handleUsageRecorded(context: GoalOperationContext, ctx: UsageRecordedCo
   if (source?.type !== 'turn') return;
   const goalId = context.effects.goalDrivenTurns.get(source.turnId);
   if (goalId === undefined) return;
-  accountTokenUsage(context, chargeableTokens(ctx.usage), goalId);
+  accountTokenUsage(context, ctx.usage.output, goalId);
 }
 
 function handleAfterStep(context: GoalOperationContext, ctx: AfterStepContext): void {
   if (stopAfterBudgetReached(context, ctx)) return;
-  enqueueGoalOutcomeContinuation(context, ctx);
+  if (context.effects.goalOutcomeContinuationTurns.has(ctx.turnId)) return;
+  const goalId = goalTurnTarget(context, ctx.turnId);
+  const outcomeGoalId = context.effects.goalOutcomeToolResultTurns.get(ctx.turnId);
+  context.effects.goalOutcomeToolResultTurns.delete(ctx.turnId);
+  if (goalId === undefined || outcomeGoalId !== goalId) return;
+  const state = context.runtime.getState().goal;
+  if (state !== null && state.goalId !== goalId) return;
+  context.effects.goalOutcomeContinuationTurns.add(ctx.turnId);
+  const maxSteps = context.runtime.get(IConfigService).get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
+  if (!hasStepBudgetRemaining(maxSteps, ctx.step)) return;
+  context.runtime.get(IAgentLoopService).notify();
 }
 
 function stopAfterBudgetReached(context: GoalOperationContext, ctx: AfterStepContext): boolean {
@@ -676,13 +620,13 @@ function stopAfterBudgetReached(context: GoalOperationContext, ctx: AfterStepCon
     state === null ||
     state.goalId !== goalId ||
     budget === null ||
-    (!budget.tokenBudgetReached && !budget.wallClockBudgetReached && !turnBudgetBlocksCurrentTurn)
+    (!budget.tokenBudgetReached &&
+      !budget.wallClockBudgetReached &&
+      !turnBudgetBlocksCurrentTurn)
   ) {
     return false;
   }
-  const maxSteps = context.runtime
-    .get(IConfigService)
-    .get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
+  const maxSteps = context.runtime.get(IConfigService).get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
   if (
     ctx.finishReason === 'tool_calls' &&
     !context.effects.budgetGraceTurns.has(ctx.turnId) &&
@@ -698,27 +642,7 @@ function stopAfterBudgetReached(context: GoalOperationContext, ctx: AfterStepCon
   return true;
 }
 
-function enqueueGoalOutcomeContinuation(
-  context: GoalOperationContext,
-  ctx: AfterStepContext,
-): void {
-  if (context.effects.goalOutcomeContinuationTurns.has(ctx.turnId)) return;
-  const goalId = goalTurnTarget(context, ctx.turnId);
-  const outcomeGoalId = context.effects.goalOutcomeToolResultTurns.get(ctx.turnId);
-  context.effects.goalOutcomeToolResultTurns.delete(ctx.turnId);
-  if (goalId === undefined || outcomeGoalId !== goalId) return;
-  const state = context.runtime.getState().goal;
-  if (state !== null && state.goalId !== goalId) return;
-  context.effects.goalOutcomeContinuationTurns.add(ctx.turnId);
-  const maxSteps = context.runtime
-    .get(IConfigService)
-    .get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
-  if (!hasStepBudgetRemaining(maxSteps, ctx.step)) return;
-  context.runtime.get(IAgentLoopService).notify();
-}
-
-async function handleTurnEnded(
-  context: GoalOperationContext,
+async function handleTurnEnded(context: GoalOperationContext,
   turnId: number,
   result: Pick<TurnEnded, 'reason' | 'error'>,
 ): Promise<void> {
@@ -738,7 +662,9 @@ async function handleTurnEnded(
   const stepCapped = isMaxStepsTurnFailure(result);
   if (
     !stepCapped &&
-    (result.reason === 'blocked' || result.reason === 'cancelled' || result.reason === 'failed')
+    (result.reason === 'blocked' ||
+      result.reason === 'cancelled' ||
+      result.reason === 'failed')
   ) {
     await settleAbnormalTurn(context, result, lifecycleGoalId);
     return;
@@ -768,9 +694,9 @@ function clearTurnTracking(
   const starterTurn = context.effects.goalStarterTurns.delete(turnId);
   context.effects.goalDrivenTurns.delete(turnId);
   context.effects.countedGoalTurns.delete(turnId);
+  context.effects.budgetGraceTurns.delete(turnId);
   context.effects.goalOutcomeToolResultTurns.delete(turnId);
   context.effects.goalOutcomeContinuationTurns.delete(turnId);
-  context.effects.budgetGraceTurns.delete(turnId);
   context.effects.pendingContinuationGoals.delete(turnId);
   context.effects.goalTurnTargets.delete(turnId);
   context.effects.turnObjectiveRevisions.delete(turnId);
@@ -778,8 +704,7 @@ function clearTurnTracking(
   return { goalId, lifecycleGoalId, starterTurn };
 }
 
-async function settleAbnormalTurn(
-  context: GoalOperationContext,
+async function settleAbnormalTurn(context: GoalOperationContext,
   result: Pick<TurnEnded, 'reason' | 'error'>,
   goalId: string,
 ): Promise<boolean> {
@@ -789,7 +714,7 @@ async function settleAbnormalTurn(
     return true;
   }
   if (result.reason === 'cancelled') {
-    await pauseOnInterrupt(context, { reason: GoalPauseReason.INTERRUPTION });
+    await pauseOnInterrupt(context, { reason: 'Paused after interruption' });
     return true;
   }
   if (result.reason === 'failed') {
@@ -799,8 +724,7 @@ async function settleAbnormalTurn(
   return false;
 }
 
-async function settleGoalAfterContinuationFailure(
-  context: GoalOperationContext,
+async function settleGoalAfterContinuationFailure(context: GoalOperationContext,
   error: unknown,
   goalId: string | undefined,
 ): Promise<void> {
@@ -811,7 +735,7 @@ async function settleGoalAfterContinuationFailure(
       normalizeGoalErrorPayload(error).message,
     );
     await pauseActiveGoal(context, { reason }, 'system');
-  } catch {}
+  } catch { }
 }
 
 function isWaitForAvailable(context: GoalOperationContext): boolean {
@@ -822,11 +746,7 @@ function isWaitForAvailable(context: GoalOperationContext): boolean {
   );
 }
 
-function launchContinuationTurn(
-  context: GoalOperationContext,
-  goalId: string,
-  stepCapped = false,
-): void {
+function launchContinuationTurn(context: GoalOperationContext, goalId: string, stepCapped = false): void {
   if (!isActiveGoal(context, goalId)) return;
   if (context.effects.pendingContinuation !== undefined) return;
   const prompt = stepCapped ? GOAL_STEP_CAP_CONTINUATION_PROMPT : GOAL_CONTINUATION_PROMPT;
@@ -835,37 +755,34 @@ function launchContinuationTurn(
     content: [
       {
         type: 'text',
-        text: isWaitForAvailable(context) ? `${prompt} ${GOAL_WAIT_FOR_GUIDANCE}` : prompt,
+        text: isWaitForAvailable(context)
+          ? `${prompt} ${GOAL_WAIT_FOR_GUIDANCE}`
+          : prompt,
       },
     ],
-    toolCalls: [],
     origin: GOAL_CONTINUATION_ORIGIN,
   };
   const loop = context.runtime.get(IAgentLoopService);
   const { id } = loop.submit({
-    message: { role: 'user', content: message.content },
-    meta: { origin: message.origin },
+    role: 'user',
+    content: message.content,
+    attributes: { origin: message.origin },
   });
   const handle = loop.promptHandle(id)!;
   const pending: PendingContinuation = { promptId: id, goalId };
   context.effects.pendingContinuation = pending;
-  void handle.launched
-    .then((launchedTurn) => {
-      pending.turn = launchedTurn;
-      pending.turnId = launchedTurn?.id;
-    })
-    .catch(() => undefined);
+  void handle.launched.then((launchedTurn) => {
+    pending.turn = launchedTurn;
+    pending.turnId = launchedTurn?.id;
+  }).catch(() => undefined);
   void handle.completion.finally(() => {
-    if (pending.turnId !== undefined)
-      context.effects.pendingContinuationGoals.delete(pending.turnId);
-    if (context.effects.pendingContinuation === pending)
-      context.effects.pendingContinuation = undefined;
+    if (pending.turnId !== undefined) context.effects.pendingContinuationGoals.delete(pending.turnId);
+    if (context.effects.pendingContinuation === pending) context.effects.pendingContinuation = undefined;
   });
 }
 
 function canLaunchContinuation(context: GoalOperationContext): boolean {
-  if (context.effects.liveTurnId !== undefined || context.effects.pendingContinuation !== undefined)
-    return false;
+  if (context.effects.liveTurnId !== undefined || context.effects.pendingContinuation !== undefined) return false;
   const status = context.runtime.get(IAgentLoopService).snapshot();
   return status.state === 'idle' && !status.hasPendingRequests;
 }
@@ -887,8 +804,7 @@ function goalTurnTarget(context: GoalOperationContext, turnId: number): string |
   return context.effects.goalTurnTargets.get(turnId) ?? context.effects.goalDrivenTurns.get(turnId);
 }
 
-function cancelPendingContinuation(
-  context: GoalOperationContext,
+function cancelPendingContinuation(context: GoalOperationContext,
   preserveLiveContinuation = false,
   reason?: unknown,
 ): void {
@@ -898,12 +814,10 @@ function cancelPendingContinuation(
   const cancellation = reason ?? abortError('Goal continuation cancelled');
   const cancelled = pending?.turn?.cancel(cancellation) ?? false;
   if (pending !== undefined && !cancelled) {
-    context.runtime
-      .get(IAgentLoopService)
-      .cancel(
-        pending.turnId !== undefined ? { turnId: pending.turnId } : { promptId: pending.promptId },
-        cancellation,
-      );
+    context.runtime.get(IAgentLoopService).cancel(
+      pending.turnId !== undefined ? { turnId: pending.turnId } : { promptId: pending.promptId },
+      cancellation,
+    );
   }
 }
 
@@ -939,14 +853,9 @@ function appendForkClearedReminder(context: GoalOperationContext): void {
   });
 }
 
-function clearInternal(
-  context: GoalOperationContext,
+function clearInternal(context: GoalOperationContext,
   actor: GoalActor,
-  opts: {
-    readonly emit?: boolean;
-    readonly track?: boolean;
-    readonly preserveLiveContinuation?: boolean;
-  } = {},
+  opts: { readonly emit?: boolean; readonly track?: boolean; readonly preserveLiveContinuation?: boolean; } = {},
 ): void {
   if (context.runtime.getState().goal === null) return;
   context.effects.resumeContinuation = undefined;
@@ -956,12 +865,10 @@ function clearInternal(
   context.effects.turnObjectiveRevisions.clear();
   void context.runtime.dispatch(new GoalClear({ agentId: context.runtime.agent.agentId }));
   if (opts.emit !== false) emitGoalUpdated(context, null);
-  if (opts.track !== false)
-    context.runtime.get(ITelemetryService).track2('goal_cleared', { actor });
+  if (opts.track !== false) context.runtime.get(ITelemetryService).track2('goal_cleared', { actor });
 }
 
-function applyLifecycle(
-  context: GoalOperationContext,
+function applyLifecycle(context: GoalOperationContext,
   state: GoalState,
   status: GoalStatus,
   reason: string | undefined,
@@ -977,8 +884,7 @@ function applyLifecycle(
     context.effects.liveWallClockStartedAt = context.runtime.get(IGoalDeadlineScheduler).now();
   } else if (state.status === 'active') {
     context.effects.resumeContinuation = undefined;
-    cancelPendingContinuation(
-      context,
+    cancelPendingContinuation(context,
       opts.preserveLiveContinuation === true,
       opts.cancellationReason,
     );
@@ -986,14 +892,7 @@ function applyLifecycle(
     context.effects.liveWallClockStartedAt = undefined;
   }
   void context.runtime.dispatch(
-    new GoalUpdate({
-      agentId: context.runtime.agent.agentId,
-      status,
-      reason,
-      wallClockMs,
-      wallClockResumedAt,
-      actor,
-    }),
+    new GoalUpdate({ agentId: context.runtime.agent.agentId, status, reason, wallClockMs, wallClockResumedAt, actor }),
   );
   const next = requireState(context);
   if (status === 'active') adoptStarterTurn(context, actor);
@@ -1003,11 +902,7 @@ function applyLifecycle(
   return toSnapshot(context, next);
 }
 
-function trackStatusChanged(
-  context: GoalOperationContext,
-  state: GoalState,
-  actor: GoalActor,
-): void {
+function trackStatusChanged(context: GoalOperationContext, state: GoalState, actor: GoalActor): void {
   context.runtime.get(ITelemetryService).track2('goal_status_changed', {
     actor,
     status: state.status,
@@ -1026,11 +921,7 @@ function requireState(context: GoalOperationContext): GoalState {
   return state;
 }
 
-function emitGoalUpdated(
-  context: GoalOperationContext,
-  snapshot: GoalSnapshot | null,
-  change?: GoalChange,
-): void {
+function emitGoalUpdated(context: GoalOperationContext, snapshot: GoalSnapshot | null, change?: GoalChange): void {
   void context.runtime.dispatch(
     new GoalUpdated({ agentId: context.runtime.agent.agentId, snapshot, change }),
   );
@@ -1040,10 +931,7 @@ function settleWallClock(context: GoalOperationContext, state: GoalState): numbe
   if (state.status === 'active' && context.effects.liveWallClockStartedAt !== undefined) {
     return (
       state.wallClockMs +
-      Math.max(
-        0,
-        context.runtime.get(IGoalDeadlineScheduler).now() - context.effects.liveWallClockStartedAt,
-      )
+      Math.max(0, context.runtime.get(IGoalDeadlineScheduler).now() - context.effects.liveWallClockStartedAt)
     );
   }
   return state.wallClockMs;
@@ -1053,10 +941,7 @@ function liveWallClockMs(context: GoalOperationContext, state: GoalState): numbe
   if (state.status === 'active' && context.effects.liveWallClockStartedAt !== undefined) {
     return (
       state.wallClockMs +
-      Math.max(
-        0,
-        context.runtime.get(IGoalDeadlineScheduler).now() - context.effects.liveWallClockStartedAt,
-      )
+      Math.max(0, context.runtime.get(IGoalDeadlineScheduler).now() - context.effects.liveWallClockStartedAt)
     );
   }
   return state.wallClockMs;
@@ -1079,20 +964,13 @@ function toSnapshot(context: GoalOperationContext, state: GoalState): GoalSnapsh
     status: state.status,
     turnsUsed: state.turnsUsed,
     tokensUsed: state.tokensUsed,
-    inputTokensUsed: state.inputTokensUsed,
-    outputTokensUsed: state.outputTokensUsed,
     wallClockMs,
     budget: computeBudgetReport(state, wallClockMs),
     terminalReason: state.terminalReason,
-    createdAt: state.createdAt,
-    updatedAt: state.updatedAt,
   };
 }
 
-function blockIfBudgetReached(
-  context: GoalOperationContext,
-  state: GoalState,
-): GoalSnapshot | null {
+function blockIfBudgetReached(context: GoalOperationContext, state: GoalState): GoalSnapshot | null {
   if (state.status !== 'active') return null;
   const reason = goalBudgetBlockReason(toSnapshot(context, state).budget);
   if (reason === undefined) return null;
@@ -1113,8 +991,7 @@ function wallClockDeadlineDelay(context: GoalOperationContext): number | undefin
     state.status !== 'active' ||
     budgetMs === undefined ||
     context.effects.liveWallClockStartedAt === undefined
-  )
-    return undefined;
+  ) return undefined;
   return Math.min(2_147_483_647, Math.max(0, budgetMs - liveWallClockMs(context, state)));
 }
 
@@ -1162,8 +1039,6 @@ function computeBudgetReport(state: GoalState, wallClockMs: number): GoalBudgetR
     turnBudgetReached,
     wallClockBudgetReached,
     overBudget: tokenBudgetReached || turnBudgetReached || wallClockBudgetReached,
-    inputTokensUsed: state.inputTokensUsed,
-    outputTokensUsed: state.outputTokensUsed,
   };
 }
 
@@ -1219,9 +1094,7 @@ function isTerminalUpdateGoalResult(
   args: unknown,
   result: ExecutableToolResult,
 ): boolean {
-  if (toolName !== 'UpdateGoal' || result.isError === true || result.stopTurn !== true) {
-    return false;
-  }
+  if (toolName !== 'UpdateGoal' || result.isError === true) return false;
   if (!isPlainRecord(args)) return false;
   const status = args['status'];
   return status === 'complete' || status === 'blocked';
@@ -1273,55 +1146,44 @@ function createGoalEffectHandlers(runtime: AgentActorContext<GoalRuntimeState>) 
   const context = goalOperationContext(runtime);
   return {
     deadlineDelay: () => wallClockDeadlineDelay(context),
-    deadlineFired: () => {
-      handleWallClockDeadline(context);
-    },
+    deadlineFired: () => { handleWallClockDeadline(context); },
     injection: {
       getGoal: () => getGoal(context).goal,
       isWaitForEnabled: () => isWaitForAvailable(context),
     },
-    normalize: () => {
-      normalizeAfterReplay(context);
-    },
+    normalize: () => { normalizeAfterReplay(context); },
     closing: (agent: AgentContext) => {
       if (agent !== runtime.agent) return;
       const state = runtime.getState().goal;
       if (state === null || state.status !== 'active') return;
       applyLifecycle(context, state, 'paused', 'Paused after agent closed', 'runtime');
     },
-    turnStarted: (event: TurnStarted) => {
-      handleTurnLaunched(context, event.turnId, event.origin);
-    },
+    turnStarted: (event: TurnStarted) => { handleTurnLaunched(context, event.turnId, event.origin); },
     usageRecorded: (usage: UsageRecordedContext) => {
       if (usage.agent === runtime.agent) handleUsageRecorded(context, usage);
     },
     beforeStep: (step: BeforeStepContext) => handleBeforeStep(context, step),
-    afterStep: (step: AfterStepContext) => {
-      handleAfterStep(context, step);
-    },
+    afterStep: (step: AfterStepContext) => { handleAfterStep(context, step); },
     approval: (event: BeforeToolExecuteEvent) => {
       const permissionMode = runtime.get(IAgentPermissionModeService);
       if (
         event.toolCall.name !== 'CreateGoal' ||
         permissionMode.mode === 'auto' ||
         event.execution.display?.kind !== 'goal_start'
-      )
-        return;
-      event.waitUntil(async () =>
-        runtime.get(IAgentToolApprovalService).requestToolApproval(
-          event,
-          {
-            kind: 'ask',
-            resolveApproval: (approval) => {
-              if (approval.decision !== 'approved') return undefined;
-              const mode = toGoalStartReviewPermissionMode(approval.selectedLabel);
-              if (mode !== undefined && mode !== permissionMode.mode) permissionMode.setMode(mode);
-              return undefined;
-            },
+      ) return;
+      event.waitUntil(async () => runtime.get(IAgentToolApprovalService).requestToolApproval(
+        event,
+        {
+          kind: 'ask',
+          resolveApproval: (approval) => {
+            if (approval.decision !== 'approved') return undefined;
+            const mode = toGoalStartReviewPermissionMode(approval.selectedLabel);
+            if (mode !== undefined && mode !== permissionMode.mode) permissionMode.setMode(mode);
+            return undefined;
           },
-          'goal-start-review-ask',
-        ),
-      );
+        },
+        'goal-start-review-ask',
+      ));
     },
     veto: (event: BeforeToolExecuteEvent) => {
       if (isStaleGoalToolCall(context, event)) {
@@ -1332,97 +1194,87 @@ function createGoalEffectHandlers(runtime: AgentActorContext<GoalRuntimeState>) 
         event.veto({ output: GOAL_BUDGET_TOOLS_REJECTED_MESSAGE });
       }
     },
-    toolCompleted: (
-      tool: Parameters<
-        Parameters<IAgentToolExecutorService['hooks']['onDidExecuteTool']['register']>[1]
-      >[0],
-    ) => {
-      const goalId = goalTurnTarget(context, tool.turnId);
-      if (
-        goalId !== undefined &&
-        isTerminalUpdateGoalResult(tool.toolCall.name, tool.args, tool.result)
-      )
-        context.effects.goalOutcomeToolResultTurns.set(tool.turnId, goalId);
+    toolCompleted: (step: AfterStepContext) => {
+      const goalId = goalTurnTarget(context, step.turnId);
+      if (goalId === undefined) return;
+      const maxSteps = context.runtime.get(IConfigService).get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
+      for (const tool of step.tools) {
+        const output = typeof tool.result?.output === 'string'
+          ? tool.result.output
+          : [...(tool.result?.output ?? tool.outcome.message.content)];
+        const result: ExecutableToolResult = {
+          output,
+          isError: tool.result?.isError ?? (tool.outcome.type === 'succeeded' ? undefined : true),
+        };
+        const args = parseToolCallArguments(tool.toolCall.arguments).data;
+        if (!isTerminalUpdateGoalResult(tool.toolCall.name, args, result)) continue;
+        context.effects.goalOutcomeToolResultTurns.set(step.turnId, goalId);
+        if (!hasStepBudgetRemaining(maxSteps, step.step)) step.stopTurn = true;
+      }
     },
     turnEnded: (event: TurnEnded) => {
       const goalId = goalTurnTarget(context, event.turnId);
-      void handleTurnEnded(context, event.turnId, {
-        reason: event.reason,
-        error: event.error,
-      }).catch((error) => settleGoalAfterContinuationFailure(context, error, goalId));
+      void handleTurnEnded(context, event.turnId, { reason: event.reason, error: event.error }).catch(
+        (error) => settleGoalAfterContinuationFailure(context, error, goalId),
+      );
     },
   };
 }
 
-const goalEffects = fromCallback(
-  ({
-    input,
-    receive,
-  }: {
-    input: {
-      readonly runtime: AgentActorContext<GoalRuntimeState>;
-      readonly restore: AgentActorRestoreEvent;
-    };
-    receive: (listener: (event: GoalEffectEvent) => void) => void;
-  }) => {
-    const handlers = createGoalEffectHandlers(input.runtime);
-    const deadline = new MutableDisposable<IDisposable>();
-    receive((event) => {
-      deadline.clear();
-      if (event.type === 'goal.deadline.refresh') {
-        const delay = handlers.deadlineDelay();
-        if (delay !== undefined) {
-          deadline.value = input.runtime
-            .get(IGoalDeadlineScheduler)
-            .schedule(delay, handlers.deadlineFired);
-        }
+const goalEffects = fromCallback(({
+  input,
+  receive,
+}: {
+  input: {
+    readonly runtime: AgentActorContext<GoalRuntimeState>;
+    readonly restore: AgentActorRestoreEvent;
+  };
+  receive: (listener: (event: GoalEffectEvent) => void) => void;
+}) => {
+  const handlers = createGoalEffectHandlers(input.runtime);
+  const deadline = new MutableDisposable<IDisposable>();
+  receive((event) => {
+    deadline.clear();
+    if (event.type === 'goal.deadline.refresh') {
+      const delay = handlers.deadlineDelay();
+      if (delay !== undefined) {
+        deadline.value = input.runtime.get(IGoalDeadlineScheduler).schedule(delay, handlers.deadlineFired);
       }
-    });
-    const disposables: IDisposable[] = [deadline];
-    if (input.runtime.agent.agentId === MAIN_AGENT_ID) {
-      disposables.push(input.runtime.get(IAgentLifecycleService).onWillClose(handlers.closing));
-      disposables.push(
-        new GoalInjection(
-          handlers.injection,
-          reminderOf(input.runtime),
-          input.runtime.get(IAgentContextMemoryService),
-        ),
-      );
-      disposables.push(input.runtime.get(IEventBus).subscribe(TurnStarted, handlers.turnStarted));
-      disposables.push(input.runtime.get(ISessionUsageService).onDidRecord(handlers.usageRecorded));
-      const loop = input.runtime.get(IAgentLoopService);
-      disposables.push(
-        loop.hooks.onWillBeginStep.register('goal-count-turn', async (context, next) => {
-          await handlers.beforeStep(context);
-          await next();
-        }),
-      );
-      disposables.push(
-        loop.hooks.onDidFinishStep.register('goal-outcome-continuation', async (context, next) => {
-          handlers.afterStep(context);
-          await next();
-        }),
-      );
-      const tools = input.runtime.get(IAgentToolExecutorService);
-      disposables.push(tools.onBeforeExecuteTool(handlers.approval));
-      disposables.push(tools.onBeforeExecuteTool(handlers.veto));
-      disposables.push(
-        tools.hooks.onDidExecuteTool.register('goal-outcome-tool-result', async (context, next) => {
-          handlers.toolCompleted(context);
-          await next();
-        }),
-      );
-      disposables.push(input.runtime.get(IEventBus).subscribe(TurnEnded, handlers.turnEnded));
-      handlers.normalize();
     }
-    input.restore.waitUntil(Promise.resolve());
-    return () => {
-      for (let index = disposables.length - 1; index >= 0; index -= 1) {
-        disposables[index]!.dispose();
-      }
-    };
-  },
-);
+  });
+  const disposables: IDisposable[] = [deadline];
+  if (input.runtime.agent.agentId === MAIN_AGENT_ID) {
+    disposables.push(input.runtime.get(IAgentLifecycleService).onWillClose(handlers.closing));
+    disposables.push(new GoalInjection(
+      handlers.injection,
+      reminderOf(input.runtime),
+      input.runtime.get(IAgentLoopService),
+    ));
+    disposables.push(input.runtime.get(IEventBus).subscribe(TurnStarted, handlers.turnStarted));
+    disposables.push(input.runtime.get(ISessionUsageService).onDidRecord(handlers.usageRecorded));
+    const loop = input.runtime.get(IAgentLoopService);
+    disposables.push(loop.hooks.onWillBeginStep.register('goal-count-turn', async (context, next) => {
+      await handlers.beforeStep(context);
+      await next();
+    }));
+    disposables.push(loop.hooks.onDidFinishStep.register('goal-outcome-continuation', async (context, next) => {
+      handlers.toolCompleted(context);
+      handlers.afterStep(context);
+      await next();
+    }));
+    const tools = input.runtime.get(IAgentToolExecutorService);
+    disposables.push(registerLegacyStarting(tools, handlers.approval));
+    disposables.push(registerLegacyStarting(tools, handlers.veto));
+    disposables.push(input.runtime.get(IEventBus).subscribe(TurnEnded, handlers.turnEnded));
+    handlers.normalize();
+  }
+  input.restore.waitUntil(Promise.resolve());
+  return () => {
+    for (let index = disposables.length - 1; index >= 0; index -= 1) {
+      disposables[index]!.dispose();
+    }
+  };
+});
 
 const goalActorLogic = setup({
   types: {} as {
@@ -1502,10 +1354,7 @@ export interface IAgentGoalService {
 
 export const IAgentGoalService = createDecorator<IAgentGoalService>('agentGoalService');
 
-export class AgentGoalService
-  extends AgentActorService<GoalRuntimeState>
-  implements IAgentGoalService
-{
+export class AgentGoalService extends AgentActorService<GoalRuntimeState> implements IAgentGoalService {
   declare readonly _serviceBrand: undefined;
 
   private readonly actor: AgentActorContext<GoalRuntimeState>;
@@ -1530,13 +1379,9 @@ export class AgentGoalService
               status: 'active',
               turnsUsed: 0,
               tokensUsed: 0,
-              inputTokensUsed: 0,
-              outputTokensUsed: 0,
               wallClockMs: 0,
               wallClockResumedAt: event.wallClockResumedAt,
               budgetLimits: {},
-              createdAt: event.createdAt ?? event.wallClockResumedAt ?? 0,
-              updatedAt: event.updatedAt ?? event.createdAt ?? 0,
             };
             state.forkNotice.goalPresent = true;
             return;
@@ -1544,43 +1389,22 @@ export class AgentGoalService
           if (event instanceof GoalUpdate) {
             const s = state.goal;
             if (s !== null) {
-              let changed = false;
-              if (event.objective !== undefined && event.objective !== s.objective) {
+              if (event.objective !== undefined) {
                 s.objective = event.objective;
-                changed = true;
               }
               if (event.status !== undefined && event.status !== s.status) {
                 s.status = event.status;
                 s.terminalReason = event.status === 'active' ? undefined : event.reason;
-                s.wallClockResumedAt =
-                  event.status === 'active' ? event.wallClockResumedAt : undefined;
-                changed = true;
+                s.wallClockResumedAt = event.status === 'active' ? event.wallClockResumedAt : undefined;
               }
               if (event.turnsUsed !== undefined && event.turnsUsed !== s.turnsUsed) {
                 s.turnsUsed = event.turnsUsed;
-                changed = true;
               }
               if (event.tokensUsed !== undefined && event.tokensUsed !== s.tokensUsed) {
                 s.tokensUsed = event.tokensUsed;
-                changed = true;
-              }
-              if (
-                event.inputTokensUsed !== undefined &&
-                event.inputTokensUsed !== s.inputTokensUsed
-              ) {
-                s.inputTokensUsed = event.inputTokensUsed;
-                changed = true;
-              }
-              if (
-                event.outputTokensUsed !== undefined &&
-                event.outputTokensUsed !== s.outputTokensUsed
-              ) {
-                s.outputTokensUsed = event.outputTokensUsed;
-                changed = true;
               }
               if (event.wallClockMs !== undefined && event.wallClockMs !== s.wallClockMs) {
                 s.wallClockMs = event.wallClockMs;
-                changed = true;
               }
               if (
                 event.wallClockResumedAt !== undefined &&
@@ -1588,13 +1412,10 @@ export class AgentGoalService
                 event.wallClockResumedAt !== s.wallClockResumedAt
               ) {
                 s.wallClockResumedAt = event.wallClockResumedAt;
-                changed = true;
               }
               if (event.budgetLimits !== undefined && event.budgetLimits !== s.budgetLimits) {
                 s.budgetLimits = event.budgetLimits;
-                changed = true;
               }
-              if (changed) s.updatedAt = event.updatedAt ?? Date.now();
             }
             return;
           }
@@ -1617,9 +1438,7 @@ export class AgentGoalService
           }
         },
         read: (snapshot) => (snapshot as GoalActorSnapshot).context.durable,
-        commit: (actor, durable) => {
-          actor.send({ type: 'goal.commit', durable });
-        },
+        commit: (actor, durable) => { actor.send({ type: 'goal.commit', durable }); },
       },
     });
   }
@@ -1636,14 +1455,12 @@ export class AgentGoalService
     return isObjectiveEditedSinceTurnStart(goalOperationContext(this.actor), turnId);
   }
 
+
   async createGoal(input: CreateGoalInput, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
     return createGoal(goalOperationContext(this.actor), input, actor);
   }
 
-  async editGoalObjective(
-    input: EditGoalObjectiveInput,
-    actor: GoalActor = 'user',
-  ): Promise<GoalSnapshot> {
+  async editGoalObjective(input: EditGoalObjectiveInput, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
     return editGoalObjective(goalOperationContext(this.actor), input, actor);
   }
 
@@ -1692,3 +1509,4 @@ export class AgentGoalService
     return incrementTurn(goalOperationContext(this.actor));
   }
 }
+

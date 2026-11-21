@@ -1,5 +1,4 @@
-import { describe, expect, it } from 'bun:test';
-
+import { describe, expect, it } from 'vitest';
 import { mentionMatchSpans } from '@/lib/mention-match';
 
 describe('mentionMatchSpans', () => {
@@ -19,7 +18,6 @@ describe('mentionMatchSpans', () => {
   });
 
   it('shifts path-frame positions into the name frame via start', () => {
-    // path 'src/app.ts' (len 10), name 'app.ts' → start = 6
     expect(mentionMatchSpans('app.ts', [6, 7, 10], 6)).toEqual([
       { text: 'ap', hit: true },
       { text: 'p.', hit: false },
@@ -37,8 +35,6 @@ describe('mentionMatchSpans', () => {
   });
 
   it('extends a hit across the complete surrogate pair', () => {
-    // 'a😀b': 😀 occupies UTF-16 units 1 and 2; a match reported at offset 1
-    // must not split the pair between two spans.
     expect(mentionMatchSpans('a\u{1F600}b', [1], 0)).toEqual([
       { text: 'a', hit: false },
       { text: '\u{1F600}', hit: true },

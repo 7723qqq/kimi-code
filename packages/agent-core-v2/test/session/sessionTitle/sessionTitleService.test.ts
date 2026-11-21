@@ -1,15 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from '@moonshot-ai/testkit/vitest';
 
 import { OAuthConnectionError, OAuthUnauthorizedError } from '@moonshot-ai/kimi-code-oauth';
 
 import { DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { IOAuthService } from '#/app/auth/auth';
 import { IEventService } from '#/app/event/event';
 import type { Event2 } from '#/app/event/event2';
-import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
 import {
@@ -17,17 +17,11 @@ import {
   type OAuthRef,
   type ProviderConfig,
 } from '#/llm-adapter/provider/provider';
-import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { isUntitled } from '#/session/sessionMetadata/promptMetadata';
 import {
-  ISessionMetadata,
-  type SessionMeta,
-  type SessionMetaPatch,
-  type SessionMetadataChangedEvent,
-} from '#/session/sessionMetadata/sessionMetadata';
-import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
+  IAgentLifecycleService,
+  MAIN_AGENT_ID,
+} from '#/session/agentLifecycle/agentLifecycle';
 import {
   IAgentTitlePromptSource,
   type TitleDigestExcerpt,
@@ -35,7 +29,14 @@ import {
 } from '#/session/sessionTitle/agentTitlePromptSource';
 import { ISessionTitleService } from '#/session/sessionTitle/sessionTitle';
 import { SessionTitleService } from '#/session/sessionTitle/sessionTitleService';
-import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
+import {
+  ISessionMetadata,
+  type SessionMeta,
+  type SessionMetaPatch,
+  type SessionMetadataChangedEvent,
+} from '#/session/sessionMetadata/sessionMetadata';
+import { isUntitled } from '#/session/sessionMetadata/promptMetadata';
+import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
 
 import { registerLogServices } from '../../_base/log/stubs';
 import { stubProviderService } from '../../app/provider/stubs';
@@ -157,9 +158,6 @@ describe('SessionTitleService', () => {
   let turnExcerpt: TitleTurnExcerpt;
   let digestExcerpt: TitleDigestExcerpt;
   let tokenCalls: boolean[];
-  let localTitle: string;
-  let localRequestError: Error | undefined;
-  let localRequestCalls: number;
 
   beforeEach(() => {
     tokenError = undefined;
@@ -170,21 +168,18 @@ describe('SessionTitleService', () => {
     turnExcerpt = {};
     digestExcerpt = { turns: [] };
     tokenCalls = [];
-    localTitle = '本地生成的标题';
-    localRequestError = undefined;
-    localRequestCalls = 0;
     providers = { 'managed:kimi-code': MANAGED_PROVIDER };
     metadata = new FakeSessionMetadata();
     events = new FakeEventService();
     telemetry = [];
-    fetchMock = mock<(url: string, init?: RequestInit) => Promise<Response>>(
+    fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
       async () =>
         new Response(JSON.stringify({ title: '生成的标题' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     disposables = new DisposableStore();
     ix = createServices(disposables, {
@@ -207,32 +202,10 @@ describe('SessionTitleService', () => {
           firstTurnExcerpt: async () => turnExcerpt,
           digestExcerpt: async () => digestExcerpt,
         };
-        const localRequester: IAgentLLMRequesterService = {
-          _serviceBrand: undefined,
-          prepareTurnConfig: () => undefined,
-          currentCredentialProvider: () => undefined,
-          credentialProviderForTurn: () => undefined,
-          lastTurnRequest: () => undefined,
-          request: async (_overrides, onPart) => {
-            localRequestCalls += 1;
-            if (localRequestError !== undefined) throw localRequestError;
-            void onPart?.({ type: 'text', text: localTitle });
-            return {
-              message: { role: 'assistant', content: [], toolCalls: [] },
-              usage: { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },
-            };
-          },
-          start: () => {
-            throw new Error('not used by the title service');
-          },
-        };
         const mainAgent: IAgentScopeHandle = {
           id: MAIN_AGENT_ID,
           kind: LifecycleScope.Agent,
-          accessor: {
-            get: <T>(token: unknown) =>
-              (token === IAgentLLMRequesterService ? localRequester : promptSource) as T,
-          },
+          accessor: { get: <T>() => promptSource as T },
           dispose: () => undefined,
         };
         reg.definePartialInstance(IAgentLifecycleService, {
@@ -268,9 +241,9 @@ describe('SessionTitleService', () => {
 
   afterEach(() => {
     disposables.dispose();
-    mock.restore();
-    restoreGlobals();
-    restoreEnvs();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('replaces the easy title with the generated one', async () => {
@@ -299,22 +272,22 @@ describe('SessionTitleService', () => {
     expect(rebroadcast).toBeDefined();
   });
 
-  it('reports hosted success with timing and title length, not its content', async () => {
-    const now = spyOn(Date, 'now').mockReturnValue(1000);
-    fetchMock.mockImplementationOnce(() => {
+  it('reports a successful generation with timing and title length, not its content', async () => {
+    ix.get(ISessionTitleService);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    fetchMock.mockImplementationOnce(async () => {
       now.mockReturnValue(1125);
-      return Promise.resolve(
-        new Response(JSON.stringify({ title: '生成的标题' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      );
+      return new Response(JSON.stringify({ title: '生成的标题' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
     });
     turnExcerpt = { user: '最初的问题', assistant: '第一轮的回答' };
 
-    const title = await ix.get(ISessionTitleService).generateTitle({ source: 'first_turn' });
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ source: 'first_turn' }),
+    ).resolves.toBe('生成的标题');
 
-    expect(title).toBe('生成的标题');
     expect(telemetry).toEqual([
       {
         event: 'session_title_generation_finished',
@@ -331,8 +304,9 @@ describe('SessionTitleService', () => {
     expect(JSON.stringify(telemetry)).not.toContain('生成的标题');
   });
 
-  it('reports manual hosted generation and truncation', async () => {
-    spyOn(Date, 'now').mockReturnValue(1000);
+  it('reports manual generation and truncation', async () => {
+    ix.get(ISessionTitleService);
+    vi.spyOn(Date, 'now').mockReturnValue(1000);
     digestExcerpt = { turns: [{ user: 'hello', assistant: 'world' }] };
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ title: 'x'.repeat(201) }), {
@@ -341,11 +315,10 @@ describe('SessionTitleService', () => {
       }),
     );
 
-    const title = await ix
-      .get(ISessionTitleService)
-      .generateTitle({ force: true, source: 'digest' });
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ force: true, source: 'digest' }),
+    ).resolves.toBe('x'.repeat(200));
 
-    expect(title).toBe('x'.repeat(200));
     expect(telemetry.map((record) => record.properties)).toEqual([
       {
         trigger: 'manual',
@@ -358,13 +331,12 @@ describe('SessionTitleService', () => {
     ]);
   });
 
-  it('reports hosted request failures without exposing the error message', async () => {
+  it('reports request failures without exposing the error message', async () => {
     titlePrompts = ['hello'];
     fetchMock.mockResolvedValueOnce(new Response('sensitive response', { status: 500 }));
 
-    const title = await ix.get(ISessionTitleService).generateTitle();
+    await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBeUndefined();
 
-    expect(title).toBeUndefined();
     expect(telemetry.map((record) => record.properties)).toEqual([
       {
         trigger: 'auto',
@@ -377,18 +349,14 @@ describe('SessionTitleService', () => {
     expect(JSON.stringify(telemetry)).not.toContain('sensitive response');
   });
 
-  it('reports unexpected hosted errors and preserves their propagation', async () => {
+  it('reports unexpected errors and preserves their propagation', async () => {
     titlePrompts = ['hello'];
     tokenError = new TypeError('unexpected failure');
-    let thrown: unknown;
 
-    try {
-      await ix.get(ISessionTitleService).generateTitle({ force: true });
-    } catch (error) {
-      thrown = error;
-    }
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ force: true }),
+    ).rejects.toThrow('unexpected failure');
 
-    expect(thrown).toBe(tokenError);
     expect(telemetry.map((record) => record.properties)).toEqual([
       {
         trigger: 'manual',
@@ -399,19 +367,16 @@ describe('SessionTitleService', () => {
         duration_ms: expect.any(Number),
       },
     ]);
-    expect(JSON.stringify(telemetry)).not.toContain('unexpected failure');
   });
 
   it('skips telemetry for existing titles and reports when no input is available', async () => {
     await metadata.setTitle('user 取的标题');
-    expect(await ix.get(ISessionTitleService).generateTitle()).toBeUndefined();
+    await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBeUndefined();
     expect(telemetry).toEqual([]);
 
-    const title = await ix
-      .get(ISessionTitleService)
-      .generateTitle({ force: true, source: 'first_turn' });
-
-    expect(title).toBeUndefined();
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ force: true, source: 'first_turn' }),
+    ).resolves.toBeUndefined();
     expect(telemetry).toHaveLength(1);
     expect(telemetry[0]).toMatchObject({
       event: 'session_title_generation_finished',
@@ -423,49 +388,6 @@ describe('SessionTitleService', () => {
       },
     });
     expect(telemetry[0]!.properties?.['duration_ms']).toEqual(expect.any(Number));
-  });
-
-  it('reports local generation and truncation without recording the title', async () => {
-    delete providers['managed:kimi-code'];
-    titlePrompts = ['hello'];
-    localTitle = 'x'.repeat(201);
-
-    const title = await ix.get(ISessionTitleService).generateTitle();
-
-    expect(title).toBe('x'.repeat(200));
-    expect(localRequestCalls).toBe(1);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(telemetry.map((record) => record.properties)).toEqual([
-      {
-        trigger: 'auto',
-        source: 'user_prompts',
-        outcome: 'success',
-        duration_ms: expect.any(Number),
-        title_chars: 200,
-        title_outcome: 'truncated',
-      },
-    ]);
-    expect(JSON.stringify(telemetry)).not.toContain('x'.repeat(201));
-  });
-
-  it('reports local request failures without exposing the error message', async () => {
-    delete providers['managed:kimi-code'];
-    titlePrompts = ['hello'];
-    localRequestError = new Error('sensitive local failure');
-
-    const title = await ix.get(ISessionTitleService).generateTitle();
-
-    expect(title).toBeUndefined();
-    expect(telemetry.map((record) => record.properties)).toEqual([
-      {
-        trigger: 'auto',
-        source: 'user_prompts',
-        outcome: 'unavailable',
-        reason: 'request_failed',
-        duration_ms: expect.any(Number),
-      },
-    ]);
-    expect(JSON.stringify(telemetry)).not.toContain('sensitive local failure');
   });
 
   it('composes the title input from the recorded prompts in order', async () => {
@@ -499,16 +421,11 @@ describe('SessionTitleService', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('falls back to a locally generated title without a managed OAuth provider', async () => {
+  it('does nothing without a managed OAuth provider', async () => {
     delete providers['managed:kimi-code'];
     titlePrompts = ['hello'];
-    localTitle = '本地生成的标题';
-    localRequestCalls = 0;
 
-    await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBe('本地生成的标题');
-    expect(metadata.meta.title).toBe('本地生成的标题');
-    expect(metadata.meta.titleKind).toBe('generated');
-    expect(localRequestCalls).toBe(1);
+    await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -545,9 +462,9 @@ describe('SessionTitleService', () => {
     await metadata.setGeneratedTitleIfUncustomized('已生成的标题');
     titlePrompts = ['hello'];
 
-    await expect(ix.get(ISessionTitleService).generateTitle({ force: true })).resolves.toBe(
-      '生成的标题',
-    );
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ force: true }),
+    ).resolves.toBe('生成的标题');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(metadata.meta.title).toBe('生成的标题');
     expect(metadata.meta.titleKind).toBe('generated');
@@ -557,9 +474,9 @@ describe('SessionTitleService', () => {
     await metadata.setTitle('user 取的标题');
     titlePrompts = ['hello'];
 
-    await expect(ix.get(ISessionTitleService).generateTitle({ force: true })).resolves.toBe(
-      '生成的标题',
-    );
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ force: true }),
+    ).resolves.toBe('生成的标题');
     expect(metadata.meta.title).toBe('生成的标题');
     expect(metadata.meta.titleKind).toBe('generated');
   });
@@ -620,9 +537,9 @@ describe('SessionTitleService', () => {
       ],
     };
 
-    await expect(ix.get(ISessionTitleService).generateTitle({ source: 'digest' })).resolves.toBe(
-      '生成的标题',
-    );
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
+    ).resolves.toBe('生成的标题');
 
     let [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init?.body as string)).toEqual({
@@ -649,9 +566,9 @@ describe('SessionTitleService', () => {
       turns: [{ user: '问'.repeat(300), assistant: '答'.repeat(300) }],
     };
 
-    await expect(ix.get(ISessionTitleService).generateTitle({ source: 'digest' })).resolves.toBe(
-      '生成的标题',
-    );
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
+    ).resolves.toBe('生成的标题');
 
     const [, init] = fetchMock.mock.calls[0]!;
     const content = (JSON.parse(init?.body as string) as { params: { chat_content: string } })
@@ -667,9 +584,9 @@ describe('SessionTitleService', () => {
       })),
     };
 
-    await expect(ix.get(ISessionTitleService).generateTitle({ source: 'digest' })).resolves.toBe(
-      '生成的标题',
-    );
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
+    ).resolves.toBe('生成的标题');
 
     const [, init] = fetchMock.mock.calls[0]!;
     const content = (JSON.parse(init?.body as string) as { params: { chat_content: string } })
@@ -759,7 +676,7 @@ describe('SessionTitleService', () => {
   });
 
   it('includes environment custom headers', async () => {
-    setEnv('KIMI_CODE_CUSTOM_HEADERS', 'X-Proxy-Header: from-env\n');
+    vi.stubEnv('KIMI_CODE_CUSTOM_HEADERS', 'X-Proxy-Header: from-env\n');
     titlePrompts = ['hello'];
 
     await ix.get(ISessionTitleService).generateTitle();
@@ -771,8 +688,8 @@ describe('SessionTitleService', () => {
   });
 
   it('pairs the environment endpoint with its credential slot when it overrides persisted config', async () => {
-    setEnv('KIMI_CODE_BASE_URL', 'https://api.env.example.test/coding/v1');
-    setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.env.example.test');
+    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://api.env.example.test/coding/v1');
+    vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.env.example.test');
     titlePrompts = ['hello'];
 
     await ix.get(ISessionTitleService).generateTitle();

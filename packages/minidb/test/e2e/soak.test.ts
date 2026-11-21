@@ -1,12 +1,12 @@
-// test/e2e/soak.test.ts
+// test/e2e/soak.test.js
 //
 // Long-running soak: sustained random set/del/compact/reopen to catch memory
 // leaks and slow degradation. Opt-in via SOAK=<seconds> because it is slow.
 //
-//   SOAK=30 bun run test
+//   SOAK=30 node --test --expose-gc test/e2e/soak.test.js
 
-import { expect, test } from 'bun:test';
-
+import { test } from '@moonshot-ai/testkit/vitest';
+import assert from 'node:assert/strict';
 import { MiniDb } from '../../src/index.js';
 import { Model } from './helpers/model.js';
 import { mulberry32, pick } from './helpers/prng.js';
@@ -14,7 +14,7 @@ import { tmpDir, rmrf } from './helpers/tmp.js';
 
 const SOAK = Number(process.env.SOAK || 0);
 
-test.skipIf(!SOAK)('soak: sustained random ops do not leak memory or corrupt', async () => {
+test('soak: sustained random ops do not leak memory or corrupt', { skip: !SOAK }, async () => {
   const dir = await tmpDir();
   let db = await MiniDb.open({
     dir,
@@ -54,15 +54,15 @@ test.skipIf(!SOAK)('soak: sustained random ops do not leak memory or corrupt', a
     const finalHeap = process.memoryUsage().heapUsed;
     const mib = (n) => (n / 1024 / 1024).toFixed(1);
     console.log(`  soak: ${ops} ops, heap ${mib(firstHeap)} -> ${mib(finalHeap)} MiB`);
-    expect(
+    assert.ok(
       finalHeap < firstHeap * 3 + 50 * 1024 * 1024,
       `heap grew too much: ${firstHeap} -> ${finalHeap}`,
-    ).toBeTruthy();
+    );
 
     // integrity after reopen
     await db.close();
     db = await MiniDb.open({ dir, valueCodec: 'json' });
-    for (const k of KEYS) expect(db.get(k), `soak reopen ${k}`).toStrictEqual(model.get(k));
+    for (const k of KEYS) assert.deepEqual(db.get(k), model.get(k), `soak reopen ${k}`);
   } finally {
     await db.close().catch(() => {});
     await rmrf(dir);

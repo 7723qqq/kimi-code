@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useSession } from '../../hooks/useSession';
 import { useWire } from '../../hooks/useWire';
-import { t } from '../../i18n';
 import { computeIssues, topSeverity } from '../../lib/issues';
 import type { AgentRecord, WireEntry } from '../../types';
 import { IssuesDrawer } from './IssuesDrawer';
@@ -16,21 +15,12 @@ interface PairRecord {
   resultTime: number | null;
 }
 
-/** Scan all entries and pair every `tool.call` with its `tool.result`
- *  by `toolCallId`. Used to render the inline "→ #N" / "← #N" cross-
- *  references, the call→result duration, and to drive the hover-pair
- *  highlight. */
 function computePairMap(entries: readonly WireEntry[]): Map<string, PairRecord> {
   const map = new Map<string, PairRecord>();
   const ensure = (id: string): PairRecord => {
     const existing = map.get(id);
     if (existing) return existing;
-    const fresh: PairRecord = {
-      callLineNo: null,
-      resultLineNo: null,
-      callTime: null,
-      resultTime: null,
-    };
+    const fresh: PairRecord = { callLineNo: null, resultLineNo: null, callTime: null, resultTime: null };
     map.set(id, fresh);
     return fresh;
   };
@@ -70,17 +60,11 @@ function pairInfoFor(record: AgentRecord, map: Map<string, PairRecord>): PairHin
 
 interface WireTabProps {
   sessionId: string;
-  /** Override starting agentId; defaults to 'main'. */
   initialAgentId?: string;
 }
 
 export function WireTab({ sessionId, initialAgentId = 'main' }: WireTabProps) {
   const [agentId, setAgentId] = useState<string>(initialAgentId);
-  // Re-sync when the route changes either the session or the agent id
-  // while this component stays mounted. Without `sessionId` in the deps,
-  // navigating /sessions/A → /sessions/B (with default initialAgentId)
-  // would preserve a subagent selection from the previous session and
-  // 404 on the new one.
   useEffect(() => {
     setAgentId(initialAgentId);
   }, [sessionId, initialAgentId]);
@@ -99,9 +83,6 @@ export function WireTab({ sessionId, initialAgentId = 'main' }: WireTabProps) {
   const warnings = wire?.warnings ?? [];
 
   const pairMap = useMemo(() => computePairMap(entries), [entries]);
-  // Precompute the per-entry PairHint so the object identity is stable
-  // across hover state changes. Without this, every hover would create
-  // fresh pair objects and bust WireRow's memo for every tool row.
   const pairByLineNo = useMemo(() => {
     const m = new Map<number, PairHint>();
     for (const entry of entries) {
@@ -177,10 +158,9 @@ export function WireTab({ sessionId, initialAgentId = 'main' }: WireTabProps) {
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      {/* Toolbar */}
       <div className="flex shrink-0 items-center gap-3 border-b border-border bg-surface-1 px-3 py-2">
         <label className="flex items-center gap-2 font-mono text-[11px] text-fg-2">
-          <span className="text-fg-3">{t('wire.agent')}</span>
+          <span className="text-fg-3">agent</span>
           <select
             value={agentId}
             onChange={(e) => {
@@ -200,7 +180,7 @@ export function WireTab({ sessionId, initialAgentId = 'main' }: WireTabProps) {
         </label>
         <input
           type="text"
-          placeholder={t('wire.searchPlaceholder')}
+          placeholder="search records (substring)"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -209,16 +189,14 @@ export function WireTab({ sessionId, initialAgentId = 'main' }: WireTabProps) {
         />
         <div className="ml-auto flex items-center gap-3 font-mono text-[11px] text-fg-2">
           <span className="tabular">
-            {filtered.length} / {entries.length} {t('wire.events')}
+            {filtered.length} / {entries.length} ev
           </span>
           {issues.length > 0 && issuesSeverity !== null ? (
             <button
               onClick={() => {
                 setDrawerOpen(true);
               }}
-              title={t(issues.length > 1 ? 'wire.issuesTitle' : 'wire.issueTitle', {
-                count: issues.length,
-              })}
+              title={`${issues.length} issue${issues.length > 1 ? 's' : ''} — click to inspect`}
               className="flex items-center gap-1 border px-2 py-0.5"
               style={{
                 borderColor: `var(--color-sev-${issuesSeverity})`,
@@ -236,28 +214,25 @@ export function WireTab({ sessionId, initialAgentId = 'main' }: WireTabProps) {
             onClick={expandAll}
             className="border border-border px-2 py-0.5 text-fg-2 hover:border-border-strong hover:text-fg-0"
           >
-            {t('wire.expandAll')}
+            expand all
           </button>
           <button
             onClick={collapseAll}
             className="border border-border px-2 py-0.5 text-fg-2 hover:border-border-strong hover:text-fg-0"
           >
-            {t('wire.collapse')}
+            collapse
           </button>
         </div>
       </div>
 
       {warnings.length > 0 ? (
         <div className="shrink-0 border-b border-[var(--color-sev-warning)] bg-[color-mix(in_oklab,var(--color-sev-warning)_8%,transparent)] px-3 py-1 font-mono text-[11px] text-[var(--color-sev-warning)]">
-          {t(warnings.length > 1 ? 'wire.warnings' : 'wire.warning', {
-            count: warnings.length,
-            first: warnings[0] ?? '',
-          })}
+          {warnings.length} warning{warnings.length > 1 ? 's' : ''} · first: {warnings[0]}
         </div>
       ) : null}
 
       {isLoading ? (
-        <div className="p-6 font-mono text-[12px] text-fg-3">{t('wire.loading')}</div>
+        <div className="p-6 font-mono text-[12px] text-fg-3">loading wire…</div>
       ) : error ? (
         <div className="p-6 font-mono text-[12px] text-[var(--color-sev-error)]">
           {(error as Error).message}
@@ -265,7 +240,9 @@ export function WireTab({ sessionId, initialAgentId = 'main' }: WireTabProps) {
       ) : (
         <div ref={parentRef} className="min-h-0 flex-1 overflow-y-auto">
           {filtered.length === 0 ? (
-            <div className="p-6 font-mono text-[12px] text-fg-3">{t('wire.noMatch')}</div>
+            <div className="p-6 font-mono text-[12px] text-fg-3">
+              no records match the current filter
+            </div>
           ) : (
             <div
               style={{
@@ -277,7 +254,8 @@ export function WireTab({ sessionId, initialAgentId = 'main' }: WireTabProps) {
                 const e = filtered[vi.index];
                 if (!e) return null;
                 const pair = pairByLineNo.get(e.lineNo);
-                const highlighted = pair !== undefined && hoveredPairId === pair.toolCallId;
+                const highlighted =
+                  pair !== undefined && hoveredPairId === pair.toolCallId;
                 return (
                   <div
                     key={vi.key}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { Message, ToolCall } from '#/llm/message';
-import { ToolCallIdNormalizer } from '#/llm/toolCallIdNormalizer';
+import type { Message, ToolCall } from '#human/message';
+import { ToolCallIdNormalizer } from '#human/llm/toolCallIdNormalizer';
 
 function call(id: string, streamIndex?: number): ToolCall {
   return { type: 'function', id, name: 'Bash', arguments: '{}', _streamIndex: streamIndex };

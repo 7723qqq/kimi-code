@@ -1,5 +1,5 @@
-import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
-import type { ContentPart, Message } from '@moonshot-ai/kosong';
+import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
+import type { ContentPart, Message } from '@moonshot-ai/agent-core-v2';
 
 import type { BackgroundTaskStatus } from '#/task';
 
@@ -7,7 +7,6 @@ export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
 
 export interface UserPromptOrigin {
   readonly kind: 'user';
-  readonly skillActivations?: readonly SkillActivationOrigin[];
 }
 
 export const USER_PROMPT_ORIGIN: UserPromptOrigin = { kind: 'user' };

@@ -1,18 +1,6 @@
-/**
- * Header chip providers — produce a short "stat" suffix appended to the
- * tool call header once a result has arrived. Chips own the *numeric*
- * summary (line counts, exit codes, byte sizes), so summary renderers
- * below don't repeat them.
- *
- * A chip returning `''` is suppressed; tools without an entry in the
- * registry get no chip at all.
- */
-
-import { t } from '#/i18n';
 import { computeDiffLines } from '#/tui/components/media/diff-preview';
 import { OUTCOME_MAX_LINES } from '#/tui/constant/rendering';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
-import { formatBytes } from '#/tui/utils/format-bytes';
 
 import { goalStatusChip } from './goal';
 import { parseGlobOutput, parseGrepOutput, searchNoticeOnly } from './grep-output';
@@ -20,15 +8,25 @@ import { readMediaChip } from './media';
 import { nonEmptyLines } from './outcome';
 import { isSpilledToolOutput, strArg, stripSpillPointer } from './types';
 import { waitForChip } from './wait-for';
+import { t } from '#/i18n';
 
 export type ChipProvider = (toolCall: ToolCallBlockData, result: ToolResultBlockData) => string;
 
-// `partial` marks a lower bound (`12+ files`) when the tool reported an incomplete result set.
+export function countNonEmptyLines(text: string): number {
+  if (text.length === 0) return 0;
+  let n = 0;
+  for (const line of text.split('\n')) if (line.length > 0) n++;
+  return n;
+}
+
 function pluralize(n: number, singular: string, plural?: string, partial = false): string {
-  return t('tui.statusMessages.chipMatches', {
-    count: `${String(n)}${partial ? '+' : ''}`,
-    label: n === 1 ? singular : (plural ?? `${singular}s`),
-  });
+  return `${String(n)}${partial ? '+' : ''} ${n === 1 ? singular : (plural ?? `${singular}s`)}`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${String(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export interface EditStats {
@@ -83,45 +81,19 @@ const writeChip: ChipProvider = (toolCall) => formatWriteChip(computeWriteStats(
 const readChip: ChipProvider = (_toolCall, result) =>
   pluralize(nonEmptyLines(result.output).length, 'line');
 
-const readOutputChip: ChipProvider = (toolCall, result) =>
-  readMediaChip(toolCall, result) || readChip(toolCall, result);
-
-// A collapsed Bash card shows its output whole when it fits the outcome
-// rows; once one line stands in for the rest, the chip counts the hidden
-// lines, not the total. A failed command keeps its multi-line preview, whose
-// own trailer already counts what is left, so the chip stays out of its way.
 const bashChip: ChipProvider = (_toolCall, result) => {
   if (result.is_error === true) return '';
-  // Counted the way the outcome rows are, so whitespace-only rows neither
-  // count as hidden nor leave the chip claiming more than the card holds.
   const lines = nonEmptyLines(result.output).length;
-  return lines <= OUTCOME_MAX_LINES
-    ? ''
-    : pluralize(
-        lines - 1,
-        t('tui.statusMessages.chipMoreLine_one'),
-        t('tui.statusMessages.chipMoreLine_other'),
-      );
+  return lines <= OUTCOME_MAX_LINES ? '' : pluralize(lines - 1, t('tui.statusMessages.chipMoreLine_one'));
 };
 
-// Grep's default mode lists files, so the chip counts what the mode
-// returns: files, or matches and the files they fall in. Unnumbered content
-// with context flags mixes match and context rows, so only the file count
-// is exact there.
 const grepChip: ChipProvider = (toolCall, result) => {
-  // A notice-only result (cut short, or only filtered sensitive files) is not
-  // an empty search; the glance shows the notice and the chip stays out of
-  // its way. A paginated count-mode page past the last row still carries
-  // the totals, so the emptiness check reads the summary-backed file count.
   if (searchNoticeOnly(toolCall, result.output)) return '';
   const stats = parseGrepOutput(toolCall, result.output);
   if (stats.files === 0) return t('tui.statusMessages.chipNoMatches');
-  if (stats.mode === 'files_with_matches') {
-    return pluralize(stats.files, 'file', undefined, stats.partial);
-  }
+  if (stats.mode === 'files_with_matches') return pluralize(stats.files, 'file', undefined, stats.partial);
   if (stats.matches === null) return pluralize(stats.files, 'file', undefined, stats.partial);
   const matches = pluralize(stats.matches, 'match', 'matches', stats.partial);
-  // A paginated content result only shows the files on its page.
   if (stats.filesPartial) return matches;
   return stats.files === 1
     ? `${matches} in 1 file`
@@ -144,10 +116,7 @@ const webSearchChip: ChipProvider = (_toolCall, result) => {
   for (const line of lines) {
     if (/^\s*(\d+\.|[-*])\s+/.test(line)) count++;
   }
-  if (count === 0)
-    return lines.length === 0
-      ? t('tui.statusMessages.chipNoResults')
-      : t('tui.statusMessages.chipWebResult');
+  if (count === 0) return lines.length === 0 ? t('tui.statusMessages.chipNoResults') : t('tui.statusMessages.chipWebResult');
   return pluralize(count, 'result');
 };
 
@@ -158,7 +127,7 @@ const REGISTRY: Record<string, ChipProvider> = {
   Bash: bashChip,
   Edit: editChip,
   Write: writeChip,
-  Read: readOutputChip,
+  Read: readChip,
   ReadMediaFile: readMediaChip,
   Grep: grepChip,
   Glob: globChip,
@@ -173,7 +142,6 @@ export function pickChip(toolName: string): ChipProvider | undefined {
   return REGISTRY[toolName];
 }
 
-/** The plain chip text for a finished result, for callers that style it themselves. */
 export function chipText(toolCall: ToolCallBlockData, result: ToolResultBlockData): string {
   if (isSpilledToolOutput(result.output)) return '';
   return pickChip(toolCall.name)?.(toolCall, result) ?? '';

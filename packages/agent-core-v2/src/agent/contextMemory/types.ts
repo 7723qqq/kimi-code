@@ -1,8 +1,8 @@
-import type { AgentTaskStatus } from '#/agent/task/task';
-import type { Message } from '#/llm-adapter/contract/message';
+import type { ContentPart, Message, ToolCall, ToolDescription } from '#human/message';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ContentPart } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
+
+import type { AgentTaskStatus } from '#/agent/task/task';
 
 export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
 
@@ -15,7 +15,7 @@ export interface PromptFileAttachment {
 
 export interface UserPromptOrigin {
   readonly kind: 'user';
-  readonly inTurn?: true;
+  readonly inTurn?: boolean;
   readonly clientMetadata?: readonly Readonly<Record<string, unknown>>[];
   readonly skillActivations?: readonly BundledSkillActivation[];
   readonly attachments?: readonly PromptFileAttachment[];
@@ -34,7 +34,6 @@ export interface BundledSkillActivation {
 
 export interface SkillActivationOrigin {
   readonly kind: 'skill_activation';
-  readonly inTurn?: true;
   readonly clientMetadata?: readonly Readonly<Record<string, unknown>>[];
   readonly activationId: string;
   readonly skillName: string;
@@ -48,7 +47,6 @@ export interface SkillActivationOrigin {
 
 export interface PluginCommandOrigin {
   readonly kind: 'plugin_command';
-  readonly inTurn?: true;
   readonly activationId: string;
   readonly pluginId: string;
   readonly commandName: string;
@@ -76,7 +74,6 @@ export interface CompactionSummaryOrigin {
 export interface SystemTriggerOrigin {
   readonly kind: 'system_trigger';
   readonly name: string;
-  readonly backgroundHelper?: string;
 }
 
 export interface TaskOrigin {
@@ -130,21 +127,20 @@ export interface ContextMessageTiming {
   readonly llmStreamDurationMs?: number;
 }
 
-export interface ContextContentTiming {
-  readonly startedAt?: number;
-  readonly durationMs?: number;
-}
-
 export type ContextMessage = Message & {
   readonly id?: string;
   readonly providerMessageId?: string;
+  readonly name?: string;
   readonly origin?: PromptOrigin | undefined;
   readonly isError?: boolean;
+  readonly partial?: boolean;
+  readonly toolCalls?: readonly ToolCall[];
+  readonly tools?: readonly ToolDescription[];
+  readonly toolCallId?: string;
   toolCallDisplays?: Record<string, ToolInputDisplay>;
   readonly note?: string;
   readonly usage?: TokenUsage;
   readonly llmTiming?: ContextMessageTiming;
-  readonly contentTimings?: readonly (ContextContentTiming | undefined)[];
   readonly durationMs?: number;
 };
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, jest, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { IAgentPlanService, PlanData } from '#/features/plan/plan';
 import {
@@ -12,6 +12,7 @@ import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
 
+
 const options = [
   { label: 'Approach A', description: 'Small change.' },
   { label: 'Approach B', description: 'Larger change.' },
@@ -23,7 +24,7 @@ function planService(): IAgentPlanService {
     enter: async () => {},
     cancel: () => {},
     clear: async () => {},
-    exit: mock(),
+    exit: vi.fn(),
     resolveFile: async () => undefined,
     recordRevision: async () => {},
     status: async () =>
@@ -31,7 +32,7 @@ function planService(): IAgentPlanService {
         id: 'test-plan',
         content: '# Plan',
         path: '/tmp/kimi-plan.md',
-      }) satisfies NonNullable<PlanData>,
+      } satisfies NonNullable<PlanData>),
   };
 }
 
@@ -146,7 +147,7 @@ describe('ExitPlanMode review display', () => {
   });
 
   it('records a revision once per submission when the review display resolves', async () => {
-    const recordRevision = jest.fn(async () => {});
+    const recordRevision = vi.fn(async () => {});
     const service: IAgentPlanService = { ...planService(), recordRevision };
 
     const display = await reviewDisplay(service, {});
@@ -156,7 +157,7 @@ describe('ExitPlanMode review display', () => {
   });
 
   it('still builds the review display when revision recording fails', async () => {
-    const recordRevision = jest.fn(async () => {
+    const recordRevision = vi.fn(async () => {
       throw new Error('disk full');
     });
     const service: IAgentPlanService = { ...planService(), recordRevision };
@@ -168,7 +169,7 @@ describe('ExitPlanMode review display', () => {
   });
 
   it('skips revision recording when the plan content is empty', async () => {
-    const recordRevision = jest.fn(async () => {});
+    const recordRevision = vi.fn(async () => {});
     const service: IAgentPlanService = {
       ...planService(),
       recordRevision,
@@ -190,7 +191,7 @@ describe('ExitPlanMode review display', () => {
 
 describe('ExitPlanMode without a review', () => {
   it('keeps plan mode active instead of exiting when the plan was not reviewed', async () => {
-    const exit = jest.fn();
+    const exit = vi.fn();
 
     const result = await executeTool(new ExitPlanModeTool({ ...planService(), exit }), {
       turnId: 7,

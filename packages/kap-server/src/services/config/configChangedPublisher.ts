@@ -1,11 +1,5 @@
-import {
-  ConfigChanged,
-  IConfigService,
-  IEventService,
-  type Scope,
-} from '@moonshot-ai/agent-core-v2';
+import { ConfigChanged, IConfigRegistry, IConfigService, IEventService, type Scope } from '@moonshot-ai/agent-core-v2';
 
-import { SYSTEM_CLOCK, type Clock, type TimerHandle } from '../../lib/clock';
 import { toConfigResponse } from '../../routes/config';
 
 export interface ConfigChangedPublisher {
@@ -14,14 +8,12 @@ export interface ConfigChangedPublisher {
 
 const FLUSH_DELAY_MS = 10;
 
-export function startConfigChangedPublisher(
-  core: Scope,
-  clock: Clock = SYSTEM_CLOCK,
-): ConfigChangedPublisher {
+export function startConfigChangedPublisher(core: Scope): ConfigChangedPublisher {
   const config = core.accessor.get(IConfigService);
+  const registry = core.accessor.get(IConfigRegistry);
   const events = core.accessor.get(IEventService);
   let closed = false;
-  let timer: TimerHandle | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const pending = new Set<string>();
 
   const flush = (): void => {
@@ -31,7 +23,7 @@ export function startConfigChangedPublisher(
     pending.clear();
     events.publish(
       new ConfigChanged({
-        payload: { changedFields, config: toConfigResponse(config.getAll()) },
+        payload: { changedFields, config: toConfigResponse(config.getAll(), registry) },
       }),
     );
   };
@@ -39,15 +31,15 @@ export function startConfigChangedPublisher(
   const subscription = config.onDidSectionChange((event) => {
     if (closed) return;
     pending.add(event.domain);
-    if (timer !== undefined) clock.clearTimeout(timer);
-    timer = clock.setTimeout(flush, FLUSH_DELAY_MS);
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(flush, FLUSH_DELAY_MS);
   });
 
   return {
     close: () => {
       closed = true;
       if (timer !== undefined) {
-        clock.clearTimeout(timer);
+        clearTimeout(timer);
         timer = undefined;
       }
       pending.clear();

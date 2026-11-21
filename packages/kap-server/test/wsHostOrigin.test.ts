@@ -1,14 +1,13 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterAll, afterEach, beforeAll, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
-import { fixedTokenAuth } from './helpers/fixedAuth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { removeTempHome } from './helpers/tempHome';
+import { fixedTokenAuth } from './helpers/fixedAuth';
 
 const TOKEN = 'test-token';
 
@@ -30,14 +29,17 @@ function expectRejected(url: string, opts?: ConnectOptions): Promise<void> {
     const done = (err?: Error): void => {
       clearTimeout(t);
       ws.removeAllListeners();
-      ws.on('error', () => {});
       try {
         ws.terminate();
-      } catch {}
+      } catch {
+      }
       if (err !== undefined) reject(err);
       else resolve();
     };
-    const t = setTimeout(() => done(new Error('connection was not rejected within timeout')), 1500);
+    const t = setTimeout(
+      () => done(new Error('connection was not rejected within timeout')),
+      1500,
+    );
     ws.once('open', () => done(new Error('connection unexpectedly opened')));
     ws.once('error', () => done());
     ws.once('close', () => done());
@@ -67,7 +69,8 @@ describe('WS upgrade Host/Origin checks', () => {
     for (const ws of sockets.splice(0)) {
       try {
         ws.close();
-      } catch {}
+      } catch {
+      }
     }
   });
 
@@ -77,7 +80,7 @@ describe('WS upgrade Host/Origin checks', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });

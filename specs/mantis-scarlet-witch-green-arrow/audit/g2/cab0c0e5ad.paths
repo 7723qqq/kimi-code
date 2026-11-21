@@ -1,0 +1,3 @@
+A	.changeset/claude-5-output-ceiling.md
+M	packages/core/src/llm/builtin/protocol/anthropic/legalize.ts
+M	packages/core/test/llm/anthropic/anthropic.test.ts

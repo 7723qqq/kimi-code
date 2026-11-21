@@ -4,14 +4,12 @@ import { join } from 'node:path';
 
 process.env['KIMI_CODE_SEARCH_WORKER'] = '1';
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-
 import { ISessionIndex, type SessionSummary } from '@moonshot-ai/agent-core-v2';
+import { afterAll, beforeAll, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { type RunningServer, startServer } from '../../src/start';
-import { authedFetch } from '../helpers/auth';
 import { TEST_HOST_IDENTITY } from '../helpers/hostIdentity';
-import { waitForAssertion } from '../helpers/waitFor';
+import { authedFetch } from '../helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -43,7 +41,6 @@ interface SearchPageWire {
     total_sessions: number;
     documents: number;
   };
-  source: string;
 }
 
 const WS = 'ws_route';
@@ -98,10 +95,7 @@ describe('server-v2 /api/v1/search', () => {
       ].join('\n') + '\n',
       'utf8',
     );
-    await writeFile(
-      join(home, 'sessions', WS, 's1', 'state.json'),
-      JSON.stringify({ title: '苹果询价' }),
-    );
+    await writeFile(join(home, 'sessions', WS, 's1', 'state.json'), JSON.stringify({ title: '苹果询价' }));
     const summaries: SessionSummary[] = [
       {
         id: 's1',
@@ -117,8 +111,8 @@ describe('server-v2 /api/v1/search', () => {
       host: '127.0.0.1',
       port: 0,
       homeDir: home,
-      logLevel: 'silent',
       env: { ...process.env, KIMI_CODE_GLOBAL_SEARCH: '1' },
+      logLevel: 'silent',
       seeds: [[ISessionIndex, stubSessionIndex(summaries)]],
     });
     base = `http://127.0.0.1:${server.port}`;
@@ -179,6 +173,7 @@ describe('server-v2 /api/v1/search', () => {
     expect(assistant!.step_id).toBe('t0.1');
     expect(body.data.items.some((h) => h.role === 'title')).toBe(true);
     expect(body.data.has_more).toBe(false);
+    expect(body.data).not.toHaveProperty('source');
   });
 
   it('rejects invalid bodies with 40001', async () => {
@@ -245,8 +240,8 @@ describe('server-v2 session routes with the global search DB unavailable', () =>
       host: '127.0.0.1',
       port: 0,
       homeDir: home as string,
-      logLevel: 'silent',
       env: { ...process.env, KIMI_CODE_GLOBAL_SEARCH: '1' },
+      logLevel: 'silent',
     });
     base = `http://127.0.0.1:${server.port}`;
   }
@@ -265,69 +260,52 @@ describe('server-v2 session routes with the global search DB unavailable', () =>
     return (await res.json()) as Envelope<T>;
   }
 
-  it(
-    'session list / create / get / cold resume pass with the search index down',
-    { timeout: 30_000 },
-    async () => {
-      await boot();
-      const created = await postJson<{ id: string }>('/api/v1/sessions', {
-        metadata: { cwd: home },
-      });
-      expect(created.code).toBe(0);
-      const id = created.data.id;
-      const list = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
-      expect(list.code).toBe(0);
-      await waitForAssertion(
-        async () =>
-          expect(
-            (await getJson<{ items: { id: string }[] }>('/api/v1/sessions')).data.items.map(
-              (item) => item.id,
-            ),
-          ).toContain(id),
-        { interval: 100, timeout: 20_000 },
-      );
-      await server!.close();
-      server = undefined;
+  it('session list / create / get / cold resume pass with the search index down', { timeout: 30_000 }, async () => {
+    await boot();
+    const created = await postJson<{ id: string }>('/api/v1/sessions', {
+      metadata: { cwd: home },
+    });
+    expect(created.code).toBe(0);
+    const id = created.data.id;
+    const list = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
+    expect(list.code).toBe(0);
+    expect(list.data.items.map((item) => item.id)).toContain(id);
+    await server!.close();
+    server = undefined;
 
-      await boot();
-      const coldList = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
-      expect(coldList.code).toBe(0);
-      expect(coldList.data.items.map((item) => item.id)).toContain(id);
-      const got = await getJson<{ id: string }>(`/api/v1/sessions/${id}`);
-      expect(got.code).toBe(0);
-      const messages = await getJson<{ items: unknown[] }>(`/api/v1/sessions/${id}/messages`);
-      expect(messages.code).toBe(0);
+    await boot();
+    const coldList = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
+    expect(coldList.code).toBe(0);
+    expect(coldList.data.items.map((item) => item.id)).toContain(id);
+    const got = await getJson<{ id: string }>(`/api/v1/sessions/${id}`);
+    expect(got.code).toBe(0);
+    const turns = await getJson<{ turns: unknown[] }>(`/api/v1/sessions/${id}/agents/main/turns`);
+    expect(turns.code).toBe(0);
 
-      const probe = await stat(join(home as string, 'search-index'));
-      expect(probe.isFile()).toBe(true);
-    },
-  );
+    const probe = await stat(join(home as string, 'search-index'));
+    expect(probe.isFile()).toBe(true);
+  });
 
-  it(
-    'only the full-text search request reports the index outage',
-    { timeout: 30_000 },
-    async () => {
-      await boot();
-      const created = await postJson<{ id: string }>('/api/v1/sessions', {
-        metadata: { cwd: home },
-      });
-      expect(created.code).toBe(0);
+  it('only the full-text search request reports the index outage', { timeout: 30_000 }, async () => {
+    await boot();
+    const created = await postJson<{ id: string }>('/api/v1/sessions', {
+      metadata: { cwd: home },
+    });
+    expect(created.code).toBe(0);
 
-      await waitForAssertion(
-        async () =>
-          expect(
-            (await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' })).code,
-          ).toBe(50001),
-        { interval: 100, timeout: 10_000 },
-      );
-      const search = await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' });
-      expect(search.code).toBe(50001);
-      expect(search.msg).toContain('search index failed to open');
+    await expect
+      .poll(
+        async () => (await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' })).code,
+        { timeout: 10_000, interval: 100 },
+      )
+      .toBe(50001);
+    const search = await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' });
+    expect(search.code).toBe(50001);
+    expect(search.msg).toContain('search index failed to open');
 
-      const list = await getJson<{ items: unknown[] }>('/api/v1/sessions');
-      expect(list.code).toBe(0);
-    },
-  );
+    const list = await getJson<{ items: unknown[] }>('/api/v1/sessions');
+    expect(list.code).toBe(0);
+  });
 });
 
 describe('server-v2 /api/v1/search with global search off by default', () => {
@@ -358,21 +336,20 @@ describe('server-v2 /api/v1/search with global search off by default', () => {
     }
   });
 
-  it(
-    'reports the switch instead of indexing, and leaves the session routes alone',
-    { timeout: 20_000 },
-    async () => {
-      const res = await authedFetch(server as RunningServer, base, '/api/v1/search', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query: 'anything' }),
-      });
-      const search = (await res.json()) as Envelope<SearchPageWire>;
-      expect(search.code).toBe(50001);
-      expect(search.msg).toContain('global_search');
+  it('reports the switch instead of indexing, and leaves the session routes alone', { timeout: 20_000 }, async () => {
+    const searchRes = await authedFetch(server!, base, '/api/v1/search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'anything' }),
+    });
+    const search = (await searchRes.json()) as Envelope<unknown>;
+    expect(search.code).toBe(50001);
+    expect(search.msg).toContain('global_search');
 
-      const list = await authedFetch(server as RunningServer, base, '/api/v1/sessions');
-      expect(list.status).toBe(200);
-    },
-  );
+    const listRes = await authedFetch(server!, base, '/api/v1/sessions');
+    const list = (await listRes.json()) as Envelope<{ items: unknown[] }>;
+    expect(list.code).toBe(0);
+
+    await expect(stat(join(home!, 'search-index'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
 });

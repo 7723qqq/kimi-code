@@ -1,12 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { Command } from 'commander';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { handleDoctor, registerDoctorCommand, type DoctorDeps } from '#/cli/sub/doctor';
-import { restoreEnvs } from '#test/helpers/stubs';
+import {
+  handleDoctor,
+  registerDoctorCommand,
+  type DoctorDeps,
+} from '#/cli/sub/doctor';
 
 let dir: string;
 
@@ -16,7 +19,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  restoreEnvs();
+  vi.unstubAllEnvs();
   await rm(dir, { recursive: true, force: true });
 });
 

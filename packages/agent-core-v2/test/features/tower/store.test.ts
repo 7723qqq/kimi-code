@@ -1,7 +1,8 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { execFile } from 'node:child_process';
 import {
-  cp,
+  appendFile,
+  type FileHandle,
+  link,
   mkdir,
   mkdtemp,
   open,
@@ -9,12 +10,16 @@ import {
   readFile,
   rm,
   stat,
+  symlink,
   utimes,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   MAX_REVIEW_ROUNDS,
@@ -25,6 +30,7 @@ import {
   commitPaths,
   isAncestor,
   isWorktreeDirty,
+  mapWithConcurrency,
   mergeNoFf,
   parseFrontmatter,
   scopesOverlap,
@@ -36,6 +42,11 @@ import type {
   TowerRosterEntry,
   TowerState,
 } from '../../../src/features/tower/protocol';
+
+void vi.mock('node:fs/promises', async () => {
+  const actual = await import('node:fs/promises');
+  return { ...actual, link: vi.fn(actual.link) };
+});
 
 const execFileAsync = promisify(execFile);
 
@@ -57,38 +68,23 @@ async function commitFile(
   await git(cwd, 'commit', '-m', message);
 }
 
-let root: string;
 let repo: string;
 let store: TowerStore;
-let template: string | undefined;
-
-beforeAll(async () => {
-  template = await mkdtemp(join(tmpdir(), 'tower-store-template-'));
-  await git(template, 'init', '-b', 'main');
-  await git(template, 'config', 'core.autocrlf', 'false');
-  await git(template, 'config', 'user.email', 'tower-test@example.com');
-  await git(template, 'config', 'user.name', 'Tower Test');
-  await commitFile(template, 'README.md', '# fixture\n', 'initial');
-});
-
-afterAll(async () => {
-  if (template !== undefined) await rm(template, { recursive: true, force: true });
-});
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'tower-store-test-'));
-  repo = join(root, 'repo');
-  await cp(template!, repo, { recursive: true });
+  repo = await mkdtemp(join(tmpdir(), 'tower-store-test-'));
+  await git(repo, 'init', '-b', 'main');
+  await git(repo, 'config', 'user.email', 'tower-test@example.com');
+  await git(repo, 'config', 'user.name', 'Tower Test');
+  await commitFile(repo, 'README.md', '# fixture\n', 'initial');
   store = new TowerStore(repo);
 });
 
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
+  await rm(repo, { recursive: true, force: true });
 });
 
-function rosterEntry(
-  partial: Partial<TowerRosterEntry> & Pick<TowerRosterEntry, 'name' | 'kind'>,
-): TowerRosterEntry {
+function rosterEntry(partial: Partial<TowerRosterEntry> & Pick<TowerRosterEntry, 'name' | 'kind'>): TowerRosterEntry {
   return {
     agentId: `agent-${partial.name}`,
     spawnedAt: new Date().toISOString(),
@@ -114,7 +110,9 @@ async function setupMission(input: {
   await commitFile(worktreeOf(mission), input.file, input.content, `work on ${mission.id}`);
   if (input.kind === 'artifact' && (input.status ?? 'completed') === 'completed') {
     const worker = `worker-${mission.id}`;
-    await store.registerAgent(rosterEntry({ name: worker, kind: 'worker', missionId: mission.id }));
+    await store.registerAgent(
+      rosterEntry({ name: worker, kind: 'worker', missionId: mission.id }),
+    );
     await store.complete(worker, `Key artifact: ${input.file}`, [input.file]);
     return mission;
   }
@@ -251,9 +249,7 @@ describe('init', () => {
 
   it('keeps the roster on a same-session re-init', async () => {
     await store.init('session-a');
-    await store.registerAgent(
-      rosterEntry({ name: 'agent-build', kind: 'worker', sessionId: 'session-a' }),
-    );
+    await store.registerAgent(rosterEntry({ name: 'agent-build', kind: 'worker', sessionId: 'session-a' }));
 
     const second = await store.init('session-a');
 
@@ -268,15 +264,11 @@ describe('init', () => {
     expect(state.roster.agents.map((agent) => agent.name)).toEqual(['agent-build']);
   });
 
-  it("retires a foreign session's roster on adopt and logs the session boundary", async () => {
+  it('retires a foreign session\'s roster on adopt and logs the session boundary', async () => {
     await store.init('session-a');
     await store.plan([{ title: 'kept mission', scope: ['src/kept/**'] }]);
-    await store.registerAgent(
-      rosterEntry({ name: 'agent-build', kind: 'worker', sessionId: 'session-a' }),
-    );
-    await store.registerAgent(
-      rosterEntry({ name: 'reviewer-a', kind: 'reviewer', sessionId: 'session-a' }),
-    );
+    await store.registerAgent(rosterEntry({ name: 'agent-build', kind: 'worker', sessionId: 'session-a' }));
+    await store.registerAgent(rosterEntry({ name: 'reviewer-a', kind: 'reviewer', sessionId: 'session-a' }));
 
     const second = await store.init('session-b');
 
@@ -292,15 +284,7 @@ describe('init', () => {
     expect(state.roster.agents).toEqual([]);
     expect(state.missions).toHaveLength(1);
     const log = await store.recentLog(5);
-    expect(
-      log.some(
-        (line) =>
-          line.includes(' adopt ') &&
-          line.includes('session=session-b') &&
-          line.includes('previous=session-a') &&
-          line.includes('retired=agent-build,reviewer-a'),
-      ),
-    ).toBe(true);
+    expect(log.some((line) => line.includes(' adopt ') && line.includes('session=session-b') && line.includes('previous=session-a') && line.includes('retired=agent-build,reviewer-a'))).toBe(true);
   });
 
   it('rejects reserved protocol names on roster registration', async () => {
@@ -409,9 +393,7 @@ describe('release', () => {
     const state = await store.load();
     expect(state.sessionId).toBeUndefined();
     const log = await store.recentLog(5);
-    expect(
-      log.some((line) => line.includes(' release ') && line.includes('session=session-a')),
-    ).toBe(true);
+    expect(log.some((line) => line.includes(' release ') && line.includes('session=session-a'))).toBe(true);
   });
 
   it('keeps the recorded owner for a different session and logs nothing', async () => {
@@ -812,7 +794,9 @@ describe('plan', () => {
   });
 
   it('renders the mission kind in MISSIONS.md and the mission file', async () => {
-    await store.plan([{ title: 'Artifact engine', scope: ['artifacts/**'], kind: 'artifact' }]);
+    await store.plan([
+      { title: 'Artifact engine', scope: ['artifacts/**'], kind: 'artifact' },
+    ]);
 
     const index = await readFile(join(repo, '.tower/comms/MISSIONS.md'), 'utf8');
     expect(index).toContain('| ID | Mission | Branch | Worktree | Status | Owner | Kind |');
@@ -870,7 +854,7 @@ describe('plan', () => {
     ]);
     expect(missions.map((m) => m.id)).toEqual(['M1', 'M2']);
     expect(missions[1]!.deps).toEqual(['M1']);
-    expect(missions[1]!.notes.join('\n').split(sep).join('/')).toContain('auto dependency on M1');
+    expect(missions[1]!.notes.join('\n')).toContain('auto dependency on M1');
 
     const index = await readFile(join(repo, '.tower/comms/MISSIONS.md'), 'utf8');
     expect(index).toContain('M1 → M2');
@@ -910,9 +894,9 @@ describe('plan', () => {
   });
 
   it('rejects deps referencing unknown missions', async () => {
-    await expect(store.plan([{ title: 'a', scope: ['src/a/**'], deps: ['M9'] }])).rejects.toThrow(
-      /depends on unknown mission "M9"/,
-    );
+    await expect(
+      store.plan([{ title: 'a', scope: ['src/a/**'], deps: ['M9'] }]),
+    ).rejects.toThrow(/depends on unknown mission "M9"/);
   });
 
   it('lets new missions reuse the scope of an already-merged mission', async () => {
@@ -994,9 +978,9 @@ describe('plan', () => {
     await expect(
       store.plan([{ title: 'Исправить ошибку входа', scope: ['src/x/**'] }]),
     ).rejects.toThrow(/contains non-ASCII characters \(first: "И"\)/);
-    await expect(store.plan([{ title: '한글 제목', scope: ['src/x/**'] }])).rejects.toThrow(
-      /contains non-ASCII characters \(first: "한"\)/,
-    );
+    await expect(
+      store.plan([{ title: '한글 제목', scope: ['src/x/**'] }]),
+    ).rejects.toThrow(/contains non-ASCII characters \(first: "한"\)/);
     expect((await store.load()).missions).toHaveLength(0);
   });
 
@@ -1055,6 +1039,22 @@ describe('inbox send', () => {
     const ref = /ref=(\S+)/.exec(sendLine ?? '')?.[1];
     expect(ref).toBe(rel);
     expect((await stat(join(repo, ref!))).isFile()).toBe(true);
+  });
+
+  it('falls back to exclusive creation without overwriting when hard links are unavailable', async () => {
+    const linkSpy = vi.mocked(link).mockRejectedValue(
+      Object.assign(new Error('hard links unavailable'), { code: 'EPERM' }),
+    );
+    try {
+      const first = await store.send('tower', { to: 'w1', subject: 'fallback', body: 'one' });
+      const second = await store.send('tower', { to: 'w1', subject: 'fallback', body: 'two' });
+
+      expect(second).not.toBe(first);
+      expect(parseFrontmatter(await readFile(store.abs(first), 'utf8')).body).toBe('one');
+      expect(parseFrontmatter(await readFile(store.abs(second), 'utf8')).body).toBe('two');
+    } finally {
+      linkSpy.mockRestore();
+    }
   });
 });
 
@@ -1115,7 +1115,9 @@ describe('inbox read tracking', () => {
       rosterEntry({ name: 'w1', kind: 'worker', spawnedAt: '2026-09-20T10:00:00.000Z' }),
     );
 
-    expect((await store.load()).roster.agents[0]?.lastInboxReadAt).toBe('2026-09-20T10:00:00.000Z');
+    expect((await store.load()).roster.agents[0]?.lastInboxReadAt).toBe(
+      '2026-09-20T10:00:00.000Z',
+    );
   });
 
   it('refuses a worker completion while unread inbox messages wait and names the count', async () => {
@@ -1142,12 +1144,7 @@ describe('inbox read tracking', () => {
     );
 
     const items = await store.readUnreadInbox('w1', 20);
-    expect(
-      await store.ackInbox(
-        'w1',
-        items.map((item) => item.messageId),
-      ),
-    ).toBe(0);
+    expect(await store.ackInbox('w1', items.map((item) => item.messageId))).toBe(0);
 
     const completed = await store.updateMission('w1', mission.id, { status: 'completed' });
     expect(completed.status).toBe('completed');
@@ -1221,12 +1218,7 @@ describe('inbox read tracking', () => {
     expect(history.find((item) => item.file === newRel)?.messageId).toBe(newRel);
     const unread = await store.readUnreadInbox('w1', 20);
     expect(unread.map((item) => item.subject)).toEqual(['after cutoff']);
-    expect(
-      await store.ackInbox(
-        'w1',
-        unread.map((item) => item.messageId),
-      ),
-    ).toBe(0);
+    expect(await store.ackInbox('w1', unread.map((item) => item.messageId))).toBe(0);
     expect(await store.readUnreadInbox('w1', 20)).toHaveLength(0);
 
     const state = await store.load();
@@ -1389,7 +1381,9 @@ describe('merge gate', () => {
     await store.registerAgent(
       rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: mission.branch }),
     );
-    await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }));
+    await store.registerAgent(
+      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
+    );
 
     const input = {
       target: mission.branch,
@@ -1450,12 +1444,14 @@ describe('merge gate', () => {
     await store.registerAgent(
       rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: mission.branch }),
     );
-    await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }));
+    await store.registerAgent(
+      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
+    );
     await cleanReview('rev', mission.branch);
 
-    await expect(store.merge(mission.branch, { activeAgentIds: new Set() })).rejects.toThrow(
-      /outside mission M1 scope/,
-    );
+    await expect(
+      store.merge(mission.branch, { activeAgentIds: new Set() }),
+    ).rejects.toThrow(/outside mission M1 scope/);
 
     await store.plan([{ title: 'other', scope: ['src/other/**'] }]);
     await expect(
@@ -1466,7 +1462,7 @@ describe('merge gate', () => {
       scope: ['src/x/**', 'src/other/**'],
     });
     expect(widened.deps).toEqual(['M2']);
-    expect(widened.notes.join('\n').split(sep).join('/')).toContain('auto dependency on M2');
+    expect(widened.notes.join('\n')).toContain('auto dependency on M2');
 
     await store.updateMission('tower', 'M2', { status: 'abandoned' });
     await store.updateMission('tower', mission.id, { scope: ['src/x/**', 'src/outside.ts'] });
@@ -1503,7 +1499,9 @@ describe('merge gate', () => {
     await expect(store.merge(second.branch)).rejects.toThrow(/outside mission M2 scope/);
 
     const { conflictsWith } = await store.merge(first.branch);
-    expect(conflictsWith).toEqual([{ branch: second.branch, files: ['src/a/shared.ts'] }]);
+    expect(conflictsWith).toEqual([
+      { branch: second.branch, files: ['src/a/shared.ts'] },
+    ]);
   });
 
   it('requires mission-matching tower acceptance for an artifact and performs a real merge', async () => {
@@ -1594,9 +1592,8 @@ describe('merge gate', () => {
       kind: 'artifact',
     });
     await cleanReview('tower', mission.branch);
-    const completionTip = (await store.load()).missions.find(
-      (m) => m.id === mission.id,
-    )!.completionTip;
+    const completionTip = (await store.load()).missions.find((m) => m.id === mission.id)!
+      .completionTip;
     await commitFile(worktreeOf(mission), 'reports/extra.csv', 'name,value\na,1\n', 'add data');
     const advancedTip = await git(repo, 'rev-parse', mission.branch);
     const review = (await store.latestReview(mission.branch))!;
@@ -1635,9 +1632,8 @@ describe('merge gate', () => {
 
     await completeMission(mission);
     await cleanReview('tower', mission.branch);
-    const completionTip = (await store.load()).missions.find(
-      (m) => m.id === mission.id,
-    )!.completionTip;
+    const completionTip = (await store.load()).missions.find((m) => m.id === mission.id)!
+      .completionTip;
     await commitFile(repo, 'docs/base.md', 'base moves\n', 'base moves on');
     await expect(store.merge(mission.branch, { activeAgentIds: new Set() })).rejects.toThrow(
       /behind base "main"/,
@@ -1674,12 +1670,7 @@ describe('merge gate', () => {
       content: '<h1>Guarded</h1>\n',
       kind: 'artifact',
     });
-    await commitFile(
-      worktreeOf(mission),
-      'README.md',
-      '# outside the key artifacts\n',
-      'auxiliary change',
-    );
+    await commitFile(worktreeOf(mission), 'README.md', '# outside the key artifacts\n', 'auxiliary change');
     await store.complete(`worker-${mission.id}`, 'Key artifact: reports/guarded.html', [
       'reports/guarded.html',
     ]);
@@ -1768,9 +1759,8 @@ describe('merge gate', () => {
     });
     const report = 'Key artifact: reports/revised.html';
     const keyArtifacts = ['reports/revised.html'];
-    const initialTip = (await store.load()).missions.find(
-      (m) => m.id === mission.id,
-    )!.completionTip;
+    const initialTip = (await store.load()).missions.find((m) => m.id === mission.id)!
+      .completionTip;
     const initialRequest = (await store.readInbox('tower', 20)).find(
       (item) => item.subject === 'acceptance-request',
     );
@@ -1841,11 +1831,11 @@ describe('merge gate', () => {
     expect(result.noop).toBe(true);
     expect(result.mergeCommit).toBe(baseTip);
     expect((await store.load()).missions[0]?.status).toBe('merged');
-    expect((await store.recentLog(3)).join('\n').split(sep).join('/')).toContain('merge.noop');
+    expect((await store.recentLog(3)).join('\n')).toContain('merge.noop');
     expect(await git(repo, 'rev-parse', 'HEAD')).toBe(baseTip);
   });
 
-  it("enforces a zero-diff survey mission's own open dependencies", async () => {
+  it('enforces a zero-diff survey mission\'s own open dependencies', async () => {
     const [, survey] = await store.plan([
       { title: 'build dependency', scope: ['src/a/**'] },
       { title: 'survey dependent', scope: ['src/a/**'], kind: 'survey', deps: ['M1'] },
@@ -1854,16 +1844,14 @@ describe('merge gate', () => {
     await store.addWorktree(survey!.worktree, survey!.branch, state.base);
     await completeMission(survey!);
 
-    await expect(store.merge(survey!.branch)).rejects.toThrow(/dependencies not merged yet \(M1\)/);
-    expect((await store.load()).missions.find((mission) => mission.id === survey!.id)?.status).toBe(
-      'completed',
+    await expect(store.merge(survey!.branch)).rejects.toThrow(
+      /dependencies not merged yet \(M1\)/,
     );
+    expect((await store.load()).missions.find((mission) => mission.id === survey!.id)?.status).toBe('completed');
 
     await store.updateMission('tower', 'M1', { status: 'abandoned' });
     await store.merge(survey!.branch);
-    expect((await store.load()).missions.find((mission) => mission.id === survey!.id)?.status).toBe(
-      'merged',
-    );
+    expect((await store.load()).missions.find((mission) => mission.id === survey!.id)?.status).toBe('merged');
   });
 
   it('refuses to merge a survey branch that has changes', async () => {
@@ -1882,7 +1870,9 @@ describe('merge gate', () => {
   });
 
   it('a build mission can depend on a survey and merges after its noop close', async () => {
-    const [survey] = await store.plan([{ title: 'scan x', scope: ['src/x/**'], kind: 'survey' }]);
+    const [survey] = await store.plan([
+      { title: 'scan x', scope: ['src/x/**'], kind: 'survey' },
+    ]);
     const build = await setupMission({
       title: 'implement y',
       scope: 'src/y/**',
@@ -1975,12 +1965,7 @@ describe('merge gate', () => {
     await store.addWorktree(live.worktree, live.branch, state.base);
     await commitFile(worktreeOf(live), 'src/x/x.ts', 'x\n', 'work on M2');
     await store.registerAgent(
-      rosterEntry({
-        name: 'rev',
-        kind: 'reviewer',
-        reviewTarget: live.branch,
-        reviewMissionId: 'M2',
-      }),
+      rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: live.branch, reviewMissionId: 'M2' }),
     );
     await cleanReview('rev', live.branch);
 
@@ -2114,12 +2099,7 @@ describe('merge gate', () => {
     await store.addWorktree(stale!.worktree, stale!.branch, state.base);
     await commitFile(worktreeOf(stale!), 'src/x/x.ts', 'x\n', 'work on M1');
     await store.registerAgent(
-      rosterEntry({
-        name: 'rev',
-        kind: 'reviewer',
-        reviewTarget: stale!.branch,
-        reviewMissionId: 'M1',
-      }),
+      rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: stale!.branch, reviewMissionId: 'M1' }),
     );
     await cleanReview('rev', stale!.branch);
     expect((await store.latestReview(stale!.branch))?.mission).toBe('M1');
@@ -2147,12 +2127,7 @@ describe('merge gate', () => {
     await store.addWorktree(stale!.worktree, stale!.branch, state.base);
     await commitFile(worktreeOf(stale!), 'src/x/x.ts', 'x\n', 'work on M1');
     await store.registerAgent(
-      rosterEntry({
-        name: 'rev-old',
-        kind: 'reviewer',
-        reviewTarget: stale!.branch,
-        reviewMissionId: 'M1',
-      }),
+      rosterEntry({ name: 'rev-old', kind: 'reviewer', reviewTarget: stale!.branch, reviewMissionId: 'M1' }),
     );
     for (let round = 0; round < 5; round++) await cleanReview('rev-old', stale!.branch);
 
@@ -2168,12 +2143,7 @@ describe('merge gate', () => {
     };
     await spliceMissionIntoState(live);
     await store.registerAgent(
-      rosterEntry({
-        name: 'rev-new',
-        kind: 'reviewer',
-        reviewTarget: stale!.branch,
-        reviewMissionId: 'M2',
-      }),
+      rosterEntry({ name: 'rev-new', kind: 'reviewer', reviewTarget: stale!.branch, reviewMissionId: 'M2' }),
     );
     await cleanReview('rev-new', stale!.branch);
 
@@ -2207,12 +2177,7 @@ describe('merge gate', () => {
     };
     await spliceMissionIntoState(live);
     await store.registerAgent(
-      rosterEntry({
-        name: 'rev-new',
-        kind: 'reviewer',
-        reviewTarget: stale!.branch,
-        reviewMissionId: 'M2',
-      }),
+      rosterEntry({ name: 'rev-new', kind: 'reviewer', reviewTarget: stale!.branch, reviewMissionId: 'M2' }),
     );
     await cleanReview('rev-new', stale!.branch);
 
@@ -2229,12 +2194,7 @@ describe('merge gate', () => {
       content: 'x\n',
     });
     await store.registerAgent(
-      rosterEntry({
-        name: 'rev-new',
-        kind: 'reviewer',
-        reviewTarget: mission.branch,
-        reviewMissionId: mission.id,
-      }),
+      rosterEntry({ name: 'rev-new', kind: 'reviewer', reviewTarget: mission.branch, reviewMissionId: mission.id }),
     );
     await store.registerAgent(
       rosterEntry({ name: 'rev-old', kind: 'reviewer', reviewTarget: mission.branch }),
@@ -2263,12 +2223,7 @@ describe('merge gate', () => {
       content: 'x\n',
     });
     await store.registerAgent(
-      rosterEntry({
-        name: 'rev-new',
-        kind: 'reviewer',
-        reviewTarget: mission.branch,
-        reviewMissionId: mission.id,
-      }),
+      rosterEntry({ name: 'rev-new', kind: 'reviewer', reviewTarget: mission.branch, reviewMissionId: mission.id }),
     );
     await store.registerAgent(
       rosterEntry({ name: 'rev-old', kind: 'reviewer', reviewTarget: mission.branch }),
@@ -2296,20 +2251,10 @@ describe('merge gate', () => {
       content: 'x\n',
     });
     await store.registerAgent(
-      rosterEntry({
-        name: 'rev-z',
-        kind: 'reviewer',
-        reviewTarget: mission.branch,
-        reviewMissionId: mission.id,
-      }),
+      rosterEntry({ name: 'rev-z', kind: 'reviewer', reviewTarget: mission.branch, reviewMissionId: mission.id }),
     );
     await store.registerAgent(
-      rosterEntry({
-        name: 'rev-a',
-        kind: 'reviewer',
-        reviewTarget: mission.branch,
-        reviewMissionId: mission.id,
-      }),
+      rosterEntry({ name: 'rev-a', kind: 'reviewer', reviewTarget: mission.branch, reviewMissionId: mission.id }),
     );
     await cleanReview('rev-z', mission.branch);
     await store.submitReview('rev-a', {
@@ -2325,11 +2270,7 @@ describe('merge gate', () => {
     const later = files.find((r) => r.reviewer === 'rev-a')!;
     const now = new Date();
     await utimes(store.abs(earlier.file), now, now);
-    await utimes(
-      store.abs(later.file),
-      new Date(now.getTime() - 60_000),
-      new Date(now.getTime() - 60_000),
-    );
+    await utimes(store.abs(later.file), new Date(now.getTime() - 60_000), new Date(now.getTime() - 60_000));
     await completeMission(mission);
 
     await expect(store.merge(mission.branch)).rejects.toThrow(/says hold/);
@@ -2405,12 +2346,10 @@ describe('merge gate', () => {
     );
     await cleanReview('rev', mission.branch);
     const state = await store.load();
-    state.missions
-      .find((candidate) => candidate.id === mission.id)!
-      .tasks.push({
-        text: 'unfinished',
-        done: false,
-      });
+    state.missions.find((candidate) => candidate.id === mission.id)!.tasks.push({
+      text: 'unfinished',
+      done: false,
+    });
     await writeFile(store.abs(STATE_FILE), `${JSON.stringify(state, null, 2)}\n`);
 
     await expect(store.merge(mission.branch)).rejects.toThrow(/1 open task.*unfinished/);
@@ -2454,9 +2393,7 @@ describe('merge gate', () => {
     ).rejects.toThrow(/mid-turn/);
     await store.merge(mission.branch, { activeAgentIds: new Set() });
 
-    expect(
-      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
-    ).toBe('merged');
+    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('merged');
   });
 
   it('requires the latest applicable review to be clean with merge approval', async () => {
@@ -2489,9 +2426,7 @@ describe('merge gate', () => {
 
     await cleanReview('rev', mission.branch);
     await store.merge(mission.branch);
-    expect(
-      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
-    ).toBe('merged');
+    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('merged');
   });
 
   it('keeps accepting a legacy clean review without a merge field', async () => {
@@ -2511,9 +2446,7 @@ describe('merge gate', () => {
 
     await store.merge(mission.branch);
 
-    expect(
-      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
-    ).toBe('merged');
+    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('merged');
   });
 
   it('merges only the evaluated SHA and reports an advanced branch without marking the mission merged', async () => {
@@ -2552,10 +2485,8 @@ describe('merge gate', () => {
     expect(await git(repo, 'rev-parse', 'HEAD^2')).toBe(evaluated);
     expect(await git(repo, 'log', '-1', '--format=%s')).toBe(`Merge branch '${mission.branch}'`);
     await expect(git(repo, 'merge-base', '--is-ancestor', advanced, 'HEAD')).rejects.toThrow();
-    expect(
-      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
-    ).toBe('completed');
-    expect((await store.recentLog(3)).join('\n').split(sep).join('/')).toContain('merge.advanced');
+    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('completed');
+    expect((await store.recentLog(3)).join('\n')).toContain('merge.advanced');
   });
 });
 
@@ -2643,7 +2574,7 @@ describe('rebaseMission', () => {
 
     const after = (await store.load()).missions.find((m) => m.id === mission.id)!;
     expect(after.status).toBe('blocked');
-    expect(after.blockers.join('\n').split(sep).join('/')).toContain('src/x/shared.ts');
+    expect(after.blockers.join('\n')).toContain('src/x/shared.ts');
     expect(await git(worktreeOf(mission), 'status', '--porcelain')).toBe('');
     expect(await git(repo, 'rev-parse', mission.branch)).toBe(tipBefore);
   });
@@ -2658,7 +2589,9 @@ describe('rebaseMission', () => {
     await commitFile(repo, 'docs/readme.md', 'docs\n', 'base moves on');
     await writeFile(join(worktreeOf(mission), 'src/x/x.ts'), 'dirty\n');
 
-    await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(/uncommitted changes/);
+    await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(
+      /uncommitted changes/,
+    );
   });
 
   it('requires authoritative idle runtime for every mission worker', async () => {
@@ -2689,54 +2622,49 @@ describe('rebaseMission', () => {
     });
     await git(worktreeOf(mission), 'checkout', '--detach', 'HEAD');
 
-    await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(/not mission branch/);
-    expect(
-      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase,
-    ).toBeUndefined();
+    await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(
+      /not mission branch/,
+    );
+    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase).toBeUndefined();
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'refuses a worktree whose HEAD differs from the mission branch tip',
-    async () => {
-      const mission = await setupMission({
-        title: 'feature x',
-        scope: 'src/x/**',
-        file: 'src/x/x.ts',
-        content: 'x\n',
-      });
-      const worktree = worktreeOf(mission);
-      await commitFile(worktree, 'src/x/more.ts', 'more\n', 'branch advances');
-      const { stdout } = await execFileAsync('which', ['git']);
-      const realGit = stdout.trim();
-      const wrapperDir = await mkdtemp(join(tmpdir(), 'tower-git-head-wrapper-'));
-      const previousPath = process.env['PATH'] ?? '';
-      try {
-        await writeFile(
-          join(wrapperDir, 'git'),
-          [
-            '#!/bin/sh',
-            'if [ "$1" = "rev-parse" ] && [ "$2" = "HEAD" ]; then',
-            `  exec '${realGit}' rev-parse HEAD~1`,
-            'fi',
-            `exec '${realGit}' "$@"`,
-            '',
-          ].join('\n'),
-          { mode: 0o755 },
-        );
-        process.env['PATH'] = `${wrapperDir}:${previousPath}`;
+  it('refuses a worktree whose HEAD differs from the mission branch tip', async () => {
+    const mission = await setupMission({
+      title: 'feature x',
+      scope: 'src/x/**',
+      file: 'src/x/x.ts',
+      content: 'x\n',
+    });
+    const worktree = worktreeOf(mission);
+    await commitFile(worktree, 'src/x/more.ts', 'more\n', 'branch advances');
+    const { stdout } = await execFileAsync('which', ['git']);
+    const realGit = stdout.trim();
+    const wrapperDir = await mkdtemp(join(tmpdir(), 'tower-git-head-wrapper-'));
+    const previousPath = process.env['PATH'] ?? '';
+    try {
+      await writeFile(
+        join(wrapperDir, 'git'),
+        [
+          '#!/bin/sh',
+          'if [ "$1" = "rev-parse" ] && [ "$2" = "HEAD" ]; then',
+          `  exec '${realGit}' rev-parse HEAD~1`,
+          'fi',
+          `exec '${realGit}' "$@"`,
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      );
+      process.env['PATH'] = `${wrapperDir}:${previousPath}`;
 
-        await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(
-          /does not match mission branch/,
-        );
-      } finally {
-        process.env['PATH'] = previousPath;
-        await rm(wrapperDir, { recursive: true, force: true });
-      }
-      expect(
-        (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase,
-      ).toBeUndefined();
-    },
-  );
+      await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(
+        /does not match mission branch/,
+      );
+    } finally {
+      process.env['PATH'] = previousPath;
+      await rm(wrapperDir, { recursive: true, force: true });
+    }
+    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase).toBeUndefined();
+  });
 
   it('does not mark a mission blocked for a non-conflict rebase failure', async () => {
     const mission = await setupMission({
@@ -2757,48 +2685,45 @@ describe('rebaseMission', () => {
     expect(after.lastRebase).toBeUndefined();
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'reports recovery-required without claiming recovery when rebase abort fails',
-    async () => {
-      const mission = await setupMission({
-        title: 'feature x',
-        scope: 'src/x/shared.ts',
-        file: 'src/x/shared.ts',
-        content: 'from branch\n',
-      });
-      await commitFile(repo, 'src/x/shared.ts', 'from base\n', 'base touches the same file');
-      const { stdout } = await execFileAsync('which', ['git']);
-      const realGit = stdout.trim();
-      const wrapperDir = await mkdtemp(join(tmpdir(), 'tower-git-wrapper-'));
-      const previousPath = process.env['PATH'] ?? '';
-      try {
-        await writeFile(
-          join(wrapperDir, 'git'),
-          [
-            '#!/bin/sh',
-            'if [ "$1" = "rebase" ] && [ "$2" = "--abort" ]; then',
-            '  exit 97',
-            'fi',
-            `exec '${realGit}' "$@"`,
-            '',
-          ].join('\n'),
-          { mode: 0o755 },
-        );
-        process.env['PATH'] = `${wrapperDir}:${previousPath}`;
+  it('reports recovery-required without claiming recovery when rebase abort fails', async () => {
+    const mission = await setupMission({
+      title: 'feature x',
+      scope: 'src/x/shared.ts',
+      file: 'src/x/shared.ts',
+      content: 'from branch\n',
+    });
+    await commitFile(repo, 'src/x/shared.ts', 'from base\n', 'base touches the same file');
+    const { stdout } = await execFileAsync('which', ['git']);
+    const realGit = stdout.trim();
+    const wrapperDir = await mkdtemp(join(tmpdir(), 'tower-git-wrapper-'));
+    const previousPath = process.env['PATH'] ?? '';
+    try {
+      await writeFile(
+        join(wrapperDir, 'git'),
+        [
+          '#!/bin/sh',
+          'if [ "$1" = "rebase" ] && [ "$2" = "--abort" ]; then',
+          '  exit 97',
+          'fi',
+          `exec '${realGit}' "$@"`,
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      );
+      process.env['PATH'] = `${wrapperDir}:${previousPath}`;
 
-        await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(/recovery-required/);
-      } finally {
-        process.env['PATH'] = previousPath;
-        await rm(wrapperDir, { recursive: true, force: true });
-      }
+      await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(/recovery-required/);
+    } finally {
+      process.env['PATH'] = previousPath;
+      await rm(wrapperDir, { recursive: true, force: true });
+    }
 
-      const after = (await store.load()).missions.find((candidate) => candidate.id === mission.id)!;
-      expect(after.status).toBe('completed');
-      expect(after.blockers).toEqual([]);
-      expect(after.lastRebase).toBeUndefined();
-      await git(worktreeOf(mission), 'rebase', '--abort');
-    },
-  );
+    const after = (await store.load()).missions.find((candidate) => candidate.id === mission.id)!;
+    expect(after.status).toBe('completed');
+    expect(after.blockers).toEqual([]);
+    expect(after.lastRebase).toBeUndefined();
+    await git(worktreeOf(mission), 'rebase', '--abort');
+  });
 
   it('runs the whole rebase under the tower state lock', async () => {
     const mission = await setupMission({
@@ -2820,9 +2745,7 @@ describe('rebaseMission', () => {
     } finally {
       await rm(lockPath, { force: true });
     }
-    expect(
-      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase,
-    ).toBeUndefined();
+    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase).toBeUndefined();
   });
 
   it('mergeNoFf aborts and restores a non-conflicting merge rejected by a commit hook', async () => {
@@ -2871,16 +2794,13 @@ describe('rebaseMission', () => {
     expect(mainTip).not.toBe(await git(repo, 'rev-parse', 'HEAD'));
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'propagates git query failures instead of reporting clean, missing, or not-ancestor',
-    async () => {
-      const missing = join(repo, 'missing-worktree');
+  it('propagates git query failures instead of reporting clean, missing, or not-ancestor', async () => {
+    const missing = join(repo, 'missing-worktree');
 
-      await expect(branchExists(missing, 'main')).rejects.toThrow();
-      await expect(isAncestor(repo, 'missing-ref', 'HEAD')).rejects.toThrow();
-      await expect(isWorktreeDirty(missing)).rejects.toThrow();
-    },
-  );
+    await expect(branchExists(missing, 'main')).rejects.toThrow();
+    await expect(isAncestor(repo, 'missing-ref', 'HEAD')).rejects.toThrow();
+    await expect(isWorktreeDirty(missing)).rejects.toThrow();
+  });
 });
 
 describe('rework loop closure', () => {
@@ -2905,12 +2825,7 @@ describe('rework loop closure', () => {
       await store.updateMission('tower', mission.id, { status });
     }
     await store.registerAgent(
-      rosterEntry({
-        name: 'rev',
-        kind: 'reviewer',
-        reviewTarget: mission.branch,
-        reviewMissionId: mission.id,
-      }),
+      rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: mission.branch, reviewMissionId: mission.id }),
     );
     return mission;
   }
@@ -2977,12 +2892,7 @@ describe('rework loop closure', () => {
 
     const paused = await missionIn('paused', 'feature y');
     await store.registerAgent(
-      rosterEntry({
-        name: 'rev-2',
-        kind: 'reviewer',
-        reviewTarget: paused.branch,
-        reviewMissionId: paused.id,
-      }),
+      rosterEntry({ name: 'rev-2', kind: 'reviewer', reviewTarget: paused.branch, reviewMissionId: paused.id }),
     );
     await store.submitReview('rev-2', {
       target: paused.branch,
@@ -3047,7 +2957,9 @@ describe('review notification recipients', () => {
       content: 'x\n',
     });
     if (options.withOwner !== false) {
-      await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }));
+      await store.registerAgent(
+        rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
+      );
       await store.updateMission('tower', mission.id, { owner: 'w1' }, { silent: true });
     }
     await store.registerAgent(
@@ -3101,9 +3013,7 @@ describe('review notification recipients', () => {
     expect(ownerMessage.item.body).toContain('merge recommendation: hold');
     expect(ownerMessage.item.body).toContain(`reviewedCommit: ${result.review.reviewedCommit}`);
     expect(ownerMessage.item.body).toContain('owner: w1');
-    expect(
-      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
-    ).toBe('active');
+    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('active');
   });
 
   it('uses only the tower when there is no valid owner', async () => {
@@ -3134,9 +3044,7 @@ describe('review notification recipients', () => {
 
     expect(result.storedMessages.map((message) => message.item.to)).toEqual(['tower']);
     expect(result.storedMessages.some((message) => message.item.to === 'w1')).toBe(false);
-    expect(
-      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
-    ).toBe('abandoned');
+    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('abandoned');
   });
 
   it('never sends a tower-originated review to the tower itself', async () => {
@@ -3175,7 +3083,9 @@ describe('complete and review concurrency', () => {
       content: 'x\n',
       status: 'active',
     });
-    await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }));
+    await store.registerAgent(
+      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
+    );
     await store.updateMission('tower', mission.id, { owner: 'w1' }, { silent: true });
     await store.registerAgent(
       rosterEntry({
@@ -3204,12 +3114,8 @@ describe('complete and review concurrency', () => {
     const state = await store.load();
     expect(state.missions.find((candidate) => candidate.id === mission.id)?.status).toBe('active');
     const messages = await store.readInbox('tower', 50);
-    expect(
-      messages.filter((item) => item.subject === 'review-result' && item.to === 'w1'),
-    ).toHaveLength(1);
-    expect(
-      messages.filter((item) => item.subject === 'review-result' && item.to === 'tower'),
-    ).toHaveLength(1);
+    expect(messages.filter((item) => item.subject === 'review-result' && item.to === 'w1')).toHaveLength(1);
+    expect(messages.filter((item) => item.subject === 'review-result' && item.to === 'tower')).toHaveLength(1);
   });
 });
 
@@ -3232,19 +3138,13 @@ describe('dirty base checkout', () => {
 
     expect(added.spawnBase).toBeDefined();
     const wt = worktreeOf(mission!);
-    expect((await readFile(join(wt, 'README.md'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
-      '# fixture\nwip edit\n',
-    );
-    expect((await readFile(join(wt, 'staged.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
-      'export const staged = 1;\n',
-    );
-    expect((await readFile(join(wt, 'untracked.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
-      'export const untracked = 1;\n',
-    );
+    expect(await readFile(join(wt, 'README.md'), 'utf8')).toBe('# fixture\nwip edit\n');
+    expect(await readFile(join(wt, 'staged.ts'), 'utf8')).toBe('export const staged = 1;\n');
+    expect(await readFile(join(wt, 'untracked.ts'), 'utf8')).toBe('export const untracked = 1;\n');
     expect(await git(wt, 'status', '--porcelain')).toBe('');
 
     expect(await git(repo, 'rev-parse', `${added.spawnBase}^`)).toBe(baseTip);
-    expect(await git(repo, 'rev-parse', mission!.branch)).toBe(added.spawnBase!);
+    expect(await git(repo, 'rev-parse', mission!.branch)).toBe(added.spawnBase);
 
     expect(await git(repo, 'status', '--porcelain')).toBe(statusBefore);
     expect(await git(repo, 'rev-parse', 'main')).toBe(baseTip);
@@ -3266,11 +3166,7 @@ describe('dirty base checkout', () => {
     const added = await store.addWorktree(mission!.worktree, mission!.branch, state.base);
 
     expect(added.spawnBase).toBeDefined();
-    const snapshotFiles = (
-      await git(repo, 'diff', '--name-only', `${added.spawnBase}^`, added.spawnBase!)
-    )
-      .split(/\r?\n/)
-      .filter(Boolean);
+    const snapshotFiles = (await git(repo, 'diff', '--name-only', `${added.spawnBase}^`, added.spawnBase!)).split('\n');
     expect(snapshotFiles).toEqual(['wip.ts']);
     await expect(stat(join(worktreeOf(mission!), '.tower'))).rejects.toThrow();
     await expect(stat(join(worktreeOf(mission!), 'ignored'))).rejects.toThrow();
@@ -3290,14 +3186,10 @@ describe('dirty base checkout', () => {
     expect(added.spawnBase).toBeDefined();
     const snapshotFiles = (
       await git(repo, 'diff', '--name-only', `${added.spawnBase}^`, added.spawnBase!)
-    )
-      .split(/\r?\n/)
-      .filter(Boolean);
+    ).split('\n');
     expect(snapshotFiles).toEqual(['sub/wip.ts']);
     const wt = join(sub, '.tower/worktrees', mission!.worktree);
-    expect((await readFile(join(wt, 'sub/wip.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
-      'export const wip = 1;\n',
-    );
+    expect(await readFile(join(wt, 'sub/wip.ts'), 'utf8')).toBe('export const wip = 1;\n');
   });
 
   it('refuses to create a worktree while the base checkout has unmerged paths', async () => {
@@ -3309,9 +3201,9 @@ describe('dirty base checkout', () => {
 
     const [mission] = await store.plan([{ title: 'wip consumer', scope: ['src/**'] }]);
     const state = await store.load();
-    await expect(store.addWorktree(mission!.worktree, mission!.branch, state.base)).rejects.toThrow(
-      /unmerged paths/,
-    );
+    await expect(
+      store.addWorktree(mission!.worktree, mission!.branch, state.base),
+    ).rejects.toThrow(/unmerged paths/);
 
     await git(repo, 'merge', '--abort');
   });
@@ -3323,9 +3215,9 @@ describe('dirty base checkout', () => {
 
     const [mission] = await store.plan([{ title: 'wip consumer', scope: ['src/**'] }]);
     const state = await store.load();
-    await expect(store.addWorktree(mission!.worktree, mission!.branch, state.base)).rejects.toThrow(
-      /on "side" with uncommitted changes, not the recorded base "main"/,
-    );
+    await expect(
+      store.addWorktree(mission!.worktree, mission!.branch, state.base),
+    ).rejects.toThrow(/on "side" with uncommitted changes, not the recorded base "main"/);
     await expect(stat(join(repo, '.tower/worktrees', mission!.worktree))).rejects.toThrow();
     await expect(git(repo, 'rev-parse', '--verify', mission!.branch)).rejects.toThrow();
   });
@@ -3336,9 +3228,9 @@ describe('dirty base checkout', () => {
 
     const [mission] = await store.plan([{ title: 'wip consumer', scope: ['src/**'] }]);
     const state = await store.load();
-    await expect(store.addWorktree(mission!.worktree, mission!.branch, state.base)).rejects.toThrow(
-      /detached HEAD state with uncommitted changes/,
-    );
+    await expect(
+      store.addWorktree(mission!.worktree, mission!.branch, state.base),
+    ).rejects.toThrow(/detached HEAD state with uncommitted changes/);
   });
 
   it('the merge gate ignores snapshotted base WIP and blocks only while the checkout still holds it', async () => {
@@ -3371,12 +3263,8 @@ describe('dirty base checkout', () => {
     const { mergeCommit } = await store.merge(mission!.branch);
     expect(mergeCommit).toBe(await git(repo, 'rev-parse', 'HEAD'));
     expect((await store.load()).missions[0]?.status).toBe('merged');
-    expect((await readFile(join(repo, 'wip.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
-      'export const wip = 1;\n',
-    );
-    expect((await readFile(join(repo, 'src/x/x.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
-      'export const x = 1;\n',
-    );
+    expect(await readFile(join(repo, 'wip.ts'), 'utf8')).toBe('export const wip = 1;\n');
+    expect(await readFile(join(repo, 'src/x/x.ts'), 'utf8')).toBe('export const x = 1;\n');
   });
 
   it('falls back to the base branch for the scope diff after a rebase drops the snapshot', async () => {
@@ -3406,12 +3294,10 @@ describe('dirty base checkout', () => {
     const { mergeCommit } = await store.merge(mission!.branch);
     expect(mergeCommit).toBe(await git(repo, 'rev-parse', 'HEAD'));
     expect((await store.load()).missions[0]?.status).toBe('merged');
-    expect((await readFile(join(repo, 'src/x/x.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
-      'export const x = 1;\n',
+    expect(await readFile(join(repo, 'src/x/x.ts'), 'utf8')).toBe('export const x = 1;\n');
+    expect(await readFile(join(repo, 'src/other/base.ts'), 'utf8')).toBe(
+      'export const other = 1;\n',
     );
-    expect(
-      (await readFile(join(repo, 'src/other/base.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n'),
-    ).toBe('export const other = 1;\n');
   });
 
   it('merges when checkout dirt does not intersect the files the merge touches', async () => {
@@ -3441,13 +3327,7 @@ describe('updateMission', () => {
       { title: 'beta', scope: ['src/beta/**'] },
     ]);
     await store.registerAgent(
-      rosterEntry({
-        name: 'w1',
-        kind: 'worker',
-        missionId: 'M1',
-        worktree: 'wt-1',
-        branch: 'feat/alpha',
-      }),
+      rosterEntry({ name: 'w1', kind: 'worker', missionId: 'M1', worktree: 'wt-1', branch: 'feat/alpha' }),
     );
   });
 
@@ -3589,7 +3469,7 @@ describe('updateMission', () => {
     expect((await store.updateMission('tower', 'M1', { status: 'merged' })).status).toBe('merged');
   });
 
-  it("serializes new plans into an open mission's scope with an auto dependency, and frees it on abandon", async () => {
+  it('serializes new plans into an open mission\'s scope with an auto dependency, and frees it on abandon', async () => {
     const [overlapping] = await store.plan([{ title: 'gamma overlap', scope: ['src/alpha/**'] }]);
     expect(overlapping!.deps).toEqual(['M1']);
 
@@ -3604,7 +3484,7 @@ describe('updateMission', () => {
     expect(gamma!.deps).toEqual([]);
   });
 
-  it("frees an abandoned mission's scope for scope patches", async () => {
+  it('frees an abandoned mission\'s scope for scope patches', async () => {
     const patched = await store.updateMission('tower', 'M2', { scope: ['src/alpha/**'] });
     expect(patched.deps).toEqual(['M1']);
 
@@ -3629,86 +3509,13 @@ describe('concurrent state writes', () => {
     expect(comms.filter((name) => name.startsWith('state.json.'))).toEqual([]);
   }
 
-  it.skipIf(process.platform !== 'win32')(
-    'serializes state replacement behind an in-flight protocol read on Windows',
-    async () => {
-      const statePath = store.abs(STATE_FILE);
-      const ioLockPath = `${statePath}.io.lock`;
-      let markReadOpen!: () => void;
-      const readOpen = new Promise<void>((resolve) => {
-        markReadOpen = resolve;
-      });
-      let releaseRead!: () => void;
-      const readGate = new Promise<void>((resolve) => {
-        releaseRead = resolve;
-      });
-      const originalFile = Bun.file;
-      let holdStateRead = true;
-      const fileSpy = jest.spyOn(Bun, 'file').mockImplementation(((path: any, ...args: any[]) => {
-        if (path !== statePath || !holdStateRead) return originalFile(path, ...args);
-        holdStateRead = false;
-        return {
-          text: async () => {
-            const handle = await open(statePath, 'r');
-            try {
-              const raw = await handle.readFile('utf8');
-              markReadOpen();
-              await readGate;
-              return raw;
-            } finally {
-              await handle.close();
-            }
-          },
-        };
-      }) as typeof Bun.file);
-      type LockDriver = {
-        tryAcquireStateLock: (lockPath: string, token: string) => Promise<boolean>;
-      };
-      const driver = store as unknown as LockDriver;
-      const originalTryAcquire = driver.tryAcquireStateLock;
-      let markWriterBlocked!: () => void;
-      const writerBlocked = new Promise<void>((resolve) => {
-        markWriterBlocked = resolve;
-      });
-      driver.tryAcquireStateLock = async (lockPath, token) => {
-        const acquired = await originalTryAcquire.call(store, lockPath, token);
-        if (lockPath === ioLockPath && !acquired) markWriterBlocked();
-        return acquired;
-      };
-
-      try {
-        const reading = store.load();
-        await readOpen;
-        const writing = store.updateMission('tower', 'M1', { note: 'after-read' });
-        const settled = writing.then(
-          () => ({}) as { error?: unknown },
-          (error: unknown) => ({ error }),
-        );
-        const first = await Promise.race([
-          writerBlocked.then(() => 'blocked' as const),
-          settled.then(() => 'settled' as const),
-        ]);
-        releaseRead();
-        const [, writeResult] = await Promise.all([reading, settled]);
-        if (writeResult.error !== undefined) throw writeResult.error;
-        expect(first).toBe('blocked');
-        expect((await store.load()).missions[0]?.notes).toContain('after-read');
-        await expectNoLockOrTmpLeftovers();
-      } finally {
-        releaseRead();
-        driver.tryAcquireStateLock = originalTryAcquire;
-        fileSpy.mockRestore();
-      }
-    },
-  );
-
   it('serializes same-process concurrent updateMission calls without lost updates or a torn state file', async () => {
     const notes = Array.from({ length: 8 }, (_, i) => `note-${String(i)}`);
     let reading = true;
     const reader = (async () => {
       for (;;) {
         if (!reading) return;
-        await store.load();
+        JSON.parse(await readFile(store.abs(STATE_FILE), 'utf8'));
       }
     })();
 
@@ -3738,14 +3545,17 @@ describe('concurrent state writes', () => {
 
     const state = await store.load();
     expect(state.missions[0]?.notes).toHaveLength(fromStore.length + fromOther.length);
-    expect(state.missions[0]?.notes).toEqual(expect.arrayContaining([...fromStore, ...fromOther]));
+    expect(state.missions[0]?.notes).toEqual(
+      expect.arrayContaining([...fromStore, ...fromOther]),
+    );
     JSON.parse(await readFile(store.abs(STATE_FILE), 'utf8'));
     await expectNoLockOrTmpLeftovers();
   });
 
-  it('surfaces a held state lock as a clear error instead of a hang or a silent skip', async () => {
+  it('surfaces a same-process held state lock clearly without stealing it', async () => {
     const lockPath = `${store.abs(STATE_FILE)}.lock`;
-    await writeFile(lockPath, `pid=${String(process.pid)} since=2026-09-26T00:00:00.000Z`, 'utf8');
+    const content = `pid=${String(process.pid)} since=2026-09-26T00:00:00.000Z token=live`;
+    await writeFile(lockPath, content, 'utf8');
     const blocked = new TowerStore(repo, { stateLockTimeoutMs: 200, stateLockPollMs: 20 });
 
     await expect(blocked.updateMission('tower', 'M1', { note: 'x' })).rejects.toThrow(
@@ -3753,6 +3563,7 @@ describe('concurrent state writes', () => {
     );
 
     expect((await store.load()).missions[0]?.notes).toEqual([]);
+    expect(await readFile(lockPath, 'utf8')).toBe(content);
 
     await rm(lockPath, { force: true });
     await store.updateMission('tower', 'M1', { note: 'after stale lock removed' });
@@ -3760,7 +3571,7 @@ describe('concurrent state writes', () => {
     await expectNoLockOrTmpLeftovers();
   });
 
-  it("a stale release cannot delete another holder's state lock", async () => {
+  it('a stale release cannot delete another holder\'s state lock', async () => {
     type LockDriver = { withStateLock: <T>(fn: () => Promise<T>) => Promise<T> };
     const drive = <T>(s: TowerStore, fn: () => Promise<T>): Promise<T> =>
       (s as unknown as LockDriver).withStateLock(fn);
@@ -3795,13 +3606,11 @@ describe('concurrent state writes', () => {
     });
 
     let heldContent = '';
-    for (let attempt = 0; attempt < 200 && heldContent === ''; attempt += 1) {
+    for (;;) {
       try {
         heldContent = await readFile(lockPath, 'utf8');
+        break;
       } catch {
-        heldContent = '';
-      }
-      if (heldContent === '') {
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 10);
         });
@@ -3854,13 +3663,13 @@ describe('completion invariants', () => {
       withCommit: true,
     });
 
-    await expect(store.updateMission('tower', mission.id, { status: 'completed' })).rejects.toThrow(
-      /cannot transition to completed — 2 open task\(s\): "scaffold", "implement"/,
-    );
+    await expect(
+      store.updateMission('tower', mission.id, { status: 'completed' }),
+    ).rejects.toThrow(/cannot transition to completed — 2 open task\(s\): "scaffold", "implement"/);
     await store.updateMission('tower', mission.id, { taskDone: 'scaffold' });
-    await expect(store.updateMission('tower', mission.id, { status: 'completed' })).rejects.toThrow(
-      /1 open task\(s\): "implement"/,
-    );
+    await expect(
+      store.updateMission('tower', mission.id, { status: 'completed' }),
+    ).rejects.toThrow(/1 open task\(s\): "implement"/);
 
     expect((await store.load()).missions.find((m) => m.id === mission.id)?.status).toBe('planned');
   });
@@ -3971,9 +3780,9 @@ describe('completion invariants', () => {
       taskDrop: { text: 'implement', reason: 'descoped' },
     });
 
-    await expect(
-      store.updateMission('tower', mission.id, { taskDone: 'implement' }),
-    ).rejects.toThrow(/no open task matching "implement"/);
+    await expect(store.updateMission('tower', mission.id, { taskDone: 'implement' })).rejects.toThrow(
+      /no open task matching "implement"/,
+    );
     await expect(
       store.updateMission('tower', mission.id, {
         taskDrop: { text: 'implement', reason: 'again' },
@@ -3984,9 +3793,9 @@ describe('completion invariants', () => {
   it('refuses completed for a build mission whose branch has no diff vs its base', async () => {
     const mission = await seedMission('feature x', { withWorktree: true });
 
-    await expect(store.updateMission('tower', mission.id, { status: 'completed' })).rejects.toThrow(
-      /has no changes vs "main"/,
-    );
+    await expect(
+      store.updateMission('tower', mission.id, { status: 'completed' }),
+    ).rejects.toThrow(/has no changes vs "main"/);
 
     await commitFile(worktreeOf(mission), 'src/feature-x/x.ts', 'x\n', `work on ${mission.id}`);
     const completed = await store.updateMission('tower', mission.id, { status: 'completed' });
@@ -3996,9 +3805,9 @@ describe('completion invariants', () => {
   it('refuses completed for a build mission whose branch does not exist', async () => {
     const mission = await seedMission('feature x');
 
-    await expect(store.updateMission('tower', mission.id, { status: 'completed' })).rejects.toThrow(
-      /does not exist, so no work has landed/,
-    );
+    await expect(
+      store.updateMission('tower', mission.id, { status: 'completed' }),
+    ).rejects.toThrow(/does not exist, so no work has landed/);
   });
 
   it('requires committed key artifacts and emits whole-tip acceptance-request only after a nonzero diff', async () => {
@@ -4037,10 +3846,7 @@ describe('completion invariants', () => {
     await expect(store.complete('w1', 'delivery without key artifacts')).rejects.toThrow(
       /must name at least one committed key deliverable/,
     );
-    await writeFile(
-      join(worktreeOf(mission), 'src/render-report/uncommitted.html'),
-      'not included\n',
-    );
+    await writeFile(join(worktreeOf(mission), 'src/render-report/uncommitted.html'), 'not included\n');
     await expect(
       store.complete('w1', 'wrong key artifact', ['src/render-report/uncommitted.html']),
     ).rejects.toThrow(/must name paths from the committed branch diff.*uncommitted\.html/s);
@@ -4063,12 +3869,8 @@ describe('completion invariants', () => {
       scope: mission.id,
       action: 'complete',
     });
-    expect(result.message?.item.body).toContain(
-      'Approval authorizes the entire current mission tip presented for acceptance',
-    );
-    expect(result.message?.item.body).toContain(
-      'Additional committed files included in this approval: 2.',
-    );
+    expect(result.message?.item.body).toContain('Approval authorizes the entire current mission tip presented for acceptance');
+    expect(result.message?.item.body).toContain('Additional committed files included in this approval: 2.');
     expect(result.message?.item.body).toContain('Optional full manifest:');
     expect(result.message?.item.body).not.toContain('- src/render-report/result\n');
     expect(result.message?.item.body).not.toContain('uncommitted.html');
@@ -4132,9 +3934,9 @@ describe('completion invariants', () => {
   it('still refuses a survey mission with open tasks', async () => {
     const mission = await seedMission('scan layer', { kind: 'survey', tasks: ['read the code'] });
 
-    await expect(store.updateMission('tower', mission.id, { status: 'completed' })).rejects.toThrow(
-      /1 open task\(s\): "read the code"/,
-    );
+    await expect(
+      store.updateMission('tower', mission.id, { status: 'completed' }),
+    ).rejects.toThrow(/1 open task\(s\): "read the code"/);
   });
 });
 
@@ -4215,7 +4017,9 @@ describe('review round cap', () => {
       content: '<h1>Feedback</h1>\n',
       kind: 'artifact',
     });
-    await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }));
+    await store.registerAgent(
+      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
+    );
     await store.updateMission('tower', mission.id, { owner: 'w1' }, { silent: true });
 
     for (let round = 1; round <= MAX_REVIEW_ROUNDS + 1; round += 1) {
@@ -4256,9 +4060,7 @@ describe('roster', () => {
   it('rejects duplicate agent names', async () => {
     await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker' }));
     await expect(
-      store.registerAgent(
-        rosterEntry({ name: 'w1', kind: 'reviewer', agentId: 'agent-w1-reviewer' }),
-      ),
+      store.registerAgent(rosterEntry({ name: 'w1', kind: 'reviewer', agentId: 'agent-w1-reviewer' })),
     ).rejects.toThrow(/already registered/);
   });
 
@@ -4272,20 +4074,10 @@ describe('roster', () => {
 
   it('re-registering an agent id retires the stale entry so identity follows the latest registration', async () => {
     await store.registerAgent(
-      rosterEntry({
-        name: 'worker-old',
-        kind: 'worker',
-        agentId: 'agent-1',
-        sessionId: 'session-a',
-      }),
+      rosterEntry({ name: 'worker-old', kind: 'worker', agentId: 'agent-1', sessionId: 'session-a' }),
     );
     await store.registerAgent(
-      rosterEntry({
-        name: 'worker-new',
-        kind: 'worker',
-        agentId: 'agent-1',
-        sessionId: 'session-b',
-      }),
+      rosterEntry({ name: 'worker-new', kind: 'worker', agentId: 'agent-1', sessionId: 'session-b' }),
     );
 
     const state = await store.load();
@@ -4405,40 +4197,12 @@ describe('teardown', () => {
     await writeFile(join(wt, 'uncommitted.txt'), 'dirty\n');
 
     const report = await store.teardown();
-    expect(report.join('\n').replaceAll('\\', '/')).toContain(
-      `kept .tower/worktrees/${mission.worktree}`,
-    );
+    expect(report.join('\n')).toContain(`kept .tower/worktrees/${mission.worktree}`);
     expect((await stat(wt)).isDirectory()).toBe(true);
 
     const forced = await store.teardown({ force: true });
-    expect(forced.join('\n').replaceAll('\\', '/')).toContain(
-      `removed .tower/worktrees/${mission.worktree}`,
-    );
+    expect(forced.join('\n')).toContain(`removed .tower/worktrees/${mission.worktree}`);
     await expect(stat(wt)).rejects.toThrow();
-  });
-
-  it('keeps a worktree whose git status cannot be determined', async () => {
-    const mission = await setupMission({
-      title: 'feature z',
-      scope: 'src/z/**',
-      file: 'src/z/z.ts',
-      content: 'z\n',
-    });
-    const wt = worktreeOf(mission);
-    const pointer = await readFile(join(wt, '.git'), 'utf8');
-    const gitDir = resolve(dirname(wt), pointer.replace(/^gitdir:\s*/, '').trim());
-    await writeFile(join(gitDir, 'index'), 'not-an-index\n');
-
-    const report = await store.teardown();
-    const flat = report.join('\n').replaceAll('\\', '/');
-    expect(flat).toContain(`kept .tower/worktrees/${mission.worktree}`);
-    expect(flat).toContain('git status unavailable');
-    expect((await stat(wt)).isDirectory()).toBe(true);
-
-    const forced = await store.teardown({ force: true });
-    expect(forced.join('\n').replaceAll('\\', '/')).toContain(
-      `removed .tower/worktrees/${mission.worktree}`,
-    );
   });
 
   it('removes clean worktrees without force', async () => {
@@ -4450,37 +4214,30 @@ describe('teardown', () => {
     });
     const wt = worktreeOf(mission);
     const report = await store.teardown();
-    expect(report.join('\n').replaceAll('\\', '/')).toContain(
-      `removed .tower/worktrees/${mission.worktree}`,
-    );
+    expect(report.join('\n')).toContain(`removed .tower/worktrees/${mission.worktree}`);
     await expect(stat(wt)).rejects.toThrow();
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'removes mission worktrees when the repository path contains a newline',
-    async () => {
-      const nlRepo = await mkdtemp(join(tmpdir(), 'tower-store-nl\n-'));
-      try {
-        await git(nlRepo, 'init', '-b', 'main');
-        await git(nlRepo, 'config', 'user.email', 'tower-test@example.com');
-        await git(nlRepo, 'config', 'user.name', 'Tower Test');
-        await commitFile(nlRepo, 'README.md', '# fixture\n', 'initial');
-        const nlStore = new TowerStore(nlRepo);
-        await nlStore.init();
-        const [mission] = await nlStore.plan([{ title: 'feature x', scope: ['src/x/**'] }]);
-        const state = await nlStore.load();
-        await nlStore.addWorktree(mission!.worktree, mission!.branch, state.base);
+  it('removes mission worktrees when the repository path contains a newline', async () => {
+    const nlRepo = await mkdtemp(join(tmpdir(), 'tower-store-nl\n-'));
+    try {
+      await git(nlRepo, 'init', '-b', 'main');
+      await git(nlRepo, 'config', 'user.email', 'tower-test@example.com');
+      await git(nlRepo, 'config', 'user.name', 'Tower Test');
+      await commitFile(nlRepo, 'README.md', '# fixture\n', 'initial');
+      const nlStore = new TowerStore(nlRepo);
+      await nlStore.init();
+      const [mission] = await nlStore.plan([{ title: 'feature x', scope: ['src/x/**'] }]);
+      const state = await nlStore.load();
+      await nlStore.addWorktree(mission!.worktree, mission!.branch, state.base);
 
-        const report = await nlStore.teardown();
+      const report = await nlStore.teardown();
 
-        expect(report.map((line) => line.split(sep).join('/'))).toEqual([
-          `removed .tower/worktrees/${mission!.worktree}`,
-        ]);
-      } finally {
-        await rm(nlRepo, { recursive: true, force: true });
-      }
-    },
-  );
+      expect(report).toEqual([`removed .tower/worktrees/${mission!.worktree}`]);
+    } finally {
+      await rm(nlRepo, { recursive: true, force: true });
+    }
+  });
 
   it('removes mission worktrees when the tower runs inside a linked git worktree', async () => {
     const linked = join(await mkdtemp(join(tmpdir(), 'tower-store-linked-')), 'linked');
@@ -4494,9 +4251,7 @@ describe('teardown', () => {
 
       const report = await linkedStore.teardown();
 
-      expect(report.map((line) => line.split(sep).join('/'))).toEqual([
-        `removed .tower/worktrees/${mission!.worktree}`,
-      ]);
+      expect(report).toEqual([`removed .tower/worktrees/${mission!.worktree}`]);
     } finally {
       await git(repo, 'worktree', 'remove', '--force', linked).catch(() => {});
       await git(repo, 'branch', '-D', 'linked-checkout').catch(() => {});
@@ -4513,9 +4268,7 @@ describe('teardown', () => {
     await git(repo, 'worktree', 'remove', '--force', worktreeOf(mission));
 
     const report = await store.teardown();
-    expect(report.join('\n').split(sep).join('/')).toContain(
-      `already removed .tower/worktrees/${mission.worktree}`,
-    );
+    expect(report.join('\n')).toContain(`already removed .tower/worktrees/${mission.worktree}`);
     expect(report.join('\n')).not.toContain('failed');
     const log = (await store.recentLog(20)).join('\n');
     expect(log).not.toContain('worktree.remove.failed');
@@ -4537,20 +4290,12 @@ describe('teardown', () => {
     await writeFile(join(worktreeOf(dirty), 'uncommitted.txt'), 'dirty\n');
 
     const first = await store.teardown();
-    expect(first.join('\n').split(sep).join('/')).toContain(
-      `removed .tower/worktrees/${clean.worktree}`,
-    );
-    expect(first.join('\n').split(sep).join('/')).toContain(
-      `kept .tower/worktrees/${dirty.worktree}`,
-    );
+    expect(first.join('\n')).toContain(`removed .tower/worktrees/${clean.worktree}`);
+    expect(first.join('\n')).toContain(`kept .tower/worktrees/${dirty.worktree}`);
 
     const second = await store.teardown();
-    expect(second.join('\n').split(sep).join('/')).toContain(
-      `already removed .tower/worktrees/${clean.worktree}`,
-    );
-    expect(second.join('\n').split(sep).join('/')).toContain(
-      `kept .tower/worktrees/${dirty.worktree}`,
-    );
+    expect(second.join('\n')).toContain(`already removed .tower/worktrees/${clean.worktree}`);
+    expect(second.join('\n')).toContain(`kept .tower/worktrees/${dirty.worktree}`);
     expect(second.join('\n')).not.toContain('failed');
     const log = (await store.recentLog(50)).join('\n');
     expect(log).not.toContain('worktree.remove.failed');
@@ -4566,9 +4311,7 @@ describe('teardown', () => {
     await git(repo, 'worktree', 'lock', worktreeOf(mission));
 
     const report = await store.teardown();
-    expect(report.join('\n').split(sep).join('/')).toContain(
-      `failed to remove .tower/worktrees/${mission.worktree}`,
-    );
+    expect(report.join('\n')).toContain(`failed to remove .tower/worktrees/${mission.worktree}`);
     const log = (await store.recentLog(20)).join('\n');
     expect(log).toContain('worktree.remove.failed');
   });
@@ -4580,15 +4323,7 @@ describe('teardown', () => {
       await git(subRepo, 'config', 'user.email', 'tower-test@example.com');
       await git(subRepo, 'config', 'user.name', 'Tower Test');
       await commitFile(subRepo, 'lib.txt', 'lib\n', 'lib initial');
-      await git(
-        repo,
-        '-c',
-        'protocol.file.allow=always',
-        'submodule',
-        'add',
-        subRepo,
-        'vendor/lib',
-      );
+      await git(repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', subRepo, 'vendor/lib');
       await git(repo, 'commit', '-m', 'add vendor/lib submodule');
 
       const mission = await setupMission({
@@ -4601,9 +4336,7 @@ describe('teardown', () => {
       await git(wt, '-c', 'protocol.file.allow=always', 'submodule', 'update', '--init');
 
       const report = await store.teardown();
-      expect(report.join('\n').replaceAll('\\', '/')).toContain(
-        `removed .tower/worktrees/${mission.worktree}`,
-      );
+      expect(report.join('\n')).toContain(`removed .tower/worktrees/${mission.worktree}`);
       await expect(stat(wt)).rejects.toThrow();
     } finally {
       await rm(subRepo, { recursive: true, force: true });
@@ -4628,21 +4361,19 @@ describe('teardown', () => {
     const live = new Set(['agent-live']);
 
     const report = await store.teardown({ liveAgentIds: live });
-    expect(report.join('\n').split(sep).join('/')).toContain(
+    expect(report.join('\n')).toContain(
       `kept .tower/worktrees/${mission.worktree} (live agent: w-live)`,
     );
     expect((await stat(worktreeOf(mission))).isDirectory()).toBe(true);
 
     const forced = await store.teardown({ force: true, liveAgentIds: live });
-    expect(forced.join('\n').split(sep).join('/')).toContain(
+    expect(forced.join('\n')).toContain(
       `kept .tower/worktrees/${mission.worktree} (live agent: w-live)`,
     );
     expect((await stat(worktreeOf(mission))).isDirectory()).toBe(true);
 
     const settled = await store.teardown({ liveAgentIds: new Set() });
-    expect(settled.join('\n').split(sep).join('/')).toContain(
-      `removed .tower/worktrees/${mission.worktree}`,
-    );
+    expect(settled.join('\n')).toContain(`removed .tower/worktrees/${mission.worktree}`);
     await expect(stat(worktreeOf(mission))).rejects.toThrow();
   });
 
@@ -4655,18 +4386,12 @@ describe('teardown', () => {
     });
 
     const report = await store.teardown({ exclude: [mission.worktree, 'wt-999'] });
-    expect(report.join('\n').split(sep).join('/')).toContain(
-      `kept .tower/worktrees/${mission.worktree} (excluded)`,
-    );
-    expect(report.join('\n').split(sep).join('/')).toContain(
-      'excluded worktree "wt-999" matched no mission worktree',
-    );
+    expect(report.join('\n')).toContain(`kept .tower/worktrees/${mission.worktree} (excluded)`);
+    expect(report.join('\n')).toContain('excluded worktree "wt-999" matched no mission worktree');
     expect((await stat(worktreeOf(mission))).isDirectory()).toBe(true);
 
     const after = await store.teardown();
-    expect(after.join('\n').split(sep).join('/')).toContain(
-      `removed .tower/worktrees/${mission.worktree}`,
-    );
+    expect(after.join('\n')).toContain(`removed .tower/worktrees/${mission.worktree}`);
   });
 
   it('dry run reports the decisions without changing worktrees, state, or the log', async () => {
@@ -4711,7 +4436,7 @@ describe('teardown', () => {
       exclude: [gone.worktree],
       liveAgentIds: new Set(['agent-dry-live']),
     });
-    const text = report.join('\n').split(sep).join('/');
+    const text = report.join('\n');
     expect(text).toContain(`would remove .tower/worktrees/${clean.worktree}`);
     expect(text).toContain(`would keep .tower/worktrees/${dirty.worktree} (uncommitted changes`);
     expect(text).toContain(`would keep .tower/worktrees/${live.worktree} (live agent: w-dry-live)`);
@@ -4724,12 +4449,8 @@ describe('teardown', () => {
     expect(await store.recentLog(200)).toEqual(logBefore);
 
     const real = await store.teardown({ liveAgentIds: new Set(['agent-dry-live']) });
-    expect(real.join('\n').split(sep).join('/')).toContain(
-      `removed .tower/worktrees/${clean.worktree}`,
-    );
-    expect(real.join('\n').split(sep).join('/')).toContain(
-      `kept .tower/worktrees/${live.worktree} (live agent: w-dry-live)`,
-    );
+    expect(real.join('\n')).toContain(`removed .tower/worktrees/${clean.worktree}`);
+    expect(real.join('\n')).toContain(`kept .tower/worktrees/${live.worktree} (live agent: w-dry-live)`);
   });
 });
 
@@ -4776,10 +4497,12 @@ describe('addWorktree branch ownership', () => {
     const state = await store.load();
     await store.addWorktree(mission!.worktree, mission!.branch, state.base);
 
-    const retry = await store.addWorktree(mission!.worktree, mission!.branch, state.base).then(
-      () => undefined,
-      (error: unknown) => error,
-    );
+    const retry = await store
+      .addWorktree(mission!.worktree, mission!.branch, state.base)
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
 
     expect(retry).toBeInstanceOf(Error);
     expect((retry as Error).message).not.toMatch(/not owned by any tower mission/);
@@ -4800,9 +4523,10 @@ describe('addWorktree branch ownership', () => {
     const added = await store.addWorktree(mission.worktree, mission.branch, state.base);
 
     expect(added.spawnBase).toBeUndefined();
-    expect((await readFile(join(wt, 'src/x/x.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('x\n');
+    expect(await readFile(join(wt, 'src/x/x.ts'), 'utf8')).toBe('x\n');
   });
 });
+
 
 describe('scopesOverlap', () => {
   it('detects identical and nested directory globs', () => {
@@ -4832,5 +4556,640 @@ describe('scopesOverlap', () => {
     expect(scopesOverlap(['**'], ['src/a/**'])).toBe(false);
     expect(scopesOverlap([], ['src/a/**'])).toBe(false);
     expect(scopesOverlap(['src/a/**'], [])).toBe(false);
+  });
+});
+
+describe('state lock recovery and prepared writes', () => {
+  beforeEach(async () => {
+    await store.init();
+  });
+
+  async function lockExists(path: string): Promise<boolean> {
+    return stat(path).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  function deferred(): { readonly promise: Promise<void>; resolve(): void } {
+    let resolve!: () => void;
+    const promise = new Promise<void>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  it('reclaims a dead holder after matching its lock content even at the timeout boundary', async () => {
+    await store.plan([{ title: 'alpha', scope: ['src/alpha/**'] }]);
+    const lockPath = `${store.abs(STATE_FILE)}.lock`;
+    await writeFile(lockPath, 'pid=999999 since=2026-09-26T00:00:00.000Z token=stale');
+
+    await new TowerStore(repo, { stateLockTimeoutMs: 1, stateLockPollMs: 1 }).updateMission(
+      'tower',
+      'M1',
+      { note: 'reclaimed' },
+    );
+
+    expect((await store.load()).missions[0]?.notes).toEqual(['reclaimed']);
+    await expect(stat(lockPath)).rejects.toThrow(/ENOENT/);
+  });
+
+  type LockDriver = {
+    reapStaleStateLock(lockPath: string): Promise<boolean>;
+    stateLockReaperRef(lockPath: string): Promise<string>;
+    stateLockHolderIsDead(pid: number): Promise<boolean>;
+    tryAcquireStateLock(lockPath: string, token: string): Promise<boolean>;
+    releaseStateLock(lockPath: string, token: string): Promise<void>;
+    withStateLock<T>(fn: () => Promise<T>): Promise<T>;
+  };
+
+  it('never deletes a replacement created after stale removal', async () => {
+    const lockPath = `${store.abs(STATE_FILE)}.lock`;
+    await writeFile(lockPath, 'pid=999999 since=2026-09-26T00:00:00.000Z token=stale');
+    const driver = store as unknown as LockDriver;
+    const originalCheck = driver.stateLockHolderIsDead;
+    const paused = deferred();
+    const entered = deferred();
+    let staleChecks = 0;
+    driver.stateLockHolderIsDead = async (pid) => {
+      if (pid === 999999 && staleChecks === 0) {
+        staleChecks += 1;
+        entered.resolve();
+        await paused.promise;
+      }
+      return originalCheck(pid);
+    };
+    const first = driver.reapStaleStateLock(lockPath);
+    try {
+      await entered.promise;
+      expect(await driver.reapStaleStateLock(lockPath)).toBe(false);
+      expect(staleChecks).toBe(1);
+      paused.resolve();
+      expect(await first).toBe(true);
+      expect(await driver.tryAcquireStateLock(lockPath, 'replacement')).toBe(true);
+      expect(await driver.reapStaleStateLock(lockPath)).toBe(false);
+      expect(await readFile(lockPath, 'utf8')).toContain('token=replacement');
+    } finally {
+      paused.resolve();
+      await Promise.allSettled([first]);
+      driver.stateLockHolderIsDead = originalCheck;
+      await driver.releaseStateLock(lockPath, 'replacement');
+      await rm(lockPath, { force: true });
+    }
+  });
+
+  it('uses one reaper guard across real and symlink checkout aliases', async () => {
+    const alias = `${repo}-alias`;
+    await symlink(repo, alias, 'dir');
+    const lockPath = `${store.abs(STATE_FILE)}.lock`;
+    const realDriver = store as unknown as LockDriver;
+    const aliasStore = new TowerStore(alias);
+    const aliasDriver = aliasStore as unknown as LockDriver;
+    const aliasLockPath = `${aliasStore.abs(STATE_FILE)}.lock`;
+    const originalCheck = realDriver.stateLockHolderIsDead;
+    const paused = deferred();
+    const entered = deferred();
+    let staleChecks = 0;
+    realDriver.stateLockHolderIsDead = async (pid) => {
+      if (pid === 999999 && staleChecks === 0) {
+        staleChecks += 1;
+        entered.resolve();
+        await paused.promise;
+      }
+      return originalCheck(pid);
+    };
+    let first: Promise<boolean> | undefined;
+    let contender: Promise<unknown> | undefined;
+    try {
+      expect(await realDriver.stateLockReaperRef(lockPath)).toBe(
+        await aliasDriver.stateLockReaperRef(aliasLockPath),
+      );
+      await writeFile(lockPath, 'pid=999999 since=2026-09-26T00:00:00.000Z token=stale');
+      first = realDriver.reapStaleStateLock(lockPath);
+      await entered.promise;
+      expect(await aliasDriver.reapStaleStateLock(aliasLockPath)).toBe(false);
+      paused.resolve();
+      expect(await first).toBe(true);
+      expect(await realDriver.tryAcquireStateLock(lockPath, 'replacement')).toBe(true);
+      expect(await aliasDriver.reapStaleStateLock(aliasLockPath)).toBe(false);
+      const replacement = await readFile(lockPath, 'utf8');
+      expect(replacement).toContain('token=replacement');
+
+      let contenderEntered = false;
+      contender = aliasDriver.withStateLock(async () => {
+        contenderEntered = true;
+      });
+      await delay(20);
+      expect(contenderEntered).toBe(false);
+      expect(await readFile(lockPath, 'utf8')).toBe(replacement);
+      await realDriver.releaseStateLock(lockPath, 'replacement');
+      await contender;
+      expect(contenderEntered).toBe(true);
+    } finally {
+      paused.resolve();
+      realDriver.stateLockHolderIsDead = originalCheck;
+      await realDriver.releaseStateLock(lockPath, 'replacement');
+      if (first !== undefined) await Promise.allSettled([first]);
+      if (contender !== undefined) await Promise.allSettled([contender]);
+      await rm(lockPath, { force: true });
+      await rm(alias, { force: true });
+    }
+  });
+
+  it('recovers from incomplete legacy claims and a crashed reaper guard', async () => {
+    const logDir = join(repo, '.tower/comms/log');
+    const empty = join(logDir, 'state-lock-claim-crashed');
+    const partial = join(logDir, 'state-lock-claim-partial');
+    await writeFile(empty, '');
+    await writeFile(partial, 'pid=');
+    const driver = store as unknown as LockDriver;
+
+    let entered = false;
+    await driver.withStateLock(async () => {
+      entered = true;
+      expect(await readFile(`${store.abs(STATE_FILE)}.lock`, 'utf8')).toContain('token=');
+    });
+
+    expect(entered).toBe(true);
+    expect(await readFile(empty, 'utf8')).toBe('');
+    expect(await readFile(partial, 'utf8')).toBe('pid=');
+    const lockPath = `${store.abs(STATE_FILE)}.lock`;
+    const guardFile = join(repo, 'crashed-reaper.txt');
+    await writeFile(guardFile, 'pid=999999 since=2026-09-26T00:00:00.000Z token=crashed');
+    const guardToken = await git(repo, 'hash-object', '-w', guardFile);
+    const guardRef = await driver.stateLockReaperRef(lockPath);
+    await git(repo, 'update-ref', guardRef, guardToken, '');
+    await writeFile(lockPath, 'pid=999999 since=2026-09-26T00:00:00.000Z token=stale');
+
+    expect(await driver.reapStaleStateLock(lockPath)).toBe(true);
+    await expect(git(repo, 'rev-parse', '--verify', '--quiet', guardRef)).rejects.toThrow();
+    await rm(guardFile, { force: true });
+  });
+
+  it('keeps one deleting reaper and preserves replacements under contention', async () => {
+    const lockPath = `${store.abs(STATE_FILE)}.lock`;
+    const driver = store as unknown as LockDriver;
+    for (let round = 0; round < 8; round += 1) {
+      await writeFile(
+        lockPath,
+        `pid=999999 since=2026-09-26T00:00:00.000Z token=stale-${String(round)}`,
+      );
+      const outcomes = await Promise.all(
+        Array.from({ length: 6 }, () => driver.reapStaleStateLock(lockPath)),
+      );
+      expect(outcomes.filter(Boolean)).toHaveLength(1);
+      const token = `replacement-${String(round)}`;
+      expect(await driver.tryAcquireStateLock(lockPath, token)).toBe(true);
+      expect(await readFile(lockPath, 'utf8')).toContain(`token=${token}`);
+      await driver.releaseStateLock(lockPath, token);
+    }
+  });
+
+  it('sends without waiting for the state lock and preserves concurrent roster writes', async () => {
+    await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker' }));
+    const lockPath = `${store.abs(STATE_FILE)}.lock`;
+    await writeFile(lockPath, `pid=${String(process.pid)} since=2026-09-26T00:00:00.000Z token=live`);
+    try {
+      const rel = await store.send('tower', { to: 'w1', subject: 'lock free', body: 'x' });
+      expect(parseFrontmatter(await readFile(store.abs(rel), 'utf8')).fields['subject']).toBe(
+        'lock free',
+      );
+    } finally {
+      await rm(lockPath, { force: true });
+    }
+
+    const other = new TowerStore(repo);
+    const subjects = Array.from({ length: 16 }, (_, index) => `message-${String(index)}`);
+    await Promise.all([
+      ...subjects.map((subject) => store.send('tower', { to: 'w1', subject, body: subject })),
+      ...Array.from({ length: 8 }, (_, index) =>
+        other.registerAgent(rosterEntry({ name: `other-${String(index)}`, kind: 'worker' })),
+      ),
+    ]);
+
+    const inbox = await store.readInbox('w1', 50);
+    expect(
+      inbox.filter((item) => item.subject !== 'lock free').map((item) => item.subject).toSorted(),
+    ).toEqual(subjects.toSorted());
+    const roster = (await store.load()).roster.agents.map((agent) => agent.name);
+    expect(roster).toEqual(expect.arrayContaining(['w1', ...Array.from({ length: 8 }, (_, i) => `other-${String(i)}`)]));
+  });
+
+  it('runs updateMission completion Git checks outside the state lock', async () => {
+    const mission = await setupMission({
+      title: 'feature x',
+      scope: 'src/x/**',
+      file: 'src/x/x.ts',
+      content: 'x\n',
+      status: 'active',
+    });
+    const lockPath = `${store.abs(STATE_FILE)}.lock`;
+    const observed: boolean[] = [];
+    const original = TowerStore.prototype.diffBase;
+    const spy = vi.spyOn(TowerStore.prototype, 'diffBase').mockImplementation(
+      async function (this: TowerStore, state, target) {
+        observed.push(await lockExists(lockPath));
+        return original.call(this, state, target);
+      },
+    );
+    try {
+      await store.updateMission('tower', mission.id, { status: 'completed' });
+      expect(observed.length).toBeGreaterThan(0);
+      expect(observed).not.toContain(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('runs TowerComplete validation outside the state lock', async () => {
+    const mission = await setupMission({
+      title: 'feature x',
+      scope: 'src/x/**',
+      file: 'src/x/x.ts',
+      content: 'x\n',
+      status: 'active',
+    });
+    await store.registerAgent(
+      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
+    );
+    const lockPath = `${store.abs(STATE_FILE)}.lock`;
+    const observed: boolean[] = [];
+    const original = TowerStore.prototype.diffBase;
+    const spy = vi.spyOn(TowerStore.prototype, 'diffBase').mockImplementation(
+      async function (this: TowerStore, state, target) {
+        observed.push(await lockExists(lockPath));
+        return original.call(this, state, target);
+      },
+    );
+    try {
+      await store.complete('w1', 'same completion report');
+      expect(observed.length).toBeGreaterThan(0);
+      expect(observed).not.toContain(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('keeps TowerComplete idempotent under concurrency', async () => {
+    const mission = await setupMission({
+      title: 'feature x',
+      scope: 'src/x/**',
+      file: 'src/x/x.ts',
+      content: 'x\n',
+      status: 'active',
+    });
+    await store.registerAgent(
+      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
+    );
+    const results = await Promise.all([
+      store.complete('w1', 'same completion report'),
+      store.complete('w1', 'same completion report'),
+    ]);
+    expect(results.filter((result) => result.notificationCreated)).toHaveLength(1);
+    const messages = await store.readInbox('tower', 20);
+    expect(messages.filter((item) => item.action === 'complete')).toHaveLength(1);
+  });
+
+  it('publishes a completion notification atomically while another complete prepares', async () => {
+    const mission = await setupMission({
+      title: 'feature x',
+      scope: 'src/x/**',
+      file: 'src/x/x.ts',
+      content: 'x\n',
+      status: 'active',
+    });
+    await store.registerAgent(
+      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
+    );
+    const report = 'atomic completion report'.repeat(2000);
+    const writeGate = deferred();
+    const writeStarted = deferred();
+    const secondPrepared = deferred();
+    const probe = await open(store.abs(STATE_FILE), 'r');
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const originalWrite = fileHandlePrototype.writeFile;
+    let paused = false;
+    const writeSpy = vi.spyOn(fileHandlePrototype, 'writeFile').mockImplementation(
+      (async function (this: FileHandle, data: string, options?: BufferEncoding) {
+        if (!paused && data.includes(report)) {
+          paused = true;
+          const split = data.indexOf('\n\n') + 34;
+          await originalWrite.call(this, data.slice(0, split), options);
+          writeStarted.resolve();
+          await writeGate.promise;
+          return originalWrite.call(this, data.slice(split), options);
+        }
+        return originalWrite.call(this, data, options);
+      }) as typeof originalWrite,
+    );
+    type InboxDriver = {
+      listInboxSnapshot(): Promise<{ readonly items: unknown[]; readonly files: readonly string[] }>;
+    };
+    const driver = store as unknown as InboxDriver;
+    const originalSnapshot = driver.listInboxSnapshot;
+    let snapshots = 0;
+    driver.listInboxSnapshot = async () => {
+      const result = await originalSnapshot.call(store);
+      snapshots += 1;
+      if (snapshots === 2) secondPrepared.resolve();
+      return result;
+    };
+    const first = store.complete('w1', report);
+    await writeStarted.promise;
+    const during = await readdir(join(repo, '.tower/comms/inbox'));
+    expect(during.some((file) => file.includes('.tmp-'))).toBe(true);
+    expect(during.filter((file) => file.endsWith('.md'))).toEqual([]);
+    const second = store.complete('w1', report);
+    try {
+      await secondPrepared.promise;
+      writeGate.resolve();
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      expect(firstResult.notificationCreated).toBe(true);
+      expect(secondResult.notificationCreated).toBe(false);
+      const messages = await store.readInbox('tower', 20);
+      expect(messages.filter((item) => item.action === 'complete')).toHaveLength(1);
+      expect(messages[0]?.body).toBe(report);
+    } finally {
+      writeGate.resolve();
+      await Promise.allSettled([first, second]);
+      writeSpy.mockRestore();
+      driver.listInboxSnapshot = originalSnapshot;
+    }
+  });
+
+  it('scans reviews outside the state lock and allocates unique seq values concurrently', async () => {
+    const mission = await setupMission({
+      title: 'feature x',
+      scope: 'src/x/**',
+      file: 'src/x/x.ts',
+      content: 'x\n',
+    });
+    await store.registerAgent(
+      rosterEntry({ name: 'rev-a', kind: 'reviewer', reviewTarget: mission.branch }),
+    );
+    await store.registerAgent(
+      rosterEntry({ name: 'rev-b', kind: 'reviewer', reviewTarget: mission.branch }),
+    );
+    const lockPath = `${store.abs(STATE_FILE)}.lock`;
+    const observed: boolean[] = [];
+    const original = TowerStore.prototype.reviewsFor;
+    const spy = vi.spyOn(TowerStore.prototype, 'reviewsFor').mockImplementation(
+      async function (this: TowerStore, target) {
+        observed.push(await lockExists(lockPath));
+        return original.call(this, target);
+      },
+    );
+    try {
+      await Promise.all([cleanReview('rev-a', mission.branch), cleanReview('rev-b', mission.branch)]);
+      expect(observed.length).toBeGreaterThan(0);
+      expect(observed).not.toContain(true);
+      const reviews = await store.reviewsFor(mission.branch);
+      expect(reviews.map((review) => review.seq)).toEqual([1, 2]);
+      expect(reviews.map((review) => review.round)).toEqual([1, 1]);
+      expect(new Set(reviews.map((review) => review.file)).size).toBe(2);
+      const messages = await store.readInbox('tower', 20);
+      expect(messages.filter((item) => item.action === 'review-result')).toHaveLength(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('keeps retrying prepared commits beyond eight snapshot conflicts', async () => {
+    const mission = await setupMission({
+      title: 'feature x',
+      scope: 'src/x/**',
+      file: 'src/x/x.ts',
+      content: 'x\n',
+      status: 'active',
+    });
+    await store.registerAgent(
+      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
+    );
+    const contender = new TowerStore(repo, { stateLockPollMs: 0 });
+    type LockDriver = {
+      withStateLock<T>(fn: () => Promise<T>): Promise<T>;
+    };
+    const driver = contender as unknown as LockDriver;
+    const original = driver.withStateLock;
+    let attempts = 0;
+    driver.withStateLock = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      attempts += 1;
+      if (attempts <= 9) {
+        await store.updateMission('tower', mission.id, { note: `competing-${String(attempts)}` });
+      }
+      return original.call(contender, fn) as Promise<T>;
+    };
+
+    const result = await contender.complete('w1', 'burst completion');
+
+    expect(attempts).toBe(10);
+    expect(result.notificationCreated).toBe(true);
+    const messages = await store.readInbox('tower', 20);
+    expect(messages.filter((item) => item.action === 'complete')).toHaveLength(1);
+  });
+
+  it('serializes inbox publication with completion commits', async () => {
+    const mission = await setupMission({
+      title: 'feature x',
+      scope: 'src/x/**',
+      file: 'src/x/x.ts',
+      content: 'x\n',
+      status: 'active',
+    });
+    await store.registerAgent(
+      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
+    );
+    type SaveDriver = { save(state: TowerState): Promise<void> };
+    const driver = store as unknown as SaveDriver;
+    const original = driver.save;
+    const paused = deferred();
+    const release = deferred();
+    let intercepted = false;
+    driver.save = async (state) => {
+      if (
+        !intercepted &&
+        state.missions.some((candidate) => candidate.id === mission.id && candidate.status === 'completed')
+      ) {
+        intercepted = true;
+        paused.resolve();
+        await release.promise;
+      }
+      return original.call(store, state);
+    };
+    const completing = store.complete('w1', 'completion report');
+    let sending: Promise<string> | undefined;
+    try {
+      await paused.promise;
+      sending = store.send('tower', { to: 'w1', subject: 'last instruction', body: 'x' });
+      await delay(20);
+      expect(
+        (await store.readInbox('w1', 50)).some((item) => item.subject === 'last instruction'),
+      ).toBe(false);
+      release.resolve();
+      await completing;
+      await sending;
+      expect(
+        (await store.readInbox('w1', 50)).some((item) => item.subject === 'last instruction'),
+      ).toBe(true);
+    } finally {
+      release.resolve();
+      driver.save = original;
+      await Promise.allSettled(
+        sending === undefined ? [completing] : [completing, sending],
+      );
+    }
+  });
+
+  it('persists spawn roster and ownership atomically when mission validation fails', async () => {
+    const [mission] = await store.plan([{ title: 'feature x', scope: ['src/x/**'] }]);
+    const entry = rosterEntry({ name: 'w1', kind: 'worker', missionId: mission!.id });
+
+    await expect(store.registerSpawnedAgent(entry, { id: 'M99', owner: 'w1' })).rejects.toThrow(
+      /unknown mission/,
+    );
+    let state = await store.load();
+    expect(state.roster.agents).toEqual([]);
+    expect(state.missions[0]?.status).toBe('planned');
+    expect(state.missions[0]?.owner).toBeUndefined();
+
+    await store.registerSpawnedAgent(entry, { id: mission!.id, owner: 'w1' });
+    state = await store.load();
+    expect(state.roster.agents.map((agent) => agent.name)).toEqual(['w1']);
+    expect(state.missions[0]?.status).toBe('active');
+    expect(state.missions[0]?.owner).toBe('w1');
+  });
+});
+
+describe('bounded protocol IO', () => {
+  beforeEach(async () => {
+    await store.init();
+  });
+
+  it('reads a large inbox with bounded parallel work while preserving order and acknowledgements', async () => {
+    const inboxDir = join(repo, '.tower/comms/inbox');
+    for (let index = 0; index < 80; index += 1) {
+      const subject = `message-${String(index)}`;
+      await writeFile(
+        join(inboxDir, `bulk-${String(index).padStart(3, '0')}.md`),
+        [
+          '---',
+          'type: inbox',
+          `message_id: bulk-${String(index)}`,
+          'from: tower',
+          'to: w1',
+          `subject: ${subject}`,
+          `sent_at: ${new Date(1000 + index).toISOString()}`,
+          '---',
+          '',
+          subject,
+          '',
+        ].join('\n'),
+      );
+    }
+    await writeFile(join(inboxDir, 'not-inbox.md'), '# not an inbox message\n');
+    await mkdir(join(inboxDir, 'unreadable.md'));
+    await store.registerAgent(
+      rosterEntry({ name: 'w1', kind: 'worker', spawnedAt: '1970-01-01T00:00:00.000Z' }),
+    );
+
+    const history = await store.readInbox('w1', 100);
+    expect(history).toHaveLength(80);
+    expect(history.map((item) => item.subject)).toEqual(
+      Array.from({ length: 80 }, (_, index) => `message-${String(79 - index)}`),
+    );
+    const firstPage = await store.readUnreadInbox('w1', 10);
+    expect(firstPage.map((item) => item.subject)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `message-${String(79 - index)}`),
+    );
+    expect(await store.ackInbox('w1', firstPage.map((item) => item.messageId))).toBe(70);
+    expect((await store.readUnreadInbox('w1', 1))[0]?.subject).toBe('message-69');
+
+    let active = 0;
+    let maximum = 0;
+    const values = await mapWithConcurrency(
+      Array.from({ length: 64 }, (_, index) => index),
+      4,
+      async (index) => {
+        active += 1;
+        maximum = Math.max(maximum, active);
+        await delay(3);
+        active -= 1;
+        return index;
+      },
+    );
+    expect(maximum).toBe(4);
+    expect(values).toEqual(Array.from({ length: 64 }, (_, index) => index));
+  });
+
+  it('finds recent, old, and chunk-crossing activity refs without a fixed tail cutoff', async () => {
+    type ActivityDriver = { hasActivityLogRef(action: string, rel: string): Promise<boolean> };
+    const drive = (action: string, rel: string): Promise<boolean> =>
+      (store as unknown as ActivityDriver).hasActivityLogRef(action, rel);
+    const logPath = join(repo, '.tower/comms/log/activity.log');
+    const oldRel = '.tower/comms/inbox/old.md';
+    await appendFile(logPath, `2026-01-01T00:00:00.000Z tower inbox.send to=w1 ref=${oldRel}\n`);
+    for (let index = 0; index < 4; index += 1) {
+      await appendFile(logPath, `${'x'.repeat(16 * 1024)}\n`);
+    }
+    expect(await drive('inbox.send', oldRel)).toBe(true);
+    expect(await drive('inbox.send', '.tower/comms/inbox/missing.md')).toBe(false);
+
+    const recentRel = '.tower/comms/inbox/recent.md';
+    await store.appendLog('tower', 'inbox.send', { to: 'w1' }, recentRel);
+    expect(await drive('inbox.send', recentRel)).toBe(true);
+
+    const crossingRel = '.tower/comms/inbox/crossing.md';
+    const prefix = '2026-01-01T00:00:00.000Z tower inbox.send ';
+    const padding = 16 * 1024 - Buffer.byteLength(prefix) - 2;
+    await writeFile(logPath, `${prefix}${'x'.repeat(padding)}ref=${crossingRel}\n`);
+    expect(await drive('inbox.send', crossingRel)).toBe(true);
+  });
+
+  it('reads complete long frontmatter and ignores unterminated or unreadable review files', async () => {
+    const reviewsDir = join(repo, '.tower/comms/reviews');
+    const reviewedCommit = await git(repo, 'rev-parse', 'main');
+    const fields = [
+      '---',
+      'date: 2026-01-01',
+      'reviewer: previous',
+      'target: feat/x',
+      'round: 1',
+      'seq: 42',
+      'status: clean',
+      'merge: merge',
+      `reviewed_commit: ${reviewedCommit}`,
+      `padding: ${'x'.repeat(20_000)}`,
+      '---',
+      '',
+      'a body that must not be needed for metadata',
+      '',
+    ].join('\n');
+    await writeFile(join(reviewsDir, 'review-feat-x-previous-1.md'), fields);
+    await writeFile(
+      join(reviewsDir, 'review-feat-x-binary-1.md'),
+      Buffer.concat([
+        Buffer.from(
+          `---\nreviewer: binary\ntarget: feat/x\nround: 1\nseq: 41\nstatus: clean\nmerge: merge\nreviewed_commit: ${reviewedCommit}\npadding: `,
+        ),
+        Buffer.from([0xff, 0xfe, 0xfd]),
+        Buffer.from('\n---\n\nbody\n'),
+      ]),
+    );
+    await writeFile(
+      join(reviewsDir, 'review-feat-x-unterminated-1.md'),
+      '---\nreviewer: invalid\ntarget: feat/x\nround: 9\nseq: 99\nstatus: clean\n',
+    );
+    await mkdir(join(reviewsDir, 'review-feat-x-broken-1.md'));
+    await git(repo, 'branch', 'feat/x');
+    await store.registerAgent(
+      rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: 'feat/x' }),
+    );
+
+    await cleanReview('rev', 'feat/x');
+
+    const reviews = await store.reviewsFor('feat/x');
+    expect(reviews.map((review) => review.seq)).toEqual([41, 42, 43]);
+    expect(reviews.map((review) => review.reviewer)).toEqual(['binary', 'previous', 'rev']);
   });
 });

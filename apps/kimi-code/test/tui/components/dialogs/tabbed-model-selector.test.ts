@@ -1,19 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it, mock, type Mock } from 'bun:test';
-
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
+import { afterAll, beforeAll, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { TabbedModelSelectorComponent } from '#/tui/components/dialogs/tabbed-model-selector';
 import { currentTheme } from '#/tui/theme';
 import { darkColors, lightColors } from '#/tui/theme/colors';
-import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 const ESC = String.fromCodePoint(27);
 const SGR = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
 const strip = (s: string): string => s.replaceAll(SGR, '');
 const TAB = '\t';
 const RIGHT = `${ESC}[C`;
-// chalk.bgHex(colors.primary) → background truecolor for #4FA8FF.
 const PRIMARY_BG = '48;2;79;168;255';
 
 function model(displayName: string, provider: string): ModelAlias {
@@ -28,9 +25,9 @@ function model(displayName: string, provider: string): ModelAlias {
 
 function make(): {
   component: TabbedModelSelectorComponent;
-  onSelect: Mock<(...args: any[]) => any>;
+  onSelect: ReturnType<typeof vi.fn>;
 } {
-  const onSelect = mock();
+  const onSelect = vi.fn();
   const component = new TabbedModelSelectorComponent({
     models: {
       k2: model('Kimi K2', 'managed:kimi-code'),
@@ -39,7 +36,7 @@ function make(): {
     currentValue: 'k2',
     currentThinkingEffort: 'off',
     onSelect,
-    onCancel: mock(),
+    onCancel: vi.fn(),
   });
   component.focused = true;
   return { component, onSelect };
@@ -48,15 +45,14 @@ function make(): {
 describe('TabbedModelSelectorComponent', () => {
   let previousLevel: typeof chalk.level;
   const previousPalette = currentTheme.palette;
-  const previousWasLight = currentTheme.isLight;
   beforeAll(() => {
     previousLevel = chalk.level;
     chalk.level = 3;
-    currentTheme.setPalette(darkColors, 'dark');
+    currentTheme.setPalette(darkColors);
   });
   afterAll(() => {
     chalk.level = previousLevel;
-    currentTheme.setPalette(previousPalette, previousWasLight ? 'light' : 'dark');
+    currentTheme.setPalette(previousPalette);
   });
 
   it('renders an "All" + per-provider tab strip', () => {
@@ -67,8 +63,6 @@ describe('TabbedModelSelectorComponent', () => {
   });
 
   it('highlights the active tab with a filled background (AskUserQuestion style)', () => {
-    // currentValue k2 → the active tab is "Kimi Code"; its cell carries the
-    // primary background SGR.
     const raw = make().component.render(120).join('\n');
     expect(raw).toContain(PRIMARY_BG);
   });
@@ -78,22 +72,18 @@ describe('TabbedModelSelectorComponent', () => {
     const stripLine = (lines: string[]): string =>
       lines.find((l) => l.includes('All') && l.includes('openai')) ?? '';
     const previous = currentTheme.palette;
-    const wasLight = currentTheme.isLight;
     try {
-      currentTheme.setPalette(darkColors, 'dark');
+      currentTheme.setPalette(darkColors);
       const darkStrip = stripLine(component.render(120));
-      currentTheme.setPalette(lightColors, 'light');
+      currentTheme.setPalette(lightColors);
       const lightStrip = stripLine(component.render(120));
-      // The strip is drawn from currentTheme.palette at render time; a
-      // construction-time palette snapshot would render the same strip after
-      // the switch.
       expect(darkStrip).not.toBe(lightStrip);
     } finally {
-      currentTheme.setPalette(previous, wasLight ? 'light' : 'dark');
+      currentTheme.setPalette(previous);
     }
   });
 
-  it("opens on the All tab by default (showing every provider's models)", () => {
+  it('opens on the All tab by default (showing every provider\'s models)', () => {
     const out = strip(make().component.render(120).join('\n'));
     expect(out).toContain('Kimi K2');
     expect(out).toContain('GPT-5');
@@ -101,8 +91,6 @@ describe('TabbedModelSelectorComponent', () => {
 
   it('cycles provider tabs with Tab', () => {
     const { component } = make();
-    // tabs = [All, Kimi Code, openai]; active starts on All.
-    // Two Tabs → openai, whose list shows GPT-5 and not Kimi K2.
     component.handleInput(TAB);
     component.handleInput(TAB);
     const out = strip(component.render(120).join('\n'));
@@ -112,7 +100,7 @@ describe('TabbedModelSelectorComponent', () => {
 
   it('forwards thinking toggle (←/→) and selection (Enter) to the active tab', () => {
     const { component, onSelect } = make();
-    component.handleInput(RIGHT); // toggle thinking on for k2
+    component.handleInput(RIGHT);
     component.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({ alias: 'k2', thinking: 'on' });
   });
@@ -122,9 +110,9 @@ describe('TabbedModelSelectorComponent', () => {
     const hintIdx = lines.findIndex((l) => l.includes('navigate') && l.includes('Esc cancel'));
     const stripIdx = lines.findIndex((l) => l.includes('All') && l.includes('openai'));
     expect(hintIdx).toBeGreaterThanOrEqual(0);
-    expect(lines[hintIdx + 1]).toBe(''); // blank between hint and tabs
+    expect(lines[hintIdx + 1]).toBe('');
     expect(stripIdx).toBe(hintIdx + 2);
-    expect(lines[stripIdx + 1]).toBe(''); // blank between tabs and list
+    expect(lines[stripIdx + 1]).toBe('');
   });
 
   it('mentions the Tab provider switch first in the hint line', () => {
@@ -132,7 +120,6 @@ describe('TabbedModelSelectorComponent', () => {
     const hint = lines.find((l) => l.includes('navigate') && l.includes('Esc cancel'));
     expect(hint).toBeDefined();
     expect(hint).toContain('Tab toggle provider');
-    // It comes first, before the navigation hint.
     expect(hint!.indexOf('Tab toggle provider')).toBeLessThan(hint!.indexOf('↑↓ navigate'));
   });
 
@@ -144,8 +131,8 @@ describe('TabbedModelSelectorComponent', () => {
       currentValue: 'k2',
       currentThinkingEffort: 'off',
       title: ' Choose a model for this task',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
     const out = strip(titled.render(120).join('\n'));
     expect(out).toContain('Choose a model for this task');
@@ -161,45 +148,16 @@ describe('TabbedModelSelectorComponent', () => {
       currentValue: 'k2',
       currentThinkingEffort: 'off',
       warning: 'Switching may increase token usage.',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
     const lines = component.render(120).map(strip);
     const hintIdx = lines.findIndex((l) => l.includes('navigate') && l.includes('Esc cancel'));
     expect(lines[hintIdx + 1]).toContain('Switching may increase token usage.');
-    expect(lines[hintIdx + 2]).toBe(''); // blank between warning and tabs
+    expect(lines[hintIdx + 2]).toBe('');
     const stripIdx = lines.findIndex((l) => l.includes('All') && l.includes('openai'));
     expect(stripIdx).toBe(hintIdx + 3);
-    expect(lines[stripIdx + 1]).toBe(''); // blank between tabs and list
+    expect(lines[stripIdx + 1]).toBe('');
     expect(lines.findIndex((l) => l.includes('Kimi K2'))).toBeGreaterThan(stripIdx);
-  });
-});
-
-describe('TabbedModelSelectorComponent — mouse', () => {
-  it('picks a model in the active tab through the tab strip offset', () => {
-    const { component, onSelect } = make();
-    pastSettlingWindow();
-    const rows = component.render(120).map(strip);
-    const row = rows.findIndex((line) => line.includes('GPT-5'));
-    expect(row).toBeGreaterThan(0);
-
-    for (const type of ['press', 'release', 'click'] as const) {
-      component.handleMouse(mouse(type, row));
-    }
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ alias: 'gpt' }));
-  });
-
-  it('switches tabs when a tab in the strip is clicked', () => {
-    const { component } = make();
-    const rows = component.render(120).map(strip);
-    const tabRow = rows.findIndex((line) => line.includes('All') && line.includes('openai'));
-    expect(tabRow).toBeGreaterThan(0);
-
-    const column = rows[tabRow]!.indexOf('openai');
-    component.handleMouse(mouse('click', tabRow, undefined, column + 1));
-
-    const after = component.render(120).map(strip);
-    expect(after.some((line) => line.includes('GPT-5'))).toBe(true);
-    expect(after.some((line) => line.includes('Kimi K2'))).toBe(false);
   });
 });

@@ -1,74 +1,13 @@
 import type { ServicesAccessor } from '#/_base/di/instantiation';
-import { DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
+import type { IDisposable } from '#/_base/di/lifecycle';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
-import {
-  ISessionManager,
-  type ISessionManager as SessionManager,
-} from '#/app/sessionManager/sessionManager';
+import { ISessionManager, type ISessionManager as SessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, isError2 } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import {
-  ISessionLifecycleService,
-  type ResumeSessionOptions,
-} from '#/workspace/sessionLifecycle/sessionLifecycle';
-import {
-  IWorkspaceInstanceManager,
-  type WorkspaceInstanceLease,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
-
-import {
-  IWorkspaceLifecycleService,
-  type IWorkspaceScopeHandle,
-} from '../workspaceLifecycle/workspaceLifecycle';
-
-export async function handlerForSession(
-  accessor: ServicesAccessor,
-  sessionId: string,
-): Promise<IWorkspaceScopeHandle | undefined> {
-  const summary = await accessor.get(ISessionIndex).get(sessionId);
-  if (summary === undefined) return undefined;
-  try {
-    return await accessor
-      .get(IWorkspaceLifecycleService)
-      .handlerFor({ workspaceId: summary.workspaceId, root: summary.cwd });
-  } catch (error) {
-    if (isError2(error) && error.code === ErrorCodes.WORKSPACE_NOT_FOUND) return undefined;
-    throw error;
-  }
-}
-
-export function liveHandlerForSession(
-  accessor: ServicesAccessor,
-  sessionId: string,
-): IWorkspaceScopeHandle | undefined {
-  for (const handler of accessor.get(IWorkspaceLifecycleService).handlers.list()) {
-    if (handler.accessor.get(ISessionLifecycleService).get(sessionId) !== undefined) {
-      return handler;
-    }
-  }
-  return undefined;
-}
-
-export function followWorkspaceHandlers(
-  accessor: ServicesAccessor,
-  follow: (service: ISessionLifecycleService) => IDisposable,
-): IDisposable {
-  const lifecycle = accessor.get(IWorkspaceLifecycleService);
-  const store = new DisposableStore();
-  for (const handler of lifecycle.handlers.list()) {
-    store.add(follow(handler.accessor.get(ISessionLifecycleService)));
-  }
-  store.add(
-    lifecycle.onDidMaterializeHandler((handler) => {
-      if (!store.isDisposed) {
-        store.add(follow(handler.accessor.get(ISessionLifecycleService)));
-      }
-    }),
-  );
-  return store;
-}
+import type { ResumeSessionOptions } from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { IWorkspaceInstanceManager, type WorkspaceInstanceLease } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 export async function programForSession(
   accessor: ServicesAccessor,

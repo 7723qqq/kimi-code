@@ -1,4 +1,4 @@
-import { createToolMessage } from '#/llm-adapter/contract/message';
+import { createToolMessage } from '@moonshot-ai/core/llm/message';
 
 import type { ContextMessage } from './types';
 
@@ -20,10 +20,12 @@ export function closeTrailingOpenToolExchange(
   const answeredToolCallIds = new Set(
     history
       .slice(lastNonToolIndex + 1)
-      .map((message) => message.toolCallId)
-      .filter((toolCallId): toolCallId is string => typeof toolCallId === 'string'),
+      .filter((message) => message.role === 'tool')
+      .map((message) => message.toolCallId),
   );
-  const openCalls = assistant.toolCalls.filter((toolCall) => !answeredToolCallIds.has(toolCall.id));
+  const openCalls = assistant.toolCalls.filter(
+    (toolCall) => !answeredToolCallIds.has(toolCall.id),
+  );
   if (openCalls.length === 0) return [...history];
   const settledAssistant =
     assistant.partial === true ? { ...assistant, partial: undefined } : assistant;
@@ -31,6 +33,8 @@ export function closeTrailingOpenToolExchange(
     ...history.slice(0, lastNonToolIndex),
     settledAssistant,
     ...history.slice(lastNonToolIndex + 1),
-    ...openCalls.map((toolCall) => createToolMessage(toolCall.id, INHERITED_IN_FLIGHT_TOOL_OUTPUT)),
+    ...openCalls.map((toolCall) =>
+      createToolMessage(toolCall.id, INHERITED_IN_FLIGHT_TOOL_OUTPUT),
+    ),
   ];
 }

@@ -41,6 +41,7 @@
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
   },
   "devDependencies": {
+    "@moonshot-ai/testkit": "workspace:*",
     "tree-sitter-bash": "0.25.0",
     "web-tree-sitter": "0.25.10"
   }

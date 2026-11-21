@@ -1,27 +1,34 @@
 import { Disposable, DisposableStore, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService, type IAgentScopeHandle } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
+import {
+  ScopeActivation,
+  registerScopedService,
+  type IAgentScopeHandle,
+} from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
+import { defineState } from '#/state/state';
+import { IEventBus } from '#/app/event/eventBus';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { TurnStarted, type TurnEndReason } from '#/agent/loop/turnEvents';
+import { TurnEnded, turnKey } from '#/agent/loop/turnOps';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { TaskStarted, TaskTerminatedNotice } from '#/agent/task/taskOps';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import {
   CompactionCancelled,
   CompactionCompleted,
   CompactionStarted,
 } from '#/agent/fullCompaction/compactionOps';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { TurnStarted, type TurnEndReason } from '#/agent/loop/turnEvents';
-import { TurnEnded, turnKey } from '#/agent/loop/turnOps';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentTaskService } from '#/agent/task/task';
-import { TaskStarted, TaskTerminatedNotice } from '#/agent/task/taskOps';
-import { IEventBus } from '#/app/event/eventBus';
-import { LifecycleScope } from '#/app/scopes';
-import { interactions } from '#/human/interaction/facade';
-import { INTERACTION_TAG_SESSION_ID, type Interaction } from '#/human/interaction/interaction';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import {
+  INTERACTION_TAG_SESSION_ID,
+  type Interaction,
+} from '#/human/interaction/interaction';
+import { interactions } from '#/human/interaction/facade';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { defineState } from '#/state/state';
 
 import {
   ISessionActivityView,
@@ -43,15 +50,12 @@ export const sessionActivityFoldsKey = defineState<Map<string, AgentWorkFold>>(
   'sessionActivity.folds',
   () => new Map(),
 );
-export const sessionActivityCurrentKey = defineState<SessionActivityState>(
-  'sessionActivity.current',
-  () => ({
-    busy: false,
-    mainTurnActive: false,
-    pendingInteraction: 'none',
-    lastTurnReason: undefined,
-  }),
-);
+export const sessionActivityCurrentKey = defineState<SessionActivityState>('sessionActivity.current', () => ({
+  busy: false,
+  mainTurnActive: false,
+  pendingInteraction: 'none',
+  lastTurnReason: undefined,
+}));
 
 export class SessionActivityView extends Disposable implements ISessionActivityView {
   declare readonly _serviceBrand: undefined;
@@ -89,7 +93,9 @@ export class SessionActivityView extends Disposable implements ISessionActivityV
       }),
     );
     this._register(
-      toDisposable(interactions.onDidChangePending(() => this.recompute('interaction'))),
+      toDisposable(
+        interactions.onDidChangePending(() => this.recompute('interaction')),
+      ),
     );
     this._register(
       toDisposable(() => {
@@ -139,8 +145,7 @@ export class SessionActivityView extends Disposable implements ISessionActivityV
         this.patchFold(handle.id, (fold) => ({
           ...fold,
           turnActive: false,
-          lastTurnReason:
-            handle.id === MAIN_AGENT_ID ? mapTurnReason(event.reason) : fold.lastTurnReason,
+          lastTurnReason: handle.id === MAIN_AGENT_ID ? mapTurnReason(event.reason) : fold.lastTurnReason,
         })),
       ),
     );
@@ -198,12 +203,10 @@ export class SessionActivityView extends Disposable implements ISessionActivityV
     let cause: SessionActivityCause | undefined;
     if (!previous.turnActive && next.turnActive) cause = 'turn_started';
     else if (previous.turnActive && !next.turnActive) cause = 'turn_ended';
-    else if (
-      previous.background.size !== next.background.size ||
-      previous.compacting !== next.compacting
-    ) {
+    else if (previous.background.size !== next.background.size || previous.compacting !== next.compacting) {
       cause = 'background';
-    } else if (agentId === MAIN_AGENT_ID && previous.lastTurnReason !== next.lastTurnReason) {
+    }
+    else if (agentId === MAIN_AGENT_ID && previous.lastTurnReason !== next.lastTurnReason) {
       cause = 'turn_ended';
     }
     if (cause !== undefined) this.recompute(cause);
@@ -241,7 +244,7 @@ export class SessionActivityView extends Disposable implements ISessionActivityV
 
 function seedFold(handle: IAgentScopeHandle): AgentWorkFold {
   const loop = handle.accessor.get(IAgentLoopService) as IAgentLoopService | undefined;
-  const tasks = handle.accessor.get(IAgentTaskService) as IAgentTaskService | undefined;
+  const toolExecutor = handle.accessor.get(IAgentToolExecutorService) as IAgentToolExecutorService | undefined;
   const compaction = handle.accessor.get(IAgentFullCompactionService) as
     | IAgentFullCompactionService
     | undefined;
@@ -252,7 +255,9 @@ function seedFold(handle: IAgentScopeHandle): AgentWorkFold {
       : undefined;
   return {
     turnActive: loop?.snapshot().state === 'running',
-    background: new Set(tasks?.list(true).map((task) => task.taskId) ?? []),
+    background: new Set(toolExecutor?.handlers().flatMap((handler) =>
+      handler.snapshot().fields.task === undefined ? [] : [handler.taskId]
+    ) ?? []),
     compacting: (compaction?.compacting ?? null) !== null,
     lastTurnReason:
       loop?.snapshot().state === 'running' ? undefined : mapTurnReason(lastEnded?.reason),

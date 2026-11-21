@@ -1,49 +1,32 @@
-import { describe, expect, it, jest, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import {
-  fetchChannelFeed,
-  fetchLatestFromCdn,
-  fetchLatestVersionFromCdn,
-} from '#/cli/update/cdn';
+import { fetchChannelFeed, fetchLatestFromCdn, fetchLatestVersionFromCdn } from '#/cli/update/cdn';
 import {
   kimiCodeCdnCanaryChannelUrl,
   kimiCodeCdnLatestJsonUrl,
   kimiCodeCdnLatestUrl,
-} from '#/constant/region-urls';
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
-
-/** Let the promise chains behind a settled clock tick run. */
-async function settle(): Promise<void> {
-  for (let i = 0; i < 4; i += 1) await Promise.resolve();
-}
-
-async function advanceAsync(clock: FakeClock, byMs: number): Promise<void> {
-  await settle();
-  clock.advance(byMs);
-  await settle();
-}
+} from '#/constant/app';
 
 function mockFetchOk(body: string): typeof fetch {
-  return mock(async () => ({
+  return vi.fn(async () => ({
     ok: true,
     status: 200,
     text: async () => body,
-  })) as unknown as unknown as typeof fetch;
+  })) as unknown as typeof fetch;
 }
 
 function mockFetchStatus(status: number): typeof fetch {
-  return mock(async () => ({
+  return vi.fn(async () => ({
     ok: status >= 200 && status < 300,
     status,
     text: async () => '',
-  })) as unknown as unknown as typeof fetch;
+  })) as unknown as typeof fetch;
 }
 
 type Route = { readonly status?: number; readonly body?: string } | Error;
 
-/** URL-routed fetch mock: unrouted URLs return 404. */
 function mockRoutedFetch(routes: Record<string, Route>): typeof fetch {
-  return mock(async (input: string | URL) => {
+  return vi.fn(async (input: string | URL) => {
     const route = routes[String(input)];
     if (route === undefined) {
       return { ok: false, status: 404, text: async () => '' };
@@ -55,7 +38,7 @@ function mockRoutedFetch(routes: Record<string, Route>): typeof fetch {
       status,
       text: async () => route.body ?? '',
     };
-  }) as unknown as unknown as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 const MANIFEST_BODY = JSON.stringify({
@@ -94,9 +77,9 @@ describe('fetchLatestVersionFromCdn', () => {
   });
 
   it('propagates the underlying fetch error', async () => {
-    const f = mock(async () => {
+    const f = vi.fn(async () => {
       throw new Error('network down');
-    }) as unknown as unknown as typeof fetch;
+    }) as unknown as typeof fetch;
     await expect(fetchLatestVersionFromCdn(f)).rejects.toThrow(/network down/);
   });
 });
@@ -154,34 +137,22 @@ describe('fetchLatestFromCdn', () => {
     ['latest.json is missing (HTTP 404)', { status: 404 }],
     ['latest.json fetch throws', new Error('network down')],
     ['body is not valid JSON', { body: 'not json {' }],
-    [
-      'version is not semver',
-      { body: JSON.stringify({ version: 'nope', publishedAt: '2026-06-12T00:00:00.000Z' }) },
-    ],
-    [
-      'publishedAt is unparseable',
-      { body: JSON.stringify({ version: '2.0.0', publishedAt: 'garbage' }) },
-    ],
-    [
-      'a batch percent is out of range',
-      {
-        body: JSON.stringify({
-          version: '2.0.0',
-          publishedAt: '2026-06-12T00:00:00.000Z',
-          rollout: [{ percent: 150, delaySeconds: 0 }],
-        }),
-      },
-    ],
-    [
-      'a batch delay is negative',
-      {
-        body: JSON.stringify({
-          version: '2.0.0',
-          publishedAt: '2026-06-12T00:00:00.000Z',
-          rollout: [{ percent: 100, delaySeconds: -1 }],
-        }),
-      },
-    ],
+    ['version is not semver', { body: JSON.stringify({ version: 'nope', publishedAt: '2026-06-12T00:00:00.000Z' }) }],
+    ['publishedAt is unparseable', { body: JSON.stringify({ version: '2.0.0', publishedAt: 'garbage' }) }],
+    ['a batch percent is out of range', {
+      body: JSON.stringify({
+        version: '2.0.0',
+        publishedAt: '2026-06-12T00:00:00.000Z',
+        rollout: [{ percent: 150, delaySeconds: 0 }],
+      }),
+    }],
+    ['a batch delay is negative', {
+      body: JSON.stringify({
+        version: '2.0.0',
+        publishedAt: '2026-06-12T00:00:00.000Z',
+        rollout: [{ percent: 100, delaySeconds: -1 }],
+      }),
+    }],
   ];
 
   for (const [name, route] of fallbackCases) {
@@ -214,90 +185,81 @@ describe('fetchLatestFromCdn', () => {
   });
 
   it('falls back to plain /latest when latest.json hangs past the request timeout', async () => {
-    const clock = createFakeClock();
-    const f = mock(async (input: string | URL, init?: RequestInit) => {
-      if (String(input) === kimiCodeCdnLatestJsonUrl()) {
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener(
-            'abort',
-            () => {
+    vi.useFakeTimers();
+    try {
+      const f = vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input) === kimiCodeCdnLatestJsonUrl()) {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
               reject(new Error('aborted'));
-            },
-            { once: true },
-          );
-        });
-      }
-      if (String(input) === kimiCodeCdnLatestUrl()) {
-        return { ok: true, status: 200, text: async () => '1.9.0\n' };
-      }
-      return { ok: false, status: 404, text: async () => '' };
-    }) as unknown as unknown as typeof fetch;
+            }, { once: true });
+          });
+        }
+        if (String(input) === kimiCodeCdnLatestUrl()) {
+          return { ok: true, status: 200, text: async () => '1.9.0\n' };
+        }
+        return { ok: false, status: 404, text: async () => '' };
+      }) as unknown as typeof fetch;
 
-    const result = fetchLatestFromCdn(f, undefined, clock);
-    await advanceAsync(clock, 3_000);
+      const result = fetchLatestFromCdn(f);
+      await vi.advanceTimersByTimeAsync(3_000);
 
-    await expect(result).resolves.toEqual({
-      latest: '1.9.0',
-      manifest: null,
-    });
+      await expect(result).resolves.toEqual({
+        latest: '1.9.0',
+        manifest: null,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects when plain /latest also hangs past the request timeout', async () => {
-    const clock = createFakeClock();
-    const f = mock(async (_input: string | URL, init?: RequestInit) => {
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener(
-          'abort',
-          () => {
+    vi.useFakeTimers();
+    try {
+      const f = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
             reject(new Error('aborted'));
-          },
-          { once: true },
-        );
-      });
-    }) as unknown as unknown as typeof fetch;
+          }, { once: true });
+        });
+      }) as unknown as typeof fetch;
 
-    const result = fetchLatestFromCdn(f, undefined, clock);
-    // Keep the rejection handled while the faked clock runs: Bun's
-    // `expect(promise).rejects` blocks until the promise settles, so the
-    // assertion itself can only run once the timeouts have fired.
-    void result.catch(() => {});
-    await advanceAsync(clock, 6_000);
-    // The first request aborted, so the /latest fallback armed its own timeout.
-    await advanceAsync(clock, 3_000);
+      const result = fetchLatestFromCdn(f);
+      const expectation = expect(result).rejects.toThrow(/aborted/);
+      await vi.advanceTimersByTimeAsync(6_000);
 
-    await expect(result).rejects.toThrow(/aborted/);
+      await expectation;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('honors a custom request timeout instead of the background budget', async () => {
-    const clock = createFakeClock();
-    const f = mock(async (_input: string | URL, init?: RequestInit) => {
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener(
-          'abort',
-          () => {
+    vi.useFakeTimers();
+    try {
+      const f = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
             reject(new Error('aborted'));
-          },
-          { once: true },
-        );
+          }, { once: true });
+        });
+      }) as unknown as typeof fetch;
+
+      const result = fetchLatestFromCdn(f, 10_000);
+      let rejected = false;
+      void result.catch(() => {
+        rejected = true;
       });
-    }) as unknown as unknown as typeof fetch;
+      const expectation = expect(result).rejects.toThrow(/aborted/);
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(rejected).toBe(false);
+      await vi.advanceTimersByTimeAsync(14_000);
 
-    const result = fetchLatestFromCdn(f, 10_000, clock);
-    let rejected = false;
-    void result.catch(() => {
-      rejected = true;
-    });
-    await advanceAsync(clock, 6_000);
-    expect(rejected).toBe(false);
-    await advanceAsync(clock, 14_000);
-    // The first request aborted at its custom timeout, so the /latest
-    // fallback armed its own 10s budget after the clock had moved on.
-    await advanceAsync(clock, 10_000);
-
-    // Bun's `expect(promise).rejects` blocks until the promise settles, so the
-    // assertion only happens once the faked clock has produced the rejection.
-    await expect(result).rejects.toThrow(/aborted/);
-    expect(rejected).toBe(true);
+      await expectation;
+      expect(rejected).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -314,7 +276,7 @@ describe('fetchChannelFeed', () => {
   it('reads only the stable feed on the stable channel', async () => {
     const fetchImpl = mockRoutedFetch({
       [kimiCodeCdnLatestJsonUrl()]: { body: MANIFEST_BODY },
-      [kimiCodeCdnCanaryChannelUrl()]: { body: pointerBody('0.0.0-canary.42') },
+      [kimiCodeCdnCanaryChannelUrl()]: { body: pointerBody('2.0.0-canary.20261026010000-0123456') },
     });
 
     await expect(fetchChannelFeed('stable', fetchImpl)).resolves.toMatchObject({
@@ -328,14 +290,14 @@ describe('fetchChannelFeed', () => {
   it('reads only canary even when stable has a higher version', async () => {
     const fetchImpl = mockRoutedFetch({
       [kimiCodeCdnLatestJsonUrl()]: { body: MANIFEST_BODY },
-      [kimiCodeCdnCanaryChannelUrl()]: { body: pointerBody('0.0.0-canary.42') },
+      [kimiCodeCdnCanaryChannelUrl()]: { body: pointerBody('2.0.0-canary.20261026010000-0123456') },
     });
 
     await expect(fetchChannelFeed('canary', fetchImpl)).resolves.toEqual({
       channel: 'canary',
-      latest: '0.0.0-canary.42',
+      latest: '2.0.0-canary.20261026010000-0123456',
       manifest: {
-        version: '0.0.0-canary.42',
+        version: '2.0.0-canary.20261026010000-0123456',
         publishedAt: '2026-10-26T01:00:00.000Z',
         rollout: [],
       },
@@ -345,20 +307,29 @@ describe('fetchChannelFeed', () => {
   });
 
   it('aborts a canary response whose body stalls after headers arrive', async () => {
-    const clock = createFakeClock();
-    const fetchImpl = mock(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => new Promise<string>(() => {}),
-    })) as unknown as typeof fetch;
-    const outcome = fetchChannelFeed('canary', fetchImpl, 10, clock).then(
-      () => 'resolved' as const,
-      () => 'rejected' as const,
-    );
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => new Promise<string>(() => {}),
+      })) as unknown as typeof fetch;
+      const result = fetchChannelFeed('canary', fetchImpl, 10);
+      const outcome = Promise.race([
+        result.then(() => 'resolved', () => 'rejected'),
+        new Promise<string>((resolve) => {
+          setTimeout(() => {
+            resolve('pending');
+          }, 50);
+        }),
+      ]);
 
-    await advanceAsync(clock, 10);
+      await vi.advanceTimersByTimeAsync(50);
 
-    await expect(outcome).resolves.toBe('rejected');
+      expect(await outcome).toBe('rejected');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('fails without requesting stable when the canary pointer is unavailable', async () => {

@@ -1,0 +1,893 @@
+commit 638c6ffe037eb5857ca29f1ed214e0ce5ec325b4
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Fri Nov 13 10:55:39 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Fri Nov 13 10:55:39 2026 +0800
+
+    fix(agent-core-v2): keep token counting and compaction anchored to usage (#4883)
+    
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+
+diff --git a/.changeset/fix-token-counting-compaction-usage.md b/.changeset/fix-token-counting-compaction-usage.md
+new file mode 100644
+index 0000000000..3d99a8bb8b
+--- /dev/null
++++ b/.changeset/fix-token-counting-compaction-usage.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/kimi-code": patch
++---
++
++Fix long sessions stalling with empty replies instead of compacting when tool results include notes, errors, or timing headers.
+diff --git a/packages/agent-core-v2/src/agent/fullCompaction/fullCompactionService.ts b/packages/agent-core-v2/src/agent/fullCompaction/fullCompactionService.ts
+index bb52446f38..a9dead2887 100644
+--- a/packages/agent-core-v2/src/agent/fullCompaction/fullCompactionService.ts
++++ b/packages/agent-core-v2/src/agent/fullCompaction/fullCompactionService.ts
+@@ -38,7 +38,7 @@ import {
+   isRetryableGenerateError,
+ } from '#/llm-adapter/contract/errors';
+ import { createUserMessage, type Message } from '@moonshot-ai/core/llm/message';
+-import { emptyUsage, inputTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
++import { emptyUsage, grandTotal, inputTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
+ import { IEventBus } from '#/app/event/eventBus';
+ import type { CompactionFailedEvent, CompactionFinishedEvent } from '#/app/telemetry/events';
+ import { ITelemetryService } from '#/app/telemetry/telemetry';
+@@ -275,7 +275,23 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
+   }
+ 
+   private currentRequestTokens(): number {
+-    return this.requestTokens(this.loopService.history());
++    return this.historyRequestTokens(this.loopService.history());
++  }
++
++  private historyRequestTokens(messages: readonly Message[]): number {
++    const estimated = this.requestTokens(messages);
++    const usageAnchored = this.usageAnchoredRequestTokens(messages);
++    return usageAnchored === undefined ? estimated : Math.max(estimated, usageAnchored);
++  }
++
++  private usageAnchoredRequestTokens(messages: readonly Message[]): number | undefined {
++    for (let i = messages.length - 1; i >= 0; i--) {
++      const usageTokens = assistantUsageTotal(messages[i]!);
++      if (usageTokens !== undefined) {
++        return usageTokens + this.tokenCounting.estimateMessages(messages.slice(i + 1));
++      }
++    }
++    return undefined;
+   }
+ 
+   private requestTokens(messages: readonly Message[]): number {
+@@ -387,7 +403,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
+         'Cannot compact while a turn is active. Wait for it to finish, then retry.',
+       );
+     }
+-    return this.requestTokens(history);
++    return this.historyRequestTokens(history);
+   }
+ 
+   private createActiveCompaction(
+@@ -618,7 +634,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
+     const startedAt = Date.now();
+     this.loopService.flushReminders();
+     const originalHistory = [...this.loopService.history()];
+-    const tokensBefore = this.requestTokens(originalHistory);
++    const tokensBefore = this.historyRequestTokens(originalHistory);
+     let retryCount = 0;
+     let thinkingEffort = this.loopService.data().thinkingLevel;
+ 
+@@ -646,17 +662,28 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
+       let overflowShrinkCount = 0;
+       let requestAttempts = 0;
+       let cacheProbePending = true;
++      const instructionMessage = createUserMessage(instruction);
++      const tokenProfile = buildHistoryTokenProfile(
++        originalHistory,
++        this.requestTokens([]),
++        (message) => this.tokenCounting.estimateMessage(message),
++      );
+       const preShrunkHistory = this.preShrinkHistoryToWindowBudget(
+         historyForModel,
+-        instruction,
++        instructionMessage,
+         compactionMaxOutputSize,
++        tokenProfile,
+       );
+       droppedCount += historyForModel.length - preShrunkHistory.length;
+       historyForModel = preShrunkHistory;
+       while (true) {
+         const messagesToCompact = historyForModel;
+-        const messages: Message[] = [...messagesToCompact, createUserMessage(instruction)];
+-        const estimatedCompactionRequestTokens = this.requestTokens(messages);
++        const messages: Message[] = [...messagesToCompact, instructionMessage];
++        const estimatedCompactionRequestTokens =
++          messagesToCompact.length === originalHistory.length
++            ? this.historyRequestTokens(originalHistory) +
++              this.tokenCounting.estimateMessage(instructionMessage)
++            : tokenProfile.estimateRequest(messages);
+         const effectiveMaxTokens = this.getEffectiveMaxContextTokens();
+         const usedContextTokens =
+           effectiveMaxTokens > 0
+@@ -711,7 +738,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
+             historyForModel = shrinkCompactionHistoryAfterOverflow(
+               messagesToCompact,
+               overflowShrinkCount,
+-              (message) => this.tokenCounting.estimateMessage(message),
++              tokenProfile.estimateMessage,
+             );
+             if (historyForModel.length === 0) throw error;
+             droppedCount += before - historyForModel.length;
+@@ -866,8 +893,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
+ 
+   private preShrinkHistoryToWindowBudget(
+     history: readonly ContextMessage[],
+-    instruction: string,
++    instructionMessage: Message,
+     compactionMaxOutputSize: number | undefined,
++    tokenProfile: HistoryTokenProfile,
+   ): readonly ContextMessage[] {
+     const effectiveMaxTokens = this.getEffectiveMaxContextTokens();
+     if (effectiveMaxTokens <= 0) return history;
+@@ -876,18 +904,16 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
+         ? Math.floor(effectiveMaxTokens / 8)
+         : Math.min(compactionMaxOutputSize, Math.floor(effectiveMaxTokens / 8));
+     const inputLimit = effectiveMaxTokens - outputReserve;
+-    const overheadTokens = this.requestTokens([]);
+-    const estimatedMessagesTokens =
+-      this.tokenCounting.estimateMessages(history) +
+-      this.tokenCounting.estimateMessage(createUserMessage(instruction));
+-    if (estimatedMessagesTokens + overheadTokens <= inputLimit) return history;
++    const totalInputTokens =
++      this.historyRequestTokens(history) + this.tokenCounting.estimateMessage(instructionMessage);
++    if (totalInputTokens <= inputLimit) return history;
+     const messageBudget =
+-      Math.floor(inputLimit * OVERFLOW_CONTEXT_SAFETY_RATIO) - overheadTokens;
++      Math.floor(inputLimit * OVERFLOW_CONTEXT_SAFETY_RATIO) - tokenProfile.overheadTokens;
+     if (messageBudget <= 0) return history;
+     const preShrunk = takeRecentMessagesWithinTokenBudget(
+       history,
+       messageBudget,
+-      (message) => this.tokenCounting.estimateMessage(message),
++      tokenProfile.estimateMessage,
+     );
+     return preShrunk.length === 0 ? history : preShrunk;
+   }
+@@ -923,8 +949,116 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
+   }
+ 
+   private tokenCountWithPending(): number {
+-    return this.tokenCounting.get(agentContextOfScope(this.agent)).size;
++    const counted = this.tokenCounting.get(agentContextOfScope(this.agent)).size;
++    const usageAnchored = this.usageAnchoredRequestTokens(this.loopService.history());
++    return usageAnchored === undefined ? counted : Math.max(counted, usageAnchored);
++  }
++}
++
++interface HistoryTokenProfile {
++  readonly overheadTokens: number;
++  readonly estimateMessage: (message: Message) => number;
++  readonly estimateRequest: (messages: readonly Message[]) => number;
++}
++
++function assistantUsageTotal(message: Message): number | undefined {
++  if (message.role !== 'assistant') return undefined;
++  const usage = (message as ContextMessage).usage ?? message.attributes?.usage;
++  if (usage === undefined) return undefined;
++  const total = grandTotal(usage);
++  return total !== undefined && Number.isFinite(total) && total > 0 ? total : undefined;
++}
++
++function buildHistoryTokenProfile(
++  history: readonly ContextMessage[],
++  baseOverheadTokens: number,
++  estimateBase: (message: Message) => number,
++): HistoryTokenProfile {
++  const weights = history.map((message) => estimateBase(message));
++  const anchors: { index: number; tokens: number }[] = [];
++  for (let i = 0; i < history.length; i++) {
++    const tokens = assistantUsageTotal(history[i]!);
++    if (tokens !== undefined) {
++      anchors.push({ index: i, tokens });
++    }
++  }
++  if (anchors.length === 0) {
++    return {
++      overheadTokens: baseOverheadTokens,
++      estimateMessage: estimateBase,
++      estimateRequest: (messages) => {
++        let total = baseOverheadTokens;
++        for (const message of messages) total += estimateBase(message);
++        return total;
++      },
++    };
++  }
++
++  for (let k = anchors.length - 2; k >= 0; k--) {
++    if (anchors[k]!.tokens > anchors[k + 1]!.tokens) {
++      anchors[k]!.tokens = anchors[k + 1]!.tokens;
++    }
++  }
++
++  let prevIndex = -1;
++  let prevTokens = baseOverheadTokens;
++  for (let k = 0; k < anchors.length; k++) {
++    const { index, tokens } = anchors[k]!;
++    let spanEstimate = 0;
++    for (let j = prevIndex + 1; j <= index; j++) {
++      spanEstimate += weights[j]!;
++    }
++    const measuredDelta = tokens - prevTokens;
++    if (measuredDelta > spanEstimate) {
++      distributeExcessTokens(
++        weights,
++        prevIndex + 1,
++        index,
++        spanEstimate,
++        measuredDelta - spanEstimate,
++      );
++    }
++    prevIndex = index;
++    prevTokens = tokens;
++  }
++
++  const byMessage = new Map<Message, number>();
++  for (let i = 0; i < history.length; i++) {
++    byMessage.set(history[i]!, weights[i]!);
++  }
++  const estimateMessage = (message: Message): number =>
++    byMessage.get(message) ?? estimateBase(message);
++  return {
++    overheadTokens: baseOverheadTokens,
++    estimateMessage,
++    estimateRequest: (messages) => {
++      let total = baseOverheadTokens;
++      for (const message of messages) total += estimateMessage(message);
++      return total;
++    },
++  };
++}
++
++function distributeExcessTokens(
++  weights: number[],
++  start: number,
++  end: number,
++  spanEstimate: number,
++  excess: number,
++): void {
++  if (excess <= 0 || start > end) return;
++  if (spanEstimate <= 0) {
++    weights[end] = (weights[end] ?? 0) + excess;
++    return;
++  }
++  const baseSlice = weights.slice(start, end + 1);
++  let distributed = 0;
++  for (let j = start; j <= end; j++) {
++    const add = Math.floor((excess * baseSlice[j - start]!) / spanEstimate);
++    weights[j] = weights[j]! + add;
++    distributed += add;
+   }
++  weights[end] = weights[end]! + (excess - distributed);
+ }
+ 
+ function findAPIStatusError(error: unknown): APIStatusError | undefined {
+diff --git a/packages/agent-core-v2/src/agent/loop/requestObservation.ts b/packages/agent-core-v2/src/agent/loop/requestObservation.ts
+index aafc1da2c5..76f9326b83 100644
+--- a/packages/agent-core-v2/src/agent/loop/requestObservation.ts
++++ b/packages/agent-core-v2/src/agent/loop/requestObservation.ts
+@@ -299,7 +299,9 @@ export class AgentLoopRequestObserver {
+       const { attributes: _attributes, ...responseMessage } = message;
+       this.tokenCounting.measured(
+         this.scopeContext.agentContext,
+-        recorded?.messages ?? request.messages.map(({ attributes: _a, ...item }) => item),
++        observation.media.previousMediaRecovery === undefined
++          ? request.messages
++          : (recorded?.messages ?? request.messages),
+         [responseMessage],
+         usage,
+       );
+diff --git a/packages/agent-core-v2/src/session/tokenCounting/tokenCountingAgentModel.ts b/packages/agent-core-v2/src/session/tokenCounting/tokenCountingAgentModel.ts
+index 4e9d770852..0371ee7131 100644
+--- a/packages/agent-core-v2/src/session/tokenCounting/tokenCountingAgentModel.ts
++++ b/packages/agent-core-v2/src/session/tokenCounting/tokenCountingAgentModel.ts
+@@ -1,6 +1,7 @@
+ import { z } from 'zod';
+ 
+ import { ContextClear } from '#/agent/contextMemory/contextEvents';
++import { renderToolResultForModel, shouldRenderWallTime } from '#/agent/contextMemory/toolResultRender';
+ import type { ContextMessage } from '#/agent/contextMemory/types';
+ import type { ContextSize, TokenCountingStrategy } from '#/agent/tokenCounting/tokenCounting';
+ import {
+@@ -14,7 +15,7 @@ import {
+   type TokenCountingState,
+ } from '#/agent/tokenCounting/tokenCountingOps';
+ import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
+-import type { Message } from '@moonshot-ai/core/llm/message';
++import type { ContentPart, Message, ToolMessage } from '@moonshot-ai/core/llm/message';
+ import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+ import { grandTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
+ import { AgentModel, defineAgentModel, type AgentModelContext } from '#/state/agentModel';
+@@ -198,19 +199,165 @@ export const TokenCountingAgentModelDefinition = defineAgentModel({
+ 
+ function matchesContext(input: readonly Message[], context: readonly ContextMessage[]): boolean {
+   if (input.length > context.length) return false;
++  const toolNames = new Map<string, string>();
+   for (let index = 0; index < input.length; index += 1) {
+     const left = input[index]!;
+     const right = context[index]!;
+     if (left.role !== right.role) return false;
+-    if (JSON.stringify(left.content) !== JSON.stringify(right.content)) return false;
++    if (right.role === 'assistant') {
++      for (const call of right.toolCalls) toolNames.set(call.id, call.name);
++    }
++    if (left.role === 'tool' && right.role === 'tool') {
++      if (!matchesToolMessage(left, right, toolNames.get(right.toolCallId))) return false;
++      continue;
++    }
++    if (!partsEqual(left.content, right.content)) return false;
+     const leftToolCalls = left.role === 'assistant' ? left.toolCalls : [];
+     const rightToolCalls = right.role === 'assistant' ? right.toolCalls : [];
+     if (JSON.stringify(leftToolCalls) !== JSON.stringify(rightToolCalls)) return false;
+-    if ((left.role === 'tool' ? left.toolCallId : undefined) !== (right.role === 'tool' ? right.toolCallId : undefined)) return false;
+   }
+   return true;
+ }
+ 
++function matchesToolMessage(
++  left: ToolMessage,
++  right: ContextMessage & { readonly role: 'tool' },
++  toolName: string | undefined,
++): boolean {
++  if (left.toolCallId !== right.toolCallId) return false;
++  const rightIsError = (right.isError ?? right.attributes?.isError) === true;
++  const rightNote = nonEmptyText(right.note ?? right.attributes?.note);
++  const rightDurationMs = right.durationMs ?? right.attributes?.durationMs;
++  const leftContext = left as ContextMessage;
++  const leftExplicitIsError = leftContext.isError ?? left.attributes?.isError;
++  if (leftExplicitIsError !== undefined && leftExplicitIsError !== rightIsError) {
++    return false;
++  }
++  const leftExplicitNote = nonEmptyText(leftContext.note ?? left.attributes?.note);
++  if (leftExplicitNote !== undefined && leftExplicitNote !== rightNote) {
++    return false;
++  }
++
++  const lastRightPart = right.content.at(-1);
++  const noteAlreadyInRight =
++    rightNote !== undefined &&
++    lastRightPart?.type === 'text' &&
++    (lastRightPart.text === rightNote || lastRightPart.text.endsWith(`\n${rightNote}`));
++  if (
++    (!rightIsError || leftExplicitIsError === true) &&
++    (rightNote === undefined || noteAlreadyInRight || leftExplicitNote === rightNote) &&
++    partsEqual(left.content, right.content)
++  ) {
++    return true;
++  }
++
++  const withAppendedNote =
++    rightNote !== undefined && !noteAlreadyInRight
++      ? [...right.content, { type: 'text' as const, text: rightNote }]
++      : undefined;
++  if (
++    withAppendedNote !== undefined &&
++    (!rightIsError || leftExplicitIsError === true) &&
++    partsEqual(left.content, withAppendedNote)
++  ) {
++    return true;
++  }
++
++  const output = outputFromToolContent(right.content);
++  const effectiveNote = noteAlreadyInRight ? undefined : rightNote;
++  if (
++    partsEqual(
++      left.content,
++      cleanToolContent(
++        renderToolResultForModel({
++          output,
++          isError: rightIsError,
++          note: effectiveNote,
++        }),
++      ),
++    )
++  ) {
++    return true;
++  }
++
++  const includeWallTime =
++    rightDurationMs !== undefined && (toolName === undefined || shouldRenderWallTime(toolName));
++  if (
++    includeWallTime &&
++    partsEqual(
++      left.content,
++      cleanToolContent(
++        renderToolResultForModel({
++          output,
++          isError: rightIsError,
++          note: effectiveNote,
++          durationMs: rightDurationMs,
++        }),
++      ),
++    )
++  ) {
++    return true;
++  }
++
++  if (withAppendedNote !== undefined) {
++    if (
++      partsEqual(
++        left.content,
++        cleanToolContent(
++          renderToolResultForModel({
++            output: withAppendedNote,
++            isError: rightIsError,
++          }),
++        ),
++      )
++    ) {
++      return true;
++    }
++    if (
++      includeWallTime &&
++      partsEqual(
++        left.content,
++        cleanToolContent(
++          renderToolResultForModel({
++            output: withAppendedNote,
++            isError: rightIsError,
++            durationMs: rightDurationMs,
++          }),
++        ),
++      )
++    ) {
++      return true;
++    }
++  }
++
++  return false;
++}
++
++function partsEqual(left: readonly ContentPart[], right: readonly ContentPart[]): boolean {
++  return JSON.stringify(left) === JSON.stringify(right);
++}
++
++function nonEmptyText(value: string | undefined): string | undefined {
++  return value !== undefined && value.length > 0 ? value : undefined;
++}
++
++function outputFromToolContent(content: readonly ContentPart[]): string | readonly ContentPart[] {
++  const only = content[0];
++  return content.length === 1 && only?.type === 'text' ? only.text : content;
++}
++
++function cleanToolContent(parts: readonly ContentPart[]): ContentPart[] {
++  const filtered = parts.filter(
++    (part) =>
++      !(
++        part.type === 'text' &&
++        part.meta?.['thought_signature_b64'] === undefined &&
++        part.text.trim().length === 0
++      ),
++  );
++  return filtered.length === 0 ? [...parts] : filtered;
++}
++
+ function tokenUsageTotal(usage: TokenUsage): number | undefined {
+   return grandTotal(usage);
+ }
+diff --git a/packages/agent-core-v2/test/agent/fullCompaction/fullCompaction.test.ts b/packages/agent-core-v2/test/agent/fullCompaction/fullCompaction.test.ts
+index 11f55b7efb..4b34ec234f 100644
+--- a/packages/agent-core-v2/test/agent/fullCompaction/fullCompaction.test.ts
++++ b/packages/agent-core-v2/test/agent/fullCompaction/fullCompaction.test.ts
+@@ -4633,6 +4633,156 @@ describe('FullCompaction pre-shrink', () => {
+     );
+     await ctx.expectResumeMatches();
+   });
++
++  it('triggers auto compaction before step 1 from historical assistant usage when measured anchors are stale', async () => {
++    const callSnapshots: {
++      isCompaction: boolean;
++      maxOutputTokens?: number | 'none';
++      usedTokens?: number;
++    }[] = [];
++    const generate: GenerateFn = createMockProvider(async (request) => {
++      const lastText = messageText(request.content.messages.at(-1));
++      const isCompaction = lastText === renderCompactionInstruction({});
++      callSnapshots.push({
++        isCompaction,
++        maxOutputTokens: request.model.maxOutputTokens,
++        usedTokens: request.content.usedTokens,
++      });
++      return textResult(isCompaction ? 'Usage-anchored summary.' : 'Recovered reply after compaction.');
++    });
++    const ctx = testAgent({ generate });
++    ctx.configure({
++      provider: CATALOGUED_PROVIDER,
++      modelCapabilities: {
++        ...CATALOGUED_MODEL_CAPABILITIES,
++        maxContextSize: 1_000_000,
++      },
++    });
++    const models = (ctx as unknown as MutableKimiConfig).kimiConfig.models;
++    models![CATALOGUED_PROVIDER.model] = {
++      ...models![CATALOGUED_PROVIDER.model]!,
++      maxOutputSize: 64_000,
++    };
++    ctx.notifyModelConfigChanged();
++
++    appendContext(
++      ctx.context,
++      { role: 'user', content: [{ type: 'text', text: 'first short question' }], origin: { kind: 'user' } },
++      {
++        role: 'assistant',
++        content: [{ type: 'text', text: 'first short answer' }],
++        toolCalls: [],
++        usage: {
++          inputOther: 3_600,
++          output: 1,
++          inputCacheRead: 1_000_000,
++          inputCacheCreation: 0,
++        },
++      },
++    );
++    expect(ctx.tokenCounting.get().size).toBeLessThan(1_000);
++
++    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'continue working' }] });
++    const events = await ctx.untilTurnEnd();
++
++    expect(callSnapshots).toHaveLength(2);
++    expect(callSnapshots[0]?.isCompaction).toBe(true);
++    expect(callSnapshots[1]?.isCompaction).toBe(false);
++    expect(callSnapshots[1]?.maxOutputTokens).toBe(64_000);
++    expect(events).toContainEqual(
++      expect.objectContaining({
++        event: 'compaction.completed',
++        args: expect.objectContaining({
++          result: expect.objectContaining({
++            summary: 'Usage-anchored summary.',
++            tokensBefore: 1_003_601 + ctx.tokenCounting.estimateMessage({
++              role: 'user',
++              content: [{ type: 'text', text: 'continue working' }],
++            }),
++          }),
++        }),
++      }),
++    );
++    expect(events).toContainEqual(
++      expect.objectContaining({
++        event: 'turn.ended',
++        args: expect.objectContaining({ reason: 'completed' }),
++      }),
++    );
++  });
++
++  it('pre-shrinks compaction history using historical assistant usage anchors when character estimates fit the window', async () => {
++    const compactionBudgets: {
++      texts: string[];
++      usedTokens?: number;
++      maxContextSize?: number;
++    }[] = [];
++    const generate: GenerateFn = createMockProvider(async (request) => {
++      compactionBudgets.push({
++        texts: request.content.messages.map(messageText),
++        usedTokens: request.content.usedTokens,
++        maxContextSize: request.model.spec.maxContextSize,
++      });
++      return textResult('Usage-shrunk summary.');
++    });
++    const ctx = testAgent({ generate });
++    ctx.configure({
++      provider: CATALOGUED_PROVIDER,
++      modelCapabilities: {
++        ...CATALOGUED_MODEL_CAPABILITIES,
++        maxContextSize: 1_000_000,
++      },
++    });
++    appendContext(
++      ctx.context,
++      { role: 'user', content: [{ type: 'text', text: 'old user one' }], origin: { kind: 'user' } },
++      {
++        role: 'assistant',
++        content: [{ type: 'text', text: 'old assistant one' }],
++        toolCalls: [],
++        usage: { inputOther: 50_000, output: 100, inputCacheRead: 299_900, inputCacheCreation: 0 },
++      },
++      { role: 'user', content: [{ type: 'text', text: 'mid user two' }], origin: { kind: 'user' } },
++      {
++        role: 'assistant',
++        content: [{ type: 'text', text: 'mid assistant two' }],
++        toolCalls: [],
++        usage: { inputOther: 30_000, output: 100, inputCacheRead: 649_900, inputCacheCreation: 0 },
++      },
++      { role: 'user', content: [{ type: 'text', text: 'recent user three' }], origin: { kind: 'user' } },
++      {
++        role: 'assistant',
++        content: [{ type: 'text', text: 'recent assistant three' }],
++        toolCalls: [],
++        usage: { inputOther: 23_501, output: 100, inputCacheRead: 980_000, inputCacheCreation: 0 },
++      },
++    );
++    expect(ctx.tokenCounting.estimateMessages(ctx.context.history())).toBeLessThan(1_000);
++
++    const completed = ctx.once('compaction.completed');
++    await ctx.rpc.beginCompaction({});
++    await completed;
++
++    expect(compactionBudgets).toHaveLength(1);
++    const [call] = compactionBudgets;
++    expect(call!.texts.some((text) => text.includes('old user one'))).toBe(false);
++    expect(call!.texts.some((text) => text.includes('old assistant one'))).toBe(false);
++    expect(call!.texts.some((text) => text.includes('mid user two'))).toBe(true);
++    expect(call!.texts.some((text) => text.includes('recent assistant three'))).toBe(true);
++    expect(call!.maxContextSize! - call!.usedTokens!).toBeGreaterThan(125_000);
++    const events = ctx.newEvents();
++    expect(events).toContainEqual(
++      expect.objectContaining({
++        event: 'compaction.completed',
++        args: expect.objectContaining({
++          result: expect.objectContaining({
++            droppedCount: 2,
++            tokensBefore: 1_003_601,
++          }),
++        }),
++      }),
++    );
++  });
+ });
+ 
+ describe('FullCompaction prompt-cache prefix', () => {
+diff --git a/packages/agent-core-v2/test/agent/tokenCounting/tokenCounting.test.ts b/packages/agent-core-v2/test/agent/tokenCounting/tokenCounting.test.ts
+index bb42e6e07c..b4f9c2ab28 100644
+--- a/packages/agent-core-v2/test/agent/tokenCounting/tokenCounting.test.ts
++++ b/packages/agent-core-v2/test/agent/tokenCounting/tokenCounting.test.ts
+@@ -1,7 +1,12 @@
+ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+ 
+-import { IAgentLoopService } from '#/index';
+-import { compactContext } from '../contextMemory/stubs';
++import {
++  IAgentLoopService,
++  IAgentToolRegistryService,
++  type ExecutableTool,
++} from '#/index';
++import { appendContext, compactContext } from '../contextMemory/stubs';
++import { project } from '#/agent/loop/projection';
+ import { TurnEnded } from '#/agent/loop/turnOps';
+ import {
+   anchorsEqual,
+@@ -18,7 +23,13 @@ import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+ import { grandTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
+ import { IWireService } from '#/wire/wire';
+ 
+-import { createTestAgent, InMemoryWireRecordPersistence, type TestAgentContext } from '../../harness';
++import {
++  createMockProvider,
++  createTestAgent,
++  InMemoryWireRecordPersistence,
++  llmGenerateServices,
++  type TestAgentContext,
++} from '../../harness';
+ 
+ function totalOf(usage: TokenUsage | undefined): number {
+   return usage === undefined ? 0 : (grandTotal(usage) ?? 0);
+@@ -559,4 +570,222 @@ describe('Agent token counting', () => {
+       await live.dispose();
+     }
+   });
++
++  it('continues recording measured anchors across live and resumed turns after tool notes, errors, wall times, and empty outputs', async () => {
++    const persistence = new InMemoryWireRecordPersistence();
++    const makeTools = (): readonly ExecutableTool[] => [
++      {
++        name: 'PagedRead',
++        description: 'Reads a page with a pagination note',
++        parameters: { type: 'object', properties: {} },
++        resolveExecution: () => ({
++          approvalRule: 'PagedRead',
++          execute: async () => ({
++            output: '1\talpha\n2\tbeta',
++            note: 'Lines 1-2 of 200; read next page from offset 3.',
++          }),
++        }),
++      },
++      {
++        name: 'FailingCheck',
++        description: 'Returns a tool error with a note',
++        parameters: { type: 'object', properties: {} },
++        resolveExecution: () => ({
++          approvalRule: 'FailingCheck',
++          execute: async () => ({
++            output: 'permission denied',
++            isError: true,
++            note: 'exit code 1',
++          }),
++        }),
++      },
++      {
++        name: 'QuietStep',
++        description: 'Returns empty output',
++        parameters: { type: 'object', properties: {} },
++        resolveExecution: () => ({
++          approvalRule: 'QuietStep',
++          execute: async () => ({ output: '' }),
++        }),
++      },
++      {
++        name: 'mcp__srv__timed',
++        description: 'Renders wall time in projected requests',
++        parameters: { type: 'object', properties: {} },
++        resolveExecution: () => ({
++          approvalRule: 'mcp__srv__timed',
++          execute: async () => ({ output: 'timed ok' }),
++        }),
++      },
++    ];
++
++    let stepNo = 0;
++    const stepTotals = [12_000, 24_000, 36_000, 48_000, 60_000, 75_000];
++    const makeProvider = () =>
++      llmGenerateServices(
++        createMockProvider(async () => {
++          const index = stepNo;
++          stepNo += 1;
++          const total = stepTotals[index] ?? 90_000;
++          const usage: TokenUsage = {
++            inputOther: total - 10,
++            output: 10,
++            inputCacheRead: 0,
++            inputCacheCreation: 0,
++          };
++          const callsByStep = [
++            { id: 'call_paged', name: 'PagedRead' },
++            { id: 'call_fail', name: 'FailingCheck' },
++            { id: 'call_empty', name: 'QuietStep' },
++            { id: 'call_timed', name: 'mcp__srv__timed' },
++          ] as const;
++          const call = callsByStep[index];
++          if (call !== undefined) {
++            return {
++              id: `resp-${String(index)}`,
++              message: {
++                role: 'assistant',
++                content: [],
++                toolCalls: [{ type: 'function', id: call.id, name: call.name, arguments: '{}' }],
++              },
++              usage,
++              finishReason: 'tool_calls',
++              rawFinishReason: 'tool_calls',
++            };
++          }
++          return {
++            id: `resp-${String(index)}`,
++            message: {
++              role: 'assistant',
++              content: [{ type: 'text', text: `done-${String(index)}` }],
++              toolCalls: [],
++            },
++            usage,
++            finishReason: 'completed',
++            rawFinishReason: 'stop',
++          };
++        }),
++      );
++
++    const live = createTestAgent({ persistence }, makeProvider());
++    try {
++      await live.restorePersisted();
++      await live.rpc.setPermission({ mode: 'yolo' });
++      const registry = live.get(IAgentToolRegistryService);
++      for (const tool of makeTools()) {
++        registry.register(tool, { source: tool.name.startsWith('mcp__') ? 'mcp' : 'builtin' });
++      }
++
++      await live.rpc.prompt({ input: [{ type: 'text', text: 'run all four tools' }] });
++      await live.untilTurnEnd();
++
++      expect(stepNo).toBe(5);
++      expect(live.tokenCounting.latestMeasured()).toBe(60_000);
++      expect(tokenCountingState(live).anchors.at(-1)).toEqual({
++        length: live.get(IAgentLoopService).history().length,
++        tokens: 60_000,
++        measured: true,
++      });
++      await live.get(IWireService).flush();
++    } finally {
++      await live.dispose();
++    }
++
++    const resumed = createTestAgent({ persistence }, makeProvider());
++    try {
++      await resumed.restorePersisted();
++      await resumed.rpc.setPermission({ mode: 'yolo' });
++      const registry = resumed.get(IAgentToolRegistryService);
++      for (const tool of makeTools()) {
++        registry.register(tool, { source: tool.name.startsWith('mcp__') ? 'mcp' : 'builtin' });
++      }
++
++      await resumed.rpc.prompt({ input: [{ type: 'text', text: 'follow up after resume' }] });
++      await resumed.untilTurnEnd();
++
++      expect(stepNo).toBe(6);
++      expect(resumed.tokenCounting.latestMeasured()).toBe(75_000);
++      expect(tokenCountingState(resumed).anchors.at(-1)).toEqual({
++        length: resumed.get(IAgentLoopService).history().length,
++        tokens: 75_000,
++        measured: true,
++      });
++    } finally {
++      await resumed.dispose();
++    }
++  });
++
++  it('matches projected tool messages and rejects mismatched note or error metadata', () => {
++    appendContext(
++      context,
++      { role: 'user', content: [{ type: 'text', text: 'inspect files' }] },
++      {
++        role: 'assistant',
++        content: [],
++        toolCalls: [
++          { type: 'function', id: 'call_read', name: 'Read', arguments: '{}' },
++          { type: 'function', id: 'call_bash', name: 'Bash', arguments: '{}' },
++          { type: 'function', id: 'call_err', name: 'Write', arguments: '{}' },
++        ],
++      },
++      {
++        role: 'tool',
++        toolCallId: 'call_read',
++        content: [{ type: 'text', text: '1\thello' }],
++        note: 'More lines follow from offset 2.',
++        durationMs: 12,
++      },
++      {
++        role: 'tool',
++        toolCallId: 'call_bash',
++        content: [{ type: 'text', text: 'Tool output is empty.' }],
++        durationMs: 250,
++      },
++      {
++        role: 'tool',
++        toolCallId: 'call_err',
++        content: [{ type: 'text', text: 'disk full' }],
++        isError: true,
++        note: 'errno ENOSPC',
++      },
++    );
++
++    const history = context.history();
++    const projected = project(history);
++    const mismatchedNote = projected.map((msg) =>
++      msg.role === 'tool' && msg.toolCallId === 'call_read'
++        ? { ...msg, content: [{ type: 'text' as const, text: '1\thello\nWrong note.' }] }
++        : msg,
++    );
++    tokenCounting.measured(mismatchedNote, [], {
++      inputOther: 4_000,
++      output: 10,
++      inputCacheRead: 0,
++      inputCacheCreation: 0,
++    });
++    expect(tokenCountingState(ctx).anchors).toEqual([]);
++
++    const missingError = history.map((msg) =>
++      msg.role === 'tool' && msg.toolCallId === 'call_err'
++        ? { role: 'tool' as const, toolCallId: 'call_err', content: msg.content }
++        : msg,
++    );
++    tokenCounting.measured(missingError, [], {
++      inputOther: 4_000,
++      output: 10,
++      inputCacheRead: 0,
++      inputCacheCreation: 0,
++    });
++    expect(tokenCountingState(ctx).anchors).toEqual([]);
++
++    tokenCounting.measured(projected, [], {
++      inputOther: 8_990,
++      output: 10,
++      inputCacheRead: 0,
++      inputCacheCreation: 0,
++    });
++    expect(tokenCountingState(ctx).anchors).toEqual([
++      { length: history.length, tokens: 9_000, measured: true },
++    ]);
++  });
+ });

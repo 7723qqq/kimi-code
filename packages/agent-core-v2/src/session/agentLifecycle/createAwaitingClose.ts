@@ -1,5 +1,5 @@
-import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { ErrorCodes, isError2 } from '#/errors';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { resolveSubagentScopeEvictTimeoutMs } from '#/session/subagent/subagentScopeCache';
 
 import type { CreateAgentOptions, IAgentLifecycleService } from './agentLifecycle';

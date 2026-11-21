@@ -13,28 +13,27 @@ import {
   type HostFileStat,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { classifyTextSample, decodeUtfText } from '@moonshot-ai/agent-core-v2/_base/text/encoding';
-import {
-  buildEtag,
-  FS_BINARY_SAMPLE_BYTES,
-  guessMime,
-} from '@moonshot-ai/agent-core-v2/_base/utils/fileMeta';
 import {
   fsBrowseQuerySchema,
   fsBrowseResponseSchema,
   fsHomeResponseSchema,
 } from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+import {
+  buildEtag,
+  FS_BINARY_SAMPLE_BYTES,
+  guessMime,
+} from '@moonshot-ai/agent-core-v2/_base/utils/fileMeta';
+import { classifyTextSample } from '@moonshot-ai/agent-core-v2/_base/text/encoding';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
-import { buildContentDisposition } from '../lib/contentDisposition';
 import { parseRangeHeader, pickHeader } from '../lib/httpRange';
 import { sendRawError } from '../lib/rawError';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
-import { sendEnvironmentError } from './environment';
 import { createEnvironmentReadStream, type EnvironmentReadStreamSource } from './fs';
+import { sendEnvironmentError } from './environment';
 
 interface FsContentReply {
   type(mime: string): FsContentReply;
@@ -179,12 +178,10 @@ export function registerWorkspaceFsRoutes(app: WorkspaceFsRouteHost, core: Scope
   );
 }
 
-const fsContentQuerySchema = z
-  .object({
-    path: z.string().min(1),
-    environment_id: z.string().min(1).optional(),
-  })
-  .strict();
+const fsContentQuerySchema = z.object({
+  path: z.string().min(1),
+  environment_id: z.string().min(1).optional(),
+});
 
 interface FsContentRequest {
   id: string;
@@ -220,11 +217,13 @@ function sendAcquireError(
   }
   if (sendEnvironmentError(reply, requestId, err)) return;
   if (rawResponse) {
-    reply.send(
+    sendRawError(
+      reply as FsContentReply,
       errEnvelope(
         ErrorCode.INTERNAL_ERROR,
         err instanceof Error ? err.message : String(err),
         requestId,
+        err instanceof Error ? err.stack : undefined,
       ),
     );
     return;
@@ -279,65 +278,48 @@ async function handleFsContent(
     if (!st.isFile) {
       sendRawError(
         reply,
-        errEnvelope(ErrorCode.VALIDATION_FAILED, `path is not a regular file: ${path}`, requestId),
+        errEnvelope(
+          ErrorCode.VALIDATION_FAILED,
+          `path is not a regular file: ${path}`,
+          requestId,
+        ),
       );
       return;
     }
 
     let isBinary = false;
-    let utf8: Buffer | undefined;
     try {
       const sampleSize = Math.min(FS_BINARY_SAMPLE_BYTES, st.size);
-      const sample = sampleSize === 0 ? new Uint8Array() : await hostFs.readBytes(abs, sampleSize);
+      const sample =
+        sampleSize === 0 ? new Uint8Array() : await hostFs.readBytes(abs, sampleSize);
       const classification = classifyTextSample(sample);
-      isBinary = classification.isBinary;
-      if (!isBinary && classification.encoding !== 'utf-8') {
-        utf8 = Buffer.from(
-          decodeUtfText(await hostFs.readBytes(abs), classification.encoding),
-          'utf-8',
-        );
-      }
+      isBinary = classification.isBinary || classification.encoding !== 'utf-8';
     } catch (error) {
       sendOsFsError(reply, requestId, error, path, true);
       return;
     }
 
-    const size = utf8?.length ?? st.size;
-    const etag = `${buildEtag(st)}${utf8 === undefined ? '' : '-utf8'}`;
+    const etag = buildEtag(st);
     const ifNoneMatch = pickHeader(req.headers, 'if-none-match');
     if (ifNoneMatch !== undefined && ifNoneMatch === etag) {
       reply.code(304).header('etag', etag).send('');
       return;
     }
 
-    const detectedMime = guessMime(abs, isBinary);
-    const mime = detectedMime === 'application/toml' ? 'text/plain' : detectedMime;
-    const base = abs.split(/[\\/]/).at(-1) ?? abs;
     reply.header('etag', etag);
     reply.header('last-modified', new Date(st.mtimeMs ?? 0).toUTCString());
-    reply.header('content-disposition', buildContentDisposition(base, mime, 'attachment'));
-    reply.type(mime);
+    reply.type(guessMime(abs, isBinary));
 
     const log = requestLog(req);
     const onStreamError = (stream: Readable) => (error: unknown) => {
       log?.warn({ path, err: error }, 'fs content stream error');
       try {
         stream.destroy();
-      } catch {}
+      } catch {
+      }
     };
 
-    const range = parseRangeHeader(pickHeader(req.headers, 'range'), size);
-    if (utf8 !== undefined) {
-      if (range !== null) {
-        reply
-          .code(206)
-          .header('content-length', String(range.length))
-          .header('content-range', `bytes ${range.start}-${range.end}/${size}`);
-        return reply.send(utf8.subarray(range.start, range.end + 1)) as void;
-      }
-      reply.code(200).header('content-length', String(size));
-      return reply.send(utf8) as void;
-    }
+    const range = parseRangeHeader(pickHeader(req.headers, 'range'), st.size);
     if (range !== null) {
       reply
         .code(206)
@@ -359,18 +341,14 @@ async function handleFsContent(
   }
 }
 
-const fsMkdirBodySchema = z
-  .object({
-    path: z.string().min(1),
-    environment_id: z.string().min(1).optional(),
-  })
-  .strict();
+const fsMkdirBodySchema = z.object({
+  path: z.string().min(1),
+  environment_id: z.string().min(1).optional(),
+});
 
-const fsMkdirResponseSchema = z
-  .object({
-    path: z.string(),
-  })
-  .strict();
+const fsMkdirResponseSchema = z.object({
+  path: z.string(),
+});
 
 interface FsMkdirRequest {
   id: string;
@@ -440,6 +418,7 @@ function sendOsFsError(
         ErrorCode.INTERNAL_ERROR,
         err instanceof Error ? err.message : String(err),
         requestId,
+        err instanceof Error ? err.stack : undefined,
       ),
     );
     return;

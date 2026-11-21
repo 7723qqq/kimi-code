@@ -19,15 +19,8 @@ export async function createTokenStore(homeDir: string): Promise<TokenStore> {
     mtimeMs: initialStat.mtimeMs,
     ino: initialStat.ino,
   };
-  const STAT_TTL_MS = 1_000;
-  let lastStatAt = 0;
 
   const currentToken = (): string => {
-    const now = Date.now();
-    if (now - lastStatAt < STAT_TTL_MS) {
-      return cache.token;
-    }
-    lastStatAt = now;
     let st: ReturnType<typeof statSync>;
     try {
       st = statSync(tokenPath);
@@ -45,7 +38,8 @@ export async function createTokenStore(homeDir: string): Promise<TokenStore> {
       if (token.length > 0) {
         cache = { token, mtimeMs: st.mtimeMs, ino: st.ino };
       }
-    } catch {}
+    } catch {
+    }
     return cache.token;
   };
 
@@ -60,6 +54,7 @@ export async function createTokenStore(homeDir: string): Promise<TokenStore> {
       }
       return timingSafeEqual(candidateBuf, tokenBuf);
     },
-    async dispose(): Promise<void> {},
+    async dispose(): Promise<void> {
+    },
   };
 }

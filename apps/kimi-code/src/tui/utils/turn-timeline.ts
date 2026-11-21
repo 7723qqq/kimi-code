@@ -1,10 +1,10 @@
-import { t } from '#/i18n';
 import {
   TRANSCRIPT_GROUP_COUNT_DELAY_MS,
   TRANSCRIPT_TAIL_ENTER_MS,
   TRANSCRIPT_TAIL_THINKING_THROTTLE_MS,
   TRANSCRIPT_TAIL_THOUGHT_HOLD_MS,
 } from '#/tui/constant/rendering';
+import { t } from '#/i18n';
 
 export type Instant = number & { readonly __brand: 'Instant' };
 export type ToolCallId = string & { readonly __brand: 'ToolCallId' };
@@ -15,9 +15,7 @@ function isInstant(ms: number): ms is Instant {
 }
 
 export function instant(ms: number): Instant {
-  if (!isInstant(ms)) {
-    throw new RangeError(t('tui.messages.turnTimeline.badInstant', { value: String(ms) }));
-  }
+  if (!isInstant(ms)) throw new RangeError(t('tui.messages.turnTimeline.badInstant', { value: ms }));
   return ms;
 }
 
@@ -55,11 +53,6 @@ export interface ThinkingFacts {
 
 export type TurnOutcome = 'completed' | 'stopped';
 
-/**
- * `endedAtMs` is `Date.now()` read at `end`, for showing when the turn finished. It is read
- * then because the monotonic clock can pause while the machine sleeps, so `end` cannot be
- * turned into wall time later.
- */
 export type TurnFacts =
   | { readonly kind: 'live'; readonly start: Instant }
   | {

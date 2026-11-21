@@ -1,9 +1,7 @@
+import { t } from '#/i18n';
 export type UIMode = 'shell' | 'print';
 export type PromptOutputFormat = 'text' | 'stream-json';
 
-import { t } from '#/i18n';
-
-/** Environment variable that sets the default `-p` output format (flag wins). */
 export const OUTPUT_FORMAT_ENV = 'KIMI_MODEL_OUTPUT_FORMAT';
 
 const OUTPUT_FORMATS = ['text', 'stream-json'] as const;
@@ -12,14 +10,6 @@ function isOutputFormat(value: string): value is PromptOutputFormat {
   return (OUTPUT_FORMATS as readonly string[]).includes(value);
 }
 
-/**
- * Resolve the effective `-p` output format.
- *
- * Precedence: explicit `--output-format` flag → `KIMI_MODEL_OUTPUT_FORMAT` env
- * (prompt mode only) → `text`. The env var is ignored outside prompt mode so an
- * ambient value never affects interactive `kimi`. An invalid env value fails
- * fast via `OptionConflictError`.
- */
 export function resolveOutputFormat(
   opts: Pick<CLIOptions, 'prompt' | 'outputFormat'>,
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -49,13 +39,7 @@ export interface CLIOptions {
   agent: string | undefined;
   agentFiles: string[];
   addDirs?: string[];
-  /**
-   * `--environment <id>`: one-shot override of the configured `[environments]`
-   * default. Creation-only, like `--agent`: a resumed session restores its
-   * recorded binding instead.
-   */
   environment: string | undefined;
-  /** `--environment-cwd <path>`: overrides the selected entry's `defaultCwd`. */
   environmentCwd?: string;
 }
 
@@ -125,7 +109,9 @@ export function validateOptions(
     (opts.agent !== undefined || opts.agentFiles.length > 0) &&
     (opts.session !== undefined || opts.continue)
   ) {
-    throw new OptionConflictError(t('cli.errors.cannotCombineAgentAndSession'));
+    throw new OptionConflictError(
+      t('cli.errors.cannotCombineAgentAndSession'),
+    );
   }
   if (promptMode && opts.session === '') {
     throw new OptionConflictError(t('cli.errors.sessionWithoutIdInPromptMode'));
@@ -136,8 +122,6 @@ export function validateOptions(
   if (opts.yolo && opts.auto) {
     throw new OptionConflictError(t('cli.errors.cannotCombineYoloAndAuto'));
   }
-  // Validate `KIMI_MODEL_OUTPUT_FORMAT` eagerly in prompt mode so a typo fails
-  // fast through the friendly `error:` path instead of mid-run.
   if (promptMode) resolveOutputFormat(opts, env);
   return { options: opts, uiMode: promptMode ? 'print' : 'shell' };
 }

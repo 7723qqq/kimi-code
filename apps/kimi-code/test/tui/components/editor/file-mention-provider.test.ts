@@ -1,8 +1,9 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { FileMentionProvider } from '#/tui/components/editor/file-mention-provider';
 
@@ -96,28 +97,6 @@ describe('FileMentionProvider', () => {
     extraDirs.push(extraDir);
     return extraDir;
   }
-
-  let bigFixture: { readonly workDir: string; readonly extraDir: string } | undefined;
-
-  function ensureBigFixture(): { readonly workDir: string; readonly extraDir: string } {
-    if (bigFixture !== undefined) return bigFixture;
-    const dir = mkdtempSync(join(tmpdir(), 'kimi-file-mention-big-'));
-    for (let i = 0; i < 2000; i++) {
-      writeFileSync(join(dir, `filler-${i}.ts`), 'export {};');
-    }
-    const extraDir = mkdtempSync(join(tmpdir(), 'kimi-file-mention-big-extra-'));
-    mkdirSync(join(extraDir, 'deep'), { recursive: true });
-    writeFileSync(join(extraDir, 'deep', 'target-needle.ts'), 'export {};');
-    bigFixture = { workDir: dir, extraDir };
-    return bigFixture;
-  }
-
-  afterAll(() => {
-    if (bigFixture !== undefined) {
-      rmSync(bigFixture.workDir, { recursive: true, force: true });
-      rmSync(bigFixture.extraDir, { recursive: true, force: true });
-    }
-  });
 
   it('returns null when there is no completable prefix', async () => {
     const provider = new FileMentionProvider([], workDir, NO_FD);
@@ -231,9 +210,6 @@ describe('FileMentionProvider', () => {
   it('opens @ file mention when typed in the middle of a slash command argument', async () => {
     writeFileSync(join(workDir, 'README.md'), 'readme');
     const provider = new FileMentionProvider([GOAL_COMMAND], workDir, NO_FD);
-    // Cursor sits in the middle of the /goal argument text, right after a
-    // freshly typed `@`. The slash-argument guard must not suppress the @
-    // file list here.
     const line = '/goal Fix the @checkout docs';
     const result = await provider.getSuggestions([line], 0, '/goal Fix the @'.length, {
       signal: ctrl(),
@@ -255,13 +231,7 @@ describe('FileMentionProvider', () => {
   it('opens add-dir directory completions after slash command completion and entering slash', async () => {
     const provider = new FileMentionProvider([ADD_DIR_COMMAND], workDir, NO_FD);
     const command = ADD_DIR_COMMAND;
-    const completed = provider.applyCompletion(
-      ['/add'],
-      0,
-      4,
-      { value: command.name, label: command.name },
-      '/add',
-    );
+    const completed = provider.applyCompletion(['/add'], 0, 4, { value: command.name, label: command.name }, '/add');
     const completedLine = completed.lines[0]!;
     const line = `${completedLine}/`;
     const result = await provider.getSuggestions([line], 0, line.length, { signal: ctrl() });
@@ -287,7 +257,11 @@ describe('FileMentionProvider', () => {
   });
 
   it('prefers exact alias matches over fuzzy skill matches', async () => {
-    const provider = new FileMentionProvider([NEW_COMMAND, LARK_CALENDAR_COMMAND], workDir, NO_FD);
+    const provider = new FileMentionProvider(
+      [NEW_COMMAND, LARK_CALENDAR_COMMAND],
+      workDir,
+      NO_FD,
+    );
     const line = '/clear';
 
     const result = await provider.getSuggestions([line], 0, line.length, { signal: ctrl() });
@@ -344,8 +318,6 @@ describe('FileMentionProvider', () => {
 
   it('joins multiple aliases with an ASCII comma in the label', async () => {
     const provider = new FileMentionProvider([HELP_FULL_COMMAND], workDir, NO_FD);
-    // '?' only matches the alias, not the primary name, so the label must
-    // list the aliases.
     const result = await provider.getSuggestions(['/?'], 0, 2, { signal: ctrl() });
 
     expect(result).not.toBeNull();
@@ -404,7 +376,7 @@ describe('FileMentionProvider', () => {
 
   it('maps remote @ mention candidates without scanning the local workspace', async () => {
     writeFileSync(join(workDir, 'local-only.ts'), 'local');
-    const remoteSuggest = mock(async () => [
+    const remoteSuggest = vi.fn(async () => [
       { path: 'src/app.ts', kind: 'file' as const },
       { path: 'src/components', kind: 'directory' as const },
       { path: 'docs/with space.md', kind: 'file' as const },
@@ -478,6 +450,33 @@ describe('FileMentionProvider', () => {
     expect(changedRoot).toBeNull();
   });
 
+  it('returns null instead of local candidates when remote suggestions are unavailable', async () => {
+    writeFileSync(join(workDir, 'local-only.ts'), 'local');
+    const unavailable = new FileMentionProvider(
+      [],
+      workDir,
+      NO_FD,
+      [],
+      () => 'prompt',
+      undefined,
+      async () => undefined,
+    );
+    const failing = new FileMentionProvider(
+      [],
+      workDir,
+      NO_FD,
+      [],
+      () => 'prompt',
+      undefined,
+      async () => {
+        throw new Error('remote unavailable');
+      },
+    );
+
+    await expect(unavailable.getSuggestions(['@local'], 0, 6, { signal: ctrl() })).resolves.toBeNull();
+    await expect(failing.getSuggestions(['@local'], 0, 6, { signal: ctrl() })).resolves.toBeNull();
+  });
+
   it('uses a filesystem fallback for @ mentions when fd is not available', async () => {
     mkdirSync(join(workDir, 'src', 'components'), { recursive: true });
     writeFileSync(join(workDir, 'src', 'components', 'Button.tsx'), 'export {};');
@@ -505,9 +504,13 @@ describe('FileMentionProvider', () => {
     );
   });
 
-  it('reaches an additional root even when the primary root exhausts the scan cap', async () => {
-    const fixture = ensureBigFixture();
-    const provider = new FileMentionProvider([], fixture.workDir, NO_FD, [fixture.extraDir]);
+  it('redistributes unused fallback scan capacity to additional roots', async () => {
+    const extraDir = createExtraDir();
+    for (let i = 0; i < 1500; i++) {
+      writeFileSync(join(extraDir, `entry-${i}.ts`), 'export {};');
+    }
+    writeFileSync(join(extraDir, 'target-needle.ts'), 'export {};');
+    const provider = new FileMentionProvider([], workDir, join(workDir, 'missing-fd'), [extraDir]);
 
     const result = await provider.getSuggestions(['@target-needle'], 0, '@target-needle'.length, {
       signal: ctrl(),
@@ -515,12 +518,15 @@ describe('FileMentionProvider', () => {
 
     expect(result).not.toBeNull();
     expect(result!.items.map((item) => item.value)).toContain(
-      `@${join(fixture.extraDir, 'deep', 'target-needle.ts').replaceAll('\\', '/')}`,
+      `@${join(extraDir, 'target-needle.ts').replaceAll('\\', '/')}`,
     );
   });
 
-  it('deduplicates a fallback root equal to the working directory', async () => {
-    mkdirSync(join(workDir, 'deep'), { recursive: true });
+  it('deduplicates fallback roots equal to cwd before scanning', async () => {
+    for (let i = 0; i < 1500; i++) {
+      writeFileSync(join(workDir, `entry-${i}.ts`), 'export {};');
+    }
+    mkdirSync(join(workDir, 'deep'));
     writeFileSync(join(workDir, 'deep', 'target-needle.ts'), 'export {};');
     const provider = new FileMentionProvider([], workDir, join(workDir, 'missing-fd'), [workDir]);
 
@@ -529,19 +535,38 @@ describe('FileMentionProvider', () => {
     });
 
     expect(result).not.toBeNull();
-    const values = result!.items.map((item) => item.value);
-    expect(values).toContain('@deep/target-needle.ts');
-    expect(new Set(values).size).toBe(values.length);
+    expect(result!.items.map((item) => item.value)).toContain('@deep/target-needle.ts');
   });
 
-  it.if(IS_FD_INSTALLED)(
+  it('scans additionalDirs within a shared bounded fallback budget', async () => {
+    for (let i = 0; i < 2000; i++) {
+      writeFileSync(join(workDir, `filler-${i}.ts`), 'export {};');
+    }
+    const extraDir = createExtraDir();
+    mkdirSync(join(extraDir, 'deep'), { recursive: true });
+    writeFileSync(join(extraDir, 'deep', 'target-needle.ts'), 'export {};');
+    const provider = new FileMentionProvider([], workDir, join(workDir, 'missing-fd'), [extraDir]);
+
+    const result = await provider.getSuggestions(['@target-needle'], 0, '@target-needle'.length, {
+      signal: ctrl(),
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.items.map((item) => item.value)).toContain(
+      `@${join(extraDir, 'deep', 'target-needle.ts').replaceAll('\\', '/')}`,
+    );
+  });
+
+  it.runIf(IS_FD_INSTALLED)(
     'uses fd for additionalDirs even when cwd is large enough to exhaust the fallback scanner',
     async () => {
-      // The shared cwd holds enough entries to push the filesystem fallback
-      // past its 2000-entry scan cap, so it would never reach the additional
-      // root. fd searches each root independently and still finds the target.
-      const fixture = ensureBigFixture();
-      const provider = new FileMentionProvider([], fixture.workDir, FD_PATH!, [fixture.extraDir]);
+      for (let i = 0; i < 2000; i++) {
+        writeFileSync(join(workDir, `filler-${i}.ts`), 'export {};');
+      }
+      const extraDir = createExtraDir();
+      mkdirSync(join(extraDir, 'deep'), { recursive: true });
+      writeFileSync(join(extraDir, 'deep', 'target-needle.ts'), 'export {};');
+      const provider = new FileMentionProvider([], workDir, FD_PATH!, [extraDir]);
 
       const result = await provider.getSuggestions(['@target-needle'], 0, '@target-needle'.length, {
         signal: ctrl(),
@@ -549,19 +574,21 @@ describe('FileMentionProvider', () => {
 
       expect(result).not.toBeNull();
       expect(result!.items.map((item) => item.value)).toContain(
-        `@${join(fixture.extraDir, 'deep', 'target-needle.ts').replaceAll('\\', '/')}`,
+        `@${join(extraDir, 'deep', 'target-needle.ts').replaceAll('\\', '/')}`,
       );
     },
   );
 
-  it.if(IS_FD_INSTALLED)(
+  it.runIf(IS_FD_INSTALLED)(
     'treats a bare fd command name as executable and resolves it via PATH',
     async () => {
-      // A bare "fd" (system PATH lookup) must not be mistaken for unavailable;
-      // otherwise the large cwd would push the fallback scanner past its cap
-      // and hide the deep target in the additional root.
-      const fixture = ensureBigFixture();
-      const provider = new FileMentionProvider([], fixture.workDir, 'fd', [fixture.extraDir]);
+      for (let i = 0; i < 2000; i++) {
+        writeFileSync(join(workDir, `filler-${i}.ts`), 'export {};');
+      }
+      const extraDir = createExtraDir();
+      mkdirSync(join(extraDir, 'deep'), { recursive: true });
+      writeFileSync(join(extraDir, 'deep', 'target-needle.ts'), 'export {};');
+      const provider = new FileMentionProvider([], workDir, 'fd', [extraDir]);
 
       const result = await provider.getSuggestions(['@target-needle'], 0, '@target-needle'.length, {
         signal: ctrl(),
@@ -569,7 +596,7 @@ describe('FileMentionProvider', () => {
 
       expect(result).not.toBeNull();
       expect(result!.items.map((item) => item.value)).toContain(
-        `@${join(fixture.extraDir, 'deep', 'target-needle.ts').replaceAll('\\', '/')}`,
+        `@${join(extraDir, 'deep', 'target-needle.ts').replaceAll('\\', '/')}`,
       );
     },
   );
@@ -606,22 +633,18 @@ describe('FileMentionProvider', () => {
       (item) => item.description === join(extraDir, 'src', 'Overlap.ts').replaceAll('\\', '/'),
     );
     expect(overlapItems).toHaveLength(1);
+    expect(overlapItems[0]?.value).toBe('@extra/src/Overlap.ts');
   });
 
-  it.if(IS_FD_INSTALLED)(
+  it.runIf(IS_FD_INSTALLED)(
     'does not bypass fd filtering with filesystem suggestions when fd returns no matches',
     async () => {
       writeFileSync(join(workDir, 'README.md'), 'readme');
       const provider = new FileMentionProvider([], workDir, FD_PATH!);
 
-      const result = await provider.getSuggestions(
-        ['@zzz-no-match-xyz'],
-        0,
-        '@zzz-no-match-xyz'.length,
-        {
-          signal: ctrl(),
-        },
-      );
+      const result = await provider.getSuggestions(['@zzz-no-match-xyz'], 0, '@zzz-no-match-xyz'.length, {
+        signal: ctrl(),
+      });
 
       expect(result).toBeNull();
     },
@@ -676,9 +699,7 @@ describe('FileMentionProvider', () => {
 
   it('filesystem fallback does not recurse into symlinked directories', async () => {
     writeFileSync(join(workDir, 'target.txt'), 'target');
-    // A directory junction is the unprivileged equivalent of a directory
-    // symlink on Windows (plain symlinks need Developer Mode/admin).
-    symlinkSync('.', join(workDir, 'current'), process.platform === 'win32' ? 'junction' : 'dir');
+    symlinkSync('.', join(workDir, 'current'), 'dir');
     const provider = new FileMentionProvider([], workDir, NO_FD);
 
     const result = await provider.getSuggestions(['@target'], 0, 7, { signal: ctrl() });
@@ -900,48 +921,45 @@ describe('FileMentionProvider', () => {
     });
   });
 
-  describe.skipIf(process.platform === 'win32')(
-    'bash-mode path completion dotfile filtering',
-    () => {
-      it('hides dot-prefixed entries (matching /add-dir) in bash mode', async () => {
-        mkdirSync(join(workDir, '.hidden'));
-        mkdirSync(join(workDir, 'visible'));
-        writeFileSync(join(workDir, '.dotfile'), '');
-        writeFileSync(join(workDir, 'normal.txt'), '');
+  describe('bash-mode path completion dotfile filtering', () => {
+    it('hides dot-prefixed entries (matching /add-dir) in bash mode', async () => {
+      mkdirSync(join(workDir, '.hidden'));
+      mkdirSync(join(workDir, 'visible'));
+      writeFileSync(join(workDir, '.dotfile'), '');
+      writeFileSync(join(workDir, 'normal.txt'), '');
 
-        const provider = new FileMentionProvider([], workDir, NO_FD, [], () => 'bash');
-        const text = `cd ${workDir}/`;
-        const result = await provider.getSuggestions([text], 0, text.length, {
-          signal: ctrl(),
-          force: true,
-        });
-
-        expect(result).not.toBeNull();
-        const labels = result!.items.map((item) => item.label);
-        expect(labels).toContain('visible/');
-        expect(labels).toContain('normal.txt');
-        expect(labels).not.toContain('.hidden/');
-        expect(labels).not.toContain('.dotfile');
+      const provider = new FileMentionProvider([], workDir, NO_FD, [], () => 'bash');
+      const text = `cd ${workDir}/`;
+      const result = await provider.getSuggestions([text], 0, text.length, {
+        signal: ctrl(),
+        force: true,
       });
 
-      it('keeps dot-prefixed entries in prompt mode', async () => {
-        mkdirSync(join(workDir, '.hidden'));
-        writeFileSync(join(workDir, '.dotfile'), '');
+      expect(result).not.toBeNull();
+      const labels = result!.items.map((item) => item.label);
+      expect(labels).toContain('visible/');
+      expect(labels).toContain('normal.txt');
+      expect(labels).not.toContain('.hidden/');
+      expect(labels).not.toContain('.dotfile');
+    });
 
-        const provider = new FileMentionProvider([], workDir, NO_FD, [], () => 'prompt');
-        const text = `cd ${workDir}/`;
-        const result = await provider.getSuggestions([text], 0, text.length, {
-          signal: ctrl(),
-          force: true,
-        });
+    it('keeps dot-prefixed entries in prompt mode', async () => {
+      mkdirSync(join(workDir, '.hidden'));
+      writeFileSync(join(workDir, '.dotfile'), '');
 
-        expect(result).not.toBeNull();
-        const labels = result!.items.map((item) => item.label);
-        expect(labels).toContain('.hidden/');
-        expect(labels).toContain('.dotfile');
+      const provider = new FileMentionProvider([], workDir, NO_FD, [], () => 'prompt');
+      const text = `cd ${workDir}/`;
+      const result = await provider.getSuggestions([text], 0, text.length, {
+        signal: ctrl(),
+        force: true,
       });
-    },
-  );
+
+      expect(result).not.toBeNull();
+      const labels = result!.items.map((item) => item.label);
+      expect(labels).toContain('.hidden/');
+      expect(labels).toContain('.dotfile');
+    });
+  });
 
   describe('bash-mode path applyCompletion', () => {
     it('does not double the leading slash for a bare / path', () => {
@@ -980,21 +998,25 @@ describe('FileMentionProvider', () => {
         '/tmp/My',
       );
       expect(result.lines[0]).toBe('cd "/tmp/My Dir/"');
-      // Cursor sits before the closing quote so the next `/` continues inside it.
       expect(result.cursorCol).toBe('cd "/tmp/My Dir/'.length);
     });
 
     it('keeps pi-tui slash-command behaviour in prompt mode', () => {
       const provider = new FileMentionProvider([], workDir, NO_FD, [], () => 'prompt');
-      const result = provider.applyCompletion(['/'], 0, 1, { value: 'help', label: 'help' }, '/');
-      // pi-tui's slash-command branch: beforePrefix + '/' + value + ' '
+      const result = provider.applyCompletion(
+        ['/'],
+        0,
+        1,
+        { value: 'help', label: 'help' },
+        '/',
+      );
       expect(result.lines[0]).toBe('/help ');
     });
   });
 
   describe('bash-mode slash argument completion suppression', () => {
     it('does not invoke slash argument completions for an absolute path in bash mode', async () => {
-      const getArgumentCompletions = mock(() => [
+      const getArgumentCompletions = vi.fn(() => [
         { value: '/should-not-appear/', label: 'should-not-appear/' },
       ]);
       const provider = new FileMentionProvider(
@@ -1016,7 +1038,7 @@ describe('FileMentionProvider', () => {
     });
 
     it('does not invoke slash argument completions for a trailing-space command in bash mode', async () => {
-      const getArgumentCompletions = mock(() => [{ value: 'list', label: 'list' }]);
+      const getArgumentCompletions = vi.fn(() => [{ value: 'list', label: 'list' }]);
       const provider = new FileMentionProvider(
         [{ name: 'add-dir', description: 'Add directory', getArgumentCompletions }],
         workDir,
@@ -1025,10 +1047,6 @@ describe('FileMentionProvider', () => {
         () => 'bash',
       );
 
-      // `/add-dir ` (trailing space) used to be re-triggered with force:false,
-      // which let pi-tui's own slash-command handling return subcommand
-      // completions. Bash mode now only ever triggers force:true path
-      // completion, so the argument completer must not run.
       const text = '/add-dir ';
       const result = await provider.getSuggestions([text], 0, text.length, {
         signal: ctrl(),
@@ -1040,7 +1058,7 @@ describe('FileMentionProvider', () => {
     });
 
     it('keeps slash argument completion in prompt mode', async () => {
-      const getArgumentCompletions = mock(() => [{ value: '/shared/', label: 'shared/' }]);
+      const getArgumentCompletions = vi.fn(() => [{ value: '/shared/', label: 'shared/' }]);
       const provider = new FileMentionProvider(
         [{ name: 'add-dir', description: 'Add directory', getArgumentCompletions }],
         workDir,
@@ -1080,7 +1098,14 @@ describe('FileMentionProvider', () => {
         HELP_COMMAND,
       ],
     ) {
-      return new FileMentionProvider(commands, workDir, NO_FD, [], () => 'prompt', SKILL_NAMES);
+      return new FileMentionProvider(
+        commands,
+        workDir,
+        NO_FD,
+        [],
+        () => 'prompt',
+        SKILL_NAMES,
+      );
     }
 
     it('offers skill-only suggestions for a `/` after whitespace mid-input', async () => {

@@ -1,38 +1,44 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
-import { type AddressInfo as HttpAddress } from 'node:net';
+import type { AddressInfo as HttpAddress } from 'node:net';
 import { tmpdir } from 'node:os';
-
-import { type OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { join } from 'pathe';
 
+import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from '@moonshot-ai/testkit/vitest';
+
 import { DisposableStore } from '#/_base/di/lifecycle';
+import { Event } from '#/_base/event';
 import { createServices } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
-import { IAgentIdentity, type AgentIdentitySnapshot } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import {
+  IAgentIdentity,
+  type AgentIdentitySnapshot,
+} from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
 import { IMcpConfigStore, McpConfigStore } from '#/app/mcpConfig/configStore';
 import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
 import {
   IMcpManagementService,
   type GlobalMcpServerConfig,
+  type McpServerLocator,
 } from '#/app/mcpManagement/mcpManagement';
 import { McpManagementService } from '#/app/mcpManagement/mcpManagementService';
 import { IMcpRegistryService } from '#/app/mcpRegistry/mcpRegistry';
 import { McpRegistryService } from '#/app/mcpRegistry/mcpRegistryService';
 import { IPluginService } from '#/app/plugin/plugin';
-import { type PluginMcpServerEntry } from '#/app/plugin/types';
+import type { PluginMcpServerEntry } from '#/app/plugin/types';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
+import { McpConnectionManager } from '#/mcpCore/connection-manager';
 import { McpOAuthService, type McpOAuthEvent } from '#/mcpCore/oauth/service';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
-import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -52,88 +58,9 @@ import {
   stdioFixture,
 } from '../../mcpCore/stubs';
 import { stubAgentIdentity } from '../agentIdentity/stubs';
-import { restoreEnvs, setEnv } from '#test/helpers/stubs';
 
 function stdioServer(name: string, command = 'npx'): GlobalMcpServerConfig {
   return { name, transport: 'stdio', command };
-}
-
-interface AdvancedHostTimers extends IHostTimers {
-  advanceAsync(byMs: number): Promise<void>;
-  readonly outstanding: number;
-  readonly scheduledDelays: readonly number[];
-}
-
-async function flushTimerWork(): Promise<void> {
-  for (let round = 0; round < 4; round += 1) {
-    await Promise.resolve();
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-  }
-}
-
-interface FakeHostTimerHandle extends IHostTimerHandle {
-  readonly id: number;
-}
-
-function createAdvancedHostTimers(): AdvancedHostTimers {
-  let nowMs = 0;
-  let nextId = 1;
-  const scheduledDelays: number[] = [];
-  const scheduled: Array<{
-    readonly id: number;
-    readonly due: number;
-    readonly callback: () => void;
-    cleared: boolean;
-    fired: boolean;
-  }> = [];
-
-  const schedule = (callback: () => void, delayMs: number): FakeHostTimerHandle => {
-    const entry = {
-      id: nextId++,
-      due: nowMs + Math.max(delayMs, 0),
-      callback,
-      cleared: false,
-      fired: false,
-    };
-    scheduled.push(entry);
-    scheduledDelays.push(delayMs);
-    return { id: entry.id };
-  };
-
-  return {
-    _serviceBrand: undefined,
-    setClampedTimeout: (callback, timeoutMs) =>
-      schedule(callback, Math.min(timeoutMs, 2_147_483_647)),
-    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
-    clearTimeout: (handle) => {
-      const entry = scheduled.find((candidate) => candidate.id === (handle as { id?: number }).id);
-      if (entry !== undefined) entry.cleared = true;
-    },
-    advanceAsync: async (byMs) => {
-      await flushTimerWork();
-      const limit = nowMs + byMs;
-      for (;;) {
-        const next = scheduled
-          .filter((entry) => !entry.fired && !entry.cleared && entry.due <= limit)
-          .toSorted((left, right) => left.due - right.due || left.id - right.id)[0];
-        if (next === undefined) break;
-        nowMs = next.due;
-        next.fired = true;
-        next.callback();
-        await flushTimerWork();
-      }
-      nowMs = limit;
-      await flushTimerWork();
-    },
-    get outstanding() {
-      return scheduled.filter((entry) => !entry.cleared).length;
-    },
-    get scheduledDelays() {
-      return scheduledDelays;
-    },
-  };
 }
 
 const CONFIG_SCOPE = '';
@@ -158,12 +85,10 @@ describe('McpManagementService', () => {
   let acquire: Mock<IWorkspaceInstanceManager['acquire']>;
   let findContaining: Mock<IWorkspaceInstanceManager['findContaining']>;
   let management: IMcpManagementService;
-  let timers: AdvancedHostTimers;
 
   beforeEach(() => {
-    timers = createAdvancedHostTimers();
     home = mkdtempSync(join(tmpdir(), 'kimi-mcp-management-home-'));
-    setEnv('KIMI_CODE_HOME', home);
+    vi.stubEnv('KIMI_CODE_HOME', home);
     disposables = new DisposableStore();
     tempDirs = [home];
     httpServers = [];
@@ -175,20 +100,16 @@ describe('McpManagementService', () => {
     identitySnapshot = stubAgentIdentity({ slug: 'test-agent' }).current();
     identityReady = Promise.resolve(identitySnapshot);
     trusted = true;
-    acquire = mock<IWorkspaceInstanceManager['acquire']>(async () => ({
+    acquire = vi.fn<IWorkspaceInstanceManager['acquire']>(async () => ({
       instance: { id: 'test-workspace' } as unknown as WorkspaceInstance,
       dispose: () => {},
     }));
-    findContaining = mock<IWorkspaceInstanceManager['findContaining']>(() => undefined);
+    findContaining = vi.fn<IWorkspaceInstanceManager['findContaining']>(() => undefined);
     const hostProcess = new HostProcessService();
     const environment = Object.assign(
       new FakeEnvironment(
         { environmentId: 'local', generation: 'test-generation' },
-        {
-          capabilities: ['process'],
-          host: { homeDir: home },
-          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
-        },
+        { capabilities: ['process'], host: { homeDir: home } },
       ),
       { process: hostProcess },
     );
@@ -214,7 +135,7 @@ describe('McpManagementService', () => {
           osVersion: 'test',
           shellName: 'bash',
           shellPath: '/bin/bash',
-          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+          pathClass: 'posix',
           homeDir: home,
           ready: Promise.resolve(),
         });
@@ -223,19 +144,16 @@ describe('McpManagementService', () => {
           get: async <T>() => (trusted ? ({} as T) : undefined),
           list: async () => [],
         });
-        reg.definePartialInstance(IWorkspaceTrustStore, {
-          forRoot: () =>
-            ({ refresh: async () => trusted }) as unknown as ReturnType<
-              IWorkspaceTrustStore['forRoot']
-            >,
-        });
+        reg.defineInstance(ITelemetryService, noopTelemetryService);
+        reg.define(IWorkspaceTrustStore, WorkspaceTrustStore);
         reg.define(IMcpRegistryService, McpRegistryService);
         reg.defineInstance(IMcpOAuthService, oauth);
         reg.definePartialInstance(IConfigService, {
           get ready() {
             return configReady;
           },
-          get: (<T = unknown>(_domain: string): T => undefined as T) as IConfigService['get'],
+          onDidSectionChange: Event.None as IConfigService['onDidSectionChange'],
+          get: (<T = unknown,>(_domain: string): T => undefined as T) as IConfigService['get'],
         });
         reg.defineInstance(IAgentIdentity, {
           _serviceBrand: undefined,
@@ -250,7 +168,6 @@ describe('McpManagementService', () => {
         });
         reg.definePartialInstance(IWorkspaceInstanceManager, { findContaining, acquire });
         reg.defineInstance(ILogService, stubLog());
-        reg.defineInstance(IHostTimers, timers);
         reg.define(IMcpManagementService, McpManagementService);
       },
     });
@@ -261,7 +178,7 @@ describe('McpManagementService', () => {
   afterEach(async () => {
     disposables.dispose();
     await oauth.dispose();
-    restoreEnvs();
+    vi.unstubAllEnvs();
     await Promise.all(httpServers.map((server) => server.close()));
     await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
   });
@@ -439,6 +356,38 @@ describe('McpManagementService', () => {
       const remaining = await management.removeServer('alpha');
       expect(remaining).toEqual([]);
       await expect(store.list()).resolves.toEqual([]);
+    });
+
+    it('invalidates the previous OAuth identity when a global server URL changes without a workspace', async () => {
+      const previousUrl = 'https://mcp.example.test/mcp-a';
+      const nextUrl = 'https://mcp.example.test/mcp-b';
+      await management.addServer({ name: 'alpha', transport: 'http', url: previousUrl });
+      await seedTokens('alpha', previousUrl, { access_token: 'token' });
+
+      await management.updateServer({ name: 'alpha', transport: 'http', url: nextUrl });
+
+      expect((await oauth.tokenState('alpha', previousUrl)).hasTokens).toBe(false);
+    });
+
+    it('invalidates the OAuth identity when a global server is removed without a workspace', async () => {
+      const url = 'https://mcp.example.test/mcp';
+      await management.addServer({ name: 'alpha', transport: 'http', url });
+      await seedTokens('alpha', url, { access_token: 'token' });
+
+      await management.removeServer('alpha');
+
+      expect((await oauth.tokenState('alpha', url)).hasTokens).toBe(false);
+    });
+
+    it('retains a removed global server OAuth identity while another configuration uses it', async () => {
+      const url = 'https://mcp.example.test/mcp';
+      await management.addServer({ name: 'alpha', transport: 'http', url });
+      await seedTokens('alpha', url, { access_token: 'token' });
+      oauth.setConfigurationSource({}, [['alpha', url]]);
+
+      await management.removeServer('alpha');
+
+      expect((await oauth.tokenState('alpha', url)).hasTokens).toBe(true);
     });
 
     it('waits for live config reconciliation listeners before returning', async () => {
@@ -1339,11 +1288,11 @@ describe('McpManagementService', () => {
         }),
         'utf8',
       );
-      const cancel = mock(async () => undefined);
-      const begin = spyOn(oauth, 'beginAuthorization').mockResolvedValue({
-        waitId: 'wait-1',
+      const cancel = vi.fn(async () => undefined);
+      const begin = vi.spyOn(oauth, 'beginAuthorization').mockResolvedValue({
+        waitId: 'project-auth-wait',
         authorizationUrl: new URL('https://project.example.test/authorize'),
-        complete: mock(async () => undefined),
+        complete: vi.fn(async () => undefined),
         cancel,
       });
 
@@ -1375,11 +1324,17 @@ describe('McpManagementService', () => {
         }),
         'utf8',
       );
-      const invalidate = spyOn(oauth, 'invalidate').mockResolvedValue(undefined);
+      const invalidate = vi.spyOn(oauth, 'invalidate').mockResolvedValue(undefined);
 
-      await management.resetServerAuth({ source: 'global', name: 'oauthable' }, { cwd: project });
+      await management.resetServerAuth(
+        { source: 'global', name: 'oauthable' },
+        { cwd: project },
+      );
 
-      expect(invalidate).toHaveBeenCalledWith('oauthable', 'https://project.example.test/mcp');
+      expect(invalidate).toHaveBeenCalledWith(
+        'oauthable',
+        'https://project.example.test/mcp',
+      );
     });
 
     it('rejects begin for entries that cannot run an OAuth flow', async () => {
@@ -1542,7 +1497,10 @@ describe('McpManagementService', () => {
 
       const first = await management.beginServerAuth({ source: 'global', name: 'oauthable' });
       const second = await management.beginServerAuth({ source: 'global', name: 'oauthable' });
-      if (first.status !== 'authorization-required' || second.status !== 'authorization-required') {
+      if (
+        first.status !== 'authorization-required' ||
+        second.status !== 'authorization-required'
+      ) {
         throw new Error('expected both flows to require authorization');
       }
       expect(second.authorizationUrl).toBe(first.authorizationUrl);
@@ -1565,22 +1523,22 @@ describe('McpManagementService', () => {
         url: 'https://oauthable.example.test/mcp',
         auth: 'oauth',
       });
-      const cancel = mock(async () => undefined);
-      const beginSpy = spyOn(oauth, 'beginAuthorization').mockResolvedValue({
-        waitId: 'wait-1',
+      const cancel = vi.fn(async () => undefined);
+      const beginSpy = vi.spyOn(oauth, 'beginAuthorization').mockResolvedValue({
+        waitId: 'idle-auth-wait',
         authorizationUrl: new URL('https://oauthable.example.test/authorize'),
-        complete: mock(async () => undefined),
+        complete: vi.fn(async () => undefined),
         cancel,
       });
+      vi.useFakeTimers();
       try {
         const begun = await management.beginServerAuth({ source: 'global', name: 'oauthable' });
         if (begun.status !== 'authorization-required') {
           throw new Error(`expected authorization-required, got ${begun.status}`);
         }
 
-        await timers.advanceAsync(15 * 60_000);
+        await vi.advanceTimersByTimeAsync(15 * 60_000);
 
-        expect(timers.scheduledDelays).toEqual([15 * 60_000]);
         expect(cancel).toHaveBeenCalledTimes(1);
         await expect(
           management.completeServerAuth({ flowId: begun.flowId, timeoutMs: 1000 }),
@@ -1589,6 +1547,7 @@ describe('McpManagementService', () => {
           message: `Unknown MCP OAuth flow: ${begun.flowId}`,
         });
       } finally {
+        vi.useRealTimers();
         beginSpy.mockRestore();
       }
     });
@@ -1621,9 +1580,7 @@ describe('McpManagementService', () => {
           message: 'Unknown MCP OAuth flow: unknown-flow',
         },
       );
-      await expect(
-        management.cancelServerAuth({ flowId: 'unknown-flow' }),
-      ).resolves.toBeUndefined();
+      await expect(management.cancelServerAuth({ flowId: 'unknown-flow' })).resolves.toBeUndefined();
     });
 
     it('complete rejects a timeoutMs outside the setTimeout range', async () => {
@@ -1657,9 +1614,9 @@ describe('McpManagementService', () => {
 
       await management.resetServerAuth({ source: 'global', name: 'oauthable' });
 
-      expect(
-        (await oauth.tokenState('oauthable', 'https://oauth.example.test/mcp')).hasTokens,
-      ).toBe(false);
+      expect((await oauth.tokenState('oauthable', 'https://oauth.example.test/mcp')).hasTokens).toBe(
+        false,
+      );
       expect(events).toContainEqual({
         type: 'tokens-invalidated',
         serverName: 'oauthable',

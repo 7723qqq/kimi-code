@@ -1,22 +1,21 @@
 import { BugIndicatingError } from '../errors/errors';
-import { Ledger, type LedgerEntry } from '../lifecycle/ledger';
 import { SyncDescriptor } from './descriptors';
-import { ScopeActivation, type ProvideAllEntry } from './instantiation';
-import type { ServiceIdentifier, ServicesAccessor, IInstantiationService } from './instantiation';
+import {
+  ScopeActivation,
+  type ProvideAllEntry,
+  type ServiceIdentifier,
+  type ServicesAccessor,
+  type IInstantiationService,
+} from './instantiation';
 import { InstantiationService } from './instantiationService';
 import { DisposableStore, type IDisposable } from './lifecycle';
-import { watchScopeUnits } from './scopeUnits';
+import { Ledger, type LedgerEntry } from '../lifecycle/ledger';
 import { ServiceCollection } from './serviceCollection';
+import { watchScopeUnits } from './scopeUnits';
 
 export { ScopeActivation };
 
 export type ScopeKind = string;
-
-export enum LifecycleScope {
-  App = 'app',
-  Session = 'session',
-  Agent = 'agent',
-}
 
 let _scopeTopology: readonly string[] | undefined;
 
@@ -104,7 +103,9 @@ export function _clearScopedRegistryForTests(): void {
   _scopedRegistry.length = 0;
 }
 
-export type ScopeSeed = ReadonlyArray<readonly [ServiceIdentifier<any>, unknown]>;
+export type ScopeSeed = ReadonlyArray<
+  readonly [ServiceIdentifier<any>, unknown]
+>;
 
 export interface ScopeOptions {
   readonly id?: string;
@@ -176,7 +177,8 @@ export function createScopedChildHandle(
     engine.resumeActivation();
   }
   const accessor: ServicesAccessor = {
-    get: <T>(serviceId: ServiceIdentifier<T>): T => child.invokeFunction((a) => a.get(serviceId)),
+    get: <T>(serviceId: ServiceIdentifier<T>): T =>
+      child.invokeFunction((a) => a.get(serviceId)),
   };
   return { id, kind, accessor, dispose: () => child.disposeAsync() };
 }

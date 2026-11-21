@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { resetCapabilitiesCache, setCapabilities } from '@moonshot-ai/pi-tui';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import * as QRCode from 'qrcode';
 
 import { generateRemoteControlQr, renderTerminalQr } from '#/utils/remote-control-qr';
@@ -67,8 +68,7 @@ describe('generateRemoteControlQr terminal rendering', () => {
     const { terminal, pngPath, dir } = await generateInTempDir(url);
     try {
       expect(terminal).toBe(renderTerminalQr(url));
-      const expectedPng = (await QRCode.toBuffer(url)) as unknown as Buffer<ArrayBuffer>;
-      expect(readFileSync(pngPath)).toEqual(expectedPng);
+      expect(readFileSync(pngPath)).toEqual(await QRCode.toBuffer(url));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

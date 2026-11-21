@@ -46,8 +46,8 @@ export const migrateV1_1ToV1_2: WireMigration = {
 
     const pattern = LEGACY_SESSION_APPROVAL_UNRESTORABLE_ACTIONS.has(approvalRecord.action)
       ? undefined
-      : (LEGACY_SESSION_APPROVAL_ACTION_TO_PATTERN[approvalRecord.action] ??
-        approvalRecord.toolName);
+      : LEGACY_SESSION_APPROVAL_ACTION_TO_PATTERN[approvalRecord.action] ??
+        approvalRecord.toolName;
     if (pattern === undefined) return record;
 
     return {

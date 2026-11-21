@@ -1,0 +1,10 @@
+commit 6819b036cd
+Author:     Haozhe <yanghaozhe@moonshot.ai>
+AuthorDate: Mon Nov 16 20:25:56 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Mon Nov 16 20:25:56 2026 +0800
+
+    ci: run Nix builds for release branches (#4821)
+
+ .github/workflows/nix-build.yml | 2 ++
+ 1 file changed, 2 insertions(+)

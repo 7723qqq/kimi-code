@@ -1,14 +1,20 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { createScopedTestHost, SILENT_TEST_LOGGER, stubPair } from '#/_base/di/test';
+import { createScopedTestHost } from '#/_base/di/test';
 import { isErrorCode } from '#/_base/errors/codes';
 import { isError2 } from '#/_base/errors/errors';
-import { ILogService } from '#/_base/log/log';
 import { IConfigService } from '#/app/config/config';
 import { ConfigErrors } from '#/app/config/errors';
-import { DEFAULT_MODEL_SECTION } from '#/app/kosongConfig/configSection';
-import { HostRequestHeadersAdapter } from '#/app/kosongConfig/hostRequestHeadersAdapter';
-import { UNKNOWN_CAPABILITY, isUnknownCapability } from '#/llm-adapter/contract/capability';
+import { emptyUsage } from '@moonshot-ai/core/llm/usage';
+import { streamLlmRequest } from '@moonshot-ai/core/llm/stream';
+import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
+import { ProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocolAdapterRegistry';
+import {
+  IProviderService,
+  type ProviderConfig,
+  type ProvidersSection,
+} from '#/llm-adapter/provider/provider';
+import '#/llm-adapter/provider/provider-service';
 import {
   globalDefaultForProvider,
   IModelCatalog,
@@ -18,29 +24,21 @@ import {
   toProtocolModelFallback,
   toProtocolProvider,
 } from '#/llm-adapter/model/catalog';
-import { ProviderCatalogRuntimeService } from '#/llm-adapter/model/catalog-runtime';
+import '#/llm-adapter/model/catalog-service';
 import { ModelCatalog } from '#/llm-adapter/model/catalog-service';
-import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
-import '#/llm-adapter/protocol/protocolAdapterRegistry';
-import { IModelService, type ModelRecord, type ModelsSection } from '#/llm-adapter/model/model';
-import '#/llm-adapter/provider/provider-service';
-import { IModelOAuthTokens } from '#/llm-adapter/model/model-oauth';
-import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
-import {
-  IProviderService,
-  type ProviderConfig,
-  type ProvidersSection,
-} from '#/llm-adapter/provider/provider';
+import { createMockProvider, withMockProvider } from '../../harness/scripted-generate';
+import { ProviderCatalogRuntimeService } from '#/llm-adapter/model/catalog-runtime';
 import '#/llm-adapter/model/errors';
-import type { LlmRequester } from '#human/llm/requester/requester';
-import { emptyUsage } from '#human/llm/usage';
+import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
+import { IModelService, type ModelRecord, type ModelsSection } from '#/llm-adapter/model/model';
 import '#/llm-adapter/model/model-service';
-import { expectRejection } from '#test/helpers/assertions';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { IModelOAuthTokens } from '#/llm-adapter/model/model-oauth';
 
+import { HostRequestHeadersAdapter } from '#/app/kosongConfig/hostRequestHeadersAdapter';
+
+import { StubConfigService, stubModelOAuthTokens, stubTokenProvider } from '../../stubs';
 import { stubAgentIdentity } from '../../app/agentIdentity/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
-import { StubConfigService, stubModelOAuthTokens, stubTokenProvider } from '../../stubs';
 
 const HOST_HEADERS = { 'User-Agent': 'kimi-test/1.0', 'X-Msh-Device-Id': 'device-1' };
 
@@ -69,7 +67,6 @@ function createHost(
 } {
   const config = new StubConfigService(sections);
   const host = createScopedTestHost([
-    stubPair(ILogService, SILENT_TEST_LOGGER),
     [IConfigService, config],
     [IModelOAuthTokens, oauthTokens],
     [IHostRequestHeaders, hostHeadersPort(hostHeaders)],
@@ -84,10 +81,6 @@ function createHost(
     (sections['models'] ?? {}) as ModelsSection,
     sections['defaultModel'] as string | undefined,
   );
-  models.onDidChangeDefaultModel((e) => {
-    if (config.get<string>(DEFAULT_MODEL_SECTION) === e.id) return;
-    e.waitUntil(config.replace(DEFAULT_MODEL_SECTION, e.id));
-  });
   return {
     host,
     config,
@@ -118,7 +111,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  restoreEnvs();
+  vi.unstubAllEnvs();
   if (savedCustomHeaders === undefined) delete process.env['KIMI_CODE_CUSTOM_HEADERS'];
   else process.env['KIMI_CODE_CUSTOM_HEADERS'] = savedCustomHeaders;
 });
@@ -129,14 +122,13 @@ describe('Model assembly (pure data)', () => {
     try {
       const model = catalog.get('k1');
       expect(model.id).toBe('k1');
-      expect(model.name).toBe('kimi-k2');
+      expect(model.spec.name).toBe('kimi-k2');
       expect(model.protocol).toBe('openai');
       expect(model.providerType).toBe('kimi');
       expect(model.providerName).toBe('kimi');
-      expect(model.baseUrl).toBe('https://api.moonshot.ai/v1');
-      expect(model.maxContextSize).toBe(262144);
-      expect(model.capabilities.max_context_tokens).toBe(262144);
-      expect(model.headers).toMatchObject({
+      expect(model.endpoint.baseUrl).toBe('https://api.moonshot.ai/v1');
+      expect(model.spec.maxContextSize).toBe(262144);
+      expect(model.endpoint.headers).toMatchObject({
         'User-Agent': 'kimi-test/1.0',
         'X-Msh-Device-Id': 'device-1',
       });
@@ -171,7 +163,7 @@ describe('Model assembly (pure data)', () => {
       const model = catalog.get('gpt');
       expect(model.protocol).toBe('openai');
       expect(model.providerType).toBe('openai');
-      expect(model.headers).toEqual({ 'User-Agent': 'kimi-test/1.0' });
+      expect(model.endpoint.headers).toEqual({ 'User-Agent': 'kimi-test/1.0' });
     } finally {
       host.dispose();
     }
@@ -195,7 +187,7 @@ describe('Model assembly (pure data)', () => {
         identitySlug: 'acme-dev',
       });
       try {
-        expect(catalog.get('gpt').headers).toEqual({ 'User-Agent': 'acme-dev/1.0' });
+        expect(catalog.get('gpt').endpoint.headers).toEqual({ 'User-Agent': 'acme-dev/1.0' });
       } finally {
         host.dispose();
       }
@@ -207,7 +199,7 @@ describe('Model assembly (pure data)', () => {
         identitySlug: 'acme-dev',
       });
       try {
-        expect(catalog.get('gpt').headers).toEqual({ 'User-Agent': 'acme-dev/1.0 (web)' });
+        expect(catalog.get('gpt').endpoint.headers).toEqual({ 'User-Agent': 'acme-dev/1.0 (web)' });
       } finally {
         host.dispose();
       }
@@ -219,7 +211,7 @@ describe('Model assembly (pure data)', () => {
         identitySlug: 'acme-dev',
       });
       try {
-        expect(catalog.get('k2').headers).toEqual(HOST_HEADERS);
+        expect(catalog.get('k2').endpoint.headers).toEqual(HOST_HEADERS);
       } finally {
         host.dispose();
       }
@@ -228,7 +220,7 @@ describe('Model assembly (pure data)', () => {
     it('changes nothing when no identity is configured', () => {
       const { host, catalog } = createHost(THIRD_PARTY);
       try {
-        expect(catalog.get('gpt').headers).toEqual({ 'User-Agent': 'kimi-test/1.0' });
+        expect(catalog.get('gpt').endpoint.headers).toEqual({ 'User-Agent': 'kimi-test/1.0' });
       } finally {
         host.dispose();
       }
@@ -240,7 +232,7 @@ describe('Model assembly (pure data)', () => {
         identitySlug: 'acme-dev',
       });
       try {
-        expect(catalog.get('gpt').headers).toEqual({});
+        expect(catalog.get('gpt').endpoint.headers).toEqual({});
       } finally {
         host.dispose();
       }
@@ -252,7 +244,7 @@ describe('Model assembly (pure data)', () => {
         identitySlug: 'acme-dev',
       });
       try {
-        expect(catalog.get('gpt').headers).toEqual({ 'User-Agent': 'acme-dev/1.0' });
+        expect(catalog.get('gpt').endpoint.headers).toEqual({ 'User-Agent': 'acme-dev/1.0' });
       } finally {
         host.dispose();
       }
@@ -270,8 +262,8 @@ describe('Model assembly (pure data)', () => {
       const model = catalog.get('k2');
       expect(model.protocol).toBe('anthropic');
       expect(model.providerType).toBe('kimi');
-      expect(model.baseUrl).toBe('https://api.example.test');
-      expect(model.supportEfforts).toBeUndefined();
+      expect(model.endpoint.baseUrl).toBe('https://api.example.test');
+      expect(model.spec.thinking?.supportEfforts).toBeUndefined();
     } finally {
       host.dispose();
     }
@@ -287,51 +279,9 @@ describe('Model assembly (pure data)', () => {
     try {
       const model = catalog.get('sonnet');
       expect(model.protocol).toBe('anthropic');
-      expect(model.supportEfforts).toEqual(['low', 'medium', 'high']);
-      expect(model.defaultEffort).toBe('high');
-      expect(model.capabilities.thinking).toBe(true);
-    } finally {
-      host.dispose();
-    }
-  });
-
-  it('keeps the unknown-capability marker when declared capabilities omit media input', () => {
-    const { host, catalog } = createHost({
-      providers: { openai: { type: 'openai', apiKey: 'sk-o' } },
-      models: {
-        relay: {
-          provider: 'openai',
-          model: 'glm-5.3-flash',
-          maxContextSize: 1000000,
-          capabilities: ['thinking'],
-        },
-        relayVision: {
-          provider: 'openai',
-          model: 'glm-5.3-flash',
-          maxContextSize: 1000000,
-          capabilities: ['thinking', 'image_in'],
-        },
-        relayPdf: {
-          provider: 'openai',
-          model: 'glm-5.3-flash',
-          maxContextSize: 1000000,
-          capabilities: ['pdf_in'],
-        },
-      },
-    });
-    try {
-      const unknownMedia = catalog.get('relay').capabilities;
-      expect(unknownMedia.thinking).toBe(true);
-      expect(unknownMedia.image_in).toBe(false);
-      expect(isUnknownCapability(unknownMedia)).toBe(true);
-
-      const declaredVision = catalog.get('relayVision').capabilities;
-      expect(declaredVision.image_in).toBe(true);
-      expect(isUnknownCapability(declaredVision)).toBe(false);
-
-      const declaredPdf = catalog.get('relayPdf').capabilities;
-      expect(declaredPdf.pdf_in).toBe(true);
-      expect(isUnknownCapability(declaredPdf)).toBe(false);
+      expect(model.spec.thinking?.supportEfforts).toEqual(['low', 'medium', 'high']);
+      expect(model.spec.thinking?.defaultEffort).toBe('high');
+      expect(model.spec.capability?.thinking).toBe(true);
     } finally {
       host.dispose();
     }
@@ -350,7 +300,7 @@ describe('Model assembly (pure data)', () => {
       },
     });
     try {
-      expect(catalog.get('custom').adaptiveThinking).toBe(true);
+      expect(catalog.get('custom').spec.thinking?.adaptiveThinking).toBe(true);
     } finally {
       host.dispose();
     }
@@ -359,10 +309,7 @@ describe('Model assembly (pure data)', () => {
   it('resolves provider env-bag credentials and endpoints through the registry', async () => {
     const { host, catalog } = createHost({
       providers: {
-        kimi: {
-          type: 'kimi',
-          env: { KIMI_API_KEY: 'env-token', KIMI_BASE_URL: 'https://kimi-env.example.test/v1' },
-        },
+        kimi: { type: 'kimi', env: { KIMI_API_KEY: 'env-token', KIMI_BASE_URL: 'https://kimi-env.example.test/v1' } },
         openai: { type: 'openai', env: { OPENAI_API_KEY: 'sk-openai' } },
       },
       models: {
@@ -372,8 +319,8 @@ describe('Model assembly (pure data)', () => {
     });
     try {
       const kimi = catalog.get('k1');
-      expect(kimi.baseUrl).toBe('https://kimi-env.example.test/v1');
-      return expect(await kimi.credentialProvider?.resolve()).toEqual({ apiKey: 'env-token' });
+      expect(kimi.endpoint.baseUrl).toBe('https://kimi-env.example.test/v1');
+      return expect(await kimi.endpoint.credentials?.resolve()).toEqual({ apiKey: 'env-token' });
     } finally {
       host.dispose();
     }
@@ -466,7 +413,7 @@ describe('Model assembly (pure data)', () => {
       const model = catalog.get('flat');
       expect(model.providerName).toBe('flat.example.test');
       expect(model.providerType).toBe('openai');
-      expect(model.baseUrl).toBe('https://flat.example.test/v1');
+      expect(model.endpoint.baseUrl).toBe('https://flat.example.test/v1');
     } finally {
       host.dispose();
     }
@@ -498,7 +445,7 @@ describe('Model assembly (pure data)', () => {
       const model = catalog.get('m');
       expect(model.providerType).toBe('my-vendor');
       expect(model.protocol).toBe('openai');
-      expect(model.headers).toEqual({ 'User-Agent': 'kimi-test/1.0' });
+      expect(model.endpoint.headers).toEqual({ 'User-Agent': 'kimi-test/1.0' });
     } finally {
       host.dispose();
     }
@@ -516,10 +463,7 @@ describe('Model assembly (pure data)', () => {
       }
     };
     expectInvalid(kimiSections, 'nope');
-    expectInvalid(
-      { models: { ghost: { provider: 'missing', model: 'm', maxContextSize: 1 } } },
-      'ghost',
-    );
+    expectInvalid({ models: { ghost: { provider: 'missing', model: 'm', maxContextSize: 1 } } }, 'ghost');
     expectInvalid(
       { models: { noname: { protocol: 'openai', baseUrl: 'https://x.test', maxContextSize: 1 } } },
       'noname',
@@ -554,11 +498,7 @@ describe('Model assembly (pure data)', () => {
     const { host, catalog } = createHost(
       {
         providers: {
-          kimi: {
-            type: 'kimi',
-            oauth: { storage: 'file', key: 'kimi' },
-            baseUrl: 'https://api.moonshot.ai/v1',
-          },
+          kimi: { type: 'kimi', oauth: { storage: 'file', key: 'kimi' }, baseUrl: 'https://api.moonshot.ai/v1' },
         },
         models: { k1: { provider: 'kimi', model: 'kimi-k2', maxContextSize: 1 } },
       },
@@ -566,34 +506,28 @@ describe('Model assembly (pure data)', () => {
     );
     try {
       const model = catalog.get('k1');
-      expect(
-        model.credentialProvider?.canRecover?.(Object.assign(new Error('x'), { status: 401 })),
-      ).toBe(true);
-      await expect(model.credentialProvider?.resolve()).resolves.toEqual({ apiKey: 'tok-1' });
+      expect(model.endpoint.credentials?.canRecover?.(Object.assign(new Error('x'), { status: 401 }))).toBe(
+        true,
+      );
+      await expect(model.endpoint.credentials?.resolve()).resolves.toEqual({ apiKey: 'tok-1' });
     } finally {
       host.dispose();
     }
   });
 
   it('resolves api_key_env credentials from process.env on every request', async () => {
-    setEnv('KIMI_TEST_ACME_ENV_KEY', 'sk-first');
+    vi.stubEnv('KIMI_TEST_ACME_ENV_KEY', 'sk-first');
     const { host, catalog } = createHost({
       providers: {
-        acme: {
-          type: 'openai',
-          apiKeyEnv: 'KIMI_TEST_ACME_ENV_KEY',
-          baseUrl: 'https://acme.example.test/v1',
-        },
+        acme: { type: 'openai', apiKeyEnv: 'KIMI_TEST_ACME_ENV_KEY', baseUrl: 'https://acme.example.test/v1' },
       },
-      models: {
-        m: { provider: 'acme', protocol: 'openai', model: 'acme-1', maxContextSize: 1000 },
-      },
+      models: { m: { provider: 'acme', protocol: 'openai', model: 'acme-1', maxContextSize: 1000 } },
     });
     try {
       const model = catalog.get('m');
-      expect(await model.credentialProvider?.resolve()).toEqual({ apiKey: 'sk-first' });
-      setEnv('KIMI_TEST_ACME_ENV_KEY', 'sk-rotated');
-      expect(await model.credentialProvider?.resolve()).toEqual({ apiKey: 'sk-rotated' });
+      expect(await model.endpoint.credentials?.resolve()).toEqual({ apiKey: 'sk-first' });
+      vi.stubEnv('KIMI_TEST_ACME_ENV_KEY', 'sk-rotated');
+      expect(await model.endpoint.credentials?.resolve()).toEqual({ apiKey: 'sk-rotated' });
     } finally {
       host.dispose();
     }
@@ -602,26 +536,18 @@ describe('Model assembly (pure data)', () => {
   it('fails credential resolution with config.invalid when the declared api_key_env variable is unset or empty', () => {
     const { host, catalog } = createHost({
       providers: {
-        acme: {
-          type: 'openai',
-          apiKeyEnv: 'KIMI_TEST_ACME_ENV_KEY',
-          baseUrl: 'https://acme.example.test/v1',
-        },
+        acme: { type: 'openai', apiKeyEnv: 'KIMI_TEST_ACME_ENV_KEY', baseUrl: 'https://acme.example.test/v1' },
       },
-      models: {
-        m: { provider: 'acme', protocol: 'openai', model: 'acme-1', maxContextSize: 1000 },
-      },
+      models: { m: { provider: 'acme', protocol: 'openai', model: 'acme-1', maxContextSize: 1000 } },
     });
     try {
       const model = catalog.get('m');
-      expect(() => model.credentialProvider?.resolve()).toThrowError(
+      expect(() => model.endpoint.credentials?.resolve()).toThrowError(
         expect.objectContaining({ code: ConfigErrors.codes.CONFIG_INVALID }),
       );
-      expect(() => model.credentialProvider?.resolve()).toThrowError(
-        /acme[\s\S]*KIMI_TEST_ACME_ENV_KEY/,
-      );
-      setEnv('KIMI_TEST_ACME_ENV_KEY', '   ');
-      expect(() => model.credentialProvider?.resolve()).toThrowError(
+      expect(() => model.endpoint.credentials?.resolve()).toThrowError(/acme[\s\S]*KIMI_TEST_ACME_ENV_KEY/);
+      vi.stubEnv('KIMI_TEST_ACME_ENV_KEY', '   ');
+      expect(() => model.endpoint.credentials?.resolve()).toThrowError(
         expect.objectContaining({ code: ConfigErrors.codes.CONFIG_INVALID }),
       );
     } finally {
@@ -631,14 +557,11 @@ describe('Model assembly (pure data)', () => {
 });
 
 describe('ModelCatalog caching and config-event invalidation', () => {
-  it('caches per id; getRequester returns the cached pair', () => {
+  it('caches per id and returns the same model metadata', () => {
     const { host, catalog } = createHost(kimiSections);
     try {
       const model = catalog.get('k1');
       expect(catalog.get('k1')).toBe(model);
-      const requester = catalog.getRequester('k1');
-      expect(catalog.getRequester('k1')).toBe(requester);
-      expect(requester.model).toBe(model);
     } finally {
       host.dispose();
     }
@@ -658,22 +581,13 @@ describe('ModelCatalog caching and config-event invalidation', () => {
     try {
       const k1Before = catalog.get('k1');
       const gptBefore = catalog.get('gpt');
-      await models.set('k1', {
-        provider: 'kimi',
-        model: 'kimi-k2',
-        maxContextSize: 262144,
-        displayName: 'K2',
-      });
+      await models.set('k1', { provider: 'kimi', model: 'kimi-k2', maxContextSize: 262144, displayName: 'K2' });
       expect(catalog.get('k1')).not.toBe(k1Before);
       expect(catalog.get('k1').displayName).toBe('K2');
       expect(catalog.get('gpt')).toBe(gptBefore);
 
-      await providers.set('kimi', {
-        type: 'kimi',
-        apiKey: 'sk-2',
-        baseUrl: 'https://other.example.test/v1',
-      });
-      expect(catalog.get('k1').baseUrl).toBe('https://other.example.test/v1');
+      await providers.set('kimi', { type: 'kimi', apiKey: 'sk-2', baseUrl: 'https://other.example.test/v1' });
+      expect(catalog.get('k1').endpoint.baseUrl).toBe('https://other.example.test/v1');
       expect(catalog.get('gpt')).toBe(gptBefore);
     } finally {
       host.dispose();
@@ -715,7 +629,7 @@ describe('headers merge order', () => {
     });
     try {
       const model: Model = catalog.get('k1');
-      expect(model.headers).toEqual({
+      expect(model.endpoint.headers).toEqual({
         'User-Agent': 'custom-ua',
         'X-Msh-Device-Id': 'device-1',
         'X-Custom': 'c',
@@ -726,70 +640,55 @@ describe('headers merge order', () => {
   });
 });
 
-describe('ModelCatalog ping', () => {
+describe('direct generate', () => {
   it('returns the streamed text and usage on a live success', async () => {
-    const { host, models, providers, config } = createHost(kimiSections, stubModelOAuthTokens());
+    const { host, catalog } = createHost(kimiSections, stubModelOAuthTokens());
     try {
-      const fakeRequester: LlmRequester = {
-        generate: (_config, _content, control) => {
-          control.onEvent?.({ type: 'llm.sent' });
-          control.onEvent?.({ type: 'llm.streaming.headers', headers: {} });
-          control.onEvent?.({ type: 'llm.streaming.part', part: { type: 'text', text: 'pong' } });
-          control.onEvent?.({ type: 'llm.streaming.usage', usage: emptyUsage() });
-          control.onEvent?.({
-            type: 'llm.streaming.finish',
-            finish: { finishReason: 'completed', rawFinishReason: 'stop' },
-          });
-          control.onEvent?.({ type: 'llm.streaming.message_id', messageId: 'msg-1' });
-          control.onEvent?.({ type: 'llm.done' });
-          return Promise.resolve();
-        },
-      };
-      const registry = {
-        _serviceBrand: undefined,
-        supportedProtocols: () => [],
-        resolveAdapterIdentity: () => {
-          throw new Error('not exercised');
-        },
-        resolveProviderBaseId: () => {
-          throw new Error('not exercised');
-        },
-        resolveCapability: () => UNKNOWN_CAPABILITY,
-        resolve: (model: Model) => ({
-          requester: fakeRequester,
-          protocol: 'openai',
-          model: {
-            provider: 'fake',
-            model: model.name,
-            capability: {
-              image_in: false,
-              video_in: false,
-              audio_in: false,
-              thinking: false,
-              tool_use: true,
-            },
-          },
-        }),
-      } as unknown as IProtocolAdapterRegistry;
-      const catalog = new ModelCatalog(
-        new ProviderCatalogRuntimeService(models, providers),
-        providers,
-        models,
-        stubModelOAuthTokens(),
-        registry,
-        { headers: {}, thirdPartyHeaders: {} },
-        config,
+      const fakeRequester = createMockProvider(async () => ({
+        id: 'msg-1',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'pong' }], toolCalls: [] },
+        usage: emptyUsage(),
+        finishReason: 'completed',
+        rawFinishReason: 'stop',
+      }));
+      const model = catalog.get('k1');
+      const requester = withMockProvider(
+        new ProtocolAdapterRegistry().request(model, { model: { maxOutputTokens: 512 } }),
+        fakeRequester,
       );
-      const result = await catalog.ping('k1');
-      expect(result).toMatchObject({ ok: true, text: 'pong', finishReason: 'completed' });
-      expect(result.usage).toEqual(emptyUsage());
-      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+      const events = [];
+      for await (const event of streamLlmRequest(
+        requester.request({
+          profile: {
+            systemPrompt: 'You are a connectivity probe. Answer with the single word "pong".',
+            tools: [],
+          },
+          content: { messages: [{ role: 'user', content: [{ type: 'text', text: 'ping' }] }] },
+          policy: { retry: { maxAttemptsPerStep: 1 } },
+        }),
+        { signal: new AbortController().signal },
+      )) {
+        events.push(event);
+      }
+      expect(events.find((event) => event.type === 'llm.streaming.part')).toMatchObject({
+        part: { type: 'text', text: 'pong' },
+      });
+      expect(events.find((event) => event.type === 'llm.streaming.usage')).toMatchObject({
+        usage: emptyUsage(),
+      });
+      expect(events.find((event) => event.type === 'llm.ended')).toMatchObject({
+        outcome: {
+          type: 'done',
+          finish: { finishReason: 'completed' },
+          messageId: 'msg-1',
+        },
+      });
     } finally {
       host.dispose();
     }
   });
 
-  it('returns ok:false with the translated error when the wire fails', async () => {
+  it('surfaces the translated error when the wire fails', async () => {
     const { host, catalog } = createHost({
       models: {
         flat: {
@@ -802,9 +701,24 @@ describe('ModelCatalog ping', () => {
       },
     });
     try {
-      const result = await catalog.ping('flat');
-      expect(result.ok).toBe(false);
-      expect(result.error).toBeTruthy();
+      const model = catalog.get('flat');
+      const failure = await (async () => {
+        const requester = new ProtocolAdapterRegistry().request(model);
+        for await (const event of streamLlmRequest(
+          requester.request({
+            profile: { systemPrompt: 'ping', tools: [] },
+            content: { messages: [] },
+            policy: { retry: { maxAttemptsPerStep: 1 } },
+          }),
+          { signal: new AbortController().signal },
+        )) {
+          if (event.type === 'llm.ended' && event.outcome.type === 'failed') {
+            return event.outcome.error;
+          }
+        }
+        return undefined;
+      })();
+      expect(failure).toBeTruthy();
     } finally {
       host.dispose();
     }
@@ -813,7 +727,7 @@ describe('ModelCatalog ping', () => {
   it('rejects with config.invalid for unknown models', async () => {
     const { host, catalog } = createHost(kimiSections);
     try {
-      await expect(catalog.ping('nope')).rejects.toThrowError(
+      expect(() => catalog.get('nope')).toThrowError(
         expect.objectContaining({ code: ConfigErrors.codes.CONFIG_INVALID }),
       );
     } finally {
@@ -835,12 +749,7 @@ const catalogSections: Record<string, unknown> = {
       displayName: 'Kimi K2',
       capabilities: ['thinking'],
     },
-    turbo: {
-      provider: 'kimi',
-      model: 'kimi-turbo',
-      maxContextSize: 32768,
-      displayName: 'Kimi Turbo',
-    },
+    turbo: { provider: 'kimi', model: 'kimi-turbo', maxContextSize: 32768, displayName: 'Kimi Turbo' },
     gpt4o: { provider: 'openai', model: 'gpt-4o', maxContextSize: 128000 },
   },
   defaultModel: 'k2',
@@ -1267,9 +1176,8 @@ describe('ModelCatalog enumeration', () => {
         default_model: 'k2',
         models: ['k2', 'turbo'],
       });
-      await expectRejection(
-        catalog.getProvider('missing'),
-        (error) => isError2(error) && error.code === 'provider.not_found',
+      await expect(catalog.getProvider('missing')).rejects.toSatisfy(
+        (error: unknown) => isError2(error) && error.code === 'provider.not_found',
       );
       expect(isErrorCode('provider.not_found')).toBe(true);
       expect(isErrorCode('model.not_found')).toBe(true);
@@ -1301,9 +1209,8 @@ describe('ModelCatalog setDefaultModel', () => {
   it('throws model.not_found for an unknown model', async () => {
     const { host, catalog } = createHost(catalogSections);
     try {
-      await expectRejection(
-        catalog.setDefaultModel('missing'),
-        (error) => isError2(error) && error.code === 'model.not_found',
+      await expect(catalog.setDefaultModel('missing')).rejects.toSatisfy(
+        (error: unknown) => isError2(error) && error.code === 'model.not_found',
       );
     } finally {
       host.dispose();

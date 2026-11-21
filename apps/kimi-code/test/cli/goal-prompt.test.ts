@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   GOAL_EXIT_CODES,
@@ -28,10 +28,7 @@ describe('goalExitCode', () => {
     expect(goalExitCode('paused')).toBe(GOAL_EXIT_CODES.paused);
     expect(goalExitCode(undefined)).toBe(0);
     expect(goalExitCode('impossible')).toBe(0);
-    // The distinct codes are unique across the statuses.
-    expect(new Set(Object.values(GOAL_EXIT_CODES)).size).toBe(
-      Object.values(GOAL_EXIT_CODES).length,
-    );
+    expect(new Set(Object.values(GOAL_EXIT_CODES)).size).toBe(Object.values(GOAL_EXIT_CODES).length);
   });
 });
 

@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';
@@ -11,9 +11,7 @@ const environmentSetBindingSchema = z.object({
   cwd: z.string().optional(),
 });
 
-export class EnvironmentSetBinding extends AgentEvent2<
-  z.infer<typeof environmentSetBindingSchema>
-> {
+export class EnvironmentSetBinding extends AgentEvent2<z.infer<typeof environmentSetBindingSchema>> {
   static override readonly type = 'environment.set_binding';
   static override readonly durable = true;
   static override readonly schema = environmentSetBindingSchema;
@@ -27,6 +25,5 @@ export interface EnvironmentSetBinding {
 export const environmentBindingKey = defineState(
   'environmentBinding',
   (): EnvironmentBinding | undefined => undefined,
-)
-  .replayable({ schema: z.custom<EnvironmentBinding | undefined>() })
+).replayable({ schema: z.custom<EnvironmentBinding | undefined>() })
   .on(EnvironmentSetBinding, (_s, e) => ({ environmentId: e.environmentId, cwd: e.cwd }));

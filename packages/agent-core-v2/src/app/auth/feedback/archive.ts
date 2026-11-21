@@ -20,7 +20,7 @@ export async function createFeedbackArchivePath(
   readonly cleanupDir: string;
 }> {
   const archivePath = await createArchivePath(filename, cacheDir);
-  return { archivePath, cleanupDir: dirname(archivePath) };
+  return { archivePath, cleanupDir: archivePathCleanupDir(archivePath) };
 }
 
 export async function removeStaleFeedbackUploads(options: {
@@ -53,4 +53,8 @@ async function createArchivePath(filename: string, cacheDir: string): Promise<st
   await mkdir(root, { recursive: true });
   const dir = await mkdtemp(join(root, 'upload-'));
   return join(dir, filename);
+}
+
+function archivePathCleanupDir(archivePath: string): string {
+  return dirname(archivePath);
 }

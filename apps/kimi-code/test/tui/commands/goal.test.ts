@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
-
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
+import { visibleWidth } from '@moonshot-ai/pi-tui';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import {
   dispatchInput,
   goalArgumentCompletions,
+  goalObjectiveLengthWarning,
   handleGoalCommand,
   parseGoalCommand,
   setExperimentalFeatures,
@@ -17,42 +17,36 @@ import {
   removeGoalQueueItem,
   updateGoalQueueItem,
 } from '#/tui/goal-queue-store';
+import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import { getBuiltInPalette } from '#/tui/theme';
-import { permissionModeDescription } from '#/tui/utils/permission-mode';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { PERMISSION_MODE_DESCRIPTIONS } from '#/tui/utils/permission-mode';
 
-void mock.module('#/tui/goal-queue-store', () => ({
-  appendGoalQueueItem: mock(async () => ({
+void vi.mock('#/tui/goal-queue-store', () => ({
+  appendGoalQueueItem: vi.fn(async () => ({
     goals: [{ id: 'q1', objective: 'obj', createdAt: '', updatedAt: '' }],
   })),
-  readGoalQueue: mock(async () => ({
+  readGoalQueue: vi.fn(async () => ({
     goals: [
       { id: 'q1', objective: 'First queued goal', createdAt: '', updatedAt: '' },
       { id: 'q2', objective: 'Second queued goal', createdAt: '', updatedAt: '' },
     ],
   })),
-  moveGoalQueueItem: mock(async () => ({
+  moveGoalQueueItem: vi.fn(async () => ({
     goals: [
       { id: 'q2', objective: 'Second queued goal', createdAt: '', updatedAt: '' },
       { id: 'q1', objective: 'First queued goal', createdAt: '', updatedAt: '' },
     ],
   })),
-  removeGoalQueueItem: mock(async () => ({
+  removeGoalQueueItem: vi.fn(async () => ({
     goals: [{ id: 'q2', objective: 'Second queued goal', createdAt: '', updatedAt: '' }],
   })),
-  updateGoalQueueItem: mock(async () => ({
+  updateGoalQueueItem: vi.fn(async () => ({
     goals: [
       { id: 'q1', objective: 'First queued goal updated', createdAt: '', updatedAt: '' },
       { id: 'q2', objective: 'Second queued goal', createdAt: '', updatedAt: '' },
     ],
   })),
 }));
-
-const appendGoalQueueItemMock = appendGoalQueueItem as Mock<typeof appendGoalQueueItem>;
-const readGoalQueueMock = readGoalQueue as Mock<typeof readGoalQueue>;
-const moveGoalQueueItemMock = moveGoalQueueItem as Mock<typeof moveGoalQueueItem>;
-const removeGoalQueueItemMock = removeGoalQueueItem as Mock<typeof removeGoalQueueItem>;
-const updateGoalQueueItemMock = updateGoalQueueItem as Mock<typeof updateGoalQueueItem>;
 
 const ENTER = '\r';
 const ESCAPE = '\u001B';
@@ -92,21 +86,22 @@ function makeHost(
     hasSession?: boolean;
     streaming?: boolean;
     permissionMode?: 'manual' | 'auto' | 'yolo';
+    fullscreen?: boolean;
   } = {},
 ) {
   const session = {
-    setPermission: mock(async () => {}),
-    createGoal: mock(async () => fakeSnapshot()),
-    getGoal: mock(async (): Promise<{ goal: ReturnType<typeof fakeSnapshot> | null }> => ({
+    setPermission: vi.fn(async () => {}),
+    createGoal: vi.fn(async () => fakeSnapshot()),
+    getGoal: vi.fn(async (): Promise<{ goal: ReturnType<typeof fakeSnapshot> | null }> => ({
       goal: null,
     })),
-    pauseGoal: mock(async () => fakeSnapshot()),
-    resumeGoal: mock(async () => fakeSnapshot()),
-    cancelGoal: mock(async () => fakeSnapshot()),
-    cancel: mock(async () => {}),
+    pauseGoal: vi.fn(async () => fakeSnapshot()),
+    resumeGoal: vi.fn(async () => fakeSnapshot()),
+    cancelGoal: vi.fn(async () => fakeSnapshot()),
+    cancel: vi.fn(async () => {}),
   };
   const hasSession = overrides.hasSession ?? true;
-  const transcriptContainer = { addChild: mock() };
+  const transcriptContainer = { addChild: vi.fn() };
   const host = {
     state: {
       appState: {
@@ -115,34 +110,29 @@ function makeHost(
         streamingPhase: overrides.streaming ? 'streaming' : 'idle',
         isCompacting: false,
       },
-      editor: { getText: mock(() => '') },
-      editorReplacementMounted: false,
-      // Present on every real TUIState; the gate reads it directly.
-      statusSurface: { hasBlockingRegion: () => false },
+      editor: { getText: vi.fn(() => '') },
+      dockContainer: overrides.fullscreen === true ? {} : undefined,
+      activeDialog: null,
+      livePane: { pendingApproval: null, pendingQuestion: null },
+      notifyPanel: { setPrompt: vi.fn() },
       transcriptContainer,
-      ui: { requestRender: mock() },
+      ui: { requestRender: vi.fn() },
       theme: { palette: getBuiltInPalette('dark') },
     },
     session: hasSession ? session : undefined,
     skillCommandMap: new Map<string, string>(),
     requireSession: () => session,
-    setAppState: mock((patch: Record<string, unknown>) =>
-      Object.assign(host.state.appState, patch),
-    ),
-    showError: mock(),
-    showStatus: mock(),
-    showNotice: mock(),
-    // Mirrors the real host contract: appending an entry ends in a repaint.
-    appendTranscriptEntry: mock(() => {
-      host.state.ui.requestRender();
-    }),
-    mountEditorReplacement: mock(),
-    restoreEditor: mock(),
-    restoreInputText: mock(),
-    sendNormalUserInput: mock(),
-    requestQueuedGoalPromotion: mock(),
-    cancelInFlight: mock(),
-    track: mock(),
+    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    showError: vi.fn(),
+    showStatus: vi.fn(),
+    showNotice: vi.fn(),
+    mountEditorReplacement: vi.fn(),
+    restoreEditor: vi.fn(),
+    restoreInputText: vi.fn(),
+    sendNormalUserInput: vi.fn(),
+    requestQueuedGoalPromotion: vi.fn(),
+    cancelInFlight: vi.fn(),
+    track: vi.fn(),
   } as unknown as SlashCommandHost;
   return { host, session };
 }
@@ -153,12 +143,12 @@ interface TestPicker {
 }
 
 function mountedPicker(host: SlashCommandHost): TestPicker {
-  const mock = host.mountEditorReplacement as Mock<(...args: any[]) => any>;
+  const mock = host.mountEditorReplacement as ReturnType<typeof vi.fn>;
   return mock.mock.calls[0]?.[0] as TestPicker;
 }
 
 function latestMountedPicker(host: SlashCommandHost): TestPicker {
-  const mock = host.mountEditorReplacement as Mock<(...args: any[]) => any>;
+  const mock = host.mountEditorReplacement as ReturnType<typeof vi.fn>;
   return mock.mock.calls.at(-1)?.[0] as TestPicker;
 }
 
@@ -187,8 +177,6 @@ describe('parseGoalCommand', () => {
   });
 
   it('keeps option-looking tokens as part of the objective (no goal flags)', () => {
-    // Goal command flags are not parsed after `/goal`; stop conditions go in the
-    // objective as natural language, so option-looking text stays objective text.
     expect(parseGoalCommand('--retry-strategy Ship feature X')).toMatchObject({
       kind: 'create',
       objective: '--retry-strategy Ship feature X',
@@ -232,8 +220,61 @@ describe('parseGoalCommand', () => {
     });
   });
 
-  it('rejects objectives longer than 4000 characters', () => {
-    expect(parseGoalCommand('x'.repeat(4001))).toMatchObject({ kind: 'error' });
+  it('rejects objectives longer than 4000 characters with a file-reference hint', () => {
+    expect(parseGoalCommand('x'.repeat(4001))).toEqual({
+      kind: 'error',
+      restoreInput: true,
+      message:
+        'Goal objective is too long (max 4000 characters). Put long content in a file and reference the file path.',
+    });
+    expect(parseGoalCommand(`next ${'x'.repeat(4001)}`)).toEqual({
+      kind: 'error',
+      restoreInput: true,
+      message:
+        'Goal objective is too long (max 4000 characters). Put long content in a file and reference the file path.',
+    });
+  });
+});
+
+describe('goalObjectiveLengthWarning', () => {
+  it('warns once the typed /goal objective exceeds the limit', () => {
+    const warning = goalObjectiveLengthWarning(`/goal ${'x'.repeat(4001)}`);
+    expect(warning).toContain('(4001/4000 characters)');
+    expect(warning).toContain('reference the file path');
+  });
+
+  it('ignores leading whitespace because submitted text is trimmed', () => {
+    expect(goalObjectiveLengthWarning(`  /goal ${'x'.repeat(4001)}`)).toBeDefined();
+  });
+
+  it('warns for over-limit /goal next and /goal replace objectives', () => {
+    expect(goalObjectiveLengthWarning(`/goal next ${'x'.repeat(4001)}`)).toBeDefined();
+    expect(goalObjectiveLengthWarning(`/goal replace ${'x'.repeat(4001)}`)).toBeDefined();
+    expect(goalObjectiveLengthWarning(`/goal -- ${'x'.repeat(4001)}`)).toBeDefined();
+  });
+
+  it('stays quiet for valid objectives and non-goal input', () => {
+    expect(goalObjectiveLengthWarning(`/goal ${'x'.repeat(4000)}`)).toBeUndefined();
+    expect(goalObjectiveLengthWarning('/goal Ship feature X')).toBeUndefined();
+    expect(goalObjectiveLengthWarning('Ship feature X')).toBeUndefined();
+  });
+
+  it('stays quiet for control forms and lookalike commands', () => {
+    expect(goalObjectiveLengthWarning('/goal')).toBeUndefined();
+    expect(goalObjectiveLengthWarning('/goal status')).toBeUndefined();
+    expect(goalObjectiveLengthWarning('/goal pause')).toBeUndefined();
+    expect(goalObjectiveLengthWarning('/goal next manage')).toBeUndefined();
+    expect(goalObjectiveLengthWarning(`/goalie ${'x'.repeat(4001)}`)).toBeUndefined();
+  });
+
+  it('stays quiet when the boundary is a newline or tab (dispatch sends those as plain messages)', () => {
+    expect(goalObjectiveLengthWarning(`/goal\n${'x'.repeat(4001)}`)).toBeUndefined();
+    expect(goalObjectiveLengthWarning(`/goal\t${'x'.repeat(4001)}`)).toBeUndefined();
+  });
+
+  it('still warns for multiline objectives after a literal-space boundary', () => {
+    const objective = `${'x'.repeat(2000)}\n${'x'.repeat(2001)}`;
+    expect(goalObjectiveLengthWarning(`/goal ${objective}`)).toBeDefined();
   });
 });
 
@@ -245,23 +286,23 @@ describe('handleGoalCommand', () => {
     const made = makeHost();
     host = made.host;
     session = made.session;
-    appendGoalQueueItemMock.mockClear();
-    readGoalQueueMock.mockClear();
-    moveGoalQueueItemMock.mockClear();
-    removeGoalQueueItemMock.mockClear();
-    updateGoalQueueItemMock.mockClear();
+    vi.mocked(appendGoalQueueItem).mockClear();
+    vi.mocked(readGoalQueue).mockClear();
+    vi.mocked(moveGoalQueueItem).mockClear();
+    vi.mocked(removeGoalQueueItem).mockClear();
+    vi.mocked(updateGoalQueueItem).mockClear();
   });
 
   it('/goal calls getGoal and does not send input', async () => {
     await handleGoalCommand(host, '');
-    expect(session.getGoal).toHaveBeenCalledTimes(1);
+    expect(session.getGoal).toHaveBeenCalledOnce();
     expect(host.track).toHaveBeenCalledWith('goal_status', { status: 'none' });
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
   it('/goal status calls getGoal and does not send input', async () => {
     await handleGoalCommand(host, 'status');
-    expect(session.getGoal).toHaveBeenCalledTimes(1);
+    expect(session.getGoal).toHaveBeenCalledOnce();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
@@ -285,56 +326,87 @@ describe('handleGoalCommand', () => {
     expect(calls).toEqual([{ receiver: host, text: 'Ship feature X' }]);
   });
 
+  it('rejects an over-limit objective before sending and restores the typed input', async () => {
+    const args = 'x'.repeat(4001);
+    await handleGoalCommand(host, args);
+
+    expect(session.createGoal).not.toHaveBeenCalled();
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(host.showError).toHaveBeenCalledWith(
+      'Goal objective is too long (max 4000 characters). Put long content in a file and reference the file path.',
+    );
+    expect(host.restoreInputText).toHaveBeenCalledWith(`/goal ${args}`);
+  });
+
+  it('does not restore input for the empty-objective usage hint', async () => {
+    await handleGoalCommand(host, 'replace');
+
+    expect(host.showStatus).toHaveBeenCalled();
+    expect(host.restoreInputText).not.toHaveBeenCalled();
+  });
+
+  it('does not restore over a draft typed while validation was pending', async () => {
+    vi.mocked(host.state.editor.getText).mockReturnValue('a newer draft');
+
+    await handleGoalCommand(host, 'x'.repeat(4001));
+
+    expect(host.showError).toHaveBeenCalled();
+    expect(host.restoreInputText).not.toHaveBeenCalled();
+  });
+
   it('asks before starting a goal in Manual mode', async () => {
     const { host: manualHost, session: s } = makeHost({ permissionMode: 'manual' });
 
     await handleGoalCommand(manualHost, 'Ship feature X');
 
-    expect(manualHost.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(manualHost.mountEditorReplacement).toHaveBeenCalledOnce();
     expect(s.createGoal).not.toHaveBeenCalled();
     expect(manualHost.sendNormalUserInput).not.toHaveBeenCalled();
     const text = stripAnsi(mountedPicker(manualHost).render(80).join('\n'));
-    expect(text).toContain('Always Ask mode is not suitable for unattended goal work');
+    expect(text.replaceAll(/\s+/g, ' ')).toContain(
+      'Always Ask mode asks you before Kimi Code runs commands, edits files, or takes other risky actions, and is not suitable for unattended goal work.',
+    );
     expect(text).toContain('Return to the input box with your goal command');
   });
 
-  it('keeps Always Ask when confirming a Manual-mode goal start', async () => {
+  it('docks the local goal start prompt in fullscreen with only the selected description', async () => {
+    const { host: manualHost } = makeHost({ permissionMode: 'manual', fullscreen: true });
+
+    await handleGoalCommand(manualHost, 'Ship feature X');
+
+    const text = stripAnsi(mountedPicker(manualHost).render(80).join('\n'));
+    expect(text).toContain('Best if you want Kimi Code to keep working while you are away');
+    expect(text).not.toContain('Tools and plan changes are approved automatically');
+    expect(text).not.toContain('Keep approvals on. Kimi Code will ask before risky actions');
+  });
+
+  it('keeps the goal permission notice within narrow terminal widths', async () => {
+    const { host: manualHost } = makeHost({ permissionMode: 'manual' });
+    await handleGoalCommand(manualHost, 'Ship feature X');
+    const picker = mountedPicker(manualHost);
+
+    for (const width of [1, 2, 4, 10, 20]) {
+      for (const row of picker.render(width)) {
+        expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
+  it('defaults to Auto when confirming a Manual-mode goal start', async () => {
     const { host: manualHost, session: s } = makeHost({ permissionMode: 'manual' });
 
     await handleGoalCommand(manualHost, 'Ship feature X');
     mountedPicker(manualHost).handleInput(ENTER);
 
-    await waitForAssertion(() => {
-      expect(s.createGoal).toHaveBeenCalledWith(
-        expect.objectContaining({ objective: 'Ship feature X' }),
-      );
-    });
-    expect(s.setPermission).not.toHaveBeenCalled();
-    expect(manualHost.setAppState).not.toHaveBeenCalledWith({ permissionMode: 'auto' });
-    expect(manualHost.showNotice).not.toHaveBeenCalledWith('Permission mode: Never Ask');
-    expect(manualHost.showStatus).not.toHaveBeenCalledWith(
-      permissionModeDescription('auto'),
-      'warning',
-    );
-    expect(manualHost.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
-  });
-
-  it('still switches to Auto when the cursor is moved there first', async () => {
-    const { host: manualHost, session: s } = makeHost({ permissionMode: 'manual' });
-
-    await handleGoalCommand(manualHost, 'Ship feature X');
-    const picker = mountedPicker(manualHost);
-    picker.handleInput(UP);
-    picker.handleInput(UP);
-    picker.handleInput(ENTER);
-
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(s.createGoal).toHaveBeenCalledWith(
         expect.objectContaining({ objective: 'Ship feature X' }),
       );
     });
     expect(s.setPermission).toHaveBeenCalledWith('auto');
+    expect(manualHost.setAppState).toHaveBeenCalledWith({ permissionMode: 'auto' });
     expect(manualHost.showNotice).toHaveBeenCalledWith('Permission mode: Never Ask');
+    expect(manualHost.showStatus).toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.auto, 'warning');
     expect(manualHost.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
   });
 
@@ -343,19 +415,18 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(manualHost, 'Ship feature X');
     const picker = mountedPicker(manualHost);
+    picker.handleInput(DOWN);
+    picker.handleInput(DOWN);
     picker.handleInput(ENTER);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(s.createGoal).toHaveBeenCalledWith(
         expect.objectContaining({ objective: 'Ship feature X' }),
       );
     });
     expect(s.setPermission).not.toHaveBeenCalled();
     expect(manualHost.showNotice).not.toHaveBeenCalled();
-    expect(manualHost.showStatus).not.toHaveBeenCalledWith(
-      permissionModeDescription('auto'),
-      'warning',
-    );
+    expect(manualHost.showStatus).not.toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.auto, 'warning');
     expect(manualHost.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
   });
 
@@ -364,10 +435,10 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(manualHost, 'Ship feature X');
     const picker = mountedPicker(manualHost);
-    picker.handleInput(UP);
+    picker.handleInput(DOWN);
     picker.handleInput(ENTER);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(s.createGoal).toHaveBeenCalledWith(
         expect.objectContaining({ objective: 'Ship feature X' }),
       );
@@ -375,36 +446,27 @@ describe('handleGoalCommand', () => {
     expect(s.setPermission).toHaveBeenCalledWith('yolo');
     expect(manualHost.setAppState).toHaveBeenCalledWith({ permissionMode: 'yolo' });
     expect(manualHost.showNotice).toHaveBeenCalledWith('Permission mode: Ask When Needed');
-    expect(manualHost.showStatus).toHaveBeenCalledWith(
-      permissionModeDescription('yolo'),
-      'warning',
-    );
+    expect(manualHost.showStatus).toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.yolo, 'warning');
   });
 
   it('restores the previous permission mode when the goal fails to start', async () => {
     const { host: manualHost, session: s } = makeHost({ permissionMode: 'manual' });
-    s.createGoal = mock(async () => {
+    s.createGoal = vi.fn(async () => {
       throw new KimiError(ErrorCodes.GOAL_ALREADY_EXISTS, 'A goal already exists');
     });
 
     await handleGoalCommand(manualHost, 'Ship feature X');
     const picker = mountedPicker(manualHost);
-    picker.handleInput(UP);
+    picker.handleInput(DOWN);
     picker.handleInput(ENTER);
 
-    await waitForAssertion(() => {
-      // Switched to YOLO to run the goal, then restored to Manual on failure.
+    await vi.waitFor(() => {
       expect(s.setPermission).toHaveBeenLastCalledWith('manual');
     });
     expect(s.setPermission).toHaveBeenCalledWith('yolo');
     expect(manualHost.setAppState).toHaveBeenLastCalledWith({ permissionMode: 'manual' });
-    // The permissive-mode notice is deferred until the goal starts, so a failed
-    // start leaves no stale notice behind.
     expect(manualHost.showNotice).not.toHaveBeenCalled();
-    expect(manualHost.showStatus).not.toHaveBeenCalledWith(
-      permissionModeDescription('yolo'),
-      'warning',
-    );
+    expect(manualHost.showStatus).not.toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.yolo, 'warning');
   });
 
   it('returns the command to the input box when a Manual-mode goal start is cancelled', async () => {
@@ -437,24 +499,24 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(yoloHost, 'Ship feature X');
 
-    expect(yoloHost.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(yoloHost.mountEditorReplacement).toHaveBeenCalledOnce();
     expect(s.createGoal).not.toHaveBeenCalled();
     expect(yoloHost.sendNormalUserInput).not.toHaveBeenCalled();
     const text = stripAnsi(mountedPicker(yoloHost).render(80).join('\n'));
-    expect(text).toContain('Ask When Needed mode can still stop for questions');
+    expect(text.replaceAll(/\s+/g, ' ')).toContain(
+      'Ask When Needed mode approves tools automatically, but can still stop for questions.',
+    );
     expect(text).toContain('Keep Ask When Needed and start');
     expect(text).not.toContain('Start in Always Ask');
   });
 
-  it('switches to Auto when the YOLO-mode prompt is moved up first', async () => {
+  it('defaults to Auto when confirming a YOLO-mode goal start', async () => {
     const { host: yoloHost, session: s } = makeHost({ permissionMode: 'yolo' });
 
     await handleGoalCommand(yoloHost, 'Ship feature X');
-    const picker = mountedPicker(yoloHost);
-    picker.handleInput(UP);
-    picker.handleInput(ENTER);
+    mountedPicker(yoloHost).handleInput(ENTER);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(s.createGoal).toHaveBeenCalledWith(
         expect.objectContaining({ objective: 'Ship feature X' }),
       );
@@ -469,9 +531,10 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(yoloHost, 'Ship feature X');
     const picker = mountedPicker(yoloHost);
+    picker.handleInput(DOWN);
     picker.handleInput(ENTER);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(s.createGoal).toHaveBeenCalledWith(
         expect.objectContaining({ objective: 'Ship feature X' }),
       );
@@ -495,7 +558,7 @@ describe('handleGoalCommand', () => {
 
   it('does not pass budget limits (flags were removed)', async () => {
     await handleGoalCommand(host, 'Ship feature X');
-    const arg = (session.createGoal as Mock<(...args: any[]) => any>).mock.calls[0]?.[0] as Record<
+    const arg = (session.createGoal as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as Record<
       string,
       unknown
     >;
@@ -520,7 +583,7 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(host, 'next Ship release notes');
 
-    expect(session.getGoal).toHaveBeenCalledTimes(1);
+    expect(session.getGoal).toHaveBeenCalledOnce();
     expect(appendGoalQueueItem).toHaveBeenCalledWith(session, {
       objective: 'Ship release notes',
     });
@@ -528,8 +591,8 @@ describe('handleGoalCommand', () => {
     expect(host.showStatus).not.toHaveBeenCalledWith(
       'Upcoming goal added. It will start after the current goal is complete.',
     );
-    const append = host.appendTranscriptEntry as Mock<(...args: any[]) => any>;
-    const message = append.mock.calls[0]?.[1] as { render(width: number): string[] };
+    const addChild = host.state.transcriptContainer.addChild as ReturnType<typeof vi.fn>;
+    const message = addChild.mock.calls[0]?.[0] as { render(width: number): string[] };
     expect(stripAnsi(message.render(80).join('\n'))).toBe(
       '\n● Upcoming goal added. It will start after the current goal is complete.',
     );
@@ -541,12 +604,14 @@ describe('handleGoalCommand', () => {
   it('/goal next starts immediately when there is no current goal', async () => {
     await handleGoalCommand(host, 'next Ship release notes');
 
-    expect(session.getGoal).toHaveBeenCalledTimes(1);
+    expect(session.getGoal).toHaveBeenCalledOnce();
     expect(appendGoalQueueItem).not.toHaveBeenCalled();
     expect(session.createGoal).toHaveBeenCalledWith(
       expect.objectContaining({ objective: 'Ship release notes', replace: false }),
     );
-    expect(host.showStatus).toHaveBeenCalledWith('No active goal. Starting this goal now.');
+    expect(host.showStatus).toHaveBeenCalledWith(
+      'No active goal. Starting this goal now.',
+    );
     expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship release notes');
   });
 
@@ -555,11 +620,11 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(streamingHost, 'next Ship release notes');
 
-    expect(s.getGoal).toHaveBeenCalledTimes(1);
+    expect(s.getGoal).toHaveBeenCalledOnce();
     expect(appendGoalQueueItem).toHaveBeenCalledWith(s, {
       objective: 'Ship release notes',
     });
-    expect(streamingHost.requestQueuedGoalPromotion).toHaveBeenCalledTimes(1);
+    expect(streamingHost.requestQueuedGoalPromotion).toHaveBeenCalledOnce();
     expect(s.createGoal).not.toHaveBeenCalled();
     expect(streamingHost.sendNormalUserInput).not.toHaveBeenCalled();
   });
@@ -569,9 +634,9 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(manualHost, 'next Ship release notes');
 
-    expect(s.getGoal).toHaveBeenCalledTimes(1);
+    expect(s.getGoal).toHaveBeenCalledOnce();
     expect(appendGoalQueueItem).not.toHaveBeenCalled();
-    expect(manualHost.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(manualHost.mountEditorReplacement).toHaveBeenCalledOnce();
     expect(s.createGoal).not.toHaveBeenCalled();
 
     mountedPicker(manualHost).handleInput(ESCAPE);
@@ -595,7 +660,7 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(noModelHost, 'next Ship release notes');
 
-    expect(s.getGoal).toHaveBeenCalledTimes(1);
+    expect(s.getGoal).toHaveBeenCalledOnce();
     expect(appendGoalQueueItem).not.toHaveBeenCalled();
     expect(s.createGoal).not.toHaveBeenCalled();
     expect(noModelHost.showError).toHaveBeenCalled();
@@ -606,7 +671,7 @@ describe('handleGoalCommand', () => {
 
     expect(readGoalQueue).toHaveBeenCalledWith(session);
     expect(host.track).toHaveBeenCalledWith('goal_queue_manage');
-    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
     const text = stripAnsi(mountedPicker(host).render(100).join('\n'));
     expect(text).toContain('Upcoming goals');
     expect(text).toContain('First queued goal');
@@ -623,7 +688,7 @@ describe('handleGoalCommand', () => {
     manager.handleInput(' ');
     manager.handleInput(UP);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(moveGoalQueueItem).toHaveBeenCalledWith(session, {
         goalId: 'q2',
         direction: 'up',
@@ -636,7 +701,7 @@ describe('handleGoalCommand', () => {
 
     mountedPicker(host).handleInput('d');
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(removeGoalQueueItem).toHaveBeenCalledWith(session, { goalId: 'q1' });
     });
   });
@@ -645,14 +710,14 @@ describe('handleGoalCommand', () => {
     await handleGoalCommand(host, 'next manage');
 
     mountedPicker(host).handleInput('e');
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.mountEditorReplacement).toHaveBeenCalledTimes(2);
     });
     const editDialog = latestMountedPicker(host);
     editDialog.handleInput(' updated');
     editDialog.handleInput(ENTER);
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(updateGoalQueueItem).toHaveBeenCalledWith(session, {
         goalId: 'q1',
         objective: 'First queued goal updated',
@@ -671,7 +736,7 @@ describe('handleGoalCommand', () => {
 
   it('/goal pause calls pauseGoal and does not send input', async () => {
     await handleGoalCommand(host, 'pause');
-    expect(session.pauseGoal).toHaveBeenCalledTimes(1);
+    expect(session.pauseGoal).toHaveBeenCalledOnce();
     expect(host.track).toHaveBeenCalledWith('goal_pause');
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
@@ -679,13 +744,13 @@ describe('handleGoalCommand', () => {
   it('/goal pause cancels an active stream', async () => {
     const { host: streamingHost, session: s } = makeHost({ streaming: true });
     await handleGoalCommand(streamingHost, 'pause');
-    expect(s.pauseGoal).toHaveBeenCalledTimes(1);
-    expect(s.cancel).toHaveBeenCalledTimes(1);
+    expect(s.pauseGoal).toHaveBeenCalledOnce();
+    expect(s.cancel).toHaveBeenCalledOnce();
   });
 
   it('/goal resume calls resumeGoal and sends a resume input', async () => {
     await handleGoalCommand(host, 'resume');
-    expect(session.resumeGoal).toHaveBeenCalledTimes(1);
+    expect(session.resumeGoal).toHaveBeenCalledOnce();
     expect(host.track).toHaveBeenCalledWith('goal_resume');
     expect(host.showStatus).not.toHaveBeenCalledWith('Goal resumed.');
     expect(host.sendNormalUserInput).toHaveBeenCalledWith('Resume the active goal.');
@@ -693,7 +758,7 @@ describe('handleGoalCommand', () => {
 
   it('/goal cancel calls cancelGoal and does not send input', async () => {
     await handleGoalCommand(host, 'cancel');
-    expect(session.cancelGoal).toHaveBeenCalledTimes(1);
+    expect(session.cancelGoal).toHaveBeenCalledOnce();
     expect(host.track).toHaveBeenCalledWith('goal_cancel');
     expect(host.showNotice).toHaveBeenCalledWith('Goal cancelled.');
     expect(host.showStatus).not.toHaveBeenCalledWith('Goal cancelled.');
@@ -703,24 +768,19 @@ describe('handleGoalCommand', () => {
   it('/goal cancel cancels an active stream', async () => {
     const { host: streamingHost, session: s } = makeHost({ streaming: true });
     await handleGoalCommand(streamingHost, 'cancel');
-    expect(s.cancelGoal).toHaveBeenCalledTimes(1);
-    expect(s.cancel).toHaveBeenCalledTimes(1);
+    expect(s.cancelGoal).toHaveBeenCalledOnce();
+    expect(s.cancel).toHaveBeenCalledOnce();
   });
 
-  // No-goal control commands all read as calm status messages, never red errors.
   it('pausing with no goal shows a friendly status, not an error', async () => {
-    session.pauseGoal.mockRejectedValueOnce(
-      new KimiError(ErrorCodes.GOAL_NOT_FOUND, 'No current goal'),
-    );
+    session.pauseGoal.mockRejectedValueOnce(new KimiError(ErrorCodes.GOAL_NOT_FOUND, 'No current goal'));
     await handleGoalCommand(host, 'pause');
     expect(host.showStatus).toHaveBeenCalledWith('No goal to pause.');
     expect(host.showError).not.toHaveBeenCalled();
   });
 
   it('resuming with no goal shows a friendly status, not an error', async () => {
-    session.resumeGoal.mockRejectedValueOnce(
-      new KimiError(ErrorCodes.GOAL_NOT_FOUND, 'No current goal'),
-    );
+    session.resumeGoal.mockRejectedValueOnce(new KimiError(ErrorCodes.GOAL_NOT_FOUND, 'No current goal'));
     await handleGoalCommand(host, 'resume');
     expect(host.showStatus).toHaveBeenCalledWith('No goal to resume.');
     expect(host.showError).not.toHaveBeenCalled();
@@ -728,9 +788,7 @@ describe('handleGoalCommand', () => {
 
   it('`replace` with no objective is a hint (status), not an error', async () => {
     await handleGoalCommand(host, 'replace');
-    expect(host.showStatus).toHaveBeenCalledWith(
-      expect.stringContaining('Provide a goal objective'),
-    );
+    expect(host.showStatus).toHaveBeenCalledWith(expect.stringContaining('Provide a goal objective'));
     expect(host.showError).not.toHaveBeenCalled();
   });
 
@@ -778,7 +836,7 @@ describe('dispatchInput /goal integration', () => {
 
     dispatchInput(host, '/goal Ship feature X');
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(session.createGoal).toHaveBeenCalledWith(
         expect.objectContaining({ objective: 'Ship feature X' }),
       );
@@ -792,7 +850,7 @@ describe('dispatchInput /goal integration', () => {
 
     dispatchInput(host, '/goal Ship feature X');
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalledWith(
         'Cannot /goal while streaming — press Esc or Ctrl-C first.',
       );
@@ -804,8 +862,7 @@ describe('dispatchInput /goal integration', () => {
   it('restores the input when the post-creation busy re-check rejects /goal', async () => {
     const { host, session } = makeHost({ hasSession: false });
     Object.assign(host, {
-      // A first prompt starts a turn while the lazy session creation awaits.
-      ensureSession: mock(async () => {
+      ensureSession: vi.fn(async () => {
         host.state.appState.streamingPhase = 'thinking';
         return session;
       }),
@@ -813,7 +870,7 @@ describe('dispatchInput /goal integration', () => {
 
     dispatchInput(host, '/goal Ship feature X');
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalledWith(
         'Cannot /goal while streaming — press Esc or Ctrl-C first.',
       );
@@ -825,17 +882,16 @@ describe('dispatchInput /goal integration', () => {
   it('does not restore over a draft typed while lazy session creation was pending', async () => {
     const { host, session } = makeHost({ hasSession: false });
     Object.assign(host, {
-      ensureSession: mock(async () => {
+      ensureSession: vi.fn(async () => {
         host.state.appState.streamingPhase = 'thinking';
-        // The user kept typing after submitting /goal.
-        (host.state.editor.getText as Mock<() => string>).mockReturnValue('a newer draft');
+        vi.mocked(host.state.editor.getText).mockReturnValue('a newer draft');
         return session;
       }),
     });
 
     dispatchInput(host, '/goal Ship feature X');
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalledWith(
         'Cannot /goal while streaming — press Esc or Ctrl-C first.',
       );
@@ -847,12 +903,12 @@ describe('dispatchInput /goal integration', () => {
   it('restores the input when lazy session creation fails before /goal runs', async () => {
     const { host, session } = makeHost({ hasSession: false });
     Object.assign(host, {
-      ensureSession: mock(async () => undefined),
+      ensureSession: vi.fn(async () => undefined),
     });
 
     dispatchInput(host, '/goal Ship feature X');
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.restoreInputText).toHaveBeenCalledWith('/goal Ship feature X', []);
     });
     expect(session.createGoal).not.toHaveBeenCalled();
@@ -861,8 +917,7 @@ describe('dispatchInput /goal integration', () => {
   it('does not restore when an editor-replacement panel opened during creation', async () => {
     const { host, session } = makeHost({ hasSession: false });
     Object.assign(host, {
-      ensureSession: mock(async () => {
-        // The user opened a panel (e.g. /help) while creation was pending.
+      ensureSession: vi.fn(async () => {
         Object.assign(host.state, { editorReplacementMounted: true });
         return undefined;
       }),
@@ -870,10 +925,9 @@ describe('dispatchInput /goal integration', () => {
 
     dispatchInput(host, '/goal Ship feature X');
 
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.state.editorReplacementMounted).toBe(true);
     });
-    // Allow the post-creation branch to run before asserting.
     await new Promise((resolve) => setImmediate(resolve));
     expect(session.createGoal).not.toHaveBeenCalled();
     expect(host.restoreInputText).not.toHaveBeenCalled();
@@ -908,12 +962,8 @@ describe('goalArgumentCompletions', () => {
   });
 
   it('suppresses the menu once a token is fully typed and unambiguous', () => {
-    // `status` is the sole match and equals the prefix exactly, so there is
-    // nothing left to complete: the menu hides and Enter submits `/goal status`
-    // instead of confirming a no-op completion.
     expect(values('status')).toBeNull();
     expect(values('pause')).toBeNull();
-    // `re` still has two completions, so the menu stays open.
     expect(values('re')).toEqual(['resume', 'replace']);
   });
 

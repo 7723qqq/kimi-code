@@ -15,9 +15,12 @@ import type { KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
 
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
-import { errEnvelope } from '../protocol/envelope';
 import { ErrorCode } from '../protocol/error-codes';
-import { exportSessionParamsSchema, exportSessionRequestSchema } from '../protocol/rest-session';
+import { errEnvelope } from '../protocol/envelope';
+import {
+  exportSessionParamsSchema,
+  exportSessionRequestSchema,
+} from '../protocol/rest-session';
 
 interface SessionExportRouteHost {
   post(
@@ -109,7 +112,8 @@ export function registerSessionExportRoute(
             includeGlobalLog: true,
             includeDesktopLog: req.body.desktop === true,
             version: options.hostIdentity.version,
-            desktopVersion: req.body.desktop === true ? options.hostIdentity.version : undefined,
+            desktopVersion:
+              req.body.desktop === true ? options.hostIdentity.version : undefined,
           },
           {
             webLog: req.body.web_log,
@@ -135,7 +139,10 @@ export function registerSessionExportRoute(
 
         const sent = response
           .type('application/zip')
-          .header('content-disposition', `attachment; filename="kimi-session-${safeSessionId}.zip"`)
+          .header(
+            'content-disposition',
+            `attachment; filename="kimi-session-${safeSessionId}.zip"`,
+          )
           .header('content-length', archive.size)
           .header('cache-control', 'no-store')
           .send(responseStream);

@@ -1,10 +1,3 @@
-/**
- * UI-facing compatibility types for the released Webview.
- *
- * The extension host adapts v1 Node SDK events into this shape while the UI is
- * migrated without a visual rewrite. This file contains no legacy SDK runtime.
- */
-
 export type ApprovalResponse = 'approve' | 'approve_for_session' | 'reject';
 
 export type ContentPart =
@@ -73,7 +66,7 @@ export interface TurnBegin {
 export interface TokenUsage {
   input_other: number;
   output: number;
-  input_cache_read: number;
+  input_cache_read?: number;
   input_cache_creation: number;
 }
 
@@ -89,10 +82,6 @@ export interface StatusUpdate {
     max_attempts: number;
     delay_ms: number;
     message: string;
-  } | null;
-  cache_break?: {
-    tokens: number;
-    cause: string;
   } | null;
 }
 
@@ -183,14 +172,7 @@ export interface KimiConfig {
   models: ModelConfig[];
 }
 
-/** Placeholder returned to the Webview instead of a stored MCP credential. */
 export const MCP_SECRET_MASK = '••••••••';
-
-export interface MCPServerCatalog {
-  servers: MCPServerConfig[];
-  /** Project-layer config files that could not be read or parsed. */
-  warnings?: string[];
-}
 
 export interface MCPServerConfig {
   name: string;
@@ -202,11 +184,8 @@ export interface MCPServerConfig {
   headers?: Record<string, string>;
   auth?: 'oauth';
   bearerTokenEnvVar?: string;
-  /** Unified management view tags; absent on cores predating the management plane. */
   source?: 'global' | 'plugin' | 'caller';
-  /** global: defining file path; plugin: plugin id. */
   origin?: string;
-  /** false for plugin / project-layer entries — the panel hides mutating actions for them. */
   mutable?: boolean;
 }
 
@@ -238,7 +217,7 @@ export function formatContentOutput(output: string | ContentPart[]): string {
   if (typeof output === 'string') return output;
   if (!Array.isArray(output)) return JSON.stringify(output);
   return output
-    .map((item) => (item.type === 'text' ? item.text : `[${item.type}]`))
+    .map((item) => item.type === 'text' ? item.text : `[${item.type}]`)
     .filter(Boolean)
     .join('\n');
 }

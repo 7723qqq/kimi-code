@@ -1,58 +1,51 @@
-/**
- * Kimi Code command line.
- *
- * `main()` is invoked exactly once, by the process entry `src/main.ts` after
- * its light argv pre-dispatch. It parses CLI arguments via Commander.js,
- * validates options, runs the outer update preflight, then delegates to the
- * requested UI runner. This module must not start itself on evaluation:
- * importing it (tests, embedders) has to stay side-effect free.
- */
-
 import {
-  configureDiagnosticLogging,
+  createKimiHarness,
+  ErrorCodes,
   flushDiagnosticLogs,
+  installGlobalProxyDispatcher,
+  isKimiError,
   log,
   resolveGlobalLogPath,
-} from '@moonshot-ai/kimi-code-sdk/logging';
-import { isProxyConfigured, resolveKimiHome } from '@moonshot-ai/kimi-code-sdk/runtime';
-import { ErrorCodes, isKimiError } from '@moonshot-ai/kimi-code-sdk';
-import { installCrashHandlers, shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
+  resolveKimiHome,
+  type TelemetryClient,
+} from '@moonshot-ai/kimi-code-sdk';
+import {
+  installCrashHandlers,
+  setTelemetryContext,
+  shutdownTelemetry,
+  track,
+  withTelemetryContext,
+} from '@moonshot-ai/kimi-telemetry';
 
-import { t } from '#/i18n';
-import type { MigrateCommandOptions } from '#/migration/command';
+import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from '#/constant/app';
+import { runHeadlessMigrate, type MigrateCommandOptions } from '#/migration/index';
+import { installMinidbTextBuildWorker } from '#/native/minidb-worker';
+import { installNativeModuleHook } from '#/native/module-hook';
+import { installKapSearchWorker } from '#/native/search-worker';
+import { cleanupStaleNativeCacheForCurrent } from '#/native/native-assets';
+import { runNativeAssetSmokeIfRequested } from '#/native/smoke';
+import { startupTrace } from '#/utils/startup-trace';
 
 import { createProgram } from './commands';
 import { runExecServerCommand } from './exec-server';
 import { finalizeHeadlessRun } from './headless-exit';
 import type { CLIOptions } from './options';
 import { OptionConflictError, validateOptions } from './options';
-import { maybeRelaunchWithStagedNativeUpdate } from './update/native-swap';
+import { runPrompt } from './run-prompt';
+import { runShell } from './run-shell';
+import { formatStartupError } from './startup-error';
+import { runPluginNodeEntry } from './sub/plugin-run-node';
+import { runUpdateDownloadCommand } from './sub/update-download';
+import { handleUpgrade } from './sub/upgrade';
+import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
+import { runUpdatePreflight } from './update/preflight';
+import { runForcedUpgradePreflight } from './update/forced';
 import { detectNativeInstall } from './update/source';
+import { maybeRelaunchWithStagedNativeUpdate } from './update/native-swap';
+import { createKimiCodeHostIdentity } from './host-identity';
 import { getVersion } from './version';
-import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from '../constant/app';
-import { installMinidbTextBuildWorker } from '../native/minidb-worker';
-import type { MinidbTextBuildWorkerInstallStatus } from '../native/minidb-worker';
-import { cleanupStaleNativeCacheForCurrent } from '../native/native-assets';
-import { installKapSearchWorker } from '../native/search-worker';
-import type { KapSearchWorkerInstallStatus } from '../native/search-worker';
-import { nativeAssetSmokeRequested } from '../native/smoke-gate';
-import { startupTrace } from '../utils/startup-trace';
+import { t } from '#/i18n';
 
-// Entry-layer modules stay free of the engine, the TUI, the SDK root index,
-// and the zod schema stack: command implementations load on dispatch via
-// dynamic import so `--version`/`--help`/error paths never pay their
-// evaluation cost. The boundary rule is that everything above this comment
-// is cheap to evaluate; anything interactive or engine-bound is awaited
-// inside its handler.
-
-/**
- * Outcome of a CLI command run, reported back to the process entrypoint.
- *
- * `handleMainCommand` is a reusable, unit-tested handler — it must not terminate
- * the process itself. It reports here whether a headless (`kimi -p`) run
- * completed so the entrypoint (the only place that owns the process) can arm the
- * force-exit fallback.
- */
 export interface MainCommandOutcome {
   readonly headlessCompleted: boolean;
 }
@@ -60,7 +53,6 @@ export interface MainCommandOutcome {
 export async function handleMainCommand(
   opts: CLIOptions,
   version: string,
-  startupWarnings: readonly string[] = [],
 ): Promise<MainCommandOutcome> {
   let validated: ReturnType<typeof validateOptions>;
   startupTrace('main:enter');
@@ -68,7 +60,7 @@ export async function handleMainCommand(
     validated = validateOptions(opts);
   } catch (error) {
     if (error instanceof OptionConflictError) {
-      process.stderr.write(t('tui.statusMessages.mainError', { message: error.message }) + '\n');
+      process.stderr.write(`error: ${error.message}\n`);
       process.exit(1);
     }
     throw error;
@@ -76,7 +68,6 @@ export async function handleMainCommand(
 
   startupTrace('preflight:begin');
   const updateOptions = validated.uiMode === 'print' ? { track, isTTY: false } : { track };
-  const { runForcedUpgradePreflight } = await import('./update/forced');
   const forcedResult = await runForcedUpgradePreflight(version, updateOptions);
   if (forcedResult === 'interrupt') {
     process.exit(130);
@@ -84,29 +75,24 @@ export async function handleMainCommand(
   if (forcedResult === 'exit') {
     process.exit(0);
   }
-  const { runUpdatePreflight } = await import('./update/preflight');
-  const preflightResult =
-    forcedResult === 'skip-passive'
-      ? 'continue'
-      : await runUpdatePreflight(version, updateOptions);
+  const preflightResult = forcedResult === 'skip-passive'
+    ? 'continue'
+    : await runUpdatePreflight(version, updateOptions);
   startupTrace('preflight:end');
   if (preflightResult === 'exit') {
     process.exit(0);
   }
 
   if (validated.uiMode === 'print') {
-    const { runPrompt } = await import('./run-prompt');
     await runPrompt(validated.options, version);
     return { headlessCompleted: true };
   }
 
   startupTrace('runShell:begin');
-  const { runShell } = await import('./run-shell');
-  await runShell(validated.options, version, { startupWarnings });
+  await runShell(validated.options, version);
   return { headlessCompleted: false };
 }
 
-/** `kimi migrate`: launch the migration screen only, then exit. `--run` runs the full migration headlessly with step logs instead. */
 async function handleMigrateCommand(
   version: string,
   options: MigrateCommandOptions,
@@ -117,25 +103,24 @@ async function handleMigrateCommand(
     return;
   }
   if (options.run) {
-    // Set the exit code and return normally — an immediate process.exit here
-    // could terminate before buffered step/report output is flushed when the
-    // command is piped or redirected.
-    const { runHeadlessMigrate } = await import('#/migration/run-headless');
     process.exitCode = await runHeadlessMigrate({ configOnly: options.configOnly });
     return;
   }
-  const { runShell } = await import('./run-shell');
   await runShell(MIGRATE_CLI_OPTIONS, version, { migrateOnly: true });
 }
 
 export async function handleUpgradeCommand(version: string, yes: boolean): Promise<void> {
-  const [{ createTelemetryHarness }, { initializeCliTelemetry }, { handleUpgrade }] =
-    await Promise.all([
-      import('./harness'),
-      import('./telemetry'),
-      import('./sub/upgrade'),
-    ]);
-  const { harness, telemetryBootstrap } = createTelemetryHarness({ version });
+  const telemetryBootstrap = createCliTelemetryBootstrap();
+  const telemetryClient: TelemetryClient = {
+    track,
+    withContext: withTelemetryContext,
+    setContext: setTelemetryContext,
+  };
+  const harness = createKimiHarness({
+    homeDir: telemetryBootstrap.homeDir,
+    identity: createKimiCodeHostIdentity(version),
+    telemetry: telemetryClient,
+  });
   let exitCode = 1;
   try {
     await harness.ensureConfigFile();
@@ -155,7 +140,6 @@ export async function handleUpgradeCommand(version: string, yes: boolean): Promi
   process.exit(exitCode);
 }
 
-/** A neutral CLIOptions value — `kimi migrate` never opens a chat session. */
 const MIGRATE_CLI_OPTIONS: CLIOptions = {
   session: undefined,
   continue: false,
@@ -168,97 +152,28 @@ const MIGRATE_CLI_OPTIONS: CLIOptions = {
   skillsDirs: [],
   agent: undefined,
   agentFiles: [],
-    environment: undefined,
+  environment: undefined,
 };
 
 export function main(): void {
-  // The Bun runtime check only applies when running as the entry binary.
-  // Importing `main` (tests, the ACP host, embedders) must not hard-exit the
-  // caller's process even if it happens to run under a non-Bun runtime.
-  if (import.meta.main && typeof (globalThis as { Bun?: unknown }).Bun === 'undefined') {
-    process.stderr.write(`${t('tui.statusMessages.bunRuntimeRequired')}\n`);
-    process.exit(1);
-  }
   process.title = PROCESS_NAME;
   installCrashHandlers();
-  // A staged native update is swapped in and re-exec'd here, before any other
-  // initialization, so the user session immediately runs the new binary (and
-  // the old process never replaces itself while running). Every failure path
-  // inside falls back to a normal startup with the current exe.
   void maybeRelaunchWithStagedNativeUpdate({
     exePath: process.execPath,
     argv: process.argv,
     env: process.env,
     currentVersion: getVersion(),
-    isNative: detectNativeInstall().native,
+    isNative: detectNativeInstall(),
   })
     .catch(() => false)
     .then((relaunched) => {
-      if (relaunched) return;
-      void bootstrap().catch(async (error: unknown) => {
-        await logStartupFailure(t('startup.operations.startShell'), error);
-        const { formatStartupError } = await import('./startup-error');
-        process.stderr.write(formatStartupError(error, { operation: 'bootstrap' }));
-        process.exit(1);
-      });
+      if (!relaunched) bootstrap();
     });
 }
 
-/** Names the worker whose embedded native asset could not be installed, so the
- *  startup notice says which index is degraded instead of only logging it. */
-export interface WorkerInstallDescriptor {
-  readonly label: string;
-  readonly status: MinidbTextBuildWorkerInstallStatus | KapSearchWorkerInstallStatus;
-}
-
-/**
- * Turn worker-install outcomes into user-visible startup warnings.
- *
- * The install status is the only diagnostic the startup path has for a missing
- * or corrupt native asset, and its previous sole consumer (`startupTrace`) is a
- * no-op unless `KIMI_STARTUP_TRACE` is set. `installed` and `not-packaged` (a
- * source/non-native run) are normal states and produce nothing.
- */
-export function workerInstallWarnings(
-  installs: readonly WorkerInstallDescriptor[],
-): readonly string[] {
-  const warnings: string[] = [];
-  for (const install of installs) {
-    if (install.status.status === 'failed') {
-      warnings.push(
-        t('tui.statusMessages.nativeWorkerInstallFailed', {
-          worker: install.label,
-          code: install.status.errorCode,
-        }),
-      );
-      continue;
-    }
-    if (install.status.status === 'asset-missing') {
-      warnings.push(t('tui.statusMessages.nativeWorkerAssetMissing', { worker: install.label }));
-    }
-  }
-  return warnings;
-}
-
-async function bootstrap(): Promise<void> {
-  // Configure the host-side diagnostic logger first: every symbol below this
-  // point (proxy install, worker setup, CLI dispatch) logs through `log`, and
-  // an unconfigured root logger drops those lines silently. Failures are not
-  // fatal — diagnostics are best-effort and must not block startup.
-  void configureDiagnosticLogging({ homeDir: resolveKimiHome(), env: process.env }).catch(
-    () => undefined,
-  );
-  // Route all outbound fetch through HTTP_PROXY/HTTPS_PROXY (honoring NO_PROXY)
-  // before any client is constructed. The installer is a guaranteed no-op when
-  // no proxy variable is set (verified against createProxyDispatcher), so the
-  // heavy dispatcher stack (undici/socks) only loads when a proxy exists; an
-  // invalid proxy URL is reported and ignored rather than aborting startup.
-  if (isProxyConfigured(process.env)) {
-    const { installGlobalProxyDispatcher } = await import('@moonshot-ai/kimi-code-sdk/proxy');
-    installGlobalProxyDispatcher(process.env);
-  }
-  // Best-effort worker installation. Diagnostics are trace-only and avoid
-  // exposing the user's cache path; failure keeps MiniDb's bounded inline mode.
+function bootstrap(): void {
+  installGlobalProxyDispatcher();
+  installNativeModuleHook();
   const workerInstall = installMinidbTextBuildWorker();
   startupTrace(
     workerInstall.status === 'installed'
@@ -267,9 +182,6 @@ async function bootstrap(): Promise<void> {
         ? `minidb-worker:failed code=${workerInstall.errorCode} sha256=${workerInstall.assetSha256 ?? 'unknown'}`
         : `minidb-worker:${workerInstall.status}`,
   );
-  // Same pattern for the global-search worker: extracted from the embedded assets so
-  // the search index runs off the main thread; a failure leaves the search
-  // surface degraded ([database] search = false restores the inline host).
   const searchWorkerInstall = installKapSearchWorker();
   startupTrace(
     searchWorkerInstall.status === 'installed'
@@ -278,27 +190,12 @@ async function bootstrap(): Promise<void> {
         ? `search-worker:failed code=${searchWorkerInstall.errorCode} sha256=${searchWorkerInstall.assetSha256 ?? 'unknown'}`
         : `search-worker:${searchWorkerInstall.status}`,
   );
-  // The smoke module pulls the native search/index stack; only pay for it
-  // when the smoke gate (the single owner of the trigger) says it will run.
-  if (nativeAssetSmokeRequested()) {
-    const { runNativeAssetSmokeIfRequested } = await import('../native/smoke');
-    if (runNativeAssetSmokeIfRequested()) return;
-  }
+  if (runNativeAssetSmokeIfRequested()) return;
 
-  // Degraded workers are reported through the TUI startup notice; the tracer
-  // lines above stay as the debug-only record.
-  const workerWarnings = workerInstallWarnings([
-    { label: 'minidb-text-build', status: workerInstall },
-    { label: 'kap-search', status: searchWorkerInstall },
-  ]);
-
-  // Start the background cleanup of stale native cache. Fire-and-forget; must not block startup or throw.
   queueMicrotask(() => {
     try {
       cleanupStaleNativeCacheForCurrent();
-    } catch {
-      // ignore: cache GC must never affect process startup
-    }
+    } catch {}
   });
 
   const version = getVersion();
@@ -306,13 +203,8 @@ async function bootstrap(): Promise<void> {
   const program = createProgram(
     version,
     (opts) => {
-      void handleMainCommand(opts, version, workerWarnings)
+      void handleMainCommand(opts, version)
         .then(async (outcome) => {
-          // Only the process entrypoint disposes of the process. Print mode
-          // relies on the event loop draining to exit; flush any buffered output
-          // and then arm an unref'd fallback so a stray ref'd handle left over
-          // from the run can't wedge a completed `kimi -p` until an external
-          // timeout. A healthy run drains and exits before the fallback fires.
           if (outcome.headlessCompleted) {
             await finalizeHeadlessRun(
               process,
@@ -322,92 +214,51 @@ async function bootstrap(): Promise<void> {
           }
         })
         .catch(async (error: unknown) => {
-          // Set the failure exit code synchronously, before any `await`. The
-          // terminal `process.exit(1)` below is our intended exit, but it sits
-          // behind `await logStartupFailure(...)`; by the time we reach that
-          // await, the failed run's `finally` cleanup has already torn down its
-          // ref'd handles (sockets, timers, background tasks). If the event loop
-          // drains during the await, Node exits on its own with the DEFAULT code
-          // 0 and `process.exit(1)` never runs — headless (`kimi -p`) failures
-          // would then exit 0 nondeterministically. Setting `process.exitCode`
-          // up front makes that drain-exit report failure too.
           process.exitCode = 1;
-          const operation =
-            opts.prompt !== undefined
-              ? t('startup.operations.runPrompt')
-              : t('startup.operations.startShell');
+          const operation = opts.prompt !== undefined ? t('startup.operations.runPrompt') : t('startup.operations.startShell');
           await logStartupFailure(operation, error);
-          const { formatStartupError } = await import('./startup-error');
           process.stderr.write(
             formatStartupError(error, {
               operation,
             }),
           );
-          process.stderr.write(
-            `${t('startup.error.seeLog', { path: resolveGlobalLogPath(resolveKimiHome()) })}\n`,
-          );
+          process.stderr.write(`See log: ${resolveGlobalLogPath(resolveKimiHome())}\n`);
           process.exit(1);
         });
     },
     (migrateOptions) => {
       void handleMigrateCommand(version, migrateOptions).catch(async (error: unknown) => {
-        const operation = t('startup.operations.runMigration');
-        await logStartupFailure(operation, error);
-        const { formatStartupError } = await import('./startup-error');
-        process.stderr.write(formatStartupError(error, { operation }));
-        process.stderr.write(
-          `${t('startup.error.seeLog', { path: resolveGlobalLogPath(resolveKimiHome()) })}\n`,
-        );
+        await logStartupFailure(t('startup.operations.runMigration'), error);
+        process.stderr.write(formatStartupError(error, { operation: t('startup.operations.runMigration') }));
+        process.stderr.write(`See log: ${resolveGlobalLogPath(resolveKimiHome())}\n`);
         process.exit(1);
       });
     },
     (entry, args) => {
-      void import('./sub/plugin-run-node')
-        .then(({ runPluginNodeEntry }) => runPluginNodeEntry(entry, args))
-        .catch(async (error: unknown) => {
-          await logStartupFailure(t('startup.operations.runPluginNodeEntry'), error);
-          process.stderr.write(
-            t('tui.statusMessages.mainError', {
-              message: error instanceof Error ? error.message : String(error),
-            }) + '\n',
-          );
-          process.exit(1);
-        });
+      void runPluginNodeEntry(entry, args).catch(async (error: unknown) => {
+        await logStartupFailure(t('startup.operations.runPluginNodeEntry'), error);
+        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.exit(1);
+      });
     },
     (yes) => {
       void handleUpgradeCommand(version, yes).catch(async (error: unknown) => {
-        const operation = t('startup.operations.upgrade');
-        await logStartupFailure(operation, error);
-        const { formatStartupError } = await import('./startup-error');
-        process.stderr.write(formatStartupError(error, { operation }));
-        process.stderr.write(
-          `${t('startup.error.seeLog', { path: resolveGlobalLogPath(resolveKimiHome()) })}\n`,
-        );
+        await logStartupFailure(t('startup.operations.upgrade'), error);
+        process.stderr.write(formatStartupError(error, { operation: t('startup.operations.upgrade') }));
+        process.stderr.write(`See log: ${resolveGlobalLogPath(resolveKimiHome())}\n`);
         process.exit(1);
       });
     },
     (targetVersion, manual, intent, channel) => {
-      void import('./sub/update-download')
-        .then(({ runUpdateDownloadCommand }) =>
-          runUpdateDownloadCommand(targetVersion, manual, intent, channel),
-        )
-        .then(
-          (code) => {
-            process.exit(code);
-          },
-          async (error: unknown) => {
-            await logStartupFailure('download update', error);
-            process.exit(1);
-          },
-        );
-    },
-    () => {
-      void import('@moonshot-ai/agent-core-v2/features/codeRuntime/codeShimSource')
-        .then(({ runCodeShimMain }) => runCodeShimMain())
-        .catch(async (error: unknown) => {
-          await logStartupFailure('run code shim', error);
+      void runUpdateDownloadCommand(targetVersion, manual, intent, channel).then(
+        (code) => {
+          process.exit(code);
+        },
+        async (error: unknown) => {
+          await logStartupFailure('download update', error);
           process.exit(1);
-        });
+        },
+      );
     },
     (listen) => {
       void runExecServerCommand(listen).then((code) => {
@@ -430,7 +281,5 @@ async function logStartupFailure(operation: string, error: unknown): Promise<voi
   });
   try {
     await flushDiagnosticLogs();
-  } catch {
-    // Best-effort diagnostic flush only.
-  }
+  } catch {}
 }

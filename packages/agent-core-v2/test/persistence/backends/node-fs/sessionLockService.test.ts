@@ -1,23 +1,24 @@
-import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 import fs, { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
 import { isError2 } from '#/_base/errors/errors';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import type { SessionLockHolder } from '#/persistence/interface/sessionLock';
 import {
   SESSION_LOCK_ENV,
   SessionLockService,
 } from '#/persistence/backends/node-fs/sessionLockService';
-import type { SessionLockHolder } from '#/persistence/interface/sessionLock';
-
 import { noopLogger } from '../../../wire/stubs';
 
-const mocks = {
-  execFileSync: jest.fn(),
-};
+const mocks = vi.hoisted(() => ({
+  execFileSync: vi.fn(),
+}));
 
-void mock.module('node:child_process', () => ({
+void vi.mock('node:child_process', async () => ({
+  ...(await import('node:child_process')),
   execFileSync: mocks.execFileSync,
 }));
 
@@ -166,7 +167,7 @@ describe('SessionLockService', () => {
     serviceA.hold('warmup');
     serviceA.release('warmup');
     writeFileSync(lockPath(homeDir, SID), JSON.stringify(stale), { mode: 0o600 });
-    const killSpy = jest.spyOn(process, 'kill').mockReturnValue(true);
+    const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
     mocks.execFileSync.mockReturnValue('Z\n');
     try {
       expect(() => serviceA.hold(SID)).not.toThrow();
@@ -249,7 +250,7 @@ describe('SessionLockService', () => {
   it('takeover reports a lock file it cannot remove', () => {
     serviceB.hold(SID);
     const denied = Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
-    const unlinkSpy = jest.spyOn(fs, 'unlinkSync').mockImplementation(() => {
+    const unlinkSpy = vi.spyOn(fs, 'unlinkSync').mockImplementation(() => {
       throw denied;
     });
     try {
@@ -306,15 +307,13 @@ describe('SessionLockService', () => {
   });
 
   it('releases held locks when the process exit hook fires', () => {
-    const onSpy = jest.spyOn(process, 'on');
-    const offSpy = jest.spyOn(process, 'off');
+    const onSpy = vi.spyOn(process, 'on');
+    const offSpy = vi.spyOn(process, 'off');
     try {
       serviceA.hold(SID);
       serviceA.hold('other');
       expect(existsSync(lockPath(homeDir, SID))).toBe(true);
-      const exitCalls = (onSpy.mock.calls as Array<[string, () => void]>).filter(
-        ([event]) => event === 'exit',
-      );
+      const exitCalls = onSpy.mock.calls.filter(([event]) => (event as string) === 'exit');
       expect(exitCalls).toHaveLength(1);
       const exitListener = exitCalls[0]?.[1] as () => void;
       exitListener();

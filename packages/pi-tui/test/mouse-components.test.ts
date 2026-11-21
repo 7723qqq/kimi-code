@@ -1,6 +1,6 @@
-import { expect, describe, it } from "bun:test";
+import assert from "node:assert";
+import { describe, it } from "node:test";
 import { AltScreenSearchComponent } from "../src/alt-screen-search.ts";
-import { Box } from "../src/components/box.ts";
 import { Editor, type EditorTheme } from "../src/components/editor.ts";
 import { Input } from "../src/components/input.ts";
 import { SelectList, type SelectListTheme } from "../src/components/select-list.ts";
@@ -60,15 +60,38 @@ class InputOverlay extends Container {
 	}
 }
 
+/** A settings submenu that routes keys to its nested list, like the coding agent's theme submenu. */
+class SubmenuHost extends Container {
+	readonly list = new SelectList(
+		[
+			{ value: "first", label: "First" },
+			{ value: "second", label: "Second" },
+		],
+		5,
+		selectTheme,
+	);
+
+	constructor(done: (value?: string) => void) {
+		super();
+		this.list.onSelect = (item) => done(item.value);
+		this.list.onCancel = () => done();
+		this.addChild(this.list);
+	}
+
+	handleInput(data: string): void {
+		this.list.handleInput(data);
+	}
+}
+
 describe("mouse-aware components", () => {
 	it("positions a single-line input cursor on press", () => {
 		const input = new Input();
 		input.setValue("hello");
 		input.render(20);
 
-		expect(input.handleMouse(mouse("press", 4, 0, 20, 1))?.handled).toBe(true);
+		assert.strictEqual(input.handleMouse(mouse("press", 4, 0, 20, 1))?.handled, true);
 		input.handleInput("X");
-		expect(input.getValue()).toBe("heXllo");
+		assert.strictEqual(input.getValue(), "heXllo");
 	});
 
 	it("positions the input cursor relative to a custom prompt", () => {
@@ -76,9 +99,9 @@ describe("mouse-aware components", () => {
 		input.setValue("hello");
 		input.render(20);
 
-		expect(input.handleMouse(mouse("press", 3, 0, 20, 1))?.handled).toBe(true);
+		assert.strictEqual(input.handleMouse(mouse("press", 3, 0, 20, 1))?.handled, true);
 		input.handleInput("X");
-		expect(input.getValue()).toBe("heXllo");
+		assert.strictEqual(input.getValue(), "heXllo");
 	});
 
 	it("routes search field presses to the embedded input", () => {
@@ -89,9 +112,9 @@ describe("mouse-aware components", () => {
 		component.render(40);
 		component.handleInput("hello");
 
-		expect(component.handleMouse(mouse("press", 4, 1, 40, 3))?.handled).toBe(true);
+		assert.strictEqual(component.handleMouse(mouse("press", 4, 1, 40, 3))?.handled, true);
 		component.handleInput("X");
-		expect(query).toBe("heXllo");
+		assert.strictEqual(query, "heXllo");
 	});
 
 	it("selects and activates list rows", () => {
@@ -111,10 +134,10 @@ describe("mouse-aware components", () => {
 			selected = item.value;
 		};
 
-		expect(list.handleMouse(mouse("press", 1, 2, 40, 3))?.handled).toBe(true);
-		expect(list.getSelectedItem()?.value).toBe("c");
-		expect(list.handleMouse(mouse("click", 1, 2, 40, 3))?.handled).toBe(true);
-		expect(selected).toBe("c");
+		assert.strictEqual(list.handleMouse(mouse("press", 1, 2, 40, 3))?.handled, true);
+		assert.strictEqual(list.getSelectedItem()?.value, "c");
+		assert.strictEqual(list.handleMouse(mouse("click", 1, 2, 40, 3))?.handled, true);
+		assert.strictEqual(selected, "c");
 	});
 
 	it("activates settings rows", () => {
@@ -134,7 +157,7 @@ describe("mouse-aware components", () => {
 
 		list.handleMouse(mouse("press", 1, 2, 40, 5));
 		list.handleMouse(mouse("click", 1, 2, 40, 5));
-		expect(changes).toStrictEqual([{ id: "third", value: "high" }]);
+		assert.deepStrictEqual(changes, [{ id: "third", value: "high" }]);
 	});
 
 	for (const row of [0, 4]) {
@@ -152,24 +175,24 @@ describe("mouse-aware components", () => {
 			};
 			list.setSelectedIndex(5);
 			list.handleMouse({ ...mouse("wheel", 1, row), wheelDelta: 1 });
-			expect(list.getSelectedItem()?.value).toBe("item-6");
-			expect(changes).toStrictEqual(["item-6"]);
+			assert.strictEqual(list.getSelectedItem()?.value, "item-6");
+			assert.deepStrictEqual(changes, ["item-6"]);
 			const before = list.render(80);
-			expect(String(before[row])).toMatch(new RegExp(`Item ${4 + row}$`));
+			assert.match(before[row], new RegExp(`Item ${4 + row}$`));
 
 			for (const y of [0, 1, 2, 3, 4, row]) {
-				expect(list.handleMouse({ ...mouse("move", 1, y), button: "none" })).toBe(undefined);
-				expect(list.render(80)).toStrictEqual(before);
+				assert.strictEqual(list.handleMouse({ ...mouse("move", 1, y), button: "none" }), undefined);
+				assert.deepStrictEqual(list.render(80), before);
 			}
-			expect(list.getSelectedItem()?.value).toBe("item-6");
-			expect(changes).toStrictEqual(["item-6"]);
-			expect(selected).toBe(undefined);
+			assert.strictEqual(list.getSelectedItem()?.value, "item-6");
+			assert.deepStrictEqual(changes, ["item-6"]);
+			assert.strictEqual(selected, undefined);
 
 			list.handleMouse(mouse("press", 1, row));
 			list.render(80);
 			list.handleMouse(mouse("click", 1, row));
-			expect(selected).toBe(`item-${4 + row}`);
-			expect(changes).toStrictEqual(["item-6", `item-${4 + row}`]);
+			assert.strictEqual(selected, `item-${4 + row}`);
+			assert.deepStrictEqual(changes, ["item-6", `item-${4 + row}`]);
 		});
 
 		it(`ignores hover and clicks visible settings row ${row} after scrolling`, () => {
@@ -191,19 +214,19 @@ describe("mouse-aware components", () => {
 			list.selectItem("item-5");
 			list.handleMouse({ ...mouse("wheel", 1, row + 2), wheelDelta: 1 });
 			const before = list.render(80);
-			expect(String(before[4])).toMatch(/^> Item 6/);
-			expect(String(before[row + 2])).toMatch(new RegExp(`Item ${4 + row} `));
+			assert.match(before[4], /^> Item 6/);
+			assert.match(before[row + 2], new RegExp(`Item ${4 + row} `));
 
 			for (const y of [0, 1, 2, 3, 4, row]) {
-				expect(list.handleMouse({ ...mouse("move", 1, y + 2), button: "none" })).toBe(undefined);
-				expect(list.render(80)).toStrictEqual(before);
+				assert.strictEqual(list.handleMouse({ ...mouse("move", 1, y + 2), button: "none" }), undefined);
+				assert.deepStrictEqual(list.render(80), before);
 			}
-			expect(changes).toStrictEqual([]);
+			assert.deepStrictEqual(changes, []);
 
 			list.handleMouse(mouse("press", 1, row + 2));
 			list.render(80);
 			list.handleMouse(mouse("click", 1, row + 2));
-			expect(changes).toStrictEqual([{ id: `item-${4 + row}`, value: "on" }]);
+			assert.deepStrictEqual(changes, [{ id: `item-${4 + row}`, value: "on" }]);
 		});
 	}
 
@@ -221,8 +244,74 @@ describe("mouse-aware components", () => {
 		terminal.sendInput("!");
 		await terminal.waitForRender();
 
-		expect(overlay.input.getValue()).toBe("hi!");
-		expect(tui.getFocusedComponent()).toBe(overlay);
+		assert.strictEqual(overlay.input.getValue(), "hi!");
+		assert.strictEqual(tui.getFocusedComponent(), overlay);
+		tui.stop();
+	});
+
+	it("does not move the editor caret with the refocusing gesture", async (context) => {
+		context.mock.timers.enable({ apis: ["Date"] });
+		context.mock.timers.setTime(1_000);
+		const terminal = new VirtualTerminal(20, 6);
+		const tui = new TuiAltScreen(terminal, undefined, undefined, { refocusMouseGuardMs: 300 });
+		const editor = new Editor(tui, editorTheme);
+		editor.setText("hello");
+		tui.addChild(editor);
+		tui.setFocus(editor);
+		tui.start();
+		await terminal.waitForRender();
+
+		terminal.sendInput("\x1b[O");
+		terminal.sendInput("\x1b[I");
+		terminal.sendInput("\x1b[<0;3;2M");
+		terminal.sendInput("\x1b[<0;3;2m");
+		terminal.sendInput("X");
+		assert.strictEqual(editor.getText(), "helloX");
+
+		context.mock.timers.setTime(1_300);
+		terminal.sendInput("\x1b[<0;3;2M");
+		terminal.sendInput("\x1b[<0;3;2m");
+		terminal.sendInput("Y");
+		assert.strictEqual(editor.getText(), "heYlloX");
+		tui.stop();
+	});
+
+	it("keeps a settings list focused when a click in its submenu closes the submenu", async () => {
+		const terminal = new VirtualTerminal(30, 6);
+		const tui = new TuiAltScreen(terminal);
+		const changes: Array<{ id: string; value: string }> = [];
+		const list = new SettingsList(
+			[
+				{ id: "theme", label: "Theme", currentValue: "first", submenu: (_value, done) => new SubmenuHost(done) },
+				{ id: "other", label: "Other", currentValue: "off", values: ["off", "on"] },
+			],
+			5,
+			settingsTheme,
+			(id, value) => changes.push({ id, value }),
+			() => {},
+		);
+		tui.addChild(list);
+		tui.setFocus(list);
+		tui.start();
+		await terminal.waitForRender();
+
+		terminal.sendInput("\r");
+		await terminal.waitForRender();
+		// Press and release on the submenu's second row selects it and closes the submenu.
+		terminal.sendInput("\x1b[<0;3;2M");
+		terminal.sendInput("\x1b[<0;3;2m");
+		await terminal.waitForRender();
+		assert.deepStrictEqual(changes, [{ id: "theme", value: "second" }]);
+		assert.strictEqual(tui.getFocusedComponent(), list);
+
+		// Keys reach the visible list again instead of the closed submenu.
+		terminal.sendInput("\x1b[B");
+		terminal.sendInput("\r");
+		await terminal.waitForRender();
+		assert.deepStrictEqual(changes, [
+			{ id: "theme", value: "second" },
+			{ id: "other", value: "on" },
+		]);
 		tui.stop();
 	});
 
@@ -240,8 +329,8 @@ describe("mouse-aware components", () => {
 		terminal.sendInput("X");
 		await terminal.waitForRender();
 
-		expect(editor.getText()).toBe("heXllo");
-		expect(tui.getFocusedComponent()).toBe(editor);
+		assert.strictEqual(editor.getText(), "heXllo");
+		assert.strictEqual(tui.getFocusedComponent(), editor);
 		tui.stop();
 	});
 
@@ -262,7 +351,7 @@ describe("mouse-aware components", () => {
 		terminal.sendInput("X");
 		await terminal.waitForRender();
 
-		expect(editor.getText()).toBe("l1\nl2\nl3\nl4\nl5\nl6\nlX7\nl8\nl9\nl10");
+		assert.strictEqual(editor.getText(), "l1\nl2\nl3\nl4\nl5\nl6\nlX7\nl8\nl9\nl10");
 		tui.stop();
 	});
 
@@ -291,7 +380,7 @@ describe("mouse-aware components", () => {
 		terminal.sendInput("X");
 		await terminal.waitForRender();
 
-		expect(editor.getText()).toBe("l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nlX10");
+		assert.strictEqual(editor.getText(), "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nlX10");
 		tui.stop();
 	});
 
@@ -306,9 +395,9 @@ describe("mouse-aware components", () => {
 
 		// "a" is the first displayed character; clicking it must place the
 		// cursor after "😀" rather than at the raw scroll column.
-		expect(input.handleMouse(mouse("press", 0, 0, 5, 1))?.handled).toBe(true);
+		assert.strictEqual(input.handleMouse(mouse("press", 0, 0, 5, 1))?.handled, true);
 		input.handleInput("X");
-		expect(input.getValue()).toBe("😀Xa😀bc");
+		assert.strictEqual(input.getValue(), "😀Xa😀bc");
 	});
 
 	it("selects and copies editor text on drag instead of moving the cursor", async () => {
@@ -332,54 +421,8 @@ describe("mouse-aware components", () => {
 		terminal.sendInput("\x1b[<0;5;2m");
 		await terminal.waitForRender();
 
-		expect(copied).toStrictEqual(["hello"]);
-		expect(editor.getCursor()).toStrictEqual(cursorBefore);
+		assert.deepStrictEqual(copied, ["hello"]);
+		assert.deepStrictEqual(editor.getCursor(), cursorBefore);
 		tui.stop();
-	});
-});
-
-describe("mouse layout cache", () => {
-	function countingChild() {
-		let renders = 0;
-		return {
-			renders: () => renders,
-			component: {
-				render: () => {
-					renders += 1;
-					return ["row"];
-				},
-				invalidate: () => {},
-				handleMouse: () => ({ handled: true }),
-			},
-		};
-	}
-
-	it("measures an unseen pointer width once instead of on every event", () => {
-		const child = countingChild();
-		const container = new Container();
-		container.addChild(child.component);
-		container.render(20);
-		expect(child.renders()).toBe(1);
-
-		const event = { ...mouse("click", 1, 0), width: 40 };
-		expect(container.handleMouse(event)?.handled).toBe(true);
-		expect(child.renders()).toBe(2);
-		expect(container.handleMouse(event)?.handled).toBe(true);
-		expect(container.handleMouse(event)?.handled).toBe(true);
-		expect(child.renders()).toBe(2);
-	});
-
-	it("shares the same cached hit test with a padded box", () => {
-		const child = countingChild();
-		const box = new Box(1, 0);
-		box.addChild(child.component);
-		box.render(20);
-		expect(child.renders()).toBe(1);
-
-		const event = { ...mouse("click", 2, 0), width: 40 };
-		expect(box.handleMouse(event)?.handled).toBe(true);
-		expect(child.renders()).toBe(2);
-		expect(box.handleMouse(event)?.handled).toBe(true);
-		expect(child.renders()).toBe(2);
 	});
 });

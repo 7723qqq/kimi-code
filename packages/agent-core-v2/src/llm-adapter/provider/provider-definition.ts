@@ -1,67 +1,37 @@
 import { BugIndicatingError } from '#/_base/errors/errors';
-import { classifyKimiQuotaError } from '#human/llm-kimi/errors';
 import {
-  kimiAnthropicTrait,
-  kimiConnection,
-  kimiOpenAITrait,
-  kimiResponsesTrait,
-  KIMI_DEFAULT_BASE_URL,
-} from '#human/llm-kimi/trait';
-import type { ModelCapability as HumanModelCapability } from '#human/llm/capability';
-import { resolveModelFamily } from '#human/llm/modelFamily';
-import type { ProtocolEndpoint, ProviderConnection } from '#human/llm/protocol/connection';
-import { bedrockAnthropicBase } from '#human/llm/provider/bedrock/anthropic';
-import { bedrockModelCapability } from '#human/llm/provider/bedrock/routing';
-import type { ProtocolBase } from '#human/llm/protocol/base';
-import type { ProtocolTraitFor } from '#human/llm/provider/definition';
-import type { LlmErrorClassifier } from '#human/llm/requester/requester';
+  resolveEndpointDeclaration,
+  type LlmEndpointDeclaration,
+  type ResolvedLlmEndpointDeclaration,
+} from '@moonshot-ai/core/llm/endpoint';
+import {
+  anthropicEndpoint,
+  bedrockEndpoint,
+  geminiEndpoint,
+  kimiEndpoint,
+  openAIEndpoint,
+  vertexEndpoint,
+} from '@moonshot-ai/core/llm/builtin/provider/endpoints';
+import { bedrockAnthropicRequester } from '@moonshot-ai/core/llm/builtin/provider/bedrock/anthropic';
+import { bedrockModelCapability } from '@moonshot-ai/core/llm/builtin/provider/bedrock/routing';
+import { kimiRequesters } from '@moonshot-ai/core/llm/builtin/provider/kimi/index';
+import type { ModelCapability } from '@moonshot-ai/core/llm/request';
+import type { LlmRequester } from '@moonshot-ai/core/llm/requester';
 
 import type { Protocol } from '../protocol/protocol';
 import type { ModelSource } from './provider';
 
-export const openAIConnection: ProviderConnection = {
-  endpoint: () => ({ apiKeyEnv: 'OPENAI_API_KEY', baseUrlEnv: 'OPENAI_BASE_URL' }),
-};
-
-export const anthropicConnection: ProviderConnection = {
-  endpoint: () => ({ apiKeyEnv: 'ANTHROPIC_API_KEY', baseUrlEnv: 'ANTHROPIC_BASE_URL' }),
-};
-
-export const geminiEndpoint: ProtocolEndpoint = {
-  apiKeyEnv: 'GOOGLE_API_KEY',
-  baseUrlEnv: 'GOOGLE_GEMINI_BASE_URL',
-};
-
-export const vertexEndpoint: ProtocolEndpoint = {
-  apiKeyEnv: 'VERTEXAI_API_KEY',
-  baseUrlEnv: 'GOOGLE_VERTEX_BASE_URL',
-};
-
-export const geminiConnection: ProviderConnection = {
-  endpoint: () => geminiEndpoint,
-};
-
-export const vertexConnection: ProviderConnection = {
-  endpoint: () => vertexEndpoint,
-};
-
-export const kimiEndpoint: ProtocolEndpoint = {
-  apiKeyEnv: 'KIMI_API_KEY',
-  baseUrlEnv: 'KIMI_BASE_URL',
-  defaultBaseUrl: KIMI_DEFAULT_BASE_URL,
-};
-
 export interface ProviderDefinition<N extends Protocol = Protocol> {
   readonly id: string;
   readonly baseProtocol: N;
-  readonly base?: ProtocolBase<ProtocolTraitFor<N>>;
-  readonly trait?: ProtocolTraitFor<N>;
-  readonly connection?: ProviderConnection;
-  readonly classifyError?: LlmErrorClassifier;
-  readonly capability?: (modelName: string) => HumanModelCapability | undefined;
-  readonly endpoint?: ProtocolEndpoint;
-  readonly endpoints?: readonly ProtocolEndpoint[];
+  readonly requester?: LlmRequester<'protocol'>;
+  readonly thinkingDriven?: boolean;
+  readonly strictThinkingValidation?: boolean;
+  readonly capability?: (modelName: string) => ModelCapability | undefined;
+  readonly endpoint?: LlmEndpointDeclaration;
+  readonly endpoints?: readonly LlmEndpointDeclaration[];
   readonly hostHeaders?: 'full' | 'user-agent';
+  readonly requestMetadata?: boolean;
   readonly modelSource?: ModelSource;
 }
 
@@ -102,26 +72,6 @@ export function hasProviderDefinition(id: string): boolean {
   return providerDefinitions.has(id);
 }
 
-export function resolveProviderDefinition(
-  providerType: string | undefined,
-  providerId?: string,
-  protocol?: Protocol,
-): ProviderDefinition | undefined {
-  const byId =
-    providerId === undefined || providerId === providerType
-      ? undefined
-      : getProviderDefinition(providerId, protocol);
-  if (byId !== undefined) return byId;
-  return providerType === undefined ? undefined : getProviderDefinition(providerType, protocol);
-}
-
-export function registerProviderDefinitionIfAbsent<N extends Protocol>(
-  definition: ProviderDefinition<N>,
-): void {
-  if (getProviderDefinition(definition.id, definition.baseProtocol) !== undefined) return;
-  registerProviderDefinition(definition);
-}
-
 export function isOAuthCatalogVendor(id: string | undefined): boolean {
   if (id === undefined) return false;
   return getProviderDefinitions(id).some(
@@ -138,115 +88,65 @@ export interface ResolvedProviderEndpoint {
   readonly baseUrl?: string;
 }
 
-export interface ExplainedProviderEndpoint {
-  readonly apiKey?: string;
-  readonly apiKeyEnvName?: string;
-  readonly baseUrl?: string;
-  readonly baseUrlEnvName?: string;
-  readonly baseUrlIsDefault?: boolean;
-}
+export type ExplainedProviderEndpoint = ResolvedLlmEndpointDeclaration;
 
 export function explainProviderEndpoint(
   providerType: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
-  providerId?: string,
+  protocol?: Protocol,
 ): ExplainedProviderEndpoint {
-  const definition = resolveProviderDefinition(providerType, providerId);
-  if (definition === undefined) return {};
-  const endpoint =
-    normalizeEndpointDeclaration(definition.endpoint) ?? aggregateEndpoints(definition.endpoints);
-  if (endpoint === undefined) return {};
-  const apiKeyHit = firstEnvHit(endpoint.apiKeyEnv, env);
-  const baseUrlHit = firstEnvHit(endpoint.baseUrlEnv, env);
-  return {
-    ...(apiKeyHit !== undefined
-      ? { apiKey: apiKeyHit.value, apiKeyEnvName: apiKeyHit.name }
-      : undefined),
-    ...(baseUrlHit !== undefined
-      ? { baseUrl: baseUrlHit.value, baseUrlEnvName: baseUrlHit.name }
-      : endpoint.defaultBaseUrl !== undefined
-        ? { baseUrl: endpoint.defaultBaseUrl, baseUrlIsDefault: true }
-        : undefined),
-  };
+  const definition =
+    getProviderDefinition(providerType, protocol) ??
+    (protocol === undefined ? undefined : getProviderDefinition(providerType));
+  return resolveEndpointDeclaration(definition?.endpoint ?? definition?.endpoints, env);
 }
 
 export function resolveProviderEndpoint(
   providerType: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
-  providerId?: string,
 ): ResolvedProviderEndpoint {
-  const { apiKey, baseUrl } = explainProviderEndpoint(providerType, env, providerId);
-  return {
-    ...(apiKey !== undefined ? { apiKey } : undefined),
-    ...(baseUrl !== undefined ? { baseUrl } : undefined),
-  };
-}
-
-interface AggregatedEndpointDeclaration {
-  readonly apiKeyEnv: readonly string[];
-  readonly baseUrlEnv: readonly string[];
-  readonly defaultBaseUrl?: string;
-}
-
-function normalizeEndpointDeclaration(
-  endpoint: ProtocolEndpoint | undefined,
-): AggregatedEndpointDeclaration | undefined {
-  if (endpoint === undefined) return undefined;
-  return {
-    apiKeyEnv: endpoint.apiKeyEnv === undefined ? [] : [endpoint.apiKeyEnv],
-    baseUrlEnv: endpoint.baseUrlEnv === undefined ? [] : [endpoint.baseUrlEnv],
-    defaultBaseUrl: endpoint.defaultBaseUrl,
-  };
-}
-
-function aggregateEndpoints(
-  endpoints: readonly ProtocolEndpoint[] | undefined,
-): AggregatedEndpointDeclaration | undefined {
-  if (endpoints === undefined || endpoints.length === 0) return undefined;
-  const apiKeyEnv: string[] = [];
-  const baseUrlEnv: string[] = [];
-  let defaultBaseUrl: string | undefined;
-  for (const endpoint of endpoints) {
-    if (endpoint.apiKeyEnv !== undefined) apiKeyEnv.push(endpoint.apiKeyEnv);
-    if (endpoint.baseUrlEnv !== undefined) baseUrlEnv.push(endpoint.baseUrlEnv);
-    if (endpoint.defaultBaseUrl !== undefined) defaultBaseUrl = endpoint.defaultBaseUrl;
-  }
-  return { apiKeyEnv, baseUrlEnv, defaultBaseUrl };
-}
-
-function firstEnvHit(
-  names: readonly string[],
-  env: Readonly<Record<string, string | undefined>>,
-): { readonly name: string; readonly value: string } | undefined {
-  for (const name of names) {
-    const value = env[name];
-    if (value !== undefined && value.length > 0) return { name, value };
-  }
-  return undefined;
+  const { apiKey, baseUrl } = explainProviderEndpoint(providerType, env);
+  return { apiKey, baseUrl };
 }
 
 registerProviderDefinition({
   id: 'anthropic',
   baseProtocol: 'anthropic',
-  endpoint: { apiKeyEnv: 'ANTHROPIC_API_KEY', baseUrlEnv: 'ANTHROPIC_BASE_URL' },
+  endpoint: anthropicEndpoint,
 });
 
 registerProviderDefinition({
   id: 'openai',
   baseProtocol: 'openai',
-  endpoint: { apiKeyEnv: 'OPENAI_API_KEY', baseUrlEnv: 'OPENAI_BASE_URL' },
+  endpoint: openAIEndpoint,
 });
 
 registerProviderDefinition({
   id: 'openai_responses',
   baseProtocol: 'openai_responses',
-  endpoint: { apiKeyEnv: 'OPENAI_API_KEY', baseUrlEnv: 'OPENAI_BASE_URL' },
+  endpoint: openAIEndpoint,
 });
 
 registerProviderDefinition({
-  id: 'vertexai',
-  baseProtocol: 'google-genai',
-  endpoints: [vertexEndpoint],
+  id: 'bedrock',
+  baseProtocol: 'openai',
+  endpoint: bedrockEndpoint,
+  capability: bedrockModelCapability,
+});
+
+registerProviderDefinition({
+  id: 'bedrock',
+  baseProtocol: 'openai_responses',
+  endpoint: bedrockEndpoint,
+  capability: bedrockModelCapability,
+});
+
+registerProviderDefinition({
+  id: 'bedrock',
+  baseProtocol: 'anthropic',
+  requester: bedrockAnthropicRequester,
+  endpoint: bedrockEndpoint,
+  capability: bedrockModelCapability,
 });
 
 registerProviderDefinition({
@@ -258,89 +158,33 @@ registerProviderDefinition({
 registerProviderDefinition({
   id: 'kimi',
   baseProtocol: 'openai',
-  trait: kimiOpenAITrait,
-  connection: kimiConnection,
-  classifyError: classifyKimiQuotaError,
+  requester: kimiRequesters.openai,
+  thinkingDriven: true,
+  strictThinkingValidation: true,
   endpoint: kimiEndpoint,
   hostHeaders: 'full',
+  requestMetadata: true,
   modelSource: 'oauth-catalog',
 });
 
 registerProviderDefinition({
   id: 'kimi',
   baseProtocol: 'anthropic',
-  trait: kimiAnthropicTrait,
-  connection: kimiConnection,
-  classifyError: classifyKimiQuotaError,
+  requester: kimiRequesters.anthropic,
+  thinkingDriven: true,
   endpoint: kimiEndpoint,
   hostHeaders: 'full',
+  requestMetadata: true,
   modelSource: 'oauth-catalog',
 });
 
 registerProviderDefinition({
   id: 'kimi',
   baseProtocol: 'openai_responses',
-  trait: kimiResponsesTrait,
-  connection: kimiConnection,
-  classifyError: classifyKimiQuotaError,
+  requester: kimiRequesters.openai_responses,
+  thinkingDriven: true,
   endpoint: kimiEndpoint,
   hostHeaders: 'full',
+  requestMetadata: true,
   modelSource: 'oauth-catalog',
-});
-
-export const bedrockEndpoint: ProtocolEndpoint = {
-  apiKeyEnv: 'AWS_BEARER_TOKEN_BEDROCK',
-  baseUrlEnv: 'AWS_BEDROCK_BASE_URL',
-};
-
-registerProviderDefinition({
-  id: 'bedrock',
-  baseProtocol: 'openai',
-  endpoint: bedrockEndpoint,
-  capability: bedrockModelCapability,
-});
-
-registerProviderDefinition({
-  id: 'bedrock',
-  baseProtocol: 'openai_responses',
-  endpoint: bedrockEndpoint,
-  capability: bedrockModelCapability,
-});
-
-registerProviderDefinition({
-  id: 'bedrock',
-  baseProtocol: 'anthropic',
-  base: bedrockAnthropicBase,
-  endpoint: bedrockEndpoint,
-  capability: bedrockModelCapability,
-});
-
-export const deepseekEndpoint: ProtocolEndpoint = {
-  apiKeyEnv: 'DEEPSEEK_API_KEY',
-  baseUrlEnv: 'DEEPSEEK_BASE_URL',
-  defaultBaseUrl: 'https://api.deepseek.com',
-};
-
-export const deepseekConnection: ProviderConnection = {
-  endpoint: () => deepseekEndpoint,
-};
-
-function deepseekCapability(modelName: string): HumanModelCapability | undefined {
-  if (resolveModelFamily(modelName)?.id !== 'deepseek') return undefined;
-  return {
-    image_in: true,
-    video_in: false,
-    audio_in: false,
-    thinking: true,
-    tool_use: true,
-    pdf_in: false,
-  };
-}
-
-registerProviderDefinitionIfAbsent({
-  id: 'deepseek',
-  baseProtocol: 'openai',
-  connection: deepseekConnection,
-  endpoint: deepseekEndpoint,
-  capability: deepseekCapability,
 });

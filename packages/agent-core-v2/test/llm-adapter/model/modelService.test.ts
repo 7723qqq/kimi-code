@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { modelsFromToml, modelsToToml } from '#/app/kosongConfig/configSection';
 import { type ModelRecord } from '#/llm-adapter/model/model';

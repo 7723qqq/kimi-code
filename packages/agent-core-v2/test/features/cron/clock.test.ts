@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { resolveClockSources, SYSTEM_CLOCKS } from '#/features/cron/internal/clock';
 

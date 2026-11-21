@@ -1,9 +1,8 @@
-import { t } from '#/i18n';
-
-import { getLlmNotSetMessage } from '../constant/kimi-tui';
+import { LLM_NOT_SET_MESSAGE } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { InlineSkillActivation } from '../types';
 import type { SlashCommandHost } from './dispatch';
+import { t } from '#/i18n';
 
 export async function handleBtwCommand(
   host: SlashCommandHost,
@@ -13,7 +12,7 @@ export async function handleBtwCommand(
   const prompt = args.trim();
   const session = host.session;
   if (host.state.appState.model.trim().length === 0 || session === undefined) {
-    host.showError(getLlmNotSetMessage());
+    host.showError(LLM_NOT_SET_MESSAGE);
     return;
   }
   host.btwPanelController.closeOrCancel();
@@ -26,6 +25,6 @@ export async function handleBtwCommand(
       activations.length > 0 ? activations : undefined,
     );
   } catch (error) {
-    host.showError(t('tui.messages.btwStartFailed', { error: formatErrorMessage(error) }));
+    host.showError(t('tui.commands.btw.failedToStart', { p1: formatErrorMessage(error) }));
   }
 }

@@ -1,4 +1,4 @@
-import { CoreErrors, type ErrorCode } from './codes';
+import { CoreErrors } from './codes';
 
 export class ExpectedError extends Error {
   readonly isExpected = true;
@@ -35,10 +35,10 @@ export interface Error2Options {
 }
 
 export class Error2 extends Error {
-  readonly code: ErrorCode;
+  readonly code: string;
   readonly details?: Readonly<Record<string, unknown>>;
 
-  constructor(code: ErrorCode, message: string, options?: Error2Options) {
+  constructor(code: string, message: string, options?: Error2Options) {
     super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = options?.name ?? 'Error2';
     this.code = code;

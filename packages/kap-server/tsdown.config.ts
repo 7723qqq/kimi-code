@@ -1,5 +1,7 @@
 import { defineConfig } from 'tsdown';
 
+import { rawTextPlugin } from '../../build/raw-text-plugin.mjs';
+
 import {
   BUILT_IN_CATALOG_DEFINE,
   builtInCatalogDefine,
@@ -11,6 +13,7 @@ export default defineConfig({
   dts: true,
   outDir: 'dist',
   clean: true,
+  plugins: [rawTextPlugin()],
   define: {
     [BUILT_IN_CATALOG_DEFINE]: builtInCatalogDefine(),
   },

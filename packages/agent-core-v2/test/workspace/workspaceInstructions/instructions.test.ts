@@ -1,16 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { loadAgentsMdForRoots } from '#/agent/profile/context';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
@@ -21,14 +22,13 @@ import {
   workspaceInstructionsCurrentKey,
 } from '#/workspace/workspaceInstructions/workspaceInstructionsService';
 import type { WatchChange } from '#human/utils/watch';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubLog } from '../../_base/log/stubs';
 import { registerStateServices } from '../../state/stubs';
 
 const watchFires = new Map<string, Emitter<WatchChange>>();
 
-void mock.module('#human/utils/watch', () => {
+void vi.mock('#human/utils/watch', () => {
   const watch = (path: string) => {
     let emitter = watchFires.get(path);
     if (emitter === undefined) {
@@ -43,6 +43,11 @@ void mock.module('#human/utils/watch', () => {
   };
 });
 
+void vi.mock('#/agent/profile/context', async () => {
+  const original = await import('#/agent/profile/context');
+  return { ...original, loadAgentsMdForRoots: vi.fn(original.loadAgentsMdForRoots) };
+});
+
 describe('WorkspaceInstructionsService', () => {
   let workDir: string;
   let osHomeDir: string;
@@ -54,6 +59,7 @@ describe('WorkspaceInstructionsService', () => {
     osHomeDir = mkdtempSync(join(tmpdir(), 'kimi-instructions-os-'));
     brandHomeDir = mkdtempSync(join(tmpdir(), 'kimi-instructions-brand-'));
     disposables = new DisposableStore();
+    vi.mocked(loadAgentsMdForRoots).mockClear();
     watchFires.clear();
   });
 
@@ -74,7 +80,7 @@ describe('WorkspaceInstructionsService', () => {
     }
   }
 
-  function createService(hostFs: IHostFileSystem = new HostFileSystem()): {
+  function createService(): {
     service: IWorkspaceInstructionsService;
     states: IWorkspaceStateService;
     dirs: { primary: string };
@@ -92,7 +98,7 @@ describe('WorkspaceInstructionsService', () => {
           },
           onDidChange: dirsChange.event,
         });
-        reg.defineInstance(IHostFileSystem, hostFs);
+        reg.defineInstance(IHostFileSystem, new HostFileSystem());
         reg.definePartialInstance(IHostEnvironment, { homeDir: osHomeDir });
         reg.definePartialInstance(IBootstrapService, { homeDir: brandHomeDir });
         reg.defineInstance(ILogService, stubLog());
@@ -243,7 +249,7 @@ describe('WorkspaceInstructionsService', () => {
 
       dirs.primary = otherDir;
       dirsChange.fire();
-      await waitForAssertion(() => {
+      await vi.waitFor(() => {
         expect(service.snapshot.agentsMd).toContain('new primary');
       });
       expect(service.snapshot.agentsMd).not.toContain('old primary');
@@ -255,47 +261,69 @@ describe('WorkspaceInstructionsService', () => {
 
   it('queues another reload when primary changes during an in-flight load', async () => {
     const otherDir = mkdtempSync(join(tmpdir(), 'kimi-instructions-other-'));
-    const hostFs = new HostFileSystem();
-    const realReadText = hostFs.readText.bind(hostFs);
+    const actualLoad = vi.mocked(loadAgentsMdForRoots).getMockImplementation()!;
     let release: () => void = () => undefined;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let initialStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      initialStarted = resolve;
-    });
-    let initialReads = 0;
-    let otherReads = 0;
-    spyOn(hostFs, 'readText').mockImplementation(async (path, opts) => {
-      if (path === join(workDir, 'AGENTS.md')) {
-        initialReads += 1;
-        if (initialReads === 1) {
-          initialStarted();
-          await gate;
-        }
-      }
-      if (path === join(otherDir, 'AGENTS.md')) otherReads += 1;
-      return realReadText(path, opts);
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const roots: string[] = [];
+    vi.mocked(loadAgentsMdForRoots).mockImplementation(async (...args) => {
+      roots.push(args[2][0]!);
+      if (roots.length === 1) await gate;
+      return actualLoad(...args);
     });
     try {
       await writeFile(join(workDir, 'AGENTS.md'), 'old primary', 'utf8');
       await writeFile(join(otherDir, 'AGENTS.md'), 'new primary', 'utf8');
-      const { service, dirs, dirsChange } = createService(hostFs);
-      await started;
+      const { service, dirs, dirsChange } = createService();
+      await vi.waitFor(() => {
+        expect(roots).toHaveLength(1);
+      });
 
       dirs.primary = otherDir;
       dirsChange.fire();
       release();
-      await service.ready;
-      await waitForAssertion(() => {
+      await vi.waitFor(() => {
         expect(service.snapshot.agentsMd).toContain('new primary');
       });
       expect(service.snapshot.agentsMd).not.toContain('old primary');
-      expect(otherReads).toBe(1);
+      expect(roots).toEqual([workDir, otherDir]);
     } finally {
       release();
       await rm(otherDir, { recursive: true, force: true });
     }
+  });
+
+  it('registers local watchers only when watchEnabled is set', async () => {
+    const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+    const make = (watchEnabled: boolean) => {
+      const ix = createServices(disposables, {
+        strict: true,
+        additionalServices: (reg) => {
+          registerStateServices(reg);
+        },
+      });
+      const states = ix.get(IWorkspaceStateService);
+      return disposables.add(
+        new WorkspaceInstructionsService(
+          { primary: workDir, onDidChange: () => ({ dispose: () => {} }) } as unknown as IWorkspaceDirs,
+          new HostFileSystem(),
+          { homeDir: osHomeDir } as unknown as IHostEnvironment,
+          { homeDir: brandHomeDir } as unknown as IBootstrapService,
+          stubLog(),
+          states,
+          undefined,
+          watchEnabled,
+        ),
+      );
+    };
+
+    const disabled = make(false);
+    await disabled.ready;
+    await flush();
+    expect(watchFires.size).toBe(0);
+
+    const enabled = make(true);
+    await enabled.ready;
+    await flush();
+    expect(watchFires.size).toBeGreaterThan(0);
   });
 });

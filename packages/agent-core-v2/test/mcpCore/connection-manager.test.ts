@@ -1,7 +1,5 @@
-import { describe, expect, it, mock, spyOn } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, realpathSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import {
   createServer as createHttpServer,
   type IncomingMessage,
@@ -9,46 +7,40 @@ import {
   type ServerResponse,
 } from 'node:http';
 import type { AddressInfo as HttpAddress } from 'node:net';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { join } from 'pathe';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type {
   OAuthClientInformationFull,
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
-import { join } from 'pathe';
 import { z } from 'zod';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import type { EnvironmentBinding } from '#/environment/environment';
-import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { Error2 } from '#/errors';
 import { KIMI_MCP_CLIENT_NAME } from '#/mcpCore/client-shared';
-import {
-  McpConnectionManager,
-  type McpConnectionManagerOptions,
-  type McpServerEntry,
-} from '#/mcpCore/connection-manager';
-import type { StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
+import { McpConnectionManager, type McpConnectionManagerOptions, type McpServerEntry } from '#/mcpCore/connection-manager';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import type { StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import type { EnvironmentBinding } from '#/environment/environment';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
 
 const testEnvironmentBinding: EnvironmentBinding = { environmentId: 'local' };
 const testProcess = new HostProcessService();
 const testEnvironment = Object.assign(
-  new FakeEnvironment(
-    { ...testEnvironmentBinding, generation: 'test-generation' },
-    {
-      capabilities: ['process'],
-      pathClass: process.platform === 'win32' ? 'win32' : 'posix',
-    },
-  ),
+  new FakeEnvironment({ ...testEnvironmentBinding, generation: 'test-generation' }, {
+    capabilities: ['process'],
+  }),
   { process: testProcess },
 );
 const testEnvironmentResolver = {
@@ -160,16 +152,14 @@ describe('McpConnectionManager', () => {
       await cm.shutdown();
     }
 
-    const connectSpy = spyOn(Client.prototype, 'connect').mockResolvedValue();
-    const listTools = spyOn(Client.prototype, 'listTools');
+    const connectSpy = vi.spyOn(Client.prototype, 'connect').mockResolvedValue();
+    const listTools = vi.spyOn(Client.prototype, 'listTools');
     const discovery = createManager({
       reconnectRetryEnabled: true,
       resolveDefaults: () => ({ reconnectInitialDelayMs: 50, reconnectMaxDelayMs: 100 }),
     });
     try {
-      listTools.mockRejectedValue(
-        new McpError(ErrorCode.MethodNotFound, 'tools/list is unavailable'),
-      );
+      listTools.mockRejectedValue(new McpError(ErrorCode.MethodNotFound, 'tools/list is unavailable'));
       await discovery.connectAll({
         method: { transport: 'http', url: 'https://example.test/mcp' },
       });
@@ -273,11 +263,7 @@ describe('McpConnectionManager', () => {
 
   it('marks remote servers failed without retry when the configured bearer token env var is missing', async () => {
     const cases = [
-      {
-        transport: 'http' as const,
-        url: 'https://example.invalid/mcp',
-        envVar: 'REMOTE_MCP_TOKEN',
-      },
+      { transport: 'http' as const, url: 'https://example.invalid/mcp', envVar: 'REMOTE_MCP_TOKEN' },
       { transport: 'sse' as const, url: 'https://example.invalid/sse', envVar: 'LEGACY_MCP_TOKEN' },
     ];
     for (const { transport, url, envVar } of cases) {
@@ -405,6 +391,7 @@ describe('McpConnectionManager', () => {
     }
   }, 15000);
 
+
   it('announces the resolved custom identity as the MCP client name', async () => {
     const cm = createManager({ resolveClientName: () => 'acme-dev' });
     try {
@@ -425,7 +412,9 @@ describe('McpConnectionManager', () => {
       const resolved = cm.resolved('mock');
       if (resolved === undefined) throw new Error('Expected mock MCP server to connect');
       const result = await resolved.client.callTool('whoami', {});
-      expect((result.content[0] as { type: 'text'; text: string }).text).toBe(KIMI_MCP_CLIENT_NAME);
+      expect((result.content[0] as { type: 'text'; text: string }).text).toBe(
+        KIMI_MCP_CLIENT_NAME,
+      );
     } finally {
       await cm.shutdown();
     }
@@ -578,6 +567,32 @@ describe('McpConnectionManager', () => {
     }
   });
 
+  it('closes the previous stdio client when replaced by an HTTP server config', async () => {
+    const server: HttpServer = createHttpServer((_req, res) => {
+      res.writeHead(401).end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as HttpAddress).port;
+    const cm = createManager();
+    try {
+      await cm.connectAll({ alpha: stdioConfig() });
+      const close = vi.spyOn(Client.prototype, 'close');
+
+      await cm.connect('alpha', {
+        transport: 'http',
+        url: `http://127.0.0.1:${port}/mcp`,
+        startupTimeoutMs: 5_000,
+      });
+
+      expect(close).toHaveBeenCalled();
+      expect(cm.get('alpha')).toMatchObject({ transport: 'http', status: 'failed' });
+    } finally {
+      vi.restoreAllMocks();
+      await cm.shutdown();
+      await closeServer(server);
+    }
+  }, 15000);
+
   it('serializes replacement close and tracks disabled or removed clients through shutdown', async () => {
     const cm = createManager();
     let releaseReplacement = (): void => {};
@@ -592,7 +607,7 @@ describe('McpConnectionManager', () => {
       const replacementGate = new Promise<void>((resolve) => {
         releaseReplacement = resolve;
       });
-      spyOn(Client.prototype, 'close').mockImplementation(() => replacementGate);
+      vi.spyOn(Client.prototype, 'close').mockImplementation(() => replacementGate);
       await cm.connectAll({ alpha: stdioConfig() });
       let reconnectSettled = false;
       const reconnect = cm.reconnect('alpha').then(() => {
@@ -602,14 +617,14 @@ describe('McpConnectionManager', () => {
       expect(reconnectSettled).toBe(false);
       expect(cm.get('alpha')?.status).toBe('pending');
       releaseReplacement();
-      mock.restore();
+      vi.restoreAllMocks();
       await reconnect;
       expect(cm.get('alpha')?.status).toBe('connected');
 
       const disableGate = new Promise<void>((resolve) => {
         releaseDisable = resolve;
       });
-      spyOn(Client.prototype, 'close').mockImplementation(() => disableGate);
+      vi.spyOn(Client.prototype, 'close').mockImplementation(() => disableGate);
       let disableSettled = false;
       const disabling = cm.connect('alpha', { ...stdioConfig(), enabled: false }).then(() => {
         disableSettled = true;
@@ -617,7 +632,7 @@ describe('McpConnectionManager', () => {
       await sleep(50);
       expect(disableSettled).toBe(false);
       releaseDisable();
-      mock.restore();
+      vi.restoreAllMocks();
       await disabling;
       expect(cm.get('alpha')?.status).toBe('disabled');
       await cm.connect('alpha', stdioConfig());
@@ -626,7 +641,7 @@ describe('McpConnectionManager', () => {
       const removalGate = new Promise<void>((resolve) => {
         releaseRemoval = resolve;
       });
-      spyOn(Client.prototype, 'close').mockImplementation(() => removalGate);
+      vi.spyOn(Client.prototype, 'close').mockImplementation(() => removalGate);
       let removeSettled = false;
       let shutdownSettled = false;
       const removing = cm.remove('alpha').then(() => {
@@ -639,7 +654,7 @@ describe('McpConnectionManager', () => {
       expect(removeSettled).toBe(false);
       expect(shutdownSettled).toBe(false);
       releaseRemoval();
-      mock.restore();
+      vi.restoreAllMocks();
       await Promise.all([removing, shutting]);
       expect(cm.list()).toEqual([]);
       await cm.shutdown();
@@ -647,7 +662,7 @@ describe('McpConnectionManager', () => {
       releaseReplacement();
       releaseDisable();
       releaseRemoval();
-      mock.restore();
+      vi.restoreAllMocks();
       await cm.shutdown();
     }
   }, 15000);
@@ -741,8 +756,8 @@ describe('McpConnectionManager', () => {
   ])(
     'forwards the resolved default startup timeout above the SDK default over %s',
     async (_transport, config) => {
-      const connect = spyOn(Client.prototype, 'connect').mockResolvedValue();
-      const listTools = spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
+      const connect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue();
+      const listTools = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
       const cm = createManager({
         resolveDefaults: () => ({ startupTimeoutMs: 120_000 }),
       });
@@ -771,8 +786,8 @@ describe('McpConnectionManager', () => {
   ])(
     'forwards per-server startupTimeoutMs above the SDK default over %s',
     async (_transport, config) => {
-      const connect = spyOn(Client.prototype, 'connect').mockResolvedValue();
-      const listTools = spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
+      const connect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue();
+      const listTools = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
       const cm = createManager({
         resolveDefaults: () => ({ startupTimeoutMs: 120_000 }),
       });
@@ -975,7 +990,7 @@ describe('McpConnectionManager', () => {
       await closeServer(httpServer);
     }
 
-    const spawn = spyOn(testProcess, 'spawn').mockRejectedValueOnce(
+    const spawn = vi.spyOn(testProcess, 'spawn').mockRejectedValueOnce(
       new HostProcessError(HostProcessErrorCode.SpawnFailed, 'temporary resource pressure', {
         details: { errno: 'EAGAIN' },
         cause: Object.assign(new Error('resource pressure'), { code: 'EAGAIN' }),
@@ -1197,15 +1212,12 @@ describe('McpConnectionManager', () => {
           startupTimeoutMs: 5_000,
         },
       });
-      let entry = cm.get('notion');
-      const deadline = Date.now() + 2_000;
-      while (entry?.error === undefined && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-        entry = cm.get('notion');
-      }
-      expect(entry).toBeDefined();
-      expect(entry?.error ?? '').toContain('run /mcp-config login notion');
-      expect(entry?.error ?? '').not.toContain('redirectUrl must be set');
+      const entry = cm.get('notion');
+      expect(entry).toMatchObject({
+        status: 'needs-auth',
+        error: expect.stringContaining('run /mcp-config login notion'),
+      });
+      expect(entry?.error).not.toContain('redirectUrl must be set');
     } finally {
       await cm.shutdown();
       await closeServer(server);
@@ -1312,7 +1324,7 @@ describe('McpConnectionManager', () => {
     await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
     const port = (httpServer.address() as HttpAddress).port;
 
-    const ping = spyOn(Client.prototype, 'ping');
+    const ping = vi.spyOn(Client.prototype, 'ping');
     const cm = createManager({
       reconnectRetryEnabled: true,
       resolveDefaults: () => ({ reconnectInitialDelayMs: 50, reconnectMaxDelayMs: 100 }),
@@ -1334,11 +1346,9 @@ describe('McpConnectionManager', () => {
       seen.length = 0;
       ping.mockClear();
 
-      const internalClient = (
-        cm as unknown as {
-          entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
-        }
-      ).entries.get('remote')?.client?.client;
+      const internalClient = (cm as unknown as {
+        entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
+      }).entries.get('remote')?.client?.client;
       internalClient?.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
 
       await sleep(300);
@@ -1405,11 +1415,9 @@ describe('McpConnectionManager', () => {
       });
       expect(cm.get('remote')?.status).toBe('connected');
 
-      const internalClient = (
-        cm as unknown as {
-          entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
-        }
-      ).entries.get('remote')?.client?.client;
+      const internalClient = (cm as unknown as {
+        entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
+      }).entries.get('remote')?.client?.client;
       healthy = false;
       internalClient?.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
 
@@ -1536,13 +1544,13 @@ describe('McpConnectionManager', () => {
           resolve(true);
         };
       });
-      const invalidation = spyOn(oauthService, 'invalidateTokensIfCurrent').mockImplementation(
-        async (serverName, serverUrl, expected) => {
+      const invalidation = vi
+        .spyOn(oauthService, 'invalidateTokensIfCurrent')
+        .mockImplementation(async (serverName, serverUrl, expected) => {
           await invalidationGate;
           return invalidate(serverName, serverUrl, expected);
-        },
-      );
-      const peek = spyOn(oauthService, 'peekRejectedGrant');
+        });
+      const peek = vi.spyOn(oauthService, 'peekRejectedGrant');
       const first = cm.markNeedsAuth('hyper', callError, client);
       const second = cm.markNeedsAuth('hyper', callError, client);
       expect(second).toBe(first);
@@ -1559,9 +1567,8 @@ describe('McpConnectionManager', () => {
         await sleep(10);
       }
       expect(cm.get('hyper')?.status).toBe('needs-auth');
-      expect(
-        ((await peek.mock.results[0]?.value) as { tokens?: unknown } | undefined)?.tokens,
-      ).toBeDefined();
+      const peeked = (await peek.mock.results[0]?.value) as { tokens?: unknown } | undefined;
+      expect(peeked?.tokens).toBeDefined();
       expect(invalidation).toHaveBeenCalled();
       expect(firstSettled).toBe(false);
       expect(secondSettled).toBe(false);
@@ -1576,11 +1583,7 @@ describe('McpConnectionManager', () => {
       replacement = await startAnonymousDiscoveryHttpMcpServer({ tokenEndpoint: 'invalid_grant' });
       const replacementProvider = oauthService.getProvider('hyper', replacement.url);
       await replacementProvider.saveTokens(revokedTokens);
-      await cm.connect('hyper', {
-        transport: 'http',
-        url: replacement.url,
-        startupTimeoutMs: 5000,
-      });
+      await cm.connect('hyper', { transport: 'http', url: replacement.url, startupTimeoutMs: 5000 });
       expect(cm.get('hyper')?.status).toBe('connected');
       const nextClient = cm.resolved('hyper')?.client;
       if (nextClient === undefined) throw new Error('expected a replacement client');
@@ -1595,8 +1598,8 @@ describe('McpConnectionManager', () => {
         await sleep(10);
       }
       expect(thirdSettled).toBe(false);
-      const connectSpy = spyOn(Client.prototype, 'connect').mockResolvedValue();
-      const listSpy = spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
+      const connectSpy = vi.spyOn(Client.prototype, 'connect').mockResolvedValue();
+      const listSpy = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
       await cm.reconnect('hyper');
       expect(cm.get('hyper')?.status).toBe('connected');
       const finalClient = cm.resolved('hyper')?.client;
@@ -1634,7 +1637,7 @@ describe('McpConnectionManager', () => {
       expect(await oauthService.hasTokens('hyper', replacement.url)).toBe(false);
     } finally {
       releaseInvalidation();
-      mock.restore();
+      vi.restoreAllMocks();
       await cm.shutdown();
       await server.close();
       await replacement?.close();

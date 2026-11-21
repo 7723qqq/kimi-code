@@ -1,11 +1,8 @@
-import { describe, expect, it, mock } from 'bun:test';
-
-import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
+import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import type { AppState } from '#/tui/types';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
-import { createFakeClock } from '#test/helpers/fake-clock';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
 function strip(text: string): string {
@@ -24,7 +21,6 @@ function baseState(overrides: Partial<AppState> = {}): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 200_000,
-    sessionStats: createEmptySessionStats(),
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -45,7 +41,7 @@ function goal(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
     status: 'active',
     turnsUsed: 7,
     tokensUsed: 1234,
-    wallClockMs: 245_000, // 4m05s
+    wallClockMs: 245_000,
     budget: {
       turnBudget: null,
       tokenBudget: null,
@@ -56,6 +52,10 @@ function goal(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
 }
 
 describe('FooterComponent — goal badge', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('omits the badge when there is no goal', () => {
     const footer = new FooterComponent(baseState({ goal: null }));
     expect(strip(footer.render(160)[0]!)).not.toContain('[goal');
@@ -68,41 +68,35 @@ describe('FooterComponent — goal badge', () => {
     expect(out).toContain('active');
     expect(out).toContain('4m');
     expect(out).toContain('7 turns');
-    // No N/M when no turn budget is set.
     expect(out).not.toMatch(/\d+\/\d+ turns/);
   });
 
   it('keeps counting elapsed time for an active goal between snapshots', () => {
-    const clock = createFakeClock(0);
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+
     const footer = new FooterComponent(
       baseState({ goal: goal({ wallClockMs: 0, turnsUsed: 0 }) }),
-      () => {},
-      clock,
     );
 
     expect(strip(footer.render(160)[0]!)).toContain('0s');
-    clock.advance(2_500);
+    vi.setSystemTime(2_500);
     expect(strip(footer.render(160)[0]!)).toContain('3s');
-    footer.dispose();
   });
 
   it('requests a repaint while an active goal timer is visible', () => {
-    const clock = createFakeClock();
-    const onRefresh = mock();
+    vi.useFakeTimers();
+    const onRefresh = vi.fn();
 
-    new FooterComponent(baseState({ goal: goal({ wallClockMs: 0 }) }), onRefresh, clock);
+    new FooterComponent(baseState({ goal: goal({ wallClockMs: 0 }) }), onRefresh);
 
-    clock.advance(1_000);
+    vi.advanceTimersByTime(1_000);
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
   it('shows used/limit turns only when a turn budget is set', () => {
     const footer = new FooterComponent(
-      baseState({
-        goal: goal({
-          budget: { turnBudget: 20, tokenBudget: null, wallClockBudgetMs: null },
-        } as Partial<GoalSnapshot>),
-      }),
+      baseState({ goal: goal({ budget: { turnBudget: 20, tokenBudget: null, wallClockBudgetMs: null } } as Partial<GoalSnapshot>) }),
     );
     expect(strip(footer.render(160)[0]!)).toContain('7/20 turns');
   });

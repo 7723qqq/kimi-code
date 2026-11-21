@@ -1,3 +1,4 @@
+import { execFileSync as nodeExecFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import * as nodePath from 'node:path';
 
@@ -149,16 +150,12 @@ export function getShellPathBridge(env: ShellPathBridgeEnv): ShellPathBridge {
   const cached = bridgeCache.get(key);
   if (cached !== undefined) return cached;
   const bridge = createShellPathBridge(env, {
-    execFileSync: (file, args) => {
-      const result = Bun.spawnSync([file, ...args], {
-        stdout: 'pipe',
-        stderr: 'ignore',
+    execFileSync: (file, args) =>
+      nodeExecFileSync(file, [...args], {
+        encoding: 'utf8',
         timeout: CYGPATH_TIMEOUT_MS,
         windowsHide: true,
-      });
-      if (result.exitCode !== 0) throw new Error('spawn failed');
-      return result.stdout.toString('utf8');
-    },
+      }),
     isFile: (path) => existsSync(path),
   });
   bridgeCache.set(key, bridge);

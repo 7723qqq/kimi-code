@@ -1,0 +1,345 @@
+commit f407c52e39
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Thu Nov 12 19:26:49 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 12 19:26:49 2026 +0800
+
+    chore: sync release/2026-11-12 back to main (#4873)
+    
+    * fix(agent-core-v2): truncate oversized skill content (#4834)
+    
+    * fix(kap-server): bind the main agent when a session is created (#4839)
+    
+    * fix(kap-server): bind the main agent when a session is created
+    
+    * fix(kap-server): reject a profile on prompt submissions
+    
+    * fix(kap-server): reject a profile change through the session profile
+    
+    * fix(kap-server): wait for model configuration before binding a new session
+    
+    * fix(agent-core-v2): deduplicate restored task notifications (#4836)
+    
+    * fix(agent-core-v2): deduplicate restored task notifications
+    
+    * chore: add notification replay fix changeset
+    
+    * fix(agent-core-v2): preserve task notifications after prompt-only crashes
+    
+    * fix(agent-core-v2): complete prompts before ending turns
+    
+    * test: align lifecycle snapshots with prompt completion order
+    
+    * fix(agent-core-v2): settle all prompts during turn finalization
+    
+    * fix(kap-server): drop reserved metadata keys from session profile updates (#4842)
+    
+    * fix(kap-server): drop reserved metadata keys from session profile updates
+    
+    * fix(kap-server): keep stored reserved metadata keys on profile updates
+    
+    * docs: split and rewrite the server API reference (#4841)
+    
+    * docs: split and rewrite the server API reference
+    
+    * docs: redirect old server API anchors to the split pages
+    
+    * docs: describe profile metadata as a replacement
+    
+    * docs: mark question responses as answered-only
+    
+    * fix(kap-server): avoid heartbeat timeout after scheduling stalls (#4823)
+    
+    * fix(kap-server): avoid heartbeat timeout reaping after stalls or clock jumps
+    
+    * fix(kap-server): grace heartbeat window for short scheduling stalls
+    
+    * fix(kap-server): treat only clearly late heartbeats as scheduling stalls
+    
+    * fix(kap-server): time heartbeats on a monotonic clock and drain queued input before reaping
+    
+    ---------
+    
+    Co-authored-by: Kimi Code (Grok Bot) <kimi-code-grok-bot@users.noreply.github.com>
+    
+    * fix(kap-server): undo a turn only once when requests race (#4846)
+    
+    * docs: describe heartbeat stall handling (#4849)
+    
+    * docs: describe heartbeat stall handling
+    
+    * docs: explain the monotonic clock in the heartbeat notes
+    
+    * fix(agent-core-v2): acquire session lock before loop restoration (#4848)
+    
+    * fix(agent-core-v2): acquire session lock before loop restoration
+    
+    * chore: add session lock lifecycle changeset
+    
+    * fix(agent-core-v2): hold session lock through loop restoration
+    
+    - add an operation-scoped lease to the session run gate
+    - hold it across loop initialization, reset, and pending drains
+    - cover idle timeout and release ordering
+    
+    * fix(agent-core-v2): keep the output of stopped tool calls (#4854)
+    
+    * fix(kap-server): drop the partial reply of a retried step (#4855)
+    
+    * fix(agent-core-v2): dedupe historical tool schemas (#4862)
+    
+    * fix(agent-core-v2): dedupe historical tool schemas
+    
+    * chore: add duplicate tool schema changeset
+    
+    * fix(agent-core-v2): preserve first tool schema declaration
+    
+    * fix(agent-core-v2): remind on changed tool schemas
+    
+    * fix(agent-core-v2): block stale tool schema calls
+    
+    * fix(agent-core-v2): normalize registry schemas in pending checks
+    
+    * fix(agent-core-v2): import registry tool metadata type
+    
+    * fix(agent-core-v2): preserve abort handling during validation
+    
+    * fix(agent-core-v2): refine validation hook preparation
+    
+    * fix(agent-core-v2): make validation hooks synchronous
+    
+    * fix(agent-core-v2): preserve tool result notes on fork (#4867)
+    
+    * fix(agent-core-v2): preserve tool result notes on fork
+    
+    * chore: add fork tool result note changeset
+    
+    * fix(agent-core-v2): scope tool result note restoration to forks
+    
+    * fix(agent-core-v2): normalize inherited tool result notes
+    
+    * fix(agent-core-v2): isolate fork note restoration
+    
+    * feat(tui): sweep running titles toward text and add KIMI_CODE_TUI_ANIMATION_FPS (#4843) (#4870)
+    
+    * chore: sync web dist from code-app (#4871)
+    
+    code-app: 8ab17294e031323186d357d121c5360b8353900e
+    
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+    
+    * ci: release packages (#4835)
+    
+    Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+    
+    * chore: sync web dist from code-app
+    
+    code-app: 5835391dac3a2b9e0c65ffbd418f0d6042a7adb2
+    
+    ---------
+    
+    Co-authored-by: Haozhe <yanghaozhe@moonshot.ai>
+    Co-authored-by: qer <wbxl2000@outlook.com>
+    Co-authored-by: Kimi Code (Grok Bot) <kimi-code-grok-bot@users.noreply.github.com>
+    Co-authored-by: grapedge <grapedge@gmail.com>
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+    Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+
+ .changeset/activity-turn-time.md                   |    5 -
+ .changeset/agent-frame-compacting-status.md        |    5 -
+ .changeset/autocomplete-preview-scheduling.md      |    5 -
+ .changeset/clipboard-osc52-scope.md                |    5 -
+ .changeset/compact-while-compacting.md             |    5 -
+ .changeset/conversation-turns-and-items.md         |    5 -
+ .changeset/ctrl-o-skill-card-turns.md              |    5 -
+ .changeset/edit-same-file-without-reread.md        |    5 -
+ .changeset/error-envelope-cleanup.md               |    5 -
+ .changeset/expanded-tool-output-render.md          |    5 -
+ .changeset/explicit-skill-directory-watch.md       |    5 -
+ .changeset/failed-prompt-status.md                 |    5 -
+ .changeset/file-history-turn-number-only.md        |    5 -
+ .changeset/fix-compaction-appended-injection.md    |    5 -
+ .changeset/fix-raw-download-errors.md              |    5 -
+ .changeset/fix-resumed-tool-definitions.md         |    5 -
+ .../fix-tool-updates-without-dynamic-loading.md    |    5 -
+ .changeset/fix-unicode-file-downloads.md           |    5 -
+ .changeset/fix-windows-long-search-roots.md        |    5 -
+ .changeset/fork-baseline-tools.md                  |    5 -
+ .changeset/fullscreen-copy-clipboard.md            |    5 -
+ .changeset/fullscreen-copy-on-select.md            |    5 -
+ .changeset/fullscreen-ctrl-c-copy.md               |    5 -
+ .changeset/fullscreen-experimental-default.md      |    5 -
+ .changeset/fullscreen-update-bullet.md             |    5 -
+ .changeset/gemini-context-replay.md                |    5 -
+ .changeset/google-genai-custom-registry.md         |    5 -
+ .changeset/hide-ctrl-o-hint-while-grouping.md      |    5 -
+ .changeset/idempotent-prompt-ids.md                |    5 -
+ .changeset/include-gitignored-suggestions.md       |    5 -
+ .changeset/live-thinking-title.md                  |    5 -
+ .changeset/load-permission-rules.md                |    5 -
+ .changeset/lucky-tools-retry.md                    |    5 -
+ .changeset/multi-root-skill-variants.md            |    5 -
+ .changeset/persist-permission-rules.md             |    5 -
+ .changeset/pi-tui-animation-frame-rate.md          |    5 -
+ .changeset/pi-tui-animation-frames.md              |    5 -
+ .changeset/preserve-edit-utf8-bom.md               |    5 -
+ .changeset/preserve-upload-unicode-filenames.md    |    5 -
+ .changeset/quiet-wires-upgrade.md                  |    5 -
+ .changeset/record-session-title-telemetry.md       |    5 -
+ .changeset/remote-session-surface-routing.md       |    5 -
+ .changeset/remove-subagent-primary-reservation.md  |    6 -
+ .changeset/reuse-mcp-image-uploads.md              |    5 -
+ .changeset/search-glance-wrap-indent.md            |    5 -
+ .changeset/search-without-source.md                |    5 -
+ .changeset/session-create-settings.md              |    5 -
+ .changeset/skill-catalog-tool-policy.md            |    5 -
+ .changeset/skill-tool-invocation-contract.md       |    5 -
+ .changeset/stream-items-end-once.md                |    5 -
+ .changeset/thinking-validation-error.md            |    5 -
+ .changeset/tidy-transcript-groups.md               |    5 -
+ .changeset/tidy-workspace-primary-lifecycle.md     |    5 -
+ .changeset/tool-call-interrupted-on-stop.md        |    5 -
+ .changeset/tower-artifact-missions.md              |    5 -
+ .changeset/tui-animation-fps.md                    |    5 -
+ .changeset/undo-by-turn-id.md                      |    5 -
+ .changeset/watch-extra-skill-dirs.md               |    5 -
+ .changeset/workspace-registry-reloads.md           |    5 -
+ apps/kimi-code/CHANGELOG.md                        |  142 ++
+ ...kNode-44TlyJDj.js => CodeBlockNode-om8a2riA.js} |    4 +-
+ ...eBlock-CxI5R-55.js => PreCodeBlock-BHJQjFs1.js} |    2 +-
+ .../{Tooltip-DOOdCGpi.js => Tooltip-BcfjRNdB.js}   |    2 +-
+ ...FfKCzGG.js => abnfDiagram-VRR7QNED-CTSw0MmU.js} |    2 +-
+ .../assets/{arc-C4MVvXLy.js => arc-DLsAzqs2.js}    |    2 +-
+ ...js => architectureDiagram-ZJ3FMSHR-C2Jg_PGr.js} |    2 +-
+ ...dtuNJo.js => blockDiagram-677ZJIJ3-YcRUHtXp.js} |    2 +-
+ ...-CyzMC0ai.js => c4Diagram-LMCZKHZV-BOLzeUuS.js} |    2 +-
+ apps/kimi-code/dist-web/assets/channel-CPIbaHme.js |    1 -
+ apps/kimi-code/dist-web/assets/channel-Sc9bU9sb.js |    1 +
+ ...7J3B-4dVtSB5y.js => chunk-2Q5K7J3B-BWmNZ5ao.js} |    2 +-
+ ...IVSS-Bvy0mZ5h.js => chunk-32BRIVSS-BgImCDE5.js} |    2 +-
+ ...RSS4-CceAd3Ok.js => chunk-5VM5RSS4-BbNHM-cH.js} |    2 +-
+ ...RPZG-CylpMyU_.js => chunk-EX3LRPZG-DGcqxrqA.js} |    2 +-
+ ...2WC7-DlAJDlFq.js => chunk-JWPE2WC7-FgfiNa8X.js} |    2 +-
+ ...B5TN-Duo-s9Ow.js => chunk-MOJQB5TN-BsPno4BE.js} |    2 +-
+ ...IY6F--YMVAzrQ.js => chunk-RYQCIY6F-X_hDETs9.js} |    2 +-
+ ...EXUC-BXE0Nyba.js => chunk-V7JOEXUC-BKoMClkc.js} |    2 +-
+ ...4FIN-BDUaJoz3.js => chunk-VR4S4FIN-BZWcSCuH.js} |    2 +-
+ ...QBXY-CNxlQjtF.js => chunk-XXDRQBXY-BW-0jb56.js} |    2 +-
+ .../assets/classDiagram-OUVF2IWQ-COW61_Fd.js       |    1 -
+ .../assets/classDiagram-OUVF2IWQ-CrhVH0_e.js       |    1 +
+ .../assets/classDiagram-v2-EOCWNBFH-COW61_Fd.js    |    1 -
+ .../assets/classDiagram-v2-EOCWNBFH-CrhVH0_e.js    |    1 +
+ ...dvixqr.js => cose-bilkent-JH36ORCC-D4cLvOgb.js} |    2 +-
+ ...L2-BwFItJc_.js => cynefin-VYW2F7L2-DJ2vBMMV.js} |    2 +-
+ ...93HY.js => cynefinDiagram-TSTJHNR4-D_PXrmEZ.js} |    2 +-
+ ...JZFB-BIF1NSmS.js => dagre-VKFMJZFB-B9BwB5Vd.js} |    2 +-
+ ...PY-Cn8OZbkk.js => diagram-FQU43EPY-C_hVfxbc.js} |    2 +-
+ ...AW-CkLiyj2Q.js => diagram-G47NLZAW-WtmqOGQT.js} |    2 +-
+ ...WH-l2iIVdFg.js => diagram-NH7WQ7WH-DWavsGcz.js} |    2 +-
+ ...LP-CDlFWVUS.js => diagram-OA4YK3LP-D2jN4TMn.js} |    2 +-
+ ...NY-BjkBNtA5.js => diagram-WEI45ONY-BH2PncjB.js} |    2 +-
+ ...ti1zSNC.js => ebnfDiagram-CCIWWBDH-BwlhLdEv.js} |    2 +-
+ ...-CPS9luOd.js => erDiagram-Q63AITRT-Dtd7dfmJ.js} |    2 +-
+ ...oGvyjkE.js => flowDiagram-23GEKE2U-B1CUscmL.js} |    2 +-
+ ...jdTzOz.js => ganttDiagram-NO4QXBWP-BTYuRPp5.js} |    2 +-
+ ...7b-.js => gitGraphDiagram-IHSO6WYX-h6KA64Od.js} |    2 +-
+ .../{index-eBzZTCUm.js => index-B12MTJ9q.js}       |    2 +-
+ .../{index-BQ1num7v.js => index-DfwlxX2p.js}       |  924 +++----
+ .../{index-B4g0_2N1.css => index-Dsj4D8mr.css}     |    4 +-
+ .../{index-Cb3DWIpj.js => index-Q0MXWhCh.js}       |    2 +-
+ .../{index10-BzpEHmzK.js => index10-BbMNV5CU.js}   |    2 +-
+ .../{index5-DJj8n_pc.js => index5-BY9Ggdbj.js}     |    2 +-
+ .../{index6-CwW9OQh_.js => index6-gl5IejyY.js}     |    2 +-
+ .../{index8-Ncb09kEa.js => index8-BbhbQ_3S.js}     |    2 +-
+ .../{index9-DpJwJVNA.js => index9-DMnt2qWH.js}     |    2 +-
+ ...mu4pvl3.js => infoDiagram-FWYZ7A6U-CtTk5f4H.js} |    2 +-
+ ...mvq.js => ishikawaDiagram-FXEZZL3T-CEqz5GH7.js} |    2 +-
+ ...YduM.js => journeyDiagram-5HDEW3XC-kgeD4chT.js} |    2 +-
+ ...l.js => kanban-definition-HUTT4EX6-BKFeWKsY.js} |    2 +-
+ .../{linear-CwYjNwV9.js => linear-D33r9vi-.js}     |    2 +-
+ ...rkstream-B6j6yM2H.js => markstream-Bk4lIXja.js} |    4 +-
+ ...d.core-D4VzIMsl.js => mermaid.core-Be1AvLdV.js} |    8 +-
+ ....js => mindmap-definition-LN4V7U3C-iEq-wzlI.js} |    2 +-
+ ...BVsg2PDg.js => pegDiagram-2B236MQR-BBk0H0tf.js} |    2 +-
+ ...ChIhqPTn.js => pieDiagram-ENE6RG2P-Cun0vMAT.js} |    2 +-
+ ...wNO.js => quadrantDiagram-ABIIQ3AL-Bjy1ju-A.js} |    2 +-
+ ...vv3.js => railroadDiagram-RFXS5EU6-CdFr6aXR.js} |    2 +-
+ ....js => requirementDiagram-TGXJPOKE-BPnI1oNE.js} |    2 +-
+ ...6nwVQ.js => sankeyDiagram-HTMAVEWB-BUPL1Dgb.js} |    2 +-
+ ...1wv.js => sequenceDiagram-DBY2YBRQ-4etGTNRF.js} |    2 +-
+ ...ifH29aU.js => sizeCapture-X5ZJPWSS-BJo61C70.js} |    2 +-
+ ...DPHF71.js => stateDiagram-2N3HPSRC-C4luDtzJ.js} |    2 +-
+ .../assets/stateDiagram-v2-6OUMAXLB-CJ8GqKYX.js    |    1 -
+ .../assets/stateDiagram-v2-6OUMAXLB-cL7j8umU.js    |    1 +
+ ...-CP5E6gL2.js => swimlanes-5IMT3BWC-CfbPoCYc.js} |    4 +-
+ .../assets/swimlanesDiagram-G3AALYLV-BudX37_0.js   |    8 -
+ .../assets/swimlanesDiagram-G3AALYLV-R47RzVMf.js   |    8 +
+ ...js => timeline-definition-FHXFAJF6-ClmXwvFR.js} |    2 +-
+ ...GCwtsza.js => vennDiagram-L72KCM5P-DoSgp_k6.js} |    2 +-
+ ...zJOF.js => vue.runtime.esm-bundler-BitRzX9I.js} |    2 +-
+ ...G83G.js => wardleyDiagram-EHGQE667-C4y9yLaK.js} |    2 +-
+ ...sI9Y.js => xychartDiagram-FW5EYKEG-DWaxQd8T.js} |    2 +-
+ apps/kimi-code/dist-web/index.html                 |    4 +-
+ apps/kimi-code/package.json                        |    2 +-
+ docs/.vitepress/config.ts                          |   22 +-
+ docs/.vitepress/theme/serverApiLegacyAnchors.ts    |  355 +++
+ docs/en/configuration/config-files.md              |    6 +-
+ docs/en/reference/server-api-conversation.md       |  470 ++++
+ docs/en/reference/server-api-files.md              |  606 +++++
+ docs/en/reference/server-api-service.md            | 1555 ++++++++++++
+ docs/en/reference/server-api-sessions.md           | 1052 ++++++++
+ docs/en/reference/server-api.md                    | 2532 +-------------------
+ docs/zh/configuration/config-files.md              |    6 +-
+ docs/zh/reference/server-api-conversation.md       |  470 ++++
+ docs/zh/reference/server-api-files.md              |  606 +++++
+ docs/zh/reference/server-api-service.md            | 1555 ++++++++++++
+ docs/zh/reference/server-api-sessions.md           | 1052 ++++++++
+ docs/zh/reference/server-api.md                    | 2529 +------------------
+ packages/agent-core-v2/src/agent/loop/history.ts   |   41 +-
+ .../agent-core-v2/src/agent/loop/loopService.ts    |  106 +-
+ .../src/agent/loop/promptProjection.ts             |    7 +-
+ .../agent-core-v2/src/agent/loop/turnProjection.ts |    5 +-
+ .../src/agent/task/completionRestore.ts            |   12 +-
+ .../src/agent/toolSelect/dynamicTools.ts           |   32 +-
+ .../src/agent/toolSelect/toolSelectService.ts      |   84 +-
+ .../src/features/skill/tools/skillTool.ts          |   23 +-
+ .../agentLifecycle/agentLifecycleService.ts        |    4 +-
+ .../src/session/sessionActivity/sessionRunGate.ts  |    2 +
+ .../sessionActivity/sessionRunGateService.ts       |    7 +-
+ .../src/tool/executor/hook-composer.ts             |   13 +
+ .../src/tool/executor/tool-executor.ts             |   16 +
+ packages/agent-core-v2/src/tool/executor/types.ts  |    3 +
+ .../test/agent/loop/coreLoopService.test.ts        |   12 +
+ .../agent-core-v2/test/agent/loop/loop.test.ts     |   65 +-
+ .../test/agent/task/rpc-events.test.ts             |   87 +-
+ .../test/agent/toolExecutor/toolExecutor.test.ts   |   38 +-
+ .../agent/toolSelect/toolSelectService.test.ts     |   67 +-
+ .../agent-core-v2/test/agent/undo/undo.test.ts     |   11 +-
+ .../agent-core-v2/test/app/config/config.test.ts   |    2 +-
+ .../skill/catalog/skill-tool-manager.test.ts       |    3 +
+ .../test/features/skill/skill.test.ts              |   46 +-
+ .../session/sessionActivity/sessionRunGate.test.ts |   11 +-
+ .../test/session/subagent/forkParity.test.ts       |   24 +-
+ packages/agent-core-v2/test/stubs.ts               |    7 +-
+ packages/agent-core-v2/test/tool/tool.test.ts      |    4 +-
+ packages/agent-core-v2/test/wire/resume.test.ts    |    6 +-
+ packages/kap-server/src/protocol/rest-prompt.ts    |    3 +-
+ packages/kap-server/src/protocol/rest-session.ts   |   19 +-
+ packages/kap-server/src/protocol/session.ts        |    8 +-
+ packages/kap-server/src/routes/prompts.ts          |   41 +-
+ .../kap-server/src/routes/sessionAgentConfig.ts    |   59 +-
+ packages/kap-server/src/routes/sessionProfile.ts   |   33 +-
+ packages/kap-server/src/routes/sessions.ts         |   27 +-
+ .../src/services/conversation/conversationFeed.ts  |   13 +-
+ .../src/services/conversation/conversationFold.ts  |    9 +-
+ packages/kap-server/src/transport/errors.ts        |    1 +
+ .../src/transport/ws/v1/wsConnectionV1.ts          |   31 +-
+ packages/kap-server/test/prompts.test.ts           |  113 +-
+ .../kap-server/test/services/conversation.test.ts  |   41 +
+ packages/kap-server/test/sessions.test.ts          |  357 ++-
+ packages/kap-server/test/wsConnectionV1.test.ts    |  134 +-
+ packages/node-sdk/CHANGELOG.md                     |    6 +
+ packages/node-sdk/package.json                     |    2 +-
+ packages/pi-tui/CHANGELOG.md                       |   12 +
+ packages/pi-tui/package.json                       |    2 +-
+ 197 files changed, 9952 insertions(+), 6045 deletions(-)

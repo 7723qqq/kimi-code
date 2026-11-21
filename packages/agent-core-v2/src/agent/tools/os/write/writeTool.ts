@@ -1,42 +1,30 @@
 import { dirname } from 'pathe';
 
-import {
-  acquireOrWhenReady,
-  IAgentEnvironmentService,
-  pinnedGeneration,
-} from '#/agent/environmentBinding/agentEnvironment';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { withFileMemory } from '#/agent/tools/fileMemory';
-import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
-import { IGitMemoryService } from '#/features/gitMemory/gitMemoryService';
-import { IAgentPlanService } from '#/features/plan/plan';
+import { type HostFileStat, type IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { isHostFsNotDirectory, isHostFsNotFound } from '#/os/interface/hostFsErrors';
+import { acquireOrWhenReady, IAgentEnvironmentService, pinnedGeneration } from '#/agent/environmentBinding/agentEnvironment';
+import { IAgentPlanService } from '#/features/plan/plan';
+import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import {
-  PathSecurityError,
-  resolvePathAccessPath,
-  type PathClass,
-  type WorkspaceConfig,
-} from '#/tool/path-access';
-import { assertRealPathWriteTarget } from '#/tool/realpath-access';
-import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
-  ToolSideEffects,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import {
+  resolvePathAccessPath,
+  type WorkspaceConfig,
+} from '#/tool/path-access';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import { IWriteTool, WriteInputSchema, type WriteInput } from './write';
 import WRITE_DESCRIPTION from './write.md?raw';
 
 export class WriteTool implements IWriteTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Write' as const;
-  readonly sideEffect = ToolSideEffects.write;
   readonly description = WRITE_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WriteInputSchema);
 
@@ -44,7 +32,6 @@ export class WriteTool implements IWriteTool {
     @IAgentEnvironmentService private readonly environment: IAgentEnvironmentService,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @ISessionSkillCatalog private readonly skillCatalog?: ISessionSkillCatalog,
-    @IGitMemoryService private readonly gitMemory?: IGitMemoryService,
     @IAgentPlanService private readonly planService?: IAgentPlanService,
   ) {}
 
@@ -67,13 +54,7 @@ export class WriteTool implements IWriteTool {
         execute: async () => {
           const current = await this.planService?.resolveFile(path);
           if (current === undefined || current.path !== path) return { isError: true, output: 'The active plan changed before execution. Retry the tool call.' };
-          return this.execution(
-            current.fs,
-            args,
-            path,
-            { workspaceDir: current.environmentPath.dirname(path), additionalDirs: [] },
-            current.pathClass,
-          );
+          return this.execution(current.fs, args, path, current.environmentPath.dirname(path));
         },
       };
     }
@@ -113,7 +94,7 @@ export class WriteTool implements IWriteTool {
             if (expectedGeneration !== undefined && lease.environment.identity.generation !== expectedGeneration) {
               return { isError: true, output: 'Environment changed before execution. Retry the tool call.' };
             }
-            return await this.execution(lease.environment.fs!, args, path, workspace, env.pathClass);
+            return await this.execution(lease.environment.fs!, args, path);
           } finally {
             lease.dispose();
           }
@@ -124,41 +105,25 @@ export class WriteTool implements IWriteTool {
     }
   }
 
-  private async execution(
-    fs: IHostFileSystem,
-    args: WriteInput,
-    safePath: string,
-    workspace: WorkspaceConfig,
-    pathClass: PathClass,
-  ): Promise<ExecutableToolResult> {
-    try {
-      await assertRealPathWriteTarget(fs, safePath, workspace, pathClass);
-    } catch (error) {
-      if (error instanceof PathSecurityError) return { isError: true, output: error.message };
-      throw error;
-    }
+  private async execution(fs: IHostFileSystem, args: WriteInput, safePath: string, parent = dirname(safePath)): Promise<ExecutableToolResult> {
     const mode = args.mode ?? 'overwrite';
-    const write = () =>
-      mode === 'append' ? fs.appendText(safePath, args.content) : fs.writeText(safePath, args.content);
+    const write = () => mode === 'append' ? fs.appendText(safePath, args.content) : fs.writeText(safePath, args.content);
     try {
       try {
         await write();
       } catch (error) {
         if (!isHostFsNotFound(error) && !isHostFsNotDirectory(error)) throw error;
-        const parentError = await this.ensureParentDirectory(fs, safePath);
+        const parentError = await this.ensureParentDirectory(fs, parent);
         if (parentError !== undefined) {
           return { isError: true, output: parentError };
         }
         await write();
       }
       const bytesWritten = Buffer.byteLength(args.content, 'utf8');
-      return await withFileMemory(
-        {
-          output: `${mode === 'append' ? 'Appended' : 'Wrote'} ${String(bytesWritten)} bytes to ${args.path}`,
-        },
-        args.path,
-        this.gitMemory,
-      );
+      return {
+        output: `${mode === 'append' ? 'Appended' : 'Wrote'} ${String(bytesWritten)} bytes to ${args.path}`,
+        note: '<system>The change is applied; there is no need to Read the file back to check it.</system>',
+      };
     } catch (error) {
       if (isHostFsNotFound(error)) {
         return {
@@ -173,11 +138,7 @@ export class WriteTool implements IWriteTool {
     }
   }
 
-  private async ensureParentDirectory(
-    fs: IHostFileSystem,
-    safePath: string,
-  ): Promise<string | undefined> {
-    const parent = dirname(safePath);
+  private async ensureParentDirectory(fs: IHostFileSystem, parent: string): Promise<string | undefined> {
     let stat: HostFileStat;
     try {
       stat = await fs.stat(parent);

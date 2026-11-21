@@ -1,23 +1,23 @@
 import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 
-import { headersToRecord, type LlmRemoteErrorMessage } from '#/llm/errors';
-import { modelKey, type LlmModel } from '#/llm/model';
+import { headersToRecord, type LlmRemoteErrorMessage } from '#human/llm/errors';
+import { modelKey, type LlmModel } from '#human/llm/model';
 import {
   type FamilyMaxOutputDefaults,
   fullReasoningEchoRequired,
   ignoredSamplingParamsForModel,
   maxOutputDefaultsForModel,
   resolveModelFamily,
-} from '#/llm/modelFamily';
-import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
-import { resolveModelConnection } from '#/llm/protocol/connection';
+} from '#human/llm/modelFamily';
+import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#human/llm/protocol/base';
+import { resolveModelConnection } from '#human/llm/protocol/connection';
 import {
   remainingContextTokens,
   resolveMaxCompletionCap,
   type FormatRequestInput,
-} from '#/llm/protocol/format';
-import { applyThinking } from '#/llm/protocol/thinking';
+} from '#human/llm/protocol/format';
+import { applyThinking } from '#human/llm/protocol/thinking';
 import {
   mergeRequestHeaders,
   type LlmClientContext,
@@ -28,16 +28,16 @@ import {
   type LlmRequesterOptions,
   type LlmRequestEvent,
   type ToolCallIdPolicy,
-} from '#/llm/requester/requester';
-import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
-import { getLlmDispatcher } from '#/llm/requester/timeout';
-import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
+} from '#human/llm/requester/requester';
+import { createThinkingTagEventHandler } from '#human/llm/requester/thinking-tags';
+import { getLlmDispatcher } from '#human/llm/requester/timeout';
+import { toLlmSyntaxErrorMessage } from '#human/llm/syntax-errors';
 import {
   encodeReasoningEffortFallback,
   resolveThinkingEffortForModel,
   type ThinkingEffort,
-} from '#/llm/thinking';
-import type { LlmLogger } from '#/log/log';
+} from '#human/llm/thinking';
+import type { LlmLogger } from '#human/log/log';
 
 import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
 import { getOpenAILegacyModelCapability } from './capability';

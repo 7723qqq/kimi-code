@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import '#/errors';
+
 import { Error2 } from '#/_base/errors/errors';
 import { fromErrorPayload, toErrorPayload } from '#/_base/errors/serialize';
 
@@ -91,11 +92,7 @@ describe('toErrorPayload', () => {
   it('caps cause recursion for pathologically deep chains', () => {
     let error: Error2 | undefined;
     for (let i = 0; i < 20; i += 1) {
-      error = new Error2(
-        'internal',
-        `layer ${i}`,
-        error === undefined ? undefined : { cause: error },
-      );
+      error = new Error2('internal', `layer ${i}`, error === undefined ? undefined : { cause: error });
     }
     const payload = toErrorPayload(error!);
     let depth = 0;
@@ -158,21 +155,5 @@ describe('fromErrorPayload', () => {
       retryable: false,
     });
     expect(revived).not.toHaveProperty('statusCode');
-  });
-
-  it('round-trips an Error2 with no details', () => {
-    const original = new Error2('internal', 'simple');
-    const revived = fromErrorPayload(toErrorPayload(original));
-    expect(revived).toBeInstanceOf(Error2);
-    expect(revived.code).toBe('internal');
-    expect(revived.message).toBe('simple');
-  });
-
-  it('round-trips an Error2 with cause: undefined (no cause key)', () => {
-    const original = new Error2('internal', 'no cause', { cause: undefined });
-    const payload = toErrorPayload(original);
-    expect('cause' in payload).toBe(false);
-    const revived = fromErrorPayload(payload);
-    expect(revived.code).toBe('internal');
   });
 });

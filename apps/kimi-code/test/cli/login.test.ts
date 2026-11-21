@@ -1,43 +1,30 @@
-/**
- * `kimi login`
- *
- * Verifies that the login sub-command is registered on the program and
- * that the action drives `harness.auth.login`, prints the device code to
- * stderr, and exits with the right code on success / failure.
- */
-
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import type { Mock } from 'bun:test';
+import { Command } from 'commander';
+import { afterEach, beforeEach, describe, expect, it, vi, requireActual } from '@moonshot-ai/testkit/vitest';
 
 import { OAuthAccessDeniedError } from '@moonshot-ai/kimi-code-oauth';
-import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
-import { Command } from 'commander';
 
-const mockLogin = mock();
+const mockLogin = vi.fn();
 
-void mock.module('@moonshot-ai/kimi-code-sdk', () => {
+void vi.mock('@moonshot-ai/kimi-code-sdk', () => {
+  const actual = requireActual(
+    '@moonshot-ai/kimi-code-sdk',
+  );
   return {
-    ...sdkModule,
-    createKimiHarness: mock(() => ({
+    ...actual,
+    createKimiHarness: vi.fn(() => ({
       auth: {
         login: mockLogin,
       },
-      getConfig: mock(async () => ({ providers: {}, models: {} })),
-      setConfig: mock(async () => {}),
     })),
   };
 });
 
-void mock.module('#/utils/open-url', () => ({ openUrl: mock() }));
+void vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
 
 import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
 
 import { registerLoginCommand } from '#/cli/sub/login';
 import { openUrl } from '#/utils/open-url';
-
-// The mocked exports keep their real signatures, so the assertions need the mock surface.
-const openUrlMock = openUrl as unknown as Mock<typeof openUrl>;
-const createKimiHarnessMock = createKimiHarness as unknown as Mock<typeof createKimiHarness>;
 
 class ExitCalled extends Error {
   constructor(public code: number | string | null | undefined) {
@@ -46,17 +33,17 @@ class ExitCalled extends Error {
 }
 
 describe('kimi login', () => {
-  let exitSpy: ReturnType<typeof spyOn>;
-  let stderrSpy: ReturnType<typeof spyOn>;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     mockLogin.mockReset();
-    openUrlMock.mockReset();
-    createKimiHarnessMock.mockClear();
-    exitSpy = spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
+    vi.mocked(openUrl).mockReset();
+    vi.mocked(createKimiHarness).mockClear();
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
       throw new ExitCalled(code);
     }) as never);
-    stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
@@ -125,12 +112,12 @@ describe('kimi login', () => {
     expect(writtenChunks.some((chunk: string) => chunk.includes('https://example.com/v'))).toBe(
       true,
     );
-    expect(openUrlMock).toHaveBeenCalledWith('https://example.com/v?code=ABCD-EFGH');
+    expect(openUrl).toHaveBeenCalledWith('https://example.com/v?code=ABCD-EFGH');
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it('still prints device code prompt when opening the browser fails', async () => {
-    openUrlMock.mockImplementation(() => {
+    vi.mocked(openUrl).mockImplementation(() => {
       throw new Error('no browser');
     });
     mockLogin.mockImplementation(
@@ -165,7 +152,7 @@ describe('kimi login', () => {
     expect(writtenChunks.some((chunk: string) => chunk.includes('https://example.com/v'))).toBe(
       true,
     );
-    expect(openUrlMock).toHaveBeenCalledWith('https://example.com/v?code=ABCD-EFGH');
+    expect(openUrl).toHaveBeenCalledWith('https://example.com/v?code=ABCD-EFGH');
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
@@ -195,65 +182,9 @@ describe('kimi login', () => {
     const writtenChunks = stderrSpy.mock.calls.map((call: unknown[]) => String(call[0]));
     expect(
       writtenChunks.some((chunk: string) =>
-        chunk.includes(
-          'Login cancelled: Authorization denied: The resource owner denied the request',
-        ),
+        chunk.includes('Login cancelled: Authorization denied: The resource owner denied the request'),
       ),
     ).toBe(true);
     expect(exitSpy).toHaveBeenCalledWith(1);
-  });
-
-  it('drives Google login flow when --provider google is passed', async () => {
-    const mockStartLoginFlow = mock().mockImplementation(
-      async (options: { onAuthUrl?: (data: { authUrl: string }) => void }) => {
-        options.onAuthUrl?.({ authUrl: 'https://accounts.google.com/o/oauth2/auth?test=1' });
-        return { providerName: 'google-gemini', ok: true };
-      },
-    );
-
-    const oauthModule = await import('@moonshot-ai/kimi-code-oauth');
-    spyOn(oauthModule.GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
-      available: false,
-    });
-    // Keep the real class (the static above lives on it) and stub the one
-    // instance method the flow drives.
-    spyOn(oauthModule.GoogleOAuthManager.prototype, 'startLoginFlow').mockImplementation(
-      mockStartLoginFlow as unknown as () => never,
-    );
-
-    const program = new Command('kimi').exitOverride();
-    registerLoginCommand(program);
-
-    await expect(
-      program.parseAsync(['node', 'kimi', 'login', '--provider', 'google']),
-    ).rejects.toThrow(ExitCalled);
-
-    expect(mockStartLoginFlow).toHaveBeenCalledTimes(1);
-    expect(openUrlMock).toHaveBeenCalledWith('https://accounts.google.com/o/oauth2/auth?test=1');
-    expect(exitSpy).toHaveBeenCalledWith(0);
-  });
-
-  it('drives Antigravity sync flow when --provider antigravity is passed', async () => {
-    const oauthModule = await import('@moonshot-ai/kimi-code-oauth');
-    spyOn(oauthModule.GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
-      available: true,
-      email: 'test@gmail.com',
-      credsPath: '/mock/creds.json',
-    });
-    const mockImport = mock().mockResolvedValue({ accessToken: 'test-token' });
-    spyOn(
-      oauthModule.GoogleOAuthManager.prototype,
-      'importAntigravityCredentials',
-    ).mockImplementation(mockImport as unknown as () => never);
-
-    const program = new Command('kimi').exitOverride();
-    registerLoginCommand(program);
-
-    await expect(
-      program.parseAsync(['node', 'kimi', 'login', '--provider', 'antigravity']),
-    ).rejects.toThrow(ExitCalled);
-
-    expect(mockImport).toHaveBeenCalledTimes(1);
-    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });

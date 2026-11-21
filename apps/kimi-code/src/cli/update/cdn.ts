@@ -5,8 +5,7 @@ import {
   kimiCodeCdnCanaryChannelUrl,
   kimiCodeCdnLatestJsonUrl,
   kimiCodeCdnLatestUrl,
-} from '#/constant/region-urls';
-import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/utils/render-clock';
+} from '#/constant/app';
 
 import type { UpdateChannel, UpdateManifest } from './types';
 
@@ -17,12 +16,6 @@ const RolloutBatchSchema = z.object({
   delaySeconds: z.number().int().min(0),
 });
 
-/**
- * CDN `latest.json` wire format. Deliberately NOT `.strict()` — unknown
- * fields are ignored so future manifest additions never break shipped
- * clients (the plain-text `/latest` taught us that hard-failing on
- * unexpected content bricks the update path forever).
- */
 export const UpdateManifestSchema = z.object({
   version: z.string().refine((value) => valid(value) !== null, { error: 'invalid semver' }),
   publishedAt: z
@@ -32,9 +25,7 @@ export const UpdateManifestSchema = z.object({
 });
 
 export interface FetchLatestResult {
-  /** Raw newest version — what `kimi upgrade` installs, never rollout-gated. */
   readonly latest: string;
-  /** Null when the JSON manifest was unavailable and we fell back to plain text. */
   readonly manifest: UpdateManifest | null;
 }
 
@@ -42,11 +33,10 @@ async function fetchWithTimeout<T>(
   fetchImpl: typeof fetch,
   input: string,
   timeoutMs: number,
-  clock: RenderClock,
   read: (response: Response) => Promise<T>,
 ): Promise<T> {
   const controller = new AbortController();
-  const timeout = clock.setTimeout(() => {
+  const timeout = setTimeout(() => {
     controller.abort();
   }, timeoutMs);
   const operation = (async () => {
@@ -61,27 +51,15 @@ async function fetchWithTimeout<T>(
   try {
     return await Promise.race([operation, aborted]);
   } finally {
-    clock.clearTimeout(timeout);
+    clearTimeout(timeout);
   }
 }
 
-/**
- * Fetch the latest published Kimi Code version from the CDN.
- *
- * **Throws** on any failure (network error, non-2xx, empty body, non-semver
- * text). Callers must catch — `refreshUpdateCache` deliberately lets the
- * error propagate so the existing cache stays intact instead of being
- * overwritten with a null `latest` on a transient blip.
- *
- * `fetchImpl` and `clock` are injectable for tests; they default to the global
- * `fetch` and the system clock.
- */
 export async function fetchLatestVersionFromCdn(
   fetchImpl: typeof fetch = fetch,
   timeoutMs: number = CDN_FETCH_TIMEOUT_MS,
-  clock: RenderClock = SYSTEM_RENDER_CLOCK,
 ): Promise<string> {
-  return fetchWithTimeout(fetchImpl, kimiCodeCdnLatestUrl(), timeoutMs, clock, async (response) => {
+  return fetchWithTimeout(fetchImpl, kimiCodeCdnLatestUrl(), timeoutMs, async (response) => {
     if (!response.ok) {
       throw new Error(`CDN /latest returned HTTP ${response.status}`);
     }
@@ -97,9 +75,8 @@ async function fetchManifestFromCdn(
   fetchImpl: typeof fetch,
   url: string,
   timeoutMs: number,
-  clock: RenderClock,
 ): Promise<UpdateManifest> {
-  return fetchWithTimeout(fetchImpl, url, timeoutMs, clock, async (response) => {
+  return fetchWithTimeout(fetchImpl, url, timeoutMs, async (response) => {
     if (!response.ok) {
       throw new Error(`CDN ${url} returned HTTP ${response.status}`);
     }
@@ -107,29 +84,16 @@ async function fetchManifestFromCdn(
   });
 }
 
-/**
- * Fetch the rollout manifest, falling back to the plain-text `/latest` when
- * `latest.json` is unavailable or malformed. The fallback removes any
- * deployment-order coupling between client releases and the CDN file, and a
- * null manifest means "fully rolled out" — exactly the pre-rollout behavior.
- *
- * **Throws** only when both sources fail; callers must catch (see above).
- */
 export async function fetchLatestFromCdn(
   fetchImpl: typeof fetch = fetch,
   timeoutMs: number = CDN_FETCH_TIMEOUT_MS,
-  clock: RenderClock = SYSTEM_RENDER_CLOCK,
 ): Promise<FetchLatestResult> {
-  const manifest = await fetchManifestFromCdn(
-    fetchImpl,
-    kimiCodeCdnLatestJsonUrl(),
-    timeoutMs,
-    clock,
-  ).catch(() => null);
+  const manifest = await fetchManifestFromCdn(fetchImpl, kimiCodeCdnLatestJsonUrl(), timeoutMs)
+    .catch(() => null);
   if (manifest !== null) {
     return { latest: manifest.version, manifest };
   }
-  const latest = await fetchLatestVersionFromCdn(fetchImpl, timeoutMs, clock);
+  const latest = await fetchLatestVersionFromCdn(fetchImpl, timeoutMs);
   return { latest, manifest: null };
 }
 
@@ -137,21 +101,14 @@ export interface ChannelFeed extends FetchLatestResult {
   readonly channel: UpdateChannel;
 }
 
-/** Canary failures stay failures because stable is a different release line. */
 export async function fetchChannelFeed(
   channel: UpdateChannel,
   fetchImpl: typeof fetch = fetch,
   timeoutMs: number = CDN_FETCH_TIMEOUT_MS,
-  clock: RenderClock = SYSTEM_RENDER_CLOCK,
 ): Promise<ChannelFeed> {
   if (channel === 'stable') {
-    return { channel, ...(await fetchLatestFromCdn(fetchImpl, timeoutMs, clock)) };
+    return { channel, ...(await fetchLatestFromCdn(fetchImpl, timeoutMs)) };
   }
-  const manifest = await fetchManifestFromCdn(
-    fetchImpl,
-    kimiCodeCdnCanaryChannelUrl(),
-    timeoutMs,
-    clock,
-  );
+  const manifest = await fetchManifestFromCdn(fetchImpl, kimiCodeCdnCanaryChannelUrl(), timeoutMs);
   return { channel, latest: manifest.version, manifest };
 }

@@ -1,31 +1,35 @@
-import { afterEach, describe, expect, it, jest } from 'bun:test';
-
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { createScopedTestHost } from '#/_base/di/test';
 import { isError2 } from '#/_base/errors/errors';
 import { ILogService, type LogPayload } from '#/_base/log/log';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IOAuthService } from '#/app/auth/auth';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { ConfigRegistry } from '#/app/config/configService';
 import { IEventService } from '#/app/event/event';
-import { MODEL_CATALOG_SECTION } from '#/app/kosongConfig/configSection';
 import { IProviderDiscoveryService, type RetiredModel } from '#/app/kosongConfig/discovery';
 import '#/app/kosongConfig/discoveryService';
+import { MODEL_CATALOG_SECTION } from '#/app/kosongConfig/configSection';
 import { IKosongConfigService } from '#/app/kosongConfig/kosongConfig';
-import { IModelService, type ModelRecord } from '#/llm-adapter/model/model';
 import '#/app/kosongConfig/kosongConfigService';
 import '#/llm-adapter/model/errors';
-import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/provider';
+import {
+  IModelService,
+  type ModelRecord,
+} from '#/llm-adapter/model/model';
 import '#/llm-adapter/model/model-service';
-import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from '#test/helpers/stubs';
+import {
+  IProviderService,
+  type ProviderConfig,
+} from '#/llm-adapter/provider/provider';
 import '#/llm-adapter/provider/provider-service';
 
 import { StubConfigService, stubOAuthService, stubTokenProvider } from '../../stubs';
-import { stubAgentIdentity } from '../agentIdentity/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
+import { stubAgentIdentity } from '../agentIdentity/stubs';
 
 function stubEvents(): IEventService & { published: Array<{ type: string; payload: unknown }> } {
   const published: Array<{ type: string; payload: unknown }> = [];
@@ -78,7 +82,10 @@ async function createHost(
       IBootstrapService,
       stubBootstrap('/tmp/kimi-home', {}, { requestHeaders: { 'User-Agent': 'kimi-test/1.0' } }),
     ],
-    [IAgentIdentity, stubAgentIdentity({ hostRequestHeaders: { 'User-Agent': 'kimi-test/1.0' } })],
+    [
+      IAgentIdentity,
+      stubAgentIdentity({ hostRequestHeaders: { 'User-Agent': 'kimi-test/1.0' } }),
+    ],
   ]);
   const providers = host.app.accessor.get(IProviderService);
   const models = host.app.accessor.get(IModelService);
@@ -95,8 +102,8 @@ async function createHost(
 }
 
 afterEach(() => {
-  restoreGlobals();
-  restoreEnvs();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 const staticProviders: Record<string, ProviderConfig> = {
@@ -115,8 +122,8 @@ const staticSections: Record<string, unknown> = {
 
 describe('refreshProviderModels modelSource short-circuit', () => {
   it('answers scoped refreshes of static providers with unchanged and no I/O', async () => {
-    const fetchMock = jest.fn();
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
     const { host, discovery } = await createHost(staticSections);
     try {
       const result = await discovery.refreshProviderModels({ providerId: 'static-p' });
@@ -139,7 +146,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
   });
 
   it('hides static entries from the orchestrator and merges them back verbatim', async () => {
-    const fetchMock = jest.fn(
+    const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -154,7 +161,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const { host, config, discovery, events, providers, models } = await createHost({
       providers: {
@@ -162,11 +169,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
         acme: {
           type: 'openai',
           apiKey: 'sk-acme',
-          source: {
-            kind: 'apiJson',
-            url: 'https://registry.example.test/api.json',
-            apiKey: 'sk-registry',
-          },
+          source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
         },
       },
       models: staticModels,
@@ -186,17 +189,9 @@ describe('refreshProviderModels modelSource short-circuit', () => {
 
       const providerRecords = providers.list();
       expect(Object.keys(providerRecords).toSorted()).toEqual(['acme', 'static-p']);
-      expect(providerRecords['static-p']).toEqual({
-        type: 'openai',
-        modelSource: 'static',
-        apiKey: 'sk-static',
-      });
+      expect(providerRecords['static-p']).toEqual({ type: 'openai', modelSource: 'static', apiKey: 'sk-static' });
       const modelRecords = models.list();
-      expect(modelRecords['s1']).toEqual({
-        provider: 'static-p',
-        model: 'static-model',
-        maxContextSize: 1000,
-      });
+      expect(modelRecords['s1']).toEqual({ provider: 'static-p', model: 'static-model', maxContextSize: 1000 });
       expect(modelRecords['acme/m1']).toBeDefined();
       expect(config.get<string>('defaultModel')).toBe('s1');
       expect(config.get('thinking')).toEqual({ enabled: true });
@@ -206,7 +201,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
   });
 
   it('persists upgrade metadata and publishes an ordinary catalog change', async () => {
-    const fetchMock = jest.fn(
+    const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -231,7 +226,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const { host, config, discovery, events, models } = await createHost({
       providers: {
@@ -239,11 +234,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
         acme: {
           type: 'openai',
           apiKey: 'sk-acme',
-          source: {
-            kind: 'apiJson',
-            url: 'https://registry.example.test/api.json',
-            apiKey: 'sk-registry',
-          },
+          source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
         },
       },
       models: {
@@ -290,9 +281,9 @@ describe('refreshProviderModels modelSource short-circuit', () => {
 
   describe('when the registry drops the default model', () => {
     function stubRegistryModels(models: Record<string, unknown>): void {
-      setGlobal(
+      vi.stubGlobal(
         'fetch',
-        jest.fn(
+        vi.fn(
           async () =>
             new Response(
               JSON.stringify({
@@ -316,11 +307,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
         acme: {
           type: 'openai',
           apiKey: 'sk-acme',
-          source: {
-            kind: 'apiJson',
-            url: 'https://registry.example.test/api.json',
-            apiKey: 'sk-registry',
-          },
+          source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
         },
       },
       models: {
@@ -400,12 +387,9 @@ describe('refreshProviderModels modelSource short-circuit', () => {
   it('throws provider.not_found for an unknown scoped provider', async () => {
     const { host, discovery } = await createHost(staticSections);
     try {
-      const caught = await discovery.refreshProviderModels({ providerId: 'missing' }).then(
-        () => undefined,
-        (error: unknown) => error,
+      await expect(discovery.refreshProviderModels({ providerId: 'missing' })).rejects.toSatisfy(
+        (error: unknown) => isError2(error) && error.code === 'provider.not_found',
       );
-      expect(isError2(caught)).toBe(true);
-      expect(isError2(caught) ? caught.code : undefined).toBe('provider.not_found');
     } finally {
       host.dispose();
     }
@@ -430,7 +414,7 @@ describe('refreshProviderModels write behavior', () => {
     try {
       let inFlight = 0;
       let maxInFlight = 0;
-      const fetchMock = jest.fn().mockImplementation(async () => {
+      const fetchMock = vi.fn().mockImplementation(async () => {
         inFlight++;
         maxInFlight = Math.max(maxInFlight, inFlight);
         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -449,7 +433,7 @@ describe('refreshProviderModels write behavior', () => {
           }),
         };
       });
-      setGlobal('fetch', fetchMock);
+      vi.stubGlobal('fetch', fetchMock);
 
       await Promise.all([
         discovery.refreshProviderModels({ scope: 'all' }),
@@ -464,7 +448,7 @@ describe('refreshProviderModels write behavior', () => {
   });
 
   it('sends the host User-Agent on custom-registry fetches', async () => {
-    const fetchMock = jest.fn(
+    const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -479,7 +463,7 @@ describe('refreshProviderModels write behavior', () => {
           { headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const { host, discovery } = await createHost({
       providers: {
@@ -511,8 +495,8 @@ describe('refreshProviderModels write behavior', () => {
 
   it('refreshes a hand-configured API-key provider at the managed endpoint', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    setEnv('KIMI_CODE_BASE_URL', baseUrl);
-    const fetchMock = jest.fn(
+    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
+    const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -529,7 +513,7 @@ describe('refreshProviderModels write behavior', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const { host, config, discovery, events, providers, models } = await createHost({
       providers: {
@@ -577,8 +561,8 @@ describe('refreshProviderModels write behavior', () => {
 
   it('clears a stale defaultModel whose alias upstream dropped', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    setEnv('KIMI_CODE_BASE_URL', baseUrl);
-    const fetchMock = jest.fn(
+    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
+    const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -587,7 +571,7 @@ describe('refreshProviderModels write behavior', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const { host, config, discovery, models } = await createHost({
       providers: {
@@ -623,8 +607,8 @@ describe('refreshProviderModels write behavior', () => {
 
   it('leaves the subagent model pool untouched when a refresh drops its default alias', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    setEnv('KIMI_CODE_BASE_URL', baseUrl);
-    const fetchMock = jest.fn(
+    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
+    const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -633,7 +617,7 @@ describe('refreshProviderModels write behavior', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const { host, config, discovery } = await createHost({
       providers: {
@@ -664,8 +648,8 @@ describe('refreshProviderModels write behavior', () => {
 
   it('leaves the whole pool untouched even when a refresh drops a non-default entry', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    setEnv('KIMI_CODE_BASE_URL', baseUrl);
-    const fetchMock = jest.fn(
+    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
+    const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -674,7 +658,7 @@ describe('refreshProviderModels write behavior', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const { host, config, discovery } = await createHost({
       providers: {
@@ -706,7 +690,7 @@ describe('refreshProviderModels write behavior', () => {
   });
 
   it('never exposes a halfway-removed catalog: the registries stay untouched until the single atomic write', async () => {
-    const fetchMock = jest.fn(
+    const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -721,7 +705,7 @@ describe('refreshProviderModels write behavior', () => {
           { headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const { host, config, discovery, providers, models } = await createHost({
       providers: {
@@ -743,8 +727,7 @@ describe('refreshProviderModels write behavior', () => {
     try {
       let seenDuringWrite: { providers: readonly string[]; models: readonly string[] } | undefined;
       const originalReplaceSections = config.replaceSections.bind(config);
-      const replaceSectionsSpy = jest.spyOn(config, 'replaceSections');
-      replaceSectionsSpy.mockImplementation(async (sections) => {
+      vi.spyOn(config, 'replaceSections').mockImplementation(async (sections) => {
         seenDuringWrite = {
           providers: Object.keys(providers.list()),
           models: Object.keys(models.list()),
@@ -756,7 +739,7 @@ describe('refreshProviderModels write behavior', () => {
 
       expect(result.failed).toEqual([]);
       expect(seenDuringWrite).toEqual({ providers: ['acme'], models: ['acme/m1'] });
-      expect(replaceSectionsSpy.mock.calls.length).toBe(1);
+      expect(vi.mocked(config.replaceSections).mock.calls.length).toBe(1);
       expect(providers.list()['acme']).toBeDefined();
       expect(models.list()['acme/m2']).toBeDefined();
       expect(models.list()['acme/m1']).toBeUndefined();
@@ -769,7 +752,7 @@ describe('refreshProviderModels write behavior', () => {
 
 describe('refreshProviderModels api_key_env credentials', () => {
   it('fails an open-platform provider with conflicting api_key_env and oauth, without affecting others', async () => {
-    const fetchMock = jest.fn(async (input: unknown) => {
+    const fetchMock = vi.fn(async (input: unknown) => {
       if (String(input).endsWith('api.json')) {
         return new Response(
           JSON.stringify({
@@ -791,7 +774,7 @@ describe('refreshProviderModels api_key_env credentials', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
     const { host, discovery, models } = await createHost({
       providers: {
         'moonshot-cn': {
@@ -802,11 +785,7 @@ describe('refreshProviderModels api_key_env credentials', () => {
         acme: {
           type: 'openai',
           apiKey: 'sk-acme',
-          source: {
-            kind: 'apiJson',
-            url: 'https://registry.example.test/api.json',
-            apiKey: 'sk-registry',
-          },
+          source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
         },
       },
       models: {},
@@ -826,15 +805,15 @@ describe('refreshProviderModels api_key_env credentials', () => {
   });
 
   it('refreshes an open-platform provider through api_key_env without persisting the secret', async () => {
-    setEnv('KIMI_TEST_OPEN_PLATFORM_KEY', 'sk-open-platform');
-    const fetchMock = jest.fn(
+    vi.stubEnv('KIMI_TEST_OPEN_PLATFORM_KEY', 'sk-open-platform');
+    const fetchMock = vi.fn(
       async () =>
-        new Response(JSON.stringify({ data: [{ id: 'kimi-k2', context_length: 262144 }] }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({ data: [{ id: 'kimi-k2', context_length: 262144 }] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
     );
-    setGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
     const { host, discovery, providers } = await createHost({
       providers: {
         'moonshot-cn': { type: 'kimi', apiKeyEnv: 'KIMI_TEST_OPEN_PLATFORM_KEY' },
@@ -881,9 +860,9 @@ describe('refreshProviderModels defaultModel self-heal', () => {
   };
 
   function stubManagedCatalogFetch(): void {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      jest.fn(
+      vi.fn(
         async () =>
           new Response(
             JSON.stringify({
@@ -912,7 +891,7 @@ describe('refreshProviderModels defaultModel self-heal', () => {
       stubOAuthService(stubTokenProvider(['access-token'])),
     );
     try {
-      const replaceSections = jest.spyOn(config, 'replaceSections');
+      const replaceSections = vi.spyOn(config, 'replaceSections');
       const result = await discovery.refreshProviderModels({ scope: 'all' });
 
       expect(result.failed).toEqual([]);
@@ -957,32 +936,34 @@ describe('refreshProviderModels defaultModel self-heal', () => {
       stubOAuthService(stubTokenProvider(['access-token'])),
     );
     try {
-      setGlobal(
+      vi.stubGlobal(
         'fetch',
-        jest.fn(async () => {
-          await config.set('defaultModel', 'kimi-code/kimi-k3');
-          return new Response(
-            JSON.stringify({
-              data: [
-                {
-                  id: 'kimi-k2',
-                  limit: { context: 131072 },
-                  reasoning: { type: 'both' },
-                  display_name: 'Kimi K2',
-                },
-                {
-                  id: 'kimi-k3',
-                  limit: { context: 131072 },
-                  reasoning: { type: 'both' },
-                  display_name: 'Kimi K3',
-                },
-              ],
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          );
-        }),
+        vi.fn(
+          async () => {
+            await config.set('defaultModel', 'kimi-code/kimi-k3');
+            return new Response(
+              JSON.stringify({
+                data: [
+                  {
+                    id: 'kimi-k2',
+                    limit: { context: 131072 },
+                    reasoning: { type: 'both' },
+                    display_name: 'Kimi K2',
+                  },
+                  {
+                    id: 'kimi-k3',
+                    limit: { context: 131072 },
+                    reasoning: { type: 'both' },
+                    display_name: 'Kimi K3',
+                  },
+                ],
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            );
+          },
+        ),
       );
-      const replaceSections = jest.spyOn(config, 'replaceSections');
+      const replaceSections = vi.spyOn(config, 'replaceSections');
       const result = await discovery.refreshProviderModels({ scope: 'all' });
 
       expect(result).toEqual({
@@ -1010,7 +991,7 @@ describe('refreshProviderModels defaultModel self-heal', () => {
       stubOAuthService(stubTokenProvider(['access-token'])),
     );
     try {
-      const replaceSections = jest.spyOn(config, 'replaceSections');
+      const replaceSections = vi.spyOn(config, 'replaceSections');
       const result = await discovery.refreshProviderModels({ scope: 'all' });
 
       expect(result).toEqual({
@@ -1038,7 +1019,7 @@ describe('refreshProviderModels defaultModel self-heal', () => {
       stubOAuthService(stubTokenProvider(['access-token'])),
     );
     try {
-      const replaceSections = jest.spyOn(config, 'replaceSections');
+      const replaceSections = vi.spyOn(config, 'replaceSections');
       const result = await discovery.refreshProviderModels({ scope: 'all' });
 
       expect(result).toEqual({

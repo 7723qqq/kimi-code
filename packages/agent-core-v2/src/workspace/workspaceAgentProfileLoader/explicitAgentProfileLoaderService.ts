@@ -1,21 +1,21 @@
 import { ILogService } from '#/_base/log/log';
 import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { parseAgentFileText } from '#/workspace/workspaceAgentProfileLoader/internal/agentFile';
+import { AgentProfileLoaderBase } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileLoader';
+import { agentProfileFromFile } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileFromFile';
 import {
   AGENT_PROFILE_SOURCE_PRIORITY,
   type AgentProfileContribution,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
 import type { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { parseAgentFileText } from '#/workspace/workspaceAgentProfileLoader/internal/agentFile';
-import { agentProfileFromFile } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileFromFile';
-import { AgentProfileLoaderBase } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileLoader';
 import { resolveAgentPath } from '#/workspace/workspaceAgentProfileLoader/internal/paths';
 import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 
-import type { IExplicitAgentProfileLoader } from './explicitAgentProfileLoader';
+import { IExplicitAgentProfileLoader } from './explicitAgentProfileLoader';
 
 export class ExplicitAgentProfileLoaderService
   extends AgentProfileLoaderBase
@@ -67,3 +67,4 @@ export class ExplicitAgentProfileLoaderService
     return { profiles };
   }
 }
+

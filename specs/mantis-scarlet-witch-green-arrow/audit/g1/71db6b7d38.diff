@@ -1,0 +1,357 @@
+commit 71db6b7d38c60307080da0c00c9e9d5865312e1a
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Thu Nov 19 15:22:40 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 19 15:22:40 2026 +0800
+
+    feat: align Desktop Canary versions with CLI (#5089)
+    
+    * fix: continue desktop canary sequence after migration
+    
+    * style: name canary migration constants
+    
+    * feat: align desktop canary versions with CLI
+    
+    * fix: resume Desktop Canary release uploads
+    
+    ---------
+    
+    Co-authored-by: kimi-agent-bot <317908118+kimi-agent-bot@users.noreply.github.com>
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index c961998b5d..dd15d251bf 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -141,7 +141,7 @@ jobs:
+       - run: pnpm run lint
+       - run: node --test 'scripts/checks/*.test.mjs'
+       - run: node --test scripts/check-comments.test.mjs
+-      - run: node --test scripts/desktop-artifact-prefix.test.mjs scripts/canary-version.test.mjs scripts/canary-linux.test.mjs scripts/mac-update-minimum-system-version.test.mjs
++      - run: node --test scripts/desktop-artifact-prefix.test.mjs scripts/canary-version.test.mjs scripts/desktop-canary-publish.test.mjs scripts/canary-linux.test.mjs scripts/mac-update-minimum-system-version.test.mjs
+       - run: pnpm run sherif
+ 
+   typecheck:
+diff --git a/.github/workflows/desktop-build.yml b/.github/workflows/desktop-build.yml
+index 6835ac55bf..58b774410f 100644
+--- a/.github/workflows/desktop-build.yml
++++ b/.github/workflows/desktop-build.yml
+@@ -160,6 +160,9 @@ jobs:
+       needs.nightly-guard.outputs.skip != 'true' &&
+       (github.event_name != 'push' || github.workflow != 'Desktop build' || needs.branch-kind.outputs.kind == 'weekly')
+     runs-on: ubuntu-latest
++    permissions:
++      contents: read
++      actions: read
+     outputs:
+       targets: ${{ steps.matrix.outputs.targets }}
+       artifact-prefix: ${{ steps.artifact-name.outputs.prefix }}
+@@ -181,6 +184,7 @@ jobs:
+         if: inputs.canary || github.event_name == 'schedule' || (github.event_name == 'push' && github.workflow == 'Desktop build' && startsWith(github.ref, 'refs/heads/release/'))
+         env:
+           CANARY_TARGET_VERSION: ${{ inputs.target-version }}
++          GH_TOKEN: ${{ github.token }}
+         run: |
+           pnpm install --frozen-lockfile --ignore-scripts
+           node scripts/canary-version.mjs >> "$GITHUB_OUTPUT"
+@@ -447,11 +451,40 @@ jobs:
+           set -euo pipefail
+           version="$CANARY_VERSION"
+           tag="kimi-code-desktop@${version}"
++          title="Kimi Code Desktop ${version}"
+           echo "==> canary tag: ${tag}"
+           ls -la dist-desktop-canary
+-          gh release create "$tag" \
+-            --target "${GITHUB_SHA}" \
+-            --title "Kimi Code Desktop ${version}" \
+-            --notes "目标版本：${version%%-canary.*}；来源：${GITHUB_REF_NAME} @ ${GITHUB_SHA}。CDN 需手动发布。" \
+-            --prerelease
+-          gh release upload "$tag" dist-desktop-canary/*
++          release_json=""
++          if release_json=$(gh release view "$tag" --json tagName,targetCommitish,name,isDraft,isPrerelease,assets 2>&1); then
++            printf '%s' "$release_json" | jq -e \
++              --arg tag "$tag" \
++              --arg target "$GITHUB_SHA" \
++              --arg title "$title" \
++              '.tagName == $tag and .targetCommitish == $target and .name == $title and .isDraft == false and .isPrerelease == true' >/dev/null \
++              || { echo "error: existing ${tag} does not match this build" >&2; exit 1; }
++          else
++            printf '%s' "$release_json" | grep -qiE 'release not found|HTTP 404' \
++              || { printf '%s\n' "$release_json" >&2; exit 1; }
++            gh release create "$tag" \
++              --target "${GITHUB_SHA}" \
++              --title "Kimi Code Desktop ${version}" \
++              --notes "目标版本：${version%%-canary.*}；来源：${GITHUB_REF_NAME} @ ${GITHUB_SHA}。CDN 需手动发布。" \
++              --prerelease
++            release_json='{"assets":[]}'
++          fi
++          mapfile -t existing < <(printf '%s' "$release_json" | jq -r '.assets[]?.name')
++          missing=()
++          while IFS= read -r -d '' file; do
++            name="${file##*/}"
++            found=0
++            for current in "${existing[@]}"; do
++              if [ "$current" = "$name" ]; then
++                found=1
++                break
++              fi
++            done
++            if [ "$found" -eq 0 ]; then missing+=("$file"); fi
++          done < <(find dist-desktop-canary -maxdepth 1 -type f -print0 | sort -z)
++          if [ "${#missing[@]}" -gt 0 ]; then
++            gh release upload "$tag" "${missing[@]}"
++          fi
+diff --git a/scripts/canary-version.mjs b/scripts/canary-version.mjs
+index 68aad48c6f..15d443ecb6 100644
+--- a/scripts/canary-version.mjs
++++ b/scripts/canary-version.mjs
+@@ -2,12 +2,14 @@ import { execFileSync } from 'node:child_process';
+ import { existsSync, readFileSync, readdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
++import { computeCanaryVersion, parseCanaryVersion } from './canary-release.mjs';
+ 
+ const pkgPath = 'apps/desktop/package.json';
+ const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+ if (process.argv.includes('--stamp')) {
+   const version = process.env.CANARY_VERSION;
+-  if (!/^\d+\.\d+\.\d+-canary\.\d+\.\d+\.g[0-9a-f]{8}$/.test(version ?? '')) throw new Error('Invalid Canary version');
++  const legacy = /^\d+\.\d+\.\d+-canary\.\d+\.\d+\.g[0-9a-f]{8}$/.test(version ?? '');
++  if (!legacy && parseCanaryVersion(version ?? '') === null) throw new Error('Invalid Canary version');
+   pkg.version = version;
+   pkg.canarySourceBranch = process.env.GITHUB_REF_NAME ?? '';
+   pkg.canarySourceCommit = process.env.GITHUB_SHA ?? '';
+@@ -47,9 +49,10 @@ if (process.argv.includes('--stamp')) {
+     }
+   }
+   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(target ?? '')) throw new Error('Set a stable Canary target version');
+-  const run = process.env.GITHUB_RUN_NUMBER;
+-  const attempt = process.env.GITHUB_RUN_ATTEMPT;
+-  const sha = process.env.GITHUB_SHA;
+-  if (!/^[1-9]\d*$/.test(run ?? '') || !/^[1-9]\d*$/.test(attempt ?? '') || !/^[0-9a-f]{40}$/.test(sha ?? '')) throw new Error('Invalid build identity');
+-  process.stdout.write(`version=${target}-canary.${run}.${attempt}.g${sha.slice(0, 8)}\n`);
++  const repository = process.env.GITHUB_REPOSITORY;
++  const runId = process.env.GITHUB_RUN_ID;
++  if (!/^[^/]+\/[^/]+$/.test(repository ?? '') || !/^[1-9]\d*$/.test(runId ?? '')) throw new Error('Invalid build identity');
++  const run = JSON.parse(execFileSync('gh', ['api', `repos/${repository}/actions/runs/${runId}`], { encoding: 'utf8' }));
++  const version = computeCanaryVersion({ baseVersion: target, publishedAt: run.created_at, sha: process.env.GITHUB_SHA });
++  process.stdout.write(`version=${version}\n`);
+ }
+diff --git a/scripts/canary-version.test.mjs b/scripts/canary-version.test.mjs
+index 4a3929c439..57d5a985ee 100644
+--- a/scripts/canary-version.test.mjs
++++ b/scripts/canary-version.test.mjs
+@@ -4,7 +4,10 @@ import { execFileSync, spawnSync } from 'node:child_process';
+ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
+ import { tmpdir } from 'node:os';
+ import { join, resolve } from 'node:path';
++import { createRequire } from 'node:module';
+ 
++const require = createRequire(resolve('apps/desktop/package.json'));
++const { gt } = require('semver');
+ const script = resolve('scripts/canary-version.mjs');
+ const changesetCli = resolve('node_modules/.bin/changeset');
+ 
+@@ -24,11 +27,12 @@ void test('Canary version follows real changesets before and after the release p
+     config.changelog = false;
+     writeFileSync(join(cwd, '.changeset/config.json'), JSON.stringify(config));
+     writeFileSync(join(root, 'bin/pnpm'), '#!/usr/bin/env node\nconst { spawnSync } = require("node:child_process");\nconst result = spawnSync(process.env.CHANGESET_CLI, process.argv.slice(3), { stdio: "inherit" });\nprocess.exit(result.status ?? 1);\n', { mode: 0o755 });
+-    const env = { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, CHANGESET_CLI: changesetCli, GITHUB_REF_NAME: 'release/week', GITHUB_RUN_NUMBER: '108', GITHUB_RUN_ATTEMPT: '2', GITHUB_SHA: 'a'.repeat(40), CANARY_TARGET_VERSION: '' };
++    writeFileSync(join(root, 'bin/gh'), '#!/usr/bin/env node\nif (process.argv[2] === "api") { console.log(JSON.stringify({ created_at: process.env.CANARY_TEST_CREATED_AT })); } else { process.exit(1); }\n', { mode: 0o755 });
++    const env = { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, CHANGESET_CLI: changesetCli, GITHUB_REF_NAME: 'release/week', GITHUB_REPOSITORY: 'MoonshotAI/kimi-code', GITHUB_RUN_ID: '44474123970', GITHUB_RUN_NUMBER: '108', GITHUB_RUN_ATTEMPT: '2', GITHUB_SHA: 'a'.repeat(40), CANARY_TARGET_VERSION: '', CANARY_TEST_CREATED_AT: '2026-11-19T06:42:26Z' };
+     const run = (dir = cwd, extra = {}) => spawnSync(process.execPath, [script], { cwd: dir, env: { ...env, ...extra }, encoding: 'utf8' });
+     const expectVersion = (result, version) => {
+       assert.equal(result.status, 0, result.stderr);
+-      assert.equal(result.stdout, `version=${version}-canary.108.2.gaaaaaaaa\n`);
++      assert.equal(result.stdout, `version=${version}-canary.20261119064226-aaaaaaa\n`);
+     };
+ 
+     git(cwd, 'init', '-b', 'main');
+@@ -70,6 +74,10 @@ void test('Canary version follows real changesets before and after the release p
+     expectVersion(run(), '1.0.6');
+     expectVersion(run(cwd, { GITHUB_REF_NAME: 'main' }), '1.0.6');
+     expectVersion(run(cwd, { GITHUB_REF_NAME: 'main', CANARY_TARGET_VERSION: '1.0.7' }), '1.0.7');
++    assert.equal(run(cwd, { GITHUB_REF_NAME: 'main', CANARY_TARGET_VERSION: '1.0.7', GITHUB_RUN_NUMBER: '15' }).stdout, 'version=1.0.7-canary.20261119064226-aaaaaaa\n');
++    assert.equal(run(cwd, { GITHUB_REF_NAME: 'main', CANARY_TARGET_VERSION: '1.0.7', GITHUB_RUN_NUMBER: '15', GITHUB_RUN_ATTEMPT: '99' }).stdout, 'version=1.0.7-canary.20261119064226-aaaaaaa\n');
++    assert.notEqual(run(cwd, { GITHUB_REF_NAME: 'main', CANARY_TARGET_VERSION: '1.0.7', CANARY_TEST_CREATED_AT: 'not-a-date' }).status, 0);
++    assert.ok(gt('1.0.7-canary.20261119064226-aaaaaaa', '1.0.7-canary.329.1.gaaaaaaaa'));
+     writeFileSync(join(cwd, '.changeset/second.md'), '---\n"kimi-code-app": minor\n---\n\nA feature.\n');
+     git(cwd, 'add', '.');
+     git(cwd, 'commit', '-m', 'minor changeset');
+@@ -79,8 +87,11 @@ void test('Canary version follows real changesets before and after the release p
+     git(cwd, 'commit', '-m', 'consume all changesets');
+     expectVersion(run(cwd, { GITHUB_REF_NAME: 'main' }), '1.0.6');
+     assert.notEqual(run(cwd, { GITHUB_REF_NAME: 'feat/nightly' }).status, 0);
+-    execFileSync(process.execPath, [script, '--stamp'], { cwd, env: { ...env, CANARY_VERSION: '1.0.6-canary.108.2.gaaaaaaaa' } });
+-    assert.equal(JSON.parse(readFileSync(join(cwd, 'apps/desktop/package.json'), 'utf8')).version, '1.0.6-canary.108.2.gaaaaaaaa');
++    execFileSync(process.execPath, [script, '--stamp'], { cwd, env: { ...env, CANARY_VERSION: '1.0.6-canary.20261119064226-aaaaaaa' } });
++    assert.equal(JSON.parse(readFileSync(join(cwd, 'apps/desktop/package.json'), 'utf8')).version, '1.0.6-canary.20261119064226-aaaaaaa');
++    execFileSync(process.execPath, [script, '--stamp'], { cwd, env: { ...env, CANARY_VERSION: '1.0.6-canary.329.1.gaaaaaaaa' } });
++    assert.equal(JSON.parse(readFileSync(join(cwd, 'apps/desktop/package.json'), 'utf8')).version, '1.0.6-canary.329.1.gaaaaaaaa');
++    assert.notEqual(spawnSync(process.execPath, [script, '--stamp'], { cwd, env: { ...env, CANARY_VERSION: '1.0.6-canary.20261119064226.1.gaaaaaaa' } }).status, 0);
+     assert.equal(readFileSync(join(cwd, '.changeset/release-plan.json'), 'utf8'), plan);
+   } finally {
+     rmSync(root, { recursive: true, force: true });
+diff --git a/scripts/desktop-canary-publish.test.mjs b/scripts/desktop-canary-publish.test.mjs
+new file mode 100644
+index 0000000000..cda2de977b
+--- /dev/null
++++ b/scripts/desktop-canary-publish.test.mjs
+@@ -0,0 +1,145 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { spawnSync } from 'node:child_process';
++import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join, resolve } from 'node:path';
++
++const workflow = readFileSync(resolve('.github/workflows/desktop-build.yml'), 'utf8');
++const marker = '        run: |\n          set -euo pipefail\n          version="$CANARY_VERSION"';
++const start = workflow.indexOf(marker);
++assert.notEqual(start, -1);
++const script = workflow.slice(start + '        run: |\n'.length).split('\n').map((line) => {
++  if (line === '') return '';
++  assert.ok(line.startsWith('          '));
++  return line.slice(10);
++}).join('\n');
++const sha = 'f90ccb1ab0a2ccc7fa9404590e0d8c249876be81';
++const version = '1.4.0-canary.20261119064226-f90ccb1';
++const tag = `kimi-code-desktop@${version}`;
++const title = `Kimi Code Desktop ${version}`;
++
++function fixture(t) {
++  const cwd = mkdtempSync(join(tmpdir(), 'desktop-canary-publish-'));
++  t.after(() => rmSync(cwd, { recursive: true, force: true }));
++  mkdirSync(join(cwd, 'bin'));
++  mkdirSync(join(cwd, 'dist-desktop-canary'));
++  writeFileSync(join(cwd, 'dist-desktop-canary/a.txt'), 'a');
++  writeFileSync(join(cwd, 'dist-desktop-canary/b.txt'), 'b');
++  writeFileSync(join(cwd, 'publish.sh'), script);
++  const stateFile = join(cwd, 'state.json');
++  const initial = { release: null, uploads: [], createCalls: 0, uploadCalls: 0, failUpload: true, viewError: '' };
++  writeFileSync(stateFile, JSON.stringify(initial));
++  const stub = `#!/usr/bin/env node
++const fs = require('fs');
++const args = process.argv.slice(2);
++const file = process.env.STATE_FILE;
++const state = JSON.parse(fs.readFileSync(file, 'utf8'));
++const save = () => fs.writeFileSync(file, JSON.stringify(state));
++if (args[0] === 'release' && args[1] === 'view') {
++  if (state.viewError) { console.error(state.viewError); process.exit(1); }
++  if (!state.release) { console.error('release not found'); process.exit(1); }
++  console.log(JSON.stringify({ ...state.release, assets: state.uploads.map(name => ({ name })) }));
++  process.exit(0);
++}
++if (args[0] === 'release' && args[1] === 'create') {
++  state.createCalls += 1;
++  state.release = {
++    tagName: args[2],
++    targetCommitish: args[args.indexOf('--target') + 1],
++    name: args[args.indexOf('--title') + 1],
++    isDraft: false,
++    isPrerelease: args.includes('--prerelease'),
++  };
++  state.uploads = [];
++  save();
++  process.exit(0);
++}
++if (args[0] === 'release' && args[1] === 'upload') {
++  if (!state.release) process.exit(4);
++  const files = args.slice(3).map(file => file.split('/').pop());
++  if (files.some(name => state.uploads.includes(name))) process.exit(8);
++  state.uploadCalls += 1;
++  if (state.failUpload) {
++    state.uploads.push(files[0]);
++    state.failUpload = false;
++    save();
++    process.exit(1);
++  }
++  state.uploads.push(...files);
++  save();
++  process.exit(0);
++}
++process.exit(2);
++`;
++  writeFileSync(join(cwd, 'bin/gh'), stub, { mode: 0o755 });
++  const env = { ...process.env, PATH: `${join(cwd, 'bin')}:${process.env.PATH}`, STATE_FILE: stateFile, CANARY_VERSION: version, GITHUB_SHA: sha, GITHUB_REF_NAME: 'main' };
++  return { cwd, env, stateFile };
++}
++
++function run(f) {
++  return spawnSync('bash', [join(f.cwd, 'publish.sh')], { cwd: f.cwd, env: f.env, encoding: 'utf8' });
++}
++
++function state(f) {
++  return JSON.parse(readFileSync(f.stateFile, 'utf8'));
++}
++
++void test('Desktop Canary publish resumes after create succeeded and upload failed', (t) => {
++  const f = fixture(t);
++  const first = run(f);
++  assert.equal(first.status, 1, first.stdout + first.stderr);
++  assert.equal(state(f).createCalls, 1);
++  assert.deepEqual(state(f).uploads, ['a.txt']);
++  const second = run(f);
++  assert.equal(second.status, 0, second.stdout + second.stderr);
++  assert.equal(state(f).createCalls, 1);
++  assert.equal(state(f).uploadCalls, 2);
++  assert.deepEqual(state(f).uploads, ['a.txt', 'b.txt']);
++  assert.equal(state(f).release.tagName, tag);
++  assert.equal(state(f).release.targetCommitish, sha);
++  assert.equal(state(f).release.name, title);
++  assert.equal(state(f).release.isDraft, false);
++  assert.equal(state(f).release.isPrerelease, true);
++  const third = run(f);
++  assert.equal(third.status, 0, third.stdout + third.stderr);
++  assert.equal(state(f).createCalls, 1);
++  assert.equal(state(f).uploadCalls, 2);
++});
++
++void test('Desktop Canary publish rejects mismatched existing releases without mutation', async (t) => {
++  const cases = [
++    ['tagName', 'kimi-code-desktop@other'],
++    ['targetCommitish', '0'.repeat(40)],
++    ['name', 'Kimi Code Canary'],
++    ['isDraft', true],
++    ['isPrerelease', false],
++  ];
++  for (const [key, value] of cases) {
++    await t.test(key, (t) => {
++      const f = fixture(t);
++      const current = state(f);
++      current.release = { tagName: tag, targetCommitish: sha, name: title, isDraft: false, isPrerelease: true };
++      current.release[key] = value;
++      current.uploads = ['a.txt', 'b.txt'];
++      current.failUpload = false;
++      writeFileSync(f.stateFile, JSON.stringify(current));
++      const result = run(f);
++      assert.equal(result.status, 1, result.stdout + result.stderr);
++      assert.equal(state(f).createCalls, 0);
++      assert.equal(state(f).uploadCalls, 0);
++      assert.equal(state(f).release[key], value);
++    });
++  }
++});
++
++void test('Desktop Canary publish does not create after a non-404 lookup failure', (t) => {
++  const f = fixture(t);
++  const current = state(f);
++  current.viewError = 'gateway unavailable';
++  writeFileSync(f.stateFile, JSON.stringify(current));
++  const result = run(f);
++  assert.equal(result.status, 1, result.stdout + result.stderr);
++  assert.equal(state(f).createCalls, 0);
++  assert.equal(state(f).uploadCalls, 0);
++});
+diff --git a/scripts/release.test.mjs b/scripts/release.test.mjs
+index 2a2564bdea..7652705df7 100644
+--- a/scripts/release.test.mjs
++++ b/scripts/release.test.mjs
+@@ -154,7 +154,7 @@ test('prepares a draft and retries an interrupted release from the same SHA', ()
+   assert.match(readFileSync(join(f.dir, 'output'), 'utf8'), /build=false/);
+ });
+ 
+-test('workflow release titles use product names and full versions', () => {
++void test('workflow release titles use product names and full versions', () => {
+   const workflow = (name) => readFileSync(fileURLToPath(new URL(`../.github/workflows/${name}`, import.meta.url)), 'utf8');
+   const stable = workflow('release.yml');
+   assert.match(stable, /RELEASE_VERSION: \$\{\{ steps\.kimi-release\.outputs\.version \}\}/);

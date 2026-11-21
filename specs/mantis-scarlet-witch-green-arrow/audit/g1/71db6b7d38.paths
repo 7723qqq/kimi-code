@@ -1,0 +1,6 @@
+M	.github/workflows/ci.yml
+M	.github/workflows/desktop-build.yml
+M	scripts/canary-version.mjs
+M	scripts/canary-version.test.mjs
+A	scripts/desktop-canary-publish.test.mjs
+M	scripts/release.test.mjs

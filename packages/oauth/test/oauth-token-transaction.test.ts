@@ -1,7 +1,6 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { OAuthTokenTransaction } from '../src/oauth-token-transaction';
-import type { FetchLike } from '../src/types';
 
 interface TestTokens {
   access_token: string;
@@ -12,17 +11,11 @@ interface TestTokens {
 describe('OAuthTokenTransaction', () => {
   it('coalesces concurrent rotating refresh-token grants', async () => {
     let stored: TestTokens | undefined = tokens('access-0', 'refresh-0');
-    const first = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
+    const first = transaction('same-server', () => stored, (value) => (stored = value));
+    const second = transaction('same-server', () => stored, (value) => (stored = value));
+    const tokenEndpoint = vi.fn<typeof fetch>(async () =>
+      json(tokens('access-1', 'refresh-1')),
     );
-    const second = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
-    const tokenEndpoint = mock<FetchLike>(async () => json(tokens('access-1', 'refresh-1')));
 
     const [firstResult, secondResult] = await Promise.all([
       sdkRefresh(first, tokenEndpoint, 'refresh-0'),
@@ -37,20 +30,11 @@ describe('OAuthTokenTransaction', () => {
 
   it('does not let a late invalidation delete a newer winner', async () => {
     let stored: TestTokens | undefined = tokens('access-0', 'refresh-0');
-    const rejected = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
-    const peer = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
-    const response = await rejected.createFetch(async () => json({ error: 'invalid_grant' }, 400))(
-      'https://issuer.example.test/token',
-      refreshRequest('refresh-0'),
-    );
+    const rejected = transaction('same-server', () => stored, (value) => (stored = value));
+    const peer = transaction('same-server', () => stored, (value) => (stored = value));
+    const response = await rejected.createFetch(async () =>
+      json({ error: 'invalid_grant' }, 400),
+    )('https://issuer.example.test/token', refreshRequest('refresh-0'));
 
     expect(response.status).toBe(400);
     await peer.save(tokens('access-1', 'refresh-1'));
@@ -60,11 +44,7 @@ describe('OAuthTokenTransaction', () => {
 
   it('preserves a refresh token when the SDK save omits it after refresh', async () => {
     let stored: TestTokens | undefined = tokens('access-0', 'refresh-0');
-    const subject = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
+    const subject = transaction('same-server', () => stored, (value) => (stored = value));
     const response = await subject.createFetch(async () => json({ access_token: 'access-1' }))(
       'https://issuer.example.test/token',
       refreshRequest('refresh-0'),
@@ -77,12 +57,8 @@ describe('OAuthTokenTransaction', () => {
 
   it('preserves an access-only winner when an older refresh is queued', async () => {
     let stored: TestTokens | undefined = { access_token: 'access-from-login' };
-    const stale = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
-    const tokenEndpoint = mock<FetchLike>();
+    const stale = transaction('same-server', () => stored, (value) => (stored = value));
+    const tokenEndpoint = vi.fn<typeof fetch>();
 
     const response = await stale.createFetch(tokenEndpoint)(
       'https://issuer.example.test/token',
@@ -97,15 +73,10 @@ describe('OAuthTokenTransaction', () => {
 
   it('does not let a late save revive credentials after an explicit reset', async () => {
     let stored: TestTokens | undefined = tokens('access-0', 'refresh-0');
-    const subject = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
-    const response = await subject.createFetch(async () => json(tokens('access-1', 'refresh-1')))(
-      'https://issuer.example.test/token',
-      refreshRequest('refresh-0'),
-    );
+    const subject = transaction('same-server', () => stored, (value) => (stored = value));
+    const response = await subject.createFetch(async () =>
+      json(tokens('access-1', 'refresh-1')),
+    )('https://issuer.example.test/token', refreshRequest('refresh-0'));
     const refreshed = parseTokens(await response.json());
     if (refreshed === undefined) throw new Error('invalid test token response');
 
@@ -116,18 +87,13 @@ describe('OAuthTokenTransaction', () => {
 
   it('does not delete durable tokens for an invalid authorization code', async () => {
     let stored: TestTokens | undefined = tokens('access-0', 'refresh-0');
-    const subject = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
-    const response = await subject.createFetch(async () => json({ error: 'invalid_grant' }, 400))(
-      'https://issuer.example.test/token',
-      {
-        method: 'POST',
-        body: new URLSearchParams({ grant_type: 'authorization_code', code: 'expired-code' }),
-      },
-    );
+    const subject = transaction('same-server', () => stored, (value) => (stored = value));
+    const response = await subject.createFetch(async () =>
+      json({ error: 'invalid_grant' }, 400),
+    )('https://issuer.example.test/token', {
+      method: 'POST',
+      body: new URLSearchParams({ grant_type: 'authorization_code', code: 'expired-code' }),
+    });
 
     expect(response.status).toBe(400);
     await subject.invalidateFromSdk('tokens');
@@ -136,16 +102,8 @@ describe('OAuthTokenTransaction', () => {
 
   it('does not let a stale client error delete a newer authorization', async () => {
     let stored: TestTokens | undefined = tokens('access-0', 'refresh-0');
-    const rejected = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
-    const peer = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
+    const rejected = transaction('same-server', () => stored, (value) => (stored = value));
+    const peer = transaction('same-server', () => stored, (value) => (stored = value));
     await rejected.createFetch(async () => json({ error: 'invalid_client' }, 400))(
       'https://issuer.example.test/token',
       {
@@ -161,11 +119,7 @@ describe('OAuthTokenTransaction', () => {
 
   it('ignores an SDK invalidation without a matching token request', async () => {
     let stored: TestTokens | undefined = tokens('access-0', 'refresh-0');
-    const subject = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
+    const subject = transaction('same-server', () => stored, (value) => (stored = value));
 
     await expect(subject.invalidateFromSdk('tokens')).resolves.toBe(false);
     expect(stored).toEqual(tokens('access-0', 'refresh-0'));
@@ -187,7 +141,7 @@ describe('OAuthTokenTransaction', () => {
       },
       { normalize: stripDurableStamp },
     );
-    const tokenEndpoint = mock<FetchLike>();
+    const tokenEndpoint = vi.fn<typeof fetch>();
 
     const response = await subject.createFetch(tokenEndpoint)(
       'https://issuer.example.test/token',
@@ -201,11 +155,7 @@ describe('OAuthTokenTransaction', () => {
     await subject.save(stripped);
 
     expect(writes).toBe(0);
-    expect(stored).toEqual({
-      access_token: 'access-1',
-      refresh_token: 'refresh-1',
-      obtained_at: 123,
-    });
+    expect(stored).toEqual({ access_token: 'access-1', refresh_token: 'refresh-1', obtained_at: 123 });
   });
 
   it('does not resurrect a cleared credential when a stripped SDK save arrives late', async () => {
@@ -214,16 +164,11 @@ describe('OAuthTokenTransaction', () => {
       refresh_token: 'refresh-1',
       obtained_at: 123,
     };
-    const subject = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-      {
-        normalize: stripDurableStamp,
-      },
-    );
+    const subject = transaction('same-server', () => stored, (value) => (stored = value), {
+      normalize: stripDurableStamp,
+    });
 
-    const response = await subject.createFetch(mock<FetchLike>())(
+    const response = await subject.createFetch(vi.fn<typeof fetch>())(
       'https://issuer.example.test/token',
       refreshRequest('refresh-0'),
     );
@@ -237,11 +182,7 @@ describe('OAuthTokenTransaction', () => {
 
   it('clears tokens only when the stored grant still matches the expected snapshot', async () => {
     let stored: TestTokens | undefined = tokens('access-0', 'refresh-0');
-    const subject = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
+    const subject = transaction('same-server', () => stored, (value) => (stored = value));
 
     await expect(subject.clearIfCurrent(tokens('access-9', 'refresh-9'))).resolves.toBe(false);
     expect(stored).toEqual(tokens('access-0', 'refresh-0'));
@@ -252,16 +193,8 @@ describe('OAuthTokenTransaction', () => {
 
   it('preserves a grant saved concurrently with the expected snapshot read', async () => {
     let stored: TestTokens | undefined = tokens('access-0', 'refresh-0');
-    const rejected = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
-    const peer = transaction(
-      'same-server',
-      () => stored,
-      (value) => (stored = value),
-    );
+    const rejected = transaction('same-server', () => stored, (value) => (stored = value));
+    const peer = transaction('same-server', () => stored, (value) => (stored = value));
     const snapshot = tokens('access-0', 'refresh-0');
 
     await peer.save(tokens('access-1', 'refresh-1'));
@@ -298,7 +231,7 @@ function stripDurableStamp(value: TestTokens): TestTokens {
 
 async function sdkRefresh(
   transaction: OAuthTokenTransaction<TestTokens>,
-  fetchFn: FetchLike,
+  fetchFn: typeof fetch,
   refreshToken: string,
 ): Promise<TestTokens> {
   const response = await transaction.createFetch(fetchFn)(

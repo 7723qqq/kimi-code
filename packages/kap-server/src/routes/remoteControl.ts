@@ -1,5 +1,3 @@
-import type { ITelemetryService } from '@moonshot-ai/agent-core-v2';
-import { createKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
 import {
   acquireRemoteControlLock,
   inspectRemoteControlLock,
@@ -10,6 +8,9 @@ import {
   type RemoteControlManager,
   type RemoteControlStatusInfo,
 } from '@moonshot-ai/remote-control';
+import { createKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
+
+import type { ITelemetryService } from '@moonshot-ai/agent-core-v2';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
@@ -99,7 +100,12 @@ export function registerRemoteControlRoutes(
           requestLog(req)?.error({ err: inspectError }, 'remote-control lock inspection failed');
         }
       }
-      reply.send(okEnvelope(toRemoteControlStatusResponse({ ...status, error, conflict }), req.id));
+      reply.send(
+        okEnvelope(
+          toRemoteControlStatusResponse({ ...status, error, conflict }),
+          req.id,
+        ),
+      );
     },
   );
   app.get(
@@ -152,18 +158,13 @@ export function registerRemoteControlRoutes(
         if (error instanceof RemoteControlAlreadyRunningError) {
           opts.telemetry?.track2('remote_control_toggle', { enabled, outcome: 'already_running' });
           reply.send(
-            errEnvelope(
-              ErrorCode.REMOTE_CONTROL_ALREADY_RUNNING,
-              error.message,
-              req.id,
-              {
-                pid: error.holder.pid,
-                local_origin: error.holder.localOrigin,
-                device_id: error.holder.deviceId,
-                url: error.holder.url,
-                started_at: error.holder.startedAt,
-              } satisfies RemoteControlAlreadyRunningDetails,
-            ),
+            errEnvelope(ErrorCode.REMOTE_CONTROL_ALREADY_RUNNING, error.message, req.id, {
+              pid: error.holder.pid,
+              local_origin: error.holder.localOrigin,
+              device_id: error.holder.deviceId,
+              url: error.holder.url,
+              started_at: error.holder.startedAt,
+            } satisfies RemoteControlAlreadyRunningDetails),
           );
           return;
         }

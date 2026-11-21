@@ -6,12 +6,9 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
-import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import type {
   GoalQueueMoveDirection,
@@ -19,14 +16,9 @@ import type {
   UpcomingGoal,
 } from '#/tui/goal-queue-store';
 import { currentTheme } from '#/tui/theme';
-import {
-  mouseDispatch,
-  ListMouseRouter,
-  type ListRowRegion,
-  searchableListCursor,
-} from '#/tui/utils/mouse';
-import { isPrintableText, printableChar } from '#/tui/utils/printable-key';
+import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
+import { t } from '#/i18n';
 
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
 const MAX_EDIT_INPUT_LINES = 8;
@@ -36,7 +28,6 @@ const BRACKET_PASTE_END = '\u001B[201~';
 const SHIFT_ENTER_LEGACY = '\u001B\r';
 const SHIFT_ENTER_CSI = '\u001B[13;2~';
 const SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-// oxlint-disable-next-line no-control-regex -- ESC (\x1b) is required to strip pasted terminal control sequences
 const ANSI_CSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 
 export type GoalQueueManagerAction =
@@ -73,7 +64,6 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
   private readonly opts: GoalQueueManagerOptions;
   private goals: readonly UpcomingGoal[];
   private list: SearchableList<UpcomingGoal>;
-  private readonly mouse: ListMouseRouter<UpcomingGoal>;
   private movingGoalId: string | undefined;
   private busy = false;
 
@@ -82,18 +72,6 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
     this.opts = opts;
     this.goals = opts.goals;
     this.list = this.createList(opts.selectedGoalId);
-    this.mouse = new ListMouseRouter(
-      searchableListCursor(() => this.list),
-      (goal) => this.toggleMoving(goal),
-      { isFocused: () => this.focused },
-    );
-  }
-
-  /** Mark a goal for reordering — what the space bar does. */
-  private toggleMoving(goal: UpcomingGoal): void {
-    if (this.busy) return;
-    this.movingGoalId = this.movingGoalId === goal.id ? undefined : goal.id;
-    this.invalidate();
   }
 
   handleInput(data: string): void {
@@ -106,7 +84,7 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
     const selected = this.selectedGoal();
     const decoded = printableChar(data);
     if (matchesKey(data, Key.space) || decoded === ' ') {
-      if (selected !== undefined) this.toggleMoving(selected);
+      this.movingGoalId = this.movingGoalId === selected?.id ? undefined : selected?.id;
       return;
     }
 
@@ -134,45 +112,31 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
     if (this.list.handleKey(data)) return;
   }
 
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouse.handleMouse(event));
-  }
-
   override render(width: number): string[] {
     const view = this.list.view();
-    const hint =
-      this.movingGoalId === undefined
-        ? t('tui.dialogs.goalQueueManager.navHint')
-        : t('tui.dialogs.goalQueueManager.reorderHint');
+    const hint = this.movingGoalId === undefined
+      ? t('tui.dialogs.goalQueueManager.navHint')
+      : t('tui.dialogs.goalQueueManager.reorderHint');
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ` ${t('tui.dialogs.goalQueueManager.title')}`),
+      currentTheme.boldFg('primary', t('tui.dialogs.goalQueueManager.title')),
       currentTheme.fg('textMuted', ` ${hint}`),
       '',
     ];
 
     if (this.goals.length === 0) {
-      lines.push(currentTheme.fg('textMuted', `  ${t('tui.dialogs.goalQueueManager.empty')}`));
+      lines.push(currentTheme.fg('textMuted', t('tui.dialogs.goalQueueManager.empty')));
     } else {
-      const regions: ListRowRegion[] = [];
       for (let i = view.page.start; i < view.page.end; i++) {
         const goal = view.items[i];
         if (goal === undefined) continue;
-        const start = lines.length;
         lines.push(this.renderGoal(goal, i, i === view.selectedIndex, width));
-        regions.push({ start, end: lines.length, index: i });
       }
-      this.mouse.setRegions(regions);
 
       const below = view.items.length - view.page.end;
       if (below > 0) {
         lines.push('');
-        lines.push(
-          currentTheme.fg(
-            'textMuted',
-            ` ${t('tui.dialogs.goalQueueManager.more', { count: below })}`,
-          ),
-        );
+        lines.push(currentTheme.fg('textMuted', ` ▼ ${String(below)} more`));
       }
     }
 
@@ -186,7 +150,7 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
     const pointer = selected ? SELECT_POINTER : ' ';
     const prefix = currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `);
     const labelPrefix = `${String(index + 1)}. `;
-    const stateLabel = moving ? `  ${t('tui.dialogs.goalQueueManager.selected')}` : '';
+    const stateLabel = moving ? '  selected' : '';
     const labelWidth = visibleWidth(labelPrefix);
     const stateWidth = visibleWidth(stateLabel);
     const objectiveWidth = Math.max(1, width - 5 - labelWidth - stateWidth);
@@ -331,7 +295,7 @@ export class GoalQueueEditDialogComponent extends Container implements Focusable
       return;
     }
     if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
-      this.error = t('tui.dialogs.goalQueueEdit.errorTooLong', { max: MAX_GOAL_OBJECTIVE_LENGTH });
+      this.error = `Goal objective cannot exceed ${MAX_GOAL_OBJECTIVE_LENGTH} characters; put long content in a file and reference the file path.`;
       return;
     }
     this.opts.onDone({ kind: 'save', goalId: this.opts.goal.id, objective });
@@ -414,9 +378,7 @@ class MultilineGoalInput {
     }
   }
 
-  invalidate(): void {
-    // No cached layout.
-  }
+  invalidate(): void {}
 
   render(width: number): string[] {
     const safeWidth = Math.max(4, width);
@@ -426,12 +388,7 @@ class MultilineGoalInput {
     const rendered: string[] = [];
 
     if (range.start > 0) {
-      rendered.push(
-        padInputLine(
-          `  ${t('tui.dialogs.goalQueueEdit.previous', { count: range.start })}`,
-          safeWidth,
-        ),
-      );
+      rendered.push(padInputLine(`  ${ELLIPSIS} ${String(range.start)} previous`, safeWidth));
     }
 
     for (let lineIndex = range.start; lineIndex < range.end; lineIndex++) {
@@ -446,9 +403,7 @@ class MultilineGoalInput {
 
     const remaining = logicalLines.length - range.end;
     if (remaining > 0) {
-      rendered.push(
-        padInputLine(`  ${t('tui.dialogs.goalQueueEdit.more', { count: remaining })}`, safeWidth),
-      );
+      rendered.push(padInputLine(`  ${ELLIPSIS} ${String(remaining)} more`, safeWidth));
     }
 
     return rendered;
@@ -456,7 +411,8 @@ class MultilineGoalInput {
 
   private insert(text: string): void {
     const normalized = normalizeNewlines(text);
-    this.value = this.value.slice(0, this.cursor) + normalized + this.value.slice(this.cursor);
+    this.value =
+      this.value.slice(0, this.cursor) + normalized + this.value.slice(this.cursor);
     this.cursor += normalized.length;
   }
 
@@ -566,6 +522,17 @@ function sanitizePastedText(text: string): string {
   return out;
 }
 
+function isPrintableText(text: string): boolean {
+  if (text.length === 0) return false;
+  for (let i = 0; i < text.length;) {
+    const code = text.codePointAt(i);
+    if (code === undefined) return false;
+    if (code < 0x20 || code === 0x7f || (code >= 0x80 && code <= 0x9f)) return false;
+    i += code > 0xffff ? 2 : 1;
+  }
+  return true;
+}
+
 function lineStarts(text: string): number[] {
   const starts = [0];
   for (let i = 0; i < text.length; i++) {
@@ -638,7 +605,10 @@ function renderCursorLine(
     Math.max(0, textWidth - visibleWidth(beforeView) - cursorWidth),
   );
   const marker = focused ? CURSOR_MARKER : '';
-  return padInputLine(prefix + beforeView + marker + chalk.inverse(cursorText) + afterView, width);
+  return padInputLine(
+    prefix + beforeView + marker + chalk.inverse(cursorText) + afterView,
+    width,
+  );
 }
 
 function takeStartByWidth(text: string, width: number): string {

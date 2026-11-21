@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { TestInstantiationService } from '#/_base/di/test';
 import { IConfigService } from '#/app/config/config';
@@ -41,11 +41,8 @@ async function loadNames(configured?: boolean): Promise<readonly string[]> {
 
 describe('BuiltinSkillSource product-skill switch', () => {
   it('marks exactly the product-documentation skills', () => {
-    expect(
-      BUILTIN_SKILLS.filter((s) => s.productSpecific === true)
-        .map((s) => s.name)
-        .toSorted(),
-    ).toEqual([...PRODUCT_SKILLS].toSorted());
+    expect(BUILTIN_SKILLS.filter((s) => s.productSpecific === true).map((s) => s.name).toSorted())
+      .toEqual([...PRODUCT_SKILLS].toSorted());
     expect(NEUTRAL_SKILLS.length).toBeGreaterThan(0);
   });
 

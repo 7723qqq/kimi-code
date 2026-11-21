@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { stat } from 'node:fs/promises';
 
 import {
   createDecorator,
-  errorMessage,
   databaseGlobalSearchEnabled,
   databaseSearchEnabled,
   databaseSearchSyncTuning,
@@ -46,12 +45,7 @@ import {
   type SearchBudgets,
 } from './match';
 import { makeSnippet } from './snippet';
-import {
-  SearchWorkerError,
-  SearchWorkerHost,
-  dropLiveLockToken,
-  noteLiveLockToken,
-} from './worker/host';
+import { SearchWorkerError, SearchWorkerHost, dropLiveLockToken, noteLiveLockToken } from './worker/host';
 
 export { GlobalSearchError } from './contract';
 export type { GlobalSearchErrorReason } from './contract';
@@ -69,6 +63,10 @@ const QUERY_TEXT_BUDGET_CHARS = 16_000_000;
 const MAX_TEXT_HITS = 100_000;
 const LITERAL_CANDIDATE_CAP = 10_000;
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function pathExists(path: string): Promise<boolean> {
   try {
     await stat(path);
@@ -79,24 +77,6 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 const pendingDisposals = new Set<Promise<void>>();
-
-const SHUTDOWN_DRAIN_BUDGET_MS = 2_000;
-
-async function settleWithin(promises: Promise<unknown>[], budgetMs: number): Promise<void> {
-  if (promises.length === 0) return;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      Promise.allSettled(promises),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, budgetMs);
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
 
 export async function drainGlobalSearchDisposals(): Promise<void> {
   while (pendingDisposals.size > 0) {
@@ -270,11 +250,7 @@ export class GlobalSearchService implements IGlobalSearchService {
         const tuning = databaseSearchSyncTuning(this.config);
         if (tuning.debounceMs !== undefined) this.syncDebounceMs = tuning.debounceMs;
         this.backend = databaseSearchEnabled(this.config)
-          ? new SearchWorkerHost({
-              dir: this.indexDir,
-              log: this.log,
-              syncSessionCap: tuning.sessionCap,
-            })
+          ? new SearchWorkerHost({ dir: this.indexDir, log: this.log, syncSessionCap: tuning.sessionCap })
           : new InlineSearchBackend({
               indexDir: this.indexDir,
               log: this.log,
@@ -309,13 +285,8 @@ export class GlobalSearchService implements IGlobalSearchService {
     }
     this.backend?.beginClose();
     const pending = (async () => {
-      await settleWithin(
-        [
-          this.syncPromise?.catch(() => {}) ?? Promise.resolve(),
-          this.refreshPromise?.catch(() => {}) ?? Promise.resolve(),
-        ],
-        SHUTDOWN_DRAIN_BUDGET_MS,
-      );
+      await this.syncPromise?.catch(() => {});
+      await this.refreshPromise?.catch(() => {});
       const backend = await this.backendPromise?.catch(() => undefined);
       await backend?.dispose();
       this.drainSettled = true;
@@ -505,7 +476,12 @@ export class GlobalSearchService implements IGlobalSearchService {
       items: result.rows.map((row) => this.projectHit(q, row)),
       hasMore: result.hasMore,
       pageToken: result.hasMore
-        ? encodePageToken(q, boundaryOf(q, result.rows.at(-1)!), result.generation)
+        ? encodePageToken(
+            q,
+            'index',
+            boundaryOf(q, result.rows.at(-1)!),
+            result.generation,
+          )
         : undefined,
       incomplete: result.incomplete,
       indexState: this.composeIndexState(result.index),
@@ -602,6 +578,9 @@ export class GlobalSearchService implements IGlobalSearchService {
         lifecycle: { state: this.drainSettled ? 'stopped' : 'closing' },
       };
     }
+    if (!(await this.enabled())) {
+      return { ...empty, lifecycle: { state: 'stopped', detail: GLOBAL_SEARCH_DISABLED_DETAIL } };
+    }
     try {
       const backend = await this.ensureBackend();
       const status = await backend.status();
@@ -625,7 +604,6 @@ export class GlobalSearchService implements IGlobalSearchService {
     return this.backend?.lifecycleSnapshot() ?? { state: 'stopped' };
   }
 }
-
 
 registerScopedService(
   LifecycleScope.App,

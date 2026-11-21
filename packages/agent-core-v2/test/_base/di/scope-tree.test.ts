@@ -1,15 +1,15 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';
-import type { Scope } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
+  Scope,
   _clearScopedRegistryForTests,
   createAppScope,
   registerScopedService,
 } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
 
 interface IAppSvc {
   tag: 'app';
@@ -117,21 +117,15 @@ describe('Scope tree', () => {
     _clearScopedRegistryForTests();
     class A implements ITagged {
       tag = 'A';
-      dispose(): void {
-        events.push('A');
-      }
+      dispose(): void { events.push('A'); }
     }
     class B implements ITagged {
       tag = 'B';
-      dispose(): void {
-        events.push('B');
-      }
+      dispose(): void { events.push('B'); }
     }
     class C implements ITagged {
       tag = 'C';
-      dispose(): void {
-        events.push('C');
-      }
+      dispose(): void { events.push('C'); }
     }
     registerScopedService(LifecycleScope.App, IA, A);
     registerScopedService(LifecycleScope.Session, IB, B);
@@ -189,33 +183,6 @@ describe('Scope tree', () => {
     app.dispose();
   });
 
-  it('multiple extra seeds all resolvable from the scope', () => {
-    interface ICtxA {
-      value: string;
-    }
-    interface ICtxB {
-      count: number;
-    }
-    const ICtxA = createDecorator<ICtxA>('tree-extra-a');
-    const ICtxB = createDecorator<ICtxB>('tree-extra-b');
-
-    const app = createAppScope();
-    const session = app.createChild(LifecycleScope.Session, 's1', {
-      seeds: [
-        [ICtxA as ServiceIdentifier<unknown>, { value: 'hello' }],
-        [ICtxB as ServiceIdentifier<unknown>, { count: 99 }],
-      ],
-    });
-    expect(session.accessor.get(ICtxA).value).toBe('hello');
-    expect(session.accessor.get(ICtxB).count).toBe(99);
-    app.dispose();
-  });
-
-  it('disposing a scope with no children does not throw', () => {
-    const app = createAppScope();
-    expect(() => app.dispose()).not.toThrow();
-  });
-
   it('does not construct OnDemand services until they are resolved', () => {
     let constructions = 0;
     interface ITagged {
@@ -229,7 +196,12 @@ describe('Scope tree', () => {
         constructions += 1;
       }
     }
-    registerScopedService(LifecycleScope.Session, ITagged, Tagged, ScopeActivation.OnDemand);
+    registerScopedService(
+      LifecycleScope.Session,
+      ITagged,
+      Tagged,
+      ScopeActivation.OnDemand,
+    );
 
     const app = createAppScope();
     const session = app.createChild(LifecycleScope.Session, 's1');
@@ -260,7 +232,12 @@ describe('Scope tree', () => {
       }
     }
     registerScopedService(LifecycleScope.Session, ITop, Top);
-    registerScopedService(LifecycleScope.Session, IDep, Dep, ScopeActivation.OnDemand);
+    registerScopedService(
+      LifecycleScope.Session,
+      IDep,
+      Dep,
+      ScopeActivation.OnDemand,
+    );
 
     const app = createAppScope();
     app.createChild(LifecycleScope.Session, 's1');

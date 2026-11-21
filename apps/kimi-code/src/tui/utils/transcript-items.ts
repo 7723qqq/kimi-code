@@ -1,33 +1,33 @@
 import type { Component } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
-import { AgentSwarmProgressComponent } from '#/tui/components/messages/agent-swarm-progress';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
-import { ReadGroupComponent } from '#/tui/components/messages/read-group';
+import { AgentSwarmProgressComponent } from '#/tui/components/messages/agent-swarm-progress';
 import { SkillActivationComponent } from '#/tui/components/messages/skill-activation';
+import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
 import { ToolCallComponent, extractKeyArgumentDetail } from '#/tui/components/messages/tool-call';
+import { UserMessageComponent } from '#/tui/components/messages/user-message';
 import {
   chipText,
   computeEditStats,
   computeWriteStats,
 } from '#/tui/components/messages/tool-renderers/chip';
 import { parseWaitForOutput } from '#/tui/components/messages/tool-renderers/wait-for';
-import { UserMessageComponent } from '#/tui/components/messages/user-message';
 import {
   DENSITY,
   transcriptGroupingActive,
   type ToolFolding,
   type TranscriptPresentationOptions,
 } from '#/tui/config';
+import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 import { MCP_AUTHENTICATE_TOOL_SUFFIX } from '#/tui/constant/mcp';
 import { FOREGROUND_BASH_HINT_DELAY_MS } from '#/tui/constant/rendering';
 import { STREAMING_ARGS_PREVIEW_MAX_CHARS, UNNAMED_TOOL_CALL_NAME } from '#/tui/constant/streaming';
-import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 import { isToolCallId, type ToolCallId } from '#/tui/utils/turn-timeline';
 import { isReadonlyBash } from '#/utils/readonly-bash';
+import { t } from '#/i18n';
 
 export interface OutcomeCounts {
   readonly calls: number;
@@ -175,11 +175,14 @@ const MCP_AUTHENTICATE_PROFILE: ToolProfile = {
   event: 'mcp',
   detailWhile: ['running', 'failed'],
 };
-
 const SUCCESS: OutcomeCounts = { calls: 1, failed: 0, interrupted: 0 };
 const LINE_COUNT_CHIP_TOOLS: ReadonlySet<string> = new Set(['Read', 'Bash']);
-const INTERRUPTION_RE =
-  /The user manually interrupted "|Interrupted by user|was not run because the user rejected the approval request|was not run because the approval request was cancelled/;
+const INTERRUPTION_TEXT = [
+  'The user manually interrupted "',
+  'Interrupted by user',
+  'was not run because the user rejected the approval request',
+  'was not run because the approval request was cancelled',
+] as const;
 
 export function foregroundBashHintAt(
   children: readonly Component[],
@@ -331,9 +334,7 @@ export class TranscriptItemInspector {
       label: {
         verb: t('tui.messages.transcriptGroups.thought'),
         rowVerb: t('tui.messages.transcriptGroups.thought'),
-        subject: durationMs === undefined ? undefined : t('tui.messages.transcriptGroups.thoughtSubject', {
-          duration: formatDuration(durationMs),
-        }),
+        subject: durationMs === undefined ? undefined : `for ${formatDuration(durationMs)}`,
       },
       status: elapsed === undefined ? { kind: 'running' } : { kind: 'done' },
     };
@@ -383,11 +384,7 @@ export class TranscriptItemInspector {
       fold: { kind: 'explore' },
       current: running !== undefined,
       event: { kind: 'read', path, outcome },
-      label: {
-        verb: t('tui.messages.transcriptGroups.labels.read'),
-        rowVerb: t('tui.messages.transcriptGroups.labels.read'),
-        subject: nonEmpty(path),
-      },
+      label: { verb: t('tui.messages.transcriptGroups.labels.read'), rowVerb: t('tui.messages.transcriptGroups.labels.read'), subject: nonEmpty(path) },
       status: running === undefined ? finishedStatus(outcome, undefined) : { kind: 'running' },
     }];
   }
@@ -396,9 +393,7 @@ export class TranscriptItemInspector {
     const name = component.toolCallView.name;
     const profile = TOOL_PROFILES[name];
     if (profile !== undefined) return profile;
-    if (name.startsWith('mcp__') && name.endsWith(MCP_AUTHENTICATE_TOOL_SUFFIX)) {
-      return MCP_AUTHENTICATE_PROFILE;
-    }
+    if (name.startsWith('mcp__') && name.endsWith(MCP_AUTHENTICATE_TOOL_SUFFIX)) return MCP_AUTHENTICATE_PROFILE;
     if (name.startsWith('mcp__')) return { foldClass: 'all', event: 'mcp' };
     return { foldClass: 'all', event: 'other' };
   }
@@ -466,11 +461,8 @@ export class TranscriptItemInspector {
 
 export function formatDuration(ms: number): string {
   const seconds = Math.max(1, Math.round(ms / 1000));
-  if (seconds < 60) return t('tui.messages.transcriptGroups.durationSeconds', { count: seconds });
-  return t('tui.messages.transcriptGroups.durationMinutes', {
-    minutes: Math.floor(seconds / 60),
-    seconds: seconds % 60,
-  });
+  if (seconds < 60) return `${String(seconds)}s`;
+  return `${String(Math.floor(seconds / 60))}m ${String(seconds % 60)}s`;
 }
 
 function foldTraits(toolCall: Readonly<ToolCallBlockData>, profile: ToolProfile): FoldTraits {
@@ -522,50 +514,33 @@ function toolLabel(component: ToolCallComponent): ItemLabel {
   const { name, args } = component.toolCallView;
   const path = nonEmpty(component.getReadSnapshot().filePath);
   const argument = (key: string): string | undefined => nonEmpty(args[key]);
-  const labels = 'tui.messages.transcriptGroups.labels';
   const label = (verb: string, subject?: string): ItemLabel => ({ verb, rowVerb: verb, subject });
   const taskId = argument('task_id');
   switch (name) {
-    case 'Read': return label(t(`${labels}.read`), path);
-    case 'ReadMediaFile': return label(t(`${labels}.view`), path);
+    case 'Read': return label('Read', path);
+    case 'ReadMediaFile': return label('View', path);
     case 'Grep': {
       const pattern = argument('pattern');
-      if (pattern === undefined) return label(t(`${labels}.search`));
-      return label(
-        t(`${labels}.search`),
-        path === undefined
-          ? t(`${labels}.searchPattern`, { pattern })
-          : t(`${labels}.searchIn`, { pattern, path }),
-      );
+      if (pattern === undefined) return label('Search');
+      return label('Search', `"${pattern}"${path === undefined ? '' : ` in ${path}`}`);
     }
-    case 'Glob': return label(t(`${labels}.find`), argument('pattern'));
+    case 'Glob': return label('Find', argument('pattern'));
     case 'Bash': return { verb: '$', rowVerb: 'Bash', subject: argument('command') };
-    case 'Edit': return label(t(`${labels}.edit`), path);
-    case 'Write': return label(t(`${labels}.write`), path);
+    case 'Edit': return label('Edit', path);
+    case 'Write': return label('Write', path);
     case 'TodoList': {
       const title = activeTodoTitle(args['todos']);
-      return label(
-        t(`${labels}.updateTodos`),
-        title === undefined ? undefined : t(`${labels}.todoSuffix`, { title }),
-      );
+      return label(t('tui.messages.transcriptGroups.labels.updateTodos'), title === undefined ? undefined : `· ${title}`);
     }
-    case 'Skill': return label(t(`${labels}.loadSkill`), argument('skill'));
+    case 'Skill': return label(t('tui.messages.transcriptGroups.labels.loadSkill'), argument('skill'));
     case 'WebSearch': {
       const query = argument('query');
-      return label(
-        t(`${labels}.searchWeb`),
-        query === undefined ? undefined : t(`${labels}.searchQuery`, { query }),
-      );
+      return label(t('tui.messages.transcriptGroups.labels.searchWeb'), query === undefined ? undefined : `"${query}"`);
     }
-    case 'FetchURL': return label(t(`${labels}.fetch`), nonEmpty(argument('url')?.replace(/^[a-z][a-z\d+.-]*:\/\//i, '')));
-    case 'WaitFor': return label(t(`${labels}.waitFor`), taskId ?? t(`${labels}.anyTask`));
-    case 'TaskOutput': {
-      return label(
-        t(`${labels}.readOutput`),
-        taskId === undefined ? undefined : t(`${labels}.outputOf`, { taskId }),
-      );
-    }
-    case 'TaskList': return label(t(`${labels}.listTasks`));
+    case 'FetchURL': return label('Fetch', nonEmpty(argument('url')?.replace(/^[a-z][a-z\d+.-]*:\/\//i, '')));
+    case 'WaitFor': return label(t('tui.messages.transcriptGroups.labels.waitFor'), taskId ?? t('tui.messages.transcriptGroups.labels.anyTask'));
+    case 'TaskOutput': return label(t('tui.messages.transcriptGroups.labels.readOutput'), taskId === undefined ? undefined : `of ${taskId}`);
+    case 'TaskList': return label(t('tui.messages.transcriptGroups.labels.listTasks'));
     default: {
       const decoded = decodeMcpToolName(name);
       if (decoded !== null) return label(`${decoded.serverName}:`, decoded.toolName);
@@ -591,7 +566,7 @@ function nonEmpty(value: unknown): string | undefined {
 }
 
 function isInterruptedOutput(output: string): boolean {
-  return INTERRUPTION_RE.test(output) ||
+  return INTERRUPTION_TEXT.some((text) => output.includes(text)) ||
     /Tool ".+" was aborted/.test(output) ||
     /User tool ".+" was aborted\./.test(output);
 }

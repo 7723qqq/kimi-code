@@ -78,7 +78,6 @@ export class Markdown extends Container {
   private readonly defaultTextStyle?: DefaultTextStyle;
   private readonly options: KimiMarkdownOptions;
   private structure: MarkdownStructure | undefined;
-  private prose: PiMarkdown | undefined;
   private childCache: { width: number; refs: Component[]; childLines: string[][]; lines: string[] } | undefined;
 
   constructor(
@@ -100,7 +99,7 @@ export class Markdown extends Container {
 
   setText(text: string): void {
     this.sourceText = text;
-    this.structure = undefined;
+    this.invalidate();
   }
 
   override invalidate(): void {
@@ -159,27 +158,20 @@ export class Markdown extends Container {
       return;
     }
     this.structure = { text: this.sourceText, mode, transient };
+    this.clear();
     if (mode === 'off' || transient) {
-      const prose = this.prose;
-      if (prose !== undefined && this.children.length === 1 && this.children[0] === prose) {
-        prose.setText(this.sourceText);
-        return;
-      }
-      this.clear();
-      const created = new PiMarkdown(
-        this.sourceText,
-        this.paddingX,
-        0,
-        this.theme,
-        this.defaultTextStyle,
-        this.options,
+      this.addChild(
+        new PiMarkdown(
+          this.sourceText,
+          this.paddingX,
+          0,
+          this.theme,
+          this.defaultTextStyle,
+          this.options,
+        ),
       );
-      this.prose = created;
-      this.addChild(created);
       return;
     }
-    this.clear();
-    this.prose = undefined;
     for (const [index, segment] of splitMermaidSegments(this.sourceText).entries()) {
       if (index > 0 && !segment.spacedBefore) this.addChild(new Spacer(1));
       this.addChild(

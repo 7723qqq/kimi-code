@@ -66,12 +66,6 @@ interface ProjectionCache {
   readonly viewSourceIndices: readonly number[];
 }
 
-/**
- * The transcript child list plus the fullscreen projection that folds runs of
- * tool calls and thinking into groups. Source children are the components the
- * app adds; the gutter renders the projected view (groups, cards, reordered
- * thinking) and maps clicks back to source items.
- */
 export class TranscriptContainer implements Component, TranscriptGroupInteraction {
   private readonly sourceChildren: Component[] = [];
   private readonly gutter: GutterContainer;
@@ -197,10 +191,7 @@ export class TranscriptContainer implements Component, TranscriptGroupInteractio
 
   handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
     this.ensureProjection();
-    const result = this.gutter.handleMouse(event);
-    if (result === undefined || result.target.component !== this.gutter) return result;
-    // The gutter is an implementation detail; report this container as the hit.
-    return { ...result, target: { ...result.target, component: this } };
+    return this.gutter.handleMouse(event);
   }
 
   getRenderedLayout(): GutterLayout | undefined {
@@ -285,18 +276,6 @@ export class TranscriptContainer implements Component, TranscriptGroupInteractio
 
   requestRender(): void {
     this.ui.requestRender();
-  }
-
-  /** Toggles the projection entry that shows `component`, as a click on it would. */
-  toggleSourceComponent(component: Component): boolean {
-    const cache = this.ensureProjection();
-    const sourceIndex = this.sourceChildren.indexOf(component);
-    if (sourceIndex < 0) return false;
-    const viewIndex = cache.viewSourceIndices.findIndex(
-      (index, position) => index === sourceIndex && cache.viewChildren[position] === component,
-    );
-    if (viewIndex < 0) return false;
-    return this.toggleViewIndex(viewIndex) !== undefined;
   }
 
   requestAnimationFrame(callback: (time: number) => void): number {

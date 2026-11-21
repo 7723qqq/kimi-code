@@ -1,7 +1,6 @@
-import { IconX, IconPlayerPlay, IconLoader2 } from '@tabler/icons-react';
-
-import { getMediaTypeFromDataUri } from '@/lib/media-utils';
-import { cn } from '@/lib/utils';
+import { IconX, IconPlayerPlay, IconLoader2 } from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+import { getMediaTypeFromDataUri } from "@/lib/media-utils";
 
 interface ThumbnailWrapperProps {
   onClick?: () => void;
@@ -13,13 +12,7 @@ interface ThumbnailWrapperProps {
 function ThumbnailWrapper({ onClick, onRemove, sizeClass, children }: ThumbnailWrapperProps) {
   return (
     <div className="relative group shrink-0">
-      <div
-        className={cn(
-          sizeClass,
-          'rounded-md cursor-pointer border border-border hover:border-primary/50 transition-colors overflow-hidden',
-        )}
-        onClick={onClick}
-      >
+      <div className={cn(sizeClass, "rounded-md cursor-pointer border border-border hover:border-primary/50 transition-colors overflow-hidden")} onClick={onClick}>
         {children}
       </div>
       {onRemove && (
@@ -41,20 +34,14 @@ interface MediaThumbnailProps {
   src?: string;
   onClick?: () => void;
   onRemove?: () => void;
-  size?: 'sm' | 'md';
+  size?: "sm" | "md";
   className?: string;
 }
 
-export function MediaThumbnail({
-  src,
-  onClick,
-  onRemove,
-  size = 'md',
-  className,
-}: MediaThumbnailProps) {
-  const sizeClass = size === 'sm' ? 'size-12' : 'size-16';
+export function MediaThumbnail({ src, onClick, onRemove, size = "md", className }: MediaThumbnailProps) {
+  const sizeClass = size === "sm" ? "size-12" : "size-16";
   const isLoading = !src;
-  const isVideo = src && getMediaTypeFromDataUri(src) === 'video';
+  const isVideo = src && getMediaTypeFromDataUri(src) === "video";
 
   return (
     <ThumbnailWrapper onClick={onClick} onRemove={onRemove} sizeClass={cn(sizeClass, className)}>
@@ -70,7 +57,7 @@ export function MediaThumbnail({
           </div>
         </div>
       ) : (
-        <img src={src} alt="Media" className={cn(sizeClass, 'object-cover')} />
+        <img src={src} alt="Media" className={cn(sizeClass, "object-cover")} />
       )}
     </ThumbnailWrapper>
   );

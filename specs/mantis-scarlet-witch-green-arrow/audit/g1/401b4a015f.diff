@@ -1,0 +1,46 @@
+commit 401b4a015f57a178adbbd098f37519647309b864
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Fri Nov 13 16:05:56 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Fri Nov 13 16:05:56 2026 +0800
+
+    docs(changelog): sync 2.6.1 from apps/kimi-code/CHANGELOG.md (#4912)
+    
+    Co-authored-by: kimi-agent-bot <kimi-agent-bot@users.noreply.github.com>
+
+diff --git a/docs/en/release-notes/changelog.md b/docs/en/release-notes/changelog.md
+index 43ff2dc3ac..4a4c0c3270 100644
+--- a/docs/en/release-notes/changelog.md
++++ b/docs/en/release-notes/changelog.md
+@@ -6,6 +6,13 @@ outline: 2
+ 
+ This page documents the changes in each Kimi Code CLI release.
+ 
++## 2.6.1 (2026-11-13)
++
++### Bug Fixes
++
++- Fix multi-second loading delays when reopening long sessions.
++- Fix long sessions stalling with empty replies instead of compacting when tool results include notes, errors, or timing headers.
++
+ ## 2.6.0 (2026-11-12)
+ 
+ We recommend switching to fullscreen mode via `/settings -> TUI mode -> Fullscreen` (takes effect after restarting) for a better experience.
+diff --git a/docs/zh/release-notes/changelog.md b/docs/zh/release-notes/changelog.md
+index 656b83a8ce..995f390b9d 100644
+--- a/docs/zh/release-notes/changelog.md
++++ b/docs/zh/release-notes/changelog.md
+@@ -6,6 +6,13 @@ outline: 2
+ 
+ 本页记录 Kimi Code CLI 每个版本的变更内容。
+ 
++## 2.6.1（2026-11-13）
++
++### 修复
++
++- 修复重新打开长会话时出现数秒加载延迟的问题。
++- 修复工具结果包含附加说明、错误或耗时信息时，长会话未触发上下文自动压缩而卡在空回复的问题。
++
+ ## 2.6.0（2026-11-12）
+ 
+ 建议执行 `/settings -> TUI mode -> Fullscreen` 切换到全屏模式（重启后生效），获得更好的使用体验。

@@ -9,17 +9,17 @@ import {
 import { APIError as RawAnthropicAPIError } from '@anthropic-ai/sdk';
 import { ApiError as RawGoogleApiError } from '@google/genai';
 
-import { classifyKimiQuotaError } from '#/llm-kimi/errors';
-import { kimiConnection, kimiOpenAITrait } from '#/llm-kimi/trait';
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createAssistantMessage, createUserMessage, type Message } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import { convertGoogleGenAIError } from '#/llm/requester/bases/google-genai/format';
-import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
-import { convertAnthropicError } from '#/llm/requester/bases/anthropic/format';
-import { convertOpenAIError } from '#/llm/requester/bases/openai/format';
-import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
-import type { LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
+import { classifyKimiQuotaError } from '#human/llm-kimi/errors';
+import { kimiConnection, kimiOpenAITrait } from '#human/llm-kimi/trait';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
+import { createAssistantMessage, createUserMessage, type Message } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import { convertGoogleGenAIError } from '#human/llm/requester/bases/google-genai/format';
+import { createGoogleGenAIRequester } from '#human/llm/requester/bases/google-genai/requester';
+import { convertAnthropicError } from '#human/llm/requester/bases/anthropic/format';
+import { convertOpenAIError } from '#human/llm/requester/bases/openai/format';
+import { createOpenAIRequester } from '#human/llm/requester/bases/openai/requester';
+import type { LlmRequester, LlmRequestEvent } from '#human/llm/requester/requester';
 
 const model: LlmModel = {
   provider: 'test',

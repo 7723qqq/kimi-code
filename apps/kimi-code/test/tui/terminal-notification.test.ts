@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { TUIState } from '#/tui/kimi-tui';
 import {
@@ -11,15 +11,13 @@ import {
   supportsTerminalProgress,
 } from '#/tui/utils/terminal-notification';
 
-function makeNotificationState(
-  args: {
-    readonly enabled?: boolean;
-    readonly condition?: 'unfocused' | 'always';
-    readonly focused?: boolean;
-    readonly supportsOsc9?: boolean;
-    readonly insideTmux?: boolean;
-  } = {},
-): TUIState {
+function makeNotificationState(args: {
+  readonly enabled?: boolean;
+  readonly condition?: 'unfocused' | 'always';
+  readonly focused?: boolean;
+  readonly supportsOsc9?: boolean;
+  readonly insideTmux?: boolean;
+} = {}): TUIState {
   return {
     appState: {
       notifications: {
@@ -34,14 +32,14 @@ function makeNotificationState(
       insideTmux: args.insideTmux ?? false,
     },
     terminal: {
-      write: mock(),
+      write: vi.fn(),
     },
   } as unknown as TUIState;
 }
 
 describe('terminal notification helpers', () => {
   it('emits OSC 9 only when the terminal supports it', () => {
-    const terminal = { write: mock() };
+    const terminal = { write: vi.fn() };
 
     emitTerminalNotification(
       terminal,
@@ -54,7 +52,7 @@ describe('terminal notification helpers', () => {
   });
 
   it('falls back to a bare BEL when the terminal does not support OSC 9', () => {
-    const terminal = { write: mock() };
+    const terminal = { write: vi.fn() };
 
     emitTerminalNotification(
       terminal,
@@ -67,7 +65,7 @@ describe('terminal notification helpers', () => {
   });
 
   it('wraps OSC 9 in a tmux DCS passthrough when running inside tmux', () => {
-    const terminal = { write: mock() };
+    const terminal = { write: vi.fn() };
 
     emitTerminalNotification(
       terminal,
@@ -80,7 +78,7 @@ describe('terminal notification helpers', () => {
   });
 
   it('skips the tmux wrap when falling back to BEL', () => {
-    const terminal = { write: mock() };
+    const terminal = { write: vi.fn() };
 
     emitTerminalNotification(
       terminal,
@@ -92,7 +90,7 @@ describe('terminal notification helpers', () => {
   });
 
   it('emits nothing when the formatted message is empty', () => {
-    const terminal = { write: mock() };
+    const terminal = { write: vi.fn() };
 
     emitTerminalNotification(
       terminal,
@@ -231,8 +229,6 @@ describe('supportsTerminalProgress', () => {
   });
 
   it('rejects terminals that show every OSC 9 payload as a notification', () => {
-    // iTerm2 treats any OSC 9 payload as a desktop notification, so the
-    // ConEmu-style 9;4 progress sequence must never be sent there.
     expect(supportsTerminalProgress({ TERM_PROGRAM: 'iTerm.app' })).toBe(false);
     expect(supportsTerminalProgress({ TERM_PROGRAM: 'Apple_Terminal' })).toBe(false);
     expect(supportsTerminalProgress({ TERM_PROGRAM: 'WarpTerminal' })).toBe(false);

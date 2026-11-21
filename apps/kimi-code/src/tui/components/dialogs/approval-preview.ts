@@ -1,25 +1,3 @@
-/**
- * ApprovalPreviewViewer — full-screen preview of an Edit diff or Write
- * file content for the approval flow.
- *
- * Mounted by `kimi-tui.ts` via the same nested-takeover pattern as
- * `TaskOutputViewer`: the active approval panel is preserved underneath
- * and restored on close. The viewer is a snapshot — it only slices its body
- * on scroll, so the per-frame render cost stays in `O(viewport)` even when
- * the underlying diff/content is very large.
- *
- * File content is highlighted a viewport at a time rather than up front:
- * cli-highlight over a several-thousand-line Write blocks the event loop for
- * around a second, which freezes the whole window the moment Ctrl+E opens a
- * preview. Diff bodies are already styled by `renderDiffLinesClustered`.
- *
- * This avoids the prior failure mode where pressing ctrl+e on an Edit
- * with a long hunk inflated the approval panel past one screen, which
- * collided with pi-tui's inline differential renderer and the terminal
- * emulator's "snap to bottom on stdout" reflex, causing flicker and an
- * unscrollable history pane.
- */
-
 import {
   Container,
   Key,
@@ -30,12 +8,12 @@ import {
   type Focusable,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
-import { highlightLinesWindow, langFromPath } from '#/tui/components/media/code-highlight';
+import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import type { DiffDisplayBlock, FileContentDisplayBlock } from '#/tui/reverse-rpc/types';
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '#/tui/utils/printable-key';
+import { t } from '#/i18n';
 
 const ELLIPSIS = '…';
 
@@ -61,19 +39,11 @@ function fitExactly(line: string, width: number): string {
 
 export class ApprovalPreviewViewer extends Container implements Focusable {
   focused = false;
-  // A full-screen reader taken over as the layout root: it pages its own body.
-  readonly ownsViewportKeys = true;
-  readonly ownsViewportSearchKey = true;
 
   private readonly props: ApprovalPreviewViewerProps;
   private readonly terminal: Terminal;
-  /** Body lines: already styled for a diff, raw for file content. */
   private bodyLines: string[];
-  /** Styles the visible window of a file-content body, with its gutters. */
-  private styleBody: BuiltBody['style'];
-  /** Title shown in the header (path + diff stats / "Write" label). */
   private headerTitle: string;
-  /** Index of the topmost visible line. */
   private scrollTop = 0;
 
   constructor(props: ApprovalPreviewViewerProps, terminal: Terminal) {
@@ -82,7 +52,6 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
     this.terminal = terminal;
     const built = buildBody(props.block);
     this.bodyLines = built.lines;
-    this.styleBody = built.style;
     this.headerTitle = built.title;
   }
 
@@ -90,7 +59,12 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
     const visible = this.viewableRows();
     const k = printableChar(data);
 
-    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('e')) || k === 'q' || k === 'Q') {
+    if (
+      matchesKey(data, Key.escape) ||
+      matchesKey(data, Key.ctrl('e')) ||
+      k === 'q' ||
+      k === 'Q'
+    ) {
       this.props.onClose();
       return;
     }
@@ -102,11 +76,11 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
       this.scrollBy(1);
       return;
     }
-    if (matchesKey(data, Key.pageUp) || k === ' ' || data === '\u0002') {
+    if (matchesKey(data, Key.pageUp) || k === ' ' || data === '\x02') {
       this.scrollBy(-Math.max(1, visible - 1));
       return;
     }
-    if (matchesKey(data, Key.pageDown) || data === '\u0006') {
+    if (matchesKey(data, Key.pageDown) || data === '\x06') {
       this.scrollBy(Math.max(1, visible - 1));
       return;
     }
@@ -127,7 +101,6 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
   override invalidate(): void {
     const built = buildBody(this.props.block);
     this.bodyLines = built.lines;
-    this.styleBody = built.style;
     this.headerTitle = built.title;
   }
 
@@ -140,7 +113,6 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
     return Math.max(0, this.bodyLines.length - this.viewableRows());
   }
 
-  /** Body rows = terminal rows − header(1) − top border(1) − bottom border(1) − footer(1). */
   private viewableRows(): number {
     return Math.max(1, this.terminal.rows - 4);
   }
@@ -168,26 +140,24 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
     if (this.scrollTop > max) this.scrollTop = max;
     if (this.scrollTop < 0) this.scrollTop = 0;
 
-    const viewRows = Math.max(0, bodyHeight - 2);
+    const viewRows = bodyHeight - 2;
     const top = currentTheme.fg('primary', '┌' + '─'.repeat(Math.max(0, width - 2)) + '┐');
     const bottom = currentTheme.fg('primary', '└' + '─'.repeat(Math.max(0, width - 2)) + '┘');
-    const styled = this.styleBody?.(this.scrollTop, viewRows);
 
     const out: string[] = [top];
     for (let i = 0; i < viewRows; i++) {
       const lineIndex = this.scrollTop + i;
-      const raw = styled?.[i] ?? this.bodyLines[lineIndex] ?? '';
-      out.push(
-        currentTheme.fg('primary', '│ ') +
-          fitExactly(raw, innerWidth) +
-          currentTheme.fg('primary', ' │'),
-      );
+      const raw = this.bodyLines[lineIndex] ?? '';
+      out.push(currentTheme.fg('primary', '│ ') + fitExactly(raw, innerWidth) + currentTheme.fg('primary', ' │'));
     }
     out.push(bottom);
     return out;
   }
 
   private renderFooter(width: number, bodyHeight: number): string {
+    const key = (text: string): string => currentTheme.boldFg('primary', text);
+    const dim = (text: string): string => currentTheme.fg('textMuted', text);
+
     const total = this.bodyLines.length;
     const viewRows = Math.max(1, bodyHeight - 2);
     const maxScroll = Math.max(0, total - viewRows);
@@ -199,7 +169,11 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
       'textMuted',
       ` ${String(lineFrom)}-${String(lineTo)} / ${String(total)} (${String(percent)}%) `,
     );
-    const keys = t('tui.dialogs.approvalPreview.footerKeys');
+    const keys =
+      `${key('↑↓')} ${dim('line')}  ` +
+      `${key('PgUp/PgDn')} ${dim('page')}  ` +
+      `${key('g/G')} ${dim('top/bot')}  ` +
+      `${key('Q/Esc/Ctrl+E')} ${dim('cancel')}`;
     const left = ` ${keys}`;
     const leftW = visibleWidth(left);
     const rightW = visibleWidth(position);
@@ -211,11 +185,8 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
 }
 
 interface BuiltBody {
-  /** Raw lines; line count drives scrolling even before anything is styled. */
   lines: string[];
   title: string;
-  /** Present when `lines` need per-viewport styling. */
-  style?: (start: number, count: number) => string[];
 }
 
 function buildBody(block: ApprovalPreviewBlock): BuiltBody {
@@ -226,32 +197,28 @@ function buildBody(block: ApprovalPreviewBlock): BuiltBody {
 }
 
 function buildDiffBody(block: DiffDisplayBlock): BuiltBody {
-  // renderDiffLinesClustered emits a `+N -M path` header on its first line
-  // followed by every changed line plus surrounding context. We pull the
-  // header out into the viewer chrome so the body is purely scrollable diff
-  // content; this also means we don't double-render the path.
-  const rendered = renderDiffLinesClustered(block.old_text, block.new_text, block.path, {
-    contextLines: 3,
-    oldStart: block.old_start ?? 1,
-    newStart: block.new_start ?? 1,
-  });
+  const rendered = renderDiffLinesClustered(
+    block.old_text,
+    block.new_text,
+    block.path,
+    {
+      contextLines: 3,
+      oldStart: block.old_start ?? 1,
+      newStart: block.new_start ?? 1,
+    },
+  );
   const [header = '', ...rest] = rendered;
   return { lines: rest, title: stripLeadingSpace(header) };
 }
 
 function buildFileContentBody(block: FileContentDisplayBlock): BuiltBody {
   const lang = block.language ?? langFromPath(block.path);
-  const content = block.content;
-  return {
-    lines: content.split('\n'),
-    title: currentTheme.fg('textStrong', block.path),
-    style: (start, count) => {
-      const { lines } = highlightLinesWindow(content, lang, start, count);
-      return lines.map(
-        (line, i) => currentTheme.fg('diffGutter', String(start + i + 1).padStart(4) + '  ') + line,
-      );
-    },
-  };
+  const highlighted = highlightLines(block.content, lang);
+  const lines = highlighted.map(
+    (line, i) => currentTheme.fg('diffGutter', String(i + 1).padStart(4) + '  ') + line,
+  );
+  const title = currentTheme.fg('textStrong', block.path);
+  return { lines, title };
 }
 
 function stripLeadingSpace(s: string): string {

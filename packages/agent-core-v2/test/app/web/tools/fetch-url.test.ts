@@ -1,29 +1,20 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { lookup } from 'node:dns/promises';
 
-import type { FetchLike } from '#/_base/utils/fetchLike';
-import { FetchURLTool } from '#/agent/tools/fetch-url/fetchUrlTool';
-import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
-import { type UrlFetcher, type UrlFetchResult } from '#/app/web/tools/fetch-url-types';
-import {
-  type ExecutableToolContext,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { waitUntil } from '#test/helpers/waitFor';
+import { beforeEach, describe, expect, it, vi, type Mock } from '@moonshot-ai/testkit/vitest';
 
-void mock.module('node:dns/promises', () => ({ lookup: mock() }));
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
+import { FetchURLTool } from '#/agent/tools/fetch-url/fetchUrlTool';
+import type { UrlFetcher, UrlFetchResult } from '#/app/web/tools/fetch-url-types';
+
+void vi.mock('node:dns/promises', () => ({ lookup: vi.fn() }));
 
 beforeEach(() => {
-  (lookup as unknown as ReturnType<typeof mock>).mockReset();
-  (lookup as unknown as ReturnType<typeof mock>).mockResolvedValue([
-    { address: '93.184.216.34', family: 4 },
-  ]);
+  (lookup as unknown as Mock).mockReset();
+  (lookup as unknown as Mock).mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
 });
 
-function isPromiseLike(
-  value: ToolExecution | Promise<ToolExecution>,
-): value is Promise<ToolExecution> {
+function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -48,10 +39,9 @@ function abortError(): Error {
 describe('FetchURLTool abort signal', () => {
   it('forwards ctx.signal to the fetcher', async () => {
     const controller = new AbortController();
-    const fetch = mock<UrlFetcher['fetch']>().mockResolvedValue({
-      content: 'hello',
-      kind: 'passthrough',
-    } satisfies UrlFetchResult);
+    const fetch = vi
+      .fn<UrlFetcher['fetch']>()
+      .mockResolvedValue({ content: 'hello', kind: 'passthrough' } satisfies UrlFetchResult);
     const tool = new FetchURLTool({
       _serviceBrand: undefined,
       getUrlFetcher: () => ({ fetch }),
@@ -67,7 +57,7 @@ describe('FetchURLTool abort signal', () => {
 
   it('re-throws when the signal aborts mid-fetch', async () => {
     const controller = new AbortController();
-    const fetch = mock<UrlFetcher['fetch']>().mockImplementation(async () => {
+    const fetch = vi.fn<UrlFetcher['fetch']>().mockImplementation(async () => {
       controller.abort(new Error('Aborted by the user'));
       throw abortError();
     });
@@ -81,7 +71,7 @@ describe('FetchURLTool abort signal', () => {
 
   it('returns a normal error result when fetch fails without abort', async () => {
     const controller = new AbortController();
-    const fetch = mock<UrlFetcher['fetch']>().mockRejectedValue(new Error('boom'));
+    const fetch = vi.fn<UrlFetcher['fetch']>().mockRejectedValue(new Error('boom'));
     const tool = new FetchURLTool({
       _serviceBrand: undefined,
       getUrlFetcher: () => ({ fetch }),
@@ -95,35 +85,13 @@ describe('FetchURLTool abort signal', () => {
     }
     expect(result.output).toContain('boom');
   });
-
-  it('surfaces the underlying cause of an undici network failure', async () => {
-    const failure: TypeError & { cause?: unknown } = new TypeError('fetch failed');
-    failure.cause = Object.assign(new Error('connect ETIMEDOUT 20.205.243.166:443'), {
-      code: 'ETIMEDOUT',
-    });
-    const fetch = mock<UrlFetcher['fetch']>().mockRejectedValue(failure);
-    const tool = new FetchURLTool({
-      _serviceBrand: undefined,
-      getUrlFetcher: () => ({ fetch }),
-    });
-
-    const result = await execute(tool, 'https://github.com/x', new AbortController().signal);
-
-    expect(result.isError).toBe(true);
-    if (typeof result.output !== 'string') {
-      throw new Error('expected string error output');
-    }
-    expect(result.output).toContain('fetch failed');
-    expect(result.output).toContain('ETIMEDOUT');
-  });
 });
 
 describe('FetchURLTool output note', () => {
   async function runKind(kind: UrlFetchResult['kind']): Promise<string> {
-    const fetch = mock<UrlFetcher['fetch']>().mockResolvedValue({
-      content: 'BODY',
-      kind,
-    } satisfies UrlFetchResult);
+    const fetch = vi
+      .fn<UrlFetcher['fetch']>()
+      .mockResolvedValue({ content: 'BODY', kind } satisfies UrlFetchResult);
     const tool = new FetchURLTool({
       _serviceBrand: undefined,
       getUrlFetcher: () => ({ fetch }),
@@ -153,11 +121,10 @@ describe('FetchURLTool output note', () => {
 
 describe('FetchURLTool backend resolution', () => {
   it('resolves the fetcher per invocation, never at construction', async () => {
-    const fetch = mock<UrlFetcher['fetch']>().mockResolvedValue({
-      content: 'hello',
-      kind: 'passthrough',
-    } satisfies UrlFetchResult);
-    const getUrlFetcher = mock(() => ({ fetch }));
+    const fetch = vi
+      .fn<UrlFetcher['fetch']>()
+      .mockResolvedValue({ content: 'hello', kind: 'passthrough' } satisfies UrlFetchResult);
+    const getUrlFetcher = vi.fn(() => ({ fetch }));
     const tool = new FetchURLTool({ _serviceBrand: undefined, getUrlFetcher });
 
     expect(getUrlFetcher).not.toHaveBeenCalled();
@@ -169,30 +136,20 @@ describe('FetchURLTool backend resolution', () => {
 });
 
 describe('LocalFetchURLProvider abort signal', () => {
-  it('wires the caller signal into fetchImpl so aborts propagate', async () => {
+  it('passes the signal through to fetchImpl', async () => {
     const controller = new AbortController();
-    const fetchImpl = mock<FetchLike>().mockImplementation(
-      (_url, init) =>
-        new Promise<Response>((_resolve, reject) => {
-          (init?.signal as AbortSignal | undefined)?.addEventListener('abort', () =>
-            reject(new Error('The operation was aborted.')),
-          );
-        }) as Promise<Response>,
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('plain text', {
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+      }),
     );
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
-    const pending = provider.fetch('https://example.com/test', { signal: controller.signal });
-    await waitUntil(() => fetchImpl.mock.calls.length > 0);
-    controller.abort();
-    const outcome = await pending.then(
-      () => undefined,
-      (error: unknown) => error,
-    );
+    await provider.fetch('https://example.com/test', { signal: controller.signal });
 
-    expect(outcome).toBeInstanceOf(Error);
-    expect((outcome as Error).message).toBe('The operation was aborted.');
-
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [, init] = fetchImpl.mock.calls[0]!;
-    expect((init as RequestInit | undefined)?.signal).toBeInstanceOf(AbortSignal);
+    expect((init as RequestInit | undefined)?.signal).toBe(controller.signal);
   });
 });

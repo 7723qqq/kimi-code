@@ -58,7 +58,10 @@ interface RouteHost {
   ): unknown;
 }
 
-const oauthFlowSnapshotOrNullSchema = z.union([oauthFlowSnapshotSchema, z.null()]);
+const oauthFlowSnapshotOrNullSchema = z.union([
+  oauthFlowSnapshotSchema,
+  z.null(),
+]);
 
 const LOGOUT_TUNNEL_TEARDOWN_DELAY_MS = 250;
 
@@ -82,10 +85,7 @@ export function registerOAuthRoutes(
       const result = await core.accessor
         .get(IOAuthService)
         .startLogin(req.body.provider, { region: req.body.region });
-      requestLog(req)?.info(
-        { provider: req.body.provider, action: 'login' },
-        'oauth login started',
-      );
+      requestLog(req)?.info({ provider: req.body.provider, action: 'login' }, 'oauth login started');
       reply.send(okEnvelope(result, req.id));
     },
   );
@@ -150,8 +150,7 @@ export function registerOAuthRoutes(
       errors: { [ErrorCode.INTERNAL_ERROR]: {} },
       description: 'Logout the managed OAuth provider',
       tags: ['auth'],
-    },
-    async (req, reply) => {
+    },    async (req, reply) => {
       const provider = req.body.provider ?? KIMI_CODE_PROVIDER_NAME;
       if (provider !== KIMI_CODE_PROVIDER_NAME) {
         const result = await core.accessor.get(IOAuthService).logout(req.body.provider);

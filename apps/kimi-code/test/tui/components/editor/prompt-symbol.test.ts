@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, it, expect } from '@moonshot-ai/testkit/vitest';
 
 import { injectPromptSymbol } from '#/tui/components/editor/custom-editor';
 

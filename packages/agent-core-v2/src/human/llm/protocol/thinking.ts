@@ -1,4 +1,4 @@
-import type { ThinkingRequestOptions } from '#/llm/thinking';
+import type { ThinkingRequestOptions } from '#human/llm/thinking';
 
 import type { TraitContext } from './base';
 

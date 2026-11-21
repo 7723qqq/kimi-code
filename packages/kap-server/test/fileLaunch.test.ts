@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { openInAppCommandFor, revealFileCommandFor } from '../src/lib/fileLaunch';
 

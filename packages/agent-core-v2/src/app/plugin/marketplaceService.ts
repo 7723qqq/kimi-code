@@ -7,8 +7,8 @@ import {
   type BearerTokenProvider,
 } from '@moonshot-ai/kimi-code-oauth';
 
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IRegionService } from '#/app/region/region';
 import { LifecycleScope } from '#/app/scopes';
@@ -164,7 +164,7 @@ export class PluginMarketplaceService implements IPluginMarketplaceService {
     const read = await readPluginMarketplace({
       source: context.source,
       workDir: this.bootstrap.cwd,
-      fetchImpl: (input, init) => this.catalogFetch(input, init, context),
+      fetchImpl: ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => this.catalogFetch(input, init, context)) as unknown as typeof fetch,
     });
     const marketplace = parsePluginMarketplace(read.raw, read.location);
     if (context.managed) {
@@ -220,19 +220,15 @@ export class PluginMarketplaceService implements IPluginMarketplaceService {
       if (token !== undefined) headers.set('Authorization', `Bearer ${token}`);
       headers.set('Accept', 'application/json');
     }
-    return this.fetchWithRedirects(
-      input,
-      {
-        ...init,
-        headers,
-        signal: init?.signal ?? AbortSignal.timeout(MARKETPLACE_FETCH_TIMEOUT_MS),
-      },
-      context,
-    );
+    return this.fetchWithRedirects(input, {
+      ...init,
+      headers,
+      signal: init?.signal ?? AbortSignal.timeout(MARKETPLACE_FETCH_TIMEOUT_MS),
+    }, context);
   }
 
   private artifactFetch(context: MarketplaceContext): typeof fetch {
-    return (async (input: Parameters<typeof fetch>[0], init: RequestInit | undefined) => {
+    return (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const headers = this.requestHeaders(init, input, context);
       const response = await this.fetchWithRedirects(input, { ...init, headers }, context);
       if (!context.managed || (response.status !== 401 && response.status !== 403)) {
@@ -245,7 +241,7 @@ export class PluginMarketplaceService implements IPluginMarketplaceService {
       const retryHeaders = this.requestHeaders(init, responseUrl, context);
       retryHeaders.set('Authorization', `Bearer ${token}`);
       return this.fetchWithRedirects(responseUrl, { ...init, headers: retryHeaders }, context);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
   }
 
   private async fetchWithRedirects(
@@ -294,11 +290,9 @@ export class PluginMarketplaceService implements IPluginMarketplaceService {
 
 function assertManagedMarketplaceEntry(entry: PluginMarketplaceEntry): void {
   if (entry.version === undefined) {
-    throw new Error2(
-      ErrorCodes.VALIDATION_FAILED,
-      `Marketplace plugin "${entry.id}" has no version`,
-      { details: { marketplaceId: entry.id } },
-    );
+    throw new Error2(ErrorCodes.VALIDATION_FAILED, `Marketplace plugin "${entry.id}" has no version`, {
+      details: { marketplaceId: entry.id },
+    });
   }
   if (entry.distribution === undefined) {
     throw new Error2(

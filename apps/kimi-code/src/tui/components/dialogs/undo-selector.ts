@@ -5,21 +5,13 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import {
-  mouseDispatch,
-  ListMouseRouter,
-  type ListRowRegion,
-  searchableListCursor,
-} from '#/tui/utils/mouse';
 import type { InlineSkillActivation } from '../../types';
 import { SearchableList } from '#/tui/utils/searchable-list';
+import { t } from '#/i18n';
 
 const MAX_VISIBLE_CHOICES = 5;
 const PREFERRED_SELECTED_OFFSET = 2;
@@ -42,7 +34,6 @@ export class UndoSelectorComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: UndoSelectorOptions;
   private readonly list: SearchableList<UndoChoice>;
-  private readonly mouse: ListMouseRouter<UndoChoice>;
   private submitted = false;
 
   constructor(opts: UndoSelectorOptions) {
@@ -53,19 +44,6 @@ export class UndoSelectorComponent extends Container implements Focusable {
       toSearchText: (choice) => choice.label,
       initialIndex: Math.max(0, opts.choices.length - 1),
     });
-    this.mouse = new ListMouseRouter(
-      searchableListCursor(() => this.list),
-      (choice) => this.submit(choice),
-      {
-        isFocused: () => this.focused,
-      },
-    );
-  }
-
-  private submit(choice: UndoChoice): void {
-    if (this.submitted) return;
-    this.submitted = true;
-    this.opts.onSelect(choice);
   }
 
   handleInput(data: string): void {
@@ -83,45 +61,42 @@ export class UndoSelectorComponent extends Container implements Focusable {
     if (matchesKey(data, Key.enter)) {
       const selected = this.list.selected();
       if (selected !== undefined) {
-        this.submit(selected);
+        this.submitted = true;
+        this.opts.onSelect(selected);
       }
     }
   }
 
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouse.handleMouse(event));
-  }
-
   override render(width: number): string[] {
     const view = this.list.view();
+    const hintParts = ['↑↓ navigate', 'Enter select', 'Esc cancel'];
 
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
       currentTheme.boldFg('primary', t('tui.dialogs.undoSelector.title')),
-      currentTheme.fg('textMuted', ' ' + t('tui.dialogs.undoSelector.navHint')),
+      currentTheme.fg('textMuted', ' ' + hintParts.join(' · ')),
       '',
     ];
 
-    const regions: ListRowRegion[] = [];
     if (view.items.length === 0) {
       lines.push(currentTheme.fg('textMuted', t('tui.dialogs.undoSelector.noMessages')));
     } else {
       const visibleCount = Math.min(MAX_VISIBLE_CHOICES, view.items.length);
       const maxStart = view.items.length - visibleCount;
-      const start = Math.min(Math.max(0, view.selectedIndex - PREFERRED_SELECTED_OFFSET), maxStart);
+      const start = Math.min(
+        Math.max(0, view.selectedIndex - PREFERRED_SELECTED_OFFSET),
+        maxStart,
+      );
       const end = start + visibleCount;
 
       for (let i = start; i < end; i++) {
         const choice = view.items[i];
         if (choice === undefined) continue;
-        const rowStart = lines.length;
         lines.push(
           this.renderChoiceLine(choice, i === view.selectedIndex, i > view.selectedIndex, width),
         );
-        regions.push({ start: rowStart, end: lines.length, index: i });
       }
     }
-    this.mouse.setRegions(regions);
 
     lines.push('');
     lines.push(currentTheme.fg('primary', '─'.repeat(width)));
@@ -140,7 +115,9 @@ export class UndoSelectorComponent extends Container implements Focusable {
     const label = truncateToWidth(choice.label, labelBudget, '…');
     const token = isSelected ? 'primary' : inUndoRange ? 'textDim' : 'text';
     let line = currentTheme.fg(isSelected ? 'primary' : 'textDim', prefix);
-    line += isSelected ? currentTheme.boldFg(token, label) : currentTheme.fg(token, label);
+    line += isSelected
+      ? currentTheme.boldFg(token, label)
+      : currentTheme.fg(token, label);
     return line;
   }
 }

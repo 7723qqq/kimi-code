@@ -1,0 +1,27 @@
+commit 71db6b7d38
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Thu Nov 19 15:22:40 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 19 15:22:40 2026 +0800
+
+    feat: align Desktop Canary versions with CLI (#5089)
+    
+    * fix: continue desktop canary sequence after migration
+    
+    * style: name canary migration constants
+    
+    * feat: align desktop canary versions with CLI
+    
+    * fix: resume Desktop Canary release uploads
+    
+    ---------
+    
+    Co-authored-by: kimi-agent-bot <317908118+kimi-agent-bot@users.noreply.github.com>
+
+ .github/workflows/ci.yml                |   2 +-
+ .github/workflows/desktop-build.yml     |  45 ++++++++--
+ scripts/canary-version.mjs              |  15 ++--
+ scripts/canary-version.test.mjs         |  19 ++++-
+ scripts/desktop-canary-publish.test.mjs | 145 ++++++++++++++++++++++++++++++++
+ scripts/release.test.mjs                |   2 +-
+ 6 files changed, 210 insertions(+), 18 deletions(-)

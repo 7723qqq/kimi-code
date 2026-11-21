@@ -1,5 +1,6 @@
 import type {
   AgentReplayRecord,
+  BackgroundTaskInfo,
   ContextMessage,
   GoalChange,
   PermissionMode,
@@ -8,32 +9,31 @@ import type {
   ToolCall,
   ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
-import type { Component } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
-
-import { modelDisplayName } from '../components/dialogs/model-selector';
-import { ShellRunComponent } from '../components/messages/shell-run';
+import { isAgentSwarmRejection } from '../components/messages/agent-swarm-progress';
 import { ToolCallComponent } from '../components/messages/tool-call';
+import { ShellRunComponent } from '../components/messages/shell-run';
 import { ReplayTurnBoundaryComponent } from '../components/messages/user-message';
-import type { TUIState } from '../state';
 import { currentTheme } from '../theme';
 import type {
   AppState,
   BackgroundAgentMetadata,
-  BackgroundAgentStatusPhase,
   ToolResultBlockData,
   TranscriptEntry,
 } from '../types';
+import { formatErrorMessage } from '../utils/event-payload';
 import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
-import { formatErrorMessage } from '../utils/event-payload';
+import { modelDisplayName } from '../components/dialogs/model-selector';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
+import { PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
+import { formatBashOutputForDisplay } from '../utils/shell-output';
+import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import {
   appStateFromResumeAgent,
   backgroundOrigin,
-  collectReplayMessageContent,
   bundledSkillsFromOrigin,
+  collectReplayMessageContent,
   contentPartsToText,
   countActiveBackgroundTasks,
   createReplayRenderContext,
@@ -45,8 +45,8 @@ import {
   replayBackgroundProjection,
   replayEntry,
   skillActivationFromOrigin,
-  pluginCommandFromOrigin,
   stripBundledSkillParts,
+  pluginCommandFromOrigin,
   toolCallFromReplayMessage,
   toolResultOutput,
   userSlashSkillPromptText,
@@ -56,12 +56,42 @@ import {
   type SkillActivationProjection,
   type PluginCommandProjection,
 } from '../utils/message-replay';
-import { permissionModeDisplayName } from '../utils/permission-mode';
-import { formatBashOutputForDisplay } from '../utils/shell-output';
-import type { SessionEventHandler } from './session-event-handler';
 import type { StreamingUIController } from './streaming-ui';
+import type { SessionEventHandler } from './session-event-handler';
+import type { TUIState } from '../tui-state';
+import { t } from '#/i18n';
 
 type GoalReplayRecord = Extract<AgentReplayRecord, { type: 'goal_updated' }>;
+type CompactionReplayRecord = Extract<AgentReplayRecord, { type: 'compaction' }>;
+type GoalReplayLifecycleChange = GoalChange & { readonly kind: 'lifecycle' };
+
+export interface SessionReplayHost {
+  state: TUIState;
+  readonly streamingUI: StreamingUIController;
+  readonly sessionEventHandler: SessionEventHandler;
+  setAppState(patch: Partial<AppState>): void;
+  showError(msg: string): void;
+  showStatus?(message: string, color?: 'warning'): void;
+  appendTranscriptEntry(entry: TranscriptEntry): void;
+  mergeAllTurnSteps(): void;
+  restoreProgramStatusBackground?(tasks: readonly BackgroundTaskInfo[]): void;
+}
+
+function extractBashTag(
+  text: string,
+  tag: 'bash-input' | 'bash-stdout' | 'bash-stderr',
+): string | undefined {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
+  return match?.[1] === undefined ? undefined : unescapeBashXml(match[1]);
+}
+
+function unescapeBashXml(text: string): string {
+  return text
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&');
+}
 
 function preserveBundleHookResults(
   replay: readonly AgentReplayRecord[],
@@ -82,47 +112,12 @@ function preserveBundleHookResults(
   }
   return start === firstIndex ? limited : [...replay.slice(start, firstIndex), ...limited];
 }
-type CompactionReplayRecord = Extract<AgentReplayRecord, { type: 'compaction' }>;
-type GoalReplayLifecycleChange = GoalChange & { readonly kind: 'lifecycle' };
-
-export interface SessionReplayHost {
-  state: TUIState;
-  readonly streamingUI: StreamingUIController;
-  readonly sessionEventHandler: SessionEventHandler;
-  setAppState(patch: Partial<AppState>): void;
-  showError(msg: string): void;
-  showStatus?(message: string, color?: 'warning'): void;
-  appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;
-  mountTranscriptComponent(entry: TranscriptEntry, component: Component): void;
-  removeTranscriptEntries(entries: readonly TranscriptEntry[]): void;
-  mergeAllTurnSteps(): void;
-  /** A replayed session starts the footer's speed readout over: the pre-replay
-   *  process may have measured a different session. */
-  resetTokenSpeed(): void;
-}
-
-function extractBashTag(
-  text: string,
-  tag: 'bash-input' | 'bash-stdout' | 'bash-stderr',
-): string | undefined {
-  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
-  return match?.[1] === undefined ? undefined : unescapeBashXml(match[1]);
-}
-
-function unescapeBashXml(text: string): string {
-  return text
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&amp;', '&');
-}
 
 export class SessionReplayRenderer {
   constructor(private readonly host: SessionReplayHost) {}
 
   async hydrateFromReplay(session: Session): Promise<boolean> {
     this.host.setAppState({ isReplaying: true });
-    this.host.resetTokenSpeed();
     try {
       const main = session.getResumeState()?.agents['main'];
       if (main === undefined) {
@@ -134,10 +129,7 @@ export class SessionReplayRenderer {
         return false;
       }
       if (main.replayWarning !== undefined) {
-        this.host.showStatus?.(
-          t('tui.statusMessages.replayWarning', { message: main.replayWarning }),
-          'warning',
-        );
+        this.host.showStatus?.(`Warning: ${main.replayWarning}`, 'warning');
       }
 
       this.hydrateSnapshot(main);
@@ -148,31 +140,18 @@ export class SessionReplayRenderer {
       return true;
     } catch (error) {
       const message = formatErrorMessage(error);
-      this.host.showError(t('tui.statusMessages.replayFailed', { message }));
+      this.host.showError(t('tui.statusMessages.replayFailed', { message: message }));
       return false;
     } finally {
       this.host.setAppState({ isReplaying: false });
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Snapshot hydration
-  // ---------------------------------------------------------------------------
-
   private hydrateSnapshot(agent: ResumedAgentState): void {
     this.host.setAppState(appStateFromResumeAgent(agent));
     this.hydrateBackgroundState(agent);
   }
 
-  /**
-   * Push real terminal status into each replayed `Agent` card whose
-   * backing background task is already in a terminal state. Runs AFTER
-   * `renderRecords` because the tool call components only exist once the
-   * replay has mounted them — `hydrateBackgroundState` runs too early to
-   * reach them. Without this, terminated bg agents (including ones that
-   * reconcile reclassified as `lost`) keep the spawn-success ToolResult's
-   * default of `✓ Completed`.
-   */
   private applyTerminalBackgroundAgentStatuses(agent: ResumedAgentState): void {
     for (const info of agent.background) {
       if (info.kind !== 'agent') continue;
@@ -205,21 +184,16 @@ export class SessionReplayRenderer {
     for (const info of agent.background) {
       sessionEventHandler.backgroundTasks.set(info.taskId, info);
     }
+    this.host.restoreProgramStatusBackground?.(agent.background);
     sessionEventHandler.backgroundTaskTranscriptedTerminal.clear();
     for (const info of agent.background) {
       if (isTerminalBackgroundTask(info)) {
         sessionEventHandler.backgroundTaskTranscriptedTerminal.add(info.taskId);
       }
     }
-    state.footer.setBackgroundCounts(
-      countActiveBackgroundTasks(sessionEventHandler.backgroundTasks),
-    );
+    state.footer.setBackgroundCounts(countActiveBackgroundTasks(sessionEventHandler.backgroundTasks));
     state.ui.requestRender();
   }
-
-  // ---------------------------------------------------------------------------
-  // Record rendering
-  // ---------------------------------------------------------------------------
 
   private renderRecords(agent: ResumedAgentState): void {
     const context = createReplayRenderContext();
@@ -237,10 +211,6 @@ export class SessionReplayRenderer {
     index: number,
   ): number {
     const record = records[index]!;
-    // Hook results recorded ahead of a bundled prompt are projected inside
-    // the bundle's window — after its skill cards, before the prompt —
-    // matching the live event order instead of attaching them to the
-    // previous turn.
     if (record.type === 'message' && record.message.origin?.kind === 'hook_result') {
       let end = index;
       for (;;) {
@@ -284,14 +254,7 @@ export class SessionReplayRenderer {
         }
         context.suppressNextPlanModeOffNotice = false;
         this.host.appendTranscriptEntry(
-          replayEntry(
-            context,
-            'status',
-            record.enabled
-              ? t('tui.statusMessages.replayPlanModeOn')
-              : t('tui.statusMessages.replayPlanModeOff'),
-            'notice',
-          ),
+          replayEntry(context, 'status', `Plan mode: ${record.enabled ? 'ON' : 'OFF'}`, 'notice'),
         );
         return;
       case 'permission_updated':
@@ -348,9 +311,6 @@ export class SessionReplayRenderer {
       return;
     }
     if (message.origin?.kind === 'shell_command') {
-      // A `!` command, replayed from records. Unwrap the XML tags back into the
-      // same `$ cmd` + output view the live editor produced. (Must NOT fall into
-      // the `injection` branch above — that returns without rendering.)
       this.flushAssistant(context);
       const text = contentPartsToText(message.content);
       if (message.origin.phase === 'input') {
@@ -364,22 +324,19 @@ export class SessionReplayRenderer {
       } else {
         const stdout = (extractBashTag(text, 'bash-stdout') ?? '').trim();
         const stderr = (extractBashTag(text, 'bash-stderr') ?? '').trim();
-        // Replayed `!` output is a finished card: mount the same component the
-        // live view uses, already finished, so the ctrl+o toggle reaches it.
         const output = new ShellRunComponent(() => this.host.state.ui.requestRender());
         output.finish(stdout, stderr, message.origin.isError);
-        // Inherit the current ctrl+o state, same as the live card — the global
-        // toggle only reaches components that exist when it fires.
         if (this.host.state.transcriptContainer.toolOutputExpanded) output.setExpanded(true);
-        this.host.appendTranscriptEntry(
+        markTranscriptComponent(
+          output,
           replayEntry(
             context,
             'status',
             formatBashOutputForDisplay(stdout, stderr, message.origin.isError),
             'plain',
           ),
-          output,
         );
+        this.host.state.transcriptContainer.addChild(output);
       }
       return;
     }
@@ -391,18 +348,12 @@ export class SessionReplayRenderer {
       this.renderCronMissed(context, message);
       return;
     }
-    // System-trigger messages (goal continuation prompts, goal outcome
-    // reminders, stop-hook reasons, …) are model-facing only: the live event
-    // stream never renders them, so replay must not leak them either.
     if (message.origin?.kind === 'system_trigger') {
       if (message.origin.name === 'goal_continuation') {
-        // The goal driver's synthetic "continue" prompt starts a new replay
-        // turn even though nothing visible is mounted: advance the turn and
-        // mark an invisible boundary so each goal round groups under its own
-        // turn and step/assistant folding can find the turn edges.
         this.advanceTurn(context);
         const boundary = new ReplayTurnBoundaryComponent();
-        this.host.mountTranscriptComponent(replayEntry(context, 'user', '', 'plain'), boundary);
+        markTranscriptComponent(boundary, replayEntry(context, 'user', '', 'plain'));
+        this.host.state.transcriptContainer.addChild(boundary);
       }
       return;
     }
@@ -464,10 +415,7 @@ export class SessionReplayRenderer {
       this.renderHookResult(context, hookResult);
     }
     this.renderHookParts(context, message);
-    const callerMessage = {
-      ...message,
-      content: withoutUserPromptSubmitHookParts(message.content),
-    };
+    const callerMessage = { ...message, content: withoutUserPromptSubmitHookParts(message.content) };
     this.host.appendTranscriptEntry({
       ...replayEntry(
         context,
@@ -523,6 +471,10 @@ export class SessionReplayRenderer {
       output: toolResultOutput(message.content),
       is_error: message.isError,
     };
+    if (call.name === 'AgentSwarm' && result.is_error === true && isAgentSwarmRejection(result.output)) {
+      this.host.streamingUI.discardToolCall(toolCallId);
+      return;
+    }
     call.result = result;
     this.applyStepContext(context);
     this.host.streamingUI.onToolCallEnd(toolCallId, result);
@@ -544,21 +496,20 @@ export class SessionReplayRenderer {
 
   private flushAssistant(context: ReplayRenderContext): void {
     const { streamingUI } = this.host;
-    const blocks = context.assistant;
-    context.assistant = [];
+    const thinking = context.assistant.thinking.join('');
+    const text = context.assistant.text.join('');
+    context.assistant = { thinking: [], text: [] };
     this.applyStepContext(context);
 
-    for (const block of blocks) {
-      const text = block.fragments.join('');
-      if (block.kind === 'thinking') {
-        streamingUI.onThinkingUpdate(text);
-        streamingUI.onThinkingEnd();
-      } else {
-        streamingUI.onStreamingTextStart();
-        streamingUI.onStreamingTextUpdate(text);
-        streamingUI.onStreamingTextEnd();
-        streamingUI.clearAssistantDraft();
-      }
+    if (thinking.length > 0) {
+      streamingUI.onThinkingUpdate(thinking);
+      streamingUI.onThinkingEnd();
+    }
+    if (text.length > 0) {
+      streamingUI.onStreamingTextStart();
+      streamingUI.onStreamingTextUpdate(text);
+      streamingUI.onStreamingTextEnd();
+      streamingUI.clearAssistantDraft();
     }
   }
 
@@ -566,10 +517,6 @@ export class SessionReplayRenderer {
     this.flushAssistant(context);
     this.host.streamingUI.cleanupAfterReplay(context.completedToolCallIds);
   }
-
-  // ---------------------------------------------------------------------------
-  // Special content renderers
-  // ---------------------------------------------------------------------------
 
   private renderUserSlashSkillPrompt(
     context: ReplayRenderContext,
@@ -604,16 +551,12 @@ export class SessionReplayRenderer {
     context.skillActivationIds.add(skill.activationId);
     sessionEventHandler.seenSkillActivationIds.add(skill.activationId);
     this.host.appendTranscriptEntry({
-      ...replayEntry(
-        context,
-        'skill_activation',
-        t('tui.statusMessages.replaySkillActivated', { skillName: skill.skillName }),
-        'plain',
-      ),
+      ...replayEntry(context, 'skill_activation', `Activated skill: ${skill.skillName}`, 'plain'),
       skillActivationId: skill.activationId,
       skillName: skill.skillName,
       skillArgs: skill.skillArgs,
       skillTrigger: skill.trigger,
+      bundledWithPrompt: skill.bundled === true ? true : undefined,
     });
   }
 
@@ -679,15 +622,9 @@ export class SessionReplayRenderer {
         });
         return;
       case 'completion':
-        this.host.appendTranscriptEntry({
-          ...replayEntry(
-            context,
-            'assistant',
-            buildGoalCompletionMessage(record.snapshot),
-            'markdown',
-          ),
-          goalCompletionData: true,
-        });
+        this.host.appendTranscriptEntry(
+          replayEntry(context, 'assistant', buildGoalCompletionMessage(record.snapshot), 'markdown'),
+        );
         return;
       case 'lifecycle': {
         const lifecycleChange: GoalReplayLifecycleChange = { ...change, kind: 'lifecycle' };
@@ -755,12 +692,7 @@ export class SessionReplayRenderer {
     if (message.origin?.kind !== 'cron_missed') return;
     this.flushAssistant(context);
     this.host.appendTranscriptEntry({
-      ...replayEntry(
-        context,
-        'cron',
-        stripCronEnvelope(contentPartsToText(message.content)),
-        'plain',
-      ),
+      ...replayEntry(context, 'cron', stripCronEnvelope(contentPartsToText(message.content)), 'plain'),
       cronData: {
         missedCount: message.origin.count,
       },
@@ -782,9 +714,7 @@ export class SessionReplayRenderer {
         'status',
         mode === 'manual'
           ? t('tui.messages.replayAskWhenNeededOff')
-          : t('tui.messages.replayPermissionMode', {
-              mode: permissionModeDisplayName(mode),
-            }),
+          : `Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`,
         'notice',
       ),
     );
@@ -803,11 +733,7 @@ export class SessionReplayRenderer {
     const parts: string[] = [];
     switch (result.decision) {
       case 'approved':
-        parts.push(
-          result.scope === 'session'
-            ? t('tui.statusMessages.approvedForSession')
-            : t('tui.statusMessages.approved'),
-        );
+        parts.push(result.scope === 'session' ? t('tui.statusMessages.approvedForSession') : t('tui.statusMessages.approved'));
         break;
       case 'rejected':
         parts.push(t('tui.statusMessages.rejected'));
@@ -838,9 +764,7 @@ export class SessionReplayRenderer {
     switch (result.decision) {
       case 'rejected':
         content =
-          result.selectedLabel === 'Revise'
-            ? t('tui.statusMessages.planSentBackForRevision')
-            : t('tui.statusMessages.planReviewRejected');
+          result.selectedLabel === 'Revise' ? t('tui.statusMessages.planSentBackForRevision') : t('tui.statusMessages.planReviewRejected');
         break;
       case 'cancelled':
         content = t('tui.statusMessages.planReviewCancelled');
@@ -848,7 +772,7 @@ export class SessionReplayRenderer {
     }
     const detail =
       result.feedback !== undefined && result.feedback.length > 0
-        ? t('tui.statusMessages.replayFeedback', { feedback: result.feedback })
+        ? `Feedback: ${result.feedback}`
         : undefined;
     this.host.appendTranscriptEntry(replayEntry(context, 'status', content, 'notice', { detail }));
   }
@@ -857,19 +781,17 @@ export class SessionReplayRenderer {
     const { state, streamingUI } = this.host;
     streamingUI.removeActiveToolCall(toolCallId);
     streamingUI.removeToolComponent(toolCallId);
-    const entry = state.transcriptEntries.find((e) => e.toolCallData?.id === toolCallId);
-    if (entry !== undefined) {
-      this.host.removeTranscriptEntries([entry]);
-      return;
-    }
+    const index = state.transcriptEntries.findIndex(
+      (entry) => entry.toolCallData?.id === toolCallId,
+    );
+    if (index >= 0) state.transcriptEntries.splice(index, 1);
     const children = state.transcriptContainer.children;
-    const component = children.find(
+    const childIndex = children.findIndex(
       (child) => child instanceof ToolCallComponent && child.toolCallView.id === toolCallId,
     );
-    if (component !== undefined) {
-      // Structural removal only: the container's ref-checked render cache
-      // detects the child-list change; no tree-wide invalidate needed.
-      state.transcriptContainer.removeChild(component);
+    if (childIndex >= 0) {
+      const component = children[childIndex];
+      if (component !== undefined) this.host.state.transcriptContainer.removeChild(component);
     }
   }
 
@@ -897,7 +819,10 @@ export class SessionReplayRenderer {
       model:
         task?.model === undefined
           ? undefined
-          : modelDisplayName(task.model, this.host.state.appState.availableModels[task.model]),
+          : modelDisplayName(
+              task.model,
+              this.host.state.appState.availableModels[task.model],
+            ),
       effort:
         task?.thinkingEffort === undefined ||
         task.thinkingEffort === 'off' ||
@@ -905,15 +830,26 @@ export class SessionReplayRenderer {
           ? undefined
           : task.thinkingEffort,
     };
-    const phase: BackgroundAgentStatusPhase =
-      origin.status === 'completed' ||
-      origin.status === 'failed' ||
-      origin.status === 'lost' ||
-      origin.status === 'killed' ||
-      origin.status === 'timed_out'
-        ? origin.status
-        : 'failed';
-    const status = formatBackgroundAgentTranscript(phase, meta);
+    let status = formatBackgroundAgentTranscript(
+      origin.status === 'completed' ? 'completed' : 'failed',
+      meta,
+    );
+    if (origin.status === 'lost') {
+      status = {
+        ...status,
+        headline: status.headline.replace(' failed in background', ' lost in background'),
+      };
+    } else if (origin.status === 'killed') {
+      status = {
+        ...status,
+        headline: status.headline.replace(' failed in background', ' stopped'),
+      };
+    } else if (origin.status === 'timed_out') {
+      status = {
+        ...status,
+        headline: status.headline.replace(' failed in background', t('tui.dialogs.tasksBrowser.statusTimedOut')),
+      };
+    }
     this.host.appendTranscriptEntry({
       ...replayEntry(context, 'status', status.headline, 'plain'),
       detail: status.detail,
@@ -945,8 +881,6 @@ function goalLifecycleReplayContent(change: GoalReplayLifecycleChange): string {
     case 'blocked':
       return t('tui.statusMessages.replayGoalBlocked');
     case 'complete':
-    case 'budget_limited':
-    case 'usage_limited':
     case undefined:
       return t('tui.statusMessages.replayGoalUpdated');
   }
@@ -969,7 +903,11 @@ function extractCronPrompt(text: string): string {
 
 function stripCronEnvelope(text: string): string {
   const lines = text.split('\n');
-  if (lines.length >= 2 && lines[0]?.startsWith('<cron-fire ') && lines.at(-1) === '</cron-fire>') {
+  if (
+    lines.length >= 2 &&
+    lines[0]?.startsWith('<cron-fire ') &&
+    lines.at(-1) === '</cron-fire>'
+  ) {
     return lines.slice(1, -1).join('\n');
   }
   return text;

@@ -1,10 +1,12 @@
-export { removeProviderFromConfig } from './v2/config-mapper';
-import type { KimiHarnessEnvironmentOptions } from '#/kimi-harness';
 export { KimiHarness } from '#/kimi-harness';
 export type { KimiHarnessEnvironmentOptions, KimiHarnessRuntimeOptions } from '#/kimi-harness';
 export { Session } from '#/session';
 export { KimiAuthFacade } from '#/auth';
-export { createKimiHarness, SDKRpcClientV2, type SDKRpcClientV2Options } from '#/sdk-rpc-client-v2';
+export {
+  createKimiHarness,
+  SDKRpcClientV2,
+  type SDKRpcClientV2Options,
+} from '#/sdk-rpc-client-v2';
 export {
   createKimiConfigRpc,
   KimiConfigRpcClient,
@@ -56,50 +58,35 @@ export {
 } from '#/errors';
 
 export {
-  configureDiagnosticLogging,
   flushDiagnosticLogs,
   flushDiagnosticLogsSync,
-  onDiagnosticLogFailure,
   log,
   redact,
   resolveGlobalLogPath,
 } from '#/logging/index';
-export { KIMI_NODE_FALLBACK_SUBCOMMAND, resolveKimiHome } from '@moonshot-ai/agent-core-v2';
 export {
-  ProbeShellNotFoundError,
-  SHELL_PAYLOAD_MANIFEST,
-  ShellPayloadStatusCorruptError,
-  type ShellPayloadKind,
-  type ShellPayloadPin,
-  type ShellPayloadStatus,
-  type ShellPayloadVerifyResult,
-  type PowerShellExecutable,
-  type PowerShellExecutableKind,
-  ShellPayloadExtractError,
-  ShellPayloadIntegrityError,
-  type ShellPayloadArchiveDownload,
-  findShellPayloadPin,
-  probeHostEnvironmentFromNode,
-  readShellPayloadStatus,
-  resolvePowerShellExecutable,
-  resolveShellPayloadHome,
-  shellPayloadExePath,
-  shellPayloadInstallDir,
-  shellPayloadPinOf,
-  shellPayloadsDir,
-  verifyShellPayload,
-  applyDownloadMirror,
-  createWindowsShellProvisionDeps,
-  downloadShellPayloadArchive,
-  provisionShellPayload,
-  resolveDownloadCandidates,
+  computeUpdateStatus,
+  isMissingMarketplaceTokenError,
+  isTrustedPluginMarketplaceUrl,
+  KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV,
+  parsePluginMarketplace,
+  marketplaceEntryInstallableOnHost,
+  marketplaceEntrySupportsClient,
+  marketplaceEntryVisibleOnHost,
+  pluginClientForIdentity,
+  PLUGIN_MARKETPLACE_CLASSIFICATIONS,
+  PLUGIN_MARKETPLACE_CLIENTS,
+  PLUGIN_MARKETPLACE_TIERS,
+  readPluginMarketplace,
+  withLatestVersions,
 } from '@moonshot-ai/agent-core-v2';
+export { PluginAvailabilityStore } from '@moonshot-ai/agent-core-v2';
+export { resolveKimiHome } from '@moonshot-ai/agent-core-v2';
 export type { LogContext, LogLevel, LogPayload, Logger } from '#/logging/index';
 
 export { effectiveModelAlias, loadRuntimeConfigSafe } from '#/config/index';
 export { resolveConfigPath } from '@moonshot-ai/agent-core-v2';
 export { limitAgentReplayByTurns } from '#/replay';
-export { normalizeThinkingTags } from '@moonshot-ai/agent-core-v2';
 export { parseAgentFileText, resolveAgentPath } from '@moonshot-ai/agent-core-v2';
 export { SECONDARY_DERIVED_MODEL_ALIAS } from '#/config/index';
 
@@ -143,7 +130,10 @@ export {
   matchSingleMediaPathTag,
   parseDaemonFileUrl,
 } from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
-export type { DaemonFileRef, MediaKind } from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
+export type {
+  DaemonFileRef,
+  MediaKind,
+} from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
 
 export type {
   FeedbackAttachmentLevel,
@@ -156,6 +146,3 @@ export type { KimiAuthLoginResult, KimiAuthLogoutResult } from '#/auth';
 
 export * from '#/events';
 export type * from '#/types';
-
-export { SKILL_ACTIVATION_PART_SOURCE } from '@moonshot-ai/agent-core-v2/human/agent/origin';
-export { USER_PROMPT_SUBMIT_HOOK_SOURCE } from '@moonshot-ai/agent-core-v2/agent/contextMemory/hookParts';

@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { existsSync } from 'node:fs';
 
 import { runLocalCli } from './local-cli.mjs';
@@ -37,7 +37,7 @@ async function verifyInputs(options) {
   for (let index = 0; index < options.targets.length; index += 1) {
     const file = options.files[index];
     if (!existsSync(file)) {
-      throw new Error(`Missing VSIX ${file}. Run bun run package:platform first.`);
+      throw new Error(`Missing VSIX ${file}. Run pnpm run package:platform first.`);
     }
     await verifyVsix(file, options.targets[index], { sourceRoot: extensionRoot });
   }
@@ -45,9 +45,7 @@ async function verifyInputs(options) {
 
 if (isMainModule(import.meta.url)) {
   main().catch((error) => {
-    console.error(
-      `Open VSX publish failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`Open VSX publish failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 }

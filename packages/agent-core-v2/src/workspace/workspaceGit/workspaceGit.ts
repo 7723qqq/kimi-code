@@ -1,10 +1,5 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type {
-  FsDiffResponse,
-  FsGitStatusResponse,
-  FsPullRequest,
-  GitStatusOptions,
-} from '#/app/git/git';
+import type { FsDiffResponse, FsGitStatusResponse, FsPullRequest, GitStatusOptions } from '#/app/git/git';
 
 export interface IWorkspaceGitService {
   readonly _serviceBrand: undefined;

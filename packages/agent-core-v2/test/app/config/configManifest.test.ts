@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { buildConfigManifest, MANIFEST_PATH } from '../../../scripts/gen-config-manifest.mts';
 

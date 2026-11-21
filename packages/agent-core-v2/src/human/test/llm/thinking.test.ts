@@ -1,30 +1,30 @@
 import { describe, expect, it } from 'bun:test';
 
-import { classifyKimiQuotaError } from '#/llm-kimi/errors';
-import { kimiConnection, kimiOpenAITrait } from '#/llm-kimi/trait';
-import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
+import { classifyKimiQuotaError } from '#human/llm-kimi/errors';
+import { kimiConnection, kimiOpenAITrait } from '#human/llm-kimi/trait';
+import { UNKNOWN_CAPABILITY, type ModelCapability } from '#human/llm/capability';
 import {
   createAssistantMessage,
   createMessageAccumulator,
   createUserMessage,
   type Message,
-} from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
+} from '#human/message';
+import type { LlmModel } from '#human/llm/model';
 import {
   fullReasoningEchoRequired,
   ignoredSamplingParamsForModel,
   thinkingHistoryForModel,
-} from '#/llm/modelFamily';
-import type { TraitContext } from '#/llm/protocol/base';
-import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
-import type { LlmClientContext, LlmRequestEvent } from '#/llm/requester/requester';
+} from '#human/llm/modelFamily';
+import type { TraitContext } from '#human/llm/protocol/base';
+import { createOpenAIRequester } from '#human/llm/requester/bases/openai/requester';
+import type { LlmClientContext, LlmRequestEvent } from '#human/llm/requester/requester';
 import {
   defaultThinkingEffortForModel,
   modelSupportsThinking,
   resolveThinkingEffortForModel,
   resolveThinkingKeep,
   type ModelThinkingMetadata,
-} from '#/llm/thinking';
+} from '#human/llm/thinking';
 
 const model: LlmModel = {
   provider: 'test',

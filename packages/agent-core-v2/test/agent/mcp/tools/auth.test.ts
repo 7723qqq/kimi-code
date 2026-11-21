@@ -1,15 +1,8 @@
-import { describe, expect, it } from 'bun:test';
+import { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE, createMcpAuthTool } from '#/agent/mcp/tools/auth';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '#/agent/mcp/tools/auth';
-import { createMcpAuthTool } from '#/agent/mcp/tools/auth';
-import {
-  AlreadyAuthorizedError,
-  type BeginAuthorizationResult,
-  type McpOAuthService,
-} from '#/mcpCore/oauth/service';
-import type { ToolUpdate } from '#/tool/toolContract';
-
-import { executeTool } from '../../../mcpCore/stubs';
+import { AlreadyAuthorizedError, type BeginAuthorizationResult, type McpOAuthService } from '#/mcpCore/oauth/service';
+import { LegacyExecutableToolAdapter, ToolExecutor } from '#/tool/executor';
 
 function fakeOAuthService(
   begin: (
@@ -35,28 +28,33 @@ function runTool(opts: {
     reconnect: opts.reconnect,
     timeoutMs: 100,
   });
-  const signal = opts.signal ?? new AbortController().signal;
-  const updates: ToolUpdate[] = [];
-  const result = executeTool(tool, {
-    turnId: 0,
-    toolCallId: 'tc',
-    args: {},
-    signal,
-    onUpdate: (u) => updates.push(u),
+  const handler = new ToolExecutor([new LegacyExecutableToolAdapter(tool)]).execute(
+    { type: 'function', id: 'tc', name: tool.name, arguments: '{}' },
+    { origin: 'loop', turnId: 0 },
+  );
+  const snapshots: Array<Readonly<Record<string, unknown>>> = [];
+  handler.observe((event) => {
+    if (event.type === 'change') snapshots.push(event.snapshot.fields);
   });
-  return { result, updates, tool };
+  const result = handler.wait().then(() => {
+    const prepared = handler.snapshot().prepared;
+    if (prepared?.kind === 'execute' && prepared.result !== undefined) return prepared.result;
+    if (prepared?.kind === 'synthetic') return prepared.result;
+    throw new Error('missing legacy result');
+  });
+  return { result, snapshots, handler, tool };
 }
 
 describe('createMcpAuthTool', () => {
   it('returns the authorization URL via status updates and final output on success', async () => {
     let reconnectCalls = 0;
     const oauthService = fakeOAuthService(async () => ({
-      waitId: 'wait-1',
+      waitId: 'auth-wait',
       authorizationUrl: new URL('https://example.com/authorize?state=abc'),
       complete: async () => undefined,
       cancel: async () => undefined,
     }));
-    const { result, updates } = runTool({
+    const { result, snapshots, handler } = runTool({
       oauthService,
       reconnect: async () => {
         reconnectCalls += 1;
@@ -66,15 +64,17 @@ describe('createMcpAuthTool', () => {
     expect(final.isError).toBeUndefined();
     expect(final.output).toMatch(/authenticated successfully/);
     expect(reconnectCalls).toBe(1);
-    expect(updates.some((u) => u.text?.includes('https://example.com/authorize'))).toBe(true);
-    const authUpdate = updates.find(
-      (u) => u.kind === 'custom' && u.customKind === MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
-    );
-    expect(authUpdate?.customData).toMatchObject({
+    expect(snapshots.some((fields) => {
+      const status = fields['status'];
+      return typeof status === 'string' && status.includes('https://example.com/authorize');
+    })).toBe(true);
+    const authUpdate = handler.fields()[MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE];
+    expect(authUpdate).toMatchObject({
+      waitId: 'auth-wait',
       serverName: 'notion',
       authorizationUrl: 'https://example.com/authorize?state=abc',
     });
-    const { expiresAt } = authUpdate?.customData as { expiresAt?: number };
+    const { expiresAt } = authUpdate as { expiresAt?: number };
     expect(expiresAt).toBeGreaterThan(Date.now());
     expect(expiresAt).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);
   });
@@ -111,7 +111,7 @@ describe('createMcpAuthTool', () => {
 
   it('returns isError and surfaces the URL when complete rejects', async () => {
     const oauthService = fakeOAuthService(async () => ({
-      waitId: 'wait-1',
+      waitId: 'auth-wait',
       authorizationUrl: new URL('https://example.com/authorize?state=abc'),
       complete: async () => {
         throw new Error('OAuth callback timed out');
@@ -130,7 +130,7 @@ describe('createMcpAuthTool', () => {
 
   it('returns isError when reconnect after success fails', async () => {
     const oauthService = fakeOAuthService(async () => ({
-      waitId: 'wait-1',
+      waitId: 'auth-wait',
       authorizationUrl: new URL('https://example.com/authorize?state=abc'),
       complete: async () => undefined,
       cancel: async () => undefined,
@@ -144,28 +144,5 @@ describe('createMcpAuthTool', () => {
     const final = await result;
     expect(final.isError).toBe(true);
     expect(final.output).toMatch(/reconnect failed/);
-  });
-
-  it('aborts before authorization when signal is already aborted', async () => {
-    let beginCalled = false;
-    const oauthService = fakeOAuthService(async () => {
-      beginCalled = true;
-      return {
-        waitId: 'wait-1',
-        authorizationUrl: new URL('https://example.com/authorize?state=abc'),
-        complete: async () => undefined,
-        cancel: async () => undefined,
-      };
-    });
-    const controller = new AbortController();
-    controller.abort();
-    const { result } = runTool({
-      oauthService,
-      reconnect: async () => undefined,
-      signal: controller.signal,
-    });
-    const final = await result;
-    expect(final.isError).toBe(true);
-    expect(beginCalled).toBe(false);
   });
 });

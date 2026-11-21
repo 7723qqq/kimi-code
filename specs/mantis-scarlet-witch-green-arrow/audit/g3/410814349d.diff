@@ -1,0 +1,264 @@
+commit 410814349d4677fc2844ad79069b0ad4a751303a
+Author:     grapedge <grapedge@gmail.com>
+AuthorDate: Thu Nov 12 12:50:41 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 12 12:50:41 2026 +0800
+
+    feat(tui): keep cron and MCP authorization calls out of compact transcript groups (#4844)
+
+diff --git a/.changeset/compact-own-line-calls.md b/.changeset/compact-own-line-calls.md
+new file mode 100644
+index 0000000000..f153fffd55
+--- /dev/null
++++ b/.changeset/compact-own-line-calls.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/kimi-code": patch
++---
++
++Show CronCreate, CronDelete, and MCP authorization calls on their own line instead of in the compact tool call summary, with the authorization link shown while it waits and the reason shown if it fails.
+diff --git a/apps/kimi-code/src/tui/components/messages/transcript-group.ts b/apps/kimi-code/src/tui/components/messages/transcript-group.ts
+index 41f2b1da44..bad5ea436f 100644
+--- a/apps/kimi-code/src/tui/components/messages/transcript-group.ts
++++ b/apps/kimi-code/src/tui/components/messages/transcript-group.ts
+@@ -394,7 +394,8 @@ export class TranscriptRowComponent implements Component {
+     const key = statusKey(status, now);
+     const { display } = this.item;
+     const open = isExpandedComponent(display);
+-    const detail = open && hasRowDetail(display) ? display.renderRowDetail(width) : undefined;
++    const shown = open || this.item.detailWhile?.includes(status.kind) === true;
++    const detail = shown && hasRowDetail(display) ? display.renderRowDetail(width) : undefined;
+     const previous = this.frame;
+     if (
+       previous?.item === this.item &&
+@@ -417,6 +418,8 @@ export class TranscriptRowComponent implements Component {
+ 
+   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+     if (event.type !== 'click' || event.button !== 'left' || event.y < 1) return undefined;
++    const status = rowStatusOf(this.item, this.timeline, monotonicNow());
++    if (status.kind === 'running' && this.item.detailWhile?.includes(status.kind) === true) return undefined;
+     return this.interaction.toggleRow(this.item) ? { handled: true } : undefined;
+   }
+ 
+diff --git a/apps/kimi-code/src/tui/config.ts b/apps/kimi-code/src/tui/config.ts
+index 242a6f9d68..49825cd459 100644
+--- a/apps/kimi-code/src/tui/config.ts
++++ b/apps/kimi-code/src/tui/config.ts
+@@ -189,7 +189,7 @@ export interface ToolCallDensityRule {
+ }
+ 
+ export const DENSITY: Readonly<Record<ToolCallDensity, ToolCallDensityRule>> = {
+-  compact: { folding: 'all', unfolded: 'card' },
++  compact: { folding: 'all', unfolded: 'row' },
+   balanced: { folding: 'readonly', unfolded: 'row' },
+   detailed: { folding: 'readonly', unfolded: 'card' },
+   ungrouped: { folding: 'none', unfolded: 'card' },
+diff --git a/apps/kimi-code/src/tui/constant/mcp.ts b/apps/kimi-code/src/tui/constant/mcp.ts
+new file mode 100644
+index 0000000000..065cf137d4
+--- /dev/null
++++ b/apps/kimi-code/src/tui/constant/mcp.ts
+@@ -0,0 +1 @@
++export const MCP_AUTHENTICATE_TOOL_SUFFIX = '__authenticate';
+diff --git a/apps/kimi-code/src/tui/utils/transcript-items.ts b/apps/kimi-code/src/tui/utils/transcript-items.ts
+index d780b81058..a3db91b06e 100644
+--- a/apps/kimi-code/src/tui/utils/transcript-items.ts
++++ b/apps/kimi-code/src/tui/utils/transcript-items.ts
+@@ -21,6 +21,7 @@ import {
+   type TranscriptPresentationOptions,
+ } from '#/tui/config';
+ import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
++import { MCP_AUTHENTICATE_TOOL_SUFFIX } from '#/tui/constant/mcp';
+ import { FOREGROUND_BASH_HINT_DELAY_MS } from '#/tui/constant/rendering';
+ import { STREAMING_ARGS_PREVIEW_MAX_CHARS, UNNAMED_TOOL_CALL_NAME } from '#/tui/constant/streaming';
+ import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
+@@ -55,7 +56,7 @@ export type SummaryEvent =
+   | { readonly kind: 'other'; readonly outcome: OutcomeCounts }
+   | { readonly kind: 'silent'; readonly outcome: OutcomeCounts };
+ 
+-type FoldClass = 'thinking' | 'explore' | 'all';
++type FoldClass = 'thinking' | 'explore' | 'all' | 'never';
+ 
+ export type FoldTraits =
+   | { readonly kind: FoldClass }
+@@ -88,6 +89,7 @@ export interface LogicalTranscriptItem {
+   readonly fold: FoldTraits;
+   readonly callId?: ToolCallId;
+   readonly current: boolean;
++  readonly detailWhile?: readonly ItemStatus['kind'][];
+   readonly event: SummaryEvent;
+   readonly label: ItemLabel;
+   readonly status: ItemStatus;
+@@ -126,6 +128,7 @@ interface ItemInspection {
+ interface ToolProfile {
+   readonly foldClass: FoldClass;
+   readonly event: SummaryEvent['kind'];
++  readonly detailWhile?: readonly ItemStatus['kind'][];
+ }
+ 
+ const TOOL_BOUNDARY_ROLES: Readonly<Record<string, BoundaryRole>> = {
+@@ -155,8 +158,15 @@ const TOOL_PROFILES: Readonly<Record<string, ToolProfile>> = {
+   Write: { foldClass: 'all', event: 'edit' },
+   WaitFor: { foldClass: 'all', event: 'taskCheck' },
+   TaskOutput: { foldClass: 'all', event: 'taskCheck' },
++  CronCreate: { foldClass: 'never', event: 'other' },
++  CronDelete: { foldClass: 'never', event: 'other' },
+ };
+ 
++const MCP_AUTHENTICATE_PROFILE: ToolProfile = {
++  foldClass: 'never',
++  event: 'mcp',
++  detailWhile: ['running', 'failed'],
++};
+ const SUCCESS: OutcomeCounts = { calls: 1, failed: 0, interrupted: 0 };
+ const LINE_COUNT_CHIP_TOOLS: ReadonlySet<string> = new Set(['Read', 'Bash']);
+ const INTERRUPTION_TEXT = [
+@@ -338,6 +348,7 @@ export class TranscriptItemInspector {
+       fold: foldTraits(toolCall, profile),
+       callId: isToolCallId(toolCall.id) ? toolCall.id : undefined,
+       current,
++      detailWhile: profile.detailWhile,
+       event,
+       label: toolLabel(component),
+       status: current ? { kind: 'running' } : finishedStatus(outcome, toolStat(component, event)),
+@@ -374,6 +385,7 @@ export class TranscriptItemInspector {
+     const name = component.toolCallView.name;
+     const profile = TOOL_PROFILES[name];
+     if (profile !== undefined) return profile;
++    if (name.startsWith('mcp__') && name.endsWith(MCP_AUTHENTICATE_TOOL_SUFFIX)) return MCP_AUTHENTICATE_PROFILE;
+     if (name.startsWith('mcp__')) return { foldClass: 'all', event: 'mcp' };
+     return { foldClass: 'all', event: 'other' };
+   }
+diff --git a/apps/kimi-code/src/tui/utils/transcript-projection.ts b/apps/kimi-code/src/tui/utils/transcript-projection.ts
+index 43f20d796f..b629ce4c68 100644
+--- a/apps/kimi-code/src/tui/utils/transcript-projection.ts
++++ b/apps/kimi-code/src/tui/utils/transcript-projection.ts
+@@ -31,6 +31,7 @@ export function foldRule(item: LogicalTranscriptItem, options: TranscriptPresent
+     case 'thinking': return options.thinking === 'grouped' ? 'fold' : 'none';
+     case 'explore': return folding === 'none' ? 'none' : 'fold';
+     case 'all': return folding === 'all' ? 'fold' : 'none';
++    case 'never': return 'none';
+     case 'command':
+       if (folding !== 'readonly') return folding === 'all' ? 'fold' : 'none';
+       if (!item.fold.argsComplete) return 'pending';
+diff --git a/apps/kimi-code/test/tui/components/messages/transcript-container.test.ts b/apps/kimi-code/test/tui/components/messages/transcript-container.test.ts
+index 1ae4f8b5b1..383352e637 100644
+--- a/apps/kimi-code/test/tui/components/messages/transcript-container.test.ts
++++ b/apps/kimi-code/test/tui/components/messages/transcript-container.test.ts
+@@ -160,8 +160,8 @@ function workingTurn(container: TranscriptContainer): void {
+   liveTurn(container).textDelta();
+ }
+ 
+-function settle(timeline: TurnTimeline, call: ToolCallComponent, output = 'ok'): void {
+-  call.setResult({ tool_call_id: call.toolCallView.id, output, is_error: false }, { known: true, ms: 1_000 });
++function settle(timeline: TurnTimeline, call: ToolCallComponent, output = 'ok', isError = false): void {
++  call.setResult({ tool_call_id: call.toolCallView.id, output, is_error: isError }, { known: true, ms: 1_000 });
+   if (isToolCallId(call.toolCallView.id)) timeline.callResult(call.toolCallView.id);
+ }
+ 
+@@ -1803,6 +1803,61 @@ describe('TranscriptRowComponent', () => {
+     expect(container.foldedBashHintAt()).toBeDefined();
+     container.clear();
+   });
++
++  it.each(['compact', 'balanced'] as const)(
++    'shows the authorization link under a running MCP authenticate row in %s, ignores clicks on it, and shows the reason once it fails',
++    (toolCallDensity) => {
++      vi.useFakeTimers();
++      const authenticating = () => {
++        const { container } = makeContainer(options({ toolCallDensity }));
++        const call = runningTool('mcp__linear__authenticate');
++        call.appendProgress('Open this URL in your browser to authorize "linear":\n\nhttps://example.test/oauth/authorize');
++        container.addChild(thought());
++        container.addChild(call);
++        return { container, call, timeline: liveTurn(container) };
++      };
++      const above = ['', '  Thought for 3s', ''];
++
++      const authorized = authenticating();
++      const running = authorized.container.render(80);
++      expect(plain(running.slice(0, 4)).split('\n')).toEqual([...above, '● linear: authenticate']);
++      expect(running.slice(4)).toEqual(authorized.call.renderRowDetail(80));
++      expect(plain(running)).toContain('https://example.test/oauth/authorize');
++      const link = plain(running).split('\n').findIndex((line) => line.includes('https://example.test/oauth/authorize'));
++      expect(click(authorized.container, 3)).toBeUndefined();
++      expect(click(authorized.container, link)).toBeUndefined();
++      settle(authorized.timeline, authorized.call, 'MCP server "linear" authenticated successfully.');
++      expect(plain(authorized.container.render(80)).split('\n')).toEqual([...above, '● linear: authenticate']);
++
++      const failed = authenticating();
++      settle(failed.timeline, failed.call, 'OAuth flow for MCP server "linear" did not complete: Timed out', true);
++      const reason = failed.container.render(80);
++      expect(plain(reason.slice(0, 4)).split('\n')).toEqual([...above, '✗ linear: authenticate · failed']);
++      expect(reason.slice(4)).toEqual(failed.call.renderRowDetail(80));
++      expect(plain(reason)).toContain('did not complete: Timed out');
++      click(failed.container, 3);
++      expect(failed.call.isExpanded()).toBe(true);
++
++      const cancelled = authenticating();
++      cancelled.timeline.turnEnded();
++      expect(plain(cancelled.container.render(80)).split('\n'))
++        .toEqual([...above, '● linear: authenticate · interrupted']);
++      settle(cancelled.timeline, cancelled.call, 'The user manually interrupted "mcp__linear__authenticate".', true);
++      expect(plain(cancelled.container.render(80)).split('\n'))
++        .toEqual([...above, '✗ linear: authenticate · interrupted']);
++    },
++  );
++
++  it('keeps the progress of any other running row inside the closed row', () => {
++    vi.useFakeTimers();
++    const { container } = makeContainer(options({ toolCallDensity: 'balanced' }));
++    const call = runningTool('mcp__linear__list_issues');
++    call.appendProgress('MCP connection lost — reconnecting…');
++    container.addChild(call);
++    liveTurn(container);
++
++    expect(plain(container.render(80)).split('\n')).toEqual(['', '● linear: list_issues']);
++  });
+ });
+ 
+ describe('Ctrl+O expansion across presentation changes', () => {
+diff --git a/apps/kimi-code/test/tui/utils/transcript-projection.test.ts b/apps/kimi-code/test/tui/utils/transcript-projection.test.ts
+index 9c3dc954b8..f60818bc40 100644
+--- a/apps/kimi-code/test/tui/utils/transcript-projection.test.ts
++++ b/apps/kimi-code/test/tui/utils/transcript-projection.test.ts
+@@ -1170,4 +1170,39 @@ describe('fold rules', () => {
+     expect(titleText(groupView(group, timeline, 100).title)).toBe('Using tools');
+     expect(project([unnamed]).map((projection) => projection.kind)).toEqual(['single']);
+   });
++
++  it.each([
++    ['compact', ['group', 'row', 'row', 'group']],
++    ['balanced', ['group', 'row', 'row', 'group']],
++    ['detailed', ['group', 'single', 'single', 'group']],
++  ] as const)('keeps cron changes out of the groups in %s', (toolCallDensity, kinds) => {
++    const components = [
++      thought(1000),
++      tool('CronCreate', { cron: '*/5 * * * *', prompt: 'check CI' }),
++      tool('CronDelete', { id: 'cron-1' }),
++      tool('CronList'),
++    ];
++
++    expect(project(components, options({ toolCallDensity })).map((item) => item.kind)).toEqual(kinds);
++  });
++
++  it.each([
++    ['compact', ['group', 'row', 'group']],
++    ['balanced', ['group', 'row', 'row']],
++    ['detailed', ['group', 'single', 'single']],
++  ] as const)('keeps an MCP authenticate call out of the groups in %s', (toolCallDensity, kinds) => {
++    const components = [
++      tool('Read', { path: '/work/.mcp.json' }),
++      tool('mcp__linear__authenticate', {}, null),
++      tool('mcp__linear__list_issues'),
++    ];
++
++    expect(project(components, options({ toolCallDensity })).map((item) => item.kind)).toEqual(kinds);
++  });
++
++  it('keeps the authenticate call of a server whose name ends in an underscore out of the compact groups', () => {
++    const components = [tool('Read', { path: '/work/.mcp.json' }), tool('mcp__linear_prod___authenticate', {}, null)];
++
++    expect(project(components, compact).map((item) => item.kind)).toEqual(['group', 'row']);
++  });
+ });

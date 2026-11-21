@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { toWireSession, type SessionFacts, type SessionWireFields } from '../src/routes/sessions';
 
@@ -17,10 +17,10 @@ const coldFacts: SessionFacts = {
   live: false,
 };
 
-describe('toWireSession last_turn_reason', () => {
+describe('toWireSession last_turn_outcome', () => {
   it('falls back to the persisted outcome for a cold session', () => {
     const wire = toWireSession({ ...fields, lastTurnReason: 'failed' }, '/tmp/ws', coldFacts);
-    expect(wire.last_turn_reason).toBe('failed');
+    expect(wire.last_turn_outcome).toBe('failed');
   });
 
   it('prefers the live fact for a warm session', () => {
@@ -28,29 +28,25 @@ describe('toWireSession last_turn_reason', () => {
       ...coldFacts,
       lastTurnReason: 'completed',
     });
-    expect(wire.last_turn_reason).toBe('completed');
+    expect(wire.last_turn_outcome).toBe('completed');
   });
 
   it('omits the outcome when neither side has one', () => {
-    expect(toWireSession(fields, '/tmp/ws', coldFacts).last_turn_reason).toBeUndefined();
+    expect(toWireSession(fields, '/tmp/ws', coldFacts).last_turn_outcome).toBeUndefined();
   });
 
   it('never falls back for a live session mid-turn (no stale outcome)', () => {
-    const busyFacts: SessionFacts = {
-      busy: true,
-      mainTurnActive: true,
-      pendingInteraction: 'none',
-      live: true,
-    };
+    const busyFacts: SessionFacts = { busy: true, mainTurnActive: true, pendingInteraction: 'none', live: true };
     const wire = toWireSession({ ...fields, lastTurnReason: 'failed' }, '/tmp/ws', busyFacts);
-    expect(wire.last_turn_reason).toBeUndefined();
+    expect(wire.last_turn_outcome).toBeUndefined();
   });
 
   it('a warm session without a live outcome does not read the persisted one', () => {
-    const wire = toWireSession({ ...fields, lastTurnReason: 'failed' }, '/tmp/ws', {
-      ...coldFacts,
-      live: true,
-    });
-    expect(wire.last_turn_reason).toBeUndefined();
+    const wire = toWireSession(
+      { ...fields, lastTurnReason: 'failed' },
+      '/tmp/ws',
+      { ...coldFacts, live: true },
+    );
+    expect(wire.last_turn_outcome).toBeUndefined();
   });
 });

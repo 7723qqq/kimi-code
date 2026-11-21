@@ -1,4 +1,4 @@
-import type { ITelemetryService } from '@moonshot-ai/agent-core-v2';
+import type { ITelemetryService } from '@moonshot-ai/agent-core-v2/app/telemetry/telemetry';
 import {
   MAX_IMAGE_EDGE_PX,
   READ_IMAGE_BYTE_BUDGET,
@@ -39,18 +39,12 @@ export class ImageLimits {
   }
 
   maxEdgePx(): number {
-    return (
-      positiveIntFromEnv(this.env, 'KIMI_IMAGE_MAX_EDGE_PX') ??
-      this.config?.maxEdgePx ??
-      MAX_IMAGE_EDGE_PX
-    );
+    return positiveIntFromEnv(this.env, 'KIMI_IMAGE_MAX_EDGE_PX') ?? this.config?.maxEdgePx ?? MAX_IMAGE_EDGE_PX;
   }
 
   readByteBudget(): number {
     return (
-      positiveIntFromEnv(this.env, 'KIMI_IMAGE_READ_BYTE_BUDGET') ??
-      this.config?.readByteBudget ??
-      READ_IMAGE_BYTE_BUDGET
+      positiveIntFromEnv(this.env, 'KIMI_IMAGE_READ_BYTE_BUDGET') ?? this.config?.readByteBudget ?? READ_IMAGE_BYTE_BUDGET
     );
   }
 }

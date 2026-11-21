@@ -25,8 +25,7 @@ export async function* readUtf8Lines(
     }
     offset += chunk.length;
   }
-  if (pending.length > 0)
-    yield decodeTextWithErrors(Buffer.concat(pending), 'utf-8', errors, pendingOffset !== 0);
+  if (pending.length > 0) yield decodeTextWithErrors(Buffer.concat(pending), 'utf-8', errors, pendingOffset !== 0);
 }
 
 function isUtf8Continuation(byte: number): boolean {
@@ -155,7 +154,7 @@ export function decodeTextWithErrors(
   errors: TextDecodeErrors = 'strict',
   ignoreBOM: boolean = false,
 ): string {
-  let webLabel: ConstructorParameters<typeof TextDecoder>[0] | undefined;
+  let webLabel: string | undefined;
   switch (encoding) {
     case 'utf-8':
     case 'utf8':
@@ -175,12 +174,12 @@ export function decodeTextWithErrors(
   }
 
   if (errors === 'strict') {
-    return new TextDecoder(webLabel, { fatal: true, ignoreBOM }).decode(data);
+    return new TextDecoder(webLabel as unknown as ConstructorParameters<typeof TextDecoder>[0], { fatal: true, ignoreBOM }).decode(data);
   }
 
   if (errors === 'ignore') {
     return webLabel === 'utf-8' ? decodeUtf8Ignore(data) : decodeUtf16LeIgnore(data);
   }
 
-  return new TextDecoder(webLabel, { fatal: false, ignoreBOM }).decode(data);
+  return new TextDecoder(webLabel as unknown as ConstructorParameters<typeof TextDecoder>[0], { fatal: false, ignoreBOM }).decode(data);
 }

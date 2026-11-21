@@ -1,33 +1,31 @@
-import { describe, expect, it, jest } from 'bun:test';
-
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
+import { TurnTimeline } from '#/tui/utils/turn-timeline';
 import {
   SubAgentEventHandler,
   type SubagentLifecycleEvent,
 } from '#/tui/controllers/subagent-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
-import { TurnTimeline } from '#/tui/utils/turn-timeline';
 
 function makeStreamingUIStub() {
   return {
     timeline: new TurnTimeline(),
-    getToolComponent: jest.fn(() => undefined),
-    getActiveToolCall: jest.fn(() => undefined),
-    onToolCallStart: jest.fn(),
-    getTurnContext: jest.fn(() => ({ turnId: 1, step: 0 })),
-    removeToolComponentIfInactive: jest.fn(),
-    applyBackgroundTaskTerminalStatus: jest.fn(),
-    markSubagentBackgrounded: jest.fn(),
-    setTurnId: jest.fn(),
-    setStep: jest.fn(),
-    flushNow: jest.fn(),
-    setTodoList: jest.fn(),
-    resetToolUi: jest.fn(),
-    clearNotifyPanel: jest.fn(),
-    markNotifyPanelEnded: jest.fn(),
-    finalizeTurn: jest.fn(),
+    getToolComponent: vi.fn(() => undefined),
+    getActiveToolCall: vi.fn(() => undefined),
+    onToolCallStart: vi.fn(),
+    getTurnContext: vi.fn(() => ({ turnId: 1, step: 0 })),
+    removeToolComponentIfInactive: vi.fn(),
+    applyBackgroundTaskTerminalStatus: vi.fn(),
+    markSubagentBackgrounded: vi.fn(),
+    setTurnId: vi.fn(),
+    setStep: vi.fn(),
+    flushNow: vi.fn(),
+    resetToolUi: vi.fn(),
+    clearNotifyPanel: vi.fn(),
+    markNotifyPanelEnded: vi.fn(),
+    finalizeTurn: vi.fn(),
   };
 }
 
@@ -37,19 +35,19 @@ function makeSubagentHandler() {
   const host = {
     state: {
       appState: { availableModels: {} },
-      ui: { requestRender: jest.fn() },
-      transcriptContainer: { addChild: jest.fn() },
+      ui: { requestRender: vi.fn() },
+      transcriptContainer: { addChild: vi.fn() },
     },
     streamingUI: makeStreamingUIStub(),
-    appendTranscriptEntry: jest.fn(),
-    btwPanelController: { routeEvent: jest.fn(() => false) },
-    updateActivityPane: jest.fn(),
+    appendTranscriptEntry: vi.fn(),
+    btwPanelController: { routeEvent: vi.fn(() => false) },
+    updateActivityPane: vi.fn(),
   };
   const handler = new SubAgentEventHandler(host as never, {
     backgroundTasks,
     backgroundTaskTranscriptedTerminal: transcriptedTerminal,
     backgroundTaskTerminalEntries: new Map(),
-    syncBackgroundAgentBadge: jest.fn(),
+    syncBackgroundAgentBadge: vi.fn(),
   });
   return { handler, backgroundTasks, host, transcriptedTerminal };
 }
@@ -104,11 +102,11 @@ describe('SubAgentEventHandler — background agent cancelled transcript', () =>
     const { handler, backgroundTasks, host, transcriptedTerminal } = makeSubagentHandler();
     backgroundTasks.set('task-a1', agentTask('a1'));
     handler.handleLifecycleEvent(spawnEvent('a1', true));
-    (host.appendTranscriptEntry as ReturnType<typeof jest.fn>).mockClear();
+    (host.appendTranscriptEntry as ReturnType<typeof vi.fn>).mockClear();
 
     handler.handleLifecycleEvent(cancelledEvent('a1'));
 
-    const appended = (host.appendTranscriptEntry as ReturnType<typeof jest.fn>).mock.calls.map(
+    const appended = (host.appendTranscriptEntry as ReturnType<typeof vi.fn>).mock.calls.map(
       ([entry]) => entry as { content: string },
     );
     expect(appended).toHaveLength(1);
@@ -127,7 +125,7 @@ describe('SubAgentEventHandler — background agent cancelled transcript', () =>
     backgroundTasks.set('task-a1', agentTask('a1'));
     transcriptedTerminal.add('task-a1');
     handler.handleLifecycleEvent(spawnEvent('a1', true));
-    (host.appendTranscriptEntry as ReturnType<typeof jest.fn>).mockClear();
+    (host.appendTranscriptEntry as ReturnType<typeof vi.fn>).mockClear();
 
     handler.handleLifecycleEvent(cancelledEvent('a1'));
 
@@ -137,8 +135,8 @@ describe('SubAgentEventHandler — background agent cancelled transcript', () =>
 
   it('delivers a terminal status to a non-swarm foreground tool card when a subagent is cancelled', () => {
     const { handler, host } = makeSubagentHandler();
-    const tc = { onSubagentSpawned: jest.fn(), onSubagentFailed: jest.fn() };
-    (host.streamingUI.getToolComponent as ReturnType<typeof jest.fn>).mockReturnValue(tc);
+    const tc = { onSubagentSpawned: vi.fn(), onSubagentFailed: vi.fn() };
+    (host.streamingUI.getToolComponent as ReturnType<typeof vi.fn>).mockReturnValue(tc);
     handler.handleLifecycleEvent(spawnEvent('a1', false));
 
     handler.handleLifecycleEvent(cancelledEvent('a1'));
@@ -177,7 +175,6 @@ describe('SubAgentEventHandler — activity record pruning', () => {
       step: 0,
     } as Event);
 
-    // No background.task.started has populated the task map yet.
     handler.handleLifecycleEvent(completedEvent('a2'));
 
     const record = handler.activityStore.get('a2');
@@ -200,45 +197,41 @@ function makeSessionEventHost() {
       queuedMessageDispatchPending: false,
       theme: { palette: getBuiltInPalette('dark') },
       toolOutputExpanded: false,
-      todoPanel: { getTodos: jest.fn(() => []) },
-      transcriptContainer: { addChild: jest.fn() },
+      transcriptContainer: { addChild: vi.fn() },
       transcriptEntries,
       tasksBrowser: undefined,
-      footer: { setBackgroundCounts: jest.fn() },
-      ui: { requestRender: jest.fn() },
+      footer: { setBackgroundCounts: vi.fn() },
+      ui: { requestRender: vi.fn() },
     },
     session: { id: 's1' },
     aborted: false,
     sessionEventUnsubscribe: undefined,
     streamingUI: makeStreamingUIStub(),
-    requireSession: jest.fn(),
-    setAppState: jest.fn(),
-    patchLivePane: jest.fn(),
-    resetLivePane: jest.fn(),
-    showError: jest.fn(),
-    showStatus: jest.fn(),
-    showNotice: jest.fn(),
-    track: jest.fn(),
-    recordSessionActivity: jest.fn(),
-    updateActivityPane: jest.fn(),
-    noteStepUsage: jest.fn(),
-    noteCompactionFinished: jest.fn(),
-    noteSessionTurnStarted: jest.fn(),
-    mountEditorReplacement: jest.fn(),
-    restoreEditor: jest.fn(),
-    restoreInputText: jest.fn(),
-    appendTranscriptEntry: jest.fn((entry: unknown) => {
-      // Mirror the real host: appended entries are retrievable from the
-      // transcript window (the anchor scans it for orphaned agent cards).
+    requireSession: vi.fn(),
+    setAppState: vi.fn(),
+    patchLivePane: vi.fn(),
+    resetLivePane: vi.fn(),
+    showError: vi.fn(),
+    showStatus: vi.fn(),
+    showNotice: vi.fn(),
+    track: vi.fn(),
+    recordSessionActivity: vi.fn(),
+    updateActivityPane: vi.fn(),
+    noteCompactionFinished: vi.fn(),
+    handleBackgroundTaskStatus: vi.fn(),
+    mountEditorReplacement: vi.fn(),
+    restoreEditor: vi.fn(),
+    restoreInputText: vi.fn(),
+    appendTranscriptEntry: vi.fn((entry: unknown) => {
       transcriptEntries.push(entry);
     }),
-    moveTranscriptEntryToEnd: jest.fn(() => true),
-    sendNormalUserInput: jest.fn(),
-    sendQueuedMessage: jest.fn(),
-    shiftQueuedMessage: jest.fn(),
-    btwPanelController: { routeEvent: jest.fn(() => false) },
-    tasksBrowserController: { repaint: jest.fn(), refreshOutputViewer: jest.fn() },
-    surveyController: { notifySubagentSpawned: jest.fn() },
+    moveTranscriptEntryToEnd: vi.fn(() => true),
+    sendNormalUserInput: vi.fn(),
+    sendQueuedMessage: vi.fn(),
+    shiftQueuedMessage: vi.fn(),
+    btwPanelController: { routeEvent: vi.fn(() => false) },
+    tasksBrowserController: { repaint: vi.fn(), refreshOutputViewer: vi.fn() },
+    surveyController: { notifySubagentSpawned: vi.fn() },
   };
   return host as never;
 }
@@ -261,6 +254,31 @@ describe('SessionEventHandler — background.task.terminated', () => {
     } as unknown as Event;
   }
 
+  it('forwards nested background task events before child-agent routing', () => {
+    const host = makeSessionEventHost() as ConstructorParameters<typeof SessionEventHandler>[0] & {
+      handleBackgroundTaskStatus: ReturnType<typeof vi.fn>;
+    };
+    const handler = new SessionEventHandler(host);
+    const info = {
+      taskId: 'task-nested',
+      kind: 'agent',
+      agentId: 'agent-child',
+      description: 'nested task',
+      status: 'running',
+      startedAt: 0,
+      endedAt: null,
+    };
+    const event = {
+      sessionId: 's1',
+      agentId: 'agent-parent',
+      type: 'background.task.started',
+      info,
+    } as unknown as Event;
+
+    handler.handleEvent(event, vi.fn());
+    expect(host.handleBackgroundTaskStatus).toHaveBeenCalledWith(info);
+  });
+
   it('marks a still-running record failed when an agent is stopped without subagent.failed', () => {
     const handler = new SessionEventHandler(makeSessionEventHost());
     handler.subAgentEventHandler.activityStore.ensureRecord({
@@ -269,7 +287,7 @@ describe('SessionEventHandler — background.task.terminated', () => {
       parentToolCallId: 'tc-9',
     });
 
-    handler.handleEvent(terminatedEvent('agent-9', 'killed'), jest.fn());
+    handler.handleEvent(terminatedEvent('agent-9', 'killed'), vi.fn());
 
     expect(handler.subAgentEventHandler.activityStore.get('agent-9')?.status).toBe('failed');
   });
@@ -280,7 +298,7 @@ describe('SessionEventHandler — background.task.terminated', () => {
     store.ensureRecord({ agentId: 'agent-8', agentName: 'explore', parentToolCallId: 'tc-8' });
     store.markCompleted('agent-8', 'final summary');
 
-    handler.handleEvent(terminatedEvent('agent-8', 'completed'), jest.fn());
+    handler.handleEvent(terminatedEvent('agent-8', 'completed'), vi.fn());
 
     const record = store.get('agent-8');
     expect(record?.status).toBe('completed');
@@ -300,7 +318,7 @@ describe('SessionEventHandler — background.task.terminated', () => {
         turnId: 1,
         reason: 'cancelled',
       } as Event,
-      jest.fn(),
+      vi.fn(),
     );
 
     expect(store.get('agent-7')).toBeUndefined();
@@ -309,12 +327,11 @@ describe('SessionEventHandler — background.task.terminated', () => {
 
 describe('SessionEventHandler — task-notification turn anchoring', () => {
   interface SessionHostMocks {
-    appendTranscriptEntry: ReturnType<typeof jest.fn>;
-    moveTranscriptEntryToEnd: ReturnType<typeof jest.fn>;
+    appendTranscriptEntry: ReturnType<typeof vi.fn>;
+    moveTranscriptEntryToEnd: ReturnType<typeof vi.fn>;
   }
 
   function makeHost() {
-    // makeSessionEventHost returns `never`; recover the mock surface for assertions.
     return makeSessionEventHost() as SessionHostMocks &
       ConstructorParameters<typeof SessionEventHandler>[0];
   }
@@ -356,10 +373,8 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
     const host = makeHost();
     const handler = new SessionEventHandler(host);
 
-    handler.handleEvent(taskTerminatedEvent('task-a1', 'agent', 'completed'), jest.fn());
+    handler.handleEvent(taskTerminatedEvent('task-a1', 'agent', 'completed'), vi.fn());
 
-    // Agent terminal cards are owned by the subagent lifecycle path — the
-    // task event itself only records the terminal state.
     expect(host.appendTranscriptEntry).not.toHaveBeenCalled();
     expect(handler.backgroundTaskTranscriptedTerminal.has('task-a1')).toBe(true);
   });
@@ -368,10 +383,10 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
     const host = makeHost();
     const handler = new SessionEventHandler(host);
 
-    handler.handleEvent(taskTerminatedEvent('task-p1', 'process', 'completed'), jest.fn());
+    handler.handleEvent(taskTerminatedEvent('task-p1', 'process', 'completed'), vi.fn());
     expect(appendedEntries(host)).toHaveLength(1);
 
-    handler.handleEvent(taskNotificationTurnEvent('task-p1', 'completed'), jest.fn());
+    handler.handleEvent(taskNotificationTurnEvent('task-p1', 'completed'), vi.fn());
 
     expect(host.moveTranscriptEntryToEnd).toHaveBeenCalledWith(appendedEntries(host)[0]);
     expect(appendedEntries(host)).toHaveLength(1);
@@ -381,12 +396,10 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
     const host = makeHost();
     const handler = new SessionEventHandler(host);
 
-    // A timed-out agent that emitted no subagent lifecycle event has no
-    // terminal card to anchor — agent-kind terminations mount none.
-    handler.handleEvent(taskTerminatedEvent('task-a2', 'agent', 'timed_out'), jest.fn());
+    handler.handleEvent(taskTerminatedEvent('task-a2', 'agent', 'timed_out'), vi.fn());
     expect(host.appendTranscriptEntry).not.toHaveBeenCalled();
 
-    handler.handleEvent(taskNotificationTurnEvent('task-a2', 'timed_out'), jest.fn());
+    handler.handleEvent(taskNotificationTurnEvent('task-a2', 'timed_out'), vi.fn());
 
     const appended = appendedEntries(host);
     expect(appended).toHaveLength(1);
@@ -398,7 +411,6 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
     const host = makeHost();
     const handler = new SessionEventHandler(host);
 
-    // Spawn-time background agent: the spawn event carries the task id.
     handler.handleEvent(
       {
         sessionId: 's1',
@@ -411,9 +423,8 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
         runInBackground: true,
         taskId: 'task-agent-1',
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
-    // Completion lands before background.task.started syncs the task table.
     handler.handleEvent(
       {
         sessionId: 's1',
@@ -422,7 +433,7 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
         subagentId: 'agent-1',
         resultSummary: 'done',
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
     handler.handleEvent(
       {
@@ -438,7 +449,7 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
           startedAt: 0,
         },
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
 
     const terminalCards = (): unknown[] =>
@@ -451,10 +462,8 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
         );
     expect(terminalCards()).toHaveLength(1);
 
-    handler.handleEvent(taskNotificationTurnEvent('task-agent-1', 'completed'), jest.fn());
+    handler.handleEvent(taskNotificationTurnEvent('task-agent-1', 'completed'), vi.fn());
 
-    // The notification turn moves the mounted card to the turn start instead
-    // of mounting a second one.
     expect(host.moveTranscriptEntryToEnd).toHaveBeenCalledWith(terminalCards()[0]);
     expect(terminalCards()).toHaveLength(1);
   });
@@ -463,9 +472,6 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
     const host = makeHost();
     const handler = new SessionEventHandler(host);
 
-    // Tower-style spawn: the spawn event carries no task id — the task is
-    // registered only after launch() returns, and the worker can finish
-    // before that.
     handler.handleEvent(
       {
         sessionId: 's1',
@@ -477,10 +483,8 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
         description: 'task agent-t1',
         runInBackground: true,
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
-    // The worker terminates before background.task.started syncs the task:
-    // its terminal card mounts with no task id to register under.
     handler.handleEvent(
       {
         sessionId: 's1',
@@ -489,7 +493,7 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
         subagentId: 'agent-t1',
         resultSummary: 'done',
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
     handler.handleEvent(
       {
@@ -505,7 +509,7 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
           startedAt: 0,
         },
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
     handler.handleEvent(
       {
@@ -522,7 +526,7 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
           endedAt: 1,
         },
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
 
     const terminalCards = (): unknown[] =>
@@ -535,9 +539,8 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
         );
     expect(terminalCards()).toHaveLength(1);
 
-    handler.handleEvent(taskNotificationTurnEvent('task-agent-t1', 'completed'), jest.fn());
+    handler.handleEvent(taskNotificationTurnEvent('task-agent-t1', 'completed'), vi.fn());
 
-    // The notification turn reuses the orphaned card — no duplicate mounts.
     expect(host.moveTranscriptEntryToEnd).toHaveBeenCalledWith(terminalCards()[0]);
     expect(terminalCards()).toHaveLength(1);
     expect(host.appendTranscriptEntry).toHaveBeenCalledTimes(2);
@@ -547,8 +550,6 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
     const host = makeHost();
     const handler = new SessionEventHandler(host);
 
-    // First run: the background agent completes and its terminal card is
-    // registered under its own task id.
     handler.handleEvent(
       {
         sessionId: 's1',
@@ -561,7 +562,7 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
         runInBackground: true,
         taskId: 'task-r1',
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
     handler.handleEvent(
       {
@@ -577,7 +578,7 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
           startedAt: 0,
         },
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
     handler.handleEvent(
       {
@@ -587,7 +588,7 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
         subagentId: 'agent-r1',
         resultSummary: 'done',
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
 
     const terminalEntries = () =>
@@ -602,8 +603,6 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
     expect(firstRunCard).toBeDefined();
     expect(terminalEntries().get('task-r1')).toBe(firstRunCard);
 
-    // The agent is resumed in the background: the new task shares the
-    // agentId, then times out without mounting a card of its own.
     handler.handleEvent(
       {
         sessionId: 's1',
@@ -618,7 +617,7 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
           startedAt: 1,
         },
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
     handler.handleEvent(
       {
@@ -635,13 +634,11 @@ describe('SessionEventHandler — task-notification turn anchoring', () => {
           endedAt: 2,
         },
       } as unknown as Event,
-      jest.fn(),
+      vi.fn(),
     );
 
-    handler.handleEvent(taskNotificationTurnEvent('task-r2', 'timed_out'), jest.fn());
+    handler.handleEvent(taskNotificationTurnEvent('task-r2', 'timed_out'), vi.fn());
 
-    // The anchor must leave the first run's card registered and in place,
-    // and mount the resumed task's own terminal card instead.
     expect(host.moveTranscriptEntryToEnd).not.toHaveBeenCalledWith(firstRunCard);
     expect(terminalEntries().get('task-r1')).toBe(firstRunCard);
     const appended = appendedEntries(host);

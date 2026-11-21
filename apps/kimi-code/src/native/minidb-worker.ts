@@ -5,8 +5,6 @@ import {
   getTextBuildWorkerRuntimeState,
 } from '@moonshot-ai/minidb/worker-runtime';
 
-import { t } from '#/i18n';
-
 import { MINIDB_TEXT_BUILD_WORKER_ASSET } from '../../scripts/native/manifest.mjs';
 import {
   getEmbeddedNativeAssetManifest,
@@ -14,9 +12,10 @@ import {
   getEmbeddedAssetSource,
   type NativeAssetOptions,
 } from './native-assets';
+import { t } from '#/i18n';
 
 export type MinidbTextBuildWorkerInstallStatus =
-  | { readonly status: 'not-packaged' }
+  | { readonly status: 'not-sea' }
   | { readonly status: 'asset-missing' }
   | {
       readonly status: 'installed';
@@ -35,12 +34,11 @@ function errorCode(error: unknown): string {
   return error instanceof Error ? error.name : 'UNKNOWN';
 }
 
-/** Install the embedded worker without making optional extraction fatal. */
 export function installMinidbTextBuildWorker(
   options: NativeAssetOptions = {},
 ): MinidbTextBuildWorkerInstallStatus {
   const source = options.source ?? getEmbeddedAssetSource();
-  if (source === null) return { status: 'not-packaged' };
+  if (source === null) return { status: 'not-sea' };
 
   let assetSha256: string | undefined;
   try {
@@ -55,8 +53,7 @@ export function installMinidbTextBuildWorker(
     if (workerPath === null) return { status: 'asset-missing' };
     configureTextBuildWorkerRuntime(workerPath);
     const runtime = getTextBuildWorkerRuntimeState();
-    if (!runtime.configured)
-      throw new Error(t('tui.statusMessages.minidbWorkerRuntimeNotConfigured'));
+    if (!runtime.configured) throw new Error(t('tui.statusMessages.minidbWorkerRuntimeNotConfigured'));
     return {
       status: 'installed',
       assetSha256,

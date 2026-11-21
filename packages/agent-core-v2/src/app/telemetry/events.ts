@@ -1,8 +1,7 @@
-import type { CacheBreakCause } from '#/agent/usage/cacheBreak';
+import type { PromptPredictionCancelReason } from '#/features/promptPrediction/promptPrediction';
 import type { TowerExitReason } from '#/features/tower/tower';
 import type { SessionCloseReason } from '#/workspace/sessionLifecycle/sessionLifecycle';
 
-import type { AgentTelemetryContext } from './context';
 import type { TelemetryPrimitive } from './telemetry';
 
 export interface TelemetryEventMeta {
@@ -59,7 +58,7 @@ export type StrictPropertyCheck<T, E> = string extends keyof T
 
 export interface TurnStartedEvent {
   turn_id: number;
-  mode: AgentTelemetryContext['mode'];
+  mode: 'agent' | 'plan' | 'spec';
   provider_type?: string;
   protocol?: string;
   thinking_effort?: string;
@@ -69,24 +68,24 @@ export interface TurnStartedEvent {
 export interface TurnInterruptedEvent {
   turn_id: number;
   at_step: number;
-  mode: AgentTelemetryContext['mode'];
+  mode: 'agent' | 'plan' | 'spec';
   interrupt_reason: 'user_cancelled' | 'aborted' | 'max_steps' | 'error' | 'filtered' | 'blocked';
   provider_type?: string;
   protocol?: string;
   thinking_effort?: string;
-  trace_id?: string;
+  request_id?: string;
 }
 
 export interface TurnEndedEvent {
   turn_id: number;
   reason: 'completed' | 'cancelled' | 'failed';
   duration_ms: number;
-  mode: AgentTelemetryContext['mode'];
+  mode: 'agent' | 'plan' | 'spec';
   error_type?: string;
   provider_type?: string;
   protocol?: string;
   thinking_effort?: string;
-  trace_id?: string;
+  request_id?: string;
   enabled_plugins?: string;
 }
 
@@ -95,30 +94,26 @@ export interface PromptCacheProbeEvent {
   turn_id?: number;
   provider_type?: string;
   protocol?: string;
-  input_tokens: number;
-  input_cache_read: number;
-  input_cache_creation: number;
-  output_tokens: number;
-  model_match?: boolean;
-  tools_match?: boolean;
-  system_prompt_match?: boolean;
-  history_prefix_match?: boolean;
-  parent_input_tokens?: number;
-  parent_request_gap_ms?: number;
+  input_tokens?: number;
+  input_cache_read?: number;
+  input_cache_creation?: number;
+  output_tokens?: number;
+  cache_hit_rate?: number;
 }
 
 export interface CacheBreakDetectedEvent {
+  request_kind?: string;
   turn_id?: number;
   step_no?: number;
-  cause: CacheBreakCause;
+  trace_id?: string;
+  prev_request_kind?: string;
+  prev_turn_id?: number;
+  prev_step_no?: number;
+  prev_trace_id?: string;
   prev_model: string;
   curr_model: string;
   prev_effort: string;
   curr_effort: string;
-  prev_projection?: string;
-  curr_projection?: string;
-  prev_message_count?: number;
-  curr_message_count?: number;
   prev_input_cache_read: number;
   curr_input_cache_read: number;
   prev_input_other: number;
@@ -127,7 +122,13 @@ export interface CacheBreakDetectedEvent {
   curr_output: number;
   prev_input_cache_creation: number;
   curr_input_cache_creation: number;
-  cache_read_drop_ratio: number;
+  prev_total_tokens: number;
+  cache_reuse_ratio: number;
+  cache_read_drop_ratio?: number;
+  tools_match: boolean;
+  system_prompt_match: boolean;
+  history_prefix_match: boolean;
+  gap_ms: number;
   interval_ms: number;
 }
 
@@ -141,7 +142,7 @@ export interface ToolCallEvent {
   duration_ms: number;
   dup_type: 'normal' | 'same_step' | 'cross_step';
   error_type?: 'cancelled' | 'error';
-  trace_id?: string;
+  request_id?: string;
 }
 
 export interface ApiErrorEvent {
@@ -157,6 +158,7 @@ export interface ApiErrorEvent {
   turn_id?: number;
   request_kind?: string;
   step_no?: number;
+  request_id?: string;
   trace_id?: string;
   estimated_request_bytes?: number;
 }
@@ -164,6 +166,16 @@ export interface ApiErrorEvent {
 export interface SkillInvokedEvent {
   skill_name: string;
   trigger: 'user-slash' | 'model-tool' | 'nested-skill';
+}
+
+
+export interface HelloWorldModeEvent {
+  trigger: string;
+}
+
+export interface HelloWorldStageChangedEvent {
+  stage: string;
+  previous: string;
 }
 
 export interface FlowInvokedEvent {
@@ -176,7 +188,7 @@ export interface InputSteerEvent {
 
 export interface CancelEvent {
   from: 'streaming' | 'compacting';
-  trace_id?: string;
+  request_id?: string;
 }
 
 export interface ConversationUndoEvent {
@@ -214,7 +226,7 @@ export interface PermissionApprovalResultEvent {
   duration_ms: number;
   session_cache_written: boolean;
   has_feedback: boolean;
-  trace_id?: string;
+  request_id?: string;
 }
 
 export interface PlanSubmittedEvent {
@@ -222,17 +234,18 @@ export interface PlanSubmittedEvent {
 }
 
 export interface PlanResolvedEvent {
-  outcome: 'approved' | 'dismissed' | 'rejected_and_exited' | 'revise' | 'rejected';
+  outcome:
+    | 'approved'
+    | 'dismissed'
+    | 'rejected_and_exited'
+    | 'revise'
+    | 'rejected';
   chosen_option?: string;
   has_feedback?: boolean;
 }
 
-export interface PlanEnterResolvedEvent {
-  outcome: 'auto_approved';
-}
-
 export interface SpecEnterResolvedEvent {
-  outcome: 'accepted';
+  outcome: string;
 }
 
 export interface SpecSubmittedEvent {
@@ -248,68 +261,6 @@ export interface SpecResolvedEvent {
     | 'rejected_and_exited'
     | 'approved_without_review';
   readonly has_feedback?: boolean;
-}
-
-export interface PlanToTodoConvertedEvent {
-  item_count: number;
-}
-
-export interface TowerModeEnterEvent {
-  outcome: 'entered' | 'rejected';
-  reason?: 'not-main-agent' | 'experiment-off' | 'feature-not-assembled' | 'owned-by-live-session';
-}
-
-export interface TowerModeExitEvent {
-  reason: TowerExitReason;
-}
-
-export interface SwarmModeTransitionEvent {
-  trigger: 'manual' | 'task' | 'tool';
-}
-
-export interface HelloWorldModeTransitionEvent {
-  trigger: 'manual' | 'task' | 'tool';
-}
-
-export interface HelloWorldStageChangedEvent {
-  stage: string;
-  previous: string;
-}
-
-export interface ExternalHookResolvedEvent {
-  event: string;
-  action: 'allow' | 'block';
-  matched_count: number;
-  failed_count: number;
-}
-
-export interface RemoteControlToggleEvent {
-  enabled: boolean;
-  outcome: 'ok' | 'already_running' | 'rejected' | 'error';
-}
-
-export interface PluginToggleEvent {
-  plugin_id: string;
-  enabled: boolean;
-  enabled_plugins?: string;
-}
-
-export interface CompactionFinishedEvent {
-  turn_id?: number;
-  source: 'manual' | 'auto';
-  tokens_before: number;
-  tokens_after: number;
-  duration_ms: number;
-  compacted_count: number;
-  dropped_count?: number;
-  retry_count: number;
-  round: number;
-  thinking_effort: string;
-  input_tokens?: number;
-  output_tokens?: number;
-  input_cache_read?: number;
-  input_cache_creation?: number;
-  trace_id?: string;
 }
 
 export interface MicroCompactionFinishedEvent {
@@ -330,6 +281,83 @@ export interface MicroCompactionFinishedEvent {
   thinking_effort: string;
 }
 
+export interface TowerModeEnterEvent {
+  outcome: 'entered' | 'rejected';
+  reason?: 'not-main-agent' | 'experiment-off' | 'feature-not-assembled' | 'owned-by-live-session';
+}
+
+export interface TowerModeExitEvent {
+  reason: TowerExitReason;
+}
+
+export interface SwarmModeTransitionEvent {
+  trigger: 'manual' | 'task' | 'tool';
+}
+
+export interface ExternalHookResolvedEvent {
+  event: string;
+  action: 'allow' | 'block';
+  matched_count: number;
+  failed_count: number;
+}
+
+export interface RemoteControlToggleEvent {
+  enabled: boolean;
+  outcome: 'ok' | 'already_running' | 'rejected' | 'error';
+}
+
+export interface PluginToggleEvent {
+  plugin_id: string;
+  enabled: boolean;
+  enabled_plugins?: string;
+}
+
+export interface PredictionRequestedEvent {
+  prediction_id: string;
+  turn_id: number;
+}
+
+export interface PredictionGeneratedEvent {
+  prediction_id: string;
+  turn_id: number;
+  status: 'generated' | 'empty' | 'invalid' | 'tool_call' | 'timeout' | 'cancelled' | 'stale' | 'error';
+  reason?: PromptPredictionCancelReason;
+  duration_ms: number;
+  prediction_chars?: number;
+  input_tokens?: number;
+  input_other?: number;
+  output_tokens?: number;
+  input_cache_read?: number;
+  input_cache_creation?: number;
+  cache_read_pct?: number;
+  ttft_ms?: number;
+  stream_duration_ms?: number;
+  request_build_ms?: number;
+  server_first_token_ms?: number;
+  server_decode_ms?: number;
+  client_consume_ms?: number;
+  client_blocked_ms?: number;
+  request_id?: string;
+}
+
+export interface CompactionFinishedEvent {
+  turn_id?: number;
+  source: 'manual' | 'auto';
+  tokens_before: number;
+  tokens_after: number;
+  duration_ms: number;
+  compacted_count: number;
+  dropped_count?: number;
+  retry_count: number;
+  round: number;
+  thinking_effort: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  input_cache_read?: number;
+  input_cache_creation?: number;
+  request_id?: string;
+}
+
 export interface CompactionFailedEvent {
   turn_id?: number;
   source: 'manual' | 'auto';
@@ -339,7 +367,7 @@ export interface CompactionFailedEvent {
   retry_count: number;
   thinking_effort: string;
   error_type: string;
-  trace_id?: string;
+  request_id?: string;
 }
 
 export interface ContextProjectionRepairedEvent {
@@ -385,13 +413,13 @@ export interface ThinkingToggleEvent {
 }
 
 export interface QuestionDismissedEvent {
-  trace_id?: string;
+  request_id?: string;
 }
 
 export interface QuestionAnsweredEvent {
   answered: number;
   method?: 'enter' | 'space' | 'number_key';
-  trace_id?: string;
+  request_id?: string;
 }
 
 export type TelemetryGoalActor = 'user' | 'model' | 'runtime' | 'system';
@@ -421,7 +449,7 @@ export interface GoalClearedEvent {
 
 export interface GoalStatusChangedEvent extends GoalBudgetProperties {
   actor: TelemetryGoalActor;
-  status: 'active' | 'paused' | 'blocked' | 'complete' | 'budget_limited' | 'usage_limited';
+  status: 'active' | 'paused' | 'blocked' | 'complete';
   turns_used: number;
   tokens_used: number;
   wall_clock_ms: number;
@@ -434,7 +462,7 @@ export interface ToolCallDedupDetectedEvent {
   tool_name: string;
   dup_type: 'same_step' | 'cross_step';
   args_hash: string;
-  trace_id?: string;
+  request_id?: string;
 }
 
 export interface ToolCallRepeatEvent {
@@ -442,7 +470,7 @@ export interface ToolCallRepeatEvent {
   tool_name: string;
   repeat_count: number;
   action: 'none' | 'r1' | 'r2' | 'r3' | 'stop';
-  trace_id?: string;
+  request_id?: string;
 }
 
 export interface ToolCallTurnRepeatEvent {
@@ -452,19 +480,14 @@ export interface ToolCallTurnRepeatEvent {
   tool_name: string;
   turn_repeat_count: number;
   args_hash: string;
-  trace_id?: string;
-}
-
-export interface ToolCallRepeatHandoffEvent {
-  turn_id?: number;
-  outcome: 'text' | 'vetoed';
+  request_id?: string;
 }
 
 export interface AgentsMdReminderShownEvent {
   turn_id: number;
   tool_name: string;
   reminded_count: number;
-  trace_id?: string;
+  request_id?: string;
 }
 
 export interface NotifyUserNudgeShownEvent {
@@ -542,27 +565,6 @@ export interface McpConnectedEvent {
 export interface McpFailedEvent {
   failed_count: number;
   total_count: number;
-}
-
-export interface McpInitialLoadWaitEvent {
-  budget_ms: number;
-  pending_count: number;
-  total_count: number;
-}
-
-export interface ToolRetrievalEvent {
-  mode: 'announce' | 'search';
-  catalog_size: number;
-  candidate_count: number;
-  selected_count: number;
-  query_chars: number;
-  matched: boolean;
-}
-
-export interface McpSchemaCompactedEvent {
-  tool_count: number;
-  original_chars: number;
-  compacted_chars: number;
 }
 
 export interface CronMissedEvent {
@@ -680,7 +682,7 @@ export interface ExitEvent {
 
 export interface OauthLoginFinishedEvent {
   provider: string;
-  status: 'authenticated' | 'cancelled' | 'expired' | 'denied' | 'failed';
+  status: 'authenticated' | 'cancelled' | 'expired' | 'denied';
   duration_ms: number;
 }
 
@@ -798,8 +800,7 @@ export const telemetryEventDefinitions = {
     owner: 'kimi-code',
     comment: 'A turn starts running.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       mode: 'Agent mode the turn runs in',
       provider_type: 'Provider protocol type',
       protocol: 'Request protocol',
@@ -812,15 +813,14 @@ export const telemetryEventDefinitions = {
     owner: 'kimi-code',
     comment: 'A running turn is interrupted.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       at_step: 'Step index the turn reached before interruption',
       mode: 'Agent mode the turn ran in',
       interrupt_reason: 'Why the turn was interrupted',
       provider_type: 'Provider protocol type',
       protocol: 'Request protocol',
       thinking_effort: 'Effective thinking effort the turn ran with',
-      trace_id:
+      request_id:
         'Trace id of the most recent LLM request in this turn (the failed request when the turn errored); absent for non-Kimi protocols',
     },
   }),
@@ -828,8 +828,7 @@ export const telemetryEventDefinitions = {
     owner: 'kimi-code',
     comment: 'A turn ends, unconditionally.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       reason: 'How the turn ended',
       duration_ms: 'Turn wall-clock time in milliseconds',
       mode: 'Agent mode the turn ran in',
@@ -837,7 +836,7 @@ export const telemetryEventDefinitions = {
       provider_type: 'Provider protocol type',
       protocol: 'Request protocol',
       thinking_effort: 'Effective thinking effort the turn ran with',
-      trace_id:
+      request_id:
         'Trace id of the most recent LLM request in this turn; absent for non-Kimi protocols',
       enabled_plugins:
         'Comma-separated sorted ids of enabled, loaded plugins when the turn ends; empty string for a known empty set, absent when no plugin snapshot is available',
@@ -845,72 +844,69 @@ export const telemetryEventDefinitions = {
   }),
   prompt_cache_probe: defineAgentTelemetryEvent<PromptCacheProbeEvent>({
     owner: 'kimi-code',
-    comment:
-      'A request expected to reuse an earlier prompt cache reports its cache usage and how its provider-visible prefix compares with the baseline turn request.',
+    comment: 'A fork or compaction request reports the cache usage of its own response.',
     properties: {
       source: 'Why a cache hit was expected for this request',
       turn_id: 'Per-agent turn index of the probed request; absent for manual compaction between turns',
       provider_type: 'Provider protocol type',
       protocol: 'Request protocol',
       input_tokens:
-        'Total input tokens of the probed request (other + cache read + cache creation)',
-      input_cache_read: 'Cache-read input tokens of the probed request',
-      input_cache_creation: 'Cache-creation input tokens of the probed request',
-      output_tokens: 'Output tokens of the probed request',
-      model_match: 'Whether the baseline and probed requests use the same model; absent without a baseline',
-      tools_match:
-        'Whether the provider-visible tool table hash equals the baseline request; absent without a usable baseline or when the model or context revision differs',
-      system_prompt_match:
-        'Whether the system prompt hash equals the baseline request; absent without a usable baseline or when the model or context revision differs',
-      history_prefix_match:
-        'For compaction, whether the projected messages start with the exact baseline history; absent for fork or without a usable baseline',
-      parent_input_tokens:
-        'Total input tokens of the baseline turn request (the parent before fork, or the previous turn before compaction); absent without a usable baseline on the same model',
-      parent_request_gap_ms:
-        'Milliseconds from the baseline turn request finishing to the probed request starting; absent without a usable baseline or when the model or context revision differs',
+        'Total input tokens of the probed request (other + cache read + cache creation); absent without response usage',
+      input_cache_read: 'Cache-read input tokens of the probed request; absent without response usage',
+      input_cache_creation:
+        'Cache-creation input tokens of the probed request; absent without response usage',
+      output_tokens: 'Output tokens of the probed request; absent without response usage',
+      cache_hit_rate:
+        'Cache-read tokens divided by total input tokens; absent without response usage or when total input is zero',
     },
   }),
   cache_break_detected: defineAgentTelemetryEvent<CacheBreakDetectedEvent>({
     owner: 'kimi-code',
-    comment:
-      'A completed step read substantially less of the prompt cache than the previous step, indicating a likely cache invalidation.',
+    comment: "A completed request's cache read drops sharply or reuses too little of the previous request's full token history.",
     properties: {
-      turn_id: 'Per-agent turn index of the step that read less cache',
-      step_no: 'One-based step number within that turn',
-      cause: 'Classified cause of the cache-read drop',
-      prev_model: 'Model alias used by the previous step',
-      curr_model: 'Model alias used by the current step',
-      prev_effort: 'Thinking effort used by the previous step',
-      curr_effort: 'Thinking effort used by the current step',
-      prev_projection: 'Media projection applied to the previous step, absent when none was',
-      curr_projection: 'Media projection applied to the current step, absent when none was',
-      prev_message_count: 'Message count sent by the previous step',
-      curr_message_count: 'Message count sent by the current step',
-      prev_input_cache_read: 'Cache-read input tokens of the previous step',
-      curr_input_cache_read: 'Cache-read input tokens of the current step',
-      prev_input_other: 'Uncached input tokens of the previous step',
-      curr_input_other: 'Uncached input tokens of the current step',
-      prev_output: 'Output tokens of the previous step',
-      curr_output: 'Output tokens of the current step',
-      prev_input_cache_creation: 'Cache-creation input tokens of the previous step',
-      curr_input_cache_creation: 'Cache-creation input tokens of the current step',
-      cache_read_drop_ratio: 'Fraction of the previous cache-read tokens that disappeared',
-      interval_ms: 'Milliseconds from the previous step completion to the current one',
+      request_kind: "Request source vocabulary: 'turn' for turn requests, the operation's requestKind otherwise",
+      turn_id: 'Per-agent turn index of the current request when available',
+      step_no: 'Step index of the current request when available',
+      trace_id: 'Trace id of the current request; absent for non-Kimi protocols',
+      prev_request_kind: 'Request source vocabulary of the actual baseline request',
+      prev_turn_id: 'Per-agent turn index of the actual baseline request when available',
+      prev_step_no: 'Step index of the actual baseline request when available',
+      prev_trace_id: 'Trace id of the actual baseline request; absent for non-Kimi protocols',
+      prev_model: 'Model alias of the baseline request',
+      curr_model: 'Model alias of the current request',
+      prev_effort: 'Thinking effort of the baseline request',
+      curr_effort: 'Thinking effort of the current request',
+      prev_input_cache_read: 'Cache-read input tokens of the baseline request',
+      curr_input_cache_read: 'Cache-read input tokens of the current request',
+      prev_input_other: 'Other input tokens of the baseline request',
+      curr_input_other: 'Other input tokens of the current request',
+      prev_output: 'Output tokens of the baseline request',
+      curr_output: 'Output tokens of the current request',
+      prev_input_cache_creation: 'Cache-creation input tokens of the baseline request',
+      curr_input_cache_creation: 'Cache-creation input tokens of the current request',
+      prev_total_tokens: 'All input and output tokens of the baseline request',
+      cache_reuse_ratio: 'Current cache-read tokens divided by all baseline input and output tokens',
+      cache_read_drop_ratio:
+        'Cache-read token drop from baseline to current request, divided by baseline cache-read tokens; absent when baseline cache read is zero',
+      tools_match: 'Whether the current request sent the same tool definitions as the baseline request',
+      system_prompt_match: 'Whether the current request sent the same system prompt as the baseline request',
+      history_prefix_match: "Whether the current request's history starts with the baseline request's full history",
+      gap_ms: 'Milliseconds from the baseline request finishing to the current request starting',
+      interval_ms: 'Milliseconds from the baseline request finishing to the current request finishing',
     },
   }),
   tool_call: defineAgentTelemetryEvent<ToolCallEvent>({
     owner: 'kimi-code',
     comment: 'A tool call finishes execution.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       tool_call_id: 'Provider-assigned tool call id',
       tool_name: 'Registered tool name',
       outcome: 'Execution outcome',
       duration_ms: 'Wall-clock execution time in milliseconds',
       dup_type: 'Whether the call was a duplicate within the same step or across steps',
       error_type: 'Error category when the call failed',
-      trace_id:
+      request_id:
         'Trace id of the LLM request that produced this tool call; absent for non-Kimi protocols',
     },
   }),
@@ -927,15 +923,13 @@ export const telemetryEventDefinitions = {
       provider_type: 'Provider protocol type',
       protocol: 'Request protocol',
       input_tokens: "Current turn's accumulated total input tokens",
-      turn_id:
-        'Per-agent turn index when the request belongs to a turn; omitted for out-of-turn operations',
-      request_kind:
-        "Request source vocabulary: 'turn' for turn requests, the operation's requestKind (e.g. 'full_compaction') otherwise",
+      turn_id: 'Per-agent turn index when the request belongs to a turn; omitted for out-of-turn operations',
+      request_kind: "Request source vocabulary: 'turn' for turn requests, the operation's requestKind (e.g. 'full_compaction') otherwise",
       step_no: 'Step index within the turn, when the request belongs to a turn step',
-      trace_id:
+      estimated_request_bytes: 'Estimated request body size in bytes',
+      trace_id: 'Provider trace id carried by the failed request headers',
+      request_id:
         'Trace id of the failed request, from its response headers or its error response; absent when the failure happened before any response headers arrived (network errors, local aborts), and for non-Kimi protocols',
-      estimated_request_bytes:
-        'Estimated outgoing request body size in bytes; absent when the failure happened before a request body was assembled',
     },
   }),
   skill_invoked: defineAgentTelemetryEvent<SkillInvokedEvent>({
@@ -945,6 +939,21 @@ export const telemetryEventDefinitions = {
       skill_name: 'Skill name',
       trigger: 'How the skill was triggered',
     },
+  }),
+  hello_world_mode_entered: defineAgentTelemetryEvent<HelloWorldModeEvent>({
+    owner: 'kimi-code',
+    comment: 'hello-world mode is entered.',
+    properties: { trigger: 'What entered the mode' },
+  }),
+  hello_world_mode_exited: defineAgentTelemetryEvent<HelloWorldModeEvent>({
+    owner: 'kimi-code',
+    comment: 'hello-world mode is exited.',
+    properties: { trigger: 'What exited the mode' },
+  }),
+  hello_world_stage_changed: defineAgentTelemetryEvent<HelloWorldStageChangedEvent>({
+    owner: 'kimi-code',
+    comment: 'hello-world mode advances to another stage.',
+    properties: { stage: 'New stage', previous: 'Previous stage' },
   }),
   flow_invoked: defineAgentTelemetryEvent<FlowInvokedEvent>({
     owner: 'kimi-code',
@@ -958,12 +967,27 @@ export const telemetryEventDefinitions = {
       parts: 'Number of input parts',
     },
   }),
+  spec_enter_resolved: defineAgentTelemetryEvent<SpecEnterResolvedEvent>({
+    owner: 'kimi-code',
+    comment: 'The spec entry review is resolved.',
+    properties: { outcome: 'Resolution outcome' },
+  }),
+  spec_submitted: defineAgentTelemetryEvent<SpecSubmittedEvent>({
+    owner: 'kimi-code',
+    comment: 'A complete spec is submitted for review.',
+    properties: { file_count: 'Number of non-empty required documents' },
+  }),
+  spec_resolved: defineAgentTelemetryEvent<SpecResolvedEvent>({
+    owner: 'kimi-code',
+    comment: 'The spec review is resolved.',
+    properties: { outcome: 'Resolution outcome', has_feedback: 'Whether the user supplied revision feedback' },
+  }),
   cancel: defineAgentTelemetryEvent<CancelEvent>({
     owner: 'kimi-code',
     comment: 'The user cancels ongoing work.',
     properties: {
       from: 'What was running when cancelled',
-      trace_id:
+      request_id:
         'Trace id of the in-flight request, or of the most recent request between steps; absent for non-Kimi protocols',
     },
   }),
@@ -988,8 +1012,7 @@ export const telemetryEventDefinitions = {
     owner: 'kimi-code',
     comment: 'A permission policy evaluates a tool call.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       tool_call_id: 'Provider-assigned tool call id',
       policy_name: 'Name of the deciding policy',
       tool_name: 'Tool being gated',
@@ -1001,8 +1024,7 @@ export const telemetryEventDefinitions = {
     owner: 'kimi-code',
     comment: 'A permission approval prompt resolves.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       tool_call_id: 'Provider-assigned tool call id',
       policy_name: 'Name of the asking policy, null when unknown',
       tool_name: 'Tool being approved',
@@ -1012,7 +1034,7 @@ export const telemetryEventDefinitions = {
       duration_ms: 'Time the approval took in milliseconds',
       session_cache_written: 'Whether a session approval rule was cached',
       has_feedback: 'Whether the user attached feedback',
-      trace_id:
+      request_id:
         'Trace id of the LLM request that produced the gated tool call; absent for non-Kimi protocols',
     },
   }),
@@ -1030,42 +1052,6 @@ export const telemetryEventDefinitions = {
       outcome: 'How the plan was resolved',
       chosen_option: 'Label of the option the user chose',
       has_feedback: 'Whether the user attached revision feedback',
-    },
-  }),
-  plan_enter_resolved: defineAgentTelemetryEvent<PlanEnterResolvedEvent>({
-    owner: 'kimi-code',
-    comment: 'A request to enter plan mode is resolved.',
-    properties: {
-      outcome: 'How the request was resolved',
-    },
-  }),
-  spec_enter_resolved: defineAgentTelemetryEvent<SpecEnterResolvedEvent>({
-    owner: 'kimi-code',
-    comment: 'A request to enter spec mode is resolved.',
-    properties: {
-      outcome: 'How the request was resolved',
-    },
-  }),
-  spec_submitted: defineAgentTelemetryEvent<SpecSubmittedEvent>({
-    owner: 'kimi-code',
-    comment: 'A spec is submitted for review.',
-    properties: {
-      file_count: 'Number of spec documents presented',
-    },
-  }),
-  spec_resolved: defineAgentTelemetryEvent<SpecResolvedEvent>({
-    owner: 'kimi-code',
-    comment: 'A submitted spec is resolved by the user.',
-    properties: {
-      outcome: 'How the spec was resolved',
-      has_feedback: 'Whether the user attached revision feedback',
-    },
-  }),
-  plan_to_todo_converted: defineAgentTelemetryEvent<PlanToTodoConvertedEvent>({
-    owner: 'kimi-code',
-    comment: 'Plan-mode exit seeded the todo list from the approved plan.',
-    properties: {
-      item_count: 'Number of todo items written (milestones + leaves).',
     },
   }),
   tower_mode_enter: defineAgentTelemetryEvent<TowerModeEnterEvent>({
@@ -1098,28 +1084,6 @@ export const telemetryEventDefinitions = {
       trigger: 'What originally triggered the swarm mode being exited',
     },
   }),
-  hello_world_mode_entered: defineAgentTelemetryEvent<HelloWorldModeTransitionEvent>({
-    owner: 'kimi-code',
-    comment: 'Hello-world mode is entered.',
-    properties: {
-      trigger: 'What triggered hello-world mode',
-    },
-  }),
-  hello_world_mode_exited: defineAgentTelemetryEvent<HelloWorldModeTransitionEvent>({
-    owner: 'kimi-code',
-    comment: 'Hello-world mode is exited.',
-    properties: {
-      trigger: 'What originally triggered the hello-world mode being exited',
-    },
-  }),
-  hello_world_stage_changed: defineAgentTelemetryEvent<HelloWorldStageChangedEvent>({
-    owner: 'kimi-code',
-    comment: 'The hello-world run advances to a new stage.',
-    properties: {
-      stage: 'The stage the run advanced to',
-      previous: 'The stage the run was in before the change',
-    },
-  }),
   external_hook_resolved: defineTelemetryEvent<ExternalHookResolvedEvent>({
     owner: 'kimi-code',
     comment: 'An external hook trigger finishes running its matched hooks.',
@@ -1127,8 +1091,7 @@ export const telemetryEventDefinitions = {
       event: 'Hook event type (e.g. PreToolUse, UserPromptSubmit, Stop)',
       action: 'Whether the trigger resolved to allow or block',
       matched_count: 'Number of hooks that ran for the trigger',
-      failed_count:
-        'Number of hooks that failed (timeout, spawn error, or a non-zero exit code other than 2)',
+      failed_count: 'Number of hooks that failed (timeout, spawn error, or a non-zero exit code other than 2)',
     },
   }),
   remote_control_toggle: defineTelemetryEvent<RemoteControlToggleEvent>({
@@ -1149,12 +1112,45 @@ export const telemetryEventDefinitions = {
         'Comma-separated sorted ids of enabled, loaded plugins after the toggle commits; empty string for a known empty set',
     },
   }),
+  prediction_requested: defineAgentTelemetryEvent<PredictionRequestedEvent>({
+    owner: 'kimi-code',
+    comment: 'A side-channel next-prompt prediction request starts.',
+    properties: {
+      prediction_id: 'Caller-generated prediction identifier; contains no prompt content',
+      turn_id: 'Completed main-agent turn used as the prediction source',
+    },
+  }),
+  prediction_generated: defineAgentTelemetryEvent<PredictionGeneratedEvent>({
+    owner: 'kimi-code',
+    comment: 'A side-channel next-prompt prediction request settles.',
+    properties: {
+      prediction_id: 'Caller-generated prediction identifier; contains no prompt content',
+      turn_id: 'Completed main-agent turn used as the prediction source',
+      status: 'Bounded prediction outcome; stale covers lifecycle, context, and handle changes',
+      reason: 'Cancellation source when status is cancelled; never contains prompt text',
+      duration_ms: 'Prediction wall-clock time in milliseconds',
+      prediction_chars: 'Length of the accepted prediction in UTF-16 code units, never its text',
+      input_tokens: 'Total prediction input tokens including cache usage',
+      input_other: 'Uncached prediction input tokens excluding cache creation',
+      output_tokens: 'Prediction output tokens',
+      input_cache_read: 'Prediction cache-read input tokens',
+      input_cache_creation: 'Prediction cache-creation input tokens',
+      cache_read_pct: 'Cache-read input tokens as a percentage of total input tokens, from 0 to 100',
+      ttft_ms: 'Client-observed time to the first response token in milliseconds',
+      stream_duration_ms: 'Response streaming duration in milliseconds',
+      request_build_ms: 'Provider request construction time in milliseconds when available',
+      server_first_token_ms: 'Server-reported time to the first response token in milliseconds when available',
+      server_decode_ms: 'Server-reported decode time in milliseconds when available',
+      client_consume_ms: 'Client stream consumption time in milliseconds when available',
+      client_blocked_ms: 'Client time blocked by downstream rendering in milliseconds when available',
+      request_id: 'Provider request trace identifier when available',
+    },
+  }),
   compaction_finished: defineAgentTelemetryEvent<CompactionFinishedEvent>({
     owner: 'kimi-code',
     comment: 'Context compaction completes.',
     properties: {
-      turn_id:
-        'Per-agent turn index when compaction ran inside a turn; omitted for manual compaction between turns',
+      turn_id: 'Per-agent turn index when compaction ran inside a turn; omitted for manual compaction between turns',
       source: 'Whether compaction was triggered manually or automatically',
       tokens_before: 'Token count before compaction',
       tokens_after: 'Token count after compaction',
@@ -1168,38 +1164,15 @@ export const telemetryEventDefinitions = {
       output_tokens: 'Output tokens',
       input_cache_read: 'Cache-read input tokens',
       input_cache_creation: 'Cache-creation input tokens',
-      trace_id: 'Trace id of the final compaction request round; absent for non-Kimi protocols',
-    },
-  }),
-  micro_compaction_finished: defineAgentTelemetryEvent<MicroCompactionFinishedEvent>({
-    owner: 'kimi-code',
-    comment: 'Cache-miss micro compaction advances the tool-result truncation cutoff.',
-    properties: {
-      keep_recent_messages: 'Number of trailing messages exempt from truncation',
-      min_content_tokens: 'Minimum content tokens for a tool result to be truncated',
-      cache_missed_threshold_ms:
-        'Idle time after the last assistant output that counts as a cache miss',
-      truncated_marker: 'Text marker replacing a truncated tool result',
-      min_context_usage_ratio: 'Minimum context-window usage ratio for truncation to apply',
-      truncated_tool_result_count: 'Number of tool results truncated by the new cutoff',
-      truncated_tool_result_tokens_before: 'Tokens of the truncated tool results before truncation',
-      truncated_tool_result_tokens_after: 'Tokens of the truncated tool results after truncation',
-      tokens_before: 'Whole-context tokens before this cutoff change',
-      tokens_after: 'Whole-context tokens after this cutoff change',
-      previous_cutoff: 'Truncation cutoff before this change',
-      cutoff: 'Truncation cutoff after this change',
-      message_count: 'Context message count when the cutoff advanced',
-      cache_age_ms:
-        'Cache age at detection in milliseconds, null when the last assistant output is unknown',
-      thinking_effort: 'Thinking effort level in effect',
+      request_id:
+        'Trace id of the final compaction request round; absent for non-Kimi protocols',
     },
   }),
   compaction_failed: defineAgentTelemetryEvent<CompactionFailedEvent>({
     owner: 'kimi-code',
     comment: 'Context compaction fails.',
     properties: {
-      turn_id:
-        'Per-agent turn index when compaction ran inside a turn; omitted for manual compaction between turns',
+      turn_id: 'Per-agent turn index when compaction ran inside a turn; omitted for manual compaction between turns',
       source: 'Whether compaction was triggered manually or automatically',
       tokens_before: 'Token count before compaction',
       duration_ms: 'Wall-clock time until failure in milliseconds',
@@ -1207,7 +1180,7 @@ export const telemetryEventDefinitions = {
       retry_count: 'Number of retries attempted',
       thinking_effort: 'Thinking effort level in effect',
       error_type: 'Error class name',
-      trace_id:
+      request_id:
         'Trace id of the failed compaction request, from its response headers or its error response; absent when the failure happened before any request or before response headers arrived (network errors), and for non-Kimi protocols',
     },
   }),
@@ -1274,7 +1247,7 @@ export const telemetryEventDefinitions = {
     owner: 'kimi-code',
     comment: 'A user question prompt is dismissed.',
     properties: {
-      trace_id:
+      request_id:
         'Trace id of the LLM request that produced the questioning tool call; absent for non-Kimi protocols',
     },
   }),
@@ -1284,7 +1257,7 @@ export const telemetryEventDefinitions = {
     properties: {
       answered: 'Number of questions answered',
       method: 'Input method used to answer',
-      trace_id:
+      request_id:
         'Trace id of the LLM request that produced the questioning tool call; absent for non-Kimi protocols',
     },
   }),
@@ -1334,14 +1307,13 @@ export const telemetryEventDefinitions = {
     owner: 'kimi-code',
     comment: 'A duplicate tool call is detected.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
       step_no: 'Step index within the turn',
       tool_call_id: 'Provider-assigned tool call id',
       tool_name: 'Registered tool name',
       dup_type: 'Whether the duplicate is within the same step or across steps',
       args_hash: 'Hash of the tool call arguments',
-      trace_id:
+      request_id:
         'Trace id of the LLM request that produced the duplicate tool call; absent for non-Kimi protocols',
     },
   }),
@@ -1349,12 +1321,11 @@ export const telemetryEventDefinitions = {
     owner: 'kimi-code',
     comment: 'A repeated tool call streak is detected.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
       tool_name: 'Registered tool name',
       repeat_count: 'Length of the repeat streak',
       action: 'Intervention action taken',
-      trace_id:
+      request_id:
         'Trace id of the LLM request that produced the repeated tool call; absent for non-Kimi protocols',
     },
   }),
@@ -1362,90 +1333,64 @@ export const telemetryEventDefinitions = {
     owner: 'kimi-code',
     comment: 'A tool call reappears within the same turn.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
       step_no: 'Step index within the turn',
       tool_call_id: 'Provider-assigned tool call id',
       tool_name: 'Registered tool name',
       turn_repeat_count: 'Number of prior-step tool-call reappearances counted in the turn',
       args_hash: 'Hash of the tool call arguments',
-      trace_id:
+      request_id:
         'Trace id of the LLM request that produced the repeated tool call; absent for non-Kimi protocols',
-    },
-  }),
-  tool_call_repeat_handoff: defineAgentTelemetryEvent<ToolCallRepeatHandoffEvent>({
-    owner: 'kimi-code',
-    comment: 'The text-only handoff step that follows a repeat-breaker force stop finished.',
-    properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
-      outcome: 'Whether the model answered in text or its tool calls were vetoed',
     },
   }),
   agents_md_reminder_shown: defineAgentTelemetryEvent<AgentsMdReminderShownEvent>({
     owner: 'kimi-code',
     comment: 'An AGENTS.md discovery reminder is queued for context injection after a tool call.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       tool_name: 'Registered tool name whose execution discovered the file',
       reminded_count: 'Number of AGENTS.md paths listed in the reminder',
-      trace_id:
+      request_id:
         'Trace id of the LLM request that produced the tool call; absent for non-Kimi protocols',
     },
   }),
   notify_user_nudge_shown: defineAgentTelemetryEvent<NotifyUserNudgeShownEvent>({
     owner: 'kimi-code',
-    comment:
-      'A reminder asking the agent to post a NotifyUser update is queued for context injection.',
+    comment: 'A reminder asking the agent to post a NotifyUser update is queued for context injection.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
-      rounds_since_notify:
-        'Tool-call rounds (assistant steps with tool calls) since the turn started or the last NotifyUser call',
-      nudge_index:
-        'Position of this reminder within the current silent stretch; 1 for the first, higher when earlier reminders went unanswered',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
+      rounds_since_notify: 'Tool-call rounds (assistant steps with tool calls) since the turn started or the last NotifyUser call',
+      nudge_index: 'Position of this reminder within the current silent stretch; 1 for the first, higher when earlier reminders went unanswered',
     },
   }),
   notify_user_sent: defineAgentTelemetryEvent<NotifyUserSentEvent>({
     owner: 'kimi-code',
     comment: 'The agent posted a NotifyUser progress update.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
-      rounds_since_notify:
-        'Tool-call rounds (assistant steps with tool calls) before this update since the turn started or the previous NotifyUser call',
-      after_nudge:
-        'Whether a NotifyUser reminder was injected since the turn started or the previous NotifyUser call',
-      title_chars:
-        'Length of the update title in UTF-16 code units; the title text itself is not recorded',
-      message_chars:
-        'Length of the update message in UTF-16 code units; the message text itself is not recorded',
-      displayed:
-        'Whether the update was shown to the user; false when the feature was turned off mid-session or the host cannot display updates',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      rounds_since_notify: 'Tool-call rounds (assistant steps with tool calls) before this update since the turn started or the previous NotifyUser call',
+      after_nudge: 'Whether a NotifyUser reminder was injected since the turn started or the previous NotifyUser call',
+      title_chars: 'Length of the update title in UTF-16 code units; the title text itself is not recorded',
+      message_chars: 'Length of the update message in UTF-16 code units; the message text itself is not recorded',
+      displayed: 'Whether the update was shown to the user; false when the feature was turned off mid-session or the host cannot display updates',
     },
   }),
   todo_list_written: defineAgentTelemetryEvent<TodoListWrittenEvent>({
     owner: 'kimi-code',
     comment: 'The agent replaced or cleared its todo list through the TodoList tool.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       item_count: 'Number of items in the list after the write; 0 when the list was cleared',
       open_count: 'Number of items still pending or in_progress after the write',
-      steps_since_write:
-        'Assistant steps between the previous TodoList write in context and this one; omitted when no earlier write is in context',
-      after_reminder:
-        'Whether a stale todo list reminder was injected since the previous TodoList write',
+      steps_since_write: 'Assistant steps between the previous TodoList write in context and this one; omitted when no earlier write is in context',
+      after_reminder: 'Whether a stale todo list reminder was injected since the previous TodoList write',
     },
   }),
   todo_reminder_shown: defineAgentTelemetryEvent<TodoReminderShownEvent>({
     owner: 'kimi-code',
-    comment:
-      'A reminder that the todo list still has open items and has not been updated recently is queued for context injection.',
+    comment: 'A reminder that the todo list still has open items and has not been updated recently is queued for context injection.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
       steps_since_write: 'Assistant steps since the last TodoList write in context',
       item_count: 'Number of items in the list',
       open_count: 'Number of items still pending or in_progress',
@@ -1453,14 +1398,11 @@ export const telemetryEventDefinitions = {
   }),
   todo_turn_ended: defineAgentTelemetryEvent<TodoTurnEndedEvent>({
     owner: 'kimi-code',
-    comment:
-      'A main-agent turn ended while the todo list was non-empty or had changed during the turn.',
+    comment: 'A main-agent turn ended while the todo list was non-empty or had changed during the turn.',
     properties: {
-      turn_id:
-        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       reason: 'How the turn ended',
-      item_count:
-        'Number of items in the list when the turn ended; 0 when the list was cleared during the turn',
+      item_count: 'Number of items in the list when the turn ended; 0 when the list was cleared during the turn',
       open_count: 'Number of items still pending or in_progress when the turn ended',
       updated_in_turn: 'Whether the list changed during this turn',
     },
@@ -1500,10 +1442,8 @@ export const telemetryEventDefinitions = {
       fork: 'Whether the subagent was forked with a snapshot of the parent conversation history',
       agent_id: 'Child agent id',
       parent_agent_id: 'Parent (caller) agent id',
-      parent_tool_call_id:
-        "Tool call id of the launching call in the parent agent; '' when not launched from a tool call",
-      model:
-        'Model alias the subagent binds to (secondary-model choice or inherited caller model); omitted when no binding was resolved',
+      parent_tool_call_id: "Tool call id of the launching call in the parent agent; '' when not launched from a tool call",
+      model: 'Model alias the subagent binds to (secondary-model choice or inherited caller model); omitted when no binding was resolved',
       model_source:
         "How the bound model was chosen: 'inherited' = caller's own model (no pool or fork), 'secondary_pool' = [secondary_model.models] pool pick; omitted when no binding resolution happened (e.g. resume)",
     },
@@ -1524,36 +1464,6 @@ export const telemetryEventDefinitions = {
       total_count: 'Total number of configured servers',
     },
   }),
-  mcp_initial_load_wait: defineAgentTelemetryEvent<McpInitialLoadWaitEvent>({
-    owner: 'kimi-code',
-    comment: 'A turn proceeded before all MCP servers finished their initial connection.',
-    properties: {
-      budget_ms: 'Maximum time the turn waited for MCP initial load',
-      pending_count: 'MCP servers still connecting when the wait budget elapsed',
-      total_count: 'Total configured MCP servers',
-    },
-  }),
-  tool_retrieval: defineAgentTelemetryEvent<ToolRetrievalEvent>({
-    owner: 'kimi-code',
-    comment: 'A deferred tool catalog is ranked for a turn or searched by capability.',
-    properties: {
-      mode: 'Whether the catalog was ranked for an announcement or searched by query',
-      catalog_size: 'Number of loadable tools in the catalog',
-      candidate_count: 'Number of tools considered for ranking or search',
-      selected_count: 'Number of tools returned or announced',
-      query_chars: 'Character length of the retrieval query, not its content',
-      matched: 'Whether at least one positive retrieval match was found',
-    },
-  }),
-  mcp_schema_compacted: defineTelemetryEvent<McpSchemaCompactedEvent>({
-    owner: 'kimi-code',
-    comment: 'An MCP server connected with compacted tool schemas enabled.',
-    properties: {
-      tool_count: 'Number of tools discovered from the server',
-      original_chars: 'Serialized character length of the original parameter schemas',
-      compacted_chars: 'Serialized character length after compaction',
-    },
-  }),
   cron_missed: defineTelemetryEvent<CronMissedEvent>({
     owner: 'kimi-code',
     comment: 'Cron tasks fire late after being slept through.',
@@ -1572,8 +1482,7 @@ export const telemetryEventDefinitions = {
     comment: 'A cron task is deleted.',
     properties: {
       task_id: 'Cron task id',
-      agent_id:
-        'Agent that deleted the task; omitted for session-level deletion (e.g. stale auto-removal)',
+      agent_id: 'Agent that deleted the task; omitted for session-level deletion (e.g. stale auto-removal)',
     },
   }),
   cron_fired: defineTelemetryEvent<CronFiredEvent>({
@@ -1732,8 +1641,7 @@ export const telemetryEventDefinitions = {
   }),
   web_fetch_fallback: defineTelemetryEvent<WebFetchFallbackEvent>({
     owner: 'kimi-code',
-    comment:
-      'The managed fetch-url provider fails and the call silently falls back to the local fetcher.',
+    comment: 'The managed fetch-url provider fails and the call silently falls back to the local fetcher.',
     properties: {
       error_type: 'Classified error category of the managed fetch failure',
       used_api_key: 'Whether a managed access token was obtained before the failure',
@@ -1746,6 +1654,27 @@ export const telemetryEventDefinitions = {
       kind: 'Media kind being resolved',
       reason: 'Why the media could not be resolved as-is',
       model: 'Model the media was resolved for',
+    },
+  }),
+  micro_compaction_finished: defineAgentTelemetryEvent<MicroCompactionFinishedEvent>({
+    owner: 'kimi-code',
+    comment: 'Micro compaction truncated historical tool results to keep the request under budget.',
+    properties: {
+      keep_recent_messages: 'Configured number of recent messages kept intact',
+      min_content_tokens: 'Minimum tool-result content size considered for truncation',
+      cache_missed_threshold_ms: 'Cache age above which truncation is allowed',
+      truncated_marker: 'Marker appended to truncated tool results',
+      min_context_usage_ratio: 'Context usage ratio required before micro compaction runs',
+      truncated_tool_result_count: 'Number of tool results truncated in this request',
+      truncated_tool_result_tokens_before: 'Estimated tokens in truncated tool results before truncation',
+      truncated_tool_result_tokens_after: 'Estimated tokens in truncated tool results after truncation',
+      tokens_before: 'Estimated context tokens before truncation',
+      tokens_after: 'Estimated context tokens after truncation',
+      previous_cutoff: 'Previous truncation cutoff index',
+      cutoff: 'New truncation cutoff index',
+      message_count: 'History length when micro compaction ran',
+      cache_age_ms: 'Age of the provider prompt cache at compaction time',
+      thinking_effort: 'Thinking effort in effect for the request',
     },
   }),
   llm_request_projection_fallback: defineAgentTelemetryEvent<LlmRequestProjectionFallbackEvent>({

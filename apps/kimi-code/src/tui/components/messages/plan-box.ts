@@ -1,30 +1,17 @@
-/**
- * PlanBoxComponent — renders an ExitPlanMode plan inside a full box
- * border, width-aware. The plan text is parsed as Markdown so headings,
- * lists, bold, inline code etc. render the same way assistant messages do.
- */
-
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import {
-  truncateToWidth,
-  visibleWidth,
-  type Component,
-  type MarkdownTheme,
-} from '@moonshot-ai/pi-tui';
+import { truncateToWidth, visibleWidth, type Component, type MarkdownTheme } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
-import { t } from '#/i18n';
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { createMarkdownOptions } from '#/tui/utils/markdown-options';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
+import { t } from '#/i18n';
 
-const LEFT_MARGIN = 2; // two-space indent matching other tool call children
-const SIDE_PADDING = 1; // space between the │ and the content on each side
-function getTitlePrefix(): string {
-  return t('tui.messages.planBox.titlePrefix');
-}
+const LEFT_MARGIN = 2;
+const SIDE_PADDING = 1;
+const TITLE_PREFIX = t('tui.messages.planBox.titlePrefix');
 const TITLE_SUFFIX = ' ';
 
 export interface PlanBoxOptions {
@@ -47,18 +34,7 @@ export class PlanBoxComponent implements Component {
     private readonly planPath?: string,
     opts?: PlanBoxOptions,
   ) {
-    // Build the Markdown instance once — pi-tui's Markdown caches its own
-    // parse + wrap output keyed on (text, width), so reusing the same
-    // instance means repeated render() calls from the parent Container
-    // hit the cache instead of re-parsing on every frame.
-    this.markdown = new Markdown(
-      plan.trim(),
-      0,
-      0,
-      markdownTheme,
-      undefined,
-      createMarkdownOptions(),
-    );
+    this.markdown = new Markdown(plan.trim(), 0, 0, markdownTheme, undefined, createMarkdownOptions());
     this.status = opts?.status;
   }
 
@@ -72,20 +48,13 @@ export class PlanBoxComponent implements Component {
     const safeWidth = Math.max(0, width);
     if (safeWidth <= 0) return [''];
     if (safeWidth < LEFT_MARGIN + 4) {
-      return this.markdown
-        .render(Math.max(1, safeWidth))
-        .map((line) => truncateToWidth(line, safeWidth, '…'));
+      return this.markdown.render(Math.max(1, safeWidth)).map((line) => truncateToWidth(line, safeWidth, '…'));
     }
 
     if (this.cachedLines !== undefined && this.cachedWidth === width) {
       return this.cachedLines;
     }
 
-    // Box layout: "  ┌──...──┐"
-    //             "  │ <content> │"
-    //             "  └──...──┘"
-    // width = LEFT_MARGIN + 1 + horzLen + 1 ⇒ horzLen = width - 4
-    // content width = horzLen - 2 * SIDE_PADDING = width - 6
     const horzLen = Math.max(2, safeWidth - LEFT_MARGIN - 2);
     const contentWidth = Math.max(1, horzLen - 2 * SIDE_PADDING);
 
@@ -116,7 +85,7 @@ export class PlanBoxComponent implements Component {
   private buildTitle(horzLen: number): string {
     const fallback = t('tui.messages.planBox.fallback');
     const statusSuffix = this.buildStatusSuffix();
-    const fallbackWithStatus = `${fallback.trimEnd()}${statusSuffix} `;
+    const fallbackWithStatus = ` plan${statusSuffix} `;
     const budget = Math.max(0, horzLen - 1);
     const fallbackTitle = truncateToWidth(
       visibleWidth(fallbackWithStatus) <= budget ? fallbackWithStatus : fallback,
@@ -130,7 +99,7 @@ export class PlanBoxComponent implements Component {
     const linked = path.isAbsolute(planPath)
       ? toTerminalHyperlink(basename, pathToFileURL(planPath).href)
       : basename;
-    const title = getTitlePrefix() + linked + statusSuffix + TITLE_SUFFIX;
+    const title = TITLE_PREFIX + linked + statusSuffix + TITLE_SUFFIX;
     if (visibleWidth(title) > budget) return fallbackTitle;
     return title;
   }

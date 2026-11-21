@@ -1,4 +1,5 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 
 export type McpServerSource = 'global' | 'plugin' | 'caller';
@@ -28,10 +29,7 @@ export interface IMcpRegistryService {
 
   get(name: string, query?: McpRegistryQuery): Promise<McpRegistryEntry>;
 
-  resolveRuntimeTarget(
-    name: string,
-    query?: McpRegistryQuery,
-  ): Promise<McpRegistryEntry | undefined>;
+  resolveRuntimeTarget(name: string, query?: McpRegistryQuery): Promise<McpRegistryEntry | undefined>;
 }
 
 export const IMcpRegistryService: ServiceIdentifier<IMcpRegistryService> =

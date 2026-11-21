@@ -1,4 +1,3 @@
-import { t } from '#/i18n';
 interface Rgb {
   readonly r: number;
   readonly g: number;
@@ -34,9 +33,7 @@ export function deriveHoverBackground(backgroundHex: string, foregroundHex: stri
 }
 
 function parseHex(hex: string): Rgb {
-  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {
-    throw new Error(t('tui.messages.hoverColor.badHex', { value: hex }));
-  }
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw new Error(`Expected a six-digit hex color: ${hex}`);
   return {
     r: parseInt(hex.slice(1, 3), 16),
     g: parseInt(hex.slice(3, 5), 16),
@@ -46,10 +43,7 @@ function parseHex(hex: string): Rgb {
 
 function rgbToHex(rgb: Rgb): string {
   const channel = (value: number): string =>
-    Math.round(clamp(value, 0, 255))
-      .toString(16)
-      .padStart(2, '0')
-      .toUpperCase();
+    Math.round(clamp(value, 0, 255)).toString(16).padStart(2, '0').toUpperCase();
   return `#${channel(rgb.r)}${channel(rgb.g)}${channel(rgb.b)}`;
 }
 
@@ -111,7 +105,11 @@ function contrastRatio(first: Rgb, second: Rgb): number {
 }
 
 function relativeLuminance(rgb: Rgb): number {
-  return 0.2126 * srgbToLinear(rgb.r) + 0.7152 * srgbToLinear(rgb.g) + 0.0722 * srgbToLinear(rgb.b);
+  return (
+    0.2126 * srgbToLinear(rgb.r) +
+    0.7152 * srgbToLinear(rgb.g) +
+    0.0722 * srgbToLinear(rgb.b)
+  );
 }
 
 function srgbToLinear(channel: number): number {

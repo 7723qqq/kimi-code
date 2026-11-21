@@ -1,8 +1,6 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { ShellEnvironment } from '#/app/sessionExport/sessionExport';
 
-import type { FeedbackCodebaseLimitExceeded } from './feedback/codebase/types';
-
 export type FeedbackAttachmentLevel = 'none' | 'logs' | 'logs+codebase';
 
 export interface FeedbackSessionPreview {
@@ -31,12 +29,7 @@ export interface FeedbackSubmitInput {
 }
 
 export type FeedbackSubmitResult =
-  | {
-      readonly kind: 'ok';
-      readonly feedbackId: number;
-      readonly attachmentFailed?: boolean;
-      readonly codebaseTruncated?: FeedbackCodebaseLimitExceeded;
-    }
+  | { readonly kind: 'ok'; readonly feedbackId: number; readonly attachmentFailed?: boolean }
   | { readonly kind: 'needs-login' }
   | { readonly kind: 'error'; readonly message: string };
 

@@ -2,6 +2,7 @@ import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 
 import { renderPrompt } from '#/_base/utils/render-prompt';
+import { userCancellationReason } from '#/_base/utils/abort';
 import { acquireOrWhenReady, IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IAgentTaskService } from '#/agent/task/task';
@@ -18,25 +19,23 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
-  DEFAULT_TOOL_RESULT_MAX_CHARS,
   ToolSideEffects,
+  type ExecutableToolContext,
   type ExecutableToolResult,
   type ToolExecution,
-  type ToolUpdate,
 } from '#/tool/toolContract';
 
+import { createProcessExecutor, ProcessExitError } from '../bash/process-task';
 import {
   DEFAULT_BACKGROUND_TIMEOUT_S,
   DEFAULT_TIMEOUT_S,
   MAX_BACKGROUND_TIMEOUT_S,
   MAX_TIMEOUT_S,
 } from '../bash/bash';
-import { ProcessTask } from '../bash/process-task';
 import {
   MS_PER_SECOND,
   ShellToolResults,
   foregroundDescription,
-  killSpawnedProcess,
   normalizeTimeoutMs,
 } from '../shell/shellToolResults';
 import {
@@ -128,6 +127,12 @@ export class PowerShellTool implements IPowerShellTool {
 
   resolveExecution(args: PowerShellInput): ToolExecution {
     const preview = args.command.length > 50 ? `${args.command.slice(0, 50)}…` : args.command;
+    let stop = ({ abandon }: {
+      readonly reason: unknown;
+      readonly abandon: (result?: ExecutableToolResult) => void;
+    }): void => {
+      abandon({ isError: true, output: 'Aborted before command started' });
+    };
     return {
       description: args.run_in_background
         ? `Starting background: ${preview}`
@@ -140,8 +145,11 @@ export class PowerShellTool implements IPowerShellTool {
       },
       approvalRule: literalRulePattern(this.name, args.command),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.command),
-      execute: ({ signal, onUpdate, onForegroundTaskStart, toolCallId }) =>
-        this.execution(args, signal, toolCallId, onUpdate, onForegroundTaskStart),
+      stopping: (context) => stop?.(context),
+      execute: (ctx) =>
+        this.execution(args, ctx, (next) => {
+          stop = next;
+        }),
     };
   }
 
@@ -183,11 +191,23 @@ export class PowerShellTool implements IPowerShellTool {
 
   private async execution(
     args: PowerShellInput,
-    signal: AbortSignal,
-    toolCallId: string,
-    onUpdate?: (update: ToolUpdate) => void,
-    onForegroundTaskStart?: (taskId: string) => void,
+    ctx: ExecutableToolContext,
+    setStop: (stop: (context: {
+      readonly reason: unknown;
+      readonly abandon: (result?: ExecutableToolResult) => void;
+    }) => void) => void,
   ): Promise<ExecutableToolResult> {
+    const {
+      signal,
+      toolCallId,
+      taskId = toolCallId,
+      write,
+      set,
+      detach,
+      onDetach,
+      onUpdate,
+      onForegroundTaskStart,
+    } = ctx;
     const validationError = this.results.validateRunRequest(args, signal);
     if (validationError !== undefined) return validationError;
 
@@ -222,98 +242,151 @@ export class PowerShellTool implements IPowerShellTool {
       };
     }
 
-    let collectForegroundOutput = !startsInBackground;
-    let foregroundOutputPersisted = false;
-    let foregroundTaskId: string | undefined;
-    const onProcessOutput = startsInBackground
-      ? undefined
-      : (kind: 'stdout' | 'stderr', text: string): void => {
-          if (!collectForegroundOutput) return;
-          const normalized = normalizePowerShellOutput(text);
-          onUpdate?.({ kind, text: normalized });
-          builder.write(normalized);
-          if (
-            !foregroundOutputPersisted &&
-            builder.totalChars > DEFAULT_TOOL_RESULT_MAX_CHARS &&
-            foregroundTaskId !== undefined
-          ) {
-            this.tasks.persistOutput(foregroundTaskId);
-            foregroundOutputPersisted = true;
-          }
-        };
+    let detached = startsInBackground;
+    let timedOut = false;
+    let stopReason: string | undefined;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    let forceHandle: ReturnType<typeof setTimeout> | undefined;
 
-    let taskId: string;
-    try {
-      taskId = this.tasks.registerTask(
-        new ProcessTask(
-          proc,
-          args.command,
+    const setFields = (
+      status: 'running' | 'completed' | 'failed' | 'timed_out' | 'killed',
+      exitCode: number | null,
+    ): void => {
+      set?.({
+        task: {
+          kind: 'process',
           description,
-          onProcessOutput,
-          () => lease.dispose(),
-          toolCallId,
-        ),
-        {
-          detached: startsInBackground,
-          detachable: this.flags?.enabled(OPERATION_LOG_FLAG_ID) !== true,
+          command: args.command,
+          pid: proc.pid,
+          exitCode,
+          parentToolCallId: toolCallId,
           timeoutMs,
-          detachTimeoutMs: this.detachTimeoutMs(),
-          autoBackgroundOnTimeout: this.allowBackground() && this.autoBackgroundOnTimeout(),
-          signal: startsInBackground ? undefined : signal,
+          timedOut: status === 'timed_out' || undefined,
+          stopReason,
         },
+      });
+    };
+    const armTimeout = (duration: number | undefined): void => {
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+      timeoutHandle = undefined;
+      if (duration === undefined || duration <= 0) return;
+      timeoutHandle = setTimeout(() => {
+        timeoutHandle = undefined;
+        if (this.allowBackground() && this.autoBackgroundOnTimeout() && !detached) {
+          detached = true;
+          const started = this.results.backgroundStartedResult(taskId, proc, description, {
+            title: 'Command timed out and moved to background',
+            brief: `Backgrounded ${taskId} after timeout`,
+          }, builder, 'foreground_detached');
+          detach?.(started.output, started.brief);
+          armTimeout(this.detachTimeoutMs());
+          return;
+        }
+        timedOut = true;
+        stopReason = 'Timed out';
+        void proc.kill('SIGTERM').catch(() => {});
+        const graceMs = resolveAgentTaskConfig(this.config)?.killGracePeriodMs ?? 5_000;
+        forceHandle = setTimeout(() => {
+          void this.forceStop(proc);
+        }, graceMs);
+        forceHandle.unref?.();
+      }, duration);
+      timeoutHandle.unref?.();
+    };
+    const requestDetach = (
+      output: string,
+      scenario: 'background_started' | 'foreground_detached' | 'foreground_detached_by_user',
+      brief?: string,
+    ): void => {
+      detached = true;
+      detach?.(output, brief);
+      if (scenario !== 'background_started') armTimeout(this.detachTimeoutMs());
+    };
+    onDetach?.(() => {
+      if (!detached) armTimeout(this.detachTimeoutMs());
+      detached = true;
+      const started = this.results.backgroundStartedResult(
+        taskId,
+        proc,
+        description,
+        {
+          title: 'Task moved to background by the user',
+          brief: `Backgrounded ${taskId} by the user`,
+        },
+        builder,
+        'foreground_detached_by_user',
       );
-      foregroundTaskId = startsInBackground ? undefined : taskId;
-    } catch (error) {
-      collectForegroundOutput = false;
-      await killSpawnedProcess(proc);
-      lease.dispose();
       return {
-        isError: true,
-        output: error instanceof Error ? error.message : String(error),
+        content: [{ type: 'text', text: started.output }],
+        brief: started.brief,
       };
-    }
+    });
+    setStop(({ reason, abandon }) => {
+      if (typeof reason === 'string') stopReason = reason;
+      else if (reason instanceof Error) stopReason = reason.message;
+      else stopReason = userCancellationReason().message;
+      void proc.kill('SIGTERM').catch(() => {});
+      const graceMs = resolveAgentTaskConfig(this.config)?.killGracePeriodMs ?? 5_000;
+      forceHandle = setTimeout(() => {
+        void this.forceStop(proc).finally(() => {
+          setFields('killed', proc.exitCode);
+          abandon();
+        });
+      }, graceMs);
+      forceHandle.unref?.();
+    });
 
     if (!startsInBackground) onForegroundTaskStart?.(taskId);
+    setFields('running', null);
+    armTimeout(startsInBackground ? timeoutMs : foregroundTimeoutMs);
 
-    if (startsInBackground) {
-      return this.results.backgroundStartedResult(taskId, proc, description, {
-        title: 'Background task started',
-        brief: `Started ${taskId}`,
-      });
-    }
+    const runProcess = createProcessExecutor(proc, (kind, text) => {
+      onUpdate?.({ kind, text: normalizePowerShellOutput(text) });
+    });
+    const forward = (chunk: string): void => {
+      const normalized = normalizePowerShellOutput(chunk);
+      builder.write(normalized);
+      write?.(normalized);
+    };
 
     try {
-      const release = await this.tasks.waitForForegroundRelease(taskId);
-      if (release === 'detached' || release === 'timeout_detached') {
-        collectForegroundOutput = false;
-        const labels =
-          release === 'timeout_detached'
-            ? {
-                title: 'Command timed out and moved to background',
-                brief: `Backgrounded ${taskId} after timeout`,
-              }
-            : {
-                title: 'Task moved to background by the user',
-                brief: `Backgrounded ${taskId} by the user`,
-              };
-        return this.results.backgroundStartedResult(
-          taskId,
-          proc,
-          description,
-          labels,
-          builder,
-          release === 'timeout_detached' ? 'foreground_detached' : 'foreground_detached_by_user',
-        );
+      if (startsInBackground) {
+        const started = this.results.backgroundStartedResult(taskId, proc, description, {
+          title: 'Background task started',
+          brief: `Started ${taskId}`,
+        });
+        requestDetach(started.output, 'background_started', started.brief);
       }
-
+      let status: 'completed' | 'failed' | 'timed_out' | 'killed';
+      try {
+        const outcome = await runProcess(signal, forward);
+        status = timedOut ? 'timed_out' : outcome.exitCode === 0 ? 'completed' : 'failed';
+      } catch (error) {
+        status = timedOut ? 'timed_out' : signal.aborted ? 'killed' : 'failed';
+        if (!signal.aborted && stopReason === undefined && !(error instanceof ProcessExitError)) {
+          stopReason = error instanceof Error ? error.message : String(error);
+        }
+      } finally {
+        lease.dispose();
+      }
+      setFields(status, proc.exitCode);
       return await this.results.foregroundCompletionResult(
         taskId,
         proc,
         builder,
-        foregroundTimeoutMs,
+        timeoutMs ?? foregroundTimeoutMs,
+        { status, stopReason, exitCode: proc.exitCode },
       );
     } finally {
-      collectForegroundOutput = false;
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+      if (forceHandle !== undefined) clearTimeout(forceHandle);
+    }
+  }
+
+  private async forceStop(proc: IHostProcess): Promise<void> {
+    try {
+      if (proc.exitCode === null) await proc.kill('SIGKILL');
+    } catch {
     }
   }
 }

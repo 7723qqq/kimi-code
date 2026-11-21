@@ -1,17 +1,4 @@
-import { mock, afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
-async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
-  const deadline = Date.now() + (opts?.timeout ?? 1000);
-  for (;;) {
-    try {
-      await fn();
-      return;
-    } catch {
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-}
-
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { Emitter } from '#/_base/event';
 import { REMOTE_SHELL_PATH_BRIDGE } from '#/_base/execEnv/shellPathBridge';
@@ -108,8 +95,8 @@ const NOOP_LOG = {
   error: () => {},
 } as unknown as ILogService;
 
-beforeEach(() => process.env['KIMI_CODE_WATCH'] = 'false');
-afterEach(() => undefined);
+beforeEach(() => vi.stubEnv('KIMI_CODE_WATCH', 'false'));
+afterEach(() => vi.unstubAllEnvs());
 
 interface HostServices {
   readonly declarations: EnvironmentDeclarationService;
@@ -182,7 +169,7 @@ function factoryOptions(extra: RemoteEnvironmentProviderFactoryOptions = {}): Re
 describe('RemoteEnvironmentProviderFactory', () => {
   it('registers declared environments as pending placeholders without connecting', async () => {
     const registry = new EnvironmentRegistry();
-    const connect = mock(async () => connectedSession());
+    const connect = vi.fn(async () => connectedSession());
     const factory = new RemoteEnvironmentProviderFactory(factoryOptions({ connect }));
     const attachment = await factory.attach(fakeHost(baseServices(registry), registry));
 
@@ -205,7 +192,7 @@ describe('RemoteEnvironmentProviderFactory', () => {
     const gate = new Promise<void>((resolve) => {
       releaseConnect = resolve;
     });
-    const connect = mock(async (options: RemoteSessionOptions) => {
+    const connect = vi.fn(async (options: RemoteSessionOptions) => {
       await gate;
       return connectedSession();
     });
@@ -279,14 +266,14 @@ describe('declaration watch', () => {
     const config = watchableConfigService({
       'dev-box': { type: 'ssh', host: 'dev-box', defaultCwd: '/home/me' },
     });
-    const connect = mock(async () => connectedSession());
+    const connect = vi.fn(async () => connectedSession());
     const factory = new RemoteEnvironmentProviderFactory(factoryOptions({ connect }));
     const attachment = await factory.attach(fakeHost(baseServices(registry, { config: config.service }), registry));
 
     const before = registry.current('dev-box')!;
     const generation = before.identity.generation;
     config.setSection({ 'dev-box': { type: 'ssh', host: 'renamed-box', defaultCwd: '/home/me' } });
-    await viWaitFor(() => {
+    await vi.waitFor(() => {
       expect(before.identity.generation).not.toBe(generation);
     });
     expect(registry.current('dev-box')).toBe(before);
@@ -307,7 +294,7 @@ describe('declaration watch', () => {
       'dev-box': { type: 'ssh', host: 'dev-box', defaultCwd: '/home/me' },
     });
     const produced: FakeSession[] = [];
-    const connect = mock(async (options: RemoteSessionOptions) => {
+    const connect = vi.fn(async (options: RemoteSessionOptions) => {
       const environment = connectedSession();
       produced.push(environment);
       return environment;
@@ -321,7 +308,7 @@ describe('declaration watch', () => {
     expect(lease.environment).toBe(connected);
 
     config.setSection({});
-    await viWaitFor(() => {
+    await vi.waitFor(() => {
       expect(registry.current('dev-box')).toBeUndefined();
     });
 
@@ -332,7 +319,7 @@ describe('declaration watch', () => {
     expect(lease.environment).toBe(connected);
     expect(produced[0]!.released).toBe(false);
     lease.dispose();
-    await viWaitFor(() => {
+    await vi.waitFor(() => {
       expect(produced[0]!.released).toBe(true);
     });
 
@@ -347,7 +334,7 @@ describe('declaration watch', () => {
     });
     let releaseConnect!: () => void;
     const produced: FakeSession[] = [];
-    const connect = mock((options: RemoteSessionOptions) => new Promise<RemoteSession>((resolve) => {
+    const connect = vi.fn((options: RemoteSessionOptions) => new Promise<RemoteSession>((resolve) => {
       releaseConnect = () => {
         const environment = connectedSession();
         produced.push(environment);
@@ -359,7 +346,7 @@ describe('declaration watch', () => {
 
     const connecting = registry.current('dev-box')!.connect!();
     config.setSection({ 'dev-box': { type: 'ssh', host: 'renamed-box', defaultCwd: '/home/me' } });
-    await viWaitFor(() => {
+    await vi.waitFor(() => {
       expect(registry.current('dev-box')!.status).toBe('disconnected');
     });
     releaseConnect();
@@ -382,14 +369,14 @@ describe('SSH password fallback', () => {
     const registry = new EnvironmentRegistry();
     let attempt = 0;
     const produced: FakeSession[] = [];
-    const connect = mock(async (options: RemoteSessionOptions) => {
+    const connect = vi.fn(async (options: RemoteSessionOptions) => {
       attempt += 1;
       if (attempt === 1) throw new HandshakeError('Permission denied (publickey,password)', { kind: 'authentication' });
       const session = connectedSession();
       produced.push(session);
       return session;
     });
-    const prompt = mock(async () => 'secret');
+    const prompt = vi.fn(async () => 'secret');
     const factory = new RemoteEnvironmentProviderFactory({
       connect,
       sshPassword: { prompt, askpassCommand: ['/bin/kimi'] },
@@ -398,8 +385,7 @@ describe('SSH password fallback', () => {
     const target = registry.current('dev-box')!;
 
     await target.connect!();
-    expect(prompt).toHaveBeenCalledTimes(1);
-    expect(prompt).toHaveBeenCalledWith('dev-box');
+    expect(prompt).toHaveBeenCalledExactlyOnceWith('dev-box');
     expect(connect).toHaveBeenCalledTimes(2);
     expect(connect.mock.calls[0]![0].sshAuth).toBeUndefined();
     expect(connect.mock.calls[1]![0].sshAuth).toEqual({
@@ -413,7 +399,7 @@ describe('SSH password fallback', () => {
 
     const generation = target.identity.generation;
     config.setSection({ 'dev-box': { type: 'ssh', host: 'renamed-box', defaultCwd: '/home/me' } });
-    await viWaitFor(() => {
+    await vi.waitFor(() => {
       expect(target.identity.generation).not.toBe(generation);
     });
     await target.connect!();
@@ -426,7 +412,7 @@ describe('SSH password fallback', () => {
   it('keeps the original authentication error when prompting is cancelled', async () => {
     const registry = new EnvironmentRegistry();
     const failure = new HandshakeError('Permission denied (publickey,password)', { kind: 'authentication' });
-    const connect = mock(async () => {
+    const connect = vi.fn(async () => {
       throw failure;
     });
     const factory = new RemoteEnvironmentProviderFactory({
@@ -450,7 +436,7 @@ describe('connection telemetry', () => {
     telemetry.addAppender({ track: (record) => records.push(record) });
     let attempt = 0;
     const produced: FakeSession[] = [];
-    const connect = mock(async (options: RemoteSessionOptions) => {
+    const connect = vi.fn(async (options: RemoteSessionOptions) => {
       if (++attempt === 1) throw new HandshakeError('secret-host: /private/path YOUR_API_KEY', { kind: 'timeout' });
       const environment = connectedSession();
       produced.push(environment);

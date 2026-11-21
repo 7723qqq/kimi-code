@@ -143,12 +143,15 @@ export function defineState<T>(name: string, initial: () => T): StateKeyBuilder<
 
 export interface UndoableProtocol {
   readonly events: {
-    readonly appendMessage: Event2Class<any, any>;
+    readonly appendLoopEvent: Event2Class<any, any>;
+    readonly turnPrompt: Event2Class<any, any>;
+    readonly turnSteer: Event2Class<any, any>;
+    readonly turnEnded: Event2Class<any, any>;
     readonly applyCompaction: Event2Class<any, any>;
     readonly clear: Event2Class<any, any>;
     readonly undo: Event2Class<any, any>;
   };
-  readonly isUndoAnchor: (message: unknown) => boolean;
+  readonly isUndoAnchor: (prompt: unknown) => boolean;
   readonly isValidUndoCount: (count: number) => boolean;
 }
 
@@ -169,9 +172,7 @@ export function expandedStateFolds(
 ): ReadonlyMap<Event2Class<any, any>, StateFold<any, any>> {
   const meta = key.replayable;
   if (meta.mutableReplay && meta.undoable?.onUndo === undefined) {
-    throw new BugIndicatingError(
-      `State key '${key.name}' requires custom onUndo for mutable replay`,
-    );
+    throw new BugIndicatingError(`State key '${key.name}' requires custom onUndo for mutable replay`);
   }
   if (meta.undoable === undefined) return meta.folds;
   if (undoableProtocol === undefined) {
@@ -189,13 +190,13 @@ export function expandedStateFolds(
   }
   const custom = meta.undoable.onUndo !== undefined;
   const folds = new Map<Event2Class<any, any>, StateFold<any, any>>(meta.folds);
-  const domainAppend = folds.get(protocol.events.appendMessage);
-  folds.set(protocol.events.appendMessage, (state, event, ctx) => {
-    if (!custom && protocol.isUndoAnchor(event.message)) {
+  const domainPrompt = folds.get(protocol.events.turnPrompt);
+  folds.set(protocol.events.turnPrompt, (state, event, ctx) => {
+    if (!custom && protocol.isUndoAnchor(event)) {
       ctx.checkpoint();
       return;
     }
-    return domainAppend?.(state, event, ctx);
+    return domainPrompt?.(state, event, ctx);
   });
   for (const cls of [protocol.events.applyCompaction, protocol.events.clear]) {
     const domain = folds.get(cls);
@@ -238,13 +239,13 @@ export function expandedModelAppliers(
   }
   const custom = onUndo !== undefined;
   const expanded = new Map<Event2Class<any, any>, EventApplier>(appliers);
-  const domainAppend = expanded.get(protocol.events.appendMessage);
-  expanded.set(protocol.events.appendMessage, (event, ctx) => {
-    if (!custom && protocol.isUndoAnchor(event.message)) {
+  const domainPrompt = expanded.get(protocol.events.turnPrompt);
+  expanded.set(protocol.events.turnPrompt, (event, ctx) => {
+    if (!custom && protocol.isUndoAnchor(event)) {
       ctx.checkpoint();
       return;
     }
-    domainAppend?.(event, ctx);
+    domainPrompt?.(event, ctx);
   });
   for (const cls of [protocol.events.applyCompaction, protocol.events.clear]) {
     const domain = expanded.get(cls);
@@ -269,13 +270,7 @@ export function expandedRuntimeFolds(
   undoable: boolean,
   folds: ReadonlyMap<Event2Class<any, any>, StateFold<any, any>>,
   onUndo?: (state: any, count: number) => any,
-  mutableReplay = false,
 ): ReadonlyMap<Event2Class<any, any>, StateFold<any, any>> {
-  if (mutableReplay && undoable && onUndo === undefined) {
-    throw new BugIndicatingError(
-      `Agent runtime '${owner}' requires custom onUndo for mutable replay`,
-    );
-  }
   if (!undoable) return folds;
   if (undoableProtocol === undefined) {
     throw new BugIndicatingError(
@@ -289,11 +284,15 @@ export function expandedRuntimeFolds(
       `Undoable agent runtime '${owner}' must not fold the undo event itself`,
     );
   }
+  const custom = onUndo !== undefined;
   const expanded = new Map(folds);
-  const domainAppend = expanded.get(protocol.events.appendMessage);
-  expanded.set(protocol.events.appendMessage, (state, event, ctx) => {
-    if (onUndo === undefined && protocol.isUndoAnchor(event.message)) ctx.checkpoint();
-    return domainAppend?.(state, event, ctx);
+  const domainPrompt = expanded.get(protocol.events.turnPrompt);
+  expanded.set(protocol.events.turnPrompt, (state, event, ctx) => {
+    if (!custom && protocol.isUndoAnchor(event)) {
+      ctx.checkpoint();
+      return;
+    }
+    return domainPrompt?.(state, event, ctx);
   });
   for (const cls of [protocol.events.applyCompaction, protocol.events.clear]) {
     const domain = expanded.get(cls);

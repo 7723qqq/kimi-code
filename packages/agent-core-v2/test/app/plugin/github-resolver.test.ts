@@ -1,25 +1,18 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { resolveGithubCommitSha, resolveGithubSource } from '#/app/plugin/github-resolver';
-import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 describe('resolveGithubSource', () => {
   afterEach(() => {
-    restoreGlobals();
+    vi.unstubAllGlobals();
   });
 
   it('resolves explicit refs without network and encodes ref paths', async () => {
-    const fetchMock = mock();
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
 
     await expect(
-      resolveGithubSource({
-        kind: 'github',
-        owner: 'owner',
-        repo: 'repo',
-        ref: { kind: 'tag', value: 'release#1' },
-      }),
+      resolveGithubSource({ kind: 'github', owner: 'owner', repo: 'repo', ref: { kind: 'tag', value: 'release#1' } }),
     ).resolves.toEqual({
       tarballUrl: 'https://codeload.github.com/owner/repo/zip/refs/tags/release%231',
       displayVersion: 'release#1',
@@ -30,9 +23,9 @@ describe('resolveGithubSource', () => {
 
   it('resolves a branch head from the GitHub commit feed', async () => {
     const sha = '1111111111111111111111111111111111111111';
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock().mockResolvedValue(
+      vi.fn().mockResolvedValue(
         new Response(`<entry><id>tag:github.com,2008:Grit::Commit/${sha}</id></entry>`),
       ),
     );
@@ -48,17 +41,15 @@ describe('resolveGithubSource', () => {
   });
 
   it('uses latest release redirect for bare github urls', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock().mockResolvedValue({
+      vi.fn().mockResolvedValue({
         status: 302,
         headers: new Headers({ location: 'https://github.com/owner/repo/releases/tag/v1.2.3' }),
       }),
     );
 
-    await expect(
-      resolveGithubSource({ kind: 'github', owner: 'owner', repo: 'repo' }),
-    ).resolves.toEqual({
+    await expect(resolveGithubSource({ kind: 'github', owner: 'owner', repo: 'repo' })).resolves.toEqual({
       tarballUrl: 'https://codeload.github.com/owner/repo/zip/refs/tags/v1.2.3',
       displayVersion: 'v1.2.3',
       ref: { kind: 'tag', value: 'v1.2.3' },
@@ -66,16 +57,15 @@ describe('resolveGithubSource', () => {
   });
 
   it('falls back to HEAD when there is no latest release', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock()
+      vi
+        .fn()
         .mockResolvedValueOnce({ status: 404, ok: false, headers: new Headers() })
         .mockResolvedValueOnce({ status: 200, ok: true, headers: new Headers() }),
     );
 
-    await expect(
-      resolveGithubSource({ kind: 'github', owner: 'owner', repo: 'repo' }),
-    ).resolves.toEqual({
+    await expect(resolveGithubSource({ kind: 'github', owner: 'owner', repo: 'repo' })).resolves.toEqual({
       tarballUrl: 'https://codeload.github.com/owner/repo/zip/HEAD',
       displayVersion: 'HEAD',
       ref: { kind: 'branch', value: 'HEAD' },
@@ -83,8 +73,8 @@ describe('resolveGithubSource', () => {
   });
 
   it('branch-kind ref carrying a tag value (e.g. /tree/v5.1.0) still resolves via short form', async () => {
-    const fetchMock = mock();
-    setGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await resolveGithubSource({
       kind: 'github',
@@ -98,9 +88,9 @@ describe('resolveGithubSource', () => {
   });
 
   it('bare URL: 302 with /releases/tag/X resolves to that tag', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock().mockResolvedValue({
+      vi.fn().mockResolvedValue({
         status: 302,
         headers: new Headers({
           location: 'https://github.com/obra/superpowers/releases/tag/v5.1.0',
@@ -108,11 +98,7 @@ describe('resolveGithubSource', () => {
       }),
     );
 
-    const result = await resolveGithubSource({
-      kind: 'github',
-      owner: 'obra',
-      repo: 'superpowers',
-    });
+    const result = await resolveGithubSource({ kind: 'github', owner: 'obra', repo: 'superpowers' });
     expect(result.tarballUrl).toBe(
       'https://codeload.github.com/obra/superpowers/zip/refs/tags/v5.1.0',
     );
@@ -122,9 +108,9 @@ describe('resolveGithubSource', () => {
 
   it('does not call api.github.com on bare URL (API bypass)', async () => {
     const calls: string[] = [];
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock(async (input: Parameters<FetchLike>[0]) => {
+      vi.fn(async (input: Parameters<typeof fetch>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         calls.push(url);
@@ -135,7 +121,7 @@ describe('resolveGithubSource', () => {
           });
         }
         throw new Error(`unexpected url: ${url}`);
-      }) as FetchLike,
+      }) as unknown as typeof fetch,
     );
 
     await resolveGithubSource({ kind: 'github', owner: 'obra', repo: 'superpowers' });
@@ -143,9 +129,9 @@ describe('resolveGithubSource', () => {
   });
 
   it('release-lookup error message hints at the /tree/<ref> escape hatch', async () => {
-    setGlobal(
+    vi.stubGlobal(
       'fetch',
-      mock().mockResolvedValue({ status: 502, statusText: 'Bad Gateway', headers: new Headers() }),
+      vi.fn().mockResolvedValue({ status: 502, statusText: 'Bad Gateway', headers: new Headers() }),
     );
 
     await expect(

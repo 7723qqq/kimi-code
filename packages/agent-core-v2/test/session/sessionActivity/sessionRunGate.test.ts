@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtempSync, rmSync, appendFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -9,9 +10,6 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { isError2 } from '#/_base/errors/errors';
 import { Emitter } from '#/_base/event';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { SessionLockService } from '#/persistence/backends/node-fs/sessionLockService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
@@ -20,9 +18,11 @@ import {
   type SessionActivityChangedEvent,
   type SessionActivityState,
 } from '#/session/sessionActivity/sessionActivity';
-import { SessionRunGateService } from '#/session/sessionActivity/sessionRunGateService';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
-
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { SessionLockService } from '#/persistence/backends/node-fs/sessionLockService';
+import { SessionRunGateService } from '#/session/sessionActivity/sessionRunGateService';
 import { noopLogger } from '../../wire/stubs';
 
 const SID = 'session-1';
@@ -217,30 +217,26 @@ describe('SessionRunGateService', () => {
   });
 
   it('releases a direct hold when idle but retains an operation lease until released', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     try {
       const runGate = gate();
       serviceA.hold(SID);
-      await jest.advanceTimersByTime(3_000);
+      await vi.advanceTimersByTimeAsync(3_000);
       expect(serviceA.held(SID)).toBe(true);
       activity.setBusy(false);
-      await jest.advanceTimersByTime(2_999);
+      await vi.advanceTimersByTimeAsync(2_999);
       expect(serviceA.held(SID)).toBe(true);
-      await jest.advanceTimersByTime(1);
-      await Promise.resolve();
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1);
       expect(serviceA.held(SID)).toBe(false);
 
       const lease = runGate.acquire();
-      await jest.advanceTimersByTime(3_000);
-      await Promise.resolve();
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(3_000);
       expect(serviceA.held(SID)).toBe(true);
       expect(() => serviceB.hold(SID)).toThrow();
       lease.release();
       expect(serviceA.held(SID)).toBe(false);
     } finally {
-      jest.useRealTimers();
+      vi.useRealTimers();
     }
   });
 });

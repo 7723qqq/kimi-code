@@ -1,22 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-/**
- * Scenario: maintainers run the installed-VSIX smoke from a developer machine or CI.
- * Responsibilities: stable downloads cannot reuse stale caches, and the Extension
- * Host cannot discover the developer's real legacy Kimi home.
- * Wiring: real smoke orchestration and filesystem; @vscode/test-electron is the
- * external process/download boundary.
- * Run: cd apps/vscode && bun test --isolate test/extension-host-smoke.test.ts
- */
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const vscodeTest = {
-  runTests: mock(),
-  runVSCodeCommand: mock(),
-};
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-void mock.module('@vscode/test-electron', () => vscodeTest);
+const vscodeTest = vi.hoisted(() => ({
+  runTests: vi.fn(),
+  runVSCodeCommand: vi.fn(),
+}));
+
+vi.mock('@vscode/test-electron', () => vscodeTest);
 
 const { runExtensionHostSmoke } = await import('../scripts/extension-host-smoke.mjs');
 const tempDirs: string[] = [];
@@ -36,7 +29,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  mock.clearAllMocks();
+  vi.clearAllMocks();
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -85,13 +78,11 @@ describe('installed VSIX Extension Host smoke', () => {
       );
     });
 
-    await expect(
-      runExtensionHostSmoke({
-        version: '1.100.0',
-        vsixPath: fixture.vsixPath,
-        cachePath: fixture.cachePath,
-      }),
-    ).rejects.toThrow('Extension Host ran VS Code 1.99.3, expected requested version 1.100.0');
+    await expect(runExtensionHostSmoke({
+      version: '1.100.0',
+      vsixPath: fixture.vsixPath,
+      cachePath: fixture.cachePath,
+    })).rejects.toThrow('Extension Host ran VS Code 1.99.3, expected requested version 1.100.0');
   });
 });
 

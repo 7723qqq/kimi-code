@@ -1,26 +1,18 @@
-import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Key,
   matchesKey,
   truncateToWidth,
+  visibleWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
+import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import {
-  mouseDispatch,
-  ListMouseRouter,
-  type ListRowRegion,
-  searchableListCursor,
-} from '#/tui/utils/mouse';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
-import { wrapText } from '#/tui/utils/wrap-text';
+import { t } from '#/i18n';
 
 const ELLIPSIS = '…';
 
@@ -40,7 +32,6 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
 
   private readonly opts: ExperimentsSelectorOptions;
   private readonly list: SearchableList<ExperimentalFeatureState>;
-  private readonly mouse: ListMouseRouter<ExperimentalFeatureState>;
   private readonly draft = new Map<ExperimentalFeatureState['id'], boolean>();
 
   constructor(opts: ExperimentsSelectorOptions) {
@@ -48,17 +39,9 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
     this.opts = opts;
     this.list = new SearchableList({
       items: opts.features,
-      toSearchText: (feature) =>
-        `${featureTitle(feature)} ${feature.id} ${featureDescription(feature)}`,
+      toSearchText: (feature) => `${feature.title} ${feature.id} ${feature.description}`,
       searchable: true,
     });
-    this.mouse = new ListMouseRouter(
-      searchableListCursor(() => this.list),
-      (feature) => this.toggleDraft(feature),
-      {
-        isFocused: () => this.focused,
-      },
-    );
   }
 
   handleInput(data: string): void {
@@ -74,14 +57,6 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
     }
     const decoded = printableChar(data);
     if (matchesKey(data, Key.space) || decoded === ' ') {
-      // Only an empty query leaves the space ambiguous. Once the user has typed
-      // something the list is being searched, and a space belongs to the query
-      // ("web search") — toggling a draft there flips an experiment the user
-      // never aimed at and Enter persists it.
-      if (this.list.view().query.length > 0) {
-        this.list.handleKey(data);
-        return;
-      }
       const selected = this.list.selected();
       if (selected !== undefined) this.toggleDraft(selected);
       return;
@@ -89,53 +64,35 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
     this.list.handleKey(data);
   }
 
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouse.handleMouse(event));
-  }
-
   override render(width: number): string[] {
     const view = this.list.view();
     const titleSuffix =
-      view.query.length === 0
-        ? currentTheme.fg('textMuted', `  ${t('tui.dialogs.modelSelector.searchHint')}`)
-        : '';
+      view.query.length === 0 ? currentTheme.fg('textMuted', '  (type to search)') : '';
     const hintParts = [t('tui.dialogs.experimentsSelector.hintNavigate')];
     if (view.page.pageCount > 1) hintParts.push(t('tui.dialogs.experimentsSelector.hintPage'));
-    hintParts.push(
-      t('tui.dialogs.experimentsSelector.hintSpace'),
-      t('tui.dialogs.experimentsSelector.hintEnter'),
-      t('tui.dialogs.experimentsSelector.hintCancel'),
-    );
+    hintParts.push(t('tui.dialogs.experimentsSelector.hintSpace'), t('tui.dialogs.experimentsSelector.hintEnter'), t('tui.dialogs.experimentsSelector.hintCancel'));
     if (view.query.length > 0) hintParts.push(t('tui.dialogs.experimentsSelector.hintBackspace'));
 
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ` ${t('tui.dialogs.experimentsSelector.title')}`) +
-        titleSuffix,
+      currentTheme.boldFg('primary', t('tui.dialogs.experimentsSelector.title')) + titleSuffix,
       currentTheme.fg('textMuted', ` ${hintParts.join(' · ')}`),
       '',
     ];
 
     if (view.query.length > 0) {
-      lines.push(
-        currentTheme.fg('primary', ` ${t('tui.dialogs.modelSelector.searchLabel')}`) +
-          currentTheme.fg('text', view.query),
-      );
+      lines.push(currentTheme.fg('primary', ` Search: `) + currentTheme.fg('text', view.query));
     }
 
     if (view.items.length === 0) {
-      lines.push(currentTheme.fg('textMuted', '   ' + t('tui.dialogs.modelSelector.noMatches')));
+      lines.push(currentTheme.fg('textMuted', '   No matches'));
     }
 
-    const regions: ListRowRegion[] = [];
     for (let i = view.page.start; i < view.page.end; i++) {
       const feature = view.items[i]!;
       const selected = i === view.selectedIndex;
-      const start = lines.length;
       lines.push(...this.renderFeature(feature, selected, width));
-      regions.push({ start, end: lines.length, index: i });
     }
-    this.mouse.setRegions(regions);
 
     lines.push('');
     if (view.query.length > 0) {
@@ -149,7 +106,7 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
       lines.push(
         currentTheme.fg(
           'textMuted',
-          ` ${t('tui.dialogs.experimentsSelector.more', { count: view.items.length - view.page.end })}`,
+          ` ▼ ${String(view.items.length - view.page.end)} more`,
         ),
       );
     }
@@ -192,18 +149,13 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
     const count = changes.length;
     const label = t('tui.dialogs.experimentsSelector.applyButton');
     const summary =
-      count === 0
-        ? t('tui.dialogs.experimentsSelector.noChanges')
-        : t(
-            count === 1
-              ? 'tui.dialogs.experimentsSelector.changeCount_one'
-              : 'tui.dialogs.experimentsSelector.changeCount_other',
-            { count },
-          );
-    const button =
-      count === 0 ? currentTheme.fg('textDim', label) : currentTheme.boldFg('primary', label);
-    const summaryText =
-      count === 0 ? currentTheme.fg('textMuted', summary) : currentTheme.fg('success', summary);
+      count === 0 ? t('tui.dialogs.experimentsSelector.noChanges') : `${String(count)} ${count === 1 ? 'change' : 'changes'}`;
+    const button = count === 0
+      ? currentTheme.fg('textDim', label)
+      : currentTheme.boldFg('primary', label);
+    const summaryText = count === 0
+      ? currentTheme.fg('textMuted', summary)
+      : currentTheme.fg('success', summary);
     return ` ${button}  ${summaryText}`;
   }
 
@@ -214,25 +166,19 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
   ): string[] {
     const pointer = selected ? SELECT_POINTER : ' ';
     const prefix = currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `);
-    const title = featureTitle(feature);
-    const description = featureDescription(feature);
-    const label = selected ? currentTheme.boldFg('primary', title) : currentTheme.fg('text', title);
+    const label = selected ? currentTheme.boldFg('primary', feature.title) : currentTheme.fg('text', feature.title);
     const enabled = this.effectiveEnabled(feature);
-    const status = enabled
-      ? t('tui.dialogs.experimentsSelector.statusEnabled')
-      : t('tui.dialogs.experimentsSelector.statusDisabled');
-    const statusText = enabled
-      ? currentTheme.fg('success', status)
-      : currentTheme.fg('textDim', status);
+    const status = enabled ? t('tui.dialogs.experimentsSelector.statusEnabled') : t('tui.dialogs.experimentsSelector.statusDisabled');
+    const statusText = enabled ? currentTheme.fg('success', status) : currentTheme.fg('textDim', status);
     const detail = this.isDraftChanged(feature)
-      ? `${featureDetail(feature)}${t('tui.dialogs.experimentsSelector.modifiedSuffix')}`
+      ? `${featureDetail(feature)} · modified`
       : featureDetail(feature);
     const lines = [
       `${prefix}${label}  ${statusText}`,
       currentTheme.fg('textMuted', `    ${detail}`),
     ];
     const descriptionWidth = Math.max(1, width - 4);
-    for (const line of wrapText(description, descriptionWidth)) {
+    for (const line of wrapText(feature.description, descriptionWidth)) {
       lines.push(currentTheme.fg('textMuted', `    ${line}`));
     }
     return lines;
@@ -245,11 +191,10 @@ function isLocked(feature: ExperimentalFeatureState): boolean {
 
 function featureDetail(feature: ExperimentalFeatureState): string {
   const source = sourceLabel(feature);
-  const idPart = t('tui.dialogs.experimentsSelector.featureId', { id: feature.id });
   if (feature.source === 'env' || feature.source === 'master-env') {
-    return `${idPart} · ${source}`;
+    return `id ${feature.id} · ${source}`;
   }
-  return `${idPart} · ${source} · ${feature.env}`;
+  return `id ${feature.id} · ${source} · ${feature.env}`;
 }
 
 function sourceLabel(feature: ExperimentalFeatureState): string {
@@ -265,14 +210,25 @@ function sourceLabel(feature: ExperimentalFeatureState): string {
   }
 }
 
-function featureTitle(feature: ExperimentalFeatureState): string {
-  const key = `tui.dialogs.experimentsSelector.features.${feature.id}.title` as const;
-  const translated = t(key);
-  return translated === key ? feature.title : translated;
-}
+function wrapText(text: string, width: number): string[] {
+  const maxWidth = Math.max(1, width);
+  const words = text
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0);
+  const lines: string[] = [];
+  let current = '';
 
-function featureDescription(feature: ExperimentalFeatureState): string {
-  const key = `tui.dialogs.experimentsSelector.features.${feature.id}.description` as const;
-  const translated = t(key);
-  return translated === key ? feature.description : translated;
+  for (const word of words) {
+    const candidate = current.length === 0 ? word : `${current} ${word}`;
+    if (visibleWidth(candidate) <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+    if (current.length > 0) lines.push(current);
+    current = visibleWidth(word) <= maxWidth ? word : truncateToWidth(word, maxWidth, ELLIPSIS);
+  }
+
+  if (current.length > 0) lines.push(current);
+  return lines;
 }

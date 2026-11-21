@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { createActor, setRootActorErrorReporter, setup } from '#/xstate2';
+import { createActor, setRootActorErrorReporter, setup } from '#human/xstate2';
 
 describe('createActor root abort guard', () => {
   it('swallows AbortError at the root actor while preserving other error reporting', async () => {

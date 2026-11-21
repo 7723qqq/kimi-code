@@ -1,9 +1,4 @@
 import { matchSingleMediaPathTag } from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
-import {
-  classifyUserOrigin,
-  isUndoAnchorTurnOrigin,
-  NON_USER_ORIGIN_KINDS,
-} from '@moonshot-ai/transcript';
 
 export interface ExtractedWireMessage {
   readonly role: 'user' | 'assistant';
@@ -32,10 +27,35 @@ const NONE: TurnEffect = { kind: 'none' };
 const ENSURE: TurnEffect = { kind: 'ensure' };
 const STEP_NONE: StepEffect = { kind: 'none' };
 
+const NON_USER_ORIGIN_KINDS: ReadonlySet<string> = new Set([
+  'injection',
+  'system_trigger',
+  'retry',
+  'compaction_summary',
+]);
+
+const HIDDEN_USER_ORIGINS: ReadonlySet<string> = new Set(['injection', 'system_trigger', 'retry']);
+const TURN_OPENING_SYSTEM_TRIGGERS: ReadonlySet<string> = new Set([
+  'goal_continuation',
+  'subagent',
+]);
+const MARKER_USER_ORIGINS: ReadonlySet<string> = new Set([
+  'skill_activation',
+  'plugin_command',
+  'compaction_summary',
+]);
+
 interface OriginLike {
   readonly kind?: unknown;
   readonly trigger?: unknown;
   readonly name?: unknown;
+}
+
+function isUserSlashPrompt(origin: OriginLike): boolean {
+  return (
+    (origin.kind === 'skill_activation' || origin.kind === 'plugin_command') &&
+    origin.trigger === 'user-slash'
+  );
 }
 
 function isUserTypedOrigin(origin: OriginLike): boolean {
@@ -99,10 +119,23 @@ function turnEffectOfAppendMessage(message: unknown): TurnEffect {
 
   const origin =
     m.origin !== null && typeof m.origin === 'object' ? (m.origin as OriginLike) : undefined;
-  const originClass = classifyUserOrigin(origin);
-  if (originClass === 'opening_trigger') return { kind: 'open', anchor: false };
-  if (originClass === 'hidden' || originClass === 'marker') return NONE;
-  return { kind: 'open', anchor: isUndoAnchorTurnOrigin(origin) };
+  const kind = origin?.kind;
+  if (typeof kind === 'string' && HIDDEN_USER_ORIGINS.has(kind)) {
+    if (
+      kind === 'system_trigger' &&
+      typeof origin?.name === 'string' &&
+      TURN_OPENING_SYSTEM_TRIGGERS.has(origin.name)
+    ) {
+      return { kind: 'open', anchor: false };
+    }
+    return NONE;
+  }
+  if (typeof kind === 'string' && MARKER_USER_ORIGINS.has(kind)) {
+    if (origin !== undefined && isUserSlashPrompt(origin)) return { kind: 'open', anchor: true };
+    return NONE;
+  }
+  const anchor = kind === undefined || kind === 'user';
+  return { kind: 'open', anchor };
 }
 
 export function analyzeWireLine(line: string): WireLineAnalysis {

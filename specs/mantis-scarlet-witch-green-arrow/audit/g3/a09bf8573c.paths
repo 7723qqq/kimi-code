@@ -1,0 +1,13 @@
+A	.changeset/foreground-agent-activity.md
+M	apps/kimi-code/src/tui/commands/registry.ts
+M	apps/kimi-code/src/tui/components/dialogs/agent-activity-viewer.ts
+M	apps/kimi-code/src/tui/components/dialogs/tasks-browser.ts
+M	apps/kimi-code/src/tui/constant/tips.ts
+M	apps/kimi-code/src/tui/controllers/session-event-handler.ts
+M	apps/kimi-code/src/tui/controllers/subagent-activity-store.ts
+M	apps/kimi-code/src/tui/controllers/subagent-event-handler.ts
+M	apps/kimi-code/src/tui/controllers/tasks-browser.ts
+M	apps/kimi-code/test/tui/controllers/subagent-activity-store.test.ts
+M	apps/kimi-code/test/tui/tasks-browser.test.ts
+M	docs/en/reference/slash-commands.md
+M	docs/zh/reference/slash-commands.md

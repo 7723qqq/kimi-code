@@ -10,24 +10,19 @@ export { dispatchInput, type SlashCommandHost } from './dispatch';
 export { handleLoginCommand, handleLogoutCommand } from './auth';
 export { handleBtwCommand } from './btw';
 export { handleCopyCommand } from './copy';
-export { handleClipboardCommand } from './clipboard';
 export {
   handleCompactCommand,
   handleEditorCommand,
   handleModelCommand,
   handlePlanCommand,
-  handleSpecCommand,
   handleThemeCommand,
-  runQueuedModelSwitch,
   showExperimentsPanel,
   showModelPicker,
   showPermissionPicker,
   showSettingsSelector,
 } from './config';
 export { handleSwarmCommand } from './swarm';
-export { handleHelloWorldCommand } from './hello-world';
 export { handleTowerCommand } from './tower';
-export { handleWorkflowCommand } from './workflow';
 export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
 export { handleReloadCommand, handleReloadTuiCommand } from './reload';
@@ -35,7 +30,6 @@ export { handleGoalCommand, parseGoalCommand, goalObjectiveLengthWarning } from 
 export { goalArgumentCompletions } from './registry';
 export { handleForkCommand, handleInitCommand, handleTitleCommand } from './session';
 export { handleUndoCommand } from './undo';
-export { handleOperationCommand } from './operation';
 export { handleRemoteControlCommand, handleWebCommand } from './web';
 export {
   promptApiKey,

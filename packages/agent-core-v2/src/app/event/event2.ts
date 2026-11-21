@@ -68,8 +68,7 @@ export interface Event2Class<P = any, E extends Event2<P> = Event2<P>> {
 export const EVENT2_REGISTRY = new Map<string, Event2Class<any, any>>();
 
 export function registerEvent2Class(cls: Event2Class<any, any>): void {
-  if (!cls.durable) return;
-  if (cls.schema === undefined) {
+  if (cls.durable && cls.schema === undefined) {
     throw new EventError(
       EventErrors.codes.EVENT_SCHEMA_MISSING,
       `Durable event '${cls.type}' must declare a payload schema`,
@@ -92,8 +91,4 @@ export function event2FromRecord<P>(
   const parsed = cls.schema?.safeParse(payload);
   if (parsed === undefined || !parsed.success) return undefined;
   return new cls(parsed.data, record.time);
-}
-
-export function isObservableDurableRecordType(type: string): boolean {
-  return EVENT2_REGISTRY.get(type)?.observable === true;
 }

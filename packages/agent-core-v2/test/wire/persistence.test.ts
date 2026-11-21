@@ -1,28 +1,26 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
+
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import {
   AppendLogStore,
-  WIRE_MIN_READER_VERSION,
   WIRE_PROTOCOL_VERSION,
   IFileSystemStorageService,
   IAppendLogStore,
   type WireRecord,
 } from '#/index';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { sessionOccupiedError } from '#/persistence/interface/sessionLock';
-import { ISessionLockService } from '#/persistence/interface/sessionLock';
 import { IWireService } from '#/wire/wire';
+import { noopTelemetryService } from '#/app/telemetry/telemetry';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { sessionOccupiedError, ISessionLockService } from '#/persistence/interface/sessionLock';
+import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
 import { noopLogger, registerTestAgentWire } from './stubs';
 
@@ -146,7 +144,10 @@ describe('AppendLogStore file persistence', () => {
 
     const lines = await readLines(join(dir, SCOPE, KEY));
     expect(lines).toHaveLength(2);
-    expect(lines.map((line) => JSON.parse(line)['type'])).toEqual(['turn.prompt', 'turn.prompt']);
+    expect(lines.map((line) => JSON.parse(line)['type'])).toEqual([
+      'turn.prompt',
+      'turn.prompt',
+    ]);
   });
 
   it('returns appended metadata records from read() output', async () => {
@@ -233,7 +234,10 @@ describe('AppendLogStore file persistence', () => {
     await log.flush();
 
     const lines = await readLines(join(dir, SCOPE, KEY));
-    expect(lines.map((line) => JSON.parse(line)['type'])).toEqual(['metadata', 'turn.prompt']);
+    expect(lines.map((line) => JSON.parse(line)['type'])).toEqual([
+      'metadata',
+      'turn.prompt',
+    ]);
     expect(JSON.parse(lines[1]!)['input'][0]['text']).toBe('new');
   });
 
@@ -489,12 +493,7 @@ describe('WireService corruption repair on disk', () => {
     await log.close();
 
     expect(yielded).toEqual([
-      {
-        type: 'metadata',
-        protocol_version: WIRE_PROTOCOL_VERSION,
-        min_protocol_version: WIRE_MIN_READER_VERSION,
-        created_at: 1,
-      },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'wire.test.kept', time: 2 },
     ]);
     expect(await readFile(join(dir, SCOPE, KEY), 'utf8')).toBe(`${metadata}\n${kept}\n`);
@@ -517,12 +516,7 @@ describe('WireService corruption repair on disk', () => {
     await log.close();
 
     expect(yielded).toEqual([
-      {
-        type: 'metadata',
-        protocol_version: WIRE_PROTOCOL_VERSION,
-        min_protocol_version: WIRE_MIN_READER_VERSION,
-        created_at: 1,
-      },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'wire.test.kept', time: 2 },
     ]);
     expect(await readFile(join(dir, SCOPE, KEY), 'utf8')).toBe(`${metadata}\n${kept}\n`);

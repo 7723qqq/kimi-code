@@ -1,7 +1,6 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, useCallback } from 'react';
-
-import { bridge } from '@/services';
+import { useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { bridge } from "@/services";
 
 interface UseInputHistoryOptions {
   text: string;
@@ -27,21 +26,17 @@ export function useInputHistory({ text, setText, onHeightChange }: UseInputHisto
     }
 
     void bridge.addInputHistory(trimmed);
-    queryClient.setQueryData<string[]>(
-      INPUT_HISTORY_KEY,
-      (prev) => (prev?.[prev.length - 1] === trimmed ? prev : [...(prev ?? []), trimmed]),
-    );
+    queryClient.setQueryData<string[]>(INPUT_HISTORY_KEY, (prev) => (prev?.[prev.length - 1] === trimmed ? prev : [...(prev ?? []), trimmed]));
     setIndex(-1);
   }, [queryClient]);
 
   const handleKey = useCallback(
     (e: React.KeyboardEvent): boolean => {
-      // Ignore if any modifier key is pressed
       if (e.ctrlKey || e.metaKey || e.altKey) {
         return false;
       }
 
-      if (e.key === 'ArrowUp' && history.length > 0 && (!text || index >= 0)) {
+      if (e.key === "ArrowUp" && history.length > 0 && (!text || index >= 0)) {
         const newIndex = Math.min(index + 1, history.length - 1);
         if (newIndex !== index) {
           e.preventDefault();
@@ -52,11 +47,11 @@ export function useInputHistory({ text, setText, onHeightChange }: UseInputHisto
         }
       }
 
-      if (e.key === 'ArrowDown' && index >= 0) {
+      if (e.key === "ArrowDown" && index >= 0) {
         e.preventDefault();
         const newIndex = index - 1;
         setIndex(newIndex);
-        setText(newIndex === -1 ? '' : history[history.length - 1 - newIndex]);
+        setText(newIndex === -1 ? "" : history[history.length - 1 - newIndex]);
         onHeightChange?.();
         return true;
       }

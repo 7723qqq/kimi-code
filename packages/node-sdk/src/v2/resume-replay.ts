@@ -9,6 +9,9 @@ import {
   type ContextMessage as V2ContextMessage,
   type WireRecord,
 } from '@moonshot-ai/agent-core-v2';
+import { fromCoreMessage } from '@moonshot-ai/agent-core-v2/human/message';
+import { fromPersistentWireRecord } from '@moonshot-ai/agent-core-v2';
+
 import { SurveyTurnCounter } from '@moonshot-ai/kimi-code-product/session-rating/node';
 
 import type { ContextMessage } from '#/context';
@@ -36,9 +39,7 @@ export async function foldAgentWireReplay(
   try {
     const limited = await foldAgentWireReplayWindowed(wirePath, turnLimit);
     if (limited !== undefined) return limited;
-  } catch {
-    // Any windowed-scan irregularity reproduces the reference behavior below.
-  }
+  } catch {}
   const full = await foldAgentWireReplayFull(wirePath);
   return {
     replay: limitAgentReplayByTurns(full.replay, turnLimit),
@@ -66,7 +67,10 @@ async function foldAgentWireReplayFull(wirePath: string): Promise<FoldedAgentRep
     return { ...EMPTY_FOLD, userTurnCount: userTurns.count };
   }
   try {
-    const folded = foldWireRecords(entries.map((entry) => entry.record));
+    const folded = foldWireRecords(
+      entries.map((entry) => entry.record),
+      fromPersistentWireRecord,
+    );
     return {
       replay: folded.replay.map(mapReplayRecord),
       toolStore: folded.toolStore,
@@ -86,7 +90,7 @@ function salvageFoldedReplay(
   const header = entries[0]?.record.type === 'metadata' ? entries[0] : undefined;
   if (header !== undefined) {
     try {
-      foldWireRecords([header.record]);
+      foldWireRecords([header.record], fromPersistentWireRecord);
     } catch (error) {
       return { ...EMPTY_FOLD, error: formatReplayError(error) };
     }
@@ -96,7 +100,7 @@ function salvageFoldedReplay(
   for (const entry of header === undefined ? entries : entries.slice(1)) {
     const probe = header === undefined ? [entry.record] : [header.record, entry.record];
     try {
-      const probed = foldWireRecords(probe);
+      const probed = foldWireRecords(probe, fromPersistentWireRecord);
       probed.replay.map(mapReplayRecord);
       kept.push(entry.record);
     } catch {
@@ -108,7 +112,7 @@ function salvageFoldedReplay(
     return { ...EMPTY_FOLD, error: formatReplayError(initialError) };
   }
   try {
-    const folded = foldWireRecords(kept);
+    const folded = foldWireRecords(kept, fromPersistentWireRecord);
     const sortedLines = skippedLines.toSorted((a, b) => a - b);
     return {
       replay: folded.replay.map(mapReplayRecord),
@@ -136,6 +140,17 @@ function mapReplayRecord(record: V2AgentReplayRecord): AgentReplayRecord {
         systemPrompt: record.config.systemPrompt,
       },
     };
+  }
+  if (record.type === 'message') {
+    const message = fromCoreMessage(record.message);
+    return {
+      ...record,
+      message: {
+        ...record.message,
+        ...message,
+        toolCalls: message.role === 'assistant' ? message.toolCalls : [],
+      },
+    } as unknown as AgentReplayRecord;
   }
   return record as unknown as AgentReplayRecord;
 }
@@ -218,12 +233,6 @@ interface ScannedRecord {
   readonly record: WireRecord;
 }
 
-// Folds exactly the records that the full fold truncated to the last
-// `turnLimit` user turns would produce: the raw-record window starting at the
-// Nth-from-last turn-start append (extended back over an open step / pending
-// tool calls to the last pending-clearing record), plus every earlier
-// FOLD_CARRYOVER record so toolStore and goal state survive the window.
-// Returns undefined when the window cannot be proven equivalent.
 async function foldAgentWireReplayWindowed(
   wirePath: string,
   turnLimit: number,
@@ -365,7 +374,7 @@ class WireReplayScan {
     const matchingRecords = [...matchingByStart.entries()]
       .toSorted((a, b) => a[0] - b[0])
       .map((entry) => entry[1]);
-    const folded = foldWireRecords(records, matchingRecords);
+    const folded = foldWireRecords(records, fromPersistentWireRecord, matchingRecords);
     if (!boundaryFound || windowStart <= 0) {
       return {
         replay: limitAgentReplayByTurns(folded.replay.map(mapReplayRecord), this.turnLimit),

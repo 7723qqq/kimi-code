@@ -1,6 +1,5 @@
-import { describe, expect, it, mock } from 'bun:test';
-
 import type { Component, TuiMouseEvent } from '@moonshot-ai/pi-tui';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { isRenderCacheEnabled, setRenderCacheEnabled } from '#/tui/utils/render-cache';
@@ -41,7 +40,7 @@ function clickAt(x: number, y: number, width: number, height: number): TuiMouseE
 describe('GutterContainer', () => {
   it('exposes completed child geometry without rendering again and preserves it while heights stay equal', () => {
     let lines = ['first'];
-    const render = mock(() => lines);
+    const render = vi.fn(() => lines);
     const child = new FakeChild(render);
     const container = new GutterContainer(2, 3);
     container.addChild(child);
@@ -95,7 +94,7 @@ describe('GutterContainer', () => {
   });
 
   it('shrinks the width passed to children by left + right', () => {
-    const seenWidth = mock<(w: number) => string[]>(() => ['x']);
+    const seenWidth = vi.fn<(w: number) => string[]>(() => ['x']);
     const c = new GutterContainer(2, 3);
     c.addChild(new FakeChild(seenWidth));
     c.render(20);
@@ -103,7 +102,7 @@ describe('GutterContainer', () => {
   });
 
   it('clamps inner width to at least 1 when gutters would otherwise consume it', () => {
-    const seenWidth = mock<(w: number) => string[]>(() => ['x']);
+    const seenWidth = vi.fn<(w: number) => string[]>(() => ['x']);
     const c = new GutterContainer(5, 5);
     c.addChild(new FakeChild(seenWidth));
     c.render(2);
@@ -157,7 +156,6 @@ describe('GutterContainer', () => {
     c.addChild(first);
     c.addChild(second);
 
-    // Inner width is 17, where the first child wraps to two rows.
     c.handleMouse(clickAt(3, 1, 19, 3));
     expect(first.events).toHaveLength(1);
     expect(first.events[0]).toMatchObject({ y: 1 });

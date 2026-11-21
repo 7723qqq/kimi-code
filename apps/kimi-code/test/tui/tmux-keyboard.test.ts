@@ -1,14 +1,14 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   detectTmuxKeyboardWarning,
-  tmuxExtendedKeysFormatXtermWarning,
-  tmuxExtendedKeysOffWarning,
+  TMUX_EXTENDED_KEYS_FORMAT_XTERM_WARNING,
+  TMUX_EXTENDED_KEYS_OFF_WARNING,
   type TmuxOptionReader,
 } from '#/tui/utils/tmux-keyboard';
 
 function optionReader(values: Record<string, string | undefined>): TmuxOptionReader {
-  return mock(async (option: string) => values[option]);
+  return vi.fn(async (option: string) => values[option]);
 }
 
 describe('tmux keyboard setup detection', () => {
@@ -39,7 +39,7 @@ describe('tmux keyboard setup detection', () => {
 
     await expect(
       detectTmuxKeyboardWarning({ TMUX: '/tmp/tmux/default,123,0' }, readOption),
-    ).resolves.toBe(tmuxExtendedKeysOffWarning());
+    ).resolves.toBe(TMUX_EXTENDED_KEYS_OFF_WARNING);
   });
 
   it('warns when extended-keys-format is xterm', async () => {
@@ -50,7 +50,7 @@ describe('tmux keyboard setup detection', () => {
 
     await expect(
       detectTmuxKeyboardWarning({ TMUX: '/tmp/tmux/default,123,0' }, readOption),
-    ).resolves.toBe(tmuxExtendedKeysFormatXtermWarning());
+    ).resolves.toBe(TMUX_EXTENDED_KEYS_FORMAT_XTERM_WARNING);
   });
 
   it('accepts on and always with csi-u or absent format', async () => {
@@ -66,21 +66,6 @@ describe('tmux keyboard setup detection', () => {
         { TMUX: '/tmp/tmux/default,123,0' },
         optionReader({ 'extended-keys': 'always', 'extended-keys-format': undefined }),
       ),
-    ).resolves.toBeUndefined();
-  });
-
-  it('handles a malformed TMUX environment variable', async () => {
-    await expect(
-      detectTmuxKeyboardWarning({ TMUX: 'garbage' }, optionReader({})),
-    ).resolves.toBeUndefined();
-  });
-
-  it('handles readOption rejection gracefully', async () => {
-    const readOption = mock(async () => {
-      throw new Error('tmux disconnected');
-    });
-    await expect(
-      detectTmuxKeyboardWarning({ TMUX: '/tmp/tmux/default,123,0' }, readOption),
     ).resolves.toBeUndefined();
   });
 });

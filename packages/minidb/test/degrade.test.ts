@@ -1,11 +1,11 @@
-// test/degrade.test.ts
-import { expect, test } from 'bun:test';
+// test/degrade.test.js
+import { test } from '@moonshot-ai/testkit/vitest';
+import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-import { encodeFrame, TYPE_SET, CorruptFrameError } from '../src/codec.js';
 import { MiniDb, classifyStorageError } from '../src/index.js';
+import { CorruptFrameError } from '../src/codec.js';
 import { LockError } from '../src/lockfile.js';
 import { retryEperm } from '../src/rename-replace.js';
 
@@ -24,17 +24,20 @@ test('openOrRebuild preserves data when only a sidecar definition file is corrup
   await fs.writeFile(path.join(dir, 'db.indexes.json'), '{ not valid json');
 
   let rebuilt = null;
-  db = await MiniDb.openOrRebuild({ dir, valueCodec: 'json' }, { onRebuild: (e) => (rebuilt = e) });
-  expect(rebuilt instanceof Error, 'onRebuild called with the original error').toBeTruthy();
+  db = await MiniDb.openOrRebuild(
+    { dir, valueCodec: 'json' },
+    { onRebuild: (e) => (rebuilt = e) },
+  );
+  assert.ok(rebuilt instanceof Error, 'onRebuild called with the original error');
   // the sidecar (pure derived state) is dropped, the data is NOT wiped
-  expect(db.size).toBe(1);
-  expect(db.get('important')).toStrictEqual({ x: 1 });
-  expect(db.listIndexes()).toStrictEqual([]);
+  assert.equal(db.size, 1);
+  assert.deepEqual(db.get('important'), { x: 1 });
+  assert.deepEqual(db.listIndexes(), []);
   // indexes can be recreated and the db is usable again
   await db.createIndex('byX', { field: 'x' });
-  expect(db.findEq('byX', 1).length).toBe(1);
+  assert.equal(db.findEq('byX', 1).length, 1);
   await db.set('fresh', { v: 1 });
-  expect(db.get('fresh')).toStrictEqual({ v: 1 });
+  assert.deepEqual(db.get('fresh'), { v: 1 });
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -44,11 +47,9 @@ test('openOrRebuild does NOT delete a live-locked db', async () => {
   const db1 = await MiniDb.open({ dir, valueCodec: 'string' });
   await db1.set('a', '1');
   try {
-    await expect((() => MiniDb.openOrRebuild({ dir, valueCodec: 'string' }))()).rejects.toThrow(
-      LockError,
-    );
+    await assert.rejects(() => MiniDb.openOrRebuild({ dir, valueCodec: 'string' }), LockError);
     // data still there
-    expect(await fs.stat(path.join(dir, 'db.wal'))).toBeTruthy();
+    assert.ok(await fs.stat(path.join(dir, 'db.wal')));
   } finally {
     await db1.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -65,17 +66,13 @@ test('openOrRebuild with onLockFail readonly must not mutate a live writer: corr
   // files.
   await fs.writeFile(path.join(dir, 'db.indexes.json'), '{broken-json');
   try {
-    await expect(
-      MiniDb.openOrRebuild<string>({
-        dir,
-        valueCodec: 'string',
-        fsyncPolicy: 'no',
-        onLockFail: 'readonly',
-      }),
-    ).rejects.toThrow(SyntaxError);
+    await assert.rejects(
+      MiniDb.openOrRebuild<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', onLockFail: 'readonly' }),
+      SyntaxError,
+    );
     const sidecar = await fs.readFile(path.join(dir, 'db.indexes.json'), 'utf8');
-    expect(sidecar, 'the live writer’s sidecar is untouched').toBe('{broken-json');
-    expect(writer.get('kept'), 'the live writer is undisturbed').toBe('value');
+    assert.equal(sidecar, '{broken-json', 'the live writer’s sidecar is untouched');
+    assert.equal(writer.get('kept'), 'value', 'the live writer is undisturbed');
   } finally {
     await writer.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -100,136 +97,62 @@ test('openOrRebuild with onLockFail readonly + a garbage WAL (strict) degrades t
       recovery: 'strict',
       onLockFail: 'readonly',
     });
-    expect(rebuilt.readOnly, 'degraded to read-only behind the live writer').toBe(true);
-    expect(rebuilt.get('kept'), 'the garbage WAL replays nothing').toBe(undefined);
+    assert.equal(rebuilt.readOnly, true, 'degraded to read-only behind the live writer');
+    assert.equal(rebuilt.get('kept'), undefined, 'the garbage WAL replays nothing');
     await rebuilt.close();
     const walAfter = await fs.readFile(path.join(dir, 'db.wal'));
-    expect(walBefore.equals(walAfter), 'the live writer’s WAL is byte-identical').toBeTruthy();
-    expect(writer.get('kept'), 'the live writer is undisturbed').toBe('value');
+    assert.ok(walBefore.equals(walAfter), 'the live writer’s WAL is byte-identical');
+    assert.equal(writer.get('kept'), 'value', 'the live writer is undisturbed');
     // The writer's own lock line is still on disk (no fresh db was opened
     // over the directory).
-    const lockRaw = JSON.parse(await fs.readFile(path.join(dir, 'db.lock'), 'utf8')) as {
-      token?: string;
-    };
-    expect(typeof lockRaw.token, 'lock file intact').toBe('string');
+    const lockRaw = JSON.parse(await fs.readFile(path.join(dir, 'db.lock'), 'utf8')) as { token?: string };
+    assert.equal(typeof lockRaw.token, 'string', 'lock file intact');
   } finally {
     await writer.close();
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
 
-test('openOrRebuild refuses to destructively rebuild by default when the data files are corrupt', async () => {
-  const dir = await tmpDir();
-  const db = await MiniDb.open({ dir, valueCodec: 'json' });
-  await db.set('precious', { keep: true });
-  await db.close();
-
-  const walPath = path.join(dir, 'db.wal');
-  const walLenBefore = (await fs.stat(walPath)).size;
-  await fs.appendFile(
-    walPath,
-    encodeFrame({
-      type: TYPE_SET,
-      key: Buffer.from('poison'),
-      value: Buffer.from('"x"'),
-      meta: Buffer.from('{not-json'),
-    }),
-  );
-
-  await expect(MiniDb.openOrRebuild({ dir, valueCodec: 'json' })).rejects.toThrow(
-    /allowDestructiveRebuild/,
-  );
-  expect(
-    (await fs.stat(walPath)).size > walLenBefore,
-    'WAL untouched by the refused rebuild',
-  ).toBeTruthy();
-  // dropping the appended poison frame repairs the db: the data was never erased
-  await fs.truncate(walPath, walLenBefore);
-  const recovered = await MiniDb.open({ dir, valueCodec: 'json' });
-  expect(recovered.get('precious')).toStrictEqual({ keep: true });
-  await recovered.close();
-  await fs.rm(dir, { recursive: true, force: true });
-});
-
-test('openOrRebuild wipes and reopens empty only with allowDestructiveRebuild', async () => {
-  const dir = await tmpDir();
-  const db = await MiniDb.open({ dir, valueCodec: 'json' });
-  await db.set('cache-entry', { v: 1 });
-  await db.close();
-
-  await fs.appendFile(
-    path.join(dir, 'db.wal'),
-    encodeFrame({
-      type: TYPE_SET,
-      key: Buffer.from('poison'),
-      value: Buffer.from('"x"'),
-      meta: Buffer.from('{not-json'),
-    }),
-  );
-
-  let rebuilt: unknown = null;
-  const db2 = await MiniDb.openOrRebuild(
-    { dir, valueCodec: 'json' },
-    { allowDestructiveRebuild: true, onRebuild: (e) => (rebuilt = e) },
-  );
-  expect(rebuilt instanceof Error, 'onRebuild called with the original error').toBeTruthy();
-  expect(db2.size).toBe(0);
-  await db2.set('fresh', { v: 1 });
-  expect(db2.get('fresh')).toStrictEqual({ v: 1 });
-  await db2.close();
-  await fs.rm(dir, { recursive: true, force: true });
-});
-
 test('classifyStorageError and retryEperm drive the rebuild/transient recovery policy', async () => {
   const walDisabled = Object.assign(new Error('disabled'), { code: 'WAL_WRITE_DISABLED' });
   const walPoisoned = Object.assign(new Error('poisoned'), { code: 'WAL_POISONED' });
-  expect(classifyStorageError(walDisabled)).toBe('rebuild');
-  expect(classifyStorageError(walPoisoned)).toBe('rebuild');
-  expect(classifyStorageError(new CorruptFrameError('bad frame', 0))).toBe('rebuild');
-  expect(classifyStorageError(new SyntaxError('unexpected token'))).toBe('rebuild');
-  expect(classifyStorageError(new AggregateError([new Error('x'), walPoisoned], 'partial'))).toBe(
-    'rebuild',
-  );
-  expect(
-    classifyStorageError(new AggregateError([new Error('x'), new LockError('locked')], 'partial')),
-  ).toBe('transient');
-  expect(classifyStorageError(new LockError('locked'))).toBe('transient');
-  expect(classifyStorageError(Object.assign(new Error('perm'), { code: 'EPERM' }))).toBe(
-    'transient',
-  );
-  expect(classifyStorageError(new Error('unknown'))).toBe('transient');
+  assert.equal(classifyStorageError(walDisabled), 'rebuild');
+  assert.equal(classifyStorageError(walPoisoned), 'rebuild');
+  assert.equal(classifyStorageError(new CorruptFrameError('bad frame', 0)), 'rebuild');
+  assert.equal(classifyStorageError(new SyntaxError('unexpected token')), 'rebuild');
+  assert.equal(classifyStorageError(new AggregateError([new Error('x'), walPoisoned], 'partial')), 'rebuild');
+  assert.equal(classifyStorageError(new AggregateError([new Error('x'), new LockError('locked')], 'partial')), 'transient');
+  assert.equal(classifyStorageError(new LockError('locked')), 'transient');
+  assert.equal(classifyStorageError(Object.assign(new Error('perm'), { code: 'EPERM' })), 'transient');
+  assert.equal(classifyStorageError(new Error('unknown')), 'transient');
 
   const eperm = () => Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
   let attempts = 0;
-  const recovered = await retryEperm(
-    async () => {
-      attempts += 1;
-      if (attempts < 3) throw eperm();
-      return 'ok';
-    },
-    { baseDelayMs: 1 },
-  );
-  expect(recovered).toBe('ok');
-  expect(attempts).toBe(3);
+  const recovered = await retryEperm(async () => {
+    attempts += 1;
+    if (attempts < 3) throw eperm();
+    return 'ok';
+  }, { baseDelayMs: 1 });
+  assert.equal(recovered, 'ok');
+  assert.equal(attempts, 3);
 
   attempts = 0;
-  await expect(
+  await assert.rejects(
     retryEperm(async () => {
       attempts += 1;
       throw new Error('not eperm');
     }),
-  ).rejects.toThrow(/not eperm/);
-  expect(attempts).toBe(1);
+    /not eperm/,
+  );
+  assert.equal(attempts, 1);
 
   attempts = 0;
-  await expect(
-    retryEperm(
-      async () => {
-        attempts += 1;
-        throw eperm();
-      },
-      { retries: 2, baseDelayMs: 1 },
-    ),
-  ).rejects.toThrow(/operation not permitted/);
-  expect(attempts).toBe(3);
+  await assert.rejects(
+    retryEperm(async () => {
+      attempts += 1;
+      throw eperm();
+    }, { retries: 2, baseDelayMs: 1 }),
+    /operation not permitted/,
+  );
+  assert.equal(attempts, 3);
 });

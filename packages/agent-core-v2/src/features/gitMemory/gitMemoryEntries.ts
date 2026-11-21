@@ -1,11 +1,11 @@
 import picomatch from 'picomatch';
 
 import type { ILogService } from '#/_base/log/log';
-import { alreadyRendered, markRendered } from '#/agent/injection/renderedLines';
+import type { IAgentMemoryInjectionState } from '#/agent/injection/memoryInjectionState';
 import { parseAppliesTo } from '#/app/memory/memoryPaths';
 import type { IMemoryRepo } from '#/app/memory/memoryRepo';
 import type { IMemoryStore } from '#/app/memory/memoryStore';
-import type { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { isMemoryVisible, type MemoryVisibilityContext } from '#/app/memory/memoryVisibility';
 
 import type { GitMemoryRenderState } from './gitMemoryRenderState';
 import type { MemoryEntryView } from './projection';
@@ -26,13 +26,17 @@ export class GitMemoryEntries {
     | undefined;
   private shaCache: { readonly revision: number; readonly map: Map<string, string> } | undefined;
   private warned = false;
+  private contentRevision: number | undefined;
+  private visibilityIdentity = '';
+  private generation: number | undefined;
 
   constructor(
     private readonly store: IMemoryStore,
     private readonly repo: IMemoryRepo,
-    private readonly session: ISessionContext,
+    private readonly injectionState: IAgentMemoryInjectionState,
     private readonly log: ILogService,
     private readonly renderState: GitMemoryRenderState,
+    private readonly visibility: () => MemoryVisibilityContext,
   ) {}
 
   forPath(path: string): Promise<MemoryEntryView[]> {
@@ -55,7 +59,27 @@ export class GitMemoryEntries {
     }
   }
 
+  synchronize(): MemoryVisibilityContext {
+    const visibility = this.visibility();
+    const identity = JSON.stringify(visibility);
+    const generation = this.injectionState.generation;
+    if (
+      this.contentRevision !== this.store.revision ||
+      this.visibilityIdentity !== identity ||
+      this.generation !== generation
+    ) {
+      this.generation = generation;
+      if (this.contentRevision !== undefined) this.renderState.clear();
+      this.contentRevision = this.store.revision;
+      this.visibilityIdentity = identity;
+      this.entriesCache = undefined;
+      this.shaCache = undefined;
+    }
+    return visibility;
+  }
+
   private async collect(matches: (patterns: string[]) => boolean): Promise<MemoryEntryView[]> {
+    this.synchronize();
     const views: MemoryEntryView[] = [];
     const shas = await this.commitShas();
     for (const entry of await this.entries()) {
@@ -65,14 +89,16 @@ export class GitMemoryEntries {
       const sha = shas.get(entry.path);
       if (sha === undefined) continue;
       if (this.renderState.hasMemory(sha)) continue;
-      this.renderState.markMemory(sha);
       const view = this.view(entry, sha);
-      const sessionKey = this.session.sessionId;
-      if (alreadyRendered(sessionKey, view.body)) continue;
-      markRendered(sessionKey, [view.body]);
+      if (this.injectionState.has(view.body)) continue;
       views.push(view);
     }
     return views;
+  }
+
+  claim(entries: readonly MemoryEntryView[]): void {
+    for (const entry of entries) this.renderState.markMemory(entry.sha);
+    this.injectionState.mark(entries.map((entry) => entry.body));
   }
 
   private async entries(): Promise<readonly MemoryRecord[]> {
@@ -84,10 +110,12 @@ export class GitMemoryEntries {
       this.renderState.clearMemories();
     }
     const paths = await this.store.list();
+    const visibility = this.visibility();
     const entries: MemoryRecord[] = [];
     for (const path of paths) {
+      if (!isMemoryVisible(path, visibility)) continue;
       const entry = await this.store.get(path);
-      if (entry === undefined) continue;
+      if (entry === undefined || !isMemoryVisible(path, visibility, entry)) continue;
       entries.push({
         path,
         title: entry.title,

@@ -1,8 +1,5 @@
 import type { ILogger } from '#/_base/log/log';
-import type { JsRuntimeInfo } from '#/os/interface/hostEnvironment';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
-
-import type { ContractDelivery } from './behaviorContract';
 
 export const DEFAULT_AGENT_PROFILE_NAME = 'agent';
 
@@ -12,30 +9,17 @@ export interface AgentProfilePromptPrefixContext {
   readonly log?: ILogger;
 }
 
-export interface AgentProfileSummaryPolicy {
-  readonly minChars: number;
-  readonly continuationPrompt: string;
-  readonly retries: number;
-}
-
 export interface AgentProfileContext {
   readonly cwd?: string;
   readonly cwdListing?: string;
   readonly agentsMd?: string;
-  readonly repoMemory?: string;
-  readonly memoryCode?: string;
   readonly additionalDirsInfo?: string;
   readonly osKind?: string;
   readonly shellName?: string;
   readonly shellPath?: string;
-  readonly jsRuntimes?: ReadonlyArray<JsRuntimeInfo>;
-  readonly now?: string;
-  readonly timeZone?: string;
   readonly skills?: string;
   readonly skillActive?: boolean;
   readonly pluginSections?: string;
-  readonly modelAdaptation?: string;
-  readonly modelName?: string;
   readonly productName?: string;
   readonly replyStyleGuide?: string;
   readonly notifyUserActive?: boolean;
@@ -48,28 +32,9 @@ export interface EnvironmentDisclosureSnapshot {
   readonly cwd: string;
 }
 
-export type PromptValueChannel = 'system' | 'reminder' | 'intentionally_omitted';
-
-export interface PromptValueDelivery {
-  readonly name: string;
-  readonly channel: PromptValueChannel;
-  readonly sourceId: string;
-  readonly reason?: string;
-}
-
-export interface PromptRenderWarning {
-  readonly code: 'unresolved_variable';
-  readonly name: string;
-  readonly message: string;
-}
-
 export interface SystemPromptRenderResult {
   readonly text: string;
   readonly environment: EnvironmentDisclosureSnapshot;
-  readonly droppedVars?: readonly string[];
-  readonly contractDelivery?: readonly ContractDelivery[];
-  readonly valueDelivery?: readonly PromptValueDelivery[];
-  readonly warnings?: readonly PromptRenderWarning[];
 }
 
 export interface AgentProfile {
@@ -80,7 +45,6 @@ export interface AgentProfile {
   readonly tools?: readonly string[];
   readonly disallowedTools?: readonly string[];
   readonly subagents?: readonly string[];
-  readonly summaryPolicy?: AgentProfileSummaryPolicy;
   readonly systemPrompt: (context: AgentProfileContext) => string;
   readonly renderSystemPrompt: (context: AgentProfileContext) => SystemPromptRenderResult;
   readonly promptPrefix?: (ctx: AgentProfilePromptPrefixContext) => Promise<string>;
@@ -90,7 +54,9 @@ export type AgentProfileInput = Omit<AgentProfile, 'systemPrompt' | 'renderSyste
   (
     | {
         readonly systemPrompt: (context: AgentProfileContext) => string;
-        readonly renderSystemPrompt?: (context: AgentProfileContext) => SystemPromptRenderResult;
+        readonly renderSystemPrompt?: (
+          context: AgentProfileContext,
+        ) => SystemPromptRenderResult;
       }
     | {
         readonly systemPrompt?: (context: AgentProfileContext) => string;
@@ -118,5 +84,7 @@ export function normalizeAgentProfile(input: AgentProfileInput): AgentProfile {
       }),
     };
   }
-  throw new Error(`Agent profile "${input.name}" must define systemPrompt or renderSystemPrompt.`);
+  throw new Error(
+    `Agent profile "${input.name}" must define systemPrompt or renderSystemPrompt.`,
+  );
 }

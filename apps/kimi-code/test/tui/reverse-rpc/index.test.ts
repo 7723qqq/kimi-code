@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { ApprovalController } from '#/tui/reverse-rpc/approval/controller';
 import { registerReverseRPCHandlers } from '#/tui/reverse-rpc/index';
@@ -9,10 +9,10 @@ describe('registerReverseRPCHandlers', () => {
     const approvalController = new ApprovalController();
     const questionController = new QuestionController();
     const uiHooks = {
-      showApprovalPanel: mock(),
-      hideApprovalPanel: mock(),
-      showQuestionDialog: mock(),
-      hideQuestionDialog: mock(),
+      showApprovalPanel: vi.fn(),
+      hideApprovalPanel: vi.fn(),
+      showQuestionDialog: vi.fn(),
+      hideQuestionDialog: vi.fn(),
     };
 
     registerReverseRPCHandlers(approvalController, questionController, uiHooks);
@@ -34,7 +34,7 @@ describe('registerReverseRPCHandlers', () => {
       decision: 'cancelled',
       feedback: 'bye',
     });
-    expect(uiHooks.hideApprovalPanel).toHaveBeenCalledTimes(1);
+    expect(uiHooks.hideApprovalPanel).toHaveBeenCalledOnce();
 
     const questionPending = questionController.show({
       id: 'q-1',
@@ -44,17 +44,17 @@ describe('registerReverseRPCHandlers', () => {
     expect(uiHooks.showQuestionDialog).toHaveBeenCalledWith(expect.objectContaining({ id: 'q-1' }));
     questionController.cancelAll('bye');
     await expect(questionPending).resolves.toEqual({ answers: [] });
-    expect(uiHooks.hideQuestionDialog).toHaveBeenCalledTimes(1);
+    expect(uiHooks.hideQuestionDialog).toHaveBeenCalledOnce();
   });
 
   it('queues question dialogs behind active approval panels', async () => {
     const approvalController = new ApprovalController();
     const questionController = new QuestionController();
     const uiHooks = {
-      showApprovalPanel: mock(),
-      hideApprovalPanel: mock(),
-      showQuestionDialog: mock(),
-      hideQuestionDialog: mock(),
+      showApprovalPanel: vi.fn(),
+      hideApprovalPanel: vi.fn(),
+      showQuestionDialog: vi.fn(),
+      hideQuestionDialog: vi.fn(),
     };
 
     registerReverseRPCHandlers(approvalController, questionController, uiHooks);
@@ -81,24 +81,24 @@ describe('registerReverseRPCHandlers', () => {
 
     approvalController.respond({ decision: 'approved' });
     await expect(approvalPending).resolves.toEqual({ decision: 'approved' });
-    expect(uiHooks.hideApprovalPanel).toHaveBeenCalledTimes(1);
+    expect(uiHooks.hideApprovalPanel).toHaveBeenCalledOnce();
     expect(uiHooks.showQuestionDialog).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'question-1' }),
     );
 
     questionController.respond({ answers: ['answer'] });
     await expect(questionPending).resolves.toEqual({ answers: ['answer'] });
-    expect(uiHooks.hideQuestionDialog).toHaveBeenCalledTimes(1);
+    expect(uiHooks.hideQuestionDialog).toHaveBeenCalledOnce();
   });
 
   it('queues approval panels behind active question dialogs', async () => {
     const approvalController = new ApprovalController();
     const questionController = new QuestionController();
     const uiHooks = {
-      showApprovalPanel: mock(),
-      hideApprovalPanel: mock(),
-      showQuestionDialog: mock(),
-      hideQuestionDialog: mock(),
+      showApprovalPanel: vi.fn(),
+      hideApprovalPanel: vi.fn(),
+      showQuestionDialog: vi.fn(),
+      hideQuestionDialog: vi.fn(),
     };
 
     registerReverseRPCHandlers(approvalController, questionController, uiHooks);
@@ -125,24 +125,24 @@ describe('registerReverseRPCHandlers', () => {
 
     questionController.respond({ answers: ['answer'] });
     await expect(questionPending).resolves.toEqual({ answers: ['answer'] });
-    expect(uiHooks.hideQuestionDialog).toHaveBeenCalledTimes(1);
+    expect(uiHooks.hideQuestionDialog).toHaveBeenCalledOnce();
     expect(uiHooks.showApprovalPanel).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'approval-1' }),
     );
 
     approvalController.respond({ decision: 'approved' });
     await expect(approvalPending).resolves.toEqual({ decision: 'approved' });
-    expect(uiHooks.hideApprovalPanel).toHaveBeenCalledTimes(1);
+    expect(uiHooks.hideApprovalPanel).toHaveBeenCalledOnce();
   });
 
   it('removes queued modals when their controller is cancelled', async () => {
     const approvalController = new ApprovalController();
     const questionController = new QuestionController();
     const uiHooks = {
-      showApprovalPanel: mock(),
-      hideApprovalPanel: mock(),
-      showQuestionDialog: mock(),
-      hideQuestionDialog: mock(),
+      showApprovalPanel: vi.fn(),
+      hideApprovalPanel: vi.fn(),
+      showQuestionDialog: vi.fn(),
+      hideQuestionDialog: vi.fn(),
     };
 
     registerReverseRPCHandlers(approvalController, questionController, uiHooks);
@@ -175,10 +175,10 @@ describe('registerReverseRPCHandlers', () => {
     const approvalController = new ApprovalController();
     const questionController = new QuestionController();
     const uiHooks = {
-      showApprovalPanel: mock(),
-      hideApprovalPanel: mock(),
-      showQuestionDialog: mock(),
-      hideQuestionDialog: mock(),
+      showApprovalPanel: vi.fn(),
+      hideApprovalPanel: vi.fn(),
+      showQuestionDialog: vi.fn(),
+      hideQuestionDialog: vi.fn(),
     };
 
     const disposers = registerReverseRPCHandlers(approvalController, questionController, uiHooks);
@@ -199,7 +199,7 @@ describe('registerReverseRPCHandlers', () => {
     });
 
     for (const dispose of disposers) dispose();
-    expect(uiHooks.hideApprovalPanel).toHaveBeenCalledTimes(1);
+    expect(uiHooks.hideApprovalPanel).toHaveBeenCalledOnce();
     expect(uiHooks.showQuestionDialog).not.toHaveBeenCalled();
 
     approvalController.cancelAll('closed');

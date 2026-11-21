@@ -1,5 +1,3 @@
-import { describe, expect, it } from 'bun:test';
-
 import {
   BUILTIN_SLASH_COMMANDS,
   findBuiltInSlashCommand,
@@ -11,6 +9,7 @@ import {
   towerArgumentCompletions,
   type KimiSlashCommand,
 } from '#/tui/commands/index';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 describe('parseSlashInput', () => {
   it('parses command names and trimmed args', () => {
@@ -39,7 +38,6 @@ describe('built-in slash command registry', () => {
     expect(findBuiltInSlashCommand('bug')?.name).toBe('feedback');
     expect(findBuiltInSlashCommand('btw')?.name).toBe('btw');
     expect(findBuiltInSlashCommand('mcp')?.name).toBe('mcp');
-    expect(findBuiltInSlashCommand('op')?.name).toBe('operation');
     expect(findBuiltInSlashCommand('status')?.name).toBe('status');
     expect(findBuiltInSlashCommand('usage')?.aliases).not.toContain('status');
     expect(findBuiltInSlashCommand('unknown')).toBeUndefined();
@@ -105,16 +103,12 @@ describe('built-in slash command registry', () => {
     expect(values('list')).toBeNull();
     const directoryCompletions = values('/') ?? [];
     expect(directoryCompletions.length).toBeGreaterThan(0);
-    expect(
-      directoryCompletions.every((value) => value.startsWith('/') && value.endsWith('/')),
-    ).toBe(true);
+    expect(directoryCompletions.every((value) => value.startsWith('/') && value.endsWith('/'))).toBe(true);
     expect(directoryCompletions.some((value) => value.startsWith('/.'))).toBe(false);
     expect(values('/.')).toBeNull();
     const homeCompletions = values('~/') ?? [];
     expect(homeCompletions.length).toBeGreaterThan(0);
-    expect(homeCompletions.every((value) => value.startsWith('~/') && value.endsWith('/'))).toBe(
-      true,
-    );
+    expect(homeCompletions.every((value) => value.startsWith('~/') && value.endsWith('/'))).toBe(true);
     expect(homeCompletions.some((value) => value.startsWith('~/.'))).toBe(false);
     expect(homeCompletions.some((value) => value.startsWith('~/sers/'))).toBe(false);
   });
@@ -159,7 +153,6 @@ describe('built-in slash command registry', () => {
     expect(resolveSlashCommandAvailability(goal!, 'status report')).toBe('idle-only');
     expect(resolveSlashCommandAvailability(goal!, 'pause the rollout')).toBe('idle-only');
     expect(resolveSlashCommandAvailability(goal!, 'cancel the migration')).toBe('idle-only');
-    // `clear` is no longer a subcommand; it parses as an objective -> idle-only.
     expect(resolveSlashCommandAvailability(goal!, 'clear')).toBe('idle-only');
     expect(resolveSlashCommandAvailability(goal!, 'resume')).toBe('idle-only');
     expect(resolveSlashCommandAvailability(goal!, 'Ship feature X')).toBe('idle-only');
@@ -181,13 +174,13 @@ describe('built-in slash command registry', () => {
         'export-debug-zip',
         'fork',
         'help',
+        'import-sessions',
         'init',
         'login',
         'logout',
         'mcp',
         'model',
         'new',
-        'operation',
         'permission',
         'plan',
         'reload',
@@ -231,14 +224,6 @@ describe('built-in slash command registry', () => {
     expect((command as KimiSlashCommand).experimentalFlag).toBe('tower');
   });
 
-  it('gates operation commands behind the Operation Log experiment', () => {
-    const command = findBuiltInSlashCommand('operation');
-    expect(command).toBeDefined();
-    expect(command?.aliases).toEqual(['op']);
-    expect((command as KimiSlashCommand).experimentalFlag).toBe('operation_log');
-    expect(resolveSlashCommandAvailability(command!, 'list')).toBe('idle-only');
-  });
-
   it('keeps every tower subcommand always available, including objectives', () => {
     const command = findBuiltInSlashCommand('tower');
     expect(command).toBeDefined();
@@ -256,4 +241,5 @@ describe('built-in slash command registry', () => {
     expect((command as KimiSlashCommand).experimentalFlag).toBeUndefined();
     expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
   });
+
 });

@@ -1,13 +1,14 @@
 import { createDecorator } from '#/_base/di/instantiation';
-import type { CacheObservation } from '#/agent/usage/cacheObservation';
-import type { FinishReason } from '#human/llm/finish-reason';
-import type { LlmCredentialProvider } from '#human/llm/requester/requester';
-import type { ThinkingEffort } from '#human/llm/thinking';
-import type { Message } from '#/llm-adapter/contract/message';
-import type { StreamedMessagePart, ToolDescription as Tool } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
+import type {
+  AssistantMessage,
+  FinishReason,
+  Message,
+  StreamedMessagePart,
+  ToolDescription as Tool,
+} from '@moonshot-ai/core/llm/message';
+import type { LlmTiming } from '@moonshot-ai/core/llm/response';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import type { ModelRequestTiming } from '#/llm-adapter/model/model-requester';
 import type { LogContext } from '#/_base/log/log';
 
 export type AgentLLMRequestLogFields = Readonly<LogContext>;
@@ -27,17 +28,19 @@ export type AgentLLMRequestSource =
     };
 
 export interface AgentLLMRequestFinish {
-  message: Message;
+  message: AssistantMessage;
   usage: TokenUsage;
   model?: string | undefined;
   providerFinishReason?: FinishReason;
   rawFinishReason?: string;
   providerMessageId?: string;
-  timing?: ModelRequestTiming;
+  timing?: LlmTiming;
   traceId?: string;
 }
 
-export type AgentLLMRequestPartHandler = (part: StreamedMessagePart) => void | Promise<void>;
+export type AgentLLMRequestPartHandler = (
+  part: StreamedMessagePart,
+) => void | Promise<void>;
 
 export interface AgentLLMRequestOverrides {
   messages?: readonly Message[];
@@ -53,7 +56,7 @@ export interface AgentLLMRequestOverrides {
 export interface AgentLLMRequestAttemptFailure {
   readonly usage?: TokenUsage;
   readonly messageId?: string;
-  readonly timing?: ModelRequestTiming;
+  readonly timing?: LlmTiming;
 }
 
 export interface AgentLLMRequestTask {
@@ -62,33 +65,8 @@ export interface AgentLLMRequestTask {
   readonly attemptFailure?: () => AgentLLMRequestAttemptFailure | undefined;
 }
 
-export interface PreparedTurnRequestConfig {
-  readonly thinkingEffort: ThinkingEffort;
-}
-
-export interface AgentLLMTurnRequestSnapshot {
-  readonly modelAlias: string;
-  readonly contextRevision: number;
-  readonly toolsHash: string;
-  readonly systemPromptHash: string;
-  readonly messageCount: number;
-  readonly historyHash: string;
-  readonly inputTokens?: number;
-  readonly startedAt: number;
-  readonly finishedAt: number;
-  readonly observation?: CacheObservation;
-}
-
 export interface IAgentLLMRequesterService {
   readonly _serviceBrand: undefined;
-
-  prepareTurnConfig(turnId: number): PreparedTurnRequestConfig | undefined;
-
-  currentCredentialProvider(): LlmCredentialProvider | undefined;
-
-  credentialProviderForTurn(turnId: number): LlmCredentialProvider | undefined;
-
-  lastTurnRequest(): AgentLLMTurnRequestSnapshot | undefined;
 
   request(
     overrides?: AgentLLMRequestOverrides,

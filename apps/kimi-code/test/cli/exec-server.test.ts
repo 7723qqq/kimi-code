@@ -1,29 +1,14 @@
-/**
- * Scenario: the `kimi exec-server` light entry (bare or with the explicit
- * `--listen stdio` spelling) — argv
- * pre-dispatch shape, transport validation, hidden Commander subcommand, and
- * the import-graph rule that keeps the SDK mega-module out of the executor
- * path — plus a real stdio handshake against the source entry (tsx).
- * Responsibilities: light-entry contract, exit codes/stderr discipline,
- * executorVersion surface.
- * Wiring: child processes spawn the real `src/main.ts` through tsx; no mocks.
- * Run: bun test test/cli/exec-server.test.ts
- */
-
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { dirname, parse, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { createProgram } from '#/cli/commands';
 import { isExecServerArgv } from '#/cli/exec-server';
 
 const appRoot = resolve(import.meta.dirname, '..', '..');
 const srcRoot = resolve(appRoot, 'src');
-const HOST_OS_KIND =
-  process.platform === 'win32' ? 'Windows' : process.platform === 'darwin' ? 'macOS' : 'Linux';
-const HOST_ROOT = parse(appRoot).root;
 const hostPackage = JSON.parse(readFileSync(resolve(appRoot, 'package.json'), 'utf-8')) as {
   version: string;
 };
@@ -47,7 +32,6 @@ describe('hidden exec-server subcommand', () => {
       () => {
         throw new Error('main action should not run');
       },
-      () => {},
       () => {},
       () => {},
       () => {},
@@ -78,7 +62,7 @@ describe('light entry import graph', () => {
     }
     if (specifier.startsWith('.')) {
       const base = resolve(dirname(fromFile), specifier);
-      return /\.[cm]?[jt]sx?$/.test(base) ? base : `${base}.ts`;
+      return base.endsWith('.ts') ? base : `${base}.ts`;
     }
     return undefined;
   }
@@ -112,10 +96,10 @@ describe('light entry import graph', () => {
       '@moonshot-ai/kimi-code-sdk/ssh-askpass',
     ]);
     expect(externals).not.toContain('@moonshot-ai/kimi-code-sdk');
-    expect([...files].map((file) => file.slice(srcRoot.length + 1).replaceAll('\\', '/')).toSorted()).toEqual([
+    expect([...files].map((file) => file.slice(srcRoot.length + 1)).toSorted()).toEqual([
       'cli/build-info.ts',
       'cli/exec-server.ts',
-      'cli/version-info.ts',
+      'cli/version.ts',
       'main.ts',
     ]);
   });
@@ -190,7 +174,7 @@ async function runExecServerHandshake(
   try {
     send({ method: 'initialize', id: 1, params: { clientName: 'vitest', clientVersion: '0.0.0' } });
     const initialize = await nextLine();
-    send({ method: 'fs/getMetadata', id: 2, params: { path: HOST_ROOT } });
+    send({ method: 'fs/getMetadata', id: 2, params: { path: options.cwd ?? appRoot } });
     const status = await nextLine();
     child.stdin.end();
     const exitCode = await new Promise<number | null>((resolveExit) => {
@@ -218,18 +202,19 @@ async function runExecServerHandshake(
 
 describe('exec-server stdio handshake (source entry)', () => {
   it(
-    'answers initialize with the host version and environment, then exits 0 on stdin EOF',
+    'answers initialize with the host version and a target-native environment, then exits 0 on stdin EOF',
     { timeout: 60_000 },
     async () => {
-      const result = await runExecServerHandshake(process.execPath, ['src/main.ts', 'exec-server']);
+      const tsxBin = resolve(appRoot, 'node_modules/.bin/tsx');
+      const result = await runExecServerHandshake(tsxBin, ['src/main.ts', 'exec-server']);
 
       expect(result.initialize['id']).toBe(1);
       const initializeResult = result.initialize['result'] as {
         executorVersion: string;
-        environment: { osKind: string; cwd: string };
+        environment: { pathClass: string; cwd: string };
       };
       expect(initializeResult.executorVersion).toBe(hostPackage.version);
-      expect(initializeResult.environment.osKind).toBe(HOST_OS_KIND);
+      expect(initializeResult.environment.pathClass).toBe(process.platform === 'win32' ? 'win32' : 'posix');
       expect(initializeResult.environment.cwd).toBe(appRoot);
 
       expect(result.status['id']).toBe(2);

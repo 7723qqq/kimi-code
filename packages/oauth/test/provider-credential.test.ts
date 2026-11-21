@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   declaredProviderCredential,
@@ -72,7 +72,11 @@ describe('reconcileProviderCredentialUpdate', () => {
 
   it('preserves the existing credential when the update omits both fields', () => {
     expect(
-      reconcileProviderCredentialUpdate({ apiKey: 'sk-old', apiKeyEnv: 'ACME_KEY' }, {}, 'acme'),
+      reconcileProviderCredentialUpdate(
+        { apiKey: 'sk-old', apiKeyEnv: 'ACME_KEY' },
+        {},
+        'acme',
+      ),
     ).toEqual({ ok: true, apiKey: 'sk-old', apiKeyEnv: 'ACME_KEY' });
   });
 

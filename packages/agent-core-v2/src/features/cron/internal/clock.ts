@@ -52,7 +52,8 @@ function readFileWall(filePath: string): number {
   } finally {
     try {
       closeSync(fd);
-    } catch {}
+    } catch {
+    }
   }
   const raw = buf.subarray(0, bytesRead).toString('utf8');
   const firstLine = raw.split('\n', 1)[0]?.trim() ?? '';

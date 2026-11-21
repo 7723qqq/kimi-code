@@ -1,0 +1,6 @@
+A	.changeset/feedback-multiline-input.md
+M	apps/kimi-code/src/tui/commands/prompts.ts
+M	apps/kimi-code/src/tui/components/dialogs/feedback-input-dialog.ts
+M	apps/kimi-code/src/tui/constant/feedback.ts
+M	apps/kimi-code/test/tui/components/dialogs/feedback-input-dialog.test.ts
+M	apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts

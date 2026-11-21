@@ -1,14 +1,15 @@
-/**
- * `kimi session` sub-command group.
- *
- * CLI glue only: listing semantics (workspace scoping, recency order,
- * archived filtering) are owned by the SDK/engine; this file parses options
- * and formats rows.
- */
-
-import type { ListSessionsOptions, SessionSummary } from '@moonshot-ai/kimi-code-sdk';
+import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
+import {
+  createKimiHarness,
+  type KimiHarness,
+  type ListSessionsOptions,
+  type SessionSummary,
+  type TelemetryClient,
+} from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
 
+import { createCliTelemetryBootstrap } from '#/cli/telemetry';
+import { createKimiCodeHostIdentity } from '#/cli/host-identity';
 import { t } from '#/i18n';
 
 interface WritableLike {
@@ -46,7 +47,7 @@ export async function handleSessionList(
     return;
   }
   if (limited.length === 0) {
-    deps.stdout.write(`${t('tui.statusMessages.sessionListEmpty')}\n`);
+    deps.stdout.write(t('cli.sub.session.noSessions'));
     return;
   }
   for (const summary of limited) {
@@ -65,62 +66,66 @@ export function registerSessionCommand(parent: Command, deps?: Partial<SessionLi
     .option('--archived', t('cli.optionDescriptions.sessionListArchived'), false)
     .option('--limit <n>', t('cli.optionDescriptions.sessionListLimit'), parseLimitOption)
     .option('--json', t('cli.optionDescriptions.sessionListJson'), false)
-    .action(
-      async (options: {
-        cwd?: string;
-        all?: boolean;
-        archived?: boolean;
-        limit?: number;
-        json?: boolean;
-      }) => {
-        const resolved = await createDefaultSessionListDeps(deps);
-        try {
-          await handleSessionList(resolved, {
-            all: options.all === true,
-            archived: options.archived === true,
-            cwd: options.cwd,
-            limit: options.limit,
-            json: options.json === true,
-          });
-        } catch (error) {
-          resolved.stderr.write(`${errorMessage(error)}\n`);
-          resolved.exit(1);
-        } finally {
-          await resolved.close();
-        }
-      },
-    );
+    .action(async (options: { cwd?: string; all?: boolean; archived?: boolean; limit?: number; json?: boolean }) => {
+      const resolved = createDefaultSessionListDeps(deps);
+      try {
+        await handleSessionList(resolved, {
+          all: options.all === true,
+          archived: options.archived === true,
+          cwd: options.cwd,
+          limit: options.limit,
+          json: options.json === true,
+        });
+      } catch (error) {
+        resolved.stderr.write(`${errorMessage(error)}\n`);
+        resolved.exit(1);
+      } finally {
+        await resolved.close();
+      }
+    });
 }
 
-async function createDefaultSessionListDeps(
+function createDefaultSessionListDeps(
   overrides: Partial<SessionListDeps> = {},
-): Promise<SessionListDeps & { readonly close: () => Promise<void> }> {
-  // The harness runtime pulls the engine; load it on dispatch so registering
-  // the command stays free of it.
-  const { CliHarnessRuntime } = await import('#/cli/harness');
-  const runtime = new CliHarnessRuntime();
+): SessionListDeps & { readonly close: () => Promise<void> } {
+  let harness: KimiHarness | undefined;
+  const identity = createKimiCodeHostIdentity();
+  const telemetryClient: TelemetryClient = {
+    track,
+    withContext: withTelemetryContext,
+    setContext: setTelemetryContext,
+  };
+  const getHarness = (): KimiHarness => {
+    harness ??= createKimiHarness({
+      homeDir: createCliTelemetryBootstrap().homeDir,
+      identity,
+      telemetry: telemetryClient,
+    });
+    return harness;
+  };
   return {
     listSessions:
       overrides.listSessions ??
-      ((options: ListSessionsOptions) => runtime.getHarness().listSessions(options)),
+      ((options: ListSessionsOptions) => getHarness().listSessions(options)),
     cwd: overrides.cwd ?? (() => process.cwd()),
     stdout: overrides.stdout ?? process.stdout,
     stderr: overrides.stderr ?? process.stderr,
     exit: overrides.exit ?? ((code: number) => process.exit(code)),
-    close: () => runtime.close(),
+    close: async () => {
+      await harness?.close();
+    },
   };
 }
 
 function formatRow(summary: SessionSummary, showWorkDir: boolean): string {
-  const archived =
-    summary.archived === true ? t('tui.statusMessages.sessionListArchivedSuffix') : '';
+  const archived = summary.archived === true ? t('tui.statusMessages.sessionListArchivedSuffix') : '';
   const title = sanitizeField(summary.title ?? summary.lastPrompt ?? '');
   const base = `${formatTimestamp(summary.updatedAt)}  ${summary.id}  ${title}${archived}`;
   return showWorkDir ? `${base}  ${sanitizeField(summary.workDir)}` : base;
 }
 
 function sanitizeField(value: string): string {
-  return value.replaceAll(/[\x00-\x1f\x7f]+/g, ' ').trim();
+  return value.replaceAll(/[\u0000-\u001F\u007F]+/g, ' ').trim();
 }
 
 function formatTimestamp(epochMs: number): string {
@@ -132,7 +137,7 @@ function formatTimestamp(epochMs: number): string {
 function parseLimitOption(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(t('tui.statusMessages.sessionListLimitInvalid', { value }));
+    throw new Error(`--limit must be a positive integer, got "${value}"`);
   }
   return parsed;
 }

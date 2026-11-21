@@ -1,21 +1,15 @@
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
-
-import { type ProviderConfig } from '@moonshot-ai/kimi-code-sdk';
+import type { ProviderConfig } from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
+import { afterAll, beforeAll, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
-import { t } from '#/i18n';
 import {
   ProviderManagerComponent,
   type ProviderManagerOptions,
 } from '#/tui/components/dialogs/provider-manager';
 import { darkColors } from '#/tui/theme/colors';
-import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
-// Truecolor SGR fragments for the darkColors tokens we assert on
-// (see theme/colors.ts). Forcing chalk.level below guarantees they appear.
-const PRIMARY = '38;2;79;168;255'; // colors.primary  #4FA8FF
-const MUTED = '38;2;107;107;107'; // colors.textMuted #6B6B6B
+const PRIMARY = '38;2;79;168;255';
+const MUTED = '38;2;107;107;107';
 const BOLD = '[1m';
 const ESC = String.fromCodePoint(27);
 
@@ -28,10 +22,9 @@ function rendered(component: ProviderManagerComponent, width = 120): string {
 function makeComponent(overrides: Partial<ProviderManagerOptions> = {}): ProviderManagerComponent {
   return new ProviderManagerComponent({
     providers: {} as Record<string, ProviderConfig>,
-    onAdd: mock(),
-    onEdit: mock(),
-    onDeleteSource: mock(),
-    onClose: mock(),
+    onAdd: vi.fn(),
+    onDeleteSource: vi.fn(),
+    onClose: vi.fn(),
     ...overrides,
   });
 }
@@ -51,8 +44,6 @@ describe('ProviderManagerComponent', () => {
   });
 
   it('renders [ Add New Platform ] in the brand color, never muted, when not selected', () => {
-    // A configured provider occupies row 0 (selected); the add row sits below
-    // it and is therefore not the highlighted row.
     const component = makeComponent({
       providers: {
         acme: { baseUrl: 'https://acme.test' },
@@ -66,8 +57,6 @@ describe('ProviderManagerComponent', () => {
   });
 
   it('bolds [ Add New Platform ] when it is the selected row', () => {
-    // With no configured providers the synthetic add row is the only row, so it
-    // starts as the highlighted selection.
     const component = makeComponent();
     const line = addRowLine(component);
     expect(line).toBeDefined();
@@ -102,19 +91,15 @@ describe('ProviderManagerComponent', () => {
 
     const titleIdx = lines.findIndex((l) => l.includes('Providers'));
     expect(titleIdx).toBeGreaterThanOrEqual(0);
-    // The line directly under the title is the hint, never an inner border (the
-    // old `border · title · border` sandwich is gone).
     expect(isBorder(lines[titleIdx + 1])).toBe(false);
     expect(lines[titleIdx + 1]).toContain('navigate');
     expect(lines[titleIdx + 1]).toContain('Esc cancel');
-    // Blank line separates the hint from the body, exactly like the model dialog.
     expect(lines[titleIdx + 2]).toBe('');
-    // Only the top and bottom full-width borders remain — two, not three.
     expect(lines.filter(isBorder).length).toBe(2);
   });
 
   it('deletes the highlighted provider via the D key with a y/N confirm', () => {
-    const onDeleteSource = mock();
+    const onDeleteSource = vi.fn();
     const component = makeComponent({
       providers: {
         acme: { baseUrl: 'https://acme.test' },
@@ -129,7 +114,7 @@ describe('ProviderManagerComponent', () => {
   });
 
   it('closes on Esc', () => {
-    const onClose = mock();
+    const onClose = vi.fn();
     const component = makeComponent({
       providers: {
         acme: { baseUrl: 'https://acme.test' },
@@ -138,101 +123,5 @@ describe('ProviderManagerComponent', () => {
     });
     component.handleInput(ESC);
     expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('edits the highlighted provider via the E key', () => {
-    const onEdit = mock();
-    const component = makeComponent({
-      providers: {
-        acme: { baseUrl: 'https://acme.test' },
-      } as unknown as Record<string, ProviderConfig>,
-      activeProviderId: 'acme',
-      onEdit,
-    });
-
-    component.handleInput('E');
-
-    expect(onEdit).toHaveBeenCalledWith('acme');
-  });
-
-  it('edits the first provider of a grouped registry source row', () => {
-    const onEdit = mock();
-    const component = makeComponent({
-      providers: {
-        alpha: {
-          baseUrl: 'https://reg.test',
-          source: { kind: 'apiJson', url: 'https://reg.test/api.json', apiKey: '' },
-        },
-        beta: {
-          baseUrl: 'https://reg.test',
-          source: { kind: 'apiJson', url: 'https://reg.test/api.json', apiKey: '' },
-        },
-      } as unknown as Record<string, ProviderConfig>,
-      onEdit,
-    });
-
-    component.handleInput('E');
-
-    expect(onEdit).toHaveBeenCalledWith('alpha');
-  });
-
-  it('ignores E on the [ Add New Platform ] row and lists the key in the hint', () => {
-    const onEdit = mock();
-    const component = makeComponent({ onEdit });
-
-    component.handleInput('E');
-    expect(onEdit).not.toHaveBeenCalled();
-
-    const hint = t('tui.dialogs.providerManager.headerHint');
-    expect(hint).toContain('E edit');
-    const lines = component.render(120).map((line) => line.replaceAll(SGR, ''));
-    expect(lines[2]).toContain(hint);
-  });
-
-  it('never lists the managed OAuth account, so no key can reach it', () => {
-    // `/logout` owns that provider, and the delete path has no branch for it:
-    // were it a row, `D` would offer a second way to remove an account the user
-    // never configured here.
-    const onEdit = mock();
-    const onDeleteSource = mock();
-    const component = makeComponent({
-      providers: {
-        acme: { baseUrl: 'https://acme.test' },
-        [DEFAULT_OAUTH_PROVIDER_NAME]: { oauth: { storage: 'file', key: 'managed' } },
-      } as unknown as Record<string, ProviderConfig>,
-      onEdit,
-      onDeleteSource,
-    });
-
-    const out = rendered(component);
-    expect(out).toContain('acme');
-    expect(out).not.toContain(DEFAULT_OAUTH_PROVIDER_NAME);
-
-    component.handleInput('E');
-    expect(onEdit).toHaveBeenCalledWith('acme');
-    component.handleInput('D');
-    component.handleInput('y');
-    expect(onDeleteSource).toHaveBeenCalledWith(['acme']);
-  });
-});
-
-describe('ProviderManagerComponent — mouse', () => {
-  it('highlights the row under the pointer', () => {
-    const component = makeComponent({
-      providers: {
-        acme: { baseUrl: 'https://acme.test' },
-        bravo: { baseUrl: 'https://bravo.test' },
-      } as unknown as Record<string, ProviderConfig>,
-    });
-    pastSettlingWindow();
-    component.focused = true;
-    const rows = component.render(120).map((line) => line.replaceAll(SGR, ''));
-    const row = rows.findIndex((line) => line.includes('bravo'));
-    expect(row).toBeGreaterThan(0);
-
-    const moved = component.handleMouse(mouse('move', row));
-    expect(moved?.handled).toBe(true);
-    expect(moved?.render).toBe(true);
-    expect(component.render(120).join('\n').replaceAll(SGR, '')).toContain('❯');
   });
 });

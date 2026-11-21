@@ -1,9 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
-import { SurveyPanelComponent, type SurveyPanelView } from '#/tui/components/panes/survey-panel';
+import {
+  SurveyPanelComponent,
+  type SurveyPanelView,
+} from '#/tui/components/panes/survey-panel';
 
 function stripAnsi(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');

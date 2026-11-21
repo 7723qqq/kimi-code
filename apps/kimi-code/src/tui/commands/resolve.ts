@@ -1,22 +1,21 @@
-import { t } from '#/i18n';
-
-import type { TUIState } from '../state';
-import type { InlineSkillActivation } from '../types';
-import { extractInlineSkillActivations, findInlineSkillTokens } from '../utils/inline-skill-tokens';
-import { isExperimentalFlagEnabled } from './experimental-flags';
-import { parseSlashInput } from './parse';
 import {
   findBuiltInSlashCommand,
   resolveSlashCommandAvailability,
   type BuiltinSlashCommand,
   type BuiltinSlashCommandName,
 } from './registry';
+import { isExperimentalFlagEnabled } from './experimental-flags';
+import { parseSlashInput } from './parse';
+import type { TUIState } from '../tui-state';
+import type { InlineSkillActivation } from '../types';
+import { extractInlineSkillActivations, findInlineSkillTokens } from '../utils/inline-skill-tokens';
 import type {
   KimiSlashCommand,
   ParsedSlashInput,
   SlashCommandBusyReason,
   SlashCommandInvalidReason,
 } from './types';
+import { t } from '#/i18n';
 
 export type SlashCommandIntent =
   | { readonly kind: 'not-command' }
@@ -25,7 +24,6 @@ export type SlashCommandIntent =
       readonly command: BuiltinSlashCommand;
       readonly name: BuiltinSlashCommandName;
       readonly args: string;
-      /** Queue instead of executing now (/compact while streaming). */
       readonly enqueue?: boolean;
     }
   | {
@@ -67,25 +65,15 @@ export function resolveSlashCommandInput(options: ResolveSlashCommandInput): Sla
   if (parsed === null) return { kind: 'not-command' };
 
   const command = findBuiltInSlashCommand(parsed.name);
-  // `command` is a literal union where only some members carry `experimentalFlag`; widen to read it.
-  if (command !== undefined) {
-    if (!isExperimentalFlagEnabled((command as KimiSlashCommand).experimentalFlag)) {
-      // The command exists but its experimental flag is off: reject it here
-      // instead of letting the slash text fall through to the model as a
-      // prompt (the registry declares such commands hidden and blocked).
-      return {
-        kind: 'invalid',
-        commandName: parsed.name,
-        reason: 'unknown',
-      };
-    }
+  if (
+    command !== undefined &&
+    isExperimentalFlagEnabled((command as KimiSlashCommand).experimentalFlag)
+  ) {
     const busyReason = slashCommandBusyReason(options);
     if (
       busyReason !== undefined &&
       resolveSlashCommandAvailability(command, parsed.args) === 'idle-only'
     ) {
-      // A live compaction also sets streamingPhase, and busyReason reports
-      // 'streaming' first — compacting must stay blocked, not enqueue.
       if (command.name === 'compact' && busyReason === 'streaming' && !options.isCompacting) {
         return {
           kind: 'builtin',
@@ -109,19 +97,11 @@ export function resolveSlashCommandInput(options: ResolveSlashCommandInput): Sla
     };
   }
 
-  // Skill activations are never blocked by a busy session: the TUI queues
-  // them behind the running turn exactly like normal messages (see
-  // sendSkillActivation), and Ctrl-S steers them as real activations, so
-  // skill commands can be issued any time.
   const exactSkillName = options.skillCommandMap.get(parsed.name) ?? options.skillCommandMap.get(parsed.name.toLowerCase());
   if (exactSkillName !== undefined) {
     return skillCommandIntent(parsed, exactSkillName);
   }
 
-  // A plugin command wins over the skill shorthand for the same
-  // `<pluginId>:<name>` input: the skill stays reachable through its explicit
-  // `skill:<pluginId>:<name>` command, while the plugin command has no
-  // alternative form.
   if (options.pluginCommandMap.has(parsed.name)) {
     const busyReason = slashCommandBusyReason(options);
     if (busyReason !== undefined) {
@@ -182,14 +162,12 @@ export function resolveUserInput(options: ResolveSlashCommandInput): {
     if (intent.kind !== 'skill') return { intent, activations: [] };
     return {
       intent,
-      activations: [
-        {
-          skillName: selectedActivations[0]!.skillName,
-          path: selectedActivations[0]!.path,
-          start: selectedActivations[0]!.start,
-          args: text.slice(token.end).trim(),
-        },
-      ],
+      activations: [{
+        skillName: selectedActivations[0]!.skillName,
+        path: selectedActivations[0]!.path,
+        start: selectedActivations[0]!.start,
+        args: text.slice(token.end).trim(),
+      }],
     };
   }
   return { intent, activations: selectedActivations };
@@ -252,30 +230,16 @@ export function slashCommandBusyReason(
   return undefined;
 }
 
-export function slashBusyMessage(commandName: string, reason: SlashCommandBusyReason): string {
+export function slashBusyMessage(
+  commandName: string,
+  reason: SlashCommandBusyReason,
+): string {
   if (reason === 'streaming') {
     return t('tui.messages.resolveCannotWhileStreaming', { name: commandName });
   }
   return t('tui.messages.resolveCannotWhileCompacting', { name: commandName });
 }
 
-/**
- * Whether a delayed input restore is still safe: the editor must be empty (no
- * newer draft) and something must not have taken the interaction over in the
- * meantime.
- *
- * Two takeover forms are checked, because they are different mechanisms:
- * `editorReplacementMounted` covers the dialogs that really do swap the editor
- * out (help, pickers, question dialog), while `hasBlockingRegion()` covers the
- * inline approval, which leaves the editor mounted and only refuses
- * submissions. Checkingonly the first would let a delayed restore overwrite the
- * user's draft while an approval is pending. Restores that run synchronously
- * with submit do not need this.
- */
 export function canRestoreSubmittedInput(host: { state: TUIState }): boolean {
-  return (
-    host.state.editor.getText().length === 0 &&
-    !host.state.editorReplacementMounted &&
-    !host.state.statusSurface.hasBlockingRegion()
-  );
+  return host.state.editor.getText().length === 0 && !host.state.editorReplacementMounted;
 }

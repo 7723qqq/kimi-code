@@ -1,6 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
 import {
   buildAgentIdentitySnapshot,
@@ -14,9 +13,10 @@ import { IDENTITY_SECTION } from '#/app/agentIdentity/configSection';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { LifecycleScope } from '#/app/scopes';
+import { _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 
-import { StubConfigService } from '../../stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
+import { StubConfigService } from '../../stubs';
 
 const hosts: Array<{ dispose(): void }> = [];
 
@@ -43,14 +43,10 @@ function createIdentity(
     [IConfigService, config],
     [
       IBootstrapService,
-      stubBootstrap(
-        '/home',
-        {},
-        {
-          displayName: options.hostDisplayName,
-          requestHeaders: options.hostRequestHeaders ?? {},
-        },
-      ),
+      stubBootstrap('/home', {}, {
+        displayName: options.hostDisplayName,
+        requestHeaders: options.hostRequestHeaders ?? {},
+      }),
     ],
   ]);
   hosts.push(host);

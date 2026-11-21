@@ -241,6 +241,35 @@ export async function listSessionIds(
   }
 }
 
+/**
+ * Drop a session's persisted summary. The same meta layout is held twice: the
+ * document store feeds `readSessionSummary`, while the storage-backed state
+ * file feeds `statSessionStateFile` (the projector's scan gate). A collector
+ * skips the id once either reports it missing, but leaving one behind keeps
+ * the session alive on the path that reads it — so clear both.
+ */
+export async function deleteSessionSummary(
+  docs: IAtomicDocumentStore,
+  storage: IFileSystemStorageService,
+  sessionsScope: string,
+  workspaceId: string,
+  sessionId: string,
+): Promise<void> {
+  const base = `${sessionsScope}/${workspaceId}/${sessionId}`;
+  for (const scope of [base, `${base}/${META_SCOPE}`]) {
+    try {
+      await docs.delete(scope, META_KEY);
+    } catch {
+      // A missing document is exactly what we want.
+    }
+    try {
+      await storage.delete(scope, META_KEY);
+    } catch {
+      // Same: already gone is success.
+    }
+  }
+}
+
 export async function readSessionSummary(
   docs: IAtomicDocumentStore,
   sessionsScope: string,
@@ -257,18 +286,19 @@ export async function readSessionSummary(
       ? (rawCustom as Record<string, unknown>)
       : undefined;
   const originalCwd = recoverCwd(meta);
-  const environmentId =
-    typeof meta['environmentId'] === 'string' ? meta['environmentId'] : LOCAL_ENVIRONMENT_ID;
-  const environmentCwd =
-    typeof meta['environmentCwd'] === 'string' ? meta['environmentCwd'] : undefined;
-  const cwd =
-    primaryDir === undefined || environmentId !== LOCAL_ENVIRONMENT_ID
-      ? originalCwd
-      : resolveEffectiveWorkspaceRoots(
-          { workspaceId, cwd: originalCwd ?? primaryDir },
-          { environmentId, cwd: environmentCwd },
-          { primaryByWorkspace: { [workspaceId]: primaryDir }, additionalDirs: [] },
-        ).workDir;
+  const environmentId = typeof meta['environmentId'] === 'string'
+    ? meta['environmentId']
+    : LOCAL_ENVIRONMENT_ID;
+  const environmentCwd = typeof meta['environmentCwd'] === 'string'
+    ? meta['environmentCwd']
+    : undefined;
+  const cwd = primaryDir === undefined || environmentId !== LOCAL_ENVIRONMENT_ID
+    ? originalCwd
+    : resolveEffectiveWorkspaceRoots(
+        { workspaceId, cwd: originalCwd ?? primaryDir },
+        { environmentId, cwd: environmentCwd },
+        { primaryByWorkspace: { [workspaceId]: primaryDir }, additionalDirs: [] },
+      ).workDir;
   return buildSessionSummary({
     id: sessionId,
     workspaceId,

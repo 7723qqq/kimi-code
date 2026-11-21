@@ -1,16 +1,17 @@
-import { createDecorator } from '#/_base/di/instantiation';
-import { Error2 } from '#/_base/errors/errors';
 import type {
   AgentProfile,
   AgentProfileContext,
   EnvironmentDisclosureSnapshot,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import type { ErrorCode } from '#/errors';
+import type { LlmModelSpec, ThinkingEffort } from '@moonshot-ai/core/llm/request';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
-import type { ModelRequestParams } from '#/llm-adapter/model/model-requester';
-import type { ThinkingEffort } from '#human/llm/thinking';
+import type { InitializedLlmRequestPart } from '@moonshot-ai/core/llm/requester';
 
-import type { ProfileErrors } from './errors';
+import { createDecorator } from "#/_base/di/instantiation";
+import type { ErrorCode } from '#/errors';
+import { Error2 } from '#/_base/errors/errors';
+
+import { ProfileErrors } from './errors';
 
 export { ProfileErrors } from './errors';
 
@@ -88,7 +89,7 @@ export interface ApplyProfileOptions {
 
 export interface ProfileModelContext {
   readonly modelAlias: string;
-  readonly modelCapabilities: ModelCapability;
+  readonly model: LlmModelSpec;
   readonly maxOutputSize: number | undefined;
   readonly alwaysThinking: boolean | undefined;
   readonly thinkingLevel: ThinkingEffort;
@@ -109,37 +110,60 @@ export interface BindAgentInput {
   readonly strictThinking?: boolean;
 }
 
-export interface IAgentProfileService {
-  readonly _serviceBrand: undefined;
-
-  register(): void;
-  configure(options: ProfileServiceOptions): void;
-  update(changed: ProfileUpdateData): void;
-  applyBindingSnapshot(snapshot: ProfileBindingSnapshot): void;
-  bind(input: BindAgentInput): Promise<void>;
-  setModel(model: string): Promise<ProfileSetModelResult>;
-  setThinking(level: string): void;
-  republishStatus(): void;
-  getModel(): string;
-  useProfile(profile: ResolvedAgentProfile, context: SystemPromptContext): void;
-  applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<void>;
-  getAgentsMdWarning(): string | undefined;
+export interface EffectiveProfileReader {
   data(): ProfileData;
   getEffectiveThinkingLevel(): ThinkingEffort;
   resolveModelContext(): ProfileModelContext;
-  resolveRequestParams(): ModelRequestParams;
+  resolveRequestParams(): InitializedLlmRequestPart;
   getModelCapabilities(): ModelCapability;
-  getModelWireName(): string | undefined;
   getModelProviderType(alias?: string): string | undefined;
   getMaxOutputSize(): number | undefined;
   hasModel(): boolean;
   isRunnable(): boolean;
   hasProvider(): boolean;
+  getModel(): string;
   getSystemPrompt(): string;
   getActiveToolNames(): readonly string[] | undefined;
-  addActiveTool(name: string): void;
-  removeActiveTool(name: string): void;
-  refreshActiveTools(): Promise<void>;
+  getAgentsMdWarning(): string | undefined;
+  republishStatus(): void;
+}
+
+export interface IAgentProfileService extends EffectiveProfileReader {
+  readonly _serviceBrand: undefined;
+
+  configure(options: ProfileServiceOptions): void;
+  applyBindingSnapshot(snapshot: ProfileBindingSnapshot): ProfileBindingSnapshot;
+  prepareBindingSnapshot(snapshot: ProfileBindingSnapshot): ProfileBindingSnapshot;
+  defaultProfile(): ProfileBindingSnapshot;
+  bind(input: BindAgentInput): Promise<ProfileBindingSnapshot>;
+  resolveBinding(input: BindAgentInput, current?: ProfileBindingSnapshot): Promise<ProfileBindingSnapshot>;
+  refreshBoundSubagentAllowlist(current?: ProfileBindingSnapshot): Promise<ProfileBindingSnapshot | undefined>;
+  prepareUpdate(
+    changed: ProfileUpdateData,
+    current?: ProfileBindingSnapshot,
+    activeTools?: readonly string[] | null,
+  ): import('./profileOps').ProfileUpdatePlan;
+  afterConfigDispatch(changed: Omit<ProfileUpdateData, 'activeToolNames'>, current?: ProfileBindingSnapshot): void;
+  resolveModel(model: string): ProfileSetModelResult;
+  resolveThinkingLevel(level: string, current?: ProfileBindingSnapshot): string;
+  republishStatus(current?: ProfileBindingSnapshot): void;
+  useProfile(profile: ResolvedAgentProfile, context: SystemPromptContext): ProfileUpdateData;
+  applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<ProfileUpdateData>;
+  getAgentsMdWarning(): string | undefined;
+  data(snapshot?: ProfileBindingSnapshot): ProfileData;
+  getEffectiveThinkingLevel(snapshot?: ProfileBindingSnapshot): ThinkingEffort;
+  resolveModelContext(snapshot?: ProfileBindingSnapshot): ProfileModelContext;
+  getModelWireName(snapshot?: ProfileBindingSnapshot): string;
+  resolveRequestParams(snapshot?: ProfileBindingSnapshot): InitializedLlmRequestPart;
+  getModelCapabilities(snapshot?: ProfileBindingSnapshot): ModelCapability;
+  getModelProviderType(alias?: string, snapshot?: ProfileBindingSnapshot): string | undefined;
+  getMaxOutputSize(snapshot?: ProfileBindingSnapshot): number | undefined;
+  hasModel(snapshot?: ProfileBindingSnapshot): boolean;
+  isRunnable(snapshot?: ProfileBindingSnapshot): boolean;
+  hasProvider(snapshot?: ProfileBindingSnapshot): boolean;
+  getModel(snapshot?: ProfileBindingSnapshot): string;
+  getSystemPrompt(snapshot?: ProfileBindingSnapshot): string;
+  getActiveToolNames(snapshot?: ProfileBindingSnapshot): readonly string[] | undefined;
 }
 
 export const IAgentProfileService = createDecorator<IAgentProfileService>('agentProfileService');

@@ -1,15 +1,8 @@
-import { describe, expect, it } from 'bun:test';
-
-import {
-  visibleWidth,
-  type SelectItem,
-  type SelectListTheme,
-  type TuiMouseEvent,
-} from '@moonshot-ai/pi-tui';
+import { visibleWidth, type SelectItem, type SelectListTheme, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { WrappingSelectList } from '#/tui/components/editor/wrapping-select-list';
 
-/** Marker theme so assertions can see which style hook painted each part. */
 const MARKER_THEME: SelectListTheme = {
   selectedPrefix: (s) => s,
   selectedText: (s) => `[S]${s}`,
@@ -26,12 +19,8 @@ const IDENTITY_THEME: SelectListTheme = {
   noMatch: (s) => s,
 };
 
-/** Mirrors pi-tui's slash command layout (editor.js). */
 const SLASH_LAYOUT = { minPrimaryColumnWidth: 12, maxPrimaryColumnWidth: 32 };
 
-// With two 4-char labels and SLASH_LAYOUT at width 80, the primary column is
-// 12 wide: prefix(2) + label(4) + spacing(8) puts descriptions at column 14
-// with 64 columns of room (80 - 14 - 2 safety).
 const DESCRIPTION_INDENT = ' '.repeat(14);
 
 function makeList(items: SelectItem[], maxVisible = 5): WrappingSelectList {
@@ -45,7 +34,10 @@ describe('WrappingSelectList', () => {
       { value: 'init', label: 'init', description: 'Second command' },
     ]).render(80);
 
-    expect(lines).toEqual(['[S]→ goal        First command', '  init[D]        Second command']);
+    expect(lines).toEqual([
+      '[S]→ goal        First command',
+      '  init[D]        Second command',
+    ]);
   });
 
   it('wraps a long description onto a second indented line without an ellipsis', () => {
@@ -113,15 +105,12 @@ describe('WrappingSelectList', () => {
   });
 
   it('does not leak ANSI resets into themed lines when the primary name is truncated', () => {
-    const description =
-      'Use when about to claim work is complete fixed or passing before committing';
+    const description = 'Use when about to claim work is complete fixed or passing before committing';
     const lines = makeList([
       { value: 'verify', label: 'skill:verification-before-completion', description },
       { value: 'init', label: 'skill:another-very-long-command-name', description },
     ]).render(80);
 
-    // truncateToWidth appends [0m when it truncates; embedded inside the
-    // selected/description colouring it would reset the rest of the line.
     for (const line of lines) {
       expect(line).not.toContain('\u001B');
     }
@@ -144,11 +133,7 @@ describe('WrappingSelectList', () => {
   it('never emits a line wider than the requested width, including CJK text', () => {
     const list = new WrappingSelectList(
       [
-        {
-          value: 'lark',
-          label: 'skill:lark-calendar',
-          description: '管理飞书日历的技能描述'.repeat(8),
-        },
+        { value: 'lark', label: 'skill:lark-calendar', description: '管理飞书日历的技能描述'.repeat(8) },
         { value: 'init', label: 'init', description: 'word '.repeat(60).trim() },
       ],
       5,

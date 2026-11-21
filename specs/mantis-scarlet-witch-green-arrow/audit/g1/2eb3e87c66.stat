@@ -1,0 +1,22 @@
+commit 2eb3e87c66
+Author:     Kimi Agent <zhangkaiyi@moonshot.ai>
+AuthorDate: Thu Nov 19 14:44:54 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 19 14:44:54 2026 +0800
+
+    ci: use fixed product names for release titles (#5088)
+    
+    * ci: use product names for release titles
+    
+    * ci: include versions in release titles
+    
+    ---------
+    
+    Co-authored-by: kimi-agent-bot <317908118+kimi-agent-bot@users.noreply.github.com>
+
+ .github/workflows/canary-release.yml |  4 ++--
+ .github/workflows/desktop-build.yml  |  2 +-
+ .github/workflows/release.yml        |  8 ++++++++
+ scripts/release.mjs                  |  2 +-
+ scripts/release.test.mjs             | 16 +++++++++++++++-
+ 5 files changed, 27 insertions(+), 5 deletions(-)

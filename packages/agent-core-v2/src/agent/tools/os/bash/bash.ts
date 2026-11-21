@@ -64,9 +64,14 @@ export const BashInputSchema = z
     }
   });
 
-export type BashInput = z.infer<typeof BashInputSchema>;
+export const BashOutputSchema = z.object({
+  exitCode: z.number().int(),
+  stdout: z.string(),
+  stderr: z.string(),
+});
 
-export interface IBashTool extends AgentTool<BashInput> {
-  readonly _serviceBrand: undefined;
-}
+export type BashInput = z.infer<typeof BashInputSchema>;
+export type BashOutput = z.infer<typeof BashOutputSchema>;
+
+export interface IBashTool extends AgentTool<BashInput> { readonly _serviceBrand: undefined }
 export const IBashTool = createDecorator<IBashTool>('bashTool');

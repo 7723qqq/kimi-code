@@ -9,43 +9,25 @@ export function setClampedTimeout(
   return setTimeout(callback, Math.min(timeoutMs, MAX_TIMER_DELAY_MS));
 }
 
-export interface IntervalScheduler {
-  setInterval(callback: () => void, intervalMs: number): unknown;
-  clearInterval(handle: unknown): void;
-}
-
-export const SYSTEM_INTERVAL_SCHEDULER: IntervalScheduler = {
-  setInterval(callback, intervalMs) {
-    return globalThis.setInterval(callback, intervalMs);
-  },
-  clearInterval(handle) {
-    globalThis.clearInterval(handle as ReturnType<typeof setInterval>);
-  },
-};
-
 export interface IntervalTimerOptions {
   readonly unref?: boolean;
-  readonly scheduler?: IntervalScheduler;
 }
 
 export class IntervalTimer implements IDisposable {
-  private handle: unknown;
-  private readonly scheduler: IntervalScheduler;
+  private handle: ReturnType<typeof setInterval> | undefined;
 
-  constructor(private readonly options: IntervalTimerOptions = {}) {
-    this.scheduler = options.scheduler ?? SYSTEM_INTERVAL_SCHEDULER;
-  }
+  constructor(private readonly options: IntervalTimerOptions = {}) {}
 
   cancel(): void {
     if (this.handle !== undefined) {
-      this.scheduler.clearInterval(this.handle);
+      clearInterval(this.handle);
       this.handle = undefined;
     }
   }
 
   cancelAndSet(runner: () => void, intervalMs: number): void {
     this.cancel();
-    const handle = this.scheduler.setInterval(runner, intervalMs);
+    const handle = setInterval(runner, intervalMs);
     if (
       this.options.unref === true &&
       typeof handle === 'object' &&

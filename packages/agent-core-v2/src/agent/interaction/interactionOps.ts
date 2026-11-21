@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { AgentEvent2, registerEvent2Class } from '#/app/event/event2';
@@ -12,7 +12,9 @@ const interactionRequestSchema = z.object({
   request: z.unknown(),
 });
 
-export class InteractionRequestEvent extends AgentEvent2<z.infer<typeof interactionRequestSchema>> {
+export class InteractionRequestEvent extends AgentEvent2<
+  z.infer<typeof interactionRequestSchema>
+> {
   static override readonly type = 'interaction.request';
   static override readonly durable = true;
   static override readonly schema = interactionRequestSchema;

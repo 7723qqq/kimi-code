@@ -1,4 +1,4 @@
-import type { ContentPart, Message } from '#/llm/message';
+import type { ContentPart, DocumentURLPart, Message } from '#human/message';
 
 import { convertToolResultToPlainText } from '../tool-result-text';
 import type { ResponsesInputContentItem, ResponsesInputItem } from './contract';
@@ -6,7 +6,7 @@ import type { ResponsesInputContentItem, ResponsesInputItem } from './contract';
 const OMITTED_AUDIO_PLACEHOLDER = '(audio omitted: unsupported audio format)';
 const OMITTED_VIDEO_PLACEHOLDER = '(video omitted: not supported by this provider)';
 
-function contentPartsToInputItems(parts: readonly ContentPart[]): ResponsesInputContentItem[] {
+function contentPartsToInputItems(parts: readonly (ContentPart | DocumentURLPart)[]): ResponsesInputContentItem[] {
   const items: ResponsesInputContentItem[] = [];
   for (const part of parts) {
     switch (part.type) {
@@ -40,7 +40,7 @@ function contentPartsToInputItems(parts: readonly ContentPart[]): ResponsesInput
   return items;
 }
 
-function contentPartsToOutputItems(parts: readonly ContentPart[]): ResponsesInputContentItem[] {
+function contentPartsToOutputItems(parts: readonly (ContentPart | DocumentURLPart)[]): ResponsesInputContentItem[] {
   const items: ResponsesInputContentItem[] = [];
   for (const part of parts) {
     if (part.type === 'text' && part.text) {
@@ -51,7 +51,7 @@ function contentPartsToOutputItems(parts: readonly ContentPart[]): ResponsesInpu
 }
 
 function messageContentToFunctionOutputItems(
-  content: readonly ContentPart[],
+  content: readonly (ContentPart | DocumentURLPart)[],
 ): ResponsesInputContentItem[] {
   const items: ResponsesInputContentItem[] = [];
   for (const part of content) {

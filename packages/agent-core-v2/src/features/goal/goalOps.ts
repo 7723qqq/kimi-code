@@ -1,9 +1,15 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';
 
-import type { GoalActor, GoalBudgetLimits, GoalChange, GoalSnapshot, GoalStatus } from './types';
+import type {
+  GoalActor,
+  GoalBudgetLimits,
+  GoalChange,
+  GoalSnapshot,
+  GoalStatus,
+} from './types';
 
 export interface GoalState {
   readonly goalId: string;
@@ -12,26 +18,15 @@ export interface GoalState {
   readonly status: GoalStatus;
   readonly turnsUsed: number;
   readonly tokensUsed: number;
-  readonly inputTokensUsed: number;
-  readonly outputTokensUsed: number;
   readonly wallClockMs: number;
   readonly wallClockResumedAt?: number;
   readonly budgetLimits: GoalBudgetLimits;
   readonly terminalReason?: string;
-  readonly createdAt: number;
-  readonly updatedAt: number;
 }
 
 export type GoalModelState = GoalState | null;
 
-const GoalStatusSchema = z.enum([
-  'active',
-  'paused',
-  'blocked',
-  'complete',
-  'budget_limited',
-  'usage_limited',
-]);
+const GoalStatusSchema = z.enum(['active', 'paused', 'blocked', 'complete']);
 
 const GoalActorSchema = z.enum(['user', 'model', 'runtime', 'system']);
 
@@ -50,8 +45,6 @@ const goalCreateSchema = z
     objective: z.string(),
     completionCriterion: z.string().optional(),
     wallClockResumedAt: z.number().finite().nonnegative().optional(),
-    createdAt: z.number().finite().nonnegative().optional(),
-    updatedAt: z.number().finite().nonnegative().optional(),
     status: GoalStatusSchema.optional(),
     actor: GoalActorSchema.optional(),
     budgetLimits: GoalBudgetLimitsSchema.optional(),
@@ -69,8 +62,6 @@ export interface GoalCreate {
   readonly objective: string;
   readonly completionCriterion?: string;
   readonly wallClockResumedAt?: number;
-  readonly createdAt?: number;
-  readonly updatedAt?: number;
   readonly status?: GoalStatus;
   readonly actor?: GoalActor;
   readonly budgetLimits?: GoalBudgetLimits;
@@ -87,9 +78,6 @@ const goalUpdateSchema = z
     tokensUsed: z.number().finite().nonnegative().optional(),
     wallClockMs: z.number().finite().nonnegative().optional(),
     wallClockResumedAt: z.number().finite().nonnegative().optional(),
-    inputTokensUsed: z.number().finite().nonnegative().optional(),
-    outputTokensUsed: z.number().finite().nonnegative().optional(),
-    updatedAt: z.number().finite().nonnegative().optional(),
     budgetLimits: GoalBudgetLimitsSchema.optional(),
     actor: GoalActorSchema.optional(),
   })
@@ -110,9 +98,6 @@ export interface GoalUpdate {
   readonly tokensUsed?: number;
   readonly wallClockMs?: number;
   readonly wallClockResumedAt?: number;
-  readonly inputTokensUsed?: number;
-  readonly outputTokensUsed?: number;
-  readonly updatedAt?: number;
   readonly budgetLimits?: GoalBudgetLimits;
   readonly actor?: GoalActor;
 }

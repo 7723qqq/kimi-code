@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { Hono } from 'hono';
 
@@ -17,17 +17,13 @@ import { subagentsRoute } from './routes/subagents';
 import { tasksRoute } from './routes/tasks';
 import { wireRoute } from './routes/wire';
 
-/** Resolve the SPA bundle directory next to the compiled server.mjs, if it
- * exists. Returns `null` in dev mode where the web bundle lives elsewhere. */
 async function resolvePublicDir(): Promise<string | null> {
   try {
     const here = import.meta.dirname;
     const candidate = resolve(here, 'public');
     const s = await stat(candidate);
     if (s.isDirectory()) return candidate;
-  } catch {
-    // not present
-  }
+  } catch {}
   return null;
 }
 
@@ -59,8 +55,6 @@ function mimeFor(path: string): string {
 export interface CreateAppOptions {
   readonly authToken?: string;
   readonly homeDir?: string;
-  /** When provided, serve this single-file SPA from memory and skip the
-   *  filesystem `public/` lookup. */
   readonly webAsset?: WebAsset;
 }
 
@@ -76,11 +70,9 @@ function tokenMatches(actual: string, expected: string): boolean {
   return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
 }
 
-/** Build a Hono app mounting /api/* routes, plus SPA static fallback. */
 export async function createApp(options: CreateAppOptions = {}): Promise<Hono> {
   const app = new Hono();
 
-  // /api/* handlers.
   const api = new Hono();
   const authToken = options.authToken;
   const home = options.homeDir ?? KIMI_CODE_HOME;
@@ -93,48 +85,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Hono> {
       }
       c.header('www-authenticate', 'Bearer realm="kimi-vis"');
       return c.json({ error: 'unauthorized', code: 'UNAUTHORIZED' }, 401);
-    });
-  } else {
-    // CSRF defence for the loopback-no-auth mode: a malicious website on a
-    // different origin can send simple cross-origin POSTs (and some DELETEs
-    // via preflight) to `http://127.0.0.1:<port>/api/…` without the user's
-    // consent. Reject state-changing methods (POST / PUT / PATCH / DELETE)
-    // whose Origin or Referer header does not match the server's own host.
-    // Browser clients always send one of these headers on such requests;
-    // curl / scripts send neither, so they are unaffected.
-    const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-    api.use('*', async (c, next) => {
-      if (!unsafeMethods.has(c.req.method)) {
-        await next();
-        return;
-      }
-      const origin = c.req.header('origin');
-      const referer = c.req.header('referer');
-      if (origin === undefined && referer === undefined) {
-        // Non-browser client — allow.
-        await next();
-        return;
-      }
-      const expectedHost = new URL(`http://${c.req.header('host') ?? 'localhost'}`).host;
-      let allowed = false;
-      if (origin !== undefined) {
-        try {
-          allowed = new URL(origin).host === expectedHost;
-        } catch {
-          allowed = false;
-        }
-      }
-      if (!allowed && referer !== undefined) {
-        try {
-          allowed = new URL(referer).host === expectedHost;
-        } catch {
-          allowed = false;
-        }
-      }
-      if (!allowed) {
-        return c.json({ error: 'cross-origin request blocked', code: 'FORBIDDEN' }, 403);
-      }
-      await next();
     });
   }
   api.route('/sessions', sessionsRoute(home));
@@ -150,36 +100,27 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Hono> {
 
   app.route('/api', api);
 
-  // Static + SPA fallback.
   if (options.webAsset !== undefined) {
-    // Serve the embedded single-file SPA from memory for any non-/api GET.
     const asset = options.webAsset;
     app.get('*', (c) => {
       const pathname = new URL(c.req.url).pathname;
       if (pathname.startsWith('/api')) {
-        // Should have been routed above; 404 here.
         return c.json({ error: `api route not found: ${pathname}`, code: 'NOT_FOUND' }, 404);
       }
       return serveWebAsset(asset);
     });
   } else {
-    // Filesystem static serving (production standalone only).
     const publicDir = await resolvePublicDir();
     if (publicDir !== null) {
       app.get('*', async (c) => {
         const url = new URL(c.req.url);
         let pathname = decodeURIComponent(url.pathname);
         if (pathname.startsWith('/api')) {
-          // Should have been routed above; 404 here.
           return c.json({ error: `api route not found: ${pathname}`, code: 'NOT_FOUND' }, 404);
         }
         if (pathname === '/' || pathname === '') pathname = '/index.html';
         const resolved = resolve(publicDir, `.${pathname}`);
-        // Use `publicDir + sep` (not bare `publicDir`) so a sibling directory
-        // whose name is a string-prefix of publicDir (e.g. `/app/publicx`
-        // when publicDir is `/app/public`) does not bypass the containment
-        // check — `startsWith('/app/public')` would match `/app/publicx/…`.
-        if (resolved !== publicDir && !resolved.startsWith(publicDir + sep)) {
+        if (!resolved.startsWith(publicDir)) {
           return c.text('forbidden', 403);
         }
         try {
@@ -188,17 +129,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Hono> {
             const buf = await readFile(resolved);
             const body = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
             return new Response(body, {
-              headers: {
-                'content-type': mimeFor(resolved),
-                'x-content-type-options': 'nosniff',
-              },
+              headers: { 'content-type': mimeFor(resolved) },
             });
           }
-        } catch {
-          // fall through to SPA fallback
-        }
-        // SPA fallback — index.html for any unknown GET so client-side
-        // React Router can resolve the route.
+        } catch {}
         try {
           const indexHtml = await readFile(join(publicDir, 'index.html'));
           const body = new Uint8Array(indexHtml.buffer, indexHtml.byteOffset, indexHtml.byteLength);

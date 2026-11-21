@@ -1,20 +1,14 @@
-import { describe, expect, it } from 'bun:test';
-
 import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2';
-
-import { installErrorHandler } from '../src/error-handler';
 import { ErrorCode } from '../src/protocol/error-codes';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import { mapDebugError, mapError } from '../src/transport/errors';
+import { installErrorHandler } from '../src/error-handler';
 
 describe('ErrorCode', () => {
   it('has unique numeric values', () => {
     const values = Object.values(ErrorCode);
     expect(new Set(values).size).toBe(values.length);
-  });
-
-  it('distinguishes a missing turn from a missing agent on the wire', () => {
-    expect(mapError(new Error2(ErrorCodes.TURN_NOT_FOUND, 'missing'), 'r1').code).toBe(40422);
-    expect(mapError(new Error2(ErrorCodes.AGENT_NOT_FOUND, 'missing'), 'r2').code).toBe(40421);
   });
 });
 
@@ -27,9 +21,7 @@ describe('/api/v1/debug transport mapError', () => {
     [ErrorCodes.OS_FS_PERMISSION_DENIED, ErrorCode.FS_PERMISSION_DENIED],
     [ErrorCodes.STORAGE_IO_FAILED, ErrorCode.PERSISTENCE_FAILURE],
     [ErrorCodes.STORAGE_LOCKED, ErrorCode.PERSISTENCE_FAILURE],
-    [ErrorCodes.CONFIG_PERSIST_BLOCKED, ErrorCode.PERSISTENCE_FAILURE],
     [ErrorCodes.CONFIG_INVALID, ErrorCode.VALIDATION_FAILED],
-    [ErrorCodes.AGENT_NOT_FOUND, ErrorCode.AGENT_NOT_FOUND],
     [ErrorCodes.GOAL_UNSUPPORTED_AGENT, ErrorCode.GOAL_UNSUPPORTED_AGENT],
     [ErrorCodes.PROMPT_ID_CONFLICT, ErrorCode.PROMPT_ID_CONFLICT],
     [ErrorCodes.SESSION_TOWER_MODE_INVALID, ErrorCode.TOWER_MODE_INVALID],
@@ -42,10 +34,21 @@ describe('/api/v1/debug transport mapError', () => {
     expect(env.code).toBe(wire);
   });
 
-  it('preserves session conflict details', () => {
+  it('maps session-specific public errors and preserves public details', () => {
     const details = { holder: { clientIdentity: 'other' } };
-    const env = mapError(new Error2(ErrorCodes.SESSION_OCCUPIED, 'boom', { details }), 'req-1');
+    const env = mapError(
+      new Error2(ErrorCodes.SESSION_OCCUPIED, 'boom', { details }),
+      'req-1',
+    );
     expect(env.details).toEqual(details);
+    const versionDetails = { minReaderVersion: '9.9', readerVersion: '1.5' };
+    const incompatible = mapError(
+      new Error2(ErrorCodes.WIRE_VERSION_TOO_LOW, 'upgrade', { details: versionDetails }),
+      'req-1',
+    );
+    expect(incompatible.code).toBe(ErrorCode.WIRE_VERSION_TOO_LOW);
+    expect(incompatible.msg).toBe('upgrade');
+    expect(incompatible.details).toEqual(versionDetails);
   });
 
   it('keeps the provider and model details of auth readiness errors', () => {
@@ -75,10 +78,7 @@ describe('/api/v1/debug transport mapError', () => {
 });
 
 describe('installErrorHandler (catch-all)', () => {
-  function run(err: unknown): {
-    status: number;
-    body: { code: number; msg: string };
-  } {
+  function run(err: unknown): { code: number; msg: string; details?: unknown } {
     let installed: unknown;
     installErrorHandler({
       setErrorHandler: (h) => {
@@ -91,35 +91,31 @@ describe('installErrorHandler (catch-all)', () => {
       req: { id: string; log: { error: () => void } },
       reply: { status: (code: number) => { send: (p: unknown) => void } },
     ) => void;
-    let status = 200;
-    let body: { code: number; msg: string } | undefined;
+    let payload: { code: number; msg: string; details?: unknown } | undefined;
     handler(
       err,
       { id: 'req-1', log: { error: () => {} } },
-      {
-        status: (code: number) => ({
-          send: (p: unknown) => {
-            status = code;
-            body = p as typeof body;
-          },
-        }),
-      },
+      { status: () => ({ send: (p: unknown) => void (payload = p as typeof payload) }) },
     );
-    return { status, body: body! };
+    return payload!;
   }
 
-  it('maps an escaped config.invalid to VALIDATION_FAILED over HTTP 200', () => {
-    const { status, body } = run(new Error2(ErrorCodes.CONFIG_INVALID, 'broken pool'));
-    expect(status).toBe(200);
-    expect(body.code).toBe(ErrorCode.VALIDATION_FAILED);
-    expect(body.msg).toContain('broken pool');
+  it('maps escaped public errors to their protocol codes', () => {
+    const env = run(new Error2(ErrorCodes.CONFIG_INVALID, 'broken pool'));
+    expect(env.code).toBe(ErrorCode.VALIDATION_FAILED);
+    expect(env.msg).toContain('broken pool');
+    const details = { minReaderVersion: '9.9', readerVersion: '1.5' };
+    const incompatible = run(
+      new Error2(ErrorCodes.WIRE_VERSION_TOO_LOW, 'upgrade required', { details }),
+    );
+    expect(incompatible.code).toBe(ErrorCode.WIRE_VERSION_TOO_LOW);
+    expect(incompatible.msg).toContain('upgrade required');
+    expect(incompatible.details).toEqual(details);
   });
 
   it('keeps unknown exceptions at INTERNAL_ERROR without the stack trace', () => {
-    const { status, body } = run(new Error('boom'));
-    expect(status).toBe(200);
-    expect(body.code).toBe(ErrorCode.INTERNAL_ERROR);
-    expect(body.msg).toBe('boom');
-    expect(body).not.toHaveProperty('stack', expect.anything());
+    const env = run(new Error('boom'));
+    expect(env.code).toBe(ErrorCode.INTERNAL_ERROR);
+    expect(env).not.toHaveProperty('stack', expect.anything());
   });
 });

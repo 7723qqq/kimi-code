@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 
-import { kimiAnthropicTrait } from '#/llm-kimi/trait';
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { providerImagePolicy } from '#/llm/media/image-formats';
-import type { Message } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import { lowerMessage } from '#/llm/requester/bases/anthropic/lower';
-import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
-import type { LlmClientContext } from '#/llm/requester/requester';
+import { kimiAnthropicTrait } from '#human/llm-kimi/trait';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
+import { providerImagePolicy } from '#human/media/image-formats';
+import type { Message } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import { lowerMessage } from '#human/llm/requester/bases/anthropic/lower';
+import { createAnthropicRequester } from '#human/llm/requester/bases/anthropic/requester';
+import type { LlmClientContext } from '#human/llm/requester/requester';
 
 const routedModel: LlmModel = {
   provider: 'anthropic',

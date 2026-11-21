@@ -1,20 +1,6 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { ToolOutputAccumulator } from '#/tool/output-accumulator';
-
-function hasLoneSurrogate(text: string): boolean {
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = text.charCodeAt(i + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
-      i++;
-      continue;
-    }
-    if (code >= 0xdc00 && code <= 0xdfff) return true;
-  }
-  return false;
-}
 
 describe('ToolOutputAccumulator', () => {
   it('concatenates writes and tracks counters', () => {
@@ -137,20 +123,44 @@ describe('ToolOutputAccumulator', () => {
     expect(builder.ok().spill).toBeUndefined();
   });
 
-  it('cuts retained output on a code point boundary instead of splitting a surrogate pair', () => {
+  it('caps retained output on a code point boundary', () => {
     const builder = new ToolOutputAccumulator();
-    const limit = 10_000_000;
-    const filler = 'x'.repeat(limit - 1);
-    const emoji = '😀';
 
-    builder.write(filler);
-    builder.write(emoji);
+    builder.write(`${'x'.repeat(9_999_999)}\u{1F600}tail`);
 
     const result = builder.ok();
-    expect(result.output).toBe(filler);
-    expect(hasLoneSurrogate(result.output)).toBe(false);
-    expect(builder.totalChars).toBe(limit + 1);
-    expect(result.spill).toEqual({ totalChars: limit + 1 });
+    expect(result.output).toBe('x'.repeat(9_999_999));
+    expect(builder.nChars).toBe(9_999_999);
+    expect(builder.totalChars).toBe(10_000_005);
+    expect(result.spill).toEqual({ totalChars: 10_000_005 });
+  });
+
+  it('drops all writes after a cut leaves the head mid-pair', () => {
+    const builder = new ToolOutputAccumulator();
+
+    builder.write('x'.repeat(9_999_999));
+    builder.write(`\u{1F600}${'y'.repeat(10)}`);
+    builder.write('z');
+
+    const result = builder.ok();
+    expect(result.output).toBe('x'.repeat(9_999_999));
+    expect(builder.nChars).toBe(9_999_999);
+    expect(builder.totalChars).toBe(10_000_012);
+    expect(result.spill).toEqual({ totalChars: 10_000_012 });
+  });
+
+  it('keeps a complete pair that fills retention exactly', () => {
+    const builder = new ToolOutputAccumulator();
+
+    builder.write('x'.repeat(9_999_998));
+    builder.write('\u{1F600}');
+    builder.write('z');
+
+    const result = builder.ok();
+    expect(result.output).toBe(`${'x'.repeat(9_999_998)}\u{1F600}`);
+    expect(builder.nChars).toBe(10_000_000);
+    expect(builder.totalChars).toBe(10_000_001);
+    expect(result.spill).toEqual({ totalChars: 10_000_001 });
   });
 
   it('treats an empty write as a no-op', () => {

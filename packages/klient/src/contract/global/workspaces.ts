@@ -1,20 +1,13 @@
-/**
- * `workspaceService` — process-wide catalog of known workspaces. Mirrors
- * `agent-core-v2/app/workspace/workspace.ts`.
- */
-
 import { z } from 'zod';
 
 import { maybe, noResult } from '../helpers.js';
 import type { ServiceContract } from '../types.js';
 
-export const workspaceKindSchema = z.enum(['managed', 'implicit']);
-
 export const workspaceSchema = z.object({
   id: z.string(),
   root: z.string(),
   name: z.string(),
-  kind: workspaceKindSchema,
+  kind: z.enum(['managed', 'implicit']),
   additionalDirs: z.array(z.string()),
   createdAt: z.number(),
   lastOpenedAt: z.number(),

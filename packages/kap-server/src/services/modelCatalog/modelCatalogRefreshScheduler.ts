@@ -5,7 +5,6 @@ import {
   MODEL_CATALOG_SECTION,
 } from '@moonshot-ai/agent-core-v2';
 
-import { SYSTEM_CLOCK, type Clock, type TimerHandle } from '../../lib/clock';
 import type { ServerLogger } from '../pinoLoggerService';
 
 const DEFAULT_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -13,7 +12,7 @@ const INTERVAL_ENV = 'KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS';
 const REFRESH_ON_START_ENV = 'KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START';
 
 export class ModelCatalogRefreshScheduler {
-  private timer: TimerHandle | undefined;
+  private timer: ReturnType<typeof setInterval> | undefined;
   private started = false;
   private disposed = false;
 
@@ -22,7 +21,6 @@ export class ModelCatalogRefreshScheduler {
     private readonly config: IConfigService,
     private readonly logger: Pick<ServerLogger, 'info' | 'warn'>,
     private readonly env: NodeJS.ProcessEnv = process.env,
-    private readonly clock: Clock = SYSTEM_CLOCK,
   ) {}
 
   async start(): Promise<void> {
@@ -40,7 +38,7 @@ export class ModelCatalogRefreshScheduler {
     }
 
     if (intervalMs > 0) {
-      this.timer = this.clock.setInterval(() => void this.refresh('interval'), intervalMs);
+      this.timer = setInterval(() => void this.refresh('interval'), intervalMs);
       this.timer.unref?.();
       this.logger.info({ intervalMs }, 'provider-model catalog auto-refresh enabled');
     }
@@ -49,7 +47,7 @@ export class ModelCatalogRefreshScheduler {
   dispose(): void {
     this.disposed = true;
     if (this.timer !== undefined) {
-      this.clock.clearInterval(this.timer);
+      clearInterval(this.timer);
       this.timer = undefined;
     }
   }

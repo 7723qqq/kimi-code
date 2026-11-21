@@ -1,45 +1,40 @@
+import * as vscode from "vscode";
 import {
   effectiveModelAlias,
   type KimiConfig as SdkKimiConfig,
   type ModelAlias,
   type ProviderType,
   type ThinkingEffort,
-} from '@moonshot-ai/kimi-code-sdk';
-import * as vscode from 'vscode';
+} from "@moonshot-ai/kimi-code-sdk";
 
-import { Methods } from '../../shared/bridge';
+import { Methods } from "../../shared/bridge";
 import type {
   KimiConfig as WebviewKimiConfig,
   ModelConfig,
   SlashCommandInfo,
-} from '../../shared/legacy-sdk';
-import type { ExtensionConfig, SessionConfig } from '../../shared/types';
-import { VSCodeSettings } from '../config/vscode-settings';
-import type { Handler } from './types';
+} from "../../shared/legacy-sdk";
+import type { ExtensionConfig, SessionConfig } from "../../shared/types";
+import { VSCodeSettings } from "../config/vscode-settings";
+import type { Handler } from "./types";
 
 const SLASH_COMMANDS: SlashCommandInfo[] = [
-  { name: 'init', aliases: [], description: 'Analyze the codebase and generate AGENTS.md' },
-  { name: 'compact', aliases: [], description: 'Compact the conversation context' },
-  { name: 'clear', aliases: ['reset'], description: 'Clear the context' },
+  { name: "init", aliases: [], description: "Analyze the codebase and generate AGENTS.md" },
+  { name: "compact", aliases: [], description: "Compact the conversation context" },
+  { name: "clear", aliases: ["reset"], description: "Clear the context" },
+  { name: "yolo", aliases: [], description: "Toggle YOLO mode (auto-approve tool actions; may still ask questions)" },
   {
-    name: 'yolo',
+    name: "auto",
+    aliases: ["afk"],
+    description: "Toggle Auto mode (the agent will not ask questions; only plans in plan mode wait for your review)",
+  },
+  { name: "plan", aliases: [], description: "Toggle plan mode. Usage: /plan [on|off|view|clear]" },
+  {
+    name: "add-dir",
     aliases: [],
-    description: 'Toggle YOLO mode (auto-approve tool actions; may still ask questions)',
+    description: "Add a directory to the workspace. Usage: /add-dir <path>",
   },
-  {
-    name: 'auto',
-    aliases: ['afk'],
-    description:
-      'Toggle Auto mode (the agent will not ask questions; only plans in plan mode wait for your review)',
-  },
-  { name: 'plan', aliases: [], description: 'Toggle plan mode. Usage: /plan [on|off|view|clear]' },
-  {
-    name: 'add-dir',
-    aliases: [],
-    description: 'Add a directory to the workspace. Usage: /add-dir <path>',
-  },
-  { name: 'export', aliases: [], description: 'Export current session context to a markdown file' },
-  { name: 'import', aliases: [], description: 'Import context from a file or session ID' },
+  { name: "export", aliases: [], description: "Export current session context to a markdown file" },
+  { name: "import", aliases: [], description: "Import context from a file or session ID" },
 ];
 
 const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) => {
@@ -47,23 +42,17 @@ const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) 
   const effortChanged = params.effortChanged !== false;
   const config = await ctx.harness.getConfig({ reload: true });
   const model = config.models?.[params.model];
-  // Resolve with the provider type the way the TUI's effectiveModelForHost
-  // does: without it the Anthropic fallback profile (e.g. `claude-latest`)
-  // never matches, so the inferred default that gates persistence is missed.
   const providerType =
     model === undefined ? undefined : (config.providers?.[model.provider]?.type ?? model.protocol);
   const full = thinkingConfig(
     effort,
     model === undefined ? undefined : effectiveModelAlias(model, providerType),
   );
-  // Re-confirming the effort already shown is not an explicit choice —
-  // persist the model but leave the stored effort preference alone (the TUI's
-  // persistModelSelection rule).
   const patch = effortChanged ? full : { enabled: full.enabled };
   if (
-    config.defaultModel !== params.model ||
-    config.thinking?.enabled !== patch.enabled ||
-    (effortChanged && config.thinking?.effort !== patch.effort)
+    config.defaultModel !== params.model
+    || config.thinking?.enabled !== patch.enabled
+    || (effortChanged && config.thinking?.effort !== patch.effort)
   ) {
     await ctx.harness.setConfig({
       defaultModel: params.model,
@@ -85,7 +74,7 @@ const getExtensionConfig: Handler<void, ExtensionConfig> = async () => {
 };
 
 const openSettings: Handler<void, { ok: boolean }> = async () => {
-  await vscode.commands.executeCommand('workbench.action.openSettings', 'kimi');
+  await vscode.commands.executeCommand("workbench.action.openSettings", "kimi");
   return { ok: true };
 };
 
@@ -111,11 +100,11 @@ const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
       .map((skill) => ({
         name: `skill:${skill.name}`,
         aliases: [],
-        description: skill.description ?? '',
+        description: skill.description ?? "",
       }));
     return [...SLASH_COMMANDS, ...skillCommands];
   } catch (error) {
-    ctx.logError('Unable to list workspace skills', error);
+    ctx.logError("Unable to list workspace skills", error);
     return SLASH_COMMANDS;
   }
 };
@@ -144,9 +133,6 @@ export const configHandlers = {
 
 export function toWebviewConfig(config: SdkKimiConfig): WebviewKimiConfig {
   const models: ModelConfig[] = Object.entries(config.models ?? {})
-    // Resolve with the provider type the way saveConfig does: without it the
-    // Anthropic fallback profile never matches, and the webview's effort
-    // persistence seed would gate on a different effective model.
     .map(([id, model]) =>
       toWebviewModel(id, model, config.providers?.[model.provider]?.type ?? model.protocol),
     )
@@ -175,31 +161,15 @@ function toWebviewModel(id: string, model: ModelAlias, providerType?: ProviderTy
 
 function sessionConfigEffort(config: SessionConfig): ThinkingEffort {
   if (config.effort !== undefined) return config.effort as ThinkingEffort;
-  return config.thinking === true ? 'on' : 'off';
+  return config.thinking === true ? "on" : "off";
 }
 
-/**
- * Project a thinking effort to the `[thinking]` config patch persisted to
- * config.toml — mirrors the TUI's thinkingEffortToConfig. "off" disables
- * thinking; "on" is the boolean-model on-signal, so it only persists
- * `enabled`. A concrete effort persists as the global default, EXCEPT when it
- * ranks above the model's effective default effort: `support_efforts` is
- * ordered by strength, and a pick more expensive than the default stays
- * session-only and records just `enabled`, so it never becomes the global
- * default for every new session. The default here is the effective model's,
- * however it arose — declared via the catalog or overrides, or synthesized
- * by the protocol-profile inference (`withAnthropicProfile` resolves Claude
- * models to "high", so an "xhigh" pick stays session-only there). When the
- * effective model carries no default effort at all, its highest declared
- * level stays session-only (the historical rule). When the model's levels
- * are unknown the concrete effort is persisted as-is.
- */
 function thinkingConfig(
   effort: ThinkingEffort,
-  model?: Pick<ModelAlias, 'supportEfforts' | 'defaultEffort'>,
+  model?: Pick<ModelAlias, "supportEfforts" | "defaultEffort">,
 ): { enabled: boolean; effort?: string } {
-  if (effort === 'off') return { enabled: false };
-  if (effort === 'on') return { enabled: true };
+  if (effort === "off") return { enabled: false };
+  if (effort === "on") return { enabled: true };
   const efforts = model?.supportEfforts;
   if (efforts !== undefined && efforts.includes(effort)) {
     const declared = model?.defaultEffort;
@@ -213,5 +183,5 @@ function thinkingConfig(
 }
 
 function isUserActivatableSkill(type: string | undefined): boolean {
-  return type === undefined || type === 'prompt' || type === 'inline' || type === 'flow';
+  return type === undefined || type === "prompt" || type === "inline" || type === "flow";
 }

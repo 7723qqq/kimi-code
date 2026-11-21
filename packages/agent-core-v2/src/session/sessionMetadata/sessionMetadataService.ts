@@ -1,20 +1,19 @@
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
+import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { LifecycleScope } from '#/app/scopes';
+import { defineState } from '#/state/state';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import { LOCAL_ENVIRONMENT_ID, type EnvironmentBinding } from '#/environment/environment';
 import { buildSessionSummary } from '#/app/sessionIndex/sessionIndexSource';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
-import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
 import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
-import { defineState } from '#/state/state';
+import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
+import { LOCAL_ENVIRONMENT_ID, type EnvironmentBinding } from '#/environment/environment';
 
-import { isUntitled } from './promptMetadata';
 import {
   ISessionMetadata,
   SESSION_META_VERSION,
@@ -24,6 +23,7 @@ import {
   type SessionMetaPatch,
   type SessionTitleKind,
 } from './sessionMetadata';
+import { isUntitled } from './promptMetadata';
 
 const META_KEY = 'state.json';
 
@@ -169,9 +169,7 @@ export class SessionMetadata extends Service implements ISessionMetadata {
 
   async setArchived(archived: boolean): Promise<void> {
     await this.update(
-      archived
-        ? { archived: true, archivedAt: Date.now() }
-        : { archived: false, archivedAt: undefined },
+      archived ? { archived: true, archivedAt: Date.now() } : { archived: false, archivedAt: undefined },
       { touchUpdatedAt: false },
     );
   }
@@ -317,8 +315,9 @@ export function normalizeSessionMeta(raw: SessionMeta, sessionId: string): Sessi
     ...clean
   } = legacy;
   const cwd =
-    clean.cwd ??
-    (typeof legacyWorkDir === 'string' && legacyWorkDir.length > 0 ? legacyWorkDir : undefined);
+    clean.cwd ?? (typeof legacyWorkDir === 'string' && legacyWorkDir.length > 0
+      ? legacyWorkDir
+      : undefined);
   const { title, titleKind } = normalizedTitle;
   return {
     ...clean,
@@ -342,7 +341,9 @@ type LegacySessionMeta = Omit<SessionMeta, 'createdAt' | 'updatedAt'> & {
   readonly customTitle?: unknown;
 };
 
-function normalizeSessionTitle(raw: LegacySessionMeta): Pick<SessionMeta, 'title' | 'titleKind'> {
+function normalizeSessionTitle(
+  raw: LegacySessionMeta,
+): Pick<SessionMeta, 'title' | 'titleKind'> {
   const title = typeof raw.title === 'string' ? raw.title : undefined;
   if (title !== undefined && raw.isCustomTitle === true) {
     return { title, titleKind: 'custom' };

@@ -1,6 +1,6 @@
-import type { LlmRemoteErrorMessage } from '#/llm/errors';
-import type { Message } from '#/llm/message';
-import type { LlmCredentialProvider } from '#/llm/requester/requester';
+import type { LlmRemoteErrorMessage } from '#human/llm/errors';
+import type { Message } from '#human/message';
+import type { LlmCredentialProvider } from '#human/llm/requester/requester';
 
 export interface LlmRecoveryRecord {
   readonly strategy: string;

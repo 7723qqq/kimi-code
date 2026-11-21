@@ -1,0 +1,122 @@
+commit 4d38c0080f936f5285da8ca675072986989e457c
+Author:     qer <wbxl2000@outlook.com>
+AuthorDate: Thu Nov 19 14:03:59 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 19 14:03:59 2026 +0800
+
+    docs: rename other-agents guide title to include (Agent to Agent) (#5060)
+
+diff --git a/docs/.vitepress/config.ts b/docs/.vitepress/config.ts
+index 9c84e82c2c..cb72db5717 100644
+--- a/docs/.vitepress/config.ts
++++ b/docs/.vitepress/config.ts
+@@ -66,7 +66,7 @@ const config = withMermaid(defineConfig({
+                 { text: '在网页中使用', link: '/zh/guides/web' },
+                 { text: '在脚本与 CI 中使用', link: '/zh/guides/print' },
+                 { text: '在 IDE 中使用', link: '/zh/guides/ides' },
+-                { text: '在其他 Agent 中使用', link: '/zh/guides/other-agents' },
++                { text: '在其他 Agent 中使用（Agent to Agent）', link: '/zh/guides/other-agents' },
+               ],
+             },
+           ],
+@@ -152,7 +152,7 @@ const config = withMermaid(defineConfig({
+                 { text: 'Using in the Browser', link: '/en/guides/web' },
+                 { text: 'Using in Scripts and CI', link: '/en/guides/print' },
+                 { text: 'Using in IDEs', link: '/en/guides/ides' },
+-                { text: 'Using in Other Agents', link: '/en/guides/other-agents' },
++                { text: 'Using in Other Agents (Agent to Agent)', link: '/en/guides/other-agents' },
+               ],
+             },
+           ],
+diff --git a/docs/en/guides/other-agents.md b/docs/en/guides/other-agents.md
+index 607ae46f6e..ab1cc2ea37 100644
+--- a/docs/en/guides/other-agents.md
++++ b/docs/en/guides/other-agents.md
+@@ -1,4 +1,4 @@
+-# Using in Other Agents
++# Using in Other Agents (Agent to Agent)
+ 
+ Kimi Code CLI and the Kimi Code desktop app include a built-in **Kimi Agent Protocol (KAP)** local server, allowing other AI agents — such as Claude Code, Codex, and Cursor — to interact directly with your local Kimi Code: handing off sessions in either direction, organizing session history across workspaces, or assembling an Agent Team for multi-round plan discussions.
+ 
+diff --git a/docs/en/guides/print.md b/docs/en/guides/print.md
+index 349d516dbd..a6714951e6 100644
+--- a/docs/en/guides/print.md
++++ b/docs/en/guides/print.md
+@@ -94,6 +94,6 @@ kimi --add-dir ../shared-types -p "Align API request/response types"
+ 
+ ## Next steps
+ 
+-- [Using in Other Agents](./other-agents.md) — delegate tasks and hand off sessions from Claude Code, Codex, and Cursor
++- [Using in Other Agents (Agent to Agent)](./other-agents.md) — delegate tasks and hand off sessions from Claude Code, Codex, and Cursor
+ - [Agents and Subagents](../customization/agents.md#custom-agents) — author custom `--agent` / `--agent-file` profiles
+ - [`kimi` command reference](../reference/kimi-command.md) — full CLI option reference
+diff --git a/docs/en/guides/web.md b/docs/en/guides/web.md
+index 381a5a2599..19d63a731a 100644
+--- a/docs/en/guides/web.md
++++ b/docs/en/guides/web.md
+@@ -117,5 +117,5 @@ When the default port is busy, `kimi web` automatically retries on the next port
+ ## Next steps
+ 
+ - [Using in Scripts and CI](./print.md) — one-shot non-interactive runs and structured JSONL output
+-- [Using in Other Agents](./other-agents.md) — drive and hand off sessions from Claude Code, Codex, and Cursor
++- [Using in Other Agents (Agent to Agent)](./other-agents.md) — drive and hand off sessions from Claude Code, Codex, and Cursor
+ - [kimi command](../reference/kimi-command.md#kimi-web) — all `kimi web` and `kimi rc` options
+diff --git a/docs/en/reference/kimi-command.md b/docs/en/reference/kimi-command.md
+index 94ca8b83e0..60661ce8ee 100644
+--- a/docs/en/reference/kimi-command.md
++++ b/docs/en/reference/kimi-command.md
+@@ -161,7 +161,7 @@ kimi acp
+ 
+ Run the local Kimi server in the foreground of the current terminal — a single process that exposes the REST + WebSocket API and serves the web UI from the same origin — and open the web UI in the default browser once it is ready. The command stays attached to the terminal and shuts down cleanly on `SIGINT` / `SIGTERM` (e.g. `Ctrl-C`).
+ 
+-When the server is running, `GET /api/v1/kap.md` returns the version-matched KAP runtime guide, `GET /openapi.json` returns the REST OpenAPI document, and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document. For interacting with or handing off sessions from other agents, see [Using in Other Agents](../guides/other-agents.md).
++When the server is running, `GET /api/v1/kap.md` returns the version-matched KAP runtime guide, `GET /openapi.json` returns the REST OpenAPI document, and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document. For interacting with or handing off sessions from other agents, see [Using in Other Agents (Agent to Agent)](../guides/other-agents.md).
+ 
+ ```sh
+ kimi web                 # run the server in the foreground and open the browser
+diff --git a/docs/zh/guides/other-agents.md b/docs/zh/guides/other-agents.md
+index 0afaf98030..cb30025fca 100644
+--- a/docs/zh/guides/other-agents.md
++++ b/docs/zh/guides/other-agents.md
+@@ -1,4 +1,4 @@
+-# 在其他 Agent 中使用
++# 在其他 Agent 中使用（Agent to Agent）
+ 
+ Kimi Code CLI 与桌面端内置了 **Kimi Agent Protocol (KAP)** 本地服务，让你可以在 Claude Code、Codex、Cursor 等其他 AI Agent 中直接与本机 Kimi Code 交互——在两个 Agent 之间双向交接会话、整理本机各工作区的历史会话，或组装 Agent Team 进行多轮方案讨论。
+ 
+diff --git a/docs/zh/guides/print.md b/docs/zh/guides/print.md
+index 0078bdb946..085b718a76 100644
+--- a/docs/zh/guides/print.md
++++ b/docs/zh/guides/print.md
+@@ -94,6 +94,6 @@ kimi --add-dir ../shared-types -p "对齐前后端接口类型定义"
+ 
+ ## 下一步
+ 
+-- [在其他 Agent 中使用](./other-agents.md) — 在 Claude Code、Codex、Cursor 等 Agent 中调用与交接 Kimi Code 会话
++- [在其他 Agent 中使用（Agent to Agent）](./other-agents.md) — 在 Claude Code、Codex、Cursor 等 Agent 中调用与交接 Kimi Code 会话
+ - [Agent 与 subagent](../customization/agents.md#自定义-agent) — 编写 `--agent` / `--agent-file` 自定义角色
+ - [`kimi` 命令参考](../reference/kimi-command.md) — 完整命令行参数列表
+diff --git a/docs/zh/guides/web.md b/docs/zh/guides/web.md
+index 0989c7a95c..945e2272eb 100644
+--- a/docs/zh/guides/web.md
++++ b/docs/zh/guides/web.md
+@@ -117,5 +117,5 @@ Web 界面和 CLI 共享同一份登录态、配置（`config.toml`）和会话
+ ## 下一步
+ 
+ - [在脚本与 CI 中使用](./print.md) — 单次非交互执行与结构化输出
+-- [在其他 Agent 中使用](./other-agents.md) — 从 Claude Code、Codex、Cursor 等 Agent 驱动与交接会话
++- [在其他 Agent 中使用（Agent to Agent）](./other-agents.md) — 从 Claude Code、Codex、Cursor 等 Agent 驱动与交接会话
+ - [kimi 命令](../reference/kimi-command.md#kimi-web) — `kimi web` 与 `kimi rc` 的全部命令行选项
+diff --git a/docs/zh/reference/kimi-command.md b/docs/zh/reference/kimi-command.md
+index 6876e0062d..48f53a1d81 100644
+--- a/docs/zh/reference/kimi-command.md
++++ b/docs/zh/reference/kimi-command.md
+@@ -161,7 +161,7 @@ kimi acp
+ 
+ 在当前终端前台运行本地 Kimi 服务 —— 同一个进程同时挂载 REST + WebSocket API 与 web UI —— 并在服务就绪后用默认浏览器打开 web UI。命令会一直挂在终端，直到收到 `SIGINT` / `SIGTERM`（如 `Ctrl-C`）时干净退出。
+ 
+-服务运行时，`GET /api/v1/kap.md` 会返回当前版本的 KAP 接口说明，`GET /openapi.json` 会返回 REST OpenAPI 文档，`GET /asyncapi.json` 会返回本地 WebSocket 协议的 AsyncAPI 文档。在其他 Agent 中交互与交接会话见[在其他 Agent 中使用](../guides/other-agents.md)。
++服务运行时，`GET /api/v1/kap.md` 会返回当前版本的 KAP 接口说明，`GET /openapi.json` 会返回 REST OpenAPI 文档，`GET /asyncapi.json` 会返回本地 WebSocket 协议的 AsyncAPI 文档。在其他 Agent 中交互与交接会话见[在其他 Agent 中使用（Agent to Agent）](../guides/other-agents.md)。
+ 
+ ```sh
+ kimi web                 # 前台运行服务并打开浏览器

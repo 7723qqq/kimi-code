@@ -1,30 +1,15 @@
-// test/fuzz.test.ts
-//
-// Deterministic fuzzing (fixed-seed PRNG — no per-run randomness; scale the
-// volume with TS_BASH_FUZZ_SCALE=N for deeper local runs):
-//   a) token soup — random sequences of bash operators/keywords/fragments;
-//   b) byte mutations of the curated fixtures (replace/delete/insert,
-//      NUL included);
-//   c) nesting bombs — programmatic deep $(…) / (…) / ${…} / if nesting.
-//
-// Contract under test: parse never throws; within budget it returns either
-// ok:true or { ok:false, reason:'aborted' }; an ok:true tree is always
-// structurally sound (assertTreeIntegrity); nesting beyond the documented
-// depth caps degrades locally (hasError) instead of throwing.
-
-import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import { parse } from '#/parse';
 import type { ParseOptions, ParseResult } from '#/parse';
-
 import { assertTreeIntegrity, parseFixtureFile } from './helpers/differential';
 
 const PKG_ROOT = path.resolve(import.meta.dirname, '..');
 const SCALE = Math.max(1, Number(process.env['TS_BASH_FUZZ_SCALE'] ?? 1) || 1);
 
-/** Park–Miller minimal standard PRNG: small, portable, deterministic. */
 function prng(seed: number): () => number {
   let state = seed % 2147483647;
   if (state <= 0) state += 2147483646;
@@ -53,91 +38,17 @@ function checkContract(source: string, options?: ParseOptions): ParseResult {
 }
 
 const TOKEN_POOL = [
-  'echo',
-  'ls',
-  'foo',
-  'bar',
-  'x',
-  'A=1',
-  'if',
-  'then',
-  'fi',
-  'while',
-  'do',
-  'done',
-  'for',
-  'in',
-  'case',
-  'esac',
-  '&&',
-  '||',
-  '|',
-  '|&',
-  ';',
-  '&',
-  ';;',
-  ';&',
-  '(',
-  ')',
-  '{',
-  '}',
-  '>',
-  '>>',
-  '<',
-  '>&1',
-  '2>',
-  '&>',
-  '<<EOF',
-  '<<<',
-  '$x',
-  '${v}',
-  '${v:-d}',
-  '$(cmd)',
-  '`cmd`',
-  '$((1+2))',
-  '[[',
-  ']]',
-  '[',
-  ']',
-  '==',
-  '=~',
-  '-f',
-  '-z',
-  '"str"',
-  "'raw'",
-  '$"t"',
-  "$'a'",
-  '*',
-  '?',
-  '[a-z]',
-  '@(a|b)',
-  '\\\\',
-  '\\n',
-  '\n',
-  '#c',
-  'function',
-  'return',
-  '${v#p}',
-  '${v/p/r}',
-  '${v[@]}',
-  '!<',
-  '>(p)',
-  '<(p)',
-  '$#',
-  '$?',
-  '0x1F',
-  '..',
-  '<<-',
-  '>&-',
-  'abc_def',
+  'echo', 'ls', 'foo', 'bar', 'x', 'A=1', 'if', 'then', 'fi', 'while', 'do', 'done', 'for', 'in', 'case', 'esac',
+  '&&', '||', '|', '|&', ';', '&', ';;', ';&', '(', ')', '{', '}', '>', '>>', '<', '>&1', '2>', '&>', '<<EOF',
+  '<<<', '$x', '${v}', '${v:-d}', '$(cmd)', '`cmd`', '$((1+2))', '[[', ']]', '[', ']', '==', '=~', '-f', '-z',
+  '"str"', "'raw'", '$"t"', "$'a'", '*', '?', '[a-z]', '@(a|b)', '\\\\', '\\n', '\n', '#c', 'function', 'return',
+  '${v#p}', '${v/p/r}', '${v[@]}', '!<', '>(p)', '<(p)', '$#', '$?', '0x1F', '..', '<<-', '>&-', 'abc_def',
 ] as const;
 
 function fixtureSources(): string[] {
   const dir = path.join(PKG_ROOT, 'test/fixtures/differential');
   const out: string[] = [];
-  for (const file of readdirSync(dir)
-    .filter((f) => f.endsWith('.txt'))
-    .toSorted()) {
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.txt')).toSorted()) {
     for (const sample of parseFixtureFile(file, readFileSync(path.join(dir, file), 'utf8'))) {
       out.push(sample.source);
     }
@@ -174,7 +85,6 @@ describe('fuzz: byte mutations of fixtures', () => {
       const mode = rand();
       let mutated: string;
       if (mode < 0.4) {
-        // replace one code unit (may be NUL)
         const code = Math.floor(rand() * 256);
         mutated = base.slice(0, pos) + String.fromCodePoint(code) + base.slice(pos + 1);
       } else if (mode < 0.7) {
@@ -197,8 +107,6 @@ describe('fuzz: nesting bombs degrade locally per the documented depth caps', ()
   const ifs = (depth: number): string => `${'if x; then '.repeat(depth)}y${'; fi'.repeat(depth)}`;
 
   it('within the caps the trees are clean', () => {
-    // literalDepth ticks twice per ${…} level (parseLiteral + parseExpansion),
-    // so 200 levels stay under MAX_PARSE_DEPTH = 500.
     for (const source of [substitution(100), subshell(400), expansion(200), ifs(400)]) {
       const result = checkContract(source, { timeoutMs: 60_000 });
       expect(result.ok).toBe(true);
@@ -223,7 +131,6 @@ describe('fuzz: nesting bombs degrade locally per the documented depth caps', ()
   it('extreme nesting never overflows the stack', () => {
     for (const source of [substitution(5000), subshell(5000), expansion(5000), ifs(5000)]) {
       const result = checkContract(source, { timeoutMs: 60_000 });
-      // Either a locally degraded tree (hasError) or a clean budget abort.
       if (result.ok) expect(result.hasError).toBe(true);
       else expect(result.reason).toBe('aborted');
     }

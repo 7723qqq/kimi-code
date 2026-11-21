@@ -3,6 +3,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { legacyDidExecuteContext } from '#/agent/toolExecutor/legacyHooks';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
@@ -116,9 +117,10 @@ export class AgentHelloWorldService extends Service implements IAgentHelloWorldS
       ),
     );
     this._register(
-      toolExecutor.hooks.onDidExecuteTool.register('hello-world-run', async (ctx, next) => {
-        this.observeToolRound(ctx);
-        await next(ctx);
+      toolExecutor.registerHook({
+        afterExecute: async (context) => {
+          this.observeToolRound(legacyDidExecuteContext(context));
+        },
       }),
     );
   }
@@ -128,7 +130,7 @@ export class AgentHelloWorldService extends Service implements IAgentHelloWorldS
     void this.dispatcher.dispatch(
       new HelloWorldModeEnter({ agentId: this.agentCtx.agentId, trigger, task }),
     );
-    this.telemetry.track2('hello_world_mode_entered', { trigger });
+    this.telemetry.track('hello_world_mode_entered', { trigger });
   }
 
   exit(): void {
@@ -136,7 +138,7 @@ export class AgentHelloWorldService extends Service implements IAgentHelloWorldS
     if (trigger === null) return;
     const history = this.context.get();
     void this.dispatcher.dispatch(new HelloWorldModeExit({ agentId: this.agentCtx.agentId }));
-    this.telemetry.track2('hello_world_mode_exited', { trigger });
+    this.telemetry.track('hello_world_mode_exited', { trigger });
     this.context.publishTrailingRemoval(history);
   }
 
@@ -196,7 +198,7 @@ export class AgentHelloWorldService extends Service implements IAgentHelloWorldS
     if (run.stage !== previousStage) {
       const stage: string = run.stage;
       const previous: string = previousStage;
-      this.telemetry.track2('hello_world_stage_changed', { stage, previous });
+      this.telemetry.track('hello_world_stage_changed', { stage, previous });
     }
   }
 }

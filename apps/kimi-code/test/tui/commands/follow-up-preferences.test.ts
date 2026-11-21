@@ -1,6 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-
 import { setKittyProtocolActive, type Component } from '@moonshot-ai/pi-tui';
+import { describe, expect, it, vi, requireActual } from '@moonshot-ai/testkit/vitest';
 
 import {
   applyFollowUpBehaviorChoice,
@@ -9,16 +8,23 @@ import {
 } from '#/tui/commands/config';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import { FollowUpBehaviorSelectorComponent } from '#/tui/components/dialogs/follow-up-behavior-selector';
-import * as tuiConfig from '#/tui/config';
 import { renderTuiConfig, type FollowUpBehavior, type TuiConfig } from '#/tui/config';
-import { restoreEnvs, setEnv } from '#test/helpers/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
-const mocks = {
-  saveTuiConfig: spyOn(tuiConfig, 'saveTuiConfig').mockImplementation(async () => {}),
-};
+const mocks = vi.hoisted(() => ({
+  saveTuiConfig: vi.fn(),
+}));
 
-const ANSI = /\u001B\[[0-9;]*m/g;
+void vi.mock('../../../src/tui/config', () => {
+  const actual = requireActual(
+    '../../../src/tui/config.js',
+  );
+  return {
+    ...actual,
+    saveTuiConfig: mocks.saveTuiConfig,
+  };
+});
+
+const ANSI = /\[[0-9;]*m/g;
 const strip = (text: string): string => text.replaceAll(ANSI, '');
 
 function makeHost(followUpBehavior?: FollowUpBehavior) {
@@ -33,11 +39,11 @@ function makeHost(followUpBehavior?: FollowUpBehavior) {
   };
   return {
     state: { appState, ui: { mode: 'regular' as const } },
-    setAppState: mock((patch: Partial<typeof appState>) => {
+    setAppState: vi.fn((patch: Partial<typeof appState>) => {
       Object.assign(appState, patch);
     }),
-    showStatus: mock(),
-    showNotice: mock(),
+    showStatus: vi.fn(),
+    showNotice: vi.fn(),
   };
 }
 
@@ -46,21 +52,9 @@ function savedConfig(): TuiConfig {
   return mocks.saveTuiConfig.mock.calls[0]![0] as TuiConfig;
 }
 
-beforeEach(() => {
-  setEnv('KIMI_CODE_TUI_FULL_SCREEN', '');
-  setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '');
-  setEnv('TERM', 'xterm-256color');
-  setEnv('TERMUX_VERSION', '');
-  setEnv('TMUX', '');
-});
-
-afterEach(() => {
-  restoreEnvs();
-});
-
 describe('follow-up behavior preference', () => {
   it('writes a live line when queue is picked while the preference is unset', async () => {
-    mocks.saveTuiConfig.mockClear();
+    mocks.saveTuiConfig.mockReset();
     const host = makeHost();
 
     await applyFollowUpBehaviorChoice(host, 'queue');
@@ -73,7 +67,7 @@ describe('follow-up behavior preference', () => {
   });
 
   it('saves steer over queue', async () => {
-    mocks.saveTuiConfig.mockClear();
+    mocks.saveTuiConfig.mockReset();
     const host = makeHost('queue');
 
     await applyFollowUpBehaviorChoice(host, 'steer');
@@ -83,7 +77,7 @@ describe('follow-up behavior preference', () => {
   });
 
   it('does not rewrite the config when the stored value is unchanged', async () => {
-    mocks.saveTuiConfig.mockClear();
+    mocks.saveTuiConfig.mockReset();
     const host = makeHost('steer');
 
     await applyFollowUpBehaviorChoice(host, 'steer');
@@ -94,7 +88,7 @@ describe('follow-up behavior preference', () => {
   });
 
   it('reports a save failure without touching appState', async () => {
-    mocks.saveTuiConfig.mockClear();
+    mocks.saveTuiConfig.mockReset();
     mocks.saveTuiConfig.mockRejectedValueOnce(new Error('disk full'));
     const host = makeHost();
 
@@ -109,7 +103,7 @@ describe('follow-up behavior preference', () => {
   });
 
   it('survives a save of another preference', async () => {
-    mocks.saveTuiConfig.mockClear();
+    mocks.saveTuiConfig.mockReset();
     const host = makeHost('steer');
 
     await applyTuiModeChoice(host, 'fullscreen');
@@ -118,24 +112,20 @@ describe('follow-up behavior preference', () => {
   });
 
   it('opens from /settings and saves the picked value', async () => {
-    mocks.saveTuiConfig.mockClear();
-    mocks.saveTuiConfig.mockImplementation(async () => {});
+    mocks.saveTuiConfig.mockReset();
+    mocks.saveTuiConfig.mockResolvedValue(undefined);
     let mounted: (Component & { handleInput(data: string): void }) | undefined;
     const host = {
       ...makeHost(),
-      mountEditorReplacement: mock((panel: Component & { handleInput(data: string): void }) => {
+      mountEditorReplacement: vi.fn((panel: Component & { handleInput(data: string): void }) => {
         mounted = panel;
       }),
-      restoreEditor: mock(),
+      restoreEditor: vi.fn(),
     };
 
     showSettingsSelector(host as unknown as SlashCommandHost);
     const settings = mounted!;
-    for (
-      let i = 0;
-      i < 20 && !strip(settings.render(100).join('\n')).includes('❯ Follow-up behavior');
-      i++
-    ) {
+    for (let i = 0; i < 20 && !strip(settings.render(100).join('\n')).includes('❯ Follow-up behavior'); i++) {
       settings.handleInput('\u001B[B');
     }
     setKittyProtocolActive(true);
@@ -151,43 +141,30 @@ describe('follow-up behavior preference', () => {
     expect(lines).toContain(' Follow-up behavior');
     expect(lines).toContain('  ❯ Queue ← current');
     expect(lines).toContain('    Steer');
-    expect(lines.map((line) => line.trim())).toContain(
-      'Enter queues follow-ups until Kimi finishes. Ctrl-Enter steers one.',
-    );
+    expect(lines.map((line) => line.trim())).toContain('Enter queues follow-ups until Kimi finishes. Ctrl-Enter steers one.');
 
     picker.handleInput('\u001B[B');
     picker.handleInput('\r');
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(host.state.appState.followUpBehavior).toBe('steer');
     });
     expect(savedConfig().followUpBehavior).toBe('steer');
   });
 
   it.each([
-    [
-      true,
-      'Enter queues follow-ups until Kimi finishes. Ctrl-Enter steers one.',
-      'Enter steers follow-ups into the current turn. Ctrl-Enter queues one.',
-    ],
-    [
-      false,
-      'Enter queues follow-ups until Kimi finishes.',
-      'Enter steers follow-ups into the current turn. Ctrl-Q queues one.',
-    ],
-  ] as const)(
-    'names only the keys this terminal reports (Ctrl-Enter recognized: %s)',
-    (ctrlEnterRecognized, queue, steer) => {
-      const picker = new FollowUpBehaviorSelectorComponent({
-        currentValue: 'queue',
-        ctrlEnterRecognized,
-        onSelect: mock(),
-        onCancel: mock(),
-      });
+    [true, 'Enter queues follow-ups until Kimi finishes. Ctrl-Enter steers one.', 'Enter steers follow-ups into the current turn. Ctrl-Enter queues one.'],
+    [false, 'Enter queues follow-ups until Kimi finishes.', 'Enter steers follow-ups into the current turn. Ctrl-Q queues one.'],
+  ])('names only the keys this terminal reports (Ctrl-Enter recognized: %s)', (ctrlEnterRecognized, queue, steer) => {
+    const picker = new FollowUpBehaviorSelectorComponent({
+      currentValue: 'queue',
+      ctrlEnterRecognized,
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
 
-      const lines = picker.render(140).map((line) => strip(line).trim());
+    const lines = picker.render(140).map((line) => strip(line).trim());
 
-      expect(lines).toContain(queue);
-      expect(lines).toContain(steer);
-    },
-  );
+    expect(lines).toContain(queue);
+    expect(lines).toContain(steer);
+  });
 });

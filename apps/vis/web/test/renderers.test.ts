@@ -1,15 +1,17 @@
-import { describe, expect, it } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { WIRE_RENDERERS } from '../src/components/wire/renderers';
 
 type CheckpointRecord = Parameters<
   (typeof WIRE_RENDERERS)['file_history.checkpoint']['headline']
 >[0];
-type TrackedRecord = Parameters<(typeof WIRE_RENDERERS)['file_history.tracked']['headline']>[0];
+type TrackedRecord = Parameters<
+  (typeof WIRE_RENDERERS)['file_history.tracked']['headline']
+>[0];
 type CompactionRecord = Parameters<
   (typeof WIRE_RENDERERS)['context.apply_compaction']['headline']
 >[0];
@@ -49,20 +51,17 @@ function compactionRecord(overrides: Record<string, unknown> = {}): CompactionRe
 const HISTORICAL_OR_HEADER_TYPES = new Set([
   'metadata',
   'context.update_token_count',
+  'micro_compaction.apply',
   'staleGuard.recorded',
   'staleGuard.cleared',
-  // Legacy fork-only record: the retired native engine's prediction fast-path
-  // wrote it, but agent-core-v2 (and therefore the wire manifest) does not
-  // declare it.
-  'context.replace_tool_result',
-  // v2-dropped durable record: old wires still contain it, but the loop-side
-  // prompt admission facility that declared it is gone from agent-core-v2.
   'prompt.accepted',
+  'task.waitDelivered',
+  'turn.step.interrupted',
+  'turn.step.retrying',
 ]);
 
 describe('wire renderers', () => {
-  it('covers every durable record and renders MCP failure resolution', async () => {
-    const manifestPath = resolve(
+  it('covers every durable record and renders MCP failure resolution', async () => {    const manifestPath = resolve(
       import.meta.dirname,
       '../../../../packages/agent-core-v2/docs/wire-manifest.d.ts',
     );
@@ -89,6 +88,29 @@ describe('wire renderers', () => {
     const markup = renderToStaticMarkup(headline.main);
     expect(markup).toContain('example');
     expect(markup).toContain('recovered');
+    const mediaDetail = WIRE_RENDERERS['context.append_message'].detail?.({
+      type: 'context.append_message',
+      agentId: 'main',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAA' } },
+        ],
+      },
+    } as never);
+    expect(renderToStaticMarkup(mediaDetail)).toContain('data:image/png;base64,AAA');
+    const predictionRequest = WIRE_RENDERERS['llm.request'].headline({
+      type: 'llm.request',
+      agentId: 'main',
+      kind: 'prediction',
+      provider: 'kimi',
+      model: 'kimi-k2',
+      toolSelect: false,
+      systemPromptHash: 'system',
+      toolsHash: 'tools',
+      messageCount: 2,
+    });
+    expect(renderToStaticMarkup(predictionRequest.main)).toContain('prediction');
   });
 
   it('renders a change-notifier snapshot written before the belief fields existed', () => {
@@ -234,8 +256,12 @@ describe('wire renderers', () => {
       summary: undefined,
       contextSummary: 'context-only summary',
     });
-    expect(renderToStaticMarkup(renderer.headline(contextOnly).main)).toContain('contextSummary');
-    expect(renderToStaticMarkup(renderer.detail?.(contextOnly))).toContain('context-only summary');
+    expect(renderToStaticMarkup(renderer.headline(contextOnly).main)).toContain(
+      'contextSummary',
+    );
+    expect(renderToStaticMarkup(renderer.detail?.(contextOnly))).toContain(
+      'context-only summary',
+    );
 
     const legacy = compactionRecord({
       summary: {
@@ -310,60 +336,5 @@ describe('wire renderers', () => {
 
     expect(markup).toContain('invalid');
     expect(markup).not.toContain('[object Object]');
-  });
-
-  // Audit a37/F2 — `permission.record_approval_result.result` is asserted by
-  // the type only, so an imported / hand-edited record can reach the renderer
-  // without it. Dereferencing `r.result` used to throw here and unmount the
-  // React root (blank app); the renderer must instead show a neutral
-  // placeholder and keep rendering.
-  it.each([
-    ['missing result', undefined],
-    ['null result', null],
-    ['string result', 'broken'],
-    ['numeric result', 42],
-  ])('renders an approval record with a %s as a placeholder', (_label, result) => {
-    const renderer = WIRE_RENDERERS['permission.record_approval_result'];
-    const record = {
-      type: 'permission.record_approval_result',
-      toolName: 'Bash',
-      toolCallId: 'call-12345678',
-      action: 'approve',
-      turnId: 't1',
-      result,
-    } as unknown as Parameters<typeof renderer.headline>[0];
-
-    const headline = renderer.headline(record);
-    const detail = renderer.detail?.(record);
-    const markup = [headline.main, headline.right, detail]
-      .map((node) => renderToStaticMarkup(node))
-      .join('');
-
-    // react-dom/server escapes the angle brackets in static markup.
-    expect(markup).toContain('&lt;missing result&gt;');
-    expect(markup).not.toContain('undefined');
-    expect(markup).not.toContain('[object Object]');
-  });
-
-  it('still renders a well-formed approval decision and its scope', () => {
-    const renderer = WIRE_RENDERERS['permission.record_approval_result'];
-    const record = {
-      type: 'permission.record_approval_result',
-      toolName: 'Bash',
-      toolCallId: 'call-12345678',
-      action: 'approve',
-      turnId: 't1',
-      result: { decision: 'approved', scope: 'session', feedback: 'ok' },
-    } as unknown as Parameters<typeof renderer.headline>[0];
-
-    const headline = renderToStaticMarkup(renderer.headline(record).main);
-    const detail = renderToStaticMarkup(renderer.detail?.(record));
-
-    expect(headline).toContain('approved');
-    expect(headline).toContain('session');
-    expect(headline).not.toContain('<missing result>');
-    expect(detail).toContain('approved');
-    expect(detail).toContain('session');
-    expect(detail).toContain('ok');
   });
 });

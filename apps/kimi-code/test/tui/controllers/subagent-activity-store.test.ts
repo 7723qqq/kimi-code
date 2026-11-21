@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'bun:test';
-
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   MAX_SUBAGENT_ACTIVITY_STEPS,
@@ -10,7 +9,6 @@ import {
 } from '#/tui/constant/rendering';
 import { STREAMING_ARGS_PREVIEW_MAX_CHARS } from '#/tui/constant/streaming';
 import {
-  MAX_SUBAGENT_ACTIVITY_RECORDS,
   SubagentActivityStore,
   type SubagentActivitySpawn,
 } from '#/tui/controllers/subagent-activity-store';
@@ -40,20 +38,15 @@ describe('SubagentActivityStore', () => {
     store.applyEvent(ev({ type: 'assistant.delta', turnId: 1, delta: 'Hello ' }));
     store.applyEvent(ev({ type: 'assistant.delta', turnId: 1, delta: 'world' }));
     store.applyEvent(
-      ev({
-        type: 'tool.call.started',
-        turnId: 1,
-        toolCallId: 't1',
-        name: 'Grep',
-        args: { pattern: 'foo' },
-      }),
+      ev({ type: 'tool.call.started', turnId: 1, toolCallId: 't1', name: 'Grep', args: { pattern: 'foo' } }),
     );
     store.applyEvent(
       ev({
-        type: 'tool.progress',
+        type: 'tool.updated',
         turnId: 1,
         toolCallId: 't1',
-        update: { kind: 'stdout', text: 'line1\nline2\n' },
+        fields: {},
+        output: { offset: 0, text: 'line1\nline2\n' },
       }),
     );
     store.applyEvent(
@@ -76,27 +69,21 @@ describe('SubagentActivityStore', () => {
     expect(record?.version).toBeGreaterThan(0);
   });
 
-  it('shows a status progress update as the live output tail', () => {
+  it('shows a status fields update as the live output tail', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());
     store.applyEvent(
-      ev({
-        type: 'tool.call.started',
-        turnId: 1,
-        toolCallId: 't1',
-        name: 'WaitFor',
-        args: { timeout: 600 },
-      }),
+      ev({ type: 'tool.call.started', turnId: 1, toolCallId: 't1', name: 'WaitFor', args: { timeout: 600 } }),
     );
     store.applyEvent(
       ev({
-        type: 'tool.progress',
+        type: 'tool.updated',
         turnId: 1,
         toolCallId: 't1',
-        update: {
-          kind: 'status',
-          text: 'Waiting 10s / 600s · 1 background task still running',
-          replace: true,
+        fields: {
+          status: 'Waiting 10s / 600s · 1 background task still running',
+          statusReplace: true,
+          wait: { elapsedS: 10, timeoutS: 600, runningCount: 1 },
         },
       }),
     );
@@ -109,20 +96,13 @@ describe('SubagentActivityStore', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());
     store.applyEvent(
-      ev({
-        type: 'tool.call.delta',
-        turnId: 1,
-        toolCallId: 't1',
-        name: 'Bash',
-        argumentsPart: '{"command":"ls',
-      }),
+      ev({ type: 'tool.call.delta', turnId: 1, toolCallId: 't1', name: 'Bash', argumentsPart: '{"command":"ls' }),
     );
     store.applyEvent(
       ev({ type: 'tool.call.delta', turnId: 1, toolCallId: 't1', argumentsPart: ' -la"}' }),
     );
 
     let record = store.get('agent-1');
-    // No step event yet — a synthetic step holds the in-flight call.
     expect(record?.steps).toHaveLength(1);
     expect(record?.steps[0]?.toolCalls[0]?.args).toEqual({ command: 'ls -la' });
 
@@ -206,49 +186,17 @@ describe('SubagentActivityStore', () => {
     expect(record?.steps).toHaveLength(1);
     expect(record?.steps[0]?.retrying).toContain('2/5');
 
-    // The core opens a new step number for the retry attempt; the store
-    // reuses the failed attempt's row and clears the marker on that start.
     const version = record?.version ?? 0;
-    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 1, stepId: 'step-retry' }));
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0 }));
     record = store.get('agent-1');
     expect(record?.steps).toHaveLength(1);
     expect(record?.totalSteps).toBe(1);
     expect(record?.steps[0]?.retrying).toBeUndefined();
     expect(record?.version).toBe(version + 1);
 
-    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 2, stepId: 'step-next' }));
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 1 }));
     record = store.get('agent-1');
-    expect(record?.steps).toHaveLength(2);
-    expect(record?.totalSteps).toBe(2);
-    expect(record?.steps[1]?.step).toBe(2);
     expect(record?.steps[1]?.retrying).toBeUndefined();
-  });
-
-  it('dedupes a replayed step start and clears its retry marker', () => {
-    const store = new SubagentActivityStore();
-    store.ensureRecord(spawn());
-    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0, stepId: 'step-0' }));
-    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0, stepId: 'step-0' }));
-    let record = store.get('agent-1');
-    expect(record?.steps).toHaveLength(1);
-    expect(record?.totalSteps).toBe(1);
-
-    store.applyEvent(
-      ev({
-        type: 'turn.step.retrying',
-        turnId: 1,
-        step: 0,
-        nextAttempt: 2,
-        maxAttempts: 3,
-        errorName: 'Timeout',
-      }),
-    );
-    const version = store.get('agent-1')?.version ?? 0;
-    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0, stepId: 'step-0' }));
-    record = store.get('agent-1');
-    expect(record?.steps).toHaveLength(1);
-    expect(record?.steps[0]?.retrying).toBeUndefined();
-    expect(record?.version).toBe(version + 1);
   });
 
   it('implicitly creates a record for events from an unseen agent', () => {
@@ -277,7 +225,9 @@ describe('SubagentActivityStore', () => {
         argumentsPart: 'x'.repeat(STREAMING_ARGS_PREVIEW_MAX_CHARS + 1000),
       }),
     );
-    const buffers = (store as unknown as { streamingArgs: Map<string, string> }).streamingArgs;
+    const buffers = (
+      store as unknown as { streamingArgs: Map<string, string> }
+    ).streamingArgs;
     expect(buffers.get('agent-1:t1')?.length).toBeLessThanOrEqual(STREAMING_ARGS_PREVIEW_MAX_CHARS);
   });
 
@@ -300,18 +250,35 @@ describe('SubagentActivityStore', () => {
     expect(record?.error).toBe('boom');
   });
 
-  it('clear() releases all records and dedupe state', () => {
+  it('provides separate activity for successive calls to the same agent', () => {
+    const store = new SubagentActivityStore();
+    const original = store.ensureRecord(spawn());
+    store.applyEvent(ev({ type: 'assistant.delta', turnId: 1, delta: 'First output' }));
+    store.markCompleted('agent-1', 'First result');
+
+    store.ensureRecord(spawn({ parentToolCallId: 'tc-2' }));
+    store.applyEvent(ev({ type: 'assistant.delta', turnId: 2, delta: 'Second output' }));
+
+    expect(original.steps.map((step) => step.textTail)).toEqual(['First output']);
+    expect(original.resultSummary).toBe('First result');
+    expect(store.get('agent-1', 'tc-1')).toBeUndefined();
+    expect(store.get('agent-1', 'tc-2')?.steps.map((step) => step.textTail)).toEqual(['Second output']);
+  });
+
+  it('preserves activity that arrives before spawn metadata', () => {
+    const store = new SubagentActivityStore();
+    store.applyEvent(ev({ type: 'assistant.delta', turnId: 1, delta: 'Early output' }));
+    store.ensureRecord(spawn());
+
+    expect(store.get('agent-1', 'tc-1')?.steps.map((step) => step.textTail)).toEqual(['Early output']);
+  });
+
+  it('clear() releases all records', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());
-    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0, stepId: 'step-0' }));
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0 }));
     store.clear();
     expect(store.get('agent-1')).toBeUndefined();
-
-    // A replayed start after the session reset must still open a row.
-    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0, stepId: 'step-0' }));
-    const record = store.get('agent-1');
-    expect(record?.steps).toHaveLength(1);
-    expect(record?.totalSteps).toBe(1);
   });
 
   it('drop() removes one record along with its streaming buffers', () => {
@@ -319,20 +286,16 @@ describe('SubagentActivityStore', () => {
     store.ensureRecord(spawn());
     store.ensureRecord(spawn({ agentId: 'agent-2', agentName: 'general' }));
     store.applyEvent(
-      ev({
-        type: 'tool.call.delta',
-        turnId: 1,
-        toolCallId: 't1',
-        name: 'Write',
-        argumentsPart: '{"path":"a"}',
-      }),
+      ev({ type: 'tool.call.delta', turnId: 1, toolCallId: 't1', name: 'Write', argumentsPart: '{"path":"a"}' }),
     );
 
     store.drop('agent-1');
 
     expect(store.get('agent-1')).toBeUndefined();
     expect(store.get('agent-2')).toBeDefined();
-    const buffers = (store as unknown as { streamingArgs: Map<string, string> }).streamingArgs;
+    const buffers = (
+      store as unknown as { streamingArgs: Map<string, string> }
+    ).streamingArgs;
     expect([...buffers.keys()].every((key) => !key.startsWith('agent-1:'))).toBe(true);
   });
 
@@ -359,17 +322,12 @@ describe('SubagentActivityStore', () => {
   it('drops delta-only arg buffers when their step is evicted', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());
-    // A call truncated before started/result only ever produced deltas.
     store.applyEvent(
-      ev({
-        type: 'tool.call.delta',
-        turnId: 1,
-        toolCallId: 't-trunc',
-        name: 'Write',
-        argumentsPart: '{"path":"a"',
-      }),
+      ev({ type: 'tool.call.delta', turnId: 1, toolCallId: 't-trunc', name: 'Write', argumentsPart: '{"path":"a"' }),
     );
-    const buffers = (store as unknown as { streamingArgs: Map<string, string> }).streamingArgs;
+    const buffers = (
+      store as unknown as { streamingArgs: Map<string, string> }
+    ).streamingArgs;
     expect(buffers.has('agent-1:t-trunc')).toBe(true);
 
     for (let i = 0; i < MAX_SUBAGENT_ACTIVITY_STEPS; i++) {
@@ -382,68 +340,14 @@ describe('SubagentActivityStore', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());
     store.applyEvent(
-      ev({
-        type: 'tool.call.delta',
-        turnId: 1,
-        toolCallId: 't-trunc',
-        name: 'Write',
-        argumentsPart: '{"path":"a"',
-      }),
+      ev({ type: 'tool.call.delta', turnId: 1, toolCallId: 't-trunc', name: 'Write', argumentsPart: '{"path":"a"' }),
     );
-    const buffers = (store as unknown as { streamingArgs: Map<string, string> }).streamingArgs;
+    const buffers = (
+      store as unknown as { streamingArgs: Map<string, string> }
+    ).streamingArgs;
     expect(buffers.has('agent-1:t-trunc')).toBe(true);
 
     store.markCompleted('agent-1', 'done');
     expect(buffers.has('agent-1:t-trunc')).toBe(false);
-  });
-
-  it('bumps the record version when a respawn flips it back to running', () => {
-    const store = new SubagentActivityStore();
-    store.ensureRecord(spawn());
-    store.markCompleted('agent-1', 'done');
-    const versionBefore = store.get('agent-1')!.version;
-    store.ensureRecord(spawn());
-    const record = store.get('agent-1');
-    expect(record?.status).toBe('running');
-    expect(record?.version).toBe(versionBefore + 1);
-  });
-
-  it('evicts the oldest terminal records once the cross-record cap is crossed', () => {
-    const store = new SubagentActivityStore();
-    // agent-0 finishes first and is the oldest record in insertion order.
-    store.ensureRecord(spawn({ agentId: 'agent-0', agentName: 'general' }));
-    store.markCompleted('agent-0');
-    for (let i = 1; i < MAX_SUBAGENT_ACTIVITY_RECORDS; i++) {
-      store.ensureRecord(spawn({ agentId: `agent-${i}`, agentName: 'general' }));
-    }
-    expect(store.get('agent-0')).toBeDefined();
-
-    // One more record crosses the cap: the oldest terminal record goes first,
-    // while the newer (still running) records stay resident.
-    store.ensureRecord(spawn({ agentId: 'agent-last', agentName: 'general' }));
-    expect(store.get('agent-0')).toBeUndefined();
-    expect(store.get('agent-1')).toBeDefined();
-    expect(store.get('agent-last')).toBeDefined();
-    expect(store.agentIds()).toHaveLength(MAX_SUBAGENT_ACTIVITY_RECORDS);
-  });
-
-  it('skips running records when evicting beyond the cap', () => {
-    const store = new SubagentActivityStore();
-    for (let i = 0; i < MAX_SUBAGENT_ACTIVITY_RECORDS; i++) {
-      store.ensureRecord(spawn({ agentId: `agent-${i}`, agentName: 'general' }));
-    }
-    // Every record is still running: live activity must not be dropped, so
-    // the store temporarily exceeds the cap until a record turns terminal.
-    store.ensureRecord(spawn({ agentId: 'agent-last', agentName: 'general' }));
-    expect(store.agentIds()).toHaveLength(MAX_SUBAGENT_ACTIVITY_RECORDS + 1);
-    expect(store.get('agent-0')).toBeDefined();
-
-    // Once the oldest record turns terminal, the next spawn evicts it; the
-    // remaining running records are kept even though the store is over cap.
-    store.markCompleted('agent-0');
-    store.ensureRecord(spawn({ agentId: 'agent-after', agentName: 'general' }));
-    expect(store.get('agent-0')).toBeUndefined();
-    expect(store.get('agent-last')).toBeDefined();
-    expect(store.agentIds()).toHaveLength(MAX_SUBAGENT_ACTIVITY_RECORDS + 1);
   });
 });

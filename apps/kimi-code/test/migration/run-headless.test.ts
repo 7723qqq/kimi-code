@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
-import { t } from '#/i18n';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import { MIGRATE_HEADLESS_EXIT, runHeadlessMigrate } from '#/migration/run-headless';
 
 let home: string;
@@ -60,9 +60,7 @@ describe('runHeadlessMigrate', () => {
       { env: {}, userHome: home, targetHome: target, write },
     );
     expect(code).toBe(MIGRATE_HEADLESS_EXIT.success);
-    expect(lines.join('\n')).toContain(
-      t('tui.migration.headlessNothingToMigrate', { path: sourceHome() }),
-    );
+    expect(lines.join('\n')).toContain('nothing to migrate');
   });
 
   it('refuses when source and target are the same directory', async () => {
@@ -71,7 +69,7 @@ describe('runHeadlessMigrate', () => {
       { env: {}, userHome: home, targetHome: sourceHome(), write },
     );
     expect(code).toBe(MIGRATE_HEADLESS_EXIT.error);
-    expect(lines.join('\n')).toContain(t('tui.migration.headlessSameSourceTarget'));
+    expect(lines.join('\n')).toContain('refusing to migrate');
   });
 
   it('migrates config and sessions, writes the report and the completion marker', async () => {
@@ -87,7 +85,7 @@ describe('runHeadlessMigrate', () => {
     expect(out).toContain('step: config done');
     expect(out).toContain('sessions: translating 1/1');
     expect(out).toContain('migrated=1');
-    expect(out).toContain(t('tui.migration.headlessResultComplete'));
+    expect(out).toContain('result: complete');
     const report = JSON.parse(await readFile(join(target, 'migration-report.json'), 'utf-8'));
     expect(report.summary.sessions.sessionsMigrated).toBe(1);
     expect(report.summary.config.migrated).toBe(true);
@@ -105,7 +103,7 @@ describe('runHeadlessMigrate', () => {
       { env: {}, userHome: home, targetHome: target, write },
     );
     expect(code).toBe(MIGRATE_HEADLESS_EXIT.success);
-    expect(lines.join('\n')).toContain(t('tui.migration.headlessScopeConfigOnly'));
+    expect(lines.join('\n')).toContain('scope: config-only');
     const report = JSON.parse(await readFile(join(target, 'migration-report.json'), 'utf-8'));
     expect(report.summary.sessions.scope).toBe('config-only');
     expect(report.summary.sessions.sessionsMigrated).toBe(0);
@@ -118,13 +116,7 @@ describe('runHeadlessMigrate', () => {
     await writeRealSession(workdir, '11111111-aaaa-4bbb-8ccc-111111111111');
     const bucket = createHash('md5').update(workdir).digest('hex');
     await writeFile(
-      join(
-        sourceHome(),
-        'sessions',
-        bucket,
-        '11111111-aaaa-4bbb-8ccc-111111111111',
-        'context.jsonl',
-      ),
+      join(sourceHome(), 'sessions', bucket, '11111111-aaaa-4bbb-8ccc-111111111111', 'context.jsonl'),
       '"broken\x00line\nnot json at all\n',
       'utf-8',
     );
@@ -135,8 +127,10 @@ describe('runHeadlessMigrate', () => {
     expect(code).toBe(MIGRATE_HEADLESS_EXIT.incomplete);
     const out = lines.join('\n');
     expect(out).toContain('failed=');
-    expect(out).toContain(t('tui.migration.headlessResultIncomplete'));
-    await expect(readFile(join(sourceHome(), '.migrated-to-kimi-code'), 'utf-8')).rejects.toThrow();
+    expect(out).toContain('result: incomplete');
+    await expect(
+      readFile(join(sourceHome(), '.migrated-to-kimi-code'), 'utf-8'),
+    ).rejects.toThrow();
   });
 
   it('honors KIMI_SHARE_DIR as the source and keeps skills on the default home', async () => {

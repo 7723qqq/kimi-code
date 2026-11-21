@@ -1,15 +1,4 @@
-/**
- * Live-server invariant for uploaded image files in prompt content (v1 REST
- * surface only — the facade has no file-upload method):
- *   - a missing prompt image `file_id` returns `FILE_NOT_FOUND`;
- *   - a non-image uploaded file used as image content returns `VALIDATION_FAILED`;
- *   - an uploaded PNG can be referenced by a prompt submission, and the
- *     prompt can be aborted (or was already terminal).
- *
- * Converted from the retired scenario `09-image-file-prompts.ts`. Skips when
- * no server is reachable at `KIMI_SERVER_URL`.
- */
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
 
@@ -117,7 +106,10 @@ describeLive('legacy: image file prompts', () => {
         await client.abortPrompt(sid, submit.prompt_id);
         log('prompt aborted', { prompt_id: submit.prompt_id });
       } catch (error) {
-        if (error instanceof EnvelopeError && error.code === ErrorCode.PROMPT_NOT_FOUND) {
+        if (
+          error instanceof EnvelopeError &&
+          error.code === ErrorCode.PROMPT_NOT_FOUND
+        ) {
           log('prompt already terminal before abort', { prompt_id: submit.prompt_id });
         } else {
           throw error;
@@ -128,15 +120,11 @@ describeLive('legacy: image file prompts', () => {
       for (const fileId of files.toReversed()) {
         try {
           await client.deleteFile(fileId);
-        } catch {
-          // ignore
-        }
+        } catch {}
       }
       try {
         if (sid) await client.archiveSession(sid);
-      } catch {
-        // ignore
-      }
+      } catch {}
       await client.close();
     }
   }, 120_000);

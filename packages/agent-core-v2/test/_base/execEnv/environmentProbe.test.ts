@@ -1,11 +1,10 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   probeHostEnvironment,
   ProbeShellNotFoundError,
   type HostEnvironmentProbeDeps,
 } from '#/_base/execEnv/environmentProbe';
-import { shellPayloadExePath, shellPayloadPinOf } from '#/_base/execEnv/shellPayload';
 
 interface StubOpts {
   readonly platform: string;
@@ -93,107 +92,7 @@ describe('probeHostEnvironment', () => {
     expect(rejected).toBeInstanceOf(ProbeShellNotFoundError);
     const probeError = rejected as ProbeShellNotFoundError;
     expect(probeError.message).toContain('https://gitforwindows.org/');
-    expect(probeError.message).toContain('kimi shells provision --bash');
     expect(probeError.message).not.toContain('Checked:');
     expect(probeError.checked.length).toBeGreaterThan(0);
-    expect(probeError.checked.some((path) => path.includes('shells'))).toBe(true);
-  });
-
-  it('falls back to the provisioned bash payload when no system Git Bash exists', async () => {
-    const kimiHome = 'D:\\kimi-home';
-    const payloadExe = shellPayloadExePath(kimiHome, shellPayloadPinOf('bash'));
-    const env = await probeHostEnvironment(
-      stubDeps({
-        platform: 'win32',
-        env: { PATH: 'C:\\Windows\\System32', KIMI_CODE_HOME: kimiHome },
-        existingPaths: [payloadExe],
-      }),
-    );
-    expect(env.shellName).toBe('bash');
-    expect(env.shellPath).toBe(payloadExe);
-  });
-
-  it('prefers the provisioned bash payload over system Git Bash', async () => {
-    const kimiHome = 'D:\\kimi-home';
-    const payloadExe = shellPayloadExePath(kimiHome, shellPayloadPinOf('bash'));
-    const systemBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
-    const env = await probeHostEnvironment(
-      stubDeps({
-        platform: 'win32',
-        env: { PATH: 'C:\\Windows\\System32', KIMI_CODE_HOME: kimiHome },
-        existingPaths: [systemBash, payloadExe],
-      }),
-    );
-    expect(env.shellPath).toBe(payloadExe);
-  });
-});
-
-describe('probeHostEnvironment jsRuntimes', () => {
-  it('detects bun and node on PATH with normalized versions, bun first', async () => {
-    const env = await probeHostEnvironment(
-      stubDeps({
-        platform: 'linux',
-        env: { PATH: '/usr/local/bin:/usr/bin' },
-        existingPaths: ['/usr/local/bin/bun', '/usr/bin/node'],
-        execFileResults: {
-          [execFileKey('/usr/local/bin/bun', ['--version'])]: '1.4.0\n',
-          [execFileKey('/usr/bin/node', ['--version'])]: 'v24.15.0\n',
-        },
-      }),
-    );
-    expect(env.jsRuntimes).toEqual([
-      { name: 'bun', version: '1.4.0', path: '/usr/local/bin/bun' },
-      { name: 'node', version: '24.15.0', path: '/usr/bin/node' },
-    ]);
-  });
-
-  it('drops runtimes whose --version call fails', async () => {
-    const env = await probeHostEnvironment(
-      stubDeps({
-        platform: 'linux',
-        env: { PATH: '/usr/bin' },
-        existingPaths: ['/usr/bin/bun'],
-      }),
-    );
-    expect(env.jsRuntimes).toBeUndefined();
-  });
-
-  it('drops runtimes with unparsable --version output', async () => {
-    const env = await probeHostEnvironment(
-      stubDeps({
-        platform: 'linux',
-        env: { PATH: '/usr/bin' },
-        existingPaths: ['/usr/bin/node'],
-        execFileResults: {
-          [execFileKey('/usr/bin/node', ['--version'])]: 'not-a-version\n',
-        },
-      }),
-    );
-    expect(env.jsRuntimes).toBeUndefined();
-  });
-
-  it('leaves jsRuntimes unset when no runtime is on PATH', async () => {
-    const env = await probeHostEnvironment(
-      stubDeps({ platform: 'linux', env: { PATH: '/bin' }, existingPaths: [] }),
-    );
-    expect(env.jsRuntimes).toBeUndefined();
-  });
-
-  it('resolves .exe binaries on Windows', async () => {
-    const gitExe = 'C:\\Git\\cmd\\git.exe';
-    const bashExe = 'C:\\Git\\bin\\bash.exe';
-    const env = await probeHostEnvironment(
-      stubDeps({
-        platform: 'win32',
-        env: { PATH: 'C:\\Tools;C:\\Git\\cmd' },
-        execFileResults: {
-          [execFileKey(gitExe, ['--exec-path'])]: 'C:/Git/libexec/git-core\n',
-          [execFileKey('C:\\Tools\\bun.exe', ['--version'])]: '1.4.0\n',
-        },
-        existingPaths: [gitExe, bashExe, 'C:\\Tools\\bun.exe'],
-      }),
-    );
-    expect(env.shellPath).toBe(bashExe);
-    expect(env.jsRuntimes).toEqual([{ name: 'bun', version: '1.4.0', path: 'C:\\Tools\\bun.exe' }]);
   });
 });

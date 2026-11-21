@@ -32,13 +32,7 @@ export function parseFrontmatter(text: string): {
     const key = line.slice(0, separator).trim();
     fields[key] = line.slice(separator + 1).trim();
   }
-  return {
-    fields,
-    body: lines
-      .slice(close + 1)
-      .join('\n')
-      .trim(),
-  };
+  return { fields, body: lines.slice(close + 1).join('\n').trim() };
 }
 
 export async function readFrontmatterPrefix(path: string): Promise<string> {

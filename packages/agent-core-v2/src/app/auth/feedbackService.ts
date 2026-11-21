@@ -1,7 +1,10 @@
+
+import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { appendFile, mkdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 
 import {
   apiKeyEnvMissingMessage,
@@ -13,7 +16,7 @@ import {
   resolveKimiCodeRuntimeAuth,
   type SubmitFeedbackBody,
 } from '@moonshot-ai/kimi-code-oauth';
-
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IOAuthService } from '#/app/auth/auth';
@@ -23,7 +26,6 @@ import {
   ISessionExportService,
   type ExportSessionPreview,
 } from '#/app/sessionExport/sessionExport';
-import { LifecycleScope } from '#/app/scopes';
 import { IModelService, type ModelRecord } from '#/llm-adapter/model/model';
 import {
   nonEmpty,
@@ -45,10 +47,9 @@ import { createFeedbackArchivePath, type FeedbackArchive } from './feedback/arch
 import {
   packageCodebase,
   scanCodebase,
-  type FeedbackCodebaseLimitExceeded,
   type FeedbackCodebaseScanResult,
 } from './feedback/codebase/index';
-import { MAX_ARCHIVE_SIZE, uploadArchive, type FeedbackUploadUrlApi } from './feedback/upload';
+import { uploadArchive, type FeedbackUploadUrlApi } from './feedback/upload';
 
 export const CODEBASE_ARCHIVE_FILENAME = 'repo.zip';
 export const SESSION_ARCHIVE_FILENAME = 'session.zip';
@@ -65,11 +66,6 @@ type FeedbackTarget =
   | { readonly kind: 'managed'; readonly baseUrl?: string; readonly token: string }
   | { readonly kind: 'needs-login' }
   | { readonly kind: 'error'; readonly message: string };
-
-interface AttachmentOutcome {
-  readonly failed: boolean;
-  readonly codebaseTruncated?: FeedbackCodebaseLimitExceeded;
-}
 
 export class FeedbackService implements IFeedbackService {
   declare readonly _serviceBrand: undefined;
@@ -101,6 +97,10 @@ export class FeedbackService implements IFeedbackService {
     const effectiveModelAlias = modelAlias ?? input.model ?? undefined;
     const target = await this.resolveTarget(effectiveModelAlias, true);
     if (target.kind !== 'custom' && target.kind !== 'managed') return target;
+    const preview = input.info === undefined ? await this.previewSession(input.sessionId) : undefined;
+    const info =
+      input.info ??
+      (preview?.requestId === undefined ? undefined : { request_id: preview.requestId });
     const body: SubmitFeedbackBody = {
       session_id: input.sessionId,
       content: input.content,
@@ -108,7 +108,7 @@ export class FeedbackService implements IFeedbackService {
       os: input.os,
       model: input.model,
       contact: input.contact,
-      info: input.info,
+      info,
     };
     const result =
       target.kind === 'custom'
@@ -120,21 +120,20 @@ export class FeedbackService implements IFeedbackService {
     if (level !== 'logs' && level !== 'logs+codebase') {
       return { kind: 'ok', feedbackId: result.feedbackId };
     }
-    let outcome: AttachmentOutcome = { failed: true };
+    let attachmentFailed = false;
     try {
-      outcome = await this.uploadAttachments(target, result.feedbackId, input, level);
+      attachmentFailed = await this.uploadAttachments(
+        target,
+        result.feedbackId,
+        input,
+        level,
+      );
     } catch (error) {
       await this.logUploadError(error);
+      attachmentFailed = true;
     }
-    return outcome.failed || outcome.codebaseTruncated !== undefined
-      ? {
-          kind: 'ok',
-          feedbackId: result.feedbackId,
-          ...(outcome.failed ? { attachmentFailed: true } : {}),
-          ...(outcome.codebaseTruncated === undefined
-            ? {}
-            : { codebaseTruncated: outcome.codebaseTruncated }),
-        }
+    return attachmentFailed
+      ? { kind: 'ok', feedbackId: result.feedbackId, attachmentFailed: true }
       : { kind: 'ok', feedbackId: result.feedbackId };
   }
 
@@ -154,22 +153,20 @@ export class FeedbackService implements IFeedbackService {
     feedbackId: number,
     input: FeedbackSubmitInput,
     level: Exclude<FeedbackAttachmentLevel, 'none'>,
-  ): Promise<AttachmentOutcome> {
+  ): Promise<boolean> {
     const api = this.createUploadApi(target);
     if (level === 'logs') {
       const uploaded = await this.prepareAndUploadSessionArchive(api, feedbackId, input);
-      return { failed: !uploaded };
+      return !uploaded;
     }
     const workDir = nonEmpty(input.workDir);
-    const scan = workDir === undefined ? undefined : await this.scanCodebaseForFeedback(workDir);
+    const scan =
+      workDir === undefined ? undefined : await this.scanCodebaseForFeedback(workDir);
     const [uploadedSession, uploadedCodebase] = await Promise.all([
       this.prepareAndUploadSessionArchive(api, feedbackId, input),
       this.prepareAndUploadCodebaseArchive(api, feedbackId, scan),
     ]);
-    return {
-      failed: !uploadedSession || !uploadedCodebase,
-      ...(scan?.exceedsLimit === undefined ? {} : { codebaseTruncated: scan.exceedsLimit }),
-    };
+    return !uploadedSession || !uploadedCodebase;
   }
 
   private createUploadApi(
@@ -313,10 +310,7 @@ export class FeedbackService implements IFeedbackService {
     } catch {}
   }
 
-  private async resolveTarget(
-    modelAlias: string | undefined,
-    refresh: boolean,
-  ): Promise<FeedbackTarget> {
+  private async resolveTarget(modelAlias: string | undefined, refresh: boolean): Promise<FeedbackTarget> {
     const custom = this.customProvider(modelAlias);
     if (custom !== undefined) return this.customTarget(custom, refresh);
     return this.managedTarget(refresh);
@@ -416,35 +410,23 @@ export class FeedbackService implements IFeedbackService {
     const tokenProvider = this.oauth.resolveTokenProvider(KIMI_CODE_PROVIDER_NAME, auth.oauthRef);
     if (tokenProvider === undefined) return { kind: 'needs-login' };
     try {
-      return {
-        kind: 'managed',
-        baseUrl: auth.baseUrl,
-        token: await tokenProvider.getAccessToken(),
-      };
+      return { kind: 'managed', baseUrl: auth.baseUrl, token: await tokenProvider.getAccessToken() };
     } catch (error) {
       return { kind: 'error', message: error instanceof Error ? error.message : String(error) };
     }
   }
 }
 
-export async function archiveFromExportedSession(zipPath: string): Promise<FeedbackArchive> {
+async function archiveFromExportedSession(zipPath: string): Promise<FeedbackArchive> {
   const archiveStat = await stat(zipPath);
-  if (archiveStat.size > MAX_ARCHIVE_SIZE) {
-    throw new Error(
-      `Failed to upload archive: size ${archiveStat.size} exceeds maximum allowed size ${MAX_ARCHIVE_SIZE}.`,
-    );
-  }
-  const sha256 = new Bun.CryptoHasher('sha256');
-  const fingerprint = new Bun.CryptoHasher('sha256');
-  for await (const chunk of createReadStream(zipPath)) {
-    sha256.update(chunk as Buffer);
-    fingerprint.update(chunk as Buffer);
-  }
+  const hash = createHash('sha256');
+  await pipeline(createReadStream(zipPath), hash);
+  const sha256 = hash.digest('hex');
   return {
     path: zipPath,
     size: archiveStat.size,
-    sha256: sha256.digest('hex'),
-    fingerprint: fingerprint.digest('hex'),
+    sha256,
+    fingerprint: sha256,
     fileCount: 1,
   };
 }

@@ -1,8 +1,8 @@
 import { createActor as createXStateActor } from 'xstate';
 import type { Actor, ActorOptions, AnyActorLogic } from 'xstate';
 
-import { isAbortError } from '#/llm/errors';
-import { xstateInspectionCollector } from '#/xstateInspection';
+import { isAbortError } from '@moonshot-ai/core/llm/protocol/errors';
+import { xstateInspectionCollector } from '#human/xstateInspection';
 
 export * from 'xstate';
 

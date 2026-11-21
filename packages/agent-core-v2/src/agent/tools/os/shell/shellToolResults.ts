@@ -103,22 +103,26 @@ export class ShellToolResults {
     proc: IHostProcess,
     builder: ToolOutputAccumulator,
     foregroundTimeoutMs: number,
+    current: {
+      readonly status: 'completed' | 'failed' | 'timed_out' | 'killed';
+      readonly stopReason?: string;
+      readonly exitCode: number | null;
+    },
   ): Promise<ExecutableToolResult> {
-    const current = this.tasks.getTask(taskId);
-    const exitCode = current?.kind === 'process' ? current.exitCode : proc.exitCode;
+    const exitCode = current.exitCode;
     let result: ToolOutputAccumulatorResult;
-    if (current?.status === 'timed_out') {
+    if (current.status === 'timed_out') {
       const timeoutLabel = formatTimeoutLabel(foregroundTimeoutMs);
       result = builder.error(`Command killed by timeout (${timeoutLabel})`, {
         brief: `Killed by timeout (${timeoutLabel})`,
       });
     } else if (
-      current?.status === 'killed' &&
+      current.status === 'killed' &&
       current.stopReason === userCancellationReason().message
     ) {
       result = builder.error('Interrupted by user', { brief: 'Interrupted by user' });
     } else if (
-      (current?.status === 'failed' || current?.status === 'killed') &&
+      (current.status === 'failed' || current.status === 'killed') &&
       current.stopReason !== undefined
     ) {
       result = builder.error(current.stopReason, { brief: current.stopReason });
@@ -166,10 +170,9 @@ export class ShellToolResults {
     labels: { title: string; brief: string },
     builder = new ToolOutputAccumulator(),
     scenario: BackgroundStartScenario = 'background_started',
-  ): ExecutableToolResult {
+  ): ExecutableToolResult & { readonly output: string; readonly brief: string } {
     const current = this.tasks.getTask(taskId);
     const status = current?.status ?? 'running';
-    const outputPath = current?.outputPath;
     const detachedByUser =
       scenario === 'foreground_detached_by_user' ? 'detached_by_user: true\n' : '';
     const metadata =
@@ -177,7 +180,6 @@ export class ShellToolResults {
       `pid: ${String(proc.pid)}\n` +
       `description: ${description}\n` +
       `status: ${status}\n` +
-      (outputPath === undefined ? '' : `output_path: ${outputPath}\n`) +
       detachedByUser +
       `automatic_notification: true\n` +
       this.nextStepLines(scenario) +
@@ -187,6 +189,7 @@ export class ShellToolResults {
     const foregroundOutput = foregroundResult.output.length > 0 ? foregroundResult.output : '';
     const result: ExecutableToolResult & {
       readonly brief: string;
+      readonly output: string;
     } = {
       isError: false,
       output:

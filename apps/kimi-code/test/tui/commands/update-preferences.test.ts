@@ -1,42 +1,31 @@
-import { describe, expect, it, mock, spyOn } from 'bun:test';
+import { describe, expect, it, vi, requireActual } from '@moonshot-ai/testkit/vitest';
 
 import { applyUpdatePreferenceChoice } from '#/tui/commands/config';
-import * as tuiConfig from '#/tui/config';
 import { darkColors } from '#/tui/theme/colors';
 
-const mocks = {
-  saveTuiConfig: spyOn(tuiConfig, 'saveTuiConfig').mockImplementation(async () => {}),
-  t: (key: string, params?: Record<string, string | number>) => {
-    const translations: Record<string, string> = {
-      'tui.messages.configAutoUpdateSet': `Automatic updates ${String(params?.['state'] ?? '')}.`,
-      'tui.messages.configAutoUpdateAlready': `Automatic updates already ${String(params?.['state'] ?? '')}.`,
-      'tui.messages.configAutoUpdateSaveFailed':
-        'Failed to save automatic update setting: {{error}}',
-      'tui.messages.configAutoUpdateEnabled': 'enabled',
-      'tui.messages.configAutoUpdateDisabled': 'disabled',
-      'tui.messages.configPermissionUnchanged': 'Permission mode unchanged: {{mode}}.',
-      'tui.messages.configPermissionMode': 'Permission mode: {{mode}}',
-    };
-    return translations[key] ?? key;
-  },
-};
-
-void mock.module('#/i18n', () => ({
-  t: mocks.t,
-  setLocale: mock(),
-  getLocale: () => 'en',
+const mocks = vi.hoisted(() => ({
+  saveTuiConfig: vi.fn(),
 }));
+
+void vi.mock('../../../src/tui/config', () => {
+  const actual = requireActual(
+    '../../../src/tui/config.js',
+  );
+  return {
+    ...actual,
+    saveTuiConfig: mocks.saveTuiConfig,
+  };
+});
 
 describe('update preference commands', () => {
   it('saves automatic update preference changes to tui.toml', async () => {
-    const setAppState = mock();
-    const showStatus = mock();
-    const track = mock();
+    const setAppState = vi.fn();
+    const showStatus = vi.fn();
+    const track = vi.fn();
     const host = {
       state: {
         appState: {
           theme: 'auto' as const,
-          locale: 'en',
           editorCommand: null,
           notifications: { enabled: true, condition: 'unfocused' as const },
           upgrade: { autoInstall: true },
@@ -53,7 +42,6 @@ describe('update preference commands', () => {
 
     expect(mocks.saveTuiConfig).toHaveBeenCalledWith({
       theme: 'auto',
-      locale: 'en',
       editorCommand: null,
       disablePasteBurst: false,
       copyOnSelect: true,
@@ -86,9 +74,9 @@ describe('update preference commands', () => {
         },
         theme: { palette: darkColors },
       },
-      setAppState: mock(),
-      showStatus: mock(),
-      track: mock(),
+      setAppState: vi.fn(),
+      showStatus: vi.fn(),
+      track: vi.fn(),
     };
 
     await applyUpdatePreferenceChoice(host, false);

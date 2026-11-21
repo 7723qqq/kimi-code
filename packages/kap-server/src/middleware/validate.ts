@@ -1,7 +1,6 @@
-import type { z } from 'zod';
-
 import { sendRawError } from '../lib/rawError';
 import { ErrorCode } from '../protocol/error-codes';
+import type { z } from 'zod';
 
 interface ValidationRequest {
   id: string;
@@ -44,12 +43,11 @@ function buildValidationEnvelope(
   details: ValidationDetailItem[];
 } {
   const first = details[0];
-  const msg =
-    first === undefined
-      ? 'validation failed'
-      : first.path === ''
-        ? first.message
-        : `${first.path}: ${first.message}`;
+  const msg = first === undefined
+    ? 'validation failed'
+    : first.path === ''
+      ? first.message
+      : `${first.path}: ${first.message}`;
   return {
     code: ErrorCode.VALIDATION_FAILED,
     msg,

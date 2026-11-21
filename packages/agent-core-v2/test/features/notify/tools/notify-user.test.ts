@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+import { appendContext } from '../../../agent/contextMemory/stubs';
 
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { type HostUiCapability, IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
@@ -9,7 +10,6 @@ import {
   NOTIFY_USER_UI_CAPABILITY,
   notifyUserAvailable,
 } from '#/features/notify/notifyUserAvailability';
-import { NOTIFY_USER_NUDGE_VARIANT } from '#/features/notify/notifyUserNudge';
 import {
   INotifyUserTool,
   NOTIFY_USER_TOOL_NAME,
@@ -23,10 +23,11 @@ import {
   NOTIFY_USER_MULTILINE_TITLE,
   NOTIFY_USER_SUPPRESSED_OUTPUT,
 } from '#/features/notify/tools/notify-user/notifyUserTool';
-
+import { NOTIFY_USER_NUDGE_VARIANT } from '#/features/notify/notifyUserNudge';
 import { recordingTelemetry, type TelemetryRecord } from '../../../app/telemetry/stubs';
-import { createTestAgent, type TestAgentContext } from '../../../harness';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
+
+import { createTestAgent, type TestAgentContext } from '../../../harness';
 
 const signal = new AbortController().signal;
 
@@ -129,14 +130,13 @@ describe('NotifyUserTool', () => {
   });
 
   it('tracks each update with the silent stretch that preceded it', async () => {
-    const context = ctx.get(IAgentContextMemoryService);
-    context.append({
+    const context = ctx.get(IAgentLoopService);
+    appendContext(context,{
       role: 'user',
       content: [{ type: 'text', text: 'do the thing' }],
-      toolCalls: [],
       origin: { kind: 'user' },
     });
-    context.append({
+    appendContext(context,{
       role: 'assistant',
       content: [],
       toolCalls: [
@@ -144,18 +144,15 @@ describe('NotifyUserTool', () => {
         { type: 'function', id: 'call_b', name: 'Read', arguments: '{}' },
       ],
     });
-    context.append({
+    appendContext(context,{
       role: 'user',
       content: [{ type: 'text', text: 'nudge' }],
-      toolCalls: [],
       origin: { kind: 'injection', variant: NOTIFY_USER_NUDGE_VARIANT },
     });
-    context.append({
+    appendContext(context,{
       role: 'assistant',
       content: [],
-      toolCalls: [
-        { type: 'function', id: 'call_notify', name: NOTIFY_USER_TOOL_NAME, arguments: '{}' },
-      ],
+      toolCalls: [{ type: 'function', id: 'call_notify', name: NOTIFY_USER_TOOL_NAME, arguments: '{}' }],
     });
 
     await executeTool(ctx.get(INotifyUserTool), {
@@ -186,9 +183,7 @@ describe('NotifyUserTool', () => {
     });
 
     expect(result).toEqual({ isError: false, output: NOTIFY_USER_DELIVERED_OUTPUT });
-    expect(
-      telemetry.find((record) => record.event === 'notify_user_sent')?.properties,
-    ).toMatchObject({
+    expect(telemetry.find((record) => record.event === 'notify_user_sent')?.properties).toMatchObject({
       title_chars: 0,
     });
   });
@@ -275,9 +270,7 @@ describe('NotifyUserTool', () => {
       isError: false,
       output: NOTIFY_USER_SUPPRESSED_OUTPUT,
     });
-    expect(
-      telemetry.find((record) => record.event === 'notify_user_sent')?.properties,
-    ).toMatchObject({
+    expect(telemetry.find((record) => record.event === 'notify_user_sent')?.properties).toMatchObject({
       displayed: false,
     });
   });

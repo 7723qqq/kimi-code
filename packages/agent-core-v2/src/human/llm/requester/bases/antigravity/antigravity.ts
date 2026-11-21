@@ -4,16 +4,16 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { Readable } from 'node:stream';
 
-import type { ModelCapability } from '#/llm/capability';
-import type { FinishReason } from '#/llm/finish-reason';
-import type { ThinkingEffort } from '#/llm/thinking';
-import type { TokenUsage } from '#/llm/usage';
+import type { ModelCapability } from '#human/llm/capability';
+import type { FinishReason } from '#human/llm/finish-reason';
+import type { ThinkingEffort } from '#human/llm/thinking';
+import type { TokenUsage } from '#human/llm/usage';
 import type {
   Message,
   StreamedMessagePart,
   ThinkPart,
   ToolDescription as Tool,
-} from '#human/llm/message';
+} from '#human/message';
 
 export interface AntigravityGenerateOptions {
   signal?: AbortSignal;
@@ -545,7 +545,7 @@ export class AntigravityChatProvider {
         options.signal.removeEventListener('abort', onAbort);
       }
       if (code !== 0 && !aborted) {
-        streamed?.setFinishReason('error', String(code));
+        streamed?.setFinishReason('other', String(code));
         errorOccurred = new Error(`Antigravity exited with code ${code}: ${stderrOutput}`);
       }
       isDone = true;

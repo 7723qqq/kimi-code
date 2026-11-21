@@ -1,7 +1,7 @@
 import { getTokenProvider } from '@aws/bedrock-token-generator';
 
-import { errorStatusCode } from '#/llm/errors';
-import type { LlmCredential, LlmCredentialProvider } from '#/llm/requester/requester';
+import { errorStatusCode } from '#human/llm/errors';
+import type { LlmCredential, LlmCredentialProvider } from '#human/llm/requester/requester';
 
 export interface BedrockTokenProviderOptions {
   readonly region?: string;

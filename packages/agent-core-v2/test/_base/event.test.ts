@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { Disposable, DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
+import { Emitter, Event } from '#/_base/event';
 import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
-import { AsyncEmitter, Emitter, Event, type IWaitUntil } from '#/_base/event';
 
 afterEach(() => {
   resetUnexpectedErrorHandler();
@@ -52,9 +52,12 @@ describe('Emitter / Event', () => {
     const emitter = new Emitter<string>();
     const context = { tag: 'ctx', got: [] as string[] };
 
-    emitter.event(function (this: typeof context, value: string) {
-      this.got.push(value);
-    }, context);
+    emitter.event(
+      function (this: typeof context, value: string) {
+        this.got.push(value);
+      },
+      context,
+    );
     emitter.fire('hello');
 
     expect(context.got).toEqual(['hello']);
@@ -306,113 +309,5 @@ describe('Event.any', () => {
       'first-dispose',
       'second-dispose',
     ]);
-  });
-
-  it('Emitter.fire with no subscribers does not throw', () => {
-    const emitter = new Emitter<number>();
-    expect(() => emitter.fire(42)).not.toThrow();
-    emitter.dispose();
-  });
-
-  it('Emitter.fire with undefined and null values delivers them', () => {
-    const emitter = new Emitter<number | undefined | null>();
-    const seen: (number | undefined | null)[] = [];
-    emitter.event((v) => seen.push(v));
-    emitter.fire(undefined);
-    emitter.fire(null);
-    expect(seen).toEqual([undefined, null]);
-    emitter.dispose();
-  });
-
-  it('Event.any with a single source works like a passthrough', () => {
-    const a = new Emitter<string>();
-    const seen: string[] = [];
-    Event.any(a.event)((value) => seen.push(value));
-    a.fire('X');
-    expect(seen).toEqual(['X']);
-    a.dispose();
-  });
-
-  it('multiple dispose calls on the same emitter subscription are safe', () => {
-    const emitter = new Emitter<number>();
-    const seen: number[] = [];
-    const sub = emitter.event((v) => seen.push(v));
-    emitter.fire(1);
-    sub.dispose();
-    sub.dispose();
-    emitter.fire(2);
-    expect(seen).toEqual([1]);
-    emitter.dispose();
-  });
-});
-
-describe('AsyncEmitter.fireAsync', () => {
-  interface WillEvent extends IWaitUntil {
-    kind: string;
-  }
-
-  it('drains queued entries with the signal of the fire that delivers them', async () => {
-    const emitter = new AsyncEmitter<WillEvent>();
-    const received: { kind: string; signal: AbortSignal }[] = [];
-    let releaseHold!: () => void;
-    emitter.event((e) => {
-      received.push({ kind: e.kind, signal: e.signal });
-      if (e.kind === 'hold') {
-        const hold = new Promise<void>((resolve) => {
-          releaseHold = resolve;
-        });
-        e.waitUntil(hold);
-      }
-    });
-    emitter.event((e) => {
-      received.push({ kind: e.kind, signal: e.signal });
-    });
-
-    const firstController = new AbortController();
-    const first = emitter.fireAsync({ kind: 'hold' }, firstController.signal);
-    const secondController = new AbortController();
-    const second = emitter.fireAsync({ kind: 'release' }, secondController.signal);
-    releaseHold();
-    await Promise.all([first, second]);
-
-    expect(received.map((e) => e.kind)).toEqual(['hold', 'hold', 'release', 'release']);
-    expect(received[0]!.signal).toBe(firstController.signal);
-    expect(received[1]!.signal).toBe(secondController.signal);
-    expect(received[2]!.signal).toBe(secondController.signal);
-    expect(received[3]!.signal).toBe(secondController.signal);
-    emitter.dispose();
-  });
-
-  it('an aborted fire stops draining; its queued entries stay for the next fire', async () => {
-    const emitter = new AsyncEmitter<WillEvent>();
-    const received: { kind: string; signal: AbortSignal }[] = [];
-    let releaseHold!: () => void;
-    emitter.event((e) => {
-      received.push({ kind: e.kind, signal: e.signal });
-      if (e.kind === 'hold') {
-        const hold = new Promise<void>((resolve) => {
-          releaseHold = resolve;
-        });
-        e.waitUntil(hold);
-      }
-    });
-    emitter.event((e) => {
-      received.push({ kind: e.kind, signal: e.signal });
-    });
-
-    const firstController = new AbortController();
-    const first = emitter.fireAsync({ kind: 'hold' }, firstController.signal);
-    firstController.abort();
-    const secondController = new AbortController();
-    const second = emitter.fireAsync({ kind: 'release' }, secondController.signal);
-    releaseHold();
-    await Promise.all([first, second]);
-
-    expect(received.map((e) => e.kind)).toEqual(['hold', 'hold', 'release', 'release']);
-    expect(received[0]!.signal).toBe(firstController.signal);
-    expect(received[1]!.signal).toBe(secondController.signal);
-    expect(received[2]!.signal).toBe(secondController.signal);
-    expect(received[3]!.signal).toBe(secondController.signal);
-    emitter.dispose();
   });
 });

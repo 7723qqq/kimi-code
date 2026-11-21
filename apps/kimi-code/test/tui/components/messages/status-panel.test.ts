@@ -1,38 +1,9 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { visibleWidth } from '@moonshot-ai/pi-tui';
-
-import { setLocale } from '#/i18n';
-import {
-  buildStatusReportLines,
-  type StatusReportOptions,
-} from '#/tui/components/messages/status-panel';
+import { buildStatusReportLines } from '#/tui/components/messages/status-panel';
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
-}
-
-function statusOptions(overrides: Partial<StatusReportOptions> = {}): StatusReportOptions {
-  return {
-    version: '1.2.3',
-    model: 'k2',
-    workDir: '/tmp/project',
-    sessionId: 'ses-1',
-    sessionTitle: null,
-    thinkingEffort: 'off',
-    permissionMode: 'manual',
-    planMode: false,
-    towerMode: false,
-    specMode: false,
-    swarmMode: false,
-    helloWorldMode: false,
-    towerAvailable: false,
-    contextUsage: 0,
-    contextTokens: 0,
-    maxContextTokens: 0,
-    availableModels: {},
-    ...overrides,
-  };
 }
 
 describe('status panel report lines', () => {
@@ -47,9 +18,6 @@ describe('status panel report lines', () => {
       permissionMode: 'manual',
       planMode: false,
       towerMode: false,
-      specMode: false,
-      swarmMode: false,
-      helloWorldMode: false,
       towerAvailable: true,
       contextUsage: 0.25,
       contextTokens: 2500,
@@ -84,12 +52,12 @@ describe('status panel report lines', () => {
 
     const output = lines.join('\n');
     expect(output).toContain('>_ Kimi Code (v1.2.3)');
-    expect(output).toContain('Model             Kimi K2 (thinking high)');
-    expect(output).toContain('Directory         /tmp/project');
-    expect(output).toContain('Permissions       Never Ask');
-    expect(output).toContain('Plan mode         on');
-    expect(output).toContain('Session           ses-1');
-    expect(output).toContain('Title             Implement status');
+    expect(output).toContain('Model        Kimi K2 (thinking high)');
+    expect(output).toContain('Directory    /tmp/project');
+    expect(output).toContain('Permissions  Never Ask');
+    expect(output).toContain('Plan mode    on');
+    expect(output).toContain('Session      ses-1');
+    expect(output).toContain('Title        Implement status');
     expect(output).toContain('Context window');
     expect(output).toContain('25%');
     expect(output).toContain('(2.9k / 11.7k)');
@@ -112,9 +80,6 @@ describe('status panel report lines', () => {
       permissionMode: 'manual',
       planMode: false,
       towerMode: false,
-      specMode: false,
-      swarmMode: false,
-      helloWorldMode: false,
       towerAvailable: true,
       contextUsage: 0,
       contextTokens: 0,
@@ -126,16 +91,13 @@ describe('status panel report lines', () => {
         permission: 'manual',
         planMode: false,
         towerMode: true,
-        specMode: false,
-        swarmMode: false,
-        helloWorldMode: false,
         contextTokens: 0,
         maxContextTokens: 0,
         contextUsage: 0,
       },
     }).map(strip);
 
-    expect(lines.join('\n')).toContain('Tower mode        on');
+    expect(lines.join('\n')).toContain('Tower mode   on');
   });
 
   it('omits the tower mode row when the experiment is unavailable', () => {
@@ -149,9 +111,6 @@ describe('status panel report lines', () => {
       permissionMode: 'manual',
       planMode: false,
       towerMode: false,
-      specMode: false,
-      swarmMode: false,
-      helloWorldMode: false,
       towerAvailable: false,
       contextUsage: 0,
       contextTokens: 0,
@@ -173,9 +132,6 @@ describe('status panel report lines', () => {
       permissionMode: 'manual',
       planMode: false,
       towerMode: false,
-      specMode: false,
-      swarmMode: false,
-      helloWorldMode: false,
       towerAvailable: true,
       contextUsage: 0,
       contextTokens: 0,
@@ -215,9 +171,6 @@ describe('status panel report lines', () => {
       permissionMode: 'manual',
       planMode: false,
       towerMode: false,
-      specMode: false,
-      swarmMode: false,
-      helloWorldMode: false,
       towerAvailable: true,
       contextUsage: 0,
       contextTokens: 0,
@@ -227,168 +180,9 @@ describe('status panel report lines', () => {
     }).map(strip);
 
     const output = lines.join('\n');
-    expect(output).toContain('Model             not set');
-    expect(output).toContain('Session           none');
-    expect(output).toContain('Warning           No active session');
+    expect(output).toContain('Model        not set');
+    expect(output).toContain('Session      none');
+    expect(output).toContain('Warning      No active session');
     expect(output).toContain('No context window data available.');
-  });
-
-  it('reports spec and swarm mode alongside plan mode', () => {
-    const lines = buildStatusReportLines({
-      version: '1.2.3',
-      model: 'k2',
-      workDir: '/tmp/project',
-      sessionId: 'ses-1',
-      sessionTitle: null,
-      thinkingEffort: 'off',
-      permissionMode: 'manual',
-      planMode: false,
-      towerMode: false,
-      specMode: true,
-      swarmMode: false,
-      helloWorldMode: true,
-      towerAvailable: false,
-      contextUsage: 0,
-      contextTokens: 0,
-      maxContextTokens: 0,
-      availableModels: {},
-    }).map(strip);
-
-    // `/status` must not report `Plan mode: off` while the footer shows a spec
-    // badge — every mode the footer renders is visible here too.
-    expect(lines.join('\n')).toContain('Spec mode         on');
-    expect(lines.join('\n')).toContain('Hello-world mode  on');
-  });
-
-  it('shows the run stage on the hello-world row when a run is active', () => {
-    const lines = buildStatusReportLines(
-      statusOptions({
-        helloWorldMode: true,
-        status: {
-          model: 'k2',
-          thinkingEffort: 'off',
-          permission: 'manual',
-          planMode: false,
-          helloWorldMode: true,
-          helloWorldRun: {
-            stage: 'requirements',
-            items: [{ id: 'requirements-approved', done: false }],
-            waivers: [],
-          },
-          contextTokens: 0,
-          maxContextTokens: 0,
-          contextUsage: 0,
-        },
-      }),
-    ).map(strip);
-
-    expect(lines.join('\n')).toContain('Hello-world mode  on · requirements');
-  });
-
-  it('keeps the hello-world row plain when no run stage is reported', () => {
-    const lines = buildStatusReportLines(
-      statusOptions({
-        helloWorldMode: true,
-        status: {
-          model: 'k2',
-          thinkingEffort: 'off',
-          permission: 'manual',
-          planMode: false,
-          helloWorldMode: true,
-          contextTokens: 0,
-          maxContextTokens: 0,
-          contextUsage: 0,
-        },
-      }),
-    ).map(strip);
-
-    expect(lines.join('\n')).toContain('Hello-world mode  on');
-    expect(lines.join('\n')).not.toContain('on ·');
-  });
-
-  it('lets live status override the mode snapshot', () => {
-    const lines = buildStatusReportLines({
-      version: '1.2.3',
-      model: 'k2',
-      workDir: '/tmp/project',
-      sessionId: 'ses-1',
-      sessionTitle: null,
-      thinkingEffort: 'off',
-      permissionMode: 'manual',
-      planMode: true,
-      towerMode: false,
-      specMode: true,
-      swarmMode: true,
-      helloWorldMode: false,
-      towerAvailable: false,
-      contextUsage: 0,
-      contextTokens: 0,
-      maxContextTokens: 0,
-      availableModels: {},
-      status: {
-        model: 'k2',
-        thinkingEffort: 'off',
-        permission: 'manual',
-        planMode: true,
-        specMode: false,
-        swarmMode: true,
-        helloWorldMode: false,
-        contextTokens: 0,
-        maxContextTokens: 0,
-        contextUsage: 0,
-      },
-    }).map(strip);
-
-    const output = lines.join('\n');
-    expect(output).toContain('Spec mode         off');
-    expect(output).toContain('Swarm mode        on');
-  });
-
-  it('keeps zh field labels aligned with their values', () => {
-    setLocale('zh');
-    try {
-      const lines = buildStatusReportLines(
-        statusOptions({
-          planMode: true,
-          availableModels: {
-            k2: {
-              provider: 'managed:kimi-code',
-              model: 'kimi-k2',
-              maxContextSize: 10000,
-              displayName: 'Kimi K2',
-            },
-          },
-        }),
-      ).map(strip);
-
-      const rowOf = (label: string): string => {
-        const row = lines.find((line) => line.trimStart().startsWith(label));
-        if (row === undefined) throw new Error(`row not found: ${label}`);
-        return row;
-      };
-      const columnOf = (row: string, value: string): number => {
-        const index = row.indexOf(value);
-        expect(index).toBeGreaterThanOrEqual(0);
-        return visibleWidth(row.slice(0, index));
-      };
-
-      // `模型` is only 4 columns wide while `计划模式` is 8 — the values must all
-      // still start at the same visible column.
-      expect(columnOf(rowOf('模型'), 'Kimi K2')).toBe(20);
-      expect(columnOf(rowOf('计划模式'), '开')).toBe(20);
-      expect(columnOf(rowOf('会话'), 'ses-1')).toBe(20);
-    } finally {
-      setLocale('en');
-    }
-  });
-
-  it('folds a multi-line status error onto one field row', () => {
-    const lines = buildStatusReportLines(
-      statusOptions({ statusError: 'No active session\n  retry later' }),
-    ).map(strip);
-
-    const warning = lines.find((line) => line.includes('Warning'))!;
-    expect(warning).toContain('No active session retry later');
-    for (const line of lines) expect(line).not.toContain('\n');
   });
 });

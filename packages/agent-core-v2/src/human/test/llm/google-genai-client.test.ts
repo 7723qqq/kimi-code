@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import type { LlmRequestEvent } from '#/llm/requester/requester';
-import { createUserMessage, type AssistantMessage, type Message } from '#/llm/message';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
+import { createUserMessage, type AssistantMessage, type Message } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import type { GoogleGenAIRequesterOptions } from '#human/llm/requester/bases/google-genai/requester';
+import type { LlmRequestEvent } from '#human/llm/requester/requester';
 
 const constructor = mock();
 
@@ -100,6 +102,81 @@ describe('google-genai client base URL', () => {
         httpOptions: { baseUrl: 'not a url' },
       }),
     );
+  });
+});
+
+describe('google-genai Vertex client authentication', () => {
+  beforeEach(() => {
+    constructor.mockClear();
+    chunksOf([[]]);
+  });
+
+  async function generate(
+    options: GoogleGenAIRequesterOptions,
+    modelOptions?: Partial<LlmModel>,
+  ): Promise<void> {
+    const events: LlmRequestEvent[] = [];
+    await createGoogleGenAIRequester(options).generate(
+      {
+        model: {
+          provider: 'google',
+          model: 'gemini-2.5-flash',
+          capability: UNKNOWN_CAPABILITY,
+          ...modelOptions,
+        },
+      },
+      { messages: [createUserMessage('hi')] },
+      { signal: new AbortController().signal, onEvent: (event) => events.push(event) },
+    );
+    expect(events.at(-1)?.type).toBe('llm.done');
+  }
+
+  it('passes configured Vertex project and location to the SDK for ADC', async () => {
+    await generate({ vertexai: true, project: 'test-project', location: 'test-location' });
+    expect(constructor).toHaveBeenCalledTimes(1);
+    expect(constructor).toHaveBeenCalledWith({
+      apiKey: undefined,
+      vertexai: true,
+      project: 'test-project',
+      location: 'test-location',
+      httpOptions: undefined,
+    });
+  });
+
+  it('keeps explicit Vertex API key requests projectless', async () => {
+    await generate(
+      { vertexai: true, project: 'test-project', location: 'test-location' },
+      { apiKey: 'test-key' },
+    );
+    expect(constructor).toHaveBeenCalledTimes(1);
+    expect(constructor).toHaveBeenCalledWith({
+      apiKey: 'test-key',
+      vertexai: true,
+      project: undefined,
+      location: undefined,
+      httpOptions: undefined,
+    });
+  });
+
+  it('retains the model-level Vertex flag, headers, and versioned proxy base URL', async () => {
+    await generate(
+      { project: 'test-project', location: 'global' },
+      {
+        vertexai: true,
+        baseUrl: 'https://gateway.example.test/proxy/v1beta1',
+        defaultHeaders: { 'X-Gateway': 'test-gateway' },
+      },
+    );
+    expect(constructor).toHaveBeenCalledWith({
+      apiKey: undefined,
+      vertexai: true,
+      project: 'test-project',
+      location: 'global',
+      httpOptions: {
+        baseUrl: 'https://gateway.example.test/proxy',
+        headers: { 'X-Gateway': 'test-gateway' },
+      },
+    });
   });
 });
 

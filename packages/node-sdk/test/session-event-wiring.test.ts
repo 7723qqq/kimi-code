@@ -1,16 +1,9 @@
-/**
- * `SessionEventWiring` — the in-process v1 edge over the v2 per-agent event
- * bus. Covers the status-snapshot fold: v2 emits `agent.status.updated` in
- * slices and the model slice rides only the bind-time emission, so the
- * wiring merges a consistent usage + context + model snapshot into every
- * status event (mirrors kap-server's broadcaster bridge).
- * Run: bun test test/session-event-wiring.test.ts
- */
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
+import type { Event } from '#/index';
 import {
   IAgentLifecycleService,
-  IAgentProfileService,
+  IAgentLoopService,
   IAgentScopeContext,
   IEventBus,
   ISessionTokenCountingService,
@@ -19,12 +12,7 @@ import {
   type ISessionScopeHandle,
 } from '@moonshot-ai/agent-core-v2';
 
-import type { Event } from '#/index';
 import { SessionEventWiring, type SessionEventSink } from '#/v2/session-wiring';
-
-// ---------------------------------------------------------------------------
-// Fakes
-// ---------------------------------------------------------------------------
 
 type FakeBusEvent = { type: string } & Record<string, unknown>;
 
@@ -103,16 +91,12 @@ const USAGE = {
 
 function bindStatusServices(agent: FakeAgentHandle, model: string): void {
   agent.set(ISessionTokenCountingService, { statusSize: () => 10 });
-  agent.set(IAgentProfileService, {
+  agent.set(IAgentLoopService, {
     getModel: () => model,
-    getModelCapabilities: () => ({ max_context_tokens: 128_000 }),
+    resolveModelContext: () => ({ model: { maxContextSize: 128_000 } }),
   });
   agent.set(ISessionUsageService, { status: () => USAGE });
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('SessionEventWiring status snapshot fold', () => {
   it('folds a consistent usage + context + model snapshot into every status event', () => {
@@ -120,18 +104,27 @@ describe('SessionEventWiring status snapshot fold', () => {
     bindStatusServices(sub, 'sub-model');
     const { sink, events } = collectingSink();
     const wiring = new SessionEventWiring(makeSession([sub]), sink);
+    const steerInput = [
+      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAA' } },
+      { type: 'audio_url', audioUrl: { url: 'https://example.com/a.mp3' } },
+      { type: 'video_url', videoUrl: { url: 'ms://video-1', id: 'video-1' } },
+    ];
     try {
-      // The v2 model slice rides only the subagent's bind-time emission, which
-      // reaches clients before `subagent.spawned` and is dropped there; a
-      // later usage-only slice must still carry the model at this edge.
       sub.bus.emit({ type: 'agent.status.updated', usage: USAGE });
-      // Non-status events pass through untouched.
       sub.bus.emit({ type: 'assistant.delta', delta: 'Hi', time: 1_700_000_000_123 });
+      sub.bus.emit({
+        type: 'tool.result',
+        output: [
+          { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAA' } },
+          { type: 'custom', source: { kind: 'inline' } },
+        ],
+      });
+      sub.bus.emit({ type: 'turn.steer', input: steerInput });
     } finally {
       wiring.dispose();
     }
 
-    expect(events).toHaveLength(2);
+    expect(events).toHaveLength(4);
     expect(events[0]).toMatchObject({
       type: 'agent.status.updated',
       sessionId: 's1',
@@ -148,11 +141,65 @@ describe('SessionEventWiring status snapshot fold', () => {
       time: 1_700_000_000_123,
     });
     expect(events[1]).not.toHaveProperty('model');
+    expect(events[2]).toMatchObject({
+      type: 'tool.result',
+      sessionId: 's1',
+      agentId: 'agent-1',
+      output: [
+        { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAA' } },
+        { type: 'custom', source: { kind: 'inline' } },
+      ],
+    });
+    expect(events[3]).toMatchObject({ type: 'turn.steer', input: steerInput });
+    expect(JSON.stringify(events[3])).not.toContain('"source"');
+  });
+
+  it.each(['blocked', 'failed'] as const)('forwards prompt.completed(%s) so rejected prompts can settle clients', (reason) => {
+    const sub = new FakeAgentHandle('agent-1');
+    const { sink, events } = collectingSink();
+    const wiring = new SessionEventWiring(makeSession([sub]), sink);
+    try {
+      sub.bus.emit({
+        type: 'prompt.completed',
+        promptId: 'prompt-1',
+        finishedAt: '2026-01-01T00:00:00.000Z',
+        reason,
+      });
+    } finally {
+      wiring.dispose();
+    }
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: 'prompt.completed',
+      sessionId: 's1',
+      agentId: 'agent-1',
+      promptId: 'prompt-1',
+      reason,
+    });
+  });
+
+  it('keeps prompt.completed(completed) on the internal bus', () => {
+    const reason = 'completed';
+    const sub = new FakeAgentHandle('agent-1');
+    const { sink, events } = collectingSink();
+    const wiring = new SessionEventWiring(makeSession([sub]), sink);
+    try {
+      sub.bus.emit({
+        type: 'prompt.completed',
+        promptId: 'prompt-1',
+        finishedAt: '2026-01-01T00:00:00.000Z',
+        reason,
+      });
+    } finally {
+      wiring.dispose();
+    }
+
+    expect(events).toEqual([]);
   });
 
   it('passes status events through unchanged when the agent services are incomplete', () => {
     const sub = new FakeAgentHandle('agent-1');
-    // No profile/usage/context/wire services bound — nothing to fold in.
     const { sink, events } = collectingSink();
     const wiring = new SessionEventWiring(makeSession([sub]), sink);
     try {
@@ -171,9 +218,6 @@ describe('SessionEventWiring status snapshot fold', () => {
     const { sink, events } = collectingSink();
     const wiring = new SessionEventWiring(makeSession([sub]), sink);
     try {
-      // `promptAttachments` is transcript-projection metadata: kap-server
-      // strips it from the WS wire event, so SDK consumers must not see it
-      // either.
       sub.bus.emit({
         type: 'turn.prompt',
         turnId: 1,
@@ -199,6 +243,7 @@ describe('SessionEventWiring status snapshot fold', () => {
       turnId: 1,
       sessionId: 's1',
       agentId: 'agent-1',
+      promptId: 'prompt-1',
       input: [{ type: 'text', text: '<notification>internal only</notification>' }],
     });
     expect(events[1]).toMatchObject({
@@ -210,51 +255,5 @@ describe('SessionEventWiring status snapshot fold', () => {
       prompt: 'describe this',
     });
     expect(events[1]).not.toHaveProperty('promptAttachments');
-  });
-
-  it.each(['blocked', 'failed'] as const)(
-    'forwards prompt.completed(%s) so rejected prompts can settle clients',
-    (reason) => {
-      const sub = new FakeAgentHandle('agent-1');
-      const { sink, events } = collectingSink();
-      const wiring = new SessionEventWiring(makeSession([sub]), sink);
-      try {
-        sub.bus.emit({
-          type: 'prompt.completed',
-          promptId: 'prompt-1',
-          finishedAt: '2026-01-01T00:00:00.000Z',
-          reason,
-        });
-      } finally {
-        wiring.dispose();
-      }
-
-      expect(events).toHaveLength(1);
-      expect(events[0]).toMatchObject({
-        type: 'prompt.completed',
-        sessionId: 's1',
-        agentId: 'agent-1',
-        promptId: 'prompt-1',
-        reason,
-      });
-    },
-  );
-
-  it('keeps prompt.completed(completed) on the internal bus', () => {
-    const sub = new FakeAgentHandle('agent-1');
-    const { sink, events } = collectingSink();
-    const wiring = new SessionEventWiring(makeSession([sub]), sink);
-    try {
-      sub.bus.emit({
-        type: 'prompt.completed',
-        promptId: 'prompt-1',
-        finishedAt: '2026-01-01T00:00:00.000Z',
-        reason: 'completed',
-      });
-    } finally {
-      wiring.dispose();
-    }
-
-    expect(events).toHaveLength(0);
   });
 });

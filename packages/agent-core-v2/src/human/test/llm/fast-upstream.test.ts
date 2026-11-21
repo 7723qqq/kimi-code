@@ -1,15 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createMessageAccumulator, createUserMessage } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
-import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
-import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';
-import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
-import type { LlmRequestEvent, LlmRequester } from '#/llm/requester/requester';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
+import { createMessageAccumulator, createUserMessage } from '#human/message';
+import type { LlmModel } from '#human/llm/model';
+import { createAnthropicRequester } from '#human/llm/requester/bases/anthropic/requester';
+import { createGoogleGenAIRequester } from '#human/llm/requester/bases/google-genai/requester';
+import { createOpenAIResponsesRequester } from '#human/llm/requester/bases/openai-responses/requester';
+import { createOpenAIRequester } from '#human/llm/requester/bases/openai/requester';
+import type { LlmRequestEvent, LlmRequester } from '#human/llm/requester/requester';
 
-import { startMockUpstream, type MockUpstream } from '../../../../test/helpers/mockUpstream';
+import { startMockUpstream, type MockUpstream } from '../helpers/mockUpstream';
 
 const FIRST_PART_BUDGET_MS = 1_000;
 const BURST_BUDGET_MS = 5_000;
@@ -75,6 +75,20 @@ describe('an upstream that answers immediately', () => {
     expect(request?.headers['content-type']).toContain('application/json');
   }, 10_000);
 
+  it('reads OpenAI usage from the first choice when top-level usage is absent', async () => {
+    const raw = { prompt_tokens: 5, completion_tokens: 1 };
+    upstream.scenario({ kind: 'text', chunks: ['ok'], choiceUsage: raw });
+    const { events } = await generate();
+    expect(events.filter((event) => event.type === 'llm.streaming.usage')).toEqual([
+      {
+        type: 'llm.streaming.usage',
+        usage: { inputOther: 5, output: 1, inputCacheRead: 0, inputCacheCreation: 0, raw },
+      },
+    ]);
+    expect(events.at(-1)?.type).toBe('llm.done');
+    expect(upstream.requests).toHaveLength(1);
+  });
+
   it('delivers every part of a burst without dropping or duplicating one', async () => {
     upstream.scenario({
       kind: 'text',
@@ -136,6 +150,16 @@ describe('an upstream that answers immediately', () => {
     expect(elapsedMs).toBeLessThan(FIRST_PART_BUDGET_MS);
   });
 
+  it('reports a clean EOF without a provider finish event', async () => {
+    upstream.scenario({ kind: 'incomplete', chunks: ['partial answer'] });
+    const { events } = await generate();
+    expect(partsOf(events)).toMatchObject([{ part: { type: 'text', text: 'partial answer' } }]);
+    expect(events.some((event) => event.type === 'llm.failed.remote')).toBe(false);
+    expect(events.some((event) => event.type === 'llm.streaming.finish')).toBe(false);
+    expect(events.at(-1)?.type).toBe('llm.done');
+    expect(upstream.requests).toHaveLength(1);
+  });
+
   it('reports a truncated stream as a failure rather than a finished answer', async () => {
     upstream.scenario({ kind: 'truncate', chunks: ['half an ans'] });
     const { events } = await generate();
@@ -152,9 +176,17 @@ const PROTOCOLS: readonly {
   readonly create: () => LlmRequester;
 }[] = [
   { name: 'openai', pathSuffix: '/chat/completions', create: () => createOpenAIRequester() },
-  { name: 'openai-responses', pathSuffix: '/responses', create: () => createOpenAIResponsesRequester() },
+  {
+    name: 'openai-responses',
+    pathSuffix: '/responses',
+    create: () => createOpenAIResponsesRequester(),
+  },
   { name: 'anthropic', pathSuffix: '/messages', create: () => createAnthropicRequester() },
-  { name: 'google-genai', pathSuffix: ':streamGenerateContent', create: () => createGoogleGenAIRequester() },
+  {
+    name: 'google-genai',
+    pathSuffix: ':streamGenerateContent',
+    create: () => createGoogleGenAIRequester(),
+  },
 ];
 
 interface ProtocolCase {

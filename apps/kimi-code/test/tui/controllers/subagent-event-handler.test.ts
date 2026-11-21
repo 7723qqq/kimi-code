@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, it, jest } from 'bun:test';
-
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { AgentSwarmProgressComponent } from '#/tui/components/messages/agent-swarm-progress';
 import {
@@ -9,12 +8,20 @@ import {
 } from '#/tui/controllers/subagent-event-handler';
 
 function makeSwarmHandler() {
-  const requestRender = jest.fn();
-  const transcriptContainer = { addChild: jest.fn() };
-  const dockChild = { render: jest.fn(() => ['dock line']) };
+  const requestRender = vi.fn();
+  const programStatus = {
+    startSubagent: vi.fn(),
+    touchSubagent: vi.fn(),
+    completeSubagent: vi.fn(),
+    failSubagent: vi.fn(),
+    cancelSubagent: vi.fn(),
+  };
+  const transcriptContainer = { addChild: vi.fn() };
+  const dockChild = { render: vi.fn(() => ['dock line']) };
   const host = {
+    programStatus,
     state: {
-      appState: { availableModels: {} },
+      appState: { availableModels: {}, swarmMode: true },
       ui: {
         requestRender,
         terminal: { rows: 40, columns: 120 },
@@ -24,31 +31,27 @@ function makeSwarmHandler() {
       dockContainer: undefined,
     },
     streamingUI: {
-      getToolComponent: jest.fn(() => undefined),
-      getActiveToolCall: jest.fn(() => undefined),
-      onToolCallStart: jest.fn(),
-      getTurnContext: jest.fn(() => ({ turnId: 1, step: 0 })),
-      removeToolComponentIfInactive: jest.fn(),
-      finalizeLiveTextBuffers: jest.fn(),
+      getToolComponent: vi.fn(() => undefined),
+      getActiveToolCall: vi.fn(() => undefined),
+      onToolCallStart: vi.fn(),
+      getTurnContext: vi.fn(() => ({ turnId: 1, step: 0 })),
+      removeToolComponentIfInactive: vi.fn(),
+      finalizeLiveTextBuffers: vi.fn(),
     },
-    appendTranscriptEntry: jest.fn((_entry: unknown, component: unknown) => {
-      // Mirror the real host wiring so `swarmComponentOf` can reach the
-      // component the handler appended.
-      transcriptContainer.addChild(component as never);
-    }),
-    btwPanelController: { routeEvent: jest.fn(() => false) },
-    updateActivityPane: jest.fn(),
+    appendTranscriptEntry: vi.fn(),
+    btwPanelController: { routeEvent: vi.fn(() => false) },
+    updateActivityPane: vi.fn(),
   };
   const handler = new SubAgentEventHandler(host as never, {
     backgroundTasks: new Map(),
     backgroundTaskTranscriptedTerminal: new Set(),
     backgroundTaskTerminalEntries: new Map(),
-    syncBackgroundAgentBadge: jest.fn(),
+    syncBackgroundAgentBadge: vi.fn(),
   });
-  return { handler, host, requestRender, transcriptContainer, dockChild };
+  return { handler, host, programStatus, requestRender, transcriptContainer, dockChild };
 }
 
-function swarmComponentOf(transcriptContainer: { addChild: ReturnType<typeof jest.fn> }) {
+function swarmComponentOf(transcriptContainer: { addChild: ReturnType<typeof vi.fn> }) {
   return transcriptContainer.addChild.mock.calls[0]?.[0] as AgentSwarmProgressComponent;
 }
 
@@ -92,12 +95,12 @@ function startSwarmWithChild(handler: SubAgentEventHandler): void {
 }
 
 afterEach(() => {
-  jest.useRealTimers();
+  vi.useRealTimers();
 });
 
 describe('SubAgentEventHandler — swarm render batching', () => {
   it('does not request a render for each child delta routed to a swarm', () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     const { handler, requestRender } = makeSwarmHandler();
     startSwarmWithChild(handler);
     requestRender.mockClear();
@@ -110,7 +113,7 @@ describe('SubAgentEventHandler — swarm render batching', () => {
   });
 
   it('still requests a render for swarm lifecycle transitions', () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     const { handler, requestRender } = makeSwarmHandler();
     handler.handleAgentSwarmToolCallStarted('tc-1', {
       description: 'Review changed files',
@@ -126,7 +129,7 @@ describe('SubAgentEventHandler — swarm render batching', () => {
   });
 
   it('drives swarm re-renders from the frame timer after deltas', () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     const { handler, requestRender } = makeSwarmHandler();
     startSwarmWithChild(handler);
     requestRender.mockClear();
@@ -134,7 +137,7 @@ describe('SubAgentEventHandler — swarm render batching', () => {
     handler.routeChildAgentEvent(childEvent('assistant.delta', 'child-1'));
     expect(requestRender).not.toHaveBeenCalled();
 
-    jest.advanceTimersByTime(80);
+    vi.advanceTimersByTime(80);
     expect(requestRender).toHaveBeenCalledTimes(1);
   });
 });
@@ -167,6 +170,22 @@ describe('SubAgentEventHandler — subagent.cancelled', () => {
     const output = component.render(120).join('\n');
     expect(output).toContain('⊘');
     expect(output).toContain('hello');
+  });
+});
+
+describe('SubAgentEventHandler — program status', () => {
+  it('reports foreground spawn and completion with the task description', () => {
+    const { handler, programStatus } = makeSwarmHandler();
+
+    handler.handleLifecycleEvent(lifecycleEvent('subagent.spawned', 'child-1', 'tc-1'));
+    expect(programStatus.startSubagent).toHaveBeenCalledWith({
+      agentId: 'child-1',
+      title: 'task child-1',
+      taskId: undefined,
+    });
+
+    handler.handleLifecycleEvent(lifecycleEvent('subagent.completed', 'child-1', 'tc-1'));
+    expect(programStatus.completeSubagent).toHaveBeenCalledWith('child-1');
   });
 });
 

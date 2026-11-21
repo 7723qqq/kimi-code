@@ -1,40 +1,34 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  detectFdPath,
-  ensureFdPath,
-  getFdAssetName,
-  type FdDetectDeps,
-  type FdSpawnSync,
-} from '#/utils/process/fd-detect';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-let tempDirs: string[] = [];
+import { detectFdPath, getFdAssetName } from '#/utils/process/fd-detect';
+import { getBinDir } from '#/utils/paths';
+
+const mocks = vi.hoisted(() => ({
+  resolveCommandPath: vi.fn(),
+  spawnSync: vi.fn(),
+}));
+
+void vi.mock('#/utils/process/resolve-command', () => ({
+  resolveCommandPath: mocks.resolveCommandPath,
+}));
+void vi.mock('node:child_process', () => ({ execFile: vi.fn(), spawnSync: mocks.spawnSync }));
+
+const originalEnv = { ...process.env };
+let tempHome: string | undefined;
 
 afterEach(() => {
-  for (const dir of tempDirs) {
-    rmSync(dir, { recursive: true, force: true });
+  if (tempHome !== undefined) {
+    rmSync(tempHome, { recursive: true, force: true });
+    tempHome = undefined;
   }
-  tempDirs = [];
+  process.env = { ...originalEnv };
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
-
-function makeTempDir(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
-
-function recordingSpawn(
-  calls: { command: string; args: readonly string[]; stdio: string }[],
-  status: number,
-): FdSpawnSync {
-  return (command, args, options) => {
-    calls.push({ command, args, stdio: options.stdio });
-    return { status };
-  };
-}
 
 describe('getFdAssetName', () => {
   it('returns the macOS arm64 asset name', () => {
@@ -61,141 +55,32 @@ describe('getFdAssetName', () => {
 
 describe('detectFdPath', () => {
   it('returns the absolute resolved path for a system fd binary', () => {
-    const binDir = makeTempDir('kimi-fd-bin-');
-    const calls: { command: string; args: readonly string[]; stdio: string }[] = [];
+    tempHome = mkdtempSync(join(tmpdir(), 'kimi-fd-home-'));
+    process.env['KIMI_CODE_HOME'] = tempHome;
+    mocks.resolveCommandPath.mockImplementation((name: string) =>
+      name === 'fd' ? '/usr/local/bin/fd' : undefined,
+    );
+    mocks.spawnSync.mockReturnValue({ status: 0 });
 
-    const detected = detectFdPath({
-      binDir: () => binDir,
-      platform: 'linux',
-      resolveCommandPath: (name) => (name === 'fd' ? '/usr/local/bin/fd' : undefined),
-      spawnSync: recordingSpawn(calls, 0),
+    expect(detectFdPath()).toBe('/usr/local/bin/fd');
+    expect(mocks.spawnSync).toHaveBeenCalledWith('/usr/local/bin/fd', ['--version'], {
+      stdio: 'ignore',
     });
-
-    expect(detected).toBe('/usr/local/bin/fd');
-    expect(calls).toEqual([{ command: '/usr/local/bin/fd', args: ['--version'], stdio: 'ignore' }]);
   });
 
-  it('prefers the managed fd binary in the injected bin dir', () => {
-    const binDir = makeTempDir('kimi-fd-bin-');
-    writeFileSync(join(binDir, 'fd'), '#!/bin/sh\necho fd 10.4.2\n');
-    const probed: string[] = [];
+  it('prefers the managed fd binary under KIMI_CODE_HOME', () => {
+    tempHome = mkdtempSync(join(tmpdir(), 'kimi-fd-home-'));
+    process.env['KIMI_CODE_HOME'] = tempHome;
+    mkdirSync(getBinDir(), { recursive: true });
 
-    const detected = detectFdPath({
-      binDir: () => binDir,
-      platform: 'linux',
-      resolveCommandPath: () => '/usr/local/bin/fd',
-      spawnSync: (command) => {
-        probed.push(command);
-        return { status: 0 };
-      },
-    });
+    const binaryPath = join(getBinDir(), process.platform === 'win32' ? 'fd.exe' : 'fd');
+    if (process.platform === 'win32') {
+      return;
+    }
 
-    expect(detected).toBe(join(binDir, 'fd'));
-    expect(probed).toEqual([join(binDir, 'fd')]);
-  });
+    writeFileSync(binaryPath, '#!/bin/sh\necho fd 10.4.2\n');
+    chmodSync(binaryPath, 0o755);
 
-  it('looks for fd.exe on a Windows platform', () => {
-    const binDir = makeTempDir('kimi-fd-bin-');
-    writeFileSync(join(binDir, 'fd.exe'), 'MZ');
-
-    const detected = detectFdPath({
-      binDir: () => binDir,
-      platform: 'win32',
-      resolveCommandPath: () => undefined,
-      spawnSync: () => ({ status: 0 }),
-    });
-
-    expect(detected).toBe(join(binDir, 'fd.exe'));
-  });
-
-  it('falls back to a system fd when the managed binary is not runnable', () => {
-    const binDir = makeTempDir('kimi-fd-bin-');
-    const managed = join(binDir, 'fd');
-    writeFileSync(managed, '#!/bin/sh\nexit 1\n');
-    const calls: { command: string; args: readonly string[]; stdio: string }[] = [];
-
-    const detected = detectFdPath({
-      binDir: () => binDir,
-      platform: 'linux',
-      resolveCommandPath: (name) => (name === 'fdfind' ? '/usr/bin/fdfind' : undefined),
-      spawnSync: (command, args, options) => {
-        calls.push({ command, args, stdio: options.stdio });
-        return { status: command === managed ? 1 : 0 };
-      },
-    });
-
-    expect(detected).toBe('/usr/bin/fdfind');
-    expect(calls.map((call) => call.command)).toEqual([managed, '/usr/bin/fdfind']);
-  });
-
-  it('returns null when neither a managed nor a system fd runs', () => {
-    const binDir = makeTempDir('kimi-fd-bin-');
-
-    const detected = detectFdPath({
-      binDir: () => binDir,
-      platform: 'linux',
-      resolveCommandPath: (name) => `/usr/bin/${name}`,
-      spawnSync: () => ({ status: 1 }),
-    });
-
-    expect(detected).toBeNull();
-  });
-
-  it('skips a candidate whose version probe throws', () => {
-    const binDir = makeTempDir('kimi-fd-bin-');
-
-    const detected = detectFdPath({
-      binDir: () => binDir,
-      platform: 'linux',
-      resolveCommandPath: (name) => (name === 'fd' ? '/usr/local/bin/fd' : undefined),
-      spawnSync: () => {
-        throw new Error('EACCES');
-      },
-    });
-
-    expect(detected).toBeNull();
-  });
-});
-
-describe('ensureFdPath', () => {
-  it('returns the detected binary without downloading', async () => {
-    const binDir = makeTempDir('kimi-fd-bin-');
-    writeFileSync(join(binDir, 'fd'), '#!/bin/sh\necho fd 10.4.2\n');
-    let downloads = 0;
-
-    const detected = await ensureFdPath({
-      binDir: () => binDir,
-      platform: 'linux',
-      arch: 'x64',
-      resolveCommandPath: () => undefined,
-      spawnSync: () => ({ status: 0 }),
-      fetch: (async () => {
-        downloads += 1;
-        throw new Error('offline');
-      }) as unknown as FdDetectDeps['fetch'],
-    });
-
-    expect(detected).toBe(join(binDir, 'fd'));
-    expect(downloads).toBe(0);
-  });
-
-  it('returns null when the download fails', async () => {
-    const binDir = makeTempDir('kimi-fd-bin-');
-    let downloads = 0;
-
-    const detected = await ensureFdPath({
-      binDir: () => binDir,
-      platform: 'linux',
-      arch: 'x64',
-      resolveCommandPath: () => undefined,
-      spawnSync: () => ({ status: 1 }),
-      fetch: (async () => {
-        downloads += 1;
-        throw new Error('offline');
-      }) as unknown as FdDetectDeps['fetch'],
-    });
-
-    expect(detected).toBeNull();
-    expect(downloads).toBe(1);
+    expect(detectFdPath()).toBe(binaryPath);
   });
 });

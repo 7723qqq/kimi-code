@@ -1,7 +1,3 @@
-/**
- * SessionPicker — pi-tui version of the session selection dialog.
- */
-
 import {
   Container,
   matchesKey,
@@ -9,22 +5,14 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
-
-import { t } from '#/i18n';
 import { formatSessionLabel } from '#/migration/index';
-import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
+import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import {
-  mouseDispatch,
-  ListMouseRouter,
-  type ListRowRegion,
-  searchableListCursor,
-} from '#/tui/utils/mouse';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
+import { SpinnerTicker } from '#/tui/utils/spinner-ticker';
+import { t } from '#/i18n';
 
 export interface SessionRow {
   readonly id: string;
@@ -37,11 +25,9 @@ export interface SessionRow {
 
 const ELLIPSIS = '…';
 
-function formatRelativeTime(ts: number, nowMs: number): string {
-  // SessionSummary timestamps come from filesystem stat `*timeMs`,
-  // so they use the same millisecond unit as `Date.now()`.
+function formatRelativeTime(ts: number): string {
   if (!Number.isFinite(ts) || ts <= 0) return '';
-  const diffSec = Math.floor(Math.max(0, nowMs - ts) / 1000);
+  const diffSec = Math.floor(Math.max(0, Date.now() - ts) / 1000);
   if (diffSec < 60) return t('tui.dialogs.sessionPicker.justNow');
   const minutes = Math.floor(diffSec / 60);
   if (minutes < 60) return t('tui.dialogs.sessionPicker.minutesAgo', { minutes: String(minutes) });
@@ -57,18 +43,14 @@ function homeAlias(path: string): string {
   return path;
 }
 
-// Truncates from the LEFT (keeps the tail), prefixing an ellipsis when clipped.
-// Paths typically carry the relevant info near the end, so we drop the prefix.
 function truncatePathLeft(path: string, maxWidth: number): string {
   if (maxWidth <= 0) return '';
   if (visibleWidth(path) <= maxWidth) return path;
   if (maxWidth === 1) return ELLIPSIS;
-  // Walk graphemes from the end accumulating width, keep the longest tail
-  // whose width + ellipsis fits.
   const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
   const segments = [...segmenter.segment(path)].map((s) => s.segment);
   let used = 0;
-  const budget = maxWidth - 1; // reserve 1 column for ellipsis
+  const budget = maxWidth - 1;
   let i = segments.length - 1;
   while (i >= 0) {
     const seg = segments[i];
@@ -95,6 +77,7 @@ export class SessionPickerComponent extends Container implements Focusable {
   private onSelect: (session: SessionRow) => void | Promise<void>;
   private onCancel: () => void;
   private onToggleScope?: (selectedSessionId: string) => void;
+  private requestRender?: () => void;
   private maxVisibleSessions: number;
   private pageSize: number;
   private visibleCount: number;
@@ -103,9 +86,12 @@ export class SessionPickerComponent extends Container implements Focusable {
   private hasMore: boolean;
   private loadingMore: boolean;
   private list: SearchableList<SessionRow>;
-  private readonly mouse: ListMouseRouter<SessionRow>;
   private deleteState?: { session: SessionRow; phase: 'confirm' | 'deleting' };
   private selectInFlight = false;
+  private readonly spinner = new SpinnerTicker(() => {
+    this.invalidate();
+    this.requestRender?.();
+  });
 
   focused = false;
 
@@ -121,22 +107,15 @@ export class SessionPickerComponent extends Container implements Focusable {
     onCtrlC?: () => void;
     onCtrlD?: () => void;
     onToggleScope?: (selectedSessionId: string) => void;
+    requestRender?: () => void;
     maxVisibleSessions?: number;
-    /** More pages exist on the backend (keyset paging). */
     hasMore?: boolean;
-    /** A follow-up page fetch is in flight. */
     loadingMore?: boolean;
-    /** Fired when the cursor reaches the end of every row fetched so far. */
     onLoadMore?: () => void;
-    /** Fired when a search query becomes active while pages remain unfetched. */
     onSearchDrain?: () => void;
-    /** Fired after the user confirms deletion with `y`; the picker clears its delete state once the request settles. */
     onDeleteRequest?: (session: SessionRow) => Promise<void>;
-    /** Wall clock used for the relative "updated" times; defaults to `Date.now`. */
-    now?: () => number;
   }) {
     super();
-    this.now = opts.now ?? Date.now;
     this.sessions = opts.sessions;
     this.loading = opts.loading;
     this.currentSessionId = opts.currentSessionId;
@@ -144,6 +123,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     this.onSelect = opts.onSelect;
     this.onCancel = opts.onCancel;
     this.onToggleScope = opts.onToggleScope;
+    this.requestRender = opts.requestRender;
     this.maxVisibleSessions = opts.maxVisibleSessions ?? 4;
     this.pageSize = Math.max(1, opts.pageSize ?? 50);
     this.hasMore = opts.hasMore ?? false;
@@ -163,13 +143,6 @@ export class SessionPickerComponent extends Container implements Focusable {
     this.onCtrlC = opts.onCtrlC;
     this.onCtrlD = opts.onCtrlD;
     this.onDeleteRequest = opts.onDeleteRequest;
-    this.mouse = new ListMouseRouter(
-      searchableListCursor(() => this.list),
-      (session) => this.selectSession(session),
-      {
-        isFocused: () => this.focused,
-      },
-    );
   }
 
   private readonly onCtrlC?: () => void;
@@ -177,21 +150,16 @@ export class SessionPickerComponent extends Container implements Focusable {
   private readonly onLoadMore?: () => void;
   private readonly onSearchDrain?: () => void;
   private readonly onDeleteRequest?: (session: SessionRow) => Promise<void>;
-  private readonly now: () => number;
 
-  /** Appends a freshly fetched page, keeping the cursor and active query. */
   appendSessions(rows: SessionRow[]): void {
     this.sessions = [...this.sessions, ...rows];
     this.list.setItems(this.sessions);
-    // Rows arriving while a query is active must become visible without
-    // waiting for the next keypress; only grow, never shrink the window.
     this.visibleCount = Math.max(
       this.visibleCount,
       Math.min(this.list.view().items.length, this.pageSize),
     );
   }
 
-  /** Updates the backend-paging facts after an in-flight fetch settles. */
   setPaging(hasMore: boolean, loadingMore: boolean): void {
     this.hasMore = hasMore;
     this.loadingMore = loadingMore;
@@ -215,8 +183,6 @@ export class SessionPickerComponent extends Container implements Focusable {
     const view = this.list.view();
     if (view.query !== previousQuery) {
       this.visibleCount = Math.min(view.items.length, this.pageSize);
-      // A fresh query only searches the pages fetched so far; ask the host to
-      // drain the rest in the background so search covers every session.
       if (view.query.length > 0 && previousQuery.length === 0 && this.hasMore) {
         this.onSearchDrain?.();
       }
@@ -227,7 +193,6 @@ export class SessionPickerComponent extends Container implements Focusable {
     if (view.selectedIndex >= loadedCount - 1 && loadedCount < view.items.length) {
       this.visibleCount = Math.min(view.items.length, this.visibleCount + this.pageSize);
     }
-    // The cursor reached the end of everything fetched: pull the next page.
     if (
       this.hasMore &&
       !this.loadingMore &&
@@ -243,8 +208,6 @@ export class SessionPickerComponent extends Container implements Focusable {
       this.handleDeleteInput(data);
       return;
     }
-    // A selection runs resume/switch asynchronously; input during that window
-    // (e.g. Ctrl+X delete) would race the session swap.
     if (this.selectInFlight) return;
     if (matchesKey(data, Key.ctrl('c'))) {
       this.onCtrlC?.();
@@ -276,7 +239,22 @@ export class SessionPickerComponent extends Container implements Focusable {
     }
     if (matchesKey(data, Key.enter)) {
       const session = this.list.selected();
-      if (session) this.selectSession(session);
+      if (session) {
+        const selection = this.onSelect(session);
+        if (selection !== undefined) {
+          this.selectInFlight = true;
+          this.spinner.start();
+          this.invalidate();
+          this.requestRender?.();
+          const clear = (): void => {
+            this.selectInFlight = false;
+            this.spinner.stop();
+            this.invalidate();
+            this.requestRender?.();
+          };
+          void selection.then(clear, clear);
+        }
+      }
       return;
     }
 
@@ -284,23 +262,6 @@ export class SessionPickerComponent extends Container implements Focusable {
     if (this.list.handleKey(data)) {
       this.syncVisibleCount(previousQuery);
     }
-  }
-
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouse.handleMouse(event));
-  }
-
-  /** Commit a session the way Enter does, and keep the picker honest while the
-   * switch is in flight. */
-  private selectSession(session: SessionRow): void {
-    if (this.deleteState !== undefined || this.selectInFlight) return;
-    const selection = this.onSelect(session);
-    if (selection === undefined) return;
-    this.selectInFlight = true;
-    const clear = (): void => {
-      this.selectInFlight = false;
-    };
-    void selection.then(clear, clear);
   }
 
   private handleDeleteInput(data: string): void {
@@ -321,7 +282,6 @@ export class SessionPickerComponent extends Container implements Focusable {
         this.deleteState = undefined;
         this.invalidate();
       };
-      // then(clear, clear): rejections settle too — the host has already surfaced the failure.
       void this.onDeleteRequest?.(state.session).then(clear, clear);
     }
   }
@@ -333,18 +293,10 @@ export class SessionPickerComponent extends Container implements Focusable {
     const label = singleLine(
       formatSessionLabel({ title: rawTitle, metadata: state.session.metadata }),
     );
-    const prefix =
-      state.phase === 'confirm'
-        ? t('tui.dialogs.sessionPicker.deletePrefix')
-        : t('tui.dialogs.sessionPicker.deletingPrefix');
-    const suffix =
-      state.phase === 'confirm'
-        ? t('tui.dialogs.sessionPicker.deleteConfirmSuffix')
-        : t('tui.dialogs.sessionPicker.deletingSuffix');
+    const prefix = state.phase === 'confirm' ? t('tui.dialogs.sessionPicker.deletePrefix') : t('tui.dialogs.sessionPicker.deletingPrefix');
+    const suffix = state.phase === 'confirm' ? t('tui.dialogs.sessionPicker.deleteConfirmSuffix') : t('tui.dialogs.sessionPicker.deletingSuffix');
     const labelBudget = Math.max(0, width - visibleWidth(prefix) - visibleWidth(suffix));
     const shown = truncateToWidth(label, labelBudget, ELLIPSIS);
-    // The suffix carries the confirm/cancel keys: it survives by truncating
-    // the head (prefix + label) instead of the composed line.
     const head = truncateToWidth(
       prefix + shown,
       Math.max(0, width - visibleWidth(suffix)),
@@ -357,22 +309,17 @@ export class SessionPickerComponent extends Container implements Focusable {
     return truncateToWidth(styled, width, ELLIPSIS);
   }
 
+  dispose(): void {
+    this.spinner.dispose();
+  }
+
   override render(width: number): string[] {
     return this.renderLines(width).map((line) => truncateToWidth(line, width, ELLIPSIS));
   }
 
-  // Builds the raw lines; `render()` applies a final width clamp so no line
-  // can ever exceed the terminal width. The per-line budgets below keep the
-  // layout tidy at normal widths, but on a very narrow terminal those budgets
-  // floor at a minimum and the trailing time/badge are appended in full, so
-  // the clamp in `render()` is what guarantees the renderer's invariant and
-  // prevents the "Rendered line exceeds terminal width" crash (issue #240).
   private renderLines(width: number): string[] {
     const lines: string[] = [currentTheme.fg('primary', '─'.repeat(width))];
-    const title =
-      this.scope === 'all'
-        ? t('tui.dialogs.sessionPicker.titleAll')
-        : t('tui.dialogs.sessionPicker.titleCwd');
+    const title = this.scope === 'all' ? t('tui.dialogs.sessionPicker.titleAll') : t('tui.dialogs.sessionPicker.titleCwd');
     const scopeHint =
       this.onToggleScope === undefined
         ? undefined
@@ -383,10 +330,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     if (this.loading) {
       lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)));
       lines.push(
-        currentTheme.fg(
-          'textMuted',
-          truncateToWidth(t('tui.dialogs.sessionPicker.loading'), width, ELLIPSIS),
-        ),
+        currentTheme.fg('textMuted', truncateToWidth(t('tui.dialogs.sessionPicker.loading'), width, ELLIPSIS)),
       );
       lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
@@ -402,10 +346,7 @@ export class SessionPickerComponent extends Container implements Focusable {
       );
       lines.push('');
       lines.push(
-        currentTheme.fg(
-          'textMuted',
-          truncateToWidth(t('tui.dialogs.sessionPicker.empty'), width, ELLIPSIS),
-        ),
+        currentTheme.fg('textMuted', truncateToWidth(t('tui.dialogs.sessionPicker.empty'), width, ELLIPSIS)),
       );
       lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
@@ -413,9 +354,7 @@ export class SessionPickerComponent extends Container implements Focusable {
 
     const view = this.list.view();
     const titleSuffix =
-      view.query.length === 0
-        ? currentTheme.fg('textMuted', '  ' + t('tui.dialogs.modelSelector.searchHint'))
-        : '';
+      view.query.length === 0 ? currentTheme.fg('textMuted', '  (type to search)') : '';
     const hintParts = [
       ...(view.query.length > 0 ? [t('tui.dialogs.modelSelector.hintBackspace')] : []),
       t('tui.dialogs.modelSelector.hintNavigate'),
@@ -427,23 +366,18 @@ export class SessionPickerComponent extends Container implements Focusable {
 
     lines.push(currentTheme.boldFg('primary', title) + titleSuffix);
     lines.push(currentTheme.fg('textMuted', hintParts.join(' · ')));
+    if (this.selectInFlight) {
+      lines.push(currentTheme.fg('textMuted', t('tui.dialogs.sessionPicker.resuming', { p1: this.spinner.current })));
+    }
     lines.push('');
 
     if (view.query.length > 0) {
-      lines.push(
-        currentTheme.fg('primary', t('tui.dialogs.sessionPicker.searchLabel')) +
-          currentTheme.fg('text', view.query),
-      );
+      lines.push(currentTheme.fg('primary', t('tui.dialogs.sessionPicker.searchLabel')) + currentTheme.fg('text', view.query));
     }
 
     const loadedSessions = this.loadedSessions(view.items);
     if (loadedSessions.length === 0) {
-      lines.push(
-        currentTheme.fg(
-          'textMuted',
-          truncateToWidth(t('tui.dialogs.modelSelector.noMatches'), width, ELLIPSIS),
-        ),
-      );
+      lines.push(currentTheme.fg('textMuted', truncateToWidth(t('tui.dialogs.modelSelector.noMatches'), width, ELLIPSIS)));
       lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
     }
@@ -460,18 +394,14 @@ export class SessionPickerComponent extends Container implements Focusable {
       visibleStart + this.maxVisibleSessions,
     );
 
-    const regions: ListRowRegion[] = [];
     for (const [vi, session] of visibleSessions.entries()) {
       const index = visibleStart + vi;
       const isSelected = index === selectedIndex;
       const isCurrent = session.id === this.currentSessionId;
       const card = this.renderSessionCard(width, session, isSelected, isCurrent);
-      const start = lines.length;
       lines.push(...card);
-      regions.push({ start, end: lines.length, index });
       if (vi < visibleSessions.length - 1) lines.push('');
     }
-    this.mouse.setRegions(regions);
 
     const filteredCount = view.items.length;
     if (
@@ -482,32 +412,24 @@ export class SessionPickerComponent extends Container implements Focusable {
     ) {
       lines.push('');
       const moreSuffix = this.loadingMore
-        ? ` · ${t('tui.dialogs.sessionPicker.moreLoading')}`
+        ? t('tui.dialogs.sessionPicker.loadingMore')
         : this.hasMore
           ? view.query.length > 0
-            ? ` · ${t('tui.dialogs.sessionPicker.moreSearching')}`
-            : ` · ${t('tui.dialogs.sessionPicker.moreScroll')}`
+            ? t('tui.dialogs.sessionPicker.searchingAll')
+            : t('tui.dialogs.sessionPicker.scrollForMore')
           : '';
       const totalSuffix =
         view.query.length > 0
-          ? t('tui.dialogs.sessionPicker.footerLoadedMatches', {
-              loaded: String(loadedSessions.length),
-              total: String(filteredCount),
-            })
+          ? t('tui.dialogs.sessionPicker.footerLoadedMatches', { loaded: String(loadedSessions.length), total: String(filteredCount) })
           : this.hasMore || this.loadingMore
-            ? t('tui.dialogs.sessionPicker.footerLoaded', { count: String(loadedSessions.length) })
+            ? `${String(loadedSessions.length)} loaded`
             : loadedSessions.length === this.sessions.length
-              ? t('tui.dialogs.sessionPicker.footerSessions', {
-                  count: String(loadedSessions.length),
-                })
-              : t('tui.dialogs.sessionPicker.footerLoadedSessions', {
-                  loaded: String(loadedSessions.length),
-                  total: String(this.sessions.length),
-                });
+              ? `${String(loadedSessions.length)} sessions`
+              : t('tui.dialogs.sessionPicker.footerLoadedSessions', { loaded: String(loadedSessions.length), total: String(this.sessions.length) });
       const footer = t('tui.dialogs.sessionPicker.footerShowing', {
         from: String(visibleStart + 1),
         to: String(visibleStart + visibleSessions.length),
-        totalSuffix: totalSuffix + moreSuffix,
+        totalSuffix: `${totalSuffix}${moreSuffix}`,
       });
       lines.push(currentTheme.fg('textMuted', truncateToWidth(footer, width, ELLIPSIS)));
     }
@@ -534,16 +456,15 @@ export class SessionPickerComponent extends Container implements Focusable {
     const titleStyle = (text: string) =>
       isSelected ? currentTheme.boldFg(titleColor, text) : currentTheme.fg(titleColor, text);
 
-    const time = formatRelativeTime(session.updated_at, this.now());
-    const badge = isCurrent ? getCurrentMark() : '';
+    const time = formatRelativeTime(session.updated_at);
+    const badge = isCurrent ? CURRENT_MARK : '';
     const rawTitle = (session.title ?? session.id).trim() || session.id;
     const titleSource = formatSessionLabel({ title: rawTitle, metadata: session.metadata });
 
-    // Inline trailing parts after the title: "<title>  <time>  ← current".
     const trailingParts = [time, badge].filter((p) => p.length > 0);
     const trailingText = trailingParts.length > 0 ? '  ' + trailingParts.join('  ') : '';
     const trailingWidth = visibleWidth(trailingText);
-    const headerPrefixWidth = visibleWidth(pointer) + 1; // pointer + space
+    const headerPrefixWidth = visibleWidth(pointer) + 1;
     const titleBudget = Math.max(8, width - headerPrefixWidth - trailingWidth);
     const shownTitle = truncateToWidth(singleLine(titleSource), titleBudget, ELLIPSIS);
 
@@ -553,9 +474,6 @@ export class SessionPickerComponent extends Container implements Focusable {
     if (badge.length > 0) header += '  ' + currentTheme.fg('success', badge);
     const card: string[] = [header];
 
-    // Session id is rendered in full at normal widths (the final clamp in
-    // `render()` truncates it only when the terminal is narrower than the id).
-    // The directory wraps to its own line if it would push past the edge.
     const fullId = session.id;
     const idWidth = visibleWidth(fullId);
     const metaGap = '   ';
@@ -572,8 +490,6 @@ export class SessionPickerComponent extends Container implements Focusable {
           currentTheme.fg('textMuted', aliasedDir),
       );
     } else {
-      // Not enough room for both on one line — keep the id intact and put the
-      // directory on the next line (left-truncated only if it still doesn't fit).
       card.push(
         indent +
           currentTheme.fg(

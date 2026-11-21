@@ -1,17 +1,21 @@
-import { IInstantiationService, type ServicesAccessor } from '#/_base/di/instantiation';
+import type { GoalSnapshot } from '#/features/goal/types';
+
+import { LifecycleScope } from '#/app/scopes';
 import {
   type IAgentScopeHandle,
   type ISessionScopeHandle,
   ScopeActivation,
   registerScopedService,
 } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
+import {
+  IInstantiationService,
+  type ServicesAccessor,
+} from '#/_base/di/instantiation';
+import { IAgentGoalService } from '#/features/goal/goalService';
 import { resumeSessionById } from '#/app/sessionManager/sessionLookup';
 import { ErrorCodes, Error2 } from '#/errors';
-import { IAgentGoalService } from '#/features/goal/goalService';
-import type { GoalSnapshot } from '#/features/goal/types';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import { ISessionLegacyService } from './sessionLegacy';
 

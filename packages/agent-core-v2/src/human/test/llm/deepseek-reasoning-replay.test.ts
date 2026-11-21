@@ -1,20 +1,20 @@
 import { describe, expect, it } from 'bun:test';
 
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
 import {
   createAssistantMessage,
   createUserMessage,
   type Message,
   type ToolDescription,
-} from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
+} from '#human/message';
+import type { LlmModel } from '#human/llm/model';
 import {
   fullReasoningEchoRequired,
   ignoredSamplingParamsForModel,
   thinkingHistoryForModel,
-} from '#/llm/modelFamily';
-import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
-import type { LlmClientContext } from '#/llm/requester/requester';
+} from '#human/llm/modelFamily';
+import { createOpenAIRequester } from '#human/llm/requester/bases/openai/requester';
+import type { LlmClientContext } from '#human/llm/requester/requester';
 
 const deepseekModel: LlmModel = {
   provider: 'deepseek',

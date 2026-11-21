@@ -1,8 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, jest, type Mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from '@moonshot-ai/testkit/vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { createReminderStub } from '../reminder/stubs';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type {
   ApprovalResponse,
@@ -10,9 +12,11 @@ import type {
   PermissionPolicyResolution,
   PermissionPolicyResult,
 } from '#/agent/permissionPolicy/types';
-import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentPlanService } from '#/features/plan/plan';
+import { AgentPlanService } from '#/features/plan/planService';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type {
@@ -20,33 +24,27 @@ import type {
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentPlanService } from '#/features/plan/plan';
-import { AgentPlanService } from '#/features/plan/planService';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { IAgentTodoService } from '#/features/todo/todoService';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IBlobStore } from '#/persistence/interface/blobStore';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ToolAccesses } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ToolCall } from '#human/llm/message';
 
-import { stubPermissionModeService } from '../../agent/permissionMode/stubs';
-import {
-  stubToolExecutorEvents,
-  type ToolExecutorEventStubs,
-} from '../../agent/toolExecutor/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { createFakeHostFs } from '../../tools/fixtures/fake-exec';
 import { registerTestAgentWireServices } from '../../wire/stubs';
-import { createReminderStub } from '../reminder/stubs';
+import { stubPermissionModeService } from '../../agent/permissionMode/stubs';
+import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
+import { stubPlanEnvironment } from './stubs';
+import { stubLoopWithHooks } from '../../agent/loop/stubs';
 
 const signal = new AbortController().signal;
-const SESSION_DIR = '/session';
+const TEMP_DIR = '/var/folders/x/T';
 const PLAN_ID = 'plan-1';
-const PLAN_PATH = `${SESSION_DIR}/agents/${MAIN_AGENT_ID}/plans/${PLAN_ID}.md`;
+const PLAN_PATH = `${TEMP_DIR}/agents/${MAIN_AGENT_ID}/plans/${PLAN_ID}.md`;
 
 const options = [
   { label: 'Approach A', description: 'Small change.' },
@@ -148,13 +146,42 @@ describe('AgentPlanService plan-guard listener', () => {
     requests = [];
     approvalResponse = { decision: 'approved' };
     nonInteractive = false;
-    formatDenyMessage = jest.fn((message: string) => message);
+    formatDenyMessage = vi.fn((message: string) => message);
     mode = 'manual';
     files = new Map();
     permissionRan = false;
     permissionStandInRegistered = false;
     executorEvents = stubToolExecutorEvents();
+    buildServices(availableEnvironment());
+  });
 
+  function availableEnvironment(): IAgentEnvironmentService {
+    return stubPlanEnvironment({
+      fs: createFakeHostFs({
+        mkdir: vi.fn().mockResolvedValue(undefined),
+        readText: vi.fn(async (path: string) => files.get(path) ?? ''),
+        writeText: vi.fn(async (path: string, content: string) => {
+          files.set(path, content);
+        }),
+        realpath: vi.fn(async (path: string) =>
+          path.startsWith('/var/') ? `/private${path}` : path,
+        ),
+      }),
+      tempDir: TEMP_DIR,
+    });
+  }
+
+  function unavailableEnvironment(): IAgentEnvironmentService {
+    const stub = availableEnvironment();
+    return {
+      ...stub,
+      acquire: () => {
+        throw new Error('environment unavailable');
+      },
+    };
+  }
+
+  function buildServices(environment: IAgentEnvironmentService, sessionDir = TEMP_DIR): void {
     const toolApproval: IAgentToolApprovalService = {
       _serviceBrand: undefined,
       resolvePermissionResolution: async () => {
@@ -173,61 +200,27 @@ describe('AgentPlanService plan-guard listener', () => {
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         registerTestAgentWireServices(reg, 'wire/main', MAIN_AGENT_ID);
-        reg.defineInstance(
-          IHostFileSystem,
-          createFakeHostFs({
-            mkdir: jest.fn().mockResolvedValue(undefined),
-            readText: jest.fn(async (path: string) => files.get(path) ?? ''),
-            writeText: jest.fn(async (path: string, content: string) => {
-              files.set(path, content);
-            }),
-          }),
-        );
-        reg.definePartialInstance(ISessionContext, {
-          sessionId: 'session-1',
-          sessionDir: SESSION_DIR,
-        });
-        reg.definePartialInstance(IAgentContextMemoryService, {});
+        reg.defineInstance(IAgentEnvironmentService, environment);
+        reg.definePartialInstance(IHostEnvironment, { pathClass: 'posix' });
+        reg.defineInstance(IHostFileSystem, environment.inspect().fs ?? createFakeHostFs());
+        reg.defineInstance(ISessionContext, makeSessionContext({
+          sessionId: 'session',
+          workspaceId: 'workspace',
+          sessionDir,
+          sessionScope: 'sessions/session',
+          cwd: '/workspace',
+        }));
+        reg.defineInstance(IAgentLoopService, stubLoopWithHooks());
         reg.defineInstance(IAgentReminderService, createReminderStub());
         reg.defineInstance(IAgentToolExecutorService, executorEvents.executor);
         reg.defineInstance(IAgentToolApprovalService, toolApproval);
-        reg.defineInstance(
-          IAgentPermissionModeService,
-          stubPermissionModeService(() => mode),
-        );
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
         reg.defineInstance(ITelemetryService, recordingTelemetry(records));
         reg.defineInstance(IAgentStateService, new AgentStateService());
-        reg.defineInstance(IAgentTodoService, {
-          _serviceBrand: undefined,
-          onDidChange: () => ({ dispose: () => {} }),
-          get: () => [],
-          replace: async () => {},
-          clear: async () => {},
-        } as unknown as IAgentTodoService);
-        reg.defineInstance(IBlobStore, {
-          _serviceBrand: undefined,
-          put: async () => {},
-          putStream: async () => {},
-          get: async () => undefined,
-          getStream: async function* () {},
-          has: async () => false,
-          delete: async () => {},
-          list: async () => [],
-        } as unknown as IBlobStore);
-        reg.defineInstance(IHostEnvironment, {
-          _serviceBrand: undefined,
-          osKind: 'linux',
-          osArch: 'x64',
-          osVersion: 'test',
-          shellName: 'bash',
-          shellPath: '/bin/bash',
-          pathClass: 'posix',
-          homeDir: '/home/test',
-        } as unknown as IHostEnvironment);
         reg.define(IAgentPlanService, AgentPlanService);
       },
     });
-  });
+  }
 
   afterEach(() => disposables.dispose());
 
@@ -247,7 +240,7 @@ describe('AgentPlanService plan-guard listener', () => {
     if (!permissionStandInRegistered) {
       permissionStandInRegistered = true;
       disposables.add(
-        executorEvents.executor.onBeforeExecuteTool(() => {
+        executorEvents.executor.registerLegacyStarting(() => {
           permissionRan = true;
         }),
       );
@@ -295,7 +288,7 @@ describe('AgentPlanService plan-guard listener', () => {
           }),
         );
 
-        expect(decision).toBeUndefined();
+        expect(decision).toEqual({ allow: true });
         expect(permissionRan).toBe(false);
       },
     );
@@ -312,7 +305,22 @@ describe('AgentPlanService plan-guard listener', () => {
         }),
       );
 
-      expect(decision).toBeUndefined();
+      expect(decision).toEqual({ allow: true });
+      expect(permissionRan).toBe(false);
+    });
+
+    it('blocks a non-plan file addressed through the same tempDir alias prefix', async () => {
+      await enterPlan();
+      const otherPath = `/private${TEMP_DIR}/kimi-code/plans/test-agent/other.md`;
+      const decision = await run(
+        hookContext('Write', {
+          args: { path: otherPath },
+          accesses: ToolAccesses.writeFile(otherPath),
+        }),
+      );
+
+      expect(decision?.veto?.isError).toBe(true);
+      expect(decision?.veto?.output).toContain('current plan file');
       expect(permissionRan).toBe(false);
     });
 
@@ -331,7 +339,9 @@ describe('AgentPlanService plan-guard listener', () => {
         expect(decision?.veto?.isError).toBe(true);
         expect(decision?.veto?.output).toContain('current plan file');
         expect(decision?.veto?.output).toContain('ExitPlanMode');
-        expect(formatDenyMessage).toHaveBeenCalledWith(expect.stringContaining(PLAN_PATH));
+        expect(formatDenyMessage).toHaveBeenCalledWith(
+          expect.stringContaining(PLAN_PATH),
+        );
         expect(permissionRan).toBe(false);
       },
     );
@@ -413,10 +423,38 @@ describe('AgentPlanService plan-guard listener', () => {
     });
   });
 
+  it('keeps plan files local and isolated by session', async () => {
+    buildServices(unavailableEnvironment(), `${TEMP_DIR}/session-a`);
+    const first = ix;
+    buildServices(unavailableEnvironment(), `${TEMP_DIR}/session-b`);
+    const second = ix;
+    const firstPlan = first.get(IAgentPlanService);
+    const secondPlan = second.get(IAgentPlanService);
+    await Promise.all([firstPlan.enter(PLAN_ID), secondPlan.enter(PLAN_ID)]);
+
+    expect((await firstPlan.status())!.path).toBe(`${TEMP_DIR}/session-a/agents/${MAIN_AGENT_ID}/plans/${PLAN_ID}.md`);
+    expect((await secondPlan.status())!.path).toBe(`${TEMP_DIR}/session-b/agents/${MAIN_AGENT_ID}/plans/${PLAN_ID}.md`);
+  });
+
+  it('limits saved-plan Read routing to direct plan files owned by this agent', async () => {
+    const svc = await enterPlan();
+    svc.exit();
+    expect((await svc.resolveFile(PLAN_PATH, 'read'))?.path).toBe(PLAN_PATH);
+    expect(await svc.resolveFile(PLAN_PATH, 'write')).toBeUndefined();
+    for (const path of [
+      `${TEMP_DIR}/agents/another-agent/plans/plan-1.md`,
+      `${TEMP_DIR}/agents/${MAIN_AGENT_ID}/plans/nested/plan-1.md`,
+      `${TEMP_DIR}/agents/${MAIN_AGENT_ID}/plans/plan-1.txt`,
+      `${TEMP_DIR}/another-session/agents/${MAIN_AGENT_ID}/plans/plan-1.md`,
+    ]) expect(await svc.resolveFile(path, 'read')).toBeUndefined();
+  });
+
   describe('exit plan mode review', () => {
     it('asks through toolApproval under the legacy origin and tracks plan_submitted', async () => {
       await enterPlan();
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(requests).toHaveLength(1);
       expect(requests[0]?.origin).toBe('exit-plan-mode-review-ask');
@@ -437,8 +475,12 @@ describe('AgentPlanService plan-guard listener', () => {
       );
 
       expect(decision?.veto?.isError).toBe(false);
-      expect(decision?.veto?.output).toContain('Selected approach: Approach B');
-      expect(decision?.veto?.output).toContain('Execute ONLY the selected approach');
+      expect(decision?.veto?.output).toContain(
+        'Selected approach: Approach B',
+      );
+      expect(decision?.veto?.output).toContain(
+        'Execute ONLY the selected approach',
+      );
       expect(decision?.veto?.output).toContain('## Approved Plan:\n# Plan');
       expect(records).toContainEqual({
         event: 'plan_submitted',
@@ -453,9 +495,13 @@ describe('AgentPlanService plan-guard listener', () => {
 
     it('approves without a selected label and saves the plan path into the output', async () => {
       const svc = await enterPlan();
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
-      expect(decision?.veto?.output).toContain(`Plan saved to: ${PLAN_PATH}`);
+      expect(decision?.veto?.output).toContain(
+        `Plan saved to: ${PLAN_PATH}`,
+      );
       expect(decision?.veto?.output).not.toContain('Selected approach:');
       expect(records).toContainEqual({
         event: 'plan_resolved',
@@ -479,11 +525,12 @@ describe('AgentPlanService plan-guard listener', () => {
     it('exits plan mode with a stopping error result when the user chooses Reject and Exit', async () => {
       const svc = await enterPlan();
       approvalResponse = { decision: 'rejected', selectedLabel: 'Reject and Exit' };
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(decision?.veto).toMatchObject({
         isError: true,
-        stopTurn: true,
         output: 'Plan rejected by user. Plan mode deactivated.',
       });
       expect(records).toContainEqual({
@@ -500,7 +547,9 @@ describe('AgentPlanService plan-guard listener', () => {
         selectedLabel: 'Revise',
         feedback: 'Add verification.',
       };
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(decision?.veto?.isError).toBe(false);
       expect(decision?.veto?.output).toContain('Add verification.');
@@ -514,11 +563,12 @@ describe('AgentPlanService plan-guard listener', () => {
     it('keeps plan mode active with a stopping error result when the user rejects the plan', async () => {
       const svc = await enterPlan();
       approvalResponse = { decision: 'rejected' };
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(decision?.veto).toMatchObject({
         isError: true,
-        stopTurn: true,
         output: 'Plan rejected by user. Plan mode remains active.',
       });
       expect(records).toContainEqual({
@@ -531,7 +581,9 @@ describe('AgentPlanService plan-guard listener', () => {
     it('keeps plan mode active with a dismissed result when the approval is cancelled', async () => {
       const svc = await enterPlan();
       approvalResponse = { decision: 'cancelled' };
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(decision?.veto).toMatchObject({
         isError: false,
@@ -547,7 +599,9 @@ describe('AgentPlanService plan-guard listener', () => {
     it('reviews the plan in auto mode as well', async () => {
       mode = 'auto';
       const svc = await enterPlan();
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(requests).toHaveLength(1);
       expect(decision?.veto?.isError).toBe(false);
@@ -567,7 +621,9 @@ describe('AgentPlanService plan-guard listener', () => {
       mode = 'auto';
       const svc = await enterPlan();
       approvalResponse = { decision: 'cancelled' };
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(requests).toHaveLength(1);
       expect(decision?.veto?.output).toBe('Plan approval dismissed. Plan mode remains active.');
@@ -578,7 +634,9 @@ describe('AgentPlanService plan-guard listener', () => {
       nonInteractive = true;
       mode = 'auto';
       const svc = await enterPlan();
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(requests).toHaveLength(1);
       expect(decision?.veto).toEqual({
@@ -592,7 +650,9 @@ describe('AgentPlanService plan-guard listener', () => {
 
     it('skips the review when no plan is active', async () => {
       plan();
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(requests).toHaveLength(0);
       expect(decision).toBeUndefined();

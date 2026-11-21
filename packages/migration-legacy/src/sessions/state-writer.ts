@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -6,7 +6,6 @@ import {
   type SessionTitleKind,
 } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
 
-import { atomicWrite } from '../atomic-write.js';
 import type { OldSessionState } from '../kimi-cli-schema.js';
 
 export interface StateWriteInput {
@@ -60,14 +59,11 @@ export async function writeSessionState(sessionDir: string, input: StateWriteInp
     lastPrompt: input.lastUserPrompt.slice(0, 200),
     lastTurnReason: input.lastTurnReason,
     additionalDirs:
-      input.oldState.additional_dirs?.length === 0 ? undefined : input.oldState.additional_dirs,
+      input.oldState.additional_dirs?.length === 0
+        ? undefined
+        : input.oldState.additional_dirs,
     agents: {
       main: {
-        // kimi-core's `Session.resume()` treats `agents.main.homedir` as the
-        // agent's *record directory* — where it reads `wire.jsonl`. The
-        // migrator writes the translated history to
-        // `<sessionDir>/agents/main/wire.jsonl`, so this must point there,
-        // NOT at the user's project workdir.
         homedir: join(sessionDir, 'agents', 'main'),
         type: 'main',
         parentAgentId: null,
@@ -101,5 +97,5 @@ export async function writeSessionState(sessionDir: string, input: StateWriteInp
     },
   };
 
-  await atomicWrite(join(sessionDir, 'state.json'), JSON.stringify(meta, null, 2));
+  await writeFile(join(sessionDir, 'state.json'), JSON.stringify(meta, null, 2), 'utf-8');
 }

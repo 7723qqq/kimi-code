@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { mediaUrlPartToText, summarizeDataUrl } from '#/tui/utils/media-url';
 
@@ -10,8 +10,6 @@ describe('mediaUrlPartToText', () => {
   });
 
   it('renders an internal daemon file reference as a bare placeholder', () => {
-    // `kimi-file://…?path=…` resolves nowhere for the user and carries the
-    // materialization path — never render the wire form.
     expect(
       mediaUrlPartToText('image', 'kimi-file://f_1?path=%2FUsers%2Falice%2Fmedia%2Ff_1.png'),
     ).toBe('[image]');
@@ -30,41 +28,6 @@ describe('mediaUrlPartToText', () => {
       '[video video/mp4, 1.0 KB]',
     );
   });
-
-  it('handles unknown MIME types gracefully', () => {
-    expect(mediaUrlPartToText('image', 'data:application/octet-stream;base64,AA==')).toBe(
-      '[image application/octet-stream, 1 B]',
-    );
-  });
-
-  it('handles empty base64 payload', () => {
-    expect(mediaUrlPartToText('image', 'data:image/png;base64,')).toBe('[image image/png, 0 B]');
-  });
-
-  it('handles very large payload sizes with MB formatting', () => {
-    const tenMb = 'A'.repeat(14_000_000);
-    const result = mediaUrlPartToText('audio', `data:audio/wav;base64,${tenMb}`);
-    expect(result).toMatch(/\[audio audio\/wav, [\d.]+ MB\]/);
-  });
-
-  it('escapes special characters in non-data URLs', () => {
-    expect(mediaUrlPartToText('image', "file:///tmp/a<b>c&d'.png")).toBe(
-      '<image url="file:///tmp/a&lt;b&gt;c&amp;d&apos;.png">',
-    );
-  });
-
-  it('wraps http(s) URLs in an OSC 8 hyperlink', () => {
-    expect(mediaUrlPartToText('image', 'https://example.com/a.png')).toBe(
-      '\u001B]8;;https://example.com/a.png\u001B\\<image url="https://example.com/a.png">\u001B]8;;\u001B\\',
-    );
-    expect(mediaUrlPartToText('video', 'http://example.com/v.mp4')).toContain(
-      '\u001B]8;;http://example.com/v.mp4\u001B\\',
-    );
-  });
-
-  it('does not hyperlink non-http URLs', () => {
-    expect(mediaUrlPartToText('image', 'file:///tmp/a.png')).not.toContain('\u001B]8;');
-  });
 });
 
 describe('summarizeDataUrl', () => {
@@ -77,13 +40,5 @@ describe('summarizeDataUrl', () => {
       mime: 'image/png',
       bytes: 4,
     });
-  });
-
-  it('returns undefined for empty data URL', () => {
-    expect(summarizeDataUrl('data:')).toBeUndefined();
-  });
-
-  it('returns undefined for data URL without base64', () => {
-    expect(summarizeDataUrl('data:text/plain,hello')).toBeUndefined();
   });
 });

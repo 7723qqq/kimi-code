@@ -1,10 +1,9 @@
-import { afterEach, describe, expect, it, mock, onTestFinished, setSystemTime } from 'bun:test';
 import { stripVTControlCharacters } from 'node:util';
 
 import { visibleWidth, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
+import { describe, expect, it, onTestFinished, vi } from '@moonshot-ai/testkit/vitest';
 
-import { setExperimentalFeatures } from '#/tui/commands/experimental-flags';
 import {
   ChoicePickerComponent,
   PreviewChoicePickerComponent,
@@ -16,6 +15,12 @@ import { SettingsSelectorComponent } from '#/tui/components/dialogs/settings-sel
 import { ThemeSelectorComponent } from '#/tui/components/dialogs/theme-selector';
 import { UpdatePreferenceSelectorComponent } from '#/tui/components/dialogs/update-preference-selector';
 import { currentTheme } from '#/tui/theme';
+
+const ANSI_SGR = /\[[0-9;]*m/g;
+
+function strip(text: string): string {
+  return text.replaceAll(ANSI_SGR, '');
+}
 
 function mouse(
   type: 'move' | 'press' | 'release' | 'click' | 'wheel',
@@ -38,18 +43,11 @@ function mouse(
   };
 }
 
-/** Ages the picker past the click-settling window without touching real time. */
-function pastSettleWindow(): void {
-  setSystemTime(new Date(Date.now() + 1_000));
+function useMouseClock(): void {
+  vi.useFakeTimers({ toFake: ['Date'] });
   onTestFinished(() => {
-    setSystemTime();
+    vi.useRealTimers();
   });
-}
-
-const ANSI_SGR = /\[[0-9;]*m/g;
-
-function strip(text: string): string {
-  return text.replaceAll(ANSI_SGR, '');
 }
 
 describe('ChoicePickerComponent', () => {
@@ -58,8 +56,8 @@ describe('ChoicePickerComponent', () => {
       title: 'Pick one',
       notice: '**Plain notice**',
       options: [{ value: 'keep', label: 'Keep current' }],
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     expect(picker.render(100).map(strip)).toContain(' **Plain notice**');
@@ -68,13 +66,10 @@ describe('ChoicePickerComponent', () => {
   it.each([24, 100])('renders Markdown notices and preserves paragraphs at width %s', (width) => {
     const picker = new ChoicePickerComponent({
       title: 'Migration',
-      notice: {
-        markdown:
-          '### Upgrade\n\nUse **next** model.\n\n- Faster replies\n- [Details](https://example.com/upgrade)',
-      },
+      notice: { markdown: '### Upgrade\n\nUse **next** model.\n\n- Faster replies\n- [Details](https://example.com/upgrade)' },
       options: [{ value: 'keep', label: 'Keep current' }],
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     const rendered = picker.render(width);
@@ -101,24 +96,21 @@ describe('ChoicePickerComponent', () => {
         { value: 'b', label: 'Beta' },
       ],
       searchable: true,
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
     const lines = picker.render(120).map(strip);
 
     const titleIdx = lines.findIndex((l) => l.includes('Add provider'));
     expect(titleIdx).toBeGreaterThanOrEqual(0);
-    // Title carries the same "(type to search)" suffix as /model and /provider.
     expect(lines[titleIdx]).toContain('(type to search)');
     expect(lines[titleIdx]).not.toContain('type to filter');
-    // Hint sits directly under the title and uses lowercase key vocabulary.
     const hint = lines[titleIdx + 1];
     expect(hint).toContain('↑↓ navigate');
     expect(hint).toContain('Enter select');
     expect(hint).toContain('Esc cancel');
     expect(hint).not.toContain('enter select');
     expect(hint).not.toContain('esc cancel');
-    // Blank line separates the hint from the body, like the model dialog.
     expect(lines[titleIdx + 2]).toBe('');
   });
 
@@ -135,9 +127,9 @@ describe('ChoicePickerComponent', () => {
         { value: 'b', label: 'Beta' },
         { value: 'c', label: 'Gamma' },
       ],
-      preview: { render: (value) => previews[value] ?? [], invalidate: mock(), dispose: mock() },
-      onSelect: mock(),
-      onCancel: mock(),
+      preview: { render: (value) => previews[value] ?? [], invalidate: vi.fn(), dispose: vi.fn() },
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
     const border = '─'.repeat(60);
     const frames = ['a', 'b', 'c'].map(() => {
@@ -155,15 +147,15 @@ describe('ChoicePickerComponent', () => {
   });
 
   it('keeps the plain picker keys, pointer, and focus fade around the preview, and releases it', () => {
-    pastSettleWindow();
+    useMouseClock();
     const previousLevel = chalk.level;
     chalk.level = 3;
     onTestFinished(() => {
       chalk.level = previousLevel;
     });
-    const onSelect = mock();
-    const onCancel = mock();
-    const preview = { render: (value: string) => [`${value} sample`], invalidate: mock(), dispose: mock() };
+    const onSelect = vi.fn();
+    const onCancel = vi.fn();
+    const preview = { render: (value: string) => [`${value} sample`], invalidate: vi.fn(), dispose: vi.fn() };
     const picker = new PreviewChoicePickerComponent({
       title: 'Pick one',
       options: [
@@ -178,6 +170,7 @@ describe('ChoicePickerComponent', () => {
     const focused = picker.render(60);
     picker.focused = false;
     expect(picker.render(60)).toEqual(focused.map((line) => currentTheme.fade(line)));
+    vi.advanceTimersByTime(300);
     const betaRow = focused.map(strip).indexOf('    Beta');
     const previewRow = focused.map(strip).indexOf('a sample');
 
@@ -189,19 +182,38 @@ describe('ChoicePickerComponent', () => {
     expect(picker.handleMouse(mouse('move', betaRow))).toMatchObject({ handled: true, render: true });
     expect(picker.render(60).map(strip)).toContain('b sample');
     for (const type of ['press', 'release', 'click'] as const) picker.handleMouse(mouse(type, betaRow));
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenLastCalledWith('b');
     picker.handleInput('\u001B[A');
     picker.handleInput(' ');
     expect(onSelect).toHaveBeenLastCalledWith('a');
     picker.handleInput('\r');
-    expect(onSelect).toHaveBeenCalledTimes(2);
+    expect(onSelect).toHaveBeenCalledTimes(3);
     picker.handleInput('\u001B');
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledOnce();
 
     picker.invalidate();
-    expect(preview.invalidate).toHaveBeenCalledTimes(1);
+    expect(preview.invalidate).toHaveBeenCalledOnce();
     picker.dispose();
-    expect(preview.dispose).toHaveBeenCalledTimes(1);
+    expect(preview.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps left and right paging the options when the preview has no file scroller', () => {
+    const options = Array.from({ length: 12 }, (_, index) => ({
+      value: String(index),
+      label: `Option ${String(index)}`,
+    }));
+    const picker = new PreviewChoicePickerComponent({
+      title: 'Pick one',
+      options,
+      preview: { render: () => ['sample'], invalidate: vi.fn(), dispose: vi.fn() },
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    picker.handleInput('\u001B[C');
+    expect(picker.render(40).map(strip).some((line) => line.includes('❯ Option 8'))).toBe(true);
+    picker.handleInput('\u001B[D');
+    expect(picker.render(40).map(strip).some((line) => line.includes('❯ Option 0'))).toBe(true);
   });
 
   it('renders a plain picker as its list between two borders', () => {
@@ -212,14 +224,14 @@ describe('ChoicePickerComponent', () => {
         { value: 'b', label: 'Beta' },
       ],
       currentValue: 'b',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     expect(picker.render(40).map(strip)).toEqual([
       '─'.repeat(40),
       ' Pick one',
-      ' ↑↓ navigate · ←→ page · Enter select...',
+      ' ↑↓ navigate · Enter select · Esc cancel',
       '',
       '    Alpha',
       '    First choice',
@@ -245,8 +257,8 @@ describe('ChoicePickerComponent', () => {
         },
       ],
       currentValue: 'manual',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     const out = picker.render(120).map(strip);
@@ -257,8 +269,8 @@ describe('ChoicePickerComponent', () => {
   });
 
   it('renders domain selector wrappers with their configured options', () => {
-    const onSelect = mock();
-    const onCancel = mock();
+    const onSelect = vi.fn();
+    const onCancel = vi.fn();
 
     const editor = new EditorSelectorComponent({
       currentValue: 'vim',
@@ -305,7 +317,7 @@ describe('ChoicePickerComponent', () => {
   });
 
   it('routes Space into the query for searchable lists instead of selecting', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ChoicePickerComponent({
       title: 'Select a provider',
       options: [
@@ -314,7 +326,7 @@ describe('ChoicePickerComponent', () => {
       ],
       searchable: true,
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
     picker.handleInput(' ');
@@ -322,12 +334,12 @@ describe('ChoicePickerComponent', () => {
   });
 
   it('selects on Space when the list is not searchable', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ChoicePickerComponent({
       title: 'Pick one',
       options: [{ value: 'a', label: 'Alpha' }],
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
     picker.handleInput(' ');
@@ -335,18 +347,86 @@ describe('ChoicePickerComponent', () => {
   });
 
   it.each([' ', '\u001B[32u'])('requires Enter when spaceSelect is disabled (%j)', (space) => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ChoicePickerComponent({
       title: 'Confirm migration',
       options: [{ value: 'switch', label: 'Switch model' }],
       spaceSelect: false,
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
     picker.handleInput(space);
     expect(onSelect).not.toHaveBeenCalled();
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith('switch');
+  });
+
+  it('moves selection with the pointer and activates the same option on click', () => {
+    useMouseClock();
+    const onSelect = vi.fn();
+    const picker = new ChoicePickerComponent({
+      title: 'Pick one',
+      options: [
+        { value: 'a', label: 'Alpha', description: 'First description' },
+        { value: 'b', label: 'Beta', description: 'Second description' },
+      ],
+      currentValue: 'a',
+      onSelect,
+      onCancel: vi.fn(),
+    });
+    picker.focused = true;
+    const before = picker.render(80).map(strip);
+    vi.advanceTimersByTime(300);
+    const descriptionRow = before.findIndex((line) => line.includes('Second description'));
+
+    expect(picker.handleMouse(mouse('move', descriptionRow))).toEqual({ handled: true, render: true });
+    const hovered = picker.render(80).map(strip);
+    expect(hovered).toContain('  ❯ Beta');
+    expect(hovered.find((line) => line.includes('Alpha ← current'))).not.toContain('❯');
+    expect(onSelect).not.toHaveBeenCalled();
+
+    for (const type of ['press', 'release', 'click'] as const) picker.handleMouse(mouse(type, descriptionRow));
+    expect(onSelect).toHaveBeenCalledWith('b');
+  });
+
+  it('uses the mouse wheel to turn existing pages', () => {
+    const picker = new SettingsSelectorComponent({ onSelect: vi.fn(), onCancel: vi.fn() });
+    picker.focused = true;
+    picker.render(80);
+
+    expect(picker.handleMouse(mouse('wheel', 5, 1))).toEqual({ handled: true, render: true });
+    expect(picker.render(80).map(strip).join('\n')).toContain('Page 2/2');
+    expect(picker.handleMouse(mouse('wheel', 5, -1))).toEqual({ handled: true, render: true });
+    expect(picker.render(80).map(strip).join('\n')).toContain('Page 1/2');
+  });
+
+  it('fades while unfocused and makes the first click only take focus', () => {
+    useMouseClock();
+    const previousLevel = chalk.level;
+    chalk.level = 3;
+    onTestFinished(() => {
+      chalk.level = previousLevel;
+    });
+    const onSelect = vi.fn();
+    const picker = new ChoicePickerComponent({
+      title: 'Pick one',
+      options: [{ value: 'a', label: 'Alpha' }],
+      onSelect,
+      onCancel: vi.fn(),
+    });
+    picker.focused = true;
+    const focused = picker.render(80);
+    picker.focused = false;
+    expect(picker.render(80)).toEqual(focused.map((line) => currentTheme.fade(line)));
+    vi.advanceTimersByTime(300);
+    const row = focused.map(strip).findIndex((line) => line.includes('Alpha'));
+
+    expect(picker.handleMouse(mouse('click', row))).toEqual({ handled: true, focus: true });
+    expect(onSelect).not.toHaveBeenCalled();
+
+    picker.focused = true;
+    for (const type of ['press', 'release', 'click'] as const) picker.handleMouse(mouse(type, row));
+    expect(onSelect).toHaveBeenCalledWith('a');
   });
 
   it('renders the selected option description in descriptionTone, others in textMuted', () => {
@@ -365,152 +445,17 @@ describe('ChoicePickerComponent', () => {
         title: 'Share diagnostic info?',
         options,
         currentValue,
-        onSelect: mock(),
-        onCancel: mock(),
+        onSelect: vi.fn(),
+        onCancel: vi.fn(),
       });
+      picker.focused = true;
       return picker.render(120).find((line) => strip(line).includes('Include your codebase'));
     };
 
-    const warningLine = currentTheme.fg(
-      'warning',
-      '    Include your codebase for deeper diagnosis.',
-    );
-    const mutedLine = currentTheme.fg(
-      'textMuted',
-      '    Include your codebase for deeper diagnosis.',
-    );
+    const warningLine = currentTheme.fg('warning', '    Include your codebase for deeper diagnosis.');
+    const mutedLine = currentTheme.fg('textMuted', '    Include your codebase for deeper diagnosis.');
 
-    // Selected option: description uses the configured tone.
     expect(renderDescLine('logs+codebase')).toBe(warningLine);
-    // Unselected option: description falls back to textMuted.
     expect(renderDescLine('none')).toBe(mutedLine);
-  });
-  it('moves selection with the pointer and activates the same option on click', () => {
-    const onSelect = mock();
-    const picker = new ChoicePickerComponent({
-      title: 'Pick one',
-      options: [
-        { value: 'a', label: 'Alpha', description: 'First description' },
-        { value: 'b', label: 'Beta', description: 'Second description' },
-      ],
-      currentValue: 'a',
-      onSelect,
-      onCancel: mock(),
-    });
-    pastSettleWindow();
-    picker.focused = true;
-    const before = picker.render(80).map(strip);
-    const descriptionRow = before.findIndex((line) => line.includes('Second description'));
-
-    expect(picker.handleMouse(mouse('move', descriptionRow))).toEqual({
-      handled: true,
-      render: true,
-    });
-    const hovered = picker.render(80).map(strip);
-    expect(hovered).toContain('  ❯ Beta');
-    expect(hovered.find((line) => line.includes('Alpha'))).not.toContain('❯');
-    expect(onSelect).not.toHaveBeenCalled();
-
-    for (const type of ['press', 'release', 'click'] as const)
-      picker.handleMouse(mouse(type, descriptionRow));
-    expect(onSelect).toHaveBeenCalledWith('b');
-  });
-
-  it('uses the mouse wheel to turn existing pages', () => {
-    const picker = new SettingsSelectorComponent({ onSelect: mock(), onCancel: mock() });
-    picker.focused = true;
-    picker.render(80);
-
-    expect(picker.handleMouse(mouse('wheel', 5, 1))).toEqual({ handled: true, render: true });
-    expect(picker.render(80).map(strip).join('\n')).toContain('Page 2/2');
-    expect(picker.handleMouse(mouse('wheel', 5, -1))).toEqual({ handled: true, render: true });
-    expect(picker.render(80).map(strip).join('\n')).toContain('Page 1/2');
-  });
-
-  it('fades while unfocused and makes the first click only take focus', () => {
-    const onSelect = mock();
-    const picker = new ChoicePickerComponent({
-      title: 'Pick one',
-      options: [{ value: 'a', label: 'Alpha' }],
-      onSelect,
-      onCancel: mock(),
-    });
-    pastSettleWindow();
-    picker.focused = true;
-    const focused = picker.render(80);
-    picker.focused = false;
-    expect(picker.render(80)).toEqual(focused.map((line) => currentTheme.fade(line)));
-    const row = focused.map(strip).findIndex((line) => line.includes('Alpha'));
-
-    expect(picker.handleMouse(mouse('click', row))).toEqual({ handled: true, focus: true });
-    expect(onSelect).not.toHaveBeenCalled();
-
-    picker.focused = true;
-    for (const type of ['press', 'release', 'click'] as const) picker.handleMouse(mouse(type, row));
-    expect(onSelect).toHaveBeenCalledWith('a');
-  });
-});
-
-describe('SettingsSelectorComponent experimental entries', () => {
-  afterEach(() => {
-    setExperimentalFeatures([]);
-  });
-
-  it('dispatches every listed option through the guard, prompt optimizer included', () => {
-    setExperimentalFeatures([{ id: 'prompt_optimizer', enabled: true }]);
-    const selected: string[] = [];
-    const picker = new SettingsSelectorComponent({
-      onSelect: (value) => selected.push(value),
-      onCancel: mock(),
-    });
-    picker.focused = true;
-
-    for (let i = 0; i < 14; i++) {
-      picker.handleInput('\r');
-      if (i < 13) picker.handleInput('\u001B[B');
-    }
-    expect(selected).toEqual([
-      'model',
-      'permission',
-      'theme',
-      'tuiMode',
-      'mermaid',
-      'language',
-      'editor',
-      'followUpBehavior',
-      'survey',
-      'experiments',
-      'upgrade',
-      'usage',
-      'github_token',
-      'promptOptimizer',
-    ]);
-  });
-
-  it('renders the prompt optimizer row last when the flag is on', () => {
-    setExperimentalFeatures([{ id: 'prompt_optimizer', enabled: true }]);
-    const picker = new SettingsSelectorComponent({ onSelect: mock(), onCancel: mock() });
-    picker.focused = true;
-
-    for (let i = 0; i < 14; i++) picker.handleInput('\u001B[B');
-    const out = picker.render(120).map(strip);
-    expect(out).toContain('  ❯ Prompt optimizer');
-    expect(out).toContain('    Thinking effort and time budget for the Ctrl+P rewrite.');
-  });
-
-  it('omits the prompt optimizer entry when the flag is off', () => {
-    setExperimentalFeatures([]);
-    const selected: string[] = [];
-    const picker = new SettingsSelectorComponent({
-      onSelect: (value) => selected.push(value),
-      onCancel: mock(),
-    });
-    picker.focused = true;
-
-    expect(picker.render(120).map(strip).join('\n')).not.toContain('Prompt optimizer');
-
-    for (let i = 0; i < 12; i++) picker.handleInput('\u001B[B');
-    picker.handleInput('\r');
-    expect(selected).toEqual(['github_token']);
   });
 });

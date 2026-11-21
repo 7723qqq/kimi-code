@@ -1,9 +1,8 @@
 import { dirname, join, normalize } from 'pathe';
 
-import { isRecord } from '#/_base/utils/guards';
-import { resolvePath } from '#/_base/utils/paths';
 import { resolveKimiHome } from '#/app/bootstrap/bootstrap';
 import { findGitWorkTree } from '#/app/git/workTree';
+import { resolvePath } from '#/_base/utils/paths';
 import { ErrorCodes, Error2 } from '#/errors';
 import { McpServerConfigSchema, type McpServerConfig } from '#/mcpCore/config-schema';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -174,6 +173,10 @@ function mapValuesToPath(
     origins[name] = path;
   }
   return origins;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isFileNotFound(error: unknown): boolean {

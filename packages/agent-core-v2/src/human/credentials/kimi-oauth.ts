@@ -1,7 +1,7 @@
 import type { BearerTokenProvider } from '@moonshot-ai/kimi-code-oauth';
 
-import { createOAuthCredentialProvider } from '#/credentials/credentials';
-import type { LlmCredentialProvider } from '#/llm/requester/requester';
+import { createOAuthCredentialProvider } from '#human/credentials/credentials';
+import type { LlmCredentialProvider } from '#human/llm/requester/requester';
 
 export function createKimiOAuthCredentialProvider(
   tokens: BearerTokenProvider,

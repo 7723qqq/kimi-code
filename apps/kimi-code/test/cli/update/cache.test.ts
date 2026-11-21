@@ -1,14 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { readUpdateCache, writeUpdateCache } from '#/cli/update/cache';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
+
 import {
   emptyUpdateInstallState,
   readUpdateInstallState,
   writeUpdateInstallState,
 } from '#/cli/update/install-state';
+import { readUpdateCache, writeUpdateCache } from '#/cli/update/cache';
 import { emptyUpdateCache, type UpdateInstallState } from '#/cli/update/types';
 import { getUpdateInstallStateFile, getUpdateStateFile } from '#/utils/paths';
 
@@ -93,9 +94,9 @@ describe('update cache', () => {
       source: 'cdn',
       channel: 'canary',
       checkedAt: '2026-10-26T01:00:00.000Z',
-      latest: '2.4.0-canary.202610260043',
+      latest: '2.4.0-canary.20261026010000-0123456',
       manifest: {
-        version: '2.4.0-canary.202610260043',
+        version: '2.4.0-canary.20261026010000-0123456',
         publishedAt: '2026-10-26T01:00:00.000Z',
         rollout: [],
       },

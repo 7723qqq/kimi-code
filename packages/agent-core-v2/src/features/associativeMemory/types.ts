@@ -86,7 +86,22 @@ export interface Edge {
 
 export type MemorySource = 'user' | 'tool' | 'external' | 'legacy';
 
+export interface LegacyMemoryOrigin {
+  readonly path: string;
+  readonly scope: 'global' | 'project' | 'session';
+  readonly scopeId: string;
+  readonly fingerprint: string;
+  readonly contentHash: string;
+}
+
+export interface LegacyMigrationRecord extends LegacyMemoryOrigin {
+  readonly noteId: string;
+  readonly version: 1;
+  readonly completedAt: number;
+}
+
 export interface NoteRecord {
+  readonly legacyOrigin?: LegacyMemoryOrigin;
   readonly id: string;
   readonly scopeKey: string;
   readonly text: string;
@@ -103,8 +118,19 @@ export interface Cooccurrence {
 }
 
 export type MemoryEvent =
-  | { readonly kind: 'note'; readonly noteId: string; readonly scopeKey: string; readonly text: string; readonly at: number }
-  | { readonly kind: 'supersede'; readonly fromId: string; readonly toId: string; readonly at: number }
+  | {
+      readonly kind: 'note';
+      readonly noteId: string;
+      readonly scopeKey: string;
+      readonly text: string;
+      readonly at: number;
+    }
+  | {
+      readonly kind: 'supersede';
+      readonly fromId: string;
+      readonly toId: string;
+      readonly at: number;
+    }
   | { readonly kind: 'forget'; readonly id: string; readonly at: number }
   | { readonly kind: 'pin'; readonly id: string; readonly at: number };
 

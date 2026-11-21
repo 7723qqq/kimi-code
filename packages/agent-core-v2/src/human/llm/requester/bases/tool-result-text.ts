@@ -1,4 +1,4 @@
-import { extractText, type Message } from '#/llm/message';
+import { extractText, type Message } from '#human/message';
 
 const OMITTED_IMAGE_PLACEHOLDER = '(image omitted: tool result converted to plain text)';
 const OMITTED_AUDIO_PLACEHOLDER = '(audio omitted: tool result converted to plain text)';

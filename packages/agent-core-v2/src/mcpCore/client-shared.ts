@@ -1,6 +1,5 @@
-import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
-
 import { getCoreVersion } from '#/_base/version';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
@@ -18,18 +17,12 @@ export type SessionEvidence =
 
 export type SessionEvidenceListener = (evidence: SessionEvidence) => void;
 
-export type UnexpectedCloseListener = (reason: UnexpectedCloseReason) => void;
-
 export type McpFailureKind = 'config' | 'protocol' | 'auth-static' | 'auth-oauth' | 'transport';
 
 export class McpClassifiedStartupError extends Error {
   readonly failureKind: McpFailureKind;
 
-  constructor(
-    failureKind: McpFailureKind,
-    message: string,
-    options?: { readonly cause?: unknown },
-  ) {
+  constructor(failureKind: McpFailureKind, message: string, options?: { readonly cause?: unknown }) {
     super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'McpClassifiedStartupError';
     this.failureKind = failureKind;
@@ -89,7 +82,7 @@ export interface McpRequestOptions {
 
 export function buildRequestOptions(
   timeoutMs: number | undefined,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
 ): McpRequestOptions | undefined {
   if (timeoutMs === undefined && signal === undefined) return undefined;
   return { timeout: timeoutMs, signal };

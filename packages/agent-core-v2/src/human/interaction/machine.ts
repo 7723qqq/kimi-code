@@ -1,4 +1,4 @@
-import { assign, emit, setup } from '#/xstate2';
+import { assign, emit, setup } from '#human/xstate2';
 
 import { INTERACTION_TAG_SESSION_ID, type Interaction } from './interaction';
 

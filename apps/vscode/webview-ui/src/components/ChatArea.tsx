@@ -1,12 +1,10 @@
-import { IconArrowDown } from '@tabler/icons-react';
-import ScrollToBottom, { useScrollToBottom, useSticky } from 'react-scroll-to-bottom';
-import { getForkTurnIndex } from 'shared/fork-turn-index';
-
-import { cn } from '@/lib/utils';
-import { useChatStore } from '@/stores';
-
-import { ChatMessage } from './ChatMessage';
-import { WelcomeScreen } from './WelcomeScreen';
+import ScrollToBottom, { useScrollToBottom, useSticky } from "react-scroll-to-bottom";
+import { IconArrowDown } from "@tabler/icons-react";
+import { ChatMessage } from "./ChatMessage";
+import { WelcomeScreen } from "./WelcomeScreen";
+import { useChatStore } from "@/stores";
+import { cn } from "@/lib/utils";
+import { getForkTurnIndex } from "shared/fork-turn-index";
 
 function ScrollButton() {
   const scrollToBottom = useScrollToBottom();
@@ -17,11 +15,7 @@ function ScrollButton() {
   return (
     <button
       onClick={() => scrollToBottom()}
-      className={cn(
-        'absolute bottom-4 right-4 p-2 rounded-full z-10',
-        'bg-blue-400 text-white shadow-lg',
-        'hover:bg-blue-600 transition-all',
-      )}
+      className={cn("absolute bottom-4 right-4 p-2 rounded-full z-10", "bg-blue-400 text-white shadow-lg", "hover:bg-blue-600 transition-all")}
     >
       <IconArrowDown className="size-4" />
     </button>
@@ -40,7 +34,7 @@ function MessageList() {
             key={message.id}
             message={message}
             turnIndex={getForkTurnIndex(messages, idx)}
-            isStreaming={isStreaming && idx === messages.length - 1 && message.role === 'assistant'}
+            isStreaming={isStreaming && idx === messages.length - 1 && message.role === "assistant"}
           />
         ))}
       </div>
@@ -62,12 +56,7 @@ export function ChatArea() {
 
   return (
     <div className="h-full relative">
-      <ScrollToBottom
-        className="h-full"
-        scrollViewClassName="h-full overflow-y-auto overflow-x-hidden"
-        followButtonClassName="hidden"
-        initialScrollBehavior="auto"
-      >
+      <ScrollToBottom className="h-full" scrollViewClassName="h-full overflow-y-auto overflow-x-hidden" followButtonClassName="hidden" initialScrollBehavior="auto">
         <MessageList />
       </ScrollToBottom>
     </div>

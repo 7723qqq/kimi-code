@@ -1,15 +1,9 @@
-import type { RunResult, StreamEvent } from './legacy-sdk';
+import type { RunResult, StreamEvent } from "./legacy-sdk";
 
 export interface SessionConfig {
   model: string;
   thinking?: boolean;
   effort?: string;
-  /**
-   * Whether the user explicitly changed the effort. Re-confirming the effort
-   * already shown is not an explicit choice: the model is persisted but the
-   * stored effort preference is left alone (mirrors the TUI's
-   * persistModelSelection). Treated as true when omitted.
-   */
   effortChanged?: boolean;
 }
 
@@ -17,13 +11,12 @@ export interface ProjectFile {
   path: string;
   name: string;
   isDirectory: boolean;
-  /** Matched-character offsets into `path`, for mention-style highlighting. */
   matchPositions?: number[];
 }
 
 export interface FileChange {
   path: string;
-  status: 'Modified' | 'Added' | 'Deleted';
+  status: "Modified" | "Added" | "Deleted";
   additions: number;
   deletions: number;
 }
@@ -44,25 +37,20 @@ export interface WorkspaceStatus {
   workspaceRoot?: string;
 }
 
-export type ErrorPhase = 'preflight' | 'runtime';
+export type ErrorPhase = "preflight" | "runtime";
 
 export interface StreamError {
-  type: 'error';
+  type: "error";
   code: string;
   message: string;
-  detail?: string; // 原始服务器错误信息
+  detail?: string;
   phase: ErrorPhase;
-  /**
-   * `false` marks a mid-turn warning: the turn is still running, so UIs must
-   * not treat it as turn-ending. Do not unlock the composer, offer Retry, or
-   * flush the queued messages for non-terminal errors.
-   */
   terminal?: boolean;
 }
 
 export type UIStreamEvent =
-  | { type: 'session_start'; sessionId: string; model?: string; _sessionId?: string }
-  | { type: 'stream_complete'; result: RunResult; _sessionId?: string }
+  | { type: "session_start"; sessionId: string; model?: string; _sessionId?: string }
+  | { type: "stream_complete"; result: RunResult; _sessionId?: string }
   | (StreamError & { _sessionId?: string })
   | (StreamEvent & { _sessionId?: string });
 
@@ -71,4 +59,4 @@ export interface LoginStatus {
   siteBase: string;
 }
 
-export type { QuestionRequest, QuestionItem, QuestionOption, QuestionResponse } from './legacy-sdk';
+export type { QuestionRequest, QuestionItem, QuestionOption, QuestionResponse } from "./legacy-sdk";

@@ -1,4 +1,4 @@
-import type { ContentPart } from '../llm/message';
+import type { ContentPart } from '../message';
 
 const SYSTEM_REMINDER_PREFIX = '<system-reminder>\n';
 const SYSTEM_REMINDER_SUFFIX = '\n</system-reminder>';

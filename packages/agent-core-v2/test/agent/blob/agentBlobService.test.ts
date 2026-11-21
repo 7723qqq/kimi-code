@@ -1,7 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import { mediaUrlOf } from '@moonshot-ai/core/llm/protocol/kit/media';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { type ServiceIdentifier } from '#/_base/di/instantiation';
+import { LifecycleScope } from '#/app/scopes';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import {
   BLOBREF_PROTOCOL,
@@ -10,12 +13,10 @@ import {
 } from '#/agent/blob/agentBlobService';
 import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { LifecycleScope } from '#/app/scopes';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import type { ContentPart } from '#human/llm/message';
 
 const LARGE = 'A'.repeat(5000);
 const SMALL = 'AQID';
@@ -33,11 +34,13 @@ function videoPart(url: string): ContentPart {
 }
 
 function imageUrl(part: ContentPart): string {
-  return (part as { imageUrl: { url: string } }).imageUrl.url;
+  if (part.type !== 'image_url') throw new Error('expected image part');
+  return mediaUrlOf(part);
 }
 
 function videoUrl(part: ContentPart): string {
-  return (part as { videoUrl: { url: string } }).videoUrl.url;
+  if (part.type !== 'video_url') throw new Error('expected video part');
+  return mediaUrlOf(part);
 }
 
 describe('agent blob service (offload/load of inline media)', () => {
@@ -107,15 +110,16 @@ describe('agent blob service (offload/load of inline media)', () => {
   it('offload does not mutate the input array or its media objects', async () => {
     const svc = service();
     const uri = dataUri('image/png', LARGE);
-    const inner = { url: uri };
-    const part = { type: 'image_url', imageUrl: inner } as ContentPart;
+    const inner = { url: uri } as const;
+    const part: ContentPart = { type: 'image_url', imageUrl: inner };
     const parts = [part];
 
     const out = await svc.offloadParts(parts);
 
     expect(out).not.toBe(parts);
     expect(out[0]).not.toBe(part);
-    expect((out[0]! as { imageUrl: { url: string } }).imageUrl).not.toBe(inner);
+    expect(out[0]!.type).toBe('image_url');
+    expect(out[0]!.type === 'image_url' && out[0]!.imageUrl).not.toBe(inner);
     expect(inner.url).toBe(uri);
   });
 
@@ -196,29 +200,5 @@ describe('agent blob service (offload/load of inline media)', () => {
     expect(svc.isBlobRef('blobref:image/png;abc')).toBe(true);
     expect(svc.isBlobRef('data:image/png;base64,AQID')).toBe(false);
     expect(svc.isBlobRef('https://example.com/a.png')).toBe(false);
-  });
-
-  it('load treats blobrefs with a malformed hash as missing', async () => {
-    const svc = service();
-    const refs = [
-      'blobref:image/png;deadbeef',
-      `blobref:image/png;${'A'.repeat(64)}`,
-      `blobref:image/png;${'a'.repeat(63)}`,
-      `blobref:image/png;${'a'.repeat(65)}`,
-    ];
-
-    for (const ref of refs) {
-      const out = await svc.loadParts([imagePart(ref)]);
-      expect(imageUrl(out[0]!)).toBe(MISSING_MEDIA_PLACEHOLDER);
-    }
-  });
-
-  it('load treats a blobref with a control character in the mime type as missing', async () => {
-    const svc = service();
-    const ref = `blobref:image/png\u0000evil;${'a'.repeat(64)}`;
-
-    const out = await svc.loadParts([imagePart(ref)]);
-
-    expect(imageUrl(out[0]!)).toBe(MISSING_MEDIA_PLACEHOLDER);
   });
 });

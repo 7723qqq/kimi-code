@@ -1,0 +1,8 @@
+A	.changeset/fix-long-session-replay-stall.md
+M	packages/agent-core-v2/src/agent/loop/journal.ts
+M	packages/agent-core-v2/src/state/eventDispatcher.ts
+M	packages/agent-core-v2/src/state/eventDispatcherService.ts
+M	packages/agent-core-v2/src/state/state.ts
+M	packages/agent-core-v2/test/agent/loop/journal.test.ts
+M	packages/agent-core-v2/test/state/eventDispatcher.test.ts
+M	packages/kap-server/src/services/conversation/conversationFeed.ts

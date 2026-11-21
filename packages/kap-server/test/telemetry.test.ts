@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,18 +7,17 @@ import {
   type ITelemetryAppender,
   ITelemetryService,
   IOAuthToolkit,
+  logSeed,
   resolveConfigPath,
   resolveLoggingConfig,
   type Scope,
   type ScopeSeed,
   TelemetryService,
 } from '@moonshot-ai/agent-core-v2';
-import { logSeed } from '@moonshot-ai/agent-core-v2';
 import { readKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { initializeServerTelemetry, shutdownServerTelemetry } from '../src/services/telemetry';
-import { setGlobal, restoreGlobals } from './helpers/stubs';
-import { removeTempHome } from './helpers/tempHome';
 
 describe('server telemetry', () => {
   let home: string | undefined;
@@ -30,11 +28,11 @@ describe('server telemetry', () => {
   });
 
   afterEach(async () => {
-    restoreGlobals();
+    vi.unstubAllGlobals();
     core?.dispose();
     core = undefined;
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });
@@ -62,7 +60,10 @@ describe('server telemetry', () => {
           platform: 'test_platform',
         },
       },
-      [...logSeed(resolveLoggingConfig({ homeDir: home as string, env: resolvedEnv })), ...seeds],
+      [
+        ...logSeed(resolveLoggingConfig({ homeDir: home as string, env: resolvedEnv })),
+        ...seeds,
+      ],
     );
     core = app;
     return app;
@@ -77,8 +78,8 @@ describe('server telemetry', () => {
   });
 
   it('keeps host delivery independent of the server-owned cloud appender lifecycle', async () => {
-    const cloudFetch = mock(async () => new Response(null, { status: 204 }));
-    setGlobal('fetch', cloudFetch);
+    const cloudFetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', cloudFetch);
     const hostEvents: string[] = [];
     const hostAppender: ITelemetryAppender = {
       track: (record) => hostEvents.push(record.event),
@@ -97,7 +98,7 @@ describe('server telemetry', () => {
     service.track2('session_ended', { reason: 'archive' });
     await service.flush();
 
-    expect(cloudFetch).toHaveBeenCalledTimes(1);
+    expect(cloudFetch).toHaveBeenCalledOnce();
     expect(hostEvents).toEqual(['session_ended', 'session_ended']);
   });
 

@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-
-import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
-
+import {
+  ErrorCodes,
+  KimiError,
+} from '@moonshot-ai/kimi-code-sdk';
 import { t } from '#/i18n';
 
 const GOAL_QUEUE_FILE = 'upcoming-goals.json';
@@ -142,7 +143,7 @@ async function readQueueFile(session: GoalQueueSession): Promise<GoalQueueFile> 
   const filePath = goalQueuePath(session);
   let raw: string;
   try {
-    raw = await readFile(filePath, 'utf-8');
+    raw = await Bun.file(filePath).text();
   } catch (error) {
     if (isErrno(error, 'ENOENT')) return emptyQueueFile();
     throw error;
@@ -158,38 +159,19 @@ async function readQueueFile(session: GoalQueueSession): Promise<GoalQueueFile> 
     );
   }
 
-  if (!isRecord(parsed)) {
-    throw new KimiError(
-      ErrorCodes.CONFIG_INVALID,
-      t('tui.messages.goalQueueUnexpectedShape', { path: filePath }),
-    );
+  if (!isGoalQueueFile(parsed)) {
+    const empty = emptyQueueFile();
+    await writeQueueFile(session, empty);
+    return empty;
   }
-  if (parsed['version'] !== GOAL_QUEUE_VERSION) {
-    // Never overwrite a file we do not understand — the queued goals belong
-    // to the user. Fail loudly and leave the file untouched instead.
-    throw new KimiError(
-      ErrorCodes.CONFIG_INVALID,
-      t('tui.messages.goalQueueUnsupportedVersion', {
-        version: String(parsed['version']),
-        path: filePath,
-      }),
-    );
-  }
-  // Drop only the entries that fail validation; a single corrupted goal
-  // must not destroy the rest of the queue.
-  const goals = Array.isArray(parsed['goals']) ? parsed['goals'].filter(isUpcomingGoal) : [];
-  return { version: GOAL_QUEUE_VERSION, goals };
+
+  return parsed;
 }
 
 async function writeQueueFile(session: GoalQueueSession, file: GoalQueueFile): Promise<void> {
   const filePath = goalQueuePath(session);
   await mkdir(dirname(filePath), { recursive: true });
-  // Atomic write: write to a temp file in the same directory, then rename.
-  // This prevents partial-write corruption if the process crashes mid-write
-  // or if another process reads the file concurrently.
-  const tmpPath = `${filePath}.${process.pid}.tmp`;
-  await writeFile(tmpPath, `${JSON.stringify(file, null, 2)}\n`, 'utf-8');
-  await rename(tmpPath, filePath);
+  await writeFile(filePath, `${JSON.stringify(file, null, 2)}\n`, 'utf-8');
 }
 
 async function withQueueMutationLock<T>(
@@ -229,7 +211,7 @@ function normalizeObjective(value: string): string {
   if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
     throw new KimiError(
       ErrorCodes.GOAL_OBJECTIVE_TOO_LONG,
-      t('tui.messages.goalQueueObjectiveTooLong', { max: MAX_GOAL_OBJECTIVE_LENGTH }),
+      `Goal objective cannot exceed ${MAX_GOAL_OBJECTIVE_LENGTH} characters. Put long content in a file and reference the file path.`,
     );
   }
   return objective;
@@ -241,6 +223,15 @@ function findGoalIndex(file: GoalQueueFile, goalId: string): number {
     throw new KimiError(ErrorCodes.GOAL_NOT_FOUND, t('tui.messages.goalQueueNotFound'));
   }
   return index;
+}
+
+function isGoalQueueFile(value: unknown): value is GoalQueueFile {
+  if (!isRecord(value)) return false;
+  return (
+    value['version'] === GOAL_QUEUE_VERSION &&
+    Array.isArray(value['goals']) &&
+    value['goals'].every(isUpcomingGoal)
+  );
 }
 
 function isUpcomingGoal(value: unknown): value is UpcomingGoal {

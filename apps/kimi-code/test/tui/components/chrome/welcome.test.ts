@@ -1,12 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
-import { type AppState } from '#/tui/types';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
+import { darkColors } from '#/tui/theme/colors';
+import type { AppState } from '#/tui/types';
 
 const TRUECOLOR_PATTERN = /\u001B\[38;2;(\d+);(\d+);(\d+)m/g;
 
@@ -20,26 +19,16 @@ const appState: AppState = {
   permissionMode: 'manual',
   thinkingEffort: 'off',
   contextUsage: 0,
-  cacheReadTokens: 0,
-  cacheMissTokens: 0,
-  cacheOtherTokens: 0,
-  tokenSpeed: 0,
-  tokenSpeedAverage: 0,
-  sessionStats: createEmptySessionStats(),
   contextTokens: 0,
   maxContextTokens: 0,
   isCompacting: false,
   isReplaying: false,
   streamingPhase: 'idle',
   streamingStartTime: 0,
-  outputTokens: 0,
-  locale: 'en',
   stepRetry: null,
   planMode: false,
-  specMode: false,
   inputMode: 'prompt',
   swarmMode: false,
-  helloWorldMode: false,
   towerMode: false,
   theme: 'dark',
   editorCommand: null,
@@ -59,7 +48,6 @@ function truecolorCodes(text: string): Set<string> {
   return codes;
 }
 
-/** The two header rows (logo + title) of the rendered welcome box. */
 function headerOf(lines: string[]): string {
   return [lines[3], lines[4]].join('\n');
 }
@@ -90,7 +78,6 @@ describe('WelcomeComponent', () => {
   it('renders the banner in a single brand color by default', () => {
     const codes = truecolorCodes(headerOf(new WelcomeComponent(appState).render(80)));
 
-    // No rainbow by default —just the brand primary (plus the dim tagline).
     expect(codes.size).toBeLessThanOrEqual(2);
   });
 
@@ -101,29 +88,28 @@ describe('WelcomeComponent', () => {
     expect(codes.size).toBeGreaterThanOrEqual(5);
   });
 
-  it('shows the remote binding cwd instead of the local work dir', () => {
-    const remote: AppState = {
-      ...appState,
-      environment: {
-        environmentId: 'dev-box',
-        type: 'ssh',
-        status: 'ready',
-        cwd: '/remote/project',
-      },
-    };
-
-    const lines = new WelcomeComponent(remote).render(80).join('\n');
-
-    expect(lines).toContain('/remote/project');
-    expect(lines).not.toContain('/tmp/project');
-  });
-
   it('renders exactly the default banner when not colored', () => {
     const base = headerOf(new WelcomeComponent(appState).render(80));
     setDanceView(false, 5);
     const off = headerOf(new WelcomeComponent(appState).render(80));
 
     expect(off).toBe(base);
+  });
+
+  it('shows the remote environment cwd instead of the local work directory', () => {
+    const lines = new WelcomeComponent({
+      ...appState,
+      workDir: '/Users/local/project',
+      environment: {
+        environmentId: 'remote-env',
+        type: 'ssh',
+        status: 'ready',
+        cwd: '/home/remote/project',
+      },
+    }).render(80);
+
+    expect(lines.some((line) => line.includes('/home/remote/project'))).toBe(true);
+    expect(lines.some((line) => line.includes('/Users/local/project'))).toBe(false);
   });
 
   it('keeps every line within the requested width on narrow terminals', () => {

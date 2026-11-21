@@ -1,13 +1,9 @@
-import { describe, expect, it } from 'bun:test';
-
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 import { normalizeContentPart } from '../../src/sessions/content-part.js';
 
 describe('normalizeContentPart', () => {
   it('text part: identity', () => {
-    expect(normalizeContentPart({ type: 'text', text: 'hi' })).toEqual({
-      type: 'text',
-      text: 'hi',
-    });
+    expect(normalizeContentPart({ type: 'text', text: 'hi' })).toEqual({ type: 'text', text: 'hi' });
   });
 
   it('think part: preserves think text, encrypted becomes undefined if null', () => {
@@ -76,9 +72,7 @@ describe('normalizeContentPart', () => {
       type: 'audio_url',
       audioUrl: { url: 'a' },
     });
-    expect(
-      normalizeContentPart({ type: 'video_url', video_url: { url: 'v', id: 'vid-1' } }),
-    ).toEqual({
+    expect(normalizeContentPart({ type: 'video_url', video_url: { url: 'v', id: 'vid-1' } })).toEqual({
       type: 'video_url',
       videoUrl: { url: 'v', id: 'vid-1' },
     });

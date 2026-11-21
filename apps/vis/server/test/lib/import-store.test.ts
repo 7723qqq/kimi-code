@@ -1,21 +1,13 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
+import { describe, it, expect, afterEach } from '@moonshot-ai/testkit/vitest';
 import { ZipFile } from 'yazl';
 
-import {
-  importSessionZip,
-  isImportId,
-  listImportedIds,
-  readImportMeta,
-  deleteImported,
-} from '../../src/lib/import-store';
+import { importSessionZip, isImportId, listImportedIds, readImportMeta, deleteImported } from '../../src/lib/import-store';
 import { resolveSafeTarget } from '../../src/lib/zip-import';
 
-/** Build an in-memory zip from a {path: contents} map (yazl refuses to emit
- *  `..` entries, so traversal is tested via resolveSafeTarget directly). */
 function buildZip(entries: Record<string, string>): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const zip = new ZipFile();
@@ -25,9 +17,7 @@ function buildZip(entries: Record<string, string>): Promise<Buffer> {
     zip.end();
     const chunks: Buffer[] = [];
     (zip.outputStream as NodeJS.ReadableStream).on('data', (c: Buffer) => chunks.push(c));
-    (zip.outputStream as NodeJS.ReadableStream).on('end', () => {
-      resolve(Buffer.concat(chunks));
-    });
+    (zip.outputStream as NodeJS.ReadableStream).on('end', () => { resolve(Buffer.concat(chunks)); });
     (zip.outputStream as NodeJS.ReadableStream).on('error', reject);
   });
 }
@@ -47,13 +37,7 @@ function validBundle(): Record<string, string> {
       desktopVersion: '1.2.3',
       shellEnv: { shell: '/bin/zsh', term: 'xterm-256color', ignored: 42 },
     }),
-    'state.json': JSON.stringify({
-      createdAt: '2026-06-01T00:00:00.000Z',
-      updatedAt: '2026-06-01T01:00:00.000Z',
-      title: 'imported demo',
-      agents: { main: { homedir: '/orig/agents/main', type: 'main', parentAgentId: null } },
-      custom: {},
-    }),
+    'state.json': JSON.stringify({ createdAt: '2026-06-01T00:00:00.000Z', updatedAt: '2026-06-01T01:00:00.000Z', title: 'imported demo', agents: { main: { homedir: '/orig/agents/main', type: 'main', parentAgentId: null } }, custom: {} }),
     'agents/main/wire.jsonl': WIRE,
     'logs/kimi-code.log': '2026-06-01T00:00:00.000Z INFO  hello  k=v\n',
   };
@@ -61,20 +45,12 @@ function validBundle(): Record<string, string> {
 
 describe('import-store', () => {
   let home: string | null = null;
-  afterEach(async () => {
-    if (home) await rm(home, { recursive: true, force: true });
-    home = null;
-  });
+  afterEach(async () => { if (home) await rm(home, { recursive: true, force: true }); home = null; });
 
   it('imports a valid bundle and lists it with manifest metadata', async () => {
     home = await mkdtemp(join(tmpdir(), 'vis-import-'));
     const zip = await buildZip(validBundle());
-    const meta = await importSessionZip(
-      home,
-      zip,
-      'demo.zip',
-      new Date('2026-06-29T00:00:00.000Z'),
-    );
+    const meta = await importSessionZip(home, zip, 'demo.zip', new Date('2026-06-29T00:00:00.000Z'));
 
     expect(isImportId(meta.importId)).toBe(true);
     expect(meta.originalName).toBe('demo.zip');
@@ -85,7 +61,6 @@ describe('import-store', () => {
     expect(meta.manifest?.desktopVersion).toBe('1.2.3');
     expect(meta.manifest?.shellEnv).toEqual({ shell: '/bin/zsh', term: 'xterm-256color' });
 
-    // Extracted to imported/<id>/ with the session shape intact.
     const dir = join(home, 'imported', meta.importId);
     expect((await stat(join(dir, 'agents', 'main', 'wire.jsonl'))).isFile()).toBe(true);
     expect((await stat(join(dir, 'logs', 'kimi-code.log'))).isFile()).toBe(true);
@@ -100,7 +75,6 @@ describe('import-store', () => {
     home = await mkdtemp(join(tmpdir(), 'vis-import-'));
     const zip = await buildZip({ 'manifest.json': '{}', 'state.json': '{}' });
     await expect(importSessionZip(home, zip, null, new Date())).rejects.toThrow(/session bundle/);
-    // No partial directory left behind.
     expect(await listImportedIds(home)).toEqual([]);
   });
 
@@ -121,14 +95,11 @@ describe('import-store', () => {
 });
 
 describe('resolveSafeTarget (zip-slip guard)', () => {
-  // resolveSafeTarget returns node:path-resolved paths, so the expected
-  // values must be constructed platform-aware (Windows: `G:\tmp\...`).
-  const root = resolve('/tmp/imp/abc');
+  // Built with `join` so the expectation follows the platform separator.
+  const root = join(tmpdir(), 'imp', 'abc');
   it('accepts in-tree paths', () => {
     expect(resolveSafeTarget(root, 'state.json')).toBe(join(root, 'state.json'));
-    expect(resolveSafeTarget(root, 'agents/main/wire.jsonl')).toBe(
-      join(root, 'agents/main/wire.jsonl'),
-    );
+    expect(resolveSafeTarget(root, 'agents/main/wire.jsonl')).toBe(join(root, 'agents/main/wire.jsonl'));
   });
   it('rejects traversal and absolute escapes', () => {
     expect(resolveSafeTarget(root, '../evil')).toBeNull();

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, normalize, resolve } from 'pathe';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { z } from 'zod';
-
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
@@ -11,7 +11,6 @@ import {
   type ProjectAdditionalDirsLoadResult,
   type ProjectPermissionRulesLoadResult,
 } from '#/app/projectLocalConfig/projectLocalConfig';
-import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { OsFsErrors } from '#/os/interface/hostFsErrors';
@@ -27,18 +26,13 @@ const ProjectLocalTomlSchema = z.object({
 
 type ProjectLocalToml = z.infer<typeof ProjectLocalTomlSchema>;
 
-interface ProjectLocalTomlFile {
-  readonly raw: Record<string, unknown>;
-  readonly parsed: ProjectLocalToml;
-}
-
 const permissionWriteTails = new Map<string, Promise<void>>();
 
 export class FileProjectLocalConfigService implements IProjectLocalConfigService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IBootstrapService bootstrap: IBootstrapService,
     @IHostFileSystem private readonly fs: IHostFileSystem,
     private readonly homeDir = bootstrap.osHomeDir,
   ) {}
@@ -60,41 +54,8 @@ export class FileProjectLocalConfigService implements IProjectLocalConfigService
     };
   }
 
-  resolveAdditionalDirs(
-    baseDir: string,
-    additionalDirs: readonly string[],
-    source: 'session' | 'config' = 'config',
-  ): Promise<string[]> {
-    return this.resolveAdditionalDirsInternal(baseDir, additionalDirs, source);
-  }
-
-  async appendAdditionalDir(
-    workDir: string,
-    inputPath: string,
-  ): Promise<ProjectAdditionalDirsLoadResult> {
-    const projectRoot = await this.findProjectRoot(workDir);
-    const configPath = this.getProjectLocalConfigPath(projectRoot);
-    const additionalDir = await this.resolveAdditionalDir(workDir, inputPath);
-    const file = (await this.readProjectLocalToml(configPath)) ?? { raw: {}, parsed: {} };
-    const fileAdditionalDirs = file.parsed.workspace?.additional_dir ?? [];
-    const fileExistingDirs = this.resolveExistingAdditionalDirs(projectRoot, fileAdditionalDirs);
-
-    if (this.hasSameAdditionalDir(fileExistingDirs, additionalDir)) {
-      return { projectRoot, configPath, additionalDirs: fileExistingDirs };
-    }
-
-    const workspace = cloneRecord(file.raw['workspace']);
-    workspace['additional_dir'] = [...fileExistingDirs, additionalDir];
-    file.raw['workspace'] = workspace;
-
-    try {
-      await this.fs.mkdir(dirname(configPath), { recursive: true });
-      await this.fs.writeText(configPath, `${stringifyToml(file.raw)}\n`);
-    } catch (error: unknown) {
-      throw toStorageIoError(error, { path: configPath, op: 'write' });
-    }
-
-    return { projectRoot, configPath, additionalDirs: [...fileExistingDirs, additionalDir] };
+  resolveAdditionalDirs(baseDir: string, additionalDirs: readonly string[]): Promise<string[]> {
+    return this.resolveAdditionalDirsInternal(baseDir, additionalDirs);
   }
 
   async readPermissionRules(workDir: string): Promise<ProjectPermissionRulesLoadResult> {
@@ -177,7 +138,7 @@ export class FileProjectLocalConfigService implements IProjectLocalConfigService
 
   private async readProjectLocalToml(
     configPath: string,
-  ): Promise<ProjectLocalTomlFile | undefined> {
+  ): Promise<{ raw: Record<string, unknown>; parsed: ProjectLocalToml } | undefined> {
     let text: string;
     try {
       text = await this.fs.readText(configPath);
@@ -203,22 +164,23 @@ export class FileProjectLocalConfigService implements IProjectLocalConfigService
     }
 
     if (!isPlainObject(raw)) {
-      throw new Error2(ErrorCodes.CONFIG_INVALID, `Invalid project local config in ${configPath}`);
+      throw new Error2(
+        ErrorCodes.CONFIG_INVALID,
+        `Invalid project local config in ${configPath}`,
+      );
     }
 
-    return { raw: cloneRecord(raw), parsed: parseProjectLocalToml(raw) };
+    return { raw, parsed: parseProjectLocalToml(raw) };
   }
 
   private async resolveAdditionalDirsInternal(
     baseDir: string,
     additionalDirs: readonly string[],
-    source: 'session' | 'config',
   ): Promise<string[]> {
     const resolvedDirs: string[] = [];
 
     for (const additionalDir of normalizeAdditionalDirs(additionalDirs)) {
       const resolvedDir = await this.resolveAdditionalDir(baseDir, additionalDir);
-      if (source === 'session') assertSessionDirWithinSandbox(resolvedDir, baseDir, this.bootstrap);
       if (this.hasSameAdditionalDir(resolvedDirs, resolvedDir)) continue;
       resolvedDirs.push(resolvedDir);
     }
@@ -226,22 +188,10 @@ export class FileProjectLocalConfigService implements IProjectLocalConfigService
     return resolvedDirs;
   }
 
-  private resolveExistingAdditionalDirs(
-    projectRoot: string,
-    additionalDirs: readonly string[],
-  ): string[] {
-    const resolvedDirs: string[] = [];
-
-    for (const additionalDir of normalizeAdditionalDirs(additionalDirs)) {
-      const resolvedDir = this.resolvePath(projectRoot, additionalDir);
-      if (this.hasSameAdditionalDir(resolvedDirs, resolvedDir)) continue;
-      resolvedDirs.push(resolvedDir);
-    }
-
-    return resolvedDirs;
-  }
-
-  private async resolveAdditionalDir(baseDir: string, additionalDir: string): Promise<string> {
+  private async resolveAdditionalDir(
+    baseDir: string,
+    additionalDir: string,
+  ): Promise<string> {
     const normalizedInput = normalizeAdditionalDirInput(additionalDir);
     const resolvedDir = this.resolvePath(baseDir, normalizedInput);
     await this.assertDirectory(resolvedDir);
@@ -356,6 +306,11 @@ function enqueuePermissionWrite<T>(configPath: string, work: () => Promise<T>): 
   return run;
 }
 
+function cloneRecord(value: unknown): Record<string, unknown> {
+  if (!isPlainObject(value)) return {};
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
 function readRawPermissionRules(raw: Record<string, unknown> | undefined): unknown[] {
   const permission = raw?.['permission'];
   if (permission === undefined) return [];
@@ -368,11 +323,6 @@ function readRawPermissionRules(raw: Record<string, unknown> | undefined): unkno
     throw new Error2(ErrorCodes.CONFIG_INVALID, 'permission.rules must be an array');
   }
   return [...rules];
-}
-
-function cloneRecord(value: unknown): Record<string, unknown> {
-  if (!isPlainObject(value)) return {};
-  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -401,54 +351,3 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'projectLocalConfig',
 );
-
-const POSIX_SYSTEM_DIRS: readonly string[] = [
-  '/etc',
-  '/usr',
-  '/bin',
-  '/sbin',
-  '/lib',
-  '/lib64',
-  '/boot',
-  '/dev',
-  '/proc',
-  '/sys',
-  '/var',
-];
-
-function assertSessionDirWithinSandbox(
-  resolvedDir: string,
-  baseDir: string,
-  bootstrap: IBootstrapService,
-): void {
-  const target = normalize(resolvedDir);
-  const home = normalize(bootstrap.osHomeDir);
-  const workspaceRoot = normalize(baseDir);
-
-  const isFilesystemRoot = dirname(target) === target;
-  const isHome = target === home;
-  const isSystemDir =
-    process.platform === 'win32'
-      ? isWindowsSystemDir(target) ||
-        target === normalize(join(process.env['SystemRoot'] ?? 'C:\\Windows'))
-      : POSIX_SYSTEM_DIRS.some((dir) => target === normalize(dir));
-  const isWorkspaceAncestor = target !== workspaceRoot && workspaceRoot.startsWith(`${target}/`);
-
-  if (isFilesystemRoot || isHome || isSystemDir || isWorkspaceAncestor) {
-    throw new Error2(
-      ErrorCodes.CONFIG_INVALID,
-      `session additional_dir "${resolvedDir}" is not allowed: it is the filesystem root, the home directory, a system directory, or an ancestor of the workspace`,
-    );
-  }
-}
-
-function isWindowsSystemDir(target: string): boolean {
-  const programFiles = process.env['ProgramFiles'];
-  const programData = process.env['ProgramData'];
-  for (const candidate of [programFiles, programData]) {
-    if (candidate === undefined || candidate.length === 0) continue;
-    const normalized = normalize(candidate);
-    if (target === normalized || target.startsWith(`${normalized}/`)) return true;
-  }
-  return false;
-}

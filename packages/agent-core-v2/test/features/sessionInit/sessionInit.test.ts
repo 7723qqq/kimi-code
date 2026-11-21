@@ -1,30 +1,28 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { UserCancellationError } from '#/_base/utils/abort';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import type { Environment } from '#/environment/environment';
+import { stubAgentEnvironment } from '../../environment/stubs';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ErrorCodes, Error2 } from '#/errors';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionInitService } from '#/features/sessionInit/sessionInit';
 import { SessionInitService } from '#/features/sessionInit/sessionInitService';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { waitForAssertion } from '#test/helpers/waitFor';
-
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 
 const WORK_DIR = '/project';
@@ -32,40 +30,69 @@ const AGENTS_MD = 'latest project instructions';
 const AGENTS_MD_PATH = `${WORK_DIR}/AGENTS.md`;
 const GIT_DIR_PATH = `${WORK_DIR}/.git`;
 
+function stubHostFs(entries: Record<string, string>): IHostFileSystem {
+  const directories = new Set(
+    Object.keys(entries)
+      .filter((path) => path.endsWith('/.git')),
+  );
+  return {
+    _serviceBrand: undefined,
+    stat: vi.fn(async (path: string): Promise<HostFileStat> => {
+      if (directories.has(path)) return { isFile: false, isDirectory: true, size: 0 };
+      const content = entries[path];
+      if (content !== undefined) return { isFile: true, isDirectory: false, size: content.length };
+      throw new Error(`ENOENT: ${path}`);
+    }),
+    readText: vi.fn(async (path: string) => {
+      const content = entries[path];
+      if (content !== undefined) return content;
+      throw new Error(`ENOENT: ${path}`);
+    }),
+  } as unknown as IHostFileSystem;
+}
+
+function stubEnvironmentService(workDir: string, fs: IHostFileSystem, homeDir: string): IAgentEnvironmentService {
+  return stubAgentEnvironment({ fs, host: { homeDir } } as unknown as Environment, { workDir });
+}
+
 describe('SessionInitService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let events: unknown[];
-  let appendReminder: ReturnType<typeof mock>;
-  let seedInjected: ReturnType<typeof mock>;
-  let flush: ReturnType<typeof mock>;
-  let republishStatus: ReturnType<typeof mock>;
-  let create: ReturnType<typeof mock>;
-  let run: ReturnType<typeof mock>;
+  let appendReminder: ReturnType<typeof vi.fn>;
+  let seedInjected: ReturnType<typeof vi.fn>;
+  let flush: ReturnType<typeof vi.fn>;
+  let republishStatus: ReturnType<typeof vi.fn>;
+  let create: ReturnType<typeof vi.fn>;
+  let run: ReturnType<typeof vi.fn>;
   let runCompletion: Promise<{ summary: string; usage?: undefined }>;
+  let hostFs: IHostFileSystem;
+  let environmentWorkDir: string;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     events = [];
-    appendReminder = mock(() => 'reminder-id');
-    seedInjected = mock();
-    flush = mock(async () => {});
-    republishStatus = mock(() => {
+    appendReminder = vi.fn(() => 'reminder-id');
+    seedInjected = vi.fn();
+    flush = vi.fn(async () => {});
+    republishStatus = vi.fn(() => {
       events.push({ type: 'agent.status.updated', model: 'mock-model' });
     });
     runCompletion = Promise.resolve({ summary: 'Explored and wrote AGENTS.md', usage: undefined });
+    hostFs = stubHostFs({ [AGENTS_MD_PATH]: AGENTS_MD, [GIT_DIR_PATH]: '' });
+    environmentWorkDir = WORK_DIR;
 
     const handles: Record<string, { id: string; accessor: { get: (id: unknown) => unknown } }> = {};
     const lifecycle = {
       _serviceBrand: undefined,
       hooks: {
-        onWillStartAgentTask: { run: mock(async () => {}) },
+        onWillStartAgentTask: { run: vi.fn(async () => {}) },
       },
-      notifyAgentTaskStopped: mock(),
-      handleOf: mock((agentId: string) => handles[agentId]),
-      create: mock(async () => stubAgentContext('agent-0', 1)),
-      run: mock(async (agent: AgentContext) => ({
+      notifyAgentTaskStopped: vi.fn(),
+      handleOf: vi.fn((agentId: string) => handles[agentId]),
+      create: vi.fn(async () => stubAgentContext('agent-0', 1)),
+      run: vi.fn(async (agent: AgentContext) => ({
         agentId: agent.agentId,
         turn: {},
         completion: runCompletion,
@@ -74,12 +101,12 @@ describe('SessionInitService', () => {
     create = lifecycle.create;
     run = lifecycle.run;
 
-    const eventBus = { publish: mock((event: unknown) => events.push(event)) };
-    const telemetry = { track: mock(), track2: mock() };
+    const eventBus = { publish: vi.fn((event: unknown) => events.push(event)) };
+    const telemetry = { track: vi.fn(), track2: vi.fn() };
     const profile = {
       data: () => ({ modelAlias: 'mock-model', thinkingLevel: 'off' }),
     };
-    const permissionMode = { mode: 'auto', setMode: mock() };
+    const permissionMode = { mode: 'auto', setMode: vi.fn() };
 
     handles['main'] = {
       id: 'main',
@@ -90,24 +117,13 @@ describe('SessionInitService', () => {
           if (id === IAgentScopeContext) {
             return { agentContext: stubAgentContext('main', 1) };
           }
-          if (id === IAgentProfileService) return profile;
+          if (id === IAgentLoopService) return profile;
           if (id === IAgentPermissionModeService) return permissionMode;
-          if (id === IAgentEnvironmentService) {
-            return {
-              workspaceRoots: () => ({ workDir: WORK_DIR, additionalDirs: [] }),
-              inspect: () => ({ identity: { environmentId: 'local', generation: 'test' } }),
-              acquire: () => ({
-                environment: {
-                  fs: ix.get(IHostFileSystem),
-                  host: { homeDir: '/home' },
-                },
-                track: (resource: unknown) => resource,
-                dispose: () => {},
-              }),
-            };
-          }
           if (id === IAgentAgentsMdReminderService) return { seedInjected };
           if (id === IAgentReminderService) return { notify: appendReminder };
+          if (id === IAgentEnvironmentService) {
+            return stubEnvironmentService(environmentWorkDir, hostFs, '/home');
+          }
           if (id === IEventDispatcher) {
             return {
               flush,
@@ -133,7 +149,7 @@ describe('SessionInitService', () => {
             };
           }
           if (id === IAgentPermissionModeService) return permissionMode;
-          if (id === IAgentProfileService)
+          if (id === IAgentLoopService)
             return { republishStatus, getEffectiveThinkingLevel: () => 'off' };
           return undefined;
         },
@@ -142,31 +158,10 @@ describe('SessionInitService', () => {
 
     ix.stub(IAgentLifecycleService, lifecycle as unknown as IAgentLifecycleService);
     ix.stub(ISessionSubagentService, lifecycle as unknown as ISessionSubagentService);
-    ix.stub(IHostFileSystem, {
-      _serviceBrand: undefined,
-      stat: mock(async (path: string): Promise<HostFileStat> => {
-        if (path === GIT_DIR_PATH) return { isFile: false, isDirectory: true, size: 0 };
-        if (path === AGENTS_MD_PATH)
-          return { isFile: true, isDirectory: false, size: AGENTS_MD.length };
-        throw new Error(`ENOENT: ${path}`);
-      }),
-      readText: mock(async (path: string) => {
-        if (path === AGENTS_MD_PATH) return AGENTS_MD;
-        throw new Error(`ENOENT: ${path}`);
-      }),
-    } as unknown as IHostFileSystem);
-    ix.stub(IHostEnvironment, {
-      _serviceBrand: undefined,
-      homeDir: '/home',
-    } as unknown as IHostEnvironment);
     ix.stub(IBootstrapService, {
       _serviceBrand: undefined,
       homeDir: '/home/brand',
     } as unknown as IBootstrapService);
-    ix.stub(ISessionContext, {
-      _serviceBrand: undefined,
-      cwd: WORK_DIR,
-    } as unknown as ISessionContext);
     ix.set(ISessionInitService, new SyncDescriptor(SessionInitService));
   });
 
@@ -189,7 +184,10 @@ describe('SessionInitService', () => {
     expect((runArgs[1] as { prompt: string }).prompt).toContain('Task requirements:');
 
     expect(appendReminder).toHaveBeenCalledTimes(1);
-    const [content, notification] = appendReminder.mock.calls[0] as [string, { variant: string }];
+    const [content, notification] = appendReminder.mock.calls[0] as [
+      string,
+      { variant: string },
+    ];
     expect(notification).toEqual({ variant: 'init' });
     expect(content).toContain('The user just ran `/init` slash command.');
     expect(content).toContain('Latest AGENTS.md file content:');
@@ -219,6 +217,24 @@ describe('SessionInitService', () => {
     );
   });
 
+  it('reloads and seeds AGENTS.md from the bound environment at the binding cwd', async () => {
+    const remoteWorkDir = '/remote/work';
+    const remoteAgentsMdPath = `${remoteWorkDir}/AGENTS.md`;
+    hostFs = stubHostFs({
+      [remoteAgentsMdPath]: 'remote target instructions',
+      [`${remoteWorkDir}/.git`]: '',
+    });
+    environmentWorkDir = remoteWorkDir;
+
+    const svc = ix.get(ISessionInitService);
+    await svc.generateAgentsMd();
+
+    expect(appendReminder).toHaveBeenCalledTimes(1);
+    const [content] = appendReminder.mock.calls[0] as [string, { variant: string }];
+    expect(content).toContain('remote target instructions');
+    expect(seedInjected).toHaveBeenCalledWith([remoteAgentsMdPath], remoteWorkDir);
+  });
+
   it('wraps a subagent failure in SESSION_INIT_FAILED', async () => {
     run.mockImplementationOnce((agentId: string) => ({
       agentId,
@@ -235,7 +251,7 @@ describe('SessionInitService', () => {
 
   it('throws AGENT_NOT_FOUND when the main agent is missing', async () => {
     const lifecycle = ix.get(IAgentLifecycleService) as unknown as {
-      handleOf: ReturnType<typeof mock>;
+      handleOf: ReturnType<typeof vi.fn>;
     };
     lifecycle.handleOf.mockReturnValue(undefined);
     const svc = ix.get(ISessionInitService);
@@ -256,7 +272,7 @@ describe('SessionInitService', () => {
     const svc = ix.get(ISessionInitService);
 
     const pending = svc.generateAgentsMd();
-    await waitForAssertion(() => expect(run).toHaveBeenCalled());
+    await vi.waitFor(() => expect(run).toHaveBeenCalled());
     svc.cancelInit();
 
     const error = await pending.catch((error) => error);

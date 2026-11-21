@@ -1,0 +1,24 @@
+sha	verdict	probe	action
+135993745d	ported	absent:createToolExecutor@packages/core/src/tool	reclassified
+182b324c24	ported	grep:export function setNow@packages/core/src/utils/now.ts	reclassified
+1935082ce7	ported	grep:class CallControl@packages/core/src/tool/tool-executor.ts	reclassified
+a656ab627a	ported	absent:args-validator@packages/core/src/tool	reclassified
+0c63065fbd	not-applicable	manual: release-branch merge; content tracked by the originating PR rows	signed
+1011d8b63f	not-applicable	manual: release-branch merge; content tracked by the originating PR rows	signed
+2c52fc1e2d	not-applicable	manual: symbol inventory of what node-sdk and oauth still import from kosong	signed
+391d9e7f4a	not-applicable	manual: apps/kimi-code/scripts/check-web-assets.mjs only checks the committed bundle; the source is the code-app repo	signed
+40590f6cc8	not-applicable	manual: apps/kimi-code/scripts/check-web-assets.mjs only checks the committed bundle; the source is the code-app repo	signed
+54a9e51fcb	not-applicable	manual:repository-root todo.md absent from this fork and from its tracked history	signed
+62399b32a7	not-applicable	manual: apps/kimi-code/scripts/check-web-assets.mjs only checks the committed bundle; the source is the code-app repo	signed
+8d939f7dc7	not-applicable	manual: release-branch merge; content tracked by the originating PR rows	signed
+8df234a618	not-applicable	manual: three target files absent (git apply aborts); 53/81 files conflict	signed
+b12d13e53c	not-applicable	manual: internal layering decision; capabilities present under the fork names	signed
+bb5284cf42	not-applicable	manual: apps/kimi-code/scripts/check-web-assets.mjs only checks the committed bundle; the source is the code-app repo	signed
+bd0d4de3f8	not-applicable	manual: apps/kimi-code/scripts/check-web-assets.mjs only checks the committed bundle; the source is the code-app repo	signed
+bd75a36f43	not-applicable	manual:git patch-id of bd75a36f43 equals 1ec24a5f51 (#4843)	signed
+d065fd011d	not-applicable	manual: apps/kimi-code/scripts/check-web-assets.mjs only checks the committed bundle; the source is the code-app repo	signed
+d18a7bcd31	not-applicable	manual: release-branch merge; content tracked by the originating PR rows	signed
+d729f91529	not-applicable	manual: apps/kimi-code/scripts/check-web-assets.mjs only checks the committed bundle; the source is the code-app repo	signed
+f26481d2bf	not-applicable	manual: git apply --check fails on all five files; the fork's suites diverged and the removed cases have no local counterpart	signed
+f407c52e39	not-applicable	manual: release-branch merge; content tracked by the originating PR rows	signed
+f8e15c7a9b	not-applicable	manual: release-branch merge; content tracked by the originating PR rows	signed

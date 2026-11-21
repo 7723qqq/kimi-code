@@ -1,8 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it, beforeEach, afterEach } from '@moonshot-ai/testkit/vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import { detectPendingMigration } from '#/migration/detect-pending';
 
 let src: string;
@@ -36,7 +35,6 @@ describe('detectPendingMigration', () => {
   });
 
   it('returns null when source has nothing worth migrating', async () => {
-    // empty source dir, no config/mcp/credentials/sessions
     const plan = await detectPendingMigration({
       sourceHome: src,
       targetHome: tgt,
@@ -46,10 +44,6 @@ describe('detectPendingMigration', () => {
   });
 
   it('returns null when the only source data is OAuth credentials', async () => {
-    // OAuth credentials are deliberately never migrated. An install whose
-    // only legacy data is `credentials/*.json` therefore has nothing to
-    // offer the migration screen — kimi-code's own /login flow handles
-    // re-auth on first use.
     await mkdir(join(src, 'credentials'), { recursive: true });
     await writeFile(
       join(src, 'credentials', 'kimi-code.json'),
@@ -93,7 +87,7 @@ describe('detectPendingMigration', () => {
       'utf-8',
     );
     const plan = await detectPendingMigration({ sourceHome: src, targetHome: tgt });
-    expect(plan).not.toBeNull(); // this target was never migrated → still offer
+    expect(plan).not.toBeNull();
   });
 
   it('suppresses when the marker targeted this home', async () => {

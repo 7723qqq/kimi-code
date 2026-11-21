@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 
 import { KIMI_CODE_HOME } from '../config';
 import type { CronTask } from '../lib/agent-record-types';
-import { listCronTasks } from '../lib/cron-store';
 import { readSessionDetail } from '../lib/session-store';
+import { listCronTasks } from '../lib/cron-store';
 
 export function cronRoute(home: string = KIMI_CODE_HOME): Hono {
   const r = new Hono();
@@ -13,9 +13,6 @@ export function cronRoute(home: string = KIMI_CODE_HOME): Hono {
     if (!detail) {
       return c.json({ error: 'session not found', code: 'NOT_FOUND' }, 404);
     }
-    // Cron state is per-agent (wire records in each agent's `wire.jsonl`,
-    // plus legacy `<homedir>/cron/*.json` files), not the session root.
-    // Aggregate across agents; sub agents simply contribute nothing.
     const cron: CronTask[] = [];
     const seen = new Set<string>();
     for (const agent of detail.agents) {

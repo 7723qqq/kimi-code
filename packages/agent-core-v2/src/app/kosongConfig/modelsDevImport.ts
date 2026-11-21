@@ -56,7 +56,9 @@ export interface IModelsDevImportService {
   importModelsDevProvider(
     options: ImportModelsDevProviderOptions,
   ): Promise<ImportModelsDevProviderResult>;
-  importCustomRegistry(options: ImportCustomRegistryOptions): Promise<ImportCustomRegistryResult>;
+  importCustomRegistry(
+    options: ImportCustomRegistryOptions,
+  ): Promise<ImportCustomRegistryResult>;
 }
 
 export const IModelsDevImportService: ServiceIdentifier<IModelsDevImportService> =

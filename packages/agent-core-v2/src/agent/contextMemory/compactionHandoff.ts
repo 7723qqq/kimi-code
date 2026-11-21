@@ -1,32 +1,14 @@
+import { estimateTokens, estimateTokensForMessage, estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import { isSkillActivationPart } from '@moonshot-ai/core/llm/origin';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 import { wrapSystemReminder } from '#/features/reminder/systemReminder';
-import {
-  buildCompactionContinuationText,
-  buildCompactionElisionText,
-  COMPACT_USER_MESSAGE_HEAD_TOKENS,
-  COMPACT_USER_MESSAGE_MAX_TOKENS,
-  selectCompactionUserMessages,
-  truncateUserMessage,
-} from '#/llm-adapter/contract/compaction';
-import {
-  estimateTokens,
-  estimateTokensForMessage,
-  estimateTokensForMessages,
-} from '#/llm-adapter/contract/tokens';
-
-export {
-  buildCompactionContinuationText,
-  buildCompactionElisionText,
-  COMPACT_USER_MESSAGE_HEAD_TOKENS,
-  COMPACT_USER_MESSAGE_MAX_TOKENS,
-  selectCompactionUserMessages,
-  replaceMessageText,
-  type CompactionUserSelection,
-} from '#/llm-adapter/contract/compaction';
-
+import { isUserPromptSubmitHookPart } from './hookParts';
 import summaryPrefixTemplate from './compaction-summary-prefix.md?raw';
 import type { ContextMessage, PromptOrigin } from './types';
 
 export const COMPACTION_SUMMARY_PREFIX = summaryPrefixTemplate.trimEnd();
+export const COMPACT_USER_MESSAGE_MAX_TOKENS = 20_000;
+export const COMPACT_USER_MESSAGE_HEAD_TOKENS = 2_000;
 export const COMPACTION_ELISION_VARIANT = 'compaction_elision';
 export const COMPACTION_CONTINUATION_VARIANT = 'compaction_continuation';
 
@@ -44,11 +26,17 @@ export const defaultTokenEstimate: TokenEstimate = {
   messages: estimateTokensForMessages,
 };
 
+export interface CompactionUserSelection<T> {
+  readonly head: T[];
+  readonly tail: T[];
+  readonly elided: boolean;
+  readonly omittedTokens: number;
+}
+
 export interface ContextCompactionShapeInput {
   readonly summary: string;
   readonly legacySummaryMessage?: ContextMessage;
   readonly contextSummary?: string;
-  readonly inFlightTurn?: readonly ContextMessage[];
   readonly compactedCount: number;
   readonly tokensBefore: number;
   readonly tokensAfter?: number;
@@ -107,27 +95,19 @@ export function buildContextCompactionShape(
   const elisionMessage = selection.elided
     ? createCompactionElisionMessage(selection.omittedTokens)
     : undefined;
-  const keptMessages =
-    elisionMessage === undefined
-      ? [...selection.head, ...selection.tail]
-      : [...selection.head, elisionMessage, ...selection.tail];
+  const keptMessages = elisionMessage === undefined
+    ? [...selection.head, ...selection.tail]
+    : [...selection.head, elisionMessage, ...selection.tail];
   const contextSummary = input.contextSummary ?? input.summary;
   const continuationMessage = createCompactionContinuationMessage();
-  const inFlightTurn = input.inFlightTurn ?? [];
-  const inFlightMessages = new Set<ContextMessage>(inFlightTurn);
   const appendedInjections = history
     .slice(input.compactedCount)
-    .filter((message) => message.origin?.kind === 'injection' && !inFlightMessages.has(message));
+    .filter((message) => message.origin?.kind === 'injection');
   const tokensAfter =
     input.tokensAfter ??
     (input.requestOverheadTokens ?? 0) +
       (input.summaryOutputTokens ?? estimate.text(contextSummary)) +
-      estimate.messages([
-        ...keptMessages,
-        ...inFlightTurn,
-        continuationMessage,
-        ...appendedInjections,
-      ]);
+      estimate.messages([...keptMessages, continuationMessage, ...appendedInjections]);
   const keptUserMessageCount =
     input.keptUserMessageCount ?? selection.head.length + selection.tail.length;
   const keptHeadUserMessageCount =
@@ -145,7 +125,6 @@ export function buildContextCompactionShape(
     droppedCount: input.droppedCount,
     messages: [
       ...keptMessages,
-      ...inFlightTurn,
       createCompactionSummaryMessage(contextSummary),
       continuationMessage,
       ...appendedInjections,
@@ -155,16 +134,13 @@ export function buildContextCompactionShape(
 
 export function buildCompactionSummaryText(summary: string): string {
   const suffix = summary.trim();
-  return wrapSystemReminder(
-    `${COMPACTION_SUMMARY_PREFIX}\n${suffix.length > 0 ? suffix : '(no summary available)'}`,
-  );
+  return `${COMPACTION_SUMMARY_PREFIX}\n${suffix.length > 0 ? suffix : '(no summary available)'}`;
 }
 
 export function createCompactionSummaryMessage(text: string): ContextMessage {
   return {
     role: 'user',
     content: [{ type: 'text', text }],
-    toolCalls: [],
     origin: { kind: 'compaction_summary' },
   };
 }
@@ -173,18 +149,28 @@ export function createCompactionElisionMessage(omittedTokens: number): ContextMe
   return {
     role: 'user',
     content: [{ type: 'text', text: buildCompactionElisionText(omittedTokens) }],
-    toolCalls: [],
     origin: { kind: 'injection', variant: COMPACTION_ELISION_VARIANT },
   };
+}
+
+export function buildCompactionElisionText(omittedTokens: number): string {
+  return wrapSystemReminder(
+    `Some of this conversation's user messages were omitted here during compaction: the messages above this note are the oldest user input, the messages below are the most recent, and roughly ${String(omittedTokens)} tokens in between were dropped. The omitted content is covered by the compaction summary at the end of the conversation.`,
+  );
 }
 
 export function createCompactionContinuationMessage(): ContextMessage {
   return {
     role: 'user',
     content: [{ type: 'text', text: buildCompactionContinuationText() }],
-    toolCalls: [],
     origin: { kind: 'injection', variant: COMPACTION_CONTINUATION_VARIANT },
   };
+}
+
+export function buildCompactionContinuationText(): string {
+  return wrapSystemReminder(
+    'Context compaction is complete — continue the work that was in progress when it began.',
+  );
 }
 
 export function collectCompactableUserMessages<T extends MessageLike>(messages: readonly T[]): T[] {
@@ -251,6 +237,141 @@ export function selectRecentUserMessages<T extends MessageLike>(
   return selected;
 }
 
+export function selectCompactionUserMessages<T extends MessageLike>(
+  messages: readonly T[],
+  maxTokens: number = COMPACT_USER_MESSAGE_MAX_TOKENS,
+  headTokens: number = COMPACT_USER_MESSAGE_HEAD_TOKENS,
+  estimateMessage: (message: T) => number = estimateTokensForMessage,
+): CompactionUserSelection<T> {
+  let totalTokens = 0;
+  for (const message of messages) {
+    totalTokens += estimateMessage(message);
+  }
+  if (totalTokens <= maxTokens) {
+    return { head: [], tail: [...messages], elided: false, omittedTokens: 0 };
+  }
+
+  const headBudget = Math.min(Math.max(headTokens, 0), maxTokens);
+  const tailBudget = maxTokens - headBudget;
+  const tail: T[] = [];
+  let tailRemaining = tailBudget;
+  let headEndExclusive = messages.length;
+  let tailBoundaryDroppedPrefix: T | null = null;
+  for (let i = messages.length - 1; i >= 0 && tailRemaining > 0; i--) {
+    const message = messages[i]!;
+    const tokens = estimateMessage(message);
+    if (tokens <= tailRemaining) {
+      tail.push(message);
+      tailRemaining -= tokens;
+      headEndExclusive = i;
+      continue;
+    }
+    const fullText = extractText(message.content);
+    const keptSuffix = truncateTextToTokensFromEnd(fullText, tailRemaining);
+    tail.push(replaceMessageText(message, keptSuffix));
+    headEndExclusive = i;
+    const droppedPrefix = fullText.slice(0, fullText.length - keptSuffix.length);
+    if (droppedPrefix.length > 0) {
+      tailBoundaryDroppedPrefix = replaceMessageText(message, droppedPrefix);
+    }
+    break;
+  }
+  tail.reverse();
+
+  const headCandidates = messages.slice(0, headEndExclusive);
+  if (tailBoundaryDroppedPrefix !== null) {
+    headCandidates.push(tailBoundaryDroppedPrefix);
+  }
+  const head: T[] = [];
+  let headRemaining = headBudget;
+  for (const message of headCandidates) {
+    if (headRemaining <= 0) break;
+    const tokens = estimateMessage(message);
+    if (tokens <= headRemaining) {
+      head.push(message);
+      headRemaining -= tokens;
+      continue;
+    }
+    head.push(truncateUserMessage(message, headRemaining));
+    break;
+  }
+
+  let keptTokens = 0;
+  for (const message of head) keptTokens += estimateMessage(message);
+  for (const message of tail) keptTokens += estimateMessage(message);
+  return { head, tail, elided: true, omittedTokens: Math.max(0, totalTokens - keptTokens) };
+}
+
 function usesLegacyTailShape(input: ContextCompactionShapeInput): boolean {
   return input.legacyTail === true;
+}
+
+function extractText(content: readonly ContentPart[]): string {
+  let text = '';
+  for (const part of content) {
+    if (part.type === 'text') {
+      text += part.text;
+    }
+  }
+  return text;
+}
+
+function truncateTextToTokens(text: string, maxTokens: number): string {
+  if (maxTokens <= 0) return '';
+  let asciiCount = 0;
+  let nonAsciiCount = 0;
+  let end = 0;
+  for (const char of text) {
+    if (char.codePointAt(0)! <= 127) {
+      asciiCount++;
+    } else {
+      nonAsciiCount++;
+    }
+    if (Math.ceil(asciiCount / 4) + nonAsciiCount > maxTokens) break;
+    end += char.length;
+  }
+  return text.slice(0, end);
+}
+
+function truncateTextToTokensFromEnd(text: string, maxTokens: number): string {
+  if (maxTokens <= 0) return '';
+  let asciiCount = 0;
+  let nonAsciiCount = 0;
+  let start = text.length;
+  for (let i = text.length - 1; i >= 0; i--) {
+    let isAscii = false;
+    const code = text.charCodeAt(i);
+    if (code >= 0xdc00 && code <= 0xdfff && i > 0) {
+      const high = text.charCodeAt(i - 1);
+      if (high >= 0xd800 && high <= 0xdbff) {
+        i--;
+      }
+    } else {
+      isAscii = code <= 127;
+    }
+    if (isAscii) {
+      asciiCount++;
+    } else {
+      nonAsciiCount++;
+    }
+    if (Math.ceil(asciiCount / 4) + nonAsciiCount > maxTokens) break;
+    start = i;
+  }
+  return text.slice(start);
+}
+
+function replaceMessageText<T extends MessageLike>(message: T, text: string): T {
+  return {
+    ...message,
+    content: [
+      ...message.content.filter(
+        (part) => isUserPromptSubmitHookPart(part) || isSkillActivationPart(part),
+      ),
+      { type: 'text', text },
+    ],
+  } as unknown as T;
+}
+
+function truncateUserMessage<T extends MessageLike>(message: T, maxTokens: number): T {
+  return replaceMessageText(message, truncateTextToTokens(extractText(message.content), maxTokens));
 }

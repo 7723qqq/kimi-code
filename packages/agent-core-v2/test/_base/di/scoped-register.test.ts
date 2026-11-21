@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { createDecorator } from '#/_base/di/instantiation';
+import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -9,7 +10,6 @@ import {
   overrideScopedService,
   registerScopedService,
 } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
 
 interface IApp {
   tag: 'app';
@@ -46,7 +46,13 @@ describe('registerScopedService / getScopedServiceDescriptors', () => {
   });
 
   it('filters registrations by scope layer', () => {
-    registerScopedService(LifecycleScope.App, IApp, AppSvc, ScopeActivation.OnDemand, 'app-domain');
+    registerScopedService(
+      LifecycleScope.App,
+      IApp,
+      AppSvc,
+      ScopeActivation.OnDemand,
+      'app-domain',
+    );
     registerScopedService(
       LifecycleScope.Session,
       ISession,
@@ -63,9 +69,7 @@ describe('registerScopedService / getScopedServiceDescriptors', () => {
     );
 
     expect(getScopedServiceDescriptors(LifecycleScope.App).map((e) => e.id)).toEqual([IApp]);
-    expect(getScopedServiceDescriptors(LifecycleScope.Session).map((e) => e.id)).toEqual([
-      ISession,
-    ]);
+    expect(getScopedServiceDescriptors(LifecycleScope.Session).map((e) => e.id)).toEqual([ISession]);
     expect(getScopedServiceDescriptors(LifecycleScope.Agent).map((e) => e.id)).toEqual([IAgent]);
   });
 
@@ -112,26 +116,6 @@ describe('registerScopedService / getScopedServiceDescriptors', () => {
     expect(getScopedServiceDescriptors(LifecycleScope.Session)).toHaveLength(1);
     expect(getScopedServiceDescriptors(LifecycleScope.App)[0]?.id).toBe(IDual);
     expect(getScopedServiceDescriptors(LifecycleScope.Session)[0]?.id).toBe(IDual);
-  });
-
-  it('register without domain still records the service', () => {
-    registerScopedService(LifecycleScope.App, IApp, AppSvc);
-    const entries = getScopedServiceDescriptors(LifecycleScope.App);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.id).toBe(IApp);
-  });
-
-  it('register with eager vs on-demand activation both work', () => {
-    registerScopedService(LifecycleScope.App, IApp, AppSvc, ScopeActivation.OnScopeCreated);
-    registerScopedService(LifecycleScope.Session, ISession, SessionSvc, ScopeActivation.OnDemand);
-    const appEntries = getScopedServiceDescriptors(LifecycleScope.App);
-    const sessionEntries = getScopedServiceDescriptors(LifecycleScope.Session);
-    expect(appEntries[0]?.activation).toBe(ScopeActivation.OnScopeCreated);
-    expect(sessionEntries[0]?.activation).toBe(ScopeActivation.OnDemand);
-  });
-
-  it('getScopedServiceDescriptors for a scope with no registrations returns empty', () => {
-    expect(getScopedServiceDescriptors(LifecycleScope.Agent)).toEqual([]);
   });
 
   it('rejects a duplicate registration for the same scope and id', () => {

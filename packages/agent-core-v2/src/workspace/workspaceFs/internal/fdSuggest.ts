@@ -201,7 +201,6 @@ export async function* suggestWithFdEvents(options: FdSuggestOptions): AsyncGene
     const args = [
       options.fdBinary,
       '--base-directory', target.baseDir,
-      '--no-require-git',
       '--max-results', '100',
       '--type', 'f',
       '--type', 'd',
@@ -211,6 +210,9 @@ export async function* suggestWithFdEvents(options: FdSuggestOptions): AsyncGene
       args.push('--exclude', dir, '--exclude', `${dir}/*`, '--exclude', `${dir}/**`);
     }
     if (includeIgnored) args.push('--no-ignore-vcs');
+    // Honour `.gitignore` even outside a git repository, matching the Node
+    // fallback (fd only honours it inside a repo unless asked).
+    else args.push('--no-require-git');
     if (maxDepth !== undefined) args.push('--max-depth', String(maxDepth));
     if (target.fdQuery.includes('/')) args.push('--full-path');
     if (target.fdQuery) args.push(fdPathQuery(target.fdQuery));

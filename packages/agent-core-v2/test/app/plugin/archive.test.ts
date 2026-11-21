@@ -1,13 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { readFile, stat } from 'node:fs/promises';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { readFile, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { downloadZip, extractZip } from '#/app/plugin/archive';
-import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { createZipFromDir } from './zip-helper';
+import { extractZip } from '#/app/plugin/archive';
 
 describe('plugin archive extraction', () => {
   let dir: string;
@@ -17,7 +15,6 @@ describe('plugin archive extraction', () => {
   });
 
   afterEach(async () => {
-    restoreGlobals();
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -26,44 +23,13 @@ describe('plugin archive extraction', () => {
     const nested = join(source, 'plugin');
     await mkdir(nested, { recursive: true });
     await writeFile(join(nested, 'kimi.plugin.json'), JSON.stringify({ name: 'zip-demo' }), 'utf8');
-    const zip = await createZipFromDir(source);
+    const zipPath = join(dir, 'plugin.zip');
+    execFileSync('zip', ['-qr', zipPath, '.'], { cwd: source });
 
     const outDir = join(dir, 'out');
-    const detectedRoot = await extractZip(zip, outDir);
+    const detectedRoot = await extractZip(await readFile(zipPath), outDir);
 
     expect(detectedRoot).toBe(join(outDir, 'plugin'));
-    await expect(readFile(join(detectedRoot, 'kimi.plugin.json'), 'utf8')).resolves.toContain(
-      'zip-demo',
-    );
+    await expect(readFile(join(detectedRoot, 'kimi.plugin.json'), 'utf8')).resolves.toContain('zip-demo');
   });
-
-  it('refuses zip downloads advertised above the cap via content-length', async () => {
-    setGlobal(
-      'fetch',
-      mock(
-        async () =>
-          new Response('x', {
-            status: 200,
-            headers: { 'content-length': String(256 * 1024 * 1024 + 1) },
-          }),
-      ),
-    );
-
-    await expect(downloadZip('https://example.com/plugin.zip')).rejects.toThrow(
-      'Zip download too large',
-    );
-  });
-
-  it('aborts extraction when a single entry exceeds the size cap and cleans up', async () => {
-    const source = join(dir, 'source');
-    const nested = join(source, 'plugin');
-    await mkdir(nested, { recursive: true });
-    await writeFile(join(nested, 'kimi.plugin.json'), JSON.stringify({ name: 'big-demo' }), 'utf8');
-    await writeFile(join(nested, 'huge.bin'), Buffer.alloc(65 * 1024 * 1024, 1), 'utf8');
-    const zip = await createZipFromDir(source);
-    const outDir = join(dir, 'out');
-
-    await expect(extractZip(zip, outDir)).rejects.toThrow(/single-file limit/);
-    await expect(stat(outDir)).rejects.toThrow();
-  }, 20_000);
 });

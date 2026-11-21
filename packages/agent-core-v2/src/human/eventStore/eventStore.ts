@@ -1,7 +1,7 @@
 import { freeze, Immer, produce } from 'immer';
 
-import type { BranchRef, EntryLine } from '#/store/types';
-import { StoreError } from '#/store/types';
+import type { BranchRef, EntryLine } from '#human/store/types';
+import { StoreError } from '#human/store/types';
 
 import type { ExternalEvent, InternalEvent } from './events';
 import { eventSchemaFor, parseEvent, validateEvent } from './events';

@@ -1,14 +1,13 @@
 import { Text } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 import { formatTokenCount } from '#/utils/usage/usage-format';
 
 import { formatGoalElapsed, pluralizeGoalCount } from '../goal-format';
-import { truncateOneLine } from '../truncated-header-line';
 import { renderTruncated } from './truncated';
 import type { ResultRenderer } from './types';
+import { t } from '#/i18n';
 
 type GoalToolName = 'CreateGoal' | 'GetGoal' | 'SetGoalBudget' | 'UpdateGoal';
 
@@ -21,7 +20,12 @@ interface GoalSnapshotView {
   readonly terminalReason?: string | undefined;
 }
 
-const GOAL_TOOLS = new Set<string>(['CreateGoal', 'GetGoal', 'SetGoalBudget', 'UpdateGoal']);
+const GOAL_TOOLS = new Set<string>([
+  'CreateGoal',
+  'GetGoal',
+  'SetGoalBudget',
+  'UpdateGoal',
+]);
 
 export function isGoalToolName(toolName: string): toolName is GoalToolName {
   return GOAL_TOOLS.has(toolName);
@@ -68,7 +72,9 @@ function formatGoalBudgetArg(args: Record<string, unknown>): string | undefined 
     return undefined;
   }
   if (unit.length === 0) return undefined;
-  const normalized = unit === 'turns' || unit === 'tokens' ? Math.max(1, Math.round(value)) : value;
+  const normalized = unit === 'turns' || unit === 'tokens'
+    ? Math.max(1, Math.round(value))
+    : value;
   const singular = unit.endsWith('s') ? unit.slice(0, -1) : unit;
   return `${String(normalized)} ${normalized === 1 ? singular : unit}`;
 }
@@ -93,7 +99,7 @@ function renderGoalSnapshot(
   if (goal === null) return [new Text(muted(t('tui.messages.goalToolNoGoal')), 0, 0)];
 
   const lines = [
-    `  ${value(t('tui.messages.goalToolStatus', { status: goal.status, objective: truncateOneLine(goal.objective, 96) }))}`,
+    `  ${value(`Goal ${goal.status}: ${truncateOneLine(goal.objective, 96)}`)}`,
     `    ${muted(formatGoalStats(goal))}`,
   ];
   if (goal.terminalReason !== undefined && goal.terminalReason.length > 0) {
@@ -111,17 +117,9 @@ function goalToolLabel(
   const finished = result !== undefined;
   switch (toolName) {
     case 'CreateGoal':
-      return failed
-        ? t('tui.messages.goalToolCouldNotStart')
-        : finished
-          ? t('tui.messages.goalToolStarted')
-          : t('tui.messages.goalToolStarting');
+      return failed ? t('tui.messages.goalToolCouldNotStart') : finished ? t('tui.messages.goalToolStarted') : t('tui.messages.goalToolStarting');
     case 'GetGoal':
-      return failed
-        ? t('tui.messages.goalToolCouldNotCheck')
-        : finished
-          ? t('tui.messages.goalToolChecked')
-          : t('tui.messages.goalToolChecking');
+      return failed ? t('tui.messages.goalToolCouldNotCheck') : finished ? t('tui.messages.goalToolChecked') : t('tui.messages.goalToolChecking');
     case 'SetGoalBudget':
       return failed
         ? t('tui.messages.goalToolCouldNotSetBudget')
@@ -132,10 +130,10 @@ function goalToolLabel(
       const status = stringArg(args, 'status');
       const suffix = status ?? 'status';
       return failed
-        ? t('tui.messages.goalToolCouldNotReport', { suffix })
+        ? `Could not report goal ${suffix}`
         : finished
-          ? t('tui.messages.goalToolReported', { suffix })
-          : t('tui.messages.goalToolReporting', { suffix });
+          ? t('tui.messages.goalToolReported', { suffix: suffix })
+          : `Reporting goal ${suffix}`;
     }
   }
 }
@@ -194,6 +192,12 @@ function formatGoalStats(goal: GoalSnapshotView): string {
     `${formatTokenCount(goal.tokensUsed)} tokens`,
     formatGoalElapsed(goal.wallClockMs),
   ].join(' · ');
+}
+
+function truncateOneLine(text: string, max: number): string {
+  const firstLine = text.replaceAll(/\s+/g, ' ').trim();
+  if (firstLine.length <= max) return firstLine;
+  return `${firstLine.slice(0, Math.max(0, max - 1))}…`;
 }
 
 function stringArg(args: Record<string, unknown>, key: string): string | undefined {

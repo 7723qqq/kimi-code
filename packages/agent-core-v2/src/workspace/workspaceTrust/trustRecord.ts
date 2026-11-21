@@ -1,5 +1,5 @@
-import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { isStorageError, StorageErrors } from '#/persistence/interface/storage';

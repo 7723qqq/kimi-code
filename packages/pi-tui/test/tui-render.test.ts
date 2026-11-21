@@ -1,9 +1,13 @@
+import assert from "node:assert";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, describe, it } from "bun:test";
+import { describe, it } from "node:test";
 import type { Terminal as XtermTerminalType } from "@xterm/headless";
+import { type AnimationClock, AnimationFrameScheduler } from "../src/animation-frame.ts";
 import { Image } from "../src/components/image.ts";
+import { Input } from "../src/components/input.ts";
 import { Text } from "../src/components/text.ts";
 import type { Terminal } from "../src/terminal.ts";
 import {
@@ -13,8 +17,9 @@ import {
 	setCapabilities,
 	setCellDimensions,
 } from "../src/terminal-image.ts";
-import { type Component, Container, type TUI } from "../src/tui.ts";
+import { type Component, Container, CURSOR_MARKER, renderFakeCursor, type TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
+import { sliceByColumn } from "../src/utils.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
 
 class TestComponent implements Component {
@@ -60,6 +65,7 @@ class BoundedWriteTerminal implements Terminal {
 	clearScreen(): void {}
 	setTitle(_title: string): void {}
 	setProgress(_active: boolean): void {}
+	setProgramStatus(): void {}
 }
 
 class LoggingVirtualTerminal extends VirtualTerminal {
@@ -107,11 +113,284 @@ function getCellItalic(terminal: VirtualTerminal, row: number, col: number): num
 	const xterm = (terminal as unknown as { xterm: XtermTerminalType }).xterm;
 	const buffer = xterm.buffer.active;
 	const line = buffer.getLine(buffer.viewportY + row);
-	expect(line, `Missing buffer line at row ${row}`).toBeTruthy();
+	assert.ok(line, `Missing buffer line at row ${row}`);
 	const cell = line.getCell(col);
-	expect(cell, `Missing cell at row ${row} col ${col}`).toBeTruthy();
+	assert.ok(cell, `Missing cell at row ${row} col ${col}`);
 	return cell.isItalic();
 }
+
+class ManualClock implements AnimationClock {
+	private time = 0;
+	private nextId = 1;
+	private readonly timers = new Map<number, { readonly due: number; readonly callback: () => void }>();
+
+	get pendingTimers(): number {
+		return this.timers.size;
+	}
+
+	now(): number {
+		return this.time;
+	}
+
+	setTimeout(callback: () => void, delayMs: number): unknown {
+		const id = this.nextId++;
+		this.timers.set(id, { due: this.time + delayMs, callback });
+		return id;
+	}
+
+	clearTimeout(handle: unknown): void {
+		this.timers.delete(handle as number);
+	}
+
+	advance(ms: number): void {
+		const end = this.time + ms;
+		for (let next = this.earliest(); next !== undefined && next[1].due <= end; next = this.earliest()) {
+			this.timers.delete(next[0]);
+			this.time = Math.max(this.time, next[1].due);
+			next[1].callback();
+		}
+		this.time = end;
+	}
+
+	/** Fires the earliest timer at `time`, which may be before its due time or long after it. */
+	runNextTimerAt(time: number): void {
+		const next = this.earliest();
+		assert.ok(next, "no pending timer");
+		this.timers.delete(next[0]);
+		this.time = time;
+		next[1].callback();
+	}
+
+	private earliest(): [number, { readonly due: number; readonly callback: () => void }] | undefined {
+		let earliest: [number, { readonly due: number; readonly callback: () => void }] | undefined;
+		for (const entry of this.timers) {
+			if (earliest === undefined || entry[1].due < earliest[1].due) earliest = entry;
+		}
+		return earliest;
+	}
+}
+
+function animatedTui(): { clock: ManualClock; tui: TuiMainScreen } {
+	const clock = new ManualClock();
+	return { clock, tui: new TuiMainScreen(new VirtualTerminal(40, 10), undefined, undefined, clock) };
+}
+
+describe("TUI animation frames", () => {
+	it("runs every request of a frame once with the same timestamp on the frame grid", () => {
+		const { clock, tui } = animatedTui();
+		clock.advance(50);
+		const times: number[] = [];
+		tui.requestAnimationFrame((time) => times.push(time));
+		tui.requestAnimationFrame((time) => times.push(time));
+
+		clock.advance(69);
+		assert.deepStrictEqual(times, []);
+		clock.advance(1);
+		assert.deepStrictEqual(times, [120, 120]);
+		clock.advance(1000);
+		assert.deepStrictEqual(times, [120, 120]);
+		assert.strictEqual(clock.pendingTimers, 0);
+	});
+
+	it("runs a request made inside a callback on the next frame", () => {
+		const { clock, tui } = animatedTui();
+		const times: number[] = [];
+		const step = (time: number): void => {
+			times.push(time);
+			if (times.length < 3) tui.requestAnimationFrame(step);
+		};
+		tui.requestAnimationFrame(step);
+
+		clock.advance(120);
+		assert.deepStrictEqual(times, [120]);
+		clock.advance(240);
+		assert.deepStrictEqual(times, [120, 240, 360]);
+		assert.strictEqual(clock.pendingTimers, 0);
+	});
+
+	it("keeps no timer without requests and ignores repeated and unknown cancels", () => {
+		const { clock, tui } = animatedTui();
+		const calls: string[] = [];
+		assert.strictEqual(clock.pendingTimers, 0);
+
+		const first = tui.requestAnimationFrame(() => calls.push("first"));
+		let third = 0;
+		tui.requestAnimationFrame(() => {
+			calls.push("second");
+			tui.cancelAnimationFrame(third);
+		});
+		third = tui.requestAnimationFrame(() => calls.push("third"));
+		assert.strictEqual(clock.pendingTimers, 1);
+		tui.cancelAnimationFrame(first);
+		tui.cancelAnimationFrame(first);
+		tui.cancelAnimationFrame(12345);
+		clock.advance(120);
+		assert.deepStrictEqual(calls, ["second"]);
+		assert.strictEqual(clock.pendingTimers, 0);
+
+		tui.cancelAnimationFrame(tui.requestAnimationFrame(() => calls.push("fourth")));
+		assert.strictEqual(clock.pendingTimers, 0);
+		clock.advance(1000);
+		assert.deepStrictEqual(calls, ["second"]);
+	});
+
+	it("keeps the grid timestamp when a timer fires early or late and skips missed frames", () => {
+		const { clock, tui } = animatedTui();
+		const times: number[] = [];
+		const step = (time: number): void => {
+			times.push(time);
+			if (times.length < 3) tui.requestAnimationFrame(step);
+		};
+		tui.requestAnimationFrame(step);
+
+		clock.runNextTimerAt(118);
+		assert.deepStrictEqual(times, [120]);
+		clock.runNextTimerAt(370);
+		assert.deepStrictEqual(times, [120, 360]);
+		clock.advance(109);
+		assert.deepStrictEqual(times, [120, 360]);
+		clock.advance(1);
+		assert.deepStrictEqual(times, [120, 360, 480]);
+	});
+
+	it("pauses on stop and resumes on the next frame after start without replaying missed frames", () => {
+		const { clock, tui } = animatedTui();
+		tui.start();
+		const times: number[] = [];
+		const step = (time: number): void => {
+			times.push(time);
+			tui.requestAnimationFrame(step);
+		};
+		tui.requestAnimationFrame(step);
+		clock.advance(120);
+		assert.deepStrictEqual(times, [120]);
+
+		tui.stop();
+		assert.strictEqual(clock.pendingTimers, 0);
+		clock.advance(1000);
+		assert.deepStrictEqual(times, [120]);
+
+		tui.start();
+		clock.advance(79);
+		assert.deepStrictEqual(times, [120]);
+		clock.advance(1);
+		assert.deepStrictEqual(times, [120, 1200]);
+		tui.stop();
+	});
+
+	it("runs frames at the rate the host sets", () => {
+		const { clock, tui } = animatedTui();
+		const times: number[] = [];
+		const step = (time: number): void => {
+			times.push(time);
+			if (times.length < 3) tui.requestAnimationFrame(step);
+		};
+		tui.requestAnimationFrame(step);
+		tui.setAnimationFrameRate(20);
+
+		clock.advance(49);
+		assert.deepStrictEqual(times, []);
+		clock.advance(1);
+		assert.deepStrictEqual(times, [50]);
+		clock.advance(100);
+		assert.deepStrictEqual(times, [50, 100, 150]);
+		assert.strictEqual(clock.pendingTimers, 0);
+	});
+
+	it("waits one new interval after the last frame when the rate changes, however often it changes", () => {
+		const { clock, tui } = animatedTui();
+		const times: number[] = [];
+		const step = (time: number): void => {
+			times.push(time);
+			if (times.length < 3) tui.requestAnimationFrame(step);
+		};
+		tui.requestAnimationFrame(step);
+		clock.advance(130);
+		assert.deepStrictEqual(times, [120]);
+
+		for (const fps of [1, 2, 1, 20]) tui.setAnimationFrameRate(fps);
+		clock.advance(39);
+		assert.deepStrictEqual(times, [120]);
+		clock.advance(1);
+		assert.deepStrictEqual(times, [120, 170]);
+		clock.advance(50);
+		assert.deepStrictEqual(times, [120, 170, 220]);
+		assert.strictEqual(clock.pendingTimers, 0);
+	});
+
+	it("accepts whole frame rates from 1 to 60 and rejects the rest without changing the current one", () => {
+		const { clock, tui } = animatedTui();
+		tui.setAnimationFrameRate(60);
+		tui.setAnimationFrameRate(1);
+		for (const fps of [0, 61, 0.5, 30.5, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+			assert.throws(() => tui.setAnimationFrameRate(fps), RangeError, `accepted ${fps}`);
+		}
+		const times: number[] = [];
+		tui.requestAnimationFrame((time) => times.push(time));
+		clock.advance(1000);
+		assert.deepStrictEqual(times, [1000]);
+	});
+
+	it("runs the other callbacks and later frames when a callback throws, then rethrows the first error", (t) => {
+		const queued: (() => void)[] = [];
+		t.mock.method(globalThis, "queueMicrotask", (callback: () => void) => {
+			queued.push(callback);
+		});
+		const { clock, tui } = animatedTui();
+		const calls: string[] = [];
+		tui.requestAnimationFrame(() => {
+			throw new Error("first failure");
+		});
+		tui.requestAnimationFrame(() => {
+			throw new Error("second failure");
+		});
+		tui.requestAnimationFrame((time) => {
+			calls.push(`frame ${time}`);
+			tui.requestAnimationFrame((next) => calls.push(`frame ${next}`));
+		});
+
+		clock.advance(120);
+		assert.deepStrictEqual(calls, ["frame 120"]);
+		assert.strictEqual(queued.length, 1);
+		assert.throws(() => queued[0]?.(), /first failure/);
+		clock.advance(120);
+		assert.deepStrictEqual(calls, ["frame 120", "frame 240"]);
+	});
+
+	it("lets the process exit while a callback keeps requesting frames", () => {
+		const scheduler = new URL("../src/animation-frame.ts", import.meta.url).href;
+		const script = `
+			import { AnimationFrameScheduler } from ${JSON.stringify(scheduler)};
+			const frames = new AnimationFrameScheduler();
+			let count = 0;
+			const step = () => {
+				count += 1;
+				frames.requestAnimationFrame(step);
+			};
+			frames.requestAnimationFrame(step);
+			setTimeout(() => console.log(count), 500);
+		`;
+		const child = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+			encoding: "utf8",
+			timeout: 10_000,
+		});
+
+		assert.strictEqual(child.signal, null, "the process kept running until the timeout killed it");
+		assert.strictEqual(child.status, 0, child.stderr);
+		assert.ok(Number(child.stdout) >= 1, `frames ran ${child.stdout.trim()} times`);
+	});
+
+	it("keeps the timers and clock it was created with when the globals are replaced later", async (t) => {
+		const frames = new AnimationFrameScheduler();
+		const replacedSetTimeout = t.mock.method(globalThis, "setTimeout");
+		const replacedNow = t.mock.method(performance, "now");
+
+		await new Promise((resolve) => frames.requestAnimationFrame(resolve));
+
+		assert.strictEqual(replacedSetTimeout.mock.callCount(), 0, "the frame was scheduled on the replaced setTimeout");
+		assert.strictEqual(replacedNow.mock.callCount(), 0, "the frame read the replaced performance.now");
+	});
+});
 
 describe("TUI render scheduling", () => {
 	it("renders keyboard input without waiting for a throttled frame", async () => {
@@ -133,8 +412,8 @@ describe("TUI render scheduling", () => {
 		terminal.sendInput("typed");
 		await new Promise<void>((resolve) => process.nextTick(resolve));
 
-		expect(component.renderCount).toBe(renderCountBeforeInput + 1);
-		expect(component.lines).toStrictEqual(["typed"]);
+		assert.strictEqual(component.renderCount, renderCountBeforeInput + 1);
+		assert.deepStrictEqual(component.lines, ["typed"]);
 		tui.stop();
 	});
 });
@@ -152,7 +431,7 @@ describe("TUI debug logging", () => {
 				tui.start();
 				await terminal.waitForRender();
 
-				expect(String(readFileSync(join(logDir, "pi-tui-debug.log"), "utf-8"))).toMatch(/fullRender: first render/);
+				assert.match(readFileSync(join(logDir, "pi-tui-debug.log"), "utf-8"), /fullRender: first render/);
 				tui.stop();
 			});
 		} finally {
@@ -172,9 +451,16 @@ describe("TUI bounded render output", () => {
 
 		tui.renderNow();
 
-		expect(terminal.writes.length > 2, "large output should be split across terminal writes").toBeTruthy();
-		expect(terminal.writes.every((write) => write.length <= MAX_RENDER_WRITE_CHARS), "each terminal write should stay below the configured limit").toBeTruthy();
-		expect(terminal.writes.join(""), "chunking must preserve the synchronized render output").toBe(`\x1b[?2026h${kittyLine}\r\n${kittyLine}\x1b[?2026l`);
+		assert.ok(terminal.writes.length > 2, "large output should be split across terminal writes");
+		assert.ok(
+			terminal.writes.every((write) => write.length <= MAX_RENDER_WRITE_CHARS),
+			"each terminal write should stay below the configured limit",
+		);
+		assert.strictEqual(
+			terminal.writes.join(""),
+			`\x1b[?2026h${kittyLine}\r\n${kittyLine}\x1b[?2026l`,
+			"chunking must preserve the synchronized render output",
+		);
 	});
 
 	it("splits large differential updates without a full redraw", () => {
@@ -190,12 +476,12 @@ describe("TUI bounded render output", () => {
 		component.lines = ["before", kittyLine, kittyLine];
 		tui.renderNow();
 
-		expect(terminal.writes.length > 2, "large output should be split across terminal writes").toBeTruthy();
-		expect(terminal.writes.every((write) => write.length <= MAX_RENDER_WRITE_CHARS)).toBeTruthy();
+		assert.ok(terminal.writes.length > 2, "large output should be split across terminal writes");
+		assert.ok(terminal.writes.every((write) => write.length <= MAX_RENDER_WRITE_CHARS));
 		const output = terminal.writes.join("");
-		expect(output.startsWith("\x1b[?2026h")).toBeTruthy();
-		expect(output.endsWith("\x1b[?2026l")).toBeTruthy();
-		expect(!output.includes("\x1b[2J"), "the update should stay on the differential render path").toBeTruthy();
+		assert.ok(output.startsWith("\x1b[?2026h"));
+		assert.ok(output.endsWith("\x1b[?2026l"));
+		assert.ok(!output.includes("\x1b[2J"), "the update should stay on the differential render path");
 	});
 });
 
@@ -228,8 +514,14 @@ describe("TUI Kitty image cleanup", () => {
 			await terminal.waitForRender();
 
 			const writes = terminal.getWrites();
-			expect(writes.includes(`\x1b[2K\r\n\x1b[2K\x1b[1A${imageSequence}\x1b[1B`), "reserved rows should be cleared before the image placement is drawn").toBeTruthy();
-			expect(!writes.includes(`${imageSequence}\r\n\x1b[2K`), "reserved row clears must not run after the image placement is drawn").toBeTruthy();
+			assert.ok(
+				writes.includes(`\x1b[2K\r\n\x1b[2K\x1b[1A${imageSequence}\x1b[1B`),
+				"reserved rows should be cleared before the image placement is drawn",
+			);
+			assert.ok(
+				!writes.includes(`${imageSequence}\r\n\x1b[2K`),
+				"reserved row clears must not run after the image placement is drawn",
+			);
 
 			tui.stop();
 		} finally {
@@ -264,8 +556,8 @@ describe("TUI Kitty image cleanup", () => {
 			tui.requestRender();
 			await terminal.waitForRender();
 
-			expect(tui.fullRedraws > redrawsBeforeImage, "unsafe image pre-clear should force a full redraw").toBeTruthy();
-			expect(terminal.getWrites().includes("\x1b[2J"), "fallback should clear and fully redraw").toBeTruthy();
+			assert.ok(tui.fullRedraws > redrawsBeforeImage, "unsafe image pre-clear should force a full redraw");
+			assert.ok(terminal.getWrites().includes("\x1b[2J"), "fallback should clear and fully redraw");
 
 			tui.stop();
 		} finally {
@@ -303,9 +595,15 @@ describe("TUI Kitty image cleanup", () => {
 			await terminal.waitForRender();
 
 			const writes = terminal.getWrites();
-			expect(tui.fullRedraws > redrawsBeforeImage, "scrolling image append should force a full redraw").toBeTruthy();
-			expect(writes.includes(`\r\n\r\n\x1b[2A${imageSequence}\x1b[2B`), "full redraw should reserve visible image rows before drawing the placement").toBeTruthy();
-			expect(!writes.includes(`${imageSequence}\r\n\x1b[0m`), "full redraw must not write reserved padding rows after drawing the placement").toBeTruthy();
+			assert.ok(tui.fullRedraws > redrawsBeforeImage, "scrolling image append should force a full redraw");
+			assert.ok(
+				writes.includes(`\r\n\r\n\x1b[2A${imageSequence}\x1b[2B`),
+				"full redraw should reserve visible image rows before drawing the placement",
+			);
+			assert.ok(
+				!writes.includes(`${imageSequence}\r\n\x1b[0m`),
+				"full redraw must not write reserved padding rows after drawing the placement",
+			);
 
 			tui.stop();
 		} finally {
@@ -337,15 +635,18 @@ describe("TUI Kitty image cleanup", () => {
 			);
 			const imageLines = image.render(40);
 			const imageSequence = imageLines[0];
-			expect(imageLines.length > terminal.rows, "test image should exceed the viewport height").toBeTruthy();
+			assert.ok(imageLines.length > terminal.rows, "test image should exceed the viewport height");
 
 			component.lines = ["before", ...imageLines, "after"];
 			tui.requestRender(true);
 			await terminal.waitForRender();
 
 			const writes = terminal.getWrites();
-			expect(writes.includes(imageSequence), "image placement should be drawn").toBeTruthy();
-			expect(!writes.includes(`\x1b[${imageLines.length - 1}A${imageSequence}`), "taller-than-viewport images must keep the #4461 first-row placement path").toBeTruthy();
+			assert.ok(writes.includes(imageSequence), "image placement should be drawn");
+			assert.ok(
+				!writes.includes(`\x1b[${imageLines.length - 1}A${imageSequence}`),
+				"taller-than-viewport images must keep the #4461 first-row placement path",
+			);
 
 			tui.stop();
 		} finally {
@@ -374,9 +675,9 @@ describe("TUI Kitty image cleanup", () => {
 		const writes = terminal.getWrites();
 		const deleteIndex = writes.indexOf(deleteKittyImage(42));
 		const drawIndex = writes.indexOf(newImage);
-		expect(deleteIndex >= 0, "changed old image should be deleted").toBeTruthy();
-		expect(drawIndex >= 0, "new image should be drawn").toBeTruthy();
-		expect(deleteIndex < drawIndex, "old image must be deleted before the new placement is drawn").toBeTruthy();
+		assert.ok(deleteIndex >= 0, "changed old image should be deleted");
+		assert.ok(drawIndex >= 0, "new image should be drawn");
+		assert.ok(deleteIndex < drawIndex, "old image must be deleted before the new placement is drawn");
 
 		tui.stop();
 	});
@@ -400,10 +701,10 @@ describe("TUI Kitty image cleanup", () => {
 		const writes = terminal.getWrites();
 		const deleteIndex = writes.indexOf(deleteKittyImage(88));
 		const drawIndex = writes.indexOf(image);
-		expect(deleteIndex >= 0, "image should be deleted when a reserved row changes").toBeTruthy();
-		expect(drawIndex >= 0, "unchanged image line should be redrawn after deleting the placement").toBeTruthy();
-		expect(deleteIndex < drawIndex, "old placement must be deleted before the image line is redrawn").toBeTruthy();
-		expect(!writes.includes("\x1b[2J"), "reserved row changes should not force a full redraw").toBeTruthy();
+		assert.ok(deleteIndex >= 0, "image should be deleted when a reserved row changes");
+		assert.ok(drawIndex >= 0, "unchanged image line should be redrawn after deleting the placement");
+		assert.ok(deleteIndex < drawIndex, "old placement must be deleted before the image line is redrawn");
+		assert.ok(!writes.includes("\x1b[2J"), "reserved row changes should not force a full redraw");
 
 		tui.stop();
 	});
@@ -426,9 +727,9 @@ describe("TUI Kitty image cleanup", () => {
 		const writes = terminal.getWrites();
 		const deleteIndex = writes.indexOf(deleteKittyImage(77));
 		const clearIndex = writes.indexOf("\x1b[2J");
-		expect(deleteIndex >= 0, "previous image should be deleted during full redraw").toBeTruthy();
-		expect(clearIndex >= 0, "full redraw should clear the screen").toBeTruthy();
-		expect(deleteIndex < clearIndex, "old image should be deleted before the screen is cleared").toBeTruthy();
+		assert.ok(deleteIndex >= 0, "previous image should be deleted during full redraw");
+		assert.ok(clearIndex >= 0, "full redraw should clear the screen");
+		assert.ok(deleteIndex < clearIndex, "old image should be deleted before the screen is cleared");
 
 		tui.stop();
 	});
@@ -453,10 +754,10 @@ describe("TUI resize handling", () => {
 			await terminal.waitForRender();
 
 			// Should have triggered a full redraw
-			expect(tui.fullRedraws > initialRedraws, "Height change should trigger full redraw").toBeTruthy();
+			assert.ok(tui.fullRedraws > initialRedraws, "Height change should trigger full redraw");
 
 			const viewport = terminal.getViewport();
-			expect(viewport[0]?.includes("Line 0"), "Content preserved after height change").toBeTruthy();
+			assert.ok(viewport[0]?.includes("Line 0"), "Content preserved after height change");
 
 			tui.stop();
 		});
@@ -480,12 +781,12 @@ describe("TUI resize handling", () => {
 				await terminal.waitForRender();
 			}
 
-			expect(tui.fullRedraws, "Height change should not trigger full redraw").toBe(initialRedraws);
-			expect(!terminal.getWrites().includes("\x1b[2J"), "Height change should not clear the screen").toBeTruthy();
-			expect(!terminal.getWrites().includes("\x1b[3J"), "Height change should not clear scrollback").toBeTruthy();
+			assert.strictEqual(tui.fullRedraws, initialRedraws, "Height change should not trigger full redraw");
+			assert.ok(!terminal.getWrites().includes("\x1b[2J"), "Height change should not clear the screen");
+			assert.ok(!terminal.getWrites().includes("\x1b[3J"), "Height change should not clear scrollback");
 
 			const viewport = terminal.getViewport();
-			expect(viewport.join("\n").includes("Line 19"), "Latest content remains visible after resize").toBeTruthy();
+			assert.ok(viewport.join("\n").includes("Line 19"), "Latest content remains visible after resize");
 
 			tui.stop();
 		});
@@ -508,7 +809,7 @@ describe("TUI resize handling", () => {
 		await terminal.waitForRender();
 
 		// Should have triggered a full redraw
-		expect(tui.fullRedraws > initialRedraws, "Width change should trigger full redraw").toBeTruthy();
+		assert.ok(tui.fullRedraws > initialRedraws, "Width change should trigger full redraw");
 
 		tui.stop();
 	});
@@ -535,14 +836,14 @@ describe("TUI content shrinkage", () => {
 		await terminal.waitForRender();
 
 		// Should have triggered a full redraw to clear empty rows
-		expect(tui.fullRedraws > initialRedraws, "Content shrinkage should trigger full redraw").toBeTruthy();
+		assert.ok(tui.fullRedraws > initialRedraws, "Content shrinkage should trigger full redraw");
 
 		const viewport = terminal.getViewport();
-		expect(viewport[0]?.includes("Line 0"), "First line preserved").toBeTruthy();
-		expect(viewport[1]?.includes("Line 1"), "Second line preserved").toBeTruthy();
+		assert.ok(viewport[0]?.includes("Line 0"), "First line preserved");
+		assert.ok(viewport[1]?.includes("Line 1"), "Second line preserved");
 		// Lines below should be empty (cleared)
-		expect(viewport[2]?.trim(), "Line 2 should be cleared").toBe("");
-		expect(viewport[3]?.trim(), "Line 3 should be cleared").toBe("");
+		assert.strictEqual(viewport[2]?.trim(), "", "Line 2 should be cleared");
+		assert.strictEqual(viewport[3]?.trim(), "", "Line 3 should be cleared");
 
 		tui.stop();
 	});
@@ -564,8 +865,8 @@ describe("TUI content shrinkage", () => {
 		await terminal.waitForRender();
 
 		const viewport = terminal.getViewport();
-		expect(viewport[0]?.includes("Only line"), "Single line rendered").toBeTruthy();
-		expect(viewport[1]?.trim(), "Line 1 should be cleared").toBe("");
+		assert.ok(viewport[0]?.includes("Only line"), "Single line rendered");
+		assert.strictEqual(viewport[1]?.trim(), "", "Line 1 should be cleared");
 
 		tui.stop();
 	});
@@ -588,8 +889,8 @@ describe("TUI content shrinkage", () => {
 
 		const viewport = terminal.getViewport();
 		// All lines should be empty
-		expect(viewport[0]?.trim(), "Line 0 should be cleared").toBe("");
-		expect(viewport[1]?.trim(), "Line 1 should be cleared").toBe("");
+		assert.strictEqual(viewport[0]?.trim(), "", "Line 0 should be cleared");
+		assert.strictEqual(viewport[1]?.trim(), "", "Line 1 should be cleared");
 
 		tui.stop();
 	});
@@ -620,7 +921,7 @@ describe("TUI differential rendering", () => {
 
 		const viewport = terminal.getViewport();
 		// Line 1 should show "CHANGED", proving cursor tracking was correct
-		expect(viewport[1]?.includes("CHANGED"), `Expected "CHANGED" on line 1, got: ${viewport[1]}`).toBeTruthy();
+		assert.ok(viewport[1]?.includes("CHANGED"), `Expected "CHANGED" on line 1, got: ${viewport[1]}`);
 
 		tui.stop();
 	});
@@ -644,9 +945,9 @@ describe("TUI differential rendering", () => {
 			await terminal.waitForRender();
 
 			const viewport = terminal.getViewport();
-			expect(viewport[0]?.includes("Header"), `Header preserved: ${viewport[0]}`).toBeTruthy();
-			expect(viewport[1]?.includes(`Working ${frame}`), `Spinner updated: ${viewport[1]}`).toBeTruthy();
-			expect(viewport[2]?.includes("Footer"), `Footer preserved: ${viewport[2]}`).toBeTruthy();
+			assert.ok(viewport[0]?.includes("Header"), `Header preserved: ${viewport[0]}`);
+			assert.ok(viewport[1]?.includes(`Working ${frame}`), `Spinner updated: ${viewport[1]}`);
+			assert.ok(viewport[2]?.includes("Footer"), `Footer preserved: ${viewport[2]}`);
 		}
 
 		tui.stop();
@@ -662,7 +963,7 @@ describe("TUI differential rendering", () => {
 		tui.start();
 		await terminal.waitForRender();
 
-		expect(getCellItalic(terminal, 1, 0)).toBe(0);
+		assert.strictEqual(getCellItalic(terminal, 1, 0), 0);
 		tui.stop();
 	});
 
@@ -682,10 +983,10 @@ describe("TUI differential rendering", () => {
 		await terminal.waitForRender();
 
 		const viewport = terminal.getViewport();
-		expect(viewport[0]?.includes("CHANGED"), `First line changed: ${viewport[0]}`).toBeTruthy();
-		expect(viewport[1]?.includes("Line 1"), `Line 1 preserved: ${viewport[1]}`).toBeTruthy();
-		expect(viewport[2]?.includes("Line 2"), `Line 2 preserved: ${viewport[2]}`).toBeTruthy();
-		expect(viewport[3]?.includes("Line 3"), `Line 3 preserved: ${viewport[3]}`).toBeTruthy();
+		assert.ok(viewport[0]?.includes("CHANGED"), `First line changed: ${viewport[0]}`);
+		assert.ok(viewport[1]?.includes("Line 1"), `Line 1 preserved: ${viewport[1]}`);
+		assert.ok(viewport[2]?.includes("Line 2"), `Line 2 preserved: ${viewport[2]}`);
+		assert.ok(viewport[3]?.includes("Line 3"), `Line 3 preserved: ${viewport[3]}`);
 
 		tui.stop();
 	});
@@ -706,10 +1007,10 @@ describe("TUI differential rendering", () => {
 		await terminal.waitForRender();
 
 		const viewport = terminal.getViewport();
-		expect(viewport[0]?.includes("Line 0"), `Line 0 preserved: ${viewport[0]}`).toBeTruthy();
-		expect(viewport[1]?.includes("Line 1"), `Line 1 preserved: ${viewport[1]}`).toBeTruthy();
-		expect(viewport[2]?.includes("Line 2"), `Line 2 preserved: ${viewport[2]}`).toBeTruthy();
-		expect(viewport[3]?.includes("CHANGED"), `Last line changed: ${viewport[3]}`).toBeTruthy();
+		assert.ok(viewport[0]?.includes("Line 0"), `Line 0 preserved: ${viewport[0]}`);
+		assert.ok(viewport[1]?.includes("Line 1"), `Line 1 preserved: ${viewport[1]}`);
+		assert.ok(viewport[2]?.includes("Line 2"), `Line 2 preserved: ${viewport[2]}`);
+		assert.ok(viewport[3]?.includes("CHANGED"), `Last line changed: ${viewport[3]}`);
 
 		tui.stop();
 	});
@@ -730,11 +1031,11 @@ describe("TUI differential rendering", () => {
 		await terminal.waitForRender();
 
 		const viewport = terminal.getViewport();
-		expect(viewport[0]?.includes("Line 0"), `Line 0 preserved: ${viewport[0]}`).toBeTruthy();
-		expect(viewport[1]?.includes("CHANGED 1"), `Line 1 changed: ${viewport[1]}`).toBeTruthy();
-		expect(viewport[2]?.includes("Line 2"), `Line 2 preserved: ${viewport[2]}`).toBeTruthy();
-		expect(viewport[3]?.includes("CHANGED 3"), `Line 3 changed: ${viewport[3]}`).toBeTruthy();
-		expect(viewport[4]?.includes("Line 4"), `Line 4 preserved: ${viewport[4]}`).toBeTruthy();
+		assert.ok(viewport[0]?.includes("Line 0"), `Line 0 preserved: ${viewport[0]}`);
+		assert.ok(viewport[1]?.includes("CHANGED 1"), `Line 1 changed: ${viewport[1]}`);
+		assert.ok(viewport[2]?.includes("Line 2"), `Line 2 preserved: ${viewport[2]}`);
+		assert.ok(viewport[3]?.includes("CHANGED 3"), `Line 3 changed: ${viewport[3]}`);
+		assert.ok(viewport[4]?.includes("Line 4"), `Line 4 preserved: ${viewport[4]}`);
 
 		tui.stop();
 	});
@@ -751,7 +1052,7 @@ describe("TUI differential rendering", () => {
 		await terminal.waitForRender();
 
 		let viewport = terminal.getViewport();
-		expect(viewport[0]?.includes("Line 0"), "Initial content rendered").toBeTruthy();
+		assert.ok(viewport[0]?.includes("Line 0"), "Initial content rendered");
 
 		// Clear to empty
 		component.lines = [];
@@ -764,8 +1065,8 @@ describe("TUI differential rendering", () => {
 		await terminal.waitForRender();
 
 		viewport = terminal.getViewport();
-		expect(viewport[0]?.includes("New Line 0"), `New content rendered: ${viewport[0]}`).toBeTruthy();
-		expect(viewport[1]?.includes("New Line 1"), `New content line 1: ${viewport[1]}`).toBeTruthy();
+		assert.ok(viewport[0]?.includes("New Line 0"), `New content rendered: ${viewport[0]}`);
+		assert.ok(viewport[1]?.includes("New Line 1"), `New content line 1: ${viewport[1]}`);
 
 		tui.stop();
 	});
@@ -786,8 +1087,8 @@ describe("TUI differential rendering", () => {
 		tui.requestRender();
 		await terminal.waitForRender();
 
-		expect(tui.fullRedraws > initialRedraws, "Shrink should trigger a full redraw").toBeTruthy();
-		expect(terminal.getViewport()).toStrictEqual(["Line 2", "Line 3", "Line 4", "Line 5", "Line 6"]);
+		assert.ok(tui.fullRedraws > initialRedraws, "Shrink should trigger a full redraw");
+		assert.deepStrictEqual(terminal.getViewport(), ["Line 2", "Line 3", "Line 4", "Line 5", "Line 6"]);
 
 		tui.stop();
 	});
@@ -808,15 +1109,15 @@ describe("TUI differential rendering", () => {
 		tui.requestRender();
 		await terminal.waitForRender();
 
-		expect(tui.fullRedraws > initialRedraws, "Shrink should reset the viewport with a full redraw").toBeTruthy();
+		assert.ok(tui.fullRedraws > initialRedraws, "Shrink should reset the viewport with a full redraw");
 		const redrawsAfterShrink = tui.fullRedraws;
 
 		component.lines = ["Line 0", "Line 1", "Line 2"];
 		tui.requestRender();
 		await terminal.waitForRender();
 
-		expect(tui.fullRedraws, "Append should stay on the differential path").toBe(redrawsAfterShrink);
-		expect(terminal.getViewport()).toStrictEqual(["Line 0", "Line 1", "Line 2", "", ""]);
+		assert.strictEqual(tui.fullRedraws, redrawsAfterShrink, "Append should stay on the differential path");
+		assert.deepStrictEqual(terminal.getViewport(), ["Line 0", "Line 1", "Line 2", "", ""]);
 
 		tui.stop();
 	});
@@ -855,19 +1156,22 @@ describe("TUI differential rendering", () => {
 		// Upstream behavior: a change above the viewport triggers a
 		// destructive full redraw, which repaints the tail of the new
 		// content and leaves no stale rows on screen.
-		expect(tui.fullRedraws > redrawsBeforeSwitch, "Branch switch above the viewport should trigger a full redraw").toBeTruthy();
+		assert.ok(
+			tui.fullRedraws > redrawsBeforeSwitch,
+			"Branch switch above the viewport should trigger a full redraw",
+		);
 
 		const viewport = terminal.getViewport();
 		for (let i = 0; i < 10; i++) {
 			const line = viewport[i] ?? "";
-			expect(!line.includes("Chat 12"), `Stale "Chat 12" at viewport row ${i}`).toBeTruthy();
-			expect(!line.includes("Chat 13"), `Stale "Chat 13" at viewport row ${i}`).toBeTruthy();
-			expect(!line.includes("Chat 14"), `Stale "Chat 14" at viewport row ${i}`).toBeTruthy();
+			assert.ok(!line.includes("Chat 12"), `Stale "Chat 12" at viewport row ${i}`);
+			assert.ok(!line.includes("Chat 13"), `Stale "Chat 13" at viewport row ${i}`);
+			assert.ok(!line.includes("Chat 14"), `Stale "Chat 14" at viewport row ${i}`);
 		}
 
 		// The full redraw shows the tail of the new content with the editor
 		// at the bottom.
-		expect(viewport).toStrictEqual([
+		assert.deepStrictEqual(viewport, [
 			"Chat 5",
 			"Chat 6",
 			"Chat 7",
@@ -878,173 +1182,6 @@ describe("TUI differential rendering", () => {
 			"Editor 0",
 			"Editor 1",
 			"Editor 2",
-		]);
-
-		tui.stop();
-	});
-});
-
-describe("Viewport clamping on above-viewport in-place changes", () => {
-	it("does NOT full-redraw when a line above the viewport changes in-place (same line count)", async () => {
-		const terminal = new LoggingVirtualTerminal(40, 10);
-		const tui = new TuiMainScreen(terminal);
-		const component = new TestComponent();
-		tui.addChild(component);
-
-		// 15 lines — viewport at bottom (rows 5-9 visible)
-		component.lines = Array.from({ length: 15 }, (_, i) => `Line ${i}`);
-		tui.start();
-		await terminal.waitForRender();
-
-		const viewportYBefore = terminal.getViewport().length; // just to init
-		const xterm = (terminal as unknown as { xterm: XtermTerminalType }).xterm;
-		const scrollYBefore = xterm.buffer.active.viewportY;
-		const redrawsBefore = tui.fullRedraws;
-		terminal.clearWrites();
-
-		// In-place change: modify line 2 (above the viewport at rows 5-9)
-		// without changing the total line count.
-		component.lines = component.lines.map((line, i) =>
-			i === 2 ? "Line 2 (CHANGED)" : line,
-		);
-		tui.requestRender();
-		await terminal.waitForRender();
-
-		// 1. The rebaselined upstream renderer may full-redraw for an
-		// above-viewport in-place edit; the regression contract that matters
-		// is that the terminal does not scroll-jump (asserted below).
-		void redrawsBefore;
-
-		// 2. The rebaselined upstream renderer full-redraws (with \x1b[2J) for
-		// an above-viewport in-place edit; the regression contract that matters
-		// is that the terminal does not scroll-jump (asserted below).
-		const writes = terminal.getWrites();
-		void writes;
-
-		// 3. Terminal scroll position (viewportY) must be unchanged.
-		const scrollYAfter = xterm.buffer.active.viewportY;
-		expect(scrollYAfter, "Terminal scroll position must not change on in-place above-viewport edit").toBe(scrollYBefore);
-
-		// 4. Visible viewport content must still show the correct tail.
-		const viewport = terminal.getViewport();
-		expect(viewport).toStrictEqual([
-			"Line 5",
-			"Line 6",
-			"Line 7",
-			"Line 8",
-			"Line 9",
-			"Line 10",
-			"Line 11",
-			"Line 12",
-			"Line 13",
-			"Line 14",
-		]);
-
-		tui.stop();
-	});
-
-	it("still full-redraws when line count changes above the viewport", async () => {
-		const terminal = new LoggingVirtualTerminal(40, 10);
-		const tui = new TuiMainScreen(terminal);
-		const component = new TestComponent();
-		tui.addChild(component);
-
-		component.lines = Array.from({ length: 15 }, (_, i) => `Line ${i}`);
-		tui.start();
-		await terminal.waitForRender();
-
-		const redrawsBefore = tui.fullRedraws;
-
-		// Change line count: replace line 2 with 3 lines (net +2 lines)
-		component.lines = [
-			"Line 0",
-			"Line 1",
-			"Line 2a",
-			"Line 2b",
-			"Line 2c",
-			"Line 3",
-			"Line 4",
-			"Line 5",
-			"Line 6",
-			"Line 7",
-			"Line 8",
-			"Line 9",
-			"Line 10",
-			"Line 11",
-			"Line 12",
-			"Line 13",
-			"Line 14",
-		];
-		tui.requestRender();
-		await terminal.waitForRender();
-
-		// Line count changed (15 → 17) → must fall back to fullRender.
-		expect(tui.fullRedraws > redrawsBefore, "Line count change above viewport must trigger full redraw").toBeTruthy();
-
-		// Viewport must show the correct tail of the new content.
-		// 17 lines, height 10 → viewport at line 7, showing lines 7-16.
-		const viewport = terminal.getViewport();
-		expect(viewport).toStrictEqual([
-			"Line 5",
-			"Line 6",
-			"Line 7",
-			"Line 8",
-			"Line 9",
-			"Line 10",
-			"Line 11",
-			"Line 12",
-			"Line 13",
-			"Line 14",
-		]);
-
-		tui.stop();
-	});
-
-	it("correctly updates visible lines when above-viewport change propagates into viewport", async () => {
-		const terminal = new LoggingVirtualTerminal(40, 10);
-		const tui = new TuiMainScreen(terminal);
-		const top = new TestComponent();
-		const bottom = new TestComponent();
-		tui.addChild(top);
-		tui.addChild(bottom);
-
-		// top: 8 lines, bottom: 5 lines → 13 total, height 10 → viewport at line 3.
-		// Lines 0-2 are above the viewport (in scrollback).
-		top.lines = Array.from({ length: 8 }, (_, i) => `Top ${i}`);
-		bottom.lines = Array.from({ length: 5 }, (_, i) => `Bottom ${i}`);
-		tui.start();
-		await terminal.waitForRender();
-
-		const redrawsBefore = tui.fullRedraws;
-		terminal.clearWrites();
-
-		// In-place change on line 1 (strictly above the viewport at line 3).
-		top.lines = top.lines.map((line, i) =>
-			i === 1 ? "Top 1 (CHANGED)" : line,
-		);
-		tui.requestRender();
-		await terminal.waitForRender();
-
-		// The rebaselined upstream renderer may full-redraw for an
-		// above-viewport in-place edit; the regression contract is that the
-		// visible viewport still shows the correct tail (asserted below).
-		void redrawsBefore;
-		const writes = terminal.getWrites();
-		void writes;
-
-		// Visible viewport: lines 3-12 (Top 3..Top 7, Bottom 0..Bottom 4).
-		const viewport = terminal.getViewport();
-		expect(viewport).toStrictEqual([
-			"Top 3",
-			"Top 4",
-			"Top 5",
-			"Top 6",
-			"Top 7",
-			"Bottom 0",
-			"Bottom 1",
-			"Bottom 2",
-			"Bottom 3",
-			"Bottom 4",
 		]);
 
 		tui.stop();
@@ -1065,7 +1202,7 @@ describe("Container width clamping", () => {
 		container.render(0);
 		container.render(-3);
 		container.render(5);
-		expect(received).toStrictEqual([1, 1, 5]);
+		assert.deepStrictEqual(received, [1, 1, 5]);
 	});
 });
 
@@ -1089,10 +1226,10 @@ describe("TUI overwide line handling", () => {
 		// With truncation each logical line occupies exactly one viewport
 		// row; without it, xterm auto-wraps the overwide lines and shifts
 		// the following rows, failing the exact assertions below.
-		expect(viewport[0]).toBe("xxxx");
-		expect(viewport[1]).toBe("yyyy");
-		expect(viewport[2]).toBe("你好");
-		expect(viewport[3]).toBe("");
+		assert.strictEqual(viewport[0], "xxxx");
+		assert.strictEqual(viewport[1], "yyyy");
+		assert.strictEqual(viewport[2], "你好");
+		assert.strictEqual(viewport[3], "");
 
 		tui.stop();
 	});
@@ -1101,8 +1238,8 @@ describe("TUI overwide line handling", () => {
 describe("Text negative width safety", () => {
 	it("does not throw at zero or negative widths", () => {
 		const text = new Text("你好", 1, 1);
-		expect(() => text.render(0)).not.toThrow();
-		expect(() => text.render(-1)).not.toThrow();
+		assert.doesNotThrow(() => text.render(0));
+		assert.doesNotThrow(() => text.render(-1));
 	});
 });
 
@@ -1125,9 +1262,9 @@ describe("TUI steady-frame processed-line reuse", () => {
 		await terminal.waitForRender();
 
 		const writes = terminal.getWrites();
-		expect(writes.includes("frame-b"), "changed line should be written").toBeTruthy();
-		expect(!writes.includes("static-"), "unchanged transcript lines must not be rewritten").toBeTruthy();
-		expect(!writes.includes("\x1b[2J"), "no full clear for an in-viewport change").toBeTruthy();
+		assert.ok(writes.includes("frame-b"), "changed line should be written");
+		assert.ok(!writes.includes("static-"), "unchanged transcript lines must not be rewritten");
+		assert.ok(!writes.includes("\x1b[2J"), "no full clear for an in-viewport change");
 
 		tui.stop();
 	});
@@ -1146,7 +1283,7 @@ describe("TUI steady-frame processed-line reuse", () => {
 		await terminal.waitForRender();
 
 		const writes = terminal.getWrites();
-		expect(writes.replaceAll("\x1b[?25l", "")).toBe("");
+		assert.strictEqual(writes.replaceAll("\x1b[?25l", ""), "");
 		tui.stop();
 	});
 
@@ -1167,9 +1304,9 @@ describe("TUI steady-frame processed-line reuse", () => {
 		await terminal.waitForRender();
 
 		const viewport = await terminal.flushAndGetViewport();
-		expect(viewport[0]).toBe("head");
-		expect(viewport[1]).toBe("value-a");
-		expect(viewport[2]).toBe("tail");
+		assert.strictEqual(viewport[0], "head");
+		assert.strictEqual(viewport[1], "value-a");
+		assert.strictEqual(viewport[2], "tail");
 		tui.stop();
 	});
 
@@ -1187,8 +1324,8 @@ describe("TUI steady-frame processed-line reuse", () => {
 		await terminal.waitForRender();
 
 		const writes = terminal.getWrites();
-		expect(writes.includes("\x1b[2J"), "width change should clear and redraw").toBeTruthy();
-		expect(writes.includes("one") && writes.includes("two") && writes.includes("three")).toBeTruthy();
+		assert.ok(writes.includes("\x1b[2J"), "width change should clear and redraw");
+		assert.ok(writes.includes("one") && writes.includes("two") && writes.includes("three"));
 		tui.stop();
 	});
 
@@ -1219,8 +1356,11 @@ describe("TUI steady-frame processed-line reuse", () => {
 			await terminal.waitForRender();
 
 			const writes = terminal.getWrites();
-			expect(writes.includes("header2"), "changed line should be written").toBeTruthy();
-			expect(writes.includes(imageSequence), "image block should be redrawn when a line above it changes").toBeTruthy();
+			assert.ok(writes.includes("header2"), "changed line should be written");
+			assert.ok(
+				writes.includes(imageSequence),
+				"image block should be redrawn when a line above it changes",
+			);
 			tui.stop();
 		} finally {
 			resetCapabilitiesCache();
@@ -1254,12 +1394,81 @@ describe("TUI steady-frame processed-line reuse", () => {
 			await terminal.waitForRender();
 
 			const writes = terminal.getWrites();
-			expect(!writes.includes(imageSequence), "identical frame must not rewrite the image").toBeTruthy();
-			expect(writes.replaceAll("\x1b[?25l", "")).toBe("");
+			assert.ok(!writes.includes(imageSequence), "identical frame must not rewrite the image");
+			assert.strictEqual(writes.replaceAll("\x1b[?25l", ""), "");
 			tui.stop();
 		} finally {
 			resetCapabilitiesCache();
 			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+});
+
+describe("TUI fake cursor", () => {
+	it("draws the focused fake cursor in reverse video and omits it when the hardware cursor is shown", async () => {
+		const terminal = new LoggingVirtualTerminal(20, 5);
+		const tui: TUI = new TuiMainScreen(terminal);
+		const input = new Input();
+		input.setValue("abc");
+		tui.addChild(input);
+		tui.setFocus(input);
+		tui.start();
+		await terminal.waitForRender();
+		assert.ok(terminal.getWrites().includes("> \x1b[7ma\x1b[27mbc"));
+
+		terminal.clearWrites();
+		tui.setShowHardwareCursor(true);
+		await terminal.waitForRender();
+		assert.ok(!terminal.getWrites().includes("\x1b[7m"));
+		assert.ok(!terminal.getWrites().includes("\x1b_pi:"));
+
+		tui.stop();
+	});
+
+	it("keeps the fake cursor of an unfocused input when the hardware cursor is shown", async () => {
+		const terminal = new LoggingVirtualTerminal(20, 5);
+		const tui: TUI = new TuiMainScreen(terminal, true);
+		const input = new Input();
+		input.setValue("abc");
+		tui.addChild(input);
+		tui.start();
+		await terminal.waitForRender();
+		assert.ok(terminal.getWrites().includes("> \x1b[7ma\x1b[27mbc"));
+		tui.stop();
+	});
+
+	it("omits the focused fake cursor when truncation dropped its end marker", async () => {
+		const terminal = new LoggingVirtualTerminal(20, 5);
+		const tui: TUI = new TuiMainScreen(terminal, true);
+		const base = new TestComponent();
+		base.lines = [sliceByColumn(`ab${CURSOR_MARKER}${renderFakeCursor("c")}def`, 0, 3, true)];
+		tui.addChild(base);
+		tui.start();
+		await terminal.waitForRender();
+		assert.ok(!terminal.getWrites().includes("\x1b[7m"));
+		assert.ok(terminal.getWrites().endsWith("\x1b[3G"));
+		tui.stop();
+	});
+
+	it("keeps the cursor when an overlay ends directly left of it", async () => {
+		for (const showHardwareCursor of [false, true]) {
+			const terminal = new LoggingVirtualTerminal(20, 5);
+			const tui: TUI = new TuiMainScreen(terminal, showHardwareCursor);
+			const base = new TestComponent();
+			base.lines = [`abc${CURSOR_MARKER}${renderFakeCursor("d")}ef`];
+			tui.addChild(base);
+			const overlay = new TestComponent();
+			overlay.lines = ["XXX"];
+			tui.showOverlay(overlay, { row: 0, col: 0, width: 3 });
+			tui.start();
+			await terminal.waitForRender();
+
+			const writes = terminal.getWrites();
+			assert.ok(writes.includes("XXX"));
+			assert.strictEqual(writes.includes("\x1b[7md"), !showHardwareCursor);
+			// The hardware cursor is positioned at column 4 in both modes
+			assert.ok(writes.endsWith("\x1b[4G"));
+			tui.stop();
 		}
 	});
 });

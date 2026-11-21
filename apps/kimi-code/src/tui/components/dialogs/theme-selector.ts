@@ -1,16 +1,14 @@
-import { t } from '#/i18n';
-import { listCustomThemesSync } from '#/tui/theme/custom-theme-loader';
-import type { ThemeName } from '#/tui/theme/index';
-
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
-function getThemeOptions(): readonly ChoiceOption[] {
-  return [
-    { value: 'auto', label: t('tui.dialogs.themeSelector.auto') },
-    { value: 'dark', label: t('tui.dialogs.themeSelector.dark') },
-    { value: 'light', label: t('tui.dialogs.themeSelector.light') },
-  ];
-}
+import { listCustomThemesSync } from '#/tui/theme/custom-theme-loader';
+import type { ThemeName } from '#/tui/theme/index';
+import { t } from '#/i18n';
+
+const THEME_OPTIONS: readonly ChoiceOption[] = [
+  { value: 'auto', label: t('tui.dialogs.themeSelector.auto') },
+  { value: 'dark', label: t('tui.dialogs.themeSelector.dark') },
+  { value: 'light', label: t('tui.dialogs.themeSelector.light') },
+];
 
 export interface ThemeSelectorOptions {
   readonly currentValue: ThemeName;
@@ -22,11 +20,8 @@ export class ThemeSelectorComponent extends ChoicePickerComponent {
   constructor(opts: ThemeSelectorOptions) {
     const customThemes = listCustomThemesSync();
     const options: ChoiceOption[] = [
-      ...getThemeOptions(),
-      ...customThemes.map((name) => ({
-        value: name,
-        label: t('tui.dialogs.themeSelector.custom', { name }),
-      })),
+      ...THEME_OPTIONS,
+      ...customThemes.map((name) => ({ value: name, label: `Custom: ${name}` })),
     ];
     super({
       title: t('tui.dialogs.themeSelector.title'),

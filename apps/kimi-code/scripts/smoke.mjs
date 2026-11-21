@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+
+import { dirname, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const appRoot = resolve(import.meta.dirname, '..');
+const appRoot = resolve(dirname(Bun.fileURLToPath(import.meta.url)), '..');
 const bundlePath = resolve(appRoot, 'dist', 'main.mjs');
 const webIndexPath = resolve(appRoot, 'dist-web', 'index.html');
 const packageJson = JSON.parse(await readFile(resolve(appRoot, 'package.json'), 'utf-8'));
@@ -27,7 +28,7 @@ async function ensureRuntimeAssetsExist() {
   try {
     await stat(webIndexPath);
   } catch {
-    fail(`Environment asset not found at ${webIndexPath}. Run \`pnpm build\` first.`);
+    fail(`Environment asset not found at ${webIndexPath}. Run \`bun run build\` first.`);
   }
 }
 

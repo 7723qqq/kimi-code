@@ -1,4 +1,4 @@
-import { mock, describe, expect, it } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { ExecBridge } from '#/remote/client/execBridge';
 
@@ -8,7 +8,7 @@ describe('ExecBridge disconnect guards', () => {
       program: process.execPath,
       args: ['-e', 'process.exit(0)'],
     });
-    const onEnd = mock(() => undefined);
+    const onEnd = vi.fn();
     bridge.onEnd(onEnd);
     await bridge.exited;
 
@@ -31,7 +31,7 @@ describe('ExecBridge spawn environment', () => {
   }
 
   it('uses options.env verbatim instead of merging the host environment', async () => {
-    process.env['REMOTE_EXEC_TEST_HOST_ONLY'] = 'host-secret';
+    vi.stubEnv('REMOTE_EXEC_TEST_HOST_ONLY', 'host-secret');
     try {
       const bridge = ExecBridge.spawn({
         program: process.execPath,
@@ -40,11 +40,12 @@ describe('ExecBridge spawn environment', () => {
       });
       expect(await captureStdout(bridge)).toBe('<absent>');
     } finally {
+      vi.unstubAllEnvs();
     }
   });
 });
 
-describe.skipIf(process.platform === 'win32')('ExecBridge shutdown', () => {
+describe('ExecBridge shutdown', () => {
   it('waits for EOF cleanup without interrupting the executor', async () => {
     const bridge = ExecBridge.spawn({
       program: process.execPath,

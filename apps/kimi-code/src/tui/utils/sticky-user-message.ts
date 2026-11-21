@@ -48,8 +48,6 @@ export class StickyUserMessageIndex {
     following: boolean,
   ): StickyUserMessageJudgment | null {
     if (this.layout !== layout) this.updateLayout(layout);
-    // Header height + content padding is always one row. Use body coordinates
-    // so the pin threshold does not depend on whether the pill was visible.
     const top = scrollTop - 1;
     let anchor: UserAnchor | undefined;
     if (following) {
@@ -63,7 +61,6 @@ export class StickyUserMessageIndex {
         if (this.anchors[middle]!.firstContentRow < top) low = middle + 1;
         else high = middle;
       }
-      // Let the actual message occupy the top row, including search highlights.
       if (this.anchors[low]?.firstContentRow === top) return null;
       anchor = this.anchors[low - 1];
       if (!anchor) return null;
@@ -144,15 +141,6 @@ export class StickyUserMessageIndex {
         text,
         bullet: entry.bullet,
       });
-    }
-    // Drop the measurement cache once its component scrolls out of the tracked
-    // window (trimmed or folded away): the cached summary would keep the whole
-    // message alive through an otherwise weak index.
-    if (
-      this.measured !== undefined &&
-      !this.anchors.some((anchor) => anchor.component === this.measured?.component)
-    ) {
-      this.measured = undefined;
     }
   }
 }

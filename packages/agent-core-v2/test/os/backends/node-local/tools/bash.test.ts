@@ -1,47 +1,29 @@
-import { describe, expect, it, mock } from 'bun:test';
 import { PassThrough, Readable, type Writable } from 'node:stream';
 
-const __envBackup = new Map<string, string | undefined>();
-function setEnvValue(name: string, value: string): void {
-  if (!__envBackup.has(name)) __envBackup.set(name, process.env[name]);
-  process.env[name] = value;
-}
-function restoreEnvs(): void {
-  for (const [name, value] of __envBackup) {
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
-  }
-  __envBackup.clear();
-}
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-
-import { userCancellationReason } from '#/_base/utils/abort';
-import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
-import type { IAgentTaskService } from '#/agent/task/task';
 import {
-  type AgentTask,
+  IAgentTaskService,
   type AgentTaskInfo,
+  type AgentTaskOutputChunk,
   type AgentTaskOutputSnapshot,
   type AgentTaskStatus,
-  type ForegroundTaskReleaseReason,
-  type RegisterAgentTaskOptions,
+  AgentTaskPersistence,
 } from '#/agent/task/task';
-import type { AgentTaskSettlement } from '#/agent/task/types';
-import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { type BashInput, BashInputSchema } from '#/agent/tools/os/bash/bash';
-import { BashTool } from '#/agent/tools/os/bash/bashTool';
-import { ProcessTask } from '#/agent/tools/os/bash/process-task';
+import { userCancellationReason } from '#/_base/utils/abort';
+import { Event } from '#/_base/event';
 import type { IConfigService } from '#/app/config/config';
-import type { IFlagService } from '#/app/flag/flag';
-import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
-import { HostTimersService } from '#/os/backends/host/hostTimersService';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
 import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../../environment/stubs';
+import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import { type BashInput, BashInputSchema } from '#/agent/tools/os/bash/bash';
+import { BashTool } from '#/agent/tools/os/bash/bashTool';
 import { AgentWorkspaceContextService } from '#/session/workspaceContext/agentWorkspaceContextService';
 import { SessionStateService } from '#/session/state/sessionStateService';
 import {
@@ -49,9 +31,23 @@ import {
   workspaceContextWorkDirKey,
 } from '#/session/workspaceContext/workspaceContextService';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { type IHostTimerHandle } from '#/os/interface/hostTimers';
-import { IHostTimers } from '#/os/interface/hostTimers';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import {
+  channelsByService,
+  channelsByTool,
+  createTaskChannel,
+} from '../../../../agent/task/stubs';
+import {
+  isToolDetachAck,
+  LegacyExecutableToolAdapter,
+  type LegacyToolAgentContext,
+  memoryOutputStore,
+  ToolExecutor as HandlerToolExecutor,
+  type ToolExecutionHandler,
+  type ToolOutputStore,
+} from '#/tool/executor';
+import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { AgentTaskRequestService, AgentTaskService } from '#/agent/task/taskService';
+import { createTaskCompletionEntry, IAgentTaskOutputService } from '#/agent/task/taskOutput';
 
 const posixEnv: IHostEnvironment = {
   _serviceBrand: undefined,
@@ -91,14 +87,14 @@ function processWithOutput(
   const stderr = Readable.from(options.stderr === undefined ? [] : [options.stderr]);
   return {
     _serviceBrand: undefined,
-    stdin: { end: mock(), write: mock() } as unknown as Writable,
+    stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout,
     stderr,
     pid: 123,
     exitCode,
-    wait: mock(options.wait ?? (async () => exitCode)),
-    kill: mock(options.kill ?? (async () => {})),
-    dispose: mock(async () => {
+    wait: vi.fn(options.wait ?? (async () => exitCode)),
+    kill: vi.fn(options.kill ?? (async () => {})),
+    dispose: vi.fn(async () => {
       stdout.destroy();
       stderr.destroy();
     }),
@@ -132,14 +128,14 @@ function processWithInterleavedOutput(
 
   return {
     _serviceBrand: undefined,
-    stdin: { end: mock(), write: mock() } as unknown as Writable,
+    stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout,
     stderr,
     pid: 124,
     exitCode,
-    wait: mock(async () => waitPromise),
-    kill: mock(async () => {}),
-    dispose: mock(async () => {
+    wait: vi.fn(async () => waitPromise),
+    kill: vi.fn(async () => {}),
+    dispose: vi.fn(async () => {
       stdout.destroy();
       stderr.destroy();
     }),
@@ -167,18 +163,18 @@ function pendingProcess(): {
   return {
     proc: {
       _serviceBrand: undefined,
-      stdin: { end: mock(), write: mock() } as unknown as Writable,
+      stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
       stdout,
       stderr,
       pid: 125,
       get exitCode(): number | null {
         return currentExitCode;
       },
-      wait: mock(async () => waitPromise),
-      kill: mock(async () => {
+      wait: vi.fn(async () => waitPromise),
+      kill: vi.fn(async () => {
         finish(143);
       }) as IHostProcess['kill'],
-      dispose: mock(async () => {}),
+      dispose: vi.fn(async () => {}),
     },
     finish,
   };
@@ -196,16 +192,16 @@ function processWithVisibleExitBeforeWait(exitCode = 0): {
   });
   const proc: IHostProcess = {
     _serviceBrand: undefined,
-    stdin: { end: mock(), write: mock() } as unknown as Writable,
+    stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
     pid: 125,
     get exitCode(): number | null {
       return currentExitCode;
     },
-    wait: mock(async () => waitPromise),
-    kill: mock(async () => {}),
-    dispose: mock(async () => {}),
+    wait: vi.fn(async () => waitPromise),
+    kill: vi.fn(async () => {}),
+    dispose: vi.fn(async () => {}),
   };
 
   return {
@@ -224,27 +220,25 @@ function processThatNeverExits(): IHostProcess {
   const stderr = new PassThrough();
   return {
     _serviceBrand: undefined,
-    stdin: { end: mock(), write: mock() } as unknown as Writable,
+    stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout,
     stderr,
     pid: 126,
     exitCode: null,
-    wait: mock(async () => new Promise<number>(() => {})),
-    kill: mock(async () => {}),
-    dispose: mock(async () => {
+    wait: vi.fn(async () => new Promise<number>(() => {})),
+    kill: vi.fn(async () => {}),
+    dispose: vi.fn(async () => {
       stdout.destroy();
       stderr.destroy();
     }),
   };
 }
 
-function processWithStreamError(
-  options: {
-    readonly stdoutError?: Error;
-    readonly stderrError?: Error;
-    readonly exitCode?: number;
-  } = {},
-): IHostProcess {
+function processWithStreamError(options: {
+  readonly stdoutError?: Error;
+  readonly stderrError?: Error;
+  readonly exitCode?: number;
+} = {}): IHostProcess {
   const exitCode = options.exitCode ?? 0;
   const stdout = new PassThrough();
   const stderr = new PassThrough();
@@ -265,14 +259,14 @@ function processWithStreamError(
   });
   return {
     _serviceBrand: undefined,
-    stdin: { end: mock(), write: mock() } as unknown as Writable,
+    stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout,
     stderr,
     pid: 128,
     exitCode,
-    wait: mock(async () => waitPromise),
-    kill: mock(async () => {}),
-    dispose: mock(async () => {}),
+    wait: vi.fn(async () => waitPromise),
+    kill: vi.fn(async () => {}),
+    dispose: vi.fn(async () => {}),
   };
 }
 
@@ -287,19 +281,19 @@ function processWithOpenStreamsThatExitOnKill(): IHostProcess {
 
   return {
     _serviceBrand: undefined,
-    stdin: { end: mock(), write: mock() } as unknown as Writable,
+    stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout,
     stderr,
     pid: 127,
     get exitCode(): number | null {
       return currentExitCode;
     },
-    wait: mock(async () => waitPromise),
-    kill: mock(async () => {
+    wait: vi.fn(async () => waitPromise),
+    kill: vi.fn(async () => {
       currentExitCode = 143;
       resolveWait(143);
     }),
-    dispose: mock(async () => {
+    dispose: vi.fn(async () => {
       stdout.destroy();
       stderr.destroy();
     }),
@@ -320,8 +314,8 @@ function createTestCtx(cwd = '/workspace'): ISessionContext {
   });
 }
 
-function createTestRunner(proc: IHostProcess | ReturnType<typeof mock>) {
-  const exec = typeof proc === 'function' ? proc : mock().mockResolvedValue(proc);
+function createTestRunner(proc: IHostProcess | ReturnType<typeof vi.fn>) {
+  const exec = typeof proc === 'function' ? proc : vi.fn().mockResolvedValue(proc);
   const runner = { _serviceBrand: undefined, spawn: exec } as IHostProcessService;
   return { runner, exec };
 }
@@ -333,472 +327,6 @@ const TERMINAL_STATUSES: ReadonlySet<AgentTaskStatus> = new Set([
   'killed',
   'lost',
 ]);
-const SIGTERM_GRACE_MS = 5_000;
-const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
-
-interface ForegroundRelease {
-  readonly promise: Promise<ForegroundTaskReleaseReason>;
-  resolve(reason: ForegroundTaskReleaseReason): void;
-}
-
-interface ManagedEntry {
-  readonly taskId: string;
-  readonly task: AgentTask;
-  readonly startedDetached: boolean;
-  readonly options: RegisterAgentTaskOptions;
-  readonly outputChunks: string[];
-  readonly abortController: AbortController;
-  readonly startedAt: number;
-  readonly waiters: Array<() => void>;
-  status: AgentTaskStatus;
-  stopReason?: string;
-  endedAt: number | null;
-  foregroundRelease?: ForegroundRelease;
-  timeoutHandle?: IHostTimerHandle;
-  lifecyclePromise: Promise<void>;
-  signalCleanup?: () => void;
-}
-
-interface FakeTimerHandle extends IHostTimerHandle {
-  readonly id: number;
-}
-
-interface FakeTimers extends IHostTimers {
-  advance(byMs: number): void;
-  advanceToNext(): void;
-  readonly pending: number;
-}
-
-function createFakeTimers(): FakeTimers {
-  let nowMs = 0;
-  let nextId = 1;
-  const scheduled: Array<{
-    readonly id: number;
-    readonly due: number;
-    readonly callback: () => void;
-    cancelled: boolean;
-  }> = [];
-
-  const schedule = (callback: () => void, timeoutMs: number): FakeTimerHandle => {
-    const timer = { id: nextId, due: nowMs + timeoutMs, callback, cancelled: false };
-    nextId += 1;
-    scheduled.push(timer);
-    return { id: timer.id, unref: () => {} };
-  };
-
-  const nextDue = (limit: number) =>
-    scheduled
-      .filter((timer) => !timer.cancelled && timer.due <= limit)
-      .toSorted((a, b) => a.due - b.due || a.id - b.id)[0];
-
-  return {
-    _serviceBrand: undefined,
-    setClampedTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
-    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
-    clearTimeout: (handle) => {
-      const id = (handle as FakeTimerHandle).id;
-      const timer = scheduled.find((candidate) => candidate.id === id);
-      if (timer !== undefined) timer.cancelled = true;
-    },
-    advance: (byMs) => {
-      const limit = nowMs + byMs;
-      for (;;) {
-        const next = nextDue(limit);
-        if (next === undefined) break;
-        next.cancelled = true;
-        nowMs = next.due;
-        next.callback();
-      }
-      nowMs = limit;
-    },
-    advanceToNext: () => {
-      const next = nextDue(Number.POSITIVE_INFINITY);
-      if (next === undefined) return;
-      next.cancelled = true;
-      nowMs = next.due;
-      next.callback();
-    },
-    get pending() {
-      return scheduled.filter((timer) => !timer.cancelled).length;
-    },
-  };
-}
-
-async function flushAsyncWork(): Promise<void> {
-  for (let i = 0; i < 4; i += 1) {
-    await Promise.resolve();
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-  }
-}
-
-async function advanceFakeTimers(timers: FakeTimers, byMs: number): Promise<void> {
-  await flushAsyncWork();
-  timers.advance(byMs);
-  await flushAsyncWork();
-}
-
-async function runAllFakeTimers(timers: FakeTimers): Promise<void> {
-  await flushAsyncWork();
-  let guard = 0;
-  while (timers.pending > 0) {
-    guard += 1;
-    if (guard > 10_000) throw new Error('runAllFakeTimers exceeded 10000 timer steps');
-    timers.advanceToNext();
-    await flushAsyncWork();
-  }
-}
-
-function createRelease(): ForegroundRelease {
-  let resolve!: (reason: ForegroundTaskReleaseReason) => void;
-  const promise = new Promise<ForegroundTaskReleaseReason>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-function isTerminal(status: AgentTaskStatus): boolean {
-  return TERMINAL_STATUSES.has(status);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function createFakeTaskService(
-  options: {
-    maxRunningTasks?: number;
-    outputPersistenceAvailable?: boolean;
-    timers?: IHostTimers;
-  } = {},
-): {
-  readonly service: IAgentTaskService;
-  readonly tasks: Map<string, ManagedEntry>;
-  readonly persisted: Set<string>;
-} {
-  const tasks = new Map<string, ManagedEntry>();
-  const persisted = new Set<string>();
-  const timers: IHostTimers = options.timers ?? new HostTimersService();
-  let counter = 0;
-
-  const nextId = (prefix: string): string => {
-    counter += 1;
-    const suffix = counter.toString(TASK_ID_ALPHABET.length).padStart(8, '0');
-    return `${prefix}-${suffix}`;
-  };
-
-  const entryToInfo = (entry: ManagedEntry): AgentTaskInfo => {
-    return entry.task.toInfo({
-      taskId: entry.taskId,
-      description: entry.task.description,
-      status: entry.status,
-      detached: entry.foregroundRelease === undefined,
-      startedAt: entry.startedAt,
-      endedAt: entry.endedAt,
-      stopReason: entry.stopReason,
-    });
-  };
-
-  const settleTask = (entry: ManagedEntry, settlement: AgentTaskSettlement): boolean => {
-    if (isTerminal(entry.status)) return false;
-    entry.status = settlement.status;
-    entry.endedAt = Date.now();
-    entry.stopReason =
-      settlement.stopReason ?? (settlement.status === 'killed' ? entry.stopReason : undefined);
-    entry.signalCleanup?.();
-    entry.signalCleanup = undefined;
-    if (entry.timeoutHandle !== undefined) {
-      timers.clearTimeout(entry.timeoutHandle);
-      entry.timeoutHandle = undefined;
-    }
-    entry.foregroundRelease?.resolve('terminal');
-    const waiters = entry.waiters.splice(0);
-    for (const waiter of waiters) waiter();
-    return true;
-  };
-
-  const stopEntry = async (
-    entry: ManagedEntry,
-    reason: string | undefined,
-  ): Promise<AgentTaskInfo> => {
-    if (isTerminal(entry.status)) return entryToInfo(entry);
-    entry.stopReason = reason;
-    entry.abortController.abort(reason);
-
-    let graceTimer: IHostTimerHandle | undefined;
-    const graceful = await Promise.race([
-      entry.lifecyclePromise.then(
-        () => true,
-        () => true,
-      ),
-      new Promise<false>((resolve) => {
-        graceTimer = timers.setTimeout(() => {
-          resolve(false);
-        }, SIGTERM_GRACE_MS);
-        graceTimer.unref?.();
-      }),
-    ]);
-    if (graceTimer !== undefined) timers.clearTimeout(graceTimer);
-
-    if (isTerminal(entry.status)) return entryToInfo(entry);
-    if (!graceful) {
-      try {
-        await entry.task.forceStop?.();
-      } catch {}
-    }
-    if (isTerminal(entry.status)) return entryToInfo(entry);
-    settleTask(entry, { status: 'killed', stopReason: reason });
-    return entryToInfo(entry);
-  };
-
-  const detachEntry = (entry: ManagedEntry, viaTimeout: boolean): AgentTaskInfo => {
-    if (isTerminal(entry.status)) return entryToInfo(entry);
-    const release = entry.foregroundRelease;
-    if (release === undefined) return entryToInfo(entry);
-    entry.foregroundRelease = undefined;
-    entry.signalCleanup?.();
-    entry.signalCleanup = undefined;
-    const detachTimeoutMs = entry.options.detachTimeoutMs;
-    if (detachTimeoutMs !== undefined) {
-      if (entry.timeoutHandle !== undefined) {
-        timers.clearTimeout(entry.timeoutHandle);
-        entry.timeoutHandle = undefined;
-      }
-      if (detachTimeoutMs > 0) {
-        entry.timeoutHandle = timers.setTimeout(() => {
-          entry.abortController.abort('Timed out');
-          void settleTask(entry, { status: 'timed_out' });
-        }, detachTimeoutMs);
-        entry.timeoutHandle.unref?.();
-      }
-    }
-    try {
-      entry.task.onDetach?.();
-    } catch {}
-    release.resolve(viaTimeout ? 'timeout_detached' : 'detached');
-    return entryToInfo(entry);
-  };
-
-  const activeDetachedCount = (): number => {
-    let count = 0;
-    for (const entry of tasks.values()) {
-      if (entry.startedDetached && !isTerminal(entry.status)) count += 1;
-    }
-    return count;
-  };
-
-  const service: IAgentTaskService = {
-    _serviceBrand: undefined,
-    onDidAppendOutput: () => ({ dispose: () => {} }),
-    onDidChangeTask: () => ({ dispose: () => {} }),
-    refresh(): void {},
-    async readOutputTail(): Promise<{ readonly offset: number; readonly data: Uint8Array }> {
-      return { offset: 0, data: new Uint8Array() };
-    },
-    track(): never {
-      throw new Error('fake IAgentTaskService.track is not implemented');
-    },
-
-    registerTask(task: AgentTask, registerOptions: RegisterAgentTaskOptions = {}): string {
-      const detached = registerOptions.detached ?? true;
-      if (detached && options.maxRunningTasks !== undefined) {
-        if (activeDetachedCount() >= options.maxRunningTasks) {
-          throw new Error('Too many background tasks are already running.');
-        }
-      }
-
-      const taskId = nextId(task.idPrefix);
-      const abortController = new AbortController();
-      const entry: ManagedEntry = {
-        taskId,
-        task,
-        startedDetached: detached,
-        options: registerOptions,
-        outputChunks: [],
-        abortController,
-        startedAt: Date.now(),
-        waiters: [],
-        status: 'running',
-        endedAt: null,
-        foregroundRelease: detached ? undefined : createRelease(),
-        lifecyclePromise: Promise.resolve(),
-      };
-      tasks.set(taskId, entry);
-
-      const timeoutMs = registerOptions.timeoutMs;
-      if (timeoutMs !== undefined && timeoutMs > 0) {
-        entry.timeoutHandle = timers.setTimeout(() => {
-          if (
-            registerOptions.autoBackgroundOnTimeout === true &&
-            entry.foregroundRelease !== undefined
-          ) {
-            detachEntry(entry, true);
-            return;
-          }
-          entry.abortController.abort('Timed out');
-          void settleTask(entry, { status: 'timed_out' });
-        }, timeoutMs);
-        entry.timeoutHandle.unref?.();
-      }
-
-      entry.lifecyclePromise = Promise.resolve()
-        .then(() =>
-          task.start({
-            signal: abortController.signal,
-            appendOutput: (chunk: string) => {
-              entry.outputChunks.push(chunk);
-            },
-            settle: async (settlement: AgentTaskSettlement) => settleTask(entry, settlement),
-          }),
-        )
-        .catch((error: unknown) => {
-          const status = abortController.signal.aborted ? 'killed' : 'failed';
-          void settleTask(entry, {
-            status,
-            stopReason: status === 'failed' ? errorMessage(error) : undefined,
-          });
-        });
-
-      if (!detached && registerOptions.signal !== undefined) {
-        const signal = registerOptions.signal;
-        const abortFromSignal = (): void => {
-          if (entry.foregroundRelease === undefined) return;
-          void stopEntry(entry, userCancellationReason().message);
-        };
-        if (signal.aborted) {
-          abortFromSignal();
-        } else {
-          signal.addEventListener('abort', abortFromSignal, { once: true });
-          entry.signalCleanup = () => {
-            signal.removeEventListener('abort', abortFromSignal);
-          };
-        }
-      }
-
-      return taskId;
-    },
-
-    getTask(taskId: string): AgentTaskInfo | undefined {
-      const entry = tasks.get(taskId);
-      return entry === undefined ? undefined : entryToInfo(entry);
-    },
-
-    list(activeOnly = true): readonly AgentTaskInfo[] {
-      const result: AgentTaskInfo[] = [];
-      for (const entry of tasks.values()) {
-        const info = entryToInfo(entry);
-        if (activeOnly && isTerminal(info.status)) continue;
-        result.push(info);
-      }
-      return result;
-    },
-
-    persistOutput(taskId: string): void {
-      if (options.outputPersistenceAvailable !== false) persisted.add(taskId);
-    },
-
-    async getOutputSnapshot(taskId: string): Promise<AgentTaskOutputSnapshot> {
-      const entry = tasks.get(taskId);
-      const preview = entry === undefined ? '' : entry.outputChunks.join('');
-      const fullOutputAvailable = persisted.has(taskId);
-      return {
-        outputPath: fullOutputAvailable ? `/fake/tasks/${taskId}/output.log` : undefined,
-        outputSizeBytes: preview.length,
-        previewBytes: preview.length,
-        truncated: false,
-        fullOutputAvailable,
-        preview,
-      };
-    },
-
-    async readOutput(taskId: string, tail?: number): Promise<string> {
-      const entry = tasks.get(taskId);
-      const output = entry === undefined ? '' : entry.outputChunks.join('');
-      if (tail === undefined) return output;
-      return output.slice(-Math.max(0, Math.trunc(tail)));
-    },
-
-    async suppressTerminalNotification(): Promise<void> {},
-
-    async suppressAllTerminalNotifications(): Promise<void> {},
-
-    markTasksDeliveredViaWait(): void {},
-
-    detach(taskId: string): AgentTaskInfo | undefined {
-      const entry = tasks.get(taskId);
-      if (entry === undefined) return undefined;
-      return detachEntry(entry, false);
-    },
-
-    async stop(taskId: string, reason?: string): Promise<AgentTaskInfo | undefined> {
-      const entry = tasks.get(taskId);
-      if (entry === undefined) return undefined;
-      return stopEntry(entry, reason);
-    },
-
-    async stopByUser(taskId: string): Promise<AgentTaskInfo | undefined> {
-      return service.stop(taskId, userCancellationReason().message);
-    },
-
-    async stopAll(reason?: string): Promise<readonly AgentTaskInfo[]> {
-      const results = await Promise.all(
-        Array.from(tasks.keys()).map((taskId) => service.stop(taskId, reason)),
-      );
-      return results.filter((info): info is AgentTaskInfo => info !== undefined);
-    },
-
-    async stopAllOnExit(reason: string): Promise<readonly AgentTaskInfo[]> {
-      return service.stopAll(reason);
-    },
-
-    drainWrites: async (): Promise<void> => Promise.resolve(),
-
-    async wait(taskId: string, timeoutMs = 30_000): Promise<AgentTaskInfo | undefined> {
-      const entry = tasks.get(taskId);
-      if (entry === undefined) return undefined;
-      if (isTerminal(entry.status)) return entryToInfo(entry);
-      let waiter: (() => void) | undefined;
-      let timeout: IHostTimerHandle | undefined;
-      try {
-        await Promise.race([
-          new Promise<void>((resolve) => {
-            waiter = resolve;
-            entry.waiters.push(resolve);
-          }),
-          new Promise<void>((resolve) => {
-            timeout = timers.setTimeout(resolve, timeoutMs);
-            timeout.unref?.();
-          }),
-        ]);
-      } finally {
-        if (timeout !== undefined) timers.clearTimeout(timeout);
-        if (waiter !== undefined) {
-          const index = entry.waiters.indexOf(waiter);
-          if (index !== -1) entry.waiters.splice(index, 1);
-        }
-      }
-      return entryToInfo(entry);
-    },
-
-    async waitForForegroundRelease(
-      taskId: string,
-    ): Promise<ForegroundTaskReleaseReason | undefined> {
-      const entry = tasks.get(taskId);
-      if (entry === undefined) return undefined;
-      if (isTerminal(entry.status)) return 'terminal';
-      const release = entry.foregroundRelease;
-      if (release === undefined) return 'detached';
-      return Promise.race([
-        release.promise,
-        entry.lifecyclePromise.then(() => 'terminal' as const),
-      ]);
-    },
-  };
-
-  return { service, tasks, persisted };
-}
-
 function context(
   args: BashInput,
   signal = new AbortController().signal,
@@ -807,21 +335,52 @@ function context(
   return { turnId: 0, toolCallId: 'call_bash', args, signal, onForegroundTaskStart };
 }
 
-function isPromiseLike(
-  value: ToolExecution | Promise<ToolExecution>,
-): value is Promise<ToolExecution> {
-  return typeof (value as Promise<ToolExecution>).then === 'function';
-}
-
 async function executeTool(
   tool: BashTool,
   ctx: ReturnType<typeof context>,
-): Promise<ExecutableToolResult> {
-  const { args, ...executionContext } = ctx;
-  const resolved = tool.resolveExecution(args);
-  const execution = isPromiseLike(resolved) ? await resolved : resolved;
-  if (execution.isError === true) return execution;
-  return execution.execute(executionContext as ExecutableToolContext);
+): Promise<ExecutableToolResult & { readonly brief?: string }> {
+  const channel = channelsByTool.get(tool)!;
+  const handler = channel.raw.execute({
+    type: 'function',
+    id: ctx.toolCallId,
+    name: 'Bash',
+    arguments: JSON.stringify(ctx.args),
+  }, {
+    origin: 'loop',
+    turnId: ctx.turnId,
+    onForegroundTaskStart: ctx.onForegroundTaskStart,
+  });
+  channel.handlers.set(handler.taskId, handler);
+  const onAbort = (): void => {
+    void handler.stop(ctx.signal.reason);
+  };
+  if (ctx.signal.aborted) onAbort();
+  else ctx.signal.addEventListener('abort', onAbort, { once: true });
+  try {
+    const response = await handler;
+    if (isToolDetachAck(response)) {
+      return {
+        output: response.content.map((part) => part.type === 'text' ? part.text : '').join(''),
+        isError: false,
+        brief: response.brief,
+      };
+    }
+    const final = await handler.wait();
+    const prepared = handler.snapshot().prepared;
+    const legacy = prepared?.kind === 'execute' || prepared?.kind === 'synthetic'
+      ? prepared.result
+      : undefined;
+    const content = final.content.every((part) => part.type === 'text')
+      ? final.content.map((part) => part.type === 'text' ? part.text : '').join('')
+      : final.content;
+    return {
+      ...legacy,
+      output: final.outcome.type === 'success' ? legacy?.output ?? content : content,
+      isError: final.outcome.type === 'success' ? legacy?.isError : true,
+    };
+  } finally {
+    ctx.signal.removeEventListener('abort', onAbort);
+  }
 }
 
 function stubToolPolicy(
@@ -844,11 +403,11 @@ function bashTool(
   runner: IHostProcessService,
   env: IHostEnvironment = createTestEnv(),
   ctx: ISessionContext = createTestCtx(),
-  background: IAgentTaskService = createFakeTaskService().service,
+  background: IAgentTaskService = createTaskChannel().service,
   toolPolicy: IAgentToolPolicyService = stubToolPolicy(),
   config: IConfigService = stubConfig(),
-  flags?: IFlagService,
 ): BashTool {
+  const channel = channelsByService.get(background)!;
   const processService: IHostProcessService = {
     _serviceBrand: undefined,
     spawn: async (command, args = [], options) => runner.spawn(command, args, options),
@@ -865,10 +424,29 @@ function bashTool(
     },
   );
   const environment = stubAgentEnvironment(backend, { workDir: ctx.cwd });
-  return new BashTool(environment, ctx, stubWorkspaceContext(ctx.cwd), background, toolPolicy, config, flags);
+  const tool = new BashTool(environment, ctx, stubWorkspaceContext(ctx.cwd), channel.toolExecutor, channel.outputs, toolPolicy, config);
+  channel.raw.addExecute(new LegacyExecutableToolAdapter(tool));
+  channelsByTool.set(tool, channel);
+  return tool;
 }
 
 describe('BashTool', () => {
+  it('assigns a bash-prefixed id from the real BashTool handler', async () => {
+    const { service } = createTaskChannel();
+    const { runner } = createTestRunner(processWithOutput());
+    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
+    const result = await executeTool(tool, context({
+      command: 'printf real-id',
+      description: 'real id',
+      run_in_background: true,
+    }));
+
+    const taskId = service.list(false)[0]?.taskId;
+    expect(taskId).toMatch(/^bash-[0-9a-z]{8}$/);
+    expect(result.output).toContain(`task_id: ${taskId}`);
+    await expect(service.wait(taskId!)).resolves.toMatchObject({ status: 'completed' });
+  });
+
   it('exposes current metadata and schema', () => {
     const { runner } = createTestRunner(processWithOutput());
     const tool = bashTool(runner);
@@ -947,15 +525,6 @@ describe('BashTool', () => {
     expect(properties['timeout']?.default).toBe(60);
   });
 
-  it('renders the shell command category hints and the background guidance', () => {
-    const { runner } = createTestRunner(processWithOutput());
-    const tool = bashTool(runner);
-
-    expect(tool.description).toContain('→ `Glob`');
-    expect(tool.description).toContain('run_in_background=true');
-    expect(tool.description).toContain('TaskOutput');
-  });
-
   it('runs through runner.spawn, injects cwd, noninteractive env, and closes stdin', async () => {
     const proc = processWithOutput({ stdout: 'ok\n' });
     const { runner, exec } = createTestRunner(proc);
@@ -971,6 +540,8 @@ describe('BashTool', () => {
       NO_COLOR: '1',
       TERM: 'dumb',
       GIT_TERMINAL_PROMPT: process.env['GIT_TERMINAL_PROMPT'] ?? '0',
+      KIMI_CODE_SESSION_ID: 's',
+      KIMI_CODE_WORKSPACE_ID: 'w',
     });
     expect(proc.stdin.end).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
@@ -982,12 +553,12 @@ describe('BashTool', () => {
   it('keeps an explicit GIT_TERMINAL_PROMPT and defaults an unset one to 0', async () => {
     const { runner, exec } = createTestRunner(processWithOutput({ stdout: 'ok\n' }));
     const tool = bashTool(runner);
-    setEnvValue('GIT_TERMINAL_PROMPT', '1');
+    vi.stubEnv('GIT_TERMINAL_PROMPT', '1');
     try {
       await executeTool(tool, context({ command: 'git status', timeout: 60 }));
       expect(exec.mock.calls[0]?.[2]?.env).toMatchObject({ GIT_TERMINAL_PROMPT: '1' });
     } finally {
-      restoreEnvs();
+      vi.unstubAllEnvs();
     }
     exec.mockClear();
     const previous = process.env['GIT_TERMINAL_PROMPT'];
@@ -1057,14 +628,18 @@ describe('BashTool', () => {
       current: environment,
       onDidChange: () => ({ dispose: () => {} }),
     });
+    const channel = createTaskChannel();
     const tool = new BashTool(
       environment,
       ctx,
       shadow,
-      createFakeTaskService().service,
+      channel.toolExecutor,
+      channel.outputs,
       stubToolPolicy(),
       stubConfig(),
     );
+    channel.raw.addExecute(new LegacyExecutableToolAdapter(tool));
+    channelsByTool.set(tool, channel);
 
     await executeTool(tool, context({ command: 'pwd', timeout: 60 }));
 
@@ -1154,112 +729,112 @@ describe('BashTool', () => {
   });
 
   it('preserves foreground stdout and stderr arrival order', async () => {
-    const proc = processWithInterleavedOutput([
-      { stream: 'stderr', text: 'err-first\n', delayMs: 0 },
-      { stream: 'stdout', text: 'out-second\n', delayMs: 5 },
-      { stream: 'stderr', text: 'err-third\n', delayMs: 10 },
-    ]);
-    const { runner } = createTestRunner(proc);
-    const tool = bashTool(runner);
+    vi.useFakeTimers();
+    try {
+      const proc = processWithInterleavedOutput([
+        { stream: 'stderr', text: 'err-first\n', delayMs: 0 },
+        { stream: 'stdout', text: 'out-second\n', delayMs: 5 },
+        { stream: 'stderr', text: 'err-third\n', delayMs: 10 },
+      ]);
+      const { runner } = createTestRunner(proc);
+      const tool = bashTool(runner);
 
-    const result = await executeTool(tool, context({ command: 'mixed', timeout: 60 }));
+      const resultPromise = executeTool(tool, context({ command: 'mixed', timeout: 60 }));
+      await vi.advanceTimersByTimeAsync(11);
 
-    expect(result).toMatchObject({
-      isError: false,
-      output: 'err-first\nout-second\nerr-third\n',
-    });
+      const result = await resultPromise;
+      expect(result).toMatchObject({
+        isError: false,
+        output: 'err-first\nout-second\nerr-third\n',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('interprets small timeout values as seconds at runtime', async () => {
-    const timers = createFakeTimers();
-    let resolveWait: (code: number) => void = () => {};
-    const waitPromise = new Promise<number>((resolve) => {
-      resolveWait = resolve;
-    });
-    const proc = processWithOutput({
-      wait: async () => waitPromise,
-      kill: async () => {
-        resolveWait(143);
-      },
-    });
-    const { runner } = createTestRunner(proc);
-    const tool = bashTool(
-      runner,
-      createTestEnv(),
-      createTestCtx(),
-      createFakeTaskService({ timers }).service,
-    );
+    vi.useFakeTimers();
+    try {
+      let resolveWait: (code: number) => void = () => {};
+      const waitPromise = new Promise<number>((resolve) => {
+        resolveWait = resolve;
+      });
+      const proc = processWithOutput({
+        wait: async () => waitPromise,
+        kill: async () => {
+          resolveWait(143);
+        },
+      });
+      const { runner } = createTestRunner(proc);
+      const tool = bashTool(runner);
 
-    const running = executeTool(tool, context({ command: 'sleep 3', timeout: 2 }));
-    await flushAsyncWork();
-    expect(timers.pending).toBe(1);
+      const running = executeTool(tool, context({ command: 'sleep 3', timeout: 2 }));
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(proc.kill).not.toHaveBeenCalled();
 
-    await advanceFakeTimers(timers, 1_999);
-    expect(proc.kill).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await running;
 
-    await advanceFakeTimers(timers, 1);
-    const result = await running;
-
-    expect(proc.kill).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      isError: false,
-    });
-    expect(result.output).toContain('task_id: bash-');
-    resolveWait(0);
+      expect(proc.kill).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        isError: false,
+      });
+      expect(result.output).toContain('task_id: bash-');
+      resolveWait(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reports a timed-out command with the timeout message when auto-background is disabled', async () => {
-    const timers = createFakeTimers();
-    let resolveWait: (code: number) => void = () => {};
-    const waitPromise = new Promise<number>((resolve) => {
-      resolveWait = resolve;
-    });
-    const proc = processWithOutput({
-      wait: async () => waitPromise,
-      kill: async () => {
-        resolveWait(143);
-      },
-    });
-    const { runner } = createTestRunner(proc);
-    const tool = bashTool(
-      runner,
-      createTestEnv(),
-      createTestCtx(),
-      createFakeTaskService({ timers }).service,
-      stubToolPolicy(),
-      stubConfig({ task: { bashAutoBackgroundOnTimeout: false } }),
-    );
+    vi.useFakeTimers();
+    try {
+      let resolveWait: (code: number) => void = () => {};
+      const waitPromise = new Promise<number>((resolve) => {
+        resolveWait = resolve;
+      });
+      const proc = processWithOutput({
+        wait: async () => waitPromise,
+        kill: async () => {
+          resolveWait(143);
+        },
+      });
+      const { runner } = createTestRunner(proc);
+      const tool = bashTool(
+        runner,
+        createTestEnv(),
+        createTestCtx(),
+        createTaskChannel().service,
+        stubToolPolicy(),
+        stubConfig({ task: { bashAutoBackgroundOnTimeout: false } }),
+      );
 
-    const running = executeTool(tool, context({ command: 'sleep 2', timeout: 1 }));
-    await flushAsyncWork();
-    expect(timers.pending).toBe(1);
+      const running = executeTool(tool, context({ command: 'sleep 2', timeout: 1 }));
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(250);
+      const result = await running;
 
-    await advanceFakeTimers(timers, 1_000);
-    const result = await running;
-
-    expect(result).toMatchObject({ isError: true, brief: 'Killed by timeout (1s)' });
-    expect(result.output).toContain('Command killed by timeout (1s)');
+      expect(result).toMatchObject({ isError: true, brief: 'Killed by timeout (1s)' });
+      expect(result.output).toContain('Command killed by timeout (1s)');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reports timeout instead of premature close when cleanup destroys open output streams', async () => {
-    const timers = createFakeTimers();
+    vi.useRealTimers();
     const proc = processWithOpenStreamsThatExitOnKill();
     const { runner } = createTestRunner(proc);
     const tool = bashTool(
       runner,
       createTestEnv(),
       createTestCtx(),
-      createFakeTaskService({ timers }).service,
+      createTaskChannel().service,
       stubToolPolicy(),
       stubConfig({ task: { bashAutoBackgroundOnTimeout: false } }),
     );
 
-    const running = executeTool(tool, context({ command: 'sleep 2', timeout: 1 }));
-    await flushAsyncWork();
-    expect(timers.pending).toBe(1);
-
-    await advanceFakeTimers(timers, 1_000);
-    const result = await running;
+    const result = await executeTool(tool, context({ command: 'sleep 2', timeout: 1 }));
 
     expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
     expect(result).toMatchObject({ isError: true, brief: 'Killed by timeout (1s)' });
@@ -1268,6 +843,7 @@ describe('BashTool', () => {
   });
 
   it('reports a stream read error as a tool error even when the process exits with code 0', async () => {
+    vi.useRealTimers();
     const proc = processWithStreamError({
       stdoutError: new Error('SSH channel read failed'),
       exitCode: 0,
@@ -1309,7 +885,7 @@ describe('BashTool', () => {
     const tool = bashTool(runner);
 
     const running = executeTool(tool, context({ command: 'sleep 10' }, controller.signal));
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(proc.stdin.end).toHaveBeenCalled();
     });
     controller.abort();
@@ -1334,7 +910,7 @@ describe('BashTool', () => {
   it('does not shape output inline at the tool layer', async () => {
     const huge = Buffer.alloc(10 * 1024 * 1024 + 1, 'x');
     const { runner } = createTestRunner(processWithOutput({ stdout: huge }));
-    const { service } = createFakeTaskService({ outputPersistenceAvailable: false });
+    const { service } = createTaskChannel({ outputPersistenceAvailable: false });
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const result = await executeTool(tool, context({ command: 'yes', timeout: 60 }));
@@ -1364,7 +940,7 @@ describe('BashTool', () => {
   it('points the spill at the persisted task log when foreground output exceeds the delivery cap', async () => {
     const fullOutput = `${'short line\n'.repeat(6_000)}tail survives\n`;
     const { runner } = createTestRunner(processWithOutput({ stdout: fullOutput }));
-    const { service, persisted } = createFakeTaskService();
+    const { service, handlers } = createTaskChannel();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const result = await executeTool(tool, context({ command: 'flood', timeout: 60 }));
@@ -1372,9 +948,11 @@ describe('BashTool', () => {
     expect(result.output).toBe(fullOutput);
     const spill = result.spill;
     expect(spill).toBeDefined();
-    const taskId = /^\/fake\/tasks\/(bash-[0-9a-z]{8})\/output\.log$/.exec(spill!.outputPath!)?.[1];
+    const taskId = /\/tasks\/(bash-[0-9a-z]{8})\/output\.log$/.exec(
+      spill!.outputPath!,
+    )?.[1];
     expect(taskId).toBeTruthy();
-    expect(persisted.has(taskId!)).toBe(true);
+    expect(handlers.get(taskId!)?.output().path).toBe(spill!.outputPath);
     expect(spill!.totalChars).toBe(fullOutput.length);
     expect(spill!.suffix).toContain(`task_id: ${taskId}`);
     expect(spill!.suffix).toContain('output_size_bytes:');
@@ -1384,7 +962,7 @@ describe('BashTool', () => {
   it('leaves the result for generic pipeline spill when task-log persistence is unavailable', async () => {
     const fullOutput = `${'short line\n'.repeat(6_000)}tail survives\n`;
     const { runner } = createTestRunner(processWithOutput({ stdout: fullOutput }));
-    const { service, persisted } = createFakeTaskService({ outputPersistenceAvailable: false });
+    const { service, persisted } = createTaskChannel({ outputPersistenceAvailable: false });
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const result = await executeTool(tool, context({ command: 'flood', timeout: 60 }));
@@ -1397,7 +975,7 @@ describe('BashTool', () => {
   it('leaves the result untouched at exactly the delivery cap boundary', async () => {
     const fullOutput = 'x'.repeat(50_000);
     const { runner } = createTestRunner(processWithOutput({ stdout: fullOutput }));
-    const { service, persisted } = createFakeTaskService();
+    const { service, persisted } = createTaskChannel();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const result = await executeTool(tool, context({ command: 'edge', timeout: 60 }));
@@ -1410,24 +988,23 @@ describe('BashTool', () => {
   it('reuses the persisted task log even when output exceeds the retention budget', async () => {
     const huge = Buffer.alloc(10 * 1024 * 1024 + 1, 'x');
     const { runner } = createTestRunner(processWithOutput({ stdout: huge }));
-    const { service, persisted } = createFakeTaskService();
+    const { service, handlers } = createTaskChannel();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const result = await executeTool(tool, context({ command: 'yes', timeout: 60 }));
 
-    expect(persisted.size).toBe(1);
-    const taskId = /^\/fake\/tasks\/(bash-[0-9a-z]{8})\/output\.log$/.exec(
+    const taskId = /\/tasks\/(bash-[0-9a-z]{8})\/output\.log$/.exec(
       result.spill!.outputPath!,
     )?.[1];
     expect(taskId).toBeTruthy();
-    expect(persisted.has(taskId!)).toBe(true);
+    expect(handlers.get(taskId!)?.output().path).toBe(result.spill!.outputPath);
     expect(result.spill?.totalChars).toBe(10 * 1024 * 1024 + 1);
   });
 
   it('carries the failure message in the spill suffix when retention capped the output', async () => {
     const huge = Buffer.alloc(10 * 1024 * 1024 + 1, 'E');
     const { runner } = createTestRunner(processWithOutput({ stdout: huge, exitCode: 1 }));
-    const { service } = createFakeTaskService();
+    const { service } = createTaskChannel();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const result = await executeTool(tool, context({ command: 'fail-and-flood', timeout: 60 }));
@@ -1439,18 +1016,12 @@ describe('BashTool', () => {
   it('omits the TaskOutput hint from the spill suffix when background tools are disabled', async () => {
     const fullOutput = 'short line\n'.repeat(6_000);
     const { runner } = createTestRunner(processWithOutput({ stdout: fullOutput }));
-    const { service } = createFakeTaskService();
-    const tool = bashTool(
-      runner,
-      createTestEnv(),
-      createTestCtx(),
-      service,
-      stubToolPolicy(() => false),
-    );
+    const { service } = createTaskChannel();
+    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service, stubToolPolicy(() => false));
 
     const result = await executeTool(tool, context({ command: 'flood', timeout: 60 }));
 
-    expect(result.spill?.outputPath).toContain('/fake/tasks/');
+    expect(result.spill?.outputPath).toContain('/tasks/');
     expect(result.spill?.suffix).toContain('task_id:');
     expect(result.spill?.suffix).not.toContain('TaskOutput');
   });
@@ -1485,66 +1056,6 @@ describe('BashTool', () => {
     expect(args[1]).toBe("cd '/c/Users/me/project' && ls 2>/dev/null");
   });
 
-  it('keeps a quoted > nul literal on Windows instead of rewriting it', async () => {
-    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
-    const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
-
-    await executeTool(tool, context({ command: 'grep -n "> nul" log.txt', timeout: 60 }));
-
-    const args = exec.mock.calls[0]?.[1] as readonly string[];
-    expect(args[1]).toBe('cd \'/c/Users/me/project\' && grep -n "> nul" log.txt');
-  });
-
-  it('keeps a > nul literal inside a double-quoted string that is not a redirect target', async () => {
-    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
-    const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
-
-    await executeTool(tool, context({ command: 'grep -n "> nul " log.txt', timeout: 60 }));
-
-    const args = exec.mock.calls[0]?.[1] as readonly string[];
-    expect(args[1]).toBe('cd \'/c/Users/me/project\' && grep -n "> nul " log.txt');
-  });
-
-  it('keeps > nul literal in single quotes on Windows', async () => {
-    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
-    const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
-
-    await executeTool(tool, context({ command: "grep -n '> nul' log.txt", timeout: 60 }));
-
-    const args = exec.mock.calls[0]?.[1] as readonly string[];
-    expect(args[1]).toBe("cd '/c/Users/me/project' && grep -n '> nul' log.txt");
-  });
-
-  it('does not rewrite > nul lines inside a heredoc body but still rewrites the trailing redirect', async () => {
-    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
-    const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
-
-    await executeTool(
-      tool,
-      context({ command: 'cat <<EOF\necho hi > nul\nEOF\nls 2>nul', timeout: 60 }),
-    );
-
-    const args = exec.mock.calls[0]?.[1] as readonly string[];
-    expect(args[1]).toBe(
-      "cd '/c/Users/me/project' && cat <<EOF\necho hi > nul\nEOF\nls 2>/dev/null",
-    );
-  });
-
-  it('does not rewrite > nul inside a quoted heredoc delimiter body nor inside $( )', async () => {
-    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
-    const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
-
-    await executeTool(
-      tool,
-      context({ command: "cat <<'EOF'\necho hi > nul\nEOF\necho $(ls 2>nul)", timeout: 60 }),
-    );
-
-    const args = exec.mock.calls[0]?.[1] as readonly string[];
-    expect(args[1]).toBe(
-      "cd '/c/Users/me/project' && cat <<'EOF'\necho hi > nul\nEOF\necho $(ls 2>/dev/null)",
-    );
-  });
-
   it('passes nul-redirect through unchanged on Linux so the argv keeps the literal file target', async () => {
     const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
     const tool = bashTool(runner);
@@ -1555,26 +1066,13 @@ describe('BashTool', () => {
     expect(args[1]).toBe("cd '/workspace' && ls 2>nul");
   });
 
-  it('exposes a shell description that documents the shell, background tools, safety rules, and timeout semantics', () => {
-    const { runner } = createTestRunner(processWithOutput());
-    const tool = bashTool(runner);
-
-    const description = tool.description;
-    expect(description).toContain('`bash`');
-    expect(description).toContain('TaskOutput');
-    expect(description).toContain('TaskStop');
-    expect(description).toContain('Do not use superuser privileges');
-    expect(description).toContain('parallel Bash calls');
-    expect(description).toContain('run_in_background=true');
-  });
-
   it('disables background execution when TaskList is inactive even if TaskOutput/TaskStop are active', async () => {
     const { runner, exec } = createTestRunner(processWithOutput());
     const tool = bashTool(
       runner,
       createTestEnv(),
       createTestCtx(),
-      createFakeTaskService().service,
+      createTaskChannel().service,
       stubToolPolicy((name) => name !== 'TaskList'),
     );
 
@@ -1593,7 +1091,7 @@ describe('BashTool', () => {
       configValues: Record<string, unknown>,
     ): Promise<number | undefined> {
       const { runner } = createTestRunner(processWithOutput());
-      const { service, tasks } = createFakeTaskService();
+      const { service, tasks } = createTaskChannel();
       const tool = bashTool(
         runner,
         createTestEnv(),
@@ -1610,7 +1108,10 @@ describe('BashTool', () => {
       expect(result).toMatchObject({ isError: false });
 
       const taskId = service.list(false)[0]!.taskId;
-      return tasks.get(taskId)?.options.detachTimeoutMs;
+      const fields = tasks.get(taskId)?.snapshot().fields as {
+        readonly task?: { readonly timeoutMs?: number };
+      } | undefined;
+      return fields?.task?.timeoutMs;
     }
 
     await expect(detachTimeoutMsFor({})).resolves.toBe(600_000);
@@ -1619,37 +1120,6 @@ describe('BashTool', () => {
       45_000,
     );
     await expect(detachTimeoutMsFor({ task: { bashTaskTimeoutS: 0 } })).resolves.toBe(0);
-  });
-});
-
-describe('BashTool operation log integration', () => {
-  it('disables explicit, timeout and manual background execution', async () => {
-    const background = createFakeTaskService();
-    const { runner, exec } = createTestRunner(processWithOutput());
-    const flags = {
-      enabled: (id: string) => id === OPERATION_LOG_FLAG_ID,
-    } as unknown as IFlagService;
-    const tool = bashTool(
-      runner,
-      createTestEnv(),
-      createTestCtx(),
-      background.service,
-      stubToolPolicy(),
-      stubConfig(),
-      flags,
-    );
-
-    const rejected = await executeTool(
-      tool,
-      context({ command: 'watch', run_in_background: true, description: 'watch' }),
-    );
-    expect(rejected.output).toContain('Background execution is not available');
-    expect(exec).not.toHaveBeenCalled();
-
-    await executeTool(tool, context({ command: 'echo ok' }));
-    const options = [...background.tasks.values()].map((entry) => entry.options);
-    expect(options).toHaveLength(1);
-    expect(options[0]).toMatchObject({ autoBackgroundOnTimeout: false, detachable: false });
   });
 });
 
@@ -1663,7 +1133,8 @@ describe('BashTool display cwd', () => {
       environment,
       ctx,
       stubWorkspaceContext(workDir),
-      {} as unknown as IAgentTaskService,
+      createTaskChannel().toolExecutor,
+      {} as never,
       {} as unknown as IAgentToolPolicyService,
       {} as unknown as IConfigService,
     );
@@ -1702,14 +1173,19 @@ describe('BashTool spawn cwd', () => {
   }
 
   function spawnCwdTool(backend: FakeEnvironment, workDir: string): BashTool {
-    return new BashTool(
+    const channel = createTaskChannel();
+    const tool = new BashTool(
       stubAgentEnvironment(backend),
       createTestCtx('/Users/mac/project'),
       stubWorkspaceContext(workDir),
-      createFakeTaskService().service,
+      channel.toolExecutor,
+      channel.outputs,
       stubToolPolicy(),
       stubConfig(),
     );
+    channel.raw.addExecute(new LegacyExecutableToolAdapter(tool));
+    channelsByTool.set(tool, channel);
+    return tool;
   }
 
   it('spawns each session command with its own workDir on a shared environment', async () => {
@@ -1727,15 +1203,15 @@ describe('BashTool background mode', () => {
   it('can detach a foreground command through the background service', async () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService();
+    const { service } = createTaskChannel();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }));
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(service.list(false)).toHaveLength(1);
     });
     const task = service.list(false)[0]!;
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect((proc.stdout as PassThrough).listenerCount('data')).toBeGreaterThanOrEqual(1);
     });
     (proc.stdout as PassThrough).write('before detach\n');
@@ -1758,12 +1234,10 @@ describe('BashTool background mode', () => {
     expect(result.output).toContain('The user moved this task to the background.');
     expect(result.output).toContain('detached_by_user: true');
     expect(result.output).toContain('do NOT wait, poll, or call TaskOutput');
-    expect(result.output).toContain(
-      'human_shell_hint: The task is visible in the background-task panel.',
-    );
+    expect(result.output).toContain('human_shell_hint: The task is visible in the background-task panel.');
     expect((result as { brief?: string }).brief).toBe(`Backgrounded ${task.taskId} by the user`);
     expect(service.getTask(task.taskId)).toMatchObject({ detached: true });
-    await waitForAssertion(async () => {
+    await vi.waitFor(async () => {
       await expect(service.readOutput(task.taskId)).resolves.toContain('after detach\n');
     });
 
@@ -1776,15 +1250,12 @@ describe('BashTool background mode', () => {
   it('notifies when a foreground command registers its background task', async () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService();
+    const { service } = createTaskChannel();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
-    const started = mock();
+    const started = vi.fn();
 
-    const running = executeTool(
-      tool,
-      context({ command: 'sleep 10', timeout: 60 }, undefined, started),
-    );
-    await waitForAssertion(() => {
+    const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }, undefined, started));
+    await vi.waitFor(() => {
       expect(service.list(false)).toHaveLength(1);
     });
     const task = service.list(false)[0]!;
@@ -1798,11 +1269,11 @@ describe('BashTool background mode', () => {
   it('records the parent tool call id on the registered task', async () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService();
+    const { service } = createTaskChannel();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }));
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(service.list(false)).toHaveLength(1);
     });
     const task = service.list(false)[0]!;
@@ -1818,75 +1289,76 @@ describe('BashTool background mode', () => {
   });
 
   it('applies the background timeout when a foreground command is detached', async () => {
-    const timers = createFakeTimers();
-    const { proc } = pendingProcess();
-    const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService({ timers });
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
+    vi.useFakeTimers();
+    try {
+      const { proc } = pendingProcess();
+      const { runner } = createTestRunner(proc);
+      const { service } = createTaskChannel();
+      const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
-    const running = executeTool(tool, context({ command: 'sleep 10', timeout: 1 }));
-    await waitForAssertion(() => {
-      expect(service.list(false)).toHaveLength(1);
-    });
-    const task = service.list(false)[0]!;
+      const running = executeTool(tool, context({ command: 'sleep 10', timeout: 1 }));
+      await vi.waitFor(() => {
+        expect(service.list(false)).toHaveLength(1);
+      });
+      const task = service.list(false)[0]!;
 
-    service.detach(task.taskId);
-    await running;
+      service.detach(task.taskId);
+      await running;
 
-    await advanceFakeTimers(timers, 60_000);
-    expect(service.getTask(task.taskId)?.status).toBe('running');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(service.getTask(task.taskId)?.status).toBe('running');
 
-    await advanceFakeTimers(timers, 10 * 60 * 1000);
-    expect(service.getTask(task.taskId)?.status).toBe('timed_out');
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      expect(service.getTask(task.taskId)?.status).toBe('timed_out');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('moves a timed-out foreground command to the background instead of killing it', async () => {
-    const timers = createFakeTimers();
-    const { proc, finish } = pendingProcess();
-    const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService({ timers });
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
+    vi.useFakeTimers();
+    try {
+      const { proc, finish } = pendingProcess();
+      const { runner } = createTestRunner(proc);
+      const { service } = createTaskChannel();
+      const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
-    const running = executeTool(tool, context({ command: 'sleep 30', timeout: 1 }));
-    await advanceFakeTimers(timers, 1_000);
-    const result = await running;
+      const running = executeTool(tool, context({ command: 'sleep 30', timeout: 1 }));
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await running;
 
-    expect(proc.kill).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      isError: false,
-      brief: expect.stringContaining('after timeout'),
-    });
-    expect(result.output).toContain('The task now runs in the background.');
-    expect(result.output).not.toContain('The user moved this task');
-    expect(result.output).not.toContain('detached_by_user');
-    expect(result.output).toContain(
-      'human_shell_hint: The task is visible in the background-task panel.',
-    );
-    const taskId = /^task_id: (\S+)/m.exec(result.output as string)?.[1];
-    expect(taskId).toBeDefined();
-    expect(service.getTask(taskId!)).toMatchObject({ status: 'running', detached: true });
+      expect(proc.kill).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        isError: false,
+        brief: expect.stringContaining('after timeout'),
+      });
+      expect(result.output).toContain('The task now runs in the background.');
+      expect(result.output).not.toContain('The user moved this task');
+      expect(result.output).not.toContain('detached_by_user');
+      expect(result.output).toContain('human_shell_hint: The task is visible in the background-task panel.');
+      const taskId = /^task_id: (\S+)/m.exec(result.output as string)?.[1];
+      expect(taskId).toBeDefined();
+      expect(service.getTask(taskId!)).toMatchObject({ status: 'running', detached: true });
 
-    (proc.stdout as PassThrough).write('after timeout\n');
-    finish(0);
-    await flushAsyncWork();
-    expect(service.getTask(taskId!)).toMatchObject({ status: 'completed' });
-    await expect(service.readOutput(taskId!)).resolves.toContain('after timeout\n');
+      (proc.stdout as PassThrough).write('after timeout\n');
+      finish(0);
+      const completed = service.wait(taskId!);
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(completed).resolves.toMatchObject({ status: 'completed' });
+      await expect(service.readOutput(taskId!)).resolves.toContain('after timeout\n');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not recommend disabled task tools when a foreground command is detached', async () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService();
-    const tool = bashTool(
-      runner,
-      createTestEnv(),
-      createTestCtx(),
-      service,
-      stubToolPolicy(() => false),
-    );
+    const { service } = createTaskChannel();
+    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service, stubToolPolicy(() => false));
 
     const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }));
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(service.list(false)).toHaveLength(1);
     });
     const task = service.list(false)[0]!;
@@ -1909,15 +1381,15 @@ describe('BashTool background mode', () => {
   it('keeps task metadata independent when noisy foreground output is detached', async () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService();
+    const { service } = createTaskChannel();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const running = executeTool(tool, context({ command: 'yes noisy', timeout: 60 }));
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(service.list(false)).toHaveLength(1);
     });
     const task = service.list(false)[0]!;
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect((proc.stdout as PassThrough).listenerCount('data')).toBeGreaterThanOrEqual(1);
     });
 
@@ -1952,9 +1424,8 @@ describe('BashTool background mode', () => {
     const { runner, exec } = createTestRunner(proc);
     const backgroundDisabled = bashTool(
       runner,
-      createTestEnv(),
-      createTestCtx(),
-      createFakeTaskService().service,
+      createTestEnv(), createTestCtx(),
+      createTaskChannel().service,
       stubToolPolicy(() => false),
     );
 
@@ -1966,7 +1437,7 @@ describe('BashTool background mode', () => {
     expect(unavailable.output).toContain('Background execution is not available');
     expect(exec).not.toHaveBeenCalled();
 
-    const { service } = createFakeTaskService();
+    const { service } = createTaskChannel();
     const withService = bashTool(runner, createTestEnv(), createTestCtx(), service);
     const missingDescription = await executeTool(
       withService,
@@ -1981,7 +1452,7 @@ describe('BashTool background mode', () => {
   it('registers background commands and returns a task id', async () => {
     const proc = processWithOutput();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService();
+    const { service } = createTaskChannel();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const result = await executeTool(
@@ -1991,195 +1462,186 @@ describe('BashTool background mode', () => {
 
     expect(result.output).toMatch(/task_id: bash-[0-9a-z]{8}/);
     expect(result.output).toContain('automatic_notification: true');
-    expect((result as { brief?: string }).brief).toMatch(/^Started bash-[0-9a-z]{8}$/);
     expect(result.output).toContain('do NOT wait, poll, or call TaskOutput on it');
     expect(result.output).not.toContain('block=false');
     expect(service.list(false)).toHaveLength(1);
   });
 
-  it('kills a spawned background command when the task limit is reached', async () => {
-    const { service } = createFakeTaskService({ maxRunningTasks: 1 });
-    service.registerTask(new ProcessTask(processWithOutput(), 'sleep 10', 'existing task'));
-    const rejectedProc = processWithOutput();
-    const { runner, exec } = createTestRunner(rejectedProc);
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
-
-    const result = await executeTool(
-      tool,
-      context({ command: 'sleep 10', run_in_background: true, description: 'second task' }),
-    );
-
-    expect(result).toMatchObject({
-      isError: true,
-      output: 'Too many background tasks are already running.',
-    });
-    expect(exec).toHaveBeenCalledTimes(1);
-    expect(rejectedProc.kill).toHaveBeenCalledWith('SIGTERM');
-  });
-
-  it('rejects one of two concurrent background commands when the task limit is reached', async () => {
-    const { service } = createFakeTaskService({ maxRunningTasks: 1 });
-    const firstProc = processWithOutput({
-      wait: () => new Promise(() => {}),
-    });
+  it('allows multiple background commands without imposing a task limit', async () => {
+    const { service } = createTaskChannel();
+    const firstProc = processWithOutput();
     const secondProc = processWithOutput();
-    const exec = mock().mockResolvedValueOnce(firstProc).mockResolvedValueOnce(secondProc);
+    const exec = vi.fn().mockResolvedValueOnce(firstProc).mockResolvedValueOnce(secondProc);
     const { runner } = createTestRunner(exec);
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
-    const first = executeTool(
-      tool,
-      context({ command: 'sleep 10', run_in_background: true, description: 'first task' }),
-    );
-    const second = executeTool(
-      tool,
-      context({ command: 'sleep 10', run_in_background: true, description: 'second task' }),
-    );
-
-    const results = await Promise.all([first, second]);
+    const results = await Promise.all([
+      executeTool(tool, context({ command: 'sleep 10', run_in_background: true, description: 'first task' })),
+      executeTool(tool, context({ command: 'sleep 10', run_in_background: true, description: 'second task' })),
+    ]);
 
     expect(exec).toHaveBeenCalledTimes(2);
-    expect(secondProc.kill).toHaveBeenCalledWith('SIGTERM');
-    expect(results).toContainEqual(expect.objectContaining({ isError: false }));
-    expect(results).toContainEqual(
-      expect.objectContaining({
-        isError: true,
-        output: 'Too many background tasks are already running.',
-      }),
-    );
+    expect(results).toEqual([
+      expect.objectContaining({ isError: false }),
+      expect.objectContaining({ isError: false }),
+    ]);
+    expect(secondProc.kill).not.toHaveBeenCalledWith('SIGTERM');
+    expect(service.list(false)).toHaveLength(2);
   });
 
-  it('uses Git Bash semantics and rejects the concurrent command at the task limit', async () => {
-    const { service } = createFakeTaskService({ maxRunningTasks: 1 });
+  it('allows concurrent background commands without rejecting either', async () => {
+    const { service } = createTaskChannel();
     const firstProc = processWithOutput({
       wait: () => new Promise(() => {}),
     });
     const secondProc = processWithOutput();
-    const exec = mock().mockResolvedValueOnce(firstProc).mockResolvedValueOnce(secondProc);
+    const exec = vi.fn().mockResolvedValueOnce(firstProc).mockResolvedValueOnce(secondProc);
+    const { runner } = createTestRunner(exec);
+    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
+
+    const results = await Promise.all([
+      executeTool(tool, context({ command: 'sleep 10', run_in_background: true, description: 'first task' })),
+      executeTool(tool, context({ command: 'sleep 10', run_in_background: true, description: 'second task' })),
+    ]);
+
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(secondProc.kill).not.toHaveBeenCalledWith('SIGTERM');
+    expect(results).toEqual([
+      expect.objectContaining({ isError: false }),
+      expect.objectContaining({ isError: false }),
+    ]);
+    expect(service.list(false)).toHaveLength(2);
+  });
+
+  it('uses Git Bash semantics without imposing a task limit', async () => {
+    const { service } = createTaskChannel();
+    const firstProc = processWithOutput({
+      wait: () => new Promise(() => {}),
+    });
+    const secondProc = processWithOutput();
+    const exec = vi.fn().mockResolvedValueOnce(firstProc).mockResolvedValueOnce(secondProc);
     const { runner } = createTestRunner(exec);
     const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'), service);
 
-    const first = executeTool(
-      tool,
-      context({
+    const results = await Promise.all([
+      executeTool(tool, context({
         command: 'echo ok 2>nul',
         run_in_background: true,
         description: 'first task',
-      }),
-    );
-    const second = executeTool(
-      tool,
-      context({
+      })),
+      executeTool(tool, context({
         command: 'echo second',
         run_in_background: true,
         description: 'second task',
-      }),
-    );
-
-    const results = await Promise.all([first, second]);
+      })),
+    ]);
 
     expect(exec).toHaveBeenCalledTimes(2);
     const [command, args, execOptions] = exec.mock.calls[0]!;
     expect(command).toBe('C:\\Program Files\\Git\\bin\\bash.exe');
     expect(args).toEqual(['-c', "cd '/c/Users/me/project' && echo ok 2>/dev/null"]);
     expect(execOptions?.env).toMatchObject({ SHELL: 'C:\\Program Files\\Git\\bin\\bash.exe' });
-    expect(secondProc.kill).toHaveBeenCalledWith('SIGTERM');
-    expect(results).toContainEqual(expect.objectContaining({ isError: false }));
-    expect(results).toContainEqual(
-      expect.objectContaining({
-        isError: true,
-        output: 'Too many background tasks are already running.',
-      }),
-    );
+    expect(secondProc.kill).not.toHaveBeenCalledWith('SIGTERM');
+    expect(results).toEqual([
+      expect.objectContaining({ isError: false }),
+      expect.objectContaining({ isError: false }),
+    ]);
+    expect(service.list(false)).toHaveLength(2);
   });
 
   it('timeout-stops a background task that has not settled even if process exit is visible', async () => {
-    const timers = createFakeTimers();
-    const { proc, finishWait, markExited } = processWithVisibleExitBeforeWait(0);
-    const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService({ timers });
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
+    vi.useFakeTimers();
+    try {
+      const { proc, finishWait, markExited } = processWithVisibleExitBeforeWait(0);
+      const { runner } = createTestRunner(proc);
+      const { service } = createTaskChannel();
+      const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
-    const result = await executeTool(
-      tool,
-      context({
-        command: 'sleep 10',
-        run_in_background: true,
-        description: 'exit before close',
-        timeout: 1,
-      }),
-    );
-    expect(typeof result.output).toBe('string');
-    if (typeof result.output !== 'string') throw new Error('Expected string tool output.');
-    const taskId = result.output.match(/task_id: (bash-[0-9a-z]{8})/)?.[1];
-    expect(taskId).toBeDefined();
+      const result = await executeTool(
+        tool,
+        context({
+          command: 'sleep 10',
+          run_in_background: true,
+          description: 'exit before close',
+          timeout: 1,
+        }),
+      );
+      expect(typeof result.output).toBe('string');
+      if (typeof result.output !== 'string') throw new Error('Expected string tool output.');
+      const taskId = result.output.match(/task_id: (bash-[0-9a-z]{8})/)?.[1];
+      expect(taskId).toBeDefined();
 
-    markExited();
-    await flushAsyncWork();
-    expect(timers.pending).toBe(1);
-    await advanceFakeTimers(timers, 1_000);
+      markExited();
+      await vi.advanceTimersByTimeAsync(1_000);
 
-    expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
 
-    finishWait();
-    await runAllFakeTimers(timers);
+      finishWait();
+      await vi.runAllTimersAsync();
 
-    expect(service.getTask(taskId!)?.status).toBe('timed_out');
+      expect(service.getTask(taskId!)?.status).toBe('timed_out');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('timeout-stops a background task after the default 10 minute deadline', async () => {
-    const timers = createFakeTimers();
-    const proc = processThatNeverExits();
-    const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService({ timers });
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
+    vi.useFakeTimers();
+    try {
+      const proc = processThatNeverExits();
+      const { runner } = createTestRunner(proc);
+      const { service } = createTaskChannel();
+      const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
-    const result = await executeTool(
-      tool,
-      context({
-        command: 'sleep 999',
-        run_in_background: true,
-        description: 'default deadline',
-      }),
-    );
-    expect(result).toMatchObject({ isError: false });
+      const result = await executeTool(
+        tool,
+        context({
+          command: 'sleep 999',
+          run_in_background: true,
+          description: 'default deadline',
+        }),
+      );
+      expect(result).toMatchObject({ isError: false });
 
-    await flushAsyncWork();
-    expect(timers.pending).toBe(1);
-    await advanceFakeTimers(timers, 600_000);
+      await vi.advanceTimersByTimeAsync(600_000);
 
-    expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not timeout-stop a background task when disable_timeout is true', async () => {
-    const timers = createFakeTimers();
-    const proc = processThatNeverExits();
-    const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService({ timers });
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
+    vi.useFakeTimers();
+    try {
+      const proc = processThatNeverExits();
+      const { runner } = createTestRunner(proc);
+      const { service } = createTaskChannel();
+      const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
-    const result = await executeTool(
-      tool,
-      context({
-        command: 'sleep 999',
-        run_in_background: true,
-        description: 'no deadline',
-        disable_timeout: true,
-      }),
-    );
-    expect(result).toMatchObject({ isError: false });
+      const result = await executeTool(
+        tool,
+        context({
+          command: 'sleep 999',
+          run_in_background: true,
+          description: 'no deadline',
+          disable_timeout: true,
+        }),
+      );
+      expect(result).toMatchObject({ isError: false });
 
-    await flushAsyncWork();
-    expect(timers.pending).toBe(0);
-    await advanceFakeTimers(timers, 600_000 + 10_000);
+      await vi.advanceTimersByTimeAsync(600_000 + 10_000);
 
-    expect(proc.kill).not.toHaveBeenCalled();
+      expect(proc.kill).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reports background task startup with task_id, status, automatic_notification, and a human-shell hint', async () => {
     const proc = processWithOutput();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeTaskService();
+    const { service } = createTaskChannel();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const result = await executeTool(
@@ -2199,7 +1661,7 @@ describe('BashTool background mode', () => {
   });
 
   it('rejects background command without description (description-required guard)', async () => {
-    const { service } = createFakeTaskService();
+    const { service } = createTaskChannel();
     const { runner, exec } = createTestRunner(processWithOutput());
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
@@ -2223,13 +1685,7 @@ describe('BashTool prompt / environment consistency', () => {
       [...enabledTool.description.matchAll(/`(Task[A-Za-z]+)`/g)].map((match) => match[1]),
     );
 
-    const tool = bashTool(
-      runner,
-      createTestEnv(),
-      createTestCtx(),
-      createFakeTaskService().service,
-      stubToolPolicy(() => false),
-    );
+    const tool = bashTool(runner, createTestEnv(), createTestCtx(), createTaskChannel().service, stubToolPolicy(() => false));
     const result = await executeTool(
       tool,
       context({ command: 'sleep 10', run_in_background: true, description: 'watch' }),

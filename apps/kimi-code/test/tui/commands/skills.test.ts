@@ -1,12 +1,6 @@
-import { describe, expect, it } from 'bun:test';
-
+import { buildSkillSlashCommands, isUserActivatableSkill, skillSourceLabel } from '#/tui/commands/index';
 import type { SkillSummary } from '@moonshot-ai/kimi-code-sdk';
-
-import {
-  buildSkillSlashCommands,
-  isUserActivatableSkill,
-  skillSourceLabel,
-} from '#/tui/commands/index';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 function skill(
   name: string,

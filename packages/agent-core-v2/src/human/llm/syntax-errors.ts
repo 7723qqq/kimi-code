@@ -1,4 +1,4 @@
-import type { LlmErrorMessage } from '#/llm/errors';
+import type { LlmErrorMessage } from '#human/llm/errors';
 
 export class SyntaxRequestFormatError extends Error {
   toLlmErrorMessage(): LlmErrorMessage<'syntax'> {

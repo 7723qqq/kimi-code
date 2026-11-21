@@ -12,15 +12,7 @@ import type {
   ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import type {
-  FollowUpBehavior,
-  MarkdownConfig,
-  NotificationsConfig,
-  StatusLineConfig,
-  TranscriptConfig,
-  TuiMode,
-  UpgradePreferences,
-} from './config';
+import type { FollowUpBehavior, MarkdownConfig, NotificationsConfig, StatusLineConfig, TranscriptConfig, TuiMode, UpgradePreferences } from './config';
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
 import type { ColorToken, ThemeName } from './theme';
 import type { MediaAttachment, VideoAttachment } from './utils/image-attachment-store';
@@ -51,154 +43,63 @@ export interface AppState {
   sessionId: string;
   permissionMode: PermissionMode;
   planMode: boolean;
-  specMode: boolean;
-  /** Which spec stage is in progress, mirrored from the session status. */
-  specStage?: 'specify' | 'plan' | 'tasks' | 'implement';
-  /** Resolved profile name from --agent/--agent-file, carried to the
-   * lazy-created first session when the TUI starts session-less. */
   agentProfile?: string;
-  /** Raw --agent-file paths, passed to session creation alongside `agentProfile`. */
   agentFiles?: readonly string[];
-  /** 'bash' when the editor is in `!` shell-command mode. */
   inputMode: 'prompt' | 'bash';
   swarmMode: boolean;
-  helloWorldMode: boolean;
-  /** Which hello-world run stage is in progress, mirrored from the session status. */
-  helloWorldStage?: string;
   towerMode: boolean;
-  /** Live thinking effort of the active session (e.g. 'off', 'on', 'high');
-   * mirrors the runtime. The single source of truth for the thinking state in
-   * the TUI. */
   thinkingEffort: ThinkingEffort;
-  /**
-   * The current `defaultPlanMode` value from config (false when absent),
-   * refreshed by `hydrateLazyConfigDefaults`. Used to tell a config-driven
-   * plan-mode entry apart from an explicit CLI `--plan` when lazy-creating
-   * the first session (the engine applies the config default itself).
-   */
   configDefaultPlanMode?: boolean;
-  /**
-   * Session-only thinking effort chosen (e.g. via the model picker's Alt+S)
-   * while no session exists yet on the v2 engine. Applied to the first
-   * lazy-created session and cleared once it exists; the engine's config
-   * default is used instead when unset.
-   */
   lazySessionThinking?: ThinkingEffort;
   contextUsage: number;
   contextTokens: number;
   maxContextTokens: number;
-  /** 会话累计缓存命中输入 token（精确命中率 = read/(read+creation)）。 */
-  cacheReadTokens: number;
-  /** 会话累计缓存写入输入 token（即缓存未命中，cache_creation）。 */
-  cacheMissTokens: number;
-  /**
-   * 会话累计普通（非缓存）输入 token，供缓存写入数据缺失时回退计算
-   * "命中占总输入比例"（否则 read/(read+0) 恒为 100%）。
-   */
-  cacheOtherTokens: number;
-  /**
-   * 最近一步的模型输出速度（tokens/秒），即"这一步多快"；0 表示尚无读数。
-   * 与 `tokenSpeedAverage` 同源（都取 provider 上报的输出 token 数与引擎
-   * 测得的 token part 窗口），两者只差覆盖哪些步，不差怎么计数。
-   */
-  tokenSpeed: number;
-  /** 会话累计输出速度（tokens/秒），即"这场会话平均多快"；0 表示尚无读数。 */
-  tokenSpeedAverage: number;
-  /** 会话级累计统计（轮次/步数/耗时/token），输入框上方的状态条展示；TUI 生命周期内有效。 */
-  sessionStats: SessionStats;
   cumulativeTokens?: number;
   isCompacting: boolean;
   isReplaying: boolean;
   streamingPhase: 'idle' | 'waiting' | 'thinking' | 'composing' | 'shell';
   streamingStartTime: number;
-  outputTokens: number;
-  locale: string;
-  /** Pending step retry backoff (fed by `turn.step.retrying`); null when no retry is in flight. */
   stepRetry: StepRetryState | null;
   theme: ThemeName;
   tuiMode?: TuiMode;
   version: string;
   editorCommand: string | null;
-  /** Mirrors the TUI config toggle; defaults to true when absent from older fixtures. */
-  copyOnSelect?: boolean;
-  /** Mirrors the TUI config toggle; defaults to false when absent from older fixtures. */
   disablePasteBurst?: boolean;
-  /** LaTeX math rendering in Markdown; defaults to true when absent from older fixtures. */
+  copyOnSelect?: boolean;
   renderLatex?: boolean;
-  /** Mirrors the TUI config toggle; defaults to true when absent from older fixtures. */
   cacheExpiryHint?: boolean;
   disableFeedbackSurvey?: boolean;
-  /** Mirrors the TUI config toggle; defaults to true when absent from older fixtures. */
   autoSessionTitle?: boolean;
   followUpBehavior?: FollowUpBehavior;
   notifications: NotificationsConfig;
   upgrade: UpgradePreferences;
-  /** Footer status line customization from tui.toml; absent means the default layout. */
   statusLine?: StatusLineConfig;
   markdown?: MarkdownConfig;
   transcript: TranscriptConfig;
   availableModels: Record<string, ModelAlias>;
   availableProviders: Record<string, ProviderConfig>;
   sessionTitle: string | null;
-  /** Current goal snapshot for the footer badge; null/undefined when no active goal. */
   goal?: GoalSnapshot | null;
   mcpServersSummary: string | null;
-  /** Optional banner shown below the welcome panel; null means no banner to render. */
   banner?: BannerState | null;
-  /**
-   * Current session's environment binding + connection status. Undefined while
-   * unsynced — every consumer must treat that as the plain local session.
-   */
   environment?: EnvironmentSlotState;
 }
 
-/**
- * 会话级累计统计，供输入框上方的状态条展示。
- * 数据来自 `turn.started` / `turn.step.completed` / `tool.call.started`→`tool.result`
- * 事件，在 TUI 生命周期内累计（新会话/重启后自然清零，与 cache* 字段一致）。
- */
-export interface SessionStats {
-  /** 用户轮次（`turn.started`，排除插件内部轮）。 */
-  turnCount: number;
-  /** LLM 调用步数（`turn.step.completed`）。 */
-  stepCount: number;
-  /** 累计 LLM 流式耗时（`llmStreamDurationMs`），毫秒。 */
-  llmTotalMs: number;
-  /** 累计工具调用耗时（TUI 侧 `tool.call.started`→`tool.result` 计时），毫秒。 */
-  toolTotalMs: number;
-  /** 所有 `llmFirstTokenLatencyMs` 样本的累加和，毫秒。 */
-  firstTokenTotalMs: number;
-  /** 参与平均的样本数。 */
-  firstTokenSampleCount: number;
-  /** 累计输入 token（inputOther + inputCacheRead + inputCacheCreation）。 */
-  inputTokens: number;
-  /** 累计输出 token（usage.output 精确值）。 */
-  outputTokens: number;
-}
-
-export function sumTokenUsage(total: TokenUsage): number {
+export function sumTokenUsage(total: TokenUsage): number | undefined {
+  if (total.inputCacheRead === undefined) return undefined;
   return total.inputOther + total.output + total.inputCacheRead + total.inputCacheCreation;
 }
 
 export interface StepRetryState {
-  /** Upcoming attempt number (1-based). */
   nextAttempt: number;
   maxAttempts: number;
-  /** Backoff wait before the next attempt, in milliseconds. */
   delayMs: number;
   errorName: string;
   errorMessage: string;
-  /** HTTP status code for `APIStatusError`; undefined for network/timeout failures. */
   statusCode?: number;
-  /**
-   * `backoff` while sleeping before the next attempt (label shows the
-   * countdown); `attempt` once the `delayMs` backoff has elapsed and the next
-   * attempt is running — the countdown has expired by then and is dropped.
-   */
   phase: 'backoff' | 'attempt';
 }
 
-/** How long a finished transcript item ran; unknown for replayed cards. */
 export type Elapsed =
   | { readonly known: false }
   | { readonly known: true; readonly ms: number };
@@ -215,9 +116,6 @@ export interface ToolCallBlockData {
   subagent?: SubagentReplayBlockData;
   step?: number;
   turnId?: string;
-  /** Set when the step ended (e.g. max_tokens) before the tool call's
-   *  arguments finished streaming. Renderer flips the header verb to
-   *  "Truncated" and stops showing the in-progress argument preview. */
   truncated?: boolean;
 }
 
@@ -248,30 +146,17 @@ export interface BackgroundAgentMetadata {
   readonly parentToolCallId: string;
   readonly agentName?: string;
   readonly description?: string;
-  /** Background task id carried on the spawn event (Agent tool only); lets the
-   *  terminal card register before `background.task.started` syncs. */
   readonly taskId?: string;
-  /** Display name of the model the agent is bound to (resolved at spawn). */
   readonly model?: string;
-  /** Thinking effort, set only for concrete levels (boolean on/off hidden). */
   readonly effort?: string;
 }
 
-export type BackgroundAgentStatusPhase =
-  | 'started'
-  | 'completed'
-  | 'failed'
-  | 'lost'
-  | 'killed'
-  | 'timed_out';
+export type BackgroundAgentStatusPhase = 'started' | 'completed' | 'failed' | 'killed';
 
 export interface BackgroundAgentStatusData {
   readonly phase: BackgroundAgentStatusPhase;
   readonly headline: string;
   readonly detail?: string;
-  /** Subagent behind a background-agent card; lets the task-notification
-   *  anchor reuse a terminal card that was mounted before its task id was
-   *  known (e.g. a tower worker that finished before `registerTask`). */
   readonly agentId?: string;
 }
 
@@ -324,26 +209,15 @@ export interface TranscriptEntry {
   turnId?: string;
   renderMode: 'markdown' | 'plain' | 'notice';
   content: string;
-  /**
-   * True only for entries holding real model-authored text (created by the
-   * assistant stream). Derived cards — hook results, goal completions, goal
-   * reminders — share kind 'assistant' but are not replies, so /copy must
-   * skip them.
-   */
   modelText?: boolean;
   color?: ColorToken;
   detail?: string;
-  /** Optional override for the leading bullet of a 'user' message entry. An empty string suppresses the bullet entirely (used by shell-command echoes so `$` takes the bullet's place). */
   bullet?: string;
   toolCallData?: ToolCallBlockData;
   backgroundAgentStatus?: BackgroundAgentStatusData;
   compactionData?: CompactionTranscriptData;
   cronData?: CronTranscriptData;
   goalData?: GoalTranscriptData;
-  /** Set on the derived 'assistant' card built from a goal-completion snapshot
-   * (distinct from real model-authored text; lets rendering avoid localizing /
-   * string-matching the message content to pick the goal-completion card). */
-  goalCompletionData?: boolean;
   imageAttachmentIds?: readonly number[];
   skillNames?: readonly string[];
   inlineSkillActivations?: readonly InlineSkillActivation[];
@@ -351,16 +225,18 @@ export interface TranscriptEntry {
   skillName?: string;
   skillArgs?: string;
   skillTrigger?: SkillActivationTrigger;
-  /** Card belongs to the following prompt's bundled submission: undo removes them together. */
   bundledWithPrompt?: boolean;
-  /** Entry renders a UserPromptSubmit hook result (sits inside its prompt's group window). */
   hookResult?: boolean;
   pluginCommandData?: PluginCommandTranscriptData;
-  /** Live steer not yet acknowledged by `turn.steer`. Absent after delivery, failure, or replay. */
   steerPending?: true;
 }
 
-export type LivePaneMode = 'idle' | 'waiting' | 'thinking' | 'tool' | 'session';
+export type LivePaneMode =
+  | 'idle'
+  | 'waiting'
+  | 'thinking'
+  | 'tool'
+  | 'session';
 
 export interface LivePaneState {
   mode: LivePaneMode;
@@ -395,11 +271,8 @@ export interface QueuedPromptMessage extends QueuedEntryBase {
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
   readonly videoAttachmentIds?: readonly number[];
-  readonly documentAttachmentIds?: readonly number[];
   readonly mediaSnapshots?: readonly MediaAttachment[];
-  /** Skills to activate together with this queued message's prompt. */
   readonly inlineSkillActivations?: readonly InlineSkillActivation[];
-  /** Resent after the user chose Retry on a session-in-use prompt. */
   readonly occupiedRetry?: boolean;
   readonly holdUntilTurnEnds?: boolean;
 }
@@ -409,19 +282,11 @@ export interface QueuedBashCommand extends QueuedEntryBase {
   readonly agentId?: string;
 }
 
-export interface QueuedSkillActivation extends QueuedEntryBase {
-  readonly mode: 'skill';
-  readonly agentId?: string;
-  readonly skillName?: string;
-  readonly skillArgs?: string;
-}
-
 export interface QueuedCompactCommand extends QueuedEntryBase {
   readonly mode: 'compact';
   readonly agentId?: string;
   readonly compactInstruction?: string;
   readonly compactRetries?: number;
-  /** Auto-compaction serial at enqueue time; a mismatch at dequeue skips the fire. */
   readonly queuedAfterAutoSerial?: number;
 }
 
@@ -436,7 +301,6 @@ export interface QueuedModelSwitch extends QueuedEntryBase {
 export type QueuedMessage =
   | QueuedPromptMessage
   | QueuedBashCommand
-  | QueuedSkillActivation
   | QueuedCompactCommand
   | QueuedModelSwitch;
 
@@ -450,18 +314,11 @@ export function isQueuedCompactionBarrier(message: QueuedMessage): boolean {
 
 export type SteerOutcome = 'steered' | 'failed' | 'restored';
 
-/**
- * One unit of Ctrl-S steer input: a queued message or the editor draft,
- * with the media parts extracted at submit/paste time so images and video
- * tags survive the steer path (which accepts full prompt parts, not just
- * text).
- */
 export interface SteerInputItem {
   readonly text: string;
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
   readonly videoAttachmentIds?: readonly number[];
-  readonly documentAttachmentIds?: readonly number[];
   readonly mediaSnapshots?: readonly MediaAttachment[];
   readonly inlineSkillActivations?: readonly InlineSkillActivation[];
 }
@@ -472,10 +329,6 @@ export const INITIAL_LIVE_PANE: LivePaneState = {
   pendingQuestion: null,
 };
 
-// ---------------------------------------------------------------------------
-// TUI startup / options types (extracted from kimi-tui.ts)
-// ---------------------------------------------------------------------------
-
 export interface TUIStartupOptions {
   readonly sessionFlag?: string;
   readonly continueLast: boolean;
@@ -483,13 +336,10 @@ export interface TUIStartupOptions {
   readonly auto: boolean;
   readonly plan: boolean;
   readonly model?: string;
-  /** Resolved profile name from --agent/--agent-file; bound to the startup session only. */
+  readonly additionalDirs?: readonly string[];
   readonly agentProfile?: string;
-  /** Raw --agent-file paths, passed to session creation alongside `agentProfile`. */
   readonly agentFiles?: readonly string[];
-  /** --environment <id> one-shot binding. The first session consumes it; a later /new keeps the live binding. */
   readonly environment?: string;
-  /** --environment-cwd <path> override for the startup binding. */
   readonly environmentCwd?: string;
   readonly startupNotice?: string;
 }

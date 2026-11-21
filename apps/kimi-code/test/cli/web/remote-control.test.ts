@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { formatRemoteControlOutput, formatRemoteControlStatus } from '#/cli/sub/web/remote-control';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import {
+  formatRemoteControlOutput,
+  formatRemoteControlStatus,
+} from '#/cli/sub/web/remote-control';
 
 afterEach(() => {
-  restoreEnvs();
+  vi.unstubAllEnvs();
 });
 
 describe('Remote Control output', () => {
@@ -18,7 +20,7 @@ describe('Remote Control output', () => {
   };
 
   it('shows the full URL as the clickable link text alongside the setup contract', () => {
-    setEnv('FORCE_HYPERLINK', '1');
+    vi.stubEnv('FORCE_HYPERLINK', '1');
     const output = formatRemoteControlOutput(outputOptions);
     const url = outputOptions.url;
     expect(output).toContain('Use Kimi Code on this machine');
@@ -46,7 +48,7 @@ describe('Remote Control output', () => {
   });
 
   it('prints the full URL as plain text when the terminal cannot render hyperlinks', () => {
-    setEnv('FORCE_HYPERLINK', '0');
+    vi.stubEnv('FORCE_HYPERLINK', '0');
     const output = formatRemoteControlOutput(outputOptions);
     expect(output).toContain(`open ${outputOptions.url}`);
     expect(output).toContain('#token=example-token');

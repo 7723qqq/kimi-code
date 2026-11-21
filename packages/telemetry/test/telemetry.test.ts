@@ -1,18 +1,11 @@
-import { afterEach, describe, expect, it, jest } from 'bun:test';
 import { spawn } from 'node:child_process';
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import {
   flushTelemetrySync,
@@ -48,8 +41,6 @@ import type {
   TelemetryTransport,
   TelemetryRegionResolution,
 } from '../src/types';
-import { setGlobal } from './helpers/stubs';
-import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 const tempDirs: string[] = [];
 
@@ -57,11 +48,11 @@ afterEach(() => {
   uninstallCrashHandlers();
   setCrashPhase('startup');
   resetDefaultTelemetryClientForTests();
-  jest.useRealTimers();
+  vi.useRealTimers();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
-  jest.restoreAllMocks();
+  vi.restoreAllMocks();
 });
 
 async function tempHome(): Promise<string> {
@@ -108,6 +99,9 @@ function makeSink(
     flushThreshold,
   });
 }
+
+/** The sink always reports the real runtime; mirror its detection here. */
+const CURRENT_RUNTIME = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined' ? 'bun' : 'node';
 
 function sampleEvent(name = 'started'): EnrichedTelemetryEvent {
   return {
@@ -210,14 +204,10 @@ describe('TelemetryClient', () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
-    const onUnexpectedError = jest.fn();
+    const onUnexpectedError = vi.fn();
     client.setUnexpectedErrorHandler(onUnexpectedError);
 
-    const properties = {
-      nested: { a: 1 },
-      list: [1, 2],
-      keep: 1,
-    } as unknown as TelemetryProperties;
+    const properties = { nested: { a: 1 }, list: [1, 2], keep: 1 } as unknown as TelemetryProperties;
     client.track('bad_props', properties);
     client.withContext({ sessionId: 'scoped' }).track('bad_props_scoped', properties);
     await client.flush();
@@ -237,7 +227,7 @@ describe('TelemetryClient', () => {
     (properties as Record<string, unknown>)['keep'] = 2;
     (properties as Record<string, unknown>)['added'] = 'later';
 
-    const onUnexpectedError = jest.fn();
+    const onUnexpectedError = vi.fn();
     client.setUnexpectedErrorHandler(onUnexpectedError);
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
@@ -249,7 +239,7 @@ describe('TelemetryClient', () => {
   });
 
   it('contains exceptions thrown by the unexpected error handler', async () => {
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
@@ -268,8 +258,8 @@ describe('TelemetryClient', () => {
 
   it('stops the previous system metrics collector when replacing it', () => {
     const client = new TelemetryClient();
-    const first = { stop: jest.fn() };
-    const second = { stop: jest.fn() };
+    const first = { stop: vi.fn() };
+    const second = { stop: vi.fn() };
 
     client.setSystemMetricsCollector(first);
     client.setSystemMetricsCollector(second);
@@ -372,7 +362,7 @@ describe('TelemetryClient', () => {
 
 describe('SystemMetricsCollector', () => {
   it('emits a numeric system_metrics sample after the warmup delay', () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     const tracked: Array<{
       event: string;
       properties: Record<string, number | string | boolean | undefined | null>;
@@ -392,10 +382,10 @@ describe('SystemMetricsCollector', () => {
     });
 
     collector.start();
-    jest.advanceTimersByTime(1_499);
+    vi.advanceTimersByTime(1_499);
     expect(tracked).toHaveLength(0);
 
-    jest.advanceTimersByTime(1);
+    vi.advanceTimersByTime(1);
     collector.stop();
 
     expect(tracked).toHaveLength(1);
@@ -419,8 +409,8 @@ describe('SystemMetricsCollector', () => {
   });
 
   it('omits constrained_memory_bytes when it is not a safe non-negative integer', () => {
-    jest.useFakeTimers();
-    jest.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 64);
+    vi.useFakeTimers();
+    vi.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 64);
     const tracked: Array<{
       event: string;
       properties: Record<string, number | string | boolean | undefined | null>;
@@ -440,7 +430,7 @@ describe('SystemMetricsCollector', () => {
     });
 
     collector.start();
-    jest.advanceTimersByTime(1_500);
+    vi.advanceTimersByTime(1_500);
     collector.stop();
 
     expect(tracked).toHaveLength(1);
@@ -452,8 +442,8 @@ describe('SystemMetricsCollector', () => {
   });
 
   it('reports constrained_memory_bytes when it is a safe non-negative integer', () => {
-    jest.useFakeTimers();
-    jest.spyOn(process, 'constrainedMemory').mockReturnValue(8 * 1024 ** 3);
+    vi.useFakeTimers();
+    vi.spyOn(process, 'constrainedMemory').mockReturnValue(8 * 1024 ** 3);
     const tracked: Array<{
       event: string;
       properties: Record<string, number | string | boolean | undefined | null>;
@@ -473,7 +463,7 @@ describe('SystemMetricsCollector', () => {
     });
 
     collector.start();
-    jest.advanceTimersByTime(1_500);
+    vi.advanceTimersByTime(1_500);
     collector.stop();
 
     expect(tracked).toHaveLength(1);
@@ -483,7 +473,7 @@ describe('SystemMetricsCollector', () => {
   });
 
   it('does not duplicate interval sampling when started twice', () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     const tracked: string[] = [];
     const client = {
       track(event: string): void {
@@ -498,7 +488,7 @@ describe('SystemMetricsCollector', () => {
 
     collector.start();
     collector.start();
-    jest.advanceTimersByTime(30_000);
+    vi.advanceTimersByTime(30_000);
     collector.stop();
 
     expect(tracked).toEqual(['system_metrics']);
@@ -525,7 +515,7 @@ describe('EventSink', () => {
     expect(transport.saved[0]?.[0]?.context).toMatchObject({
       app_name: 'kimi-code-cli',
       version: '1.2.3',
-      runtime: typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined' ? 'bun' : 'node',
+      runtime: CURRENT_RUNTIME,
       ui_mode: 'shell',
       model: 'kimi-k2',
       terminal: 'test-terminal',
@@ -594,6 +584,7 @@ describe('payload assembly', () => {
       property_resumed: false,
       property_count: 2,
       context_version: '1.2.3',
+      // The payload carries the event's own context verbatim (fixture: 'node').
       context_runtime: 'node',
     });
     expect(payload.events[0]).not.toHaveProperty('properties');
@@ -697,8 +688,8 @@ describe('server prefix application', () => {
   it('passes already-prefixed and invalid event names through unchanged', () => {
     const prefixed = sampleEvent('kfc_started');
     const emptyName = sampleEvent('');
-    const missingName = { ...sampleEvent('missing') } as unknown as EnrichedTelemetryEvent;
-    delete (missingName as unknown as Record<string, unknown>)['event'];
+    const missingName = { ...sampleEvent('missing') } as unknown as Record<string, unknown>;
+    delete missingName['event'];
     const numberName = {
       ...sampleEvent('number'),
       event: 123,
@@ -706,7 +697,7 @@ describe('server prefix application', () => {
 
     expect(applyServerPrefix(prefixed)).toBe(prefixed);
     expect(applyServerPrefix(emptyName as unknown as EnrichedTelemetryEvent)).toBe(emptyName);
-    expect(applyServerPrefix(missingName)).toBe(missingName);
+    expect(applyServerPrefix(missingName as unknown as EnrichedTelemetryEvent)).toBe(missingName);
     expect(applyServerPrefix(numberName)).toBe(numberName);
   });
 });
@@ -717,13 +708,13 @@ describe('AsyncTransport', () => {
   });
 
   it('sends the outbound payload with bearer token when available', async () => {
-    const fetchImpl = jest.fn(async () => new Response('', { status: 200 }));
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
     const transport = new AsyncTransport({
       homeDir: await tempHome(),
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
       getAccessToken: () => 'token-1',
-      fetchImpl: fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       retryBackoffsMs: [],
     });
 
@@ -737,9 +728,8 @@ describe('AsyncTransport', () => {
   });
 
   it('resolves a function endpoint per send, so an in-process switch needs no rebuild', async () => {
-    const fetchImpl = jest.fn(
-      async (_url: string | URL | Request, _init?: RequestInit) =>
-        new Response('', { status: 200 }),
+    const fetchImpl = vi.fn(async (_url: string | URL, _init?: RequestInit) =>
+      new Response('', { status: 200 }),
     );
     let endpoint: string | undefined = 'https://cn.test/events';
     const homeDir = await tempHome();
@@ -747,7 +737,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: () => endpoint,
-      fetchImpl: fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       retryBackoffsMs: [],
     });
 
@@ -769,14 +759,14 @@ describe('AsyncTransport', () => {
       homeDir: blockedHome,
       deviceId: 'dev',
       endpoint: 'https://cn.test/events',
-      fetchImpl: jest.fn(async () => new Response('', { status: 500 })),
+      fetchImpl: vi.fn(async () => new Response('', { status: 500 })) as unknown as typeof fetch,
       retryBackoffsMs: [],
     });
     await expect(failingTransport.send([sampleEvent('spooled')])).rejects.toThrow();
   });
 
   it('retries anonymously on 401 with a token', async () => {
-    const fetchImpl = jest
+    const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(new Response('', { status: 401 }))
       .mockResolvedValueOnce(new Response('', { status: 200 }));
@@ -785,7 +775,7 @@ describe('AsyncTransport', () => {
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
       getAccessToken: () => 'token-1',
-      fetchImpl: fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       retryBackoffsMs: [],
     });
 
@@ -799,7 +789,7 @@ describe('AsyncTransport', () => {
 
   it('spools to disk when the anonymous 401 retry gets a transient response', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = jest
+    const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(new Response('', { status: 401 }))
       .mockResolvedValueOnce(new Response('', { status: 500 }));
@@ -808,7 +798,7 @@ describe('AsyncTransport', () => {
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
       getAccessToken: () => 'token-1',
-      fetchImpl: fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       retryBackoffsMs: [],
     });
 
@@ -825,7 +815,7 @@ describe('AsyncTransport', () => {
 
   it('drops events when the anonymous 401 retry gets a non-retryable 4xx', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = jest
+    const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(new Response('', { status: 401 }))
       .mockResolvedValueOnce(new Response('', { status: 403 }));
@@ -834,7 +824,7 @@ describe('AsyncTransport', () => {
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
       getAccessToken: () => 'token-1',
-      fetchImpl: fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       retryBackoffsMs: [],
     });
 
@@ -849,12 +839,12 @@ describe('AsyncTransport', () => {
 
   it('spools transient failures to disk after retries exhaust', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = jest.fn(async () => new Response('', { status: 429 }));
+    const fetchImpl = vi.fn(async () => new Response('', { status: 429 }));
     const transport = new AsyncTransport({
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       retryBackoffsMs: [],
     });
 
@@ -867,12 +857,12 @@ describe('AsyncTransport', () => {
 
   it('drops non-retryable 4xx responses without disk fallback', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = jest.fn(async () => new Response('', { status: 422 }));
+    const fetchImpl = vi.fn(async () => new Response('', { status: 422 }));
     const transport = new AsyncTransport({
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       retryBackoffsMs: [],
     });
 
@@ -891,13 +881,13 @@ describe('AsyncTransport', () => {
     writeFileSync(expired, `${JSON.stringify(sampleEvent('old'))}\n`);
     const expiredSec = (Date.now() - DISK_EVENT_MAX_AGE_MS - 1) / 1000;
     utimesSync(expired, expiredSec, expiredSec);
-    const fetchImpl = jest.fn(async () => new Response('', { status: 200 }));
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
     let endpoint: string | undefined;
     const transport = new AsyncTransport({
       homeDir,
       deviceId: 'dev',
       endpoint: () => endpoint,
-      fetchImpl: fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
     await transport.retryDiskEvents();
@@ -927,7 +917,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: jest.fn(async () => new Response('', { status: 200 })),
+      fetchImpl: vi.fn(async () => new Response('', { status: 200 })) as unknown as typeof fetch,
       now: () => now + DISK_EVENT_MAX_AGE_MS + 1,
     });
 
@@ -943,9 +933,9 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: jest.fn(async () => {
+      fetchImpl: vi.fn(async () => {
         throw new TransientTelemetryError('nope');
-      }),
+      }) as unknown as typeof fetch,
       retryBackoffsMs: [10_000],
     });
     const controller = new AbortController();
@@ -966,7 +956,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: jest.fn(async () => new Response('', { status: 429 })),
+      fetchImpl: vi.fn(async () => new Response('', { status: 429 })) as unknown as typeof fetch,
       retryBackoffsMs: [10_000],
       sleep: async () => {
         controller.abort();
@@ -989,7 +979,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: jest.fn(async () => new Response('', { status: 500 })),
+      fetchImpl: vi.fn(async () => new Response('', { status: 500 })) as unknown as typeof fetch,
       retryBackoffsMs: [],
     });
 
@@ -1009,12 +999,12 @@ describe('AsyncTransport', () => {
 
   it('does not create a disk file for an empty batch or a schema violation', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = jest.fn(async () => new Response('', { status: 200 }));
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
     const transport = new AsyncTransport({
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
     transport.saveToDisk([]);
@@ -1039,8 +1029,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('disables the singleton without attaching a sink when opted out', async () => {
-    const fetchImpl = jest.fn(async () => new Response('', { status: 200 }));
-    setGlobal('fetch', fetchImpl);
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
     const saved = process.env['KIMI_DISABLE_TELEMETRY'];
     try {
       process.env['KIMI_DISABLE_TELEMETRY'] = 'true';
@@ -1066,8 +1056,8 @@ describe('telemetry bootstrap', () => {
     mkdirSync(telemetryDir, { recursive: true });
     const spool = join(telemetryDir, 'failed_retry.jsonl');
     writeFileSync(spool, `${JSON.stringify(sampleEvent('from_disk'))}\n`);
-    const fetchImpl = jest.fn(async () => new Response('', { status: 200 }));
-    setGlobal('fetch', fetchImpl);
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
 
     initializeTelemetry({
       homeDir,
@@ -1084,8 +1074,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('drops events queued before initialization when bootstrap starts paused', async () => {
-    const fetchImpl = jest.fn(async () => new Response('', { status: 200 }));
-    setGlobal('fetch', fetchImpl);
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
 
     track('queued_before_init');
     initializeTelemetry({
@@ -1101,8 +1091,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('resumes intake after a paused start without re-initialization', async () => {
-    const fetchImpl = jest.fn(async () => new Response('', { status: 200 }));
-    setGlobal('fetch', fetchImpl);
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
 
     initializeTelemetry({
       homeDir: await tempHome(),
@@ -1129,8 +1119,8 @@ describe('telemetry bootstrap', () => {
     mkdirSync(telemetryDir, { recursive: true });
     const spool = join(telemetryDir, 'failed_default.jsonl');
     writeFileSync(spool, `${JSON.stringify(sampleEvent('from_disk'))}\n`);
-    const fetchImpl = jest.fn(async () => new Response('', { status: 200 }));
-    setGlobal('fetch', fetchImpl);
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
 
     initializeTelemetry({
       homeDir,
@@ -1139,7 +1129,7 @@ describe('telemetry bootstrap', () => {
       version: '1.2.3',
       endpoint: 'https://mock.test/events',
     });
-    await waitForAssertion(() => {
+    await vi.waitFor(() => {
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     });
     await shutdownTelemetry();
@@ -1148,8 +1138,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('queues singleton track calls before initialization, then flushes after bootstrap', async () => {
-    const fetchImpl = jest.fn(async () => new Response('', { status: 200 }));
-    setGlobal('fetch', fetchImpl);
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
 
     track('before_init');
     initializeTelemetry({
@@ -1175,8 +1165,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('forwards a caller-provided endpoint to the transport', async () => {
-    const fetchImpl = jest.fn(async (_input: unknown) => new Response('', { status: 200 }));
-    setGlobal('fetch', fetchImpl);
+    const fetchImpl = vi.fn(async (_input: unknown) => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
 
     initializeTelemetry({
       homeDir: await tempHome(),
@@ -1193,9 +1183,9 @@ describe('telemetry bootstrap', () => {
   });
 
   it('wires onUnexpectedError to property sanitization on the singleton', async () => {
-    const fetchImpl = jest.fn(async () => new Response('', { status: 200 }));
-    setGlobal('fetch', fetchImpl);
-    const onUnexpectedError = jest.fn();
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
+    const onUnexpectedError = vi.fn();
 
     initializeTelemetry({
       homeDir: await tempHome(),
@@ -1212,8 +1202,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('reconciles the singleton sink model for subsequently tracked events', async () => {
-    const fetchImpl = jest.fn(async () => new Response('', { status: 200 }));
-    setGlobal('fetch', fetchImpl);
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
 
     initializeTelemetry({
       homeDir: await tempHome(),
@@ -1226,7 +1216,6 @@ describe('telemetry bootstrap', () => {
     track('first');
     setTelemetryModel('model-b');
     track('second');
-    // An unresolved (undefined) model leaves the sink untouched.
     setTelemetryModel(undefined);
     track('third');
     await shutdownTelemetry();
@@ -1261,7 +1250,7 @@ describe('telemetry bootstrap', () => {
   });
 
   it('writes system metrics with the singleton session context', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     const homeDir = await tempHome();
     initializeTelemetry({
       homeDir,
@@ -1271,7 +1260,7 @@ describe('telemetry bootstrap', () => {
       version: '1.2.3',
     });
 
-    jest.advanceTimersByTime(1_500);
+    vi.advanceTimersByTime(1_500);
     flushTelemetrySync();
 
     const telemetryDir = join(homeDir, 'telemetry');
@@ -1413,8 +1402,6 @@ describe('crash handler', () => {
     client.attachSink(makeSink(transport));
     setCrashPhase('runtime');
     installCrashHandlersForClient(client);
-    // The TUI registers its own rejection handler; while one exists the
-    // crash handler must observe (not rethrow) so the lifecycle is untouched.
     const owner = (): void => {};
     process.on('unhandledRejection', owner);
     try {
@@ -1458,8 +1445,6 @@ describe('crash handler', () => {
     expect(transport.saved).toHaveLength(0);
 
     uninstallCrashHandlers();
-    // Drop every other listener so the crash handler is the sole one, as in
-    // print/server mode; an aborted-operation rejection must not be rethrown.
     const others = process.listeners('unhandledRejection');
     process.removeAllListeners('unhandledRejection');
     installCrashHandlersForClient(client);
@@ -1484,8 +1469,6 @@ describe('crash handler', () => {
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
     setCrashPhase('runtime');
-    // Vitest keeps its own rejection listeners; temporarily drop every
-    // listener so the crash handler is the sole one, as in print/server mode.
     const others = process.listeners('unhandledRejection');
     process.removeAllListeners('unhandledRejection');
     installCrashHandlersForClient(client);
@@ -1499,8 +1482,6 @@ describe('crash handler', () => {
         ),
       ).toThrow(reason);
 
-      // Tracked once as a rejection; when the rethrow later surfaces at the
-      // uncaughtException monitor it must not be reported a second time.
       expect(transport.saved[0]?.[0]).toMatchObject({
         event: 'crash',
         properties: {
@@ -1519,6 +1500,31 @@ describe('crash handler', () => {
     }
   });
 
+
+/**
+ * bun's `process.emit` does not propagate listener throws to the caller the way
+ * node does — the rethrow surfaces through `uncaughtException` instead. Capture
+ * it there so the "rethrown" assertions hold on both runtimes.
+ */
+/**
+ * Call the installed `unhandledRejection` handler directly. Going through
+ * `process.emit` is runtime-specific (node propagates listener throws, bun
+ * routes them to `uncaughtException` asynchronously), and either way the
+ * throw escapes the test runner's own error tracking. Invoking the handler
+ * keeps the "it rethrows" contract observable on every runtime.
+ */
+const NO_THROW = Symbol('no-throw');
+function callInstalledRejectionHandler(reason: unknown): unknown {
+  const handler = process.listeners('unhandledRejection').at(-1) as ((r: unknown) => void) | undefined;
+  if (handler === undefined) throw new Error('no unhandledRejection handler installed');
+  try {
+    handler(reason);
+  } catch (error) {
+    return error;
+  }
+  return NO_THROW;
+}
+
   it('dedupes rethrown non-Error rejection reasons at the uncaught monitor', () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
@@ -1529,16 +1535,9 @@ describe('crash handler', () => {
     installCrashHandlersForClient(client);
     const reason = { code: 'E' };
     try {
-      expect(() =>
-        (process.emit as (event: string, ...args: unknown[]) => boolean)(
-          'unhandledRejection',
-          reason,
-          Promise.resolve(),
-        ),
-      ).toThrow();
+      const caught = callInstalledRejectionHandler(reason);
+      expect(caught).toBe(reason);
 
-      // The plain-object reason is rethrown through the monitor; it must be
-      // deduped there, not reported as a second crash.
       (process.emit as (event: string, ...args: unknown[]) => boolean)(
         'uncaughtExceptionMonitor',
         reason,
@@ -1570,16 +1569,9 @@ describe('crash handler', () => {
     process.removeAllListeners('unhandledRejection');
     installCrashHandlersForClient(client);
     try {
-      expect(() =>
-        (process.emit as (event: string, ...args: unknown[]) => boolean)(
-          'unhandledRejection',
-          null,
-          Promise.resolve(),
-        ),
-      ).toThrow();
+      const caught = callInstalledRejectionHandler(null);
+      expect(caught).toBe(null);
 
-      // The rethrown null reaches the monitor: deduped, and the error-type
-      // classification must not itself throw on null/undefined.
       expect(() => {
         emitCrash(null as unknown as Error);
       }).not.toThrow();
@@ -1609,7 +1601,10 @@ describe('crash handler', () => {
     emitCrash(new DOMException('The operation was aborted.', 'AbortError'));
     emitCrash(Object.assign(new Error('aborted'), { name: 'AbortError' }));
     emitCrash(new DOMException('The operation was aborted.', 'AbortError'), 'unhandledRejection');
-    emitCrash(Object.assign(new Error('aborted'), { name: 'AbortError' }), 'unhandledRejection');
+    emitCrash(
+      Object.assign(new Error('aborted'), { name: 'AbortError' }),
+      'unhandledRejection',
+    );
 
     expect(transport.saved).toHaveLength(0);
   });
@@ -1657,6 +1652,10 @@ async function runTelemetryCrashScript(body: string): Promise<number> {
   const dir = await tempHome();
   const scriptPath = join(dir, 'crash-worker.ts');
   const testDir = import.meta.dirname;
+  const tsxCli = join(
+    dirname(fileURLToPath(import.meta.resolve('tsx/package.json'))),
+    'dist/cli.mjs',
+  );
   const crashModuleUrl = pathToFileURL(join(testDir, '../src/crash.ts')).href;
   const clientModuleUrl = pathToFileURL(join(testDir, '../src/client.ts')).href;
   writeFileSync(
@@ -1670,7 +1669,7 @@ async function runTelemetryCrashScript(body: string): Promise<number> {
   );
 
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [scriptPath], {
+    const child = spawn(process.execPath, [tsxCli, scriptPath], {
       cwd: join(testDir, '../../..'),
       stdio: ['ignore', 'ignore', 'pipe'],
     });

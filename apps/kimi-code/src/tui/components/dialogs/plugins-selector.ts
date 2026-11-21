@@ -1,9 +1,3 @@
-import type {
-  CapabilityStatus,
-  PluginInfo,
-  PluginMcpServerInfo,
-  PluginSummary,
-} from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Input,
@@ -12,28 +6,31 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
-  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
+import {
+  marketplaceEntryVisibleOnHost,
+  type CapabilityStatus,
+  type PluginInfo,
+  type PluginMcpServerInfo,
+  type PluginSummary,
+} from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
 
-import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
-import { DialogMouse, mouseDispatch, regionAt, type ListRowRegion } from '#/tui/utils/mouse';
+import {
+  capabilityIdForMarketplaceEntry,
+  dedupeCapabilityMarketplaceEntries,
+  installedPluginForMarketplaceEntry,
+} from '#/tui/utils/capability-marketplace';
 import { formatPluginSourceLabel, pluginTrustLabel } from '#/tui/utils/plugin-source-label';
 import { printableChar } from '#/tui/utils/printable-key';
-import { layoutTabStrip, type TabStripSpan } from '#/tui/utils/tab-strip';
-import { wrapText as wrapOverviewDescription } from '#/tui/utils/wrap-text';
-import {
-  computeUpdateStatus,
-  marketplaceEntryVisibleOnHost,
-  type PluginMarketplaceEntry,
-} from '#/utils/plugin-marketplace';
+import { renderTabStrip } from '#/tui/utils/tab-strip';
+import { computeUpdateStatus, pluginMarketplaceCliDescription, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
 
 import { ChoicePickerComponent } from './choice-picker';
+import { t } from '#/i18n';
 
 const MCP_SERVER_PREFIX = 'mcp:';
 
@@ -43,54 +40,16 @@ const INSTALL_TRUST_EXIT = 'exit';
 const INSTALL_TRUST_TRUST = 'trust';
 const ELLIPSIS = '…';
 
-// Hardcoded Web Bridge promotion: a built-in fallback shown only while the
-// marketplace catalog is loading, unreachable, or predates the real
-// `kimi-webbridge` entry. Selecting it opens the install page in the browser;
-// once the catalog carries the real entry, that row wins and installs
-// normally.
-const WEB_BRIDGE_URL = 'https://www.kimi.com/features/webbridge#local-agent';
-// The description is read lazily on the render path so the locale applied at
-// runtime (not the one detected at import time) is used.
-const WEB_BRIDGE_ENTRY: PluginMarketplaceEntry = {
-  id: 'kimi-webbridge',
-  displayName: 'Kimi Browser Extension',
-  source: WEB_BRIDGE_URL,
-  tier: 'official',
-  homepage: WEB_BRIDGE_URL,
-  get description(): string {
-    return webBridgeDescription();
-  },
-};
-
-function webBridgeDescription(): string {
-  return t('tui.dialogs.pluginsSelector.webBridgeDescription');
-}
-
-// Only the hardcoded pinned row should open the WebBridge install page. Match
-// by reference (not id) so a catalog entry on another tab that happens to
-// reuse the same id still installs normally instead of being hijacked.
-function isPinnedWebBridgeEntry(entry: PluginMarketplaceEntry): boolean {
-  return entry === WEB_BRIDGE_ENTRY;
-}
-
 interface PluginsOverviewItem {
   readonly value: string;
   readonly kind: 'plugin' | 'action';
   readonly label: string;
-  /** Internal status token used for styling logic (kept in English). */
   readonly status?: string;
-  /** Translated status label shown to the user. */
-  readonly statusLabel?: string;
   readonly description: string;
 }
 
 export type PluginMcpSelection =
-  | {
-      readonly kind: 'toggle';
-      readonly pluginId: string;
-      readonly server: string;
-      readonly enabled: boolean;
-    }
+  | { readonly kind: 'toggle'; readonly pluginId: string; readonly server: string; readonly enabled: boolean }
   | { readonly kind: 'back'; readonly pluginId: string };
 
 export interface PluginMcpSelectorOptions {
@@ -161,22 +120,14 @@ export class PluginMcpSelectorComponent extends Container implements Focusable {
     const actionItems = this.items.filter((item) => item.kind === 'action');
     const lines: string[] = [
       chalk.hex(colors.primary)('─'.repeat(width)),
-      chalk
-        .hex(colors.primary)
-        .bold(` ${t('tui.dialogs.pluginsSelector.mcpServersTitle', { name: info.displayName })}`),
+      chalk.hex(colors.primary).bold(t('tui.dialogs.pluginsSelector.mcpServersTitle', { name: info.displayName })),
       mutedHintLine(t('tui.dialogs.pluginsSelector.mcpNavHint'), colors),
       '',
-      sectionLabel(
-        t('tui.dialogs.pluginsSelector.mcpServersSection', {
-          enabled: info.enabledMcpServerCount,
-          total: info.mcpServerCount,
-        }),
-        colors,
-      ),
+      sectionLabel(t('tui.dialogs.pluginsSelector.mcpServersSection', { enabled: info.enabledMcpServerCount, total: info.mcpServerCount }), colors),
     ];
 
     if (serverItems.length === 0) {
-      lines.push(chalk.hex(colors.textMuted)(`  ${t('tui.dialogs.pluginsSelector.noMcpServers')}`));
+      lines.push(chalk.hex(colors.textMuted)(t('tui.dialogs.pluginsSelector.noMcpServers')));
     } else {
       for (let i = 0; i < serverItems.length; i++) {
         lines.push(...this.renderItem(serverItems[i]!, i, width));
@@ -201,8 +152,8 @@ export class PluginMcpSelectorComponent extends Container implements Focusable {
     const labelStyle = selected ? chalk.hex(colors.primary).bold : chalk.hex(colors.text);
     const prefix = chalk.hex(selected ? colors.primary : colors.textDim)(`  ${pointer} `);
     let line = prefix + labelStyle(item.label);
-    if (item.status !== undefined && item.statusLabel !== undefined) {
-      line += '  ' + statusStyle(item, colors)(item.statusLabel);
+    if (item.status !== undefined) {
+      line += '  ' + statusStyle(item, colors)(item.status);
     }
     const serverName = mcpItemServerName(item);
     if (serverName !== undefined && this.opts.serverHint?.server === serverName) {
@@ -217,7 +168,9 @@ export class PluginMcpSelectorComponent extends Container implements Focusable {
   }
 }
 
-export type PluginRemoveConfirmResult = { readonly kind: 'confirm' } | { readonly kind: 'cancel' };
+export type PluginRemoveConfirmResult =
+  | { readonly kind: 'confirm' }
+  | { readonly kind: 'cancel' };
 
 export interface PluginRemoveConfirmOptions {
   readonly id: string;
@@ -228,10 +181,7 @@ export interface PluginRemoveConfirmOptions {
 export class PluginRemoveConfirmComponent extends ChoicePickerComponent {
   constructor(opts: PluginRemoveConfirmOptions) {
     super({
-      title: t('tui.dialogs.pluginsSelector.removeConfirmTitle', {
-        name: opts.displayName,
-        id: opts.id,
-      }),
+      title: `Remove ${opts.displayName} (${opts.id})?`,
       hint: t('tui.dialogs.pluginsSelector.removeConfirmHint'),
       formatHint: mutedHintLine,
       options: [
@@ -262,23 +212,20 @@ export type PluginInstallTrustConfirmResult =
   | { readonly kind: 'cancel' };
 
 export interface PluginInstallTrustConfirmOptions {
-  /** Plugin display name or source, shown in the title for identification. */
   readonly label: string;
   readonly onDone: (result: PluginInstallTrustConfirmResult) => void;
 }
 
-/**
- * Confirmation shown before installing a third-party (unofficial) plugin.
- * Defaults to "Exit" so the user must explicitly switch to "Trust and install"
- * to proceed with a plugin that Kimi has not reviewed.
- */
 export class PluginInstallTrustConfirmComponent extends ChoicePickerComponent {
   constructor(opts: PluginInstallTrustConfirmOptions) {
     super({
       title: t('tui.dialogs.pluginsSelector.installTrustTitle', { label: opts.label }),
       hint: t('tui.dialogs.pluginsSelector.installTrustHint'),
       formatHint: mutedHintLine,
-      notice: t('tui.dialogs.pluginsSelector.installTrustNotice'),
+      notice:
+        '⚠️ This is a third-party plugin that Kimi has not reviewed. It can bundle MCP servers, ' +
+        'skills, or files that run code and access your workspace. Install it only if you ' +
+        'trust the source.',
       noticeTone: 'warning',
       options: [
         {
@@ -309,20 +256,13 @@ export class PluginStopProcessesConfirmComponent extends ChoicePickerComponent {
       title: t('tui.dialogs.pluginsSelector.stopProcessesTitle', { label: opts.label }),
       hint: t('tui.dialogs.pluginsSelector.stopProcessesHint'),
       formatHint: mutedHintLine,
-      notice: t('tui.dialogs.pluginsSelector.stopProcessesNotice'),
+      notice:
+        t('tui.dialogs.pluginsSelector.stopProcessesNotice'),
       noticeTone: 'warning',
       spaceSelect: false,
       options: [
-        {
-          value: 'cancel',
-          label: t('tui.dialogs.pluginsSelector.stopProcessesCancel'),
-          description: t('tui.dialogs.pluginsSelector.stopProcessesCancelDesc'),
-        },
-        {
-          value: 'confirm',
-          label: t('tui.dialogs.pluginsSelector.stopProcessesConfirm'),
-          tone: 'danger',
-        },
+        { value: 'cancel', label: t('tui.dialogs.pluginsSelector.stopProcessesCancel'), description: t('tui.dialogs.pluginsSelector.stopProcessesCancelDesc') },
+        { value: 'confirm', label: t('tui.dialogs.pluginsSelector.stopProcessesConfirm'), tone: 'danger' },
       ],
       onSelect: (value) => {
         opts.onDone(value === 'confirm');
@@ -335,29 +275,16 @@ export class PluginStopProcessesConfirmComponent extends ChoicePickerComponent {
 }
 
 function overviewPluginDescription(plugin: PluginSummary): string {
-  const state =
-    plugin.state === 'ok'
-      ? ''
-      : ` · ${t('tui.dialogs.pluginsSelector.pluginState', { state: plugin.state })}`;
-  const skills = t(
-    plugin.skillCount === 1
-      ? 'tui.dialogs.pluginsSelector.skillCount_one'
-      : 'tui.dialogs.pluginsSelector.skillCount_other',
-    { count: plugin.skillCount },
-  );
+  const state = plugin.state === 'ok' ? '' : ` · state ${plugin.state}`;
+  const skills = `${plugin.skillCount} skill${plugin.skillCount === 1 ? '' : 's'}`;
   const mcp =
     plugin.mcpServerCount > 0
-      ? ` · ${t('tui.dialogs.pluginsSelector.mcpCount', {
-          enabled: plugin.enabledMcpServerCount,
-          total: plugin.mcpServerCount,
-        })}`
+      ? ` · MCP ${plugin.enabledMcpServerCount}/${plugin.mcpServerCount}`
       : '';
-  const diagnostics = plugin.hasErrors
-    ? ` · ${t('tui.dialogs.pluginsSelector.diagnosticsAvailable')}`
-    : '';
+  const diagnostics = plugin.hasErrors ? ' · diagnostics available' : '';
   const source = ` · ${formatPluginSourceLabel(plugin)}`;
   const trust = ` · ${pluginTrustLabel(plugin)}`;
-  return `${t('tui.dialogs.pluginsSelector.pluginId', { id: plugin.id })} · ${skills}${mcp}${source}${trust}${state}${diagnostics}`;
+  return `id ${plugin.id} · ${skills}${mcp}${source}${trust}${state}${diagnostics}`;
 }
 
 function pluginStatus(plugin: PluginSummary): string | undefined {
@@ -365,29 +292,14 @@ function pluginStatus(plugin: PluginSummary): string | undefined {
   return plugin.enabled ? 'enabled' : 'disabled';
 }
 
-function pluginStatusLabel(status: string): string {
-  switch (status) {
-    case 'enabled':
-      return t('tui.dialogs.pluginsSelector.statusEnabled');
-    case 'disabled':
-      return t('tui.dialogs.pluginsSelector.statusDisabled');
-    default:
-      return status;
-  }
-}
-
 function marketplaceStatusStyle(status: string, colors: ColorPalette): (text: string) => string {
-  // States recede, actions pop: "installed …" is a quiet fact (dim), while
-  // "install …" (the available action) stays primary and "update …" stays a
-  // warning — the two used to share near-identical green-ish treatments in
-  // the same column and read as interchangeable.
   if (status.startsWith('update')) return chalk.hex(colors.warning);
-  if (status.startsWith('installed')) return chalk.hex(colors.textDim);
+  if (status.startsWith('installed') || status === 'cloud only') {
+    return chalk.hex(colors.textDim);
+  }
   return chalk.hex(colors.primary);
 }
 
-/** Rounded single-line URL input box (DESIGN §9), shared by the marketplace
- * Custom tab and the unified plugins panel. */
 function renderUrlInputBox(
   input: Input,
   focused: boolean,
@@ -407,10 +319,6 @@ function renderUrlInputBox(
   ];
 }
 
-// ===========================================================================
-// Unified /plugins panel: Installed / Official / Curated / Custom tabs.
-// ===========================================================================
-
 export type PluginsPanelTabId = 'installed' | 'official' | 'third-party' | 'custom';
 
 export type PluginsPanelSelection =
@@ -420,26 +328,17 @@ export type PluginsPanelSelection =
   | { readonly kind: 'details'; readonly id: string }
   | { readonly kind: 'reload' }
   | { readonly kind: 'install'; readonly entry: PluginMarketplaceEntry }
-  | { readonly kind: 'install-source'; readonly source: string }
-  | { readonly kind: 'open-url'; readonly url: string; readonly label: string };
+  | { readonly kind: 'install-source'; readonly source: string };
 
 export interface PluginsPanelOptions {
-  readonly installed: readonly PluginSummary[];
-  readonly installedIds: ReadonlySet<string>;
+  installed: readonly PluginSummary[];
   readonly capabilities?: readonly CapabilityStatus[];
-  /**
-   * False when the marketplace was explicitly replaced (slash-command
-   * source or env override): built-in rows then stay out of the Official
-   * tab entirely. Undefined means the default catalog.
-   */
   readonly catalogIsDefault?: boolean;
   readonly initialTab?: PluginsPanelTabId;
   readonly selectedId?: string;
   readonly pluginHint?: { readonly id: string; readonly text: string };
   readonly onSelect: (selection: PluginsPanelSelection) => void;
   readonly onCancel: () => void;
-  /** Called the first time the Official or Curated tab needs its catalog.
-   * The host fetches the marketplace and calls setMarketplace / setMarketplaceError. */
   readonly onRequestMarketplace?: () => void;
 }
 
@@ -447,45 +346,32 @@ type MarketState =
   | { readonly status: 'idle' }
   | { readonly status: 'loading' }
   | { readonly status: 'error'; readonly message: string }
-  | {
-      readonly status: 'loaded';
-      readonly entries: readonly PluginMarketplaceEntry[];
-      readonly source: string;
-    };
+  | { readonly status: 'loaded'; readonly entries: readonly PluginMarketplaceEntry[]; readonly source: string };
 
-function getPluginsPanelTabs(): readonly { id: PluginsPanelTabId; label: string }[] {
-  return [
-    { id: 'installed', label: t('tui.dialogs.pluginsSelector.tabInstalled') },
-    { id: 'official', label: t('tui.dialogs.pluginsSelector.tabOfficial') },
-    { id: 'third-party', label: t('tui.dialogs.pluginsSelector.tabThirdParty') },
-    { id: 'custom', label: t('tui.dialogs.pluginsSelector.tabCustom') },
-  ];
-}
+const PLUGINS_PANEL_TABS: readonly { id: PluginsPanelTabId; label: string }[] = [
+  { id: 'installed', label: t('tui.dialogs.pluginsSelector.tabInstalled') },
+  { id: 'official', label: t('tui.dialogs.pluginsSelector.tabOfficial') },
+  { id: 'third-party', label: t('tui.dialogs.pluginsSelector.tabThirdParty') },
+  { id: 'custom', label: t('tui.dialogs.pluginsSelector.tabCustom') },
+];
 
 export class PluginsPanelComponent extends Container implements Focusable {
   focused = false;
 
   private readonly opts: PluginsPanelOptions;
   private readonly customInput = new Input();
-  private readonly tabs: readonly { id: PluginsPanelTabId; label: string }[] =
-    getPluginsPanelTabs();
   private activeTabIndex: number;
   private selectedIndex = 0;
   private market: MarketState = { status: 'idle' };
   private installing: string | undefined;
-
-  /** Rows and tabs recorded by the last render, for pointer hits. */
-  private readonly rowRegions: ListRowRegion[] = [];
-  private tabRow: number | undefined;
-  private tabSpans: readonly TabStripSpan[] = [];
-  private readonly mouse = new DialogMouse(() => this.focused);
+  private catalogVersions = new Map<string, string | undefined>();
 
   constructor(opts: PluginsPanelOptions) {
     super();
     this.opts = opts;
     this.activeTabIndex = Math.max(
       0,
-      this.tabs.findIndex((tab) => tab.id === (opts.initialTab ?? 'installed')),
+      PLUGINS_PANEL_TABS.findIndex((tab) => tab.id === (opts.initialTab ?? 'installed')),
     );
     if (opts.selectedId !== undefined && this.activeTab.id === 'installed') {
       const idx = opts.installed.findIndex((p) => p.id === opts.selectedId);
@@ -501,12 +387,29 @@ export class PluginsPanelComponent extends Container implements Focusable {
     return this.market.status;
   }
 
+  marketplaceSource(): string | undefined {
+    return this.market.status === 'loaded' ? this.market.source : undefined;
+  }
+
   setMarketplaceLoading(): void {
     this.market = { status: 'loading' };
   }
 
+  setInstalled(plugins: readonly PluginSummary[]): void {
+    this.opts.installed = plugins;
+  }
+
   setMarketplace(entries: readonly PluginMarketplaceEntry[], source: string): void {
     this.market = { status: 'loaded', entries, source };
+  }
+
+  setMarketplaceCatalogVersions(entries: readonly PluginMarketplaceEntry[]): void {
+    this.catalogVersions = new Map(entries.map((entry) => [entry.id, entry.version]));
+  }
+
+  expectedMarketplaceVersion(entry: PluginMarketplaceEntry): string | undefined {
+    if (this.catalogVersions.has(entry.id)) return this.catalogVersions.get(entry.id);
+    return entry.version;
   }
 
   setMarketplaceError(message: string): void {
@@ -523,88 +426,64 @@ export class PluginsPanelComponent extends Container implements Focusable {
     this.invalidate();
   }
 
-  private get activeTab(): { id: PluginsPanelTabId; label: string } {
-    return this.tabs[this.activeTabIndex]!;
+  private get activeTab(): (typeof PLUGINS_PANEL_TABS)[number] {
+    return PLUGINS_PANEL_TABS[this.activeTabIndex]!;
   }
 
   private get marketplaceEntries(): readonly PluginMarketplaceEntry[] {
-    if (this.market.status !== 'loaded') return [];
-    return this.market.entries
-      .filter((entry) => marketplaceEntryVisibleOnHost(entry, 'cli', process.platform))
-      .toSorted(
-        (a, b) =>
-          Number(this.isMarketplaceEntryInstalled(b)) - Number(this.isMarketplaceEntryInstalled(a)),
-      );
+    const entries = this.market.status === 'loaded' ? this.market.entries : this.pendingBuiltInEntries;
+    return dedupeCapabilityMarketplaceEntries(
+      entries.filter(marketplaceEntryIsVisible),
+      this.opts.capabilities ?? [],
+      this.catalogIsDefault,
+    );
   }
 
-  private get installedVersions(): ReadonlyMap<string, string | undefined> {
-    return new Map(this.opts.installed.map((plugin) => [plugin.id, plugin.version]));
+  private get pendingBuiltInEntries(): readonly PluginMarketplaceEntry[] {
+    if (!this.catalogIsDefault) return [];
+    return (this.opts.capabilities ?? [])
+      .filter((capability) => capability.supported)
+      .map((capability) => ({
+        id: capability.pluginId ?? capability.id,
+        displayName: capability.displayName,
+        description: capability.description,
+        tier: 'official',
+        source: `capability:${capability.id}`,
+        builtIn: true,
+      }));
   }
 
-  private capabilityFor(id: string): CapabilityStatus | undefined {
-    return this.opts.capabilities?.find((capability) => capability.id === id);
+  private get catalogIsDefault(): boolean {
+    return this.opts.catalogIsDefault !== false;
   }
 
-  /** Capability state for a MARKETPLACE row: only our own injected rows
-   * (flagged `builtIn` — a custom catalog cannot forge the flag) may show
-   * capability status, matching how Enter routes them. */
   private capabilityForEntry(entry: PluginMarketplaceEntry): CapabilityStatus | undefined {
-    return entry.builtIn === true ? this.capabilityFor(entry.id) : undefined;
+    const capabilityId = capabilityIdForMarketplaceEntry(entry.id, this.catalogIsDefault);
+    return this.opts.capabilities?.find((capability) => capability.id === capabilityId);
   }
 
-  private installedPluginId(entry: PluginMarketplaceEntry): string {
-    return this.capabilityForEntry(entry)?.pluginId ?? entry.id;
+  private installedPluginForEntry(entry: PluginMarketplaceEntry): PluginSummary | undefined {
+    return installedPluginForMarketplaceEntry(
+      entry.id,
+      this.opts.installed,
+      this.capabilityForEntry(entry),
+      this.catalogIsDefault,
+    );
   }
 
   private isMarketplaceEntryInstalled(entry: PluginMarketplaceEntry): boolean {
-    return this.opts.installedIds.has(this.installedPluginId(entry));
+    return this.installedPluginForEntry(entry) !== undefined;
   }
 
   private get officialEntries(): readonly PluginMarketplaceEntry[] {
-    // While the catalog is loading or unreachable, the locally-known
-    // capability rows still render and install — built-in runtime setup
-    // must never be blocked by an unrelated catalog fetch.
-    if (this.market.status !== 'loaded') {
-      return this.pendingBuiltInEntries.some((entry) => entry.id === WEB_BRIDGE_ENTRY.id)
-        ? this.pendingBuiltInEntries
-        : [...this.pendingBuiltInEntries, WEB_BRIDGE_ENTRY];
-    }
-    // The real catalog entry wins when present (it installs the actual
-    // plugin); the hardcoded promo row is only a fallback while the catalog
-    // is loading, unreachable, or predates it — never a duplicate row.
-    return this.officialCatalogEntries.some((entry) => entry.id === WEB_BRIDGE_ENTRY.id)
-      ? this.officialCatalogEntries
-      : [WEB_BRIDGE_ENTRY, ...this.officialCatalogEntries];
-  }
-
-  /** Capability rows synthesized from the engine's registry, independent of
-   * the marketplace state; unsupported platforms hide them entirely. Only
-   * the default catalog gets built-in rows — an explicitly overridden
-   * marketplace must be able to fully replace the Official tab. */
-  private get pendingBuiltInEntries(): readonly PluginMarketplaceEntry[] {
-    if (this.opts.catalogIsDefault === false) return [];
-    return (this.opts.capabilities ?? [])
-      .filter((capability) => capability.supported)
-      .map(capabilityMarketplaceEntry);
-  }
-
-  private get officialCatalogEntries(): readonly PluginMarketplaceEntry[] {
-    return this.marketplaceEntries.filter((entry) => {
-      if (entry.tier !== 'official') return false;
-      return this.capabilityForEntry(entry)?.supported !== false;
-    });
+    return this.marketplaceEntries.filter((entry) => entry.tier === 'official');
   }
 
   private get thirdPartyEntries(): readonly PluginMarketplaceEntry[] {
-    // Anything not explicitly marked official lands here: `curated` entries plus
-    // entries that omit `tier` (custom marketplaces often do). Without this,
-    // untiered entries would be invisible in both marketplace tabs.
     return this.marketplaceEntries.filter((entry) => entry.tier !== 'official');
   }
 
   private requestMarketplaceIfNeeded(): void {
-    // The Installed tab also needs the catalog to render update badges; only the
-    // Custom tab (manual URL entry) can skip the fetch entirely.
     if (this.market.status === 'idle' && this.activeTab.id !== 'custom') {
       this.market = { status: 'loading' };
       this.opts.onRequestMarketplace?.();
@@ -617,13 +496,14 @@ export class PluginsPanelComponent extends Container implements Focusable {
       return;
     }
     if (matchesKey(data, Key.tab)) {
-      this.activeTabIndex = (this.activeTabIndex + 1) % this.tabs.length;
+      this.activeTabIndex = (this.activeTabIndex + 1) % PLUGINS_PANEL_TABS.length;
       this.selectedIndex = 0;
       this.requestMarketplaceIfNeeded();
       return;
     }
     if (matchesKey(data, Key.shift('tab'))) {
-      this.activeTabIndex = (this.activeTabIndex - 1 + this.tabs.length) % this.tabs.length;
+      this.activeTabIndex =
+        (this.activeTabIndex - 1 + PLUGINS_PANEL_TABS.length) % PLUGINS_PANEL_TABS.length;
       this.selectedIndex = 0;
       this.requestMarketplaceIfNeeded();
       return;
@@ -654,9 +534,6 @@ export class PluginsPanelComponent extends Container implements Focusable {
     }
     const plugin = plugins[this.selectedIndex];
     const ch = printableChar(data);
-    // Decode Space for terminals that send printable keys via Kitty/CSI-u
-    // sequences (e.g. VS Code's integrated terminal); `matchesKey(Key.space)`
-    // alone misses those and the toggle silently stops working.
     if (matchesKey(data, Key.space) || ch === ' ') {
       if (plugin !== undefined) {
         this.opts.onSelect({ kind: 'toggle', id: plugin.id, enabled: !plugin.enabled });
@@ -691,89 +568,19 @@ export class PluginsPanelComponent extends Container implements Focusable {
   }
 
   private handleMarketplaceInput(data: string): void {
-    const entries =
-      this.activeTab.id === 'official' ? this.officialEntries : this.thirdPartyEntries;
+    const entries = this.activeTab.id === 'official' ? this.officialEntries : this.thirdPartyEntries;
     if (matchesKey(data, Key.up)) {
       this.selectedIndex = Math.max(0, this.selectedIndex - 1);
       return;
     }
     if (matchesKey(data, Key.down)) {
-      // Clamp to 0 while the catalog is still loading (entries empty); otherwise
-      // `entries.length - 1` is -1 and a later Enter reads `entries[-1]`.
-      this.selectedIndex =
-        entries.length === 0 ? 0 : Math.min(entries.length - 1, this.selectedIndex + 1);
+      this.selectedIndex = entries.length === 0 ? 0 : Math.min(entries.length - 1, this.selectedIndex + 1);
       return;
     }
     if (matchesKey(data, Key.enter)) {
       const entry = entries[this.selectedIndex];
-      if (entry === undefined) return;
-      if (isPinnedWebBridgeEntry(entry)) {
-        this.opts.onSelect({ kind: 'open-url', url: WEB_BRIDGE_URL, label: entry.displayName });
-        return;
-      }
+      if (entry === undefined || marketplaceEntryIsCloudOnly(entry)) return;
       this.opts.onSelect({ kind: 'install', entry });
-    }
-  }
-
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouseEvent(event));
-  }
-
-  private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    const handoff = this.mouse.handoff(event);
-    if (handoff !== undefined) return handoff;
-
-    if (event.type === 'wheel') {
-      const direction = this.mouse.wheel(event);
-      if (direction === 0) return { handled: true };
-      return { handled: true, render: this.stepSelection(direction) };
-    }
-
-    if (this.tabRow !== undefined && event.y === this.tabRow) {
-      if (event.type !== 'press' && event.type !== 'click') return undefined;
-      const span = this.tabSpans.find(
-        (candidate) => event.x >= candidate.start && event.x < candidate.end,
-      );
-      if (span === undefined || span.index === this.activeTabIndex) return { handled: true };
-      this.activeTabIndex = span.index;
-      this.selectedIndex = 0;
-      this.requestMarketplaceIfNeeded();
-      return { handled: true, render: true };
-    }
-
-    const row = regionAt(this.rowRegions, event);
-    if (event.type !== 'move' && event.button !== 'left') return undefined;
-    if (row === undefined) return undefined;
-    // A click selects the row the way ↑/↓ would. Acting on it stays on the
-    // keyboard: a pointer landing on a row cannot mean "delete this plugin".
-    if (event.type === 'click' || event.type === 'press' || event.type === 'move') {
-      return { handled: true, render: this.selectIndex(row.index) };
-    }
-    return { handled: true };
-  }
-
-  private selectIndex(index: number): boolean {
-    const last = Math.max(0, this.activeRowCount() - 1);
-    const next = Math.max(0, Math.min(last, index));
-    if (next === this.selectedIndex) return false;
-    this.selectedIndex = next;
-    return true;
-  }
-
-  private stepSelection(delta: number): boolean {
-    return this.selectIndex(this.selectedIndex + delta);
-  }
-
-  private activeRowCount(): number {
-    switch (this.activeTab.id) {
-      case 'installed':
-        return this.opts.installed.length;
-      case 'official':
-        return this.officialEntries.length;
-      case 'third-party':
-        return this.thirdPartyEntries.length;
-      case 'custom':
-        return 0;
     }
   }
 
@@ -783,9 +590,6 @@ export class PluginsPanelComponent extends Container implements Focusable {
   }
 
   override render(width: number): string[] {
-    this.rowRegions.length = 0;
-    this.tabRow = undefined;
-    this.tabSpans = [];
     if (this.installing !== undefined) {
       return this.renderInstalling(width);
     }
@@ -796,22 +600,20 @@ export class PluginsPanelComponent extends Container implements Focusable {
         ? this.installedHint()
         : tab === 'custom'
           ? t('tui.dialogs.pluginsSelector.tabHintCustom')
-          : t('tui.dialogs.pluginsSelector.tabHintMarketplace');
+          : this.marketplaceHint();
     const lines: string[] = [
       chalk.hex(colors.primary)('─'.repeat(width)),
-      chalk.hex(colors.primary).bold(` ${t('tui.dialogs.pluginsSelector.panelTitle')}`),
+      chalk.hex(colors.primary).bold(' Plugins'),
       mutedHintLine(hint, colors),
       '',
+      renderTabStrip({
+        labels: PLUGINS_PANEL_TABS.map((t) => t.label),
+        activeIndex: this.activeTabIndex,
+        width,
+        colors,
+      }),
+      '',
     ];
-    const strip = layoutTabStrip({
-      labels: this.tabs.map((t) => t.label),
-      activeIndex: this.activeTabIndex,
-      width,
-      colors,
-    });
-    this.tabRow = lines.length;
-    this.tabSpans = strip.spans;
-    lines.push(strip.text, '');
 
     if (tab === 'installed') this.renderInstalled(lines, width);
     else if (tab === 'official') this.renderOfficial(lines, width);
@@ -826,48 +628,41 @@ export class PluginsPanelComponent extends Container implements Focusable {
     const { installed } = this.opts;
     const colors = currentTheme.palette;
     if (installed.length === 0) {
-      lines.push(
-        chalk.hex(colors.textMuted)(`  ${t('tui.dialogs.pluginsSelector.noPluginsInstalled')}`),
-      );
+      lines.push(chalk.hex(colors.textMuted)('  No plugins installed.'));
     } else {
       for (let i = 0; i < installed.length; i++) {
-        const start = lines.length;
         lines.push(...this.renderInstalledRow(installed[i]!, i, width));
-        this.rowRegions.push({ start, end: lines.length, index: i });
       }
     }
     lines.push('');
-    lines.push(
-      mutedHintLine(
-        ` ${t('tui.dialogs.pluginsSelector.countInstalled', { count: installed.length })}`,
-        colors,
-      ),
-    );
+    lines.push(mutedHintLine(` ${installed.length} installed`, colors));
+  }
+
+  private marketplaceHint(): string {
+    const entries = this.activeTab.id === 'official' ? this.officialEntries : this.thirdPartyEntries;
+    const entry = entries[this.selectedIndex];
+    const install = entry !== undefined && marketplaceEntryIsCloudOnly(entry) ? '' : ' · Enter install';
+    return ` Tab switch · ↑↓ navigate${install} · Esc cancel`;
   }
 
   private installedHint(): string {
     const plugin = this.opts.installed[this.selectedIndex];
     const hasUpdate = plugin !== undefined && this.installedUpdateStatus(plugin) !== undefined;
-    const enterAction = hasUpdate
-      ? t('tui.dialogs.pluginsSelector.enterUpdate')
-      : t('tui.dialogs.pluginsSelector.enterDetails');
-    return t('tui.dialogs.pluginsSelector.tabHintInstalled', { enterAction });
+    const enter = hasUpdate ? t('tui.dialogs.pluginsSelector.enterUpdate') : t('tui.dialogs.pluginsSelector.enterDetails');
+    return t('tui.dialogs.pluginsSelector.tabHintInstalled', { enterAction: enter });
   }
 
   private installedUpdateStatus(
     plugin: PluginSummary,
   ): { entry: PluginMarketplaceEntry; local: string; latest: string } | undefined {
     if (this.market.status !== 'loaded') return undefined;
-    const entry = this.market.entries.find(
-      (candidate) =>
-        candidate.id === plugin.id ||
-        (candidate.builtIn === true && this.capabilityForEntry(candidate)?.pluginId === plugin.id),
+    const entries = this.marketplaceEntries.filter((entry) => !marketplaceEntryIsCloudOnly(entry));
+    const entry = entries.find(
+      (candidate) => this.installedPluginForEntry(candidate)?.id === plugin.id,
     );
     if (entry === undefined) return undefined;
     const status = computeUpdateStatus(entry.version, plugin.version, true);
-    return status.kind === 'update'
-      ? { entry, local: status.local, latest: status.latest }
-      : undefined;
+    return status.kind === 'update' ? { entry, local: status.local, latest: status.latest } : undefined;
   }
 
   private renderInstalledRow(plugin: PluginSummary, index: number, width: number): string[] {
@@ -877,23 +672,14 @@ export class PluginsPanelComponent extends Container implements Focusable {
     const labelStyle = selected ? chalk.hex(colors.primary).bold : chalk.hex(colors.text);
     const prefix = chalk.hex(selected ? colors.primary : colors.textDim)(`  ${pointer} `);
     const status = pluginStatus(plugin);
-    const statusLabel = status === undefined ? undefined : pluginStatusLabel(status);
     const update = this.installedUpdateStatus(plugin);
     let line = prefix + labelStyle(plugin.displayName);
-    if (status !== undefined && statusLabel !== undefined) {
-      line +=
-        '  ' +
-        statusStyle(
-          { kind: 'plugin', value: '', label: '', description: '', status },
-          colors,
-        )(statusLabel);
+    if (status !== undefined) {
+      line += '  ' + statusStyle({ kind: 'plugin', value: '', label: '', description: '', status }, colors)(status);
     }
     if (update !== undefined) {
-      const badge = t('tui.dialogs.pluginsSelector.updateStatus', {
-        local: update.local,
-        latest: update.latest,
-      });
-      line += '  ' + marketplaceStatusStyle(`update ${update.local}`, colors)(badge);
+      const badge = `update ${update.local} → ${update.latest}`;
+      line += '  ' + marketplaceStatusStyle(badge, colors)(badge);
     }
     if (this.opts.pluginHint?.id === plugin.id) {
       line += '  ' + chalk.hex(colors.warning)(this.opts.pluginHint.text);
@@ -910,126 +696,85 @@ export class PluginsPanelComponent extends Container implements Focusable {
     lines: string[],
     width: number,
     entries: readonly PluginMarketplaceEntry[],
-    indexOffset = 0,
-    // Counts (installed/available footer) are computed over this list:
-    // the Official tab renders the pinned promo as a row but excludes it
-    // from the catalog counts, matching its pre-catalog semantics.
-    entriesForCount: readonly PluginMarketplaceEntry[] = entries,
   ): void {
     const colors = currentTheme.palette;
     if (this.market.status === 'loading' || this.market.status === 'idle') {
-      lines.push(
-        chalk.hex(colors.textMuted)(`  ${t('tui.dialogs.pluginsSelector.loadingMarketplace')}`),
-      );
-      return;
-    }
-    if (this.market.status === 'error') {
-      lines.push(
-        chalk.hex(colors.warning)(
-          `  ${t('tui.dialogs.pluginsSelector.marketplaceUnavailable', { message: this.market.message })}`,
-        ),
-      );
-      lines.push(mutedHintLine(`  ${t('tui.dialogs.pluginsSelector.useCustomTabHint')}`, colors));
-      return;
+      lines.push(chalk.hex(colors.textMuted)(t('tui.dialogs.pluginsSelector.loadingMarketplace')));
+      if (entries.length === 0) return;
+    } else if (this.market.status === 'error') {
+      lines.push(chalk.hex(colors.warning)(`  Marketplace unavailable: ${this.market.message}`));
+      lines.push(mutedHintLine(t('tui.dialogs.pluginsSelector.useCustomTabHint'), colors));
+      if (entries.length === 0) return;
     }
     if (entries.length === 0) {
-      lines.push(
-        chalk.hex(colors.textMuted)(`  ${t('tui.dialogs.pluginsSelector.noPluginsFound')}`),
-      );
+      lines.push(chalk.hex(colors.textMuted)(t('tui.dialogs.pluginsSelector.noPluginsFound')));
     } else {
       for (let i = 0; i < entries.length; i++) {
-        const start = lines.length;
-        lines.push(...this.renderMarketplaceRow(entries[i]!, i + indexOffset, width));
-        this.rowRegions.push({ start, end: lines.length, index: i + indexOffset });
+        lines.push(...this.renderMarketplaceRow(entries[i]!, i, width));
       }
     }
-    const installedCount = entriesForCount.filter((entry) =>
+    const installedCount = entries.filter((entry) =>
       this.isMarketplaceEntryInstalled(entry),
     ).length;
     lines.push('');
     lines.push(
       mutedHintLine(
-        ` ${t('tui.dialogs.pluginsSelector.marketplaceCount', {
-          installed: installedCount,
-          available: entriesForCount.length - installedCount,
-        })}`,
+        t('tui.dialogs.pluginsSelector.marketplaceCount', { installed: installedCount, available: entries.length - installedCount }),
         colors,
       ),
     );
-    lines.push(
-      mutedHintLine(
-        ` ${t('tui.dialogs.pluginsSelector.marketplaceSource', { source: this.market.source })}`,
-        colors,
-      ),
-    );
+    if (this.market.status === 'loaded') {
+      lines.push(mutedHintLine(` Source: ${this.market.source}`, colors));
+    }
   }
 
   private renderOfficial(lines: string[], width: number): void {
-    // Loading / error: `officialEntries` carries the locally-known
-    // capability rows (plus the promo fallback when webbridge is not among
-    // them), so built-in setup works before the catalog arrives. Once
-    // loaded, the promo appears only when the catalog lacks the real entry.
-    if (this.market.status !== 'loaded') {
-      const entries = this.officialEntries;
-      for (let i = 0; i < entries.length; i += 1) {
-        const start = lines.length;
-        lines.push(...this.renderMarketplaceRow(entries[i]!, i, width));
-        this.rowRegions.push({ start, end: lines.length, index: i });
-      }
-      this.renderMarketplaceTab(lines, width, [], entries.length);
-      return;
-    }
-    this.renderMarketplaceTab(lines, width, this.officialEntries, 0, this.officialCatalogEntries);
+    this.renderMarketplaceTab(lines, width, this.officialEntries);
   }
 
   private renderThirdParty(lines: string[], width: number): void {
-    if (this.opts.catalogIsDefault !== false) {
+    if (this.catalogIsDefault) {
       const colors = currentTheme.palette;
-      lines.push(
-        mutedHintLine(` ${t('tui.dialogs.pluginsSelector.thirdPartySourceHint')}`, colors),
-      );
+      lines.push(mutedHintLine(t('tui.dialogs.pluginsSelector.thirdPartySourceHint'), colors));
       lines.push('');
     }
     this.renderMarketplaceTab(lines, width, this.thirdPartyEntries);
   }
 
-  private renderMarketplaceRow(
-    entry: PluginMarketplaceEntry,
-    index: number,
-    width: number,
-  ): string[] {
+  private renderMarketplaceRow(entry: PluginMarketplaceEntry, index: number, width: number): string[] {
     const colors = currentTheme.palette;
     const selected = index === this.selectedIndex;
     const pointer = selected ? SELECT_POINTER : ' ';
     const labelStyle = selected ? chalk.hex(colors.primary).bold : chalk.hex(colors.text);
     const prefix = chalk.hex(selected ? colors.primary : colors.textDim)(`  ${pointer} `);
     const capability = this.capabilityForEntry(entry);
-    const status = isPinnedWebBridgeEntry(entry)
-      ? 'open-in-browser'
+    const status = marketplaceEntryIsCloudOnly(entry)
+      ? 'cloud only'
       : capability?.install.running === true
         ? 'installing…'
-        : marketplaceEntryStatus(entry, this.installedVersions, this.installedPluginId(entry));
-    const statusLabel = marketplaceStatusLabel(status);
+        : marketplaceEntryStatus(entry, this.installedPluginForEntry(entry));
     const line =
-      prefix +
-      labelStyle(entry.displayName) +
-      '  ' +
-      marketplaceStatusStyle(status, colors)(statusLabel);
+      prefix + labelStyle(entry.displayName) + '  ' + marketplaceStatusStyle(status, colors)(status);
     const descWidth = Math.max(1, width - 4);
     const out = [line];
-    const description =
-      this.activeTab.id === 'official'
-        ? officialMarketplaceEntryDescription(entry)
-        : marketplaceEntryDescription(entry);
+    const isOfficial = this.activeTab.id === 'official';
+    const description = isOfficial
+      ? officialMarketplaceEntryDescription(entry)
+      : marketplaceEntryDescription(entry);
     for (const descLine of wrapOverviewDescription(description, descWidth)) {
       out.push(mutedHintLine(`    ${descLine}`, colors));
+    }
+    if (!isOfficial) {
+      for (const metadataLine of wrapOverviewDescription(marketplaceEntryMetadata(entry), descWidth)) {
+        out.push(mutedHintLine(`    ${metadataLine}`, colors));
+      }
     }
     return out;
   }
 
   private renderCustom(lines: string[], width: number): void {
     const colors = currentTheme.palette;
-    lines.push(mutedHintLine(` ${t('tui.dialogs.pluginsSelector.installFromUrlHint')}`, colors));
+    lines.push(mutedHintLine(t('tui.dialogs.pluginsSelector.installFromUrlHint'), colors));
     lines.push('');
     lines.push(...renderUrlInputBox(this.customInput, this.focused, width, colors));
   }
@@ -1038,11 +783,9 @@ export class PluginsPanelComponent extends Container implements Focusable {
     const colors = currentTheme.palette;
     const lines = [
       chalk.hex(colors.primary)('─'.repeat(width)),
-      chalk.hex(colors.primary).bold(` ${t('tui.dialogs.pluginsSelector.panelTitle')}`),
+      chalk.hex(colors.primary).bold(' Plugins'),
       '',
-      chalk.hex(colors.textMuted)(
-        `  ${t('tui.dialogs.pluginsSelector.installingFromMarketplace', { label: this.installing ?? '' })}`,
-      ),
+      chalk.hex(colors.textMuted)(`  Installing ${this.installing}…`),
       '',
       chalk.hex(colors.primary)('─'.repeat(width)),
     ];
@@ -1051,19 +794,13 @@ export class PluginsPanelComponent extends Container implements Focusable {
 }
 
 function buildMcpItems(info: PluginInfo): PluginsOverviewItem[] {
-  const items: PluginsOverviewItem[] = info.mcpServers.map((server) => {
-    const status = server.enabled ? 'enabled' : 'disabled';
-    return {
-      value: `${MCP_SERVER_PREFIX}${server.name}`,
-      kind: 'plugin',
-      label: server.name,
-      status,
-      statusLabel: t(
-        `tui.dialogs.pluginsSelector.status${status.charAt(0).toUpperCase() + status.slice(1)}`,
-      ),
-      description: mcpServerDescription(server),
-    };
-  });
+  const items: PluginsOverviewItem[] = info.mcpServers.map((server) => ({
+    value: `${MCP_SERVER_PREFIX}${server.name}`,
+    kind: 'plugin',
+    label: server.name,
+    status: server.enabled ? 'enabled' : 'disabled',
+    description: mcpServerDescription(server),
+  }));
   items.push({
     value: 'back',
     kind: 'action',
@@ -1074,26 +811,14 @@ function buildMcpItems(info: PluginInfo): PluginsOverviewItem[] {
 }
 
 function mcpServerDescription(server: PluginMcpServerInfo): string {
-  const action = server.enabled
-    ? t('tui.dialogs.pluginsSelector.mcpDisable')
-    : t('tui.dialogs.pluginsSelector.mcpEnable');
+  const action = server.enabled ? t('tui.dialogs.pluginsSelector.mcpDisable') : t('tui.dialogs.pluginsSelector.mcpEnable');
   if (server.transport === 'http' || server.transport === 'sse') {
-    return t('tui.dialogs.pluginsSelector.mcpServerTransportHint', {
-      action,
-      transport: server.transport.toUpperCase(),
-      target: server.url ?? server.runtimeName,
-    });
+    return `${action} · ${server.transport.toUpperCase()} · ${server.url ?? server.runtimeName}`;
   }
-  const args =
-    server.args !== undefined && server.args.length > 0 ? ` ${server.args.join(' ')}` : '';
+  const args = server.args !== undefined && server.args.length > 0 ? ` ${server.args.join(' ')}` : '';
   const command = `${server.command ?? ''}${args}`.trim();
-  const base = t('tui.dialogs.pluginsSelector.mcpServerStdioHint', {
-    action,
-    command: command || server.runtimeName,
-  });
-  return server.cwd === undefined
-    ? base
-    : `${base}${t('tui.dialogs.pluginsSelector.mcpServerCwdSuffix', { cwd: server.cwd })}`;
+  const cwd = server.cwd === undefined ? '' : ` · cwd ${server.cwd}`;
+  return `${action} · stdio · ${command || server.runtimeName}${cwd}`;
 }
 
 function mcpItemServerName(item: PluginsOverviewItem): string | undefined {
@@ -1102,22 +827,23 @@ function mcpItemServerName(item: PluginsOverviewItem): string | undefined {
 }
 
 function marketplaceEntryDescription(entry: PluginMarketplaceEntry): string {
-  const tier = marketplaceTierLabel(entry.tier);
-  const description = entry.description ?? tier;
-  const version =
-    entry.version !== undefined
-      ? ` · ${t('tui.dialogs.pluginsSelector.versionPrefix', { version: entry.version })}`
-      : '';
+  return pluginMarketplaceCliDescription(entry) ?? marketplaceTierLabel(entry.tier);
+}
+
+function marketplaceEntryMetadata(entry: PluginMarketplaceEntry): string {
+  const version = entry.version !== undefined ? ` · v${entry.version}` : '';
+  const tier = pluginMarketplaceCliDescription(entry) !== undefined
+    ? ` · ${marketplaceTierLabel(entry.tier)}`
+    : '';
   const keywords =
     entry.keywords !== undefined && entry.keywords.length > 0
       ? ` · ${entry.keywords.join(', ')}`
       : '';
-  const tierSuffix = entry.description !== undefined ? ` · ${tier}` : '';
-  return `${description} · ${t('tui.dialogs.pluginsSelector.pluginId', { id: entry.id })}${version}${tierSuffix}${keywords}`;
+  return `id ${entry.id}${version}${tier}${keywords}`;
 }
 
 function officialMarketplaceEntryDescription(entry: PluginMarketplaceEntry): string {
-  return entry.description ?? '';
+  return pluginMarketplaceCliDescription(entry) ?? '';
 }
 
 function marketplaceTierLabel(tier: PluginMarketplaceEntry['tier']): string {
@@ -1126,79 +852,42 @@ function marketplaceTierLabel(tier: PluginMarketplaceEntry['tier']): string {
   return t('tui.dialogs.pluginsSelector.marketplaceTierUnknown');
 }
 
-function capabilityMarketplaceEntry(capability: CapabilityStatus): PluginMarketplaceEntry {
-  return {
-    id: capability.id,
-    displayName: capability.displayName,
-    source: `capability:${capability.id}`,
-    tier: 'official',
-    description: capability.description,
-    builtIn: true,
-  };
+function marketplaceEntryIsVisible(entry: PluginMarketplaceEntry): boolean {
+  return marketplaceEntryVisibleOnHost(entry, 'cli', process.platform);
+}
+
+function marketplaceEntryIsCloudOnly(entry: PluginMarketplaceEntry): boolean {
+  const platforms: readonly string[] | undefined = entry.platforms;
+  return platforms?.every((platform) => platform === 'cloud') === true;
 }
 
 function installStatus(entry: PluginMarketplaceEntry): string {
-  return entry.version === undefined ? 'install' : `install v${entry.version}`;
+  return entry.version === undefined ? 'install' : t('tui.dialogs.pluginsSelector.installStatusVersion', { version: entry.version });
 }
 
 function marketplaceEntryStatus(
   entry: PluginMarketplaceEntry,
-  installed: ReadonlyMap<string, string | undefined>,
-  installedPluginId = entry.id,
+  installed: PluginSummary | undefined,
 ): string {
-  const status = computeUpdateStatus(
-    entry.version,
-    installed.get(installedPluginId),
-    installed.has(installedPluginId),
-  );
+  const status = computeUpdateStatus(entry.version, installed?.version, installed !== undefined);
   switch (status.kind) {
     case 'update':
       return `update ${status.local} → ${status.latest}`;
     case 'up-to-date':
-      return status.version === undefined ? 'installed' : `installed v${status.version}`;
+      return status.version === undefined ? 'installed' : t('tui.dialogs.pluginsSelector.installedStatusVersion', { version: status.version });
     case 'not-installed':
       return installStatus(entry);
   }
-}
-
-function marketplaceStatusLabel(status: string): string {
-  if (status === 'open-in-browser') {
-    return t('tui.dialogs.pluginsSelector.openInBrowser');
-  }
-  if (status === 'installed') {
-    return t('tui.dialogs.pluginsSelector.installedStatus');
-  }
-  if (status.startsWith('install v')) {
-    const version = status.slice('install v'.length);
-    return t('tui.dialogs.pluginsSelector.installStatusVersion', { version });
-  }
-  if (status === 'install') {
-    return t('tui.dialogs.pluginsSelector.installStatus');
-  }
-  if (status.startsWith('installed v')) {
-    const version = status.slice('installed v'.length);
-    return t('tui.dialogs.pluginsSelector.installedStatusVersion', { version });
-  }
-  if (status.startsWith('update ')) {
-    const remainder = status.slice('update '.length);
-    const arrowIndex = remainder.indexOf(' → ');
-    if (arrowIndex >= 0) {
-      const local = remainder.slice(0, arrowIndex);
-      const latest = remainder.slice(arrowIndex + ' → '.length);
-      return t('tui.dialogs.pluginsSelector.updateStatus', { local, latest });
-    }
-  }
-  if (status === 'installing…') {
-    return t('tui.dialogs.pluginsSelector.installingStatus');
-  }
-  return status;
 }
 
 function sectionLabel(label: string, colors: ColorPalette): string {
   return chalk.hex(colors.textDim).bold(` ${label}`);
 }
 
-function statusStyle(item: PluginsOverviewItem, colors: ColorPalette): (text: string) => string {
+function statusStyle(
+  item: PluginsOverviewItem,
+  colors: ColorPalette,
+): (text: string) => string {
   if (item.kind === 'action') return chalk.hex(colors.textDim);
   if (item.status === 'enabled' || item.status === 'installed') return chalk.hex(colors.success);
   if (item.status?.startsWith('install')) return chalk.hex(colors.primary);
@@ -1212,4 +901,27 @@ function mutedHintLine(text: string, colors?: ColorPalette): string {
     return chalk.hex(colors.textMuted)(text);
   }
   return currentTheme.fg('textMuted', text);
+}
+
+function wrapOverviewDescription(text: string, width: number): string[] {
+  const maxWidth = Math.max(1, width);
+  const words = text
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0);
+  const lines: string[] = [];
+  let current = '';
+
+  for (const word of words) {
+    const candidate = current.length === 0 ? word : `${current} ${word}`;
+    if (visibleWidth(candidate) <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+    if (current.length > 0) lines.push(current);
+    current = visibleWidth(word) <= maxWidth ? word : truncateToWidth(word, maxWidth, ELLIPSIS);
+  }
+
+  if (current.length > 0) lines.push(current);
+  return lines;
 }

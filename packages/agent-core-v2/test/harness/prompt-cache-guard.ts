@@ -3,24 +3,17 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { afterEach } from 'bun:test';
 
-import { IInstantiationService } from '#/_base/di/instantiation';
-import { SyncDescriptor } from '#/_base/di/descriptors';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import type { IAgentJournal } from '#/wire/journal';
 import type {
-  AgentLLMRequestOverrides,
-  AgentLLMRequestPartHandler,
   AgentLLMRequestSource,
-  AgentLLMRequestTask,
-  AgentLLMTurnRequestSnapshot,
-  IAgentLLMRequesterService,
-  PreparedTurnRequestConfig,
-} from '#/agent/llmRequester/llmRequester';
-import { AgentLLMRequesterService } from '#/agent/llmRequester/llmRequesterService';
-import type {
-  LlmCredentialProvider,
-  LlmRequestConfig,
-  LlmRequester,
-} from '#human/llm/requester/requester';
+  CoreLoopRequester,
+  CoreLoopRequesterOptions,
+  LoopRequester,
+  OperationLoopRequesterOptions,
+} from '#/agent/loop/requesterContract';
+import type { LlmRequest } from '@moonshot-ai/core/llm/request';
+import type { MockProvider } from './scripted-generate';
 
 import { generateCallOf } from './scripted-generate';
 import { findGenerateCallPrefixBreak, type GenerateCall } from './snapshots';
@@ -28,11 +21,13 @@ import { findGenerateCallPrefixBreak, type GenerateCall } from './snapshots';
 interface RequestScope {
   readonly agent: object;
   readonly source: AgentLLMRequestSource | undefined;
+  readonly branch: string;
   readonly contextRevision: number;
   attempts: number;
 }
 
 interface RecordedRequest {
+  readonly branch: string;
   readonly contextRevision: number;
   readonly model: string;
   readonly profile: Readonly<Record<(typeof PROFILE_FIELDS)[number], unknown>>;
@@ -56,75 +51,81 @@ export function promptCacheComparisons(): number {
   return comparisons;
 }
 
-export class PromptCacheGuardedLLMRequesterService implements IAgentLLMRequesterService {
-  declare readonly _serviceBrand: undefined;
-
-  private readonly inner: IAgentLLMRequesterService;
-
+export class PromptCacheGuardedLoopRequester implements LoopRequester {
   constructor(
-    @IInstantiationService instantiation: IInstantiationService,
-    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-  ) {
-    this.inner = instantiation.createInstance(new SyncDescriptor(AgentLLMRequesterService));
+    private readonly inner: LoopRequester,
+    private readonly context: IAgentLoopService,
+    private readonly journal: IAgentJournal,
+    private readonly ready?: () => Promise<void>,
+  ) {}
+
+  coreRequester(options: CoreLoopRequesterOptions): CoreLoopRequester {
+    return this.guard(
+      this.inner.coreRequester(options),
+      options.source,
+      options.runtime.historyRevision,
+    );
   }
 
-  prepareTurnConfig(turnId: number): PreparedTurnRequestConfig | undefined {
-    return this.inner.prepareTurnConfig(turnId);
+  async prepareOperation(options: OperationLoopRequesterOptions, signal: AbortSignal): Promise<CoreLoopRequester> {
+    await this.ready?.();
+    const requester = await this.inner.prepareOperation(options, signal);
+    return this.guard(requester, options.source, () => this.context.historyRevision());
   }
 
-  currentCredentialProvider(): LlmCredentialProvider | undefined {
-    return this.inner.currentCredentialProvider();
-  }
-
-  credentialProviderForTurn(turnId: number): LlmCredentialProvider | undefined {
-    return this.inner.credentialProviderForTurn(turnId);
-  }
-
-  lastTurnRequest(): AgentLLMTurnRequestSnapshot | undefined {
-    return this.inner.lastTurnRequest();
-  }
-
-  request(
-    overrides?: AgentLLMRequestOverrides,
-    onPart?: AgentLLMRequestPartHandler,
-    signal?: AbortSignal,
-  ) {
-    return this.start(overrides, onPart, signal).result;
-  }
-
-  start(
-    overrides?: AgentLLMRequestOverrides,
-    onPart?: AgentLLMRequestPartHandler,
-    signal?: AbortSignal,
-  ): AgentLLMRequestTask {
-    const contextRevision = this.context.prefixRevision();
-    const scope: RequestScope = {
-      agent: this,
-      source: overrides?.source,
-      contextRevision,
-      attempts: 0,
-    };
-    return requestScope.run(scope, () => this.inner.start(overrides, onPart, signal));
+  private guard(
+    requester: CoreLoopRequester,
+    source: () => AgentLLMRequestSource,
+    revision: () => number,
+  ): CoreLoopRequester {
+    const wrap = (inner: CoreLoopRequester): CoreLoopRequester => ({
+      snapshot: () => wrap(inner.snapshot?.() ?? inner),
+      generate: (rest, control) => {
+        const scope: RequestScope = {
+          agent: this,
+          source: source(),
+          branch: this.journal.journalRef.branch,
+          contextRevision: revision(),
+          attempts: 0,
+        };
+        return requestScope.run(scope, () => inner.generate(rest, control));
+      },
+    });
+    return wrap(requester);
   }
 }
 
-export function guardPromptCachePrefix(requester: LlmRequester): LlmRequester {
+export function guardPromptCachePrefix(provider: MockProvider): MockProvider {
   return {
-    async generate(config, content, control) {
+    ...provider,
+    respond: async (input, signal) => {
       const scope = requestScope.getStore();
-      if (scope === undefined) return requester.generate(config, content, control);
+      if (scope === undefined) return provider.respond(input, signal);
+      const protocolOptions = input.protocol.options as Record<string, unknown> | undefined;
+      const profile = {
+        cacheKey: input.model.cacheKey,
+        thinking: input.model.thinking,
+        extraParams:
+          protocolOptions === undefined
+            ? undefined
+            : Object.fromEntries(
+                Object.entries(protocolOptions).filter(([key, value]) => key !== 'detectedReasoningKey' && typeof value !== 'function'),
+              ),
+        responseFormat: input.model.responseFormat,
+        toolMessageConversion: protocolOptions?.['toolMessageConversion'],
+      };
       const request: RecordedRequest = {
+        branch: scope.branch,
         contextRevision: scope.contextRevision,
-        model: modelIdentity(config),
-        profile: Object.fromEntries(
-          PROFILE_FIELDS.map((field) => [field, config[field]]),
-        ) as RecordedRequest['profile'],
-        call: generateCallOf(config, content),
+        model: modelIdentity(input),
+        profile: Object.fromEntries(PROFILE_FIELDS.map((field) => [field, profile[field]])) as RecordedRequest['profile'],
+        call: generateCallOf(input),
       };
       scope.attempts += 1;
       checkPrefixExtension(scope, request);
-      await requester.generate(config, content, control);
+      const attempt = await provider.respond(input, signal);
       if (scope.source?.type === 'turn') lastTurnRequests.set(scope.agent, request);
+      return attempt;
     },
   };
 }
@@ -139,8 +140,8 @@ function checkPrefixExtension(scope: RequestScope, request: RecordedRequest): vo
   if (kind === undefined) return;
   const previous = lastTurnRequests.get(scope.agent);
   if (previous === undefined) return;
-  if (previous.contextRevision !== request.contextRevision || previous.model !== request.model)
-    return;
+  if (previous.branch !== request.branch) return;
+  if (previous.contextRevision !== request.contextRevision || previous.model !== request.model) return;
   comparisons += 1;
   const label = scope.attempts === 1 ? kind : `${kind} retry`;
   recordPrefixBreak(label, findStableBreak(previous, request));
@@ -167,11 +168,7 @@ function findStableBreak(previous: RecordedRequest, next: RecordedRequest): unkn
     (field) => !isDeepStrictEqual(previous.profile[field], next.profile[field]),
   );
   if (profileField !== undefined) {
-    return {
-      at: profileField,
-      previous: previous.profile[profileField],
-      next: next.profile[profileField],
-    };
+    return { at: profileField, previous: previous.profile[profileField], next: next.profile[profileField] };
   }
   return findGenerateCallPrefixBreak(
     {
@@ -199,6 +196,10 @@ function sameToolNames(previous: GenerateCall, next: GenerateCall): boolean {
   return isDeepStrictEqual(names(previous), names(next));
 }
 
-function modelIdentity(config: LlmRequestConfig): string {
-  return JSON.stringify([config.model.provider, config.model.baseUrl, config.model.model]);
+function modelIdentity(request: LlmRequest): string {
+  return JSON.stringify([
+    request.model.spec.provider,
+    request.endpoint?.baseUrl,
+    request.model.spec.name,
+  ]);
 }

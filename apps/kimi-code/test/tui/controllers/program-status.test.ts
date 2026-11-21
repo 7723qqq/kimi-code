@@ -1,13 +1,15 @@
-import { describe, expect, it } from 'bun:test';
-
+import type { ProgramStatus } from '@moonshot-ai/pi-tui';
 import type {
   AgentBackgroundTaskInfo,
   TurnEndedEvent,
   TurnStartedEvent,
 } from '@moonshot-ai/kimi-code-sdk';
-import type { ProgramStatus } from '@moonshot-ai/pi-tui';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { ProgramStatusController, type ProgramStatusState } from '#/tui/controllers/program-status';
+import {
+  ProgramStatusController,
+  type ProgramStatusState,
+} from '#/tui/controllers/program-status';
 
 function makeHarness(childrenEnabled: boolean | 'default' = true) {
   const queuedMessages: unknown[] = [];
@@ -50,8 +52,7 @@ function makeHarness(childrenEnabled: boolean | 'default' = true) {
     state,
     writes,
     root: () => records.get(undefined),
-    children: () =>
-      [...records.entries()].filter(([id]) => id !== undefined).map(([, status]) => status),
+    children: () => [...records.entries()].filter(([id]) => id !== undefined).map(([, status]) => status),
   };
 }
 
@@ -339,10 +340,7 @@ describe('ProgramStatusController', () => {
     harness.controller.startSubagent({ agentId: 'error-62', title: 'error-62' });
     harness.controller.failSubagent('error-62', 'failed');
     harness.controller.startSubagent({ agentId: 'blocked-63', title: 'blocked-63' });
-    const interaction = harness.controller.startInteraction({
-      agentId: 'blocked-63',
-      kind: 'permission',
-    });
+    const interaction = harness.controller.startInteraction({ agentId: 'blocked-63', kind: 'permission' });
 
     expect(harness.children()).toHaveLength(63);
     expect(harness.children().some((status) => status.title === 'done-0')).toBe(false);
@@ -435,9 +433,6 @@ describe('ProgramStatusController', () => {
     expect(harness.writes).toHaveLength(writeCount);
 
     harness.controller.finishTurn(turnEnded('blocked'));
-    expect(harness.root()).toMatchObject({
-      state: 'error',
-      message: 'Turn blocked by a prompt hook',
-    });
+    expect(harness.root()).toMatchObject({ state: 'error', message: 'Turn blocked by a prompt hook' });
   });
 });

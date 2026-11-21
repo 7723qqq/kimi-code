@@ -1,9 +1,3 @@
-/**
- * `sessionQuestionService` — ask-user request broker. Mirrors
- * `agent-core-v2/agent/interaction/question.ts` (the in-process camelCase
- * representation; the snake_case protocol shape is adapted at the edge).
- */
-
 import { z } from 'zod';
 
 import { noResult } from '../helpers.js';
@@ -24,15 +18,16 @@ export const questionItemSchema = z.object({
   otherDescription: z.string().optional(),
 });
 
-/** `QuestionAnswers = Record<string, string | true>`. */
-export const questionAnswersSchema = z.record(z.string(), z.union([z.string(), z.literal(true)]));
+export const questionAnswersSchema = z.record(
+  z.string(),
+  z.union([z.string(), z.literal(true)]),
+);
 
 export const questionResponseSchema = z.object({
   answers: questionAnswersSchema,
   method: z.enum(['enter', 'space', 'number_key']).optional(),
 });
 
-/** `QuestionResult = null | QuestionAnswers | QuestionResponse`. */
 export const questionResultSchema = z.union([
   z.null(),
   questionAnswersSchema,

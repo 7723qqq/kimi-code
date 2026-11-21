@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';
@@ -45,11 +45,13 @@ export interface PermissionRecordApprovalResult extends PermissionApprovalResult
   readonly agentId: string;
 }
 
-export const permissionRulesKey = defineState('permissionRules', (): PermissionRulesModelState => ({
-  rules: [],
-  sessionApprovalRulePatterns: [],
-}))
-  .replayable({ schema: z.custom<PermissionRulesModelState>() })
+export const permissionRulesKey = defineState(
+  'permissionRules',
+  (): PermissionRulesModelState => ({
+    rules: [],
+    sessionApprovalRulePatterns: [],
+  }),
+).replayable({ schema: z.custom<PermissionRulesModelState>() })
   .on(PermissionRulesAdd, (s, e) => {
     if (e.rules.length === 0) return;
     s.rules = [...s.rules, ...e.rules];

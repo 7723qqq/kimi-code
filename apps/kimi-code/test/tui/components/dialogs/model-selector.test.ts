@@ -1,11 +1,10 @@
-import { describe, expect, it, mock } from 'bun:test';
-
-import { type ModelAlias } from '@moonshot-ai/kimi-code-sdk';
+import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { ModelSelectorComponent } from '#/tui/components/dialogs/model-selector';
 import { currentTheme } from '#/tui/theme';
-import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
+import { darkColors } from '#/tui/theme/colors';
 
 const ANSI = /\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');
@@ -52,38 +51,33 @@ describe('ModelSelectorComponent', () => {
       models: { kimi: model('Kimi K2') },
       currentValue: 'kimi',
       currentThinkingEffort: 'on',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     const out = text(picker);
-    // Model name on the left, provider on the right, with the current marker.
     expect(out).toMatch(/❯ Kimi K2\s+Kimi Code ← current/);
-    // Provider is no longer inlined in parentheses next to the name.
     expect(out).not.toContain('Kimi K2 (Kimi Code)');
   });
 
   it('toggles thinking with Left/Right (not with "/")', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: { kimi: model('Kimi K2', ['thinking']) },
       currentValue: 'kimi',
       currentThinkingEffort: 'on',
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
-    // "/" no longer toggles thinking (it used to); here it is simply ignored.
     picker.handleInput('/');
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'on' });
 
-    // Right arrow flips the draft (true -> false).
     picker.handleInput(RIGHT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'off' });
 
-    // Left arrow flips it back.
     picker.handleInput(LEFT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'on' });
@@ -94,8 +88,8 @@ describe('ModelSelectorComponent', () => {
       models: { kimi: model('Kimi K2', ['thinking']) },
       currentValue: 'kimi',
       currentThinkingEffort: 'off',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
     expect(text(picker)).toContain('Thinking  (←→ to switch)');
   });
@@ -106,25 +100,24 @@ describe('ModelSelectorComponent', () => {
       currentValue: 'kimi',
       currentThinkingEffort: 'on',
       thinkingControl: false,
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     expect(text(picker)).not.toContain('Thinking');
   });
 
   it('ignores Left/Right when thinkingControl is false', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: { kimi: model('Kimi K2', ['thinking']) },
       currentValue: 'kimi',
       currentThinkingEffort: 'on',
       thinkingControl: false,
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
-    // Same setup as the toggle test above: either arrow would flip 'on' to 'off'.
     picker.handleInput(LEFT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'on' });
@@ -134,7 +127,7 @@ describe('ModelSelectorComponent', () => {
   });
 
   it('forces always-thinking models on and unsupported models off', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: {
         always: model('Kimi Thinking', ['always_thinking']),
@@ -143,10 +136,9 @@ describe('ModelSelectorComponent', () => {
       currentValue: 'always',
       currentThinkingEffort: 'off',
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
-    // Always-on: On selected, Off greyed out with an explanation.
     const alwaysOut = text(picker);
     expect(alwaysOut).toContain('[ On ]');
     expect(alwaysOut).toContain('Off (Unsupported)');
@@ -154,7 +146,6 @@ describe('ModelSelectorComponent', () => {
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'always', thinking: 'on' });
 
-    // Unsupported: Off selected, On greyed out — same style, mirrored.
     picker.handleInput(DOWN);
     const plainOut = text(picker);
     expect(plainOut).toContain('On (Unsupported)');
@@ -165,7 +156,7 @@ describe('ModelSelectorComponent', () => {
   });
 
   it('ignores Left/Right on always-on and unsupported models', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: {
         always: model('Kimi Thinking', ['always_thinking']),
@@ -174,7 +165,7 @@ describe('ModelSelectorComponent', () => {
       currentValue: 'always',
       currentThinkingEffort: 'on',
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
     picker.handleInput(RIGHT);
@@ -192,8 +183,8 @@ describe('ModelSelectorComponent', () => {
       models: { always: model('Kimi Thinking', ['always_thinking']) },
       currentValue: 'always',
       currentThinkingEffort: 'on',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     const raw = picker.render(120).join('\n');
@@ -201,7 +192,7 @@ describe('ModelSelectorComponent', () => {
   });
 
   it('keeps the thinking draft when moving across models', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: {
         plain: model('Kimi Plain', ['tool_use']),
@@ -210,48 +201,46 @@ describe('ModelSelectorComponent', () => {
       currentValue: 'plain',
       currentThinkingEffort: 'off',
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
-    picker.handleInput(DOWN); // -> thinking model (defaults On)
-    picker.handleInput(RIGHT); // toggle -> Off
-    picker.handleInput(UP); // -> plain
-    picker.handleInput(DOWN); // -> thinking (the Off override persists)
+    picker.handleInput(DOWN);
+    picker.handleInput(RIGHT);
+    picker.handleInput(UP);
+    picker.handleInput(DOWN);
     picker.handleInput('\r');
 
     expect(onSelect).toHaveBeenCalledWith({ alias: 'thinking', thinking: 'off' });
   });
 
   it('defaults a thinking-capable model to On but keeps the current model state', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: {
         current: model('Kimi Current', ['thinking']),
         other: model('Kimi Other', ['thinking']),
       },
       currentValue: 'current',
-      currentThinkingEffort: 'off', // thinking deliberately off on the active model
+      currentThinkingEffort: 'off',
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
-    // The active model reflects its live (off) state.
     expect(text(picker)).toContain('[ Off ]');
-    picker.handleInput(DOWN); // -> the other thinking-capable model
-    // A capable, non-active model defaults to On without any toggle.
+    picker.handleInput(DOWN);
     expect(text(picker)).toContain('[ On ]');
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({ alias: 'other', thinking: 'on' });
   });
 
   it('fuzzy-filters by typing and reports a match count', () => {
-    const onCancel = mock();
+    const onCancel = vi.fn();
     const picker = new ModelSelectorComponent({
       models: { k2: model('Kimi K2'), turbo: model('Kimi Turbo') },
       currentValue: 'k2',
       currentThinkingEffort: 'off',
       searchable: true,
-      onSelect: mock(),
+      onSelect: vi.fn(),
       onCancel,
     });
 
@@ -263,7 +252,6 @@ describe('ModelSelectorComponent', () => {
     expect(out).not.toContain('Kimi K2');
     expect(out).toContain('1 / 2');
 
-    // First Esc clears the query, second Esc cancels.
     picker.handleInput(ESC);
     expect(onCancel).not.toHaveBeenCalled();
     picker.handleInput(ESC);
@@ -278,11 +266,10 @@ describe('ModelSelectorComponent', () => {
       currentValue: 'm0',
       currentThinkingEffort: 'off',
       searchable: true,
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
-    // Default page size is 8, so 4 of the 12 models sit below the fold.
     expect(text(picker)).toContain('▼ 4 more');
   });
 
@@ -295,8 +282,8 @@ describe('ModelSelectorComponent', () => {
       currentValue: 'long',
       currentThinkingEffort: 'off',
       searchable: true,
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     for (const width of [20, 40, 80, 120]) {
@@ -307,18 +294,17 @@ describe('ModelSelectorComponent', () => {
   });
 
   it('invokes onSessionOnlySelect on Alt+S with the effective thinking state', () => {
-    const onSelect = mock();
-    const onSessionOnlySelect = mock();
+    const onSelect = vi.fn();
+    const onSessionOnlySelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: { kimi: model('Kimi K2', ['thinking']) },
       currentValue: 'kimi',
       currentThinkingEffort: 'on',
       onSelect,
       onSessionOnlySelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
-    // Toggle thinking Off, then Alt+S applies the choice to the session only.
     picker.handleInput(RIGHT);
     picker.handleInput(`${ESC}s`);
     expect(onSessionOnlySelect).toHaveBeenCalledWith({ alias: 'kimi', thinking: 'off' });
@@ -326,13 +312,13 @@ describe('ModelSelectorComponent', () => {
   });
 
   it('ignores Alt+S and hides its hint when onSessionOnlySelect is not provided', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: { kimi: model('Kimi K2') },
       currentValue: 'kimi',
       currentThinkingEffort: 'on',
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
     picker.handleInput(`${ESC}s`);
@@ -345,9 +331,9 @@ describe('ModelSelectorComponent', () => {
       models: { kimi: model('Kimi K2') },
       currentValue: 'kimi',
       currentThinkingEffort: 'on',
-      onSelect: mock(),
-      onSessionOnlySelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onSessionOnlySelect: vi.fn(),
+      onCancel: vi.fn(),
     });
     expect(text(picker)).toContain('Alt+S session-only');
   });
@@ -357,23 +343,20 @@ describe('ModelSelectorComponent', () => {
       models: { kimi: effortModel('Kimi K2', ['low', 'high', 'max'], 'high') },
       currentValue: 'kimi',
       currentThinkingEffort: 'high',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     const out = text(picker);
-    // The default effort (high) is the active segment.
     expect(out).toContain('[ High ]');
-    // All declared efforts plus the Off entry are present.
     expect(out).toContain('Low');
     expect(out).toContain('Max');
     expect(out).toContain('Off');
-    // Multi-segment control advertises the switch hint.
     expect(out).toContain('Thinking  (←→ to switch)');
   });
 
   it('derives official Anthropic effort segments from the model name', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: {
         opus: {
@@ -385,7 +368,7 @@ describe('ModelSelectorComponent', () => {
       currentValue: 'opus',
       currentThinkingEffort: 'high',
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
     const out = text(picker);
@@ -411,8 +394,8 @@ describe('ModelSelectorComponent', () => {
       },
       currentValue: 'fable',
       currentThinkingEffort: 'high',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     const out = text(picker);
@@ -422,22 +405,20 @@ describe('ModelSelectorComponent', () => {
   });
 
   it('cycles efforts with Left/Right and clamps at the ends', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: { kimi: effortModel('Kimi K2', ['low', 'high', 'max'], 'high') },
       currentValue: 'kimi',
       currentThinkingEffort: 'high',
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
-    // high -> max (Right), then clamp on a second Right.
     picker.handleInput(RIGHT);
     picker.handleInput(RIGHT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'max' });
 
-    // max -> high -> low -> off (Left x3), then clamp on another Left.
     picker.handleInput(LEFT);
     picker.handleInput(LEFT);
     picker.handleInput(LEFT);
@@ -447,7 +428,7 @@ describe('ModelSelectorComponent', () => {
   });
 
   it('always-on effort models hide Off and clamp selection at the last effort', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: {
         kimi: effortModel('Kimi K2', ['low', 'high', 'max'], 'high', ['always_thinking']),
@@ -455,24 +436,21 @@ describe('ModelSelectorComponent', () => {
       currentValue: 'kimi',
       currentThinkingEffort: 'high',
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
     const raw = picker.render(120).join('\n');
-    // Off is not surfaced at all — the selectable segments are effort-only.
     expect(raw).not.toContain('Off (Unsupported)');
-    // The active effort is still highlighted.
     expect(strip(raw)).toContain('[ High ]');
 
-    // Cycling clamps at the last effort and never reaches Off.
-    picker.handleInput(RIGHT); // high -> max
-    picker.handleInput(RIGHT); // clamp at max
+    picker.handleInput(RIGHT);
+    picker.handleInput(RIGHT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'max' });
   });
 
   it('defaults an effort model without a current level to its defaultEffort', () => {
-    const onSelect = mock();
+    const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: {
         other: effortModel('Kimi Other', ['low', 'high', 'max'], 'max'),
@@ -480,10 +458,9 @@ describe('ModelSelectorComponent', () => {
       currentValue: 'current',
       currentThinkingEffort: 'off',
       onSelect,
-      onCancel: mock(),
+      onCancel: vi.fn(),
     });
 
-    // Non-current effort model falls back to its declared defaultEffort.
     expect(text(picker)).toContain('[ Max ]');
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({ alias: 'other', thinking: 'max' });
@@ -496,12 +473,10 @@ describe('ModelSelectorComponent', () => {
       },
       currentValue: 'current',
       currentThinkingEffort: 'off',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
-    // support_efforts present but default_effort absent -> default to the
-    // middle entry (medium), not a hardcoded level.
     expect(text(picker)).toContain('[ Medium ]');
   });
 
@@ -511,15 +486,14 @@ describe('ModelSelectorComponent', () => {
       currentValue: 'kimi',
       currentThinkingEffort: 'on',
       warning: 'Switching may increase token usage.',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     const lines = picker.render(120).map(strip);
     const hintIdx = lines.findIndex((l) => l.includes('↑↓ navigate'));
     expect(hintIdx).toBeGreaterThanOrEqual(0);
     expect(lines[hintIdx + 1]).toContain('Switching may increase token usage.');
-    // Model list is pushed below the inserted warning line, not overlapped.
     expect(lines.findIndex((l) => l.includes('Kimi K2'))).toBeGreaterThan(hintIdx + 1);
   });
 
@@ -531,17 +505,47 @@ describe('ModelSelectorComponent', () => {
       currentValue: 'kimi',
       currentThinkingEffort: 'on',
       warning,
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     const lines = picker.render(50).map(strip);
     const hintIdx = lines.findIndex((l) => l.includes('↑↓ navigate'));
     expect(lines[hintIdx + 1]).not.toBe('');
     expect(lines[hintIdx + 2]).not.toBe('');
-    // Word-wrapped: nothing dropped — the full warning survives across lines.
     const squashed = lines.join('').replaceAll(/\s+/g, '');
     expect(squashed).toContain(warning.replaceAll(/\s+/g, ''));
+  });
+});
+
+describe('ModelSelectorComponent effort descriptions', () => {
+  it('updates descriptions for the highlighted effort and hides them for other providers', () => {
+    const picker = new ModelSelectorComponent({
+      models: {
+        kimi: effortModel('Kimi K3', ['low', 'high', 'max'], 'high'),
+        custom: { ...effortModel('Custom K3', ['low', 'high', 'max'], 'high'), provider: 'custom' },
+      },
+      currentValue: 'kimi',
+      currentThinkingEffort: 'high',
+      effortDescriptions: {
+        low: 'Light reasoning.',
+        high: 'Deeper reasoning.',
+        max: 'Maximum reasoning.',
+      },
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    expect(text(picker)).toContain('Deeper reasoning.');
+    picker.handleInput(RIGHT);
+    expect(text(picker)).toContain('Maximum reasoning.');
+    picker.handleInput(LEFT);
+    picker.handleInput(LEFT);
+    expect(text(picker)).toContain('Light reasoning.');
+    picker.handleInput(LEFT);
+    expect(text(picker)).not.toContain('Light reasoning.');
+    picker.handleInput(DOWN);
+    expect(text(picker)).not.toContain('Deeper reasoning.');
   });
 });
 
@@ -556,42 +560,13 @@ describe('ModelSelectorComponent overrides', () => {
       },
       currentValue: 'kimi',
       currentThinkingEffort: 'max',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
     });
 
     const out = text(picker);
     expect(out).toContain('Low');
     expect(out).toContain('High');
     expect(out).not.toContain('Max');
-  });
-});
-
-describe('ModelSelectorComponent — mouse', () => {
-  it('highlights the row under the pointer and picks it on click', () => {
-    const onSelect = mock();
-    const picker = new ModelSelectorComponent({
-      models: { kimi: model('Kimi K2'), other: model('Other Model') },
-      currentValue: 'kimi',
-      currentThinkingEffort: 'on',
-      onSelect,
-      onCancel: mock(),
-    });
-    pastSettlingWindow();
-    picker.focused = true;
-    const rows = picker.render(120).map(strip);
-    const row = rows.findIndex((line) => line.includes('Other Model'));
-    expect(row).toBeGreaterThan(0);
-
-    const moved = picker.handleMouse(mouse('move', row));
-    expect(moved?.handled).toBe(true);
-    expect(moved?.render).toBe(true);
-    const hovered = picker.render(120).map(strip);
-    expect(hovered.find((line) => line.includes('Other Model'))).toContain('❯');
-    expect(hovered.find((line) => line.includes('Kimi K2'))).not.toContain('❯');
-    expect(onSelect).not.toHaveBeenCalled();
-
-    for (const type of ['press', 'release', 'click'] as const) picker.handleMouse(mouse(type, row));
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ alias: 'other' }));
   });
 });

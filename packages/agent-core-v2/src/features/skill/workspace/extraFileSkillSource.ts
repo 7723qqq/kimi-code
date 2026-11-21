@@ -8,8 +8,8 @@ import {
   EXTRA_SKILL_DIRS_SECTION,
   type ExtraSkillDirsConfig,
 } from '#/features/skill/catalog/configSection';
-import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import { configuredRoots } from '#/features/skill/catalog/skillRoots';
+import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import {
   SKILL_SOURCE_PRIORITY,
   type ISkillSource,
@@ -56,37 +56,26 @@ export class ExtraFileSkillSource extends Disposable implements IExtraFileSkillS
   async load(): Promise<SkillContribution> {
     await this.config.ready;
     const extraSkillDirs = this.config.get<ExtraSkillDirsConfig>(EXTRA_SKILL_DIRS_SECTION) ?? [];
-    if (
-      extraSkillDirs.length !== this.watchedDirs.length ||
-      extraSkillDirs.some((dir, index) => dir !== this.watchedDirs[index])
-    ) {
+    if (extraSkillDirs.length !== this.watchedDirs.length ||
+        extraSkillDirs.some((dir, index) => dir !== this.watchedDirs[index])) {
       this.watchedDirs = [...extraSkillDirs];
-      this.watcher.value =
-        extraSkillDirs.length === 0
-          ? undefined
-          : new ConfiguredSkillRootWatcher(
-              {
-                dirs: this.watchedDirs,
-                cwd: this.workspace.cwd,
-                osHomeDir: this.bootstrap.osHomeDir,
-                source: this.id,
-                fs: this.fs,
-                log: this.log,
-              },
-              () => {
-                this.onDidChangeEmitter.fire();
-              },
-            );
+      this.watcher.value = extraSkillDirs.length === 0
+        ? undefined
+        : new ConfiguredSkillRootWatcher({
+            dirs: this.watchedDirs,
+            cwd: this.workspace.cwd,
+            osHomeDir: this.bootstrap.osHomeDir,
+            source: this.id,
+            fs: this.fs,
+            log: this.log,
+          }, () => {
+            this.onDidChangeEmitter.fire();
+          });
     }
     await this.watcher.value?.registered;
     return this.discovery.discover(
-      await configuredRoots(
-        extraSkillDirs,
-        this.workspace.cwd,
-        this.bootstrap.osHomeDir,
-        'extra',
-        this.fs,
-      ),
+      await configuredRoots(extraSkillDirs, this.workspace.cwd, this.bootstrap.osHomeDir, 'extra', this.fs),
     );
   }
 }
+

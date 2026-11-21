@@ -1,12 +1,3 @@
-/**
- * IPC client channel — connects to a `serveKlientIpc` host over a unix
- * domain socket. Calls are correlated by client-chosen ids with a per-call
- * deadline; event subscriptions are registered before the handshake
- * completes and flushed once it does. There is no automatic reconnect: a
- * broken socket rejects in-flight calls and stays closed (the WS transport
- * owns the resumable-connection story).
- */
-
 import { createConnection, type Socket } from 'node:net';
 
 import type {
@@ -25,7 +16,6 @@ const DEFAULT_CALL_TIMEOUT_MS = 30_000;
 export interface IpcChannelOptions {
   readonly socketPath: string;
   readonly token?: string;
-  /** Per-call deadline (ms). Default `30000`; `0` disables. */
   readonly callTimeoutMs?: number;
 }
 
@@ -35,11 +25,6 @@ interface PendingCall {
   readonly timer: ReturnType<typeof setTimeout> | undefined;
 }
 
-/**
- * Async queue for streaming responses. The server pushes chunks via
- * `stream_data` frames; the client pulls them with `next()`. Back-pressure
- * is implicit: the queue buffers until the consumer drains.
- */
 interface PendingStream {
   push(chunk: unknown): void;
   end(): void;
@@ -77,27 +62,24 @@ export class IpcChannel implements KlientChannel {
       };
       this.socket.once('error', onError);
       this.socket.once('connect', () => {
-        // The host sends `ready` immediately; answer with the handshake.
         this.send({ type: 'hello', token: options.token });
         this.socket.off('error', onError);
         resolve();
       });
     });
-    // The promise is consumed lazily by call/listen; never let it reject unhandled.
     this.ready.catch(() => {});
 
     this.socket.on('data', (chunk) => {
-      for (const frame of this.decoder.push(chunk)) {
+      for (const frame of this.decoder.push(chunk.toString('utf8'))) {
         this.onFrame(frame);
       }
     });
     this.socket.on('close', () => {
       this.closed = true;
       this.failAll(new Error('ipc closed'));
+      this.listens.clear();
     });
-    this.socket.on('error', () => {
-      // 'close' always follows; teardown lives there.
-    });
+    this.socket.on('error', () => {});
   }
 
   async call(
@@ -127,8 +109,6 @@ export class IpcChannel implements KlientChannel {
       scope: scopeKindOf(scope),
       service,
       method,
-      // NDJSON is JSON: trailing optional args would cross as `null` and
-      // defeat the host's default parameters — trim them.
       arg: trimTrailingUndefined(args),
       workspaceId: scope.workspaceId,
       sessionId: scope.sessionId,
@@ -137,18 +117,9 @@ export class IpcChannel implements KlientChannel {
     return promise;
   }
 
-  stream(
-    scope: ScopeRef,
-    service: string,
-    method: string,
-    args: unknown[],
-    options?: CallOptions,
-  ): AsyncIterable<unknown> {
+  stream(scope: ScopeRef, service: string, method: string, args: unknown[]): AsyncIterable<unknown> {
     return {
       [Symbol.asyncIterator]: () => {
-        // Simple queue: push/pull with deferred promises. `buffer` holds
-        // already-received chunks waiting for a `next()` call; `waiters`
-        // holds unresolved `next()` calls waiting for a chunk.
         const buffer: Array<IteratorResult<unknown>> = [];
         const waiters: Array<{
           resolve: (result: IteratorResult<unknown>) => void;
@@ -156,18 +127,6 @@ export class IpcChannel implements KlientChannel {
         }> = [];
         let done = false;
         let streamId: string | undefined;
-
-        // Bound the whole iteration when the caller asked for a deadline. A
-        // stream whose terminal frame is lost (a dropped stream_end, a dead
-        // peer) otherwise waits forever; the default keeps waiting, exactly
-        // as before.
-        let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-        const clearDeadline = (): void => {
-          if (deadlineTimer !== undefined) {
-            clearTimeout(deadlineTimer);
-            deadlineTimer = undefined;
-          }
-        };
 
         const pending: PendingStream = {
           push(chunk: unknown) {
@@ -181,7 +140,6 @@ export class IpcChannel implements KlientChannel {
             }
           },
           end: () => {
-            clearDeadline();
             if (done) return;
             done = true;
             if (streamId !== undefined) this.streams.delete(streamId);
@@ -192,14 +150,12 @@ export class IpcChannel implements KlientChannel {
             } else {
               buffer.push(terminal);
             }
-            // Resolve remaining waiters with done
             for (const w of waiters) {
               w.resolve({ done: true, value: undefined });
             }
             waiters.length = 0;
           },
           error: (err: Error) => {
-            clearDeadline();
             if (done) return;
             done = true;
             if (streamId !== undefined) this.streams.delete(streamId);
@@ -207,7 +163,6 @@ export class IpcChannel implements KlientChannel {
             if (waiter !== undefined) {
               waiter.reject(err);
             } else {
-              // Store as a throwing result
               buffer.push({ done: true, value: err } as IteratorResult<unknown>);
             }
             for (const w of waiters) {
@@ -217,45 +172,29 @@ export class IpcChannel implements KlientChannel {
           },
         };
 
-        if (options?.timeoutMs !== undefined) {
-          deadlineTimer = setTimeout(() => {
-            pending.error(new RPCError(50001, `stream timed out after ${options.timeoutMs}ms`));
-          }, options.timeoutMs);
-          deadlineTimer.unref?.();
-        }
-
-        // Start the stream after the handshake is done.
         let started = false;
         const ensureStarted = (): void => {
           if (started) return;
           started = true;
-          void this.ready.then(
-            () => {
-              if (this.closed) {
-                pending.error(new Error('ipc closed'));
-                return;
-              }
-              streamId = this.nextId();
-              this.streams.set(streamId, pending);
-              this.send({
-                type: 'stream',
-                id: streamId,
-                scope: scopeKindOf(scope),
-                service,
-                method,
-                arg: trimTrailingUndefined(args),
-                workspaceId: scope.workspaceId,
-                sessionId: scope.sessionId,
-                agentId: scope.agentId,
-              });
-            },
-            (error: unknown) => {
-              // The handshake failed, so the stream frame never went out and no
-              // terminal frame can arrive: fail the iteration instead of leaving
-              // `next()` pending (a stream has no default deadline).
-              pending.error(error instanceof Error ? error : new Error(String(error)));
-            },
-          );
+          void this.ready.then(() => {
+            if (this.closed) {
+              pending.error(new Error('ipc closed'));
+              return;
+            }
+            streamId = this.nextId();
+            this.streams.set(streamId, pending);
+            this.send({
+              type: 'stream',
+              id: streamId,
+              scope: scopeKindOf(scope),
+              service,
+              method,
+              arg: trimTrailingUndefined(args),
+              workspaceId: scope.workspaceId,
+              sessionId: scope.sessionId,
+              agentId: scope.agentId,
+            });
+          });
         };
 
         return {
@@ -263,7 +202,6 @@ export class IpcChannel implements KlientChannel {
             ensureStarted();
             const buffered = buffer.shift();
             if (buffered !== undefined) {
-              // Check if this is an error stored as { done: true, value: Error }
               if (buffered.done && buffered.value instanceof Error) {
                 return Promise.reject(buffered.value);
               }
@@ -281,7 +219,6 @@ export class IpcChannel implements KlientChannel {
                 this.streams.delete(streamId);
                 this.send({ type: 'stream_cancel', id: streamId });
               }
-              // Resolve any pending waiters
               for (const w of waiters) {
                 w.resolve({ done: true, value: undefined });
               }
@@ -314,28 +251,15 @@ export class IpcChannel implements KlientChannel {
       source.kind === 'stream'
         ? { ...base, event: source.name }
         : { ...base, service: source.service, event: source.event };
-    void this.ready.then(
-      () => {
-        this.send(frame);
-      },
-      (error: unknown) => {
-        // The handshake never completed, so the frame was never sent: report
-        // the failure once instead of leaving the listener waiting forever.
-        this.failListens(error instanceof Error ? error : new Error(String(error)));
-      },
-    );
+    void this.ready.then(() => {
+      this.send(frame);
+    });
     return {
       dispose: () => {
         if (!this.listens.delete(id)) return;
-        void this.ready.then(
-          () => {
-            this.send({ type: 'unlisten', id });
-          },
-          () => {
-            // Nothing was registered on the wire; the failure is reported by
-            // the `listen` handler above.
-          },
-        );
+        void this.ready.then(() => {
+          this.send({ type: 'unlisten', id });
+        });
       },
     };
   }
@@ -344,11 +268,10 @@ export class IpcChannel implements KlientChannel {
     if (this.closed) return Promise.resolve();
     this.closed = true;
     this.failAll(new Error('ipc closed'));
+    this.listens.clear();
     this.socket.end();
     return Promise.resolve();
   }
-
-  // -------------------------------------------------------------------------
 
   private nextId(): string {
     this.seq += 1;
@@ -433,28 +356,12 @@ export class IpcChannel implements KlientChannel {
       s.error(err);
     }
     this.streams.clear();
-    this.failListens(err);
-  }
-
-  /**
-   * Deliver a terminal failure to every pending listener. A listener whose
-   * subscription never made it to the wire would otherwise stay silent while
-   * `ready` is rejected — the same failure the memory transport reports
-   * through `onError`.
-   */
-  private failListens(error: Error): void {
-    for (const entry of this.listens.values()) {
-      entry.onError?.(error);
-    }
-    this.listens.clear();
   }
 
   private send(frame: IpcFrame): void {
     if (this.closed || this.socket.destroyed) return;
     try {
       this.socket.write(encodeFrame(frame));
-    } catch {
-      // best-effort; the close handler handles teardown
-    }
+    } catch {}
   }
 }

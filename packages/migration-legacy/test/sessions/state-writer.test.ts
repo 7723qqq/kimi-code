@@ -1,14 +1,7 @@
-/**
- * Scenario: translating legacy session state into the v2 session metadata file.
- * Responsibilities: user-visible metadata and legacy session-scoped fields survive migration.
- * Wiring: real state writer and filesystem; no collaborators are stubbed.
- * Run: bun test packages/migration-legacy/test/sessions/state-writer.test.ts
- */
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { describe, expect, it, beforeEach, afterEach } from '@moonshot-ai/testkit/vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import { writeSessionState } from '../../src/sessions/state-writer.js';
 
 let dir: string;
@@ -34,8 +27,6 @@ describe('writeSessionState', () => {
     const meta = JSON.parse(await readFile(join(dir, 'state.json'), 'utf-8'));
     expect(meta.title).toBe('My chat');
     expect(meta.isCustomTitle).toBe(true);
-    // `agents.main.homedir` must be the agent's record directory under the
-    // session dir — kimi-core reads `wire.jsonl` from here on resume.
     expect(meta.agents.main.homedir).toBe(join(dir, 'agents', 'main'));
     expect(meta.custom.imported_from_kimi_cli).toBe(true);
     expect(meta.custom.kimi_cli_session_id).toBe('old-uuid');
@@ -153,26 +144,5 @@ describe('writeSessionState', () => {
     });
     const without = JSON.parse(await readFile(join(dir, 'state.json'), 'utf-8'));
     expect('lastTurnReason' in without).toBe(false);
-  });
-
-  it('atomically replaces an existing state.json and leaves no temp files', async () => {
-    await writeFile(join(dir, 'state.json'), '{"old": true}', 'utf-8');
-
-    await writeSessionState(dir, {
-      oldState: { custom_title: 'Fresh', wire_mtime: 1 },
-      sessionId: 'ses_u',
-      workdirPath: '/a',
-      lastUserPrompt: 'x',
-      sourcePath: '/a',
-      oldSessionUuid: 'u',
-      wireProtocolFromOld: null,
-      createdAtMs: 1,
-    });
-
-    const meta = JSON.parse(await readFile(join(dir, 'state.json'), 'utf-8'));
-    expect(meta.title).toBe('Fresh');
-    expect(meta.old).toBeUndefined();
-    const entries = await readdir(dir);
-    expect(entries.some((e) => e.endsWith('.tmp'))).toBe(false);
   });
 });

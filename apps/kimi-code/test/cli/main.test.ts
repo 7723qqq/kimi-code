@@ -1,64 +1,61 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-
+import { afterEach, beforeEach, describe, expect, it, vi, requireActual } from '@moonshot-ai/testkit/vitest';
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
-import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
 
-import * as optionsModule from '#/cli/options';
 import { validateOptions } from '#/cli/options';
 import type { CLIOptions } from '#/cli/options';
+import type * as OptionsModule from '#/cli/options';
 import { runPrompt } from '#/cli/run-prompt';
 import { runShell } from '#/cli/run-shell';
 import { formatStartupError } from '#/cli/startup-error';
 import { runUpdatePreflight } from '#/cli/update/preflight';
-import * as versionModule from '#/cli/version';
-import { handleMainCommand, handleUpgradeCommand, main, workerInstallWarnings } from '#/cli/main';
-import type { WorkerInstallDescriptor } from '#/cli/main';
+import { handleMainCommand, handleUpgradeCommand, main } from '#/cli/main';
 
-const mocks = (() => {
-  const parse = mock();
+const mocks = vi.hoisted(() => {
+  const parse = vi.fn();
   return {
     parse,
-    createProgram: mock(() => ({ parse })),
-    getVersion: mock(() => '0.0.1-alpha.2'),
-    validateOptions: mock(),
-    runUpdatePreflight: mock(),
-    runForcedUpgradePreflight: mock(async () => 'continue'),
-    runShell: mock(),
-    runPrompt: mock(),
-    installCrashHandlers: mock(),
-    track: mock(),
-    setTelemetryContext: mock(),
-    withTelemetryContext: mock(),
-    shutdownTelemetry: mock(),
-    createCliTelemetryBootstrap: mock(() => ({
+    createProgram: vi.fn(() => ({ parse })),
+    getVersion: vi.fn(() => '0.0.1-alpha.2'),
+    validateOptions: vi.fn(),
+    runUpdatePreflight: vi.fn(),
+    runForcedUpgradePreflight: vi.fn(async () => 'continue'),
+    runShell: vi.fn(),
+    runPrompt: vi.fn(),
+    installCrashHandlers: vi.fn(),
+    track: vi.fn(),
+    setTelemetryContext: vi.fn(),
+    withTelemetryContext: vi.fn(),
+    shutdownTelemetry: vi.fn(),
+    createCliTelemetryBootstrap: vi.fn(() => ({
       homeDir: '/tmp/kimi-home',
       deviceId: 'device-id',
       firstLaunch: false,
     })),
-    initializeCliTelemetry: mock(),
-    handleUpgrade: mock(),
-    runUpdateDownloadCommand: mock(async () => 0),
-    flushDiagnosticLogs: mock(),
-    finalizeHeadlessRun: mock(),
+    initializeCliTelemetry: vi.fn(),
+    handleUpgrade: vi.fn(),
+    flushDiagnosticLogs: vi.fn(),
+    finalizeHeadlessRun: vi.fn(),
     log: {
-      info: mock(),
-      warn: mock(),
-      error: mock(),
-      debug: mock(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
     },
     harness: {
       homeDir: '/tmp/kimi-home',
-      ensureConfigFile: mock(),
-      getConfig: mock(),
-      close: mock(),
-      track: mock(),
+      ensureConfigFile: vi.fn(),
+      getConfig: vi.fn(),
+      close: vi.fn(),
+      track: vi.fn(),
     },
-    KimiHarness: mock(),
-    createKimiHarness: mock(),
+    KimiHarness: vi.fn(),
+    createKimiHarness: vi.fn(),
+    maybeRelaunch: vi.fn(async () => false),
+    runUpdateDownloadCommand: vi.fn(async () => 0),
   };
-})();
+});
 
-void mock.module('@moonshot-ai/kimi-telemetry', () => ({
+void vi.mock('@moonshot-ai/kimi-telemetry', () => ({
   installCrashHandlers: mocks.installCrashHandlers,
   track: mocks.track,
   setTelemetryContext: mocks.setTelemetryContext,
@@ -66,7 +63,10 @@ void mock.module('@moonshot-ai/kimi-telemetry', () => ({
   shutdownTelemetry: mocks.shutdownTelemetry,
 }));
 
-void mock.module('@moonshot-ai/kimi-code-sdk', () => {
+void vi.mock('@moonshot-ai/kimi-code-sdk', () => {
+  const actual = requireActual(
+    '@moonshot-ai/kimi-code-sdk',
+  );
   class MockKimiHarness {
     readonly homeDir = mocks.harness.homeDir;
     readonly ensureConfigFile = mocks.harness.ensureConfigFile;
@@ -79,7 +79,7 @@ void mock.module('@moonshot-ai/kimi-code-sdk', () => {
     }
   }
   return {
-    ...sdkModule,
+    ...actual,
     createKimiHarness: (...args: unknown[]) => {
       mocks.createKimiHarness(...args);
       return mocks.harness;
@@ -90,58 +90,62 @@ void mock.module('@moonshot-ai/kimi-code-sdk', () => {
   };
 });
 
-void mock.module('#/cli/telemetry', () => ({
+void vi.mock('../../src/cli/telemetry', () => ({
   createCliTelemetryBootstrap: mocks.createCliTelemetryBootstrap,
   initializeCliTelemetry: mocks.initializeCliTelemetry,
 }));
 
-void mock.module('#/cli/sub/upgrade', () => ({
+void vi.mock('../../src/cli/sub/upgrade', () => ({
   handleUpgrade: mocks.handleUpgrade,
 }));
 
-void mock.module('#/cli/sub/update-download', () => ({
-  runUpdateDownloadCommand: mocks.runUpdateDownloadCommand,
-}));
-
-void mock.module('#/cli/commands', () => ({
+void vi.mock('../../src/cli/commands', () => ({
   createProgram: mocks.createProgram,
 }));
 
-void mock.module('#/cli/update/native-swap', () => ({
-  maybeRelaunchWithStagedNativeUpdate: mock(() => Promise.resolve(false)),
-}));
-
-void mock.module('#/cli/version', () => {
+void vi.mock('../../src/cli/version', () => {
+  const actual = requireActual(
+    '../../src/cli/version.js',
+  );
   return {
-    ...versionModule,
+    ...actual,
     getVersion: mocks.getVersion,
   };
 });
 
-void mock.module('#/cli/options', () => {
+void vi.mock('../../src/cli/options', () => {
+  const actual = requireActual('../../src/cli/options.js');
   return {
-    ...optionsModule,
+    ...actual,
     validateOptions: mocks.validateOptions,
   };
 });
 
-void mock.module('#/cli/update/preflight', () => ({
+void vi.mock('../../src/cli/update/preflight', () => ({
   runUpdatePreflight: mocks.runUpdatePreflight,
 }));
 
-void mock.module('#/cli/update/forced', () => ({
+void vi.mock('../../src/cli/update/forced', () => ({
   runForcedUpgradePreflight: mocks.runForcedUpgradePreflight,
 }));
 
-void mock.module('#/cli/run-shell', () => ({
+void vi.mock('../../src/cli/update/native-swap', () => ({
+  maybeRelaunchWithStagedNativeUpdate: mocks.maybeRelaunch,
+}));
+
+void vi.mock('../../src/cli/sub/update-download', () => ({
+  runUpdateDownloadCommand: mocks.runUpdateDownloadCommand,
+}));
+
+void vi.mock('../../src/cli/run-shell', () => ({
   runShell: mocks.runShell,
 }));
 
-void mock.module('#/cli/run-prompt', () => ({
+void vi.mock('../../src/cli/run-prompt', () => ({
   runPrompt: mocks.runPrompt,
 }));
 
-void mock.module('#/cli/headless-exit', () => ({
+void vi.mock('../../src/cli/headless-exit', () => ({
   finalizeHeadlessRun: mocks.finalizeHeadlessRun,
 }));
 
@@ -153,7 +157,6 @@ class ExitCalled extends Error {
 
 function defaultOpts(): CLIOptions {
   return {
-    environment: undefined,
     session: undefined,
     continue: false,
     yolo: false,
@@ -165,6 +168,7 @@ function defaultOpts(): CLIOptions {
     skillsDirs: [],
     agent: undefined,
     agentFiles: [],
+    environment: undefined,
   };
 }
 
@@ -182,20 +186,15 @@ async function waitForAssertion(assertion: () => void): Promise<void> {
   throw lastError;
 }
 
-/**
- * `main()` defers `createProgram` until the staged-native-update relaunch
- * check settles (a microtask), so tests must wait for the call before
- * grabbing the command action from its arguments.
- */
-async function waitForProgramCall(): Promise<unknown[]> {
+async function waitForProgramArgs(): Promise<unknown[]> {
   await waitForAssertion(() => {
-    expect(mocks.createProgram).toHaveBeenCalledTimes(1);
+    expect(mocks.createProgram).toHaveBeenCalled();
   });
   return mocks.createProgram.mock.calls[0] as unknown as unknown[];
 }
 
 async function runHandleMainCommand(opts: CLIOptions): Promise<number | null> {
-  const exitSpy = spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+  const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
     throw new ExitCalled(Number(code ?? 0));
   });
   try {
@@ -212,7 +211,7 @@ async function runHandleMainCommand(opts: CLIOptions): Promise<number | null> {
 }
 
 async function runHandleUpgradeCommand(yes = false): Promise<number> {
-  const exitSpy = spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+  const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
     throw new ExitCalled(Number(code ?? 0));
   });
   try {
@@ -230,11 +229,11 @@ async function runHandleUpgradeCommand(yes = false): Promise<number> {
 
 describe('main entry command handling', () => {
   afterEach(() => {
-    mock.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   beforeEach(() => {
-    mock.clearAllMocks();
+    vi.clearAllMocks();
     mocks.harness.ensureConfigFile.mockResolvedValue(undefined);
     mocks.harness.getConfig.mockResolvedValue({
       defaultModel: 'kimi-k2',
@@ -256,20 +255,17 @@ describe('main entry command handling', () => {
 
     expect(exitCode).toBeNull();
     expect(validateOptions).toHaveBeenCalledWith(opts);
-    expect(runUpdatePreflight).toHaveBeenCalledWith('0.0.1-alpha.2', {
-      track: expect.any(Function),
-    });
+    expect(runUpdatePreflight).toHaveBeenCalledWith('0.0.1-alpha.2', { track: expect.any(Function) });
     expect(mocks.runUpdatePreflight.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.runShell.mock.invocationCallOrder[0]!,
     );
-    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2', { startupWarnings: [] });
+    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2');
   });
 
   it('runs prompt mode without interactive update preflight', async () => {
     const opts: CLIOptions = {
       ...defaultOpts(),
       prompt: 'explain the repo',
-    environment: undefined,
     };
     mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'print' });
     mocks.runUpdatePreflight.mockResolvedValue('continue');
@@ -294,9 +290,6 @@ describe('main entry command handling', () => {
 
     const outcome = await handleMainCommand(opts, '0.0.1-alpha.2');
 
-    // Process disposition belongs to the entrypoint, never to this reusable,
-    // unit-tested handler: arming a process.exit here would kill the test runner
-    // or any embedding host. The handler only reports what ran.
     expect(mocks.finalizeHeadlessRun).not.toHaveBeenCalled();
     expect(outcome).toEqual({ headlessCompleted: true });
   });
@@ -321,43 +314,15 @@ describe('main entry command handling', () => {
     mocks.finalizeHeadlessRun.mockResolvedValue(void 0);
 
     main();
-    const programArgs = await waitForProgramCall();
+    const programArgs = await waitForProgramArgs();
     const mainAction = programArgs[1] as (opts: CLIOptions) => void;
     mainAction(opts);
 
     await waitForAssertion(() => {
       expect(mocks.finalizeHeadlessRun).toHaveBeenCalledTimes(1);
     });
-    // The exit code is resolved lazily so a goal turn that sets process.exitCode wins.
     const forceExitArgs = mocks.finalizeHeadlessRun.mock.calls[0] as unknown as unknown[];
     expect(typeof forceExitArgs[2]).toBe('function');
-  });
-
-  it('forwards the update-download intent and channel to the staged downloader', async () => {
-    const exitSpy = spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    try {
-      main();
-      const programArgs = await waitForProgramCall();
-      const onUpdateDownload = programArgs[5] as (
-        version: string,
-        manual: boolean,
-        intent: 'switch-channel',
-        channel: 'canary',
-      ) => void;
-
-      onUpdateDownload('0.7.0-canary.1', true, 'switch-channel', 'canary');
-
-      await waitForAssertion(() => {
-        expect(mocks.runUpdateDownloadCommand).toHaveBeenCalledWith(
-          '0.7.0-canary.1',
-          true,
-          'switch-channel',
-          'canary',
-        );
-      });
-    } finally {
-      exitSpy.mockRestore();
-    }
   });
 
   it('sets the failure exit code before awaiting startup failure logging', async () => {
@@ -367,13 +332,13 @@ describe('main entry command handling', () => {
     mocks.runUpdatePreflight.mockResolvedValue('continue');
     mocks.runPrompt.mockRejectedValue(new Error('provider failed'));
     mocks.flushDiagnosticLogs.mockImplementation(() => new Promise(() => {}));
-    const exitSpy = spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
       throw new ExitCalled(Number(code ?? 0));
     });
 
     try {
       main();
-      const programArgs = await waitForProgramCall();
+      const programArgs = await waitForProgramArgs();
       const mainAction = programArgs[1] as (opts: CLIOptions) => void;
       mainAction(opts);
 
@@ -384,9 +349,7 @@ describe('main entry command handling', () => {
       expect(exitSpy).not.toHaveBeenCalled();
     } finally {
       exitSpy.mockRestore();
-      // Bun's `process.exitCode` is a non-configurable accessor that ignores
-      // assigning `undefined`, so restore the effective "unset" state with 0.
-      process.exitCode = originalExitCode ?? 0;
+      process.exitCode = originalExitCode;
     }
   });
 
@@ -402,33 +365,46 @@ describe('main entry command handling', () => {
     expect(runUpdatePreflight).toHaveBeenCalledWith('0.0.1-alpha.2', {
       track: expect.any(Function),
     });
-    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2', { startupWarnings: [] });
-  });
-
-  it('forwards startup warnings to runShell', async () => {
-    const opts = defaultOpts();
-    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });
-    mocks.runUpdatePreflight.mockResolvedValue('continue');
-    mocks.runShell.mockResolvedValue(void 0);
-
-    await handleMainCommand(opts, '0.0.1-alpha.2', ['minidb is degraded']);
-
-    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2', {
-      startupWarnings: ['minidb is degraded'],
-    });
+    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2');
   });
 
   it('installs crash handlers before parsing CLI arguments', async () => {
     main();
 
-    await waitForAssertion(() => {
-      expect(mocks.createProgram).toHaveBeenCalledTimes(1);
-    });
     expect(mocks.installCrashHandlers).toHaveBeenCalledTimes(1);
-    expect(mocks.installCrashHandlers.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.createProgram.mock.invocationCallOrder[0]!,
-    );
-    expect(mocks.parse).toHaveBeenCalledWith(process.argv);
+    await waitForAssertion(() => {
+      expect(mocks.installCrashHandlers.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.createProgram.mock.invocationCallOrder[0]!,
+      );
+      expect(mocks.parse).toHaveBeenCalledWith(process.argv);
+    });
+  });
+
+  it('runs the staged-swap check before bootstrap and skips startup when it relaunches', async () => {
+    mocks.maybeRelaunch.mockResolvedValueOnce(true);
+
+    main();
+
+    await waitForAssertion(() => {
+      expect(mocks.maybeRelaunch).toHaveBeenCalledTimes(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mocks.createProgram).not.toHaveBeenCalled();
+  });
+
+  it('passes the runtime context to the staged-swap check', async () => {
+    main();
+
+    await waitForAssertion(() => {
+      expect(mocks.maybeRelaunch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          exePath: process.execPath,
+          argv: process.argv,
+          currentVersion: '0.0.1-alpha.2',
+          isNative: false,
+        }),
+      );
+    });
   });
 
   it('sets the process title during startup', () => {
@@ -443,22 +419,6 @@ describe('main entry command handling', () => {
     }
   });
 
-  it('does not require Bun when imported as a module', async () => {
-    // The entrypoint's Bun fast-fail is gated on `import.meta.main`. A module
-    // import (this test, the ACP host, embedders) must not exit the host
-    // process. `globalThis.Bun` is left untouched on purpose: under Bun it is
-    // a non-configurable, non-writable global (deleting or reassigning it
-    // throws), and under Node it is already absent — the non-Bun case this
-    // test simulates is covered by the Node run and untestable under Bun.
-    main();
-
-    const programArgs = await waitForProgramCall();
-    expect(programArgs).toBeDefined();
-    // Node leaves the unset code as `undefined`; Bun's accessor reports 0.
-    // Either way `main()` must not arm a failure exit code.
-    expect(process.exitCode ?? 0).toBe(0);
-  });
-
   it('exits with SIGINT status when the forced upgrade prompt is interrupted', async () => {
     const opts = defaultOpts();
     mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });
@@ -467,8 +427,8 @@ describe('main entry command handling', () => {
     const exitCode = await runHandleMainCommand(opts);
 
     expect(exitCode).toBe(130);
-    expect(runUpdatePreflight).not.toHaveBeenCalled();
-    expect(runShell).not.toHaveBeenCalled();
+    expect(mocks.runUpdatePreflight).not.toHaveBeenCalled();
+    expect(mocks.runShell).not.toHaveBeenCalled();
   });
 
   it('exits early when update preflight requests process exit', async () => {
@@ -488,35 +448,31 @@ describe('main entry command handling', () => {
 
     expect(exitCode).toBe(0);
     expect(mocks.createCliTelemetryBootstrap).toHaveBeenCalledTimes(1);
-    expect(mocks.createKimiHarness).toHaveBeenCalledWith(
-      expect.objectContaining({
-        homeDir: '/tmp/kimi-home',
-        telemetry: {
-          track: mocks.track,
-          withContext: mocks.withTelemetryContext,
-          setContext: mocks.setTelemetryContext,
-        },
-      }),
-    );
+    expect(mocks.createKimiHarness).toHaveBeenCalledWith(expect.objectContaining({
+      homeDir: '/tmp/kimi-home',
+      telemetry: {
+        track: mocks.track,
+        withContext: mocks.withTelemetryContext,
+        setContext: mocks.setTelemetryContext,
+      },
+    }));
     expect(mocks.harness.ensureConfigFile).toHaveBeenCalledTimes(1);
-    expect(mocks.initializeCliTelemetry).toHaveBeenCalledWith(
-      expect.objectContaining({
-        harness: expect.objectContaining({
-          homeDir: '/tmp/kimi-home',
-        }),
-        bootstrap: {
-          homeDir: '/tmp/kimi-home',
-          deviceId: 'device-id',
-          firstLaunch: false,
-        },
-        config: {
-          defaultModel: 'kimi-k2',
-          telemetry: true,
-        },
-        version: '0.0.1-alpha.2',
-        uiMode: 'shell',
+    expect(mocks.initializeCliTelemetry).toHaveBeenCalledWith(expect.objectContaining({
+      harness: expect.objectContaining({
+        homeDir: '/tmp/kimi-home',
       }),
-    );
+      bootstrap: {
+        homeDir: '/tmp/kimi-home',
+        deviceId: 'device-id',
+        firstLaunch: false,
+      },
+      config: {
+        defaultModel: 'kimi-k2',
+        telemetry: true,
+      },
+      version: '0.0.1-alpha.2',
+      uiMode: 'shell',
+    }));
     expect(mocks.handleUpgrade).toHaveBeenCalledWith('0.0.1-alpha.2', {
       track: mocks.track,
       logger: mocks.log,
@@ -529,7 +485,7 @@ describe('main entry command handling', () => {
   it('formats Kimi startup errors with structured fields', () => {
     const error = new KimiError(
       ErrorCodes.SHELL_GIT_BASH_NOT_FOUND,
-      'No bash shell was found on this Windows host. Checked: C:\\Program Files\\Git\\bin\\bash.exe.',
+      'Git Bash was not found on this Windows host. Checked: C:\\Program Files\\Git\\bin\\bash.exe.',
     );
     const red = (text: string): string => `\u001B[31m${text}\u001B[39m`;
 
@@ -538,7 +494,7 @@ describe('main entry command handling', () => {
         '\u001B[31merror: Git Bash not found\u001B[39m',
         '',
         '\u001B[31mmessage:\u001B[39m',
-        '\u001B[31mNo bash shell was found on this Windows host. Checked: C:\\Program Files\\Git\\bin\\bash.exe.\u001B[39m',
+        '\u001B[31mGit Bash was not found on this Windows host. Checked: C:\\Program Files\\Git\\bin\\bash.exe.\u001B[39m',
         '',
       ].join('\n'),
     );
@@ -557,46 +513,5 @@ describe('main entry command handling', () => {
         operation: 'run prompt',
       }),
     ).toBe('error: failed to run prompt: Provider not set\n');
-  });
-});
-
-describe('workerInstallWarnings', () => {
-  const installs = (
-    status: WorkerInstallDescriptor['status'],
-  ): readonly WorkerInstallDescriptor[] => [{ label: 'minidb-text-build', status }];
-
-  it('reports a failed install with its error code', () => {
-    const warnings = workerInstallWarnings(installs({ status: 'failed', errorCode: 'EACCES' }));
-
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('minidb-text-build');
-    expect(warnings[0]).toContain('EACCES');
-  });
-
-  it('reports a missing native asset', () => {
-    const warnings = workerInstallWarnings(installs({ status: 'asset-missing' }));
-
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('minidb-text-build');
-  });
-
-  it('stays silent for installed and not-packaged workers', () => {
-    expect(
-      workerInstallWarnings(
-        installs({ status: 'installed', assetSha256: 'abc', basename: 'worker.js' }),
-      ),
-    ).toEqual([]);
-    expect(workerInstallWarnings(installs({ status: 'not-packaged' }))).toEqual([]);
-  });
-
-  it('reports each degraded worker separately', () => {
-    const warnings = workerInstallWarnings([
-      { label: 'minidb-text-build', status: { status: 'failed', errorCode: 'ENOSPC' } },
-      { label: 'kap-search', status: { status: 'asset-missing' } },
-    ]);
-
-    expect(warnings).toHaveLength(2);
-    expect(warnings[0]).toContain('minidb-text-build');
-    expect(warnings[1]).toContain('kap-search');
   });
 });

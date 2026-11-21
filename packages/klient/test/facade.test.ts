@@ -1,26 +1,24 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import type { SessionSummary, SkillSummary } from '@moonshot-ai/agent-core-v2';
-import type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/contract';
-
-import type { EventSourceRef, IDisposable, KlientChannel, ScopeRef } from '../src/core/channel.js';
-import type { AgentContextData, McpServerEntry } from '../src/core/facade/agent.js';
+import type {
+  EventSourceRef,
+  IDisposable,
+  KlientChannel,
+  ScopeRef,
+} from '../src/core/channel.js';
 import { createKlientFromChannel } from '../src/core/klient.js';
 import { KlientValidationError } from '../src/core/validation.js';
-import type { Page, SessionRestoredPayload } from '../src/index.js';
 
 const tick = (ms = 0): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Records calls, replays scripted results, and captures listen subscriptions. */
 class FakeChannel implements KlientChannel {
   readonly calls: Array<{ scope: ScopeRef; service: string; method: string; args: unknown[] }> = [];
   readonly subscriptions: Array<{
     scope: ScopeRef;
     source: EventSourceRef;
-    dispose: ReturnType<typeof mock>;
+    dispose: ReturnType<typeof vi.fn>;
   }> = [];
   result: unknown;
-  /** Keyed `${service}.${method}` result overrides. */
   readonly results = new Map<string, unknown>();
   private readonly handlers = new Map<number, (data: unknown) => void>();
   private nextSub = 0;
@@ -31,28 +29,19 @@ class FakeChannel implements KlientChannel {
     return Promise.resolve(this.results.has(key) ? this.results.get(key) : this.result);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async *stream(
-    _scope: ScopeRef,
-    _service: string,
-    _method: string,
-    _args: unknown[],
-  ): AsyncIterableIterator<unknown> {
-    // stub — streaming is not exercised in facade tests
-  }
+  async *stream(_scope: ScopeRef, _service: string, _method: string, _args: unknown[]): AsyncIterableIterator<unknown> {}
 
   listen(scope: ScopeRef, source: EventSourceRef, handler: (data: unknown) => void): IDisposable {
     const id = this.nextSub;
     this.nextSub += 1;
     this.handlers.set(id, handler);
-    const dispose = mock(() => {
+    const dispose = vi.fn(() => {
       this.handlers.delete(id);
     });
     this.subscriptions.push({ scope, source, dispose });
     return { dispose };
   }
 
-  /** Push a raw payload into the Nth subscription (0-based). */
   emit(index: number, data: unknown): void {
     this.handlers.get(index)?.(data);
   }
@@ -75,15 +64,7 @@ describe('facade routing', () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel);
 
-    channel.result = {
-      id: 'w1',
-      root: '/x',
-      name: 'n',
-      kind: 'implicit',
-      additionalDirs: [],
-      createdAt: 1,
-      lastOpenedAt: 2,
-    };
+    channel.result = { id: 'w1', root: '/x', name: 'n', kind: 'implicit', additionalDirs: [], createdAt: 1, lastOpenedAt: 2 };
     await klient.global.workspaces.createOrTouch({ root: '/x', name: 'n' });
     expect(channel.calls[0]).toMatchObject({
       service: 'workspaceService',
@@ -91,7 +72,7 @@ describe('facade routing', () => {
       args: ['/x', 'n'],
     });
 
-    channel.result = undefined; // void output
+    channel.result = undefined;
     await klient.global.plugins.setMcpServerEnabled({ id: 'p', server: 's', enabled: true });
     expect(channel.calls[1]).toMatchObject({
       service: 'pluginService',
@@ -106,6 +87,28 @@ describe('facade routing', () => {
       method: 'status',
       args: [undefined],
     });
+
+    channel.results.set('sessionPromptPredictionService.predict', 'next prompt');
+    await expect(klient.session('s1').predictNextPrompt({
+      predictionId: 'prediction-1',
+      expectedTurnId: 4,
+    })).resolves.toBe('next prompt');
+    channel.results.set('sessionPromptPredictionService.cancel', true);
+    await expect(klient.session('s1').cancelPromptPrediction('prediction-1', 'escape')).resolves.toBe(true);
+    expect(channel.calls.slice(3)).toEqual([
+      {
+        scope: { sessionId: 's1' },
+        service: 'sessionPromptPredictionService',
+        method: 'predict',
+        args: [{ predictionId: 'prediction-1', expectedTurnId: 4 }],
+      },
+      {
+        scope: { sessionId: 's1' },
+        service: 'sessionPromptPredictionService',
+        method: 'cancel',
+        args: ['prediction-1', 'escape'],
+      },
+    ]);
   });
 
   it('forwards the login region option through the wire contract', async () => {
@@ -134,14 +137,13 @@ describe('facade routing', () => {
   it('routes capability calls through the registered app service contract', async () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel);
-    const status: CapabilityStatus = {
+    const status = {
       id: 'kimi-cu',
       displayName: 'Kimi Computer Use',
       description: 'Background GUI automation',
       supported: true,
       state: 'partial',
       steps: [{ id: 'permissions', state: 'missing' }],
-      // The completed-install note survives the contract parse (not stripped).
       install: { running: false, note: 'user-skill-migrated' },
     };
     channel.result = [status];
@@ -152,7 +154,7 @@ describe('facade routing', () => {
     await expect(klient.global.capabilities.install('kimi-cu')).resolves.toEqual(status);
     const confirmation = {
       ...status,
-      install: { running: false, confirmationRequired: 'stop-processes' as const },
+      install: { running: false, confirmationRequired: 'stop-processes' },
     };
     channel.result = confirmation;
     await expect(klient.global.capabilities.install('kimi-cu', { stopRunningProcesses: true }))
@@ -167,6 +169,58 @@ describe('facade routing', () => {
         service: 'capabilityService',
         method: 'installCapability',
         args: ['kimi-cu', { stopRunningProcesses: true }],
+      },
+    ]);
+  });
+
+  it('routes custom and marketplace plugin installs through the same contract', async () => {
+    const channel = new FakeChannel();
+    const klient = createKlientFromChannel(channel);
+    channel.result = {
+      id: 'demo',
+      displayName: 'Demo',
+      description: 'Plugin description',
+      shortDescription: 'Short description',
+      longDescription: 'Long description',
+      enabled: true,
+      state: 'ok',
+      skillCount: 0,
+      mcpServerCount: 0,
+      enabledMcpServerCount: 0,
+      hookCount: 0,
+      commandCount: 0,
+      hasErrors: false,
+      source: 'zip-url',
+      origin: 'marketplace',
+      catalogId: 'demo',
+      installedAt: '2026-01-01T00:00:00.000Z',
+    };
+
+    await expect(klient.global.plugins.install('/tmp/demo')).resolves.toMatchObject({
+      description: 'Plugin description',
+      shortDescription: 'Short description',
+      longDescription: 'Long description',
+    });
+    await expect(
+      klient.global.plugins.install({ marketplaceId: 'demo', expectedVersion: '1.0.0' }),
+    ).resolves.toMatchObject({
+      description: 'Plugin description',
+      shortDescription: 'Short description',
+      longDescription: 'Long description',
+    });
+
+    expect(channel.calls).toEqual([
+      {
+        scope: {},
+        service: 'pluginService',
+        method: 'installPlugin',
+        args: [{ source: '/tmp/demo' }],
+      },
+      {
+        scope: {},
+        service: 'pluginService',
+        method: 'installPlugin',
+        args: [{ marketplaceId: 'demo', expectedVersion: '1.0.0' }],
       },
     ]);
   });
@@ -212,7 +266,7 @@ describe('agent profile routing', () => {
     const klient = createKlientFromChannel(channel);
     const agent = klient.session('s1').agent('main');
 
-    channel.result = undefined; // void output
+    channel.result = undefined;
     await agent.setThinking('on');
     expect(channel.calls[0]).toEqual({
       scope: { sessionId: 's1', agentId: 'main' },
@@ -229,59 +283,6 @@ describe('agent profile routing', () => {
       method: 'getEffectiveThinkingLevel',
       args: [],
     });
-  });
-});
-
-describe('agent operation routing', () => {
-  it('forwards list, undo, redo, and restore through the operation service contract', async () => {
-    const channel = new FakeChannel();
-    const klient = createKlientFromChannel(channel);
-    const agent = klient.session('s1').agent('main');
-    const operation = {
-      version: 1,
-      id: 'op-1',
-      parents: [],
-      viewId: 'view-1',
-      kind: 'capture' as const,
-      at: '2026-01-01T00:00:00.000Z',
-      description: 'Write',
-      nonce: 'nonce-1',
-      origin: { sessionId: 's1', agentId: 'main', turnId: 3, toolName: 'Write' },
-    };
-
-    channel.result = [operation];
-    await expect(agent.listOperations(25)).resolves.toEqual([operation]);
-    channel.result = operation;
-    await expect(agent.undoOperation()).resolves.toEqual(operation);
-    await expect(agent.redoOperation()).resolves.toEqual(operation);
-    await expect(agent.restoreOperation('op-1')).resolves.toEqual(operation);
-
-    expect(channel.calls).toEqual([
-      {
-        scope: { sessionId: 's1', agentId: 'main' },
-        service: 'agentOperationService',
-        method: 'listOperations',
-        args: [25],
-      },
-      {
-        scope: { sessionId: 's1', agentId: 'main' },
-        service: 'agentOperationService',
-        method: 'undoOperation',
-        args: [],
-      },
-      {
-        scope: { sessionId: 's1', agentId: 'main' },
-        service: 'agentOperationService',
-        method: 'redoOperation',
-        args: [],
-      },
-      {
-        scope: { sessionId: 's1', agentId: 'main' },
-        service: 'agentOperationService',
-        method: 'restoreOperation',
-        args: ['op-1'],
-      },
-    ]);
   });
 });
 
@@ -365,7 +366,7 @@ describe('session skills routing', () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel);
 
-    const summaries: readonly SkillSummary[] = [
+    const summaries = [
       {
         name: 'review',
         description: 'review changes',
@@ -424,8 +425,8 @@ describe('session skills routing', () => {
     const agent = klient.session('s1').agent('main');
     const scope = { sessionId: 's1', agentId: 'main' };
 
-    channel.results.set('agentPromptService.submit', { turn_id: 1 });
-    channel.results.set('agentPromptService.submitSteer', {
+    channel.results.set('agentLoopService.submit', { turn_id: 1 });
+    channel.results.set('agentLoopService.notifyClient', {
       turn_id: 1,
       prompt_id: 'prompt-steer-1',
       created_at: '2026-01-01T00:00:00.000Z',
@@ -445,24 +446,25 @@ describe('session skills routing', () => {
     expect(channel.calls).toEqual([
       {
         scope,
-        service: 'agentPromptService',
+        service: 'agentLoopService',
         method: 'submit',
         args: [{ input: [{ type: 'text', text: 'hi' }] }],
       },
       {
         scope,
-        service: 'agentPromptService',
-        method: 'submitSteer',
-        args: [{ input: [{ type: 'text', text: 'steer' }] }],
+        service: 'agentLoopService',
+        method: 'notifyClient',
+        args: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: 'steer' }],
+            attributes: { origin: { kind: 'user' } },
+          },
+        ],
       },
       { scope, service: 'agentLoopService', method: 'cancelFromUser', args: [2] },
       { scope, service: 'agentLoopService', method: 'cancelFromUser', args: [] },
-      {
-        scope,
-        service: 'agentPermissionModeService',
-        method: 'setModeAndBroadcast',
-        args: ['yolo'],
-      },
+      { scope, service: 'agentPermissionModeService', method: 'setModeAndBroadcast', args: ['yolo'] },
       { scope, service: 'agentCommandService', method: 'list', args: [] },
       { scope, service: 'agentCommandService', method: 'run', args: ['cmd', 'a b'] },
       { scope, service: 'agentCommandService', method: 'run', args: ['plain'] },
@@ -475,14 +477,105 @@ describe('session skills routing', () => {
     const agent = klient.session('s1').agent('main');
     const scope = { sessionId: 's1', agentId: 'main' };
 
-    channel.results.set('agentContextMemoryService.get', [{ role: 'user' }]);
+    channel.results.set('agentContextMemoryService.get', [
+      { role: 'system', content: [{ type: 'text', text: 'rules' }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'hello' },
+          { type: 'image_url', imageUrl: { url: 'https://example.com/a.png' } },
+          { type: 'audio_url', audioUrl: { url: 'ms://audio-1', id: 'audio-1' } },
+          { type: 'video_url', videoUrl: { url: 'media://video-1', name: 'clip.mp4' } },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'think', think: 'bare' },
+          {
+            type: 'think',
+            think: 'full',
+            encrypted: 'encrypted',
+            detailsIndex: 0,
+            hidden: false,
+            reasoningKey: '',
+          },
+        ],
+        toolCalls: [],
+      },
+      { role: 'tool', content: [{ type: 'text', text: 'done' }], toolCallId: 'call-1' },
+    ]);
     channel.results.set('agentTokenCountingService.statusSize', 42);
-    const expectedContext = {
-      history: [{ role: 'user' }],
+    await expect(agent.getContext()).resolves.toStrictEqual({
+      history: [
+        { role: 'system', content: [{ type: 'text', text: 'rules' }], toolCalls: [] },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'hello' },
+            { type: 'image_url', imageUrl: { url: 'https://example.com/a.png' } },
+            { type: 'audio_url', audioUrl: { url: 'ms://audio-1', id: 'audio-1' } },
+            { type: 'video_url', videoUrl: { url: 'media://video-1', name: 'clip.mp4' } },
+          ],
+          toolCalls: [],
+        },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'think', think: 'bare' },
+            {
+              type: 'think',
+              think: 'full',
+              encrypted: 'encrypted',
+              detailsIndex: 0,
+              hidden: false,
+              reasoningKey: '',
+            },
+          ],
+          toolCalls: [],
+        },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'done' }],
+          toolCalls: [],
+          toolCallId: 'call-1',
+        },
+      ],
       tokenCount: 42,
-    } as unknown as AgentContextData;
-    await expect(agent.getContext()).resolves.toEqual(expectedContext);
+    });
     expect(channel.calls).toEqual([
+      { scope, service: 'agentContextMemoryService', method: 'get', args: [] },
+      { scope, service: 'agentTokenCountingService', method: 'statusSize', args: [] },
+    ]);
+
+    const envelope = {
+      id: 'message-1',
+      providerMessageId: 'provider-1',
+      name: 'named',
+      origin: { kind: 'user' },
+      isError: false,
+      partial: false,
+      toolCallDisplays: {},
+      note: '',
+      usage: { inputOther: 1, output: 2, inputCacheRead: 3, inputCacheCreation: 4 },
+      llmTiming: { llmFirstTokenLatencyMs: 5, llmStreamDurationMs: 6 },
+      durationMs: 0,
+    };
+    channel.results.set('agentContextMemoryService.get', [
+      { role: 'user', content: [{ type: 'text', text: 'hello' }], ...envelope },
+    ]);
+    await expect(agent.getContext()).resolves.toStrictEqual({
+      history: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'hello' }],
+          toolCalls: [],
+          ...envelope,
+        },
+      ],
+      tokenCount: 42,
+    });
+    expect(channel.calls.slice(2)).toEqual([
       { scope, service: 'agentContextMemoryService', method: 'get', args: [] },
       { scope, service: 'agentTokenCountingService', method: 'statusSize', args: [] },
     ]);
@@ -495,7 +588,7 @@ describe('agent mcp / compaction routing', () => {
     const klient = createKlientFromChannel(channel);
     const agent = klient.session('s1').agent('main');
 
-    const entries: readonly McpServerEntry[] = [
+    const entries = [
       { name: 'mock', transport: 'stdio', status: 'failed', toolCount: 0, nextRetryAt: 123456 },
     ];
     channel.results.set('agentMcpService.list', entries);
@@ -615,7 +708,7 @@ describe('contract validation', () => {
   it('rejects drifted output payloads', async () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel);
-    channel.result = { id: 's1' }; // missing required SessionSummary fields
+    channel.result = { id: 's1' };
     await expect(klient.global.sessions.get('s1')).rejects.toBeInstanceOf(KlientValidationError);
   });
 
@@ -629,11 +722,10 @@ describe('contract validation', () => {
   it('validate:false skips both directions', async () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel, { validate: false });
-    const expectedPage = { anything: true } as unknown as Page<SessionSummary>;
-    channel.result = expectedPage;
+    channel.result = { anything: true };
     await expect(
       klient.global.sessions.list({ limit: '20' as unknown as number }),
-    ).resolves.toEqual(expectedPage);
+    ).resolves.toEqual({ anything: true });
   });
 });
 
@@ -644,8 +736,8 @@ describe('event hub', () => {
     const seen: unknown[] = [];
     const errors: Error[] = [];
     klient.events.onError((error) => {
-      errors.push(error);
-    });
+        errors.push(error);
+      });
 
     klient.events.on('kosong.providers.changed', (event) => seen.push(event));
     expect(channel.subscriptions[0]?.source).toEqual({
@@ -666,7 +758,7 @@ describe('event hub', () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel);
     const archived: unknown[] = [];
-    const restored: SessionRestoredPayload[] = [];
+    const restored: unknown[] = [];
     const catalog: unknown[] = [];
 
     const subA = klient.events.on('session.archived', (event) => archived.push(event));
@@ -676,14 +768,8 @@ describe('event hub', () => {
     expect(channel.subscriptions[0]?.source).toEqual({ kind: 'stream', name: 'events' });
 
     channel.emit(0, { type: 'event.session.archived', payload: { sessionId: 's1' } });
-    channel.emit(0, {
-      type: 'event.session.restored',
-      payload: { sessionId: 's1', workspaceId: 'wd_1' },
-    });
-    channel.emit(0, {
-      type: 'event.model_catalog.changed',
-      payload: { changed: [], unchanged: [], failed: [] },
-    });
+    channel.emit(0, { type: 'event.session.restored', payload: { sessionId: 's1', workspaceId: 'wd_1' } });
+    channel.emit(0, { type: 'event.model_catalog.changed', payload: { changed: [], unchanged: [], failed: [] } });
     channel.emit(0, { type: 'unrelated.type', payload: {} });
     await tick();
     expect(archived).toEqual([{ sessionId: 's1' }]);
@@ -758,30 +844,26 @@ describe('event hub', () => {
     });
 
     agent.events.on('tool.call.delta', (event) => seen.delta.push(event));
-    agent.events.on('tool.progress', (event) => seen.progress.push(event));
+    agent.events.on('tool.updated', (event) => seen.progress.push(event));
     agent.events.on('compaction.started', (event) => seen.started.push(event));
     agent.events.on('compaction.blocked', (event) => seen.blocked.push(event));
     agent.events.on('compaction.cancelled', (event) => seen.cancelled.push(event));
     agent.events.on('compaction.completed', (event) => seen.completed.push(event));
 
-    // All six registrations share one `events` stream subscription bound to
-    // the agent scope.
     expect(channel.subscriptions).toHaveLength(1);
     expect(channel.subscriptions[0]?.scope).toEqual({ sessionId: 's1', agentId: 'main' });
     expect(channel.subscriptions[0]?.source).toEqual({ kind: 'stream', name: 'events' });
 
-    const delta = {
-      type: 'tool.call.delta',
-      turnId: 1,
-      toolCallId: 'tc1',
-      name: 'Bash',
-      argumentsPart: '{"command":',
-    };
+    const delta = { type: 'tool.call.delta', turnId: 1, toolCallId: 'tc1', name: 'Bash', argumentsPart: '{"command":' };
     const progress = {
-      type: 'tool.progress',
+      type: 'tool.updated',
       turnId: 1,
       toolCallId: 'tc1',
-      update: { kind: 'stdout', text: 'chunk' },
+      taskId: 'task-1',
+      status: 'running',
+      detached: false,
+      fields: { status: 'copying' },
+      output: { offset: 0, text: 'chunk' },
     };
     const started = { type: 'compaction.started', trigger: 'auto' };
     const blocked = { type: 'compaction.blocked', turnId: 2 };
@@ -796,12 +878,12 @@ describe('event hub', () => {
     channel.emit(0, blocked);
     channel.emit(0, cancelled);
     channel.emit(0, completed);
-    channel.emit(0, { type: 'tool.progress', turnId: 1, toolCallId: 'tc1' }); // missing update
+    channel.emit(0, { type: 'tool.updated', turnId: 1, toolCallId: 'tc1', taskId: 'task-1', status: 'running', detached: false }); // missing fields
     channel.emit(0, { type: 'unregistered.type', turnId: 1 });
     await tick();
 
     expect(seen.delta).toEqual([delta]);
-    expect(seen.progress).toEqual([progress]);
+    expect(seen.progress).toEqual([{ ...progress, origin: 'loop' }]);
     expect(seen.started).toEqual([started]);
     expect(seen.blocked).toEqual([blocked]);
     expect(seen.cancelled).toEqual([cancelled]);

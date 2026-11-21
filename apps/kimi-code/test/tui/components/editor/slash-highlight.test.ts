@@ -1,16 +1,9 @@
-import { beforeAll, describe, expect, it } from 'bun:test';
-
 import chalk from 'chalk';
+import { describe, it, expect, beforeAll } from '@moonshot-ai/testkit/vitest';
 
-import {
-  highlightFirstSlashToken,
-  highlightInlineSkillTokens,
-} from '#/tui/components/editor/custom-editor';
+import { highlightFirstSlashToken, highlightInlineSkillTokens } from '#/tui/components/editor/custom-editor';
 
 beforeAll(() => {
-  // Vitest runs without a TTY so chalk auto-detects colour support as
-  // 0 (no colours). Force full colour so the highlighter actually
-  // emits the SGR escapes we're asserting on.
   chalk.level = 3;
 });
 
@@ -26,9 +19,7 @@ describe('highlightFirstSlashToken', () => {
   it('colours /cmd when line starts with a slash', () => {
     const out = highlightFirstSlashToken('  /help rest of input', 'primary');
     expect(out).toBeDefined();
-    // Visible text unchanged
     expect(strip(out!)).toBe('  /help rest of input');
-    // SGR escapes surround /help
     expectHighlighted(out!, '/help');
   });
 
@@ -69,24 +60,18 @@ describe('highlightFirstSlashToken', () => {
   });
 
   it('passes through pre-existing ANSI (e.g. cursor inverse) in the tail', () => {
-    // Simulate pi-tui Editor inserting an inverse-video cursor marker
-    // somewhere after the slash token.
     const line = '/help x\u001B[7m \u001B[0m';
     const out = highlightFirstSlashToken(line, 'primary');
     expect(out).toBeDefined();
-    // Stripped visible content unchanged
     expect(strip(out!)).toBe(strip(line));
-    // Inverse cursor SGR is still present afterwards
     expect(out!.includes('\u001B[7m')).toBe(true);
   });
 
   it('only paints the first token, not other slashes further along', () => {
     const out = highlightFirstSlashToken('/a /b', 'primary');
     expect(out).toBeDefined();
-    // Count the SGR opens — should be exactly one for /a.
     const opens = (out!.match(/\u001B\[[0-9;]+m/g) ?? []).length;
-    expect(opens).toBeGreaterThanOrEqual(2); // chalk bold+fg open and reset(s)
-    // /b should remain plain — the substring " /b" exists verbatim.
+    expect(opens).toBeGreaterThanOrEqual(2);
     expect(out!).toContain(' /b');
   });
 });
@@ -115,14 +100,17 @@ describe('highlightInlineSkillTokens', () => {
 
   it('skips the excluded leading command range', () => {
     const visible = '/skill:review args';
-    const out = highlightInlineSkillTokens(visible, SKILLS, { start: 0, end: 13 }, 'primary');
+    const out = highlightInlineSkillTokens(
+      visible,
+      SKILLS,
+      { start: 0, end: 13 },
+      'primary',
+    );
     expect(out).toBeUndefined();
   });
 
   it('ignores unknown tokens and plain slashes', () => {
-    expect(
-      highlightInlineSkillTokens('and /not-a-skill or /tmp', SKILLS, null, 'primary'),
-    ).toBeUndefined();
+    expect(highlightInlineSkillTokens('and /not-a-skill or /tmp', SKILLS, null, 'primary')).toBeUndefined();
   });
 
   it('supports the skill: prefix fallback for bare names', () => {

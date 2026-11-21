@@ -1,0 +1,4 @@
+{
+  "extends": "../vite-preset/tsconfig.renderer.json",
+  "include": ["src"]
+}

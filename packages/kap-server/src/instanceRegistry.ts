@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises';
+import { mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { resolveKimiHome } from '@moonshot-ai/agent-core-v2';
@@ -18,6 +18,7 @@ export interface ServerInstanceInfo {
   readonly startedAt: number;
   readonly heartbeatAt: number;
   readonly serverVersion?: string;
+  readonly product?: string;
 }
 
 interface ServerInstanceDisk {
@@ -28,6 +29,7 @@ interface ServerInstanceDisk {
   started_at: number;
   heartbeat_at: number;
   host_version?: string;
+  product?: string;
 }
 
 export interface InstanceRegistration {
@@ -66,6 +68,7 @@ function isInstanceFile(name: string): boolean {
 }
 
 function encode(info: ServerInstanceInfo): string {
+  const product = info.product !== undefined && info.product.length > 0 ? info.product : undefined;
   const disk: ServerInstanceDisk = {
     server_id: info.serverId,
     pid: info.pid,
@@ -74,6 +77,7 @@ function encode(info: ServerInstanceInfo): string {
     started_at: info.startedAt,
     heartbeat_at: info.heartbeatAt,
     ...(info.serverVersion !== undefined ? { host_version: info.serverVersion } : {}),
+    product,
   };
   return JSON.stringify(disk);
 }
@@ -89,6 +93,10 @@ function decode(raw: string): ServerInstanceInfo | undefined {
       typeof parsed.started_at === 'number' &&
       typeof parsed.heartbeat_at === 'number'
     ) {
+      const product =
+        typeof parsed.product === 'string' && parsed.product.length > 0
+          ? parsed.product
+          : undefined;
       return {
         serverId: parsed.server_id,
         pid: parsed.pid,
@@ -97,6 +105,7 @@ function decode(raw: string): ServerInstanceInfo | undefined {
         startedAt: parsed.started_at,
         heartbeatAt: parsed.heartbeat_at,
         ...(parsed.host_version !== undefined ? { serverVersion: parsed.host_version } : {}),
+        product,
       };
     }
     return undefined;
@@ -107,7 +116,7 @@ function decode(raw: string): ServerInstanceInfo | undefined {
 
 async function readInstanceFile(filePath: string): Promise<ServerInstanceInfo | undefined> {
   try {
-    return decode(await readFile(filePath, 'utf8'));
+    return decode(await Bun.file(filePath).text());
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     return undefined;
@@ -130,7 +139,8 @@ async function writeFileAtomic(filePath: string, content: string): Promise<void>
     if (!renamed) {
       try {
         await unlink(tmpPath);
-      } catch {}
+      } catch {
+      }
     }
   }
 }
@@ -215,6 +225,7 @@ export function createInstanceRegistry(options: InstanceRegistryOptions = {}): I
             startedAt: info.startedAt,
             heartbeatAt: now(),
             ...(info.serverVersion !== undefined ? { serverVersion: info.serverVersion } : {}),
+            product: info.product,
           };
           await writeFileAtomic(filePath, encode(full));
         } finally {
@@ -226,7 +237,8 @@ export function createInstanceRegistry(options: InstanceRegistryOptions = {}): I
       await write();
 
       const timer = setInterval(() => {
-        void write().catch(() => {});
+        void write().catch(() => {
+        });
       }, heartbeatIntervalMs);
       timer.unref();
 

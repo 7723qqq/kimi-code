@@ -3,11 +3,11 @@
 //   B) Observing an expired key via scan/query/dtRange must reap it from the
 //      derived indexes (dt / secondary), so they cannot leak ghost entries.
 //   C) A non-integer / non-finite TTL must not explode with a BigInt error.
-import { expect, test } from 'bun:test';
+import { test } from '@moonshot-ai/testkit/vitest';
+import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
 import { MiniDb } from '../src/index.js';
 
 async function tmpDir() {
@@ -27,8 +27,8 @@ test('recovery: expired overwrite does not resurrect older value (WAL only)', as
 
   db = await MiniDb.open({ dir, valueCodec: 'string', activeExpireIntervalMs: 0 });
   try {
-    expect(db.get('k'), 'the expired v2 overwrite must not resurrect v1').toBe(undefined);
-    expect(db.size, 'no live key should remain').toBe(0);
+    assert.equal(db.get('k'), undefined, 'the expired v2 overwrite must not resurrect v1');
+    assert.equal(db.size, 0, 'no live key should remain');
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -52,9 +52,7 @@ test('recovery: expired overwrite does not resurrect a snapshotted value', async
 
   db = await MiniDb.open({ dir, valueCodec: 'string', activeExpireIntervalMs: 0 });
   try {
-    expect(db.get('k'), 'expired WAL overwrite must not resurrect the snapshot value').toBe(
-      undefined,
-    );
+    assert.equal(db.get('k'), undefined, 'expired WAL overwrite must not resurrect the snapshot value');
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -70,8 +68,8 @@ test('expired key is reaped from the dt index when observed via scan', async () 
     await db.set('g', { v: 1 }, { ttl: 1, dt: { created: 100 } });
     await sleep(20);
     db.scan(); // non-get read path: must reap the expired key + derived indexes
-    expect(db.dt.columns(), 'dt index must drop a column whose only key expired').toStrictEqual([]);
-    expect(db.dtRange('created', { gte: 0, lte: 1000 })).toStrictEqual([]);
+    assert.deepEqual(db.dt.columns(), [], 'dt index must drop a column whose only key expired');
+    assert.deepEqual(db.dtRange('created', { gte: 0, lte: 1000 }), []);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -87,10 +85,7 @@ test('expired key is reaped from a secondary index when observed via scan', asyn
     await sleep(20);
     db.scan(); // reap via the getRecord read path
     // Inspect the raw index manager (no store.get, so no self-healing here):
-    expect(
-      db.indexes.findEq('byCity', 'Paris'),
-      'secondary index must not retain the expired key',
-    ).toStrictEqual([]);
+    assert.deepEqual(db.indexes.findEq('byCity', 'Paris'), [], 'secondary index must not retain the expired key');
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -105,8 +100,8 @@ test('set with a fractional ttl does not throw (rounded to integer ms)', async (
   try {
     await db.set('k', 'v', { ttl: 200.9 }); // floor to 200ms; must not throw a BigInt error
     const left = db.ttl('k');
-    expect(left > 0 && left <= 201, `ttl should be ~200ms, got ${left}`).toBeTruthy();
-    expect(db.get('k')).toBe('v');
+    assert.ok(left > 0 && left <= 201, `ttl should be ~200ms, got ${left}`);
+    assert.equal(db.get('k'), 'v');
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -117,10 +112,10 @@ test('set with a non-finite ttl is rejected with a clear error and stores nothin
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'string' });
   try {
-    await expect(db.set('a', 'v', { ttl: Infinity })).rejects.toThrow(/ttl/i);
-    await expect(db.set('b', 'v', { ttl: NaN })).rejects.toThrow(/ttl/i);
-    expect(db.get('a'), 'rejected set must not be stored').toBe(undefined);
-    expect(db.get('b')).toBe(undefined);
+    await assert.rejects(db.set('a', 'v', { ttl: Infinity }), /ttl/i);
+    await assert.rejects(db.set('b', 'v', { ttl: NaN }), /ttl/i);
+    assert.equal(db.get('a'), undefined, 'rejected set must not be stored');
+    assert.equal(db.get('b'), undefined);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });

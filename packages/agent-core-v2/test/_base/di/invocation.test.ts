@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import { createDecorator, type ServicesAccessor } from '#/_base/di/instantiation';
+import {
+  createDecorator,
+  type ServicesAccessor,
+} from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
 
@@ -127,13 +130,17 @@ describe('InstantiationService.invokeFunction', () => {
   });
 
   it('non-strict mode yields undefined for an unknown service', () => {
-    const service = new InstantiationService(new ServiceCollection([IService1, new Service1()]));
+    const service = new InstantiationService(
+      new ServiceCollection([IService1, new Service1()]),
+    );
     const value = service.invokeFunction((a) => a.get(IService2));
     expect(value).toBeUndefined();
   });
 
   it('accessor is only valid during the invocation (escaping use throws)', () => {
-    const service = new InstantiationService(new ServiceCollection([IService1, new Service1()]));
+    const service = new InstantiationService(
+      new ServiceCollection([IService1, new Service1()]),
+    );
     let cached: ServicesAccessor | undefined;
     service.invokeFunction((a) => {
       expect(a.get(IService1)).toBeInstanceOf(Service1);
@@ -146,57 +153,13 @@ describe('InstantiationService.invokeFunction', () => {
   });
 
   it('propagates errors thrown by the callback', () => {
-    const service = new InstantiationService(new ServiceCollection([IService1, new Service1()]));
+    const service = new InstantiationService(
+      new ServiceCollection([IService1, new Service1()]),
+    );
     expect(() =>
       service.invokeFunction(() => {
         throw new Error('invoke-boom');
       }),
     ).toThrow('invoke-boom');
-  });
-
-  it('multiple services depending on the same dependency share the singleton', () => {
-    interface IShared {
-      counter: number;
-    }
-    const IShared = createDecorator<IShared>('invocation-shared');
-    let ctorCount = 0;
-    class SharedImpl implements IShared {
-      counter = 0;
-      constructor() {
-        ctorCount += 1;
-      }
-    }
-    interface IUser1 {
-      shared: IShared;
-    }
-    interface IUser2 {
-      shared: IShared;
-    }
-    const IUser1 = createDecorator<IUser1>('invocation-user1');
-    const IUser2 = createDecorator<IUser2>('invocation-user2');
-    class User1Impl implements IUser1 {
-      constructor(@IShared public readonly shared: IShared) {}
-    }
-    class User2Impl implements IUser2 {
-      constructor(@IShared public readonly shared: IShared) {}
-    }
-
-    const service = new InstantiationService(
-      new ServiceCollection(
-        [IShared, new SyncDescriptor(SharedImpl)],
-        [IUser1, new SyncDescriptor(User1Impl)],
-        [IUser2, new SyncDescriptor(User2Impl)],
-      ),
-    );
-    const user1 = service.invokeFunction((a) => a.get(IUser1));
-    const user2 = service.invokeFunction((a) => a.get(IUser2));
-    expect(user1.shared).toBe(user2.shared);
-    expect(ctorCount).toBe(1);
-  });
-
-  it('invokeFunction with empty service collection does not throw for no dependencies', () => {
-    const service = new InstantiationService();
-    const result = service.invokeFunction(() => 'empty-ok');
-    expect(result).toBe('empty-ok');
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { parseCronExpression } from '#/features/cron/internal/cron-expr';
 import {
@@ -128,7 +128,7 @@ describe('oneShotJitteredNextCronRunMs', () => {
     );
 
     for (const value of calls) {
-      expect(value).toBe(calls[0]!);
+      expect(value).toBe(calls[0]);
     }
   });
 
@@ -176,10 +176,11 @@ describe('cron jitter config', () => {
 
   it('honors a custom one-shot cap', () => {
     const ideal = localDate(2024, 5, 1, 14, 0, 0);
-    const jittered = oneShotJitteredNextCronRunMs({ id: ID_A }, ideal, {
-      ...DEFAULT_CRON_JITTER_CONFIG,
-      oneShotMaxMs: 10_000,
-    });
+    const jittered = oneShotJitteredNextCronRunMs(
+      { id: ID_A },
+      ideal,
+      { ...DEFAULT_CRON_JITTER_CONFIG, oneShotMaxMs: 10_000 },
+    );
 
     expect(jittered - ideal).toBeGreaterThanOrEqual(-10_000);
     expect(jittered - ideal).toBeLessThanOrEqual(0);

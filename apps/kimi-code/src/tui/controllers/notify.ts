@@ -1,12 +1,12 @@
 import type { Event, ResumedSessionState } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import type { NotifyEntry } from '#/tui/components/chrome/notify-panel';
 import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
-import type { TUIState } from '#/tui/state';
+import { editorSlotComponent, type TUIState } from '#/tui/tui-state';
 import { argsRecord } from '#/tui/utils/event-payload';
-import { isTerminalBackgroundTask } from '#/tui/utils/message-replay';
 import { notifyResultState } from '#/tui/utils/notify-result';
+import { isTerminalBackgroundTask } from '#/tui/utils/message-replay';
+import { t } from '#/i18n';
 
 interface PendingUpdate {
   readonly agentId: string;
@@ -17,20 +17,12 @@ interface PendingUpdate {
   readonly text: string;
 }
 
-/**
- * A harness-generated entry marking that work was delegated — shown
- * immediately (not result-gated like `NotifyUser` calls), because its whole
- * point is to explain the silence while the subagent runs.
- */
 function delegationText(name: string, args: Record<string, unknown>): string | undefined {
   if (name === 'Agent') {
     const description = args['description'];
     if (typeof description !== 'string' || description.trim().length === 0) return undefined;
     const kind = typeof args['subagent_type'] === 'string' ? args['subagent_type'] : 'subagent';
-    return t('tui.messages.notifyPanelDelegatedTo', {
-      kind,
-      description: description.trim(),
-    });
+    return t('tui.messages.notifyPanelDelegatedTo', { kind: kind, description: description.trim() });
   }
   const items = args['items'];
   const newCount = Array.isArray(items) ? items.length : 0;
@@ -41,7 +33,7 @@ function delegationText(name: string, args: Record<string, unknown>): string | u
       : 0;
   const total = newCount + resumedCount;
   if (total === 0) return undefined;
-  return t('tui.messages.notifyPanelDelegatedSwarm', { count: total });
+  return t('tui.messages.notifyPanelDelegatedSwarm', { count: String(total) });
 }
 
 export class NotifyController {
@@ -58,7 +50,7 @@ export class NotifyController {
   constructor(
     private readonly state: Pick<
       TUIState,
-      'notifyPanel' | 'updatesRegion' | 'statusSurface' | 'ui'
+      'notifyPanel' | 'notifyPanelContainer' | 'ui' | 'editor' | 'editorContainer' | 'editorSlot'
     >,
   ) {}
 
@@ -66,6 +58,11 @@ export class NotifyController {
     if (this.enabled === enabled) return;
     this.reset();
     this.enabled = enabled;
+    if (enabled) {
+      this.state.notifyPanel.onReturnFocus = (key) => {
+        this.returnFocus(key);
+      };
+    }
   }
 
   reset(): void {
@@ -82,33 +79,35 @@ export class NotifyController {
     for (const [key, update] of this.pending) this.settled.set(key, update.agentId);
     this.pending.clear();
     if (!this.enabled && !this.mounted) return;
-    if (this.state.notifyPanel.isEmpty()) return;
-    this.state.updatesRegion.clear();
+    const { notifyPanel, notifyPanelContainer } = this.state;
+    const needsRender = !notifyPanel.isEmpty() || notifyPanelContainer.children.length > 0;
+    notifyPanel.clearUpdates();
+    if (!needsRender) return;
+    notifyPanelContainer.clear();
     this.mounted = false;
     this.state.ui.requestRender();
   }
 
-  /**
-   * Grab or release the updates region's keyboard focus.
-   *
-   * The status surface owns focus for the whole strip, so this delegates
-   * rather than toggling the panel directly: two independently-tracked focus
-   * flags is exactly how a highlighted border once ended up over keys that
-   * went nowhere.
-   */
-  toggleFocus(): boolean {
-    if (!this.enabled) return false;
-    const changed = this.state.statusSurface.toggleFocus();
-    if (!changed) return false;
-    this.state.ui.requestRender();
+  focusPanel(): boolean {
+    const { notifyPanel, ui } = this.state;
+    if (!this.enabled || !notifyPanel.canFocus()) return false;
+    ui.setFocus(notifyPanel);
+    ui.requestRender();
     return true;
   }
 
-  handlePanelKey(
-    key: 'left' | 'right' | 'up' | 'down' | 'pageUp' | 'pageDown' | 'escape',
-  ): boolean {
-    if (!this.enabled || !this.state.updatesRegion.isFocused()) return false;
-    return this.state.statusSurface.handleKey(key);
+  private returnFocus(key: string | undefined): void {
+    const { editor, ui } = this.state;
+    const inputArea = editorSlotComponent(this.state) ?? editor;
+    if (key !== undefined && inputArea !== editor) return;
+    ui.setFocus(inputArea);
+    if (key !== undefined) editor.handleInput(key);
+    ui.requestRender();
+  }
+
+  setPrompt(pending: boolean): void {
+    this.state.notifyPanel.setPrompt(pending);
+    this.state.ui.requestRender();
   }
 
   handleEvent(event: Event): void {
@@ -128,10 +127,6 @@ export class NotifyController {
       case 'subagent.cancelled':
         this.running.delete(event.subagentId);
         this.dropPending(event.subagentId);
-        // Fold the finished agent's tab so a fan-out of short-lived subagents
-        // cannot crowd the strip past the width budget, where it would be
-        // dropped wholesale and take navigation with it.
-        this.state.notifyPanel.markFinished(event.subagentId);
         break;
       case 'background.task.started':
       case 'background.task.terminated': {
@@ -298,12 +293,15 @@ export class NotifyController {
   }
 
   private render(): void {
-    const { notifyPanel, ui } = this.state;
-    // The panel is a region of the status surface; showing and hiding it is
-    // the surface's job now (a region stops occupying rows while it is empty),
-    // so this only has to keep the controller's own mounted bookkeeping and
-    // ask for a repaint.
-    this.mounted = !notifyPanel.isEmpty();
+    const { notifyPanel, notifyPanelContainer, ui } = this.state;
+    if (notifyPanel.isEmpty()) {
+      if (notifyPanelContainer.children.length === 0) return;
+      notifyPanelContainer.clear();
+      this.mounted = false;
+    } else {
+      if (notifyPanelContainer.children.length === 0) notifyPanelContainer.addChild(notifyPanel);
+      this.mounted = true;
+    }
     ui.requestRender();
   }
 }

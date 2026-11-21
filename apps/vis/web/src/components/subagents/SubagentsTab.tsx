@@ -1,5 +1,4 @@
 import { useAgentTree } from '../../hooks/useSubagents';
-import { t } from '../../i18n';
 import { SubagentTree } from './SubagentTree';
 
 interface SubagentsTabProps {
@@ -10,7 +9,7 @@ export function SubagentsTab({ sessionId }: SubagentsTabProps) {
   const { data, isLoading, error } = useAgentTree(sessionId);
 
   if (isLoading) {
-    return <div className="p-6 font-mono text-[12px] text-fg-3">{t('subagents.loading')}</div>;
+    return <div className="p-6 font-mono text-[12px] text-fg-3">loading agents…</div>;
   }
   if (error) {
     return (

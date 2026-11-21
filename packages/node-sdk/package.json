@@ -1,6 +1,6 @@
 {
   "name": "@moonshot-ai/kimi-code-sdk",
-  "version": "0.21.1",
+  "version": "0.23.2",
   "private": true,
   "description": "TypeScript SDK for the Kimi Code Agent",
   "keywords": [
@@ -97,12 +97,18 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.95.2",
+    "@google/genai": "^1.49.0",
     "@moonshot-ai/agent-core-v2": "workspace:^",
+    "@moonshot-ai/core": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-code-product": "workspace:^",
     "@moonshot-ai/kimi-i18n": "workspace:^",
     "@moonshot-ai/klient": "workspace:^",
     "@moonshot-ai/kosong": "workspace:^",
-    "@types/yazl": "^2.4.6"
+    "@moonshot-ai/testkit": "workspace:*",
+    "@types/yazl": "^2.4.6",
+    "jimp": "^1.6.1",
+    "openai": "^6.34.0"
   }
 }

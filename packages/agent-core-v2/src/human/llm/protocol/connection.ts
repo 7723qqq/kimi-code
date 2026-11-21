@@ -1,4 +1,4 @@
-import type { LlmModel } from '#/llm/model';
+import type { LlmModel } from '#human/llm/model';
 
 export interface ConnectionContext {
   readonly model: LlmModel;

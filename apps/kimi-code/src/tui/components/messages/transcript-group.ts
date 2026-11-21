@@ -11,7 +11,6 @@ import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import { mixColors } from '#/tui/theme/color-mix';
 import { hasRowDetail, hasStatusMarker, isExpandedComponent } from '#/tui/utils/component-capabilities';
-import { t } from '#/i18n';
 import {
   deriveGroupView,
   elapsedText,
@@ -35,6 +34,7 @@ import {
 } from '#/tui/utils/turn-timeline';
 import { TitleSweep } from './running-title';
 import { renderHeaderContent, TruncatedHeaderLine } from './truncated-header-line';
+import { t } from '#/i18n';
 
 export interface TranscriptGroupModel extends GroupViewInput {
   readonly anchor: Component;
@@ -303,7 +303,7 @@ export class TranscriptGroupComponent implements Component {
     return mixColors(
       currentTheme.color('textDim'),
       currentTheme.terminalBackground(),
-      currentTheme.isLight ? 0.65 : 0.60,
+      currentTheme.isLight() ? 0.65 : 0.60,
     );
   }
 
@@ -420,9 +420,7 @@ export class TranscriptRowComponent implements Component {
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     if (event.type !== 'click' || event.button !== 'left' || event.y < 1) return undefined;
     const status = rowStatusOf(this.item, this.timeline, monotonicNow());
-    if (status.kind === 'running' && this.item.detailWhile?.includes(status.kind) === true) {
-      return undefined;
-    }
+    if (status.kind === 'running' && this.item.detailWhile?.includes(status.kind) === true) return undefined;
     return this.interaction.toggleRow(this.item) ? { handled: true } : undefined;
   }
 
@@ -466,11 +464,9 @@ function bodyOf(model: TranscriptGroupModel, view: GroupView): GroupBody {
 function titleSuffix(view: GroupView, now: Instant): string {
   const { title } = view;
   if (title.kind === 'item') return statusSuffix(title.status, now);
-  const failed = title.failed > 0
-    ? currentTheme.fg('error', t('tui.messages.transcriptGroups.titleFailed', { count: title.failed }))
-    : '';
+  const failed = title.failed > 0 ? currentTheme.fg('error', ` · ${String(title.failed)} failed`) : '';
   const interrupted = title.interrupted > 0
-    ? currentTheme.fg('textDim', t('tui.messages.transcriptGroups.titleInterrupted', { count: title.interrupted }))
+    ? currentTheme.fg('textDim', ` · ${String(title.interrupted)} interrupted`)
     : '';
   return `${diffText(title.added, title.removed)}${failed}${interrupted}`;
 }

@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { McpServer } from '@agentclientprotocol/sdk';
 import type { ContentPart } from '@moonshot-ai/agent-core-v2';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   acpBlocksToContentParts,
@@ -94,11 +94,7 @@ describe('compressPromptImageParts', () => {
   const trash: string[] = [];
 
   afterEach(async () => {
-    await Promise.all(
-      trash
-        .splice(0)
-        .map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })),
-    );
+    await Promise.all(trash.splice(0).map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })));
   });
 
   async function tempOriginalsDir(): Promise<string> {
@@ -112,9 +108,6 @@ describe('compressPromptImageParts', () => {
   }
 
   it('leaves format judgment to the engine: a format it cannot re-encode passes through', async () => {
-    // Which formats are acceptable depends on the provider the agent is
-    // bound to, which this edge does not know; the engine's prompt gate
-    // decides. So neither a HEIC payload nor a MIME alias is rewritten here.
     const heic = `data:image/heic;base64,${Buffer.alloc(32).toString('base64')}`;
     const alias = `data:IMAGE/PNG;base64,${solidPngBase64(8, 8)}`;
     const out = await compressPromptImageParts([
@@ -134,7 +127,6 @@ describe('compressPromptImageParts', () => {
     });
     expect(out).toHaveLength(1);
     expect(out[0]).toEqual(imagePart(url));
-    // No compression happened, so no original was persisted.
     expect(await readdir(originalsDir)).toEqual([]);
   });
 
@@ -147,7 +139,6 @@ describe('compressPromptImageParts', () => {
       maxImageEdgePx: 64,
     });
 
-    // caption text part immediately precedes the re-encoded image part.
     expect(out).toHaveLength(2);
     const caption = out[0] as { text: string };
     const image = out[1] as { imageUrl: { url: string } };
@@ -157,11 +148,9 @@ describe('compressPromptImageParts', () => {
     expect(image.imageUrl.url).not.toBe(url);
     expect(image.imageUrl.url.startsWith('data:image/')).toBe(true);
 
-    // The original bytes landed in the session media-originals dir so the
-    // model can read fine detail back from the captioned path.
     const files = await readdir(originalsDir);
     expect(files).toHaveLength(1);
     expect(caption.text).toContain(files[0]!);
-    expect((await readFile(join(originalsDir, files[0]!))) as Buffer).toEqual(original);
+    expect(await readFile(join(originalsDir, files[0]!))).toEqual(original);
   });
 });

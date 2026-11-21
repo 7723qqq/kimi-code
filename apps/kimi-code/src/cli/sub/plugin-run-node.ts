@@ -1,7 +1,6 @@
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-
 import { t } from '#/i18n';
 
 export async function runPluginNodeEntry(entry: string, args: readonly string[]): Promise<void> {
@@ -10,9 +9,12 @@ export async function runPluginNodeEntry(entry: string, args: readonly string[])
     throw new Error(t('tui.statusMessages.pluginRootRequired'));
   }
 
-  const [rootReal, entryReal] = await Promise.all([realpath(pluginRoot), realpath(entry)]);
+  const [rootReal, entryReal] = await Promise.all([
+    realpath(pluginRoot),
+    realpath(entry),
+  ]);
   if (!isWithin(entryReal, rootReal)) {
-    throw new Error(t('tui.statusMessages.pluginEntryOutsideRoot', { entry }));
+    throw new Error(t('cli.sub.pluginRunNode.entryOutsideRoot', { p1: entry }));
   }
 
   process.argv = [process.argv[0] ?? process.execPath, entryReal, ...args];

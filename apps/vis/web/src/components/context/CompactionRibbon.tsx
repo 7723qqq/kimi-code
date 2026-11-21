@@ -1,17 +1,9 @@
-import { t } from '../../i18n';
 import type { ProjectedMessage } from '../../types';
 
 interface CompactionRibbonProps {
-  /** The synthetic compaction-summary message emitted by the projector. */
   message: ProjectedMessage;
 }
 
-/**
- * Horizontal ribbon that marks where a `context.apply_compaction` record
- * collapsed earlier messages into a single summary. Receives the
- * `ProjectedMessage` whose `source === 'compaction_summary'` so we can
- * render the summary text inline.
- */
 export function CompactionRibbon({ message }: CompactionRibbonProps) {
   const summary = extractSummary(message);
   const stats = message.compaction;
@@ -20,7 +12,7 @@ export function CompactionRibbon({ message }: CompactionRibbonProps) {
       <div className="flex items-center gap-3">
         <span className="h-px flex-1 bg-[var(--color-compaction)] opacity-50" />
         <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--color-compaction)]">
-          {t('context.compactHint', { lineNo: message.lineNo })}
+          prior context compacted · line {message.lineNo}
         </span>
         <span className="h-px flex-1 bg-[var(--color-compaction)] opacity-50" />
       </div>

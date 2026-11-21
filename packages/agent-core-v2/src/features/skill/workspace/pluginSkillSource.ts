@@ -1,6 +1,5 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
-import { IPluginService } from '#/app/plugin/plugin';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import {
   PLUGIN_SKILL_SOURCE_ID,
@@ -8,6 +7,7 @@ import {
   type ISkillSource,
   type SkillContribution,
 } from '#/features/skill/catalog/skillSource';
+import { IPluginService } from '#/app/plugin/plugin';
 
 export interface IPluginSkillSource extends ISkillSource {
   readonly _serviceBrand: undefined;
@@ -39,3 +39,4 @@ export class PluginSkillSource implements IPluginSkillSource {
     return this.discovery.discover(await this.plugins.pluginSkillRoots());
   }
 }
+

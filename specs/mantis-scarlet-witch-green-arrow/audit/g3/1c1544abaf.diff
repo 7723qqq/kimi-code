@@ -1,0 +1,80 @@
+commit 1c1544abafccab582bf2b625a92af1fdc292537f
+Author:     Haozhe <yanghaozhe@moonshot.ai>
+AuthorDate: Thu Nov 12 23:05:09 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Nov 12 23:05:09 2026 +0800
+
+    fix(prediction): refine ghost text presentation (#4878)
+    
+    * fix(prediction): show suggestions without terminal focus
+    
+    * fix(tui): soften prompt prediction color
+
+diff --git a/apps/kimi-code/src/tui/components/editor/custom-editor.ts b/apps/kimi-code/src/tui/components/editor/custom-editor.ts
+index 9e46f4910e..6d54b30164 100644
+--- a/apps/kimi-code/src/tui/components/editor/custom-editor.ts
++++ b/apps/kimi-code/src/tui/components/editor/custom-editor.ts
+@@ -850,7 +850,7 @@ function injectPromptPrediction(line: string, prediction: string, width: number)
+     : mapVisibleIdxToRaw(line, EDITOR_LEFT_PADDING);
+   const trailing = line.slice(insertAt);
+   const remaining = Math.max(0, visibleWidth(trailing) - visibleWidth(trimmed));
+-  return line.slice(0, insertAt) + currentTheme.fg('textDim', trimmed) + ' '.repeat(remaining);
++  return line.slice(0, insertAt) + currentTheme.fg('textMuted', trimmed) + ' '.repeat(remaining);
+ }
+ 
+ /**
+diff --git a/apps/kimi-code/src/tui/controllers/prompt-prediction.ts b/apps/kimi-code/src/tui/controllers/prompt-prediction.ts
+index 116970e166..88d259ae3a 100644
+--- a/apps/kimi-code/src/tui/controllers/prompt-prediction.ts
++++ b/apps/kimi-code/src/tui/controllers/prompt-prediction.ts
+@@ -201,7 +201,6 @@ export class PromptPredictionController {
+       state.livePane.pendingQuestion === null &&
+       state.editor.inputMode === 'prompt' &&
+       state.editor.getText().length === 0 &&
+-      state.editor.terminalFocused &&
+       !state.editor.hasAutocompleteActivity()
+     );
+   }
+diff --git a/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts b/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts
+index f065166a06..884ca93e4a 100644
+--- a/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts
++++ b/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts
+@@ -318,6 +318,11 @@ describe('CustomEditor @ mention completion refresh', () => {
+ 
+ describe('CustomEditor Tab key handling', () => {
+   it('keeps native completion closed and accepts a full prediction beyond its narrow preview', async () => {
++    const previousLevel = chalk.level;
++    chalk.level = 3;
++    onTestFinished(() => {
++      chalk.level = previousLevel;
++    });
+     const editor = makeEditor();
+     const provider = providerReturning([{ value: '@src/file.ts', label: 'file.ts' }]);
+     editor.setAutocompleteProvider(provider);
+@@ -332,8 +337,10 @@ describe('CustomEditor Tab key handling', () => {
+     const prediction = '请继续修复这个很长的 English prompt prediction，不要截断原文\n第二行也要保留';
+     editor.setPromptPrediction(prediction);
+     const rendered = editor.render(24);
++    const muted = currentTheme.fg('textMuted', 'x').split('x')[0]!;
+     expect(rendered.every((line) => visibleWidth(line) <= 24)).toBe(true);
+     expect(rendered.join('\n')).toContain('…');
++    expect(rendered.join('\n')).toContain(muted);
+     expect(editor.acceptPromptPrediction()).toBe(true);
+     expect(editor.getText()).toBe(prediction);
+     expect(editor.getPromptPrediction()).toBeUndefined();
+diff --git a/apps/kimi-code/test/tui/controllers/prompt-prediction.test.ts b/apps/kimi-code/test/tui/controllers/prompt-prediction.test.ts
+index 9e428d6da4..27cc8ddaf8 100644
+--- a/apps/kimi-code/test/tui/controllers/prompt-prediction.test.ts
++++ b/apps/kimi-code/test/tui/controllers/prompt-prediction.test.ts
+@@ -117,8 +117,11 @@ describe('PromptPredictionController', () => {
+     }));
+ 
+     nextPrediction = () => Promise.resolve('git push');
++    editor.terminalFocused = false;
+     controller.handleTurnEnded(turnEnded(13));
+     await vi.waitFor(() => expect(editor.getPromptPrediction()).toBeDefined());
++    expect(editor.render(80).join('\n')).toContain('git push');
++    editor.terminalFocused = true;
+     editor.handleInput('!');
+     expect(editor.inputMode).toBe('bash');
+     expect(controller.handlePreInput('\t')).toBe(false);

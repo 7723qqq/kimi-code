@@ -1,32 +1,32 @@
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
-  RepoMutations,
   ToolAccesses,
-  ToolSideEffects,
   type ExecutableToolContext,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
 
-import { IWebSearchTool, WebSearchInputSchema, type WebSearchInput } from './web-search';
+import {
+  IWebSearchTool,
+  WebSearchInputSchema,
+  type WebSearchInput,
+} from './web-search';
 import DESCRIPTION from './web-search.md?raw';
 
 export class WebSearchTool implements IWebSearchTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'WebSearch' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WebSearchInputSchema);
 
   constructor(
     @IWebSearchProviderService private readonly providerService: IWebSearchProviderService,
-    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentLoopService private readonly loop: IAgentLoopService,
   ) {}
 
   resolveExecution(args: WebSearchInput): ToolExecution {
@@ -45,12 +45,11 @@ export class WebSearchTool implements IWebSearchTool {
     args: WebSearchInput,
     { toolCallId, signal }: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
-    const provider = this.providerService.getWebSearchProvider(this.profile.getModel());
+    const provider = this.providerService.getWebSearchProvider(this.loop.getModel());
     if (provider === undefined) {
       return {
         isError: true,
-        output:
-          'Web search is no longer configured; the provider was removed after this session started.',
+        output: 'Web search is no longer configured; the provider was removed after this session started.',
       };
     }
     try {
@@ -120,5 +119,5 @@ registerAgentToolService(IWebSearchTool, WebSearchTool, {
   when: (accessor) =>
     accessor
       .get(IWebSearchProviderService)
-      .hasWebSearchProvider(accessor.get(IAgentProfileService).getModel()),
+      .hasWebSearchProvider(accessor.get(IAgentLoopService).getModel()),
 });

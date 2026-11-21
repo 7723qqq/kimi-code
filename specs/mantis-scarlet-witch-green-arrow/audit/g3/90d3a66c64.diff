@@ -1,0 +1,2079 @@
+commit 90d3a66c644d56f2e3a9d4ae9e55e59375fb750d
+Author:     grapedge <grapedge@gmail.com>
+AuthorDate: Fri Nov 13 13:14:50 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Fri Nov 13 13:14:50 2026 +0800
+
+    feat(tui): add follow_up_behavior to choose whether Enter queues or steers (#4890)
+
+diff --git a/.changeset/follow-up-behavior.md b/.changeset/follow-up-behavior.md
+new file mode 100644
+index 0000000000..d78214b706
+--- /dev/null
++++ b/.changeset/follow-up-behavior.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/kimi-code": minor
++---
++
++Add a Follow-up behavior setting under /settings; pick Steer to make Enter steer your message into the running turn instead of queueing it.
+diff --git a/apps/kimi-code/src/tui/commands/config.ts b/apps/kimi-code/src/tui/commands/config.ts
+index 7e687a9da1..3aa589c969 100644
+--- a/apps/kimi-code/src/tui/commands/config.ts
++++ b/apps/kimi-code/src/tui/commands/config.ts
+@@ -7,7 +7,7 @@ import {
+   type Session,
+   type ThinkingEffort,
+ } from '@moonshot-ai/kimi-code-sdk';
+-import { TuiAltScreen } from '@moonshot-ai/pi-tui';
++import { isKittyProtocolActive, TuiAltScreen } from '@moonshot-ai/pi-tui';
+ 
+ import { EditorSelectorComponent } from '../components/dialogs/editor-selector';
+ import { EffortSelectorComponent } from '../components/dialogs/effort-selector';
+@@ -17,6 +17,7 @@ import {
+ } from '../components/dialogs/experiments-selector';
+ import { MermaidPreferenceSelectorComponent } from '../components/dialogs/mermaid-preference-selector';
+ import { modelDisplayName, segmentsFor } from '../components/dialogs/model-selector';
++import { FollowUpBehaviorSelectorComponent } from '../components/dialogs/follow-up-behavior-selector';
+ import { ModelSwitchConfirmDialogComponent } from '../components/dialogs/model-switch-confirm-dialog';
+ import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
+ import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
+@@ -34,8 +35,10 @@ import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-
+ import {
+   DEFAULT_MARKDOWN_CONFIG,
+   DEFAULT_TUI_CONFIG,
++  resolveFollowUpBehavior,
+   resolveTuiMode,
+   saveTuiConfig,
++  type FollowUpBehavior,
+   type MarkdownConfig,
+   type TranscriptConfig,
+   type TuiConfig,
+@@ -100,6 +103,7 @@ export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConf
+     renderLatex: host.state.appState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true,
+     cacheExpiryHint: host.state.appState.cacheExpiryHint ?? DEFAULT_TUI_CONFIG.cacheExpiryHint,
+     autoSessionTitle: host.state.appState.autoSessionTitle ?? DEFAULT_TUI_CONFIG.autoSessionTitle,
++    followUpBehavior: host.state.appState.followUpBehavior,
+     notifications: host.state.appState.notifications,
+     upgrade: host.state.appState.upgrade,
+     statusLine: host.state.appState.statusLine ?? DEFAULT_TUI_CONFIG.statusLine,
+@@ -1277,6 +1281,53 @@ export async function applyTuiModeChoice(host: TuiModeHost, tuiMode: TuiMode): P
+   }
+ }
+ 
++function showFollowUpBehaviorPicker(host: SlashCommandHost): void {
++  host.mountEditorReplacement(
++    new FollowUpBehaviorSelectorComponent({
++      currentValue: resolveFollowUpBehavior(host.state.appState.followUpBehavior),
++      ctrlEnterRecognized: isKittyProtocolActive(),
++      onSelect: (value) => {
++        host.restoreEditor();
++        void applyFollowUpBehaviorChoice(host, value);
++      },
++      onCancel: () => {
++        host.restoreEditor();
++      },
++    }),
++  );
++}
++
++type FollowUpBehaviorHost = {
++  readonly state: {
++    readonly appState: Pick<SlashCommandHost['state']['appState'], 'followUpBehavior'>;
++  };
++  setAppState(patch: Pick<SlashCommandHost['state']['appState'], 'followUpBehavior'>): void;
++  showStatus(msg: string, color?: string): void;
++};
++
++export async function applyFollowUpBehaviorChoice(
++  host: FollowUpBehaviorHost,
++  followUpBehavior: FollowUpBehavior,
++): Promise<void> {
++  if (followUpBehavior === host.state.appState.followUpBehavior) {
++    host.showStatus(`Follow-up behavior already ${followUpBehavior}.`);
++    return;
++  }
++
++  try {
++    await saveTuiConfig({
++      ...currentTuiConfig(host as unknown as SlashCommandHost),
++      followUpBehavior,
++    });
++  } catch (error) {
++    host.showStatus(`Failed to save follow-up behavior: ${formatErrorMessage(error)}`, 'error');
++    return;
++  }
++
++  host.setAppState({ followUpBehavior });
++  host.showStatus(`Follow-up behavior set to ${followUpBehavior}.`, 'success');
++}
++
+ export function showSettingsSelector(host: SlashCommandHost): void {
+   host.mountEditorReplacement(
+     new SettingsSelectorComponent({
+@@ -1303,6 +1354,7 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
+     case 'copyOnSelect': showCopyOnSelectPicker(host); return;
+     case 'mermaid': showMermaidPreferencePicker(host); return;
+     case 'editor': showEditorPicker(host); return;
++    case 'followUpBehavior': showFollowUpBehaviorPicker(host); return;
+     case 'survey': showSurveyPreferencePicker(host); return;
+     case 'experiments': void showExperimentsPanel(host); return;
+     case 'upgrade': showUpdatePreferencePicker(host); return;
+diff --git a/apps/kimi-code/src/tui/commands/dispatch.ts b/apps/kimi-code/src/tui/commands/dispatch.ts
+index c52c74bbda..ab5ebd4ff2 100644
+--- a/apps/kimi-code/src/tui/commands/dispatch.ts
++++ b/apps/kimi-code/src/tui/commands/dispatch.ts
+@@ -13,6 +13,7 @@ import type { ModelMigrationController } from '../controllers/model-migration';
+ import type { StreamingUIController } from '../controllers/streaming-ui';
+ import type { TasksBrowserController } from '../controllers/tasks-browser';
+ import { tryHandleDanceCommand } from '../easter-eggs/dance';
++import type { FollowUpDelivery } from '../config';
+ import type { ResolvedTheme } from '../theme/colors';
+ import type { TUIState } from '../tui-state';
+ import type {
+@@ -24,6 +25,7 @@ import type {
+   TranscriptEntry,
+ } from '../types';
+ import { formatErrorMessage } from '../utils/event-payload';
++import type { ExtractionResult } from '../utils/image-placeholder';
+ import { handleLoginCommand, handleLogoutCommand } from './auth';
+ import { handleBtwCommand } from './btw';
+ import { handleCopyCommand } from './copy';
+@@ -210,13 +212,18 @@ export interface SlashCommandHost {
+   showHelpPanel(): void;
+   createNewSession(): Promise<void>;
+   showSessionPicker(): Promise<void>;
+-  sendNormalUserInput(text: string): void;
++  sendNormalUserInput(text: string, preExtracted?: ExtractionResult, delivery?: FollowUpDelivery): void;
+   /**
+    * Submit a prompt that explicitly activates one or more skills inline
+    * (v2 engine only): all activations ride the same submission as the prompt
+    * and launch as a single turn.
+    */
+-  sendInlineSkillUserInput(text: string, activations: readonly InlineSkillActivation[]): Promise<void>;
++  sendInlineSkillUserInput(
++    text: string,
++    activations: readonly InlineSkillActivation[],
++    preExtracted?: ExtractionResult,
++    delivery?: FollowUpDelivery,
++  ): Promise<void>;
+   activatePluginCommand(
+     session: Session,
+     pluginId: string,
+@@ -240,7 +247,11 @@ export interface SlashCommandHost {
+ // Dispatch — entry point from handleUserInput
+ // ---------------------------------------------------------------------------
+ 
+-export function dispatchInput(host: SlashCommandHost, text: string): void {
++export function dispatchInput(
++  host: SlashCommandHost,
++  text: string,
++  delivery: FollowUpDelivery = 'default',
++): void {
+   const { intent, activations } = resolveUserInput({
+     input: text,
+     skillCommandMap: host.skillCommandMap,
+@@ -262,14 +273,14 @@ export function dispatchInput(host: SlashCommandHost, text: string): void {
+         skill_name: leading.skillName,
+       });
+     }
+-    void host.sendInlineSkillUserInput(text, activations);
++    void host.sendInlineSkillUserInput(text, activations, undefined, delivery);
+     return;
+   }
+   if (intent.kind !== 'not-command') {
+-    void executeSlashCommand(host, text, intent, activations);
++    void executeSlashCommand(host, text, intent, activations, delivery);
+     return;
+   }
+-  host.sendNormalUserInput(text);
++  host.sendNormalUserInput(text, undefined, delivery);
+ }
+ 
+ async function executeSlashCommand(
+@@ -277,6 +288,7 @@ async function executeSlashCommand(
+   input: string,
+   intent: Exclude<SlashCommandIntent, { readonly kind: 'skill' | 'not-command' }>,
+   activations: readonly InlineSkillActivation[],
++  delivery: FollowUpDelivery,
+ ): Promise<void> {
+   const parsedCommand = parseSlashInput(input);
+ 
+@@ -324,7 +336,7 @@ async function executeSlashCommand(
+       if (parsedCommand !== null && tryHandleDanceCommand(host, parsedCommand)) {
+         return;
+       }
+-      host.sendNormalUserInput(intent.input);
++      host.sendNormalUserInput(intent.input, undefined, delivery);
+       return;
+     case 'builtin':
+       if (intent.enqueue === true) {
+diff --git a/apps/kimi-code/src/tui/commands/reload.ts b/apps/kimi-code/src/tui/commands/reload.ts
+index 26d208ce29..777247176d 100644
+--- a/apps/kimi-code/src/tui/commands/reload.ts
++++ b/apps/kimi-code/src/tui/commands/reload.ts
+@@ -80,6 +80,7 @@ export async function applyReloadedTuiConfig(
+     renderLatex: config.renderLatex,
+     cacheExpiryHint: config.cacheExpiryHint,
+     autoSessionTitle: config.autoSessionTitle,
++    followUpBehavior: config.followUpBehavior,
+     notifications: config.notifications,
+     upgrade: config.upgrade,
+     statusLine: config.statusLine,
+diff --git a/apps/kimi-code/src/tui/components/dialogs/follow-up-behavior-selector.ts b/apps/kimi-code/src/tui/components/dialogs/follow-up-behavior-selector.ts
+new file mode 100644
+index 0000000000..a9a9a11e4c
+--- /dev/null
++++ b/apps/kimi-code/src/tui/components/dialogs/follow-up-behavior-selector.ts
+@@ -0,0 +1,39 @@
++import { FollowUpBehaviorSchema, type FollowUpBehavior } from '../../config';
++import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
++
++function followUpBehaviorOptions(ctrlEnterRecognized: boolean): readonly (ChoiceOption & { readonly value: FollowUpBehavior })[] {
++  return [
++    {
++      value: 'queue',
++      label: 'Queue',
++      description: `Enter queues follow-ups until Kimi finishes.${ctrlEnterRecognized ? ' Ctrl-Enter steers one.' : ''}`,
++    },
++    {
++      value: 'steer',
++      label: 'Steer',
++      description: `Enter steers follow-ups into the current turn. ${ctrlEnterRecognized ? 'Ctrl-Enter' : 'Ctrl-Q'} queues one.`,
++    },
++  ];
++}
++
++export interface FollowUpBehaviorSelectorOptions {
++  readonly currentValue: FollowUpBehavior;
++  readonly ctrlEnterRecognized: boolean;
++  readonly onSelect: (value: FollowUpBehavior) => void;
++  readonly onCancel: () => void;
++}
++
++export class FollowUpBehaviorSelectorComponent extends ChoicePickerComponent {
++  constructor(opts: FollowUpBehaviorSelectorOptions) {
++    super({
++      title: 'Follow-up behavior',
++      options: followUpBehaviorOptions(opts.ctrlEnterRecognized),
++      currentValue: opts.currentValue,
++      onSelect: (value) => {
++        const parsed = FollowUpBehaviorSchema.safeParse(value);
++        if (parsed.success) opts.onSelect(parsed.data);
++      },
++      onCancel: opts.onCancel,
++    });
++  }
++}
+diff --git a/apps/kimi-code/src/tui/components/dialogs/help-panel.ts b/apps/kimi-code/src/tui/components/dialogs/help-panel.ts
+index 6e79c52cc0..02400b6d11 100644
+--- a/apps/kimi-code/src/tui/components/dialogs/help-panel.ts
++++ b/apps/kimi-code/src/tui/components/dialogs/help-panel.ts
+@@ -16,6 +16,12 @@ import {
+   type Focusable,
+   truncateToWidth,
+ } from '@moonshot-ai/pi-tui';
++import {
++  DEFAULT_FOLLOW_UP_BEHAVIOR,
++  FOLLOW_UP_KEYMAP,
++  type FollowUpBehavior,
++  type FollowUpDelivery,
++} from '#/tui/config';
+ import { currentTheme } from '#/tui/theme';
+ 
+ export interface KeyboardShortcut {
+@@ -29,19 +35,35 @@ export interface HelpPanelCommand {
+   readonly description: string;
+ }
+ 
+-/** Static list — keep in sync with the global editor bindings. */
+-export const DEFAULT_KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
+-  { keys: 'Shift-Tab', description: 'Toggle plan mode' },
+-  { keys: 'Ctrl-G', description: 'Edit in external editor ($VISUAL / $EDITOR)' },
+-  { keys: 'Ctrl-O', description: 'Toggle tool output / compaction summary expansion' },
+-  { keys: 'Ctrl-S', description: 'Steer — inject a follow-up during streaming' },
+-  { keys: 'Shift-Enter / Ctrl-J', description: 'Insert newline' },
+-  { keys: 'Ctrl-C', description: 'Interrupt stream / clear input' },
+-  { keys: 'Ctrl-D', description: 'Exit (on empty input)' },
+-  { keys: 'Esc', description: 'Close dialogs / interrupt streaming' },
+-  { keys: '↑ / ↓', description: 'Browse input history' },
+-  { keys: 'Enter', description: 'Submit' },
+-];
++const SUBMIT_DESCRIPTIONS: Readonly<Record<FollowUpDelivery, string>> = {
++  default: 'Submit; queues while Kimi is working',
++  'steer-draft': 'Submit; steers into the running turn',
++  queue: 'Submit; queues while Kimi is working',
++};
++
++/** Keep in sync with the global editor bindings. */
++export function keyboardShortcuts(
++  followUpBehavior: FollowUpBehavior,
++  ctrlEnterRecognized: boolean,
++): readonly KeyboardShortcut[] {
++  const submit = FOLLOW_UP_KEYMAP[followUpBehavior];
++  return [
++    { keys: 'Shift-Tab', description: 'Toggle plan mode' },
++    { keys: 'Ctrl-G', description: 'Edit in external editor ($VISUAL / $EDITOR)' },
++    { keys: 'Ctrl-O', description: 'Toggle tool output / compaction summary expansion' },
++    { keys: 'Ctrl-S', description: 'Steer — inject a follow-up during streaming' },
++    { keys: 'Shift-Enter / Ctrl-J', description: 'Insert newline' },
++    { keys: 'Ctrl-C', description: 'Interrupt stream / clear input' },
++    { keys: 'Ctrl-D', description: 'Exit (on empty input)' },
++    { keys: 'Esc', description: 'Close dialogs / interrupt streaming' },
++    { keys: '↑ / ↓', description: 'Browse input history' },
++    { keys: 'Enter', description: SUBMIT_DESCRIPTIONS[submit.enter] },
++    ...(ctrlEnterRecognized ? [{ keys: 'Ctrl-Enter', description: SUBMIT_DESCRIPTIONS[submit['mod-enter']] }] : []),
++    { keys: 'Ctrl-Q', description: SUBMIT_DESCRIPTIONS[submit['ctrl-q']] },
++  ];
++}
++
++export const DEFAULT_KEYBOARD_SHORTCUTS = keyboardShortcuts(DEFAULT_FOLLOW_UP_BEHAVIOR, false);
+ 
+ export interface HelpPanelOptions {
+   readonly commands: readonly HelpPanelCommand[];
+diff --git a/apps/kimi-code/src/tui/components/dialogs/settings-selector.ts b/apps/kimi-code/src/tui/components/dialogs/settings-selector.ts
+index 54c6e648b3..e6db45217d 100644
+--- a/apps/kimi-code/src/tui/components/dialogs/settings-selector.ts
++++ b/apps/kimi-code/src/tui/components/dialogs/settings-selector.ts
+@@ -12,6 +12,7 @@ export type SettingsSelection =
+   | 'copyOnSelect'
+   | 'mermaid'
+   | 'editor'
++  | 'followUpBehavior'
+   | 'permission'
+   | 'survey'
+   | 'experiments'
+@@ -64,6 +65,11 @@ const SETTINGS_OPTIONS: readonly ChoiceOption[] = [
+     label: 'Editor',
+     description: 'Set the external editor command.',
+   },
++  {
++    value: 'followUpBehavior',
++    label: 'Follow-up behavior',
++    description: 'Choose whether to queue follow-ups or steer the current turn.',
++  },
+   {
+     value: 'survey',
+     label: 'Feedback survey',
+@@ -96,6 +102,7 @@ function isSettingsSelection(value: string): value is SettingsSelection {
+     value === 'copyOnSelect' ||
+     value === 'mermaid' ||
+     value === 'editor' ||
++    value === 'followUpBehavior' ||
+     value === 'permission' ||
+     value === 'survey' ||
+     value === 'experiments' ||
+diff --git a/apps/kimi-code/src/tui/components/editor/custom-editor.ts b/apps/kimi-code/src/tui/components/editor/custom-editor.ts
+index 6d54b30164..fedc9bb2df 100644
+--- a/apps/kimi-code/src/tui/components/editor/custom-editor.ts
++++ b/apps/kimi-code/src/tui/components/editor/custom-editor.ts
+@@ -16,6 +16,7 @@ import {
+   type TUI,
+ } from '@moonshot-ai/pi-tui';
+ 
++import type { SubmitKey } from '#/tui/config';
+ import { currentTheme } from '#/tui/theme';
+ import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
+ import { printableChar } from '#/tui/utils/printable-key';
+@@ -117,6 +118,12 @@ function stripSgr(s: string): string {
+   return s.replace(ANSI_SGR, '');
+ }
+ 
++function alternateSubmitKey(data: string): Exclude<SubmitKey, 'enter'> | undefined {
++  if (matchesKey(data, 'ctrl+enter') || matchesKey(data, 'super+enter')) return 'mod-enter';
++  if (matchesKey(data, Key.ctrl('q'))) return 'ctrl-q';
++  return undefined;
++}
++
+ interface CustomEditorOptions {
+   disablePasteBurst?: boolean;
+ }
+@@ -177,6 +184,11 @@ export class CustomEditor extends Editor {
+   private argumentHints: ReadonlyMap<string, string> = new Map();
+   private skillCommandNames: ReadonlySet<string> = new Set();
+   private promptPrediction: string | undefined;
++  private currentSubmitKey: SubmitKey = 'enter';
++
++  get submitKey(): SubmitKey {
++    return this.currentSubmitKey;
++  }
+ 
+   setArgumentHints(hints: ReadonlyMap<string, string>): void {
+     this.argumentHints = hints;
+@@ -600,7 +612,17 @@ export class CustomEditor extends Editor {
+     }
+ 
+     const emptyPromptBeforeInput = this.inputMode === 'prompt' && this.getText().length === 0;
+-    super.handleInput(normalized);
++    const submitKey = alternateSubmitKey(normalized);
++    if (submitKey === undefined) {
++      super.handleInput(normalized);
++    } else {
++      this.currentSubmitKey = submitKey;
++      try {
++        super.handleInput('\r');
++      } finally {
++        this.currentSubmitKey = 'enter';
++      }
++    }
+ 
+     // Enter bash mode when `!...` is pasted into an empty prompt. The typed path
+     // above handles the single `!` keystroke; this catches bracketed / Ctrl-V
+diff --git a/apps/kimi-code/src/tui/config.ts b/apps/kimi-code/src/tui/config.ts
+index 49825cd459..307de355fe 100644
+--- a/apps/kimi-code/src/tui/config.ts
++++ b/apps/kimi-code/src/tui/config.ts
+@@ -207,6 +207,25 @@ export function transcriptGroupingActive(options: TranscriptPresentationOptions)
+ export const TuiModeSchema = z.enum(['regular', 'fullscreen']);
+ export type TuiMode = z.infer<typeof TuiModeSchema>;
+ 
++export const FollowUpBehaviorSchema = z.enum(['queue', 'steer']);
++export type FollowUpBehavior = z.infer<typeof FollowUpBehaviorSchema>;
++export const DEFAULT_FOLLOW_UP_BEHAVIOR: FollowUpBehavior = 'queue';
++
++export type FollowUpDelivery = 'default' | 'steer-draft' | 'queue';
++
++export type SubmitKey = 'enter' | 'mod-enter' | 'ctrl-q';
++
++export const FOLLOW_UP_KEYMAP: Readonly<
++  Record<FollowUpBehavior, Readonly<Record<SubmitKey, FollowUpDelivery>>>
++> = {
++  queue: { enter: 'default', 'mod-enter': 'steer-draft', 'ctrl-q': 'queue' },
++  steer: { enter: 'steer-draft', 'mod-enter': 'queue', 'ctrl-q': 'queue' },
++};
++
++export function resolveFollowUpBehavior(value: FollowUpBehavior | undefined): FollowUpBehavior {
++  return value ?? DEFAULT_FOLLOW_UP_BEHAVIOR;
++}
++
+ export const TuiConfigFileSchema = z.object({
+   theme: TuiThemeSchema.optional(),
+   tui_mode: z.string().optional(),
+@@ -216,6 +235,7 @@ export const TuiConfigFileSchema = z.object({
+   cache_expiry_hint: z.boolean().optional(),
+   disable_feedback_survey: z.boolean().optional(),
+   auto_session_title: z.boolean().optional(),
++  follow_up_behavior: z.unknown().optional(),
+   editor: z
+     .object({
+       command: z.string().optional(),
+@@ -261,6 +281,7 @@ export const TuiConfigSchema = z.object({
+   /** Present in every normalized config; optional only so hand-built test
+    * fixtures from before this field existed still typecheck. */
+   autoSessionTitle: z.boolean().optional(),
++  followUpBehavior: FollowUpBehaviorSchema.optional(),
+   editorCommand: z.string().nullable(),
+   notifications: NotificationsConfigSchema,
+   upgrade: UpgradePreferencesSchema,
+@@ -429,6 +450,17 @@ export function normalizeTuiConfig(
+     warn(`[tui.toml] ignoring unknown transcript.${key} value: ${shown}`);
+     return fallback;
+   };
++  const followUpValue = config.follow_up_behavior;
++  let followUpBehavior: FollowUpBehavior | undefined;
++  if (followUpValue !== undefined) {
++    const parsed = FollowUpBehaviorSchema.safeParse(followUpValue);
++    if (parsed.success) {
++      followUpBehavior = parsed.data;
++    } else {
++      const shown = typeof followUpValue === 'string' ? followUpValue : JSON.stringify(followUpValue);
++      warn(`[tui.toml] ignoring unknown follow_up_behavior value: ${shown}`);
++    }
++  }
+   const tuiModeValue = config.tui_mode;
+   let tuiMode: TuiMode | undefined;
+   if (tuiModeValue !== undefined) {
+@@ -448,6 +480,7 @@ export function normalizeTuiConfig(
+     cacheExpiryHint: config.cache_expiry_hint ?? DEFAULT_TUI_CONFIG.cacheExpiryHint,
+     disableFeedbackSurvey: config.disable_feedback_survey,
+     autoSessionTitle: config.auto_session_title ?? DEFAULT_TUI_CONFIG.autoSessionTitle,
++    followUpBehavior,
+     editorCommand: command === undefined || command.length === 0 ? null : command,
+     notifications: {
+       enabled: config.notifications?.enabled ?? DEFAULT_NOTIFICATIONS_CONFIG.enabled,
+@@ -499,6 +532,7 @@ export function renderTuiConfig(config: TuiConfig): string {
+   if (statusCommand) {
+     statusLines.push(`command = "${escapeTomlBasicString(statusCommand)}"`);
+   }
++  const followUpLine = `follow_up_behavior = "${resolveFollowUpBehavior(config.followUpBehavior)}" # "queue" | "steer"`;
+   const tuiModeLine =
+     config.tuiMode === undefined
+       ? '# tui_mode = "regular" # "regular" | "fullscreen" ("fullscreen" is experimental)'
+@@ -543,6 +577,7 @@ render_latex = ${String(config.renderLatex !== false)} # false keeps LaTeX math
+ disable_paste_burst = ${String(config.disablePasteBurst)} # true disables non-bracketed paste-burst fallback
+ cache_expiry_hint = ${String(config.cacheExpiryHint !== false)} # false disables the "cache expired" dialog on resume / idle submit
+ ${config.disableFeedbackSurvey === undefined ? '' : `disable_feedback_survey = ${String(config.disableFeedbackSurvey)}\n`}auto_session_title = ${String(config.autoSessionTitle !== false)} # false stops the TUI from auto-generating a session title after the first turn
++${config.followUpBehavior === undefined ? `# ${followUpLine}` : followUpLine}
+ 
+ [editor]
+ command = "${escapeTomlBasicString(config.editorCommand ?? '')}" # Empty uses $VISUAL / $EDITOR
+diff --git a/apps/kimi-code/src/tui/controllers/editor-keyboard.ts b/apps/kimi-code/src/tui/controllers/editor-keyboard.ts
+index abb6df643e..c1b8f9b1cc 100644
+--- a/apps/kimi-code/src/tui/controllers/editor-keyboard.ts
++++ b/apps/kimi-code/src/tui/controllers/editor-keyboard.ts
+@@ -20,6 +20,7 @@ import {
+ } from '../constant/kimi-tui';
+ import { isKeyRelease, isKeyRepeat, Key, matchesKey, TuiAltScreen } from '@moonshot-ai/pi-tui';
+ import { normalizeCapsLockedCtrl } from '../components/editor/custom-editor';
++import { FOLLOW_UP_KEYMAP, resolveFollowUpBehavior, type FollowUpDelivery } from '../config';
+ import { MEDIA_STAGING_TTL_SECONDS } from '../constant/media';
+ import { formatErrorMessage } from '../utils/event-payload';
+ import type {
+@@ -46,7 +47,7 @@ export interface EditorKeyboardHost {
+    */
+   harness?: KimiHarness | undefined;
+ 
+-  handleUserInput(text: string): void;
++  handleUserInput(text: string, delivery?: FollowUpDelivery): void;
+   readonly btwPanelController: BtwPanelController;
+   readonly surveyController: SurveyController;
+   readonly modelMigration?: ModelMigrationController;
+@@ -112,7 +113,8 @@ export class EditorKeyboardController {
+     editor.onSubmit = (text: string) => {
+       if (host.surveyController.handleSubmit(text)) return;
+       host.promptPredictionController?.handleSubmit(text);
+-      host.handleUserInput(text);
++      const behavior = resolveFollowUpBehavior(host.state.appState.followUpBehavior);
++      host.handleUserInput(text, FOLLOW_UP_KEYMAP[behavior][editor.submitKey]);
+     };
+ 
+     // After dispose (shutdown), consume every key here so no shortcut can fire
+diff --git a/apps/kimi-code/src/tui/kimi-tui.ts b/apps/kimi-code/src/tui/kimi-tui.ts
+index cabb9817b2..35eb444712 100644
+--- a/apps/kimi-code/src/tui/kimi-tui.ts
++++ b/apps/kimi-code/src/tui/kimi-tui.ts
+@@ -31,6 +31,7 @@ import {
+   type Component,
+   type Focusable,
+   getCapabilities,
++  isKittyProtocolActive,
+   Key,
+   matchesKey,
+   Spacer,
+@@ -88,7 +89,7 @@ import {
+   type ApprovalPreviewBlock,
+ } from './components/dialogs/approval-preview';
+ import { CompactionComponent } from './components/dialogs/compaction';
+-import { HelpPanelComponent } from './components/dialogs/help-panel';
++import { HelpPanelComponent, keyboardShortcuts } from './components/dialogs/help-panel';
+ import { QuestionDialogComponent } from './components/dialogs/question-dialog';
+ import { SessionPickerComponent, type SessionRow } from './components/dialogs/session-picker';
+ import { TrustPromptComponent, type TrustPromptChoice } from './components/dialogs/trust-prompt';
+@@ -121,7 +122,14 @@ import {
+   type ActivityPaneMode,
+   LastTurnSummary,
+ } from './components/panes/activity-pane';
+-import { removeLegacySurveySetting, transcriptGroupingActive, type TuiConfig, type TuiMode } from './config';
++import {
++  removeLegacySurveySetting,
++  resolveFollowUpBehavior,
++  transcriptGroupingActive,
++  type FollowUpDelivery,
++  type TuiConfig,
++  type TuiMode,
++} from './config';
+ import {
+   LLM_NOT_SET_MESSAGE,
+   MAIN_AGENT_ID,
+@@ -177,6 +185,7 @@ import {
+   type QueuedPromptMessage,
+   type EnvironmentSlotState,
+   type SteerInputItem,
++  type SteerOutcome,
+   type StepRetryState,
+   type TranscriptEntry,
+   type TUIStartupOptions,
+@@ -331,6 +340,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
+     cacheExpiryHint: input.tuiConfig.cacheExpiryHint,
+     disableFeedbackSurvey: input.tuiConfig.disableFeedbackSurvey,
+     autoSessionTitle: input.tuiConfig.autoSessionTitle,
++    followUpBehavior: input.tuiConfig.followUpBehavior,
+     notifications: input.tuiConfig.notifications,
+     upgrade: input.tuiConfig.upgrade,
+     statusLine: input.tuiConfig.statusLine,
+@@ -362,6 +372,7 @@ interface SendMessageOptions {
+ 
+ type EnqueueMessageOptions = SendMessageOptions & {
+   readonly inlineSkillActivations?: readonly InlineSkillActivation[];
++  readonly holdUntilTurnEnds?: boolean;
+ };
+ 
+ /** How long the one-shot "moved to background" footer hint stays visible. */
+@@ -1565,7 +1576,7 @@ export class KimiTUI {
+     this.updateEditorBorderHighlight();
+   }
+ 
+-  handleUserInput(text: string): void {
++  handleUserInput(text: string, delivery: FollowUpDelivery = 'default'): void {
+     const wasBashMode = this.state.appState.inputMode === 'bash';
+     if (wasBashMode) {
+       // A submit always exits bash mode (the `!` is consumed by this command).
+@@ -1594,7 +1605,7 @@ export class KimiTUI {
+       void this.runShellCommandFromInput(text);
+       return;
+     }
+-    slashCommands.dispatchInput(this, text);
++    slashCommands.dispatchInput(this, text, delivery);
+   }
+ 
+   private async runShellCommandFromInput(command: string): Promise<void> {
+@@ -1730,7 +1741,11 @@ export class KimiTUI {
+     this.updateQueueDisplay();
+   }
+ 
+-  async sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void> {
++  async sendNormalUserInput(
++    text: string,
++    preExtracted?: ExtractionResult,
++    delivery: FollowUpDelivery = 'default',
++  ): Promise<void> {
+     if (this.btwPanelController.sendUserInput(text)) return;
+     if (this.state.appState.model.trim().length === 0) {
+       this.showError(LLM_NOT_SET_MESSAGE);
+@@ -1816,9 +1831,9 @@ export class KimiTUI {
+         imageAttachmentIds: extraction.imageAttachmentIds,
+         videoAttachmentIds: extraction.videoAttachmentIds,
+         lease: stagingLease,
+-      });
++      }, delivery);
+     } else {
+-      this.sendMessage(session, text);
++      this.sendMessage(session, text, undefined, delivery);
+     }
+     this.updateQueueDisplay();
+     this.state.ui.requestRender();
+@@ -1828,6 +1843,7 @@ export class KimiTUI {
+     text: string,
+     activations: readonly InlineSkillActivation[],
+     preExtracted?: ExtractionResult,
++    delivery: FollowUpDelivery = 'default',
+   ): Promise<void> {
+     if (this.btwPanelController.sendUserInput(text, activations)) return;
+     if (this.state.appState.model.trim().length === 0) {
+@@ -1881,19 +1897,24 @@ export class KimiTUI {
+         return;
+       }
+     }
++    const enqueueOptions: EnqueueMessageOptions = {
++      parts: extraction.hasMedia ? extraction.parts : undefined,
++      imageAttachmentIds: extraction.imageAttachmentIds,
++      videoAttachmentIds: extraction.videoAttachmentIds,
++      mediaSnapshots: extraction.mediaSnapshots,
++      inlineSkillActivations: activations,
++    };
++    if (delivery === 'steer-draft' && this.trySteerDraft(session, text, enqueueOptions)) {
++      this.state.ui.requestRender();
++      return;
++    }
+     if (
+       this.deferUserMessages ||
+       this.steeringQueuedMessages.size > 0 ||
+       this.state.appState.streamingPhase !== 'idle' ||
+       this.state.appState.isCompacting
+     ) {
+-      this.enqueueMessage(text, {
+-        parts: extraction.hasMedia ? extraction.parts : undefined,
+-        imageAttachmentIds: extraction.imageAttachmentIds,
+-        videoAttachmentIds: extraction.videoAttachmentIds,
+-        mediaSnapshots: extraction.mediaSnapshots,
+-        inlineSkillActivations: activations,
+-      });
++      this.enqueueMessage(text, enqueueOptions);
+       this.updateQueueDisplay();
+       this.state.ui.requestRender();
+       return;
+@@ -2213,6 +2234,7 @@ export class KimiTUI {
+       mode: undefined,
+       mediaSnapshots: options?.mediaSnapshots,
+       inlineSkillActivations: options?.inlineSkillActivations,
++      holdUntilTurnEnds: options?.holdUntilTurnEnds,
+     };
+   }
+ 
+@@ -2704,7 +2726,13 @@ export class KimiTUI {
+     );
+   }
+ 
+-  private sendMessage(session: Session, input: string, options?: SendMessageOptions): void {
++  private sendMessage(
++    session: Session,
++    input: string,
++    options?: SendMessageOptions,
++    delivery: FollowUpDelivery = 'default',
++  ): void {
++    if (delivery === 'steer-draft' && this.trySteerDraft(session, input, options)) return;
+     // Submission order must survive a mid-turn compaction: objectives queued
+     // while compacting stay queued when the turn outlives the compaction, so
+     // steering this input ahead of them would reorder the conversation.
+@@ -2712,6 +2740,7 @@ export class KimiTUI {
+     // new input; a non-steerable backlog (bash, slash-skill, inline-skill
+     // bundle) cannot, and then this input queues behind it instead.
+     if (
++      delivery !== 'queue' &&
+       this.canSteerQueueIntoRunningTurn() &&
+       this.state.queuedMessages.every(isSteerableQueuedMessage)
+     ) {
+@@ -2733,7 +2762,7 @@ export class KimiTUI {
+       // A queued message re-leases its staged media at dequeue dispatch; the
+       // pre-dispatch lease defers to the queue item's raw ids.
+       this.staging.defer(options?.lease);
+-      this.enqueueMessage(input, options);
++      this.enqueueMessage(input, delivery === 'queue' ? { ...options, holdUntilTurnEnds: true } : options);
+       return;
+     }
+     this.sendMessageInternal(session, input, options);
+@@ -2758,6 +2787,41 @@ export class KimiTUI {
+     );
+   }
+ 
++  private trySteerDraft(
++    session: Session,
++    input: string,
++    options: EnqueueMessageOptions | undefined,
++  ): boolean {
++    if (this.state.queuedMessageDispatchPending || !this.canManuallySteer()) return false;
++    this.staging.defer(options?.lease);
++    const draft = this.toQueuedMessage(input, options);
++    const queuedBefore = new Set(this.state.queuedMessages);
++    this.steeringQueuedMessages.add(draft);
++    this.updateQueueDisplay();
++    this.steerMessage(session, [toSteerInputItem(draft)], (outcome) => {
++      this.steeringQueuedMessages.delete(draft);
++      if (this.session !== session) return;
++      if (outcome === 'steered') this.programStatus.markUserSteer();
++      if (outcome === 'failed') {
++        const queuedLater = this.state.queuedMessages.findIndex((message) => !queuedBefore.has(message));
++        this.state.queuedMessages.splice(
++          queuedLater === -1 ? this.state.queuedMessages.length : queuedLater,
++          0,
++          draft,
++        );
++        this.track('input_queue');
++      }
++      this.updateQueueDisplay();
++      const queuedDuringSteer = this.state.queuedMessages.some((message) => !queuedBefore.has(message));
++      if (outcome === 'steered' && queuedDuringSteer && this.canSteerQueueIntoRunningTurn()) {
++        this.steerQueuedMessagesIntoRunningTurn();
++      } else {
++        this.drainQueueIfIdle();
++      }
++    });
++    return true;
++  }
++
+   steerQueuedMessagesIntoRunningTurn(manual = false): void {
+     const session = this.session;
+     if (session === undefined || this.steeringQueuedMessages.size > 0) return;
+@@ -2812,7 +2876,8 @@ export class KimiTUI {
+           ),
+         };
+       });
+-      this.steerMessage(session, items, (steered) => {
++      this.steerMessage(session, items, (outcome) => {
++        const steered = outcome === 'steered';
+         for (const message of group) this.steeringQueuedMessages.delete(message);
+         if (this.session !== session) return;
+         if (steered) this.programStatus.markUserSteer();
+@@ -2995,13 +3060,13 @@ export class KimiTUI {
+   steerMessage(
+     session: Session,
+     input: readonly SteerInputItem[],
+-    onSettled?: (steered: boolean) => void,
++    onSettled?: (outcome: SteerOutcome) => void,
+     manual = false,
+     occupiedRetry = false,
+   ): void {
+     if (this.deferUserMessages || this.state.appState.isCompacting) {
+       if (onSettled !== undefined) {
+-        onSettled(false);
++        onSettled('failed');
+       } else {
+         for (const item of input) this.enqueueMessage(item.text, item);
+       }
+@@ -3030,7 +3095,7 @@ export class KimiTUI {
+     } catch (error) {
+       if (prepared !== undefined) this.releaseSkillArgumentMedia(prepared);
+       this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
+-      onSettled?.(false);
++      onSettled?.('failed');
+       return;
+     }
+     const startsNewTurn = this.state.appState.streamingPhase === 'idle';
+@@ -3088,7 +3153,7 @@ export class KimiTUI {
+     if (onSettled !== undefined) {
+       void request.then(
+         () => {
+-          onSettled(true);
++          onSettled('steered');
+         },
+         () => {},
+       );
+@@ -3096,13 +3161,13 @@ export class KimiTUI {
+     this.staging.trackDispatch(stagingLease, request, (error) => {
+       this.releaseSteerEntries(steeredEntries);
+       if (this.session !== session) {
+-        onSettled?.(false);
++        onSettled?.('failed');
+         return;
+       }
+       const recovered = this.handlePromptConflict({
+         session,
+         error,
+-        entries: prepared === undefined && !manual ? steeredEntries : undefined,
++        entries: manual ? undefined : steeredEntries,
+         retried: occupiedRetry,
+         retry: () => {
+           this.steerMessage(session, input, onSettled, manual, true);
+@@ -3119,7 +3184,7 @@ export class KimiTUI {
+             input.map((item) => item.text).join('\n'),
+             activations.length === 0 ? undefined : activations,
+           );
+-          onSettled?.(false);
++          onSettled?.('restored');
+         },
+       });
+       if (recovered) {
+@@ -3135,8 +3200,8 @@ export class KimiTUI {
+       if (onSettled !== undefined) {
+         this.staging.defer(stagingLease);
+         if (prepared !== undefined) this.releaseSkillArgumentMedia(prepared);
+-        if (prepared === undefined && !manual) this.removeTranscriptEntries(steeredEntries);
+-        onSettled(false);
++        if (!manual) this.removeTranscriptEntries(steeredEntries);
++        onSettled('failed');
+       }
+     });
+   }
+@@ -5254,6 +5319,10 @@ export class KimiTUI {
+     this.mountEditorReplacement(
+       new HelpPanelComponent({
+         commands: this.getSlashCommands(),
++        shortcuts: keyboardShortcuts(
++          resolveFollowUpBehavior(this.state.appState.followUpBehavior),
++          isKittyProtocolActive(),
++        ),
+         onClose: () => {
+           this.hideHelpPanel();
+         },
+@@ -5604,7 +5673,11 @@ export class KimiTUI {
+ }
+ 
+ function isSteerableQueuedMessage(message: QueuedMessage): message is QueuedPromptMessage {
+-  return isPromptQueuedMessage(message) && message.inlineSkillActivations === undefined;
++  return (
++    isPromptQueuedMessage(message) &&
++    message.inlineSkillActivations === undefined &&
++    message.holdUntilTurnEnds !== true
++  );
+ }
+ 
+ function toSteerInputItem(message: QueuedPromptMessage): SteerInputItem {
+diff --git a/apps/kimi-code/src/tui/types.ts b/apps/kimi-code/src/tui/types.ts
+index a309ad9971..384a9b8d2c 100644
+--- a/apps/kimi-code/src/tui/types.ts
++++ b/apps/kimi-code/src/tui/types.ts
+@@ -12,7 +12,7 @@ import type {
+   ToolInputDisplay,
+ } from '@moonshot-ai/kimi-code-sdk';
+ 
+-import type { MarkdownConfig, NotificationsConfig, StatusLineConfig, TranscriptConfig, TuiMode, UpgradePreferences } from './config';
++import type { FollowUpBehavior, MarkdownConfig, NotificationsConfig, StatusLineConfig, TranscriptConfig, TuiMode, UpgradePreferences } from './config';
+ import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
+ import type { ColorToken, ThemeName } from './theme';
+ import type { MediaAttachment, VideoAttachment } from './utils/image-attachment-store';
+@@ -94,6 +94,7 @@ export interface AppState {
+   disableFeedbackSurvey?: boolean;
+   /** Mirrors the TUI config toggle; defaults to true when absent from older fixtures. */
+   autoSessionTitle?: boolean;
++  followUpBehavior?: FollowUpBehavior;
+   notifications: NotificationsConfig;
+   upgrade: UpgradePreferences;
+   /** Footer status line customization from tui.toml; absent means the default layout. */
+@@ -334,6 +335,7 @@ export interface QueuedPromptMessage extends QueuedEntryBase {
+   readonly inlineSkillActivations?: readonly InlineSkillActivation[];
+   /** Resent after the user chose Retry on a session-in-use prompt. */
+   readonly occupiedRetry?: boolean;
++  readonly holdUntilTurnEnds?: boolean;
+ }
+ 
+ export interface QueuedBashCommand extends QueuedEntryBase {
+@@ -372,6 +374,8 @@ export function isQueuedCompactionBarrier(message: QueuedMessage): boolean {
+   return message.mode === 'compact' || message.mode === 'model-switch';
+ }
+ 
++export type SteerOutcome = 'steered' | 'failed' | 'restored';
++
+ /**
+  * One unit of Ctrl-S steer input: a queued message or the editor draft,
+  * with the media parts extracted at submit/paste time so images and video
+diff --git a/apps/kimi-code/test/tui/commands/follow-up-preferences.test.ts b/apps/kimi-code/test/tui/commands/follow-up-preferences.test.ts
+new file mode 100644
+index 0000000000..826c437c39
+--- /dev/null
++++ b/apps/kimi-code/test/tui/commands/follow-up-preferences.test.ts
+@@ -0,0 +1,170 @@
++import { setKittyProtocolActive, type Component } from '@moonshot-ai/pi-tui';
++import { describe, expect, it, vi } from 'vitest';
++
++import {
++  applyFollowUpBehaviorChoice,
++  applyTuiModeChoice,
++  showSettingsSelector,
++} from '#/tui/commands/config';
++import type { SlashCommandHost } from '#/tui/commands/dispatch';
++import { FollowUpBehaviorSelectorComponent } from '#/tui/components/dialogs/follow-up-behavior-selector';
++import { renderTuiConfig, type FollowUpBehavior, type TuiConfig } from '#/tui/config';
++
++const mocks = vi.hoisted(() => ({
++  saveTuiConfig: vi.fn(),
++}));
++
++vi.mock('../../../src/tui/config', async () => {
++  const actual = await vi.importActual<typeof import('../../../src/tui/config.js')>(
++    '../../../src/tui/config.js',
++  );
++  return {
++    ...actual,
++    saveTuiConfig: mocks.saveTuiConfig,
++  };
++});
++
++const ANSI = /\[[0-9;]*m/g;
++const strip = (text: string): string => text.replaceAll(ANSI, '');
++
++function makeHost(followUpBehavior?: FollowUpBehavior) {
++  const appState = {
++    theme: 'auto' as const,
++    tuiMode: 'regular' as const,
++    followUpBehavior,
++    editorCommand: null,
++    notifications: { enabled: true, condition: 'unfocused' as const },
++    upgrade: { autoInstall: true },
++    transcript: { toolCallDensity: 'compact' as const, thinking: 'grouped' as const },
++  };
++  return {
++    state: { appState, ui: { mode: 'regular' as const } },
++    setAppState: vi.fn((patch: Partial<typeof appState>) => {
++      Object.assign(appState, patch);
++    }),
++    showStatus: vi.fn(),
++    showNotice: vi.fn(),
++  };
++}
++
++function savedConfig(): TuiConfig {
++  expect(mocks.saveTuiConfig).toHaveBeenCalledTimes(1);
++  return mocks.saveTuiConfig.mock.calls[0]![0] as TuiConfig;
++}
++
++describe('follow-up behavior preference', () => {
++  it('writes a live line when queue is picked while the preference is unset', async () => {
++    mocks.saveTuiConfig.mockReset();
++    const host = makeHost();
++
++    await applyFollowUpBehaviorChoice(host, 'queue');
++
++    expect(renderTuiConfig(savedConfig())).toContain(
++      '\nfollow_up_behavior = "queue" # "queue" | "steer"\n',
++    );
++    expect(host.state.appState.followUpBehavior).toBe('queue');
++    expect(host.showStatus).toHaveBeenCalledWith('Follow-up behavior set to queue.', 'success');
++  });
++
++  it('saves steer over queue', async () => {
++    mocks.saveTuiConfig.mockReset();
++    const host = makeHost('queue');
++
++    await applyFollowUpBehaviorChoice(host, 'steer');
++
++    expect(savedConfig().followUpBehavior).toBe('steer');
++    expect(host.state.appState.followUpBehavior).toBe('steer');
++  });
++
++  it('does not rewrite the config when the stored value is unchanged', async () => {
++    mocks.saveTuiConfig.mockReset();
++    const host = makeHost('steer');
++
++    await applyFollowUpBehaviorChoice(host, 'steer');
++
++    expect(mocks.saveTuiConfig).not.toHaveBeenCalled();
++    expect(host.setAppState).not.toHaveBeenCalled();
++    expect(host.showStatus).toHaveBeenCalledWith('Follow-up behavior already steer.');
++  });
++
++  it('reports a save failure without touching appState', async () => {
++    mocks.saveTuiConfig.mockReset();
++    mocks.saveTuiConfig.mockRejectedValueOnce(new Error('disk full'));
++    const host = makeHost();
++
++    await applyFollowUpBehaviorChoice(host, 'steer');
++
++    expect(host.setAppState).not.toHaveBeenCalled();
++    expect(host.state.appState.followUpBehavior).toBeUndefined();
++    expect(host.showStatus).toHaveBeenCalledWith(
++      'Failed to save follow-up behavior: disk full',
++      'error',
++    );
++  });
++
++  it('survives a save of another preference', async () => {
++    mocks.saveTuiConfig.mockReset();
++    const host = makeHost('steer');
++
++    await applyTuiModeChoice(host, 'fullscreen');
++
++    expect(savedConfig()).toMatchObject({ tuiMode: 'fullscreen', followUpBehavior: 'steer' });
++  });
++
++  it('opens from /settings and saves the picked value', async () => {
++    mocks.saveTuiConfig.mockReset();
++    mocks.saveTuiConfig.mockResolvedValue(undefined);
++    let mounted: (Component & { handleInput(data: string): void }) | undefined;
++    const host = {
++      ...makeHost(),
++      mountEditorReplacement: vi.fn((panel: Component & { handleInput(data: string): void }) => {
++        mounted = panel;
++      }),
++      restoreEditor: vi.fn(),
++    };
++
++    showSettingsSelector(host as unknown as SlashCommandHost);
++    const settings = mounted!;
++    for (let i = 0; i < 20 && !strip(settings.render(100).join('\n')).includes('❯ Follow-up behavior'); i++) {
++      settings.handleInput('\u001B[B');
++    }
++    setKittyProtocolActive(true);
++    try {
++      settings.handleInput('\r');
++    } finally {
++      setKittyProtocolActive(false);
++    }
++
++    const picker = mounted!;
++    expect(picker).not.toBe(settings);
++    const lines = picker.render(140).map(strip);
++    expect(lines).toContain(' Follow-up behavior');
++    expect(lines).toContain('  ❯ Queue ← current');
++    expect(lines).toContain('    Steer');
++    expect(lines.map((line) => line.trim())).toContain('Enter queues follow-ups until Kimi finishes. Ctrl-Enter steers one.');
++
++    picker.handleInput('\u001B[B');
++    picker.handleInput('\r');
++    await vi.waitFor(() => {
++      expect(host.state.appState.followUpBehavior).toBe('steer');
++    });
++    expect(savedConfig().followUpBehavior).toBe('steer');
++  });
++
++  it.each([
++    [true, 'Enter queues follow-ups until Kimi finishes. Ctrl-Enter steers one.', 'Enter steers follow-ups into the current turn. Ctrl-Enter queues one.'],
++    [false, 'Enter queues follow-ups until Kimi finishes.', 'Enter steers follow-ups into the current turn. Ctrl-Q queues one.'],
++  ])('names only the keys this terminal reports (Ctrl-Enter recognized: %s)', (ctrlEnterRecognized, queue, steer) => {
++    const picker = new FollowUpBehaviorSelectorComponent({
++      currentValue: 'queue',
++      ctrlEnterRecognized,
++      onSelect: vi.fn(),
++      onCancel: vi.fn(),
++    });
++
++    const lines = picker.render(140).map((line) => strip(line).trim());
++
++    expect(lines).toContain(queue);
++    expect(lines).toContain(steer);
++  });
++});
+diff --git a/apps/kimi-code/test/tui/commands/reload.test.ts b/apps/kimi-code/test/tui/commands/reload.test.ts
+index 06c454c746..8df7bb95f2 100644
+--- a/apps/kimi-code/test/tui/commands/reload.test.ts
++++ b/apps/kimi-code/test/tui/commands/reload.test.ts
+@@ -202,6 +202,25 @@ auto_install = false
+     );
+   });
+ 
++  it('applies follow_up_behavior from tui.toml', async () => {
++    await writeTuiConfig('follow_up_behavior = "steer"\n');
++    const host = makeHost();
++
++    await handleReloadTuiCommand(host);
++
++    expect(host.state.appState.followUpBehavior).toBe('steer');
++  });
++
++  it('returns follow_up_behavior to unset when the key is removed from tui.toml', async () => {
++    await writeTuiConfig('theme = "dark"\n');
++    const host = makeHost();
++    host.state.appState.followUpBehavior = 'steer';
++
++    await handleReloadTuiCommand(host);
++
++    expect(host.state.appState.followUpBehavior).toBeUndefined();
++  });
++
+   it('notices a required restart when tui_mode differs from the running UI mode', async () => {
+     await writeTuiConfig('tui_mode = "fullscreen"\n');
+     const host = makeHost();
+diff --git a/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts b/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts
+index 884ca93e4a..c70bfa285d 100644
+--- a/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts
++++ b/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts
+@@ -888,3 +888,121 @@ describe('CustomEditor bash mode file completion', () => {
+     expect(calls.every((call) => call.force === true)).toBe(true);
+   });
+ });
++
++describe('CustomEditor alternate submit keys', () => {
++  const CTRL_ENTER = '\u001B[13;5u';
++  const CTRL_Q = '\u0011';
++  const SUPER_ENTER = '\u001B[13;9u';
++
++  function submitting(editor: CustomEditor): Array<readonly [string, string]> {
++    const submits: Array<readonly [string, string]> = [];
++    editor.onSubmit = (text) => {
++      submits.push([text, editor.submitKey]);
++    };
++    return submits;
++  }
++
++  it.each([
++    ['\r', 'enter'],
++    [CTRL_ENTER, 'mod-enter'],
++    ['\u001B[27;5;13~', 'mod-enter'],
++    [SUPER_ENTER, 'mod-enter'],
++    ['\u001B[27;9;13~', 'mod-enter'],
++    [CTRL_Q, 'ctrl-q'],
++    ['\u001B[113;5u', 'ctrl-q'],
++    ['\u001B[81;69u', 'ctrl-q'],
++  ])('submits %j tagged as %s', (data, key) => {
++    const editor = makeEditor();
++    const submits = submitting(editor);
++    editor.setText('look here');
++
++    editor.handleInput(data);
++
++    expect(submits).toEqual([['look here', key]]);
++    expect(editor.getText()).toBe('');
++    expect(editor.submitKey).toBe('enter');
++  });
++
++  it('tags the next plain Enter as enter after an alternate submit', () => {
++    const editor = makeEditor();
++    const submits = submitting(editor);
++
++    editor.setText('first');
++    editor.handleInput(CTRL_Q);
++    editor.setText('second');
++    editor.handleInput('\r');
++
++    expect(submits).toEqual([['first', 'ctrl-q'], ['second', 'enter']]);
++  });
++
++  it.each(['\n', '\u001B\r'])('keeps %j inserting a newline', (data) => {
++    const editor = makeEditor();
++    const submits = submitting(editor);
++    editor.setText('line');
++
++    editor.handleInput(data);
++
++    expect(submits).toEqual([]);
++    expect(editor.getText()).toBe('line\n');
++  });
++
++  it.each([CTRL_ENTER, SUPER_ENTER, CTRL_Q])('turns %j after a trailing backslash into a newline', (data) => {
++    const editor = makeEditor();
++    const submits = submitting(editor);
++    editor.setText('line\\');
++
++    editor.handleInput(data);
++
++    expect(submits).toEqual([]);
++    expect(editor.getText()).toBe('line\n');
++  });
++
++  it.each([CTRL_ENTER, SUPER_ENTER, CTRL_Q])('inserts a newline for %j inside a paste burst', (data) => {
++    const editor = makeEditor();
++    const submits = submitting(editor);
++
++    for (const char of 'pasted text') editor.handleInput(char);
++    editor.handleInput(data);
++
++    expect(submits).toEqual([]);
++    expect(editor.getText()).toBe('pasted text\n');
++  });
++
++  it('accepts an open slash menu the same way Enter does', async () => {
++    const run = async (data: string) => {
++      const editor = makeEditor();
++      const submits = submitting(editor);
++      editor.setAutocompleteProvider(providerReturning([{ value: 'help', label: 'help' }]));
++      editor.handleInput('/');
++      await flushAutocomplete();
++      expect(editor.isShowingAutocomplete()).toBe(true);
++      editor.handleInput(data);
++      return { text: editor.getText(), submits: submits.map(([text]) => text) };
++    };
++
++    expect(await run(CTRL_ENTER)).toEqual(await run('\r'));
++  });
++
++  it('holds Ctrl-Q behind an in-flight image paste and submits it afterwards', async () => {
++    const editor = makeEditor();
++    const submits = submitting(editor);
++    let resolvePaste!: (handled: boolean) => void;
++    editor.onPasteImage = () =>
++      new Promise<boolean>((resolve) => {
++        resolvePaste = (handled) => {
++          editor.insertTextAtCursor?.('[image #1 (1×1)] ');
++          resolve(handled);
++        };
++      });
++
++    editor.handleInput(process.platform === 'win32' ? '\u001Bv' : '\u0016');
++    editor.handleInput('hello');
++    editor.handleInput(CTRL_Q);
++    expect(submits).toEqual([]);
++
++    resolvePaste(true);
++    await new Promise((resolve) => setImmediate(resolve));
++
++    expect(submits).toEqual([['[image #1 (1×1)] hello', 'ctrl-q']]);
++  });
++});
+diff --git a/apps/kimi-code/test/tui/components/panels/help-panel.test.ts b/apps/kimi-code/test/tui/components/panels/help-panel.test.ts
+index 52f94430b8..c03fb96368 100644
+--- a/apps/kimi-code/test/tui/components/panels/help-panel.test.ts
++++ b/apps/kimi-code/test/tui/components/panels/help-panel.test.ts
+@@ -1,7 +1,7 @@
+ import { describe, it, expect, vi } from 'vitest';
+ 
+ import type { KimiSlashCommand } from '#/tui/commands/index';
+-import { HelpPanelComponent } from '#/tui/components/dialogs/help-panel';
++import { HelpPanelComponent, keyboardShortcuts } from '#/tui/components/dialogs/help-panel';
+ 
+ function cmd(name: string, description: string, aliases: string[] = []): KimiSlashCommand {
+   return {
+@@ -16,6 +16,27 @@ function strip(text: string): string {
+ }
+ 
+ describe('HelpPanelComponent', () => {
++  const QUEUES = 'Submit; queues while Kimi is working';
++  const STEERS = 'Submit; steers into the running turn';
++
++  it.each([
++    ['queue', true, { Enter: QUEUES, 'Ctrl-Enter': STEERS, 'Ctrl-Q': QUEUES }],
++    ['queue', false, { Enter: QUEUES, 'Ctrl-Q': QUEUES }],
++    ['steer', true, { Enter: STEERS, 'Ctrl-Enter': QUEUES, 'Ctrl-Q': QUEUES }],
++    ['steer', false, { Enter: STEERS, 'Ctrl-Q': QUEUES }],
++  ] as const)(
++    'describes the submit keys for follow_up_behavior %s (Ctrl-Enter recognized: %s)',
++    (followUpBehavior, ctrlEnterRecognized, expected) => {
++      const submitKeys = Object.fromEntries(
++        keyboardShortcuts(followUpBehavior, ctrlEnterRecognized)
++          .filter((shortcut) => ['Enter', 'Ctrl-Enter', 'Ctrl-Q'].includes(shortcut.keys))
++          .map((shortcut) => [shortcut.keys, shortcut.description]),
++      );
++
++      expect(submitKeys).toEqual(expected);
++    },
++  );
++
+   it('renders keyboard shortcuts + slash commands sections', () => {
+     const panel = new HelpPanelComponent({
+       commands: [cmd('exit', 'Exit', ['quit', 'q'])],
+diff --git a/apps/kimi-code/test/tui/config.test.ts b/apps/kimi-code/test/tui/config.test.ts
+index 6c2bf86816..7a63e5a594 100644
+--- a/apps/kimi-code/test/tui/config.test.ts
++++ b/apps/kimi-code/test/tui/config.test.ts
+@@ -561,6 +561,53 @@ mermaid = "${value}"
+   });
+ });
+ 
++describe('TUI config follow_up_behavior', () => {
++  it('leaves follow_up_behavior unset when the key is omitted', () => {
++    expect(parseTuiConfig(`theme = "dark"`).followUpBehavior).toBeUndefined();
++  });
++
++  it('parses "queue" and "steer"', () => {
++    expect(parseTuiConfig(`follow_up_behavior = "queue"`).followUpBehavior).toBe('queue');
++    expect(parseTuiConfig(`follow_up_behavior = "steer"`).followUpBehavior).toBe('steer');
++  });
++
++  it('warns and leaves unknown values unset without failing the file', () => {
++    const warnings: string[] = [];
++    for (const [value, shown] of [['"fast"', 'fast'], ['1', '1']] as const) {
++      warnings.length = 0;
++      const config = parseTuiConfig(
++        `
++theme = "dark"
++follow_up_behavior = ${value}
++`,
++        (message) => warnings.push(message),
++      );
++
++      expect(config.followUpBehavior).toBeUndefined();
++      expect(config.theme).toBe('dark');
++      expect(warnings).toEqual([`[tui.toml] ignoring unknown follow_up_behavior value: ${shown}`]);
++    }
++  });
++
++  it('writes the commented default line into a freshly created config', async () => {
++    await loadTuiConfig(filePath);
++
++    const text = readFileSync(filePath, 'utf-8');
++    expect(text).toContain('\n# follow_up_behavior = "queue" # "queue" | "steer"\n');
++    expect(text).not.toMatch(/^follow_up_behavior/m);
++    expect((await loadTuiConfig(filePath)).followUpBehavior).toBeUndefined();
++  });
++
++  it.each(['queue', 'steer'] as const)('writes a live %s line once chosen and round-trips it', async (value) => {
++    await saveTuiConfig({ ...DEFAULT_TUI_CONFIG, followUpBehavior: value }, filePath);
++
++    const text = readFileSync(filePath, 'utf-8');
++    expect(text).toContain(`\nfollow_up_behavior = "${value}" # "queue" | "steer"\n`);
++    expect(text).not.toContain('# follow_up_behavior');
++    expect((await loadTuiConfig(filePath)).followUpBehavior).toBe(value);
++  });
++});
++
+ describe('TUI config tui_mode', () => {
+   it('leaves tuiMode undefined when omitted so unrelated saves never persist regular', async () => {
+     const parsed = parseTuiConfig(`theme = "dark"`);
+diff --git a/apps/kimi-code/test/tui/controllers/editor-keyboard.test.ts b/apps/kimi-code/test/tui/controllers/editor-keyboard.test.ts
+index 7210351b44..87c941de38 100644
+--- a/apps/kimi-code/test/tui/controllers/editor-keyboard.test.ts
++++ b/apps/kimi-code/test/tui/controllers/editor-keyboard.test.ts
+@@ -1,6 +1,7 @@
+ import { Text, TuiAltScreen, TuiMainScreen } from '@moonshot-ai/pi-tui';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ 
++import type { FollowUpBehavior, SubmitKey } from '#/tui/config';
+ import { CTRL_C_HINT, DOUBLE_ESC_WINDOW_MS } from '#/tui/constant/kimi-tui';
+ import {
+   EditorKeyboardController,
+@@ -40,6 +41,7 @@ function createHarness(
+     setInputMode: vi.fn() as unknown as (...args: never[]) => unknown,
+     getText: vi.fn(() => '') as unknown as (...args: never[]) => unknown,
+     setText: vi.fn() as unknown as (...args: never[]) => unknown,
++    submitKey: 'enter' as unknown as (...args: never[]) => unknown,
+   };
+   const openUndoSelector = vi.fn();
+   const cancelRunningShellCommand = vi.fn();
+@@ -702,6 +704,45 @@ describe('EditorKeyboardController Ctrl-S steering', () => {
+ 
+ });
+ 
++describe('EditorKeyboardController follow-up delivery', () => {
++  const submitWith = (
++    harness: Harness,
++    followUpBehavior: FollowUpBehavior | undefined,
++    submitKey: SubmitKey,
++  ): void => {
++    (harness.host.state.appState as { followUpBehavior?: FollowUpBehavior }).followUpBehavior = followUpBehavior;
++    (harness.editor as Record<string, unknown>)['submitKey'] = submitKey;
++    (harness.editor['onSubmit'] as unknown as (text: string) => void)('hello');
++  };
++
++  it.each([
++    [undefined, 'enter', 'default'],
++    [undefined, 'mod-enter', 'steer-draft'],
++    [undefined, 'ctrl-q', 'queue'],
++    ['queue', 'enter', 'default'],
++    ['queue', 'mod-enter', 'steer-draft'],
++    ['queue', 'ctrl-q', 'queue'],
++    ['steer', 'enter', 'steer-draft'],
++    ['steer', 'mod-enter', 'queue'],
++    ['steer', 'ctrl-q', 'queue'],
++  ] as const)('with follow_up_behavior %s, %s delivers %s', (followUpBehavior, submitKey, delivery) => {
++    const harness = createHarness({ streamingPhase: 'waiting' });
++
++    submitWith(harness, followUpBehavior, submitKey);
++
++    expect(harness.host.handleUserInput).toHaveBeenCalledExactlyOnceWith('hello', delivery);
++  });
++
++  it.each(['enter', 'mod-enter', 'ctrl-q'] as const)('lets the survey intercept a %s submit first', (submitKey) => {
++    const harness = createHarness({ streamingPhase: 'waiting' });
++    harness.survey.handleSubmit.mockReturnValueOnce(true);
++
++    submitWith(harness, 'steer', submitKey);
++
++    expect(harness.host.handleUserInput).not.toHaveBeenCalled();
++  });
++});
++
+ describe('EditorKeyboardController survey wiring', () => {
+   it('clears the pending undo-escape sequence only when the survey consumes Escape', () => {
+     const { editor, openUndoSelector, survey } = createHarness();
+@@ -770,7 +811,7 @@ describe('EditorKeyboardController survey wiring', () => {
+     survey.handleSubmit.mockReturnValueOnce(false);
+     onSubmit('hello');
+ 
+-    expect(host.handleUserInput).toHaveBeenCalledWith('hello');
++    expect(host.handleUserInput).toHaveBeenCalledWith('hello', 'default');
+   });
+ 
+   it('displaces the survey when the external editor opens', () => {
+diff --git a/apps/kimi-code/test/tui/fullscreen-layout.test.ts b/apps/kimi-code/test/tui/fullscreen-layout.test.ts
+index 7eded07ff5..d345060504 100644
+--- a/apps/kimi-code/test/tui/fullscreen-layout.test.ts
++++ b/apps/kimi-code/test/tui/fullscreen-layout.test.ts
+@@ -1472,7 +1472,7 @@ describe('fullscreen layout', () => {
+     await vt.waitForRender();
+     rows = screenRows(vt);
+     expect(rows.join('\n')).toContain('Page 2/2');
+-    expect(rows.join('\n')).toContain('❯ Feedback survey');
++    expect(rows.join('\n')).toContain('❯ Follow-up behavior');
+ 
+     state.ui.setFocus(state.notifyPanel);
+     state.ui.requestRender();
+diff --git a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
+index f676f99e55..6fb42c8a2a 100644
+--- a/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
++++ b/apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
+@@ -11,6 +11,7 @@ import {
+   deleteAllKittyImages,
+   resetCapabilitiesCache,
+   setCapabilities,
++  setKittyProtocolActive,
+   type TuiMouseEvent,
+ } from '@moonshot-ai/pi-tui';
+ import {
+@@ -42,7 +43,7 @@ import { MOON_SPINNER_FRAMES } from '#/tui/constant/rendering';
+ import { promptApiKey, promptPlatformSelection } from '#/tui/commands/prompts';
+ import { applyTranscriptConfigChoice } from '#/tui/commands/config';
+ import type { SlashCommandHost } from '#/tui/commands/dispatch';
+-import type { TranscriptConfig } from '#/tui/config';
++import type { FollowUpBehavior, FollowUpDelivery, TranscriptConfig } from '#/tui/config';
+ import { isReadonlyBash } from '#/utils/readonly-bash';
+ import {
+   AgentSwarmProgressComponent,
+@@ -183,7 +184,7 @@ interface MessageDriver {
+     handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void;
+   };
+   init(): Promise<boolean>;
+-  handleUserInput(text: string): void;
++  handleUserInput(text: string, delivery?: FollowUpDelivery): void;
+   restoreInputText(text: string, inlineSkillActivations?: readonly InlineSkillActivation[]): void;
+   toggleToolOutputExpansion(): void;
+   appendTranscriptEntry(entry: TranscriptEntry): void;
+@@ -7791,6 +7792,517 @@ command = "vim"
+     expect(driver.state.queuedMessages).toEqual([]);
+   });
+ 
++  describe('steer-draft delivery', () => {
++    const occupied = (): KimiError => new KimiError(ErrorCodes.SESSION_OCCUPIED, 'in use');
++    type Picker = { handleInput(data: string): void; render(width: number): string[] };
++    const picker = (driver: MessageDriver): Picker => driver.state.editorContainer.children[0] as Picker;
++    const userEntries = (driver: MessageDriver) =>
++      driver.state.transcriptEntries.filter((entry) => entry.kind === 'user');
++
++    async function reviewSkillDriver(overrides: Record<string, unknown> = {}) {
++      const session = makeSession({
++        listSkills: vi.fn(async () => [
++          { name: 'review', description: 'Review skill', path: '/tmp/review', source: 'user' },
++        ]),
++        ...overrides,
++      });
++      const made = await makeDriver(session);
++      await (
++        made.driver as unknown as { refreshSkillCommands(s: unknown): Promise<void> }
++      ).refreshSkillCommands(session);
++      return made;
++    }
++
++    it('steers only the draft and leaves queued messages in place', async () => {
++      const { driver, session } = await makeDriver();
++      driver.state.appState.streamingPhase = 'waiting';
++      driver.handleUserInput('queued note');
++
++      driver.handleUserInput('look at the failing test first', 'steer-draft');
++
++      expect(session.steer).toHaveBeenCalledExactlyOnceWith('look at the failing test first');
++      await vi.waitFor(() => {
++        expect(userEntries(driver)).toEqual([
++          expect.objectContaining({ content: 'look at the failing test first' }),
++        ]);
++      });
++      expect(driver.state.queuedMessages).toEqual([{ text: 'queued note', agentId: 'main' }]);
++      expect(session.prompt).not.toHaveBeenCalled();
++    });
++
++    it('steers only the draft in tower mode instead of the whole queue', async () => {
++      const steer = pendingSteer();
++      const { driver } = await makeDriver(steer.session);
++      driver.state.appState.towerMode = true;
++      driver.state.appState.streamingPhase = 'waiting';
++      driver.state.queuedMessages = [{ text: 'queued objective', agentId: 'main' }];
++
++      driver.handleUserInput('draft objective', 'steer-draft');
++      steer.resolve();
++
++      await new Promise((resolve) => setTimeout(resolve, 0));
++      expect(steer.session.steer).toHaveBeenCalledExactlyOnceWith('draft objective');
++      expect(driver.state.queuedMessages).toEqual([{ text: 'queued objective', agentId: 'main' }]);
++    });
++
++    it('steers draft media and releases the upload when the turn ends', async () => {
++      const { driver, session, harness } = await makeDriver();
++      const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
++      const attachment = stagedImage(imageStore, 'file-draft');
++      driver.state.appState.streamingPhase = 'waiting';
++      driver.streamingUI.setTurnId('7');
++
++      driver.handleUserInput(`check ${attachment.placeholder}`, 'steer-draft');
++
++      expect(session.steer).toHaveBeenCalledWith([
++        { type: 'text', text: 'check ' },
++        { type: 'image_url', imageUrl: { url: 'kimi-file://file-draft' } },
++      ]);
++      expect(harness.deleteFile).not.toHaveBeenCalled();
++      driver.sessionEventHandler.handleEvent(
++        { type: 'turn.ended', agentId: 'main', turnId: 7, reason: 'completed' } as Event,
++        () => {},
++      );
++      await vi.waitFor(() => {
++        expect(harness.deleteFile).toHaveBeenCalledExactlyOnceWith('file-draft');
++      });
++      expect(driver.state.queuedMessages).toEqual([]);
++    });
++
++    it('steers a skill draft through promptWithSkills', async () => {
++      const { driver, session } = await reviewSkillDriver();
++      driver.state.appState.streamingPhase = 'waiting';
++
++      driver.handleUserInput('/skill:review src/app.ts', 'steer-draft');
++
++      await vi.waitFor(() => {
++        expect(session.promptWithSkills).toHaveBeenCalledWith(
++          '/skill:review src/app.ts',
++          [{ name: 'review', args: 'src/app.ts' }],
++          { steerIfActive: true },
++        );
++      });
++      expect(session.steer).not.toHaveBeenCalled();
++      expect(driver.state.queuedMessages).toEqual([]);
++    });
++
++    it('steers an unknown slash command as a plain message', async () => {
++      const { driver, session } = await makeDriver();
++      driver.state.appState.streamingPhase = 'waiting';
++
++      driver.handleUserInput('/foo bar', 'steer-draft');
++
++      await vi.waitFor(() => {
++        expect(session.steer).toHaveBeenCalledExactlyOnceWith('/foo bar');
++      });
++      expect(driver.state.queuedMessages).toEqual([]);
++    });
++
++    it('queues the draft with an error when the steer fails', async () => {
++      const session = makeSession({
++        steer: vi.fn(async () => {
++          throw new Error('network down');
++        }),
++      });
++      const { driver } = await makeDriver(session);
++      driver.state.appState.streamingPhase = 'waiting';
++      driver.streamingUI.setTurnId('1');
++
++      driver.handleUserInput('look here', 'steer-draft');
++
++      await vi.waitFor(() => {
++        expect(driver.state.queuedMessages).toEqual([{ text: 'look here', agentId: 'main' }]);
++      });
++      expect(stripSgr(renderTranscript(driver))).toContain('Failed to steer: network down');
++      expect(userEntries(driver)).toEqual([]);
++    });
++
++    it('keeps submission order when a draft steer fails after later input was queued', async () => {
++      const steer = pendingSteer();
++      const { driver } = await makeDriver(steer.session);
++      driver.state.appState.streamingPhase = 'waiting';
++      driver.streamingUI.setTurnId('1');
++      driver.handleUserInput('queued before');
++
++      driver.handleUserInput('first draft', 'steer-draft');
++      driver.handleUserInput('second draft', 'steer-draft');
++      expect(steer.session.steer).toHaveBeenCalledOnce();
++      steer.reject(new Error('network down'));
++
++      await vi.waitFor(() => {
++        expect(driver.state.queuedMessages).toEqual([
++          { text: 'queued before', agentId: 'main' },
++          { text: 'first draft', agentId: 'main' },
++          { text: 'second draft', agentId: 'main' },
++        ]);
++      });
++    });
++
++    it('shows a failed skill draft once after it is requeued and dispatched with its media', async () => {
++      process.env['KIMI_CODE_HOME'] = await makeTempHome();
++      const promptWithSkills = vi
++        .fn(async (_input: unknown, _skills: unknown, _options?: unknown) => {})
++        .mockRejectedValueOnce(new Error('network down'));
++      const { driver, session } = await reviewSkillDriver({ promptWithSkills });
++      const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
++      const attachment = imageStore.addImage(new Uint8Array([0xaa, 0xbb]), 'image/png', 1, 1);
++      driver.state.appState.streamingPhase = 'waiting';
++      driver.streamingUI.setTurnId('1');
++      const text = `/skill:review ${attachment.placeholder}`;
++
++      driver.handleUserInput(text, 'steer-draft');
++
++      await vi.waitFor(() => {
++        expect(driver.state.queuedMessages).toHaveLength(1);
++      });
++      expect(userEntries(driver)).toEqual([]);
++      driver.sessionEventHandler.handleEvent(
++        { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
++        (item) => {
++          driver.sendQueuedMessage(session, item);
++        },
++      );
++
++      await vi.waitFor(() => {
++        expect(promptWithSkills).toHaveBeenCalledTimes(2);
++      });
++      const skills = promptWithSkills.mock.calls[1]?.[1] as Array<{ args?: string }>;
++      const staged = /Attached image file: (\S+)/.exec(skills[0]?.args ?? '')?.[1];
++      expect(staged !== undefined && existsSync(staged)).toBe(true);
++      expect(userEntries(driver)).toEqual([expect.objectContaining({ content: text })]);
++    });
++
++    it('gives an occupied draft back to the editor without queueing it', async () => {
++      const session = makeSession({ steer: vi.fn(async () => {}).mockRejectedValueOnce(occupied()) });
++      const { driver } = await makeDriver(session);
++      driver.state.appState.streamingPhase = 'waiting';
++      driver.streamingUI.setTurnId('1');
++
++      driver.handleUserInput('look here', 'steer-draft');
++      await vi.waitFor(() => {
++        expect(stripSgr(picker(driver).render(80).join(' '))).toContain('Session in use');
++      });
++      picker(driver).handleInput('\u001B[B');
++      picker(driver).handleInput('\r');
++
++      await vi.waitFor(() => {
++        expect(driver.state.editor.getText()).toBe('look here');
++      });
++      expect(driver.state.queuedMessages).toEqual([]);
++      expect(userEntries(driver)).toEqual([]);
++      expect(session.steer).toHaveBeenCalledOnce();
++    });
++
++    it('retries an occupied draft steer', async () => {
++      const session = makeSession({ steer: vi.fn(async () => {}).mockRejectedValueOnce(occupied()) });
++      const { driver } = await makeDriver(session);
++      driver.state.appState.streamingPhase = 'waiting';
++      driver.streamingUI.setTurnId('1');
++
++      driver.handleUserInput('look here', 'steer-draft');
++      await vi.waitFor(() => {
++        expect(stripSgr(picker(driver).render(80).join(' '))).toContain('Session in use');
++      });
++      picker(driver).handleInput('\r');
++
++      await vi.waitFor(() => {
++        expect(session.steer).toHaveBeenCalledTimes(2);
++      });
++      expect(session.steer).toHaveBeenLastCalledWith('look here');
++      await vi.waitFor(() => {
++        expect(userEntries(driver)).toEqual([expect.objectContaining({ content: 'look here' })]);
++      });
++      expect(driver.state.queuedMessages).toEqual([]);
++    });
++
++    it('steers input queued in tower mode while the draft was in flight once it lands', async () => {
++      const steer = pendingSteer();
++      const { driver } = await makeDriver(steer.session);
++      driver.state.appState.towerMode = true;
++      driver.state.appState.streamingPhase = 'waiting';
++
++      driver.handleUserInput('draft objective', 'steer-draft');
++      driver.handleUserInput('next objective');
++      expect(driver.state.queuedMessages).toEqual([{ text: 'next objective', agentId: 'main' }]);
++      steer.resolve();
++
++      await vi.waitFor(() => {
++        expect(steer.session.steer).toHaveBeenCalledTimes(2);
++      });
++      expect(steer.session.steer).toHaveBeenNthCalledWith(2, 'next objective');
++    });
++
++    it('lets the /btw panel take the draft instead of steering', async () => {
++      const { driver, session } = await makeDriver();
++      driver.handleUserInput('/btw');
++      await vi.waitFor(() => {
++        expect(session.startBtw).toHaveBeenCalledWith();
++      });
++      driver.state.appState.streamingPhase = 'waiting';
++
++      driver.handleUserInput('what are you doing?', 'steer-draft');
++
++      await vi.waitFor(() => {
++        expect(session.prompt).toHaveBeenCalledWith('what are you doing?');
++      });
++      expect(session.steer).not.toHaveBeenCalled();
++      expect(driver.state.queuedMessages).toEqual([]);
++    });
++
++    it('lets the idle cache hint intercept the draft instead of steering', async () => {
++      const { driver, session } = await makeDriver();
++      driver.state.appState.availableModels = {
++        k2: { model: 'example-model', provider: 'example-provider', maxContextSize: 100 },
++      };
++      driver.state.appState.availableProviders = {
++        'example-provider': { type: 'kimi', oauth: { key: 'kimi-code', storage: 'file' } },
++      };
++      driver.state.appState.contextTokens = 150000;
++      const peek = vi.spyOn(cacheHintConfig, 'peekCacheHintConfig').mockReturnValue({
++        version: 1,
++        config: { 'example-model': { min_tokens_to_hint: 100000, cache_duration: 600 } },
++      });
++      (driver as unknown as { cacheHint: { recordActivity(): void } }).cacheHint.recordActivity();
++      const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
++      try {
++        driver.handleUserInput('hello again', 'steer-draft');
++
++        expect(driver.state.editorContainer.children[0]).toBeInstanceOf(CacheHintDialogComponent);
++        expect(session.steer).not.toHaveBeenCalled();
++        expect(session.prompt).not.toHaveBeenCalled();
++      } finally {
++        now.mockRestore();
++        peek.mockRestore();
++      }
++    });
++
++    describe('through the editor keys', () => {
++      const CTRL_ENTER = '\u001B[13;5u';
++      const CTRL_Q = '\u0011';
++
++      async function busyDriver(followUpBehavior: FollowUpBehavior | undefined) {
++        const made = await makeDriver();
++        made.driver.state.appState.followUpBehavior = followUpBehavior;
++        made.driver.state.appState.streamingPhase = 'waiting';
++        made.driver.handleUserInput('queued note');
++        return made;
++      }
++
++      function press(driver: MessageDriver, text: string, key: string): void {
++        driver.state.editor.setText(text);
++        driver.state.editor.handleInput(key);
++      }
++
++      it.each([
++        [undefined, '\r'],
++        ['queue', '\r'],
++        ['queue', CTRL_Q],
++        ['steer', CTRL_ENTER],
++        ['steer', CTRL_Q],
++      ] as const)('with follow_up_behavior %s, %j queues behind the running turn', async (followUpBehavior, key) => {
++        const { driver, session } = await busyDriver(followUpBehavior);
++
++        press(driver, 'next step', key);
++        await new Promise((resolve) => setImmediate(resolve));
++
++        expect(session.steer).not.toHaveBeenCalled();
++        expect(driver.state.queuedMessages.map((message) => message.text)).toEqual(['queued note', 'next step']);
++      });
++
++      it.each([
++        [undefined, CTRL_ENTER],
++        ['queue', CTRL_ENTER],
++        ['steer', '\r'],
++      ] as const)('with follow_up_behavior %s, %j steers only the draft', async (followUpBehavior, key) => {
++        const { driver, session } = await busyDriver(followUpBehavior);
++
++        press(driver, 'next step', key);
++
++        expect(session.steer).toHaveBeenCalledExactlyOnceWith('next step');
++        await Promise.resolve();
++        expect(driver.state.queuedMessages).toEqual([{ text: 'queued note', agentId: 'main' }]);
++      });
++
++      it.each([
++        ['queue', CTRL_Q],
++        ['steer', CTRL_Q],
++        ['steer', CTRL_ENTER],
++      ] as const)('with follow_up_behavior %s, %j queues in tower mode instead of steering', async (followUpBehavior, key) => {
++        const { driver, session } = await makeDriver();
++        driver.state.appState.followUpBehavior = followUpBehavior;
++        driver.state.appState.towerMode = true;
++        driver.state.appState.streamingPhase = 'waiting';
++
++        press(driver, 'after this turn', key);
++        await new Promise((resolve) => setImmediate(resolve));
++
++        expect(session.steer).not.toHaveBeenCalled();
++        expect(driver.state.queuedMessages.map((message) => message.text)).toEqual(['after this turn']);
++      });
++
++      it('queues tower Enter behind a message queued with Ctrl-Q', async () => {
++        const { driver, session } = await makeDriver();
++        driver.state.appState.towerMode = true;
++        driver.state.appState.streamingPhase = 'waiting';
++
++        press(driver, 'after this turn', CTRL_Q);
++        press(driver, 'next objective', '\r');
++        await new Promise((resolve) => setImmediate(resolve));
++
++        expect(session.steer).not.toHaveBeenCalled();
++        expect(driver.state.queuedMessages.map((message) => message.text)).toEqual(['after this turn', 'next objective']);
++      });
++
++      it('keeps a message queued with Ctrl-Q in tower mode once an in-flight draft steer lands', async () => {
++        const steer = pendingSteer();
++        const { driver } = await makeDriver(steer.session);
++        driver.state.appState.towerMode = true;
++        driver.state.appState.streamingPhase = 'waiting';
++
++        press(driver, 'draft objective', CTRL_ENTER);
++        press(driver, 'after this turn', CTRL_Q);
++        steer.resolve();
++        await new Promise((resolve) => setTimeout(resolve, 0));
++
++        expect(steer.session.steer).toHaveBeenCalledExactlyOnceWith('draft objective');
++        expect(driver.state.queuedMessages.map((message) => message.text)).toEqual(['after this turn']);
++      });
++
++      it('steers a message queued with Ctrl-Q when Ctrl-S is pressed in tower mode', async () => {
++        const { driver, session } = await makeDriver();
++        driver.state.appState.towerMode = true;
++        driver.state.appState.streamingPhase = 'waiting';
++
++        press(driver, 'after this turn', CTRL_Q);
++        driver.state.editor.handleInput('\u0013');
++
++        expect(session.steer).toHaveBeenCalledExactlyOnceWith('after this turn');
++      });
++
++      it.each([undefined, 'queue'] as const)('keeps tower Enter steering the queue with follow_up_behavior %s', async (followUpBehavior) => {
++        const { driver, session } = await makeDriver();
++        driver.state.appState.followUpBehavior = followUpBehavior;
++        driver.state.appState.towerMode = true;
++        driver.state.appState.streamingPhase = 'waiting';
++        driver.state.queuedMessages = [{ text: 'queued objective', agentId: 'main' }];
++
++        press(driver, 'next objective', '\r');
++
++        expect(session.steer).toHaveBeenCalledExactlyOnceWith('queued objective\n\nnext objective');
++        await vi.waitFor(() => {
++          expect(driver.state.queuedMessages).toEqual([]);
++        });
++      });
++
++      it.each(['\r', CTRL_ENTER, CTRL_Q])('sends %j straight away while idle in steer mode', async (key) => {
++        const { driver, session } = await makeDriver();
++        driver.state.appState.followUpBehavior = 'steer';
++
++        press(driver, 'hello', key);
++
++        expect(session.prompt).toHaveBeenCalledOnce();
++        expect(session.prompt.mock.calls[0]?.[0]).toBe('hello');
++        expect(session.steer).not.toHaveBeenCalled();
++      });
++
++      it.each([true, false])(
++        'describes the submit keys in /help after the chosen behavior (Ctrl-Enter recognized: %s)',
++        async (ctrlEnterRecognized) => {
++          const { driver } = await makeDriver();
++          driver.state.appState.followUpBehavior = 'steer';
++          setKittyProtocolActive(ctrlEnterRecognized);
++
++          try {
++            driver.handleUserInput('/help');
++
++            await vi.waitFor(() => {
++              expect(driver.state.editorContainer.render(120).map(stripSgr)).toContainEqual(
++                expect.stringMatching(/^\s+Enter\s+Submit; steers into the running turn$/),
++              );
++            });
++            const lines = driver.state.editorContainer.render(120).map(stripSgr);
++            expect(lines).toContainEqual(expect.stringMatching(/^\s+Ctrl-Q\s+Submit; queues while Kimi is working$/));
++            expect(lines.some((line) => /^\s+Ctrl-Enter\s+Submit; queues while Kimi is working$/.test(line))).toBe(
++              ctrlEnterRecognized,
++            );
++          } finally {
++            setKittyProtocolActive(false);
++          }
++        },
++      );
++    });
++
++    describe('falls back to the plain Enter path', () => {
++      type Setup = (driver: MessageDriver) => void;
++      const busy: Setup = (driver) => {
++        driver.state.appState.streamingPhase = 'waiting';
++      };
++      const cases: ReadonlyArray<readonly [string, Setup, string]> = [
++        ['while a shell command runs', (driver) => { driver.state.appState.streamingPhase = 'shell'; }, 'note'],
++        ['while compacting', (driver) => { busy(driver); driver.state.appState.isCompacting = true; }, 'note'],
++        ['for a slash command that is not a message', busy, '/compact'],
++      ];
++
++      it.each(cases)('%s', async (_label, setup, text) => {
++        const run = async (delivery: FollowUpDelivery) => {
++          const { driver, session } = await makeDriver();
++          setup(driver);
++          driver.handleUserInput(text, delivery);
++          await new Promise((resolve) => setImmediate(resolve));
++          return {
++            queued: driver.state.queuedMessages,
++            steer: session.steer.mock.calls,
++            prompt: session.prompt.mock.calls,
++          };
++        };
++
++        const steered = await run('steer-draft');
++        expect(steered).toEqual(await run('default'));
++        expect(steered.steer).toEqual([]);
++        expect(steered.queued).toHaveLength(1);
++      });
++
++      it('in bash mode', async () => {
++        const { driver, session } = await makeDriver();
++        busy(driver);
++        driver.state.appState.inputMode = 'bash';
++        driver.state.editor.inputMode = 'bash';
++
++        driver.handleUserInput('ls', 'steer-draft');
++
++        expect(session.steer).not.toHaveBeenCalled();
++        expect(driver.state.queuedMessages).toEqual([{ text: 'ls', agentId: 'main', mode: 'bash' }]);
++      });
++
++      it('while an earlier draft steer is in flight', async () => {
++        const steer = pendingSteer();
++        const { driver } = await makeDriver(steer.session);
++        busy(driver);
++
++        driver.handleUserInput('first', 'steer-draft');
++        driver.handleUserInput('second', 'steer-draft');
++
++        expect(steer.session.steer).toHaveBeenCalledExactlyOnceWith('first');
++        expect(driver.state.queuedMessages).toEqual([{ text: 'second', agentId: 'main' }]);
++        steer.resolve();
++        await vi.waitFor(() => {
++          expect(userEntries(driver)).toEqual([expect.objectContaining({ content: 'first' })]);
++        });
++        expect(driver.state.queuedMessages).toEqual([{ text: 'second', agentId: 'main' }]);
++      });
++
++      it('while idle', async () => {
++        const { driver, session } = await makeDriver();
++
++        driver.handleUserInput('hello', 'steer-draft');
++
++        expect(session.prompt).toHaveBeenCalledOnce();
++        expect(session.prompt.mock.calls[0]?.[0]).toBe('hello');
++        expect(session.steer).not.toHaveBeenCalled();
++      });
++    });
++  });
++
+   it('drops failed WaitFor input when the session changed meanwhile', async () => {
+     const steer = pendingSteer();
+     const { driver } = await makeDriver(steer.session);
+diff --git a/docs/en/configuration/config-files.md b/docs/en/configuration/config-files.md
+index db9a0c6355..520084fd4a 100644
+--- a/docs/en/configuration/config-files.md
++++ b/docs/en/configuration/config-files.md
+@@ -653,6 +653,7 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
+ | `disable_paste_burst` | `boolean` | `false` | Disable the non-bracketed paste-burst fallback that keeps rapid multi-line pastes from submitting line by line |
+ | `cache_expiry_hint` | `boolean` | `true` | On resume or when submitting after a long idle stretch, warn that the context cache may have expired and offer to compact or start a new session (v2 engine only) |
+ | `auto_session_title` | `boolean` | `true` | Let the TUI automatically generate a session title after the first completed turn; `false` opts out the TUI only, without affecting the global `auto_session_title` gate in `config.toml` |
++| `follow_up_behavior` | `string` | `queue` | Whether `Enter` queues follow-ups (`queue`) or steers them into the running turn (`steer`) while the agent is working |
+ | `[editor].command` | `string` | `""` | External editor command for composing long input; empty falls back to `$VISUAL` / `$EDITOR` |
+ | `[notifications].enabled` | `boolean` | `true` | Whether desktop notifications are sent |
+ | `[notifications].notification_condition` | `string` | `unfocused` | When to notify: `unfocused` (only when the terminal is not focused) or `always` |
+@@ -678,6 +679,7 @@ render_latex = true # false keeps LaTeX math in messages as raw source
+ disable_paste_burst = false # true disables non-bracketed paste-burst fallback
+ cache_expiry_hint = true # false disables the "cache expired" dialog on resume / idle submit
+ auto_session_title = true # false stops the TUI from auto-generating a session title after the first turn
++# follow_up_behavior = "queue" # "queue" | "steer"
+ 
+ [editor]
+ command = "" # empty uses $VISUAL / $EDITOR
+diff --git a/docs/en/guides/interaction.md b/docs/en/guides/interaction.md
+index 61bb8b7118..a3d66b3b4a 100644
+--- a/docs/en/guides/interaction.md
++++ b/docs/en/guides/interaction.md
+@@ -136,6 +136,7 @@ Use `/goal next <objective>` to line up follow-up work without interrupting the
+ 
+ The input box remains usable while the agent is thinking or calling tools, and supports the following extra actions:
+ 
++- **`Enter`**: queue the message; pick Steer under `/settings` → `Follow-up behavior` to inject it into the running turn instead
+ - **`Ctrl-S`**: inject the content in the input box into the running turn immediately, without waiting for it to finish
+ - **`Esc` / `Ctrl-C`**: interrupt the current turn
+ - **`Ctrl-O`**: globally toggle the collapsed/expanded state of tool output and compaction summaries
+diff --git a/docs/en/reference/keyboard.md b/docs/en/reference/keyboard.md
+index 48d2464664..b3173f0a36 100644
+--- a/docs/en/reference/keyboard.md
++++ b/docs/en/reference/keyboard.md
+@@ -58,12 +58,15 @@ While streaming output is active, the input box can still receive input and supp
+ 
+ | Shortcut | Function |
+ | --- | --- |
++| `Ctrl-Q` | Queue the current input |
+ | `Ctrl-S` | Steer: inject the current input directly into the running turn |
+ | `Esc` | Interrupt the current streaming output |
+ | `Ctrl-C` | Interrupt the current streaming output |
+ 
+ Pressing `Ctrl-S` causes the model to see your message at the next interruptible point, without waiting for the current turn to finish. The message text stays faded until the agent reads it. If an interrupted turn carries the message into a later turn, it stays faded until that turn starts.
+ 
++`Enter` queues the input by default; pick Steer under `/settings` → `Follow-up behavior` to inject it instead.
++
+ ## Tool Output
+ 
+ | Shortcut | Function |
+diff --git a/docs/zh/configuration/config-files.md b/docs/zh/configuration/config-files.md
+index 7f127bd83f..1d0efe2f1b 100644
+--- a/docs/zh/configuration/config-files.md
++++ b/docs/zh/configuration/config-files.md
+@@ -652,6 +652,7 @@ defaultCwd = "/workspace"
+ | `disable_paste_burst` | `boolean` | `false` | 禁用非 bracketed paste 的粘贴突发兜底；默认开启，避免快速多行粘贴被逐行提交 |
+ | `cache_expiry_hint` | `boolean` | `true` | resume 或长时间空闲后发消息时，若上下文缓存可能过期则提醒，可先压缩或新建会话（仅 v2 引擎） |
+ | `auto_session_title` | `boolean` | `true` | 首个完成的轮次后由 TUI 自动生成会话标题；设为 `false` 只关闭 TUI 的触发，不影响 `config.toml` 中的全局 `auto_session_title` |
++| `follow_up_behavior` | `string` | `queue` | Agent 工作期间按 `Enter` 是将消息排队（`queue`）还是注入正在运行的轮次（`steer`） |
+ | `[editor].command` | `string` | `""` | 编写长输入用的外部编辑器命令；留空则回退到 `$VISUAL` / `$EDITOR` |
+ | `[notifications].enabled` | `boolean` | `true` | 是否发送桌面通知 |
+ | `[notifications].notification_condition` | `string` | `unfocused` | 何时通知：`unfocused`（仅终端失去焦点时）或 `always`（总是） |
+@@ -677,6 +678,7 @@ render_latex = true # false 表示消息中的 LaTeX 公式保留原始源码
+ disable_paste_burst = false # true 表示禁用非 bracketed paste 的粘贴突发兜底
+ cache_expiry_hint = true # false 表示关闭 resume / 空闲提交时的"缓存已过期"提醒弹窗
+ auto_session_title = true # false 表示 TUI 不在首个完成的轮次后自动生成会话标题
++# follow_up_behavior = "queue" # "queue" | "steer"
+ 
+ [editor]
+ command = "" # 留空则使用 $VISUAL / $EDITOR
+diff --git a/docs/zh/guides/interaction.md b/docs/zh/guides/interaction.md
+index 9a233791f2..b5ec95dc72 100644
+--- a/docs/zh/guides/interaction.md
++++ b/docs/zh/guides/interaction.md
+@@ -136,6 +136,7 @@ Web 界面中，对话下方的目标条可直接暂停、继续或取消目标
+ 
+ Agent 思考或调用工具时，输入框仍然可用，支持以下额外操作：
+ 
++- **`Enter`**：将消息排队；在 `/settings` → `Follow-up behavior` 中选择 Steer，可改为注入正在运行的轮次
+ - **`Ctrl-S`**：把输入框中的内容立即注入正在运行的轮次，无需等待结束
+ - **`Esc` / `Ctrl-C`**：中断当前轮次
+ - **`Ctrl-O`**：全局切换工具输出和压缩摘要的折叠状态
+diff --git a/docs/zh/reference/keyboard.md b/docs/zh/reference/keyboard.md
+index 24f0229b1c..990028448b 100644
+--- a/docs/zh/reference/keyboard.md
++++ b/docs/zh/reference/keyboard.md
+@@ -58,12 +58,15 @@ Kimi Code CLI 的 TUI 交互模式支持一套键盘快捷键。键位按使用
+ 
+ | 快捷键 | 功能 |
+ | --- | --- |
++| `Ctrl-Q` | 将当前输入排队 |
+ | `Ctrl-S` | Steer：将当前输入立即注入正在运行的轮次 |
+ | `Esc` | 中断当前流式输出 |
+ | `Ctrl-C` | 中断当前流式输出 |
+ 
+ 按 `Ctrl-S` 时，模型会在下一个可中断的时机立刻看到你的消息，无需等待当前轮次结束。在 Agent 读取这条消息之前，文字保持淡色；如果当前轮次中断，消息转入后续轮次，淡色也会持续到该轮次开始。
+ 
++`Enter` 默认将输入排队；在 `/settings` → `Follow-up behavior` 中选择 Steer，可改为注入。
++
+ ## 工具输出
+ 
+ | 快捷键 | 功能 |

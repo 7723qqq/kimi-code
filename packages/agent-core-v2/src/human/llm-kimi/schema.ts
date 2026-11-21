@@ -1,4 +1,4 @@
-import { SyntaxRequestFormatError } from '#/llm/syntax-errors';
+import { SyntaxRequestFormatError } from '#human/llm/syntax-errors';
 
 export function derefJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const visited = new Set<string>();

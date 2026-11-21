@@ -1,12 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtemp, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { setEnv, restoreEnvs } from '../helpers/stubs';
-
-const requireReal = createRequire(import.meta.url);
+import { afterEach, beforeEach, describe, expect, it, vi, requireActual } from '@moonshot-ai/testkit/vitest';
 
 import {
   IAgentCronService,
@@ -22,20 +18,21 @@ import {
   IAuthSummaryService,
   IBootstrapService,
   IConfigService,
+  IEnvironmentService,
   IEventBus,
   IEventDispatcher,
-  IEnvironmentService,
   IEventService,
-  IModelService,
-  IProviderService,
-  IMcpOAuthService,
-  ISessionIndexMirror,
   IFileSystemStorageService,
   IHostFileSystem,
+  ILogService,
+  IMcpOAuthService,
+  IModelService,
   IOAuthToolkit,
+  IProviderService,
   IRegionService,
   ISessionContext,
   ISessionIndex,
+  ISessionIndexMirror,
   ISessionLockService,
   ISessionRunGate,
   ISessionManager,
@@ -56,68 +53,80 @@ import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_USER_AGENT_PRODUCT } from '#/constant/app'
 import { runV2Print } from '../../src/cli/v2/run-v2-print';
 import { resetKimiRegionCache } from '../../src/utils/region';
 
-const mocks = (() => ({
-  bootstrap: jest.fn(),
-  ensureMainAgent: jest.fn(),
-  loadMcpServersDetailed: jest.fn(async () => ({
+const mocks = vi.hoisted(() => ({
+  bootstrap: vi.fn(),
+  ensureMainAgent: vi.fn(),
+  loadMcpServersDetailed: vi.fn(async () => ({
     servers: {},
     origins: {},
   })),
-  resolveMcpJsonPaths: jest.fn(async () => ({
+  resolveMcpJsonPaths: vi.fn(async () => ({
     user: '/tmp/kimi-code-test-home/mcp.json',
     projectRoot: '/tmp/project/.mcp.json',
     project: '/tmp/project/.kimi-code/mcp.json',
   })),
-  createKimiDefaultHeaders: jest.fn(() => ({})),
-  resolveKimiHome: jest.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-code-test-home'),
-  createKimiDeviceId: jest.fn(() => 'device-1'),
-  initializeTelemetry: jest.fn(),
-  setCrashPhase: jest.fn(),
-  setTelemetryContext: jest.fn(),
-  setTelemetryModel: jest.fn(),
-  shutdownTelemetry: jest.fn(async () => {}),
-}))();
-
-jest.mock('@moonshot-ai/agent-core-v2', () => ({
-  ...requireReal('@moonshot-ai/agent-core-v2'),
-  bootstrap: mocks.bootstrap,
-  ensureMainAgent: mocks.ensureMainAgent,
+  createKimiDefaultHeaders: vi.fn(() => ({})),
+  resolveKimiHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-code-test-home'),
+  createKimiDeviceId: vi.fn(() => 'device-1'),
+  initializeTelemetry: vi.fn(),
+  setCrashPhase: vi.fn(),
+  setTelemetryContext: vi.fn(),
+  setTelemetryModel: vi.fn(),
+  shutdownTelemetry: vi.fn(async () => {}),
 }));
 
-jest.mock('@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader', () => ({
+void vi.mock('@moonshot-ai/agent-core-v2', async () => {
+  const actual = await import('@moonshot-ai/agent-core-v2');
+  return {
+    ...actual,
+    bootstrap: mocks.bootstrap,
+    ensureMainAgent: mocks.ensureMainAgent,
+  };
+});
+
+void vi.mock('@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader', () => ({
   loadMcpServersDetailed: mocks.loadMcpServersDetailed,
   resolveMcpJsonPaths: mocks.resolveMcpJsonPaths,
 }));
 
-jest.mock('@moonshot-ai/kimi-code-oauth', () => ({
-  ...requireReal('@moonshot-ai/kimi-code-oauth'),
-  createKimiDefaultHeaders: mocks.createKimiDefaultHeaders,
-  createKimiDeviceId: mocks.createKimiDeviceId,
-}));
+void vi.mock('@moonshot-ai/kimi-code-oauth', () => {
+  const actual = requireActual(
+    '@moonshot-ai/kimi-code-oauth',
+  );
+  return {
+    ...actual,
+    createKimiDefaultHeaders: mocks.createKimiDefaultHeaders,
+    createKimiDeviceId: mocks.createKimiDeviceId,
+  };
+});
 
-jest.mock('@moonshot-ai/kimi-code-sdk', () => ({
-  ...requireReal('@moonshot-ai/kimi-code-sdk'),
-  resolveKimiHome: mocks.resolveKimiHome,
-}));
+void vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
+  const actual = await import('@moonshot-ai/kimi-code-sdk');
+  return {
+    ...actual,
+    resolveKimiHome: mocks.resolveKimiHome,
+  };
+});
 
-jest.mock('@moonshot-ai/kimi-telemetry', () => ({
-  // Keep the real `shouldEnableTelemetry` so the tests exercise the actual
-  // KIMI_DISABLE_TELEMETRY semantics; only the side-effecting entry points
-  // are stubbed.
-  ...requireReal('@moonshot-ai/kimi-telemetry'),
-  initializeTelemetry: mocks.initializeTelemetry,
-  setCrashPhase: mocks.setCrashPhase,
-  setTelemetryContext: mocks.setTelemetryContext,
-  setTelemetryModel: mocks.setTelemetryModel,
-  shutdownTelemetry: mocks.shutdownTelemetry,
-  track: jest.fn(),
-  withTelemetryContext: jest.fn(() => ({ track: jest.fn() })),
-}));
+void vi.mock('@moonshot-ai/kimi-telemetry', async () => {
+  const actual = await import('@moonshot-ai/kimi-telemetry');
+  return {
+    ...actual,
+    initializeTelemetry: mocks.initializeTelemetry,
+    setCrashPhase: mocks.setCrashPhase,
+    setTelemetryContext: mocks.setTelemetryContext,
+    setTelemetryModel: mocks.setTelemetryModel,
+    shutdownTelemetry: mocks.shutdownTelemetry,
+    track: vi.fn(),
+    withTelemetryContext: vi.fn(() => ({ track: vi.fn() })),
+  };
+});
 
 interface FakeScope {
   readonly id: string;
   readonly accessor: { readonly get: (token: unknown) => unknown };
-  readonly dispose: ReturnType<typeof jest.fn>;
+  readonly dispose: ReturnType<typeof vi.fn>;
+  readonly instantiation: { readonly disposeAsync: ReturnType<typeof vi.fn> };
 }
 
 function fakeScope(id: string, services: Map<unknown, unknown>): FakeScope {
@@ -129,14 +138,15 @@ function fakeScope(id: string, services: Map<unknown, unknown>): FakeScope {
         return services.get(token);
       },
     },
-    dispose: jest.fn(),
+    dispose: vi.fn(),
+    instantiation: { disposeAsync: vi.fn(async () => {}) },
   };
 }
 
 function writer() {
   let text = '';
   return {
-    write: jest.fn((chunk: string) => {
+    write: vi.fn((chunk: string) => {
       text += chunk;
       return true;
     }),
@@ -157,77 +167,84 @@ function opts(overrides: Record<string, unknown> = {}) {
     skillsDirs: [],
     agent: undefined,
     agentFiles: [],
+    environment: undefined,
     addDirs: [],
     ...overrides,
   } as const;
 }
 
-function makeFakeHarness() {
-  // Native event listeners registered on the main agent's IEventBus; the turn
-  // emits a streaming assistant delta before completing.
+function makeFakeHarness(toolUpdates = false) {
   const eventListeners = new Set<(event: Event2<any>) => void>();
   const profileState: { profileName: string | undefined } = { profileName: undefined };
   const trustState = { trusted: true };
   const planState = { active: false };
 
-  const goal = { createGoal: jest.fn(), getGoal: jest.fn() };
+  const goal = { createGoal: vi.fn(), getGoal: vi.fn() };
   const agentServices = new Map<unknown, unknown>([
     [
       IAgentProfileService,
       {
-        bind: jest.fn(async () => {}),
-        setModel: jest.fn(async () => ({ model: 'k2' })),
-        getModel: () => 'k2',
-        data: () => ({ profileName: profileState.profileName }),
+        bind: vi.fn(async () => {}),
       },
     ],
-    [IAgentPermissionModeService, { mode: 'auto', setMode: jest.fn() }],
+    [IAgentPermissionModeService, { mode: 'auto', setMode: vi.fn() }],
     [
       IAgentPlanService,
       {
-        status: jest.fn(async () =>
+        status: vi.fn(async () =>
           planState.active ? { id: 'plan-1', content: '', path: '/tmp/plan-1.md' } : null,
         ),
-        cancel: jest.fn(() => {
+        cancel: vi.fn(() => {
           planState.active = false;
         }),
       },
     ],
-    [IAuthSummaryService, { ensureReady: jest.fn(async () => {}) }],
+    [IAuthSummaryService, { ensureReady: vi.fn(async () => {}) }],
     [
       IEventBus,
       {
-        subscribe: jest.fn((handler: (event: Event2<any>) => void) => {
+        subscribe: vi.fn((handler: (event: Event2<any>) => void) => {
           eventListeners.add(handler);
           return { dispose: () => eventListeners.delete(handler) };
         }),
       },
     ],
-    [IAgentTaskService, { list: jest.fn(() => []), stopAllOnExit: jest.fn(async () => []) }],
-    [IAgentCronService, { getNextFireTime: jest.fn(() => null) }],
+    [IAgentTaskService, { list: vi.fn(() => []), stop: vi.fn(async () => {}) }],
+    [IAgentCronService, { getNextFireTime: vi.fn(() => null) }],
     [IAgentGoalService, goal],
-    [IEventDispatcher, { flush: jest.fn(async () => {}) }],
+    [IEventDispatcher, { flush: vi.fn(async () => {}) }],
     [
       IAgentLoopService,
       {
-        submit: jest.fn(() => {
-          // Emit a native assistant delta on the main agent bus, then complete.
+        setModel: vi.fn(async () => ({ model: 'k2' })),
+        getModel: () => 'k2',
+        data: () => ({ profileName: profileState.profileName }),
+        submit: vi.fn(() => {
           for (const listener of [...eventListeners]) {
-            listener({
-              type: 'assistant.delta',
-              turnId: 1,
-              delta: 'hello world',
-            } as unknown as Event2<any>);
+            if (toolUpdates) {
+              const base = {
+                type: 'tool.updated',
+                turnId: 1,
+                toolCallId: 'call-1',
+                taskId: 'task-1',
+                status: 'running',
+                detached: false,
+              };
+              listener({ ...base, fields: { status: 'working' } } as unknown as Event2<any>);
+              listener({ ...base, fields: { status: 'working' } } as unknown as Event2<any>);
+              listener({ ...base, fields: {}, output: { offset: 0, text: 'chunk' } } as unknown as Event2<any>);
+            }
+            listener({ type: 'assistant.delta', turnId: 1, delta: 'hello world' } as unknown as Event2<any>);
           }
           return { id: 'p1' };
         }),
-        promptHandle: jest.fn(() => ({
+        promptHandle: vi.fn(() => ({
           launched: Promise.resolve({
             id: 1,
             result: Promise.resolve({ type: 'completed' }),
           }),
         })),
-        snapshot: jest.fn(() => ({
+        snapshot: vi.fn(() => ({
           state: 'idle',
           activeTurnId: undefined,
           activePromptId: undefined,
@@ -238,22 +255,24 @@ function makeFakeHarness() {
           turn: undefined,
           activeTraceId: undefined,
         })),
-        cancel: jest.fn(() => false),
-        settled: jest.fn(async () => {}),
-        tryAcquireQuiescence: jest.fn(() => ({ dispose: jest.fn() })),
+        cancel: vi.fn(() => false),
+        settled: vi.fn(async () => {}),
+        tryAcquireQuiescence: vi.fn(() => ({ dispose: vi.fn() })),
       },
     ],
-    [IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' })],
+    [
+      IAgentScopeContext,
+      makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' }),
+    ],
   ]);
   const agent = fakeScope('main', agentServices);
 
   const sessionServices = new Map<unknown, unknown>([
-    // drain enumerates agents; empty → no background work to wait on.
     [
       IAgentLifecycleService,
       {
-        list: jest.fn(() => []),
-        handleOf: jest.fn(() => agent),
+        list: vi.fn(() => []),
+        handleOf: vi.fn(() => agent),
       },
     ],
     [
@@ -269,8 +288,8 @@ function makeFakeHarness() {
     [
       ISessionRunGate,
       {
-        begin: jest.fn(() => {}),
-        tryHold: jest.fn(() => true),
+        begin: vi.fn(() => {}),
+        tryHold: vi.fn(() => true),
       },
     ],
   ]);
@@ -278,42 +297,29 @@ function makeFakeHarness() {
 
   const appServices = new Map<unknown, unknown>([
     [
-      IEnvironmentService,
-      {
-        addProvider: jest.fn(async () => ({ dispose: jest.fn(async () => {}) })),
-      },
-    ],
-    [IModelService, { ready: Promise.resolve() }],
-    [IProviderService, { ready: Promise.resolve() }],
-    [IEventService, { subscribe: jest.fn(() => ({ dispose: jest.fn() })) }],
-    [ISessionIndexMirror, { drain: jest.fn(async () => {}) }],
-    [IMcpOAuthService, { shutdown: jest.fn(async () => {}) }],
-    [
       IConfigService,
       {
         ready: Promise.resolve(),
-        get: jest.fn((section: string) => (section === 'defaultModel' ? 'k2' : undefined)),
-        // `applyPrintModeConfigDefaults` inspects each section and fills unset
-        // keys via the memory layer; an empty section means everything is unset.
-        inspect: jest.fn(() => ({ value: {} })),
-        set: jest.fn(async () => {}),
-        diagnostics: jest.fn(() => []),
+        get: vi.fn((section: string) => (section === 'defaultModel' ? 'k2' : undefined)),
+        inspect: vi.fn(() => ({ value: {} })),
+        set: vi.fn(async () => {}),
+        diagnostics: vi.fn(() => []),
       },
     ],
     [
       ISessionManager,
       {
-        create: jest.fn(async () => session),
-        resume: jest.fn(async () => session),
-        get: jest.fn(() => session),
-        list: jest.fn(() => [session]),
+        create: vi.fn(async () => session),
+        resume: vi.fn(async () => session),
+        get: vi.fn(() => session),
+        list: vi.fn(() => [session]),
       } as unknown as ISessionManager,
     ],
     [
       ISessionIndex,
       {
-        list: jest.fn(async () => ({ items: [] })),
-        get: jest.fn(async (id: string) => ({
+        list: vi.fn(async () => ({ items: [] })),
+        get: vi.fn(async (id: string) => ({
           id,
           workspaceId: 'wd_v2',
           cwd: process.cwd(),
@@ -323,12 +329,12 @@ function makeFakeHarness() {
         })),
       },
     ],
-    [
-      ISessionIndex,
-      { get: jest.fn(async () => undefined), listRecent: jest.fn(async () => ({ items: [] })) },
-    ],
+    [ISessionIndex, { get: vi.fn(async () => undefined), listRecent: vi.fn(async () => ({ items: [] })) }],
     [ISessionLockService, new InMemorySessionLockService()],
-    [IAppendLogStore, { externallyModified: jest.fn(() => false), drainRetirements: jest.fn(async () => {}) }],
+    [
+      IAppendLogStore,
+      { externallyModified: vi.fn(() => false), drainRetirements: vi.fn(async () => {}) },
+    ],
     [
       IBootstrapService,
       {
@@ -343,7 +349,13 @@ function makeFakeHarness() {
         getEnv: () => undefined,
       },
     ],
-    [IOAuthToolkit, { getCachedAccessToken: jest.fn(async () => undefined) }],
+    [IOAuthToolkit, { getCachedAccessToken: vi.fn(async () => undefined) }],
+    [IModelService, { ready: Promise.resolve() }],
+    [IProviderService, { ready: Promise.resolve() }],
+    [IEventService, { subscribe: vi.fn(() => ({ dispose: vi.fn() })) }],
+    [ILogService, { warn: vi.fn() }],
+    [IMcpOAuthService, { shutdown: vi.fn(async () => {}) }],
+    [ISessionIndexMirror, { drain: vi.fn(async () => {}) }],
     [
       IRegionService,
       {
@@ -354,14 +366,15 @@ function makeFakeHarness() {
     ],
     [IFileSystemStorageService, {}],
     [IHostFileSystem, {}],
+    [IEnvironmentService, { addProvider: vi.fn(async () => ({ dispose: vi.fn() })) }],
     [
       IWorkspaceInstanceManager,
       {
-        acquire: jest.fn(async () => ({
+        acquire: vi.fn(async () => ({
           instance: {
-            program: { trust: { get: jest.fn(async () => trustState.trusted) } },
+            program: { trust: { get: vi.fn(async () => trustState.trusted) } },
           },
-          dispose: () => {},
+          dispose: vi.fn(),
         })),
       },
     ],
@@ -369,12 +382,12 @@ function makeFakeHarness() {
       ITelemetryService,
       (() => {
         const svc = {
-          addAppender: jest.fn(() => ({ dispose: jest.fn() })),
-          setContext: jest.fn(),
-          track: jest.fn(),
-          track2: jest.fn(),
-          shutdown: jest.fn(async () => {}),
-          withContext: jest.fn(() => svc),
+          addAppender: vi.fn(() => ({ dispose: vi.fn() })),
+          setContext: vi.fn(),
+          track: vi.fn(),
+          track2: vi.fn(),
+          shutdown: vi.fn(async () => {}),
+          withContext: vi.fn((): object => svc),
         };
         return svc;
       })(),
@@ -396,14 +409,11 @@ function makeFakeHarness() {
 
 describe('runV2Print', () => {
   beforeEach(() => {
-    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '1');
-    setEnv('KIMI_MODEL_OUTPUT_FORMAT', '');
-    // Pin the telemetry kill-switch to "unset" so the host environment cannot
-    // flip the default telemetry-on path these tests exercise.
-    setEnv('KIMI_DISABLE_TELEMETRY', '');
-    setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '1');
+    vi.stubEnv('KIMI_MODEL_OUTPUT_FORMAT', '');
+    vi.stubEnv('KIMI_DISABLE_TELEMETRY', '');
+    vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
     resetKimiRegionCache();
-    // `jest.clearAllMocks` keeps implementations, so re-pin the default here.
     mocks.loadMcpServersDetailed.mockImplementation(async () => ({
       servers: {},
       origins: {},
@@ -411,36 +421,56 @@ describe('runV2Print', () => {
   });
 
   afterEach(() => {
-    // Bun keeps an assigned `process.exitCode` even when it is set back to
-    // `undefined`, so a case that pins a failure code would otherwise leak into
-    // the next one (and into the runner's exit status). Reset it explicitly.
-    process.exitCode = 0;
-    jest.clearAllMocks();
-    restoreEnvs();
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
     resetKimiRegionCache();
   });
 
   it('submits a prompt, renders native events, awaits completion, and drains', async () => {
     const stdout = writer();
     const stderr = writer();
-    const { app, agent, agentServices } = makeFakeHarness();
+    const { app, agent, agentServices, appServices } = makeFakeHarness(true);
+    const config = appServices.get(IConfigService) as { diagnostics: ReturnType<typeof vi.fn> };
+    config.diagnostics.mockReturnValue([
+      { severity: 'warning', message: 'deprecated setting' },
+      { severity: 'error', message: 'config could not be read' },
+    ]);
 
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
-    const promptService = agentServices.get(IAgentLoopService) as {
-      submit: ReturnType<typeof jest.fn>;
-    };
+    const promptService = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof vi.fn> };
     expect(promptService.submit).toHaveBeenCalledWith({
-      message: { role: 'user', content: [{ type: 'text', text: 'say hello' }] },
-      meta: { origin: { kind: 'user' }, tracked: true },
+      role: 'user',
+      content: [{ type: 'text', text: 'say hello' }],
+      attributes: { origin: { kind: 'user' } },
     });
-    // Version banner is first, then the rendered assistant output.
     expect(stderr.write).toHaveBeenNthCalledWith(1, 'kimi version 1.2.3-test\n');
+    expect(stderr.text()).toContain('Warning: deprecated setting\n');
+    expect(stderr.text()).toContain('Error: config could not be read\n');
+    expect(stderr.text().match(/working/g)).toHaveLength(1);
+    expect(stderr.text()).toContain('chunk\n');
     expect(stdout.text()).toContain('hello world');
     expect(app.dispose).toHaveBeenCalled();
+  });
+
+  it('keeps local print usable when remote provider registration fails', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app, appServices } = makeFakeHarness();
+    const environments = appServices.get(IEnvironmentService) as {
+      addProvider: ReturnType<typeof vi.fn>;
+    };
+    environments.addProvider.mockRejectedValueOnce(new Error('provider unavailable'));
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+
+    expect(stdout.text()).toContain('hello world');
+    expect(app.dispose).toHaveBeenCalledOnce();
   });
 
   it('reloads a stale session in place, retries once, and still reports occupied', async () => {
@@ -448,22 +478,22 @@ describe('runV2Print', () => {
     const stderr = writer();
     const { app, agentServices, sessionServices, appServices } = makeFakeHarness();
     const sessions = appServices.get(ISessionManager) as {
-      create: ReturnType<typeof jest.fn>;
-      resume: ReturnType<typeof jest.fn>;
-      close: ReturnType<typeof jest.fn>;
+      create: ReturnType<typeof vi.fn>;
+      resume: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
     };
-    sessions.close = jest.fn(async () => {});
+    sessions.close = vi.fn(async () => {});
     const lifecycle = sessionServices.get(IAgentLifecycleService) as {
-      list: ReturnType<typeof jest.fn>;
+      list: ReturnType<typeof vi.fn>;
     };
     lifecycle.list.mockReturnValue([{ agentId: 'main' }]);
     const runGate = sessionServices.get(ISessionRunGate) as {
-      begin: ReturnType<typeof jest.fn>;
+      begin: ReturnType<typeof vi.fn>;
     };
     runGate.begin.mockImplementationOnce(() => {
       throw new Error2(ErrorCodes.SESSION_STALE, 'stale');
     });
-    const loop = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof jest.fn> };
+    const loop = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof vi.fn> };
     loop.submit.mockImplementationOnce(() => {
       throw new Error2(ErrorCodes.SESSION_OCCUPIED, 'occupied');
     });
@@ -501,6 +531,7 @@ describe('runV2Print', () => {
 
     const input = mocks.bootstrap.mock.calls[0]?.[0] as BootstrapInput;
     expect(input.args?.skillDirs).toEqual(['/skills']);
+    expect(input.args?.nonInteractive).toBe(true);
   });
 
   it('leaves the skill dirs arg unset when --skillsDir is empty', async () => {
@@ -548,13 +579,13 @@ describe('runV2Print', () => {
     const input = mocks.bootstrap.mock.calls[0]?.[0] as BootstrapInput;
     expect(input.args?.agentFiles).toEqual(['/agents/reviewer.md']);
 
-    const sessions = appServices.get(ISessionManager) as { create: ReturnType<typeof jest.fn> };
+    const sessions = appServices.get(ISessionManager) as { create: ReturnType<typeof vi.fn> };
     expect(sessions.create).toHaveBeenCalledWith({
       workDir: process.cwd(),
       additionalDirs: undefined,
       mainAgentBinding: { profile: 'reviewer', model: 'k2' },
     });
-    const profile = agentServices.get(IAgentProfileService) as { bind: ReturnType<typeof jest.fn> };
+    const profile = agentServices.get(IAgentProfileService) as { bind: ReturnType<typeof vi.fn> };
     expect(profile.bind).not.toHaveBeenCalled();
   });
 
@@ -580,21 +611,45 @@ describe('runV2Print', () => {
     const input = mocks.bootstrap.mock.calls[0]?.[0] as BootstrapInput;
     expect(input.args?.agentFiles).toEqual([agentFile]);
 
-    const sessions = appServices.get(ISessionManager) as { create: ReturnType<typeof jest.fn> };
+    const sessions = appServices.get(ISessionManager) as { create: ReturnType<typeof vi.fn> };
     expect(sessions.create).toHaveBeenCalledWith({
       workDir: process.cwd(),
       additionalDirs: undefined,
       mainAgentBinding: { profile: 'file-reviewer', model: 'k2' },
     });
-    const profile = agentServices.get(IAgentProfileService) as { bind: ReturnType<typeof jest.fn> };
+    const profile = agentServices.get(IAgentProfileService) as { bind: ReturnType<typeof vi.fn> };
     expect(profile.bind).not.toHaveBeenCalled();
+  });
+
+  it('threads the environment flags into the initial session binding', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app, appServices } = makeFakeHarness();
+
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(
+      opts({ environment: 'dev-box', environmentCwd: '/remote/work' }) as never,
+      '1.2.3-test',
+      { stdout, stderr },
+    );
+
+    const sessions = appServices.get(ISessionManager) as { create: ReturnType<typeof vi.fn> };
+    expect(sessions.create).toHaveBeenCalledWith({
+      workDir: process.cwd(),
+      additionalDirs: undefined,
+      mainAgentBinding: { profile: 'agent', model: 'k2' },
+      environmentId: 'dev-box',
+      environmentCwd: '/remote/work',
+    });
   });
 
   it('does not materialize a main agent after fresh profile binding fails', async () => {
     const stdout = writer();
     const stderr = writer();
     const { app, appServices } = makeFakeHarness();
-    const sessions = appServices.get(ISessionManager) as { create: ReturnType<typeof jest.fn> };
+    const sessions = appServices.get(ISessionManager) as { create: ReturnType<typeof vi.fn> };
     sessions.create.mockRejectedValueOnce(new Error('Unknown agent profile'));
     mocks.bootstrap.mockReturnValue({ app });
 
@@ -621,7 +676,7 @@ describe('runV2Print', () => {
     ).rejects.toThrow(/Invalid agent file/);
 
     const profile = agentServices.get(IAgentProfileService) as {
-      bind: ReturnType<typeof jest.fn>;
+      bind: ReturnType<typeof vi.fn>;
     };
     expect(profile.bind).not.toHaveBeenCalled();
   });
@@ -664,7 +719,7 @@ describe('runV2Print', () => {
     const { app, agent, agentServices, appServices, profileState } = makeFakeHarness();
     profileState.profileName = 'reviewer';
 
-    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof jest.fn> };
+    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof vi.fn> };
     index.get.mockResolvedValue({ id: 'ses_1', cwd: process.cwd() });
 
     mocks.bootstrap.mockReturnValue({ app });
@@ -676,11 +731,13 @@ describe('runV2Print', () => {
     });
 
     const profile = agentServices.get(IAgentProfileService) as {
-      bind: ReturnType<typeof jest.fn>;
-      setModel: ReturnType<typeof jest.fn>;
+      bind: ReturnType<typeof vi.fn>;
+    };
+    const loop = agentServices.get(IAgentLoopService) as {
+      setModel: ReturnType<typeof vi.fn>;
     };
     expect(profile.bind).not.toHaveBeenCalled();
-    expect(profile.setModel).not.toHaveBeenCalled();
+    expect(loop.setModel).not.toHaveBeenCalled();
   });
 
   it('switches the model when resuming with the already-bound profile and an explicit model', async () => {
@@ -689,7 +746,7 @@ describe('runV2Print', () => {
     const { app, agent, agentServices, appServices, profileState } = makeFakeHarness();
     profileState.profileName = 'reviewer';
 
-    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof jest.fn> };
+    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof vi.fn> };
     index.get.mockResolvedValue({ id: 'ses_1', cwd: process.cwd() });
 
     mocks.bootstrap.mockReturnValue({ app });
@@ -702,11 +759,13 @@ describe('runV2Print', () => {
     );
 
     const profile = agentServices.get(IAgentProfileService) as {
-      bind: ReturnType<typeof jest.fn>;
-      setModel: ReturnType<typeof jest.fn>;
+      bind: ReturnType<typeof vi.fn>;
+    };
+    const loop = agentServices.get(IAgentLoopService) as {
+      setModel: ReturnType<typeof vi.fn>;
     };
     expect(profile.bind).not.toHaveBeenCalled();
-    expect(profile.setModel).toHaveBeenCalledWith('new-model');
+    expect(loop.setModel).toHaveBeenCalledWith('new-model');
   });
 
   it('skips default_plan_mode for a new print session and says so on stderr', async () => {
@@ -720,13 +779,13 @@ describe('runV2Print', () => {
 
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
-    const plan = agentServices.get(IAgentPlanService) as { cancel: ReturnType<typeof jest.fn> };
+    const plan = agentServices.get(IAgentPlanService) as { cancel: ReturnType<typeof vi.fn> };
     expect(plan.cancel).toHaveBeenCalledTimes(1);
     expect(planState.active).toBe(false);
     expect(stderr.text()).toContain(
       'default_plan_mode is not applied in print mode, because Plan mode waits for your review.',
     );
-    const loop = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof jest.fn> };
+    const loop = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof vi.fn> };
     expect(loop.submit).toHaveBeenCalledTimes(1);
   });
 
@@ -740,7 +799,7 @@ describe('runV2Print', () => {
 
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
-    const plan = agentServices.get(IAgentPlanService) as { cancel: ReturnType<typeof jest.fn> };
+    const plan = agentServices.get(IAgentPlanService) as { cancel: ReturnType<typeof vi.fn> };
     expect(plan.cancel).not.toHaveBeenCalled();
     expect(stderr.text()).not.toContain('default_plan_mode');
   });
@@ -751,7 +810,7 @@ describe('runV2Print', () => {
     const { app, agentServices, appServices, planState } = makeFakeHarness();
     planState.active = true;
 
-    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof jest.fn> };
+    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof vi.fn> };
     index.get.mockResolvedValue({ id: 'ses_1', cwd: process.cwd() });
 
     mocks.bootstrap.mockReturnValue({ app });
@@ -762,14 +821,14 @@ describe('runV2Print', () => {
     expect(stderr.text()).toContain(
       'Session "ses_1" is in Plan mode, and its plan cannot be approved in print mode; review it with `kimi -r ses_1`.',
     );
-    const plan = agentServices.get(IAgentPlanService) as { cancel: ReturnType<typeof jest.fn> };
+    const plan = agentServices.get(IAgentPlanService) as { cancel: ReturnType<typeof vi.fn> };
     expect(plan.cancel).not.toHaveBeenCalled();
     expect(planState.active).toBe(true);
     const permission = agentServices.get(IAgentPermissionModeService) as {
-      setMode: ReturnType<typeof jest.fn>;
+      setMode: ReturnType<typeof vi.fn>;
     };
     expect(permission.setMode).toHaveBeenCalledWith('auto');
-    const loop = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof jest.fn> };
+    const loop = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof vi.fn> };
     expect(loop.submit).toHaveBeenCalledTimes(1);
   });
 
@@ -779,36 +838,26 @@ describe('runV2Print', () => {
     const { app, appServices, planState } = makeFakeHarness();
     planState.active = true;
 
-    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof jest.fn> };
+    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof vi.fn> };
     index.get.mockResolvedValue({ id: 'ses_1', cwd: process.cwd() });
 
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     const previousExitCode = process.exitCode;
-    // Bun keeps a previously assigned exitCode even when it is set back to
-    // `undefined`, so this case pins 0 explicitly and restores the old value
-    // afterwards.
-    process.exitCode = 0;
+    process.exitCode = undefined;
     try {
-      await runV2Print(
-        opts({ session: 'ses_1', outputFormat: 'stream-json' }) as never,
-        '1.2.3-test',
-        {
-          stdout,
-          stderr,
-        },
-      );
+      await runV2Print(opts({ session: 'ses_1', outputFormat: 'stream-json' }) as never, '1.2.3-test', {
+        stdout,
+        stderr,
+      });
 
-      const lines = stdout
-        .text()
-        .split('\n')
-        .filter((line) => line.length > 0);
+      const lines = stdout.text().split('\n').filter((line) => line.length > 0);
       expect(lines.length).toBeGreaterThan(0);
       for (const line of lines) expect(() => JSON.parse(line)).not.toThrow();
       expect(stdout.text()).not.toContain('Plan mode');
       expect(stderr.text()).toContain('Session "ses_1" is in Plan mode');
-      expect(process.exitCode).toBe(0);
+      expect(process.exitCode).toBeUndefined();
     } finally {
       process.exitCode = previousExitCode;
     }
@@ -820,7 +869,7 @@ describe('runV2Print', () => {
     const { app, agentServices, appServices, planState } = makeFakeHarness();
     planState.active = true;
 
-    const index = appServices.get(ISessionIndex) as { listRecent: ReturnType<typeof jest.fn> };
+    const index = appServices.get(ISessionIndex) as { listRecent: ReturnType<typeof vi.fn> };
     index.listRecent.mockResolvedValue({ items: [{ id: 'ses_9', cwd: process.cwd() }] });
 
     mocks.bootstrap.mockReturnValue({ app });
@@ -828,11 +877,9 @@ describe('runV2Print', () => {
 
     await runV2Print(opts({ continue: true }) as never, '1.2.3-test', { stdout, stderr });
 
-    expect(stderr.text()).toContain(
-      'Session "ses_9" is in Plan mode, and its plan cannot be approved in print mode',
-    );
+    expect(stderr.text()).toContain('Session "ses_9" is in Plan mode, and its plan cannot be approved in print mode');
     expect(planState.active).toBe(true);
-    const loop = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof jest.fn> };
+    const loop = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof vi.fn> };
     expect(loop.submit).toHaveBeenCalledTimes(1);
   });
 
@@ -841,7 +888,7 @@ describe('runV2Print', () => {
     const stderr = writer();
     const { app, agentServices, appServices } = makeFakeHarness();
 
-    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof jest.fn> };
+    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof vi.fn> };
     index.get.mockResolvedValue({ id: 'ses_1', cwd: process.cwd() });
 
     mocks.bootstrap.mockReturnValue({ app });
@@ -850,12 +897,12 @@ describe('runV2Print', () => {
     await runV2Print(opts({ session: 'ses_1' }) as never, '1.2.3-test', { stdout, stderr });
 
     expect(stderr.text()).not.toContain('Plan mode');
-    const loop = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof jest.fn> };
+    const loop = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof vi.fn> };
     expect(loop.submit).toHaveBeenCalledTimes(1);
   });
 
   it('honors KIMI_DISABLE_TELEMETRY: no cloud appender and no v1 pipeline', async () => {
-    setEnv('KIMI_DISABLE_TELEMETRY', '1');
+    vi.stubEnv('KIMI_DISABLE_TELEMETRY', '1');
     const stdout = writer();
     const stderr = writer();
     const { app, appServices } = makeFakeHarness();
@@ -866,11 +913,10 @@ describe('runV2Print', () => {
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
     const telemetry = appServices.get(ITelemetryService) as {
-      addAppender: ReturnType<typeof jest.fn>;
+      addAppender: ReturnType<typeof vi.fn>;
     };
     expect(telemetry.addAppender).not.toHaveBeenCalled();
     expect(mocks.initializeTelemetry).not.toHaveBeenCalled();
-    // The run itself is unaffected: the prompt still renders and cleanup runs.
     expect(stdout.text()).toContain('hello world');
     expect(app.dispose).toHaveBeenCalled();
   });
@@ -886,7 +932,7 @@ describe('runV2Print', () => {
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
     const telemetry = appServices.get(ITelemetryService) as {
-      addAppender: ReturnType<typeof jest.fn>;
+      addAppender: ReturnType<typeof vi.fn>;
     };
     expect(telemetry.addAppender).toHaveBeenCalledTimes(1);
     expect(mocks.initializeTelemetry).toHaveBeenCalledTimes(1);
@@ -904,9 +950,6 @@ describe('runV2Print', () => {
       getAccessToken: expect.any(Function),
       onUnexpectedError: expect.any(Function),
     });
-    // The resolved session id is synced onto the v1 client so crash events and
-    // system metrics carry it; the sink model is reconciled too (same value
-    // here, since the fresh session uses the configured default).
     expect(mocks.setTelemetryContext).toHaveBeenCalledWith({ sessionId: 'ses_v2' });
     expect(mocks.setTelemetryModel).toHaveBeenCalledWith('k2');
     expect(mocks.setCrashPhase).toHaveBeenCalledWith('runtime');
@@ -921,10 +964,9 @@ describe('runV2Print', () => {
     const stderr = writer();
     const { app, appServices, agentServices } = makeFakeHarness();
 
-    // The resumed session's stored model differs from the configured default.
-    const profile = agentServices.get(IAgentProfileService) as { getModel: () => string };
+    const profile = agentServices.get(IAgentLoopService) as { getModel: () => string };
     profile.getModel = () => 'resumed-model';
-    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof jest.fn> };
+    const index = appServices.get(ISessionIndex) as { get: ReturnType<typeof vi.fn> };
     index.get.mockResolvedValue({ id: 'ses_1', cwd: process.cwd() });
 
     mocks.bootstrap.mockReturnValue({ app });
@@ -932,15 +974,13 @@ describe('runV2Print', () => {
 
     await runV2Print(opts({ session: 'ses_1' }) as never, '1.2.3-test', { stdout, stderr });
 
-    // The v1 pipeline was initialized up front with the best-known model, so
-    // crash events during session resolution still reach a sink...
     expect(mocks.initializeTelemetry).toHaveBeenCalledTimes(1);
     expect(mocks.initializeTelemetry).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'k2' }),
     );
-    // ...and the sink's model was reconciled to the resumed session's real
-    // model only after the session resolved.
     expect(mocks.setTelemetryModel).toHaveBeenCalledWith('resumed-model');
+    const auth = agentServices.get(IAuthSummaryService) as { ensureReady: ReturnType<typeof vi.fn> };
+    expect(auth.ensureReady).toHaveBeenCalledWith('resumed-model');
     const initOrder = mocks.initializeTelemetry.mock.invocationCallOrder[0];
     const reconcileOrder = mocks.setTelemetryModel.mock.invocationCallOrder[0];
     expect(initOrder).toBeDefined();
@@ -958,7 +998,7 @@ describe('runV2Print', () => {
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
     const dispatcher = agentServices.get(IEventDispatcher) as {
-      flush: ReturnType<typeof jest.fn>;
+      flush: ReturnType<typeof vi.fn>;
     };
     expect(dispatcher.flush).toHaveBeenCalled();
     const flushOrder = dispatcher.flush.mock.invocationCallOrder[0];
@@ -973,7 +1013,7 @@ describe('runV2Print', () => {
     const { app, agentServices } = makeFakeHarness();
 
     const promptService = agentServices.get(IAgentLoopService) as {
-      promptHandle: ReturnType<typeof jest.fn>;
+      promptHandle: ReturnType<typeof vi.fn>;
     };
     promptService.promptHandle.mockReturnValueOnce({
       launched: Promise.resolve({
@@ -993,7 +1033,7 @@ describe('runV2Print', () => {
     );
 
     const dispatcher = agentServices.get(IEventDispatcher) as {
-      flush: ReturnType<typeof jest.fn>;
+      flush: ReturnType<typeof vi.fn>;
     };
     expect(dispatcher.flush).toHaveBeenCalled();
     const flushOrder = dispatcher.flush.mock.invocationCallOrder[0];
@@ -1007,7 +1047,7 @@ describe('runV2Print', () => {
     const { app, agentServices } = makeFakeHarness();
 
     const promptService = agentServices.get(IAgentLoopService) as {
-      promptHandle: ReturnType<typeof jest.fn>;
+      promptHandle: ReturnType<typeof vi.fn>;
     };
     promptService.promptHandle.mockReturnValueOnce({
       launched: Promise.resolve({
@@ -1019,7 +1059,7 @@ describe('runV2Print', () => {
       }),
     });
     const dispatcher = agentServices.get(IEventDispatcher) as {
-      flush: ReturnType<typeof jest.fn>;
+      flush: ReturnType<typeof vi.fn>;
     };
     dispatcher.flush.mockRejectedValueOnce(new Error('disk full'));
 
@@ -1032,17 +1072,20 @@ describe('runV2Print', () => {
     expect(app.dispose).toHaveBeenCalled();
   });
 
-  it('cancels and settles the active turn before flushing on a termination signal', async () => {
+  it.each([
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ])('cancels and settles the active turn before flushing on %s', async (signal, exitCode) => {
     const stdout = writer();
     const stderr = writer();
     const { app, agentServices } = makeFakeHarness();
 
     const order: string[] = [];
     const loop = agentServices.get(IAgentLoopService) as {
-      snapshot: ReturnType<typeof jest.fn>;
-      cancel: ReturnType<typeof jest.fn>;
-      settled: ReturnType<typeof jest.fn>;
-      tryAcquireQuiescence: ReturnType<typeof jest.fn>;
+      snapshot: ReturnType<typeof vi.fn>;
+      cancel: ReturnType<typeof vi.fn>;
+      settled: ReturnType<typeof vi.fn>;
+      tryAcquireQuiescence: ReturnType<typeof vi.fn>;
     };
     loop.snapshot.mockReturnValue({
       state: 'running',
@@ -1059,31 +1102,30 @@ describe('runV2Print', () => {
       if (!order.includes('cancel')) order.push('cancel');
       return true;
     });
-    loop.settled = jest.fn(async () => {
+    loop.settled = vi.fn(async () => {
       if (!order.includes('settled')) order.push('settled');
     });
-    const guardDispose = jest.fn();
-    loop.tryAcquireQuiescence = jest.fn(() => ({ dispose: guardDispose }));
+    const guardDispose = vi.fn();
+    loop.tryAcquireQuiescence = vi.fn(() => ({ dispose: guardDispose }));
     const taskService = agentServices.get(IAgentTaskService) as {
-      stopAllOnExit: ReturnType<typeof jest.fn>;
+      list: ReturnType<typeof vi.fn>;
+      stop: ReturnType<typeof vi.fn>;
     };
-    taskService.stopAllOnExit = jest.fn(async () => {
+    taskService.list = vi.fn(() => [{ taskId: 'task-1' }]);
+    taskService.stop = vi.fn(async () => {
       if (!order.includes('stop')) order.push('stop');
-      return [];
     });
     const dispatcher = agentServices.get(IEventDispatcher) as {
-      flush: ReturnType<typeof jest.fn>;
+      flush: ReturnType<typeof vi.fn>;
     };
-    dispatcher.flush = jest.fn(async () => {
+    dispatcher.flush = vi.fn(async () => {
       order.push('flush');
     });
 
-    // A turn still in flight when the signal arrives: the queue snapshot reports
-    // the pending item, then the running prompt, then goes empty.
     const promptService = agentServices.get(IAgentLoopService) as {
-      promptHandle: ReturnType<typeof jest.fn>;
-      snapshot: ReturnType<typeof jest.fn>;
-      cancel: ReturnType<typeof jest.fn>;
+      promptHandle: ReturnType<typeof vi.fn>;
+      snapshot: ReturnType<typeof vi.fn>;
+      cancel: ReturnType<typeof vi.fn>;
     };
     let settleTurn!: (result: unknown) => void;
     promptService.promptHandle.mockReturnValueOnce({
@@ -1095,7 +1137,7 @@ describe('runV2Print', () => {
       }),
     });
     let promptPhase: 'launching' | 'active' | 'empty' = 'launching';
-    promptService.snapshot = jest.fn(() => {
+    promptService.snapshot = vi.fn(() => {
       if (promptPhase === 'launching') {
         return {
           state: 'running',
@@ -1141,7 +1183,7 @@ describe('runV2Print', () => {
         handlers.set(signal, handler);
       },
       off: () => {},
-      exit: jest.fn((code?: number) => {
+      exit: vi.fn((code?: number) => {
         order.push(`exit:${code}`);
       }),
     };
@@ -1155,13 +1197,12 @@ describe('runV2Print', () => {
       process: fakeProcess as never,
     });
     const outcome = run.catch((error: unknown) => error);
-    for (let i = 0; i < 100 && !handlers.has('SIGINT'); i++) {
+    for (let i = 0; i < 100 && !handlers.has(signal); i++) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
-    const onSigint = handlers.get('SIGINT')!;
+    const onTermination = handlers.get(signal)!;
     settleTurn({ type: 'cancelled', steps: 0, reason: new Error('aborted') });
-    const sigintRun = onSigint();
-    // The flush must wait for the prompt queue to empty, even with idle loops.
+    const terminationRun = onTermination();
     for (let i = 0; i < 100 && !order.includes('settled'); i++) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
@@ -1172,10 +1213,10 @@ describe('runV2Print', () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(order).toEqual(['stop', 'cancel', 'settled']);
     promptPhase = 'empty';
-    await sigintRun;
+    await terminationRun;
 
-    expect(order).toEqual(['stop', 'cancel', 'settled', 'flush', 'exit:130']);
-    // The guard taken during quiesce is only released after app.dispose().
+    expect(order).toEqual(['stop', 'cancel', 'settled', 'flush', `exit:${exitCode}`]);
+    expect(app.dispose).toHaveBeenCalledOnce();
     expect(loop.tryAcquireQuiescence).toHaveBeenCalled();
     const lastGuardRelease = guardDispose.mock.invocationCallOrder.at(-1);
     const appDisposeOrder = app.dispose.mock.invocationCallOrder[0];
@@ -1209,7 +1250,6 @@ describe('runV2Print', () => {
         'api (http: https://example.com/mcp), fs (stdio: node server.js).',
     );
     expect(stderr.text()).toContain('"Trust this folder"');
-    // The warning is advisory only — the run itself is unaffected.
     expect(stdout.text()).toContain('hello world');
   });
 
@@ -1273,7 +1313,7 @@ describe('runV2Print', () => {
     const { app, appServices, trustState } = makeFakeHarness();
     trustState.trusted = false;
     const workspaces = appServices.get(IWorkspaceInstanceManager) as {
-      acquire: ReturnType<typeof jest.fn>;
+      acquire: ReturnType<typeof vi.fn>;
     };
     workspaces.acquire.mockRejectedValueOnce(new Error('trust store unavailable'));
 

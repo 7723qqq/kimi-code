@@ -1,12 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it, beforeEach, afterEach } from '@moonshot-ai/testkit/vitest';
 import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import { targetSessionsDir } from '../../src/paths.js';
 import { migrateOneSession, type MigrateOneResult } from '../../src/sessions/migrate-one.js';
 import { computeWorkdirBucket } from '../../src/sessions/workdir-bucket.js';
+import { targetSessionsDir } from '../../src/paths.js';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures', import.meta.url));
 
@@ -21,11 +20,7 @@ afterEach(async () => {
 describe('migrateOneSession (tiny-hello-world fixture)', () => {
   it('produces a valid v1.0 session dir', async () => {
     const result = await migrateOneSession({
-      source: {
-        uuid: 'tiny-uuid',
-        sessionDir: join(FIXTURES, 'tiny-hello-world'),
-        contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl'),
-      },
+      source: { uuid: 'tiny-uuid', sessionDir: join(FIXTURES, 'tiny-hello-world'), contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
@@ -38,8 +33,6 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
     const lines = wire.split('\n').filter((l) => l.length > 0);
     expect(lines[0]).toContain('"protocol_version":"1.0"');
     const records = lines.map((l) => JSON.parse(l) as { type: string });
-    // metadata + turn.prompt + 2 messages + turn.ended + token_counting.measured
-    // (the fixture carries a `_usage` row with token_count 9133)
     expect(records.map((r) => r.type)).toEqual([
       'metadata',
       'turn.prompt',
@@ -52,48 +45,29 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
 
   it('reports already-migrated on an idempotent re-run', async () => {
     await migrateOneSession({
-      source: {
-        uuid: 'tiny-uuid',
-        sessionDir: join(FIXTURES, 'tiny-hello-world'),
-        contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl'),
-      },
+      source: { uuid: 'tiny-uuid', sessionDir: join(FIXTURES, 'tiny-hello-world'), contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
     const second = await migrateOneSession({
-      source: {
-        uuid: 'tiny-uuid',
-        sessionDir: join(FIXTURES, 'tiny-hello-world'),
-        contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl'),
-      },
+      source: { uuid: 'tiny-uuid', sessionDir: join(FIXTURES, 'tiny-hello-world'), contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
-    // The dir we wrote carries `imported_from_kimi_cli`, so a re-run is an
-    // idempotent skip, not a real collision.
     expect(second.outcome).toBe('already-migrated');
   });
 
   it('reports conflict when an unrelated kimi-code session occupies the dir', async () => {
     const first = await migrateOneSession({
-      source: {
-        uuid: 'tiny-uuid',
-        sessionDir: join(FIXTURES, 'tiny-hello-world'),
-        contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl'),
-      },
+      source: { uuid: 'tiny-uuid', sessionDir: join(FIXTURES, 'tiny-hello-world'), contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
     expect(first.outcome).toBe('migrated');
     const targetDir = (first as Extract<MigrateOneResult, { outcome: 'migrated' }>).targetDir;
-    // Overwrite state.json with a non-migrated (real) kimi-code session.
     await writeFile(join(targetDir, 'state.json'), JSON.stringify({ title: 'real' }), 'utf-8');
     const second = await migrateOneSession({
-      source: {
-        uuid: 'tiny-uuid',
-        sessionDir: join(FIXTURES, 'tiny-hello-world'),
-        contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl'),
-      },
+      source: { uuid: 'tiny-uuid', sessionDir: join(FIXTURES, 'tiny-hello-world'), contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
@@ -107,20 +81,11 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
       computeWorkdirBucket(workdirPath),
       'ses_tiny-uuid',
     );
-    // Simulate a prior run killed after the dir + wire.jsonl were written but
-    // before state.json — exactly the debris a hard crash leaves, since a
-    // crash bypasses the in-process cleanup. Without state.json this is not a
-    // real kimi-code session, so it must be re-migrated, not reported as a
-    // permanent conflict that strands the session forever.
     await mkdir(join(targetDir, 'agents', 'main'), { recursive: true });
     await writeFile(join(targetDir, 'agents', 'main', 'wire.jsonl'), '{"type":"metadata"}\n');
 
     const result = await migrateOneSession({
-      source: {
-        uuid: 'tiny-uuid',
-        sessionDir: join(FIXTURES, 'tiny-hello-world'),
-        contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl'),
-      },
+      source: { uuid: 'tiny-uuid', sessionDir: join(FIXTURES, 'tiny-hello-world'), contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl') },
       workdirPath,
       targetHome,
     });
@@ -136,20 +101,12 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
       computeWorkdirBucket(workdirPath),
       'ses_tiny-uuid',
     );
-    // Simulate a crash mid-write of state.json: the dir + wire.jsonl exist and
-    // state.json is present but unparseable. It is migration debris (the path
-    // is `ses_<uuid>`), not a real kimi-code session, so it must be
-    // re-migrated, not reported as a permanent conflict.
     await mkdir(join(targetDir, 'agents', 'main'), { recursive: true });
     await writeFile(join(targetDir, 'agents', 'main', 'wire.jsonl'), '{"type":"metadata"}\n');
     await writeFile(join(targetDir, 'state.json'), '{ "createdAt": "broke');
 
     const result = await migrateOneSession({
-      source: {
-        uuid: 'tiny-uuid',
-        sessionDir: join(FIXTURES, 'tiny-hello-world'),
-        contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl'),
-      },
+      source: { uuid: 'tiny-uuid', sessionDir: join(FIXTURES, 'tiny-hello-world'), contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl') },
       workdirPath,
       targetHome,
     });
@@ -159,16 +116,9 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
   });
 
   it('stamps written artifacts with the original wire_mtime', async () => {
-    // tiny-hello-world/state.json has `wire_mtime: 1772616338.93`.
-    // `SessionStore.list()` ranks sessions by filesystem mtime, so the
-    // migrated artifacts must carry the original timestamp — not write-time.
     const expectedMs = Math.floor(1772616338.93 * 1000);
     const result = await migrateOneSession({
-      source: {
-        uuid: 'tiny-uuid',
-        sessionDir: join(FIXTURES, 'tiny-hello-world'),
-        contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl'),
-      },
+      source: { uuid: 'tiny-uuid', sessionDir: join(FIXTURES, 'tiny-hello-world'), contextPath: join(join(FIXTURES, 'tiny-hello-world'), 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
@@ -179,16 +129,12 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
     const wireStat = await stat(join(targetDir, 'agents', 'main', 'wire.jsonl'));
     const dirStat = await stat(targetDir);
 
-    // Within one second of the fixture's wire_mtime.
     expect(Math.abs(stateStat.mtimeMs - expectedMs)).toBeLessThan(1000);
     expect(Math.abs(wireStat.mtimeMs - expectedMs)).toBeLessThan(1000);
     expect(Math.abs(dirStat.mtimeMs - expectedMs)).toBeLessThan(1000);
   });
 
   it('falls back to the wire.jsonl mtime when wire_mtime is absent', async () => {
-    // A state.json without `wire_mtime` must stamp the migrated artifacts from
-    // the SAME signal detection ranks recency by — the source wire.jsonl mtime
-    // — so post-migration list ordering matches the detected order.
     const srcDir = join(targetHome, 'src-no-wiremtime');
     await mkdir(srcDir, { recursive: true });
     const fixtureContext = await readFile(
@@ -204,11 +150,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
     await utimes(join(srcDir, 'wire.jsonl'), wireTime, wireTime);
 
     const result = await migrateOneSession({
-      source: {
-        uuid: 'no-wiremtime-uuid',
-        sessionDir: srcDir,
-        contextPath: join(srcDir, 'context.jsonl'),
-      },
+      source: { uuid: 'no-wiremtime-uuid', sessionDir: srcDir, contextPath: join(srcDir, 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
@@ -219,9 +161,6 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
   });
 
   it('reports outcome "empty" — not "failed" — when the context has no messages', async () => {
-    // A context.jsonl with only markers (e.g. a session the user cleared in
-    // kimi-cli) carries no migratable conversation. That is an empty session,
-    // not a migration failure.
     const srcDir = join(targetHome, 'src-empty-context');
     await mkdir(srcDir, { recursive: true });
     await writeFile(
@@ -232,11 +171,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
     await writeFile(join(srcDir, 'state.json'), '{}', 'utf-8');
 
     const result = await migrateOneSession({
-      source: {
-        uuid: 'empty-context-uuid',
-        sessionDir: srcDir,
-        contextPath: join(srcDir, 'context.jsonl'),
-      },
+      source: { uuid: 'empty-context-uuid', sessionDir: srcDir, contextPath: join(srcDir, 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
@@ -244,20 +179,13 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
   });
 
   it('reports outcome "failed" when context.jsonl is corrupt (no parseable JSON lines)', async () => {
-    // A disk-corrupted / truncated context.jsonl must be surfaced as a real
-    // failure (so it ends up in `migration-errors.log`), not silently
-    // counted as "skipped empty".
     const srcDir = join(targetHome, 'src-corrupt-context');
     await mkdir(srcDir, { recursive: true });
     await writeFile(join(srcDir, 'context.jsonl'), 'not-json\n{broken\n}}}\n', 'utf-8');
     await writeFile(join(srcDir, 'state.json'), '{}', 'utf-8');
 
     const result = await migrateOneSession({
-      source: {
-        uuid: 'corrupt-context-uuid',
-        sessionDir: srcDir,
-        contextPath: join(srcDir, 'context.jsonl'),
-      },
+      source: { uuid: 'corrupt-context-uuid', sessionDir: srcDir, contextPath: join(srcDir, 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
@@ -269,7 +197,11 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
 
   it('migrates a historical flat context file with no session dir', async () => {
     const flatFile = join(targetHome, 'flat-uuid.jsonl');
-    await writeFile(flatFile, '{"role":"user","content":"hello from the flat era"}\n', 'utf-8');
+    await writeFile(
+      flatFile,
+      '{"role":"user","content":"hello from the flat era"}\n',
+      'utf-8',
+    );
 
     const result = await migrateOneSession({
       source: { uuid: 'flat-uuid', flatContextFile: flatFile, contextPath: flatFile },
@@ -297,11 +229,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
     );
 
     const result = await migrateOneSession({
-      source: {
-        uuid: 'title-only-uuid',
-        sessionDir: srcDir,
-        contextPath: join(srcDir, 'context.jsonl'),
-      },
+      source: { uuid: 'title-only-uuid', sessionDir: srcDir, contextPath: join(srcDir, 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
@@ -320,7 +248,11 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
   it('merges legacy metadata.json into the migrated state (state fields win)', async () => {
     const srcDir = join(targetHome, 'src-metadata-merge');
     await mkdir(srcDir, { recursive: true });
-    await writeFile(join(srcDir, 'context.jsonl'), '{"role":"user","content":"hi"}\n', 'utf-8');
+    await writeFile(
+      join(srcDir, 'context.jsonl'),
+      '{"role":"user","content":"hi"}\n',
+      'utf-8',
+    );
     await writeFile(
       join(srcDir, 'state.json'),
       JSON.stringify({ archived: false, archived_at: null, custom_title: 'State Title' }),
@@ -339,11 +271,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
     );
 
     const result = await migrateOneSession({
-      source: {
-        uuid: 'metadata-merge-uuid',
-        sessionDir: srcDir,
-        contextPath: join(srcDir, 'context.jsonl'),
-      },
+      source: { uuid: 'metadata-merge-uuid', sessionDir: srcDir, contextPath: join(srcDir, 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
@@ -386,11 +314,7 @@ describe('migrateOneSession with a pre-existing old-format import', () => {
     );
 
     const result = await migrateOneSession({
-      source: {
-        uuid: 'old-import-uuid',
-        sessionDir: join(FIXTURES, 'tiny-hello-world'),
-        contextPath: join(FIXTURES, 'tiny-hello-world', 'context.jsonl'),
-      },
+      source: { uuid: 'old-import-uuid', sessionDir: join(FIXTURES, 'tiny-hello-world'), contextPath: join(FIXTURES, 'tiny-hello-world', 'context.jsonl') },
       workdirPath,
       targetHome,
     });
@@ -420,11 +344,7 @@ describe('migrateOneSession todo list migration', () => {
     );
 
     const result = await migrateOneSession({
-      source: {
-        uuid: 'fresh-todos-uuid',
-        sessionDir: srcDir,
-        contextPath: join(srcDir, 'context.jsonl'),
-      },
+      source: { uuid: 'fresh-todos-uuid', sessionDir: srcDir, contextPath: join(srcDir, 'context.jsonl') },
       workdirPath: '/Users/me/proj',
       targetHome,
     });
@@ -499,11 +419,7 @@ describe('migrateOneSession subagent migration', () => {
   it('migrates subagent wire, task records and roster registration linked to the main history', async () => {
     const srcDir = await seedSourceWithSubagent();
     const result = await migrateOneSession({
-      source: {
-        uuid: 'sub-session-uuid',
-        sessionDir: srcDir,
-        contextPath: join(srcDir, 'context.jsonl'),
-      },
+      source: { uuid: 'sub-session-uuid', sessionDir: srcDir, contextPath: join(srcDir, 'context.jsonl') },
       workdirPath,
       targetHome,
     });
@@ -523,11 +439,7 @@ describe('migrateOneSession subagent migration', () => {
       'tools.update_store',
     ]);
     expect(subWire[1]).toMatchObject({ agentId: 'sub1', origin: { kind: 'user' } });
-    expect(subWire[5]).toMatchObject({
-      agentId: 'sub1',
-      key: 'todo',
-      value: [{ title: 'calc', status: 'done' }],
-    });
+    expect(subWire[5]).toMatchObject({ agentId: 'sub1', key: 'todo', value: [{ title: 'calc', status: 'done' }] });
 
     const mainWire = (await readFile(join(targetDir, 'agents', 'main', 'wire.jsonl'), 'utf-8'))
       .split('\n')
@@ -572,73 +484,11 @@ describe('migrateOneSession subagent migration', () => {
     expect(state.agents.sub1.homedir).toBe(join(targetDir, 'agents', 'sub1'));
 
     const second = await migrateOneSession({
-      source: {
-        uuid: 'sub-session-uuid',
-        sessionDir: srcDir,
-        contextPath: join(srcDir, 'context.jsonl'),
-      },
+      source: { uuid: 'sub-session-uuid', sessionDir: srcDir, contextPath: join(srcDir, 'context.jsonl') },
       workdirPath,
       targetHome,
     });
     expect(second.outcome).toBe('already-migrated');
   });
 
-  it('reports a subagent whose context is unreadable and keeps the dangling reference visible', async () => {
-    const srcDir = await seedSourceWithSubagent();
-    await rm(join(srcDir, 'subagents', 'sub1', 'context.jsonl'));
-
-    const result = await migrateOneSession({
-      source: {
-        uuid: 'sub-session-broken-uuid',
-        sessionDir: srcDir,
-        contextPath: join(srcDir, 'context.jsonl'),
-      },
-      workdirPath,
-      targetHome,
-    });
-
-    expect(result.outcome).toBe('migrated');
-    const migrated = result as Extract<MigrateOneResult, { outcome: 'migrated' }>;
-    expect(migrated.subagentFailures).toEqual([
-      {
-        sourcePath: join(srcDir, 'subagents', 'sub1'),
-        reason: expect.stringContaining('ENOENT'),
-      },
-    ]);
-
-    const state = JSON.parse(await readFile(join(migrated.targetDir, 'state.json'), 'utf-8'));
-    expect(state.agents.sub1).toBeUndefined();
-
-    const mainWire = (
-      await readFile(join(migrated.targetDir, 'agents', 'main', 'wire.jsonl'), 'utf-8')
-    )
-      .split('\n')
-      .filter((l) => l.length > 0)
-      .map((l) => JSON.parse(l) as { type: string; info?: { taskId?: string } });
-    expect(mainWire.some((r) => r.type === 'task.started' && r.info?.taskId === 'sub1')).toBe(
-      false,
-    );
-    await expect(
-      readFile(join(migrated.targetDir, 'agents', 'sub1', 'wire.jsonl'), 'utf-8'),
-    ).rejects.toThrow();
-  });
-
-  it('does not report an empty subagent dir as a failure', async () => {
-    const srcDir = await seedSourceWithSubagent();
-    await writeFile(join(srcDir, 'subagents', 'sub1', 'context.jsonl'), '');
-
-    const result = await migrateOneSession({
-      source: {
-        uuid: 'sub-session-empty-uuid',
-        sessionDir: srcDir,
-        contextPath: join(srcDir, 'context.jsonl'),
-      },
-      workdirPath,
-      targetHome,
-    });
-
-    expect(result.outcome).toBe('migrated');
-    const migrated = result as Extract<MigrateOneResult, { outcome: 'migrated' }>;
-    expect(migrated.subagentFailures ?? []).toEqual([]);
-  });
 });

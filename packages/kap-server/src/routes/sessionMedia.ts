@@ -1,6 +1,5 @@
 import { Readable } from 'node:stream';
 
-import type { Scope } from '@moonshot-ai/agent-core-v2';
 import {
   ISessionMediaStore,
   type SessionMediaFile,
@@ -11,13 +10,14 @@ import {
   isFileError,
 } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import { resumeSessionById } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
+import type { Scope } from '@moonshot-ai/agent-core-v2/_base/di/scope';
 import { z } from 'zod';
 
 import { buildContentDisposition } from '../lib/contentDisposition';
 import { parseRangeHeader, pickHeader } from '../lib/httpRange';
 import { defineRoute } from '../middleware/defineRoute';
-import { errEnvelope } from '../protocol/envelope';
 import { ErrorCode } from '../protocol/error-codes';
+import { errEnvelope } from '../protocol/envelope';
 
 interface SessionMediaRouteHost {
   get(
@@ -54,8 +54,8 @@ export function registerSessionMediaRoutes(app: SessionMediaRouteHost, core: Sco
       rawResponse: { 200: { type: 'string', format: 'binary' } },
       errors: {
         [ErrorCode.SESSION_NOT_FOUND]: {},
-        [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
         [ErrorCode.FILE_NOT_FOUND]: {},
+        [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
       },
       description: 'Download session-canonical prompt media by file ID',
       tags: ['files'],
@@ -76,10 +76,13 @@ export function registerSessionMediaRoutes(app: SessionMediaRouteHost, core: Sco
       if (file === undefined) {
         return r
           .code(404)
-          .send(errEnvelope(ErrorCode.FILE_NOT_FOUND, 'file not found', req.id)) as unknown as void;
+          .send(
+            errEnvelope(ErrorCode.FILE_NOT_FOUND, 'file not found', req.id),
+          ) as unknown as void;
       }
 
-      r.type(file.mediaType)
+      r
+        .type(file.mediaType)
         .header('content-disposition', buildContentDisposition(file.name, file.mediaType))
         .header('accept-ranges', 'bytes')
         .header('etag', `"${session_id}-${file_id}-${file.size}"`);

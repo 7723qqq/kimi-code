@@ -1,17 +1,8 @@
-/**
- * `kimi vis` sub-command.
- *
- * CLI glue only: resolves the kimi home, starts the in-process session
- * visualizer server (auto-picking a free port by default), prints the URL,
- * optionally opens the browser (with an optional session deep-link), then
- * waits for Ctrl-C and shuts the server down. The visualizer server itself
- * lives in `@moonshot-ai/vis-server`.
- */
+import type { Command } from 'commander';
 
-import { InvalidArgumentError, type Command } from 'commander';
-
-import { t } from '#/i18n';
+import { createCliTelemetryBootstrap } from '#/cli/telemetry';
 import { openUrl } from '#/utils/open-url';
+import { t } from '#/i18n';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -51,20 +42,13 @@ export interface VisOptions {
 export async function handleVis(deps: VisDeps, opts: VisOptions): Promise<void> {
   const homeDir = deps.getHomeDir();
 
-  // Lazily load the embedded single-file SPA so normal `kimi` startup never
-  // pays for it. The module is generated at build time (prebuild). When running
-  // from source without a build — e.g. tests — the generated value module is
-  // absent and the dynamic import throws; in that case the server falls back to
-  // its own static `public/` directory.
   let webAsset: { gzipped: Uint8Array } | undefined;
   try {
     const { VIS_WEB_GZIP_B64 } = await import('#/generated/vis-web-asset');
     if (VIS_WEB_GZIP_B64.length > 0) {
       webAsset = { gzipped: new Uint8Array(Buffer.from(VIS_WEB_GZIP_B64, 'base64')) };
     }
-  } catch {
-    // Embedded asset not generated in this context — fall back to filesystem.
-  }
+  } catch {}
 
   let server: StartedVisServer;
   try {
@@ -76,7 +60,7 @@ export async function handleVis(deps: VisDeps, opts: VisOptions): Promise<void> 
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    deps.stderr.write(t('tui.statusMessages.visStartFailed', { message: msg }) + '\n');
+    deps.stderr.write(`Failed to start kimi vis: ${msg}\n`);
     return deps.exit(1);
   }
 
@@ -85,14 +69,14 @@ export async function handleVis(deps: VisDeps, opts: VisOptions): Promise<void> 
       ? server.url
       : `${server.url}sessions/${encodeURIComponent(opts.sessionId)}`;
 
-  deps.stdout.write(t('tui.statusMessages.visRunning', { url: server.url }) + '\n');
-  deps.stdout.write(t('tui.statusMessages.visStopHint') + '\n');
+  deps.stdout.write(`kimi vis is running at ${server.url}\n`);
+  deps.stdout.write('Press Ctrl-C to stop.\n');
 
   if (opts.open) {
     try {
       await deps.openUrl(target);
     } catch {
-      deps.stderr.write(t('tui.statusMessages.visBrowserFailed', { url: target }) + '\n');
+      deps.stderr.write(`Could not open a browser; visit ${target} manually.\n`);
     }
   }
 
@@ -100,37 +84,23 @@ export async function handleVis(deps: VisDeps, opts: VisOptions): Promise<void> 
   await server.close();
 }
 
-export function parsePortOption(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (
-    !Number.isInteger(parsed) ||
-    parsed < 0 ||
-    parsed > 65535 ||
-    String(parsed) !== value.trim()
-  ) {
-    throw new InvalidArgumentError(t('cli.optionDescriptions.visPortInvalid', { value }));
-  }
-  return parsed;
-}
-
 export function registerVisCommand(parent: Command, overrides?: Partial<VisDeps>): void {
   parent
     .command('vis')
-    .description(t('cli.commandDescriptions.vis'))
-    .option('--port <number>', t('cli.optionDescriptions.visPort'), parsePortOption)
+    .description('Launch the session visualizer in your browser.')
+    .option('--port <number>', t('cli.optionDescriptions.visPort'))
     .option('--host <host>', t('cli.optionDescriptions.visHost'))
     .option('--no-open', t('cli.optionDescriptions.visNoOpen'))
     .argument('[sessionId]', t('cli.optionDescriptions.visSessionId'))
     .action(
       async (
         sessionId: string | undefined,
-        options: { port?: number; host?: string; open?: boolean },
+        options: { port?: string; host?: string; open?: boolean },
       ) => {
-        await handleVis(await createDefaultVisDeps(overrides), {
+        const port = options.port === undefined ? undefined : Number.parseInt(options.port, 10);
+        await handleVis(createDefaultVisDeps(overrides), {
           open: options.open !== false,
-          ...(options.port === undefined || Number.isNaN(options.port)
-            ? {}
-            : { port: options.port }),
+          ...(port === undefined || Number.isNaN(port) ? {} : { port }),
           ...(options.host === undefined ? {} : { host: options.host }),
           ...(sessionId === undefined ? {} : { sessionId }),
         });
@@ -138,20 +108,15 @@ export function registerVisCommand(parent: Command, overrides?: Partial<VisDeps>
     );
 }
 
-async function createDefaultVisDeps(overrides: Partial<VisDeps> = {}): Promise<VisDeps> {
-  // The CLI telemetry bootstrap pulls the OAuth stack; load it on dispatch so
-  // registering the command stays light.
-  const { createCliTelemetryBootstrap } = await import('#/cli/telemetry');
+function createDefaultVisDeps(overrides: Partial<VisDeps> = {}): VisDeps {
   return {
     getHomeDir: overrides.getHomeDir ?? (() => createCliTelemetryBootstrap().homeDir),
     startVisServer:
       overrides.startVisServer ??
       (async (opts) => {
-        // Dynamic import keeps the vis server (and Hono) out of the hot path.
         const { startVisServer } = await import('@moonshot-ai/vis-server/start');
         return startVisServer(opts);
       }),
-    // `openUrl` is a synchronous fire-and-forget; adapt it to the async dep.
     openUrl:
       overrides.openUrl ??
       (async (url: string) => {

@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { deserializeMessage, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
+import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
@@ -36,8 +36,6 @@ export interface StdioMcpClientOptions {
 }
 
 const STDERR_BUFFER_CAPACITY = 4 * 1024;
-const STDIO_DRAIN_GRACE_MS = 100;
-const STDIO_EOF_GRACE_MS = 200;
 const STDIO_TERMINATION_GRACE_MS = 5_000;
 
 export class StdioMcpClient implements MCPClient {
@@ -74,7 +72,10 @@ export class StdioMcpClient implements MCPClient {
     this.started = true;
     this.installTransportHooks();
     try {
-      await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
+      await this.client.connect(
+        this.transport,
+        buildRequestOptions(this.startupTimeoutMs, undefined),
+      );
     } catch (error) {
       await this.closeStartedClient();
       const transportError = (await this.transport.exitError()) ?? this.lastTransportError;
@@ -109,7 +110,7 @@ export class StdioMcpClient implements MCPClient {
   async listTools(): Promise<MCPToolDefinition[]> {
     const result = await this.client.listTools(
       undefined,
-      buildRequestOptions(this.startupTimeoutMs),
+      buildRequestOptions(this.startupTimeoutMs, undefined),
     );
     return result.tools.map(toMcpToolDefinition);
   }
@@ -165,18 +166,13 @@ class EnvironmentStdioTransport implements Transport {
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: <T extends JSONRPCMessage>(message: T) => void;
-  private readonly readBuffer = new StdioFrameBuffer();
+  private readonly readBuffer = new ReadBuffer();
   private process: IHostProcess | undefined;
   private lease: ReturnType<EnvironmentResolver['acquire']> | undefined;
   private tracked: { dispose(): void | Promise<void> } | undefined;
   private started = false;
   private closed = false;
-  private finished = false;
   private exitErrorPromise: Promise<Error | undefined> | undefined;
-  private stdoutEnded = false;
-  private stderrEnded = false;
-  private onCloseFired = false;
-  private drainTimer: NodeJS.Timeout | undefined;
 
   constructor(
     private readonly config: McpServerStdioConfig,
@@ -227,18 +223,10 @@ class EnvironmentStdioTransport implements Transport {
       this.tracked = lease.track(this, this.options.sessionId);
       process.stdin.on('error', (error: Error) => this.onerror?.(error));
       process.stdout.on('data', (chunk: Buffer | string) => this.onData(chunk));
-      process.stdout.on('end', () => {
-        this.stdoutEnded = true;
-        this.finish();
-        this.fireOnClose();
-      });
+      process.stdout.on('end', () => this.finish());
       process.stdout.on('error', (error: Error) => this.onerror?.(error));
       process.stderr.on('data', (chunk: Buffer | string) => {
         this.stderr.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
-      });
-      process.stderr.on('end', () => {
-        this.stderrEnded = true;
-        this.fireOnClose();
       });
       process.stderr.on('error', (error: Error) => this.onerror?.(error));
       this.exitErrorPromise = process.wait().then(
@@ -291,24 +279,28 @@ class EnvironmentStdioTransport implements Transport {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    this.clearDrainTimer();
     const process = this.process;
     this.process = undefined;
     if (process !== undefined) {
       try {
-        try {
-          process.stdin.end();
-        } catch (error) {
-          this.onerror?.(error instanceof Error ? error : new Error(String(error)));
-        }
-        const exitedOnEof = await waitForExit(process, STDIO_EOF_GRACE_MS);
-        if (!exitedOnEof) {
-          await process.kill();
-          const exited = await waitForExit(process, STDIO_TERMINATION_GRACE_MS);
-          if (!exited && process.exitCode === null) {
-            await process.kill('SIGKILL');
-            await process.wait();
-          }
+        await process.kill();
+        let graceTimer: ReturnType<typeof setTimeout> | undefined;
+        const exited = await Promise.race([
+          process.wait().then(
+            () => true,
+            () => true,
+          ),
+          new Promise<false>((resolve) => {
+            graceTimer = setTimeout(() => {
+              resolve(false);
+            }, STDIO_TERMINATION_GRACE_MS);
+            graceTimer.unref?.();
+          }),
+        ]);
+        if (graceTimer !== undefined) clearTimeout(graceTimer);
+        if (!exited && process.exitCode === null) {
+          await process.kill('SIGKILL');
+          await process.wait();
         }
       } catch {}
       void process.dispose();
@@ -320,19 +312,16 @@ class EnvironmentStdioTransport implements Transport {
     const lease = this.lease;
     this.lease = undefined;
     lease?.dispose();
-    if (!this.onCloseFired) {
-      this.onCloseFired = true;
-      this.onclose?.();
-    }
+    this.onclose?.();
   }
 
   private onData(chunk: Buffer | string): void {
     this.readBuffer.append(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
     while (true) {
       try {
-        const line = this.readBuffer.readLine();
-        if (line === null) return;
-        this.onmessage?.(deserializeMessage(line));
+        const message = this.readBuffer.readMessage();
+        if (message === null) return;
+        this.onmessage?.(message);
       } catch (error) {
         this.onerror?.(error instanceof Error ? error : new Error(String(error)));
       }
@@ -340,8 +329,8 @@ class EnvironmentStdioTransport implements Transport {
   }
 
   private finish(): void {
-    if (this.closed || this.finished) return;
-    this.finished = true;
+    if (this.closed) return;
+    this.closed = true;
     const process = this.process;
     this.process = undefined;
     void process?.dispose();
@@ -352,111 +341,19 @@ class EnvironmentStdioTransport implements Transport {
     const lease = this.lease;
     this.lease = undefined;
     lease?.dispose();
-    this.fireOnClose();
-  }
-
-  private fireOnClose(): void {
-    if (this.onCloseFired || this.closed || !this.finished) return;
-    this.clearDrainTimer();
-    if (this.stdoutEnded && this.stderrEnded) {
-      this.onCloseFired = true;
-      this.onclose?.();
-      return;
-    }
-    this.drainTimer = setTimeout(() => {
-      this.drainTimer = undefined;
-      if (this.onCloseFired || this.closed) return;
-      this.onCloseFired = true;
-      this.onclose?.();
-    }, STDIO_DRAIN_GRACE_MS);
-    this.drainTimer.unref();
-  }
-
-  private clearDrainTimer(): void {
-    if (this.drainTimer === undefined) return;
-    clearTimeout(this.drainTimer);
-    this.drainTimer = undefined;
+    this.onclose?.();
   }
 }
 
-async function waitForExit(process: IHostProcess, timeoutMs: number): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      process.wait().then(
-        () => true,
-        () => true,
-      ),
-      new Promise<false>((resolve) => {
-        timer = setTimeout(() => {
-          resolve(false);
-        }, timeoutMs);
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
-
-export class StdioFrameBuffer {
-  private parts: Buffer[] = [];
-  private scannedParts = 0;
-
-  append(chunk: Buffer): void {
-    if (chunk.length === 0) return;
-    this.parts.push(chunk);
-  }
-
-  readLine(): string | null {
-    for (let index = this.scannedParts; index < this.parts.length; index += 1) {
-      const part = this.parts[index];
-      if (part === undefined) continue;
-      const end = part.indexOf('\n');
-      if (end === -1) continue;
-      const line = this.take(index, end, part);
-      return line.at(-1) === '\r' ? line.slice(0, -1) : line;
-    }
-    this.scannedParts = this.parts.length;
-    return null;
-  }
-
-  clear(): void {
-    this.parts = [];
-    this.scannedParts = 0;
-  }
-
-  private take(index: number, end: number, current: Buffer): string {
-    const parts = this.parts;
-    const line = parts.slice(0, index);
-    line.push(current.subarray(0, end));
-    const rest = current.subarray(end + 1);
-    const tail = parts.slice(index + 1);
-    this.parts = rest.length === 0 ? tail : [rest, ...tail];
-    this.scannedParts = 0;
-    return Buffer.concat(line).toString('utf8');
-  }
-}
-
-export class BoundedTail {
+class BoundedTail {
   private buffer = '';
   constructor(private readonly capacity: number) {}
 
   push(chunk: string): void {
     this.buffer += chunk;
-    if (Buffer.byteLength(this.buffer) <= this.capacity) return;
-    let start = 0;
-    let bytes = Buffer.byteLength(this.buffer);
-    while (bytes > this.capacity && start < this.buffer.length) {
-      const code = this.buffer.codePointAt(start);
-      const size =
-        code === undefined ? 1 : code > 0xffff ? 4 : code >= 0x800 ? 3 : code >= 0x80 ? 2 : 1;
-      bytes -= size;
-      start += code !== undefined && code > 0xffff ? 2 : 1;
+    if (this.buffer.length > this.capacity) {
+      this.buffer = this.buffer.slice(this.buffer.length - this.capacity);
     }
-    const code = this.buffer.codePointAt(start);
-    if (code !== undefined && code >= 0xdc00 && code <= 0xdfff && start > 0) start -= 1;
-    this.buffer = this.buffer.slice(start);
   }
 
   snapshot(): string {

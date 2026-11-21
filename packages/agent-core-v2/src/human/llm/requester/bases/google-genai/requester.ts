@@ -1,12 +1,12 @@
 import { GoogleGenAI as GenAIClient, type GenerateContentParameters } from '@google/genai';
 import { assign, shake } from 'radashi';
 
-import type { LlmRemoteErrorMessage } from '#/llm/errors';
-import type { LlmModel } from '#/llm/model';
-import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
-import { resolveModelConnection } from '#/llm/protocol/connection';
-import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
-import { applyThinking } from '#/llm/protocol/thinking';
+import type { LlmRemoteErrorMessage } from '#human/llm/errors';
+import type { LlmModel } from '#human/llm/model';
+import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#human/llm/protocol/base';
+import { resolveModelConnection } from '#human/llm/protocol/connection';
+import { resolveMaxCompletionCap, type FormatRequestInput } from '#human/llm/protocol/format';
+import { applyThinking } from '#human/llm/protocol/thinking';
 import {
   mergeRequestHeaders,
   type LlmClientContext,
@@ -16,9 +16,9 @@ import {
   type LlmRequester,
   type LlmRequesterOptions,
   type LlmRequestEvent,
-} from '#/llm/requester/requester';
-import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
-import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
+} from '#human/llm/requester/requester';
+import { createThinkingTagEventHandler } from '#human/llm/requester/thinking-tags';
+import { toLlmSyntaxErrorMessage } from '#human/llm/syntax-errors';
 
 import { getGoogleGenAIModelCapability } from './capability';
 import {
@@ -38,6 +38,8 @@ import type { GoogleGenAITrait } from './trait';
 export interface GoogleGenAIRequesterOptions
   extends ProtocolRequesterOptions<GoogleGenAITrait>, LlmRequesterOptions<GenAIClient> {
   readonly vertexai?: boolean;
+  readonly project?: string;
+  readonly location?: string;
 }
 
 export interface GoogleGenAIRequestPreparationOptions {
@@ -99,8 +101,9 @@ function sdkHttpBase(baseUrl: string, vertexai: boolean): string {
 function createClient(
   model: LlmModel,
   headers: Record<string, string> | undefined,
-  vertexai: boolean,
+  options: Pick<GoogleGenAIRequesterOptions, 'vertexai' | 'project' | 'location'> | undefined,
 ): GenAIClient {
+  const vertexai = options?.vertexai === true || model.vertexai === true;
   const httpOptions: { headers?: Record<string, string>; baseUrl?: string } = {};
   if (headers !== undefined) {
     httpOptions.headers = headers;
@@ -111,6 +114,8 @@ function createClient(
   return new GenAIClient({
     apiKey: model.apiKey,
     vertexai: vertexai ? true : undefined,
+    project: model.apiKey === undefined ? options?.project : undefined,
+    location: model.apiKey === undefined ? options?.location : undefined,
     httpOptions: Object.keys(httpOptions).length > 0 ? httpOptions : undefined,
   });
 }
@@ -210,11 +215,9 @@ export function createGoogleGenAIRequester(options?: GoogleGenAIRequesterOptions
   const trait = options?.trait;
   const classifyError = options?.classifyError;
   const format = createGoogleGenAIFormat();
-  const vertexai = options?.vertexai === true;
   const resolveClient =
     options?.clientFactory ??
-    ((request: LlmClientContext) =>
-      createClient(request.model, request.headers, vertexai || request.model.vertexai === true));
+    ((request: LlmClientContext) => createClient(request.model, request.headers, options));
   return {
     async generate(
       config: LlmRequestConfig,
@@ -264,7 +267,10 @@ export function createGoogleGenAIRequester(options?: GoogleGenAIRequesterOptions
 }
 
 export function createGoogleGenAIBase(
-  options?: Pick<GoogleGenAIRequesterOptions, 'clientFactory' | 'vertexai'>,
+  options?: Pick<
+    GoogleGenAIRequesterOptions,
+    'clientFactory' | 'vertexai' | 'project' | 'location'
+  >,
 ): ProtocolBase<GoogleGenAITrait> {
   return {
     capability: getGoogleGenAIModelCapability,

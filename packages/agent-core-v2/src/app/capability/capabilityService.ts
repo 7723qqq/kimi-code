@@ -1,21 +1,21 @@
 import { homedir } from 'node:os';
 
-import { Disposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IPluginMarketplaceService } from '#/app/plugin/marketplaceService';
-import { IPluginService } from '#/app/plugin/plugin';
-import { IRegionService } from '#/app/region/region';
-import { LifecycleScope } from '#/app/scopes';
 import { Error2, isError2 } from '#/errors';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IPluginService } from '#/app/plugin/plugin';
+import { IPluginMarketplaceService } from '#/app/plugin/marketplaceService';
+import { IRegionService } from '#/app/region/region';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { ICapabilityService } from './capability';
+import { CapabilityErrors } from './errors';
 import { createKimiCuEntry } from './entries/kimiCu';
 import { createKimiWebbridgeEntry } from './entries/kimiWebbridge';
-import { CapabilityErrors } from './errors';
 import type {
   CapabilityEntry,
   CapabilityId,
@@ -108,8 +108,7 @@ export class CapabilityService extends Disposable implements ICapabilityService 
       throw new Error2(
         CapabilityErrors.codes.CAPABILITY_INSTALL_IN_PROGRESS,
         `Capability "${entry.id}" is already being installed`,
-        { details: { id: entry.id } },
-      );
+        { details: { id: entry.id } });
     }
 
     this.runningInstalls.add(entry.id);

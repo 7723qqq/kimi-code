@@ -1,26 +1,23 @@
 import type { Component } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
 import { TranscriptContainer } from '#/tui/components/messages/transcript-container';
 import type { TranscriptConfig } from '#/tui/config';
 import { currentTheme, type ColorPalette } from '#/tui/theme';
 import { hasDispose } from '#/tui/utils/component-capabilities';
+import { t } from '#/i18n';
 
 const SAMPLE_FILE = 'src/app.ts';
-
-function sampleThinking(): string {
-  return [
-    t('tui.dialogs.transcriptPreview.lineStart'),
-    t('tui.dialogs.transcriptPreview.linePort', { file: SAMPLE_FILE }),
-    t('tui.dialogs.transcriptPreview.lineParameter'),
-    t('tui.dialogs.transcriptPreview.lineTests'),
-  ].join('\n');
-}
+const SAMPLE_THINKING = [
+  t('tui.dialogs.transcriptPreview.lineStart'),
+  t('tui.dialogs.transcriptPreview.linePort', { file: SAMPLE_FILE }),
+  t('tui.dialogs.transcriptPreview.lineParameter'),
+  t('tui.dialogs.transcriptPreview.lineTests'),
+].join('\n');
 
 function sampleTranscript(): Component[] {
-  const thinking = new ThinkingComponent(sampleThinking());
+  const thinking = new ThinkingComponent(SAMPLE_THINKING);
   thinking.finalize({ known: true, ms: 3_000 });
   const call = (id: string, name: string, args: Record<string, unknown>, output: string): ToolCallComponent =>
     new ToolCallComponent({ id, name, args }, { tool_call_id: id, output, is_error: false });

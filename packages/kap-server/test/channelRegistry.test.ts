@@ -1,5 +1,3 @@
-import { describe, expect, it } from 'bun:test';
-
 import {
   createDecorator,
   Feature,
@@ -8,6 +6,7 @@ import {
   Service,
   createAppScope,
 } from '@moonshot-ai/agent-core-v2';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { describeAllChannels, resolveAnyScopedServiceId } from '../src/transport/channelRegistry';
 

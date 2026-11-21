@@ -1,25 +1,33 @@
+import type {
+  MigrationPlan,
+  MigrationReport,
+  MigrationScope,
+  SessionsSummary,
+} from './types.js';
 import { join } from 'node:path';
-
-import { appendMarkerRun, readMarker, writeMarker } from './marker.js';
-import { writeMigrationErrorsLog } from './migration-errors-log.js';
-import { siblingConfigToml, siblingTuiToml } from './paths.js';
-import { writeReport } from './report.js';
-import { migrateSessionsStep } from './sessions/index.js';
 import { migrateConfigStep } from './steps/config.js';
 import { migrateMcpStep } from './steps/mcp.js';
-import { migratePlansStep } from './steps/plans.js';
-import { migrateSkillsStep } from './steps/skills.js';
 import { migrateUserHistoryStep } from './steps/user-history.js';
-import type { MigrationPlan, MigrationReport, MigrationScope, SessionsSummary } from './types.js';
+import { migrateSkillsStep } from './steps/skills.js';
+import { migratePlansStep } from './steps/plans.js';
+import { migrateSessionsStep } from './sessions/index.js';
+import { writeReport } from './report.js';
+import { writeMigrationErrorsLog } from './migration-errors-log.js';
+import { appendMarkerRun, readMarker, writeMarker } from './marker.js';
 
 const DEFAULT_MIGRATOR_VERSION = '0.1.1';
+
+const CONFIG_CONFLICT_NOTICE =
+  'Your existing config.toml could not be parsed; migrated copy saved to ~/.kimi-code/config.migrated-from-kimi-cli.toml — please review and merge manually.';
+
+const TUI_CONFLICT_NOTICE =
+  'Your existing tui.toml had user modifications; migrated copy saved to ~/.kimi-code/tui.migrated-from-kimi-cli.toml — please review and merge manually.';
 
 export interface RunMigrationInput {
   readonly plan: MigrationPlan;
   readonly scope: MigrationScope;
   readonly source: string;
   readonly target: string;
-  /** Legacy plans dir; defaults to `~/.kimi/plans` per kimi-cli's hardcode. */
   readonly plansSourceDir?: string;
   readonly migratorVersion?: string;
   readonly onProgress?: (msg: string) => void;
@@ -54,18 +62,12 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
 
   const mcp = input.scope.mcp
     ? await migrateMcpStep({ sourceHome: input.source, targetHome: input.target })
-    : {
-        mergedServers: [],
-        keptNewForConflicts: [],
-        droppedServers: [],
-        wroteSiblingDueToConflict: false,
-        sourceUnreadable: false,
-      };
+    : { mergedServers: [], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: false, sourceUnreadable: false };
   log('mcp done');
 
   const userHistory = input.scope.userHistory
     ? await migrateUserHistoryStep({ sourceHome: input.source, targetHome: input.target })
-    : { copied: 0, skippedExisting: 0, failures: [] };
+    : { copied: 0, skippedExisting: 0 };
   log('user-history done');
 
   const skills = input.scope.skills
@@ -73,7 +75,7 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
         sourceHome: input.plan.skillsSourceHome ?? input.source,
         targetHome: input.target,
       })
-    : { copied: 0, skippedExisting: 0, failures: [] };
+    : { copied: 0, skippedExisting: 0 };
   log('skills done');
 
   const sessions: SessionsSummary = input.scope.sessions
@@ -87,13 +89,15 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
 
   const plans = input.scope.sessions
     ? await migratePlansStep({ targetHome: input.target, plansSourceDir: input.plansSourceDir })
-    : { copied: 0, skippedExisting: 0, failures: [] };
+    : { copied: 0, skippedExisting: 0 };
   log('plans done');
 
   const completedAt = new Date().toISOString();
 
-  const plansCopied =
-    plans.copied > 0 ? { count: plans.copied, directory: join(input.target, 'plans') } : null;
+  const plansCopiedNotice =
+    plans.copied > 0
+      ? `${plans.copied} plan file(s) copied to ${join(input.target, 'plans')} — plain copies, not wired into plan mode; reuse or delete them as you see fit.`
+      : null;
 
   const report: MigrationReport = {
     startedAt,
@@ -113,22 +117,17 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
       mcpOauthServersRequiringReauth: input.plan.detectedMcpOauthServers,
       oauthLoginsRequiringRelogin: input.plan.oauthCredentials,
       detectedPlugins: input.plan.detectedPlugins,
-      configConflictSibling: config.wroteSiblingDueToConflict
-        ? siblingConfigToml(input.target)
-        : null,
-      tuiConflictSibling: config.wroteTuiSibling ? siblingTuiToml(input.target) : null,
-      plansCopied,
+      configConflictNotice: config.wroteSiblingDueToConflict ? CONFIG_CONFLICT_NOTICE : null,
+      tuiConflictNotice: config.wroteTuiSibling ? TUI_CONFLICT_NOTICE : null,
+      plansCopiedNotice,
     },
   };
 
   await writeReport(input.target, report);
 
-  // Append this run's outcome (per-session diagnostics on failure, a marker
-  // on success) to `migration-errors.log` — append-only cross-run record so a
-  // user can share one log covering every retry attempt.
   await writeMigrationErrorsLog(input.target, {
     startedAt,
-    failures: [...sessions.sessionsFailed, ...sessions.subagentFailures, ...plans.failures],
+    failures: sessions.sessionsFailed,
   });
 
   const markerSummary: Record<string, unknown> = {
@@ -139,11 +138,6 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
     sessions,
   };
 
-  // Do not suppress a later retry while anything in the chosen scope remains
-  // unresolved: unmigrated/uninspectable sessions, target conflicts, or a
-  // legacy config/MCP file that exists but could not be parsed. Successful
-  // marker persistence remains best-effort: the data and report are already
-  // complete, so a marker write failure must not reject.
   const scopeComplete =
     sessions.sessionsFailed.length === 0 &&
     sessions.sessionsConflicts.length === 0 &&
@@ -169,9 +163,7 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
           targetPath: input.target,
         });
       }
-    } catch {
-      // best-effort — see comment above
-    }
+    } catch {}
   }
 
   return report;
@@ -188,9 +180,8 @@ function emptyConfigOnlySessions(): SessionsSummary {
     sessionsAlreadyMigrated: 0,
     sessionsSkippedPlaceholder: 0,
     sessionsSkippedEmpty: 0,
+    sessionsSkippedMalformed: 0,
     sessionsFailed: [],
-    subagentFailures: [],
     sessionsConflicts: [],
-    sessionsDebrisArchived: [],
   };
 }

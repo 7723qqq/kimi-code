@@ -1,20 +1,7 @@
-/**
- * Plugin command invocation card.
- *
- * When the user runs `/plugin:command args`, the TUI renders a compact card
- * instead of expanding the command body into the user bubble:
- *
- *   ▶ /plugin:command
- *     args
- *
- * The args line is optional. Core expands the command body into the LLM
- * context; the TUI only consumes the `plugin_command.activated` event.
- */
-
 import { Container, Text, Spacer } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 
 const ARGS_PREVIEW_MAX = 200;
 

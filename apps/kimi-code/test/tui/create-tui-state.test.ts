@@ -1,24 +1,11 @@
-import { describe, expect, it, spyOn } from 'bun:test';
+import { ScrollView, TuiAltScreen, TuiMainScreen, VStack } from '@moonshot-ai/pi-tui';
+import { describe, it, expect } from '@moonshot-ai/testkit/vitest';
 
-import {
-  ProcessTerminal,
-  ScrollView,
-  Text,
-  TuiAltScreen,
-  TuiMainScreen,
-  VStack,
-} from '@moonshot-ai/pi-tui';
-
-import { t } from '#/i18n';
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { StickyUserMessageComponent } from '#/tui/components/messages/sticky-user-message';
 import { TranscriptView } from '#/tui/components/messages/transcript-view';
 import { createTUIState, type KimiTUIOptions } from '#/tui/kimi-tui';
 import type { AppState } from '#/tui/types';
-import { DiagnosticTerminal } from '#/tui/utils/diagnostic-terminal';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
-
-import { VirtualTerminal } from '../../../../packages/pi-tui/test/virtual-terminal';
 
 function fakeInitialAppState(): AppState {
   return {
@@ -28,30 +15,20 @@ function fakeInitialAppState(): AppState {
     sessionId: 'sess-1',
     permissionMode: 'manual',
     planMode: false,
-    specMode: false,
     inputMode: 'prompt',
     swarmMode: false,
-    helloWorldMode: false,
     towerMode: false,
     thinkingEffort: 'off',
     contextUsage: 0,
-    cacheReadTokens: 0,
-    cacheMissTokens: 0,
-    cacheOtherTokens: 0,
-    tokenSpeed: 0,
-    tokenSpeedAverage: 0,
-    sessionStats: createEmptySessionStats(),
     contextTokens: 0,
     maxContextTokens: 0,
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
     streamingStartTime: 0,
-    outputTokens: 0,
     stepRetry: null,
     theme: 'dark',
     version: '0.0.0-test',
-    locale: 'en',
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
     upgrade: { autoInstall: true },
@@ -64,101 +41,6 @@ function fakeInitialAppState(): AppState {
 }
 
 describe('createTUIState', () => {
-  it('assembles a guarded terminal and keeps repeated diagnostics in one visible notice', () => {
-    const state = createTUIState({
-      initialAppState: fakeInitialAppState(),
-      startup: { continueLast: false, yolo: false, auto: false, plan: false },
-    });
-    expect(state.terminal).toBeInstanceOf(DiagnosticTerminal);
-    const render = spyOn(state.ui, 'requestRender').mockImplementation(() => {});
-    try {
-      const terminal = state.terminal as DiagnosticTerminal;
-      terminal.onDiagnostic?.(t('tui.statusMessages.diagnosticsCaptured'));
-      terminal.onDiagnostic?.(t('tui.statusMessages.diagnosticLogUnavailable'));
-      expect(state.transcriptContainer.children).toHaveLength(1);
-      const text = state.transcriptContainer.render(120).join('\n');
-      expect(text).toContain('diagnostic log could not be written');
-      expect(text).not.toContain('See the diagnostic log');
-      expect(render).toHaveBeenCalled();
-      state.transcriptContainer.clear();
-      terminal.onDiagnostic?.(t('tui.statusMessages.diagnosticsCaptured'));
-      expect(state.transcriptContainer.children).toHaveLength(1);
-      expect(state.transcriptContainer.render(120).join('\n')).toContain('See the diagnostic log');
-    } finally {
-      render.mockRestore();
-      state.footer.dispose();
-    }
-  });
-
-  it.each(['regular', 'fullscreen'] as const)(
-    'renders background diagnostics through the %s UI while preserving editable input',
-    async (mode) => {
-      const state = createTUIState({
-        initialAppState: { ...fakeInitialAppState(), tuiMode: mode },
-        startup: { continueLast: false, yolo: false, auto: false, plan: false },
-      });
-      const screen = new VirtualTerminal(120, 30);
-      Object.defineProperty(state.terminal, 'columns', { get: () => 120 });
-      Object.defineProperty(state.terminal, 'rows', { get: () => 30 });
-      const start = spyOn(ProcessTerminal.prototype, 'start').mockImplementation(
-        (input, resize) => {
-          screen.start(input, resize);
-        },
-      );
-      const stop = spyOn(ProcessTerminal.prototype, 'stop').mockImplementation(() => screen.stop());
-      const stdout = spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-        screen.write(String(chunk));
-        return true;
-      });
-      const stderr = spyOn(process.stderr, 'write').mockImplementation((chunk) => {
-        screen.write(String(chunk));
-        return true;
-      });
-      state.transcriptContainer.addChild(new Text('Compaction complete', 0, 0));
-      state.editor.setText('draft preserved');
-      state.editorContainer.addChild(state.editor);
-      if (mode === 'regular') {
-        state.ui.addChild(state.transcriptContainer);
-        state.ui.addChild(state.editorContainer);
-      }
-      state.ui.setFocus(state.editor);
-      try {
-        state.ui.start();
-        state.ui.renderNow();
-        await screen.flush();
-        console.error(
-          '[unexpected]',
-          Object.assign(new Error('memory lock failure'), { code: 'ELOCKED' }),
-        );
-        process.stderr.write('background diagnostic that must not reach the screen\n');
-        await new Promise<void>((resolve) => queueMicrotask(resolve));
-        state.ui.renderNow();
-        await screen.flush();
-        let text = screen.getViewport().join('\n');
-        expect(text).toContain('Compaction complete');
-        expect(text).toContain('draft preserved');
-        expect(text).toContain('background warning or error');
-        expect(text).not.toContain('ELOCKED');
-        expect(text).not.toContain('memory lock failure');
-        expect(text).not.toContain('must not reach the screen');
-        expect(state.transcriptContainer.children).toHaveLength(2);
-        screen.sendInput('x');
-        state.ui.renderNow();
-        await screen.flush();
-        text = screen.getViewport().join('\n');
-        expect(state.editor.getText()).toBe('draft preservedx');
-        expect(text).toContain('draft preservedx');
-      } finally {
-        state.ui.stop();
-        state.footer.dispose();
-        stderr.mockRestore();
-        stdout.mockRestore();
-        stop.mockRestore();
-        start.mockRestore();
-      }
-    },
-  );
-
   it('initializes all fields with sensible defaults', () => {
     const opts: KimiTUIOptions = {
       initialAppState: fakeInitialAppState(),
@@ -171,7 +53,6 @@ describe('createTUIState', () => {
     };
     const state = createTUIState(opts);
 
-    // UI objects are created.
     expect(state.ui).toBeDefined();
     expect(state.terminal).toBeDefined();
     expect(state.transcriptContainer).toBeDefined();
@@ -183,27 +64,21 @@ describe('createTUIState', () => {
     expect(state.footer).toBeDefined();
     expect(state.notifyPanelContainer).toBeDefined();
     expect(state.notifyPanel).toBeDefined();
-    expect(state.statusSurface).toBeDefined();
-    expect(state.statusSurfaceContainer).toBeDefined();
     expect(state.theme.palette).toBeDefined();
 
-    // App state is cloned from initialAppState, not reused by reference.
     expect(state.appState).not.toBe(opts.initialAppState);
     expect(state.appState.model).toBe('test-model');
     expect(state.appState.additionalDirs).toEqual([]);
     expect(state.appState.sessionId).toBe('sess-1');
     expect(state.startupState).toBe('pending');
 
-    // LivePane defaults.
     expect(state.livePane.mode).toBe('idle');
     expect(state.livePane.pendingApproval).toBeNull();
     expect(state.livePane.pendingQuestion).toBeNull();
 
-    // Empty collections.
     expect(state.transcriptEntries).toHaveLength(0);
     expect(state.queuedMessages).toHaveLength(0);
 
-    // Boolean, counter, and optional-field defaults.
     expect(state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(state.activeDialog).toBeNull();
     expect(state.externalEditorRunning).toBe(false);
@@ -226,6 +101,23 @@ describe('createTUIState', () => {
     expect(state.ui).toBeInstanceOf(TuiMainScreen);
     expect(state.ui.mode).toBe('regular');
     expect(state.dockContainer).toBeUndefined();
+  });
+
+  it('uses resolvedTuiMode without mutating appState.tuiMode when tui.toml left tui_mode unset', () => {
+    const state = createTUIState({
+      initialAppState: fakeInitialAppState(),
+      resolvedTuiMode: 'fullscreen',
+      startup: {
+        continueLast: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+      },
+    });
+
+    expect(state.ui).toBeInstanceOf(TuiAltScreen);
+    expect(state.ui.mode).toBe('fullscreen');
+    expect(state.appState.tuiMode).toBeUndefined();
   });
 
   it('starts the fullscreen renderer with the saved copy-on-select choice', () => {
@@ -255,33 +147,21 @@ describe('createTUIState', () => {
     expect(state.ui).toBeInstanceOf(TuiAltScreen);
     expect(state.ui.mode).toBe('fullscreen');
 
-    // The chrome docks below the transcript ScrollView, in z-order. The todo
-    // list and the updates share one row, so the dock sees a single entry for
-    // both rather than two stacked ones.
     const dock = state.dockContainer;
     expect(dock).toBeDefined();
-    expect(state.editorSlot).toBeDefined();
     expect(dock?.children).toEqual([
       state.activityContainer,
-      state.statusSurfaceContainer,
+      state.notifyPanelContainer,
       state.queueContainer,
       state.btwPanelContainer,
       state.surveyContainer,
-      state.backgroundTasksMiniContainer,
-      state.editorSlot!,
+      state.editorSlot,
     ]);
     expect(state.editorSlot?.children).toEqual([state.editorContainer]);
 
-    // The strip holds every region behind one component, so the panel
-    // containers are never mounted as siblings of the dock's other rows.
-    expect(state.statusSurfaceContainer.children).toEqual([state.statusSurface]);
-
-    // The layout root is mounted and the root children list stays empty.
     expect((state.ui as TuiAltScreen).getLayoutRoot()).toBeDefined();
     expect(state.ui.children).toHaveLength(0);
 
-    // The sticky user message sits above the transcript ScrollView, outside
-    // the scrolling region, so it is never carried away by scrolling.
     const rootChildren = ((state.ui as TuiAltScreen).getLayoutRoot() as VStack).children;
     expect(rootChildren[0]).toBeInstanceOf(TranscriptView);
     const transcriptChildren = (rootChildren[0] as TranscriptView).children;
@@ -291,53 +171,11 @@ describe('createTUIState', () => {
     expect(transcriptChildren[1]).toBeInstanceOf(ScrollView);
     expect(rootChildren[1]).toBe(state.dockContainer);
 
-    // Mouse capture replaces native terminal link activation / right-click
-    // paste, so both must be routed through renderer callbacks.
     const internals = state.ui as unknown as {
       openUrl?: (url: string) => void;
       onRightClickPaste?: () => void;
-      copySelection?: (text: string) => Promise<boolean>;
     };
     expect(typeof internals.openUrl).toBe('function');
     expect(typeof internals.onRightClickPaste).toBe('function');
-    // Selection copy must go through the app's verified clipboard path rather
-    // than a bare OSC 52 write that reports success even when it landed
-    // nowhere.
-    expect(typeof internals.copySelection).toBe('function');
-
-    // The mini panel's half-the-terminal ceiling is a getter, not a value
-    // captured at construction, so a resize keeps it correct.
-    const dockEntries = (
-      state.dockContainer as unknown as {
-        entries: { component: unknown; maxSize?: unknown }[];
-      }
-    ).entries;
-    const miniEntry = dockEntries.find(
-      (entry) => entry.component === state.backgroundTasksMiniContainer,
-    );
-    expect(typeof miniEntry?.maxSize).toBe('function');
-  });
-
-  it('reports a selection copy as failed when only OSC 52 delivery is available', async () => {
-    const state = createTUIState({
-      initialAppState: { ...fakeInitialAppState(), tuiMode: 'fullscreen' },
-      startup: {
-        continueLast: false,
-        yolo: false,
-        auto: false,
-        plan: false,
-      },
-    });
-    const internals = state.ui as unknown as {
-      copySelection?: (text: string) => Promise<boolean>;
-    };
-    const copySelection = internals.copySelection;
-    expect(copySelection).toBeDefined();
-
-    // A verified native tool answers true; anything that fell back to the
-    // unverified escape answers false so the renderer flashes "Copy failed"
-    // instead of claiming a copy that never reached the clipboard.
-    const result = await copySelection?.('selected text');
-    expect(typeof result).toBe('boolean');
   });
 });

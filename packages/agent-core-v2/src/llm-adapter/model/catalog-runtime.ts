@@ -1,8 +1,7 @@
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
-import type { ModelCapability } from '#human/llm/capability';
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import {
   createProviderCatalogSync,
   type CatalogModel,
@@ -11,10 +10,12 @@ import {
   type CatalogProviderInfo,
   type ProviderCatalog,
   type ProviderCatalogChanged,
-} from '#human/llm/provider-catalog';
+} from '#human/provider-catalog/catalog';
+import type { ModelCapability } from '@moonshot-ai/core/llm/request';
 
-import { IProviderService, type ProviderConfig } from '../provider/provider';
 import { deepEqual } from '../record-diff';
+import { IProviderService, type ProviderConfig } from '../provider/provider';
+
 import { IModelService, type ModelOverride, type ModelRecord } from './model';
 import { deriveProviderId, nonEmpty } from './model-auth';
 
@@ -62,24 +63,28 @@ export function toCatalogModelDefinition(
   bucket: string,
 ): CatalogModelDefinition {
   return {
-    provider: bucket,
-    model: alias,
-    capability: capabilityFromDeclared(record.capabilities),
-    maxContextSize: record.maxContextSize,
-    maxInputSize: record.maxInputSize,
-    baseUrl: record.baseUrl,
+    id: alias,
+    spec: {
+      provider: bucket,
+      name: record.name ?? alias,
+      capability: capabilityFromDeclared(record.capabilities),
+      thinking: {
+        supportEfforts: record.supportEfforts,
+        defaultEffort: record.defaultEffort,
+        offEffort: record.offEffort,
+        alwaysThinking: declaresAlwaysThinking(record.capabilities),
+        adaptiveThinking: record.adaptiveThinking,
+      },
+      maxContextSize: record.maxContextSize,
+      maxInputSize: record.maxInputSize,
+    },
+    endpoint: { baseUrl: record.baseUrl },
     apiKey: record.apiKey,
     displayName: record.displayName,
     maxOutputSize: record.maxOutputSize,
     reasoningKey: record.reasoningKey,
-    supportEfforts: record.supportEfforts,
-    offEffort: record.offEffort,
-    alwaysThinking: declaresAlwaysThinking(record.capabilities),
     protocol: record.protocol,
-    defaultEffort: record.defaultEffort,
-    adaptiveThinking: record.adaptiveThinking,
     betaApi: record.betaApi,
-    name: record.name,
     aliases: record.aliases,
     oauth: record.oauth,
     overrides: toCatalogOverrides(record.overrides),
@@ -87,9 +92,7 @@ export function toCatalogModelDefinition(
   };
 }
 
-function toCatalogOverrides(
-  overrides: ModelOverride | undefined,
-): CatalogModelOverrides | undefined {
+function toCatalogOverrides(overrides: ModelOverride | undefined): CatalogModelOverrides | undefined {
   if (overrides === undefined) return undefined;
   const out: {
     -readonly [K in keyof CatalogModelOverrides]?: CatalogModelOverrides[K];
@@ -126,7 +129,6 @@ function capabilityFromDeclared(capabilities: readonly string[] | undefined): Mo
     audio_in: declared.has('audio_in'),
     thinking: declared.has('thinking') || declared.has('always_thinking'),
     tool_use: declared.has('tool_use'),
-    pdf_in: declared.has('pdf_in'),
     dynamically_loaded_tools: declared.has('dynamically_loaded_tools'),
   };
 }
@@ -198,7 +200,7 @@ export class ProviderCatalogRuntimeService extends Disposable implements IProvid
     this.sync();
     const bucket = this.routing.get(alias);
     if (bucket === undefined) return undefined;
-    return this.catalog.models(bucket).find((model) => model.model === alias);
+    return this.catalog.models(bucket).find((model) => model.id === alias);
   }
 
   onChanged(listener: (event: ProviderCatalogChanged) => void): IDisposable {
@@ -218,10 +220,7 @@ export class ProviderCatalogRuntimeService extends Disposable implements IProvid
     const providers = this.providerService.list();
     const models = this.modelService.list();
     const defaultProvider = this.providerService.getDefaultProvider();
-    const desired = new Map<
-      string,
-      { info?: CatalogProviderInfo; models: CatalogModelDefinition[] }
-    >();
+    const desired = new Map<string, { info?: CatalogProviderInfo; models: CatalogModelDefinition[] }>();
     for (const [providerId, config] of Object.entries(providers)) {
       desired.set(providerId, { info: toCatalogProviderInfo(config), models: [] });
     }

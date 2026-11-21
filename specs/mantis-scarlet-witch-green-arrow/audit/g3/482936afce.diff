@@ -1,0 +1,2672 @@
+commit 482936afceaec4d513aa28f7b7e6b461e35e105f
+Author:     Haozhe <yanghaozhe@moonshot.ai>
+AuthorDate: Wed Nov 11 21:35:38 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Wed Nov 11 21:35:38 2026 +0800
+
+    feat(prediction): add experimental next-prompt suggestions (#4754)
+    
+    * feat: add experimental prompt prediction
+    
+    * feat(prediction): improve request reuse and cancellation diagnostics
+    
+    - reuse the requester's default tool shaping for predictions
+    - propagate cancellation reasons through SDK and server APIs
+    - add cache, timing, and outcome logging for prediction requests
+    
+    * docs(prediction): document experimental next-prompt suggestions
+    
+    - explain the experimental flag and TUI interaction in English and Chinese
+    - add the confirmed minor changeset for the CLI
+    
+    * feat(prediction): refine prompt guidance and request lifecycle
+    
+    - adopt CC-inspired next-prompt guidance
+    - allow 20 seconds for prediction requests
+    - preserve visibility cancellation reasons through REST
+    
+    * fix(prediction): align cancellation reason contract
+    
+    * fix(prediction): harden output validation and plan transitions
+    
+    - dismiss predictions when entering plan mode
+    - reject terminal control characters
+    - accept only completed prediction responses
+    
+    * fix(prediction): ignore empty accepted submissions
+    
+    * fix(prediction): bind telemetry to main agent
+    
+    * fix(prediction): require prompt mode for acceptance
+    
+    * test(tui): add prediction mock to fullscreen host
+    
+    * fix(prediction): remove historical token usage guard
+    
+    * fix(prediction): adapt to refactored loop requester
+
+diff --git a/.changeset/feat-prompt-prediction.md b/.changeset/feat-prompt-prediction.md
+new file mode 100644
+index 0000000000..a77123f8c2
+--- /dev/null
++++ b/.changeset/feat-prompt-prediction.md
+@@ -0,0 +1,5 @@
++---
++"@moonshot-ai/kimi-code": minor
++---
++
++Add experimental next-prompt predictions in the TUI after completed turns. Enable with KIMI_CODE_EXPERIMENTAL_PROMPT_PREDICTION=1 and press Tab or Right Arrow to accept.
+diff --git a/apps/kimi-code/src/tui/components/editor/custom-editor.ts b/apps/kimi-code/src/tui/components/editor/custom-editor.ts
+index 6762a4c08d..9e46f4910e 100644
+--- a/apps/kimi-code/src/tui/components/editor/custom-editor.ts
++++ b/apps/kimi-code/src/tui/components/editor/custom-editor.ts
+@@ -10,6 +10,7 @@ import {
+   matchesKey,
+   Key,
+   SelectList,
++  truncateToWidth,
+   visibleWidth,
+   type SelectItem,
+   type TUI,
+@@ -175,6 +176,7 @@ export class CustomEditor extends Editor {
+   private readonly pasteInputQueue: string[] = [];
+   private argumentHints: ReadonlyMap<string, string> = new Map();
+   private skillCommandNames: ReadonlySet<string> = new Set();
++  private promptPrediction: string | undefined;
+ 
+   setArgumentHints(hints: ReadonlyMap<string, string>): void {
+     this.argumentHints = hints;
+@@ -184,6 +186,22 @@ export class CustomEditor extends Editor {
+     this.skillCommandNames = names;
+   }
+ 
++  setPromptPrediction(text: string | undefined): void {
++    this.promptPrediction = text;
++  }
++
++  getPromptPrediction(): string | undefined {
++    return this.promptPrediction;
++  }
++
++  acceptPromptPrediction(): boolean {
++    const text = this.promptPrediction;
++    if (text === undefined || this.getText().length > 0) return false;
++    this.promptPrediction = undefined;
++    this.setText(text);
++    return true;
++  }
++
+   constructor(tui: TUI, options: CustomEditorOptions = {}) {
+     // paddingX: 4 reserves column 0 for the left vertical border (│),
+     // column 1 as a single space between border and prompt, column 2 for
+@@ -329,6 +347,17 @@ export class CustomEditor extends Editor {
+         lines[firstContentIdx] = injectArgumentHint(line, hint, this.getText().length, width);
+       }
+     }
++    if (
++      this.promptPrediction !== undefined &&
++      this.inputMode === 'prompt' &&
++      this.getText().length === 0 &&
++      !this.hasAutocompleteActivity()
++    ) {
++      const line = lines[firstContentIdx];
++      if (line !== undefined) {
++        lines[firstContentIdx] = injectPromptPrediction(line, this.promptPrediction, width);
++      }
++    }
+     const firstContent = lines[firstContentIdx];
+     if (firstContent !== undefined) {
+       const withPrompt = injectPromptSymbol(
+@@ -807,6 +836,23 @@ function truncateHint(hint: string, maxLen: number): string {
+   return `${hint.slice(0, maxLen - 1)}…`;
+ }
+ 
++function injectPromptPrediction(line: string, prediction: string, width: number): string {
++  const cursorIdx = line.indexOf(CURSOR_BLOCK);
++  const cursorPresent = cursorIdx !== -1;
++  const contentWidth = Math.max(1, width - EDITOR_LEFT_PADDING * 2);
++  const available = contentWidth - (cursorPresent ? 1 : 0);
++  if (available <= 0) return line;
++  const preview = prediction.replaceAll(/\s+/g, ' ').trim();
++  const trimmed = truncateToWidth(preview, available, '…');
++  if (trimmed.length === 0) return line;
++  const insertAt = cursorPresent
++    ? cursorIdx + CURSOR_BLOCK.length
++    : mapVisibleIdxToRaw(line, EDITOR_LEFT_PADDING);
++  const trailing = line.slice(insertAt);
++  const remaining = Math.max(0, visibleWidth(trailing) - visibleWidth(trimmed));
++  return line.slice(0, insertAt) + currentTheme.fg('textDim', trimmed) + ' '.repeat(remaining);
++}
++
+ /**
+  * Overlay a terminal-style `> ` prompt symbol on the first content line.
+  * Column 0 is reserved for the left vertical border (overlaid later by
+diff --git a/apps/kimi-code/src/tui/controllers/editor-keyboard.ts b/apps/kimi-code/src/tui/controllers/editor-keyboard.ts
+index 4cfa2ee222..abb6df643e 100644
+--- a/apps/kimi-code/src/tui/controllers/editor-keyboard.ts
++++ b/apps/kimi-code/src/tui/controllers/editor-keyboard.ts
+@@ -50,6 +50,7 @@ export interface EditorKeyboardHost {
+   readonly btwPanelController: BtwPanelController;
+   readonly surveyController: SurveyController;
+   readonly modelMigration?: ModelMigrationController;
++  readonly promptPredictionController?: import('./prompt-prediction').PromptPredictionController;
+   readonly skillCommandMap: Map<string, string>;
+   readonly pluginCommandMap: Map<string, string>;
+   readonly skillVariantPathForCommand?: (commandName: string, tokenStart: number) => string | undefined;
+@@ -110,6 +111,7 @@ export class EditorKeyboardController {
+ 
+     editor.onSubmit = (text: string) => {
+       if (host.surveyController.handleSubmit(text)) return;
++      host.promptPredictionController?.handleSubmit(text);
+       host.handleUserInput(text);
+     };
+ 
+@@ -119,13 +121,20 @@ export class EditorKeyboardController {
+     editor.onPreInput = (data: string) => {
+       if (this.disposed) return true;
+       if (matchesKey(data, Key.escape)) this.clearPendingExit();
+-      const consumed = host.surveyController.handlePreInput(data);
+-      if (consumed) this.clearPendingUndoEsc();
+-      return consumed;
++      if (host.surveyController.handlePreInput(data)) {
++        this.clearPendingUndoEsc();
++        return true;
++      }
++      if (host.promptPredictionController?.handlePreInput(data) === true) {
++        this.clearPendingUndoEsc();
++        return true;
++      }
++      return false;
+     };
+ 
+     editor.onChange = (text: string) => {
+       if (this.pendingExit) this.clearPendingExit();
++      host.promptPredictionController?.handleEditorChange(text);
+       host.surveyController.handleEditorChange(text);
+       if (text === '') queueMicrotask(() => host.retainSkillVariantSelection?.(editor.getText()));
+       else host.retainSkillVariantSelection?.(text);
+diff --git a/apps/kimi-code/src/tui/controllers/prompt-prediction.ts b/apps/kimi-code/src/tui/controllers/prompt-prediction.ts
+new file mode 100644
+index 0000000000..116970e166
+--- /dev/null
++++ b/apps/kimi-code/src/tui/controllers/prompt-prediction.ts
+@@ -0,0 +1,232 @@
++import { randomUUID } from 'node:crypto';
++
++import { Key, matchesKey } from '@moonshot-ai/pi-tui';
++import type { Session, TurnEndedEvent } from '@moonshot-ai/kimi-code-sdk';
++
++import { isExperimentalFlagEnabled } from '../commands/experimental-flags';
++import type { TUIState } from '../tui-state';
++
++export interface PromptPredictionHost {
++  readonly state: TUIState;
++  readonly session: Session | undefined;
++  readonly aborted: boolean;
++  track(event: string, props?: Record<string, unknown>): void;
++}
++
++interface ActivePrediction {
++  readonly predictionId: string;
++  readonly turnId: number;
++  readonly session: Session;
++  readonly startedAt: number;
++}
++
++interface PredictionSuggestion extends ActivePrediction {
++  readonly prediction: string;
++  accepted: boolean;
++}
++
++type DismissReason =
++  | 'input'
++  | 'escape'
++  | 'new_turn'
++  | 'session'
++  | 'dialog'
++  | 'queue'
++  | 'submit'
++  | 'plan'
++  | 'shutdown';
++
++export class PromptPredictionController {
++  private active: ActivePrediction | undefined;
++  private suggestion: PredictionSuggestion | undefined;
++  private readonly attempted = new Set<string>();
++  private suppressNextChange = false;
++
++  constructor(private readonly host: PromptPredictionHost) {}
++
++  handlePlanModeChanged(planMode: boolean): void {
++    if (planMode) this.dismiss('plan');
++  }
++
++  handleTurnStarted(): void {
++    this.dismiss('new_turn');
++  }
++
++  handleTurnEnded(event: TurnEndedEvent): void {
++    this.dismiss('new_turn');
++    if (event.reason !== 'completed' || typeof event.turnId !== 'number') return;
++    const session = this.host.session;
++    if (session === undefined || !this.canUseEditor()) return;
++    const key = `${session.id}:${String(event.turnId)}`;
++    if (this.attempted.has(key)) return;
++    this.attempted.add(key);
++    const active: ActivePrediction = {
++      predictionId: randomUUID(),
++      turnId: event.turnId,
++      session,
++      startedAt: Date.now(),
++    };
++    this.active = active;
++    void session.predictNextPrompt({
++      predictionId: active.predictionId,
++      expectedTurnId: active.turnId,
++    })
++      .then((prediction) => {
++        if (this.active !== active) return;
++        this.active = undefined;
++        if (prediction === null || this.host.session !== session || !this.canUseEditor()) return;
++        this.suggestion = { ...active, prediction, accepted: false };
++        this.host.state.editor.setPromptPrediction(prediction);
++        this.host.state.ui.requestRender();
++        this.host.track('prediction_shown', {
++          prediction_id: active.predictionId,
++          turn_id: active.turnId,
++          duration_ms: Date.now() - active.startedAt,
++          prediction_chars: prediction.length,
++        });
++      })
++      .catch(() => {
++        if (this.active === active) this.active = undefined;
++      });
++  }
++
++  handlePreInput(data: string): boolean {
++    if (matchesKey(data, Key.escape)) {
++      const hadPrediction = this.active !== undefined || this.suggestion !== undefined;
++      const autocomplete = this.host.state.editor.hasAutocompleteActivity();
++      this.dismiss('escape');
++      return hadPrediction && !autocomplete;
++    }
++    if (
++      (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) &&
++      this.suggestion?.accepted === false &&
++      this.host.state.editor.inputMode === 'prompt' &&
++      !this.host.state.editor.hasAutocompleteActivity()
++    ) {
++      return this.accept(matchesKey(data, Key.right) ? 'right' : 'tab');
++    }
++    return false;
++  }
++
++  handleEditorChange(_text: string): void {
++    if (this.suppressNextChange) {
++      this.suppressNextChange = false;
++      return;
++    }
++    if (this.active !== undefined) this.cancelActive('input');
++    if (this.suggestion?.accepted === false) this.dismiss('input');
++  }
++
++  handleSubmit(text: string): void {
++    const suggestion = this.suggestion;
++    if (suggestion !== undefined) {
++      if (suggestion.accepted && text.trim().length > 0) {
++        this.host.track('prediction_submitted', {
++          prediction_id: suggestion.predictionId,
++          turn_id: suggestion.turnId,
++          duration_ms: Date.now() - suggestion.startedAt,
++          prediction_chars: suggestion.prediction.length,
++          edited: text !== suggestion.prediction,
++        });
++        this.suggestion = undefined;
++      } else {
++        this.dismiss('submit');
++      }
++    }
++    if (this.active !== undefined) this.cancelActive('submit');
++  }
++
++  notifyDisplaced(): void {
++    this.dismiss('dialog');
++  }
++
++  handleQueueChange(): void {
++    if (
++      this.host.state.queuedMessages.length > 0 ||
++      this.host.state.queuedMessageDispatchPending
++    ) {
++      this.dismiss('queue');
++    }
++  }
++
++  reset(): void {
++    this.attempted.clear();
++    this.dismiss('session');
++  }
++
++  dispose(): void {
++    this.dismiss('shutdown');
++  }
++
++  private accept(key: 'tab' | 'right'): boolean {
++    const suggestion = this.suggestion;
++    if (suggestion === undefined || suggestion.accepted) return false;
++    const text = this.host.state.editor.getPromptPrediction();
++    if (text === undefined) return false;
++    this.suppressNextChange = true;
++    try {
++      if (!this.host.state.editor.acceptPromptPrediction()) return false;
++    } finally {
++      this.suppressNextChange = false;
++    }
++    suggestion.accepted = true;
++    this.host.state.ui.requestRender();
++    this.host.track('prediction_accepted', {
++      prediction_id: suggestion.predictionId,
++      turn_id: suggestion.turnId,
++      duration_ms: Date.now() - suggestion.startedAt,
++      prediction_chars: text.length,
++      key,
++    });
++    return true;
++  }
++
++  private canUseEditor(): boolean {
++    const { state } = this.host;
++    return (
++      !this.host.aborted &&
++      isExperimentalFlagEnabled('prompt_prediction') &&
++      state.startupState === 'ready' &&
++      state.appState.streamingPhase === 'idle' &&
++      !state.appState.isCompacting &&
++      !state.appState.isReplaying &&
++      !state.appState.planMode &&
++      state.queuedMessages.length === 0 &&
++      !state.queuedMessageDispatchPending &&
++      state.activeDialog === null &&
++      !state.editorReplacementMounted &&
++      state.tasksBrowser === undefined &&
++      !state.externalEditorRunning &&
++      state.livePane.pendingApproval === null &&
++      state.livePane.pendingQuestion === null &&
++      state.editor.inputMode === 'prompt' &&
++      state.editor.getText().length === 0 &&
++      state.editor.terminalFocused &&
++      !state.editor.hasAutocompleteActivity()
++    );
++  }
++
++  private dismiss(reason: DismissReason): void {
++    if (this.active !== undefined) this.cancelActive(reason);
++    const suggestion = this.suggestion;
++    this.suggestion = undefined;
++    this.host.state.editor.setPromptPrediction(undefined);
++    if (suggestion === undefined) return;
++    this.host.state.ui.requestRender();
++    this.host.track('prediction_dismissed', {
++      prediction_id: suggestion.predictionId,
++      turn_id: suggestion.turnId,
++      reason,
++      accepted: suggestion.accepted,
++      duration_ms: Date.now() - suggestion.startedAt,
++      prediction_chars: suggestion.prediction.length,
++    });
++  }
++
++  private cancelActive(reason: DismissReason): void {
++    const active = this.active;
++    if (active === undefined) return;
++    this.active = undefined;
++    void active.session.cancelPromptPrediction(active.predictionId, reason).catch(() => {});
++  }
++}
+diff --git a/apps/kimi-code/src/tui/controllers/session-event-handler.ts b/apps/kimi-code/src/tui/controllers/session-event-handler.ts
+index 5bf6e1a612..a0723ca81d 100644
+--- a/apps/kimi-code/src/tui/controllers/session-event-handler.ts
++++ b/apps/kimi-code/src/tui/controllers/session-event-handler.ts
+@@ -138,6 +138,7 @@ export interface SessionEventHost {
+   completedCompactionSerial: number;
+   handleTurnStarted?(event: TurnStartedEvent): void;
+   handleTurnEnded?(event: TurnEndedEvent): void;
++  handlePromptPredictionTurnEnded?(event: TurnEndedEvent): void;
+   readonly btwPanelController: BtwPanelController;
+   readonly tasksBrowserController: TasksBrowserController;
+   readonly surveyController: SurveyController;
+@@ -445,6 +446,7 @@ export class SessionEventHandler {
+     }
+     this.host.streamingUI.resetToolUi();
+     this.host.streamingUI.finalizeTurn(sendQueued);
++    this.host.handlePromptPredictionTurnEnded?.(event);
+     this.host.recordSessionActivity();
+     this.renderPendingModelBlockedFallback();
+     this.currentTurnHasAssistantText = false;
+diff --git a/apps/kimi-code/src/tui/kimi-tui.ts b/apps/kimi-code/src/tui/kimi-tui.ts
+index a3028f9c15..6ef1dd4b81 100644
+--- a/apps/kimi-code/src/tui/kimi-tui.ts
++++ b/apps/kimi-code/src/tui/kimi-tui.ts
+@@ -141,6 +141,7 @@ import { ClipboardImageHintController } from './controllers/clipboard-image-hint
+ import { EditorKeyboardController } from './controllers/editor-keyboard';
+ import { ModelMigrationController } from './controllers/model-migration';
+ import { ProgramStatusController } from './controllers/program-status';
++import { PromptPredictionController } from './controllers/prompt-prediction';
+ import { SessionEventHandler } from './controllers/session-event-handler';
+ import { showSessionOccupancyPrompt } from './controllers/session-occupancy';
+ import { SessionReplayRenderer } from './controllers/session-replay';
+@@ -449,6 +450,7 @@ export class KimiTUI {
+   readonly surveyController: SurveyController;
+   readonly editorKeyboard: EditorKeyboardController;
+   readonly modelMigration: ModelMigrationController;
++  readonly promptPredictionController: PromptPredictionController;
+   private editorReplacementOnDisplaced: (() => void) | undefined;
+   private editorReplacementOnReplaced: (() => void) | undefined;
+   private editorReplacementOwner: ReverseRpcModalOwner | undefined;
+@@ -598,6 +600,7 @@ export class KimiTUI {
+       telemetryDisabled: () => isTelemetryDisabledByEnv() || this.telemetryDisabled,
+     });
+     this.modelMigration = new ModelMigrationController(this);
++    this.promptPredictionController = new PromptPredictionController(this);
+     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);
+     this.editorKeyboard.install();
+     this.buildLayout();
+@@ -1360,6 +1363,7 @@ export class KimiTUI {
+     this.streamingUI.clearActiveCompaction();
+     this.streamingUI.resetToolUi();
+     this.disposeTranscriptChildren();
++    this.promptPredictionController.dispose();
+     this.editorKeyboard.dispose();
+     this.surveyController.dispose();
+     this.surveySettingSubscription?.();
+@@ -1546,6 +1550,7 @@ export class KimiTUI {
+   // =========================================================================
+ 
+   handlePlanToggle(next: boolean): void {
++    this.promptPredictionController.handlePlanModeChanged(next);
+     void slashCommands.handlePlanCommand(this, next ? 'on' : 'off');
+   }
+ 
+@@ -2377,6 +2382,7 @@ export class KimiTUI {
+   }
+ 
+   handleTurnStarted(event: TurnStartedEvent): void {
++    this.promptPredictionController.handleTurnStarted();
+     this.staging.handleTurnStarted(event);
+     this.surveyController.notifyTurnStarted(event.origin);
+     this.programStatus.beginTurn(event.origin);
+@@ -2390,6 +2396,10 @@ export class KimiTUI {
+     if (event.reason === 'completed') void this.maybeAutoGenerateSessionTitle();
+   }
+ 
++  handlePromptPredictionTurnEnded(event: TurnEndedEvent): void {
++    this.promptPredictionController.handleTurnEnded(event);
++  }
++
+   private async maybeAutoGenerateSessionTitle(): Promise<void> {
+     const sessionId = this.state.appState.sessionId;
+     if (sessionId.length === 0) return;
+@@ -3772,6 +3782,7 @@ export class KimiTUI {
+   resetSessionRuntime(options?: { readonly keepQueuedMessages?: boolean }): void {
+     this.aborted = false;
+     this.cacheHint.resetRuntime();
++    this.promptPredictionController.reset();
+     this.surveyController.reset();
+     this.streamingUI.discardPending();
+     this.resetSteerDeliveries();
+@@ -4768,6 +4779,7 @@ export class KimiTUI {
+ 
+   updateQueueDisplay(): void {
+     this.programStatus?.refresh();
++    this.promptPredictionController.handleQueueChange();
+     const { queueContainer, queuePane, queuedMessages } = this.state;
+     if (queuedMessages.length === 0) {
+       queuePane.scrollBodyToTop();
+@@ -5079,6 +5091,7 @@ export class KimiTUI {
+     this.editorReplacementOnDisplaced = onDisplaced;
+     this.editorReplacementOnReplaced = onReplaced;
+     this.editorReplacementOwner = owner;
++    this.promptPredictionController.notifyDisplaced();
+     this.surveyController.notifyDisplaced();
+     if (this.state.activeDialog === 'model-switch-confirm') this.state.activeDialog = null;
+     this.disposeEditorReplacement();
+diff --git a/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts b/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts
+index 4eafc912a6..f065166a06 100644
+--- a/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts
++++ b/apps/kimi-code/test/tui/components/editor/custom-editor.test.ts
+@@ -6,6 +6,7 @@ import {
+   type AutocompleteProvider,
+   type AutocompleteSuggestions,
+   type TUI,
++  visibleWidth,
+ } from '@moonshot-ai/pi-tui';
+ import chalk from 'chalk';
+ import { describe, expect, it, onTestFinished, vi } from 'vitest';
+@@ -316,7 +317,7 @@ describe('CustomEditor @ mention completion refresh', () => {
+ });
+ 
+ describe('CustomEditor Tab key handling', () => {
+-  it('does not open autocomplete when Tab is pressed with the dropdown closed', async () => {
++  it('keeps native completion closed and accepts a full prediction beyond its narrow preview', async () => {
+     const editor = makeEditor();
+     const provider = providerReturning([{ value: '@src/file.ts', label: 'file.ts' }]);
+     editor.setAutocompleteProvider(provider);
+@@ -327,6 +328,15 @@ describe('CustomEditor Tab key handling', () => {
+ 
+     expect(provider.getSuggestions).not.toHaveBeenCalled();
+     expect(editor.isShowingAutocomplete()).toBe(false);
++
++    const prediction = '请继续修复这个很长的 English prompt prediction，不要截断原文\n第二行也要保留';
++    editor.setPromptPrediction(prediction);
++    const rendered = editor.render(24);
++    expect(rendered.every((line) => visibleWidth(line) <= 24)).toBe(true);
++    expect(rendered.join('\n')).toContain('…');
++    expect(editor.acceptPromptPrediction()).toBe(true);
++    expect(editor.getText()).toBe(prediction);
++    expect(editor.getPromptPrediction()).toBeUndefined();
+   });
+ });
+ 
+diff --git a/apps/kimi-code/test/tui/controllers/editor-keyboard.test.ts b/apps/kimi-code/test/tui/controllers/editor-keyboard.test.ts
+index 29c86d3782..7210351b44 100644
+--- a/apps/kimi-code/test/tui/controllers/editor-keyboard.test.ts
++++ b/apps/kimi-code/test/tui/controllers/editor-keyboard.test.ts
+@@ -27,6 +27,9 @@ interface Harness {
+     readonly handleEditorChange: ReturnType<typeof vi.fn<(text: string) => void>>;
+     readonly notifyDisplaced: ReturnType<typeof vi.fn<() => void>>;
+   };
++  readonly prediction: {
++    readonly handlePreInput: ReturnType<typeof vi.fn<(data: string) => boolean>>;
++  };
+ }
+ 
+ function createHarness(
+@@ -51,6 +54,11 @@ function createHarness(
+     handleEditorChange: vi.fn<(text: string) => void>(() => {}),
+     notifyDisplaced: vi.fn<() => void>(() => {}),
+   };
++  const prediction = {
++    handlePreInput: vi.fn<(data: string) => boolean>(() => false),
++    handleSubmit: vi.fn<(text: string) => void>(() => {}),
++    handleEditorChange: vi.fn<(text: string) => void>(() => {}),
++  };
+   const session = { cancel: vi.fn(async () => {}), cancelCompaction };
+ 
+   const host = {
+@@ -68,6 +76,7 @@ function createHarness(
+     session,
+     btwPanelController: { cancelRunning: btwCancelRunning, closeOrCancel: btwCloseOrCancel },
+     surveyController: survey,
++    promptPredictionController: prediction,
+     openUndoSelector,
+     cancelRunningShellCommand,
+     updateEditorBorderHighlight: vi.fn(),
+@@ -97,6 +106,7 @@ function createHarness(
+     footerHint,
+     stop,
+     survey,
++    prediction,
+   };
+ }
+ 
+@@ -133,24 +143,18 @@ describe('EditorKeyboardController double-Esc undo', () => {
+     vi.useRealTimers();
+   });
+ 
+-  it('opens the undo selector when Esc is pressed twice within the window while idle', () => {
+-    const { editor, openUndoSelector } = createHarness();
++  it('opens the undo selector only for two Esc presses within the window while idle', () => {
++    const single = createHarness();
++    pressEscape(single.editor);
++    expect(single.openUndoSelector).not.toHaveBeenCalled();
+ 
++    const { editor, openUndoSelector } = createHarness();
+     pressEscape(editor);
+     expect(openUndoSelector).not.toHaveBeenCalled();
+-
+     pressEscape(editor);
+     expect(openUndoSelector).toHaveBeenCalledOnce();
+   });
+ 
+-  it('does nothing for a single Esc while idle', () => {
+-    const { editor, openUndoSelector } = createHarness();
+-
+-    pressEscape(editor);
+-
+-    expect(openUndoSelector).not.toHaveBeenCalled();
+-  });
+-
+   it('does not trigger when the second Esc arrives after the window expires', () => {
+     const { editor, openUndoSelector } = createHarness();
+ 
+@@ -726,15 +730,17 @@ describe('EditorKeyboardController survey wiring', () => {
+   });
+ 
+   it('routes raw keys to the survey pre-input hook first', () => {
+-    const { editor, survey } = createHarness();
++    const { editor, survey, prediction } = createHarness();
+     const onPreInput = editor['onPreInput'] as unknown as (data: string) => boolean;
+ 
+     survey.handlePreInput.mockReturnValueOnce(true);
+     expect(onPreInput('\u001B[D')).toBe(true);
+     expect(survey.handlePreInput).toHaveBeenCalledWith('\u001B[D');
++    expect(prediction.handlePreInput).not.toHaveBeenCalled();
+ 
+     survey.handlePreInput.mockReturnValueOnce(false);
+     expect(onPreInput('x')).toBe(false);
++    expect(prediction.handlePreInput).toHaveBeenCalledWith('x');
+   });
+ 
+   it('forwards editor text changes to the survey', () => {
+diff --git a/apps/kimi-code/test/tui/controllers/prompt-prediction.test.ts b/apps/kimi-code/test/tui/controllers/prompt-prediction.test.ts
+new file mode 100644
+index 0000000000..9e428d6da4
+--- /dev/null
++++ b/apps/kimi-code/test/tui/controllers/prompt-prediction.test.ts
+@@ -0,0 +1,134 @@
++import { onTestFinished, describe, expect, it, vi } from 'vitest';
++import type { TUI } from '@moonshot-ai/pi-tui';
++import type { Session, TurnEndedEvent } from '@moonshot-ai/kimi-code-sdk';
++
++import { CustomEditor } from '#/tui/components/editor/custom-editor';
++import { setExperimentalFeatures } from '#/tui/commands/experimental-flags';
++import { PromptPredictionController } from '#/tui/controllers/prompt-prediction';
++import type { TUIState } from '#/tui/tui-state';
++
++function turnEnded(turnId: number): TurnEndedEvent {
++  return { type: 'turn.ended', sessionId: 'session-1', agentId: 'main', turnId, reason: 'completed' } as TurnEndedEvent;
++}
++
++describe('PromptPredictionController', () => {
++  it('accepts and submits ghost text while cancelling stale requests precisely', async () => {
++    setExperimentalFeatures([{ id: 'prompt_prediction', enabled: true }]);
++    onTestFinished(() => setExperimentalFeatures([]));
++    const editor = new CustomEditor({ requestRender: vi.fn(), terminal: { rows: 40, cols: 80 } } as unknown as TUI);
++    const state = {
++      editor,
++      startupState: 'ready',
++      appState: {
++        streamingPhase: 'idle',
++        isCompacting: false,
++        isReplaying: false,
++        planMode: false,
++      },
++      queuedMessages: [],
++      queuedMessageDispatchPending: false,
++      activeDialog: null,
++      editorReplacementMounted: false,
++      tasksBrowser: undefined,
++      externalEditorRunning: false,
++      livePane: { pendingApproval: null, pendingQuestion: null },
++      ui: { requestRender: vi.fn() },
++    } as unknown as TUIState;
++    let nextPrediction = () => Promise.resolve<string | null>(null);
++    const session = {
++      id: 'session-1',
++      predictNextPrompt: vi.fn(() => nextPrediction()),
++      cancelPromptPrediction: vi.fn(async () => true),
++    } as unknown as Session;
++    const track = vi.fn();
++    const host = { state, session, aborted: false, track };
++    const controller = new PromptPredictionController(host);
++    editor.onChange = (text) => controller.handleEditorChange(text);
++    editor.onSubmit = (text) => controller.handleSubmit(text);
++
++    nextPrediction = () => Promise.resolve('请修复失败的测试\n并补充回归覆盖');
++    controller.handleTurnEnded(turnEnded(7));
++    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBeDefined());
++    expect(session.predictNextPrompt).toHaveBeenCalledWith({
++      predictionId: expect.any(String),
++      expectedTurnId: 7,
++    });
++    expect(controller.handlePreInput('\t')).toBe(true);
++    expect(editor.getText()).toBe('请修复失败的测试\n并补充回归覆盖');
++    expect(editor.getPromptPrediction()).toBeUndefined();
++    expect(track.mock.calls.filter(([event]) => event === 'prediction_dismissed')).toHaveLength(0);
++    editor.handleInput('\r');
++    expect(track).toHaveBeenCalledWith('prediction_submitted', expect.objectContaining({ edited: false }));
++
++    let resolveCancelled!: (value: string | null) => void;
++    nextPrediction = () => new Promise<string | null>((resolve) => {
++      resolveCancelled = resolve;
++    });
++    controller.handleTurnStarted();
++    editor.setText('');
++    controller.handleTurnEnded(turnEnded(8));
++    await vi.waitFor(() => expect(session.predictNextPrompt).toHaveBeenCalledTimes(2));
++    const cancelInput = (session.predictNextPrompt as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as {
++      predictionId: string;
++    };
++    expect(controller.handlePreInput(String.fromCodePoint(0x1b))).toBe(true);
++    expect(session.cancelPromptPrediction).toHaveBeenCalledWith(cancelInput.predictionId, 'escape');
++    resolveCancelled('晚到的预测');
++    await Promise.resolve();
++    expect(editor.getPromptPrediction()).toBeUndefined();
++
++    nextPrediction = () => Promise.resolve('run the focused suite');
++    controller.handleTurnEnded(turnEnded(9));
++    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBe('run the focused suite'));
++    expect(controller.handlePreInput(`${String.fromCodePoint(0x1b)}[C`)).toBe(true);
++    editor.handleInput(' now');
++    editor.handleInput('\r');
++    expect(track).toHaveBeenCalledWith('prediction_submitted', expect.objectContaining({ edited: true }));
++
++    nextPrediction = () => Promise.resolve('this suggestion is dismissed');
++    controller.handleTurnStarted();
++    editor.setText('');
++    controller.handleTurnEnded(turnEnded(10));
++    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBeDefined());
++    editor.handleInput('x');
++    expect(editor.getPromptPrediction()).toBeUndefined();
++    expect(track).toHaveBeenCalledWith('prediction_dismissed', expect.objectContaining({ reason: 'input' }));
++
++    nextPrediction = () => Promise.resolve('do not show this in plan mode');
++    editor.setText('');
++    controller.handleTurnEnded(turnEnded(11));
++    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBeDefined());
++    state.appState.planMode = true;
++    controller.handlePlanModeChanged(true);
++    expect(editor.getPromptPrediction()).toBeUndefined();
++    expect(track).toHaveBeenCalledWith('prediction_dismissed', expect.objectContaining({ reason: 'plan' }));
++
++    state.appState.planMode = false;
++    nextPrediction = () => Promise.resolve('clear this accepted suggestion');
++    controller.handleTurnEnded(turnEnded(12));
++    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBeDefined());
++    expect(controller.handlePreInput('\t')).toBe(true);
++    editor.setText('');
++    editor.handleInput('\r');
++    expect(track.mock.calls.filter(([event]) => event === 'prediction_submitted')).toHaveLength(2);
++    expect(track).toHaveBeenCalledWith('prediction_dismissed', expect.objectContaining({
++      reason: 'submit',
++      accepted: true,
++    }));
++
++    nextPrediction = () => Promise.resolve('git push');
++    controller.handleTurnEnded(turnEnded(13));
++    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBeDefined());
++    editor.handleInput('!');
++    expect(editor.inputMode).toBe('bash');
++    expect(controller.handlePreInput('\t')).toBe(false);
++    expect(controller.handlePreInput(`${String.fromCodePoint(0x1b)}[C`)).toBe(false);
++    expect(editor.getText()).toBe('');
++
++    for (const [, properties] of track.mock.calls) {
++      expect(properties).not.toHaveProperty('text');
++      expect(properties).not.toHaveProperty('prediction');
++    }
++    controller.dispose();
++  });
++});
+diff --git a/apps/kimi-code/test/tui/fullscreen-layout.test.ts b/apps/kimi-code/test/tui/fullscreen-layout.test.ts
+index 34728c13c7..7eded07ff5 100644
+--- a/apps/kimi-code/test/tui/fullscreen-layout.test.ts
++++ b/apps/kimi-code/test/tui/fullscreen-layout.test.ts
+@@ -134,6 +134,7 @@ function editorReplacementHost(state: ReturnType<typeof createTUIState>): SlashC
+   const host = {
+     state,
+     surveyController: { notifyDisplaced: () => {} },
++    promptPredictionController: { notifyDisplaced() {} },
+     disposeEditorReplacement() {},
+     modelMigration: { retry: () => {} },
+     mountEditorReplacement(panel: Component & Focusable) {
+@@ -151,6 +152,7 @@ function updateQueueDisplay(state: ReturnType<typeof createTUIState>): void {
+     state,
+     deferUserMessages: false,
+     isSteeringQueuedMessages: () => false,
++    promptPredictionController: { handleQueueChange() {}, notifyDisplaced() {} },
+   } as unknown as KimiTUI;
+   KimiTUI.prototype.updateQueueDisplay.call(host);
+ }
+@@ -1406,6 +1408,7 @@ describe('fullscreen layout', () => {
+       state,
+       session: {},
+       surveyController: { notifyDisplaced: () => {} },
++      promptPredictionController: { handleQueueChange() {}, notifyDisplaced() {} },
+       disposeEditorReplacement() {},
+       modelMigration: { retry: () => {} },
+       showError: vi.fn(),
+@@ -1592,6 +1595,7 @@ describe('fullscreen layout', () => {
+     const host = {
+       state,
+       surveyController: { notifyDisplaced: () => {} },
++      promptPredictionController: { handleQueueChange() {}, notifyDisplaced() {} },
+       disposeEditorReplacement() {},
+     } as unknown as KimiTUI;
+     KimiTUI.prototype.mountEditorReplacement.call(host, picker);
+@@ -1660,6 +1664,7 @@ describe('fullscreen layout', () => {
+     const host = {
+       state,
+       surveyController: { notifyDisplaced: () => {} },
++      promptPredictionController: { handleQueueChange() {}, notifyDisplaced() {} },
+       disposeEditorReplacement() {},
+       modelMigration: { retry: () => {} },
+     } as unknown as KimiTUI;
+diff --git a/apps/vis/server/src/lib/context-projector.ts b/apps/vis/server/src/lib/context-projector.ts
+index 9b340e9928..9fe8f0fa7e 100644
+--- a/apps/vis/server/src/lib/context-projector.ts
++++ b/apps/vis/server/src/lib/context-projector.ts
+@@ -28,7 +28,7 @@ export interface ProjectedMessage {
+ }
+ 
+ export interface UsageTotals {
+-  byScope: { session: TokenUsage; turn: TokenUsage };
++  byScope: { session: TokenUsage; turn: TokenUsage; prediction: TokenUsage };
+   byModel: Record<string, TokenUsage>;
+ }
+ 
+@@ -111,7 +111,7 @@ export function projectContext(
+   let messages: ProjectedMessage[] = [];
+   let modelMessages: ProjectedMessage[] = [];
+   const usage: UsageTotals = {
+-    byScope: { session: { ...ZERO }, turn: { ...ZERO } },
++    byScope: { session: { ...ZERO }, turn: { ...ZERO }, prediction: { ...ZERO } },
+     byModel: {},
+   };
+   const config: ConfigSnapshot = {};
+@@ -394,7 +394,7 @@ export function projectContext(
+         // byScope keeps per-scope cumulative spend. This is NOT the live context-window
+         // fill — that is `contextTokens` (latest step.end.usage). The web TokenBar shows
+         // contextTokens; byScope/byModel are for the cumulative breakdown only.
+-        const scope = (rec.usageScope ?? 'session') as 'session' | 'turn';
++        const scope = rec.usageScope ?? 'session';
+         addUsage(usage.byScope[scope], rec.usage);
+         usage.byModel[rec.model] ??= { ...ZERO };
+         addUsage(usage.byModel[rec.model]!, rec.usage);
+diff --git a/apps/vis/server/test/lib/context-projector.test.ts b/apps/vis/server/test/lib/context-projector.test.ts
+index 34fd8b36c3..a5deb41b8f 100644
+--- a/apps/vis/server/test/lib/context-projector.test.ts
++++ b/apps/vis/server/test/lib/context-projector.test.ts
+@@ -25,7 +25,20 @@ describe('context-projector', () => {
+     const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+     cleanup = c;
+     const wire = await readAgentWire(join(sessionDir, 'agents', 'main', 'wire.jsonl'));
+-    const proj = projectContext(wire.records);
++    const proj = projectContext([
++      ...wire.records,
++      {
++        lineNo: wire.records.length + 1,
++        data: {
++          type: 'usage.record',
++          agentId: 'main',
++          model: 'kimi-k2',
++          usage: { inputOther: 7, output: 2, inputCacheRead: 1, inputCacheCreation: 3 },
++          usageScope: 'prediction',
++        },
++        raw: {},
++      },
++    ]);
+ 
+     expect(proj.messages).toHaveLength(2);
+     expect(proj.messages[0]!.message.role).toBe('user');
+@@ -37,8 +50,11 @@ describe('context-projector', () => {
+     expect(proj.usage.byScope.turn).toEqual({
+       inputOther: 10, output: 5, inputCacheRead: 0, inputCacheCreation: 0,
+     });
++    expect(proj.usage.byScope.prediction).toEqual({
++      inputOther: 7, output: 2, inputCacheRead: 1, inputCacheCreation: 3,
++    });
+     expect(proj.usage.byModel['kimi-k2']).toEqual({
+-      inputOther: 10, output: 5, inputCacheRead: 0, inputCacheCreation: 0,
++      inputOther: 17, output: 7, inputCacheRead: 1, inputCacheCreation: 3,
+     });
+ 
+     expect(proj.config.systemPrompt).toBe('You are Kimi.');
+diff --git a/apps/vis/web/src/components/context/ContextTab.tsx b/apps/vis/web/src/components/context/ContextTab.tsx
+index 94b3cfd12c..7094646418 100644
+--- a/apps/vis/web/src/components/context/ContextTab.tsx
++++ b/apps/vis/web/src/components/context/ContextTab.tsx
+@@ -30,14 +30,18 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
+   const messages = ctx?.messages ?? [];
+   const sessionUsage = ctx?.usage.byScope.session ?? EMPTY_USAGE;
+   const turnUsage = ctx?.usage.byScope.turn ?? EMPTY_USAGE;
++  const predictionUsage = ctx?.usage.byScope.prediction ?? EMPTY_USAGE;
+   const cumulativeUsage: TokenUsage = {
+-    inputOther: sessionUsage.inputOther + turnUsage.inputOther,
+-    output: sessionUsage.output + turnUsage.output,
++    inputOther: sessionUsage.inputOther + turnUsage.inputOther + predictionUsage.inputOther,
++    output: sessionUsage.output + turnUsage.output + predictionUsage.output,
+     inputCacheRead:
+-      sessionUsage.inputCacheRead === undefined || turnUsage.inputCacheRead === undefined
++      sessionUsage.inputCacheRead === undefined ||
++      turnUsage.inputCacheRead === undefined ||
++      predictionUsage.inputCacheRead === undefined
+         ? undefined
+-        : sessionUsage.inputCacheRead + turnUsage.inputCacheRead,
+-    inputCacheCreation: sessionUsage.inputCacheCreation + turnUsage.inputCacheCreation,
++        : sessionUsage.inputCacheRead + turnUsage.inputCacheRead + predictionUsage.inputCacheRead,
++    inputCacheCreation:
++      sessionUsage.inputCacheCreation + turnUsage.inputCacheCreation + predictionUsage.inputCacheCreation,
+   };
+   // Live context-window fill (latest step.end usage), distinct from the
+   // cumulative session-scoped + turn-scoped spend the bar breaks down.
+diff --git a/apps/vis/web/src/components/wire/renderers.tsx b/apps/vis/web/src/components/wire/renderers.tsx
+index c22b5a5fcf..9381edd49f 100644
+--- a/apps/vis/web/src/components/wire/renderers.tsx
++++ b/apps/vis/web/src/components/wire/renderers.tsx
+@@ -1081,7 +1081,10 @@ export const WIRE_RENDERERS: RendererMap = {
+       return {
+         main: (
+           <span className="flex items-center gap-2 min-w-0">
+-            <Pill tone={r.kind === 'compaction' ? 'compaction' : 'turn'} variant="soft">
++            <Pill
++              tone={r.kind === 'compaction' ? 'compaction' : r.kind === 'prediction' ? 'subagent' : 'turn'}
++              variant="soft"
++            >
+               {r.kind}
+             </Pill>
+             <Mono>{r.model}</Mono>
+diff --git a/apps/vis/web/test/renderers.test.ts b/apps/vis/web/test/renderers.test.ts
+index db490888dd..002252a012 100644
+--- a/apps/vis/web/test/renderers.test.ts
++++ b/apps/vis/web/test/renderers.test.ts
+@@ -99,6 +99,18 @@ describe('wire renderers', () => {
+       },
+     } as never);
+     expect(renderToStaticMarkup(mediaDetail)).toContain('data:image/png;base64,AAA');
++    const predictionRequest = WIRE_RENDERERS['llm.request'].headline({
++      type: 'llm.request',
++      agentId: 'main',
++      kind: 'prediction',
++      provider: 'kimi',
++      model: 'kimi-k2',
++      toolSelect: false,
++      systemPromptHash: 'system',
++      toolsHash: 'tools',
++      messageCount: 2,
++    });
++    expect(renderToStaticMarkup(predictionRequest.main)).toContain('prediction');
+   });
+ 
+   it('renders a change-notifier snapshot written before the belief fields existed', () => {
+diff --git a/docs/en/configuration/env-vars.md b/docs/en/configuration/env-vars.md
+index aae9f8d8e5..c72d345d00 100644
+--- a/docs/en/configuration/env-vars.md
++++ b/docs/en/configuration/env-vars.md
+@@ -162,6 +162,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
+ | `KIMI_CODE_SESSION_LOCK` | Whether this process takes the cross-process session lock that stops two Kimi Code processes from writing the same session at once. Unset keeps it on; turning it off brings back pre-lock behavior, so concurrent writers can interleave the session history | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off`; any other value is ignored |
+ | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | Experimental `fork` parameter on `Agent`/`AgentSwarm`: start the subagent from a snapshot of the caller's history instead of an empty context; `KIMI_CODE_EXPERIMENTAL_FLAG=1` also enables it | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+ | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | Experimental on-demand tool loading: tools of MCP servers marked `deferred: true` stay out of the top-level tool list and are loaded via `select_tools`; also requires the model to declare the `dynamically_loaded_tools` capability — see [MCP](../customization/mcp.md#loading-tools-on-demand) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
++| `KIMI_CODE_EXPERIMENTAL_PROMPT_PREDICTION` | Experimental next-prompt suggestions after completed turns in the interactive TUI — see [Prompt prediction](../guides/interaction.md#prompt-prediction-experimental) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+ | `KIMI_CODE_EXPERIMENTAL_TOWER` | Enable experimental [Tower multi-agent coordination](../guides/tower.md) and the `/tower` command; set it before launch. The persistent equivalent is `[experimental] tower = true` in `config.toml`; changing that setting in a running CLI requires a restart. `KIMI_CODE_EXPERIMENTAL_FLAG=1` enables Tower only when `[experimental] tower` is not set in `config.toml`; an explicit `tower = false` takes precedence over the master flag, while this per-feature variable overrides the config | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+ | `KIMI_CODE_WATCH` | Attach filesystem watchers that reload config and workspace files; higher priority than `[watch] enabled` (default `true`) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+ | `KIMI_CODE_GLOBAL_SEARCH` | Build the global full-text search index and serve `POST /api/v1/search`; higher priority than `[database] global_search` (default `false`) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+diff --git a/docs/en/guides/interaction.md b/docs/en/guides/interaction.md
+index 8ab424ed2a..61bb8b7118 100644
+--- a/docs/en/guides/interaction.md
++++ b/docs/en/guides/interaction.md
+@@ -8,6 +8,12 @@ The input box accepts free-form text. Press `Enter` to send, or `Shift-Enter` /
+ 
+ **Exiting the CLI**: press `Ctrl-D` with the input box empty, press `Ctrl-C` twice while idle, or type `/exit`. Pressing `Ctrl-C` or `Esc` during streaming output interrupts the current turn — it does not exit the program.
+ 
++## Prompt prediction (experimental)
++
++After a main agent turn completes normally, Kimi Code CLI can suggest the next prompt in an empty input box. The suggestion is generated in a side request and never submitted automatically.
++
++Set `KIMI_CODE_EXPERIMENTAL_PROMPT_PREDICTION=1` before launching to enable it, or run `/experiments` and enable `Prompt prediction`. Press `Tab` or `→` to insert the full suggestion, edit it if needed, and press `Enter` to submit. Typing, pressing `Esc`, starting a new turn, or switching sessions cancels or clears the suggestion. Cancelled, failed, or blocked turns do not produce suggestions.
++
+ ## Pasting images and video
+ 
+ Kimi Code CLI supports pasting images and video directly into the input box, so you can discuss screenshots, UI mockups, architecture diagrams, or code demos without uploading or converting files first.
+diff --git a/docs/en/reference/keyboard.md b/docs/en/reference/keyboard.md
+index 493f47f49c..48d2464664 100644
+--- a/docs/en/reference/keyboard.md
++++ b/docs/en/reference/keyboard.md
+@@ -15,6 +15,7 @@ The following keys are always available in the input box:
+ | `Ctrl-C` | Interrupt the current streaming output, or clear the input box |
+ | `Ctrl-D` | Exit Kimi Code CLI when the input box is empty |
+ | `Ctrl-N` | Focus the experimental `Updates` panel, including while an approval or question waits |
++| `Tab` / `→` | Insert the full experimental prompt prediction when a suggestion is shown in an empty input box |
+ 
+ Pressing `Ctrl-C` **during streaming** cancels immediately — no second confirmation needed.
+ 
+diff --git a/docs/zh/configuration/env-vars.md b/docs/zh/configuration/env-vars.md
+index 57b5adc66b..dd165e0642 100644
+--- a/docs/zh/configuration/env-vars.md
++++ b/docs/zh/configuration/env-vars.md
+@@ -162,6 +162,7 @@ kimi
+ | `KIMI_CODE_SESSION_LOCK` | 本进程是否使用跨进程会话锁，防止两个 Kimi Code 进程同时写同一会话。未设置时保持开启；关闭后回到加锁前的行为，多个进程同时写入时会话历史可能交错 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off`；其他值忽略 |
+ | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | 在 `Agent`/`AgentSwarm` 上启用实验性 `fork` 参数：以调用方对话历史快照而非空上下文启动 subagent | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+ | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | 启用实验性按需加载工具：标记 `deferred: true` 的 MCP server 工具不进入顶层工具列表，由模型经 `select_tools` 按需加载；还需模型声明 `dynamically_loaded_tools` 能力，详见 [MCP](../customization/mcp.md#按需加载工具) | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
++| `KIMI_CODE_EXPERIMENTAL_PROMPT_PREDICTION` | 在交互式 TUI 中启用实验性的下一条提示词预测，在轮次正常完成后显示建议，详见[提示词预测](../guides/interaction.md#提示词预测（实验）) | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+ | `KIMI_CODE_EXPERIMENTAL_TOWER` | 启用实验性 [Tower 多 Agent 协作](../guides/tower.md) 和 `/tower` 命令，需在启动前设置。持久配置等价于在 `config.toml` 中设置 `[experimental] tower = true`；在运行中的 CLI 里修改该配置后，需要重启 Kimi Code。`KIMI_CODE_EXPERIMENTAL_FLAG=1` 仅在未显式配置 `[experimental] tower` 时启用 Tower；`tower = false` 会优先于总开关，而本变量可覆盖该配置 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+ | `KIMI_CODE_WATCH` | 是否挂文件系统 watch 以热更新配置和工作区文件，优先级高于 `[watch] enabled`（默认 `true`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+ | `KIMI_CODE_GLOBAL_SEARCH` | 是否构建全局全文搜索索引并提供 `POST /api/v1/search`，优先级高于 `[database] global_search`（默认 `false`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+diff --git a/docs/zh/guides/interaction.md b/docs/zh/guides/interaction.md
+index af529cf98e..9a233791f2 100644
+--- a/docs/zh/guides/interaction.md
++++ b/docs/zh/guides/interaction.md
+@@ -8,6 +8,12 @@ Kimi Code CLI 以交互式 TUI 运行，核心由输入框、对话视图和状
+ 
+ **退出 CLI**：输入框为空时按 `Ctrl-D`，或空闲状态下连按 `Ctrl-C` 两次，或输入 `/exit`。流式输出期间按 `Ctrl-C` 或 `Esc` 是中断当前轮次，不会退出程序。
+ 
++## 提示词预测（实验）
++
++主 Agent 正常完成轮次后，Kimi Code CLI 可以在空输入框中显示下一条提示词建议。建议通过旁路请求生成，不会自动提交。
++
++启动前设置 `KIMI_CODE_EXPERIMENTAL_PROMPT_PREDICTION=1` 即可启用，也可以在 TUI 中运行 `/experiments` 并启用 `Prompt prediction`。按 `Tab` 或 `→` 填入完整建议，编辑后按 `Enter` 提交。输入其他内容、按 `Esc`、开始新轮次或切换会话会取消或清除建议。已取消、失败或阻塞的轮次不会生成建议。
++
+ ## 粘贴图片与视频
+ 
+ Kimi Code CLI 支持在输入框中直接粘贴图片和视频，让 AI 结合视觉内容理解你的问题——截图报错、UI 设计图、架构图，直接粘贴进去就能讨论，无需上传或转存。
+diff --git a/docs/zh/reference/keyboard.md b/docs/zh/reference/keyboard.md
+index 931e458e31..24f0229b1c 100644
+--- a/docs/zh/reference/keyboard.md
++++ b/docs/zh/reference/keyboard.md
+@@ -15,6 +15,7 @@ Kimi Code CLI 的 TUI 交互模式支持一套键盘快捷键。键位按使用
+ | `Ctrl-C` | 中断当前流式输出，或清空输入框 |
+ | `Ctrl-D` | 在输入框为空时退出 Kimi Code CLI |
+ | `Ctrl-N` | 聚焦实验性 `Updates` 面板，审批或提问等待时也可用 |
++| `Tab` / `→` | 空输入框中显示实验性提示词预测时，填入完整建议 |
+ 
+ **流式输出期间**按 `Ctrl-C` 会立即取消，无需二次确认。
+ 
+diff --git a/packages/agent-core-v2/docs/wire-manifest.d.ts b/packages/agent-core-v2/docs/wire-manifest.d.ts
+index 45b493d749..847796be1a 100644
+--- a/packages/agent-core-v2/docs/wire-manifest.d.ts
++++ b/packages/agent-core-v2/docs/wire-manifest.d.ts
+@@ -422,7 +422,7 @@ interface InterruptionReminderRequestedPayload {
+ interface LlmRequestPayload {
+   _name: 'llm.request';
+   agentId: string;
+-  kind: 'loop' | 'compaction';
++  kind: 'loop' | 'compaction' | 'prediction';
+   provider: string;
+   model: string;
+   modelAlias?: string;
+@@ -990,7 +990,7 @@ interface UsageRecordPayload {
+   model: string;
+   usage: TokenUsage;
+   /** UsageRecordScope */
+-  usageScope?: 'session' | 'turn';
++  usageScope?: 'session' | 'turn' | 'prediction';
+ }
+ 
+ /** Record type → payload sketch. */
+diff --git a/packages/agent-core-v2/src/agent/loop/llmRequestOps.ts b/packages/agent-core-v2/src/agent/loop/llmRequestOps.ts
+index b937748d90..5fc7ae6fc7 100644
+--- a/packages/agent-core-v2/src/agent/loop/llmRequestOps.ts
++++ b/packages/agent-core-v2/src/agent/loop/llmRequestOps.ts
+@@ -55,7 +55,7 @@ export interface LlmToolsSnapshot {
+ 
+ const llmRequestSchema = z.object({
+   agentId: z.string(),
+-  kind: z.enum(['loop', 'compaction']),
++  kind: z.enum(['loop', 'compaction', 'prediction']),
+   provider: z.string(),
+   model: z.string(),
+   modelAlias: z.string().optional(),
+@@ -85,7 +85,7 @@ export class LlmRequest extends AgentEvent2<LlmRequestPayload> {
+ }
+ export interface LlmRequest {
+   readonly agentId: string;
+-  readonly kind: 'loop' | 'compaction';
++  readonly kind: 'loop' | 'compaction' | 'prediction';
+   readonly provider: string;
+   readonly model: string;
+   readonly modelAlias?: string;
+diff --git a/packages/agent-core-v2/src/agent/usage/usageOps.ts b/packages/agent-core-v2/src/agent/usage/usageOps.ts
+index 16e09ead13..8f4e236df2 100644
+--- a/packages/agent-core-v2/src/agent/usage/usageOps.ts
++++ b/packages/agent-core-v2/src/agent/usage/usageOps.ts
+@@ -4,7 +4,7 @@ import { z } from 'zod';
+ import { AgentEvent2 } from '#/app/event/event2';
+ import { type TokenUsage } from '#human/llm-requester/usage';
+ 
+-export type UsageRecordScope = 'session' | 'turn';
++export type UsageRecordScope = 'session' | 'turn' | 'prediction';
+ 
+ export interface UsageModelState {
+   readonly byModel: Record<string, TokenUsage>;
+diff --git a/packages/agent-core-v2/src/app/telemetry/events.ts b/packages/agent-core-v2/src/app/telemetry/events.ts
+index a4becbee4e..971b84921f 100644
+--- a/packages/agent-core-v2/src/app/telemetry/events.ts
++++ b/packages/agent-core-v2/src/app/telemetry/events.ts
+@@ -1,3 +1,4 @@
++import type { PromptPredictionCancelReason } from '#/features/promptPrediction/promptPrediction';
+ import type { TowerExitReason } from '#/features/tower/tower';
+ import type { SessionCloseReason } from '#/workspace/sessionLifecycle/sessionLifecycle';
+ 
+@@ -262,6 +263,34 @@ export interface PluginToggleEvent {
+   enabled_plugins?: string;
+ }
+ 
++export interface PredictionRequestedEvent {
++  prediction_id: string;
++  turn_id: number;
++}
++
++export interface PredictionGeneratedEvent {
++  prediction_id: string;
++  turn_id: number;
++  status: 'generated' | 'empty' | 'invalid' | 'tool_call' | 'timeout' | 'cancelled' | 'stale' | 'error';
++  reason?: PromptPredictionCancelReason;
++  duration_ms: number;
++  prediction_chars?: number;
++  input_tokens?: number;
++  input_other?: number;
++  output_tokens?: number;
++  input_cache_read?: number;
++  input_cache_creation?: number;
++  cache_read_pct?: number;
++  ttft_ms?: number;
++  stream_duration_ms?: number;
++  request_build_ms?: number;
++  server_first_token_ms?: number;
++  server_decode_ms?: number;
++  client_consume_ms?: number;
++  client_blocked_ms?: number;
++  request_id?: string;
++}
++
+ export interface CompactionFinishedEvent {
+   turn_id?: number;
+   source: 'manual' | 'auto';
+@@ -1002,6 +1031,40 @@ export const telemetryEventDefinitions = {
+         'Comma-separated sorted ids of enabled, loaded plugins after the toggle commits; empty string for a known empty set',
+     },
+   }),
++  prediction_requested: defineAgentTelemetryEvent<PredictionRequestedEvent>({
++    owner: 'kimi-code',
++    comment: 'A side-channel next-prompt prediction request starts.',
++    properties: {
++      prediction_id: 'Caller-generated prediction identifier; contains no prompt content',
++      turn_id: 'Completed main-agent turn used as the prediction source',
++    },
++  }),
++  prediction_generated: defineAgentTelemetryEvent<PredictionGeneratedEvent>({
++    owner: 'kimi-code',
++    comment: 'A side-channel next-prompt prediction request settles.',
++    properties: {
++      prediction_id: 'Caller-generated prediction identifier; contains no prompt content',
++      turn_id: 'Completed main-agent turn used as the prediction source',
++      status: 'Bounded prediction outcome; stale covers lifecycle, context, and handle changes',
++      reason: 'Cancellation source when status is cancelled; never contains prompt text',
++      duration_ms: 'Prediction wall-clock time in milliseconds',
++      prediction_chars: 'Length of the accepted prediction in UTF-16 code units, never its text',
++      input_tokens: 'Total prediction input tokens including cache usage',
++      input_other: 'Uncached prediction input tokens excluding cache creation',
++      output_tokens: 'Prediction output tokens',
++      input_cache_read: 'Prediction cache-read input tokens',
++      input_cache_creation: 'Prediction cache-creation input tokens',
++      cache_read_pct: 'Cache-read input tokens as a percentage of total input tokens, from 0 to 100',
++      ttft_ms: 'Client-observed time to the first response token in milliseconds',
++      stream_duration_ms: 'Response streaming duration in milliseconds',
++      request_build_ms: 'Provider request construction time in milliseconds when available',
++      server_first_token_ms: 'Server-reported time to the first response token in milliseconds when available',
++      server_decode_ms: 'Server-reported decode time in milliseconds when available',
++      client_consume_ms: 'Client stream consumption time in milliseconds when available',
++      client_blocked_ms: 'Client time blocked by downstream rendering in milliseconds when available',
++      request_id: 'Provider request trace identifier when available',
++    },
++  }),
+   compaction_finished: defineAgentTelemetryEvent<CompactionFinishedEvent>({
+     owner: 'kimi-code',
+     comment: 'Context compaction completes.',
+diff --git a/packages/agent-core-v2/src/features/promptPrediction/promptPrediction.ts b/packages/agent-core-v2/src/features/promptPrediction/promptPrediction.ts
+new file mode 100644
+index 0000000000..c646e19138
+--- /dev/null
++++ b/packages/agent-core-v2/src/features/promptPrediction/promptPrediction.ts
+@@ -0,0 +1,94 @@
++import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
++import { type FlagDefinitionInput, registerFlagDefinition } from '#/app/flag/flagRegistry';
++
++export const PROMPT_PREDICTION_FLAG_ID = 'prompt_prediction';
++export const PROMPT_PREDICTION_FLAG_ENV = 'KIMI_CODE_EXPERIMENTAL_PROMPT_PREDICTION';
++export const PROMPT_PREDICTION_TIMEOUT_MS = 20_000;
++export const PROMPT_PREDICTION_MAX_OUTPUT_TOKENS = 512;
++export const PROMPT_PREDICTION_MAX_CHARS = 2_000;
++
++export const PROMPT_PREDICTION_INSTRUCTION = `[SUGGESTION MODE: Suggest what the user might naturally type next to the main agent.]
++
++FIRST: Look at the user's recent messages and original request.
++
++Your job is to predict what THEY would type - not what you think they should do.
++
++THE TEST: Would they think "I was just about to type that"?
++
++EXAMPLES:
++User asked "fix the bug and run tests", bug is fixed → "run the tests"
++After code is written → "try it out"
++The main agent offers options → suggest the one the user would likely pick, based on the conversation
++The main agent asks to continue → "yes" or "go ahead"
++Task complete, obvious follow-up → "commit this" or "push it"
++After an error or misunderstanding → silence (let them assess/correct)
++
++Be specific: "run the tests" beats "continue".
++
++NEVER SUGGEST:
++- Evaluative ("looks good", "thanks")
++- Questions ("what about...?")
++- Assistant-voice ("Let me...", "I'll...", "Here's...")
++- New ideas they didn't ask about
++- Multiple sentences
++
++Stay silent if the next step isn't obvious from what the user said.
++
++Stay silent if a suggestion could be unsafe or inappropriate, including sensitive topics such as security incidents, credentials, harm, or private data. Even when the user is doing legitimate security work, do not predict potentially unsafe actions.
++
++Format: 2-12 words, match the user's style and language. Or nothing.
++
++Reply with ONLY one suggestion as plain text, no quotes or explanation. Do not call any tools.`;
++
++export const promptPredictionFlag: FlagDefinitionInput = {
++  id: PROMPT_PREDICTION_FLAG_ID,
++  title: 'Prompt prediction',
++  description: 'Predict the next prompt after a completed main-agent turn while the session is idle.',
++  env: PROMPT_PREDICTION_FLAG_ENV,
++  default: false,
++  surface: 'both',
++};
++
++registerFlagDefinition(promptPredictionFlag);
++
++export const PROMPT_PREDICTION_CANCEL_REASONS = [
++  'input',
++  'escape',
++  'new_turn',
++  'session',
++  'dialog',
++  'queue',
++  'submit',
++  'plan',
++  'visibility',
++  'shutdown',
++  'disconnect',
++  'activity_turn_started',
++  'activity_turn_ended',
++  'activity_background',
++  'activity_interaction',
++  'activity_agent_lifecycle',
++  'agent_will_close',
++  'agent_replaced',
++  'agent_closed',
++  'disposed',
++  'unspecified',
++] as const;
++
++export type PromptPredictionCancelReason = typeof PROMPT_PREDICTION_CANCEL_REASONS[number];
++
++export interface PromptPredictionInput {
++  readonly predictionId: string;
++  readonly expectedTurnId: number;
++}
++
++export interface ISessionPromptPredictionService {
++  readonly _serviceBrand: undefined;
++
++  predict(input: PromptPredictionInput): Promise<string | null>;
++
++  cancel(predictionId: string, reason?: PromptPredictionCancelReason): boolean;
++}
++
++export const ISessionPromptPredictionService: ServiceIdentifier<ISessionPromptPredictionService> =
++  createDecorator<ISessionPromptPredictionService>('sessionPromptPredictionService');
+diff --git a/packages/agent-core-v2/src/features/promptPrediction/promptPredictionFeature.ts b/packages/agent-core-v2/src/features/promptPrediction/promptPredictionFeature.ts
+new file mode 100644
+index 0000000000..0a0a037478
+--- /dev/null
++++ b/packages/agent-core-v2/src/features/promptPrediction/promptPredictionFeature.ts
+@@ -0,0 +1,21 @@
++import { LifecycleScope } from '#/app/scopes';
++import { Feature } from '#/features/feature';
++import { registerFeature } from '#/features/featureRegistry';
++
++import { ISessionPromptPredictionService } from './promptPrediction';
++import { SessionPromptPredictionService } from './promptPredictionService';
++
++export class PromptPredictionFeature extends Feature {
++  static override readonly name = 'promptPrediction';
++
++  constructor() {
++    super();
++    this.contributeService(
++      LifecycleScope.Session,
++      ISessionPromptPredictionService,
++      SessionPromptPredictionService,
++    );
++  }
++}
++
++registerFeature(PromptPredictionFeature);
+diff --git a/packages/agent-core-v2/src/features/promptPrediction/promptPredictionService.ts b/packages/agent-core-v2/src/features/promptPrediction/promptPredictionService.ts
+new file mode 100644
+index 0000000000..bf18711197
+--- /dev/null
++++ b/packages/agent-core-v2/src/features/promptPrediction/promptPredictionService.ts
+@@ -0,0 +1,336 @@
++import { Disposable } from '#/_base/di/lifecycle';
++import type { IAgentScopeHandle } from '#/_base/di/scope';
++import { ILogService } from '#/_base/log/log';
++import { abortable, abortError, createDeadlineAbortSignal, type DeadlineAbortSignal } from '#/_base/utils/abort';
++import type { ContextMessage } from '#/agent/contextMemory/types';
++import { IAgentLoopService, type LoopSnapshot } from '#/agent/loop/loop';
++import { turnKey } from '#/agent/loop/turnOps';
++import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
++import { errorFromLlmOutcome, type ModelRequestTiming } from '#/llm-adapter/model/generate';
++import { IAgentStateService } from '#/agent/state/agentState';
++import { IFlagService } from '#/app/flag/flag';
++import type { PredictionGeneratedEvent } from '#/app/telemetry/events';
++import { ITelemetryService } from '#/app/telemetry/telemetry';
++import { IAgentPlanService } from '#/features/plan/plan';
++import { createUserMessage } from '#human/llm/message';
++import type { LlmOutcome } from '#human/llm/response';
++import type { TokenUsage } from '#human/llm-requester/usage';
++import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
++import {
++  ISessionActivityView,
++  type SessionActivityCause,
++  type SessionActivityState,
++} from '#/session/sessionActivity/sessionActivity';
++
++import {
++  ISessionPromptPredictionService,
++  PROMPT_PREDICTION_FLAG_ID,
++  PROMPT_PREDICTION_INSTRUCTION,
++  PROMPT_PREDICTION_MAX_CHARS,
++  PROMPT_PREDICTION_MAX_OUTPUT_TOKENS,
++  PROMPT_PREDICTION_TIMEOUT_MS,
++  type PromptPredictionCancelReason,
++  type PromptPredictionInput,
++} from './promptPrediction';
++
++type PredictionOutcome =
++  | 'generated'
++  | 'empty'
++  | 'invalid'
++  | 'tool_call'
++  | 'timeout'
++  | 'cancelled'
++  | 'stale'
++  | 'error';
++
++const ACTIVITY_CANCEL_REASONS = {
++  turn_started: 'activity_turn_started',
++  turn_ended: 'activity_turn_ended',
++  background: 'activity_background',
++  interaction: 'activity_interaction',
++  agent_lifecycle: 'activity_agent_lifecycle',
++} as const satisfies Record<SessionActivityCause, PromptPredictionCancelReason>;
++
++interface ActivePrediction {
++  readonly predictionId: string;
++  readonly expectedTurnId: number;
++  readonly controller: AbortController;
++  readonly deadline: DeadlineAbortSignal;
++  readonly startedAt: number;
++  requested: boolean;
++  outcome: PredictionOutcome;
++  predictionChars?: number;
++  usage?: TokenUsage;
++  requestId?: string;
++  timing?: ModelRequestTiming;
++  cancelReason?: PromptPredictionCancelReason;
++}
++
++interface PredictionScope {
++  readonly handle: IAgentScopeHandle;
++  readonly loop: IAgentLoopService;
++  readonly states: IAgentStateService;
++  readonly plan: IAgentPlanService;
++  readonly telemetry: ITelemetryService;
++}
++
++export class SessionPromptPredictionService extends Disposable implements ISessionPromptPredictionService {
++  declare readonly _serviceBrand: undefined;
++
++  private readonly attemptedTurnIds = new Set<number>();
++  private active: ActivePrediction | undefined;
++
++  constructor(
++    @IAgentLifecycleService private readonly agents: IAgentLifecycleService,
++    @ISessionActivityView private readonly activity: ISessionActivityView,
++    @IFlagService private readonly flags: IFlagService,
++    @ILogService private readonly log: ILogService,
++  ) {
++    super();
++    this._register(this.activity.onDidChange((event) => {
++      this.abortActive(ACTIVITY_CANCEL_REASONS[event.cause]);
++    }));
++    this._register(this.agents.onWillClose((agent) => {
++      if (agent.agentId === MAIN_AGENT_ID) this.abortActive('agent_will_close');
++    }));
++    this._register(this.agents.onDidCreateScope(({ handle }) => {
++      if (handle.id === MAIN_AGENT_ID && handle !== this.activeHandle) {
++        this.abortActive('agent_replaced');
++      }
++    }));
++    this._register(this.agents.onDidClose((agent) => {
++      if (agent.agentId === MAIN_AGENT_ID) this.abortActive('agent_closed');
++    }));
++  }
++
++  private activeHandle: IAgentScopeHandle | undefined;
++
++  async predict(input: PromptPredictionInput): Promise<string | null> {
++    if (!this.flags.enabled(PROMPT_PREDICTION_FLAG_ID) || this.active !== undefined) return null;
++    const scope = this.resolveScope();
++    if (scope === undefined || !this.sourceTurnMatches(scope, input.expectedTurnId)) return null;
++    if (this.attemptedTurnIds.has(input.expectedTurnId)) return null;
++    if (!this.idle(scope.loop.snapshot(), this.activity.state())) return null;
++
++    const contextSnapshot = scope.loop.history();
++    this.attemptedTurnIds.add(input.expectedTurnId);
++    const controller = new AbortController();
++    const active: ActivePrediction = {
++      predictionId: input.predictionId,
++      expectedTurnId: input.expectedTurnId,
++      controller,
++      deadline: createDeadlineAbortSignal(controller.signal, PROMPT_PREDICTION_TIMEOUT_MS),
++      startedAt: Date.now(),
++      requested: false,
++      outcome: 'error',
++    };
++    this.active = active;
++    this.activeHandle = scope.handle;
++    try {
++      const plan = await abortable(scope.plan.status(), active.deadline.signal);
++      if (plan !== null || !this.stillCurrent(active, scope, contextSnapshot)) {
++        active.outcome = 'stale';
++        return null;
++      }
++      active.requested = true;
++      scope.telemetry.track2('prediction_requested', {
++        prediction_id: active.predictionId,
++        turn_id: active.expectedTurnId,
++      });
++      const source = {
++        type: 'operation',
++        turnId: active.expectedTurnId,
++        requestKind: 'prompt_prediction',
++      } as const;
++      let trace: LLMRequestTrace | undefined;
++      const requester = await scope.loop.requester.prepareOperation({
++        maxOutputSize: PROMPT_PREDICTION_MAX_OUTPUT_TOKENS,
++        source: () => source,
++        onTrace: (value) => {
++          trace = value;
++        },
++      }, active.deadline.signal);
++      const outcome = await abortable(requester.generate(
++        {
++          content: {
++            messages: [...contextSnapshot, createUserMessage(PROMPT_PREDICTION_INSTRUCTION)],
++          },
++          profile: {},
++        },
++        { signal: active.deadline.signal },
++      ), active.deadline.signal);
++      if (outcome.type !== 'done') throw errorFromLlmOutcome(outcome);
++      active.usage = outcome.usage;
++      active.requestId = outcome.requestId ?? trace?.requestId;
++      active.timing = outcome.timing;
++      const prediction = predictionText(outcome);
++      if (prediction === null) {
++        active.outcome = outcome.message.toolCalls.length > 0 ? 'tool_call' : 'invalid';
++        return null;
++      }
++      active.predictionChars = prediction.length;
++      if ((await abortable(scope.plan.status(), active.deadline.signal)) !== null) {
++        active.outcome = 'stale';
++        return null;
++      }
++      if (!this.stillCurrent(active, scope, contextSnapshot)) {
++        active.outcome = 'stale';
++        return null;
++      }
++      active.outcome = 'generated';
++      return prediction;
++    } catch {
++      active.outcome = active.deadline.timedOut()
++        ? 'timeout'
++        : active.deadline.signal.aborted
++          ? 'cancelled'
++          : 'error';
++      return null;
++    } finally {
++      if (active.requested) {
++        if (active.outcome === 'error' && active.deadline.signal.aborted) {
++          active.outcome = active.deadline.timedOut() ? 'timeout' : 'cancelled';
++        }
++        const inputTokens = active.usage === undefined
++          ? undefined
++          : active.usage.inputOther +
++            (active.usage.inputCacheRead ?? 0) +
++            active.usage.inputCacheCreation;
++        const cacheReadPct = inputTokens === undefined || inputTokens === 0
++          ? undefined
++          : Math.round(((active.usage?.inputCacheRead ?? 0) / inputTokens) * 10_000) / 100;
++        const properties: PredictionGeneratedEvent = {
++          prediction_id: active.predictionId,
++          turn_id: active.expectedTurnId,
++          status: active.outcome,
++          reason: active.outcome === 'cancelled'
++            ? active.cancelReason ?? 'unspecified'
++            : undefined,
++          duration_ms: Date.now() - active.startedAt,
++          prediction_chars: active.predictionChars,
++          input_tokens: inputTokens,
++          input_other: active.usage?.inputOther,
++          output_tokens: active.usage?.output,
++          input_cache_read: active.usage?.inputCacheRead,
++          input_cache_creation: active.usage?.inputCacheCreation,
++          cache_read_pct: cacheReadPct,
++          ttft_ms: active.timing?.firstTokenLatencyMs,
++          stream_duration_ms: active.timing?.streamDurationMs,
++          request_build_ms: active.timing?.requestBuildMs,
++          server_first_token_ms: active.timing?.serverFirstTokenMs,
++          server_decode_ms: active.timing?.serverDecodeMs,
++          client_consume_ms: active.timing?.clientConsumeMs,
++          client_blocked_ms: active.timing?.clientBlockedMs,
++          request_id: active.requestId,
++        };
++        this.log.info('prompt prediction finished', properties);
++        scope.telemetry.track2('prediction_generated', properties);
++      }
++      active.deadline.clear();
++      if (this.active === active) {
++        this.active = undefined;
++        this.activeHandle = undefined;
++      }
++    }
++  }
++
++  cancel(predictionId: string, reason: PromptPredictionCancelReason = 'unspecified'): boolean {
++    const active = this.active;
++    if (
++      active === undefined ||
++      active.predictionId !== predictionId ||
++      active.controller.signal.aborted
++    ) {
++      return false;
++    }
++    active.outcome = 'cancelled';
++    active.cancelReason = reason;
++    active.controller.abort(abortError(`Prompt prediction cancelled: ${reason}`));
++    return true;
++  }
++
++  override dispose(): void {
++    this.abortActive('disposed');
++    super.dispose();
++  }
++
++  private abortActive(reason: PromptPredictionCancelReason): void {
++    const active = this.active;
++    if (active === undefined || active.controller.signal.aborted) return;
++    if (active.outcome !== 'generated') active.outcome = 'cancelled';
++    active.cancelReason = reason;
++    active.controller.abort(abortError(`Prompt prediction cancelled: ${reason}`));
++  }
++
++  private resolveScope(): PredictionScope | undefined {
++    const handle = this.agents.handleOf(MAIN_AGENT_ID);
++    if (handle === undefined) return undefined;
++    try {
++      return {
++        handle,
++        loop: handle.accessor.get(IAgentLoopService),
++        states: handle.accessor.get(IAgentStateService),
++        plan: handle.accessor.get(IAgentPlanService),
++        telemetry: handle.accessor.get(ITelemetryService),
++      };
++    } catch {
++      return undefined;
++    }
++  }
++
++  private sourceTurnMatches(scope: PredictionScope, expectedTurnId: number): boolean {
++    const lastEnded = scope.states.get(turnKey).lastEnded;
++    return (
++      lastEnded?.turnId === expectedTurnId &&
++      lastEnded.reason === 'completed' &&
++      this.activity.state().lastTurnReason === 'completed'
++    );
++  }
++
++  private stillCurrent(
++    active: ActivePrediction,
++    scope: PredictionScope,
++    contextSnapshot: readonly ContextMessage[],
++  ): boolean {
++    return (
++      this.active === active &&
++      this.activeHandle === scope.handle &&
++      !active.deadline.signal.aborted &&
++      this.flags.enabled(PROMPT_PREDICTION_FLAG_ID) &&
++      this.agents.handleOf(MAIN_AGENT_ID) === scope.handle &&
++      scope.loop.history() === contextSnapshot &&
++      this.sourceTurnMatches(scope, active.expectedTurnId) &&
++      this.idle(scope.loop.snapshot(), this.activity.state())
++    );
++  }
++
++  private idle(loop: LoopSnapshot, activity: SessionActivityState): boolean {
++    return (
++      loop.state === 'idle' &&
++      loop.activeTurnId === undefined &&
++      loop.turn === undefined &&
++      loop.queue.length === 0 &&
++      loop.notificationCount === 0 &&
++      !loop.hasPendingRequests &&
++      !loop.paused &&
++      !activity.busy &&
++      !activity.mainTurnActive &&
++      activity.pendingInteraction === 'none'
++    );
++  }
++}
++
++function predictionText(outcome: Extract<LlmOutcome, { type: 'done' }>): string | null {
++  if (outcome.finish?.finishReason !== 'completed' || outcome.message.toolCalls.length > 0) return null;
++  const parts = outcome.message.content;
++  if (parts.some((part) => part.type !== 'text' && part.type !== 'think')) return null;
++  const text = parts.map((part) => part.type === 'text' ? part.text : '').join('').trim();
++  if (
++    text.length === 0 ||
++    text.length > PROMPT_PREDICTION_MAX_CHARS ||
++    /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/.test(text)
++  ) {
++    return null;
++  }
++  return text;
++}
+diff --git a/packages/agent-core-v2/src/index.ts b/packages/agent-core-v2/src/index.ts
+index 258a8036e3..7fab77a6b1 100644
+--- a/packages/agent-core-v2/src/index.ts
++++ b/packages/agent-core-v2/src/index.ts
+@@ -337,6 +337,9 @@ import '#/agent/modeMutex/modeMutexService';
+ export * from '#/features/btw/btw';
+ export * from '#/features/btw/btwService';
+ import '#/features/btw/btwFeature';
++export * from '#/features/promptPrediction/promptPrediction';
++export * from '#/features/promptPrediction/promptPredictionService';
++import '#/features/promptPrediction/promptPredictionFeature';
+ import '#/features/plan/profile/plan';
+ export * from '#/features/plan/tools/exit-plan-mode/exit-plan-mode';
+ import '#/features/plan/tools/exit-plan-mode/exitPlanModeTool';
+diff --git a/packages/agent-core-v2/src/session/usage/usageAgentModel.ts b/packages/agent-core-v2/src/session/usage/usageAgentModel.ts
+index 3ed10a17e1..14e3d7dc7f 100644
+--- a/packages/agent-core-v2/src/session/usage/usageAgentModel.ts
++++ b/packages/agent-core-v2/src/session/usage/usageAgentModel.ts
+@@ -33,7 +33,11 @@ export class UsageAgentModel extends AgentModel<UsageModelState> {
+ 
+   record(input: UsageRecordInput): Promise<boolean> {
+     const firstRecord = Object.keys(this.state.byModel).length === 0;
+-    const usageScope: UsageRecordScope = input.source?.type === 'turn' ? 'turn' : 'session';
++    const usageScope: UsageRecordScope = input.source?.type === 'turn'
++      ? 'turn'
++      : input.source?.type === 'operation' && input.source.requestKind === 'prompt_prediction'
++        ? 'prediction'
++        : 'session';
+     const recorded = this.emit(
+       new UsageRecord({
+         agentId: this.agent.agentId,
+diff --git a/packages/agent-core-v2/test/agent/usage/usage.test.ts b/packages/agent-core-v2/test/agent/usage/usage.test.ts
+index 6bd5316c9c..9cbf73a920 100644
+--- a/packages/agent-core-v2/test/agent/usage/usage.test.ts
++++ b/packages/agent-core-v2/test/agent/usage/usage.test.ts
+@@ -100,11 +100,17 @@ const a2 = { inputOther: 10, output: 20, inputCacheRead: 30, inputCacheCreation:
+ const b1 = { inputOther: 100, output: 200, inputCacheRead: 300, inputCacheCreation: 400 };
+ 
+ describe('SessionUsageService (wire-backed)', () => {
+-  it('accumulates usage by model', async () => {
++  it('accumulates usage by model without mutating prior status snapshots', async () => {
+     await svc.record(agent, 'model-a', a1);
++    const snapshot = svc.status(agent);
+     await svc.record(agent, 'model-a', a2);
+     await svc.record(agent, 'model-b', b1);
+ 
++    expect(snapshot).toEqual({
++      byModel: { 'model-a': a1 },
++      total: a1,
++      currentTurn: undefined,
++    });
+     expect(svc.status(agent)).toEqual({
+       byModel: {
+         'model-a': { inputOther: 11, output: 22, inputCacheRead: 33, inputCacheCreation: 44 },
+@@ -138,19 +144,6 @@ describe('SessionUsageService (wire-backed)', () => {
+     });
+   });
+ 
+-  it('returns immutable status snapshots', async () => {
+-    await svc.record(agent, 'model-a', a1);
+-    const snapshot = svc.status(agent);
+-
+-    await svc.record(agent, 'model-a', a2);
+-
+-    expect(snapshot).toEqual({
+-      byModel: { 'model-a': a1 },
+-      total: a1,
+-      currentTurn: undefined,
+-    });
+-  });
+-
+   it('emits agent.status.updated with the usage snapshot after each live record', async () => {
+     const events: Event2[] = [];
+     disposables.add(ix.get(IEventBus).subscribe((e) => events.push(e)));
+@@ -248,9 +241,15 @@ describe('SessionUsageService (wire-backed)', () => {
+     expect('payload' in records[0]!).toBe(false);
+   });
+ 
+-  it('marks turn-scoped sources with usageScope only (no turnId or context persisted)', async () => {
++  it('marks turn and prediction scopes without adding prediction to currentTurn', async () => {
+     await svc.record(agent, 'model-a', a1, { type: 'turn', turnId: 7, step: 2 });
++    await svc.record(agent, 'model-a', a2, {
++      type: 'operation',
++      turnId: 7,
++      requestKind: 'prompt_prediction',
++    });
+ 
++    expect(svc.status(agent).currentTurn).toEqual(a1);
+     const records = await readRecords();
+     expect(records).toEqual([
+       {
+@@ -261,6 +260,14 @@ describe('SessionUsageService (wire-backed)', () => {
+         usageScope: 'turn',
+         time: expect.any(Number),
+       },
++      {
++        type: 'usage.record',
++        agentId: 'test-agent',
++        model: 'model-a',
++        usage: a2,
++        usageScope: 'prediction',
++        time: expect.any(Number),
++      },
+     ]);
+   });
+ 
+diff --git a/packages/agent-core-v2/test/features/promptPrediction/promptPrediction.test.ts b/packages/agent-core-v2/test/features/promptPrediction/promptPrediction.test.ts
+new file mode 100644
+index 0000000000..6ff6023e03
+--- /dev/null
++++ b/packages/agent-core-v2/test/features/promptPrediction/promptPrediction.test.ts
+@@ -0,0 +1,258 @@
++import { describe, expect, it, vi } from 'vitest';
++
++import { Emitter } from '#/_base/event';
++import type { ILogService } from '#/_base/log/log';
++import type { ContextMessage } from '#/agent/contextMemory/types';
++import { IAgentLoopService } from '#/agent/loop/loop';
++import type { CoreLoopRequester, OperationLoopRequesterOptions } from '#/agent/loop/requesterContract';
++import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
++import { IAgentStateService } from '#/agent/state/agentState';
++import { IFlagService } from '#/app/flag/flag';
++import { ITelemetryService } from '#/app/telemetry/telemetry';
++import { IAgentPlanService } from '#/features/plan/plan';
++import { SessionPromptPredictionService } from '#/features/promptPrediction/promptPredictionService';
++import type { LlmOutcome } from '#human/llm/response';
++import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
++import {
++  ISessionActivityView,
++  type SessionActivityChangedEvent,
++} from '#/session/sessionActivity/sessionActivity';
++
++type PredictionOutcome = Extract<LlmOutcome, { type: 'done' }>;
++
++function finish(
++  text: string,
++  toolCalls: PredictionOutcome['message']['toolCalls'] = [],
++  finishReason: NonNullable<PredictionOutcome['finish']>['finishReason'] = 'completed',
++): PredictionOutcome {
++  return {
++    type: 'done',
++    finish: { finishReason, rawFinishReason: finishReason },
++    message: {
++      role: 'assistant',
++      content: text.length === 0 ? [] : [{ type: 'think', think: 'reasoning' }, { type: 'text', text }],
++      toolCalls,
++    },
++    usage: { inputOther: 3, output: 2, inputCacheRead: 5, inputCacheCreation: 1 },
++    timing: {
++      firstTokenLatencyMs: 120,
++      streamDurationMs: 230,
++      requestBuildMs: 3,
++      serverFirstTokenMs: 117,
++      serverDecodeMs: 220,
++      clientConsumeMs: 4,
++      clientBlockedMs: 200,
++    },
++    requestId: 'request-1',
++  };
++}
++
++describe('SessionPromptPredictionService', () => {
++  it('keeps prediction isolated, strictly once, cancellable, and stale-safe', async () => {
++    let enabled = false;
++    let lastEnded = { turnId: 0, reason: 'completed' as const };
++    let contextSnapshot: readonly ContextMessage[] = [
++      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
++    ];
++    const originalContext = contextSnapshot;
++    let nextResult = () => Promise.resolve(finish('inspect the failing test'));
++    const requests: Array<{
++      options: OperationLoopRequesterOptions;
++      input?: Parameters<CoreLoopRequester['generate']>[0];
++      signal?: AbortSignal;
++    }> = [];
++    const requester = {
++      prepareOperation: async (options: OperationLoopRequesterOptions, signal: AbortSignal) => {
++        const request: (typeof requests)[number] = { options, signal };
++        requests.push(request);
++        options.onTrace?.({ requestId: 'request-1' });
++        return {
++          generate: (
++            input: Parameters<CoreLoopRequester['generate']>[0],
++            control: { signal: AbortSignal },
++          ) => {
++            request.input = input;
++            request.signal = control.signal;
++            return nextResult();
++          },
++        };
++      },
++    };
++    const loop = {
++      requester,
++      history: () => contextSnapshot,
++      snapshot: () => ({
++        state: 'idle',
++        queue: [],
++        notificationCount: 0,
++        paused: false,
++        hasPendingRequests: false,
++      }),
++    };
++    const handle = {
++      id: MAIN_AGENT_ID,
++      accessor: {
++        get: (token: unknown) => {
++          if (token === IAgentLoopService) return loop;
++          if (token === IAgentStateService) return { get: () => ({ lastEnded }) };
++          if (token === IAgentPlanService) return { status: async () => null };
++          if (token === IAgentScopeContext) return { agentContext: { agentId: MAIN_AGENT_ID } };
++          if (token === ITelemetryService) return telemetry;
++          throw new Error('unexpected service');
++        },
++      },
++    };
++    const activityEmitter = new Emitter<SessionActivityChangedEvent>();
++    const lifecycle = {
++      handleOf: (id: string) => id === MAIN_AGENT_ID ? handle : undefined,
++      onWillClose: new Emitter<never>().event,
++      onDidCreateScope: new Emitter<never>().event,
++      onDidClose: new Emitter<never>().event,
++    } as unknown as IAgentLifecycleService;
++    const activity = {
++      state: () => ({
++        busy: false,
++        mainTurnActive: false,
++        pendingInteraction: 'none',
++        lastTurnReason: 'completed',
++      }),
++      onDidChange: activityEmitter.event,
++    } as unknown as ISessionActivityView;
++    const flags = { enabled: () => enabled } as unknown as IFlagService;
++    const log = { info: vi.fn() } as unknown as ILogService;
++    const telemetry = { track2: vi.fn() } as unknown as ITelemetryService;
++    const service = new SessionPromptPredictionService(lifecycle, activity, flags, log);
++
++    await expect(service.predict({ predictionId: 'disabled', expectedTurnId: 0 })).resolves.toBeNull();
++    enabled = true;
++    await expect(service.predict({ predictionId: 'first', expectedTurnId: 0 })).resolves.toBe(
++      'inspect the failing test',
++    );
++    await expect(service.predict({ predictionId: 'duplicate', expectedTurnId: 0 })).resolves.toBeNull();
++    expect(log.info).toHaveBeenCalledWith('prompt prediction finished', expect.objectContaining({
++      status: 'generated',
++      input_other: 3,
++      cache_read_pct: 55.56,
++      ttft_ms: 120,
++      stream_duration_ms: 230,
++      request_build_ms: 3,
++      server_first_token_ms: 117,
++      server_decode_ms: 220,
++      client_consume_ms: 4,
++      client_blocked_ms: 200,
++    }));
++    expect(requests).toHaveLength(1);
++    expect(requests[0]?.options.source()).toEqual({
++      type: 'operation',
++      turnId: 0,
++      requestKind: 'prompt_prediction',
++    });
++    expect(requests[0]?.input?.content?.messages).toHaveLength(2);
++    expect(requests[0]?.input?.content?.messages?.at(-1)).toEqual({
++      role: 'user',
++      content: [{
++        type: 'text',
++        text: expect.stringMatching(
++          /predict what THEY would type[\s\S]*NEVER SUGGEST[\s\S]*Stay silent if the next step[\s\S]*Format: 2-12 words, match the user's style and language\. Or nothing\./,
++        ),
++      }],
++    });
++    expect(requests[0]?.options.tools).toBeUndefined();
++    expect(contextSnapshot).toBe(originalContext);
++    expect(contextSnapshot).toHaveLength(1);
++
++    lastEnded = { turnId: 1, reason: 'completed' };
++    nextResult = () => Promise.resolve(finish('', [{ type: 'function', id: 'call-1', name: 'Read', arguments: '{}' }]));
++    await expect(service.predict({ predictionId: 'tools', expectedTurnId: 1 })).resolves.toBeNull();
++    expect(contextSnapshot).toBe(originalContext);
++    expect(requests).toHaveLength(2);
++
++    lastEnded = { turnId: 2, reason: 'completed' };
++    nextResult = () => Promise.resolve(finish('run this\u001b[2J'));
++    await expect(service.predict({ predictionId: 'control', expectedTurnId: 2 })).resolves.toBeNull();
++    expect(requests).toHaveLength(3);
++
++    lastEnded = { turnId: 3, reason: 'completed' };
++    nextResult = () => Promise.resolve(finish('partial', [], 'filtered'));
++    await expect(service.predict({ predictionId: 'filtered', expectedTurnId: 3 })).resolves.toBeNull();
++    expect(requests).toHaveLength(4);
++
++    lastEnded = { turnId: 4, reason: 'completed' };
++    nextResult = () => new Promise<PredictionOutcome>(() => {});
++    const cancelled = service.predict({ predictionId: 'cancel-me', expectedTurnId: 4 });
++    await vi.waitFor(() => expect(requests).toHaveLength(5));
++    expect(service.cancel('other')).toBe(false);
++    expect(service.cancel('cancel-me', 'escape')).toBe(true);
++    expect(service.cancel('cancel-me', 'escape')).toBe(false);
++    await expect(cancelled).resolves.toBeNull();
++    expect(requests[4]?.signal?.aborted).toBe(true);
++    expect(telemetry.track2).toHaveBeenCalledWith('prediction_generated', expect.objectContaining({
++      status: 'cancelled',
++      reason: 'escape',
++    }));
++    expect(log.info).toHaveBeenCalledWith('prompt prediction finished', expect.objectContaining({
++      status: 'cancelled',
++      reason: 'escape',
++    }));
++
++    lastEnded = { turnId: 5, reason: 'completed' };
++    let resolveStale!: (result: PredictionOutcome) => void;
++    nextResult = () => new Promise<PredictionOutcome>((resolve) => {
++      resolveStale = resolve;
++    });
++    const stale = service.predict({ predictionId: 'stale', expectedTurnId: 5 });
++    await vi.waitFor(() => expect(requests).toHaveLength(6));
++    contextSnapshot = [];
++    resolveStale(finish('must not leak'));
++    await expect(stale).resolves.toBeNull();
++
++    lastEnded = { turnId: 6, reason: 'completed' };
++    contextSnapshot = originalContext;
++    nextResult = () => new Promise<PredictionOutcome>(() => {});
++    const activityCancelled = service.predict({ predictionId: 'activity-cancelled', expectedTurnId: 6 });
++    await vi.waitFor(() => expect(requests).toHaveLength(7));
++    activityEmitter.fire({
++      state: {
++        busy: true,
++        mainTurnActive: false,
++        pendingInteraction: 'none',
++        lastTurnReason: 'completed',
++      },
++      cause: 'background',
++    });
++    await expect(activityCancelled).resolves.toBeNull();
++    expect(requests[6]?.signal?.aborted).toBe(true);
++    expect(telemetry.track2).toHaveBeenCalledWith('prediction_generated', expect.objectContaining({
++      status: 'cancelled',
++      reason: 'activity_background',
++    }));
++
++    lastEnded = { turnId: 7, reason: 'completed' };
++    vi.useFakeTimers();
++    const timedOut = service.predict({ predictionId: 'timeout', expectedTurnId: 7 });
++    try {
++      await vi.advanceTimersByTimeAsync(0);
++      expect(requests).toHaveLength(8);
++      await vi.advanceTimersByTimeAsync(20_000);
++      await expect(timedOut).resolves.toBeNull();
++      expect(requests[7]?.signal?.aborted).toBe(true);
++      expect(telemetry.track2).toHaveBeenCalledWith('prediction_generated', expect.objectContaining({
++        status: 'timeout',
++      }));
++    } finally {
++      vi.useRealTimers();
++    }
++
++    lastEnded = { turnId: 8, reason: 'completed' };
++    const disposed = service.predict({ predictionId: 'dispose', expectedTurnId: 8 });
++    await vi.waitFor(() => expect(requests).toHaveLength(9));
++    service.dispose();
++    await expect(disposed).resolves.toBeNull();
++    expect(requests[8]?.signal?.aborted).toBe(true);
++    expect(telemetry.track2).toHaveBeenCalledWith('prediction_generated', expect.objectContaining({
++      status: 'cancelled',
++      reason: 'disposed',
++    }));
++    expect(service.cancel('dispose')).toBe(false);
++  });
++});
+diff --git a/packages/kap-server/src/protocol/rest-session.ts b/packages/kap-server/src/protocol/rest-session.ts
+index c8dd347b18..3948e876bb 100644
+--- a/packages/kap-server/src/protocol/rest-session.ts
++++ b/packages/kap-server/src/protocol/rest-session.ts
+@@ -104,6 +104,50 @@ export const startBtwSessionResponseSchema = z.object({
+ });
+ export type StartBtwSessionResponse = z.infer<typeof startBtwSessionResponseSchema>;
+ 
++export const predictPromptRequestSchema = z.object({
++  prediction_id: z.string().min(1),
++  expected_turn_id: z.number().int().nonnegative(),
++});
++export type PredictPromptRequest = z.infer<typeof predictPromptRequestSchema>;
++
++export const predictPromptResponseSchema = z.object({
++  prediction: z.string().nullable(),
++});
++export type PredictPromptResponse = z.infer<typeof predictPromptResponseSchema>;
++
++export const cancelPromptPredictionRequestSchema = z.object({
++  prediction_id: z.string().min(1),
++  reason: z.enum([
++    'input',
++    'escape',
++    'new_turn',
++    'session',
++    'dialog',
++    'queue',
++    'submit',
++    'plan',
++    'visibility',
++    'shutdown',
++    'disconnect',
++    'activity_turn_started',
++    'activity_turn_ended',
++    'activity_background',
++    'activity_interaction',
++    'activity_agent_lifecycle',
++    'agent_will_close',
++    'agent_replaced',
++    'agent_closed',
++    'disposed',
++    'unspecified',
++  ]).optional(),
++});
++export type CancelPromptPredictionRequest = z.infer<typeof cancelPromptPredictionRequestSchema>;
++
++export const cancelPromptPredictionResponseSchema = z.object({
++  cancelled: z.boolean(),
++});
++export type CancelPromptPredictionResponse = z.infer<typeof cancelPromptPredictionResponseSchema>;
++
+ export const listSessionChildrenQuerySchema = cursorQuerySchema.and(
+   z.object({
+     busy: booleanQueryParam,
+diff --git a/packages/kap-server/src/routes/sessions.ts b/packages/kap-server/src/routes/sessions.ts
+index 9cf152aee2..5c1475d767 100644
+--- a/packages/kap-server/src/routes/sessions.ts
++++ b/packages/kap-server/src/routes/sessions.ts
+@@ -17,6 +17,7 @@ import {
+   ISessionIndex,
+   ISessionMetadata,
+   ISessionLegacyService,
++  ISessionPromptPredictionService,
+   ISessionTitleService,
+   IEventService,
+   SessionCreated,
+@@ -48,6 +49,8 @@ import type { ConversationService } from '../services/conversation/conversationS
+ import { loadWorkspaceVisibility } from '../services/workspaceVisibility';
+ import {
+   archiveSessionResponseSchema,
++  cancelPromptPredictionRequestSchema,
++  cancelPromptPredictionResponseSchema,
+   compactSessionRequestSchema,
+   compactSessionResponseSchema,
+   createSessionChildRequestSchema,
+@@ -58,6 +61,8 @@ import {
+   editSessionGoalResponseSchema,
+   getSessionGoalResponseSchema,
+   listSessionChildrenResponseSchema,
++  predictPromptRequestSchema,
++  predictPromptResponseSchema,
+   sessionAbortResponseSchema,
+   sessionWarningsResponseSchema,
+   startBtwSessionResponseSchema,
+@@ -189,6 +194,11 @@ const sessionActionRequestSchema = z.preprocess(
+     instruction: z.string().optional(),
+     turn_id: z.string().min(1).optional(),
+     agent_id: z.string().min(1).optional(),
++     count: z.number().int().positive().optional(),
++     page_size: z.number().int().min(1).max(100).optional(),
++    prediction_id: z.string().min(1).optional(),
++    expected_turn_id: z.number().int().nonnegative().optional(),
++    reason: cancelPromptPredictionRequestSchema.shape.reason,
+   }),
+ );
+ 
+@@ -645,6 +655,8 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope, conve
+           undoSessionResponseSchema,
+           sessionAbortResponseSchema,
+           startBtwSessionResponseSchema,
++          predictPromptResponseSchema,
++          cancelPromptPredictionResponseSchema,
+           archiveSessionResponseSchema,
+           deleteSessionResponseSchema,
+           takeoverSessionResponseSchema,
+@@ -927,6 +939,8 @@ type SessionAction =
+   | 'undo'
+   | 'abort'
+   | 'btw'
++  | 'predict-prompt'
++  | 'cancel-prompt-prediction'
+   | 'restore'
+   | 'archive'
+   | 'delete'
+@@ -936,8 +950,22 @@ type SessionAction =
+ interface SessionActionExtra {
+   readonly core: Scope;
+   readonly conversations: ConversationService;
+-  readonly req: { readonly id: string };
+-  readonly reply: { readonly send: (payload: unknown) => unknown };
++  readonly req: {
++    readonly id: string;
++    readonly raw?: {
++      readonly aborted: boolean;
++      once(event: 'aborted', listener: () => void): unknown;
++      off(event: 'aborted', listener: () => void): unknown;
++    };
++  };
++  readonly reply: {
++    readonly send: (payload: unknown) => unknown;
++    readonly raw?: {
++      readonly destroyed: boolean;
++      once(event: 'close', listener: () => void): unknown;
++      off(event: 'close', listener: () => void): unknown;
++    };
++  };
+ }
+ 
+ type SessionActionCtx<TBody = unknown> = SessionActionExtra & {
+@@ -951,6 +979,14 @@ const sessionActions: ActionTable<SessionAction, SessionActionExtra> = {
+   undo: { body: undoSessionRequestSchema, handle: undoSessionAction },
+   abort: { handle: abortSessionAction },
+   btw: { handle: btwSessionAction },
++  'predict-prompt': {
++    body: predictPromptRequestSchema,
++    handle: predictPromptAction,
++  },
++  'cancel-prompt-prediction': {
++    body: cancelPromptPredictionRequestSchema,
++    handle: cancelPromptPredictionAction,
++  },
+   restore: { handle: restoreSessionAction },
+   archive: { handle: archiveSessionAction },
+   delete: { handle: deleteSessionAction },
+@@ -1046,6 +1082,50 @@ async function btwSessionAction(ctx: SessionActionCtx): Promise<void> {
+   reply.send(okEnvelope({ agent_id: agentId }, req.id));
+ }
+ 
++async function predictPromptAction(
++  ctx: SessionActionCtx<z.infer<typeof predictPromptRequestSchema>>,
++): Promise<void> {
++  const { core, req, reply, id, body } = ctx;
++  const session = await resumeSessionById(core.accessor, id);
++  if (session === undefined) {
++    throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
++  }
++  const service = session.accessor.get(ISessionPromptPredictionService);
++  const disconnected = (): boolean => req.raw?.aborted === true || reply.raw?.destroyed === true;
++  const onAborted = (): void => {
++    service.cancel(body.prediction_id, 'disconnect');
++  };
++  req.raw?.once('aborted', onAborted);
++  reply.raw?.once('close', onAborted);
++  try {
++    if (disconnected()) return;
++    const prediction = await service.predict({
++      predictionId: body.prediction_id,
++      expectedTurnId: body.expected_turn_id,
++    });
++    if (!disconnected()) {
++      reply.send(okEnvelope(predictPromptResponseSchema.parse({ prediction }), req.id));
++    }
++  } finally {
++    req.raw?.off('aborted', onAborted);
++    reply.raw?.off('close', onAborted);
++  }
++}
++
++async function cancelPromptPredictionAction(
++  ctx: SessionActionCtx<z.infer<typeof cancelPromptPredictionRequestSchema>>,
++): Promise<void> {
++  const { core, req, reply, id, body } = ctx;
++  const session = await resumeSessionById(core.accessor, id);
++  if (session === undefined) {
++    throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
++  }
++  const cancelled = session.accessor
++    .get(ISessionPromptPredictionService)
++    .cancel(body.prediction_id, body.reason);
++  reply.send(okEnvelope(cancelPromptPredictionResponseSchema.parse({ cancelled }), req.id));
++}
++
+ async function restoreSessionAction(ctx: SessionActionCtx): Promise<void> {
+   const { core, req, reply, id } = ctx;
+   const restored = await core.accessor.get(ISessionManager).restore(id);
+diff --git a/packages/kap-server/test/sessions.test.ts b/packages/kap-server/test/sessions.test.ts
+index bb29eceff9..21ac1448e3 100644
+--- a/packages/kap-server/test/sessions.test.ts
++++ b/packages/kap-server/test/sessions.test.ts
+@@ -32,6 +32,7 @@ import {
+   ISessionIndexMirror,
+   ISessionManager,
+   ISessionMetadata,
++  ISessionPromptPredictionService,
+   ISessionTitleService,
+   IWireService,
+   IWorkspaceInstanceManager,
+@@ -1598,14 +1599,71 @@ describe('server-v2 /api/v1/sessions', () => {
+     }
+   });
+ 
+-  it('rejects a missing session delete and an unsupported action suffix with their error codes', async () => {
++  it('rejects unsupported actions and serves prediction actions with disconnect cancellation', async () => {
+     const { body } = await postJson<null>('/api/v1/sessions/sess_missing:delete');
+     expect(body.code).toBe(40401);
+ 
+     const cwd = home as string;
+     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+-    const suffix = await postJson<null>(`/api/v1/sessions/${created.body.data.id}:restart`);
++    const id = created.body.data.id;
++    const suffix = await postJson<null>(`/api/v1/sessions/${id}:restart`);
+     expect(suffix.body.code).toBe(40001);
++
++    const predicted = await postJson<{ prediction: string | null }>(`/api/v1/sessions/${id}:predict-prompt`, {
++      prediction_id: 'prediction-1',
++      expected_turn_id: 0,
++    });
++    expect(predicted.body.data).toEqual({ prediction: null });
++    const cancelled = await postJson<{ cancelled: boolean }>(`/api/v1/sessions/${id}:cancel-prompt-prediction`, {
++      prediction_id: 'prediction-1',
++    });
++    expect(cancelled.body.data).toEqual({ cancelled: false });
++
++    const session = getLiveSessionById((server as RunningServer).core.accessor, id);
++    if (session === undefined) throw new Error('expected live session');
++    const service = session.accessor.get(ISessionPromptPredictionService);
++    let releasePrediction!: () => void;
++    const gate = new Promise<void>((resolve) => {
++      releasePrediction = resolve;
++    });
++    let markPredictionSettled!: () => void;
++    const predictionSettled = new Promise<void>((resolve) => {
++      markPredictionSettled = resolve;
++    });
++    const predict = vi.spyOn(service, 'predict').mockImplementation(async () => {
++      await gate;
++      markPredictionSettled();
++      return null;
++    });
++    const cancel = vi.spyOn(service, 'cancel');
++    const cancelledWithReason = await postJson<{ cancelled: boolean }>(`/api/v1/sessions/${id}:cancel-prompt-prediction`, {
++      prediction_id: 'visibility-check',
++      reason: 'visibility',
++    });
++    expect(cancelledWithReason.body.data).toEqual({ cancelled: false });
++    expect(cancel).toHaveBeenCalledWith('visibility-check', 'visibility');
++    const cancelledForPlan = await postJson<{ cancelled: boolean }>(`/api/v1/sessions/${id}:cancel-prompt-prediction`, {
++      prediction_id: 'plan-check',
++      reason: 'plan',
++    });
++    expect(cancelledForPlan.body.data).toEqual({ cancelled: false });
++    expect(cancel).toHaveBeenCalledWith('plan-check', 'plan');
++    const abortController = new AbortController();
++    const request = fetch(`${base}/api/v1/sessions/${id}:predict-prompt`, {
++      method: 'POST',
++      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
++      body: JSON.stringify({ prediction_id: 'disconnect-me', expected_turn_id: 0 }),
++      signal: abortController.signal,
++    } as never).catch(() => undefined);
++    await vi.waitFor(() => expect(predict).toHaveBeenCalledOnce());
++    abortController.abort();
++    await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith('disconnect-me', 'disconnect'));
++    releasePrediction();
++    await request;
++    await predictionSettled;
++    await new Promise<void>((resolve) => {
++      setImmediate(resolve);
++    });
+   });
+ 
+   it('cold-loads a persisted session on :undo and reports an unknown turn instead of 40401', async () => {
+diff --git a/packages/klient/src/contract/index.ts b/packages/klient/src/contract/index.ts
+index ef4e8dbaed..3438b71a90 100644
+--- a/packages/klient/src/contract/index.ts
++++ b/packages/klient/src/contract/index.ts
+@@ -45,6 +45,7 @@ import { sessionInteractionContract } from './session/interaction.js';
+ import { sessionManagerContract } from './session/lifecycle.js';
+ import { sessionMetadataContract } from './session/metadata.js';
+ import { sessionQuestionContract } from './session/question.js';
++import { sessionPromptPredictionContract } from './session/promptPrediction.js';
+ import { sessionSkillCatalogContract } from './session/skills.js';
+ import { sessionTitleContract } from './session/title.js';
+ 
+@@ -73,6 +74,7 @@ export const globalContract: KlientContract = {
+   sessionInteractionService: sessionInteractionContract,
+   sessionApprovalService: sessionApprovalContract,
+   sessionQuestionService: sessionQuestionContract,
++  sessionPromptPredictionService: sessionPromptPredictionContract,
+   sessionSkillCatalog: sessionSkillCatalogContract,
+   sessionTitleService: sessionTitleContract,
+   sessionActivityView: sessionActivityViewContract,
+diff --git a/packages/klient/src/contract/session/promptPrediction.ts b/packages/klient/src/contract/session/promptPrediction.ts
+new file mode 100644
+index 0000000000..797806ff20
+--- /dev/null
++++ b/packages/klient/src/contract/session/promptPrediction.ts
+@@ -0,0 +1,45 @@
++import { z } from 'zod';
++
++import type { ServiceContract } from '../types.js';
++
++export const promptPredictionInputSchema = z.object({
++  predictionId: z.string().min(1),
++  expectedTurnId: z.number().int().nonnegative(),
++});
++
++export const promptPredictionCancelInputSchema = z.string().min(1);
++
++export const promptPredictionCancelReasonSchema = z.enum([
++  'input',
++  'escape',
++  'new_turn',
++  'session',
++  'dialog',
++  'queue',
++  'submit',
++  'plan',
++  'visibility',
++  'shutdown',
++  'disconnect',
++  'activity_turn_started',
++  'activity_turn_ended',
++  'activity_background',
++  'activity_interaction',
++  'activity_agent_lifecycle',
++  'agent_will_close',
++  'agent_replaced',
++  'agent_closed',
++  'disposed',
++  'unspecified',
++]);
++
++export const sessionPromptPredictionContract = {
++  predict: {
++    input: z.tuple([promptPredictionInputSchema]),
++    output: z.string().nullable(),
++  },
++  cancel: {
++    input: z.tuple([promptPredictionCancelInputSchema, promptPredictionCancelReasonSchema.optional()]),
++    output: z.boolean(),
++  },
++} satisfies ServiceContract;
+diff --git a/packages/klient/src/core/facade/session.ts b/packages/klient/src/core/facade/session.ts
+index 3a9a653b85..1466ecdc17 100644
+--- a/packages/klient/src/core/facade/session.ts
++++ b/packages/klient/src/core/facade/session.ts
+@@ -24,6 +24,7 @@ import type {
+   SessionMeta,
+   SessionMetaPatch,
+ } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
++import type { PromptPredictionCancelReason } from '@moonshot-ai/agent-core-v2/features/promptPrediction/promptPrediction';
+ import type { SkillSummary } from '@moonshot-ai/agent-core-v2/features/skill/catalog/types';
+ 
+ import type { ScopeRef } from '../channel.js';
+@@ -111,6 +112,14 @@ export interface SessionFacade {
+     turnIndex?: number;
+   }): Promise<SessionMeta>;
+   createChild(input?: { title?: string; metadata?: Record<string, unknown> }): Promise<SessionMeta>;
++  predictNextPrompt(input: {
++    predictionId: string;
++    expectedTurnId: number;
++  }): Promise<string | null>;
++  cancelPromptPrediction(
++    predictionId: string,
++    reason?: PromptPredictionCancelReason,
++  ): Promise<boolean>;
+   readonly approvals: SessionApprovalsFacade;
+   readonly questions: SessionQuestionsFacade;
+   readonly interactions: SessionInteractionsFacade;
+@@ -165,6 +174,10 @@ export function createSessionFacade(call: ScopedCaller, sessionId: string): Sess
+     delete: () => call({}, 'sessionManager', 'delete', [sessionId]) as Promise<void>,
+     fork: (input) => spawn('fork', input),
+     createChild: (input) => spawn('createChild', input),
++    predictNextPrompt: (input) =>
++      call(scope, 'sessionPromptPredictionService', 'predict', [input]) as Promise<string | null>,
++    cancelPromptPrediction: (predictionId, reason) =>
++      call(scope, 'sessionPromptPredictionService', 'cancel', [predictionId, reason]) as Promise<boolean>,
+ 
+     approvals: {
+       list: () =>
+diff --git a/packages/klient/src/transports/memory/serviceRegistry.ts b/packages/klient/src/transports/memory/serviceRegistry.ts
+index 4bc6a27871..a1007286de 100644
+--- a/packages/klient/src/transports/memory/serviceRegistry.ts
++++ b/packages/klient/src/transports/memory/serviceRegistry.ts
+@@ -36,6 +36,7 @@ import { IAgentCommandService } from '@moonshot-ai/agent-core-v2/agent/command/a
+ import { IAgentEnvironmentBindingService } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentBinding';
+ import { ISessionTokenCountingService } from '@moonshot-ai/agent-core-v2/session/tokenCounting/sessionTokenCounting';
+ import { ISessionActivityView } from '@moonshot-ai/agent-core-v2/session/sessionActivity/sessionActivity';
++import { ISessionPromptPredictionService } from '@moonshot-ai/agent-core-v2/features/promptPrediction/promptPrediction';
+ import { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
+ import { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommand';
+ import { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
+@@ -73,6 +74,7 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
+   agentEnvironmentBindingService: IAgentEnvironmentBindingService,
+   agentTokenCountingService: ISessionTokenCountingService,
+   sessionActivityView: ISessionActivityView,
++  sessionPromptPredictionService: ISessionPromptPredictionService,
+   agentShellCommandService: IAgentShellCommandService,
+   agentProfileService: IAgentLoopService,
+   agentUsageService: ISessionUsageService,
+diff --git a/packages/klient/test/contract-parity.ts b/packages/klient/test/contract-parity.ts
+index 172c234bf2..33f80033b7 100644
+--- a/packages/klient/test/contract-parity.ts
++++ b/packages/klient/test/contract-parity.ts
+@@ -74,6 +74,7 @@ import type {
+   SessionMetadataChangedEvent,
+   SessionMetaPatch,
+ } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
++import type { ISessionPromptPredictionService } from '@moonshot-ai/agent-core-v2/features/promptPrediction/promptPrediction';
+ import type { ISessionTitleService } from '@moonshot-ai/agent-core-v2/session/sessionTitle/sessionTitle';
+ import type {
+   AuthStatus,
+@@ -246,6 +247,12 @@ import {
+   questionResponseSchema,
+   questionResultSchema,
+ } from '../src/contract/session/question.js';
++import {
++  promptPredictionCancelInputSchema,
++  promptPredictionCancelReasonSchema,
++  promptPredictionInputSchema,
++  sessionPromptPredictionContract,
++} from '../src/contract/session/promptPrediction.js';
+ import { skillSummarySchema } from '../src/contract/session/skills.js';
+ import { sessionTitleContract } from '../src/contract/session/title.js';
+ 
+@@ -599,6 +606,26 @@ const _generateTitleOutput: AssertWire<
+   (typeof sessionTitleContract)['generateTitle']['output'],
+   Awaited<ReturnType<ISessionTitleService['generateTitle']>>
+ > = true;
++const _promptPredictionInput: AssertWire<
++  typeof promptPredictionInputSchema,
++  Parameters<ISessionPromptPredictionService['predict']>[0]
++> = true;
++const _promptPredictionOutput: AssertWire<
++  (typeof sessionPromptPredictionContract)['predict']['output'],
++  Awaited<ReturnType<ISessionPromptPredictionService['predict']>>
++> = true;
++const _cancelPromptPredictionInput: AssertWire<
++  typeof promptPredictionCancelInputSchema,
++  Parameters<ISessionPromptPredictionService['cancel']>[0]
++> = true;
++const _cancelPromptPredictionReason: AssertWire<
++  typeof promptPredictionCancelReasonSchema,
++  NonNullable<Parameters<ISessionPromptPredictionService['cancel']>[1]>
++> = true;
++const _cancelPromptPredictionOutput: AssertWire<
++  (typeof sessionPromptPredictionContract)['cancel']['output'],
++  ReturnType<ISessionPromptPredictionService['cancel']>
++> = true;
+ 
+ // session/activity.ts
+ const _sessionActivityState: AssertWire<typeof sessionActivityStateSchema, SessionActivityState> =
+diff --git a/packages/klient/test/facade.test.ts b/packages/klient/test/facade.test.ts
+index 5a16b35b35..e2fc48f549 100644
+--- a/packages/klient/test/facade.test.ts
++++ b/packages/klient/test/facade.test.ts
+@@ -93,6 +93,28 @@ describe('facade routing', () => {
+       method: 'status',
+       args: [undefined],
+     });
++
++    channel.results.set('sessionPromptPredictionService.predict', 'next prompt');
++    await expect(klient.session('s1').predictNextPrompt({
++      predictionId: 'prediction-1',
++      expectedTurnId: 4,
++    })).resolves.toBe('next prompt');
++    channel.results.set('sessionPromptPredictionService.cancel', true);
++    await expect(klient.session('s1').cancelPromptPrediction('prediction-1', 'escape')).resolves.toBe(true);
++    expect(channel.calls.slice(3)).toEqual([
++      {
++        scope: { sessionId: 's1' },
++        service: 'sessionPromptPredictionService',
++        method: 'predict',
++        args: [{ predictionId: 'prediction-1', expectedTurnId: 4 }],
++      },
++      {
++        scope: { sessionId: 's1' },
++        service: 'sessionPromptPredictionService',
++        method: 'cancel',
++        args: ['prediction-1', 'escape'],
++      },
++    ]);
+   });
+ 
+   it('forwards the login region option through the wire contract', async () => {
+diff --git a/packages/node-sdk/src/rpc.ts b/packages/node-sdk/src/rpc.ts
+index bf4988f561..cb90b77795 100644
+--- a/packages/node-sdk/src/rpc.ts
++++ b/packages/node-sdk/src/rpc.ts
+@@ -1,5 +1,6 @@
+ import { AsyncLocalStorage } from 'node:async_hooks';
+ 
++import type { PromptPredictionCancelReason } from '@moonshot-ai/agent-core-v2/features/promptPrediction/promptPrediction';
+ import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2/features/swarm/agent/swarm';
+ 
+ import type { AgentContextData } from '#/context';
+@@ -363,6 +364,22 @@ export abstract class SDKRpcClientBase {
+ 
+   abstract startBtw(input: SessionIdRpcInput): Promise<string>;
+ 
++  async predictNextPrompt(_input: {
++    sessionId: string;
++    predictionId: string;
++    expectedTurnId: number;
++  }): Promise<string | null> {
++    return null;
++  }
++
++  async cancelPromptPrediction(_input: {
++    sessionId: string;
++    predictionId: string;
++    reason?: PromptPredictionCancelReason;
++  }): Promise<boolean> {
++    return false;
++  }
++
+   abstract cancel(input: SessionIdRpcInput): Promise<void>;
+ 
+   abstract clearContext(input: SessionIdRpcInput): Promise<void>;
+diff --git a/packages/node-sdk/src/sdk-rpc-client-v2.ts b/packages/node-sdk/src/sdk-rpc-client-v2.ts
+index 5f0bef435d..b61e4fdb5a 100644
+--- a/packages/node-sdk/src/sdk-rpc-client-v2.ts
++++ b/packages/node-sdk/src/sdk-rpc-client-v2.ts
+@@ -147,6 +147,7 @@ import { ContextClear } from '@moonshot-ai/agent-core-v2/agent/contextMemory/con
+ import { IEventDispatcher } from '@moonshot-ai/agent-core-v2/state/eventDispatcher';
+ import { historyEntryFromContext } from '@moonshot-ai/agent-core-v2/agent/loop/history';
+ import { agentTaskInfo } from '@moonshot-ai/agent-core-v2/agent/task/handler';
++import type { PromptPredictionCancelReason } from '@moonshot-ai/agent-core-v2/features/promptPrediction/promptPrediction';
+ import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
+ import { ITowerRateLimitService } from '@moonshot-ai/agent-core-v2/features/tower/towerRateLimit';
+ import { readTowerStatusSummary } from '@moonshot-ai/agent-core-v2/features/tower/tools/status/statusReader';
+@@ -2607,6 +2608,27 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
+     return session.accessor.get(ISessionBtwService).start();
+   }
+ 
++  override async predictNextPrompt(input: {
++    sessionId: string;
++    predictionId: string;
++    expectedTurnId: number;
++  }): Promise<string | null> {
++    this.requireLiveSession(input.sessionId);
++    return this.klient.session(input.sessionId).predictNextPrompt({
++      predictionId: input.predictionId,
++      expectedTurnId: input.expectedTurnId,
++    });
++  }
++
++  override async cancelPromptPrediction(input: {
++    sessionId: string;
++    predictionId: string;
++    reason?: PromptPredictionCancelReason;
++  }): Promise<boolean> {
++    this.requireLiveSession(input.sessionId);
++    return this.klient.session(input.sessionId).cancelPromptPrediction(input.predictionId, input.reason);
++  }
++
+   /**
+    * Through the agent scope (`IAgentSwarmService.enter` / `.exit`) — no
+    * klient facade exists. The v2 service is the port of v1's `SwarmMode`:
+diff --git a/packages/node-sdk/src/session.ts b/packages/node-sdk/src/session.ts
+index 797380c7eb..5cd1012a8a 100644
+--- a/packages/node-sdk/src/session.ts
++++ b/packages/node-sdk/src/session.ts
+@@ -1,3 +1,4 @@
++import type { PromptPredictionCancelReason } from '@moonshot-ai/agent-core-v2/features/promptPrediction/promptPrediction';
+ import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2/features/swarm/agent/swarm';
+ 
+ import type { AgentContextData } from '#/context';
+@@ -263,6 +264,22 @@ export class Session {
+     return this.rpc.startBtw({ sessionId: this.id });
+   }
+ 
++  async predictNextPrompt(input: {
++    predictionId: string;
++    expectedTurnId: number;
++  }): Promise<string | null> {
++    this.ensureOpen();
++    return this.rpc.predictNextPrompt({ sessionId: this.id, ...input });
++  }
++
++  async cancelPromptPrediction(
++    predictionId: string,
++    reason?: PromptPredictionCancelReason,
++  ): Promise<boolean> {
++    this.ensureOpen();
++    return this.rpc.cancelPromptPrediction({ sessionId: this.id, predictionId, reason });
++  }
++
+   async cancel(): Promise<void> {
+     this.ensureOpen();
+     await this.rpc.cancel({ sessionId: this.id });
+diff --git a/packages/node-sdk/test/sdk-rpc-client-v2.test.ts b/packages/node-sdk/test/sdk-rpc-client-v2.test.ts
+index 7eeeaf2db7..105e845710 100644
+--- a/packages/node-sdk/test/sdk-rpc-client-v2.test.ts
++++ b/packages/node-sdk/test/sdk-rpc-client-v2.test.ts
+@@ -235,6 +235,11 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
+       expect(binding.environmentId).toBe('local');
+       expect(binding).toEqual({ environmentId: 'local' });
+       expect(await session.getEnvironment()).toEqual(binding);
++      await expect(session.predictNextPrompt({
++        predictionId: 'prediction-1',
++        expectedTurnId: 0,
++      })).resolves.toBeNull();
++      await expect(session.cancelPromptPrediction('prediction-1', 'escape')).resolves.toBe(false);
+     } finally {
+       await harness.close();
+     }

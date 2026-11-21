@@ -1,9 +1,8 @@
 import { Service } from '#/_base/di/service';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { isCompactionSummaryMessage } from '#/agent/contextMemory/compactionHandoff';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { planTailContract } from '#/agent/tokenCounting/tailAnchor';
 import type { GoalSnapshot } from '#/features/goal/types';
 import type { IAgentReminderService } from '#/features/reminder/reminderService';
 import type { ContextInjectionContext, ContextInjectionResult } from '#/features/reminder/types';
@@ -31,25 +30,15 @@ interface GoalReminderDisclosure {
 export const GOAL_WAIT_FOR_GUIDANCE =
   'If you are waiting for background sub-agents or bash tasks to finish, call WaitFor to wait for them inside this turn instead of ending the turn; ending the turn just gets you re-invoked again and again. You can also use the waiting time to do useful parallel work. Either way, make sure every goal turn is productive.';
 
-export const GOAL_TAIL_ANCHOR_THRESHOLD_TOKENS = 20_000;
-
 export class GoalInjection extends Service {
-  private anchorGoalId: string | undefined;
-  private anchorTokens: number | undefined;
-
   constructor(
     private readonly options: GoalInjectionOptions,
     injector: IAgentReminderService,
-    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentLoopService private readonly context: IAgentLoopService,
   ) {
     super();
     this._register(
       injector.register<GoalReminderDisclosure>('goal', (injection) => this.reminder(injection)),
-    );
-    this._register(
-      injector.register('goal_tail', ({ isNewTurn, estimatedTokens }) =>
-        isNewTurn ? this.tailContract(estimatedTokens) : undefined,
-      ),
     );
   }
 
@@ -62,38 +51,13 @@ export class GoalInjection extends Service {
     const waitForEnabled = this.options.isWaitForEnabled?.() === true;
     const disclosure = goalDisclosure(goal, waitForEnabled);
     const full =
-      goal.status !== 'active' || needsFullGoalReminder(injection, disclosure, this.context.get());
+      goal.status !== 'active' || needsFullGoalReminder(injection, disclosure, this.context.history());
     return {
       content: buildGoalReminder(goal, waitForEnabled, full),
       disclosure,
     };
   }
-
-  private tailContract(estimatedTokens: number | undefined): string | undefined {
-    if (estimatedTokens === undefined) return undefined;
-    const goal = this.options.getGoal();
-    if (goal === null || goal.status !== 'active') return undefined;
-    if (goal.goalId !== this.anchorGoalId) {
-      this.anchorGoalId = goal.goalId;
-      this.anchorTokens = undefined;
-    }
-    const text = planTailContract({
-      estimatedTokens,
-      threshold: GOAL_TAIL_ANCHOR_THRESHOLD_TOKENS,
-      lastAnchorTokens: this.anchorTokens,
-      goal: goal.objective,
-      constraints: goal.completionCriterion === undefined ? [] : [goal.completionCriterion],
-    });
-    if (text === undefined) return undefined;
-    this.anchorTokens = estimatedTokens;
-    return text;
-  }
 }
-
-const BUDGET_GUIDANCE_NEARING =
-  'Budget guidance: you are nearing a budget. Converge on the objective and avoid starting new discretionary work.';
-const BUDGET_GUIDANCE_WITHIN =
-  'Budget guidance: you are within budget. Make steady, focused progress toward the objective.';
 
 function goalDisclosure(goal: GoalSnapshot, waitForEnabled: boolean): GoalReminderDisclosure {
   return {
@@ -129,25 +93,26 @@ function needsFullGoalReminder(
   return history.slice(injection.lastInjectedAt ?? 0).some(isCompactionSummaryMessage);
 }
 
-function buildBlockedNote(goal: GoalSnapshot): string {
-  return renderPrompt(GOAL_BLOCKED_REMINDER, {
-    reason_suffix: reasonSuffix(goal),
-    objective: escapeUntrustedText(goal.objective),
-    completion_criterion_block: completionCriterionBlock(goal),
-  });
-}
-
-function buildPausedNote(goal: GoalSnapshot): string {
-  return renderPrompt(GOAL_PAUSED_REMINDER, {
-    reason_suffix: reasonSuffix(goal),
-    objective: escapeUntrustedText(goal.objective),
-    completion_criterion_block: completionCriterionBlock(goal),
-  });
-}
+const BUDGET_GUIDANCE_NEARING =
+  'Budget guidance: you are nearing a budget. Converge on the objective and avoid starting new discretionary work.';
+const BUDGET_GUIDANCE_WITHIN =
+  'Budget guidance: you are within budget. Make steady, focused progress toward the objective.';
 
 function buildGoalReminder(goal: GoalSnapshot, waitForEnabled: boolean, full: boolean): string {
-  if (goal.status === 'blocked') return buildBlockedNote(goal);
-  if (goal.status === 'paused') return buildPausedNote(goal);
+  if (goal.status === 'blocked') {
+    return renderPrompt(GOAL_BLOCKED_REMINDER, {
+      reason_suffix: reasonSuffix(goal),
+      objective: escapeUntrustedText(goal.objective),
+      completion_criterion_block: completionCriterionBlock(goal),
+    });
+  }
+  if (goal.status === 'paused') {
+    return renderPrompt(GOAL_PAUSED_REMINDER, {
+      reason_suffix: reasonSuffix(goal),
+      objective: escapeUntrustedText(goal.objective),
+      completion_criterion_block: completionCriterionBlock(goal),
+    });
+  }
   const budgets = formatBudgets(goal);
   return renderPrompt(full ? GOAL_ACTIVE_REMINDER : GOAL_ACTIVE_SPARSE_REMINDER, {
     objective: escapeUntrustedText(goal.objective),

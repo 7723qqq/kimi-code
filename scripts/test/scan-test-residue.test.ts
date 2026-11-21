@@ -24,6 +24,7 @@ const VITEST = 'vite' + 'st';
 const BUN_LACKS_POLL = ['Bun', 'has', 'no', '`expect.poll`'].join(' ');
 const VI_IMPORT = ['expect', 'v' + 'i'].join(', ');
 const VI_CALL = 'v' + 'i.fn()';
+const PLAYWRIGHT = ['@playwright', 'test'].join('/');
 
 function fixture(...lines: string[]): string {
   return `${lines.join('\n')}\n`;
@@ -181,8 +182,46 @@ describe('scan-test-residue', () => {
     expect(withoutReason.report.missingBaselineReasons.length).toBe(1);
   });
 
-  it('fails the run on an error-level hit and passes when there is none', async () => {
-    await write('packages/a/test/clean.test.ts', "import { expect } from 'bun:test';\n");
+  it('leaves Playwright specs to the Playwright runner', async () => {
+    await write(
+      'apps/desktop/e2e/poll.spec.ts',
+      fixture(
+        `import { expect, test } from '${PLAYWRIGHT}';`,
+        `test('x', async () => { await expect.poll(() => true).toBe(true); });`,
+      ),
+    );
+
+    const { report } = await scan(['--json']);
+    expect(hits(report, 'expect-poll')).not.toContain('apps/desktop/e2e/poll.spec.ts');
+  });
+
+  it('recognizes an e2e .spec file that imports a local Playwright fixture', async () => {
+    await write(
+      'apps/desktop/e2e/fixture-import.spec.ts',
+      fixture(
+        `import { expect, test } from './fixtures/app';`,
+        `test('x', async () => { await expect.poll(() => true).toBe(true); });`,
+      ),
+    );
+
+    const { report } = await scan(['--json']);
+    expect(hits(report, 'expect-poll')).not.toContain('apps/desktop/e2e/fixture-import.spec.ts');
+  });
+
+  it('still reports expect.poll inside a bun:test file', async () => {
+    await write(
+      'packages/a/test/poll.test.ts',
+      fixture(
+        `import { expect, test } from 'bun:test';`,
+        `test('x', async () => { await expect.poll(() => true).toBe(true); });`,
+      ),
+    );
+
+    const { report } = await scan(['--json']);
+    expect(hits(report, 'expect-poll')).toContain('packages/a/test/poll.test.ts');
+  });
+
+  it('fails the run on an error-level hit and passes when there is none', async () => {    await write('packages/a/test/clean.test.ts', "import { expect } from 'bun:test';\n");
     expect((await scan()).code).toBe(0);
 
     await write(

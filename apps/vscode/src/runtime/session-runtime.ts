@@ -5,24 +5,24 @@ import {
   type PromptInput,
   type Session,
   type SessionSummary,
-} from '@moonshot-ai/kimi-code-sdk';
+} from "@moonshot-ai/kimi-code-sdk";
 
-import { Events } from '../../shared/bridge';
-import { getUserMessage } from '../../shared/errors';
-import type { ContentPart as LegacyContentPart, ApprovalResponse } from '../../shared/legacy-sdk';
-import type { ErrorPhase, UIStreamEvent } from '../../shared/types';
+import type { ContentPart as LegacyContentPart, ApprovalResponse } from "../../shared/legacy-sdk";
+import { Events } from "../../shared/bridge";
+import { getUserMessage } from "../../shared/errors";
+import type { ErrorPhase, UIStreamEvent } from "../../shared/types";
 import {
   adaptSdkEvent,
   createEventAdapterState,
   type EventAdapterState,
   type TurnTerminalMetadata,
-} from './event-adapter';
+} from "./event-adapter";
 import {
   corePermissionForLegacyApproval,
   legacyApprovalMetadata,
   type LegacyApprovalFlags,
-} from './legacy-approval';
-import { ReverseRpcController } from './reverse-rpc';
+} from "./legacy-approval";
+import { ReverseRpcController } from "./reverse-rpc";
 
 export type RuntimeBroadcast = (event: string, data: unknown, webviewId?: string) => void;
 
@@ -31,7 +31,7 @@ export interface SessionRuntimeOptions {
   readonly legacyApproval: LegacyApprovalFlags;
   readonly broadcast: RuntimeBroadcast;
   readonly captureBaseline: (
-    session: Pick<SessionSummary, 'id' | 'workDir' | 'metadata'>,
+    session: Pick<SessionSummary, "id" | "workDir" | "metadata">,
     filePath: string,
     webviewIds: readonly string[],
   ) => void;
@@ -45,10 +45,10 @@ interface ActivePrompt {
   resolve: (result: PromptResult) => void;
 }
 
-const ALREADY_GENERATING_MESSAGE = 'A response is already being generated for this session.';
+const ALREADY_GENERATING_MESSAGE = "A response is already being generated for this session.";
 
 export interface PromptResult {
-  readonly status: 'finished' | 'cancelled' | 'failed';
+  readonly status: "finished" | "cancelled" | "failed";
 }
 
 interface SuppressedError {
@@ -58,21 +58,16 @@ interface SuppressedError {
 
 interface PendingHostCompaction {
   readonly actionId: number;
-  readonly resolve: (result: 'completed' | 'cancelled') => void;
+  readonly resolve: (result: "completed" | "cancelled") => void;
   readonly reject: (error: unknown) => void;
 }
 
-/**
- * Owns the one SDK event subscription and reverse-RPC handlers for a session.
- * Any number of Webviews may subscribe without replacing each other's approval
- * handler or duplicating streamed events.
- */
 export class SessionRuntime {
   readonly session: Session;
 
   private readonly broadcast: RuntimeBroadcast;
-  private readonly captureBaseline: SessionRuntimeOptions['captureBaseline'];
-  private readonly log: SessionRuntimeOptions['log'];
+  private readonly captureBaseline: SessionRuntimeOptions["captureBaseline"];
+  private readonly log: SessionRuntimeOptions["log"];
   private readonly webviewIds = new Set<string>();
   private readonly reverseRpc: ReverseRpcController;
   private readonly unsubscribe: () => void;
@@ -90,15 +85,6 @@ export class SessionRuntime {
   private legacyApproval: LegacyApprovalFlags;
   private closed = false;
 
-  /**
-   * True once the current display stream has ended (an engine terminal event
-   * or a finished/cancelled host action) and until the next work period
-   * begins. Late subagent events — e.g. an init child still draining its
-   * provider stream after the host action that launched it was cancelled —
-   * belong to a stream the Webview already closed, so they are suppressed.
-   */
-  private turnStreamClosed = false;
-
   constructor(options: SessionRuntimeOptions) {
     this.session = options.session;
     this.broadcast = options.broadcast;
@@ -107,10 +93,6 @@ export class SessionRuntime {
     this.legacyApproval = options.legacyApproval;
     this.reverseRpc = new ReverseRpcController((event) => this.emitStreamEvent(event));
 
-    // Forward every approval request to the user. The engine permission mode
-    // (mapped from the legacy flags) already auto-approves what yolo/auto
-    // allow internally; anything that reaches this handler is an exception
-    // (sensitive file, plan review, ask rule) the user must decide on.
     this.session.setApprovalHandler((request) => this.reverseRpc.requestApproval(request));
     this.session.setQuestionHandler((request) => this.reverseRpc.requestQuestion(request));
     this.unsubscribe = this.session.onEvent((event) => this.onSdkEvent(event));
@@ -152,11 +134,6 @@ export class SessionRuntime {
     this.webviewIds.add(webviewId);
   }
 
-  /**
-   * Push the session's current status to a view. Called whenever a view
-   * opens or re-enters a session so the display (model, thinking effort,
-   * plan mode) matches engine truth instead of the global defaults.
-   */
   async announceStatus(webviewId: string): Promise<void> {
     this.ensureOpen();
     const status = await this.session.getStatus();
@@ -164,7 +141,7 @@ export class SessionRuntime {
     this.broadcast(
       Events.StreamEvent,
       {
-        type: 'StatusUpdate',
+        type: "StatusUpdate",
         payload: {
           model: status.model,
           thinking_effort: status.thinkingEffort,
@@ -191,16 +168,12 @@ export class SessionRuntime {
   ): Promise<PromptResult> {
     this.ensureOpen();
     if (this.isBusy) {
-      // A re-entrant turn request must never disturb the active turn — it fails
-      // only itself. When a turn or host action is running, its later terminal
-      // stream event unlocks every subscribed view, so a non-terminal warning
-      // is enough. An exclusive operation (e.g. fork materialization) emits no
-      // such terminal event, so reject terminally: the caller's composer must
-      // unlock rather than hang until the handshake timeout.
-      this.emitError(new Error(ALREADY_GENERATING_MESSAGE), 'runtime', {
-        terminal: this.hasActiveWork ? false : undefined,
-      });
-      return { status: 'failed' };
+      this.emitError(
+        new Error(ALREADY_GENERATING_MESSAGE),
+        "runtime",
+        { terminal: this.hasActiveWork ? false : undefined },
+      );
+      return { status: "failed" };
     }
 
     let resolveCompletion!: (result: PromptResult) => void;
@@ -218,12 +191,9 @@ export class SessionRuntime {
     try {
       await action();
     } catch (error) {
-      // Only settle the prompt this call created. Once the event pipeline or a
-      // cancel has settled it, the failure was already reported — settling it
-      // again would misreport the active turn and could emit a duplicate error.
       if (!active.settled) {
-        this.emitError(error, active.started ? 'runtime' : 'preflight');
-        this.settlePrompt({ status: 'failed' });
+        this.emitError(error, active.started ? "runtime" : "preflight");
+        this.settlePrompt({ status: "failed" });
       }
     }
 
@@ -238,14 +208,13 @@ export class SessionRuntime {
     const actionId = ++this.hostActionSequence;
     this.hostActionActive = true;
     this.activeHostActionId = actionId;
-    this.turnStreamClosed = false;
     this.emitStreamEvent({
-      type: 'TurnBegin',
+      type: "TurnBegin",
       payload: { user_input: input, forkable },
       _sessionId: this.id,
     });
     this.emitStreamEvent({
-      type: 'StepBegin',
+      type: "StepBegin",
       payload: { n: 1 },
       _sessionId: this.id,
     });
@@ -255,15 +224,15 @@ export class SessionRuntime {
   emitHostText(text: string, actionId = this.activeHostActionId): void {
     if (!this.hostActionActive || actionId !== this.activeHostActionId || text.length === 0) return;
     this.emitStreamEvent({
-      type: 'ContentPart',
-      payload: { type: 'text', text },
+      type: "ContentPart",
+      payload: { type: "text", text },
       _sessionId: this.id,
     });
   }
 
   announceSessionStart(model?: string): void {
     this.emitStreamEvent({
-      type: 'session_start',
+      type: "session_start",
       sessionId: this.id,
       ...(model === undefined ? {} : { model }),
       _sessionId: this.id,
@@ -271,15 +240,14 @@ export class SessionRuntime {
   }
 
   completeHostAction(
-    status: 'finished' | 'cancelled' = 'finished',
+    status: "finished" | "cancelled" = "finished",
     actionId = this.activeHostActionId,
   ): void {
     if (!this.hostActionActive || actionId !== this.activeHostActionId) return;
     this.hostActionActive = false;
     this.activeHostActionId = undefined;
-    this.turnStreamClosed = true;
     this.emitStreamEvent({
-      type: 'stream_complete',
+      type: "stream_complete",
       result: { status },
       _sessionId: this.id,
     });
@@ -290,7 +258,6 @@ export class SessionRuntime {
     if (!this.hostActionActive || actionId !== this.activeHostActionId) return;
     this.hostActionActive = false;
     this.activeHostActionId = undefined;
-    this.turnStreamClosed = true;
     this.notifyActiveWorkSettled();
   }
 
@@ -304,15 +271,15 @@ export class SessionRuntime {
 
   async compactHostAction(actionId: number, instruction?: string): Promise<void> {
     if (!this.hostActionActive || actionId !== this.activeHostActionId) {
-      throw new Error('The host action is no longer active.');
+      throw new Error("The host action is no longer active.");
     }
     if (this.pendingHostCompaction !== undefined) {
-      throw new Error('A context compaction is already running.');
+      throw new Error("A context compaction is already running.");
     }
 
-    let resolveCompletion!: (result: 'completed' | 'cancelled') => void;
+    let resolveCompletion!: (result: "completed" | "cancelled") => void;
     let rejectCompletion!: (error: unknown) => void;
-    const completion = new Promise<'completed' | 'cancelled'>((resolve, reject) => {
+    const completion = new Promise<"completed" | "cancelled">((resolve, reject) => {
       resolveCompletion = resolve;
       rejectCompletion = reject;
     });
@@ -332,47 +299,32 @@ export class SessionRuntime {
     }
 
     const result = await completion;
-    if (result === 'cancelled') {
-      throw new Error('Context compaction was cancelled.');
+    if (result === "cancelled") {
+      throw new Error("Context compaction was cancelled.");
     }
   }
 
   async cancel(): Promise<void> {
-    // Always reach the engine, even when the host believes nothing is active.
-    // The host-side bookkeeping can drift from engine truth after an abnormal
-    // error path; session.cancel() is a harmless no-op when the engine is
-    // idle, but it is the only way to recover a turn the host lost track of.
     if (this.closed) return;
-    this.reverseRpc.cancelAll('Turn cancelled');
+    this.reverseRpc.cancelAll("Turn cancelled");
     const cancellingHostAction = this.hostActionActive;
     const hostActionId = this.activeHostActionId;
     if (cancellingHostAction && hostActionId !== undefined) {
       this.cancelledHostActions.add(hostActionId);
-      this.completeHostAction('cancelled', hostActionId);
+      this.completeHostAction("cancelled", hostActionId);
     }
-    // A manual compaction is not a model turn, so Session.cancel() alone does
-    // not stop it. Calling both public cancellation surfaces is harmless when
-    // the other operation is idle and keeps the Stop button correct for both
-    // normal turns and host-side slash commands such as /compact and /init.
     const results = await Promise.allSettled([
       this.session.cancel(),
       ...(cancellingHostAction ? [this.session.cancelCompaction()] : []),
     ]);
-    const failure = results.find(
-      (result): result is PromiseRejectedResult => result.status === 'rejected',
-    );
+    const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
     if (failure !== undefined) throw failure.reason;
   }
 
-  /**
-   * Stop any in-flight work, wait for its terminal event, and keep new turns
-   * out until the supplied operation finishes. Forking uses this so it reads a
-   * fully settled session instead of racing the asynchronous cancel event.
-   */
   async runExclusiveAfterCancelling<T>(action: () => Promise<T>): Promise<T> {
     this.ensureOpen();
     if (this.exclusiveActionActive) {
-      throw new Error('Another session operation is already in progress.');
+      throw new Error("Another session operation is already in progress.");
     }
 
     this.exclusiveActionActive = true;
@@ -391,7 +343,7 @@ export class SessionRuntime {
     this.ensureOpen();
     await this.session.steer(toSdkPromptInput(input));
     this.emitStreamEvent({
-      type: 'SteerInput',
+      type: "SteerInput",
       payload: { user_input: input },
       _sessionId: this.id,
     });
@@ -408,9 +360,9 @@ export class SessionRuntime {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    this.pendingHostCompaction?.reject(new Error('Session closed during context compaction.'));
+    this.pendingHostCompaction?.reject(new Error("Session closed during context compaction."));
     this.pendingHostCompaction = undefined;
-    this.reverseRpc.cancelAll('Session closed');
+    this.reverseRpc.cancelAll("Session closed");
     this.unsubscribe();
     this.session.setApprovalHandler(undefined);
     this.session.setQuestionHandler(undefined);
@@ -418,9 +370,9 @@ export class SessionRuntime {
       try {
         await this.session.cancel();
       } catch (error) {
-        this.log('Failed to cancel the active turn while closing a session', error);
+        this.log("Failed to cancel the active turn while closing a session", error);
       }
-      if (this.activePrompt !== undefined) this.settlePrompt({ status: 'cancelled' });
+      if (this.activePrompt !== undefined) this.settlePrompt({ status: "cancelled" });
       this.hostActionActive = false;
       this.activeHostActionId = undefined;
       this.notifyActiveWorkSettled();
@@ -441,7 +393,7 @@ export class SessionRuntime {
     } catch (error) {
       if (permissionChanged) {
         await this.session.setPermission(status.permission).catch((rollbackError: unknown) => {
-          this.log('Failed to restore session permission after a metadata error', rollbackError);
+          this.log("Failed to restore session permission after a metadata error", rollbackError);
         });
       }
       throw error;
@@ -452,38 +404,37 @@ export class SessionRuntime {
   private onSdkEvent(event: Event): void {
     if (this.closed) return;
 
-    if (event.type === 'compaction.completed' || event.type === 'compaction.cancelled') {
+    if (event.type === "compaction.completed" || event.type === "compaction.cancelled") {
       const pending = this.pendingHostCompaction;
       if (pending !== undefined) {
         this.pendingHostCompaction = undefined;
-        pending.resolve(event.type === 'compaction.completed' ? 'completed' : 'cancelled');
+        pending.resolve(event.type === "compaction.completed" ? "completed" : "cancelled");
       }
     }
 
-    if (event.type === 'turn.started' && event.agentId === 'main') {
-      this.turnStreamClosed = false;
-      if (this.activePrompt !== undefined) this.activePrompt.started = true;
+    if (event.type === "turn.started" && event.agentId === "main" && this.activePrompt !== undefined) {
+      this.activePrompt.started = true;
     }
 
-    if (event.type === 'tool.call.started') {
+    if (event.type === "tool.call.started") {
       this.captureFileBaseline(event);
     }
 
-    if (event.type === 'turn.step.retrying') {
+    if (event.type === "turn.step.retrying") {
       this.log(
         `Provider retry ${event.nextAttempt}/${event.maxAttempts} in ${event.delayMs}ms`,
         new Error(event.errorMessage),
       );
     }
 
-    if (event.type === 'error' && this.consumeSuppressedError(event.code, event.message)) {
+    if (event.type === "error" && this.consumeSuppressedError(event.code, event.message)) {
       return;
     }
 
     const pendingInput = this.activePrompt?.input;
     const adapted = adaptSdkEvent(this.adapterState, event, {
       pendingInput,
-      errorPhase: this.activePrompt?.started === false ? 'preflight' : 'runtime',
+      errorPhase: this.activePrompt?.started === false ? "preflight" : "runtime",
     });
     this.adapterState = adapted.state;
 
@@ -493,36 +444,22 @@ export class SessionRuntime {
     }
 
     if (adapted.event !== undefined) {
-      if (adapted.event.type === 'SubagentEvent' && this.turnStreamClosed) {
-        // The main turn / host action that spawned this subagent already
-        // reached its terminal event; its late events must not reopen the
-        // closed Webview display.
-        return;
-      }
-      // Errors the core reports while the active turn keeps running (they are
-      // not followed by a terminal turn.ended) must not look turn-ending to the
-      // Webview — otherwise the UI unlocks mid-turn and the next send collides
-      // with the still-active prompt.
       const wireEvent =
-        adapted.event.type === 'error' && this.activePrompt?.started === true
+        adapted.event.type === "error" && this.activePrompt?.started === true
           ? { ...adapted.event, terminal: false as const }
           : adapted.event;
       this.emitStreamEvent(wireEvent);
-      if (
-        adapted.event.type === 'error' &&
-        this.activePrompt !== undefined &&
-        !this.activePrompt.started
-      ) {
-        this.settlePrompt({ status: 'failed' });
+      if (adapted.event.type === "error" && this.activePrompt !== undefined && !this.activePrompt.started) {
+        this.settlePrompt({ status: "failed" });
       }
     }
   }
 
-  private captureFileBaseline(event: Extract<Event, { type: 'tool.call.started' }>): void {
-    if (event.name !== 'Write' && event.name !== 'Edit') return;
+  private captureFileBaseline(event: Extract<Event, { type: "tool.call.started" }>): void {
+    if (event.name !== "Write" && event.name !== "Edit") return;
     if (!isRecord(event.args)) return;
-    const filePath = event.args['path'];
-    if (typeof filePath !== 'string' || filePath.length === 0) return;
+    const filePath = event.args["path"];
+    if (typeof filePath !== "string" || filePath.length === 0) return;
 
     const summary = this.session.summary;
     this.captureBaseline(
@@ -539,46 +476,45 @@ export class SessionRuntime {
   private emitTerminal(terminal: TurnTerminalMetadata): void {
     if (this.terminalKeys.has(terminal.key)) return;
     this.terminalKeys.add(terminal.key);
-    this.turnStreamClosed = true;
 
-    if (terminal.reason === 'completed') {
+    if (terminal.reason === "completed") {
       this.emitStreamEvent({
-        type: 'stream_complete',
-        result: { status: 'finished' },
+        type: "stream_complete",
+        result: { status: "finished" },
         _sessionId: terminal.sessionId,
       });
-      this.settlePrompt({ status: 'finished' });
+      this.settlePrompt({ status: "finished" });
       return;
     }
 
-    if (terminal.reason === 'cancelled') {
-      this.reverseRpc.cancelAll('Turn cancelled');
+    if (terminal.reason === "cancelled") {
+      this.reverseRpc.cancelAll("Turn cancelled");
       this.emitStreamEvent({
-        type: 'stream_complete',
-        result: { status: 'cancelled' },
+        type: "stream_complete",
+        result: { status: "cancelled" },
         _sessionId: terminal.sessionId,
       });
-      this.settlePrompt({ status: 'cancelled' });
+      this.settlePrompt({ status: "cancelled" });
       return;
     }
 
     const code = terminal.error?.code ?? `turn.${terminal.reason}`;
-    this.reverseRpc.cancelAll('Turn ended');
+    this.reverseRpc.cancelAll("Turn ended");
     const detail = terminal.error?.message ?? `Turn ended with reason: ${terminal.reason}`;
     const message = getUserMessage(code, detail);
-    this.log('Session turn failed', new Error(`${code}: ${detail}`));
+    this.log("Session turn failed", new Error(`${code}: ${detail}`));
     this.emitStreamEvent({
-      type: 'error',
+      type: "error",
       code,
       message,
       detail,
-      phase: 'runtime',
+      phase: "runtime",
       _sessionId: terminal.sessionId,
     });
     if (terminal.error !== undefined) {
       this.suppressedError = { code: terminal.error.code, message: terminal.error.message };
     }
-    this.settlePrompt({ status: 'failed' });
+    this.settlePrompt({ status: "failed" });
   }
 
   private consumeSuppressedError(code: string, message: string): boolean {
@@ -588,16 +524,12 @@ export class SessionRuntime {
     return suppressed.code === code && suppressed.message === message;
   }
 
-  private emitError(
-    error: unknown,
-    phase: ErrorPhase,
-    options?: { readonly terminal?: boolean },
-  ): void {
-    const code = isKimiError(error) ? error.code : 'internal';
+  private emitError(error: unknown, phase: ErrorPhase, options?: { readonly terminal?: boolean }): void {
+    const code = isKimiError(error) ? error.code : "internal";
     const detail = error instanceof Error ? error.message : String(error);
     this.log(`Session ${phase} error`, error);
     this.emitStreamEvent({
-      type: 'error',
+      type: "error",
       code,
       message: getUserMessage(code, detail),
       detail,
@@ -640,43 +572,38 @@ export class SessionRuntime {
   }
 
   private ensureOpen(): void {
-    if (this.closed) throw new Error('Session is closed.');
+    if (this.closed) throw new Error("Session is closed.");
   }
 }
 
 export function toSdkPromptInput(input: string | LegacyContentPart[]): string | PromptInput {
-  if (typeof input === 'string') return input;
+  if (typeof input === "string") return input;
   const parts: SdkContentPart[] = [];
   for (const part of input) {
     switch (part.type) {
-      case 'text':
-        parts.push({ type: 'text', text: part.text });
+      case "text":
+        parts.push({ type: "text", text: part.text });
         break;
-      case 'image_url':
+      case "image_url":
         parts.push({
-          type: 'image_url',
+          type: "image_url",
           imageUrl: {
             url: part.image_url.url,
-            ...(part.image_url.id === null || part.image_url.id === undefined
-              ? {}
-              : { id: part.image_url.id }),
+            ...(part.image_url.id === null || part.image_url.id === undefined ? {} : { id: part.image_url.id }),
           },
         });
         break;
-      case 'video_url':
+      case "video_url":
         parts.push({
-          type: 'video_url',
+          type: "video_url",
           videoUrl: {
             url: part.video_url.url,
-            ...(part.video_url.id === null || part.video_url.id === undefined
-              ? {}
-              : { id: part.video_url.id }),
+            ...(part.video_url.id === null || part.video_url.id === undefined ? {} : { id: part.video_url.id }),
           },
         });
         break;
-      case 'audio_url':
-      case 'think':
-        // PromptInput intentionally accepts user text/images/videos only.
+      case "audio_url":
+      case "think":
         break;
     }
   }
@@ -684,5 +611,5 @@ export function toSdkPromptInput(input: string | LegacyContentPart[]): string | 
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

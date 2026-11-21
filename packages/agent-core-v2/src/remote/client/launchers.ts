@@ -114,46 +114,6 @@ function execServerShellCommand(remoteBin: string): string {
   return [bin, ...EXEC_SERVER_ARGV.map(shQuote)].join(' ');
 }
 
-const COMMAND_LAUNCHER_ENV_KEYS: ReadonlySet<string> = new Set([
-  'PATH',
-  'HOME',
-  'LANG',
-  'TZ',
-  'TMPDIR',
-  'TEMP',
-  'TMP',
-  'SHELL',
-  'USER',
-  'LOGNAME',
-  'SystemRoot',
-  'SystemDrive',
-  'windir',
-  'ComSpec',
-  'PATHEXT',
-]);
-
-const COMMAND_LAUNCHER_ENV_KEYS_WINDOWS: ReadonlySet<string> = new Set(
-  [...COMMAND_LAUNCHER_ENV_KEYS].map((key) => key.toUpperCase()),
-);
-
-export function commandLauncherEnv(
-  specEnv?: Record<string, string>,
-  baseEnv: Readonly<Record<string, string | undefined>> = process.env,
-): Record<string, string> {
-  const caseInsensitive = process.platform === 'win32';
-  const allowed = caseInsensitive ? COMMAND_LAUNCHER_ENV_KEYS_WINDOWS : COMMAND_LAUNCHER_ENV_KEYS;
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(baseEnv)) {
-    if (value === undefined) continue;
-    const normalized = caseInsensitive ? key.toUpperCase() : key;
-    if (allowed.has(normalized) || normalized.startsWith('LC_')) {
-      env[key] = value;
-    }
-  }
-  if (specEnv !== undefined) Object.assign(env, specEnv);
-  return env;
-}
-
 export function powerShellCommand(script: string): string {
   return `powershell -NoLogo -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(script, 'utf16le').toString('base64')}`;
 }
@@ -178,6 +138,39 @@ export function resolveSshCommand(host: string, command: string, interactiveSshA
   };
 }
 
+const COMMAND_LAUNCHER_ENV_KEYS: ReadonlySet<string> = new Set([
+  'PATH',
+  'HOME',
+  'LANG',
+  'TZ',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  'SHELL',
+  'USER',
+  'LOGNAME',
+  'SystemRoot',
+  'SystemDrive',
+  'windir',
+  'ComSpec',
+  'PATHEXT',
+]);
+
+export function commandLauncherEnv(
+  specEnv?: Record<string, string>,
+  baseEnv: Readonly<Record<string, string | undefined>> = process.env,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(baseEnv)) {
+    if (value === undefined) continue;
+    if (COMMAND_LAUNCHER_ENV_KEYS.has(key) || key.startsWith('LC_')) {
+      env[key] = value;
+    }
+  }
+  if (specEnv !== undefined) Object.assign(env, specEnv);
+  return env;
+}
+
 export function resolveLauncher(
   spec: LauncherSpec,
   interactiveSshAuth = false,
@@ -186,8 +179,7 @@ export function resolveLauncher(
   switch (spec.type) {
     case 'ssh': {
       const remoteBin = spec.remoteBin ?? DEFAULT_REMOTE_BIN;
-      return resolveSshCommand(
-        spec.host,
+      return resolveSshCommand(spec.host,
         sshPlatform === 'windows' && !isBareRemoteBin(remoteBin)
           ? execServerPowerShellCommand(remoteBin)
           : execServerShellCommand(remoteBin),

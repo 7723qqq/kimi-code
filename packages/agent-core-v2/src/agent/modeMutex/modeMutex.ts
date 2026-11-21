@@ -1,15 +1,11 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-export type ExclusiveReviewMode = 'hello-world' | 'plan' | 'spec' | 'swarm' | 'tower';
+export type AgentModeName = 'agent' | 'plan' | 'spec' | 'swarm' | 'tower';
 
 export interface IAgentModeMutexService {
   readonly _serviceBrand: undefined;
-
-  activeMode(): ExclusiveReviewMode | null;
-
-  switchTo(target: ExclusiveReviewMode): Promise<void>;
-
-  leave(target: ExclusiveReviewMode): Promise<void>;
+  activeMode(): AgentModeName;
+  switchTo(mode: AgentModeName): Promise<void>;
 }
 
 export const IAgentModeMutexService: ServiceIdentifier<IAgentModeMutexService> =

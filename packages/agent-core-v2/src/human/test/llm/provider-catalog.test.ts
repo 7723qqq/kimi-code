@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { LlmModel } from '#/llm/model';
-import type { CatalogModelDefinition } from '#/llm/provider-catalog';
-import { createProviderCatalog } from '#/llm/provider-catalog';
-import type { Provider } from '#/llm/provider/definition';
-import type { LlmRequester } from '#/llm/requester/requester';
+import type { LlmModel } from '#human/llm/model';
+import type { CatalogModelDefinition } from '#human/llm/provider-catalog';
+import { createProviderCatalog } from '#human/llm/provider-catalog';
+import type { Provider } from '#human/llm/provider/definition';
+import type { LlmRequester } from '#human/llm/requester/requester';
 
 const modelDef: CatalogModelDefinition = {
   provider: 'test',

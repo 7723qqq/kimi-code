@@ -1,21 +1,9 @@
-import { describe, expect, it, jest } from 'bun:test';
-
-/**
- * Scenario: /provider post-add default-model selection, and the
- * `/provider refresh [providerId]` subcommand.
- * Responsibilities: the picked effort is gated for persistence by the model's
- * effective default, and a session-only pick is still applied to the runtime
- * after the config refresh (which only reactivates from persisted values);
- * refresh scopes to one provider when given, reports added/removed/failed,
- * and routes a retired default into the model-migration flow.
- * Wiring: real setDefaultModel / handleProviderCommand with the
- * harness/authFlow boundaries stubbed by a small host rig.
- * Run: pnpm -C apps/kimi-code exec vitest run test/tui/commands/provider.test.ts
- */
 import type { ModelAlias, RefreshProviderModelsResponse } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import type { SlashCommandHost } from '#/tui/commands';
 import { handleProviderCommand, setDefaultModel } from '#/tui/commands/provider';
+import { promptApiKey } from '#/tui/commands/prompts';
 
 function makeHost(
   options: {
@@ -25,8 +13,6 @@ function makeHost(
 ) {
   const appState = {
     availableModels: {
-      // Declares no efforts; the Anthropic profile inference supplies
-      // [low, medium, high, xhigh, max] with the default resolved to 'high'.
       opus: {
         provider: 'compatible',
         model: 'claude-opus-4-7',
@@ -39,27 +25,73 @@ function makeHost(
   };
   const host = {
     state: { appState },
-    waitForSessionAssembly: jest.fn(async () => {}),
+    waitForSessionAssembly: vi.fn(async () => {}),
     harness: {
-      setConfig: jest.fn(async () => ({})),
+      setConfig: vi.fn(async () => ({})),
     },
     authFlow: {
-      refreshConfigAfterLogin: jest.fn(async () => options.refreshReachedLiveSession === true),
-      activateModelAfterLogin: jest.fn(async () => options.activateReachedLiveSession === true),
+      refreshConfigAfterLogin: vi.fn(async () => options.refreshReachedLiveSession === true),
+      activateModelAfterLogin: vi.fn(async () => options.activateReachedLiveSession === true),
     },
-    track: jest.fn(),
-    showStatus: jest.fn(),
+    track: vi.fn(),
+    showStatus: vi.fn(),
   } as unknown as SlashCommandHost & {
-    harness: { setConfig: ReturnType<typeof jest.fn> };
+    harness: { setConfig: ReturnType<typeof vi.fn> };
     authFlow: {
-      refreshConfigAfterLogin: ReturnType<typeof jest.fn>;
-      activateModelAfterLogin: ReturnType<typeof jest.fn>;
+      refreshConfigAfterLogin: ReturnType<typeof vi.fn>;
+      activateModelAfterLogin: ReturnType<typeof vi.fn>;
     };
-    waitForSessionAssembly: ReturnType<typeof jest.fn>;
-    track: ReturnType<typeof jest.fn>;
+    waitForSessionAssembly: ReturnType<typeof vi.fn>;
+    track: ReturnType<typeof vi.fn>;
   };
   return { host };
 }
+
+describe('promptApiKey', () => {
+  it('releases auth blocked when the API key prompt is replaced', async () => {
+    let replace: (() => void) | undefined;
+    const release = vi.fn();
+    const host = {
+      beginAuthBlock: vi.fn(() => release),
+      mountEditorReplacement: vi.fn(
+        (
+          _dialog: unknown,
+          _onDisplaced: unknown,
+          onReplaced: (() => void) | undefined,
+        ) => {
+          replace = onReplaced;
+        },
+      ),
+      restoreEditor: vi.fn(),
+    } as unknown as SlashCommandHost;
+
+    const prompt = promptApiKey(host, 'Example provider');
+    expect(replace).toBeDefined();
+    replace!();
+
+    await expect(prompt).resolves.toBeUndefined();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds auth blocked until the prompt resolves', async () => {
+    const release = vi.fn();
+    const host = {
+      beginAuthBlock: vi.fn(() => release),
+      mountEditorReplacement: vi.fn((dialog: { handleInput(data: string): void }) => {
+        dialog.handleInput('YOUR_API_KEY');
+        dialog.handleInput('\r');
+      }),
+      restoreEditor: vi.fn(),
+    } as unknown as SlashCommandHost;
+
+    const prompt = promptApiKey(host, 'Example provider');
+    expect(host.beginAuthBlock).toHaveBeenCalledTimes(1);
+    expect(release).not.toHaveBeenCalled();
+
+    await expect(prompt).resolves.toBe('YOUR_API_KEY');
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('setDefaultModel', () => {
   it('applies an above-default pick to the runtime when the gate keeps it session-only', async () => {
@@ -72,13 +104,9 @@ describe('setDefaultModel', () => {
       thinking: { enabled: true },
     });
     expect(host.authFlow.activateModelAfterLogin).toHaveBeenCalledWith('opus', 'xhigh');
-    // The application must come after the refresh, or the persisted value
-    // reactivated by refreshConfigAfterLogin would clobber the pick.
-    expect(host.authFlow.activateModelAfterLogin.mock.invocationCallOrder[0]!).toBeGreaterThan(
-      host.authFlow.refreshConfigAfterLogin.mock.invocationCallOrder[0]!,
-    );
-    // Without a session the engine never sees the pick, so the TUI stays the
-    // sole model_switch producer.
+    expect(
+      host.authFlow.activateModelAfterLogin.mock.invocationCallOrder[0]!,
+    ).toBeGreaterThan(host.authFlow.refreshConfigAfterLogin.mock.invocationCallOrder[0]!);
     expect(host.track).toHaveBeenCalledWith('model_switch', { model: 'opus' });
   });
 
@@ -111,17 +139,10 @@ describe('setDefaultModel', () => {
 
     await setDefaultModel(host, 'opus', 'high');
 
-    // refreshConfigAfterLogin routed through session.setModel with a changed
-    // alias, which the engine already tracks — a TUI-side event would
-    // double-count the switch.
     expect(host.track).not.toHaveBeenCalled();
   });
 
   it('leaves model_switch to the engine when a lazy session came live mid-flow and rebounded', async () => {
-    // Session-less at entry, but the first prompt's lazy creation completes
-    // while setConfig / the refresh are pending, so the session-only re-apply
-    // lands on the now-live session and actually switches its alias (engine
-    // emits).
     const { host } = makeHost({ activateReachedLiveSession: true });
 
     await setDefaultModel(host, 'opus', 'xhigh');
@@ -131,10 +152,6 @@ describe('setDefaultModel', () => {
   });
 
   it('emits model_switch when a v1-created session only rebinds the same alias', async () => {
-    // v1 session-less + session-only effort: the refresh creates the session
-    // with the picked model (creation emits nothing), then the re-apply
-    // reaches that live session but its setModel is an alias no-op (no engine
-    // event either) — the TUI must stay the producer for the pick.
     const { host } = makeHost({
       refreshReachedLiveSession: false,
       activateReachedLiveSession: false,
@@ -152,14 +169,14 @@ describe('setDefaultModel', () => {
     await setDefaultModel(host, 'opus', 'high');
 
     expect(host.waitForSessionAssembly).toHaveBeenCalled();
-    expect(host.waitForSessionAssembly.mock.invocationCallOrder[0]!).toBeLessThan(
-      host.harness.setConfig.mock.invocationCallOrder[0]!,
-    );
+    expect(
+      host.waitForSessionAssembly.mock.invocationCallOrder[0]!,
+    ).toBeLessThan(host.harness.setConfig.mock.invocationCallOrder[0]!);
   });
 
   it('skips the follow-up activation and forwards the picked effort when the gate owns the switch', async () => {
     const { host } = makeHost();
-    host.authFlow.refreshConfigAfterLogin = jest.fn(async () => 'gated' as const);
+    host.authFlow.refreshConfigAfterLogin = vi.fn(async () => 'gated' as const);
 
     await setDefaultModel(host, 'opus', 'xhigh');
 
@@ -170,24 +187,24 @@ describe('setDefaultModel', () => {
 });
 
 function makeRefreshHost(result: RefreshProviderModelsResponse | Error) {
-  const spinner = { stop: jest.fn() };
+  const spinner = { stop: vi.fn() };
   const host = {
-    showProgressSpinner: jest.fn(() => spinner),
-    showStatus: jest.fn(),
-    showError: jest.fn(),
+    showProgressSpinner: vi.fn(() => spinner),
+    showStatus: vi.fn(),
+    showError: vi.fn(),
     authFlow: {
-      refreshProviderModels: jest.fn(async () => {
+      refreshProviderModels: vi.fn(async () => {
         if (result instanceof Error) throw result;
         return result;
       }),
     },
-    modelMigration: { retire: jest.fn(async () => {}) },
+    modelMigration: { retire: vi.fn(async () => {}) },
   } as unknown as SlashCommandHost & {
-    showProgressSpinner: ReturnType<typeof jest.fn>;
-    showStatus: ReturnType<typeof jest.fn>;
-    showError: ReturnType<typeof jest.fn>;
-    authFlow: { refreshProviderModels: ReturnType<typeof jest.fn> };
-    modelMigration: { retire: ReturnType<typeof jest.fn> };
+    showProgressSpinner: ReturnType<typeof vi.fn>;
+    showStatus: ReturnType<typeof vi.fn>;
+    showError: ReturnType<typeof vi.fn>;
+    authFlow: { refreshProviderModels: ReturnType<typeof vi.fn> };
+    modelMigration: { retire: ReturnType<typeof vi.fn> };
   };
   return { host, spinner };
 }
@@ -207,7 +224,10 @@ describe('handleProviderCommand refresh', () => {
     expect(host.authFlow.refreshProviderModels).toHaveBeenCalledWith(undefined);
     expect(spinner.stop).toHaveBeenCalledWith({ ok: true, label: 'Refresh finished.' });
     expect(host.showStatus).toHaveBeenCalledWith('Kimi Code: +2 / -1 models.', 'warning');
-    expect(host.showStatus).toHaveBeenCalledWith('Skipped refreshing broken: HTTP 500', 'warning');
+    expect(host.showStatus).toHaveBeenCalledWith(
+      'Skipped refreshing broken: HTTP 500',
+      'warning',
+    );
     expect(host.modelMigration.retire).toHaveBeenCalledWith(retired);
   });
 
@@ -239,7 +259,9 @@ describe('handleProviderCommand refresh', () => {
 
     await handleProviderCommand(host, 'refresh');
 
-    expect(host.showStatus).toHaveBeenCalledWith('No model changes (2 providers up to date).');
+    expect(host.showStatus).toHaveBeenCalledWith(
+      'No model changes (2 providers up to date).',
+    );
   });
 
   it('surfaces a thrown refresh without routing a retirement', async () => {

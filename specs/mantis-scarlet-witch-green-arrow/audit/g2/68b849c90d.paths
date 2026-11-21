@@ -1,0 +1,5 @@
+A	.changeset/fix-subagent-zero-timeout.md
+M	packages/agent-core-v2/src/agent/tools/agent/agentTool.ts
+M	packages/agent-core-v2/src/features/tower/tools/spawn/spawnTool.ts
+M	packages/agent-core-v2/test/features/tower/tools/spawnTool.test.ts
+M	packages/agent-core-v2/test/tool/tool.test.ts

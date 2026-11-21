@@ -5,6 +5,7 @@ import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { legacyDidExecuteContext, legacyExecutionContext } from '#/agent/toolExecutor/legacyHooks';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
@@ -88,19 +89,23 @@ export class SnapshotService extends Service implements ISnapshotService {
     }
     this.store = new FileSnapshotStore(join(bootstrap.storeDir, SNAPSHOT_DIR_NAME));
     this._register(
-      toolExecutor.hooks.onExecuteTool.register('snapshot', async (context, next) => {
-        await this.captureBeforeExecution(context);
-        return next();
+      toolExecutor.registerHook({
+        beforeExecute: async (context) => {
+          if (context.prepared.kind !== 'execute') return;
+          await this.captureBeforeExecution(legacyExecutionContext(context));
+        },
       }),
     );
     this._register(
-      toolExecutor.hooks.onDidExecuteTool.register('snapshot', async (context, next) => {
-        await this.onDidExecuteTool(
-          context.toolCall?.id,
-          context.outcome,
-          context.result.isError === true,
-        );
-        return next();
+      toolExecutor.registerHook({
+        afterExecute: async (context) => {
+          const did = legacyDidExecuteContext(context);
+          await this.onDidExecuteTool(
+            did.toolCall.id,
+            did.outcome,
+            did.result.isError === true,
+          );
+        },
       }),
     );
     this._register(

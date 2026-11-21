@@ -1,13 +1,12 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterAll, afterEach, beforeAll, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { removeTempHome } from './helpers/tempHome';
 
 function openConn(url: string, protocols: string[]): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
@@ -23,14 +22,17 @@ function expectRejected(url: string): Promise<void> {
     const done = (err?: Error): void => {
       clearTimeout(t);
       ws.removeAllListeners();
-      ws.on('error', () => {});
       try {
         ws.terminate();
-      } catch {}
+      } catch {
+      }
       if (err === undefined) resolve();
       else reject(err);
     };
-    const t = setTimeout(() => done(new Error('connection was not rejected within timeout')), 1500);
+    const t = setTimeout(
+      () => done(new Error('connection was not rejected within timeout')),
+      1500,
+    );
     ws.once('open', () => done(new Error('connection unexpectedly opened')));
     ws.once('error', () => done());
     ws.once('close', () => done());
@@ -49,13 +51,7 @@ describe('production auth wiring', () => {
   });
 
   async function boot(): Promise<void> {
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
+    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     base = `http://127.0.0.1:${server.port}`;
   }
 
@@ -63,7 +59,8 @@ describe('production auth wiring', () => {
     for (const ws of sockets.splice(0)) {
       try {
         ws.close();
-      } catch {}
+      } catch {
+      }
     }
   });
 
@@ -73,27 +70,24 @@ describe('production auth wiring', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'writes a 0600 token file at boot and keeps it on close',
-    async () => {
-      const p = join(home as string, 'server.token');
-      const info = await stat(p);
-      expect(info.mode & 0o777).toBe(0o600);
-      const token = (await readFile(p, 'utf8')).trim();
-      expect(token.length).toBeGreaterThan(0);
+  it.skipIf(process.platform === 'win32')('writes a 0600 token file at boot and keeps it on close', async () => {
+    const p = join(home as string, 'server.token');
+    const info = await stat(p);
+    expect(info.mode & 0o777).toBe(0o600);
+    const token = (await readFile(p, 'utf8')).trim();
+    expect(token.length).toBeGreaterThan(0);
 
-      await (server as RunningServer).close();
-      server = undefined;
-      const after = await stat(p);
-      expect(after.mode & 0o777).toBe(0o600);
-      await boot();
-    },
-  );
+    await (server as RunningServer).close();
+    server = undefined;
+    const after = await stat(p);
+    expect(after.mode & 0o777).toBe(0o600);
+    await boot();
+  });
 
   it('gates HTTP: 200 with the token, 401 without', async () => {
     const token = (await readFile(join(home as string, 'server.token'), 'utf8')).trim();

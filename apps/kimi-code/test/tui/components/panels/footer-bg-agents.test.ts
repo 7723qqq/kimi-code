@@ -1,8 +1,7 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import type { AppState } from '#/tui/types';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
 function strip(text: string): string {
@@ -21,7 +20,6 @@ function baseState(overrides: Partial<AppState> = {}): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 200_000,
-    sessionStats: createEmptySessionStats(),
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -66,7 +64,6 @@ describe('FooterComponent — background task / agent badges', () => {
     const out = strip(footer.render(120)[0]!);
     expect(out).toMatch(/\[2 tasks running\]/);
     expect(out).toMatch(/\[3 agents running\]/);
-    // Task badge appears before agent badge in the line.
     expect(out.indexOf('2 tasks')).toBeLessThan(out.indexOf('3 agents'));
   });
 
@@ -99,7 +96,6 @@ describe('FooterComponent — background task / agent badges', () => {
   it('drops the badges when terminal is too narrow to fit them', () => {
     const footer = new FooterComponent(baseState());
     footer.setBackgroundCounts({ bashTasks: 4, agentTasks: 3 });
-    // Extremely narrow width: footer primary content fills the line, so leftLine wins.
     const [line1] = footer.render(20);
     expect(line1).toBeDefined();
     expect(strip(line1!)).not.toMatch(/\[4 tasks running\]/);

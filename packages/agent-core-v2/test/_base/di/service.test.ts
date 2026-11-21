@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
+import { Emitter } from '#/_base/event';
 import {
   FiberProtocolError,
   FiberState,
@@ -13,7 +14,6 @@ import { createDecorator, ref, type LiveRef } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { Service } from '#/_base/di/service';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
-import { Emitter } from '#/_base/event';
 
 interface IFoo {
   tag: string;
@@ -46,12 +46,12 @@ describe('Service — kernel construction protocol (L3)', () => {
         super();
         this.effect(() => {
           order.push('effect-a');
-          return;
+          return undefined;
         });
         this.provide(IFoo, Foo);
         this.effect(() => {
           order.push('effect-b');
-          return;
+          return undefined;
         });
       }
     }
@@ -91,7 +91,7 @@ describe('Service — kernel construction protocol (L3)', () => {
     class Unit extends Service {}
     const unit = new Unit();
     expect(() => unit.provide(IFoo, Foo)).toThrow(/no unit runtime/);
-    expect(() => unit.effect(() => {})).toThrow(/no unit runtime/);
+    expect(() => unit.effect(() => undefined)).toThrow(/no unit runtime/);
     expect(() => unit.on('x', () => {})).toThrow(/no unit runtime/);
     expect(() => unit.get(IFoo)).toThrow(/no unit runtime/);
     expect(() => unit.ref(IFoo)).toThrow(/no unit runtime/);
@@ -105,7 +105,7 @@ describe('Service — kernel construction protocol (L3)', () => {
     const ix = new InstantiationService(new ServiceCollection(), true);
     ix.provide(IBar, new SyncDescriptor(Outer));
     const outer = ix.invokeFunction((a) => a.get(IBar)) as unknown as Outer;
-    expect(() => outer.inner.effect(() => {})).toThrow(/no unit runtime/);
+    expect(() => outer.inner.effect(() => undefined)).toThrow(/no unit runtime/);
     ix.dispose();
   });
 
@@ -123,11 +123,7 @@ describe('Service — kernel construction protocol (L3)', () => {
     expect(captured).toBeDefined();
     expect(captured!.state).toBe(FiberState.Active);
     expect(typeof captured!.uid).toBe('number');
-    const resolvedHandle = await (captured! as PromiseLike<{
-      readonly state: FiberState;
-      readonly uid: number;
-    }>);
-    expect(resolvedHandle.state).toBe(FiberState.Active);
+    await expect(captured!).resolves.toMatchObject({ state: FiberState.Active });
     ix.dispose();
   });
 

@@ -1,7 +1,6 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
-import { t } from '#/i18n';
 import {
   TRANSCRIPT_GROUP_FADE_HALF_LIFE_MS,
   TRANSCRIPT_GROUP_SWEEP_DURATION_MS,
@@ -23,14 +22,11 @@ interface SweepBand {
   readonly halfWidth: number;
 }
 
-/** The moving highlight a running transcript title paints across its text. */
 export class TitleSweep {
   private startedAt = 0;
   private lastFrame: number | undefined;
   private columns = 0;
   private level = 0;
-  // Only painting knows the columns a title covers: a wrapped detail title paints more characters
-  // than the columns passed to advance, and a cut title fewer.
   private paintedColumns = 0;
 
   get intensity(): number {
@@ -59,7 +55,6 @@ export class TitleSweep {
     if (this.level < 0.01 && target === 0) this.level = 0;
   }
 
-  /** Starts painting a new title; the gap check covers only what the returned function paints. */
   painter(): (text: string, offset: number) => string {
     const band = this.band();
     this.paintedColumns = 0;
@@ -71,7 +66,7 @@ export class TitleSweep {
     if (this.level === 0) return currentTheme.fg('textDim', text);
     const dim = currentTheme.color('textDim');
     const peak = currentTheme.color('text');
-    const rest = currentTheme.isLight ? lightRest(currentTheme.terminalBackground(), peak) : dim;
+    const rest = currentTheme.isLight() ? lightRest(currentTheme.terminalBackground(), peak) : dim;
     const base = mixColors(dim, rest, this.level);
     if (band === undefined) return chalk.hex(base)(text);
     let column = offset;
@@ -113,7 +108,5 @@ export function shownSeconds(startedAtMs: number, now: number): number | undefin
 
 export function elapsedSuffix(startedAtMs: number, now: number): string {
   const seconds = shownSeconds(startedAtMs, now);
-  return seconds === undefined
-    ? ''
-    : currentTheme.dim(` · ${t('tui.messages.transcriptGroups.durationSeconds', { count: seconds })}`);
+  return seconds === undefined ? '' : currentTheme.dim(` · ${String(seconds)}s`);
 }

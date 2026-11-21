@@ -5,44 +5,32 @@ import {
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
-
 import type { SlashCommandHost } from '../commands/dispatch';
 import { defaultThinkingEffortFor, modelDisplayName } from '../components/dialogs/model-selector';
 import type { AppState, ModelSwitchPersistence } from '../types';
 import { formatErrorMessage } from './event-payload';
 import { thinkingEffortFromConfig, thinkingEffortToConfig } from './thinking-config';
+import { t } from '#/i18n';
 
-/** Localized on access: a module-level constant must not freeze the locale. */
-export const MODEL_SWITCH_CACHE_WARNING = (): string => t('tui.messages.configModelCachedWarning');
-/** True once the conversation has at least one user message: a switch from
- * then on resends the accumulated context, losing the cache. Shell-command
- * echoes are also 'user' transcript entries but carry an empty `bullet`, so
- * they're excluded. */
+export const MODEL_SWITCH_CACHE_WARNING =
+  t('tui.messages.configModelCachedWarning');
+
 export function hasConversationHistory(host: SlashCommandHost): boolean {
-  return host.state.transcriptEntries.some((entry) => entry.kind === 'user' && entry.bullet !== '');
+  if (host.state.transcriptEntries.some((entry) => entry.kind === 'user' && entry.bullet !== '')) {
+    return true;
+  }
+  return (host.session?.getResumeState()?.agents['main']?.userTurnCount ?? 0) > 0;
 }
 
 export function effectiveModelForHost(host: SlashCommandHost, model: ModelAlias): ModelAlias {
   const providerType = host.state.appState.availableProviders[model.provider]?.type;
-  // Flat models (no named provider, e.g. inline base_url served by a v2
-  // backend) have no provider entry to look up; their own protocol declaration
-  // plays the provider-identity role, mirroring the resolver.
   return effectiveModelAlias(model, providerType ?? model.protocol);
 }
 
-/**
- * The model and thinking effort `config` gives the first lazily created
- * session when it binds `alias`, for the session-less footer and the create
- * call alike.
- */
 export function lazyModelSelection(
   config: KimiConfig,
   alias: string | undefined,
 ): Partial<AppState> {
-  // A default that disappeared from config (edited externally) clears the
-  // previously hydrated value instead of passing a stale explicit model to the
-  // first lazy-created session.
   const patch: Partial<AppState> =
     alias === undefined ? { model: '', maxContextTokens: 0 } : { model: alias };
   const raw = alias === undefined ? undefined : config.models?.[alias];
@@ -53,8 +41,6 @@ export function lazyModelSelection(
   if (effort !== undefined) {
     patch.thinkingEffort = effort;
   } else if (raw !== undefined) {
-    // No concrete effort configured: mirror the engine, which resolves the
-    // model's default effort at createSession time.
     const providerType = config.providers?.[raw.provider]?.type;
     patch.thinkingEffort = defaultThinkingEffortFor(
       effectiveModelAlias(raw, providerType ?? raw.protocol),
@@ -79,9 +65,6 @@ export async function performModelSwitch(
 ): Promise<boolean> {
   let session = host.session;
   if (session === undefined) {
-    // A first prompt may still be inside lazy creation: wait it out so the
-    // switch lands on the new session instead of being overwritten by its
-    // assembly.
     await host.waitForSessionAssembly();
     session = host.session;
   }
@@ -91,7 +74,6 @@ export async function performModelSwitch(
     (host.state.appState.isCompacting ||
       phase === 'shell' ||
       (phase !== 'idle' && currentTurnSentRequest(host)));
-
   const prevModel = host.state.appState.model;
   const prevEffort = host.state.appState.thinkingEffort;
   const modelChanged = alias !== prevModel;
@@ -116,7 +98,7 @@ export async function performModelSwitch(
     }
   } catch (error) {
     const msg = formatErrorMessage(error);
-    host.showError(t('tui.statusMessages.switchModelFailed', { msg }));
+    host.showError(t('tui.statusMessages.switchModelFailed', { msg: msg }));
     return false;
   }
 
@@ -156,7 +138,7 @@ export async function performModelSwitch(
       );
     } catch (error) {
       const msg = formatErrorMessage(error);
-      host.showError(t('tui.messages.configModelSwitchedSaveFailed', { name: displayName, msg }));
+      host.showError(t('tui.messages.configModelSwitchedSaveFailed', { name: displayName, msg: msg }));
       return false;
     }
   }
@@ -165,27 +147,18 @@ export async function performModelSwitch(
   if (effectiveModelChanged) {
     status = saveDefault
       ? t('tui.messages.configModelSwitched', { name: displayName, effort: effectiveEffort })
-      : t('tui.messages.configModelSwitchedSession', {
-          name: displayName,
-          effort: effectiveEffort,
-        });
+      : t('tui.messages.configModelSwitchedSession', { name: displayName, effort: effectiveEffort });
   } else if (effectiveEffortChanged) {
     status = saveDefault
       ? t('tui.messages.configThinkingSet', { effort: effectiveEffort })
       : t('tui.messages.configThinkingSetSession', { effort: effectiveEffort });
   } else if (saveDefault && persisted) {
-    status = t('tui.messages.configModelSavedDefault', {
-      name: displayName,
-      effort: effectiveEffort,
-    });
+    status = t('tui.messages.configModelSavedDefault', { name: displayName, effort: effectiveEffort });
   } else {
-    status = t('tui.messages.configModelAlreadyUsing', {
-      name: displayName,
-      effort: effectiveEffort,
-    });
+    status = t('tui.messages.configModelAlreadyUsing', { name: displayName, effort: effectiveEffort });
   }
   if (appliesNextTurn && (effectiveModelChanged || effectiveEffortChanged)) {
-    status += ` ${t('tui.messages.configModelSwitchNextTurn')}`;
+    status += t('tui.messages.configModelSwitchNextTurn');
   }
   host.showStatus(status, 'success');
   return true;
@@ -203,8 +176,6 @@ async function persistModelSelection(
     effort,
     model === undefined ? undefined : effectiveModelForHost(host, model),
   );
-  // Ordinary /model confirmation preserves the stored effort unless it changed;
-  // migration acceptance explicitly persists the target effort.
   const patch = persistEffort ? full : { enabled: full.enabled };
   if (
     config.defaultModel === alias &&

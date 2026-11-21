@@ -1,20 +1,21 @@
-import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
-import type { KimiHarness, Session, ThinkingEffort } from '@moonshot-ai/kimi-code-sdk';
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
+import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
+import type { ReverseRpcModalOwner } from '../reverse-rpc/modal-coordinator';
 
-import { t } from '#/i18n';
+import type { KimiHarness, Session, ThinkingEffort } from '@moonshot-ai/kimi-code-sdk';
+
 import type { ColorToken, ThemeName } from '#/tui/theme';
 
-import type { FollowUpDelivery } from '../config';
-import { getLlmNotSetMessage } from '../constant/kimi-tui';
+import { LLM_NOT_SET_MESSAGE } from '../constant/kimi-tui';
 import type { AuthFlowController } from '../controllers/auth-flow';
 import type { BtwPanelController } from '../controllers/btw-panel';
 import type { ModelMigrationController } from '../controllers/model-migration';
 import type { StreamingUIController } from '../controllers/streaming-ui';
 import type { TasksBrowserController } from '../controllers/tasks-browser';
 import { tryHandleDanceCommand } from '../easter-eggs/dance';
-import type { TUIState } from '../state';
+import type { FollowUpDelivery } from '../config';
 import type { ResolvedTheme } from '../theme/colors';
+import type { TUIState } from '../tui-state';
 import type {
   AppState,
   InlineSkillActivation,
@@ -27,27 +28,24 @@ import { formatErrorMessage } from '../utils/event-payload';
 import type { ExtractionResult } from '../utils/image-placeholder';
 import { handleLoginCommand, handleLogoutCommand } from './auth';
 import { handleBtwCommand } from './btw';
-import { handleClipboardCommand } from './clipboard';
+import { handleCopyCommand } from './copy';
+import { handleDesktopCommand } from './desktop';
 import {
   handleCompactCommand,
   handleEditorCommand,
   handleEffortCommand,
   handleModelCommand,
   handlePlanCommand,
-  handleSpecCommand,
   handleSecondaryModelCommand,
   handleThemeCommand,
   showExperimentsPanel,
-  showModelPicker,
   showPermissionPicker,
   showSettingsSelector,
 } from './config';
-import { handleCopyCommand } from './copy';
-import { handleDesktopCommand } from './desktop';
 import { handleGoalCommand } from './goal';
-import { handleHelloWorldCommand } from './hello-world';
 import { handleImportSessionsCommand } from './import-sessions';
 import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
+import { handleAddDirCommand } from './add-dir';
 import { parseSlashInput } from './parse';
 import { handlePluginsCommand } from './plugins';
 import { handleProviderCommand } from './provider';
@@ -57,6 +55,7 @@ import {
   type BuiltinSlashCommandName,
 } from './registry';
 import { handleReloadCommand, handleReloadTuiCommand } from './reload';
+import type { SkillListSession } from './skills';
 import {
   canRestoreSubmittedInput,
   resolveUserInput,
@@ -71,25 +70,16 @@ import {
   handleInitCommand,
   handleTitleCommand,
 } from './session';
-import type { SkillListSession } from './skills';
 import { handleSwarmCommand } from './swarm';
 import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
-import { handleOperationCommand } from './operation';
 import { handleRemoteControlCommand, handleWebCommand } from './web';
-import { handleWorkflowCommand } from './workflow';
-
-// ---------------------------------------------------------------------------
-// Re-exports — keep existing consumers working
-// ---------------------------------------------------------------------------
+import { t } from '#/i18n';
 
 export { handleLoginCommand, handleLogoutCommand } from './auth';
 export { handleBtwCommand } from './btw';
 export { handleCopyCommand } from './copy';
-export { handleClipboardCommand } from './clipboard';
-export { handleImportSessionsCommand } from './import-sessions';
 export { handleDesktopCommand } from './desktop';
-import { handleAddDirCommand } from './add-dir';
 export { handleAddDirCommand } from './add-dir';
 export {
   handleCompactCommand,
@@ -97,7 +87,6 @@ export {
   handleEffortCommand,
   handleModelCommand,
   handlePlanCommand,
-  handleSpecCommand,
   handleSecondaryModelCommand,
   handleThemeCommand,
   showModelPicker,
@@ -106,7 +95,6 @@ export {
   showSettingsSelector,
 } from './config';
 export { handleSwarmCommand } from './swarm';
-export { handleHelloWorldCommand } from './hello-world';
 export { handleTowerCommand } from './tower';
 export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
@@ -120,12 +108,7 @@ export {
   handleTitleCommand,
 } from './session';
 export { handleUndoCommand } from './undo';
-export { handleOperationCommand } from './operation';
 export { handleRemoteControlCommand, handleWebCommand } from './web';
-
-// ---------------------------------------------------------------------------
-// Host interface
-// ---------------------------------------------------------------------------
 
 export interface SlashCommandHost {
   state: TUIState;
@@ -139,43 +122,24 @@ export interface SlashCommandHost {
   showError(msg: string): void;
   showStatus(msg: string, color?: ColorToken): void;
   showNotice(title: string, detail?: string): void;
-  appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;
-  mountTranscriptComponent(entry: TranscriptEntry, component: Component): void;
+  appendTranscriptEntry(entry: TranscriptEntry): void;
   track(event: string, props?: Record<string, unknown>): void;
-  mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void;
+  mountEditorReplacement(
+    panel: Component & Focusable,
+    onDisplaced?: () => void,
+    onReplaced?: () => void,
+    owner?: ReverseRpcModalOwner,
+  ): void;
   restoreEditor(): void;
   restoreInputText(text: string, inlineSkillActivations?: readonly InlineSkillActivation[]): void;
   refreshSlashCommandAutocomplete(): void;
-  /**
-   * Rebuild the plugin slash-command list. With no session (v2 session-less
-   * startup) this reads the app-global plugin commands instead, so `/plugins`
-   * mutations apply before the first session exists.
-   */
   refreshPluginCommands(session?: Session): Promise<void>;
-  /**
-   * Rebuild the skill slash-command list. With no session (v2 session-less
-   * startup) this reads the workspace skills instead.
-   */
   refreshSkillCommands(session?: SkillListSession): Promise<void>;
-  /**
-   * Seed appState with the config defaults the v2 engine would apply at
-   * createSession time (model, permission, plan mode, thinking effort,
-   * context cap). No-op semantics on a live session path: only /reload calls
-   * it while still session-less.
-   */
-  hydrateLazyConfigDefaults(): Promise<void>;
+  hydrateLazyConfigDefaults(includeModel?: boolean): Promise<void>;
 
-  // Session
   requireSession(): Session;
-  /**
-   * Lazy-create the session on first use (v2 engine). Returns the existing
-   * session, or undefined (with the error already surfaced) when creation
-   * fails.
-   */
   ensureSession(): Promise<Session | undefined>;
-  /** Await in-flight session assembly — lazy creation or a `/new` replacement — if any; no-op otherwise. */
   waitForSessionAssembly(): Promise<void>;
-  /** True while a `/new` replacement is assembling; idle checks must treat it as busy. */
   readonly sessionReplacementInFlight: boolean;
   switchToSession(session: Session, message: string): Promise<void>;
   reloadCurrentSessionView(session: Session, message: string): Promise<void>;
@@ -184,7 +148,6 @@ export interface SlashCommandHost {
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
   drainQueueIfIdle(): void;
   completedCompactionSerial: number;
-  /** Queue a `/compact` for FIFO dispatch; false when one is already queued. */
   enqueueCompactCommand(args: string): boolean;
   enqueueModelSwitch(
     alias: string,
@@ -192,49 +155,23 @@ export interface SlashCommandHost {
     persist: ModelSwitchPersistence,
   ): void;
   requestQueuedGoalPromotion?(): void;
-  /** Reset the client-side cache-break baseline after the context was cut
-   *  (/undo): the next step's cache-read drop is expected, not a break. */
-  noteContextCut?(): void;
-  /**
-   * Last measured step's full input size — what a model/effort switch would
-   * reprocess against the provider prompt cache. Undefined when there is no
-   * measurable baseline (fresh session, post-compaction, or missing usage).
-   */
-  estimateSwitchLossTokens?(): number | undefined;
 
-  // UI
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;
-  showLoginAuthorizationPrompt(
-    auth: Pick<DeviceAuthorization, 'verificationUriComplete'> & {
-      userCode?: string;
-      title?: string;
-    },
-  ): LoginProgressSpinnerHandle;
+  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle;
+  beginAuthBlock(): () => void;
+  setAuthRequired(required: boolean): void;
   showProgressSpinner(label: string): LoginProgressSpinnerHandle;
 
-  // Theme
   applyTheme(theme: ThemeName, resolved?: ResolvedTheme): Promise<void>;
   refreshTerminalThemeTracking(): void;
 
-  // Dispatch
   stop(exitCode?: number): Promise<void>;
   setExitOpenUrl(url: string): void;
-  /**
-   * Register a task that takes over the process after the TUI has shut down
-   * (instead of exiting): the runner awaits it and only exits when it returns.
-   * Used by `/web` to keep a freshly started server attached to this terminal
-   * until Ctrl+C.
-   */
   setExitForegroundTask(task: (exitCode: number) => Promise<void>): void;
   showHelpPanel(): void;
   createNewSession(): Promise<void>;
   showSessionPicker(): Promise<void>;
   sendNormalUserInput(text: string, preExtracted?: ExtractionResult, delivery?: FollowUpDelivery): void;
-  /**
-   * Submit a prompt that explicitly activates one or more skills inline
-   * (v2 engine only): all activations ride the same submission as the prompt
-   * and launch as a single turn.
-   */
   sendInlineSkillUserInput(
     text: string,
     activations: readonly InlineSkillActivation[],
@@ -252,17 +189,12 @@ export interface SlashCommandHost {
   readonly skillVariantPathForCommand?: (commandName: string, tokenStart: number) => string | undefined;
   readonly defaultSkillPathForCommand?: (commandName: string) => string | undefined;
 
-  // Controller refs
   readonly streamingUI: StreamingUIController;
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserController;
   readonly authFlow: AuthFlowController;
-  readonly modelMigration?: ModelMigrationController;
+  readonly modelMigration: ModelMigrationController;
 }
-
-// ---------------------------------------------------------------------------
-// Dispatch — entry point from handleUserInput
-// ---------------------------------------------------------------------------
 
 export function dispatchInput(
   host: SlashCommandHost,
@@ -284,11 +216,7 @@ export function dispatchInput(
   });
   if (intent.kind === 'skill' || (activations.length > 0 && intent.kind !== 'builtin')) {
     const leading = activations[0];
-    if (
-      intent.kind === 'skill' &&
-      leading?.args !== undefined &&
-      host.state.appState.model.trim().length > 0
-    ) {
+    if (intent.kind === 'skill' && leading?.args !== undefined && host.state.appState.model.trim().length > 0) {
       host.track('input_command', {
         command: intent.commandName,
         skill_name: leading.skillName,
@@ -317,8 +245,6 @@ async function executeSlashCommand(
     case 'blocked':
       host.track('input_command_invalid', { reason: 'blocked', command: intent.commandName });
       host.showError(slashBusyMessage(intent.commandName, intent.reason));
-      // The editor buffer was already cleared on submit; give the rejected
-      // command line back so hand-typed input is not lost.
       host.restoreInputText(input);
       return;
     case 'invalid':
@@ -327,13 +253,10 @@ async function executeSlashCommand(
         command: intent.commandName,
       });
       host.showError(t('tui.messages.configInvalidSlashCommand', { name: intent.commandName }));
-      // Same rationale as the `blocked` branch above: the editor buffer was
-      // cleared on submit, so a rejected command line is handed back.
-      host.restoreInputText(input);
       return;
     case 'plugin-command': {
       if (host.state.appState.model.trim().length === 0) {
-        host.showError(getLlmNotSetMessage());
+        host.showError(LLM_NOT_SET_MESSAGE);
         return;
       }
       let session = host.session;
@@ -354,9 +277,6 @@ async function executeSlashCommand(
       return;
     }
     case 'message':
-      // Unknown slash command: let /dance claim it before it falls through to
-      // the model as a normal message. This runs *after* builtin and skill
-      // resolution, so a real command or a same-named skill always wins.
       if (parsedCommand !== null && tryHandleDanceCommand(host, parsedCommand)) {
         return;
       }
@@ -365,10 +285,7 @@ async function executeSlashCommand(
     case 'builtin':
       if (intent.enqueue === true) {
         if (!host.enqueueCompactCommand(intent.args)) {
-          host.track('input_command_invalid', {
-            reason: 'duplicate-compact',
-            command: intent.name,
-          });
+          host.track('input_command_invalid', { reason: 'duplicate-compact', command: intent.name });
           host.showError(t('tui.statusMessages.compactAlreadyQueued'));
           host.restoreInputText(input);
           return;
@@ -389,16 +306,10 @@ async function executeSlashCommand(
   }
 }
 
-/**
- * Lazy-create the session for a slash command that needs one (v2 engine). A
- * missing session means the TUI started session-less, so commands create it
- * on first use. Returns undefined (error already shown) when creation fails.
- */
 async function ensureSessionForCommand(host: SlashCommandHost): Promise<Session | undefined> {
   return host.ensureSession();
 }
 
-/** Builtin commands that need an active session; lazy-created on the v2 engine. */
 const SESSION_REQUIRING_COMMANDS: ReadonlySet<BuiltinSlashCommandName> = new Set([
   'btw',
   'compact',
@@ -406,7 +317,6 @@ const SESSION_REQUIRING_COMMANDS: ReadonlySet<BuiltinSlashCommandName> = new Set
   'export-md',
   'fork',
   'goal',
-  'hello-world',
   'init',
   'plan',
   'swarm',
@@ -424,14 +334,9 @@ async function handleBuiltInSlashCommand(
   if (host.session === undefined && SESSION_REQUIRING_COMMANDS.has(name)) {
     const session = await ensureSessionForCommand(host);
     if (session === undefined) {
-      // Creation failed after submit cleared the buffer; give the input
-      // back unless the user moved on — a newer draft or an opened panel.
       if (canRestoreSubmittedInput(host)) host.restoreInputText(input, activations);
       return;
     }
-    // A first prompt may have started a turn while the session was being
-    // created; re-check the availability gate that was resolved before the
-    // await (idle-only commands are blocked while a turn is active).
     const command = findBuiltInSlashCommand(name);
     const busyReason = slashCommandBusyReason({
       isStreaming: host.state.appState.streamingPhase !== 'idle',
@@ -442,20 +347,14 @@ async function handleBuiltInSlashCommand(
       command !== undefined &&
       resolveSlashCommandAvailability(command, args) === 'idle-only'
     ) {
-      // Same enqueue semantics as the dispatch builtin branch: a /compact
-      // submitted before the session existed joins the queue when the
-      // awaited creation lands on a running turn.
       if (name === 'compact' && busyReason === 'streaming' && !host.state.appState.isCompacting) {
         if (!host.enqueueCompactCommand(args)) {
           host.showError(t('tui.statusMessages.compactAlreadyQueued'));
-          // Same restore as the adjacent blocked path, guarded the same way.
           if (canRestoreSubmittedInput(host)) host.restoreInputText(input);
         }
         return;
       }
       host.showError(slashBusyMessage(name, busyReason));
-      // Same as the dispatch blocked branch: give the cleared input back,
-      // guarded the same way — session creation awaited above.
       if (canRestoreSubmittedInput(host)) host.restoreInputText(input);
       return;
     }
@@ -468,16 +367,10 @@ async function handleBuiltInSlashCommand(
       host.showHelpPanel();
       return;
     case 'version':
-      host.showStatus(
-        t('tui.messages.configVersionDisplay', { version: host.state.appState.version }),
-      );
+      host.showStatus(t('tui.messages.configVersionDisplay', { version: host.state.appState.version }));
       return;
     case 'new': {
-      // A first-use lazy creation may still be in flight: wait it out so /new
-      // never races a second createSession against the pending prompt.
       await host.waitForSessionAssembly();
-      // The waited-out prompt may have started a turn meanwhile; /new is
-      // idle-only, so re-run the busy gate resolved before the await.
       const busyReason = slashCommandBusyReason({
         isStreaming: host.state.appState.streamingPhase !== 'idle',
         isCompacting: host.state.appState.isCompacting,
@@ -500,9 +393,6 @@ async function handleBuiltInSlashCommand(
       void showMcpServers(host);
       return;
     case 'plugins':
-      // `handlePluginsCommand` throws when no session is active (its own
-      // requireSession), so catch here instead of letting the `void` call
-      // reject unhandled.
       try {
         await handlePluginsCommand(host, args);
       } catch (error) {
@@ -569,20 +459,11 @@ async function handleBuiltInSlashCommand(
     case 'plan':
       await handlePlanCommand(host, args);
       return;
-    case 'spec':
-      await handleSpecCommand(host, args);
-      return;
     case 'swarm':
       await handleSwarmCommand(host, args);
       return;
-    case 'hello-world':
-      await handleHelloWorldCommand(host, args);
-      return;
     case 'tower':
       await handleTowerCommand(host, args);
-      return;
-    case 'workflow':
-      await handleWorkflowCommand(host, args);
       return;
     case 'compact':
       await handleCompactCommand(host, args);
@@ -602,14 +483,11 @@ async function handleBuiltInSlashCommand(
     case 'export-debug-zip':
       await handleExportDebugZipCommand(host);
       return;
-    case 'copy':
-      await handleCopyCommand(host);
-      return;
-    case 'clipboard':
-      await handleClipboardCommand(host);
-      return;
     case 'import-sessions':
       handleImportSessionsCommand(host);
+      return;
+    case 'copy':
+      await handleCopyCommand(host);
       return;
     case 'login':
       await handleLoginCommand(host);
@@ -619,9 +497,6 @@ async function handleBuiltInSlashCommand(
       return;
     case 'undo':
       await handleUndoCommand(host, args);
-      return;
-    case 'operation':
-      await handleOperationCommand(host, args);
       return;
     case 'web':
       await handleWebCommand(host);

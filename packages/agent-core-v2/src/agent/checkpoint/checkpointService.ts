@@ -8,6 +8,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { legacyDidExecuteContext } from '#/agent/toolExecutor/legacyHooks';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
@@ -79,16 +80,20 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
     this.storageScope = agent.scope('checkpoints');
     if (this.flags.enabled(OPERATION_LOG_FLAG_ID)) return;
     this._register(
-      toolExecutor.onWillExecuteTool((event) => {
-        const writePaths = collectWritePaths(event.execution.accesses);
-        if (writePaths.length === 0) return;
-        event.waitUntil(this.capturePaths(event.turnId, writePaths));
+      toolExecutor.registerHook({
+        beforeExecute: async (context) => {
+          if (context.prepared.kind !== 'execute') return;
+          const writePaths = collectWritePaths(context.prepared.accesses);
+          if (writePaths.length === 0) return;
+          await this.capturePaths(context.context.turnId, writePaths);
+        },
       }),
     );
     this._register(
-      toolExecutor.hooks.onDidExecuteTool.register('checkpoint-after', async (ctx, next) => {
-        await this.recordAfterWrite(ctx);
-        await next(ctx);
+      toolExecutor.registerHook({
+        afterExecute: async (context) => {
+          await this.recordAfterWrite(legacyDidExecuteContext(context));
+        },
       }),
     );
     this._register(

@@ -2,11 +2,11 @@ import { join } from 'node:path';
 
 import {
   agentContextOf,
+  grandTotal,
   IAgentFullCompactionService,
   IAgentLifecycleService,
   IAgentLoopService,
   IAgentPermissionModeService,
-  IAgentProfileService,
   IBootstrapService,
   IConfigService,
   IEventBus,
@@ -28,20 +28,14 @@ import {
   type ISessionScopeHandle,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import {
   ToolCallStarted,
-  TurnEnded,
-  TurnStarted,
   ToolResultEvent,
-} from '@moonshot-ai/agent-core-v2';
+} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 
 import { ClientConfigClient } from '#/client-configs/node/client-configs';
-import {
-  DEFAULT_SURVEY_POPUP_PAYLOAD,
-  type SurveyPopupPayload,
-} from '#/session-rating/common/survey-popup-config';
-import type { RatingOffer, RatingReport } from '#/session-rating/common/types';
-import { ratingCooldownFile, type RatingCooldownStore } from '#/session-rating/node/cooldown-store';
 import {
   mountSessionRating,
   type RatingConfigFeed,
@@ -49,20 +43,19 @@ import {
   type ResumedAgentSeed,
   type SessionRatingMount,
 } from '#/session-rating/node/engine';
-import type {
-  SurveyEventName,
-  SurveyEventProperties,
-} from '#/session-rating/node/event-properties';
+import type { SurveyEventName, SurveyEventProperties } from '#/session-rating/node/event-properties';
+import { isSurveyTurnOrigin, mountSurveyTurnCounter, type MountedSurveyTurnCounter } from '#/session-rating/node/survey-turns';
 import { SessionRatingLedger } from '#/session-rating/node/ledger';
+import type { RatingOffer, RatingReport } from '#/session-rating/common/types';
+import { ratingCooldownFile, type RatingCooldownStore } from '#/session-rating/node/cooldown-store';
 import {
   cloudSurveyPopupConfigFeed,
   SurveyPopupConfigFeed,
 } from '#/session-rating/node/survey-popup-config-feed';
 import {
-  isSurveyTurnOrigin,
-  mountSurveyTurnCounter,
-  type MountedSurveyTurnCounter,
-} from '#/session-rating/node/survey-turns';
+  DEFAULT_SURVEY_POPUP_PAYLOAD,
+  type SurveyPopupPayload,
+} from '#/session-rating/common/survey-popup-config';
 
 export const SESSION_RATING_PREVIEW_ENV = 'KIMI_CODE_SESSION_RATING_PREVIEW';
 
@@ -253,7 +246,7 @@ export class SessionRatingHost implements IDisposable {
           mount.observe({ kind: 'turn-started', origin: event.origin });
         }),
         bus.subscribe(TurnEnded, (event) => {
-          mount.observe({ kind: 'turn-ended', traceId: event.traceId });
+          mount.observe({ kind: 'turn-ended', requestId: event.requestId });
         }),
         bus.subscribe(ToolCallStarted, (event) => {
           mount.observe({
@@ -346,7 +339,7 @@ function resumedAgentSeeds(
 function modelRouteOf(agent: IAgentScopeHandle, alias: string): RatingEnvironment['model'] {
   try {
     const model = agent.accessor.get(IModelCatalog).get(alias);
-    return { modelId: model.name, baseUrl: model.baseUrl };
+    return { modelId: model.spec.name, baseUrl: model.endpoint.baseUrl };
   } catch {
     return { modelId: undefined, baseUrl: undefined };
   }
@@ -371,17 +364,14 @@ function readEnvironment(
     };
   }
   const context = agentContextOf(agent);
-  const profile = agent.accessor.get(IAgentProfileService);
+  const profile = agent.accessor.get(IAgentLoopService);
   const alias = profile.getModel();
   const total = agent.accessor.get(ISessionUsageService).status(context).total;
   return {
     sessionId,
     currentModel: alias,
     model: modelRouteOf(agent, alias),
-    cumulativeTokens:
-      total === undefined
-        ? 0
-        : total.inputOther + total.output + total.inputCacheRead + total.inputCacheCreation,
+    cumulativeTokens: total === undefined ? 0 : grandTotal(total),
     contextTokens: agent.accessor.get(ISessionTokenCountingService).statusSize(context),
     permissionMode: agent.accessor.get(IAgentPermissionModeService).mode,
     thinkingEffort: profile.getEffectiveThinkingLevel(),

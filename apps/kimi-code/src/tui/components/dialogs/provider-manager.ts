@@ -1,44 +1,9 @@
-/**
- * ProviderManagerComponent — pure-view CRUD UI for the `/provider` command.
- *
- * Single-column layout showing one row per "platform / source":
- *   - each Open Platform login (1 source = 1 provider)
- *   - each Custom Registry connection grouping by `{url, apiKey}`
- *     (1 source = N providers from the same api.json fetch)
- *   - any other configured provider (1 source = 1 provider)
- *   - a synthetic final `[ Add New Platform ]` action row
- * Kimi Code OAuth (`DEFAULT_OAUTH_PROVIDER_NAME`) is intentionally hidden
- * — that account is managed through `/login` / `/logout`, not here.
- *
- * Keyboard:
- *   - ↑ / ↓             move highlight
- *   - ← / → · PgUp/PgDn page
- *   - Enter             on `[ Add New Platform ]` → `onAdd()`
- *   - E                 edit on a source row → `onEdit(providerId)` with the
- *                         row's first provider id (a registry group edits its
- *                         first provider)
- *                         on `[ Add New Platform ]` → ignored
- *   - D                 delete with inline `[y/N]` confirmation
- *                         on a source row → `onDeleteSource(providerIds)`
- *                         on `[ Add New Platform ]` → ignored
- *   - Esc               `onClose()` (outside confirm)
- *
- * The `[y/N]` confirmation is a transient substate handled in-component:
- * while armed, only `y` / `Y` / `n` / `N` / `Esc` are honored and the
- * prompt replaces the footer hint.
- *
- * The component is pure-view: every CRUD side effect is dispatched back
- * through callbacks. The host (`KimiTui`) is responsible for performing
- * the harness / config mutations and then pushing a fresh snapshot via
- * `setOptions`.
- */
-
+import type { ProviderConfig } from '@moonshot-ai/kimi-code-sdk';
 import {
   getOpenPlatformById,
   isOpenPlatformId,
   type CustomRegistrySource,
 } from '@moonshot-ai/kimi-code-oauth';
-import type { ProviderConfig } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Key,
@@ -46,22 +11,14 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
-import { t } from '#/i18n';
-import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
+import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import {
-  mouseDispatch,
-  ListMouseRouter,
-  type ListCursor,
-  type ListRowRegion,
-} from '#/tui/utils/mouse';
-import { pageView, type PageView } from '#/tui/utils/paging';
 import { printableChar } from '#/tui/utils/printable-key';
+import { pageView, type PageView } from '#/tui/utils/paging';
+import { t } from '#/i18n';
 
 interface ConfirmState {
   readonly label: string;
@@ -69,34 +26,22 @@ interface ConfirmState {
 }
 
 export interface ProviderManagerOptions {
-  /** All currently configured providers (`config.providers`). */
   readonly providers: Record<string, ProviderConfig>;
-  /** Provider id of the currently active model. */
   readonly activeProviderId?: string;
   readonly onAdd: () => void;
-  /** Edit one provider (`E` on its row). Grouped source rows pass their first
-   *  provider id — the form edits a single provider record. */
-  readonly onEdit: (providerId: string) => void;
-  /** Delete all providers under a source (Open Platform / custom-registry
-   *  fetch / standalone). Passed the full provider-id list so the host
-   *  doesn't have to re-derive the source grouping. */
   readonly onDeleteSource: (providerIds: readonly string[]) => void;
   readonly onClose: () => void;
 }
 
-/** Real (non-synthetic) source row. */
 interface SourceRow {
   readonly kind: 'source';
   readonly id: string;
   readonly label: string;
   readonly providerIds: readonly string[];
-  /** True when one of `providerIds` is the active provider. */
   readonly hasActive: boolean;
-  /** Optional base URL extracted from the provider config. */
   readonly baseUrl?: string;
 }
 
-/** Synthetic Add New Platform action row pinned to the bottom. */
 interface AddRow {
   readonly kind: 'add';
   readonly id: '__add__';
@@ -105,12 +50,10 @@ interface AddRow {
 
 type Row = SourceRow | AddRow;
 
+const ADD_ROW_LABEL = t('tui.dialogs.providerManager.addRowLabel');
 const PAGE_SIZE = 8;
+const HEADER_HINT = '↑↓ navigate · D delete · Esc cancel';
 
-// Narrows a `ProviderConfig` blob to a `CustomRegistrySource` payload.
-// Mirrors `readCustomRegistrySource` in `kimi-tui.ts`. We can't import
-// that helper because it lives in the host and would create a cyclic
-// dependency on the component's container; duplicating ~15 lines is cheap.
 function readCustomRegistrySource(provider: unknown): CustomRegistrySource | undefined {
   if (typeof provider !== 'object' || provider === null) return undefined;
   const source = (provider as { readonly source?: unknown }).source;
@@ -126,11 +69,6 @@ function readCustomRegistrySource(provider: unknown): CustomRegistrySource | und
   return { kind: 'apiJson', url: candidate.url, apiKey: candidate.apiKey };
 }
 
-/**
- * Pretty-print a URL for the source-row label. Strips the scheme and
- * truncates obvious api.json suffixes so the row stays narrow. Falls
- * back to the raw URL if parsing fails.
- */
 function sourceUrlLabel(url: string): string {
   try {
     const parsed = new URL(url);
@@ -140,21 +78,9 @@ function sourceUrlLabel(url: string): string {
   }
 }
 
-/**
- * Group providers into source rows + append the synthetic add-row.
- * The grouping rules:
- *   - `DEFAULT_OAUTH_PROVIDER_NAME` → skipped (managed via /logout).
- *   - Open Platform id (`isOpenPlatformId(id)`) → 1 source per provider,
- *     label = `OpenPlatformDefinition.name`.
- *   - `cfg.source.kind === 'apiJson'` → one source per `{url, apiKey}`
- *     pair, label = hostname + pathname.
- *   - Anything else → 1 source per provider, label = provider id.
- */
 function buildRows(opts: ProviderManagerOptions): readonly Row[] {
   const sources: SourceRow[] = [];
 
-  // Map from `${url}${apiKey}` → index into `sources`, so we can
-  // append further providers into the same group.
   const customRegistryIndex = new Map<string, number>();
 
   for (const [id, cfg] of Object.entries(opts.providers)) {
@@ -181,10 +107,7 @@ function buildRows(opts: ProviderManagerOptions): readonly Row[] {
 
     const customSource = readCustomRegistrySource(cfg);
     if (customSource !== undefined) {
-      // NUL separator keeps `url="…/to" + key="ken"` from colliding with
-      // `url="…/t" + key="oken"` — merged groups would delete each other's
-      // providers on removal.
-      const key = `${customSource.url}\u0000${customSource.apiKey}`;
+      const key = `${customSource.url}${customSource.apiKey}`;
       const existingIdx = customRegistryIndex.get(key);
       if (existingIdx !== undefined) {
         const existing = sources[existingIdx];
@@ -222,22 +145,15 @@ function buildRows(opts: ProviderManagerOptions): readonly Row[] {
     });
   }
 
-  return [
-    ...sources,
-    { kind: 'add', id: '__add__', label: t('tui.dialogs.providerManager.addRowLabel') },
-  ];
+  return [...sources, { kind: 'add', id: '__add__', label: ADD_ROW_LABEL }];
 }
 
 export class ProviderManagerComponent extends Container implements Focusable {
   focused = false;
-  // Pages the provider rows itself with arrow columns and PageUp/PageDown.
-  readonly ownsViewportKeys = true;
-  readonly ownsViewportSearchKey = true;
   private opts: ProviderManagerOptions;
   private rows: readonly Row[];
   private selectedIndex: number;
   private confirm: ConfirmState | undefined;
-  private readonly mouse: ListMouseRouter<Row>;
 
   constructor(opts: ProviderManagerOptions) {
     super();
@@ -250,41 +166,8 @@ export class ProviderManagerComponent extends Container implements Focusable {
       : -1;
     this.selectedIndex = Math.max(activeIdx, 0);
     this.confirm = undefined;
-    this.mouse = new ListMouseRouter(this.cursor, (row) => this.pickRow(row), {
-      isFocused: () => this.focused,
-    });
   }
 
-  /** The cursor the mouse router drives; the rows are rebuilt on every refresh. */
-  private readonly cursor: ListCursor<Row> = {
-    items: () => this.rows,
-    selectedIndex: () => this.selectedIndex,
-    pageCount: () => this.page().pageCount,
-    moveTo: (index) => {
-      this.selectedIndex = Math.max(0, Math.min(this.rows.length - 1, index));
-      this.invalidate();
-    },
-    page: (direction) => {
-      this.selectedIndex = Math.max(
-        0,
-        Math.min(this.rows.length - 1, this.selectedIndex + direction * PAGE_SIZE),
-      );
-      this.invalidate();
-    },
-  };
-
-  /** What Enter does on a row: only the synthetic add-row has an action. */
-  private pickRow(row: Row): void {
-    if (this.confirm !== undefined) return;
-    if (row.kind === 'add') this.opts.onAdd();
-  }
-
-  /**
-   * Replace the props the component renders against. Existing selection
-   * is preserved when possible (by id or first provider id) so deletions
-   * don't visually jump. Any in-flight `[y/N]` substate is cleared because
-   * the underlying target may have changed.
-   */
   setOptions(next: ProviderManagerOptions): void {
     const previousSelected = this.rows[this.selectedIndex];
     const previousSelectedId = previousSelected?.id;
@@ -311,11 +194,6 @@ export class ProviderManagerComponent extends Container implements Focusable {
     this.invalidate();
   }
 
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return mouseDispatch(this, event, this.mouse.handleMouse(event));
-  }
-
-  /** The slice of {@link rows} the list renders; the synthetic add-row is one of them. */
   private page(): PageView {
     return pageView(this.rows.length, this.selectedIndex, PAGE_SIZE);
   }
@@ -367,23 +245,10 @@ export class ProviderManagerComponent extends Container implements Focusable {
       return;
     }
 
-    // Delete / edit the highlighted provider with the D / E keys.
     const ch = printableChar(data);
     if (ch === 'd' || ch === 'D') {
       this.armDeleteConfirm();
-      return;
     }
-    if (ch === 'e' || ch === 'E') {
-      this.armEdit();
-    }
-  }
-
-  private armEdit(): void {
-    const selected = this.rows[this.selectedIndex];
-    if (selected === undefined || selected.kind === 'add') return;
-    const providerId = selected.providerIds[0];
-    if (providerId === undefined) return;
-    this.opts.onEdit(providerId);
   }
 
   private armDeleteConfirm(): void {
@@ -392,11 +257,8 @@ export class ProviderManagerComponent extends Container implements Focusable {
     const ids = selected.providerIds;
     const prompt =
       ids.length === 1
-        ? t('tui.dialogs.providerManager.deleteConfirmSingle', { label: selected.label })
-        : t('tui.dialogs.providerManager.deleteConfirmMultiple', {
-            label: selected.label,
-            count: ids.length,
-          });
+        ? `Delete platform "${selected.label}"?`
+        : `Delete platform "${selected.label}" and all ${String(ids.length)} providers?`;
     this.confirm = {
       label: prompt,
       providerIds: ids,
@@ -419,37 +281,29 @@ export class ProviderManagerComponent extends Container implements Focusable {
       this.opts.onDeleteSource(confirm.providerIds);
       return;
     }
-    // Any other key while in the confirm substate is ignored.
   }
 
   override render(width: number): string[] {
     const lines: string[] = [];
 
-    // Header shape mirrors the model dialog (see model-selector.ts): a single
-    // top border, the title, the keymap hint, then a blank line. No inner
-    // border under the title.
     const border = currentTheme.fg('primary', '─'.repeat(width));
     lines.push(border);
-    lines.push(currentTheme.boldFg('primary', ` ${t('tui.dialogs.providerManager.title')}`));
-    lines.push(currentTheme.fg('textMuted', ` ${t('tui.dialogs.providerManager.headerHint')}`));
+    lines.push(currentTheme.boldFg('primary', ' Providers'));
+    lines.push(currentTheme.fg('textMuted', ' ' + HEADER_HINT));
     lines.push('');
 
     const rows = this.rows;
     if (rows.length === 0) {
-      lines.push(currentTheme.fg('textMuted', `  ${t('tui.dialogs.providerManager.empty')}`));
+      lines.push(currentTheme.fg('textMuted', '  No providers configured.'));
     } else {
       const view = this.page();
-      const regions: ListRowRegion[] = [];
       for (let i = view.start; i < view.end; i++) {
         const row = rows[i];
         if (row === undefined) continue;
-        const start = lines.length;
         for (const line of renderRow(row, { isSelected: i === this.selectedIndex, width })) {
           lines.push(line);
         }
-        regions.push({ start, end: lines.length, index: i });
       }
-      this.mouse.setRegions(regions);
     }
 
     lines.push('');
@@ -462,7 +316,7 @@ export class ProviderManagerComponent extends Container implements Focusable {
         lines.push(
           currentTheme.fg(
             'textMuted',
-            ` ${t('tui.dialogs.providerManager.page', { page: view.page + 1, pageCount: view.pageCount })}`,
+            ` Page ${String(view.page + 1)}/${String(view.pageCount)}`,
           ),
         );
       }
@@ -480,14 +334,15 @@ export class ProviderManagerComponent extends Container implements Focusable {
   }
 }
 
-function renderRow(row: Row, ctx: { isSelected: boolean; width: number }): string[] {
+
+function renderRow(
+  row: Row,
+  ctx: { isSelected: boolean; width: number },
+): string[] {
   const { isSelected, width } = ctx;
   const pointer = isSelected ? SELECT_POINTER : ' ';
   const pointerStyle = (text: string) =>
     isSelected ? currentTheme.fg('primary', text) : currentTheme.fg('textDim', text);
-  // The synthetic "Add New Platform" row is an action/CTA: keep it in the brand
-  // color so it never reads as disabled, and bold it when selected (matching
-  // the other rows' selected treatment).
   const labelStyle = (text: string) =>
     isSelected
       ? currentTheme.boldFg('primary', text)
@@ -495,12 +350,9 @@ function renderRow(row: Row, ctx: { isSelected: boolean; width: number }): strin
         ? currentTheme.fg('primary', text)
         : currentTheme.fg('text', text);
 
-  // The active provider is flagged with a trailing "← current" (success),
-  // matching the model selector's current-item marker — see .agents/skills/write-tui/DESIGN.md.
   const isActive = row.kind === 'source' && row.hasActive;
-  const marker = isActive ? ` ${getCurrentMark()}` : '';
+  const marker = isActive ? ` ${CURRENT_MARK}` : '';
 
-  // Reserve 2 leading spaces + 2 for the pointer + room for the marker.
   const labelWidth = Math.max(0, width - 4 - visibleWidth(marker));
   const labelText = truncateToWidth(row.label, labelWidth, '…');
   let line = `  ${pointerStyle(`${pointer} `)}${labelStyle(labelText)}`;

@@ -1,8 +1,14 @@
-import { validateHeaderName, validateHeaderValue } from 'node:http';
+import { validateHeaderName, validateHeaderValue, type Agent } from 'node:http';
 import { hostname, platform } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+import {
+  makeNoProxyMatcher,
+  resolveHttpProxyUrls,
+  resolveNoProxy,
+} from '@moonshot-ai/agent-core-v2';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import {
   createKimiDeviceId,
   FileTokenStorage,
@@ -112,7 +118,7 @@ const GZIP_COMPRESSIBLE_TYPES = new Set([
   'image/svg+xml',
 ]);
 export async function gzipAsync(body: Buffer): Promise<Buffer> {
-  const stream = new Blob([body]).stream().pipeThrough(new CompressionStream('gzip'));
+  const stream = new Blob([Uint8Array.from(body)]).stream().pipeThrough(new CompressionStream('gzip'));
   return Buffer.from(await new Response(stream).arrayBuffer());
 }
 
@@ -434,6 +440,7 @@ class RemoteControlClient {
   private readonly deviceId: string;
   private readonly refreshToken: string;
   private readonly stderr: Pick<NodeJS.WriteStream, 'write'>;
+  private readonly relayAgent?: Agent;
   private readonly onStatus: (status: RemoteControlStatus) => void;
   private readonly streams = new Map<string, ActiveStream>();
   private readonly pendingSockets = new Set<WebSocket>();
@@ -472,6 +479,7 @@ class RemoteControlClient {
     this.deviceId = options.deviceId;
     this.refreshToken = options.refreshToken;
     this.stderr = options.stderr ?? process.stderr;
+    this.relayAgent = createRelayProxyAgent(this.relayOrigin, process.env, this.stderr);
     this.onStatus = options.onStatus ?? (() => {});
     this.pingIntervalMs = options.pingIntervalMs ?? RELAY_PING_INTERVAL_MS;
     this.silenceTimeoutMs = options.silenceTimeoutMs ?? RELAY_SILENCE_TIMEOUT_MS;
@@ -485,7 +493,7 @@ class RemoteControlClient {
       this.initialResolve = resolve;
       this.initialReject = reject;
     });
-    this.runPromise = this.run();
+    this.runPromise = this.run().finally(() => this.relayAgent?.destroy());
     await initial;
   }
 
@@ -636,6 +644,7 @@ class RemoteControlClient {
       earlyFrames,
       this.pendingSockets,
       () => this.stopped,
+      this.relayAgent,
     );
   }
 
@@ -1060,6 +1069,24 @@ function sendFrame(socket: WebSocket, data: string): Promise<boolean> {
   });
 }
 
+function createRelayProxyAgent(
+  origin: string,
+  env: Readonly<Record<string, string | undefined>>,
+  stderr: Pick<NodeJS.WriteStream, 'write'>,
+): Agent | undefined {
+  const url = new URL(origin);
+  const port = url.port || (url.protocol === 'https:' ? 443 : 80);
+  if (makeNoProxyMatcher(resolveNoProxy(env))(url.hostname, port)) return undefined;
+  const { httpProxy, httpsProxy } = resolveHttpProxyUrls(env);
+  const proxy = url.protocol === 'https:' ? httpsProxy : httpProxy;
+  try {
+    return proxy === undefined ? undefined : new HttpsProxyAgent(proxy);
+  } catch {
+    stderr.write(`${t('remoteControl.invalidProxy')}\n`);
+    return undefined;
+  }
+}
+
 async function connectWebSocket(
   url: string,
   token: string,
@@ -1067,11 +1094,12 @@ async function connectWebSocket(
   earlyFrames?: [RawData, boolean][],
   pendingSockets?: Set<WebSocket>,
   isStopped?: () => boolean,
+  agent?: Agent,
 ): Promise<WebSocket> {
   const protocol = `kimi-code.bearer.${token}`;
   if (isWebSocketProtocolToken(protocol)) {
     try {
-      return await connectWebSocketAttempt(url, [protocol], headers, earlyFrames, pendingSockets);
+      return await connectWebSocketAttempt(url, [protocol], headers, earlyFrames, pendingSockets, agent);
     } catch (error) {
       if (isStopped?.() === true) throw error;
     }
@@ -1085,6 +1113,7 @@ async function connectWebSocket(
     },
     earlyFrames,
     pendingSockets,
+    agent,
   );
 }
 
@@ -1094,11 +1123,13 @@ function connectWebSocketAttempt(
   headers: Record<string, string>,
   earlyFrames?: [RawData, boolean][],
   pendingSockets?: Set<WebSocket>,
+  agent?: Agent,
 ): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url, protocols, {
       headers,
       handshakeTimeout: REGISTER_TIMEOUT_MS,
+      agent,
     });
     pendingSockets?.add(socket);
     if (earlyFrames !== undefined) {

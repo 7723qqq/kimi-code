@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -66,9 +66,7 @@ export async function readMergedSessionState(
     state = OldSessionStateSchema.parse(
       JSON.parse(await readFile(join(sessionDir, 'state.json'), 'utf-8')),
     );
-  } catch {
-    // missing or corrupt state — proceed with defaults
-  }
+  } catch {}
   let metadata: OldSessionMetadata | undefined;
   try {
     metadata = OldSessionMetadataSchema.parse(

@@ -1,573 +1,574 @@
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-
-import { expect, describe, it } from 'bun:test';
-
-import { setKittyProtocolActive } from '../src/keys.ts';
-import type { StdinBufferTimerHandle, StdinBufferTimers } from '../src/stdin-buffer.ts';
+import assert from "node:assert";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { setKittyProtocolActive } from "../src/keys.ts";
 import {
-  normalizeAppleTerminalInput,
-  normalizeNativeShiftEnterInput,
-  ProcessTerminal,
-  resolveEscapeTimeoutMs,
-} from '../src/terminal.ts';
+	normalizeAppleTerminalInput,
+	normalizeNativeShiftEnterInput,
+	ProcessTerminal,
+	resolveEscapeTimeoutMs,
+} from "../src/terminal.ts";
 
-describe('resolveEscapeTimeoutMs', () => {
-  it('uses PI_TUI_ESC_TIMEOUT when configured', () => {
-    expect(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: '80' })).toBe(80);
-    expect(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: '80', SSH_TTY: '/dev/pts/1' })).toBe(80);
-  });
+describe("resolveEscapeTimeoutMs", () => {
+	it("uses PI_TUI_ESC_TIMEOUT when configured", () => {
+		assert.equal(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: "80" }), 80);
+		assert.equal(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: "80", SSH_TTY: "/dev/pts/1" }), 80);
+	});
 
-  it('ignores invalid PI_TUI_ESC_TIMEOUT values', () => {
-    expect(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: 'abc' })).toBe(10);
-    expect(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: '0' })).toBe(10);
-    expect(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: '-5' })).toBe(10);
-    expect(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: '' })).toBe(10);
-  });
+	it("ignores invalid PI_TUI_ESC_TIMEOUT values", () => {
+		assert.equal(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: "abc" }), 10);
+		assert.equal(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: "0" }), 10);
+		assert.equal(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: "-5" }), 10);
+		assert.equal(resolveEscapeTimeoutMs({ PI_TUI_ESC_TIMEOUT: "" }), 10);
+	});
 
-  it('defaults to 100ms over SSH', () => {
-    expect(resolveEscapeTimeoutMs({ SSH_CONNECTION: '10.0.0.1 22' })).toBe(100);
-    expect(resolveEscapeTimeoutMs({ SSH_TTY: '/dev/pts/1' })).toBe(100);
-  });
+	it("defaults to 100ms over SSH", () => {
+		assert.equal(resolveEscapeTimeoutMs({ SSH_CONNECTION: "10.0.0.1 22" }), 100);
+		assert.equal(resolveEscapeTimeoutMs({ SSH_TTY: "/dev/pts/1" }), 100);
+	});
 
-  it('defaults to 10ms otherwise', () => {
-    expect(resolveEscapeTimeoutMs({})).toBe(10);
-  });
+	it("defaults to 10ms otherwise", () => {
+		assert.equal(resolveEscapeTimeoutMs({}), 10);
+	});
 });
 
-describe('normalizeNativeShiftEnterInput', () => {
-  it('rewrites Return to CSI-u Shift+Enter when native Shift detection is enabled and Shift is pressed', () => {
-    expect(normalizeNativeShiftEnterInput('\r', true, true)).toBe('\x1b[13;2u');
-  });
+describe("normalizeNativeShiftEnterInput", () => {
+	it("rewrites Return to CSI-u Shift+Enter when native Shift detection is enabled and Shift is pressed", () => {
+		assert.equal(normalizeNativeShiftEnterInput("\r", true, true), "\x1b[13;2u");
+	});
 
-  it('leaves Return unchanged when native Shift detection is disabled', () => {
-    expect(normalizeNativeShiftEnterInput('\r', false, true)).toBe('\r');
-  });
+	it("leaves Return unchanged when native Shift detection is disabled", () => {
+		assert.equal(normalizeNativeShiftEnterInput("\r", false, true), "\r");
+	});
 
-  it('leaves Return unchanged when Shift is not pressed', () => {
-    expect(normalizeNativeShiftEnterInput('\r', true, false)).toBe('\r');
-  });
+	it("leaves Return unchanged when Shift is not pressed", () => {
+		assert.equal(normalizeNativeShiftEnterInput("\r", true, false), "\r");
+	});
 
-  it('leaves non-Return input unchanged', () => {
-    expect(normalizeNativeShiftEnterInput('\x1b[13;2u', true, true)).toBe('\x1b[13;2u');
-    expect(normalizeNativeShiftEnterInput('a', true, true)).toBe('a');
-  });
+	it("leaves non-Return input unchanged", () => {
+		assert.equal(normalizeNativeShiftEnterInput("\x1b[13;2u", true, true), "\x1b[13;2u");
+		assert.equal(normalizeNativeShiftEnterInput("a", true, true), "a");
+	});
 });
 
-describe('normalizeAppleTerminalInput', () => {
-  it('rewrites Apple Terminal Return to CSI-u Shift+Enter when Shift is pressed', () => {
-    expect(normalizeAppleTerminalInput('\r', true, true)).toBe('\x1b[13;2u');
-  });
+describe("normalizeAppleTerminalInput", () => {
+	it("rewrites Apple Terminal Return to CSI-u Shift+Enter when Shift is pressed", () => {
+		assert.equal(normalizeAppleTerminalInput("\r", true, true), "\x1b[13;2u");
+	});
 
-  it('leaves Apple Terminal Return unchanged when Shift is not pressed', () => {
-    expect(normalizeAppleTerminalInput('\r', true, false)).toBe('\r');
-  });
+	it("leaves Apple Terminal Return unchanged when Shift is not pressed", () => {
+		assert.equal(normalizeAppleTerminalInput("\r", true, false), "\r");
+	});
 
-  it('leaves non-Apple Terminal Return unchanged when Shift is pressed', () => {
-    expect(normalizeAppleTerminalInput('\r', false, true)).toBe('\r');
-  });
+	it("leaves non-Apple Terminal Return unchanged when Shift is pressed", () => {
+		assert.equal(normalizeAppleTerminalInput("\r", false, true), "\r");
+	});
 
-  it('leaves non-Return input unchanged', () => {
-    expect(normalizeAppleTerminalInput('\x1b[13;2u', true, true)).toBe('\x1b[13;2u');
-    expect(normalizeAppleTerminalInput('a', true, true)).toBe('a');
-  });
+	it("leaves non-Return input unchanged", () => {
+		assert.equal(normalizeAppleTerminalInput("\x1b[13;2u", true, true), "\x1b[13;2u");
+		assert.equal(normalizeAppleTerminalInput("a", true, true), "a");
+	});
 });
 
-describe('ProcessTerminal setTitle', () => {
-  function captureSetTitle(title: string): string[] {
-    const writes: string[] = [];
-    const previousWrite = process.stdout.write;
+describe("ProcessTerminal Kitty keyboard protocol negotiation", () => {
+	const environmentKeys = [
+		"TMUX",
+		"STY",
+		"ZELLIJ",
+		"ZELLIJ_SESSION_NAME",
+		"REX_SESSION",
+		"REX_BLOCK",
+		"HERDR_ENV",
+	];
+	let previousEnvironment: Record<string, string | undefined>;
+	beforeEach(() => {
+		previousEnvironment = Object.fromEntries(environmentKeys.map((key) => [key, process.env[key]]));
+		for (const key of environmentKeys) delete process.env[key];
+	});
+	afterEach(() => {
+		for (const key of environmentKeys) {
+			const value = previousEnvironment[key];
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	});
 
-    process.stdout.write = ((chunk: string | Uint8Array) => {
-      writes.push(String(chunk));
-      return true;
-    }) as typeof process.stdout.write;
+	type NegotiationHarness = {
+		terminal: ProcessTerminal;
+		writes: string[];
+		send(data: string): void;
+		getInput(): string | undefined;
+		cleanup(): void;
+	};
 
-    try {
-      new ProcessTerminal().setTitle(title);
-    } finally {
-      process.stdout.write = previousWrite;
-    }
+	function setupNegotiation(): NegotiationHarness {
+		const terminal = new ProcessTerminal();
+		const writes: string[] = [];
+		let input: string | undefined;
+		let dataHandler: ((data: string) => void) | undefined;
+		let cleaned = false;
+		const previousWrite = process.stdout.write;
+		const previousOn = process.stdin.on;
 
-    return writes;
-  }
+		process.stdout.write = ((chunk: string | Uint8Array) => {
+			writes.push(String(chunk));
+			return true;
+		}) as typeof process.stdout.write;
+		process.stdin.on = ((event: string | symbol, listener: (...args: unknown[]) => void) => {
+			if (event === "data") dataHandler = listener as (data: string) => void;
+			return process.stdin;
+		}) as typeof process.stdin.on;
 
-  it('keeps printable titles verbatim', () => {
-    expect(captureSetTitle('标题 A')).toStrictEqual(['\x1b]0;标题 A\x07']);
-  });
+		(
+			terminal as unknown as {
+				inputHandler?: (data: string) => void;
+				queryAndEnableKittyProtocol(): void;
+			}
+		).inputHandler = (data) => {
+			input = data;
+		};
+		(terminal as unknown as { queryAndEnableKittyProtocol(): void }).queryAndEnableKittyProtocol();
 
-  it('sanitizes control bytes in setTitle', () => {
-    const output = captureSetTitle('x\x07\x1b]52;c;b64\x07').join('');
+		return {
+			terminal,
+			writes,
+			send(data: string): void {
+				dataHandler?.(data);
+			},
+			getInput(): string | undefined {
+				return input;
+			},
+			cleanup(): void {
+				if (cleaned) return;
+				cleaned = true;
+				try {
+					terminal.stop();
+				} finally {
+					process.stdout.write = previousWrite;
+					process.stdin.on = previousOn;
+					setKittyProtocolActive(false);
+				}
+			},
+		};
+	}
 
-    expect(!output.includes('\x1b]52'), 'no injected OSC 52 sequence').toBeTruthy();
-    expect(output.indexOf('\x1b]0;')).toBe(0);
-    expect(output.match(/\x1b\]/g)!.length).toBe(1);
-    expect(output.endsWith('\x07')).toBeTruthy();
-    expect(output).toBe('\x1b]0;x]52;c;b64\x07');
-  });
+	it("queries Kitty mode before enabling modifyOtherKeys fallback", () => {
+		const harness = setupNegotiation();
+		try {
+			assert.equal(harness.writes[0], "\x1b[>7u\x1b[?u\x1b]7501;?\x1b\\\x1b[c");
+			assert.equal(harness.writes.includes("\x1b[>4;2m"), false);
+			assert.equal(harness.terminal.kittyProtocolActive, false);
+		} finally {
+			harness.cleanup();
+		}
+	});
 
-  it('does not produce a CSI sequence for control-byte titles', () => {
-    const output = captureSetTitle('\x1b[2J').join('');
+	it("activates Kitty mode for non-zero negotiated flags", () => {
+		const harness = setupNegotiation();
+		try {
+			harness.send("\x1b[?7u");
 
-    expect(!output.includes('\x1b['), 'no CSI sequence is produced').toBeTruthy();
-    expect(output).toBe('\x1b]0;[2J\x07');
-  });
+			assert.equal(harness.getInput(), undefined);
+			assert.equal(harness.terminal.kittyProtocolActive, true);
+			assert.equal(harness.writes.includes("\x1b[>4;2m"), false);
+			assert.equal(harness.writes.includes("\x1b[>4;0m"), false);
 
-  it('writes nothing for an empty title', () => {
-    expect(captureSetTitle('')).toStrictEqual([]);
-  });
+			harness.cleanup();
+			assert.equal(harness.writes.filter((write) => write === "\x1b[<u").length, 1);
+			assert.equal(harness.writes.includes("\x1b[>4;0m"), false);
+		} finally {
+			harness.cleanup();
+		}
+	});
 
-  it('normalises layout characters in titles', () => {
-    expect(captureSetTitle('  a\nb\tc  ')).toStrictEqual(['\x1b]0;a b c\x07']);
-  });
+	it("falls back to modifyOtherKeys for zero Kitty flags", () => {
+		const harness = setupNegotiation();
+		try {
+			harness.send("\x1b[?0u");
+
+			assert.equal(harness.getInput(), undefined);
+			assert.equal(harness.terminal.kittyProtocolActive, false);
+			assert.equal(harness.writes.filter((write) => write === "\x1b[>4;2m").length, 1);
+
+			harness.cleanup();
+			assert.equal(harness.writes.filter((write) => write === "\x1b[>4;0m").length, 1);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("falls back to modifyOtherKeys for device attributes without Kitty flags", () => {
+		const harness = setupNegotiation();
+		try {
+			harness.send("\x1b[?62;4;52c");
+
+			assert.equal(harness.getInput(), undefined);
+			assert.equal(harness.terminal.kittyProtocolActive, false);
+			assert.equal(harness.writes.filter((write) => write === "\x1b[>4;2m").length, 1);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("forwards device attributes replies that answer other queries", () => {
+		const harness = setupNegotiation();
+		try {
+			harness.send("\x1b[?7u");
+			harness.send("\x1b[?62;4;52c");
+			assert.equal(harness.getInput(), undefined);
+
+			// The TUI's color query uses DA1 as its own sentinel.
+			harness.send("\x1b[?62;4;52c");
+			assert.equal(harness.getInput(), "\x1b[?62;4;52c");
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("forwards normal input while waiting for Kitty response", () => {
+		const harness = setupNegotiation();
+		try {
+			harness.send("a");
+
+			assert.equal(harness.getInput(), "a");
+			assert.equal(harness.terminal.kittyProtocolActive, false);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("tracks split Kitty confirmation", () => {
+		mock.timers.enable({ apis: ["setTimeout"] });
+		const harness = setupNegotiation();
+		try {
+			harness.send("\x1b[?7");
+			mock.timers.tick(10);
+
+			assert.equal(harness.getInput(), undefined);
+
+			harness.send("u");
+
+			assert.equal(harness.terminal.kittyProtocolActive, true);
+			assert.equal(harness.writes.includes("\x1b[>4;2m"), false);
+		} finally {
+			harness.cleanup();
+			mock.timers.reset();
+		}
+	});
+
+	// #10607
+	describe("program status (OSC 7501)", () => {
+		const working = "\x1b]7501;state=working:app=pi\x1b\\";
+		const clear = "\x1b]7501;state=clear\x1b\\";
+		function withOverride(value: string | undefined, fn: () => void): void {
+			const previous = process.env.PI_PROGRAM_STATUS;
+			if (value === undefined) delete process.env.PI_PROGRAM_STATUS;
+			else process.env.PI_PROGRAM_STATUS = value;
+			try {
+				fn();
+			} finally {
+				if (previous === undefined) delete process.env.PI_PROGRAM_STATUS;
+				else process.env.PI_PROGRAM_STATUS = previous;
+			}
+		}
+
+		function withEnv(values: Record<string, string | undefined>, fn: () => void): void {
+			const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
+			for (const [key, value] of Object.entries(values)) {
+				if (value === undefined) delete process.env[key];
+				else process.env[key] = value;
+			}
+			try {
+				fn();
+			} finally {
+				for (const [key, value] of Object.entries(previous)) {
+					if (value === undefined) delete process.env[key];
+					else process.env[key] = value;
+				}
+			}
+		}
+
+		const tmuxWorking = "\x1bPtmux;\x1b\x1b]7501;state=working:app=pi\x1b\x1b\\\x1b\\";
+		const tmuxClear = "\x1bPtmux;\x1b\x1b]7501;state=clear\x1b\x1b\\\x1b\\";
+
+		it("reports the latest status once the terminal answers the query before DA", () => {
+			withOverride(undefined, () => {
+				const harness = setupNegotiation();
+				try {
+					harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+					assert.equal(harness.writes.includes(working), false);
+
+					harness.send("\x1b]7501;?\x1b\\");
+					assert.equal(harness.getInput(), undefined);
+					assert.equal(harness.writes.filter((write) => write === working).length, 1);
+					harness.send("\x1b[?62;4;52c");
+
+					harness.terminal.setProgramStatus({ state: "done" });
+					assert.equal(harness.writes.at(-1), "\x1b]7501;state=done\x1b\\");
+				} finally {
+					harness.cleanup();
+				}
+			});
+		});
+
+		it("reports nothing when DA arrives first and swallows late replies", () => {
+			withOverride(undefined, () => {
+				const harness = setupNegotiation();
+				try {
+					harness.send("\x1b[?62;4;52c");
+					harness.send("\x1b]7501;?\x07");
+					harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+
+					assert.equal(harness.getInput(), undefined);
+					assert.equal(
+						harness.writes.some((write) => write.startsWith("\x1b]7501;state=")),
+						false,
+					);
+				} finally {
+					harness.cleanup();
+				}
+			});
+		});
+
+		it("skips the query when PI_PROGRAM_STATUS is set", () => {
+			withOverride("1", () => {
+				const harness = setupNegotiation();
+				try {
+					assert.equal(harness.writes[0], "\x1b[>7u\x1b[?u\x1b[c");
+					harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+					assert.equal(harness.writes.at(-1), working);
+				} finally {
+					harness.cleanup();
+				}
+			});
+			withOverride("0", () => {
+				const harness = setupNegotiation();
+				try {
+					assert.equal(harness.writes[0], "\x1b[>7u\x1b[?u\x1b[c");
+					harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+					assert.equal(harness.writes.includes(working), false);
+				} finally {
+					harness.cleanup();
+				}
+			});
+		});
+
+		it("does not let a DA reply from before a restart end the new query", () => {
+			withOverride(undefined, () => {
+				const harness = setupNegotiation();
+				try {
+					harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+					harness.terminal.stop();
+					(harness.terminal as unknown as { queryAndEnableKittyProtocol(): void }).queryAndEnableKittyProtocol();
+
+					// The first start's replies arrive late: its DA, then the second start's reply and DA.
+					harness.send("\x1b[?62;4;52c");
+					harness.send("\x1b]7501;?\x1b\\");
+					harness.send("\x1b[?62;4;52c");
+					assert.equal(harness.writes.at(-1), working);
+					assert.equal(harness.getInput(), undefined);
+				} finally {
+					harness.cleanup();
+				}
+			});
+		});
+
+		it("uses tmux passthrough for status reports and stop when explicitly enabled", () => {
+			withEnv({ TMUX: "/tmp/tmux-test/default,1,0" }, () => {
+				withOverride("1", () => {
+					const harness = setupNegotiation();
+					try {
+						harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+						assert.equal(harness.writes.at(-1), tmuxWorking);
+						harness.terminal.stop();
+						assert.equal(harness.writes.filter((write) => write === tmuxClear).length, 1);
+					} finally {
+						harness.cleanup();
+					}
+				});
+			});
+		});
+
+		it("uses the Rex fallback in tmux without sending a support query", () => {
+			withEnv({ TMUX: "/tmp/tmux-test/default,1,0", REX_SESSION: "rex-test" }, () => {
+				withOverride(undefined, () => {
+					const harness = setupNegotiation();
+					try {
+						assert.equal(harness.writes[0], "\x1b[>7u\x1b[?u\x1b[c");
+						harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+						assert.equal(harness.writes.at(-1), tmuxWorking);
+					} finally {
+						harness.cleanup();
+					}
+				});
+			});
+		});
+
+		it("keeps auto reporting off in tmux without Rex and in screen", () => {
+			for (const environment of [
+				{ TMUX: "/tmp/tmux-test/default,1,0" },
+				{ STY: "screen-test" },
+			]) {
+				withEnv({ ...environment, REX_SESSION: undefined, REX_BLOCK: undefined }, () => {
+					withOverride(undefined, () => {
+						const harness = setupNegotiation();
+						try {
+							assert.equal(harness.writes[0], "\x1b[>7u\x1b[?u\x1b[c");
+							harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+							assert.equal(harness.writes.includes(working), false);
+							assert.equal(harness.writes.includes(tmuxWorking), false);
+						} finally {
+							harness.cleanup();
+						}
+					});
+				});
+			}
+		});
+
+		it("reports raw root records in screen when explicitly enabled", () => {
+			withEnv({ STY: "screen-test" }, () => {
+				withOverride("1", () => {
+					const harness = setupNegotiation();
+					try {
+						harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+						assert.equal(harness.writes.at(-1), working);
+					} finally {
+						harness.cleanup();
+					}
+				});
+			});
+		});
+
+		it("replays child records and clears a whole id subtree", () => {
+			withOverride("1", () => {
+				const harness = setupNegotiation();
+				const parentWorking = "\x1b]7501;state=working:id=agent\x1b\\";
+				const childBlocked = "\x1b]7501;state=blocked:kind=question:id=agent/one\x1b\\";
+				try {
+					harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+					harness.terminal.setProgramStatus({ state: "working", id: "agent" });
+					harness.terminal.setProgramStatus({ state: "blocked", kind: "question", id: "agent/one" });
+					harness.terminal.stop();
+
+					(harness.terminal as unknown as { queryAndEnableKittyProtocol(): void }).queryAndEnableKittyProtocol();
+					assert.equal(harness.writes.at(-1), childBlocked);
+					assert.ok(harness.writes.includes(parentWorking));
+
+					harness.terminal.setProgramStatus({ state: "clear", id: "agent" });
+					assert.equal(harness.writes.at(-1), "\x1b]7501;state=clear:id=agent\x1b\\");
+					harness.terminal.stop();
+					const writesBeforeRestart = harness.writes.length;
+					(harness.terminal as unknown as { queryAndEnableKittyProtocol(): void }).queryAndEnableKittyProtocol();
+					const replayed = harness.writes
+						.slice(writesBeforeRestart)
+						.filter((write) => write.startsWith("\x1b]7501;"));
+					assert.deepEqual(replayed, [working]);
+				} finally {
+					harness.cleanup();
+				}
+			});
+		});
+
+		it("clears the status on stop and reports it again after restart", () => {
+			withOverride(undefined, () => {
+				const harness = setupNegotiation();
+				try {
+					harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+					harness.send("\x1b]7501;?\x1b\\");
+					harness.terminal.stop();
+					assert.ok(harness.writes.includes(clear));
+
+					// Stopped: nothing is written until the restarted terminal confirms support again.
+					const writesBeforeRestart = harness.writes.length;
+					harness.terminal.setProgramStatus({ state: "working", app: "pi" });
+					assert.equal(harness.writes.length, writesBeforeRestart);
+
+					(harness.terminal as unknown as { queryAndEnableKittyProtocol(): void }).queryAndEnableKittyProtocol();
+					harness.send("\x1b]7501;?\x1b\\");
+					assert.equal(harness.writes.at(-1), working);
+				} finally {
+					harness.cleanup();
+				}
+			});
+		});
+	});
+
+	it("replays buffered CSI-prefix input when it is not a Kitty response", () => {
+		mock.timers.enable({ apis: ["setTimeout"] });
+		const harness = setupNegotiation();
+		try {
+			harness.send("\x1b[");
+			mock.timers.tick(50); // StdinBuffer sequence timeout, not the lone-ESC timeout
+
+			assert.equal(harness.getInput(), undefined);
+
+			mock.timers.tick(150);
+
+			assert.equal(harness.getInput(), "\x1b[");
+		} finally {
+			harness.cleanup();
+			mock.timers.reset();
+		}
+	});
 });
 
-describe('ProcessTerminal Kitty keyboard protocol negotiation', () => {
-  type NegotiationHarness = {
-    terminal: ProcessTerminal;
-    writes: string[];
-    send(data: string): void;
-    getInput(): string | undefined;
-    cleanup(): void;
-  };
+describe("ProcessTerminal progress", () => {
+	it("writes a valid OSC 9;4 clear sequence", () => {
+		const terminal = new ProcessTerminal();
+		const writes: string[] = [];
+		const previousWrite = process.stdout.write;
 
-  // Same source as `createFakeClock` in apps/kimi-code, narrowed to the one
-  // timer this terminal needs: the escape-sequence reassembly window.
-  type FakeTimers = StdinBufferTimers & { advance(byMs: number): void };
+		process.stdout.write = ((chunk: string | Uint8Array) => {
+			writes.push(String(chunk));
+			return true;
+		}) as typeof process.stdout.write;
 
-  interface ScheduledTimer {
-    due: number;
-    readonly callback: () => void;
-    cancelled: boolean;
-  }
-
-  function createFakeTimers(): FakeTimers {
-    let nowMs = 0;
-    const timers: ScheduledTimer[] = [];
-    return {
-      setTimeout: (callback, delayMs) => {
-        const timer: ScheduledTimer = { due: nowMs + delayMs, callback, cancelled: false };
-        timers.push(timer);
-        return timer;
-      },
-      clearTimeout: (handle: StdinBufferTimerHandle): void => {
-        (handle as ScheduledTimer).cancelled = true;
-      },
-      advance: (byMs) => {
-        const limit = nowMs + byMs;
-        for (;;) {
-          let next: ScheduledTimer | undefined;
-          for (const timer of timers) {
-            if (timer.cancelled || timer.due > limit) continue;
-            if (next === undefined || timer.due < next.due) next = timer;
-          }
-          if (next === undefined) break;
-          nowMs = next.due;
-          next.cancelled = true;
-          next.callback();
-        }
-        nowMs = limit;
-      },
-    };
-  }
-
-  function setupNegotiation(timers?: StdinBufferTimers): NegotiationHarness {
-    const terminal = new ProcessTerminal(timers);
-    const writes: string[] = [];
-    let input: string | undefined;
-    let dataHandler: ((data: string) => void) | undefined;
-    let cleaned = false;
-    const previousWrite = process.stdout.write;
-    const previousOn = process.stdin.on;
-
-    process.stdout.write = ((chunk: string | Uint8Array) => {
-      writes.push(String(chunk));
-      return true;
-    }) as typeof process.stdout.write;
-    process.stdin.on = ((event: string | symbol, listener: (...args: unknown[]) => void) => {
-      if (event === 'data') dataHandler = listener as (data: string) => void;
-      return process.stdin;
-    }) as typeof process.stdin.on;
-
-    (
-      terminal as unknown as {
-        inputHandler?: (data: string) => void;
-        queryAndEnableKittyProtocol(): void;
-      }
-    ).inputHandler = (data) => {
-      input = data;
-    };
-    (terminal as unknown as { queryAndEnableKittyProtocol(): void }).queryAndEnableKittyProtocol();
-
-    return {
-      terminal,
-      writes,
-      send(data: string): void {
-        dataHandler?.(data);
-      },
-      getInput(): string | undefined {
-        return input;
-      },
-      cleanup(): void {
-        if (cleaned) return;
-        cleaned = true;
-        try {
-          terminal.stop();
-        } finally {
-          process.stdout.write = previousWrite;
-          process.stdin.on = previousOn;
-          setKittyProtocolActive(false);
-        }
-      },
-    };
-  }
-
-  it('queries Kitty mode before enabling modifyOtherKeys fallback', () => {
-    const harness = setupNegotiation();
-    try {
-      expect(harness.writes[0]).toBe('\x1b[>7u\x1b[?u\x1b]7501;?\x1b\\\x1b[c');
-      expect(harness.writes.includes('\x1b[>4;2m')).toBe(false);
-      expect(harness.terminal.kittyProtocolActive).toBe(false);
-    } finally {
-      harness.cleanup();
-    }
-  });
-
-  it('skips the program status query under PI_PROGRAM_STATUS=0 and multiplexers', () => {
-    const saved = {
-      override: process.env['PI_PROGRAM_STATUS'],
-      tmux: process.env['TMUX'],
-    };
-    try {
-      process.env['PI_PROGRAM_STATUS'] = '0';
-      delete process.env['TMUX'];
-      const optedOut = setupNegotiation();
-      try {
-        expect(optedOut.writes[0]).toBe('\x1b[>7u\x1b[?u\x1b[c');
-      } finally {
-        optedOut.cleanup();
-      }
-
-      delete process.env['PI_PROGRAM_STATUS'];
-      process.env['TMUX'] = '1.0';
-      const inMultiplexer = setupNegotiation();
-      try {
-        expect(inMultiplexer.writes[0]).toBe('\x1b[>7u\x1b[?u\x1b[c');
-      } finally {
-        inMultiplexer.cleanup();
-      }
-    } finally {
-      if (saved.override === undefined) delete process.env['PI_PROGRAM_STATUS'];
-      else process.env['PI_PROGRAM_STATUS'] = saved.override;
-      if (saved.tmux === undefined) delete process.env['TMUX'];
-      else process.env['TMUX'] = saved.tmux;
-    }
-  });
-
-  it('treats device attributes as unsupported and stops waiting for a status reply', () => {
-    const harness = setupNegotiation();
-    try {
-      harness.send('\x1b[?1;2c');
-      expect(
-        (harness.terminal as unknown as { programStatusQueryPending: boolean })
-          .programStatusQueryPending,
-      ).toBe(false);
-    } finally {
-      harness.cleanup();
-    }
-  });
-
-  it('activates Kitty mode for non-zero negotiated flags', () => {
-    const harness = setupNegotiation();
-    try {
-      harness.send('\x1b[?7u');
-
-      expect(harness.getInput()).toBe(undefined);
-      expect(harness.terminal.kittyProtocolActive).toBe(true);
-      expect(harness.writes.includes('\x1b[>4;2m')).toBe(false);
-      expect(harness.writes.includes('\x1b[>4;0m')).toBe(false);
-
-      harness.cleanup();
-      expect(harness.writes.filter((write) => write === '\x1b[<u').length).toBe(1);
-      expect(harness.writes.includes('\x1b[>4;0m')).toBe(false);
-    } finally {
-      harness.cleanup();
-    }
-  });
-
-  it('falls back to modifyOtherKeys for zero Kitty flags', () => {
-    const harness = setupNegotiation();
-    try {
-      harness.send('\x1b[?0u');
-
-      expect(harness.getInput()).toBe(undefined);
-      expect(harness.terminal.kittyProtocolActive).toBe(false);
-      expect(harness.writes.filter((write) => write === '\x1b[>4;2m').length).toBe(1);
-
-      harness.cleanup();
-      expect(harness.writes.filter((write) => write === '\x1b[>4;0m').length).toBe(1);
-    } finally {
-      harness.cleanup();
-    }
-  });
-
-  it('falls back to modifyOtherKeys for device attributes without Kitty flags', () => {
-    const harness = setupNegotiation();
-    try {
-      harness.send('\x1b[?62;4;52c');
-
-      expect(harness.getInput()).toBe(undefined);
-      expect(harness.terminal.kittyProtocolActive).toBe(false);
-      expect(harness.writes.filter((write) => write === '\x1b[>4;2m').length).toBe(1);
-    } finally {
-      harness.cleanup();
-    }
-  });
-
-  it('forwards normal input while waiting for Kitty response', () => {
-    const harness = setupNegotiation();
-    try {
-      harness.send('a');
-
-      expect(harness.getInput()).toBe('a');
-      expect(harness.terminal.kittyProtocolActive).toBe(false);
-    } finally {
-      harness.cleanup();
-    }
-  });
-
-  it('tracks split Kitty confirmation', () => {
-    const timers = createFakeTimers();
-    const harness = setupNegotiation(timers);
-    try {
-      harness.send('\x1b[?7');
-      timers.advance(10);
-
-      expect(harness.getInput()).toBe(undefined);
-
-      harness.send('u');
-
-      expect(harness.terminal.kittyProtocolActive).toBe(true);
-      expect(harness.writes.includes('\x1b[>4;2m')).toBe(false);
-    } finally {
-      harness.cleanup();
-    }
-  });
-
-  it('replays buffered CSI-prefix input when it is not a Kitty response', () => {
-    const timers = createFakeTimers();
-    const harness = setupNegotiation(timers);
-    try {
-      harness.send('\x1b[');
-      timers.advance(50); // StdinBuffer sequence timeout, not the lone-ESC timeout
-
-      expect(harness.getInput()).toBe(undefined);
-
-      timers.advance(150);
-
-      expect(harness.getInput()).toBe('\x1b[');
-    } finally {
-      harness.cleanup();
-    }
-  });
+		try {
+			terminal.setProgress(false);
+			assert.deepEqual(writes, ["\x1b]9;4;0\x07"]);
+		} finally {
+			process.stdout.write = previousWrite;
+		}
+	});
 });
 
-describe('ProcessTerminal progress', () => {
-  it('writes a valid OSC 9;4 clear sequence', () => {
-    const terminal = new ProcessTerminal();
-    const writes: string[] = [];
-    const previousWrite = process.stdout.write;
+describe("ProcessTerminal dimensions", () => {
+	it("falls back to COLUMNS and LINES before default dimensions", () => {
+		const previousColumnsDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+		const previousRowsDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "rows");
+		const previousColumns = process.env.COLUMNS;
+		const previousLines = process.env.LINES;
 
-    process.stdout.write = ((chunk: string | Uint8Array) => {
-      writes.push(String(chunk));
-      return true;
-    }) as typeof process.stdout.write;
+		try {
+			Object.defineProperty(process.stdout, "columns", { value: undefined, configurable: true });
+			Object.defineProperty(process.stdout, "rows", { value: undefined, configurable: true });
+			process.env.COLUMNS = "123";
+			process.env.LINES = "45";
 
-    try {
-      terminal.setProgress(false);
-      expect(writes).toStrictEqual(['\x1b]9;4;0\x07']);
-    } finally {
-      process.stdout.write = previousWrite;
-    }
-  });
+			const terminal = new ProcessTerminal();
 
-  it('does not keep the process alive while the keep-alive runs', async () => {
-    const terminalPath = fileURLToPath(new URL('../src/terminal.ts', import.meta.url));
-    const script = `import { ProcessTerminal } from ${JSON.stringify(terminalPath)}; new ProcessTerminal().setProgress(true);`;
-    const child = spawn('bun', ['-e', script], { stdio: 'ignore' });
-
-    const outcome = await new Promise<'exited' | 'hung'>((resolve) => {
-      const timer = setTimeout(() => resolve('hung'), 5_000);
-      child.on('close', () => {
-        clearTimeout(timer);
-        resolve('exited');
-      });
-    });
-    if (outcome === 'hung') child.kill();
-
-    expect(outcome).toBe('exited');
-  });
-});
-
-describe('ProcessTerminal program status records', () => {
-  function setup() {
-    const terminal = new ProcessTerminal();
-    const writes: string[] = [];
-    const previousWrite = process.stdout.write;
-    process.stdout.write = ((chunk: string | Uint8Array) => {
-      writes.push(String(chunk));
-      return true;
-    }) as typeof process.stdout.write;
-    const internals = terminal as unknown as {
-      programStatuses: Map<string | undefined, unknown>;
-      programStatusSupported: boolean;
-      confirmProgramStatusSupport(): void;
-    };
-    let cleaned = false;
-    return {
-      terminal,
-      writes,
-      internals,
-      cleanup(): void {
-        if (cleaned) return;
-        cleaned = true;
-        try {
-          terminal.stop();
-        } finally {
-          process.stdout.write = previousWrite;
-        }
-      },
-    };
-  }
-
-  it('drops a child record when it is cleared and keeps the root record', () => {
-    const { terminal, internals, cleanup } = setup();
-    try {
-      internals.programStatusSupported = true;
-      for (let index = 0; index < 100; index += 1) {
-        terminal.setProgramStatus({ state: 'working', id: `agent-${String(index)}` });
-      }
-      terminal.setProgramStatus({ state: 'idle', app: 'kimi-code' });
-      expect(internals.programStatuses.size).toBe(101);
-
-      for (let index = 0; index < 100; index += 1) {
-        terminal.setProgramStatus({ state: 'clear', id: `agent-${String(index)}` });
-      }
-
-      expect(internals.programStatuses.size).toBe(1);
-      expect(internals.programStatuses.has(undefined)).toBe(true);
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('does not replay a cleared child when support is confirmed late', () => {
-    const { terminal, writes, internals, cleanup } = setup();
-    try {
-      internals.programStatusSupported = false;
-      terminal.setProgramStatus({ state: 'working', id: 'agent-1' });
-      terminal.setProgramStatus({ state: 'clear', id: 'agent-1' });
-      writes.length = 0;
-
-      internals.confirmProgramStatusSupport();
-
-      expect(writes).toStrictEqual([]);
-      expect(internals.programStatuses.size).toBe(0);
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('clears every record on stop', () => {
-    const { terminal, internals, cleanup } = setup();
-    try {
-      internals.programStatusSupported = true;
-      terminal.setProgramStatus({ state: 'working', id: 'agent-1' });
-      terminal.setProgramStatus({ state: 'idle', app: 'kimi-code' });
-      expect(internals.programStatuses.size).toBe(2);
-
-      cleanup();
-
-      expect(internals.programStatuses.size).toBe(0);
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('writes nothing while support is unknown and replays once confirmed', () => {
-    const { terminal, writes, internals, cleanup } = setup();
-    try {
-      internals.programStatusSupported = false;
-      terminal.setProgramStatus({ state: 'working', app: 'kimi-code' });
-      expect(writes).toStrictEqual([]);
-      expect(internals.programStatuses.size).toBe(1);
-
-      internals.confirmProgramStatusSupport();
-
-      expect(writes).toHaveLength(1);
-      expect(writes[0]).toContain('\x1b]7501;state=working:app=kimi-code\x1b\\');
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('wraps the record in a tmux passthrough when TMUX is set', () => {
-    const previousTmux = process.env['TMUX'];
-    const { terminal, writes, internals, cleanup } = setup();
-    try {
-      process.env['TMUX'] = '1';
-      internals.programStatusSupported = true;
-      terminal.setProgramStatus({ state: 'idle', app: 'kimi-code' });
-
-      expect(writes).toHaveLength(1);
-      expect(writes[0]).toStartWith('\x1bPtmux;');
-      expect(writes[0]).toContain('\x1b\x1b]7501;state=idle:app=kimi-code\x1b\x1b\\');
-    } finally {
-      cleanup();
-      if (previousTmux === undefined) delete process.env['TMUX'];
-      else process.env['TMUX'] = previousTmux;
-    }
-  });
-});
-
-describe('ProcessTerminal dimensions', () => {
-  it('falls back to COLUMNS and LINES before default dimensions', () => {
-    const previousColumnsDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'columns');
-    const previousRowsDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'rows');
-    const previousColumns = process.env.COLUMNS;
-    const previousLines = process.env.LINES;
-
-    try {
-      Object.defineProperty(process.stdout, 'columns', { value: undefined, configurable: true });
-      Object.defineProperty(process.stdout, 'rows', { value: undefined, configurable: true });
-      process.env.COLUMNS = '123';
-      process.env.LINES = '45';
-
-      const terminal = new ProcessTerminal();
-
-      expect(terminal.columns).toBe(123);
-      expect(terminal.rows).toBe(45);
-    } finally {
-      if (previousColumnsDescriptor) {
-        Object.defineProperty(process.stdout, 'columns', previousColumnsDescriptor);
-      } else {
-        Reflect.deleteProperty(process.stdout, 'columns');
-      }
-      if (previousRowsDescriptor) {
-        Object.defineProperty(process.stdout, 'rows', previousRowsDescriptor);
-      } else {
-        Reflect.deleteProperty(process.stdout, 'rows');
-      }
-      if (previousColumns === undefined) {
-        delete process.env.COLUMNS;
-      } else {
-        process.env.COLUMNS = previousColumns;
-      }
-      if (previousLines === undefined) {
-        delete process.env.LINES;
-      } else {
-        process.env.LINES = previousLines;
-      }
-    }
-  });
+			assert.equal(terminal.columns, 123);
+			assert.equal(terminal.rows, 45);
+		} finally {
+			if (previousColumnsDescriptor) {
+				Object.defineProperty(process.stdout, "columns", previousColumnsDescriptor);
+			} else {
+				Reflect.deleteProperty(process.stdout, "columns");
+			}
+			if (previousRowsDescriptor) {
+				Object.defineProperty(process.stdout, "rows", previousRowsDescriptor);
+			} else {
+				Reflect.deleteProperty(process.stdout, "rows");
+			}
+			if (previousColumns === undefined) {
+				delete process.env.COLUMNS;
+			} else {
+				process.env.COLUMNS = previousColumns;
+			}
+			if (previousLines === undefined) {
+				delete process.env.LINES;
+			} else {
+				process.env.LINES = previousLines;
+			}
+		}
+	});
 });

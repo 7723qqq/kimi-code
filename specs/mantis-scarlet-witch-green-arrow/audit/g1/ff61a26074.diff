@@ -1,0 +1,737 @@
+commit ff61a2607466f257353422c4e6f4182740bb8e03
+Author:     wenhua020201-arch <wenhua020201@gmail.com>
+AuthorDate: Fri Nov 13 13:21:51 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Fri Nov 13 13:21:51 2026 +0800
+
+    docs: restore remote environment guidance and normalize quotes (#4818)
+    
+    Co-authored-by: qer <wbxl2000@outlook.com>
+
+diff --git a/docs/en/configuration/config-files.md b/docs/en/configuration/config-files.md
+index 520084fd4a..7f56cf230f 100644
+--- a/docs/en/configuration/config-files.md
++++ b/docs/en/configuration/config-files.md
+@@ -579,7 +579,7 @@ MCP server declarations are configured in `~/.kimi-code/mcp.json` or the project
+ 
+ Each entry is keyed by its environment id: at most 64 characters, no leading or trailing whitespace, and `local` and `default` are reserved words. Within one entry, `type` and `command` are mutually exclusive.
+ 
+-Remote working directories must be absolute POSIX paths or Windows drive paths; relative paths and `~` are not expanded. See [Windows target environments](../guides/remote-environment.md#windows-target-environments) for the Git Bash and launcher requirements.
++Remote working directories must be absolute POSIX paths or Windows drive paths; relative paths and `~` are not expanded. See [Windows targets](../guides/remote-environment.md#windows-targets) for the Git Bash and launcher requirements.
+ 
+ The optional top-level `default` names the environment a session binds to when creation does not specify one. It must reference a configured entry, and that entry must set `defaultCwd` — a binding pairs an environment with a working directory, so a default without one would dangle. Without a `default`, those sessions start on the `local` environment. A TUI `/new` does not use this default: it keeps the current environment. See [Remote environments](../guides/remote-environment.md).
+ 
+diff --git a/docs/en/customization/mcp.md b/docs/en/customization/mcp.md
+index bb937b998d..e42ec803be 100644
+--- a/docs/en/customization/mcp.md
++++ b/docs/en/customization/mcp.md
+@@ -109,7 +109,7 @@ defaultCwd = "/srv/work"
+ }
+ ```
+ 
+-`environment_id` references an environment declared in `[environments]` in `config.toml` (see [Declaring environments](../guides/remote-environment.md#declaring-environments)). The field defaults to `local` and never follows the session's own environment binding: a session bound to `dev-box` still runs stdio servers without `environment_id` locally. A cold environment connects on demand when the server starts.
++`environment_id` references an environment declared in `[environments]` in `config.toml` (see [Declare Docker and custom-command environments](../guides/remote-environment.md#declare-docker-and-custom-command-environments)). The field defaults to `local` and never follows the session's own environment binding: a session bound to `dev-box` still runs stdio servers without `environment_id` locally. A cold environment connects on demand when the server starts.
+ 
+ ### Environment variables for remote stdio servers
+ 
+diff --git a/docs/en/guides/remote-environment.md b/docs/en/guides/remote-environment.md
+index c6f124a88d..78117a38e8 100644
+--- a/docs/en/guides/remote-environment.md
++++ b/docs/en/guides/remote-environment.md
+@@ -1,56 +1,78 @@
+ # Remote environments
+ 
+-Remote environments let Kimi Code operate another machine or container.
++A remote environment lets the Agent read and write files and run Shell commands on another machine or in a container, while Kimi Code CLI, model requests, credentials, and session state stay on your machine.
+ 
+-## How remote environments work
++## Use a remote environment over SSH
+ 
+-Kimi Code CLI still runs on your computer and hands only file reads, file writes, and command execution to the target environment. The target environment also needs Kimi Code CLI installed to carry them out.
++### 1. Prepare the remote machine
+ 
+-## Quick start
++- Install the Kimi Code executor for the target platform at `~/.kimi-code/bin/kimi`.
++- Make sure your machine can sign in to the remote machine with SSH keys.
++- Configure users, ports, keys, and jump hosts in `~/.ssh/config` if needed.
+ 
+-This example uses `dev-box`, a machine you can already sign in to over SSH.
++Kimi Code does not install the executor automatically. If it is missing or incompatible, install or update to the build provided for the target platform.
+ 
+-1. Install Kimi Code CLI on the target machine:
++### 2. Declare the environment in `config.toml` on your machine
+ 
+-   ```sh
+-   ssh dev-box 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash'
+-   ```
++```toml
++[environments.dev-box]
++type = "ssh"
++host = "dev-box"
++defaultCwd = "/home/me/projects"
++```
++
++If the executor is outside the default path, add:
++
++```toml
++remoteBin = "/path/to/kimi"
++```
+ 
+-2. Add the following to `~/.kimi-code/config.toml` on your machine:
++### 3. Create a remote session
+ 
+-   ```toml
+-   [environments.dev-box]
+-   type = "ssh"
+-   host = "dev-box"
+-   defaultCwd = "/home/me/projects"
+-   ```
++```sh
++kimi --environment dev-box
++```
+ 
+-3. Start a session:
++To use a different remote directory for one session:
+ 
+-   ```sh
+-   kimi --environment dev-box
+-   ```
++```sh
++kimi --environment dev-box --environment-cwd /home/me/another-project
++```
+ 
+-   Once the session opens, the footer shows `dev-box` before the working directory. From then on, the files the agent reads and writes and the commands it runs are on `dev-box`.
++Resuming a session automatically restores its remote environment and working directory. You do not need to repeat these flags.
+ 
+-To start every new session on `dev-box` by default, see [Setting a default environment](#setting-a-default-environment); for Docker containers and other connection methods, see [Declaring environments](#declaring-environments).
++After setup:
+ 
+-## Declaring environments
++- File operations and Shell commands run on the remote machine.
++- The CLI, model requests, and credentials stay on your machine.
++- Subagents inherit their parent Agent's remote environment.
+ 
+-Declare environments under `[environments]` in `config.toml`. Before connecting, [install Kimi Code CLI](./getting-started.md#install-script-recommended) on the target environment.
++#### `kimi --environment` and `--environment-cwd`
+ 
+-### SSH hosts
++- Both flags are creation-only and cannot be combined with `--session` or `--continue`.
++- `--environment-cwd` must be used with `--environment`.
++- A later `/new` keeps the current environment instead of applying the startup flags again.
+ 
+-```toml
+-[environments.dev-box]
+-type = "ssh"
+-host = "dev-box"
+-defaultCwd = "/home/me/projects"
+-```
++## SSH authentication
++
++Prepare authentication once in your own terminal:
++
++- For a password-only host, run `ssh-copy-id user@host` and use key authentication afterwards.
++- For a passphrase-protected key, run `ssh-add` so ssh-agent holds the unlocked key.
++- For jump hosts or connection sharing, configure `ProxyJump` or `ControlMaster` in `~/.ssh/config`.
++
++Connection behavior:
++
++- The first connection to a new host records its host key. A later key change fails the connection until you fix the entry.
++- The interactive CLI can prompt for an SSH password when the server supports it. The password stays only in the current process memory.
++- Password prompts require OpenSSH 8.4 or later. Independent OTP/MFA and private-key passphrase prompts are not supported.
++- Non-interactive clients such as `kimi -p` do not prompt for passwords. Configure keys or connection sharing in advance.
+ 
+-`host` is resolved by the system `ssh`, so the user, port, key, and jump hosts in `~/.ssh/config` apply as usual; see [SSH authentication](#ssh-authentication). `defaultCwd` is the session's working directory on the target. It must be an absolute path on the target machine; relative paths and `~` are not supported.
++## Declare Docker and custom-command environments
+ 
+-### Docker containers
++Besides SSH, you can declare a Docker-compatible container or a custom launcher command.
++
++Docker example:
+ 
+ ```toml
+ [environments.dev-container]
+@@ -59,86 +81,69 @@ container = "myapp-dev"
+ defaultCwd = "/workspace"
+ ```
+ 
+-`container` is the name or id of a running container; Kimi Code enters it with `docker exec`. If you use a non-default Docker context such as OrbStack, add `context = "orbstack"`.
+-
+-### Other environments
+-
+-Use `command` and `args` to configure other environments, such as `kubectl exec`, WSL, Apple Container, or managed sandboxes:
++Custom command example:
+ 
+ ```toml
+-[environments.k8s-pod]
+-command = "kubectl"
+-args = ["exec", "-i", "my-pod", "--"]
+-remoteBin = "/root/.kimi-code/bin/kimi"
+-defaultCwd = "/app"
+-
+-[environments.wsl]
+-command = 'C:\Program Files\WSL\wsl.exe'
+-args = ["--exec"]
+-remoteBin = "/home/me/.kimi-code/bin/kimi"
+-defaultCwd = "/home/me/projects"
++[environments.sandbox]
++command = "sandbox"
++args = ["ssh", "i-1234567890", "--"]
++defaultCwd = "/home/me/kimi-code"
+ ```
+ 
+-- Commands such as `kubectl exec` and `wsl --exec` pass arguments through without a shell, so `~` is not expanded. Set `remoteBin` to the absolute path of Kimi Code on the target.
+-- Wrap Windows paths that contain backslashes in single quotes so TOML does not treat `\` as an escape.
+-- Credentials the launcher command needs can go in `env`, for example `env = { SANDBOX_TOKEN = "..." }`. These variables are given only to the launcher command on your machine and are not passed to commands the agent runs on the target.
+-
+-### Setting a default environment
++Common rules:
+ 
+-```toml
+-[environments]
+-default = "dev-box"
+-```
++- `defaultCwd` must be an absolute path on the target environment.
++- `type` and `command` are mutually exclusive within one entry.
++- Optional `[environments] default = "dev-box"` sets the default environment for new sessions.
++- After you change how an environment starts, the next use reconnects with the new configuration and running remote commands stop.
+ 
+-With a default set, new sessions start directly on that environment. The default entry must set `defaultCwd`.
+-In the TUI, `/new` keeps the current session's environment and working directory.
++See the [`environments` configuration reference](../configuration/config-files.md#environments) for all fields.
+ 
+-### Windows target environments
++## Windows targets
+ 
+-Windows targets need [Git for Windows](https://gitforwindows.org/) installed (the `Bash` tool runs through Git Bash).
++When the remote target is a Windows machine:
+ 
+-Use a drive path such as `C:\work\project` for `defaultCwd`:
++- Install [Git for Windows](https://gitforwindows.org/) and the Windows executor on the target.
++- The default executor path is `~/.kimi-code/bin/kimi.exe`.
++- Use a native drive path such as `C:\work\project` for `defaultCwd`.
++- SSH and custom commands are supported; Docker containers are not.
+ 
+ ```toml
+ [environments.windows-dev]
+ type = "ssh"
+ host = "windows-dev"
++remoteBin = "kimi"
+ defaultCwd = 'C:\work\project'
+ ```
+ 
+-## Picking an environment for one launch
+-
+-Pass `--environment` at startup to choose the new session's environment, and `--environment-cwd` to override its working directory.
+-
+-```sh
+-kimi --environment dev-box --environment-cwd /home/me/projects -p "Run the test suite"
+-```
+-
+-Only Kimi Code CLI can pick an environment for one launch. Sessions created from other clients such as the Web UI use the [default environment](#setting-a-default-environment), and run on your machine when no default is set.
++## Disconnects and reconnecting
+ 
+-## SSH authentication
++- The next tool call tries to reconnect.
++- There is no silent fallback to your machine, so a remote command cannot accidentally run locally.
++- A call already running during a disconnect fails and is not retried automatically.
++- If the target stays unreachable, tool calls report an error. Check the network, SSH, and executor first.
+ 
+-Kimi Code connects to SSH hosts non-interactively. If the following command succeeds in your terminal, Kimi Code can connect:
++## Limitations
+ 
+-```sh
+-ssh -o BatchMode=yes dev-box true
+-```
++- `WebSearch` and `FetchURL` always run from your machine.
++- Hooks and stdio MCP servers without `environment_id` run on your machine by default.
++- Remote sessions do not load project-level Agent files from the target.
++- Remote `AGENTS.md` and project Skills do not hot reload. They are read again when you create or resume a session, or run `/reload`.
++- File paths in prompts resolve on the target. Local paths cannot be read directly, but pasted images are unaffected.
++- Tower mode is unavailable in remote workspaces.
+ 
+-- **Keys**: keys, ssh-agent, and jump hosts in `~/.ssh/config` work as usual. For a key with a passphrase, run `ssh-add` once in your terminal first.
+-- **Passwords**: in the TUI, Kimi Code CLI prompts for the SSH password (requires OpenSSH 8.4 or later). `kimi -p` does not support password sign-in.
+-- **Host keys**: a new host's key is trusted and written to `known_hosts` on first connection; if the host key later changes, the connection fails and you need to remove the matching entry from `known_hosts` manually.
++<details>
++<summary>More limitations</summary>
+ 
+-## Things to know
++- The `/feedback` codebase scanner is unavailable in remote workspaces.
++- Listing a remote directory with more than 50,000 entries fails. Use a smaller subdirectory.
++- Many small files can slow down remote session startup.
++- The same root path on two hosts shares one workspace entry.
++- Descendants left behind by an exited Windows leader may not be cleaned up automatically. Stop background tasks first.
+ 
+-- **Resuming a session reconnects to its environment**: if the environment has been removed or cannot be reached, resuming fails.
+-- **Changing an environment's configuration disconnects it**: commands running on the target environment are terminated, and the next use connects with the new settings.
+-- **An outdated Kimi Code CLI on the target environment cannot connect**: run the install command again on the target environment to upgrade.
+-- **Hooks and MCP servers run on your machine by default**: they cannot see files on the target environment; stdio MCP servers can run on the target environment through `environment_id`, see [MCP](../customization/mcp.md).
+-- **Web tools run on your machine**: `WebSearch` and `FetchURL` reach the network your computer is on.
+-- **File paths in prompts resolve on the target environment**: `/tmp/x.png` refers to a file on the target environment; paste local images directly instead.
+-- **Tower mode is not supported**.
++</details>
+ 
+ ## Next steps
+ 
+-- [`environments` configuration reference](../configuration/config-files.md#environments) — every field in the `[environments]` section
+-- [Remote control](./remote-control.md) — the opposite direction: control sessions on your machine from another device
++- [`environments` configuration reference](../configuration/config-files.md#environments): view all fields.
++- [Remote Control](./remote-control.md): steer this machine's sessions from another device.
+diff --git a/docs/en/reference/kimi-command.md b/docs/en/reference/kimi-command.md
+index bed509429b..f9530c25b5 100644
+--- a/docs/en/reference/kimi-command.md
++++ b/docs/en/reference/kimi-command.md
+@@ -28,7 +28,7 @@ All flags are optional — run `kimi` directly to enter an interactive session:
+ | `--agent-file <path>` | | Load a custom agent from a Markdown file for the new session and select it. Cannot be repeated or combined with `--agent`, `--session`, or `--continue` |
+ | `--add-dir <dir>` | | Add an extra workspace directory for this session. Relative paths resolve against the current working directory. Can be repeated |
+ 
+-`-r` / `--resume` is a hidden alias for `--session`; `--yes` and `--auto-approve` are hidden aliases for `--yolo` and are not shown in help output. The hidden `--environment <id>` flag binds the new session to a configured remote environment, and `--environment-cwd <path>` overrides that environment's working directory (see [Remote environments](../guides/remote-environment.md#picking-an-environment-for-one-launch)).
++`-r` / `--resume` is a hidden alias for `--session`; `--yes` and `--auto-approve` are hidden aliases for `--yolo` and are not shown in help output. The hidden `--environment <id>` flag binds the new session to a configured remote environment, and `--environment-cwd <path>` overrides that environment's working directory (see [Remote environments](../guides/remote-environment.md#kimi-environment-and-environment-cwd)).
+ 
+ ::: warning
+ `--yolo` skips human approval for regular tool calls, including file writes and shell command execution. Use it only in trusted working directories. Plan mode exit approval is not bypassed by `--yolo`; `Bash` inside Plan mode is handled under the regular allow rules.
+diff --git a/docs/zh/configuration/config-files.md b/docs/zh/configuration/config-files.md
+index 1d0efe2f1b..e3f35e5232 100644
+--- a/docs/zh/configuration/config-files.md
++++ b/docs/zh/configuration/config-files.md
+@@ -426,7 +426,7 @@ disabled = ["WebSearch", "FetchURL", "mcp__github__*"]
+ ```
+ 
+ ::: warning 注意
+-与 Agent 文件中的 `tools` / `disallowedTools` 一样，本节不仅决定模型能"看到"哪些工具，还会在执行前再次强制检查。[权限规则](#permission)仍是独立的控制层，用于决定哪些操作需要审批。
++与 Agent 文件中的 `tools` / `disallowedTools` 一样，本节不仅决定模型能 "看到" 哪些工具，还会在执行前再次强制检查。[权限规则](#permission)仍是独立的控制层，用于决定哪些操作需要审批。
+ :::
+ 
+ ## `read`
+@@ -578,7 +578,7 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
+ 
+ 每个条目以环境 id 为键：不超过 64 个字符，首尾不能有空白，`local` 和 `default` 是保留字。同一条目内 `type` 与 `command` 互斥。
+ 
+-远端工作目录必须是 POSIX 绝对路径或 Windows 驱动器路径，相对路径和 `~` 不会展开。Git Bash 和启动器的要求见 [Windows 目标环境](../guides/remote-environment.md#windows-目标环境)。
++远端工作目录必须是 POSIX 绝对路径或 Windows 驱动器路径，相对路径和 `~` 不会展开。Git Bash 和启动器的要求见 [Windows 目标](../guides/remote-environment.md#windows-目标)。
+ 
+ 可选的顶层 `default` 指定创建会话时未显式给出绑定时使用的环境。它必须指向一个已配置的条目，且该条目必须设置 `defaultCwd`——绑定由环境和工作目录成对构成，缺了工作目录的默认绑定会悬空。未设置 `default` 时，这些会话从 `local` 开始。TUI 的 `/new` 不用这个 default，而是保留当前环境。详见 [远程环境](../guides/remote-environment.md)。
+ 
+diff --git a/docs/zh/configuration/overrides.md b/docs/zh/configuration/overrides.md
+index f2137a18da..a55ebc3f70 100644
+--- a/docs/zh/configuration/overrides.md
++++ b/docs/zh/configuration/overrides.md
+@@ -13,7 +13,7 @@ Kimi Code CLI 有三个地方可以影响运行参数：配置文件、命令行
+ 环境变量按作用分三类，不能合并成一条线性优先级：
+ 
+ 1. **定位配置文件**：`KIMI_CODE_HOME` 决定数据根目录，配置文件路径因此变为 `$KIMI_CODE_HOME/config.toml`。这一步先于其他所有解析，不是普通参数的后备来源。
+-2. **运行时开关**：`KIMI_DISABLE_TELEMETRY` 等少量变量直接关闭对应子系统。即使 `config.toml` 里 `telemetry = true`，只要这个变量是真值，遥测就会被禁用。语义是"额外禁用"，不是"普通覆盖"。
++2. **运行时开关**：`KIMI_DISABLE_TELEMETRY` 等少量变量直接关闭对应子系统。即使 `config.toml` 里 `telemetry = true`，只要这个变量是真值，遥测就会被禁用。语义是 "额外禁用"，不是 "普通覆盖"。
+ 3. **运行端点与诊断**：`KIMI_CODE_OAUTH_HOST`、`KIMI_CODE_BASE_URL`、`KIMI_LOG_LEVEL` 等在 OAuth 或日志子系统初始化时读取。完整列表见[环境变量](./env-vars.md)。
+ 
+ ## 普通运行参数的优先级
+diff --git a/docs/zh/customization/agents.md b/docs/zh/customization/agents.md
+index 21939ba4cd..ae3c742db1 100644
+Binary files a/docs/zh/customization/agents.md and b/docs/zh/customization/agents.md differ
+diff --git a/docs/zh/customization/hooks.md b/docs/zh/customization/hooks.md
+index 871c7f8dcd..07c348450a 100644
+--- a/docs/zh/customization/hooks.md
++++ b/docs/zh/customization/hooks.md
+@@ -17,7 +17,7 @@ Hooks（钩子）是一种自动触发机制：你预先告诉 Kimi Code CLI"每
+ - **退出码**（exit code，程序结束时向操作系统报告的状态数字）：`0` 表示放行，`2` 表示阻断，其他数字默认放行
+ - **标准输出**（stdout，脚本打印到终端的内容）：可以附带说明文字
+ 
+-即使脚本报错或超时，CLI 也**不会因此中断你的工作**。这种"出错就放行"的设计称为 fail-open（失败开放），避免 hook 异常阻塞主流程。
++即使脚本报错或超时，CLI 也**不会因此中断你的工作**。这种 "出错就放行" 的设计称为 fail-open（失败开放），避免 hook 异常阻塞主流程。
+ 
+ ::: warning 注意
+ 正因为 fail-open，Hooks 适合做提醒和轻量拦截，但**不应作为唯一的安全防线**。对真正高风险的操作，仍需依赖权限审批和人工确认。
+diff --git a/docs/zh/customization/mcp.md b/docs/zh/customization/mcp.md
+index 26af3d76a2..f3ad85e93c 100644
+--- a/docs/zh/customization/mcp.md
++++ b/docs/zh/customization/mcp.md
+@@ -109,7 +109,7 @@ defaultCwd = "/srv/work"
+ }
+ ```
+ 
+-`environment_id` 引用在 `config.toml` 的 `[environments]` 中声明的环境（见 [声明环境](../guides/remote-environment.md#声明环境)）。该字段默认为 `local`，且不跟随会话自身的环境绑定：绑定到 `dev-box` 的会话仍会在本地运行未设置 `environment_id` 的 stdio server。环境尚未连接时，会在 server 启动时按需建立连接。
++`environment_id` 引用在 `config.toml` 的 `[environments]` 中声明的环境（见 [声明 Docker 与自定义命令环境](../guides/remote-environment.md#声明-docker-与自定义命令环境)）。该字段默认为 `local`，且不跟随会话自身的环境绑定：绑定到 `dev-box` 的会话仍会在本地运行未设置 `environment_id` 的 stdio server。环境尚未连接时，会在 server 启动时按需建立连接。
+ 
+ ### 远程 stdio server 的环境变量
+ 
+@@ -159,7 +159,7 @@ defaultCwd = "/srv/work"
+ 
+ MCP 工具按 `mcp__<server>__<tool>` 格式命名，例如 `mcp__github__create_issue`。权限规则中支持 `*` 和 `**` 通配，例如 `mcp__github__*` 命中该 server 下所有工具。MCP 工具参数不参与权限匹配。
+ 
+-未命中权限规则的调用会触发审批请求；在审批弹窗中选择“Approve for this session”后，本次会话内的后续同类调用自动放行。
++未命中权限规则的调用会触发审批请求；在审批弹窗中选择 "Approve for this session" 后，本次会话内的后续同类调用自动放行。
+ 
+ 也可以在 `config.toml` 的 `[[permission.rules]]` 中预置永久规则：
+ 
+diff --git a/docs/zh/customization/themes.md b/docs/zh/customization/themes.md
+index ce4eb83ed6..25bbdfd427 100644
+--- a/docs/zh/customization/themes.md
++++ b/docs/zh/customization/themes.md
+@@ -94,7 +94,7 @@ Kimi Code CLI 可以使用内置配色，也可以使用自定义 JSON 主题文
+ 
+ ## 出错时会怎样
+ 
+-自定义主题的设计原则是"尽量别打断你"：
++自定义主题的设计原则是 "尽量别打断你"：
+ 
+ - **某个色值不合法**（不是 `#` 加 6 位十六进制）：静默跳过这一项，并回退到所选基准调色板，其余颜色照常生效。
+ - **写了无法识别的 token**：忽略，不影响其它颜色。
+diff --git a/docs/zh/guides/remote-control.md b/docs/zh/guides/remote-control.md
+index 261559a0f7..d784cf570f 100644
+--- a/docs/zh/guides/remote-control.md
++++ b/docs/zh/guides/remote-control.md
+@@ -116,9 +116,9 @@
+ 
+ ### 从微信里访问链接，无法打开怎么办？
+ 
+-微信内置浏览器会基于自身安全策略限制部分外部网页的应用内访问，远程控制的访问链接（`https://code-rc.kimi.com/…`）在微信中直接打开可能被拦截，出现"已停止访问该网页"等提示。
++微信内置浏览器会基于自身安全策略限制部分外部网页的应用内访问，远程控制的访问链接（`https://code-rc.kimi.com/…`）在微信中直接打开可能被拦截，出现 "已停止访问该网页" 等提示。
+ 
+-解决方式：点击页面右上角"…"菜单并选择"在浏览器中打开"，或将链接复制到 Safari、Chrome 等系统浏览器中访问。使用微信"扫一扫"扫描启动二维码时同理，扫码后请选择在浏览器中打开，即可获得完整的会话功能。
++解决方式：点击页面右上角 "…" 菜单并选择 "在浏览器中打开"，或将链接复制到 Safari、Chrome 等系统浏览器中访问。使用微信 "扫一扫" 扫描启动二维码时同理，扫码后请选择在浏览器中打开，即可获得完整的会话功能。
+ 
+ ### 关闭浏览器后任务会停止吗？
+ 
+diff --git a/docs/zh/guides/remote-environment.md b/docs/zh/guides/remote-environment.md
+index 5f4374df15..1e1bc9b13a 100644
+--- a/docs/zh/guides/remote-environment.md
++++ b/docs/zh/guides/remote-environment.md
+@@ -1,56 +1,78 @@
+ # 远程环境
+ 
+-远程环境让 Kimi Code 操作另一台机器或容器。
++远程环境让 Agent 在另一台机器或容器中读写文件、执行 Shell 命令，Kimi Code CLI、模型请求、凭据和会话状态仍留在本机。
+ 
+-## 远程环境的工作原理
++## 通过 SSH 使用远程环境
+ 
+-Kimi Code CLI 仍在你的电脑上运行，只把读写文件和执行命令交给目标环境。目标环境上也需要安装一个 Kimi Code CLI 负责执行。
++### 1. 准备远程机器
+ 
+-## 快速开始
++- 将目标平台的 Kimi Code 执行器安装到 `~/.kimi-code/bin/kimi`。
++- 确认本机可以通过 SSH 密钥登录远程机器。
++- 用户、端口、密钥和跳板机可先在 `~/.ssh/config` 中配置。
+ 
+-以一台 SSH 能直接登录的机器 `dev-box` 为例。
++Kimi Code 不会自动安装执行器。找不到执行器或版本不兼容时，请安装或更新为目标平台提供的构建。
+ 
+-1. 在目标机器上安装 Kimi Code CLI：
++### 2. 在本机 `config.toml` 中声明环境
+ 
+-   ```sh
+-   ssh dev-box 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash'
+-   ```
++```toml
++[environments.dev-box]
++type = "ssh"
++host = "dev-box"
++defaultCwd = "/home/me/projects"
++```
++
++执行器不在默认路径时，增加一项：
++
++```toml
++remoteBin = "/path/to/kimi"
++```
+ 
+-2. 在本机的 `~/.kimi-code/config.toml` 中加入：
++### 3. 创建远程会话
+ 
+-   ```toml
+-   [environments.dev-box]
+-   type = "ssh"
+-   host = "dev-box"
+-   defaultCwd = "/home/me/projects"
+-   ```
++```sh
++kimi --environment dev-box
++```
+ 
+-3. 启动会话：
++临时更换远程工作目录：
+ 
+-   ```sh
+-   kimi --environment dev-box
+-   ```
++```sh
++kimi --environment dev-box --environment-cwd /home/me/another-project
++```
+ 
+-   会话打开后，底部状态栏的工作目录前会显示 `dev-box`。之后 Agent 读写的文件、执行的命令都在 `dev-box` 上。
++恢复会话时会自动恢复原来的远程环境和工作目录，无需重复这些参数。
+ 
+-想让每个新会话都默认在 `dev-box` 上启动，见 [设为默认环境](#设为默认环境)；Docker 容器和其他接入方式见 [声明环境](#声明环境)。
++配置完成后：
+ 
+-## 声明环境
++- 文件操作和 Shell 命令在远程机器执行。
++- CLI、模型请求和凭据留在本机。
++- subagent 继承父 Agent 的远程环境。
+ 
+-在 `config.toml` 的 `[environments]` 下声明环境。连接前，目标环境需要[安装 Kimi Code CLI](./getting-started.md#脚本安装-推荐)。
++#### `kimi --environment` 与 `--environment-cwd`
+ 
+-### SSH 主机
++- 两个参数只用于创建会话，不能与 `--session` 或 `--continue` 组合。
++- `--environment-cwd` 必须与 `--environment` 一起使用。
++- 之后的 `/new` 保留当前环境，不再次应用启动参数。
+ 
+-```toml
+-[environments.dev-box]
+-type = "ssh"
+-host = "dev-box"
+-defaultCwd = "/home/me/projects"
+-```
++## SSH 认证
++
++推荐先在本机终端完成一次配置：
++
++- 只有密码的主机：执行 `ssh-copy-id user@host`，之后使用密钥登录。
++- 私钥有口令：先执行 `ssh-add`，让 ssh-agent 保存已解锁的密钥。
++- 需要跳板机或连接共享：在 `~/.ssh/config` 中配置 `ProxyJump` 或 `ControlMaster`。
++
++连接行为：
++
++- 首次连接新主机时会记录主机密钥；之后密钥发生变化会连接失败，需要手动处理。
++- 交互式 CLI 可以在服务器支持时提示输入 SSH 密码。密码只保存在当前进程内存中。
++- 密码提示需要 OpenSSH 8.4 或更高版本，不支持独立 OTP/MFA 或私钥口令提示。
++- `kimi -p` 等非交互方式不会提示输入密码，请提前配置密钥或连接共享。
+ 
+-`host` 由系统 `ssh` 解析，`~/.ssh/config` 中的用户、端口、密钥和跳板机照常生效，认证方式见 [SSH 认证](#ssh-认证)。`defaultCwd` 是会话在目标上的工作目录，需要写目标机器上的绝对路径，不支持相对路径和 `~`。
++## 声明 Docker 与自定义命令环境
+ 
+-### Docker 容器
++除 SSH 外，还可以声明 Docker 兼容容器或自定义启动命令。
++
++Docker 示例：
+ 
+ ```toml
+ [environments.dev-container]
+@@ -59,86 +81,69 @@ container = "myapp-dev"
+ defaultCwd = "/workspace"
+ ```
+ 
+-`container` 填正在运行的容器名或 id，Kimi Code 通过 `docker exec` 进入容器。使用 OrbStack 等非默认 Docker context 时，加上 `context = "orbstack"`。
+-
+-### 其他环境
+-
+-可以通过 `command` 和 `args` 配置其他环境，例如 `kubectl exec`、WSL、Apple Container、受管沙箱，例如：
++自定义命令示例：
+ 
+ ```toml
+-[environments.k8s-pod]
+-command = "kubectl"
+-args = ["exec", "-i", "my-pod", "--"]
+-remoteBin = "/root/.kimi-code/bin/kimi"
+-defaultCwd = "/app"
+-
+-[environments.wsl]
+-command = 'C:\Program Files\WSL\wsl.exe'
+-args = ["--exec"]
+-remoteBin = "/home/me/.kimi-code/bin/kimi"
+-defaultCwd = "/home/me/projects"
++[environments.sandbox]
++command = "sandbox"
++args = ["ssh", "i-1234567890", "--"]
++defaultCwd = "/home/me/kimi-code"
+ ```
+ 
+-- `kubectl exec`、`wsl --exec` 这类不经 Shell、原样传递参数的命令不会展开 `~`，需要用 `remoteBin` 写出 Kimi Code 在目标上的绝对路径。
+-- 含反斜杠的 Windows 路径用单引号包裹，TOML 不会转义其中的 `\`。
+-- 启动命令需要的凭据可以写在 `env` 里，例如 `env = { SANDBOX_TOKEN = "..." }`。这些变量只提供给本机的启动命令，不会传到 Agent 在目标上执行的命令中。
+-
+-### 设为默认环境
++常用规则：
+ 
+-```toml
+-[environments]
+-default = "dev-box"
+-```
++- `defaultCwd` 必须是目标环境中的绝对路径。
++- `type` 与 `command` 在同一条目内互斥。
++- 可选的 `[environments] default = "dev-box"` 指定新会话的默认环境。
++- 修改启动方式后，下次使用会按新配置重新连接；正在运行的远程命令会终止。
+ 
+-设置后，新会话直接在该环境上启动。默认环境的条目必须写 `defaultCwd`。
+-在 TUI 中用 `/new` 新建会话时，沿用当前会话的环境和工作目录。
++完整字段见 [`environments` 配置参考](../configuration/config-files.md#environments)。
+ 
+-### Windows 目标环境
++## Windows 目标
+ 
+-Windows 目标上需要安装 [Git for Windows](https://gitforwindows.org/)（`Bash` 工具通过 Git Bash 执行）。
++远程目标为 Windows 机器时：
+ 
+-`defaultCwd` 使用 `C:\work\project` 这样的驱动器路径：
++- 安装 [Git for Windows](https://gitforwindows.org/) 和 Windows 版执行器。
++- 默认执行器路径为 `~/.kimi-code/bin/kimi.exe`。
++- `defaultCwd` 使用 `C:\work\project` 这类原生驱动器路径。
++- 支持 SSH 和自定义命令，不支持 Docker 容器。
+ 
+ ```toml
+ [environments.windows-dev]
+ type = "ssh"
+ host = "windows-dev"
++remoteBin = "kimi"
+ defaultCwd = 'C:\work\project'
+ ```
+ 
+-## 临时指定环境
+-
+-在启动时用 `--environment` 指定这次新会话的环境，用 `--environment-cwd` 覆盖工作目录。
+-
+-```sh
+-kimi --environment dev-box --environment-cwd /home/me/projects -p "Run the test suite"
+-```
+-
+-目前只有 Kimi Code CLI 支持临时指定环境。Web UI 等其他客户端新建的会话使用[默认环境](#设为默认环境)，未设置默认环境时在本机运行。
++## 断线与重连
+ 
+-## SSH 认证
++- 下一个工具调用会尝试重新连接。
++- 不会静默回退到本机，远程命令不会误在本机执行。
++- 断线时正在执行的调用会失败，不会自动重试。
++- 目标持续不可达时，工具调用会报错，请先检查网络、SSH 和执行器。
+ 
+-Kimi Code 以非交互方式连接 SSH 主机。在终端里执行下面的命令，不报错就说明 Kimi Code 能连上：
++## 限制
+ 
+-```sh
+-ssh -o BatchMode=yes dev-box true
+-```
++- `WebSearch` 和 `FetchURL` 始终从本机发起。
++- Hooks 和未设置 `environment_id` 的 stdio MCP server 默认在本机运行。
++- 远程会话不读取目标环境的项目级 Agent 文件。
++- 远程 `AGENTS.md` 和项目级 Skills 不热重载；新建、恢复会话或执行 `/reload` 时重新读取。
++- 提示词中的文件路径按远程环境解析；本机路径不能直接读取，粘贴图片不受影响。
++- 远程工作区不支持 Tower 模式。
+ 
+-- **密钥**：`~/.ssh/config` 中的密钥、ssh-agent 和跳板机照常生效。带口令的密钥先在终端执行一次 `ssh-add`。
+-- **密码**：在 TUI 中，Kimi Code CLI 会提示输入 SSH 密码（需要 OpenSSH 8.4 或更高版本）。`kimi -p` 不支持密码登录。
+-- **主机密钥**：首次连接时自动信任并写入 `known_hosts`；之后主机密钥变化时连接会失败，需要手动删除 `known_hosts` 中的对应条目。
++<details>
++<summary>更多限制</summary>
+ 
+-## 注意事项
++- `/feedback` 的代码库扫描器不支持远程工作区。
++- 远程目录超过 50,000 个条目时会报错，请改用较小的子目录。
++- 大量小文件会增加远程会话的启动时间。
++- 两台主机上的相同根路径会共用一个工作区条目。
++- Windows 主进程退出后，遗留的子进程可能不会自动清理；请先停止后台任务。
+ 
+-- **恢复会话会连回原环境**：环境已被删除或无法连接时，恢复会失败。
+-- **修改环境配置会断开连接**：正在目标环境上运行的命令会被终止，下次使用时按新配置连接。
+-- **目标环境上的 Kimi Code CLI 版本过旧时无法连接**：在目标环境上重新运行安装命令升级即可。
+-- **Hooks 和 MCP server 默认在本机运行**：它们看不到目标环境的文件；stdio MCP server 可通过 `environment_id` 改到目标环境运行，见 [MCP](../customization/mcp.md)。
+-- **联网工具在本机发起**：`WebSearch` 和 `FetchURL` 访问的是你电脑所在的网络。
+-- **提示词里的文件路径按目标环境解析**：写 `/tmp/x.png` 读的是目标环境上的文件；本机图片请直接粘贴。
+-- **不支持 Tower 模式**。
++</details>
+ 
+ ## 下一步
+ 
+-- [`environments` 配置参考](../configuration/config-files.md#environments)——`[environments]` 节的全部字段
+-- [远程控制](./remote-control.md)——相反方向：从另一台设备操控本机的会话
++- [`environments` 配置参考](../configuration/config-files.md#environments)：查看全部字段。
++- [远程控制](./remote-control.md)：从另一台设备操控本机会话。
+diff --git a/docs/zh/reference/kimi-command.md b/docs/zh/reference/kimi-command.md
+index 96574bf25f..b6af74e998 100644
+--- a/docs/zh/reference/kimi-command.md
++++ b/docs/zh/reference/kimi-command.md
+@@ -28,7 +28,7 @@ kimi <subcommand> [options]
+ | `--agent-file <path>` | | 从 Markdown 文件加载自定义 Agent 并为新会话选中它。不可重复传入，也不能与 `--agent`、`--session` 或 `--continue` 同时使用 |
+ | `--add-dir <dir>` | | 为本次会话添加额外的工作目录。相对路径按当前工作目录解析。可重复传入 |
+ 
+-`-r` / `--resume` 是 `--session` 的隐藏别名；`--yes` 和 `--auto-approve` 是 `--yolo` 的隐藏别名，在帮助信息中不显示。隐藏标志 `--environment <id>` 让新会话绑定到已配置的远程环境，`--environment-cwd <path>` 覆盖该环境的工作目录（详见 [远程环境](../guides/remote-environment.md#临时指定环境)）。
++`-r` / `--resume` 是 `--session` 的隐藏别名；`--yes` 和 `--auto-approve` 是 `--yolo` 的隐藏别名，在帮助信息中不显示。隐藏标志 `--environment <id>` 让新会话绑定到已配置的远程环境，`--environment-cwd <path>` 覆盖该环境的工作目录（详见 [远程环境](../guides/remote-environment.md#kimi-environment-与-environment-cwd)）。
+ 
+ ::: warning 注意
+ `--yolo` 会跳过普通工具调用的人工确认，包括文件写入和 Shell 命令执行，请只在受信任的工作目录下使用。Plan 模式的退出审批不会被 `--yolo` 跳过；Plan 模式下的 `Bash` 按普通放行规则处理。
+@@ -38,7 +38,7 @@ kimi <subcommand> [options]
+ 
+ 以下组合会在启动时被拒绝：
+ 
+-- `--continue` 与 `--session` 互斥——两者都表示"恢复历史会话"
++- `--continue` 与 `--session` 互斥——两者都表示 "恢复历史会话"
+ - `--yolo` 和 `--auto` 互斥——两种权限模式互斥
+ - `--prompt` 不能与 `--yolo`、`--auto` 或 `--plan` 同时使用——非交互模式固定使用 `auto` 权限
+ - `--output-format` 只能与 `--prompt` 一起使用
+@@ -119,7 +119,7 @@ kimi -p --agent reviewer "审查这个分支上的改动"
+ kimi -p "Summarize the current repository status"
+ ```
+ 
+-输出采用 transcript 样式：thinking 内容和 Assistant 正文都以 `• ` 开头，换行后两个空格缩进。Assistant 正文输出到 stdout；thinking、工具进度和"恢复会话"提示输出到 stderr。`-p` 模式不会请求人工审批，普通工具调用按 `auto` 权限策略处理，静态 deny 规则仍然生效。
++输出采用 transcript 样式：thinking 内容和 Assistant 正文都以 `• ` 开头，换行后两个空格缩进。Assistant 正文输出到 stdout；thinking、工具进度和 "恢复会话" 提示输出到 stderr。`-p` 模式不会请求人工审批，普通工具调用按 `auto` 权限策略处理，静态 deny 规则仍然生效。
+ 
+ 临时切换模型：
+ 
+diff --git a/docs/zh/reference/tools.md b/docs/zh/reference/tools.md
+index 7e35d32278..8d0af2f3d6 100644
+--- a/docs/zh/reference/tools.md
++++ b/docs/zh/reference/tools.md
+@@ -99,7 +99,7 @@ Plan 模式是一种受约束的工作状态，只能由用户打开（`Shift-Ta
+ 
+ **`AgentSwarm`** 可以从共享的 `prompt_template` 和 `items` 数组启动 subagent，也可以通过 `resume_agent_ids` 恢复已有 subagent，或在一次调用中同时使用两者。本工具仅在 swarm mode 开启时运行，且 swarm mode 只能由你手动开启（例如使用 `/swarm`）；swarm mode 未开启时，调用会被拒绝，不会启动任何 subagent。模板必须包含 `{{item}}` 占位符；每个 item 会替换该占位符，并启动一个新的 subagent。传入 `subagent_type` 可以指定整个 swarm 中所有新启动的 subagent 使用的 profile；省略时默认使用 `coder`。传入 `model`（[subagent 模型池](../configuration/config-files.md#subagent-模型池) 中有两个及以上模型时可用）可以让新启动的 subagent 运行在池中别名指定的模型上。未传入时新启动的 subagent 绑定池的 `default_model`；未配置模型池时则继承调用方模型。恢复的 subagent 保持其原有模型。不传 `resume_agent_ids` 时，本工具要求至少 2 个 item；传入 `resume_agent_ids` 时，可以恢复 1 个或多个已有 subagent。本工具最多支持 128 个 subagent，会等待全部 subagent 完成，并返回聚合报告。每个 subagent 默认 2 小时超时，可通过 `config.toml` 的 [`[swarm] timeout_ms`](../configuration/config-files.md#swarm)（`0` = 无超时，或 `KIMI_CODE_SWARM_TIMEOUT_MS` 环境变量）配置，且在 print 模式（`kimi -p`）下默认无超时；超时的 subagent 会被中止，并在聚合报告中标记为失败。在 TUI 中，前台 swarm 会在输入框上方显示实时 `Agent swarm` 进度面板。若一次模型响应调用 `AgentSwarm`，该调用必须是该响应中的唯一工具调用；如需运行多个 swarm，应先调用一个 `AgentSwarm` 并等待结果，再调用下一个，若单个模板可以覆盖这些工作，也可以合并为一个 swarm。swarm mode 开启期间，`AgentSwarm` 会自动放行。权限规则只能按工具名 `AgentSwarm` 匹配，不支持 `AgentSwarm(swarm)` 这类参数模式。默认情况下，本工具会逐步提升并发且不设上限（立即启动 5 个 subagent，之后每 700 毫秒再启动 1 个）；将 `KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY` 设为正整数可限制该阶段同时运行的 subagent 数量，不设置则表示不限制。若设置为非正整数的值，本次 AgentSwarm 调用会立即失败。
+ 
+-**`AskUserQuestion`** 以结构化多选题的形式向用户提问，适用于需要消歧或选择方案的场景。`questions` 参数接受 1–4 道题，每道题需提供 `question`（以 `?` 结尾）、`options`（2–4 个选项，每项含 `label` 和 `description`）以及可选的 `header`（最多 12 字符）和 `multi_select`（默认 false）。系统自动附加"其他"选项。在 Kimi Code for VS Code 中，包含多道题的提问支持 Back 导航，并在题目之间切换时保留已选择或自定义的答案。`background` 为 true 时启动后台问题任务并立即返回任务 ID；问题在本轮结束后仍保持待答，用户作答后答案会以通知形式直接送回 Agent。宿主未实现交互式提问能力时返回失败提示，Agent 应改为在文本回复中直接提问。
++**`AskUserQuestion`** 以结构化多选题的形式向用户提问，适用于需要消歧或选择方案的场景。`questions` 参数接受 1–4 道题，每道题需提供 `question`（以 `?` 结尾）、`options`（2–4 个选项，每项含 `label` 和 `description`）以及可选的 `header`（最多 12 字符）和 `multi_select`（默认 false）。系统自动附加 "其他" 选项。在 Kimi Code for VS Code 中，包含多道题的提问支持 Back 导航，并在题目之间切换时保留已选择或自定义的答案。`background` 为 true 时启动后台问题任务并立即返回任务 ID；问题在本轮结束后仍保持待答，用户作答后答案会以通知形式直接送回 Agent。宿主未实现交互式提问能力时返回失败提示，Agent 应改为在文本回复中直接提问。
+ 
+ **`NotifyUser`** 让 main agent 和 subagent 在不结束本轮的情况下发布进展更新。每条更新包含 `title`（可选，一行简短标题，在空间有限的地方单独显示）和 `message`（用轻量 Markdown 写的详细内容）。只有工具成功返回并确认已展示后，更新才会显示；失败、中断或被关闭开关抑制的调用不会显示，对话中的工具调用记录会保留实际展示结果。重要发现仍须写入最终回复或 subagent 的最终汇报。
+ 
+diff --git a/docs/zh/release-notes/changelog.md b/docs/zh/release-notes/changelog.md
+index 356b3de72d..656b83a8ce 100644
+--- a/docs/zh/release-notes/changelog.md
++++ b/docs/zh/release-notes/changelog.md
+@@ -391,7 +391,7 @@ outline: 2
+ - 修复在一个会话中切换权限模式会改动所有会话的问题，权限模式现按会话独立生效。
+ - 修复登录相关问题
+ - 修复点击输入框占位提示后，输入法或键盘首个字符被吞的问题
+-- 修复新会话中附件上传完成后仍显示"上传中"的问题
++- 修复新会话中附件上传完成后仍显示 "上传中" 的问题
+ - 修复了一些已知问题，并做了若干细节优化。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+ 
+ ## 0.39.0（2026-08-27）
+@@ -631,7 +631,7 @@ outline: 2
+ 
+ ### 修复
+ 
+-- 修复启动 kimi web 时偶发的 “model is not configured” 错误。
++- 修复启动 kimi web 时偶发的 "model is not configured" 错误。
+ - web: 修复新会话显示思考等级（如 Max）但首条消息实际未开启思考的问题。
+ - web: 修复新会话草稿状态下（发送首条消息前）@ 文件提及不可用的问题。
+ - web: 修复 Markdown 渲染器升级后聊天代码块以 UI 字体、错误字号渲染的问题，加载回退与高亮块对齐。
+@@ -957,7 +957,7 @@ outline: 2
+ ### 修复
+ 
+ - 修复 AVIF、BMP、TIFF、ICO 等不支持的图片格式导致会话中断的问题，覆盖远程图片 URL、工具误标格式等所有入口。已卡住的会话会自动丢弃问题图片并重试，单张异常图片不再导致后续请求全部失败。
+-- web: 修复 “Turn finished” 桌面通知与完成提示音每轮触发两次的问题。
++- web: 修复 "Turn finished" 桌面通知与完成提示音每轮触发两次的问题。
+ - web: 修复内部的图片压缩说明被当作用户消息文本显示的问题。
+ 
+ ## 0.23.4（2026-07-10）
+@@ -978,13 +978,13 @@ outline: 2
+ - 控制图片较多会话的请求体积：超大体量的模型读取与粘贴图片（含 WebP）会自动压缩、缩小；HEIC/HEIF 图片会给出对应平台的转换命令，而非污染会话；HTTP 413 请求过大现可自动恢复——请求和 `/compact` 会用文本标记替换旧媒体后重试。相关限制可通过 `config.toml` 的 `[image]`（或 `KIMI_IMAGE_*` 环境变量）配置，且每个 core 独立保存设置，重新加载某客户端的配置不再影响其他客户端的图片压缩。
+ - 修复原工作目录已不存在的会话无法恢复的问题。
+ - 修复 prompt 模式目标未运行至完成的问题，并在发送 prompt 前校验并提示无效的目标命令。
+-- web: 修复新对话发送首条消息时偶发的 “another turn is active” 错误，并在发送过程中显示启动状态。
++- web: 修复新对话发送首条消息时偶发的 "another turn is active" 错误，并在发送过程中显示启动状态。
+ 
+ ## 0.23.3（2026-07-08）
+ 
+ ### 修复
+ 
+-- 修复当前账户无法使用某模型时错误显示“OAuth 登录已过期”的问题。
++- 修复当前账户无法使用某模型时错误显示 "OAuth 登录已过期" 的问题。
+ 
+ ## 0.23.2（2026-07-08）
+ 
+@@ -1668,7 +1668,7 @@ outline: 2
+ - 修复编辑或粘贴已排队目标时的待处理目标队列处理。
+ - 在 YOLO 模式下启动目标前进行询问，方便用户切换到 Auto 来处理无人值守工作。
+ - 当响应在产生可见输出前被拦截时，显示简洁的供应商过滤错误。
+-- 输入无效子命令时显示 “unknown command” 而不是 “too many arguments”。
++- 输入无效子命令时显示 "unknown command" 而不是 "too many arguments"。
+ - 将 OpenAI Chat Completions 的 `xhigh` 和 `max` thinking effort 限制为 `high`，除非模型在 `v1/chat/completions` 上支持 `xhigh`。
+ - 在压缩长对话时保留 thinking effort。
+ - 当能力变化而模型 ID 未变化时刷新供应商模型元数据。

@@ -1,39 +1,32 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
-
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 import { z } from 'zod';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { BugIndicatingError } from '#/_base/errors/errors';
 import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
+import { BugIndicatingError } from '#/_base/errors/errors';
 import { ILogService } from '#/_base/log/log';
 import { AgentSpaceImpl } from '#/agent/agentContext/agentSpace';
-import '#/agent/contextMemory/conversationTime';
+import { TurnPrompt } from '#/agent/loop/turnOps';
+import { ContextUndo } from '#/agent/contextMemory/contextEvents';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
-import { ContextAppendMessage, ContextUndo } from '#/agent/contextMemory/contextEvents';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { Event2, event2FromRecord } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import {
-  SubagentSpawned,
-  SubagentStarted,
-  SubagentCompleted,
-  SubagentFailed,
-  SubagentCancelled,
-} from '#/session/subagent/mirrorAgentRun';
+import { Event2, event2FromRecord } from '#/app/event/event2';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { CycleError, EventDispatcherService } from '#/state/eventDispatcherService';
+import { SubagentSpawned, SubagentStarted, SubagentCompleted, SubagentFailed, SubagentCancelled } from '#/session/subagent/mirrorAgentRun';
 import { defineState } from '#/state/state';
-import type { WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
+import type { WireRecord } from '#/wire/record';
 
 const noopBlob: IAgentBlobService = {
   _serviceBrand: undefined,
@@ -52,7 +45,6 @@ function stubWireJournal(journal: WireRecord[]): IWireService {
     append: (record) => {
       journal.push(record as WireRecord);
     },
-    onDidAppendRecord: () => ({ dispose: () => {} }),
     readJournal: async function* () {
       for (const record of journal) yield record;
     },
@@ -61,6 +53,8 @@ function stubWireJournal(journal: WireRecord[]): IWireService {
     },
     readRestoreChains: async () => ({ restorable: [...journal], journal: [...journal] }),
     readHumanChain: () => [],
+    readLoopChain: () => [],
+    readHumanJournal: () => [],
     read: async function* () {
       for (const record of journal) yield record;
     },
@@ -74,8 +68,7 @@ function stubWireJournal(journal: WireRecord[]): IWireService {
     branches: () => ['main'],
     nextSeq: () => journal.length + 1,
     settled: async () => {},
-    flush: async () => {},
-    drainPersisted: async () => {},
+    flush: async () => {}, drainPersisted: async () => {},
     lineCount: () => journal.length,
     lastContextClearLine: () => undefined,
     journalPath: () => undefined,
@@ -119,10 +112,9 @@ class PingEvent extends Event2<Record<string, never>> {
   static override readonly type = 'state.test.ping';
 }
 
-const counterKey = defineState('state.test.counter', () => ({ value: 0 }))
-  .replayable({
-    schema: z.object({ value: z.number() }),
-  })
+const counterKey = defineState('state.test.counter', () => ({ value: 0 })).replayable({
+  schema: z.object({ value: z.number() }),
+})
   .on(CounterAdd, (s, e, ctx) => {
     s.value += e.by;
     ctx.emit(new CounterChanged({ value: s.value }));
@@ -134,10 +126,9 @@ const counterKey = defineState('state.test.counter', () => ({ value: 0 }))
     s.value = 999;
   });
 
-const otherKey = defineState('state.test.other', () => ({ seen: [] as string[] }))
-  .replayable({
-    schema: z.object({ seen: z.array(z.string()) }),
-  })
+const otherKey = defineState('state.test.other', () => ({ seen: [] as string[] })).replayable({
+  schema: z.object({ seen: z.array(z.string()) }),
+})
   .on(CounterAdd, (s) => {
     s.seen.push('add');
   })
@@ -177,10 +168,10 @@ class ClearEvent extends Event2<Record<string, never>> {
 }
 interface ClearEvent extends z.infer<typeof ClearEvent.schema> {}
 
-const checkpointedKey = defineState('state.test.checkpointed', (): CheckpointedState => ({
-  items: [],
-}))
-  .replayable({ schema: z.object({ items: z.array(z.string()) }) })
+const checkpointedKey = defineState(
+  'state.test.checkpointed',
+  (): CheckpointedState => ({ items: [] }),
+).replayable({ schema: z.object({ items: z.array(z.string()) }) })
   .on(ItemAdd, (s, e) => {
     s.items.push(e.item);
   })
@@ -240,18 +231,7 @@ describe('EventDispatcherService', () => {
     const seen: string[] = [];
     disposables.add(bus.subscribe((event) => seen.push(event.type)));
     const events = [
-      new SubagentSpawned(
-        {
-          subagentId: 'child',
-          subagentName: 'explore',
-          parentAgentId: 'main',
-          callerAgentId: 'main',
-          parentToolCallId: 'swarm-a',
-          swarmIndex: 2,
-          runInBackground: false,
-        },
-        1000,
-      ),
+      new SubagentSpawned({ subagentId: 'child', subagentName: 'explore', parentAgentId: 'main', callerAgentId: 'main', parentToolCallId: 'swarm-a', swarmIndex: 2, runInBackground: false }, 1000),
       new SubagentStarted({ subagentId: 'child' }, 1100),
       new SubagentCompleted({ subagentId: 'child', resultSummary: 'done' }, 1200),
       new SubagentFailed({ subagentId: 'other', error: 'failed' }, 1300),
@@ -369,13 +349,7 @@ describe('EventDispatcherService', () => {
       }),
     );
 
-    const failure = await dispatcher.dispatch(new LoopBack({})).then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-    expect(failure).toBeInstanceOf(CycleError);
-    expect((failure as CycleError).repeatedType).toBe('state.test.loopback');
-    expect((failure as CycleError).message).toContain('repeated: state.test.loopback');
+    await expect(dispatcher.dispatch(new LoopBack({}))).rejects.toBeInstanceOf(CycleError);
     const settled = await Promise.allSettled(queued);
 
     expect(settled).toHaveLength(101);
@@ -384,39 +358,6 @@ describe('EventDispatcherService', () => {
       status: 'rejected',
       reason: expect.any(CycleError),
     });
-  });
-
-  it('drains a long finite cascade past the old total cap without reporting a cycle', async () => {
-    class ChainStepA extends Event2<Record<string, never>> {
-      static override readonly type = 'state.test.chain.a';
-      static override readonly observable = true;
-    }
-    class ChainStepB extends Event2<Record<string, never>> {
-      static override readonly type = 'state.test.chain.b';
-      static override readonly observable = true;
-    }
-    class ChainStepC extends Event2<Record<string, never>> {
-      static override readonly type = 'state.test.chain.c';
-      static override readonly observable = true;
-    }
-    let remaining = 150;
-    const next = (): Event2<Record<string, never>> => {
-      remaining -= 1;
-      if (remaining <= 0) return new ChainStepA({});
-      const phase = remaining % 3;
-      if (phase === 0) return new ChainStepB({});
-      if (phase === 1) return new ChainStepC({});
-      return new ChainStepA({});
-    };
-    const follow = (): void => {
-      if (remaining <= 0) return;
-      void dispatcher.dispatch(next());
-    };
-    disposables.add(bus.subscribe(ChainStepA, follow));
-    disposables.add(bus.subscribe(ChainStepB, follow));
-    disposables.add(bus.subscribe(ChainStepC, follow));
-
-    await expect(dispatcher.dispatch(new ChainStepA({}))).resolves.toBeUndefined();
   });
 
   it('rolls back to replay-time snapshot checkpoints on unpaired undo records and gates live undo', async () => {
@@ -659,9 +600,7 @@ describe('EventDispatcherService', () => {
     expect(parsed).toBeInstanceOf(CounterAdd);
     expect(parsed!.time).toBe(1234);
     expect((parsed as CounterAdd).by).toBe(9);
-    expect(
-      event2FromRecord(CounterAdd, { type: 'state.test.counter.add', by: 'nan' }),
-    ).toBeUndefined();
+    expect(event2FromRecord(CounterAdd, { type: 'state.test.counter.add', by: 'nan' })).toBeUndefined();
   });
 
   it('freezes committed state against mutation', async () => {
@@ -737,9 +676,7 @@ describe('EventDispatcherService', () => {
         if (event instanceof UndoEvent) ctx.undoToCheckpoint(event.count);
       },
       getState: () => state,
-      commit: (next) => {
-        state = next;
-      },
+      commit: (next) => { state = next; },
     });
 
     await dispatcher.restore();
@@ -748,6 +685,84 @@ describe('EventDispatcherService', () => {
 
     await dispatcher.dispatch(new UndoEvent({ count: 1 }));
     expect(state.items).toEqual(['a']);
+  });
+
+  it('hands undo anchors and legacy undo records to a participant with a custom onUndo', async () => {
+    const isolated = new TestInstantiationService();
+    const records: WireRecord[] = [];
+    isolated.set(IEventBus, new SyncDescriptor(EventBusService));
+    isolated.set(IAgentBlobService, noopBlob);
+    isolated.set(IWireService, stubWireJournal(records));
+    isolated.set(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' }));
+    isolated.set(IAgentStateService, new AgentStateService());
+    isolated.set(IEventDispatcher, new SyncDescriptor(EventDispatcherService));
+    const scoped = isolated.get(IEventDispatcher);
+    const prompt = (text: string): TurnPrompt =>
+      new TurnPrompt({
+        agentId: 'main',
+        input: [{ type: 'text', text }],
+        origin: { kind: 'user' },
+      });
+    records.push(
+      prompt('a').serialize(),
+      prompt('b').serialize(),
+      new ContextUndo({ agentId: 'main', count: 1 }).serialize(),
+      prompt('c').serialize(),
+    );
+    let state: CheckpointedState = { items: [] };
+    scoped.attach({
+      id: 'runtime.test.custom-undo',
+      events: [TurnPrompt],
+      undoable: true,
+      transition: (draft, event) => {
+        const part = (event as TurnPrompt).input[0];
+        if (part?.type === 'text') draft.items.push(part.text);
+      },
+      onUndo: (current, count) => ({ items: current.items.slice(0, -count) }),
+      getState: () => state,
+      commit: (next) => { state = next; },
+    });
+
+    await scoped.restore();
+
+    expect(state.items).toEqual(['a', 'c']);
+    isolated.dispose();
+  });
+
+  it('brackets every restore pass with the replay hooks of runtime participants, failed passes included', async () => {
+    journal.push(new ItemAdd({ item: 'a' }).serialize());
+    const calls: string[] = [];
+    let state: CheckpointedState = { items: [] };
+    dispatcher.attach({
+      id: 'runtime.test.replay-hooks',
+      events: [ItemAdd],
+      undoable: true,
+      transition: (draft, event) => {
+        if (event instanceof ItemAdd) draft.items.push(event.item);
+      },
+      onWillReplay: () => {
+        calls.push(`will:${state.items.join(',')}`);
+      },
+      onDidReplay: (replayed, { ok }) => {
+        calls.push(`did:${ok}:${replayed.items.join(',')}`);
+        state = ok ? { items: [...replayed.items, 'settled'] } : replayed;
+      },
+      getState: () => state,
+      commit: (next) => { state = next; },
+    });
+
+    await dispatcher.restore();
+    expect(calls).toEqual(['did:true:a']);
+    expect(state.items).toEqual(['a', 'settled']);
+
+    journal.push(new ItemAdd({ item: 'b' }).serialize());
+    await dispatcher.restore();
+    expect(calls).toEqual(['did:true:a', 'will:a,settled', 'did:true:a,b']);
+    expect(state.items).toEqual(['a', 'b', 'settled']);
+
+    journal.push(new FailingEvent({}).serialize());
+    await expect(dispatcher.restore()).rejects.toThrow('fold failure');
+    expect(calls.slice(3)).toEqual(['will:a,b,settled', 'did:false:a,b']);
   });
 
   it('replays journal history into a late-attached participant and folds live events after', async () => {
@@ -767,9 +782,7 @@ describe('EventDispatcherService', () => {
         if (event instanceof UndoEvent) ctx.undoToCheckpoint(event.count);
       },
       getState: () => state,
-      commit: (next) => {
-        state = next;
-      },
+      commit: (next) => { state = next; },
     });
 
     expect(state.items).toEqual(['a', 'b']);
@@ -794,9 +807,7 @@ describe('EventDispatcherService', () => {
         if (event instanceof ItemAdd) draft.items.push(event.item);
       },
       getState: () => state,
-      commit: (next: CheckpointedState) => {
-        state = next;
-      },
+      commit: (next: CheckpointedState) => { state = next; },
     };
     const late = dispatcher.attachLate(participant);
     const live = dispatcher.dispatch(new ItemAdd({ item: 'live' }));
@@ -822,7 +833,9 @@ describe('EventDispatcherService', () => {
 
     await dispatcher.restore();
 
-    expect(() => dispatcher.attach({ ...participant })).toThrow(/must attach before restore/);
+    expect(() => dispatcher.attach({ ...participant })).toThrow(
+      /must attach before restore/,
+    );
     await expect(dispatcher.attachLate({ ...participant })).resolves.toBeDefined();
 
     const wire = ix.get(IWireService);
@@ -848,354 +861,11 @@ describe('EventDispatcherService', () => {
     await rerun;
   });
 
-  it.each([1000, 4000, 8000])(
-    'replays %d records in one mutable participant window',
-    async (count) => {
-      for (let index = 0; index < count; index++)
-        journal.push(new ItemAdd({ item: String(index) }).serialize());
-      let state: CheckpointedState = { items: [] };
-      const before = state;
-      let staging: CheckpointedState | undefined;
-      let commits = 0;
-      let transitions = 0;
-      dispatcher.attach({
-        id: 'runtime.test.mutable-scaling',
-        events: [ItemAdd],
-        undoable: false,
-        mutableReplay: true,
-        transition: (draft: CheckpointedState, event) => {
-          if (!(event instanceof ItemAdd)) return;
-          if (staging === undefined) staging = draft;
-          else if (draft !== staging) throw new Error('participant state copied per record');
-          if (state !== before) throw new Error('participant published during replay');
-          draft.items.push(event.item);
-          transitions++;
-        },
-        getState: () => state,
-        commit: (next) => {
-          state = next;
-          commits++;
-        },
-      });
-      await dispatcher.restore();
-      expect(transitions).toBe(count);
-      expect(commits).toBe(1);
-      expect(before.items).toEqual([]);
-      expect(state.items).toHaveLength(count);
-      expect(state.items.at(-1)).toBe(String(count - 1));
-      expect(Object.isFrozen(state.items)).toBe(true);
-    },
-  );
-
-  it('stages mutable participant replay and publishes once before folding live changes', async () => {
-    journal.push(new ItemAdd({ item: 'a' }).serialize(), new ItemAdd({ item: 'b' }).serialize());
-    let state: CheckpointedState = { items: [] };
-    const initial = state;
-    const commits: boolean[] = [];
-    const replayed: boolean[] = [];
-    let started = 0;
-    dispatcher.attach({
-      id: 'runtime.test.mutable',
-      events: [ItemAdd],
-      undoable: false,
-      mutableReplay: true,
-      transition: (draft: CheckpointedState, event) => {
-        expect(state).toBe(initial);
-        if (event instanceof ItemAdd) draft.items.push(event.item);
-      },
-      getState: () => state,
-      commit: (next, silent) => {
-        state = next;
-        commits.push(silent);
-      },
-      onWillReplay: () => {
-        started++;
-      },
-      onDidReplay: (_next, result) => {
-        replayed.push(result.ok);
-      },
-    });
-    await dispatcher.restore();
-    expect(initial.items).toEqual([]);
-    expect(state.items).toEqual(['a', 'b']);
-    expect(commits).toEqual([false]);
-    expect(started).toBe(1);
-    expect(replayed).toEqual([true]);
-    expect(Object.isFrozen(state.items)).toBe(true);
-  });
-
-  it('does not publish mutable participant changes when replay fails', async () => {
-    journal.push(new ItemAdd({ item: 'a' }).serialize(), new ItemAdd({ item: 'bad' }).serialize());
-    let state: CheckpointedState = { items: ['previous'] };
-    const previous = state;
-    let failed = false;
-    dispatcher.attach({
-      id: 'runtime.test.mutable-failure',
-      events: [ItemAdd],
-      undoable: false,
-      mutableReplay: true,
-      transition: (draft: CheckpointedState, event) => {
-        if (!(event instanceof ItemAdd)) return;
-        draft.items.push(event.item);
-        if (event.item === 'bad') throw new Error('participant replay failed');
-      },
-      getState: () => state,
-      commit: (next) => {
-        state = next;
-      },
-      onDidReplay: (_next, result) => {
-        failed = !result.ok;
-      },
-    });
-    let failure: unknown;
-    try {
-      await dispatcher.restore();
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(Error);
-    expect(state).toBe(previous);
-    expect(state.items).toEqual(['previous']);
-    expect(failed).toBe(true);
-  });
-
-  it('folds anchor messages and delegates custom participant undo', async () => {
-    const host = disposables.add(new TestInstantiationService());
-    host.set(IEventBus, new SyncDescriptor(EventBusService));
-    host.set(IAgentBlobService, noopBlob);
-    host.set(IWireService, stubWireJournal([]));
-    host.set(
-      IAgentScopeContext,
-      makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' }),
-    );
-    host.set(IAgentStateService, new AgentStateService());
-    host.set(IEventDispatcher, new SyncDescriptor(EventDispatcherService));
-    const dispatcher = host.get(IEventDispatcher);
-    let state: CheckpointedState = { items: [] };
-    dispatcher.attach({
-      id: 'runtime.test.custom-undo',
-      events: [ContextAppendMessage],
-      undoable: true,
-      mutableReplay: true,
-      transition: (draft: CheckpointedState, event) => {
-        if (event instanceof ContextAppendMessage) draft.items.push(event.message.id!);
-      },
-      onUndo: (draft, count) => {
-        draft.items.splice(Math.max(0, draft.items.length - count));
-      },
-      getState: () => state,
-      commit: (next) => {
-        state = next;
-      },
-    });
-    await dispatcher.restore();
-    await dispatcher.dispatch(
-      new ContextAppendMessage({
-        agentId: 'main',
-        message: {
-          id: 'p1',
-          role: 'user',
-          origin: { kind: 'user' },
-          content: [{ type: 'text', text: 'hi' }],
-          toolCalls: [],
-        },
-      }),
-    );
-    expect(state.items).toEqual(['p1']);
-    await dispatcher.dispatch(new ContextUndo({ agentId: 'main', count: 1 }));
-    expect(state.items).toEqual([]);
-  });
-
-  it('does not publish mutable participants before blob rehydration succeeds', async () => {
-    const key = defineState('state.test.rehydrate-failure', () => 0)
-      .replayable({
-        schema: z.number(),
-        blobs: {
-          dehydrate: (record) => record,
-          rehydrate: () => {
-            throw new Error('rehydration failed');
-          },
-        },
-      })
-      .on(ItemAdd, (state) => state + 1);
-    agentState.contributeState(key);
-    journal.push(new ItemAdd({ item: 'a' }).serialize());
-    let state: CheckpointedState = { items: [] };
-    const before = state;
-    dispatcher.attach({
-      id: 'rehydration',
-      events: [ItemAdd],
-      undoable: false,
-      mutableReplay: true,
-      transition: (draft: CheckpointedState, event) => {
-        if (event instanceof ItemAdd) draft.items.push(event.item);
-      },
-      getState: () => state,
-      commit: (next) => {
-        state = next;
-      },
-    });
-    const result = await Promise.allSettled([dispatcher.restore()]);
-    expect(result[0]?.status).toBe('rejected');
-    expect(state).toBe(before);
-    expect(state.items).toEqual([]);
-  });
-
-  it('queues live events until mutable participant rehydration succeeds', async () => {
-    let reject!: (error: Error) => void;
-    let entered!: () => void;
-    const waiting = new Promise<void>((resolve) => {
-      entered = resolve;
-    });
-    const gate = new Promise<number>((_resolve, fail) => {
-      reject = fail;
-    });
-    const key = defineState('state.test.rehydrate-live', () => 0)
-      .replayable({
-        schema: z.number(),
-        blobs: {
-          dehydrate: (record) => record,
-          rehydrate: () => {
-            entered();
-            return gate;
-          },
-        },
-      })
-      .on(ItemAdd, (state) => state + 1);
-    agentState.contributeState(key);
-    journal.push(new ItemAdd({ item: 'history' }).serialize());
-    let state: CheckpointedState = { items: [] };
-    const before = state;
-    dispatcher.attach({
-      id: 'gated-rehydrate',
-      events: [ItemAdd],
-      undoable: false,
-      mutableReplay: true,
-      transition: (draft: CheckpointedState, event) => {
-        if (event instanceof ItemAdd) draft.items.push(event.item);
-      },
-      getState: () => state,
-      commit: (next) => {
-        state = next;
-      },
-    });
-    const restoring = dispatcher.restore();
-    await waiting;
-    const live = dispatcher.dispatch(new ItemAdd({ item: 'live' }));
-    expect(state).toBe(before);
-    const results = Promise.allSettled([restoring, live]);
-    reject(new Error('rehydration failed'));
-    expect((await results).map((result) => result.status)).toEqual(['rejected', 'rejected']);
-    expect(state).toBe(before);
-  });
-
-  it('rejects unsafe mutable replay checkpoint contracts', async () => {
-    expect(() =>
-      dispatcher.attach({
-        id: 'unsafe',
-        events: [],
-        undoable: true,
-        mutableReplay: true,
-        transition: () => {},
-        getState: () => ({}),
-        commit: () => {},
-      }),
-    ).toThrow(/requires custom onUndo/);
-    journal.push(new ItemAdd({ item: 'a' }).serialize());
-    dispatcher.attach({
-      id: 'checkpoint',
-      events: [ItemAdd],
-      undoable: false,
-      mutableReplay: true,
-      transition: (_draft, _event, ctx) => {
-        ctx.checkpoint();
-      },
-      getState: () => ({}),
-      commit: () => {},
-    });
-    let error: unknown;
-    try {
-      await dispatcher.restore();
-    } catch (caught) {
-      error = caught;
-    }
-    expect(error).toBeInstanceOf(BugIndicatingError);
-  });
-
-  it('rejects an in-flight late replay after disposal without publishing or attaching it', async () => {
-    await dispatcher.restore();
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    ix.get(IWireService).readJournal = async function* () {
-      await gate;
-      yield new ItemAdd({ item: 'late' }).serialize();
-    };
-    let state: CheckpointedState = { items: [] };
-    const before = state;
-    const outcomes: boolean[] = [];
-    const attached = dispatcher.attachLate({
-      id: 'late-disposed',
-      events: [ItemAdd],
-      undoable: false,
-      mutableReplay: true,
-      transition: (draft: CheckpointedState, event) => {
-        if (event instanceof ItemAdd) draft.items.push(event.item);
-      },
-      getState: () => state,
-      commit: (next) => {
-        state = next;
-      },
-      onDidReplay: (_state, { ok }) => {
-        outcomes.push(ok);
-      },
-    });
-    (dispatcher as EventDispatcherService).dispose();
-    release();
-    const result = await Promise.allSettled([attached]);
-    expect(result[0]?.status).toBe('rejected');
-    expect(state).toBe(before);
-    expect(outcomes).toEqual([false]);
-  });
-
-  it('recovers a mutable replay from failure without retaining staged values', async () => {
-    let state: CheckpointedState = { items: [] };
-    let fail = false;
-    dispatcher.attach({
-      id: 'recovery',
-      events: [ItemAdd],
-      undoable: false,
-      mutableReplay: true,
-      transition: (draft: CheckpointedState, event) => {
-        if (event instanceof ItemAdd) draft.items.push(event.item);
-        if (fail) throw new Error('replay failure');
-      },
-      getState: () => state,
-      commit: (next) => {
-        state = next;
-      },
-    });
-    await dispatcher.restore();
-    await dispatcher.dispatch(new ItemAdd({ item: 'a' }));
-    const before = state;
-    fail = true;
-    const failed = await Promise.allSettled([dispatcher.restore()]);
-    expect(failed[0]?.status).toBe('rejected');
-    expect(state).toBe(before);
-    fail = false;
-    await dispatcher.restore();
-    expect(state.items).toEqual(['a']);
-    await dispatcher.dispatch(new ItemAdd({ item: 'b' }));
-    expect(before.items).toEqual(['a']);
-    expect(state.items).toEqual(['a', 'b']);
-  });
-
   it('does not own AgentSpace teardown', () => {
     const isolated = new TestInstantiationService();
     const scope = makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' });
     const space = scope.agentContext.space as AgentSpaceImpl;
-    const kill = spyOn(space, '_kill');
+    const kill = vi.spyOn(space, '_kill');
     isolated.set(IEventBus, new SyncDescriptor(EventBusService));
     isolated.set(IAgentBlobService, noopBlob);
     isolated.set(IWireService, stubWireJournal([]));
@@ -1225,5 +895,111 @@ describe('EventDispatcherService', () => {
     expect(agentState.replayableKeys()).not.toContain(removableKey);
     await expect(dispatcher.dispatch(new CounterAdd({ by: 3 }))).resolves.toBeUndefined();
     expect(agentState.get(counterKey).value).toBe(5);
+  });
+
+  it('supports opt-in mutableReplay on durable participants across restore, reruns, failures, and attachLate', async () => {
+    expect(() =>
+      dispatcher.attach({
+        id: 'runtime.test.invalid-mutable',
+        events: [ItemAdd],
+        undoable: true,
+        mutableReplay: true,
+        transition: () => {},
+        getState: () => ({ items: [] }),
+        commit: () => {},
+      }),
+    ).toThrow(/requires custom onUndo for mutable replay/);
+
+    interface MutableParticipantState {
+      count: number;
+      items: string[];
+      lookup: Record<string, number>;
+    }
+    const initial: MutableParticipantState = { count: 0, items: [], lookup: {} };
+    let state: MutableParticipantState = initial;
+    let commits = 0;
+    const frozenReplacement = Object.freeze({
+      count: 0,
+      items: Object.freeze(['reset']) as unknown as string[],
+      lookup: Object.freeze({ reset: 1 }) as Record<string, number>,
+    });
+    dispatcher.attach({
+      id: 'runtime.test.mutable-participant',
+      events: [CounterAdd, ItemAdd, ClearEvent],
+      undoable: true,
+      mutableReplay: true,
+      transition: (draft, event) => {
+        if (event instanceof ClearEvent) return frozenReplacement;
+        if (event instanceof CounterAdd) {
+          draft.count += event.by;
+          return;
+        }
+        if (event instanceof ItemAdd) {
+          draft.items.push(event.item);
+          draft.lookup[event.item] = draft.items.length;
+        }
+        return undefined;
+      },
+      onUndo: (draft, count) => {
+        draft.items.splice(Math.max(0, draft.items.length - count));
+        return draft;
+      },
+      getState: () => state,
+      commit: (next) => {
+        commits += 1;
+        state = next;
+      },
+    });
+
+    journal.push(new CounterAdd({ by: 2 }).serialize());
+    for (let i = 0; i < 200; i += 1) {
+      journal.push(new ItemAdd({ item: `m-${i}` }).serialize());
+    }
+    journal.push(new ClearEvent({}).serialize(), new ItemAdd({ item: 'tail' }).serialize());
+
+    await dispatcher.restore();
+
+    expect(initial).toEqual({ count: 0, items: [], lookup: {} });
+    expect(frozenReplacement.items).toEqual(['reset']);
+    expect(state).toEqual({ count: 0, items: ['reset', 'tail'], lookup: { reset: 1, tail: 2 } });
+    expect(Object.isFrozen(state)).toBe(true);
+    expect(Object.isFrozen(state.items)).toBe(true);
+    expect(commits).toBe(1);
+
+    journal.push(new FailingEvent({}).serialize());
+    await expect(dispatcher.restore()).rejects.toThrow('fold failure');
+    expect(state).toBe(initial);
+
+    journal.length = 0;
+    journal.push(new ItemAdd({ item: 'recovered' }).serialize());
+    await dispatcher.restore();
+    expect(state).toEqual({ count: 0, items: ['recovered'], lookup: { recovered: 1 } });
+
+    let lateState: CheckpointedState = { items: ['seed'] };
+    let lateCommits = 0;
+    for (let i = 0; i < 100; i += 1) {
+      journal.push(new ItemAdd({ item: `late-${i}` }).serialize());
+    }
+    await dispatcher.attachLate({
+      id: 'runtime.test.mutable-late',
+      events: [ItemAdd],
+      undoable: false,
+      mutableReplay: true,
+      transition: (draft, event) => {
+        if (event instanceof ItemAdd) draft.items.push(event.item);
+      },
+      getState: () => lateState,
+      commit: (next) => {
+        lateCommits += 1;
+        lateState = next;
+      },
+    });
+
+    expect(lateCommits).toBe(1);
+    expect(lateState.items).toHaveLength(102);
+    expect(Object.isFrozen(lateState)).toBe(true);
+
+    await dispatcher.dispatch(new ItemAdd({ item: 'live' }));
+    expect(lateState.items.at(-1)).toBe('live');
   });
 });

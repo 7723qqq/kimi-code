@@ -3,8 +3,21 @@ import { randomUUID } from 'node:crypto';
 import { normalize } from 'pathe';
 
 import { Disposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
+
+import { ErrorCodes, Error2 } from '#/errors';
+import { McpConnectionManager } from '#/mcpCore/connection-manager';
+import { McpServerConfigSchema, type McpServerConfig } from '#/mcpCore/config-schema';
+import { toMcpServerConfigView } from '#/mcpCore/configView';
+import {
+  AlreadyAuthorizedError,
+  type BeginAuthorizationResult,
+  type McpOAuthService,
+  type McpOAuthTokenState,
+} from '#/mcpCore/oauth/service';
+import { canonicalMcpOAuthResource, mcpOAuthStoreKey } from '#/mcpCore/oauth/store';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
 import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
@@ -15,18 +28,6 @@ import {
   type McpRegistryEntry,
   type McpRegistryQuery,
 } from '#/app/mcpRegistry/mcpRegistry';
-import { LifecycleScope } from '#/app/scopes';
-import { ErrorCodes, Error2 } from '#/errors';
-import { McpServerConfigSchema, type McpServerConfig } from '#/mcpCore/config-schema';
-import { toMcpServerConfigView } from '#/mcpCore/configView';
-import { McpConnectionManager } from '#/mcpCore/connection-manager';
-import {
-  AlreadyAuthorizedError,
-  type BeginAuthorizationResult,
-  type McpOAuthService,
-  type McpOAuthTokenState,
-} from '#/mcpCore/oauth/service';
-import { canonicalMcpOAuthResource } from '#/mcpCore/oauth/store';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 
 import {
@@ -44,8 +45,6 @@ import {
   type McpServerTestResult,
   type McpServerTestTarget,
 } from './mcpManagement';
-import { type IHostTimerHandle } from '#/os/interface/hostTimers';
-import { IHostTimers } from '#/os/interface/hostTimers';
 
 const DEFAULT_AUTH_TIMEOUT_MS = 15 * 60_000;
 const AUTH_FLOW_IDLE_TIMEOUT_MS = 15 * 60_000;
@@ -56,7 +55,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
 
   private readonly authFlows = new Map<
     string,
-    { flow: BeginAuthorizationResult; idleTimer: IHostTimerHandle }
+    { flow: BeginAuthorizationResult; idleTimer: NodeJS.Timeout }
   >();
 
   constructor(
@@ -67,7 +66,6 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     @IAgentIdentity private readonly identity: IAgentIdentity,
     @IEnvironmentService private readonly environmentResolver: EnvironmentResolver,
     @ILogService private readonly log: ILogService,
-    @IHostTimers private readonly timers: IHostTimers,
   ) {
     super();
   }
@@ -96,7 +94,10 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
   ): Promise<readonly McpManagedServer[]> {
     const name = normalizeServerName(server.name);
     await this.guardMutation(name, query);
-    await this.store.update({ ...server, name });
+    const next = { ...server, name };
+    const previous = (await this.store.list()).find((entry) => entry.name === name);
+    await this.store.update(next);
+    await this.reconcileOAuthIdentity(previous, next);
     return this.listServers(query);
   }
 
@@ -106,8 +107,30 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
   ): Promise<readonly McpManagedServer[]> {
     const normalized = normalizeServerName(name);
     await this.guardMutation(normalized, query);
+    const previous = (await this.store.list()).find((entry) => entry.name === normalized);
     await this.store.remove(normalized);
+    await this.reconcileOAuthIdentity(previous, undefined);
     return this.listServers(query);
+  }
+
+  private async reconcileOAuthIdentity(
+    previous: GlobalMcpServerConfig | undefined,
+    next: GlobalMcpServerConfig | undefined,
+  ): Promise<void> {
+    if (previous === undefined || !('url' in previous)) return;
+    if (
+      next !== undefined &&
+      'url' in next &&
+      mcpOAuthStoreKey(previous.name, previous.url) === mcpOAuthStoreKey(next.name, next.url)
+    ) {
+      return;
+    }
+    try {
+      await this.oauth.cancelAuthorizationFromConfiguration(undefined, previous.name, previous.url);
+      await this.oauth.invalidateFromConfiguration(undefined, previous.name, previous.url);
+    } catch (error) {
+      this.log.warn('mcp oauth credential cleanup failed', { name: previous.name, error });
+    }
   }
 
   async testServer(target: McpServerTestTarget): Promise<McpServerTestResult> {
@@ -236,12 +259,12 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     try {
       const flow = await this.oauth.beginAuthorization(server.runtimeName, config.url);
       const flowId = randomUUID();
-      const idleTimer = this.timers.setTimeout(() => {
+      const idleTimer = setTimeout(() => {
         const expired = this.authFlows.get(flowId);
         this.authFlows.delete(flowId);
         void expired?.flow.cancel();
       }, AUTH_FLOW_IDLE_TIMEOUT_MS);
-      idleTimer.unref?.();
+      idleTimer.unref();
       this.authFlows.set(flowId, { flow, idleTimer });
       return {
         status: 'authorization-required',
@@ -275,7 +298,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     if (active === undefined) {
       throw new Error2(ErrorCodes.REQUEST_INVALID, `Unknown MCP OAuth flow: ${handle.flowId}`);
     }
-    this.timers.clearTimeout(active.idleTimer);
+    clearTimeout(active.idleTimer);
     try {
       await active.flow.complete({
         signal: options?.signal,
@@ -289,14 +312,14 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
   async cancelServerAuth(handle: Pick<McpServerAuthFlowHandle, 'flowId'>): Promise<void> {
     const active = this.authFlows.get(handle.flowId);
     if (active === undefined) return;
-    this.timers.clearTimeout(active.idleTimer);
+    clearTimeout(active.idleTimer);
     this.authFlows.delete(handle.flowId);
     await active.flow.cancel();
   }
 
   override dispose(): void {
     for (const active of this.authFlows.values()) {
-      this.timers.clearTimeout(active.idleTimer);
+      clearTimeout(active.idleTimer);
       void active.flow.cancel();
     }
     this.authFlows.clear();
@@ -383,10 +406,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     const runtimeNameCounts = new Map<string, number>();
     for (const server of new Map(catalog.map((item) => [item.serverId, item])).values()) {
       if (!server.enabled) continue;
-      runtimeNameCounts.set(
-        server.runtimeName,
-        (runtimeNameCounts.get(server.runtimeName) ?? 0) + 1,
-      );
+      runtimeNameCounts.set(server.runtimeName, (runtimeNameCounts.get(server.runtimeName) ?? 0) + 1);
     }
     const credentialStates = new Map<string, McpOAuthTokenState>();
     const probeConfigs = Object.create(null) as Record<string, McpServerConfig>;
@@ -497,7 +517,10 @@ function requireRemoteMcpConfig(name: string, config: McpServerConfig): McpRemot
 function requireOAuthMcpConfig(name: string, input: McpServerConfig): McpRemoteServerConfig {
   const config = requireRemoteMcpConfig(name, input);
   if (config.bearerTokenEnvVar !== undefined) {
-    throw new Error2(ErrorCodes.REQUEST_INVALID, `MCP server "${name}" uses a static bearer token`);
+    throw new Error2(
+      ErrorCodes.REQUEST_INVALID,
+      `MCP server "${name}" uses a static bearer token`,
+    );
   }
   if (config.headers !== undefined && config.auth !== 'oauth') {
     throw new Error2(
@@ -535,7 +558,9 @@ function serverDescriptor(entry: McpRegistryEntry): McpServerRuntimeDescriptor {
     locator,
     runtimeName: entry.name,
     canonicalUrl:
-      entry.config.transport === 'stdio' ? undefined : canonicalMcpOAuthResource(entry.config.url),
+      entry.config.transport === 'stdio'
+        ? undefined
+        : canonicalMcpOAuthResource(entry.config.url),
     origin: entry.source,
     config: entry.config,
     enabled: entry.config.enabled !== false,
@@ -572,13 +597,15 @@ function configuredMcpAuthState(
   return undefined;
 }
 
-function standaloneTestResult(name: string, manager: McpConnectionManager): McpServerTestResult {
+function standaloneTestResult(
+  name: string,
+  manager: McpConnectionManager,
+): McpServerTestResult {
   const entry = manager.get(name);
   if (entry?.status !== 'connected') {
     return {
       success: false,
-      output:
-        entry?.error ?? `MCP server "${name}" finished with status ${entry?.status ?? 'unknown'}`,
+      output: entry?.error ?? `MCP server "${name}" finished with status ${entry?.status ?? 'unknown'}`,
     };
   }
   const tools = manager.resolved(name)?.rawTools ?? [];

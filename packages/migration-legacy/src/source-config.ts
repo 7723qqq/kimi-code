@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises';
-
 import { parse as parseToml } from 'smol-toml';
 
 import { sourceConfigJson, sourceConfigToml } from './paths.js';
@@ -16,7 +15,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isEnoent(error: unknown): boolean {
   return (
-    typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT'
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 'ENOENT'
   );
 }
 
@@ -26,8 +27,6 @@ export async function readSourceConfig(sourceHome: string): Promise<SourceConfig
   try {
     tomlText = await readFile(tomlPath, 'utf-8');
   } catch (error) {
-    // Only a missing file falls through to the JSON-era config; any other read
-    // failure (permissions, I/O) is a data problem the report must surface.
     if (!isEnoent(error)) return { kind: 'unreadable', path: tomlPath };
   }
   if (tomlText !== undefined) {

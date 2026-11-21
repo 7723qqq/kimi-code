@@ -5,26 +5,17 @@ import {
 } from '@moonshot-ai/kimi-code-oauth/provider-credential';
 
 import { Disposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
-import { IConfigService } from '#/app/config/config';
-import { ConfigErrors } from '#/app/config/errors';
-import { DEFAULT_MODEL_SECTION } from '#/app/kosongConfig/configSection';
-import { LifecycleScope } from '#/app/scopes';
+
+import type { CatalogModel, CatalogProviderInfo } from '#human/provider-catalog/catalog';
 import {
   createOAuthCredentialProvider,
   createStaticCredentialProvider,
 } from '#human/credentials/credentials';
-import type { CatalogModel, CatalogProviderInfo } from '#human/llm/provider-catalog';
-import { createBedrockTokenProvider } from '#human/llm/provider/bedrock/credentials';
-import type { LlmCredentialProvider } from '#human/llm/requester/requester';
-import type { TokenUsage } from '#human/llm/usage';
-
-import {
-  isUnknownCapability,
-  markUnknownCapability,
-  type ModelCapability,
-} from '../contract/capability';
+import type { LlmCredentialProvider, ModelCapability } from '@moonshot-ai/core/llm/request';
+import { createBedrockTokenProvider } from '@moonshot-ai/core/llm/builtin/provider/bedrock/credentials';
 import { CONFIG_INVALID_ERROR_CODE } from '../contract/errors';
 import {
   IProtocolAdapterRegistry,
@@ -32,12 +23,15 @@ import {
   type ProtocolProviderOptions,
 } from '../protocol/protocol';
 import { IProviderService } from '../provider/provider';
-import { getProviderDefinition, resolveProviderEndpoint } from '../provider/provider-definition';
+import {
+  getProviderDefinition,
+  resolveProviderEndpoint,
+} from '../provider/provider-definition';
+
 import {
   IModelCatalog,
   type Model,
   type ModelCatalogItem,
-  type ModelPingResult,
   type ProviderCatalogItem,
   type ProviderCredentialState,
   type SetDefaultModelResponse,
@@ -46,7 +40,6 @@ import {
   toProtocolProvider,
 } from './catalog';
 import { IProviderCatalogRuntime, rawRecordOf } from './catalog-runtime';
-import { runWithCredentialRecovery, streamWithCredentialRecovery } from './credential-recovery';
 import { ModelCatalogErrors } from './errors';
 import { IHostRequestHeaders } from './host-request-headers';
 import { IModelService, type ModelRecord } from './model';
@@ -59,28 +52,16 @@ import {
   withAnthropicProfile,
 } from './model-auth';
 import { IModelOAuthTokens } from './model-oauth';
-import type {
-  ModelRequestEvent,
-  ModelRequestInput,
-  ModelRequestParams,
-  ModelRequester,
-} from './model-requester';
-import { ModelRequesterImpl } from './model-requester-impl';
 import type { ResolvedModelAuthMaterial } from './model.types';
 
 type MutableProtocolProviderOptions = {
   -readonly [K in keyof ProtocolProviderOptions]: ProtocolProviderOptions[K];
 };
 
-interface CatalogEntry {
-  readonly model: Model;
-  readonly requester: ModelRequester;
-}
-
 export class ModelCatalog extends Disposable implements IModelCatalog {
   declare readonly _serviceBrand: undefined;
 
-  private readonly cache = new Map<string, CatalogEntry>();
+  private readonly cache = new Map<string, Model>();
 
   constructor(
     @IProviderCatalogRuntime private readonly runtime: IProviderCatalogRuntime,
@@ -90,7 +71,6 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     @IProtocolAdapterRegistry
     private readonly protocolRegistry: IProtocolAdapterRegistry,
     @IHostRequestHeaders private readonly hostRequestHeaders: IHostRequestHeaders,
-    @IConfigService private readonly config: IConfigService,
   ) {
     super();
     this._register(
@@ -107,19 +87,15 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   private invalidate(providerIds: readonly string[]): void {
     if (providerIds.length === 0) return;
     const changed = new Set(providerIds);
-    for (const [alias, entry] of this.cache) {
-      if (changed.has(entry.model.providerName)) {
+    for (const [alias, model] of this.cache) {
+      if (changed.has(model.providerName)) {
         this.cache.delete(alias);
       }
     }
   }
 
   get(id: string): Model {
-    return this.entry(id).model;
-  }
-
-  getRequester(id: string): ModelRequester {
-    return this.entry(id).requester;
+    return this.entry(id);
   }
 
   findByName(name: string): readonly string[] {
@@ -135,75 +111,13 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     return out;
   }
 
-  private entry(id: string): CatalogEntry {
+  private entry(id: string): Model {
     this.runtime.sync();
     const cached = this.cache.get(id);
     if (cached !== undefined) return cached;
     const model = this.buildModel(id);
-    const entry: CatalogEntry = {
-      model,
-      requester: new ModelRequesterImpl(model, this.protocolRegistry),
-    };
-    this.cache.set(id, entry);
-    return entry;
-  }
-
-  async *generate(
-    id: string,
-    input: ModelRequestInput,
-    signal?: AbortSignal,
-    params?: ModelRequestParams,
-  ): AsyncIterable<ModelRequestEvent> {
-    const { requester } = this.entry(id);
-    yield* streamWithCredentialRecovery(
-      requester.model.credentialProvider,
-      () => requester.request(input, signal, params),
-      signal,
-    );
-  }
-
-  async ping(id: string): Promise<ModelPingResult> {
-    const { requester } = this.entry(id);
-    const startedAt = Date.now();
-    try {
-      const consume = async () => {
-        let text = '';
-        let usage: TokenUsage | undefined;
-        let finishReason: string | undefined;
-        for await (const event of requester.request(
-          {
-            systemPrompt: 'You are a connectivity probe. Answer with the single word "pong".',
-            tools: [],
-            messages: [{ role: 'user', content: [{ type: 'text', text: 'ping' }], toolCalls: [] }],
-          },
-          undefined,
-          { maxCompletionTokens: 512 },
-        )) {
-          if (event.type === 'part' && event.part.type === 'text') {
-            text += event.part.text;
-          } else if (event.type === 'usage') {
-            usage = event.usage;
-          } else if (event.type === 'finish') {
-            finishReason = event.providerFinishReason ?? event.rawFinishReason;
-          }
-        }
-        return { text: text.trim(), usage, finishReason };
-      };
-      const result = await runWithCredentialRecovery(requester.model.credentialProvider, consume);
-      return {
-        ok: true,
-        durationMs: Date.now() - startedAt,
-        text: result.text,
-        finishReason: result.finishReason,
-        usage: result.usage,
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        durationMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    this.cache.set(id, model);
+    return model;
   }
 
   async listModels(): Promise<readonly ModelCatalogItem[]> {
@@ -253,18 +167,14 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   async setDefaultModel(modelId: string): Promise<SetDefaultModelResponse> {
     const definition = this.runtime.lookup(modelId);
     if (definition === undefined) {
-      throw new Error2(ModelCatalogErrors.codes.MODEL_NOT_FOUND, `model ${modelId} does not exist`);
+      throw new Error2(
+        ModelCatalogErrors.codes.MODEL_NOT_FOUND,
+        `model ${modelId} does not exist`,
+      );
     }
     const record = rawRecordOf(definition);
     const model = this.get(modelId);
     await this.models.setDefaultModel(modelId);
-    const persisted = this.config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
-    if (persisted !== modelId) {
-      throw new Error2(
-        ConfigErrors.codes.CONFIG_PERSIST_BLOCKED,
-        `Refusing to report success: default_model was not persisted (config still says ${persisted ?? 'nothing'}).`,
-      );
-    }
     return {
       default_model: modelId,
       model: toProtocolModel(model, record, this.providerTypeOf(record)),
@@ -295,7 +205,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     provider: CatalogProviderInfo,
   ): Promise<ProviderCredentialState> {
     const declared = declaredProviderCredential(provider, providerId);
-    const hasApiKey = hasConfiguredApiKey(provider, providerId);
+    const hasApiKey = hasConfiguredApiKey(provider);
     const hasOAuthToken = await this.hasCachedToken(providerId, provider);
     return {
       hasApiKey,
@@ -305,16 +215,14 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     };
   }
 
-  private async hasCachedToken(
-    providerId: string,
-    provider: CatalogProviderInfo,
-  ): Promise<boolean> {
+  private async hasCachedToken(providerId: string, provider: CatalogProviderInfo): Promise<boolean> {
     if (provider.oauth === undefined) return false;
     return this.oauth.hasCachedAccessToken(providerId, provider.oauth);
   }
 
   private providerTypeOf(record: ModelRecord): string | undefined {
-    const providerId = record.providerId ?? record.provider ?? this.providers.getDefaultProvider();
+    const providerId =
+      record.providerId ?? record.provider ?? this.providers.getDefaultProvider();
     return this.runtime.providerInfo(providerId ?? '')?.type ?? record.protocol;
   }
 
@@ -329,11 +237,8 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     }
     const configuredModel = rawRecordOf(definition);
 
-    const {
-      providerConfig,
-      providerName,
-      resolvedBaseUrl: rawBaseUrl,
-    } = this.resolveProviderContext(id, configuredModel);
+    const { providerConfig, providerName, resolvedBaseUrl: rawBaseUrl } =
+      this.resolveProviderContext(id, configuredModel);
 
     const protocol = this.resolveProtocol(id, configuredModel, providerConfig);
     const model = withAnthropicProfile(
@@ -372,14 +277,8 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
       protocol,
       wireName,
       providerType,
-      providerName,
     );
-    const capabilities = resolveModelCapabilities(
-      model.capabilities,
-      detectedCapability,
-      model.maxContextSize,
-      model.maxInputSize,
-    );
+    const capabilities = resolveModelCapabilities(model.capabilities, detectedCapability);
     const providerOptions = buildProtocolProviderOptions(
       model,
       protocol,
@@ -390,28 +289,36 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
 
     return {
       id,
-      name: wireName,
       aliases: model.aliases ?? [],
       protocol,
-      baseUrl: resolvedBaseUrl,
-      headers: resolveOutboundHeaders(
-        providerConfig?.type,
-        providerConfig?.customHeaders,
-        this.hostRequestHeaders,
-      ),
-      capabilities,
-      maxContextSize: model.maxContextSize,
-      maxInputSize: model.maxInputSize,
+      spec: {
+        provider: providerType ?? protocol,
+        name: wireName,
+        capability: capabilities,
+        thinking: {
+          supportEfforts: model.supportEfforts,
+          defaultEffort: model.defaultEffort,
+          offEffort: providerOptions?.offEffort,
+          alwaysThinking: declared.has('always_thinking'),
+          adaptiveThinking: providerOptions?.adaptiveThinking,
+        },
+        maxContextSize: model.maxContextSize,
+        maxInputSize: model.maxInputSize,
+      },
+      endpoint: {
+        baseUrl: resolvedBaseUrl,
+        headers: resolveOutboundHeaders(
+          providerConfig?.type,
+          providerConfig?.customHeaders,
+          this.hostRequestHeaders,
+        ),
+        credentials: credentialProvider,
+      },
       maxOutputSize: model.maxOutputSize,
       displayName: model.displayName,
       reasoningKey: model.reasoningKey,
-      supportEfforts: model.supportEfforts,
-      defaultEffort: model.defaultEffort,
-      alwaysThinking: declared.has('always_thinking'),
-      adaptiveThinking: model.adaptiveThinking,
       providerType,
       providerName,
-      credentialProvider,
       providerOptions,
     };
   }
@@ -424,7 +331,8 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     readonly providerName: string;
     readonly resolvedBaseUrl: string | undefined;
   } {
-    const providerId = model.providerId ?? model.provider ?? this.providers.getDefaultProvider();
+    const providerId =
+      model.providerId ?? model.provider ?? this.providers.getDefaultProvider();
     if (providerId !== undefined) {
       const providerConfig = this.runtime.providerInfo(providerId);
       if (providerConfig === undefined) {
@@ -515,41 +423,27 @@ export function resolveOutboundHeaders(
   host: Pick<IHostRequestHeaders, 'headers' | 'thirdPartyHeaders'>,
 ): Readonly<Record<string, string>> {
   const forwardsAll =
-    providerType !== undefined && getProviderDefinition(providerType)?.hostHeaders === 'full';
+    providerType !== undefined &&
+    getProviderDefinition(providerType)?.hostHeaders === 'full';
   const hostLayer = forwardsAll ? host.headers : host.thirdPartyHeaders;
   return { ...parseKimiCodeCustomHeaders(), ...hostLayer, ...customHeaders };
 }
 
 function resolveModelCapabilities(
   declaredCapabilities: readonly string[] | undefined,
-  detected: ModelCapability,
-  maxContextSize: number,
-  maxInputSize: number | undefined,
+  detected: ModelCapability | undefined,
 ): ModelCapability {
   const declared = new Set((declaredCapabilities ?? []).map((c) => c.trim().toLowerCase()));
-  const capabilities: ModelCapability = {
-    image_in: declared.has('image_in') || detected.image_in,
-    video_in: declared.has('video_in') || detected.video_in,
-    audio_in: declared.has('audio_in') || detected.audio_in,
-    thinking: declared.has('thinking') || declared.has('always_thinking') || detected.thinking,
-    tool_use: declared.has('tool_use') || detected.tool_use,
-    pdf_in: declared.has('pdf_in') || detected.pdf_in === true,
-    max_context_tokens: maxContextSize,
-    max_input_tokens: maxInputSize,
+  return {
+    image_in: declared.has('image_in') || detected?.image_in === true,
+    video_in: declared.has('video_in') || detected?.video_in === true,
+    audio_in: declared.has('audio_in') || detected?.audio_in === true,
+    thinking:
+      declared.has('thinking') || declared.has('always_thinking') || detected?.thinking === true,
+    tool_use: declared.has('tool_use') || (detected !== undefined && detected.tool_use !== false),
     dynamically_loaded_tools:
-      declared.has('dynamically_loaded_tools') || detected.dynamically_loaded_tools === true,
+      declared.has('dynamically_loaded_tools') || detected?.dynamically_loaded_tools === true,
   };
-
-  if (
-    isUnknownCapability(detected) &&
-    !declared.has('image_in') &&
-    !declared.has('video_in') &&
-    !declared.has('audio_in') &&
-    !declared.has('pdf_in')
-  ) {
-    return markUnknownCapability(capabilities);
-  }
-  return capabilities;
 }
 
 function stripTrailingV1(baseUrl: string): string {
@@ -562,16 +456,18 @@ function effectiveRecordOf(definition: CatalogModel): ModelRecord {
   return {
     ...base,
     capabilities: overrides?.capabilities ?? raw.capabilities,
-    maxContextSize: definition.maxContextSize,
-    maxInputSize: definition.maxInputSize,
+    maxContextSize: definition.spec.maxContextSize,
+    maxInputSize: definition.spec.maxInputSize,
     maxOutputSize: definition.maxOutputSize,
     displayName: definition.displayName,
     reasoningKey: definition.reasoningKey,
-    adaptiveThinking: definition.adaptiveThinking,
+    adaptiveThinking: definition.spec.thinking?.adaptiveThinking,
     supportEfforts:
-      definition.supportEfforts === undefined ? undefined : [...definition.supportEfforts],
-    defaultEffort: definition.defaultEffort,
-    offEffort: definition.offEffort,
+      definition.spec.thinking?.supportEfforts === undefined
+        ? undefined
+        : [...definition.spec.thinking.supportEfforts],
+    defaultEffort: definition.spec.thinking?.defaultEffort,
+    offEffort: definition.spec.thinking?.offEffort,
   };
 }
 
@@ -603,16 +499,9 @@ function buildProtocolProviderOptions(
         options.vertexai = true;
         options.project = project;
         options.location = location;
-      } else if (provider?.type === 'vertexai') {
-        options.vertexai = true;
-        if (project !== undefined) options.project = project;
-        if (location !== undefined) options.location = location;
       }
       break;
     }
-    case 'antigravity':
-      if (model.adaptiveThinking !== undefined) options.adaptiveThinking = model.adaptiveThinking;
-      break;
     case 'openai_responses':
       if (model.offEffort !== undefined) options.offEffort = model.offEffort;
       break;
@@ -622,7 +511,9 @@ function buildProtocolProviderOptions(
     }
   }
 
-  return Object.values(options).some((value) => value !== undefined) ? options : undefined;
+  return Object.values(options).some((value) => value !== undefined)
+    ? options
+    : undefined;
 }
 
 function vertexAIProject(provider: CatalogProviderInfo | undefined): string | undefined {
@@ -636,10 +527,7 @@ function vertexAILocation(
   return envValue(provider?.env, 'GOOGLE_CLOUD_LOCATION') ?? locationFromVertexAIBaseUrl(baseUrl);
 }
 
-function envValue(
-  env: Readonly<Record<string, string>> | undefined,
-  key: string,
-): string | undefined {
+function envValue(env: Readonly<Record<string, string>> | undefined, key: string): string | undefined {
   return nonEmpty(env?.[key]);
 }
 
@@ -655,13 +543,12 @@ function locationFromVertexAIBaseUrl(baseUrl: string | undefined): string | unde
   }
 }
 
-function hasConfiguredApiKey(provider: CatalogProviderInfo, providerId?: string): boolean {
+function hasConfiguredApiKey(provider: CatalogProviderInfo): boolean {
   if (nonEmpty(provider.apiKey) !== undefined) return true;
   const apiKeyEnv = nonEmpty(provider.apiKeyEnv);
   if (apiKeyEnv !== undefined) return nonEmpty(process.env[apiKeyEnv]) !== undefined;
   if (provider.type === undefined) return false;
-  const endpointType = provider.type === 'vertexai' ? 'google-genai' : provider.type;
-  return resolveProviderEndpoint(endpointType, provider.env ?? {}, providerId).apiKey !== undefined;
+  return resolveProviderEndpoint(provider.type, provider.env ?? {}).apiKey !== undefined;
 }
 
 registerScopedService(

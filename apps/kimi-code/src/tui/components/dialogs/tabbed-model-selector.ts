@@ -1,18 +1,3 @@
-/**
- * TabbedModelSelectorComponent — a thin wrapper around ModelSelectorComponent
- * that splits the model list into per-provider tabs.
- *
- * Tabs are derived from the `models` passed at construction time:
- *   ['all', ...uniqueProviderIds]   (insertion order, deduplicated)
- *
- * Each tab owns its own inner ModelSelectorComponent built from the filtered
- * subset of models. ↑/↓/Enter/Esc/←/→ (thinking) and typing (filter) are
- * forwarded to the active inner selector; Tab / Shift-Tab cycle between tabs.
- *
- * The active tab is highlighted with a filled background (matching the
- * AskUserQuestion dialog's tab strip) — see .agents/skills/write-tui/DESIGN.md.
- */
-
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
@@ -20,14 +5,10 @@ import {
   matchesKey,
   truncateToWidth,
   type Focusable,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { mouseDispatch } from '#/tui/utils/mouse';
-import { layoutTabStrip, type TabStripSpan } from '#/tui/utils/tab-strip';
+import { renderTabStrip } from '#/tui/utils/tab-strip';
 
 import {
   ModelSelectorComponent,
@@ -35,32 +16,22 @@ import {
   type ModelSelection,
   type ModelSelectorOptions,
 } from './model-selector';
+import { t } from '#/i18n';
 
 const ALL_TAB_ID = 'all';
-function getAllTabLabel(): string {
-  return t('tui.dialogs.tabbedModelSelector.allTab');
-}
+const ALL_TAB_LABEL = t('tui.dialogs.tabbedModelSelector.allTab');
 
 export interface TabbedModelSelectorOptions {
   readonly models: Record<string, ModelAlias>;
   readonly currentValue: string;
   readonly selectedValue?: string;
   readonly currentThinkingEffort: string;
-  /** Forwarded to each inner selector; overrides the default ' Select a model'
-   * title line. */
   readonly title?: string;
-  /** When set, the tab for this provider id is initially active instead of the
-   * tab derived from `currentValue`. */
   readonly initialTabId?: string;
-  /** When set, warning-colored lines are rendered directly below the key-hint
-   * line, wrapping as needed (e.g. the mid-conversation switch cost notice). */
   readonly warning?: string;
-  /** Forwarded to each inner selector; set to false to hide the Thinking
-   * footer and disable ←/→ effort switching. */
   readonly thinkingControl?: boolean;
+  readonly effortDescriptions?: Readonly<Record<string, string>>;
   readonly onSelect: (selection: ModelSelection) => void;
-  /** Forwarded to each inner selector; when set, Alt+S applies the choice to
-   * the current session only without persisting it as the default. */
   readonly onSessionOnlySelect?: (selection: ModelSelection) => void;
   readonly onCancel: () => void;
 }
@@ -72,36 +43,16 @@ interface ModelTab {
 }
 
 export class TabbedModelSelectorComponent extends Container implements Focusable {
-  private hasFocus = false;
+  focused = false;
   private readonly opts: TabbedModelSelectorOptions;
   private readonly tabs: readonly ModelTab[];
   private activeIndex: number;
-
-  /** Where the last render put the strip, and where the inner list starts. */
-  private stripRow: number | undefined;
-  private stripSpans: readonly TabStripSpan[] = [];
-  private bodyOffset = 0;
-  /** Lines the strip inserts above the inner list, for coordinate forwarding. */
-  private bodyShift = 0;
-
-  /** Focus belongs to the active tab, so it has to be handed down on every change. */
-  get focused(): boolean {
-    return this.hasFocus;
-  }
-
-  set focused(value: boolean) {
-    this.hasFocus = value;
-    this.syncFocusToActive();
-  }
 
   constructor(opts: TabbedModelSelectorOptions) {
     super();
     this.opts = opts;
     this.tabs = buildTabs(opts);
 
-    // Default to the "All" tab. Only an explicit initialTabId (e.g. the
-    // provider just added via /provider) opens on a specific provider tab —
-    // the current model is still highlighted inside whichever tab is active.
     const initialTabIdx = opts.initialTabId
       ? this.tabs.findIndex((tab) => tab.id === opts.initialTabId)
       : -1;
@@ -125,49 +76,14 @@ export class TabbedModelSelectorComponent extends Container implements Focusable
     this.tabs[this.activeIndex]?.selector.handleInput(data);
   }
 
-  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    if (this.stripRow !== undefined) {
-      if (event.y === this.stripRow) {
-        if (event.type !== 'press' && event.type !== 'click') return undefined;
-        const span = this.stripSpans.find(
-          (candidate) => event.x >= candidate.start && event.x < candidate.end,
-        );
-        if (span === undefined || span.index === this.activeIndex) {
-          return mouseDispatch(this, event, { handled: true });
-        }
-        this.activeIndex = span.index;
-        this.syncFocusToActive();
-        return mouseDispatch(this, event, { handled: true, render: true });
-      }
-      if (event.y < this.bodyOffset) return undefined;
-    }
-
-    const inner = this.tabs[this.activeIndex]?.selector;
-    if (inner === undefined) return undefined;
-    const forwarded = inner.handleMouse?.({
-      ...event,
-      y: event.y - this.bodyShift,
-      height: Math.max(0, event.height - this.bodyOffset),
-    });
-    return forwarded === undefined ? undefined : mouseDispatch(this, event, forwarded);
-  }
-
   override render(width: number): string[] {
     const active = this.tabs[this.activeIndex];
     if (active === undefined) return [];
     const inner = active.selector.render(width);
     if (this.tabs.length <= 1) {
-      this.stripRow = undefined;
-      this.stripSpans = [];
-      this.bodyOffset = 0;
-      this.bodyShift = 0;
       return inner.map((line) => truncateToWidth(line, width));
     }
-    // Layout: divider, title, hint, optional warning, blank, tab strip, blank,
-    // then the model list. The header ends at its first blank line — keep that
-    // blank above the strip, and separate the tabs from the list with another
-    // blank.
-    const strip = layoutTabStrip({
+    const stripLine = renderTabStrip({
       labels: this.tabs.map((tab) => tab.label),
       activeIndex: this.activeIndex,
       width,
@@ -175,12 +91,8 @@ export class TabbedModelSelectorComponent extends Container implements Focusable
     });
     const headerEnd = inner.findIndex((line) => line === '');
     const splitAt = headerEnd === -1 ? 3 : headerEnd;
-    const out: string[] = [...inner.slice(0, splitAt + 1), strip.text, ''];
+    const out: string[] = [...inner.slice(0, splitAt + 1), stripLine, ''];
     for (let i = splitAt + 1; i < inner.length; i++) out.push(inner[i]!);
-    this.stripRow = splitAt + 1;
-    this.stripSpans = strip.spans;
-    this.bodyOffset = this.stripRow + 2;
-    this.bodyShift = 2;
     return out.map((line) => truncateToWidth(line, width));
   }
 
@@ -214,7 +126,7 @@ function buildTabs(opts: TabbedModelSelectorOptions): readonly ModelTab[] {
   const tabs: ModelTab[] = [
     {
       id: ALL_TAB_ID,
-      label: getAllTabLabel(),
+      label: ALL_TAB_LABEL,
       selector: makeSelector(opts, opts.models),
     },
   ];
@@ -241,13 +153,14 @@ function makeSelector(
   const inner: ModelSelectorOptions = {
     models: subset,
     currentValue: opts.currentValue,
-    selectedValue,
+    ...(selectedValue !== undefined ? { selectedValue } : {}),
     currentThinkingEffort: opts.currentThinkingEffort,
     title: opts.title,
     searchable: true,
     providerSwitchHint: true,
     warning: opts.warning,
     thinkingControl: opts.thinkingControl,
+    effortDescriptions: opts.effortDescriptions,
     onSelect: opts.onSelect,
     onSessionOnlySelect: opts.onSessionOnlySelect,
     onCancel: opts.onCancel,

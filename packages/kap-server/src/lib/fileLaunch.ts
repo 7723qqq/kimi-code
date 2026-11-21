@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 export interface LaunchCommand {
@@ -16,8 +17,9 @@ export function openFileCommandFor(
 ): LaunchCommand {
   const editor = resolveEditorCommand(env);
   if (editor !== undefined) {
-    const target =
-      supportsLineTarget(editor) && line !== undefined ? `${absolutePath}:${line}` : absolutePath;
+    const target = supportsLineTarget(editor) && line !== undefined
+      ? `${absolutePath}:${line}`
+      : absolutePath;
     return {
       command: `${editor} ${quoteShellArg(target, platform)}`,
       args: [],
@@ -53,7 +55,12 @@ export function revealFileCommandFor(
   }
 }
 
-export type OpenInAppId = 'finder' | 'cursor' | 'vscode' | 'iterm' | 'terminal';
+export type OpenInAppId =
+  | 'finder'
+  | 'cursor'
+  | 'vscode'
+  | 'iterm'
+  | 'terminal';
 
 export const OPEN_IN_APP_IDS: readonly OpenInAppId[] = [
   'finder',
@@ -94,7 +101,10 @@ export function getAvailableOpenInApps(
   return OPEN_IN_APP_IDS.filter((appId) => isOpenInAppAvailable(appId, platform));
 }
 
-function isOpenInAppAvailable(appId: OpenInAppId, platform: NodeJS.Platform): boolean {
+function isOpenInAppAvailable(
+  appId: OpenInAppId,
+  platform: NodeJS.Platform,
+): boolean {
   switch (appId) {
     case 'finder':
     case 'terminal':
@@ -114,35 +124,20 @@ function isOpenInAppAvailable(appId: OpenInAppId, platform: NodeJS.Platform): bo
 
 function commandExists(command: string, platform: NodeJS.Platform): boolean {
   try {
-    const result =
-      platform === 'win32'
-        ? Bun.spawnSync({
-            cmd: ['cmd', '/c', 'where', command],
-            stdio: ['ignore', 'ignore', 'ignore'],
-          })
-        : Bun.spawnSync({
-            cmd: [
-              shellForProbe(),
-              ...shellCommandArgs(`command -v ${quoteShellArg(command, platform)}`),
-            ],
-            stdio: ['ignore', 'ignore', 'ignore'],
-          });
-    return result.exitCode === 0;
+    if (platform === 'win32') {
+      const result = spawnSync('cmd', ['/c', 'where', command], {
+        stdio: 'ignore',
+      });
+      return result.status === 0;
+    }
+    const result = spawnSync('command', ['-v', command], {
+      stdio: 'ignore',
+      shell: true,
+    });
+    return result.status === 0;
   } catch {
     return false;
   }
-}
-
-function shellForProbe(): string {
-  if (process.platform === 'win32') {
-    return process.env['COMSPEC'] ?? 'cmd.exe';
-  }
-  const configured = process.env['SHELL'];
-  return configured !== undefined && configured.length > 0 ? configured : '/bin/sh';
-}
-
-function shellCommandArgs(script: string): string[] {
-  return process.platform === 'win32' ? ['/c', script] : ['-c', script];
 }
 
 function openInVsCodeLike(
@@ -198,30 +193,32 @@ function openInMacApp(
 }
 
 export async function launchDetached(cmd: LaunchCommand): Promise<void> {
-  const shellWrapped = cmd.shell === true;
-  const joined = [cmd.command, ...cmd.args].join(' ');
-  const argv = shellWrapped
-    ? process.platform === 'win32'
-      ? [shellForProbe(), '/d', '/s', '/c', `"${joined}"`]
-      : [shellForProbe(), '-c', joined]
-    : [cmd.command, ...cmd.args];
-  const child = Bun.spawn({
-    cmd: argv,
-    detached: true,
-    stdio: ['ignore', 'ignore', 'ignore'],
-    windowsVerbatimArguments: shellWrapped ? true : cmd.windowsVerbatimArguments,
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const child = spawn(cmd.command, cmd.args, {
+      detached: true,
+      stdio: 'ignore',
+      shell: cmd.shell,
+      windowsVerbatimArguments: cmd.windowsVerbatimArguments,
+    });
+    child.once('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
+    child.once('spawn', () => {
+      if (settled) return;
+      settled = true;
+      child.unref();
+      resolve();
+    });
   });
-  child.unref();
 }
 
 function resolveEditorCommand(env: Record<string, string | undefined>): string | undefined {
   for (const key of ['KIMI_CODE_EDITOR', 'VISUAL', 'EDITOR']) {
     const value = env[key];
-    if (typeof value === 'string' && value.trim().length > 0) {
-      const trimmed = value.trim();
-      if (/[;|&`$\n\r]/.test(trimmed)) return undefined;
-      return trimmed;
-    }
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
   }
   return undefined;
 }

@@ -1,10 +1,10 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
-import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { TimeoutTimer } from '#/_base/utils/timer';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { IConfigService } from '#/app/config/config';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
   MERGE_ALL_AVAILABLE_SKILLS_SECTION,
   type MergeAllAvailableSkillsConfig,
@@ -19,6 +19,7 @@ import {
   type ISkillSource,
   type SkillContribution,
 } from '#/features/skill/catalog/skillSource';
+import type { ILogService } from '#/_base/log/log';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
@@ -53,8 +54,9 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     @IWorkspaceContext private readonly workspace: IWorkspaceContext,
     @IConfigService private readonly config: IConfigService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
-    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
+    @IWorkspaceDirs private readonly workspaceDirs: IWorkspaceDirs,
     private readonly fs: IHostFileSystem,
+    private readonly log?: ILogService,
     private readonly watchEnabled = true,
   ) {
     super();
@@ -63,14 +65,21 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
         if (event.domain === MERGE_ALL_AVAILABLE_SKILLS_SECTION) this.onDidChangeEmitter.fire();
       }),
     );
-    this._register(this.dirs.onDidChange(() => this.onDidChangeEmitter.fire()));
-    this.watchReady = this.updateProjectSkillRootWatches([]).then(() => undefined);
+    this._register(
+      this.workspaceDirs.onDidChange(() => {
+        this.onDidChangeEmitter.fire();
+      }),
+    );
+    this.watchReady = this.workspaceDirs.ready
+      .then(() => this.updateProjectSkillRootWatches([]))
+      .then(() => undefined);
     void this.watchReady.catch(() => undefined);
   }
 
   private get workDirs(): readonly string[] {
-    const primary = this.dirs.primaryByWorkspace[this.workspace.workspaceId] ?? this.workspace.cwd;
-    return [primary, this.workspace.cwd, ...this.dirs.sharedAdditionalDirs];
+    const primary =
+      this.workspaceDirs.primaryByWorkspace[this.workspace.workspaceId] ?? this.workspace.cwd;
+    return [primary, this.workspace.cwd, ...this.workspaceDirs.sharedAdditionalDirs];
   }
 
   async load(): Promise<SkillContribution> {
@@ -81,10 +90,9 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     await this.config.ready;
     const mergeAllAvailableSkills =
       this.config.get<MergeAllAvailableSkillsConfig>(MERGE_ALL_AVAILABLE_SKILLS_SECTION) ?? true;
-    await this.dirs.ready;
     const discover = async () =>
       this.discovery.discover(
-        await projectRootsForDirs(this.workDirs, { mergeAllAvailableSkills }),
+        await projectRootsForDirs(this.workDirs, { mergeAllAvailableSkills }, this.fs),
       );
     let contribution = await discover();
     while (await this.updateProjectSkillRootWatches(contribution.scannedDirectories)) {
@@ -99,7 +107,7 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     if (!this.watchEnabled) return false;
     const watches = new Map<string, readonly string[]>();
     for (const workDir of this.workDirs) {
-      const { projectRoot, candidates } = await projectSkillRootCandidates(workDir);
+      const { projectRoot, candidates } = await projectSkillRootCandidates(workDir, this.fs);
       if (!watches.has(projectRoot)) watches.set(projectRoot, candidates);
     }
     const signature = JSON.stringify({
@@ -110,20 +118,24 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     const resources = this.watchResources.add(new DisposableStore());
     try {
       for (const [projectRoot, candidates] of watches) {
-        const handle = watchCandidates(projectRoot, candidates, {
-          ignored: subtreeWatchFilter(projectRoot, candidates, {
-            scannedDirectories,
-            keepEntryFile: 'SKILL.md',
-          }),
-          signal: true,
-        });
-        resources.add(handle);
-        resources.add(
-          handle.onDidChange(() => {
-            this.watchDebounce.cancelAndSet(() => this.onDidChangeEmitter.fire(), WATCH_DEBOUNCE_MS);
-          }),
-        );
-        await handle.ready;
+        try {
+          const handle = watchCandidates(projectRoot, candidates, {
+            ignored: subtreeWatchFilter(projectRoot, candidates, {
+              scannedDirectories,
+              keepEntryFile: 'SKILL.md',
+            }),
+            signal: true,
+          });
+          resources.add(handle);
+          resources.add(
+            handle.onDidChange(() => {
+              this.watchDebounce.cancelAndSet(() => this.onDidChangeEmitter.fire(), WATCH_DEBOUNCE_MS);
+            }),
+          );
+          await handle.ready;
+        } catch (error) {
+          this.log?.warn(`project skill watcher failed for ${projectRoot}: ${String(error)}`);
+        }
       }
     } catch (error) {
       this.watchResources.delete(resources);
@@ -137,3 +149,4 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     return true;
   }
 }
+

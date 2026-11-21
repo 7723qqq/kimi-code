@@ -1,11 +1,9 @@
-import { describe, expect, it } from 'bun:test';
-
 import { visibleWidth } from '@moonshot-ai/pi-tui';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   renderHeaderContent,
   TruncatedHeaderLine,
-  truncateOneLine,
   type HeaderSegments,
 } from '#/tui/components/messages/truncated-header-line';
 
@@ -73,9 +71,7 @@ describe('renderHeaderContent', () => {
 
   it('drops the middle before the fixed parts when the row is too narrow for it', () => {
     const content = { head: 'HEAD ', flex: { text: 'abcdef', keep: 'head' as const }, tail: ' T' };
-    // One spare cell: the middle collapses to an ellipsis between the fixed parts.
     expect(renderHeaderContent(content, 8)).toBe('HEAD … T');
-    // No spare cell: the middle is dropped outright, both fixed parts stay.
     expect(renderHeaderContent(content, 7)).toBe('HEAD  T');
   });
 
@@ -83,7 +79,6 @@ describe('renderHeaderContent', () => {
     const content = { head: 'HEAD ', flex: { text: 'abcdef', keep: 'head' as const }, tail: ' T' };
     const line = strip(renderHeaderContent(content, 5));
     expect(line).toBe('HE… T');
-    // Below two cells for the head there is nothing left to keep: cut from the end.
     const tiny = strip(renderHeaderContent(content, 3));
     expect(visibleWidth(tiny)).toBeLessThanOrEqual(3);
     expect(tiny.endsWith('…')).toBe(true);
@@ -91,8 +86,6 @@ describe('renderHeaderContent', () => {
 
   it('keeps ANSI escape sequences atomic and zero-width when cutting', () => {
     const colored = '\x1b[32mabcdef\x1b[0mghijkl';
-    // 2 (head) + 5 for the middle: the whole opening sequence plus 4 visible
-    // cells, then the ellipsis. The sequence is never split or measured.
     const line = renderHeaderContent(
       { head: 'H ', flex: { text: colored, keep: 'head' }, tail: '' },
       7,
@@ -140,7 +133,6 @@ describe('TruncatedHeaderLine', () => {
 });
 
 describe('graphemes that pack many code units into a cell', () => {
-  // A ZWJ family emoji: 2 cells, 11 UTF-16 code units.
   const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}';
 
   it('never assumes a cut from code-unit length alone', () => {
@@ -157,39 +149,5 @@ describe('graphemes that pack many code units into a cell', () => {
     const line = renderHeaderContent({ head: '', flex: { text, keep: 'tail' }, tail: '' }, 9);
     expect(line).toBe(`…${family.repeat(4)}`);
     expect(visibleWidth(line)).toBe(9);
-  });
-});
-
-describe('truncateOneLine', () => {
-  const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/;
-
-  it('collapses whitespace onto one line and leaves a fitting value untouched', () => {
-    expect(truncateOneLine('  a\n b\t c  ', 40)).toBe('a b c');
-    expect(truncateOneLine('abcdef', 6)).toBe('abcdef');
-  });
-
-  it('cuts CJK by cells instead of slicing UTF-16 units', () => {
-    const cjk = '运行全部测试并生成覆盖率报告然后上传到服务器';
-    const cut = truncateOneLine(cjk, 11);
-    // Five two-cell characters plus the one-cell ellipsis fill the budget.
-    expect(cut).toBe('运行全部测…');
-    expect(visibleWidth(cut)).toBe(11);
-    expect(cjk.startsWith(cut.slice(0, -1))).toBe(true);
-  });
-
-  it('keeps emoji clusters whole and never leaves a lone surrogate', () => {
-    const thumbs = truncateOneLine('😀'.repeat(10), 5);
-    expect(thumbs).toBe('😀😀…');
-    expect(visibleWidth(thumbs)).toBe(5);
-    expect(LONE_SURROGATE.test(thumbs)).toBe(false);
-
-    const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}';
-    const families = truncateOneLine(family.repeat(6), 5);
-    expect(families).toBe(`${family.repeat(2)}…`);
-    expect(LONE_SURROGATE.test(families)).toBe(false);
-  });
-
-  it('returns nothing when there is no room at all', () => {
-    expect(truncateOneLine('abc', 0)).toBe('');
   });
 });

@@ -23,15 +23,15 @@ import { IGitService } from '@moonshot-ai/agent-core-v2/app/git/git';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import {
   fsDiffRequestSchema,
-  fsGitStatusBatchRequestSchema,
   fsGitStatusRequestSchema,
+  fsGitStatusBatchRequestSchema,
+  fsPullRequestRequestSchema,
+  fsPullRequestBatchRequestSchema,
   fsGrepRequestSchema,
   fsListManyRequestSchema,
   fsListRequestSchema,
   fsListResponseSchema,
   fsMkdirRequestSchema,
-  fsPullRequestBatchRequestSchema,
-  fsPullRequestRequestSchema,
   fsReadRequestSchema,
   fsSearchRequestSchema,
   fsSearchResponseSchema,
@@ -45,13 +45,13 @@ import type { EnvironmentCapability, EnvironmentLease } from '@moonshot-ai/agent
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
-import { buildContentDisposition } from '../lib/contentDisposition';
 import {
   launchDetached,
   openFileCommandFor,
   openInAppCommandFor,
   revealFileCommandFor,
 } from '../lib/fileLaunch';
+import { buildContentDisposition } from '../lib/contentDisposition';
 import { parseRangeHeader, pickHeader } from '../lib/httpRange';
 import { sendRawError } from '../lib/rawError';
 import { requestLog } from '../lib/requestLog';
@@ -107,38 +107,29 @@ const sessionIdAndTailParamSchema = z.object({
   tail: z.string().min(1),
 });
 
-const fsDownloadQuerySchema = z
-  .object({
-    allow_external_symlinks: z.enum(['true', 'false']).optional(),
-  })
-  .strict();
+const fsDownloadQuerySchema = z.object({
+  allow_external_symlinks: z.enum(['true', 'false']).optional(),
+});
 
 const workspaceFsListBodySchema = fsListRequestSchema
   .omit({ include_git_status: true })
   .extend({
     workspace: z.string().min(1),
-  })
-  .strict();
+  });
 
-const workspaceFsSearchBodySchema = fsSearchRequestSchema
-  .extend({
-    workspace: z.string().min(1),
-  })
-  .strict();
+const workspaceFsSearchBodySchema = fsSearchRequestSchema.extend({
+  workspace: z.string().min(1),
+});
 
-const workspaceFsSuggestBodySchema = fsSuggestRequestSchema
-  .extend({
-    workspace: z.string().min(1),
-    stream: z.boolean().default(false),
-  })
-  .strict();
+const workspaceFsSuggestBodySchema = fsSuggestRequestSchema.extend({
+  workspace: z.string().min(1),
+  stream: z.boolean().default(false),
+});
 
-const rootFsSuggestBodySchema = fsSuggestRequestSchema
-  .extend({
-    roots: z.array(z.string().min(1)).min(1).max(32),
-    stream: z.boolean().default(false),
-  })
-  .strict();
+const rootFsSuggestBodySchema = fsSuggestRequestSchema.extend({
+  roots: z.array(z.string().min(1)).min(1).max(32),
+  stream: z.boolean().default(false),
+});
 
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
@@ -282,6 +273,7 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       errors: {
         [ErrorCode.VALIDATION_FAILED]: {},
         [ErrorCode.SESSION_NOT_FOUND]: {},
+        [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
         [ErrorCode.ENVIRONMENT_NOT_FOUND]: {},
         [ErrorCode.ENVIRONMENT_UNAVAILABLE]: {},
         [ErrorCode.FS_PATH_NOT_FOUND]: {},
@@ -295,7 +287,7 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
         [ErrorCode.FS_ALREADY_EXISTS]: {},
       },
       description:
-        'Filesystem action dispatcher. Supported actions: list, read, list_many, stat, stat_many, mkdir, search, grep, git_status, diff, open, open-in, reveal.',
+        'Filesystem action dispatcher. Supported actions: list, read, list_many, stat, stat_many, mkdir, search, grep, git_status, git_status:batch, pull_request, pull_request:batch, diff, open, open-in, reveal.',
       tags: ['fs'],
       operationId: 'fsAction',
     },
@@ -322,7 +314,15 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       let environmentFs: FsScope | undefined;
       try {
         const required: EnvironmentCapability[] = ['fs'];
-        if (fsAction === 'search' || fsAction === 'grep' || fsAction === 'git_status' || fsAction === 'diff') {
+        if (
+          fsAction === 'search' ||
+          fsAction === 'grep' ||
+          fsAction === 'git_status' ||
+          fsAction === 'git_status:batch' ||
+          fsAction === 'pull_request' ||
+          fsAction === 'pull_request:batch' ||
+          fsAction === 'diff'
+        ) {
           required.push('process');
         }
         environmentFs = session === undefined && fsAction === 'search'
@@ -628,6 +628,7 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       errors: {
         [ErrorCode.VALIDATION_FAILED]: {},
         [ErrorCode.SESSION_NOT_FOUND]: {},
+        [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
         [ErrorCode.ENVIRONMENT_NOT_FOUND]: {},
         [ErrorCode.ENVIRONMENT_UNAVAILABLE]: {},
         [ErrorCode.FS_PATH_NOT_FOUND]: {},
@@ -651,10 +652,7 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       }
       const relPath = wildcard.slice(0, -DOWNLOAD_SUFFIX.length);
       if (relPath.length === 0) {
-        sendRawError(
-          reply as FsDownloadReply,
-          errEnvelope(ErrorCode.VALIDATION_FAILED, 'path is empty', req.id),
-        );
+        sendRawError(reply as FsDownloadReply, errEnvelope(ErrorCode.VALIDATION_FAILED, 'path is empty', req.id));
         return;
       }
 
@@ -884,6 +882,16 @@ async function handleGitStatusBatch(fs: IWorkspaceFsService, req: Req, reply: Re
   reply.send(okEnvelope(data, req.id));
 }
 
+async function handlePullRequestBatch(fs: IWorkspaceFsService, req: Req, reply: Reply): Promise<void> {
+  const parsed = fsPullRequestBatchRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    return;
+  }
+  const data = await fs.pullRequestBatch(parsed.data);
+  reply.send(okEnvelope(data, req.id));
+}
+
 async function handlePullRequest(fs: IWorkspaceFsService, req: Req, reply: Reply): Promise<void> {
   const parsed = fsPullRequestRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
@@ -891,20 +899,6 @@ async function handlePullRequest(fs: IWorkspaceFsService, req: Req, reply: Reply
     return;
   }
   const data = await fs.pullRequest(parsed.data);
-  reply.send(okEnvelope(data, req.id));
-}
-
-async function handlePullRequestBatch(
-  fs: IWorkspaceFsService,
-  req: Req,
-  reply: Reply,
-): Promise<void> {
-  const parsed = fsPullRequestBatchRequestSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
-    return;
-  }
-  const data = await fs.pullRequestBatch(parsed.data);
   reply.send(okEnvelope(data, req.id));
 }
 
@@ -972,12 +966,7 @@ async function handleOpenIn(fs: IWorkspaceFsService, sessionId: string, req: Req
   reply.send(okEnvelope({ opened: true as const }, req.id));
 }
 
-export function sendMappedError(
-  reply: Reply,
-  req: { id: string },
-  err: unknown,
-  rawResponse = false,
-): void {
+export function sendMappedError(reply: Reply, req: { id: string }, err: unknown, rawResponse = false): void {
   if (rawResponse) {
     const rawReply = reply as FsDownloadReply;
     reply = {
@@ -1020,7 +1009,17 @@ export function sendMappedError(
         reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId));
         return;
       case ErrorCodes.CONFIG_INVALID:
-        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId, err.stack));
+        return;
+      case ErrorCodes.WIRE_VERSION_TOO_LOW:
+        reply.send(
+          errEnvelope(
+            ErrorCode.WIRE_VERSION_TOO_LOW,
+            err.message,
+            requestId,
+            err.details,
+          ),
+        );
         return;
       case ErrorCodes.OS_FS_NOT_FOUND:
       case ErrorCodes.OS_FS_NOT_DIRECTORY:

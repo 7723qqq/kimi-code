@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { codePointBoundaryStart, sliceOnCodePointBoundary } from '#/_base/text/code-points';
 
@@ -30,7 +30,9 @@ describe('sliceOnCodePointBoundary', () => {
   });
 
   it('never emits a lone surrogate across randomized cuts', () => {
-    const text = Array.from({ length: 200 }, (_, i) => (i % 3 === 0 ? '\u{1F600}' : 'x')).join('');
+    const text = Array.from({ length: 200 }, (_, i) =>
+      i % 3 === 0 ? '\u{1F600}' : 'x',
+    ).join('');
     for (let end = 0; end <= text.length + 1; end++) {
       expect(LONE_SURROGATE.test(sliceOnCodePointBoundary(text, end))).toBe(false);
     }

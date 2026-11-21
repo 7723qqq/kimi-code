@@ -1,14 +1,11 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-
 import { visibleWidth } from '@moonshot-ai/pi-tui';
+import { afterEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { setLocale } from '#/i18n';
 import { buildUsageReportLines, UsagePanelComponent } from '#/tui/components/messages/usage-panel';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 
 afterEach(() => {
-  currentTheme.setPalette(darkColors, 'dark');
-  setLocale('en');
+  currentTheme.setPalette(darkColors);
 });
 
 function strip(text: string): string {
@@ -17,43 +14,45 @@ function strip(text: string): string {
 
 describe('UsagePanelComponent', () => {
   it('formats session, context, and managed usage sections', () => {
-    // Inject the wall clock so the resetAt fixture is an exact hour out — with
-    // a live clock the elapsed milliseconds floor the diff down to 59m.
-    const nowMs = Date.parse('2026-07-28T00:00:00Z');
-    const lines = buildUsageReportLines({
-      sessionUsage: {
-        byModel: {
-          kimi: {
-            inputOther: 1000,
-            inputCacheRead: 500,
-            inputCacheCreation: 500,
-            output: 250,
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-28T00:00:00Z'));
+    try {
+      const lines = buildUsageReportLines({
+        sessionUsage: {
+          byModel: {
+            kimi: {
+              inputOther: 1000,
+              inputCacheRead: 500,
+              inputCacheCreation: 500,
+              output: 250,
+            },
           },
         },
-      },
-      contextUsage: 0.25,
-      contextTokens: 2500,
-      maxContextTokens: 10000,
-      nowMs,
-      managedUsage: {
-        rows: [
-          {
-            name: 'daily',
-            usedRatio: 0.2,
-            resetAt: new Date(nowMs + 3600_000).toISOString(),
-          },
-        ],
-      },
-    }).map(strip);
+        contextUsage: 0.25,
+        contextTokens: 2500,
+        maxContextTokens: 10000,
+        managedUsage: {
+          rows: [
+            {
+              name: 'daily',
+              usedRatio: 0.2,
+              resetAt: new Date(Date.now() + 3600_000).toISOString(),
+            },
+          ],
+        },
+      }).map(strip);
 
-    expect(lines).toContain('Session usage');
-    expect(lines).toContain('  kimi  input 2k  output 250  total 2.2k');
-    expect(lines).toContain('Context window');
-    expect(lines.join('\n')).toContain('25%');
-    expect(lines).toContain('Plan usage');
-    expect(lines.join('\n')).toContain('daily');
-    expect(lines.join('\n')).toContain('20% used');
-    expect(lines.join('\n')).toContain('resets in 1h');
+      expect(lines).toContain('Session usage');
+      expect(lines).toContain('  kimi  input 2k  output 250  total 2.2k');
+      expect(lines).toContain('Context window');
+      expect(lines.join('\n')).toContain('25%');
+      expect(lines).toContain('Plan usage');
+      expect(lines.join('\n')).toContain('daily');
+      expect(lines.join('\n')).toContain('20% used');
+      expect(lines.join('\n')).toContain('resets in 1h');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders plan usage rows with their names and the monthly breakdown line', () => {
@@ -82,19 +81,17 @@ describe('UsagePanelComponent', () => {
   });
 
   it('shows "reset" when the reset timestamp is already in the past', () => {
-    const nowMs = Date.parse('2026-07-28T00:00:00Z');
     const lines = buildUsageReportLines({
       sessionUsage: { byModel: {} },
       contextUsage: 0,
       contextTokens: 0,
       maxContextTokens: 0,
-      nowMs,
       managedUsage: {
         rows: [
           {
             name: 'daily',
             usedRatio: 0.1,
-            resetAt: new Date(nowMs - 60_000).toISOString(),
+            resetAt: new Date(Date.now() - 60_000).toISOString(),
           },
         ],
       },
@@ -131,7 +128,6 @@ describe('UsagePanelComponent', () => {
     expect(output).toContain('50.00');
     expect(output).toContain('Monthly limit');
     expect(output).toContain('200.00');
-    // bar row contains block glyphs but no percentage text
     expect(output).toContain('░');
   });
 
@@ -229,10 +225,7 @@ describe('UsagePanelComponent', () => {
 
     const extraRows = lines.filter((line) => line.includes('¥'));
     expect(extraRows).toHaveLength(3);
-    // The currency symbol stays in one column...
     expect(new Set(extraRows.map((line) => line.indexOf('¥'))).size).toBe(1);
-    // ...and the right-aligned numeric parts end in the same column, so the
-    // decimal points line up across rows.
     expect(new Set(extraRows.map((line) => line.length)).size).toBe(1);
   });
 
@@ -255,9 +248,6 @@ describe('UsagePanelComponent', () => {
           },
         },
         ui: { requestRender: () => {} },
-      },
-      appendTranscriptEntry: (_entry: unknown, component?: { render(width: number): string[] }) => {
-        if (component !== undefined) added.push(...component.render(80).map(strip));
       },
     };
 
@@ -289,10 +279,7 @@ describe('UsagePanelComponent', () => {
   });
 
   it('keeps the bordered panel within narrow terminal widths', () => {
-    const component = new UsagePanelComponent(
-      () => ['Session usage', '  kimi  input 2.0k'],
-      'primary',
-    );
+    const component = new UsagePanelComponent(() => ['Session usage', '  kimi  input 2.0k'], 'primary');
 
     for (const width of [39, 24, 20, 10, 4, 1]) {
       for (const line of component.render(width)) {
@@ -302,121 +289,16 @@ describe('UsagePanelComponent', () => {
   });
 
   it('rebuilds its body from the active palette on invalidate', () => {
-    // Emit the resolved palette value as visible text so the assertion holds
-    // regardless of chalk's colour level in the test environment.
-    const component = new UsagePanelComponent(
-      () => [`text=${currentTheme.color('text')}`],
-      'primary',
-    );
+    const component = new UsagePanelComponent(() => [`text=${currentTheme.color('text')}`], 'primary');
     const bodyOf = (): string => {
-      const line = component
-        .render(80)
-        .map(strip)
-        .find((l) => l.includes('text='));
+      const line = component.render(80).map(strip).find((l) => l.includes('text='));
       if (line === undefined) throw new Error('body line not found');
       return line;
     };
 
     expect(bodyOf()).toContain(darkColors.text);
-    currentTheme.setPalette(lightColors, 'light');
+    currentTheme.setPalette(lightColors);
     component.invalidate();
     expect(bodyOf()).toContain(lightColors.text);
-  });
-
-  it('memoizes the rendered box per width and rebuilds only after invalidate', () => {
-    let builds = 0;
-    const component = new UsagePanelComponent(() => {
-      builds += 1;
-      return ['Session usage'];
-    }, 'primary');
-
-    const first = component.render(80);
-    expect(component.render(80)).toBe(first);
-    expect(builds).toBe(1);
-
-    // A width change re-lays out the box without re-running the body builder.
-    const narrow = component.render(40);
-    expect(narrow).not.toBe(first);
-    expect(component.render(40)).toBe(narrow);
-    expect(builds).toBe(1);
-
-    // A palette switch drops the cached box and rebuilds the coloured body.
-    component.invalidate();
-    expect(builds).toBe(2);
-    const rebuilt = component.render(40);
-    expect(rebuilt).not.toBe(narrow);
-    expect(rebuilt).toEqual(narrow);
-  });
-
-  it('aligns the extra usage value column for zh labels', () => {
-    setLocale('zh');
-    const lines = buildUsageReportLines({
-      sessionUsage: { byModel: {} },
-      contextUsage: 0,
-      contextTokens: 0,
-      maxContextTokens: 0,
-      managedUsage: {
-        rows: [],
-        extraUsage: {
-          balanceCents: 15901,
-          totalCents: 300000,
-          monthlyChargeLimitEnabled: true,
-          monthlyChargeLimitCents: 300000,
-          monthlyUsedCents: 24099,
-          currency: 'CNY',
-        },
-      },
-    }).map(strip);
-
-    const extraRows = lines.filter((line) => line.includes('¥'));
-    expect(extraRows).toHaveLength(3);
-    // `本月已用` / `月度上限` are 8 visible columns wide but `余额` is only 4, so
-    // the currency symbol must be padded by visible width to stay in one column.
-    const symbolColumns = extraRows.map((line) => visibleWidth(line.slice(0, line.indexOf('¥'))));
-    expect(symbolColumns).toEqual([12, 12, 12]);
-    expect(new Set(extraRows.map((line) => visibleWidth(line))).size).toBe(1);
-  });
-
-  it('aligns the plan usage value column for CJK row names', () => {
-    const lines = buildUsageReportLines({
-      sessionUsage: { byModel: {} },
-      contextUsage: 0,
-      contextTokens: 0,
-      maxContextTokens: 0,
-      managedUsage: {
-        rows: [
-          { name: '飞书日历', usedRatio: 0.2 },
-          { name: 'pro', usedRatio: 0.4 },
-        ],
-      },
-    }).map(strip);
-
-    const columns = lines
-      .filter((line) => line.includes('% used'))
-      .map((line) => visibleWidth(line.slice(0, /(\d+)% used/.exec(line)!.index)));
-    expect(columns).toHaveLength(2);
-    expect(new Set(columns).size).toBe(1);
-  });
-
-  it('folds multi-line session and managed usage errors onto one boxed row', () => {
-    const lines = buildUsageReportLines({
-      sessionUsage: undefined,
-      sessionUsageError: 'MCP error -32000: Connection closed\nstderr: bridge failed',
-      contextUsage: 0,
-      contextTokens: 0,
-      maxContextTokens: 0,
-      managedUsage: { rows: [] },
-      managedUsageError: 'quota lookup failed\n  retry later  ',
-    }).map(strip);
-
-    expect(lines).toContain('  MCP error -32000: Connection closed stderr: bridge failed');
-    expect(lines).toContain('  quota lookup failed retry later');
-
-    const rendered = new UsagePanelComponent(() => lines, 'primary').render(120).map(strip);
-    for (const line of rendered) {
-      expect(line).not.toContain('\n');
-      // Every row still starts with the box border, so no value punched through it.
-      expect(['╭', '│', '╰']).toContain(line.slice(2, 3));
-    }
   });
 });

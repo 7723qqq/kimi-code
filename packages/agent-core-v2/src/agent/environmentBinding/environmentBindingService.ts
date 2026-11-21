@@ -1,43 +1,32 @@
-import type { IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import type { IDisposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import { loadAgentsMdDetailed } from '#/agent/profile/context';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  LOCAL_ENVIRONMENT_ID,
-  type EnvironmentBinding,
-  type EnvironmentLease,
-} from '#/environment/environment';
-import { EnvironmentError } from '#/environment/environmentRegistry';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
+import { LOCAL_ENVIRONMENT_ID, type EnvironmentBinding, type EnvironmentLease } from '#/environment/environment';
+import { EnvironmentError } from '#/environment/environmentRegistry';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
 import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 
-import {
-  IAgentEnvironmentBindingSeed,
-  IAgentEnvironmentBindingService,
-} from './environmentBinding';
+import { IAgentEnvironmentBindingSeed, IAgentEnvironmentBindingService } from './environmentBinding';
 import { EnvironmentSetBinding, environmentBindingKey } from './environmentBindingOps';
 
 export const ENVIRONMENT_BINDING_REMINDER_VARIANT = 'environment_binding';
 
 export const PROJECT_CONTEXT_REMINDER_VARIANT = 'project_context';
 
-function projectContextReminderText(
-  binding: EnvironmentBinding,
-  cwd: string,
-  paths: readonly string[],
-): string {
+function projectContextReminderText(binding: EnvironmentBinding, cwd: string, paths: readonly string[]): string {
   return (
     `The active project context is now "${binding.environmentId}" at working directory ${cwd}. ` +
     'Previous working directories, AGENTS.md instructions, and environment details no longer apply. ' +
@@ -47,11 +36,7 @@ function projectContextReminderText(
   );
 }
 
-function environmentReminderText(
-  binding: EnvironmentBinding,
-  environment: HostEnvironmentInfo,
-  fallbackCwd: string,
-): string {
+function environmentReminderText(binding: EnvironmentBinding, environment: HostEnvironmentInfo, fallbackCwd: string): string {
   return [
     `The active environment is now "${binding.environmentId}":`,
     `${environment.osKind} ${environment.osVersion} ${environment.osArch},`,
@@ -81,26 +66,19 @@ export class AgentEnvironmentBindingService implements IAgentEnvironmentBindingS
     @IBootstrapService private readonly bootstrap: IBootstrapService,
   ) {
     this.state.contributeState(environmentBindingKey);
-    this.restoreHook = dispatcher.hooks.onDidRestore.register(
-      'agent-environment-binding',
-      async (_ctx, next) => {
-        const replayed = this.state.get(environmentBindingKey);
-        if (replayed === undefined) {
-          await this.dispatcher.dispatch(
-            new EnvironmentSetBinding({ ...this.current, agentId: this.scopeContext.agentId }),
-          );
-        }
-        this.applySessionWorkDir(this.current);
-        if (
-          replayed === undefined
-            ? this.current.environmentId !== LOCAL_ENVIRONMENT_ID
-            : this.isSeedRoundTrip(replayed)
-        ) {
-          this.emitEnvironmentReminder(this.current);
-        }
-        await next();
-      },
-    );
+    this.restoreHook = dispatcher.hooks.onDidRestore.register('agent-environment-binding', async (_ctx, next) => {
+      const replayed = this.state.get(environmentBindingKey);
+      if (replayed === undefined) {
+        await this.dispatcher.dispatch(
+          new EnvironmentSetBinding({ ...this.current, agentId: this.scopeContext.agentId }),
+        );
+      }
+      this.applySessionWorkDir(this.current);
+      if (replayed === undefined ? this.current.environmentId !== LOCAL_ENVIRONMENT_ID : this.isSeedRoundTrip(replayed)) {
+        this.emitEnvironmentReminder(this.current);
+      }
+      await next();
+    });
   }
 
   private isSeedRoundTrip(binding: EnvironmentBinding): boolean {
@@ -119,11 +97,7 @@ export class AgentEnvironmentBindingService implements IAgentEnvironmentBindingS
 
   private effectiveRoots(binding: EnvironmentBinding, host?: HostEnvironmentInfo) {
     let resolvedHost = host;
-    if (
-      resolvedHost === undefined &&
-      binding.cwd === undefined &&
-      binding.environmentId !== LOCAL_ENVIRONMENT_ID
-    ) {
+    if (resolvedHost === undefined && binding.cwd === undefined && binding.environmentId !== LOCAL_ENVIRONMENT_ID) {
       try {
         resolvedHost = this.resolver.inspect(binding).host;
       } catch {
@@ -146,7 +120,10 @@ export class AgentEnvironmentBindingService implements IAgentEnvironmentBindingS
 
   private commit(binding: EnvironmentBinding): EnvironmentBinding {
     const previous = this.current;
-    if (binding.environmentId === previous.environmentId && binding.cwd === previous.cwd) {
+    if (
+      binding.environmentId === previous.environmentId &&
+      binding.cwd === previous.cwd
+    ) {
       return previous;
     }
     const next = { environmentId: binding.environmentId, cwd: binding.cwd };
@@ -179,9 +156,7 @@ export class AgentEnvironmentBindingService implements IAgentEnvironmentBindingS
   private emitProjectContextReminder(binding: EnvironmentBinding): void {
     if (this.scopeContext.agentId !== MAIN_AGENT_ID) return;
     void this.probeProjectContext(binding).catch((error: unknown) => {
-      this.log.warn(`project context probe for environment ${binding.environmentId} failed`, {
-        error,
-      });
+      this.log.warn(`project context probe for environment ${binding.environmentId} failed`, { error });
     });
   }
 
@@ -200,7 +175,11 @@ export class AgentEnvironmentBindingService implements IAgentEnvironmentBindingS
       const homeDir = host?.homeDir;
       if (homeDir === undefined) return;
       const cwd = this.effectiveRoots(binding, host).workDir;
-      const { paths } = await loadAgentsMdDetailed({ fs, homeDir }, cwd, this.bootstrap.homeDir);
+      const { paths } = await loadAgentsMdDetailed(
+        { fs, homeDir },
+        cwd,
+        this.bootstrap.homeDir,
+      );
       if (paths.length === 0) return;
       this.reminder.notify(projectContextReminderText(binding, cwd, paths), {
         variant: PROJECT_CONTEXT_REMINDER_VARIANT,
@@ -216,10 +195,4 @@ export class AgentEnvironmentBindingService implements IAgentEnvironmentBindingS
   }
 }
 
-registerScopedService(
-  LifecycleScope.Agent,
-  IAgentEnvironmentBindingService,
-  AgentEnvironmentBindingService,
-  ScopeActivation.OnScopeCreated,
-  'agentEnvironmentBinding',
-);
+registerScopedService(LifecycleScope.Agent, IAgentEnvironmentBindingService, AgentEnvironmentBindingService, ScopeActivation.OnScopeCreated, 'agentEnvironmentBinding');

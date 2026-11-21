@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 
@@ -26,14 +26,7 @@ describe('setModeAndBroadcast', () => {
     expect(ctx.get(IAgentPermissionModeService).mode).toBe('auto');
     expect(records).toContainEqual({
       event: 'afk_toggle',
-      properties: {
-        agent_id: 'main',
-        enabled: true,
-        mode: 'agent',
-        model: 'mock-model',
-        protocol: 'openai',
-        provider_type: 'kimi',
-      },
+      properties: { agent_id: 'main', enabled: true, mode: 'agent', model: 'mock-model', protocol: 'openai', provider_type: 'kimi' },
     });
   });
 
@@ -47,25 +40,11 @@ describe('setModeAndBroadcast', () => {
     expect(ctx.get(IAgentPermissionModeService).mode).toBe('manual');
     expect(records).toContainEqual({
       event: 'yolo_toggle',
-      properties: {
-        agent_id: 'main',
-        enabled: true,
-        mode: 'agent',
-        model: 'mock-model',
-        protocol: 'openai',
-        provider_type: 'kimi',
-      },
+      properties: { agent_id: 'main', enabled: true, mode: 'agent', model: 'mock-model', protocol: 'openai', provider_type: 'kimi' },
     });
     expect(records).toContainEqual({
       event: 'yolo_toggle',
-      properties: {
-        agent_id: 'main',
-        enabled: false,
-        mode: 'agent',
-        model: 'mock-model',
-        protocol: 'openai',
-        provider_type: 'kimi',
-      },
+      properties: { agent_id: 'main', enabled: false, mode: 'agent', model: 'mock-model', protocol: 'openai', provider_type: 'kimi' },
     });
   });
 });

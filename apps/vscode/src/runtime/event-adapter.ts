@@ -11,12 +11,11 @@ import type { ErrorPhase, UIStreamEvent } from '../../shared/types';
 import { toLegacyDisplay } from './tool-display';
 
 const DEFAULT_MAIN_AGENT_ID = 'main';
-const CACHE_NOTICE_MIN_STEPS = 10;
 
 export interface AdapterTokenUsage {
   readonly inputOther: number;
   readonly output: number;
-  readonly inputCacheRead: number;
+  readonly inputCacheRead?: number;
   readonly inputCacheCreation: number;
 }
 
@@ -29,13 +28,11 @@ export interface EventAdapterState {
   readonly subagentParents: Readonly<Record<string, SubagentParent>>;
   readonly turnUsageByAgent: Readonly<Record<string, AdapterTokenUsage>>;
   readonly toolDisplays: Readonly<Record<string, readonly DisplayBlock[]>>;
-  readonly cacheNoticeStepsByAgent: Readonly<Record<string, number>>;
 }
 
 export interface AdaptedToolCallPartEvent {
   readonly type: 'ToolCallPart';
   readonly payload: {
-    /** Lets the Webview update the right call when tool arguments interleave. */
     readonly tool_call_id: string;
     readonly arguments_part?: string | null;
   };
@@ -47,7 +44,6 @@ export type AdaptedUIStreamEvent = UIStreamEvent | AdaptedToolCallPartEvent;
 type SdkTurnEndedEvent = Extract<Event, { type: 'turn.ended' }>;
 
 export interface TurnTerminalMetadata {
-  /** Stable within one adapter stream and suitable for terminal-event de-duplication. */
   readonly key: string;
   readonly sessionId: string;
   readonly agentId: string;
@@ -59,12 +55,10 @@ export interface TurnTerminalMetadata {
 export interface EventAdapterResult {
   readonly state: EventAdapterState;
   readonly event?: AdaptedUIStreamEvent;
-  /** SessionRuntime owns conversion of this metadata to exactly one complete/error event. */
   readonly terminal?: TurnTerminalMetadata;
 }
 
 export interface AdaptSdkEventOptions {
-  /** The SDK turn-start event intentionally does not repeat prompt content. */
   readonly pendingInput?: TurnBegin['user_input'];
   readonly mainAgentId?: string;
   readonly errorPhase?: ErrorPhase;
@@ -75,14 +69,9 @@ export function createEventAdapterState(): EventAdapterState {
     subagentParents: {},
     turnUsageByAgent: {},
     toolDisplays: {},
-    cacheNoticeStepsByAgent: {},
   };
 }
 
-/**
- * Purely projects one public Node SDK event into the released Webview protocol.
- * The returned state must be passed into the next call; the input state is never mutated.
- */
 export function adaptSdkEvent(
   state: EventAdapterState,
   sdkEvent: Event,
@@ -160,7 +149,12 @@ export function adaptSdkEvent(
   const mapped = mapLegacyWireEvent(state, sdkEvent, mainAgentId);
   if (mapped.event === undefined) return { state: mapped.state };
 
-  const routed = routeSubagentEvent(mapped.state, sdkEvent.agentId, mapped.event, mainAgentId);
+  const routed = routeSubagentEvent(
+    mapped.state,
+    sdkEvent.agentId,
+    mapped.event,
+    mainAgentId,
+  );
   if (routed === undefined) return { state: mapped.state };
 
   return {
@@ -222,37 +216,6 @@ function mapLegacyWireEvent(
         state,
         event: { type: 'StepInterrupted', payload: {} },
       };
-    case 'turn.step.completed': {
-      if (sdkEvent.agentId !== mainAgentId || sdkEvent.usage === undefined) return { state };
-      const usage = sdkEvent.usage;
-      if (isUnmeasuredUsage(usage)) return { state };
-      const cacheBreak = sdkEvent.cacheBreak;
-      const previous = state.cacheNoticeStepsByAgent[sdkEvent.agentId];
-      const stepsSinceNotice = previous === undefined ? Number.POSITIVE_INFINITY : previous + 1;
-      if (
-        cacheBreak === undefined ||
-        cacheBreak.cause === 'prefix_reset' ||
-        usage.inputOther === 0 ||
-        stepsSinceNotice < CACHE_NOTICE_MIN_STEPS
-      ) {
-        if (previous === undefined) return { state };
-        return {
-          state: withCacheNoticeSteps(state, sdkEvent.agentId, stepsSinceNotice),
-        };
-      }
-      return {
-        state: withCacheNoticeSteps(state, sdkEvent.agentId, 0),
-        event: {
-          type: 'StatusUpdate',
-          payload: {
-            cache_break: {
-              tokens: usage.inputOther,
-              cause: cacheBreak.cause,
-            },
-          },
-        },
-      };
-    }
     case 'assistant.delta':
       return {
         state,
@@ -269,17 +232,19 @@ function mapLegacyWireEvent(
         event: { type: 'ContentPart', payload: { type: 'think', think: sdkEvent.delta } },
       };
     case 'tool.call.started': {
-      const toolCallId = scopedToolCallId(sdkEvent.agentId, sdkEvent.toolCallId, mainAgentId);
-      const display =
-        sdkEvent.display === undefined ? undefined : toLegacyDisplay(sdkEvent.display);
+      const toolCallId = scopedToolCallId(
+        sdkEvent.agentId,
+        sdkEvent.toolCallId,
+        mainAgentId,
+      );
+      const display = sdkEvent.display === undefined ? undefined : toLegacyDisplay(sdkEvent.display);
       return {
-        state:
-          display === undefined
-            ? state
-            : {
-                ...state,
-                toolDisplays: { ...state.toolDisplays, [toolCallId]: display },
-              },
+        state: display === undefined
+          ? state
+          : {
+              ...state,
+              toolDisplays: { ...state.toolDisplays, [toolCallId]: display },
+            },
         event: {
           type: 'ToolCall',
           payload: {
@@ -297,14 +262,22 @@ function mapLegacyWireEvent(
       const event: AdaptedToolCallPartEvent = {
         type: 'ToolCallPart',
         payload: {
-          tool_call_id: scopedToolCallId(sdkEvent.agentId, sdkEvent.toolCallId, mainAgentId),
+          tool_call_id: scopedToolCallId(
+            sdkEvent.agentId,
+            sdkEvent.toolCallId,
+            mainAgentId,
+          ),
           arguments_part: sdkEvent.argumentsPart,
         },
       };
       return { state, event: event as LegacyWireEvent };
     }
     case 'tool.result': {
-      const toolCallId = scopedToolCallId(sdkEvent.agentId, sdkEvent.toolCallId, mainAgentId);
+      const toolCallId = scopedToolCallId(
+        sdkEvent.agentId,
+        sdkEvent.toolCallId,
+        mainAgentId,
+      );
       const display = state.toolDisplays[toolCallId] ?? [];
       const toolDisplays = { ...state.toolDisplays };
       delete toolDisplays[toolCallId];
@@ -392,15 +365,18 @@ function contextUsageRatio(
   return maxContextTokens > 0 ? contextTokens / maxContextTokens : undefined;
 }
 
-function usageDelta(
-  current: AdapterTokenUsage,
-  previous: AdapterTokenUsage | undefined,
-): TokenUsage {
+function usageDelta(current: AdapterTokenUsage, previous: AdapterTokenUsage | undefined): TokenUsage {
   return {
     input_other: delta(current.inputOther, previous?.inputOther),
     output: delta(current.output, previous?.output),
-    input_cache_read: delta(current.inputCacheRead, previous?.inputCacheRead),
-    input_cache_creation: delta(current.inputCacheCreation, previous?.inputCacheCreation),
+    input_cache_read:
+      previous === undefined
+        ? current.inputCacheRead
+        : optionalDelta(current.inputCacheRead, previous.inputCacheRead),
+    input_cache_creation: delta(
+      current.inputCacheCreation,
+      previous?.inputCacheCreation,
+    ),
   };
 }
 
@@ -409,24 +385,9 @@ function delta(current: number, previous: number | undefined): number {
   return current - previous;
 }
 
-function isUnmeasuredUsage(usage: AdapterTokenUsage): boolean {
-  return (
-    usage.inputOther === 0 &&
-    usage.output === 0 &&
-    usage.inputCacheRead === 0 &&
-    usage.inputCacheCreation === 0
-  );
-}
-
-function withCacheNoticeSteps(
-  state: EventAdapterState,
-  agentId: string,
-  steps: number,
-): EventAdapterState {
-  return {
-    ...state,
-    cacheNoticeStepsByAgent: { ...state.cacheNoticeStepsByAgent, [agentId]: steps },
-  };
+function optionalDelta(current: number | undefined, previous: number | undefined): undefined | number {
+  if (current === undefined || previous === undefined) return undefined;
+  return delta(current, previous);
 }
 
 function resetTurnUsage(state: EventAdapterState, agentId: string): EventAdapterState {
@@ -497,6 +458,6 @@ function serializeDetails(details: Record<string, unknown> | undefined): string 
   try {
     return JSON.stringify(details, null, 2);
   } catch {
-    return '[Unable to serialize error details]';
+    return "[Unable to serialize error details]";
   }
 }

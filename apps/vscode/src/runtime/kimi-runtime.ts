@@ -4,11 +4,12 @@ import {
   type Session,
   type SessionSummary,
   type ThinkingEffort,
-} from '@moonshot-ai/kimi-code-sdk';
-import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
+} from "@moonshot-ai/kimi-code-sdk";
+import { setTelemetryContext, track, withTelemetryContext } from "@moonshot-ai/kimi-telemetry";
 
-import { areSameFsPath } from '../utils/fs-path';
-import { Events } from '../../shared/bridge';
+import { Events } from "../../shared/bridge";
+import { startModelCatalogRefresh } from "./model-catalog-refresh";
+import type { RuntimeBroadcast } from "./session-runtime";
 import {
   corePermissionForLegacyApproval,
   legacyApprovalMetadata,
@@ -16,27 +17,21 @@ import {
   readMigratedLegacyApprovalFlags,
   withGlobalYoloMode,
   type LegacyApprovalFlags,
-} from './legacy-approval';
-import type { RuntimeBroadcast } from './session-runtime';
-import { startModelCatalogRefresh } from './model-catalog-refresh';
-import { SessionRuntime } from './session-runtime';
+} from "./legacy-approval";
+import { SessionRuntime } from "./session-runtime";
+import { areSameFsPath } from "../utils/fs-path";
 
 export interface KimiRuntimeOptions {
   readonly version: string;
   readonly broadcast: RuntimeBroadcast;
   readonly captureBaseline: (
-    session: Pick<SessionSummary, 'id' | 'workDir' | 'metadata'>,
+    session: Pick<SessionSummary, "id" | "workDir" | "metadata">,
     filePath: string,
     webviewIds: readonly string[],
   ) => void;
   readonly log: (message: string, error?: unknown) => void;
   readonly homeDir?: string;
   readonly harness?: KimiHarness;
-  /**
-   * The SDK factory the runtime builds its harness with. Tests pass their own;
-   * production leaves it undefined and uses the SDK's `createKimiHarness`.
-   */
-  readonly createHarness?: typeof createKimiHarness;
 }
 
 export interface OpenSessionOptions {
@@ -48,13 +43,12 @@ export interface OpenSessionOptions {
   readonly yoloMode: boolean;
 }
 
-/** Extension-host owner for one in-process Node SDK harness. */
 export class KimiRuntime {
   readonly harness: KimiHarness;
 
   private readonly broadcast: RuntimeBroadcast;
-  private readonly captureBaseline: KimiRuntimeOptions['captureBaseline'];
-  private readonly log: KimiRuntimeOptions['log'];
+  private readonly captureBaseline: KimiRuntimeOptions["captureBaseline"];
+  private readonly log: KimiRuntimeOptions["log"];
   private readonly disposeModelCatalogRefresh: () => void;
   private readonly sessions = new Map<string, SessionRuntime>();
   private readonly sessionByView = new Map<string, string>();
@@ -67,14 +61,14 @@ export class KimiRuntime {
     this.log = options.log;
     this.harness =
       options.harness ??
-      (options.createHarness ?? createKimiHarness)({
+      createKimiHarness({
         homeDir: options.homeDir,
         identity: {
-          productName: 'kimi-code-vscode',
+          productName: "kimi-code-vscode",
           version: options.version,
-          platform: 'kimi_code_vscode',
+          platform: "kimi_code_vscode",
         },
-        uiMode: 'vscode',
+        uiMode: "vscode",
         telemetry: {
           track,
           withContext: withTelemetryContext,
@@ -149,7 +143,7 @@ export class KimiRuntime {
         runtime = this.wrapSession(session, approval);
       } catch (error) {
         await session.close().catch((closeError: unknown) => {
-          this.log('Failed to close a rejected session', closeError);
+          this.log("Failed to close a rejected session", closeError);
         });
         throw error;
       }
@@ -187,8 +181,10 @@ export class KimiRuntime {
     if (runtime === undefined) {
       try {
         const storedApproval = readLegacyApprovalFlags(session.summary?.metadata);
-        const restoredApproval = storedApproval ??
-          (await this.readMigratedLegacyApproval(session)) ?? { yolo: defaultYoloMode, afk: false };
+        const restoredApproval =
+          storedApproval ??
+          (await this.readMigratedLegacyApproval(session)) ??
+          { yolo: defaultYoloMode, afk: false };
         const approval = withGlobalYoloMode(restoredApproval, defaultYoloMode);
         if (storedApproval === undefined || flagsDiffer(storedApproval, approval)) {
           await session.updateMetadata(legacyApprovalMetadata(approval));
@@ -199,7 +195,7 @@ export class KimiRuntime {
         runtime = this.wrapSession(session, approval);
       } catch (error) {
         await session.close().catch((closeError: unknown) => {
-          this.log('Failed to close a rejected session', closeError);
+          this.log("Failed to close a rejected session", closeError);
         });
         throw error;
       }
@@ -227,9 +223,6 @@ export class KimiRuntime {
     }
   }
 
-  // A view attaches to at most one session, so opens/detaches for one view
-  // must never overlap: concurrent callers that both miss `this.sessions`
-  // would wrap the same SDK session twice and double every streamed event.
   private serializeView<T>(webviewId: string, work: () => Promise<T>): Promise<T> {
     const prev = this.viewChains.get(webviewId) ?? Promise.resolve();
     const run = prev.then(work, work);
@@ -297,13 +290,13 @@ export class KimiRuntime {
     try {
       return await readMigratedLegacyApprovalFlags(metadata);
     } catch (error) {
-      this.log('Unable to restore legacy session approval settings', error);
+      this.log("Unable to restore legacy session approval settings", error);
       return undefined;
     }
   }
 
   private ensureOpen(): void {
-    if (this.closed) throw new Error('Kimi runtime is closed.');
+    if (this.closed) throw new Error("Kimi runtime is closed.");
   }
 }
 
@@ -313,11 +306,6 @@ async function applySessionSettings(
   legacyApproval: LegacyApprovalFlags,
 ): Promise<void> {
   const status = await session.getStatus();
-  // Model and thinking effort are applied only when the session is created
-  // (see openSession). An existing session keeps its own — the global config
-  // values are defaults for new sessions, matching CLI/TUI resume semantics.
-  // Changes made in the pickers reach the active session through the
-  // SaveConfig handler instead.
   const permission = corePermissionForLegacyApproval(legacyApproval);
   if (status.permission !== permission) {
     await session.setPermission(permission);
@@ -325,15 +313,15 @@ async function applySessionSettings(
 }
 
 export function normalizeEffort(effort: string): ThinkingEffort {
-  return (effort.trim() || 'off') as ThinkingEffort;
+  return (effort.trim() || "off") as ThinkingEffort;
 }
 
 function flagsDiffer(a: LegacyApprovalFlags, b: LegacyApprovalFlags): boolean {
   return a.yolo !== b.yolo || a.afk !== b.afk;
 }
 
-function assertSessionWorkDir(session: Pick<Session, 'workDir'>, expectedWorkDir: string): void {
+function assertSessionWorkDir(session: Pick<Session, "workDir">, expectedWorkDir: string): void {
   if (!areSameFsPath(session.workDir, expectedWorkDir)) {
-    throw new Error('The selected session belongs to a different working directory.');
+    throw new Error("The selected session belongs to a different working directory.");
   }
 }

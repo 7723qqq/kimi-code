@@ -1,33 +1,35 @@
-import { describe, expect, it, mock, type Mock } from 'bun:test';
-
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 import * as cliHighlight from 'cli-highlight';
+import { describe, expect, it, vi, requireActual } from '@moonshot-ai/testkit/vitest';
 
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
-import { STREAMING_MARKDOWN_TAIL_CHARS } from '#/tui/constant/streaming';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import { currentTheme } from '#/tui/theme/theme';
 import { setMarkdownAltScreenActive, setMarkdownRenderLatex } from '#/tui/utils/markdown-options';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { captureProcessWrite } from '../../../helpers/process';
 
-void mock.module('cli-highlight', () => ({
-  ...cliHighlight,
-  highlight: mock(cliHighlight.highlight),
+void vi.mock('cli-highlight', () => {
+  const actual = requireActual('cli-highlight');
+  return {
+    ...actual,
+    highlight: vi.fn(actual.highlight),
+  };
+});
+
+const clipboardMock = vi.hoisted(() => ({
+  copyTextToClipboard: vi.fn(),
 }));
 
-const clipboardMock = {
-  copyTextToClipboard: mock(),
-};
-
-void mock.module('#/utils/clipboard/clipboard-text', () => clipboardMock);
+void vi.mock('#/utils/clipboard/clipboard-text', () => clipboardMock);
 
 function strip(text: string): string {
-  return text.replaceAll(/\u001B\[[0-9;]*m/g, '').replaceAll(/\u001B\]133;[ABC]\u0007/g, '');
+  return text
+    .replaceAll(/\u001B\[[0-9;]*m/g, '')
+    .replaceAll(/\u001B\]133;[ABC]\u0007/g, '');
 }
 
 describe('AssistantMessageComponent', () => {
@@ -122,27 +124,8 @@ describe('AssistantMessageComponent', () => {
     expect(finalized).not.toBe(streaming);
   });
 
-  it('renders only a bounded tail while streaming a large message, then the full text on finalize', () => {
-    const component = new AssistantMessageComponent();
-    const big = 'long line of text\n'.repeat(2000);
-
-    component.updateContent(big, { transient: true });
-    const streamingChild = (component as any).contentContainer.children[0] as Markdown;
-    expect((streamingChild as any).sourceText.length).toBeLessThanOrEqual(
-      STREAMING_MARKDOWN_TAIL_CHARS,
-    );
-    // The streaming view is bounded, so re-lexing it per flush stays cheap.
-    expect((streamingChild as any).sourceText).toBe(
-      big.slice(-STREAMING_MARKDOWN_TAIL_CHARS).trim(),
-    );
-
-    component.updateContent(big, { transient: false });
-    const finalizedChild = (component as any).contentContainer.children[0] as Markdown;
-    expect((finalizedChild as any).sourceText).toBe(big.trim());
-  });
-
   it('skips synchronous syntax highlighting in transient markdown themes', () => {
-    const highlightSpy = cliHighlight.highlight as Mock<typeof cliHighlight.highlight>;
+    const highlightSpy = vi.mocked(cliHighlight.highlight);
     highlightSpy.mockClear();
     const streamingTheme = createMarkdownTheme({ transient: true });
     const finalTheme = createMarkdownTheme();
@@ -235,7 +218,7 @@ describe('AssistantMessageComponent', () => {
       });
 
       expect(result?.handled).toBe(true);
-      await waitForAssertion(() => {
+      await vi.waitFor(() => {
         expect(clipboardMock.copyTextToClipboard).toHaveBeenCalled();
       });
       const copied = String(clipboardMock.copyTextToClipboard.mock.calls[0]?.[0] ?? '');
@@ -246,29 +229,40 @@ describe('AssistantMessageComponent', () => {
     }
   });
 
-  it('renders every streaming frame byte-identically to a freshly built component', () => {
+  it('reflects copy-chip state changes through the render cache', async () => {
+    const component = new AssistantMessageComponent();
+    clipboardMock.copyTextToClipboard.mockClear();
+    clipboardMock.copyTextToClipboard.mockResolvedValue('native');
     const previousLevel = chalk.level;
     chalk.level = 3;
     try {
-      const doc =
-        'Intro with a [guide][guide] link.\n\n' +
-        '```ts\nconst value = 1;\n```\n\n' +
-        '中文段落，包含全角标点！参见 https://example.com/wiki/中华人民共和国（1949年）。\n\n' +
-        '[guide]: https://example.com/guide\n';
-      const component = new AssistantMessageComponent();
-      for (let end = 0; end <= doc.length; end += 7) {
-        const prefix = doc.slice(0, end);
-        component.updateContent(prefix, { transient: true });
-        const reference = new AssistantMessageComponent();
-        reference.updateContent(prefix, { transient: true });
-        expect(component.render(80)).toStrictEqual(reference.render(80));
-      }
-      component.updateContent(doc, { transient: false });
-      const finalized = new AssistantMessageComponent();
-      finalized.updateContent(doc, { transient: false });
-      expect(component.render(80)).toStrictEqual(finalized.render(80));
+      setMarkdownAltScreenActive(true);
+      component.updateContent('```mermaid\nflowchart LR\n  A-->B\n```\n');
+      const before = component.render(80);
+
+      const mouse = (type: 'press' | 'release') => ({
+        type,
+        button: 'left' as const,
+        x: 3,
+        y: before.length - 1,
+        screenX: 3,
+        screenY: before.length - 1,
+        width: 80,
+        height: before.length,
+        shift: false,
+        alt: false,
+        ctrl: false,
+      });
+      component.handleMouse(mouse('press'));
+      expect(component.render(80).join('\n')).not.toBe(before.join('\n'));
+
+      component.handleMouse(mouse('release'));
+      await vi.waitFor(() => {
+        expect(strip(component.render(80).join('\n'))).toContain('[Copied]');
+      });
     } finally {
       chalk.level = previousLevel;
+      setMarkdownAltScreenActive(false);
     }
   });
 });

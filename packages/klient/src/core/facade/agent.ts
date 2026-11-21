@@ -1,74 +1,85 @@
-/**
- * The agent facade — one `session.agent(id)` handle over the agent-scope
- * services the wire exposes. Turn-driving calls (prompt / steer / cancel),
- * skill activation, permission mode, and commands go straight to their domain
- * services, as do shell commands, model, usage, plan, and task calls;
- * `getContext` merges two reads client-side. Prompt streaming is
- * NOT on this interface: it flows through the agent's `events` hub
- * (`turn.*`, `assistant.delta`, `tool.call.*`, `prompt.completed`, …).
- */
-
 import type { IAgentCommandService } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
 import type { IAgentMcpService } from '@moonshot-ai/agent-core-v2/agent/mcp/mcp';
 import type { IAgentEnvironmentBindingService } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentBinding';
 
 import type { ISessionTokenCountingService } from '@moonshot-ai/agent-core-v2/session/tokenCounting/sessionTokenCounting';
 import type { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
-import type { IAgentOperationService } from '@moonshot-ai/agent-core-v2/features/operationLog/operationService';
-import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
+import type { IAgentLoopService } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
 import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommand';
 import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
 import type { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
-import type { IAgentContextMemoryService } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextMemory';
 import type { ISessionUsageService } from '@moonshot-ai/agent-core-v2/session/usage/sessionUsage';
-import type { ContentPart } from '@moonshot-ai/agent-core-v2';
+import {
+  fromCoreMessage,
+  type ContentPart,
+} from '@moonshot-ai/agent-core-v2/human/message';
+import {
+  fromLlmMessage,
+  type Message as LegacyMessage,
+} from '@moonshot-ai/agent-core-v2/llm-adapter/contract/message';
+import type {
+  ContextMessage as CoreContextMessage,
+  ContextMessageTiming,
+  PromptOrigin,
+} from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
+import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
 
 import type { ScopeRef } from '../channel.js';
 import type { ScopedCaller } from './session.js';
 
-// Wire-type aliases derived through the engine service interfaces (keeps
-// klient free of protocol-package imports).
-export type PromptLaunchResult =
-  | import('@moonshot-ai/agent-core-v2').PromptLaunchResult
-  | undefined;
-export type SteerResult = import('@moonshot-ai/agent-core-v2').SteerResult;
-export type PromptWithSkillsInput = Parameters<IAgentSkillService['promptWithSkills']>[0];
+export type PromptLaunchResult = import('@moonshot-ai/agent-core-v2/agent/loop/loop').PromptLaunchResult | undefined;
+export type SteerResult = import('@moonshot-ai/agent-core-v2/agent/loop/loop').SteerResult;
+export type AgentSteerEntry = {
+  readonly role: 'user';
+  readonly content: readonly ContentPart[];
+  readonly attributes: { readonly origin: { readonly kind: 'user' } };
+};
+export type PromptWithSkillsInput = Omit<Parameters<IAgentSkillService['promptWithSkills']>[0], 'input'> & {
+  input: readonly ContentPart[];
+};
 export type PromptWithSkillsResult = Awaited<ReturnType<IAgentSkillService['promptWithSkills']>>;
 export type ShellCommandResult = Awaited<ReturnType<IAgentShellCommandService['run']>>;
-export type SetModelResult = Awaited<ReturnType<IAgentProfileService['setModel']>>;
-export type ThinkingLevel = ReturnType<IAgentProfileService['getEffectiveThinkingLevel']>;
+export type SetModelResult = Awaited<ReturnType<IAgentLoopService['setModel']>>;
+export type ThinkingLevel = ReturnType<IAgentLoopService['getEffectiveThinkingLevel']>;
 export type UsageStatus = Awaited<ReturnType<ISessionUsageService['status']>>;
+type AgentContextMessage = LegacyMessage & {
+  readonly id?: string;
+  readonly providerMessageId?: string;
+  readonly origin?: PromptOrigin;
+  readonly isError?: boolean;
+  toolCallDisplays?: Record<string, ToolInputDisplay>;
+  readonly note?: string;
+  readonly usage?: TokenUsage;
+  readonly llmTiming?: ContextMessageTiming;
+  readonly durationMs?: number;
+};
 export type AgentContextData = {
-  history: ReturnType<IAgentContextMemoryService['get']>;
+  history: readonly AgentContextMessage[];
   tokenCount: ReturnType<ISessionTokenCountingService['statusSize']>;
 };
 export type AgentCommandInfo = Awaited<ReturnType<IAgentCommandService['list']>>[number];
 export type EnvironmentBinding = IAgentEnvironmentBindingService['current'];
 export type PlanData = Awaited<ReturnType<IAgentPlanService['status']>>;
-export type OperationRecord = Awaited<ReturnType<IAgentOperationService['listOperations']>>[number];
 export type AgentTaskInfo = Awaited<ReturnType<IAgentTaskService['list']>>[number];
 export type McpServerEntry = ReturnType<IAgentMcpService['list']>[number];
 
+function withoutUndefined<T extends object>(value: T): T {
+  const output = { ...value };
+  for (const key of Object.keys(output) as (keyof T)[]) {
+    if (output[key] === undefined) delete output[key];
+  }
+  return output;
+}
+
 export interface AgentFacade {
-  prompt(input: { input: readonly ContentPart[]; promptId?: string }): Promise<PromptLaunchResult>;
-  /**
-   * Submit one prompt with one or more skill activations bundled into the
-   * same user message: the skills are validated up front (an unknown name or
-   * an empty list rejects the whole submission), rendered ahead of the
-   * caller's parts in the same turn, and the bundle undoes as a single
-   * anchor. Resolves with the submitted bundle's queue identity (`prompt_id`
-   * / `created_at` / `state`), plus `turn_id` once launched — `state` is
-   * `queued` when the submission queued behind a running turn.
-   */
+  prompt(input: {
+    input: readonly ContentPart[];
+    promptId?: string;
+  }): Promise<PromptLaunchResult>;
   promptWithSkills(input: PromptWithSkillsInput): Promise<PromptWithSkillsResult>;
   steer(input: { input: readonly ContentPart[] }): Promise<SteerResult>;
-  /**
-   * Activate a skill as a user-slash activation: the engine renders the skill
-   * prompt and drives it as a normal turn (same settlement/event flow as
-   * `prompt`). Resolves with the launched turn id; rejects when the skill is
-   * unknown or the agent is busy.
-   */
   activateSkill(input: { name: string; path?: string; args?: string }): Promise<PromptLaunchResult>;
   cancel(input?: { turnId?: number }): Promise<void>;
   runShellCommand(input: { command: string; commandId?: string }): Promise<ShellCommandResult>;
@@ -86,49 +97,32 @@ export interface AgentFacade {
   getPlan(): Promise<PlanData>;
   enterPlan(): Promise<void>;
   clearPlan(): Promise<void>;
-  listOperations(limit?: number): Promise<readonly OperationRecord[]>;
-  undoOperation(): Promise<OperationRecord>;
-  redoOperation(): Promise<OperationRecord>;
-  restoreOperation(targetId: string): Promise<OperationRecord>;
   cancelPlan(input?: { id?: string }): Promise<void>;
   getTasks(input?: { activeOnly?: boolean; limit?: number }): Promise<readonly AgentTaskInfo[]>;
   stopTask(input: { taskId: string; reason?: string }): Promise<void>;
   getTaskOutput(input: { taskId: string; tail?: number }): Promise<string>;
-  /**
-   * Session-merged MCP server entries (workspace set + ephemeral session
-   * overlay). This is a live snapshot, so entries may still be pending while
-   * the initial connection attempt runs.
-   */
   getMcpServers(): Promise<readonly McpServerEntry[]>;
-  /**
-   * Trigger a manual full compaction. Async: `true` means the compaction was
-   * started (it runs in the background); `false` means one is already running.
-   * Throws when there is nothing to compact or a turn is active.
-   */
   compact(input?: { instruction?: string }): Promise<boolean>;
 }
 
 export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFacade {
   return {
     prompt: (input) =>
-      call(scope, 'agentPromptService', 'submit', [input]) as Promise<PromptLaunchResult>,
+      call(scope, 'agentLoopService', 'submit', [input]) as Promise<PromptLaunchResult>,
     promptWithSkills: (input) =>
-      call(scope, 'agentSkillService', 'promptWithSkills', [
-        input,
-      ]) as Promise<PromptWithSkillsResult>,
-    steer: (input) =>
-      call(scope, 'agentPromptService', 'submitSteer', [input]) as Promise<SteerResult>,
+      call(scope, 'agentSkillService', 'promptWithSkills', [input]) as Promise<PromptWithSkillsResult>,
+    steer: (input) => {
+      const entry: AgentSteerEntry = {
+        role: 'user',
+        content: input.input,
+        attributes: { origin: { kind: 'user' } },
+      };
+      return call(scope, 'agentLoopService', 'notifyClient', [entry]) as Promise<SteerResult>;
+    },
     activateSkill: (input) =>
       call(scope, 'agentSkillService', 'activate', [input]) as Promise<PromptLaunchResult>,
     cancel: (input) =>
-      // No turnId sends an empty arg list: `[undefined]` would cross the wire
-      // as `[null]`, and `cancelFromUser(null)` would not match the active turn.
-      call(
-        scope,
-        'agentLoopService',
-        'cancelFromUser',
-        input?.turnId === undefined ? [] : [input.turnId],
-      ) as Promise<void>,
+      call(scope, 'agentLoopService', 'cancelFromUser', input?.turnId === undefined ? [] : [input.turnId]) as Promise<void>,
     runShellCommand: (input) =>
       call(scope, 'agentShellCommandService', 'run', [input]) as Promise<ShellCommandResult>,
     cancelShellCommand: (input) =>
@@ -148,13 +142,27 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
         call(scope, 'agentContextMemoryService', 'get', []),
         call(scope, 'agentTokenCountingService', 'statusSize', []),
       ]);
-      return { history, tokenCount } as AgentContextData;
+      const legacyHistory = (history as readonly CoreContextMessage[]).map((message) =>
+        withoutUndefined({
+          ...fromLlmMessage(fromCoreMessage(message)),
+          id: message.id,
+          providerMessageId: message.providerMessageId,
+          name: message.name,
+          origin: message.origin,
+          isError: message.isError,
+          partial: message.partial,
+          toolCallDisplays: message.toolCallDisplays,
+          note: message.note,
+          usage: message.usage,
+          llmTiming: message.llmTiming,
+          durationMs: message.durationMs,
+        }),
+      );
+      return { history: legacyHistory, tokenCount: tokenCount as AgentContextData['tokenCount'] };
     },
     listCommands: () =>
       call(scope, 'agentCommandService', 'list', []) as Promise<readonly AgentCommandInfo[]>,
     runCommand: (input) =>
-      // Same `[undefined]` → `[null]` wire hazard as `cancel`: the engine's
-      // `args = ''` default only applies to a missing arg.
       call(
         scope,
         'agentCommandService',
@@ -166,17 +174,8 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
     getPlan: () => call(scope, 'agentPlanService', 'status', []) as Promise<PlanData>,
     enterPlan: () => call(scope, 'agentPlanService', 'enter', []) as Promise<void>,
     clearPlan: () => call(scope, 'agentPlanService', 'clear', []) as Promise<void>,
-    listOperations: (limit) =>
-      call(scope, 'agentOperationService', 'listOperations', [limit]) as Promise<
-        readonly OperationRecord[]
-      >,
-    undoOperation: () =>
-      call(scope, 'agentOperationService', 'undoOperation', []) as Promise<OperationRecord>,
-    redoOperation: () =>
-      call(scope, 'agentOperationService', 'redoOperation', []) as Promise<OperationRecord>,
-    restoreOperation: (targetId) =>
-      call(scope, 'agentOperationService', 'restoreOperation', [targetId]) as Promise<OperationRecord>,
-    cancelPlan: (input) => call(scope, 'agentPlanService', 'cancel', [input?.id]) as Promise<void>,
+    cancelPlan: (input) =>
+      call(scope, 'agentPlanService', 'cancel', [input?.id]) as Promise<void>,
     getTasks: (input) =>
       call(scope, 'agentTaskService', 'list', [
         input?.activeOnly ?? false,

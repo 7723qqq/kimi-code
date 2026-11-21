@@ -1,77 +1,53 @@
-import { readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
 
 import type { FileMeta, KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 import { compressImageForModel } from '@moonshot-ai/kimi-code-sdk';
-import { isKeyRelease, isKeyRepeat, Key, matchesKey, TuiAltScreen } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
-import {
-  FOLLOW_UP_KEYMAP,
-  resolveFollowUpBehavior,
-  type FollowUpDelivery,
-} from '#/tui/config';
 import {
   ClipboardMediaError,
   readClipboardMedia,
-  type ClipboardDocument,
   type ClipboardVideo,
 } from '#/utils/clipboard/clipboard-image';
-import { documentMimeFromPath, parseImageMeta } from '#/utils/image/image-mime';
+import { parseImageMeta } from '#/utils/image/image-mime';
 import { editInExternalEditor, resolveEditorCommand } from '#/utils/process/external-editor';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '#/utils/render-clock';
 
-import { resolveUserInput } from '../commands/resolve';
-import type { StatusSurfaceKey } from '../components/chrome/status-surface/region';
-import { normalizeCapsLockedCtrl } from '../components/editor/custom-editor';
 import {
+  CTRL_C_HINT,
+  CTRL_D_HINT,
   DOUBLE_ESC_WINDOW_MS,
   EXIT_CONFIRM_WINDOW_MS,
-  getCtrlCHint,
-  getCtrlDHint,
-  getLlmNotSetMessage,
+  LLM_NOT_SET_MESSAGE,
 } from '../constant/kimi-tui';
+import { isKeyRelease, isKeyRepeat, Key, matchesKey, TuiAltScreen } from '@moonshot-ai/pi-tui';
+import { normalizeCapsLockedCtrl } from '../components/editor/custom-editor';
+import { FOLLOW_UP_KEYMAP, resolveFollowUpBehavior, type FollowUpDelivery } from '../config';
 import { MEDIA_STAGING_TTL_SECONDS } from '../constant/media';
-import type { TUIState } from '../state';
-import type { QueuedMessage } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import type {
-  DocumentAttachment,
   ImageAttachment,
   ImageAttachmentStore,
   VideoAttachment,
 } from '../utils/image-attachment-store';
-import {
-  extractMediaAttachments,
-  imageExtensionForMime,
-  type ExtractionResult,
-} from '../utils/image-placeholder';
+import { extractMediaAttachments, imageExtensionForMime } from '../utils/image-placeholder';
+import { resolveUserInput } from '../commands/resolve';
+import type { PendingExit, QueuedMessage } from '../types';
+import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
-import type { ModelMigrationController } from './model-migration';
-import type { PromptOptimizerController } from './prompt-optimizer';
 import type { SurveyController } from './survey-controller';
+import type { ModelMigrationController } from './model-migration';
+import { t } from '#/i18n';
 
 export interface EditorKeyboardHost {
   state: TUIState;
   session: Session | undefined;
   cancelInFlight: (() => void) | undefined;
-  /**
-   * The host's harness (KimiTUI always has one). Its `imageLimits` drives
-   * paste-time image compression; hosts without one fall back to the
-   * env/built-in default.
-   */
   harness?: KimiHarness | undefined;
 
   handleUserInput(text: string, delivery?: FollowUpDelivery): void;
   readonly btwPanelController: BtwPanelController;
   readonly surveyController: SurveyController;
-  readonly promptOptimizer: PromptOptimizerController;
   readonly modelMigration?: ModelMigrationController;
+  readonly promptPredictionController?: import('./prompt-prediction').PromptPredictionController;
   readonly skillCommandMap: Map<string, string>;
   readonly pluginCommandMap: Map<string, string>;
   readonly skillVariantPathForCommand?: (commandName: string, tokenStart: number) => string | undefined;
@@ -85,7 +61,6 @@ export interface EditorKeyboardHost {
     hasMedia: boolean;
     imageAttachmentIds: readonly number[];
     videoAttachmentIds: readonly number[];
-    documentAttachmentIds: readonly number[];
   }): boolean;
   releaseStagingMedia(mediaAttachmentIds: readonly number[]): void;
   recallLastQueued(): QueuedMessage | undefined;
@@ -93,20 +68,11 @@ export interface EditorKeyboardHost {
   showError(msg: string): void;
   track(event: string, props?: Record<string, unknown>): void;
   updateEditorBorderHighlight(text?: string): void;
-  /** `undefined` means the input cannot be a `/goal` command (clear without measuring). */
   updateGoalLengthWarning(text: string | undefined): void;
   updateQueueDisplay(): void;
   toggleToolOutputExpansion(): void;
-  /** Fold/unfold the strip's default fold target; false when nothing would change. */
-  toggleStatusSurfaceFold(): boolean;
-  /** Move keyboard focus into the status strip's updates region, or release it. */
-  toggleStatusSurfaceFocus(): boolean;
-  /** Whether a status-strip region currently owns the keyboard. */
-  isStatusSurfaceFocused(): boolean;
-  /** Route one routed key to the status strip; false when nothing claimed it. */
-  handleStatusSurfaceKey(key: StatusSurfaceKey): boolean;
-  /** Route one raw key to the status strip; false when nothing claimed it. */
-  handleStatusSurfaceRawInput(data: string): boolean;
+  openTasksBrowser(): void;
+  focusNotifyPanel(): boolean;
   detachCurrentForegroundTask(): void;
   cancelRunningShellCommand(): void;
   hideSessionPicker(): void;
@@ -114,36 +80,24 @@ export interface EditorKeyboardHost {
   stop(exitCode?: number): Promise<void>;
   ensureSession(): Promise<Session | undefined>;
   handlePlanToggle(next: boolean): void;
-  /** Leave whichever exclusive review mode is active (spec/swarm/tower/plan). */
-  handleExclusiveModeLeave(mode: ActiveExclusiveMode): void;
-  /** Enter an exclusive review mode from the Shift-Tab cycle. */
-  handleExclusiveModeSwitch(mode: ReviewCycleMode): void;
   handleInputModeChange(mode: 'prompt' | 'bash'): void;
   clearQueuedMessages(): void;
   setExternalEditorRunning(running: boolean): void;
   updateActivityPane(): void;
 }
 
-interface PendingExitTimer {
-  readonly kind: 'ctrl-c' | 'ctrl-d';
-  readonly timer: RenderTimerHandle;
-}
-
-export type KeyboardClock = Pick<RenderClock, 'setTimeout' | 'clearTimeout'>;
-
 const SELECTION_COPY_KEYS = [Key.ctrl('c'), Key.ctrlShift('c'), Key.super('c')];
 
 export class EditorKeyboardController {
   private disposeSelectionCopy: (() => void) | undefined;
   private copyKeyHeld = false;
-  private pendingExit: PendingExitTimer | null = null;
-  private pendingUndoEsc: { readonly timer: RenderTimerHandle } | null = null;
+  private pendingExit: PendingExit | null = null;
+  private pendingUndoEsc: { readonly timer: ReturnType<typeof setTimeout> } | null = null;
   private disposed = false;
 
   constructor(
     private readonly host: EditorKeyboardHost,
     private readonly imageStore: ImageAttachmentStore,
-    private readonly clock: KeyboardClock = SYSTEM_RENDER_CLOCK,
   ) {}
 
   install(): void {
@@ -152,36 +106,33 @@ export class EditorKeyboardController {
 
     editor.onSubmit = (text: string) => {
       if (host.surveyController.handleSubmit(text)) return;
+      host.promptPredictionController?.handleSubmit(text);
       const behavior = resolveFollowUpBehavior(host.state.appState.followUpBehavior);
       host.handleUserInput(text, FOLLOW_UP_KEYMAP[behavior][editor.submitKey]);
     };
 
-    // After dispose (shutdown), consume every key here so no shortcut can fire
-    // while the UI is being torn down — Ctrl+C is handled earlier, at the UI
-    // input-listener level.
     editor.onPreInput = (data: string) => {
       if (this.disposed) return true;
       if (matchesKey(data, Key.escape)) this.clearPendingExit();
-      const consumed = host.surveyController.handlePreInput(data);
-      if (consumed) this.clearPendingUndoEsc();
-      return consumed;
+      if (host.surveyController.handlePreInput(data)) {
+        this.clearPendingUndoEsc();
+        return true;
+      }
+      if (host.promptPredictionController?.handlePreInput(data) === true) {
+        this.clearPendingUndoEsc();
+        return true;
+      }
+      return false;
     };
 
     editor.onChange = (text: string) => {
       if (this.pendingExit) this.clearPendingExit();
+      host.promptPredictionController?.handleEditorChange(text);
       host.surveyController.handleEditorChange(text);
       if (text === '') queueMicrotask(() => host.retainSkillVariantSelection?.(editor.getText()));
       else host.retainSkillVariantSelection?.(text);
       host.updateEditorBorderHighlight(text);
       if (text.length === 0) host.modelMigration?.retry();
-      // Expanding paste markers costs a full-text pass, and only `/goal`
-      // input can trip the objective length limit — so skip the expansion
-      // for ordinary prompts. Submitted text is trimmed before dispatch, so
-      // gate on the trimmed text too. A paste marker may itself expand into
-      // part of the command (`[paste #…]` → `/goal …`, or completing a
-      // partial prefix like `/go[paste #1 …]` → `/goal …`), so any input
-      // containing a marker that can still become a `/goal` command must
-      // pass the gate as well.
       const trimmed = text.trimStart();
       const mightBeGoal =
         trimmed.startsWith('/goal') ||
@@ -194,20 +145,12 @@ export class EditorKeyboardController {
       }
     };
 
-    // bash mode recalls only shell (`!`-prefixed) history entries; prompt mode
-    // recalls everything. The filter is locked to the mode captured when the
-    // user first enters history browsing (see onHistoryDraftSave), so landing on
-    // a shell entry mid-browse doesn't switch the filter to shell-only.
     let browseMode: 'prompt' | 'bash' | null = null;
     editor.setHistoryFilter((entry: string) => {
       const mode = browseMode ?? editor.inputMode;
       return mode === 'bash' ? entry.startsWith('!') : true;
     });
 
-    // Recalling a `!`-prefixed entry strips the marker and returns to bash
-    // mode; recalling a plain entry returns to prompt mode. The filter above
-    // guarantees bash mode only ever lands on `!` entries, so this never
-    // misfires on commands typed in bash mode.
     editor.onRecall = (entry: string, direction: 1 | -1) => {
       host.restoreInputHistoryEntry?.(direction);
       if (entry.startsWith('!')) {
@@ -218,11 +161,6 @@ export class EditorKeyboardController {
       return undefined;
     };
 
-    // Save/restore the input mode alongside pi-tui's history draft. Without
-    // this, recalling a shell entry and then pressing Down back to an empty
-    // draft would leave the editor stuck in bash mode, so the next typed
-    // message would be submitted as a shell command. Also locks the history
-    // filter (browseMode) for the duration of the browse session.
     editor.onHistoryDraftSave = () => {
       host.beginInputHistoryRecall?.();
       browseMode = editor.inputMode;
@@ -238,18 +176,7 @@ export class EditorKeyboardController {
       this.clearPendingUndoEsc();
     };
 
-    editor.onOptimizePrompt = (): void => {
-      host.track('shortcut_optimize_prompt', {
-        flagEnabled: host.promptOptimizer.promptOptimizerEnabled(),
-      });
-      void host.promptOptimizer.optimize();
-    };
-
     editor.onCtrlC = () => {
-      if (host.promptOptimizer.cancelInFlight()) {
-        this.clearPendingExit();
-        return;
-      }
       if (host.cancelInFlight !== undefined) {
         const cancel = host.cancelInFlight;
         host.cancelInFlight = undefined;
@@ -258,8 +185,6 @@ export class EditorKeyboardController {
         return;
       }
 
-      // The btw panel stacks above the transcript, so Ctrl+C cancels/closes it
-      // before touching an in-flight compaction or stream.
       if (host.btwPanelController.cancelRunning()) {
         this.clearPendingExit();
         return;
@@ -296,7 +221,7 @@ export class EditorKeyboardController {
       if (editor.getText().length > 0) {
         editor.setText('');
       }
-      this.armPendingExit('ctrl-c', getCtrlCHint());
+      this.armPendingExit('ctrl-c', CTRL_C_HINT);
     };
 
     editor.onCtrlD = () => {
@@ -305,7 +230,7 @@ export class EditorKeyboardController {
         void host.stop();
         return;
       }
-      this.armPendingExit('ctrl-d', getCtrlDHint());
+      this.armPendingExit('ctrl-d', CTRL_D_HINT);
     };
 
     editor.onEscape = () => {
@@ -315,8 +240,6 @@ export class EditorKeyboardController {
         this.clearPendingUndoEsc();
         return;
       }
-      // The btw panel stacks above the transcript, so Esc dismisses it before
-      // touching an in-flight compaction or stream.
       if (host.btwPanelController.closeOrCancel()) {
         this.clearPendingUndoEsc();
         return;
@@ -331,7 +254,6 @@ export class EditorKeyboardController {
         this.clearPendingUndoEsc();
         return;
       }
-      // Idle: a second Esc within the double-tap window opens the undo selector.
       if (this.pendingUndoEsc !== null) {
         this.clearPendingUndoEsc();
         host.openUndoSelector();
@@ -341,48 +263,19 @@ export class EditorKeyboardController {
     };
 
     editor.onShiftTab = () => {
-      // Shift-Tab cycles plan and spec: none → plan → spec → none. A single
-      // press always lands on a stable endpoint, which is what makes it
-      // predictable — the previous "leave when active, else enter plan" rule
-      // needed two presses to get from spec to plan, so the second press
-      // appeared to undo the first.
-      //
-      // The cycle deliberately ignores swarm and tower. They are not on it, so
-      // this shortcut must neither derive a target from them nor act on them;
-      // `/swarm` and `/tower` own their entry and exit. The engine's conflict
-      // table is a separate concern — entering plan or spec may evict them.
-      const cycle = reviewCycleState(host.state.appState);
-      if (cycle === null) return;
-      const apply = (): void => {
-        const target = nextReviewMode(cycle);
-        host.track('shortcut_mode_switch', { to_mode: target ?? 'agent' });
-        if (target === 'plan') {
-          host.track('shortcut_plan_toggle', { enabled: true });
-          host.handlePlanToggle(true);
-          return;
-        }
-        if (target === 'spec') {
-          // Entering spec goes through the same surface `/spec on` uses, so the
-          // engine (not this shortcut) decides whether the switch is allowed.
-          host.handleExclusiveModeSwitch('spec');
-          return;
-        }
-        // Back to no review mode: leave whichever of plan/spec is on.
-        const active = activeReviewMode(cycle);
-        if (active !== null) {
-          host.track('shortcut_mode_leave', { from_mode: active });
-          host.handleExclusiveModeLeave(active);
-        }
+      const togglePlan = (): void => {
+        const next = !host.state.appState.planMode;
+        host.track('shortcut_plan_toggle', { enabled: next });
+        host.track('shortcut_mode_switch', { to_mode: next ? 'plan' : 'agent' });
+        host.handlePlanToggle(next);
       };
       if (host.session === undefined) {
-        // v2 session-less: lazy-create the session, then toggle — the same
-        // path /plan takes.
         void host.ensureSession().then((session) => {
-          if (session !== undefined) apply();
+          if (session !== undefined) togglePlan();
         });
         return;
       }
-      apply();
+      togglePlan();
     };
 
     editor.onInputModeChange = (mode) => {
@@ -400,36 +293,78 @@ export class EditorKeyboardController {
       host.toggleToolOutputExpansion();
     };
 
-    editor.onStatusSurfaceKey = (key): boolean => {
-      // `focus` and `toggle` are the two strip-level moves worth counting;
-      // scrolling and paging are too frequent to be useful signal.
-      if (key === 'focus') {
-        if (!host.toggleStatusSurfaceFocus()) return false;
-        // Disarm a pending double-press exit confirmation so grabbing the
-        // panel in between two Ctrl-C presses does not accidentally exit.
-        this.clearPendingExit();
-        host.track('shortcut_notify_page');
-        return true;
-      }
-      if (key === 'toggle') {
-        if (!host.toggleStatusSurfaceFold()) return false;
-        this.clearPendingExit();
-        host.track('shortcut_todo_expand');
-        return true;
-      }
-      return host.handleStatusSurfaceKey(key);
+    editor.onPageNotify = (): boolean => {
+      if (!host.focusNotifyPanel()) return false;
+      this.clearPendingExit();
+      host.track('shortcut_notify_page');
+      return true;
     };
-    editor.onStatusSurfaceFocused = () => host.isStatusSurfaceFocused();
 
-    editor.onStatusSurfaceRawInput = (data): boolean => host.handleStatusSurfaceRawInput(data);
-
-    editor.onCtrlS = (): void => {
-      this.steerWithEditorDraft();
+    editor.onCtrlS = () => {
+      if (
+        host.state.appState.streamingPhase === 'idle' ||
+        host.state.appState.streamingPhase === 'shell' ||
+        host.state.appState.isCompacting ||
+        host.isSteeringQueuedMessages()
+      ) return;
+      const text = (editor.getExpandedText?.() ?? editor.getText()).trim();
+      const editorIsBash = editor.inputMode === 'bash';
+      let extraction: ReturnType<typeof extractMediaAttachments> | undefined;
+      if (!editorIsBash && text.length > 0) {
+        try {
+          extraction = extractMediaAttachments(text, this.imageStore);
+        } catch (error) {
+          host.showError(t('tui.statusMessages.failedToPrepareMediaAttachment', { error: formatErrorMessage(error) }));
+          return;
+        }
+        if (!host.validateMediaCapabilities(extraction)) {
+          host.releaseStagingMedia([
+            ...extraction.imageAttachmentIds,
+            ...extraction.videoAttachmentIds,
+          ]);
+          return;
+        }
+      }
+      if (host.state.appState.model.trim().length === 0 || host.session === undefined) {
+        host.releaseStagingMedia([
+          ...(extraction?.imageAttachmentIds ?? []),
+          ...(extraction?.videoAttachmentIds ?? []),
+        ]);
+        host.showError(LLM_NOT_SET_MESSAGE);
+        return;
+      }
+      if (extraction !== undefined) {
+        const { activations } = resolveUserInput({
+          input: text,
+          skillCommandMap: host.skillCommandMap,
+          pluginCommandMap: host.pluginCommandMap,
+          isStreaming: true,
+          isCompacting: host.state.appState.isCompacting,
+          skillVariantPathForCommand: host.skillVariantPathForCommand === undefined
+            ? undefined
+            : (commandName, tokenStart) => host.skillVariantPathForCommand!(commandName, tokenStart),
+          defaultSkillPathForCommand: host.defaultSkillPathForCommand === undefined
+            ? undefined
+            : (commandName) => host.defaultSkillPathForCommand!(commandName),
+        });
+        host.state.queuedMessages.push({
+          text,
+          agentId: host.harness?.interactiveAgentId,
+          parts: extraction.hasMedia ? extraction.parts : undefined,
+          imageAttachmentIds:
+            extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
+          videoAttachmentIds:
+            extraction.videoAttachmentIds.length > 0 ? extraction.videoAttachmentIds : undefined,
+          inlineSkillActivations: activations.length > 0 ? activations : undefined,
+        });
+        editor.setText('');
+      }
+      host.steerQueuedMessagesIntoRunningTurn(true);
+      host.updateQueueDisplay();
+      host.state.ui.requestRender();
     };
 
     editor.onCtrlB = (): boolean => {
-      // Shell command execution is treated as a streaming phase ('shell'), so
-      // this gate already covers it; only idle + not-compacting falls through.
       if (host.state.appState.streamingPhase === 'idle' || host.state.appState.isCompacting) {
         return false;
       }
@@ -438,20 +373,13 @@ export class EditorKeyboardController {
       return true;
     };
 
-    editor.onUndo = () => {
-      host.track('undo');
-    };
-
     const { ui } = host.state;
     if (ui instanceof TuiAltScreen) {
-      // A UI-level listener sees the key before any focused dialog does.
-      this.disposeSelectionCopy = ui.addInputListener((data) =>
-        this.handleSelectionCopyKey(ui, data),
-      );
+      this.disposeSelectionCopy = ui.addInputListener((data) => this.handleSelectionCopyKey(ui, data));
     }
 
-    editor.onAutocompleteError = (error: unknown) => {
-      host.showError(t('tui.messages.autocompleteFailed', { error: formatErrorMessage(error) }));
+    editor.onUndo = () => {
+      host.track('undo');
     };
 
     editor.onTextPaste = () => {
@@ -460,15 +388,10 @@ export class EditorKeyboardController {
 
     editor.onUpArrowEmpty = () => {
       if (host.btwPanelController.scroll('up')) return true;
-      if (host.state.appState.streamingPhase === 'idle' && !host.state.appState.isCompacting)
-        return false;
+      if (host.state.appState.streamingPhase === 'idle' && !host.state.appState.isCompacting) return false;
       const recalled = host.recallLastQueued();
       if (recalled !== undefined) {
         editor.setText(recalled.text);
-        // Restore the queued item's mode so a recalled `!` command runs as a
-        // shell command again instead of being submitted as a normal prompt.
-        // Skill activations recall as prompt mode: their text is the original
-        // `/name args` slash command, which re-parses on submit.
         const mode = recalled.mode === 'bash' ? 'bash' : 'prompt';
         if (editor.inputMode !== mode) {
           editor.inputMode = mode;
@@ -484,123 +407,11 @@ export class EditorKeyboardController {
     editor.onDownArrowEmpty = () => host.btwPanelController.scroll('down');
 
     editor.onPasteImage = async () => this.handleClipboardImagePaste();
-
-    editor.onPasteMediaPath = (path: string) => this.handlePastedMediaPath(path);
   }
 
-  /**
-   * Ctrl+S: steer the running turn with the editor draft (plus the queued
-   * non-bash items). Extraction is awaited so a bare image path in the draft
-   * attaches through the full paste-time ingestion before the parts are sent.
-   */
-  private steerWithEditorDraft(): void {
-    const { host } = this;
-    const editor = host.state.editor;
-    if (
-      host.state.appState.streamingPhase === 'idle' ||
-      host.state.appState.streamingPhase === 'shell' ||
-      host.state.appState.isCompacting ||
-      host.isSteeringQueuedMessages()
-    ) {
-      return;
-    }
-    const text = (editor.getExpandedText?.() ?? editor.getText()).trim();
-    const editorIsBash = editor.inputMode === 'bash';
-    if (editorIsBash || text.length === 0) {
-      host.steerQueuedMessagesIntoRunningTurn(true);
-      host.updateQueueDisplay();
-      host.state.ui.requestRender();
-      return;
-    }
-    let extraction: ExtractionResult | Promise<ExtractionResult>;
-    try {
-      extraction = extractMediaAttachments(
-        text,
-        this.imageStore,
-        (attachment, bytes, mime, width, height) =>
-          this.prepareImageAttachment(attachment, bytes, mime, width, height),
-        (attachment, mime, path) => this.prepareDocumentAttachment(attachment, mime, path),
-      );
-    } catch (error) {
-      host.showError(
-        t('tui.statusMessages.failedToPrepareMediaAttachment', {
-          error: formatErrorMessage(error),
-        }),
-      );
-      return;
-    }
-    if (extraction instanceof Promise) {
-      void extraction.then(
-        (resolved) => this.steerDraftWithExtraction(text, resolved),
-        (error: unknown) => {
-          host.showError(
-            t('tui.statusMessages.failedToPrepareMediaAttachment', {
-              error: formatErrorMessage(error),
-            }),
-          );
-        },
-      );
-      return;
-    }
-    this.steerDraftWithExtraction(text, extraction);
-  }
-
-  private steerDraftWithExtraction(text: string, extraction: ExtractionResult): void {
-    const { host } = this;
-    const editor = host.state.editor;
-    if (!host.validateMediaCapabilities(extraction)) {
-      host.releaseStagingMedia([
-        ...extraction.imageAttachmentIds,
-        ...extraction.videoAttachmentIds,
-        ...extraction.documentAttachmentIds,
-      ]);
-      return;
-    }
-    if (host.state.appState.model.trim().length === 0 || host.session === undefined) {
-      host.releaseStagingMedia([
-        ...extraction.imageAttachmentIds,
-        ...extraction.videoAttachmentIds,
-        ...extraction.documentAttachmentIds,
-      ]);
-      host.showError(getLlmNotSetMessage());
-      return;
-    }
-    const { activations } = resolveUserInput({
-      input: text,
-      skillCommandMap: host.skillCommandMap,
-      pluginCommandMap: host.pluginCommandMap,
-      isStreaming: true,
-      isCompacting: host.state.appState.isCompacting,
-      skillVariantPathForCommand:
-        host.skillVariantPathForCommand === undefined
-          ? undefined
-          : (commandName, tokenStart) =>
-              host.skillVariantPathForCommand!(commandName, tokenStart),
-      defaultSkillPathForCommand:
-        host.defaultSkillPathForCommand === undefined
-          ? undefined
-          : (commandName) => host.defaultSkillPathForCommand!(commandName),
-    });
-    host.state.queuedMessages.push({
-      text,
-      agentId: host.harness?.interactiveAgentId,
-      parts: extraction.hasMedia ? extraction.parts : undefined,
-      imageAttachmentIds:
-        extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
-      videoAttachmentIds:
-        extraction.videoAttachmentIds.length > 0 ? extraction.videoAttachmentIds : undefined,
-      documentAttachmentIds:
-        extraction.documentAttachmentIds.length > 0 ? extraction.documentAttachmentIds : undefined,
-      inlineSkillActivations: activations.length > 0 ? activations : undefined,
-    });
-    editor.setText('');
-    host.steerQueuedMessagesIntoRunningTurn(true);
-    host.updateQueueDisplay();
-    host.state.ui.requestRender();
-  }
   clearPendingExit(): void {
     if (!this.pendingExit) return;
-    this.clock.clearTimeout(this.pendingExit.timer);
+    clearTimeout(this.pendingExit.timer);
     this.host.state.footer.setTransientHint(null);
     this.pendingExit = null;
   }
@@ -612,24 +423,18 @@ export class EditorKeyboardController {
     this.clearPendingUndoEsc();
   }
 
-  private handleSelectionCopyKey(
-    ui: TuiAltScreen,
-    data: string,
-  ): { consume: true } | undefined {
+  private handleSelectionCopyKey(ui: TuiAltScreen, data: string): { consume: true } | undefined {
     const key = normalizeCapsLockedCtrl(data);
     if (!SELECTION_COPY_KEYS.some((copyKey) => matchesKey(key, copyKey))) return undefined;
     if (isKeyRelease(key)) {
       this.copyKeyHeld = false;
       return undefined;
     }
-    // Holding the key that copied must not turn its auto-repeat into an interrupt.
     if (isKeyRepeat(key)) return this.copyKeyHeld ? { consume: true } : undefined;
     this.copyKeyHeld = false;
     if (!ui.hasActiveSelection()) return undefined;
     this.clearPendingExit();
     this.clearPendingUndoEsc();
-    // The copy reads the selection before its first await, so clearing it
-    // right away is safe and leaves the next Ctrl+C free to interrupt.
     void ui.copyActiveSelectionToClipboard();
     ui.resetTextSelection();
     ui.requestRender();
@@ -639,7 +444,7 @@ export class EditorKeyboardController {
 
   private armPendingUndoEsc(): void {
     this.clearPendingUndoEsc();
-    const timer = this.clock.setTimeout(() => {
+    const timer = setTimeout(() => {
       if (this.pendingUndoEsc?.timer === timer) {
         this.pendingUndoEsc = null;
       }
@@ -649,7 +454,7 @@ export class EditorKeyboardController {
 
   private clearPendingUndoEsc(): void {
     if (!this.pendingUndoEsc) return;
-    this.clock.clearTimeout(this.pendingUndoEsc.timer);
+    clearTimeout(this.pendingUndoEsc.timer);
     this.pendingUndoEsc = null;
   }
 
@@ -657,7 +462,7 @@ export class EditorKeyboardController {
     this.clearPendingExit();
     this.host.state.footer.setTransientHint(hint);
 
-    const timer = this.clock.setTimeout(() => {
+    const timer = setTimeout(() => {
       if (this.pendingExit?.timer === timer) {
         this.clearPendingExit();
         this.host.state.ui.requestRender();
@@ -682,14 +487,8 @@ export class EditorKeyboardController {
       cancel();
       return;
     }
-    // Cancel any running `!` shell command (treated as a streaming phase) in
-    // addition to the agent turn, so Esc / Ctrl+C interrupts it too.
     this.host.cancelRunningShellCommand();
-    const session = this.host.session;
-    if (session === undefined) return;
-    // Cancel is best-effort and user-initiated; a rejection here is not worth
-    // surfacing, but it must not become an unhandled rejection.
-    void session.cancel().catch(() => {});
+    void this.host.session?.cancel();
   }
 
   private cancelCurrentCompaction(): void {
@@ -697,66 +496,8 @@ export class EditorKeyboardController {
     if (session === undefined) return;
     void session.cancelCompaction().catch((error: unknown) => {
       const message = formatErrorMessage(error);
-      this.host.showError(t('tui.statusMessages.compactionCancelFailed', { message }));
+      this.host.showError(t('tui.statusMessages.compactionCancelFailed', { message: message }));
     });
-  }
-
-  /**
-   * Drag & drop / pasted image path: attach the file immediately (same
-   * ingestion as clipboard paste) and put its placeholder in the editor.
-   * Returns false when the path is not a readable image, so the caller
-   * falls through to plain-text insertion.
-   */
-  private handlePastedMediaPath(path: string): boolean {
-    if (this.host.state.editor.inputMode === 'bash') return false;
-
-    // A PDF never becomes inline bytes: it is uploaded to the daemon file
-    // store and travels as a `document_url` reference, exactly like a
-    // pasted one.
-    const documentMime = documentMimeFromPath(path);
-    if (documentMime !== null) {
-      try {
-        if (!statSync(path).isFile()) return false;
-      } catch {
-        return false;
-      }
-      const mimeType = documentMime;
-      const filename = basename(path);
-      const attachment = this.imageStore.addDocument(mimeType, path, filename);
-      this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
-      this.host.state.ui.requestRender();
-      this.host.track('shortcut_paste', { kind: 'document' });
-      attachment.pending = this.finishClipboardDocumentPaste(attachment, {
-        kind: 'document',
-        mimeType,
-        filename,
-        sourcePath: path,
-      });
-      return true;
-    }
-
-    let bytes: Uint8Array;
-    try {
-      bytes = readFileSync(path);
-    } catch {
-      return false;
-    }
-    if (bytes.length === 0) return false;
-    const meta = parseImageMeta(bytes);
-    if (meta === null) return false;
-
-    const attachment = this.imageStore.addImage(bytes, meta.mime, meta.width, meta.height);
-    this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
-    this.host.state.ui.requestRender();
-    this.host.track('shortcut_paste', { kind: 'image' });
-    attachment.pending = this.prepareImageAttachment(
-      attachment,
-      bytes,
-      meta.mime,
-      meta.width,
-      meta.height,
-    );
-    return true;
   }
 
   private async handleClipboardImagePaste(): Promise<boolean> {
@@ -768,59 +509,18 @@ export class EditorKeyboardController {
         this.host.showError(error.message);
         return true;
       }
-      // An unexpected failure is still a failure: without this the paste
-      // silently degrades to a text paste that has nothing to insert.
-      this.host.showError(
-        t('tui.statusMessages.clipboardImageReadFailed', {
-          error: formatErrorMessage(error),
-        }),
-      );
       return false;
     }
     if (media === null) return false;
 
     if (media.kind === 'video') {
-      // Same shape as the image flow below: register the attachment and put
-      // its placeholder in the editor first, then upload the source file to
-      // the daemon file store in the background — typing never waits on it,
-      // and submit gives a pending upload the bounded `pendingMediaIngestions`
-      // wait. Unlike an image there is no inline fallback form, so a video
-      // whose upload has not landed (or failed) refuses the submission at
-      // extraction time.
       const attachment = this.imageStore.addVideo(media.mimeType, media.sourcePath, media.filename);
       this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
       this.host.state.ui.requestRender();
       this.host.track('shortcut_paste', { kind: 'video' });
       attachment.pending = this.finishClipboardVideoPaste(attachment, media).catch(
         (error: unknown) => {
-          this.host.showError(
-            t('tui.statusMessages.failedToPrepareMediaAttachment', {
-              error: formatErrorMessage(error),
-            }),
-          );
-        },
-      );
-      return true;
-    }
-
-    if (media.kind === 'document') {
-      // Same shape as the video flow above: a PDF has no inline fallback
-      // form, so submit refuses the paste until the daemon upload lands.
-      const attachment = this.imageStore.addDocument(
-        media.mimeType,
-        media.sourcePath,
-        media.filename,
-      );
-      this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
-      this.host.state.ui.requestRender();
-      this.host.track('shortcut_paste', { kind: 'document' });
-      attachment.pending = this.finishClipboardDocumentPaste(attachment, media).catch(
-        (error: unknown) => {
-          this.host.showError(
-            t('tui.statusMessages.failedToPrepareMediaAttachment', {
-              error: formatErrorMessage(error),
-            }),
-          );
+          this.host.showError(`Failed to process pasted video: ${formatErrorMessage(error)}`);
         },
       );
       return true;
@@ -829,116 +529,73 @@ export class EditorKeyboardController {
     const meta = parseImageMeta(media.bytes);
     if (meta === null) return false;
 
-    // Register the attachment and put its placeholder in the editor before
-    // any of the asynchronous ingestion work below. CustomEditor only holds
-    // keystrokes until this handler settles, so the callback returns right
-    // after the placeholder lands and ingestion continues in the background —
-    // typing never waits on compression or the daemon upload. Submit gives a
-    // pending ingestion a bounded wait (`pendingImageIngestions`) and falls
-    // back to the inline form when it has not finished.
-    const attachment = this.imageStore.addImage(media.bytes, meta.mime, meta.width, meta.height);
-    this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
-    this.host.state.ui.requestRender();
-    this.host.track('shortcut_paste', { kind: 'image' });
-
-    attachment.pending = this.prepareImageAttachment(
-      attachment,
+    const attachment = this.imageStore.addImage(
       media.bytes,
       meta.mime,
       meta.width,
       meta.height,
     );
+    this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
+    this.host.state.ui.requestRender();
+    this.host.track('shortcut_paste', { kind: 'image' });
+
+    attachment.pending = this.finishClipboardImagePaste(
+      attachment,
+      media.bytes,
+      meta.mime,
+      meta.width,
+      meta.height,
+    ).catch((error: unknown) => {
+      this.host.showError(`Failed to process pasted image: ${formatErrorMessage(error)}`);
+    });
     return true;
   }
 
-  /**
-   * Ingest a registered image attachment the clipboard-paste way: capture-time
-   * compression, then the v2 daemon-file-store upload when active, then
-   * `completeImage`. Shared by the clipboard-paste flow and the bare-path
-   * attach flow (passed as the `extractMediaAttachments` ingester). Best
-   * effort: on failure the raw attachment and its already-visible placeholder
-   * remain a valid inline fallback, and the failure is surfaced here so
-   * callers never see a rejection.
-   */
-  async prepareImageAttachment(
+  private async finishClipboardImagePaste(
     attachment: ImageAttachment,
     originalBytes: Uint8Array,
     originalMime: string,
     originalWidth: number,
     originalHeight: number,
   ): Promise<void> {
-    try {
-      // Compress at ingestion — a pure data step while building the attachment, so
-      // the stored bytes, the inline thumbnail, the `[image #N (W×H)]` placeholder,
-      // and the submitted image all agree, and the agent core only ever sees an
-      // already-compressed image. Best effort: originals pass through on failure.
-      // When compression changed the bytes, the pre-compression original is kept
-      // on the attachment in memory: the session whose media-originals dir it
-      // belongs in may not exist yet at paste time, so dispatch-time caption
-      // resolution (`resolveOriginalCaptions`) persists it and announces the
-      // compression, pointing the model at the full-fidelity copy.
-      // The edge cap comes from the host harness's [image] config (resolved per
-      // paste so a config reload applies immediately); hosts without a harness
-      // use the env/built-in default.
-      const compressed = await compressImageForModel(originalBytes, originalMime, {
-        maxEdge: this.host.harness?.imageLimits?.maxEdgePx(),
-        telemetry: {
-          client: {
-            track: (event: string, properties?: Readonly<Record<string, unknown>>) => {
-              this.host.track(event, properties as Record<string, unknown> | undefined);
-            },
-          },
-          source: 'tui_paste',
+    const compressed = await compressImageForModel(originalBytes, originalMime, {
+      maxEdge: this.host.harness?.imageLimits?.maxEdgePx(),
+      telemetry: {
+        client: {
+          track: (event, properties) =>
+            this.host.track(event, properties === undefined ? undefined : { ...properties }),
         },
-      });
-      // Dimensions come from the compression result, not parseImageMeta: the
-      // compressor reports display space (EXIF orientation applied) — the space
-      // the sent image, the caption, and Read region readback share —
-      // while parseImageMeta reads the raw pre-rotation header.
-      const original = compressed.changed
-        ? {
-            bytes: originalBytes,
-            width: compressed.originalWidth,
-            height: compressed.originalHeight,
-            byteLength: originalBytes.length,
-            mime: originalMime,
-          }
-        : undefined;
-      // v2 only: upload the final bytes to the daemon file store so submit-time
-      // expansion emits a `kimi-file://` reference instead of inline base64.
-      const uploaded = await this.uploadImageToDaemonFileStore(
-        compressed.changed ? compressed.data : originalBytes,
-        compressed.changed ? compressed.mimeType : originalMime,
-      );
-      const completed = this.imageStore.completeImage(attachment, {
-        bytes: compressed.changed ? compressed.data : originalBytes,
-        mime: compressed.changed ? compressed.mimeType : originalMime,
-        width: compressed.width || originalWidth,
-        height: compressed.height || originalHeight,
-        original,
-        fileId: uploaded?.id,
-        fileExpiresAt: parseExpiry(uploaded),
-      });
-      if (completed === undefined && uploaded !== undefined) {
-        await this.host.harness?.deleteFile(uploaded.id).catch(() => undefined);
-      }
-      this.host.state.ui.requestRender();
-    } catch (error) {
-      this.host.showError(
-        t('tui.statusMessages.failedToPrepareMediaAttachment', {
-          error: formatErrorMessage(error),
-        }),
-      );
+        source: 'tui_paste',
+      },
+    });
+    const original = compressed.changed
+      ? {
+          bytes: originalBytes,
+          width: compressed.originalWidth,
+          height: compressed.originalHeight,
+          byteLength: originalBytes.length,
+          mime: originalMime,
+        }
+      : undefined;
+    const uploaded = await this.uploadImageToDaemonFileStore(
+      compressed.changed ? compressed.data : originalBytes,
+      compressed.changed ? compressed.mimeType : originalMime,
+    );
+    const completed = this.imageStore.completeImage(attachment, {
+      bytes: compressed.changed ? compressed.data : originalBytes,
+      mime: compressed.changed ? compressed.mimeType : originalMime,
+      width: compressed.width || originalWidth,
+      height: compressed.height || originalHeight,
+      original,
+      fileId: uploaded?.id,
+      fileExpiresAt: parseExpiry(uploaded),
+    });
+    if (completed === undefined && uploaded !== undefined) {
+      await this.host.harness?.deleteFile(uploaded.id).catch(() => undefined);
     }
+    this.host.state.ui.requestRender();
   }
 
-  /**
-   * Paste-time upload of the final image bytes to the engine's daemon file
-   * store, run as part of the background ingestion — typing never waits on
-   * it, and submit only gives it the bounded `pendingImageIngestions` wait.
-   * Best effort: any failure returns undefined, so the attachment keeps no
-   * `fileId` and submit-time expansion falls back to the inline base64 form.
-   */
   private async uploadImageToDaemonFileStore(
     bytes: Uint8Array,
     mime: string,
@@ -957,32 +614,21 @@ export class EditorKeyboardController {
     }
   }
 
-  /**
-   * Paste-time upload of the video's source file to the engine's daemon file
-   * store, run as background ingestion exactly like the image upload above.
-   * Best effort: any failure returns undefined, leaving the attachment
-   * without a `fileId` — submit-time expansion then refuses the submission,
-   * since a video has no inline fallback form.
-   */
-  private async uploadSourceToDaemonFileStore(
-    mime: string,
-    sourcePath: string,
-    filename: string,
+  private async uploadVideoToDaemonFileStore(
+    media: ClipboardVideo,
   ): Promise<FileMeta | undefined> {
     const harness = this.host.harness;
     if (harness === undefined) return undefined;
     let bytes: Uint8Array;
     try {
-      bytes = await readFile(sourcePath);
+      bytes = await readFile(media.sourcePath);
     } catch {
-      // The source (e.g. a clipboard temp file) vanished before the upload
-      // could read it — same outcome as a failed upload.
       return undefined;
     }
     try {
       return await harness.uploadFile(bytes, {
-        name: filename,
-        mimeType: mime,
+        name: media.filename,
+        mimeType: media.mimeType,
         expiresInSec: MEDIA_STAGING_TTL_SECONDS,
       });
     } catch {
@@ -994,50 +640,8 @@ export class EditorKeyboardController {
     attachment: VideoAttachment,
     media: ClipboardVideo,
   ): Promise<void> {
-    const uploaded = await this.uploadSourceToDaemonFileStore(
-      media.mimeType,
-      media.sourcePath,
-      media.filename,
-    );
+    const uploaded = await this.uploadVideoToDaemonFileStore(media);
     const completed = this.imageStore.completeVideo(attachment, {
-      fileId: uploaded?.id,
-      fileExpiresAt: parseExpiry(uploaded),
-    });
-    if (completed === undefined && uploaded !== undefined) {
-      await this.host.harness?.deleteFile(uploaded.id).catch(() => undefined);
-    }
-    this.host.state.ui.requestRender();
-  }
-
-  private async finishClipboardDocumentPaste(
-    attachment: DocumentAttachment,
-    media: ClipboardDocument,
-  ): Promise<void> {
-    await this.finishDocumentPaste(attachment, media.mimeType, media.sourcePath, media.filename);
-  }
-
-  /**
-   * Path-attach twin of the clipboard document paste: upload the file to the
-   * daemon file store, then `completeDocument`. Passed as the
-   * `extractMediaAttachments` document ingester, so a PDF referenced by path
-   * is uploaded during extraction rather than at submit.
-   */
-  async prepareDocumentAttachment(
-    attachment: DocumentAttachment,
-    mime: string,
-    sourcePath: string,
-  ): Promise<void> {
-    await this.finishDocumentPaste(attachment, mime, sourcePath, basename(sourcePath));
-  }
-
-  private async finishDocumentPaste(
-    attachment: DocumentAttachment,
-    mime: string,
-    sourcePath: string,
-    filename: string,
-  ): Promise<void> {
-    const uploaded = await this.uploadSourceToDaemonFileStore(mime, sourcePath, filename);
-    const completed = this.imageStore.completeDocument(attachment, {
       fileId: uploaded?.id,
       fileExpiresAt: parseExpiry(uploaded),
     });
@@ -1057,9 +661,6 @@ export class EditorKeyboardController {
     }
     this.host.setExternalEditorRunning(true);
     const seed = state.editor.getExpandedText?.() ?? state.editor.getText();
-    // Fullscreen: a plain stop() would replay the whole transcript into the
-    // main screen on exit; the external editor only needs the alternate
-    // screen released, so preserve the screen instead.
     state.ui.stop({ preserveScreen: state.ui.mode === 'fullscreen' ? true : undefined });
     await new Promise<void>((resolve) => {
       setImmediate(resolve);
@@ -1071,7 +672,7 @@ export class EditorKeyboardController {
       }
     } catch (error) {
       const msg = formatErrorMessage(error);
-      this.host.showError(t('tui.messages.editorExternalFailed', { msg }));
+      this.host.showError(t('tui.messages.editorExternalFailed', { msg: msg }));
     } finally {
       if (typeof process.stdin.pause === 'function') {
         process.stdin.pause();
@@ -1079,9 +680,6 @@ export class EditorKeyboardController {
       state.ui.start();
       state.ui.setFocus(state.editor);
       state.ui.requestRender(true);
-      // terminal.stop() cleared the OSC 9;4 progress indicator while the
-      // app-side progressActive flag still reads true; resync so a turn that
-      // was streaming while the editor was open gets its progress back.
       state.terminalState.progressActive = false;
       this.host.updateActivityPane();
       this.host.setExternalEditorRunning(false);
@@ -1093,65 +691,4 @@ function parseExpiry(meta: FileMeta | undefined): number | undefined {
   if (meta?.expires_at === undefined) return undefined;
   const value = Date.parse(meta.expires_at);
   return Number.isFinite(value) ? value : undefined;
-}
-
-/**
- * The plan/spec half of the app state — the only fields the Shift-Tab cycle
- * reads or writes. Swarm and tower are deliberately absent from this shape so
- * the cycle cannot be coupled to them by construction.
- */
-export interface ReviewCycleState {
-  readonly planMode: boolean;
-  readonly specMode: boolean;
-}
-
-/** The modes Shift-Tab's cycle can enter or leave. */
-export type ReviewCycleMode = 'plan' | 'spec';
-
-/**
- * The review modes Shift-Tab can leave through the cycle. Swarm and tower are
- * excluded: they have their own commands and are never touched by this
- * shortcut.
- */
-export type ActiveExclusiveMode = 'plan' | 'spec';
-
-/**
- * The Shift-Tab cycle's view of the session, or `null` when the cycle does not
- * apply.
- *
- * It returns `null` while swarm, hello-world or tower is active: those modes are
- * not on the cycle, so a press must neither move away from them nor be
- * interpreted as a request to change plan or spec while they are running. The
- * user leaves them through `/swarm off` / `/hello-world off` / `/tower off`, and
- * the cycle resumes from whatever plan/spec state is then in effect.
- */
-export function reviewCycleState(appState: {
-  readonly swarmMode: boolean;
-  readonly helloWorldMode: boolean;
-  readonly towerMode: boolean;
-  readonly planMode: boolean;
-  readonly specMode: boolean;
-}): ReviewCycleState | null {
-  if (appState.swarmMode || appState.helloWorldMode || appState.towerMode) return null;
-  return { planMode: appState.planMode, specMode: appState.specMode };
-}
-
-/**
- * Where the next Shift-Tab lands within the plan/spec cycle: `plan`, `spec`, or
- * `null` for no review mode. The cycle is `none → plan → spec → none`.
- */
-export function nextReviewMode(state: ReviewCycleState): ReviewCycleMode | null {
-  if (state.planMode) return 'spec';
-  if (state.specMode) return null;
-  return 'plan';
-}
-
-/**
- * Which of the two cycle modes is currently on, or `null`. Used only to pick the
- * mode to leave when the cycle wraps back to "none".
- */
-function activeReviewMode(state: ReviewCycleState): ReviewCycleMode | null {
-  if (state.specMode) return 'spec';
-  if (state.planMode) return 'plan';
-  return null;
 }

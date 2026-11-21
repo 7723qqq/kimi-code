@@ -2,6 +2,8 @@ import { Disposable } from '#/_base/di/lifecycle';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { agentSpaceOf } from '#/agent/agentContext/agentSpace';
 import { TurnEnded } from '#/agent/loop/turnOps';
+import { IConfigService } from '#/app/config/config';
+import { ISessionEventBus } from '#/app/event/eventBus';
 import {
   TOKEN_COUNTING_SECTION,
   type TokenCountingConfig,
@@ -11,19 +13,15 @@ import type {
   TokenCountingRequest,
   TokenCountingStrategy,
 } from '#/agent/tokenCounting/tokenCounting';
-import { IConfigService } from '#/app/config/config';
-import { ISessionEventBus } from '#/app/event/eventBus';
-import type { Message } from '#/llm-adapter/contract/message';
-import type { ImageTokenPricing } from '#/llm-adapter/contract/modelFamily';
+import type { Message, ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
 import {
   estimateTokens,
   estimateTokensForMessage,
   estimateTokensForMessages,
   estimateTokensForTools,
 } from '#/llm-adapter/contract/tokens';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import type { ToolDescription as Tool } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
 
 import {
   ISessionTokenCountingService,
@@ -31,10 +29,7 @@ import {
 } from './sessionTokenCounting';
 import { TokenCountingAgentModelDefinition } from './tokenCountingAgentModel';
 
-export class SessionTokenCountingService
-  extends Disposable
-  implements ISessionTokenCountingService
-{
+export class SessionTokenCountingService extends Disposable implements ISessionTokenCountingService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
@@ -47,8 +42,9 @@ export class SessionTokenCountingService
       eventBus.subscribe(TurnEnded, (event) => {
         const agent = agentLifecycle.get(event.agentId);
         if (agent === undefined) return;
-        void agentSpaceOf(agent).use(TokenCountingAgentModelDefinition, (model) =>
-          model.recordTurn(event.turnId, this.strategy),
+        void agentSpaceOf(agent).use(
+          TokenCountingAgentModelDefinition,
+          (model) => model.recordTurn(event.turnId, this.strategy),
         );
       }),
     );
@@ -56,7 +52,8 @@ export class SessionTokenCountingService
 
   get strategy(): TokenCountingStrategy {
     return (
-      this.config.get<TokenCountingConfig>(TOKEN_COUNTING_SECTION)?.strategy ?? 'measured+estimated'
+      this.config.get<TokenCountingConfig>(TOKEN_COUNTING_SECTION)?.strategy ??
+      'measured+estimated'
     );
   }
 
@@ -96,14 +93,16 @@ export class SessionTokenCountingService
   }
 
   rebase(agent: AgentContext, input: TokenCountingRebaseInput): void {
-    void agentSpaceOf(agent).use(TokenCountingAgentModelDefinition, (model) => model.rebase(input));
+    void agentSpaceOf(agent).use(TokenCountingAgentModelDefinition, (model) =>
+      model.rebase(input),
+    );
   }
 
-  requestSize(request: TokenCountingRequest, pricing?: ImageTokenPricing): number {
+  requestSize(request: TokenCountingRequest): number {
     return (
       this.estimateText(request.systemPrompt) +
       this.estimateTools(request.tools) +
-      this.estimateMessages(request.messages, pricing)
+      this.estimateMessages(request.messages)
     );
   }
 
@@ -111,12 +110,12 @@ export class SessionTokenCountingService
     return estimateTokens(text);
   }
 
-  estimateMessage(message: Message, pricing?: ImageTokenPricing): number {
-    return estimateTokensForMessage(message, pricing);
+  estimateMessage(message: Message): number {
+    return estimateTokensForMessage(message);
   }
 
-  estimateMessages(messages: readonly Message[], pricing?: ImageTokenPricing): number {
-    return estimateTokensForMessages(messages, pricing);
+  estimateMessages(messages: readonly Message[]): number {
+    return estimateTokensForMessages(messages);
   }
 
   estimateTools(tools: readonly Tool[]): number {

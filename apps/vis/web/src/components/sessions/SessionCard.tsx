@@ -1,9 +1,8 @@
 import type { MouseEvent } from 'react';
 import { useParams, Link } from 'react-router-dom';
-
-import { t } from '../../i18n';
 import type { SessionSummary } from '../../types';
 import { formatRelativeTime } from '../../util/time';
+import { t } from '../../i18n';
 
 interface SessionCardProps {
   session: SessionSummary;
@@ -42,27 +41,20 @@ export function SessionCard({ session, onDelete, deleting }: SessionCardProps) {
           <div className="flex min-w-0 items-center gap-2">
             <span
               className="inline-block h-[7px] w-[7px] shrink-0 rounded-full"
-              style={{
-                backgroundColor: session.imported
-                  ? 'var(--color-cat-subagent)'
-                  : 'var(--color-fg-3)',
-              }}
+              style={{ backgroundColor: session.imported ? 'var(--color-cat-subagent)' : 'var(--color-fg-3)' }}
             />
             <span className="shrink-0 font-mono text-[12px] text-fg-0">{shortId}</span>
             {session.imported ? (
               <span
                 className="shrink-0 border px-1 py-0 font-mono text-[9px] uppercase tracking-[0.08em]"
-                style={{
-                  borderColor: 'var(--color-cat-subagent)',
-                  color: 'var(--color-cat-subagent)',
-                }}
+                style={{ borderColor: 'var(--color-cat-subagent)', color: 'var(--color-cat-subagent)' }}
                 title={
                   session.importMeta?.originalName
-                    ? t('sessionCard.importedFrom', { name: session.importMeta.originalName })
+                    ? `imported from ${session.importMeta.originalName}`
                     : t('sessionCard.importedDebugBundle')
                 }
               >
-                {t('sessionCard.imported')}
+                imported
               </span>
             ) : null}
           </div>
@@ -75,22 +67,22 @@ export function SessionCard({ session, onDelete, deleting }: SessionCardProps) {
             {workspaceLabel}
           </span>
           <span className="tabular text-fg-3">
-            {session.mainWireRecordCount}
-            {t('sessionCard.events')}
+            {session.mainWireRecordCount}ev
           </span>
           {subagentCount > 0 ? (
             <span className="tabular text-[var(--color-cat-subagent)]">
-              {subagentCount}
-              {t('sessionCard.subagents')}
+              {subagentCount}sub
             </span>
           ) : null}
           {session.imported && session.importMeta?.manifest?.kimiCodeVersion ? (
-            <span className="tabular text-fg-3" title={t('sessionCard.versionTitle')}>
+            <span className="tabular text-fg-3" title="kimi-code version that produced this bundle">
               v{session.importMeta.manifest.kimiCodeVersion}
             </span>
           ) : null}
           {session.health !== 'ok' ? (
-            <span className="tabular text-[var(--color-sev-error)]">{session.health}</span>
+            <span className="tabular text-[var(--color-sev-error)]">
+              {session.health}
+            </span>
           ) : null}
         </div>
         {title ? (
@@ -99,11 +91,8 @@ export function SessionCard({ session, onDelete, deleting }: SessionCardProps) {
           </div>
         ) : null}
         {session.lastPrompt ? (
-          <div
-            className="mt-1 truncate font-mono text-[10.5px] text-fg-3"
-            title={session.lastPrompt}
-          >
-            {t('sessionCard.prompt')} · {session.lastPrompt}
+          <div className="mt-1 truncate font-mono text-[10.5px] text-fg-3" title={session.lastPrompt}>
+            prompt · {session.lastPrompt}
           </div>
         ) : null}
       </Link>
@@ -112,8 +101,8 @@ export function SessionCard({ session, onDelete, deleting }: SessionCardProps) {
         onClick={handleDeleteClick}
         disabled={deleting}
         className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center border border-transparent text-fg-3 transition-colors hover:border-[var(--color-sev-error)] hover:text-[var(--color-sev-error)] disabled:cursor-not-allowed disabled:opacity-40"
-        title={t('sessionCard.deleteTitle', { id: session.sessionId })}
-        aria-label={t('sessionCard.deleteTitle', { id: session.sessionId })}
+        title={`Delete session ${session.sessionId}`}
+        aria-label={`Delete session ${session.sessionId}`}
       >
         <TrashIcon />
       </button>

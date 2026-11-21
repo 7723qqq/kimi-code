@@ -12,9 +12,6 @@ interface BannerVersionFields {
   banner_version?: string | null;
 }
 
-/** One entry of the remote `banner_tips` array. The types are the server
-    contract; the runtime parsers still normalize every field defensively,
-    since a mis-edited config can violate the contract at any time. */
 interface BannerTipItem extends BannerVersionFields {
   banner_id?: string | null;
   banner_enabled?: boolean | null;
@@ -123,25 +120,18 @@ function meetsVersion(banner: BannerVersionFields, clientVersion: string): boole
   );
 }
 
-/** The CLI shows banners targeting every platform (missing / empty / 'all')
-    or the CLI itself; any other platform value ('desktop', 'web', …) hides
-    the banner here. */
 function meetsPlatform(value: unknown): boolean {
   if (typeof value !== 'string') return true;
   const platform = value.trim().toLowerCase();
   return platform === '' || platform === 'all' || platform === 'cli';
 }
 
-/** The current operating system as a banner_system token: 'mac' / 'win' /
-    'linux', with anything else passed through verbatim. */
 export function currentBannerSystem(platform: NodeJS.Platform = process.platform): string {
   if (platform === 'darwin') return 'mac';
   if (platform === 'win32') return 'win';
   return platform;
 }
 
-/** A missing / empty / non-array banner_system targets every system;
-    otherwise the current system must be listed. */
 function meetsBannerSystem(value: unknown, system: string): boolean {
   if (value === undefined || value === null) return true;
   if (!Array.isArray(value)) return true;
@@ -215,9 +205,7 @@ function pickCandidates(
         subText: item.banner_subtext,
         display,
         ttlHours:
-          display === 'cooldown'
-            ? parseBannerDisplayTtlHours(item.banner_display_ttl_hours)
-            : undefined,
+          display === 'cooldown' ? parseBannerDisplayTtlHours(item.banner_display_ttl_hours) : undefined,
       }),
     );
   }
@@ -237,9 +225,7 @@ function parseShownAt(value: string | undefined): Date | null {
 }
 
 function getCooldownTtlHours(banner: BannerState): number {
-  return typeof banner.ttlHours === 'number' &&
-    Number.isFinite(banner.ttlHours) &&
-    banner.ttlHours > 0
+  return typeof banner.ttlHours === 'number' && Number.isFinite(banner.ttlHours) && banner.ttlHours > 0
     ? banner.ttlHours
     : DEFAULT_COOLDOWN_TTL_HOURS;
 }
@@ -257,8 +243,7 @@ export function shouldDisplayBanner(
 }
 
 export function selectBannerState(args: SelectBannerStateArgs): BannerState | null {
-  const typed =
-    typeof args.json === 'object' && args.json !== null ? (args.json as BannerTipsJson) : {};
+  const typed = typeof args.json === 'object' && args.json !== null ? (args.json as BannerTipsJson) : {};
   return pickRandomCandidate(
     pickCandidates(typed, args.clientVersion, args.now, args.audience, args.system),
     args.random,
@@ -266,15 +251,10 @@ export function selectBannerState(args: SelectBannerStateArgs): BannerState | nu
 }
 
 export function selectDisplayableBanner(args: SelectDisplayableBannerArgs): BannerState | null {
-  const typed =
-    typeof args.json === 'object' && args.json !== null ? (args.json as BannerTipsJson) : {};
-  const candidates = pickCandidates(
-    typed,
-    args.clientVersion,
-    args.now,
-    args.audience,
-    args.system,
-  ).filter((candidate) => shouldDisplayBanner(candidate, args.state, args.now));
+  const typed = typeof args.json === 'object' && args.json !== null ? (args.json as BannerTipsJson) : {};
+  const candidates = pickCandidates(typed, args.clientVersion, args.now, args.audience, args.system).filter(
+    (candidate) => shouldDisplayBanner(candidate, args.state, args.now),
+  );
   return pickRandomCandidate(candidates, args.random);
 }
 
@@ -282,9 +262,6 @@ export class BannerProvider {
   constructor(private readonly clientVersion: string) {}
 
   async load(options: BannerProviderLoadOptions = {}): Promise<BannerState | null> {
-    // getBannerConfig never throws; undefined means "config unavailable". An
-    // audience promise that rejects unexpectedly downgrades to "unknown", the
-    // same classification as a userinfo network failure.
     const [json, audience] = await Promise.all([
       getBannerConfig(),
       Promise.resolve(options.audience ?? UNKNOWN_AUDIENCE).catch(() => UNKNOWN_AUDIENCE),

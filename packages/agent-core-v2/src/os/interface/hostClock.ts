@@ -7,4 +7,5 @@ export interface IHostClock {
   timeZone(): string;
 }
 
-export const IHostClock: ServiceIdentifier<IHostClock> = createDecorator<IHostClock>('hostClock');
+export const IHostClock: ServiceIdentifier<IHostClock> =
+  createDecorator<IHostClock>('hostClock');

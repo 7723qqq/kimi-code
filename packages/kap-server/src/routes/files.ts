@@ -1,12 +1,18 @@
 import multipart from '@fastify/multipart';
-import { ErrorCodes, Error2, IFileService, type Scope } from '@moonshot-ai/agent-core-v2';
+
+import {
+  ErrorCodes,
+  IFileService,
+  Error2,
+  type Scope,
+} from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
-import { buildContentDisposition } from '../lib/contentDisposition';
 import { requestLog } from '../lib/requestLog';
+import { buildContentDisposition } from '../lib/contentDisposition';
 import { defineRoute } from '../middleware/defineRoute';
-import { errEnvelope, okEnvelope } from '../protocol/envelope';
 import { ErrorCode } from '../protocol/error-codes';
+import { errEnvelope, okEnvelope } from '../protocol/envelope';
 import {
   deleteFileParamSchema,
   deleteFileResponseSchema,
@@ -57,7 +63,7 @@ interface FilesReply {
 export function registerFilesRoutes(app: FilesRouteHost, core: Scope): void {
   app.register(multipart, {
     limits: {
-      fileSize: 1024 * 1024 * 1024,
+      fileSize: Number.MAX_SAFE_INTEGER,
       files: 1,
     },
   });

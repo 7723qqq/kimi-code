@@ -1,5 +1,5 @@
 import { userPromptSubmitHookPart } from '#/agent/contextMemory/hookParts';
-import type { TextPart } from '#human/llm/message';
+import type { TextPart } from '@moonshot-ai/core/llm/message';
 
 import type { HookResult } from './types';
 
@@ -26,7 +26,8 @@ export function renderUserPromptHookResult(
     results
       ?.filter((result) => result.action !== 'block')
       ?.map(userPromptHookMessage)
-      .filter(isNonEmptyString) ?? [];
+      .filter(isNonEmptyString) ??
+    [];
   if (messages.length === 0) return undefined;
   return {
     event: 'UserPromptSubmit',

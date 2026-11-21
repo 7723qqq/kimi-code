@@ -1,5 +1,4 @@
 import { promises as fs } from 'node:fs';
-
 import path from 'pathe';
 
 import { ILogService, type LogPayload } from '#/_base/log/log';
@@ -50,9 +49,7 @@ export async function discoverFileSkills(
       const rootSkillMd = path.join(dirPath, 'SKILL.md');
       if (await isFile(rootSkillMd)) {
         await parseAndRegister({
-          byDiscoveryKey,
-          bySkillPath,
-          seenVariantKeys,
+          byDiscoveryKey, bySkillPath, seenVariantKeys,
           skipped,
           warn,
           skillMdPath: rootSkillMd,
@@ -85,9 +82,7 @@ export async function discoverFileSkills(
     const allowedSubSkillBundles = new Map<string, string>();
     for (const entry of directorySkills) {
       const skill = await parseAndRegister({
-        byDiscoveryKey,
-        bySkillPath,
-        seenVariantKeys,
+        byDiscoveryKey, bySkillPath, seenVariantKeys,
         skipped,
         warn,
         skillMdPath: path.join(dirPath, entry, 'SKILL.md'),
@@ -105,9 +100,7 @@ export async function discoverFileSkills(
         const rootSkillMd = path.join(dirPath, 'SKILL.md');
         if (await isFile(rootSkillMd)) {
           await parseAndRegister({
-            byDiscoveryKey,
-            bySkillPath,
-            seenVariantKeys,
+            byDiscoveryKey, bySkillPath, seenVariantKeys,
             skipped,
             warn,
             skillMdPath: rootSkillMd,
@@ -125,9 +118,7 @@ export async function discoverFileSkills(
         const skillMdPath = path.join(dirPath, entry);
         if (!(await isFile(skillMdPath))) continue;
         await parseAndRegister({
-          byDiscoveryKey,
-          bySkillPath,
-          seenVariantKeys,
+          byDiscoveryKey, bySkillPath, seenVariantKeys,
           skipped,
           warn,
           skillMdPath,
@@ -217,18 +208,8 @@ async function parseAndRegister(input: {
         reason: `unsupported skill type "${error.skillType}"`,
       });
     } else if (error instanceof SkillParseError) {
-      input.skipped.push({
-        path: input.skillMdPath,
-        type: 'invalid',
-        reason: error.message,
-      });
       input.warn?.(`Skipping invalid skill at ${input.skillMdPath}: ${error.message}`, error);
     } else {
-      input.skipped.push({
-        path: input.skillMdPath,
-        type: 'error',
-        reason: error instanceof Error ? error.message : String(error),
-      });
       input.warn?.(`Skipping skill at ${input.skillMdPath} due to unexpected error`, error);
     }
     return undefined;
@@ -257,7 +238,9 @@ function hasSubSkillEnabled(skill: SkillDefinition): boolean {
         (nested as Record<string, unknown>)['hasSubSkill'] === true
       : false;
   return (
-    skill.metadata['has-sub-skill'] === true || skill.metadata['hasSubSkill'] === true || nestedFlag
+    skill.metadata['has-sub-skill'] === true ||
+    skill.metadata['hasSubSkill'] === true ||
+    nestedFlag
   );
 }
 

@@ -1,80 +1,76 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, jest, spyOn } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { inflateRawSync } from 'node:zlib';
+import { ISessionMediaStore } from '@moonshot-ai/agent-core-v2/agent/media/sessionMediaStore';
+import { mcpResultToExecutableOutput } from '@moonshot-ai/agent-core-v2/agent/mcp/output';
+import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2/agent/contextMemory/toolResultRender';
+import { IReadTool, ReadInputSchema, type ReadInput } from '@moonshot-ai/agent-core-v2/agent/tools/os/read/read';
 
-import { ISessionMediaStore } from '@moonshot-ai/agent-core-v2';
-import { IReadTool, ReadInputSchema, type ReadInput } from '@moonshot-ai/agent-core-v2';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
 import {
   Error2,
   ErrorCodes,
+  interactions,
   IBootstrapService,
   IOAuthService,
   type Event2,
   type IOAuthService as IOAuthServiceType,
-  IAgentChangeNotifierService,
-  IAgentContextMemoryService,
+  IAgentLoopService,
   IAgentFullCompactionService,
   IAgentGoalService,
   IAgentConversationUndoService,
   IAgentCronService,
-  IAgentEnvironmentBindingService,
   IAgentLifecycleService,
-  IAgentProfileService,
-  IEnvironmentService,
-  IHostFileSystem,
-  IAtomicDocumentStore,
-  IAgentLoopService,
+  IAgentEnvironmentBindingService,
   IEventBus,
   IEventDispatcher,
   IEventService,
+  IEnvironmentService,
   IModelCatalog,
   IModelService,
   ISessionActivityView,
   ISessionIndexMirror,
   ISessionManager,
   ISessionMetadata,
+  ISessionPromptPredictionService,
   ISessionTitleService,
   IWireService,
   IWorkspaceInstanceManager,
   IWorkspaceService,
   MAIN_AGENT_ID,
   closeSessionById,
-  ContextAppendMessage,
-  drainQueryStoreDisposals,
-  drainSessionIndexMirror,
   getLiveSessionById,
   resumeSessionById,
   sessionDirOf,
-  TurnEnded,
-  TurnPrompt,
-  TaskStarted,
   type ContextMessage,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
 import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
-import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2';
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
-import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2/agent/contextMemory/toolResultRender';
-import { EnvironmentSetBinding } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentBindingOps';
-import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import { TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
-import { mcpResultToExecutableOutput } from '@moonshot-ai/agent-core-v2/agent/mcp/output';
-import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import { IHostProcessService, type IHostProcess } from '@moonshot-ai/agent-core-v2';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
-import type { AgentTranscriptSnapshot } from '@moonshot-ai/transcript';
-
-import type { ConversationTurnsPage } from '../src/protocol/conversation';
+import { TurnEnded, TurnPrompt, TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import { ContextAppendMessage } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
+import { historyEntryFromContext } from '@moonshot-ai/agent-core-v2/agent/loop/history';
+import type { ConversationItem, ConversationTurnsPage } from '../src/protocol/conversation';
+import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import { EnvironmentSetBinding } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentBindingOps';
+import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { ConversationFeed } from '../src/services/conversation/conversationFeed';
+
 import { type RunningServer, startServer } from '../src/start';
-import { ensureMainAgent } from '../src/transport/mainAgent';
-import { readAgentState, readUsageState } from '../src/transport/ws/v1/agentState';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { restoreEnvs } from './helpers/stubs';
-import { waitForAssertion, waitUntil } from './helpers/waitFor';
+import { authHeaders } from './helpers/auth';
+import { ensureMainAgent } from '../src/transport/mainAgent';
+import { readAgentState, readContextState, readGoalState } from '../src/transport/ws/v1/agentState';
+
+function historyEntries(messages: readonly ContextMessage[]) {
+  return messages.map(historyEntryFromContext);
+}
 
 interface Envelope<T> {
   code: number;
@@ -85,30 +81,23 @@ interface Envelope<T> {
   stack?: string;
 }
 
-interface GoalWire {
-  goalId: string;
-  objective: string;
-  status: string;
-  turnsUsed: number;
-  tokensUsed: number;
-}
-
 interface SessionWire {
   id: string;
   workspace_id: string;
+  cwd: string;
   title: string;
   created_at: string;
   updated_at: string;
-  busy: boolean;
-  main_turn_active: boolean;
+  activity: 'idle' | 'turn' | 'background';
   pending_interaction: 'none' | 'approval' | 'question';
-  last_turn_reason?: 'completed' | 'cancelled' | 'failed';
+  last_turn_outcome?: 'completed' | 'interrupted' | 'failed';
   archived?: boolean;
-  metadata: { cwd: string } & Record<string, unknown>;
-  agent_config: { model: string };
-  usage: { input_tokens: number };
-  permission_rules: unknown[];
-  message_count: number;
+  metadata: Record<string, unknown>;
+}
+
+interface ProfileWire {
+  session: SessionWire;
+  agent: { model?: string };
 }
 
 interface PageWire {
@@ -145,8 +134,8 @@ describe('server-v2 /api/v1/sessions', () => {
   });
 
   afterEach(async () => {
-    jest.restoreAllMocks();
-    restoreEnvs();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     if (server !== baselineServer) {
       await restartWithFreshHome();
       baselineServer = server;
@@ -160,12 +149,7 @@ describe('server-v2 /api/v1/sessions', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, {
-        recursive: true,
-        force: true,
-        maxRetries: 25,
-        retryDelay: 100,
-      } as never).catch(() => undefined);
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
       home = undefined;
     }
   });
@@ -177,12 +161,7 @@ describe('server-v2 /api/v1/sessions', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, {
-        recursive: true,
-        force: true,
-        maxRetries: 25,
-        retryDelay: 100,
-      } as never).catch(() => undefined);
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
     }
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-sessions-'));
     server = await startServer({
@@ -197,10 +176,8 @@ describe('server-v2 /api/v1/sessions', () => {
   }
 
   async function restartWithModels(): Promise<void> {
-    if (server !== undefined) {
-      await server.close();
-      server = undefined;
-    }
+    await server?.close();
+    server = undefined;
     const dir = home as string;
     await writeFile(
       join(dir, 'config.toml'),
@@ -339,9 +316,7 @@ describe('server-v2 /api/v1/sessions', () => {
       webLogPath: 'logs/kimi-web.jsonl',
     });
     expect(manifest.desktopVersion).toBeUndefined();
-    await waitForAssertion(async () => {
-      expect(await listExportTempDirs(id)).toEqual([]);
-    });
+    await expect.poll(() => listExportTempDirs(id)).toEqual([]);
   });
 
   it('returns the JSON session-not-found envelope instead of a ZIP', async () => {
@@ -350,9 +325,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
     expect(status).toBe(200);
     expect(body.code).toBe(40401);
-    await waitForAssertion(async () => {
-      expect(await listExportTempDirs(id)).toEqual([]);
-    });
+    await expect.poll(() => listExportTempDirs(id)).toEqual([]);
   });
 
   it('cleans up the temporary archive when the client cancels the download', async () => {
@@ -381,9 +354,7 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(first?.done).toBe(false);
     await reader?.cancel();
 
-    await waitForAssertion(async () => {
-      expect(await listExportTempDirs(id)).toEqual([]);
-    });
+    await expect.poll(() => listExportTempDirs(id)).toEqual([]);
   });
 
   it('rejects a Web log larger than 256 KiB in UTF-8', async () => {
@@ -490,13 +461,14 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(typeof body.data.id).toBe('string');
     expect(typeof body.data.workspace_id).toBe('string');
     expect(body.data.title).toBe('hello');
-    expect(body.data.metadata.cwd).toBe(cwd);
-    expect(body.data.busy).toBe(false);
-    expect(body.data.main_turn_active).toBe(false);
+    expect(body.data.cwd).toBe(cwd);
+    expect(body.data.activity).toBe('idle');
     expect(body.data.pending_interaction).toBe('none');
-    expect(body.data.agent_config).toEqual({ model: '' });
-    expect(body.data.permission_rules).toEqual([]);
-    expect(body.data.message_count).toBe(0);
+    expect(body.data).not.toHaveProperty('agent_config');
+    expect(body.data).not.toHaveProperty('permission_rules');
+    expect(body.data).not.toHaveProperty('message_count');
+    expect(body.data).not.toHaveProperty('usage');
+    expect(body.data).not.toHaveProperty('last_seq');
     expect(Number.isNaN(Date.parse(body.data.created_at))).toBe(false);
   });
 
@@ -520,7 +492,7 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(created.body.code).toBe(40409);
 
     const sessions = await getJson<PageWire>('/api/v1/sessions');
-    expect(sessions.body.data.items.some((s) => s.metadata.cwd === missing)).toBe(false);
+    expect(sessions.body.data.items.some((s) => s.cwd === missing)).toBe(false);
   });
 
   it('rejects create when metadata.cwd is not a directory (40409)', async () => {
@@ -530,19 +502,34 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(body.code).toBe(40409);
   });
 
-  it('preserves a selected managed workspace identity when creating a session', async () => {
-    const workspace = await server!.core.accessor
-      .get(IWorkspaceService)
-      .create({ root: home as string, name: 'Managed project' });
-    const created = await postJson<SessionWire>('/api/v1/sessions', { workspace_id: workspace.id });
-    expect(created.body.code).toBe(0);
-    expect(created.body.data.workspace_id).toBe(workspace.id);
-    await closeSessionById(server!.core.accessor, created.body.data.id);
-    expect(
-      (await getJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}`)).body.data
-        .workspace_id,
-    ).toBe(workspace.id);
-  });
+  it.each(['missing', 'not-a-directory'] as const)(
+    'rejects create via workspace_id when the registered root is %s (40409)',
+    async (state) => {
+      const cwd = await mkdtemp(join(tmpdir(), 'kimi-server-v2-workspace-root-'));
+      let workspaceId: string | undefined;
+      try {
+        const created = await postJson<{ id: string }>('/api/v1/workspaces', { root: cwd });
+        expect(created.body.code).toBe(0);
+        workspaceId = created.body.data.id;
+        await rm(cwd, { recursive: true, force: true });
+        if (state === 'not-a-directory') await writeFile(cwd, 'not a directory', 'utf8');
+
+        const { body } = await postJson<null>('/api/v1/sessions', {
+          workspace_id: workspaceId,
+        });
+        expect(body.code).toBe(40409);
+        const sessions = await getJson<PageWire>(
+          `/api/v1/sessions?workspace_id=${encodeURIComponent(workspaceId)}`,
+        );
+        expect(sessions.body.data.items).toEqual([]);
+      } finally {
+        if (workspaceId !== undefined) {
+          await deleteJson<{ deleted: boolean }>(`/api/v1/workspaces/${workspaceId}`);
+        }
+        await rm(cwd, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('creates a second session via workspace_id resolved from a prior cwd create', async () => {
     const cwd = home as string;
@@ -556,6 +543,37 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(second.body.code).toBe(0);
     expect(second.body.data.workspace_id).toBe(first.body.data.workspace_id);
     expect(second.body.data.id).not.toBe(first.body.data.id);
+  });
+
+  it('shares one workspace until the last session closes', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-server-v2-shared-workspace-'));
+    let firstId: string | undefined;
+    let secondId: string | undefined;
+    try {
+      const first = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+      expect(first.body.code).toBe(0);
+      firstId = first.body.data.id;
+
+      const second = await postJson<SessionWire>('/api/v1/sessions', {
+        workspace_id: first.body.data.workspace_id,
+        metadata: { cwd },
+      });
+      expect(second.body.code).toBe(0);
+      secondId = second.body.data.id;
+      expect(second.body.data.workspace_id).toBe(first.body.data.workspace_id);
+      expect(second.body.data.id).not.toBe(first.body.data.id);
+      const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
+      const workspace = manager.get(first.body.data.workspace_id);
+      expect(workspace).toBeDefined();
+      await closeSessionById((server as RunningServer).core.accessor, firstId);
+      expect(manager.get(first.body.data.workspace_id)).toBe(workspace);
+      await closeSessionById((server as RunningServer).core.accessor, secondId);
+      expect(manager.get(first.body.data.workspace_id)).toBeUndefined();
+    } finally {
+      if (firstId !== undefined) await closeSessionById((server as RunningServer).core.accessor, firstId);
+      if (secondId !== undefined) await closeSessionById((server as RunningServer).core.accessor, secondId);
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it('rejects create when cwd mismatches workspace root (40001)', async () => {
@@ -578,242 +596,37 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(typeof body.data.has_more).toBe('boolean');
   });
 
-  it('fills agent_config.model from the live session profile', async () => {
-    await server?.close();
-    server = undefined;
+  it('returns the main agent model from the session profile', async () => {
+    await restartWithModels();
     const cwd = home as string;
-    await writeFile(
-      join(cwd, 'config.toml'),
-      [
-        'default_model = "stub"',
-        '',
-        '[providers.stub]',
-        'type = "openai"',
-        'base_url = "http://127.0.0.1:9999"',
-        'api_key = "stub"',
-        '',
-        '[models.stub]',
-        'provider = "stub"',
-        'model = "stub"',
-        'max_context_size = 1000',
-        '',
-        '[models.other]',
-        'provider = "stub"',
-        'model = "other"',
-        'max_context_size = 1000',
-        '',
-      ].join('\n'),
-      'utf-8',
-    );
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-      debugEndpoints: true,
-    });
-    base = `http://127.0.0.1:${server.port}`;
 
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
-    expect(created.body.data.agent_config).toEqual({ model: 'stub' });
+    expect(created.body.data.activity).toBe('idle');
 
-    const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+    const updated = await postJson<ProfileWire>(`/api/v1/sessions/${id}/profile`, {
       agent_config: { model: 'other' },
     });
     expect(updated.body.code).toBe(0);
-    expect(updated.body.data.agent_config).toEqual({ model: 'other' });
+    expect(updated.body.data.agent.model).toBe('other');
+    expect(updated.body.data.session).not.toHaveProperty('agent_config');
 
     const listed = await getJson<PageWire>('/api/v1/sessions');
     const item = listed.body.data.items.find((s) => s.id === id);
-    expect(item?.agent_config).toEqual({ model: 'other' });
+    expect(item).not.toHaveProperty('agent_config');
 
     const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
-    expect(got.body.data.agent_config).toEqual({ model: 'other' });
+    expect(got.body.data).not.toHaveProperty('agent_config');
   });
 
-  function liveMainAgent(id: string) {
-    const session = getLiveSessionById((server as RunningServer).core.accessor, id)!;
-    return session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
-  }
-
-  it('binds the main agent to the default model when the session is created', async () => {
-    await restartWithModels();
-
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-    });
-
-    expect(created.body.data.agent_config).toEqual({ model: 'stub' });
-    const main = liveMainAgent(created.body.data.id);
-    expect(main).toBeDefined();
-    expect(main!.accessor.get(IAgentProfileService).data().profileName).toBe('agent');
-    expect(readAgentState(main!, false).model).toBe('stub');
-  });
-
-  it('waits for the model configuration before choosing the creation model', async () => {
-    await restartWithModels();
-    const models = (server as RunningServer).core.accessor.get(IModelService);
-    let loaded = false;
-    let release!: () => void;
-    (models as { ready: Promise<void> }).ready = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    spyOn(models, 'getDefaultModel').mockImplementation(() => (loaded ? 'stub' : undefined));
-
-    const pending = postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-    });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    loaded = true;
-    release();
-    const created = await pending;
-
-    expect(created.body.data.agent_config).toEqual({ model: 'stub' });
-  });
-
-  it('keeps a thinking level given at creation without a model', async () => {
-    await restartWithModels();
-
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-      agent_config: { thinking: 'high' },
-    });
-
-    expect(created.body.code).toBe(0);
-    expect(readAgentState(liveMainAgent(created.body.data.id)!, false)).toMatchObject({
-      model: 'stub',
-      thinking: 'high',
-    });
-  });
-
-  it('binds the profile, model and thinking given at creation together', async () => {
-    await restartWithModels();
-
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-      agent_config: { profile: 'route-reviewer', model: 'other', thinking: 'high' },
-    });
-
-    expect(created.body.code).toBe(0);
-    const main = liveMainAgent(created.body.data.id)!;
-    expect(main.accessor.get(IAgentProfileService).data().profileName).toBe('route-reviewer');
-    expect(readAgentState(main, false)).toMatchObject({ model: 'other', thinking: 'high' });
-  });
-
-  it('rejects changing the profile after the session is created', async () => {
-    await restartWithModels();
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-    });
-
-    const updated = await postJson<SessionWire>(
-      `/api/v1/sessions/${created.body.data.id}/profile`,
-      {
-        agent_config: { profile: 'route-reviewer' },
-      },
-    );
-
-    expect(updated.body.code).toBe(40001);
-    expect(JSON.stringify(updated.body)).toContain('agent_config.profile');
-    const main = liveMainAgent(created.body.data.id)!;
-    expect(main.accessor.get(IAgentProfileService).data().profileName).toBe('agent');
-  });
-
-  it('rejects an unknown profile at creation and creates nothing', async () => {
-    await restartWithModels();
-    const listed = async (): Promise<string[]> =>
-      (await getJson<PageWire>('/api/v1/sessions')).body.data.items.map((session) => session.id);
-    const before = await listed();
-
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-      agent_config: { profile: 'agent_does_not_exist' },
-    });
-
-    expect(created.body.code).toBe(40001);
-    expect(created.body.msg).toContain('agent_does_not_exist');
-    expect(await listed()).toEqual(before);
-  });
-
-  it('keeps the model of an existing session when the default model changes', async () => {
-    await restartWithModels();
-    const first = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-    });
-
-    await (server as RunningServer).core.accessor.get(IModelCatalog).setDefaultModel('other');
-    const second = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-    });
-
-    const got = await getJson<SessionWire>(`/api/v1/sessions/${first.body.data.id}`);
-    expect(got.body.data.agent_config).toEqual({ model: 'stub' });
-    expect(second.body.data.agent_config).toEqual({ model: 'other' });
-  });
-
-  it('keeps the client flow of model at creation, then thinking and permission through the profile', async () => {
-    await restartWithModels();
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-      agent_config: { model: 'other' },
-    });
-    const id = created.body.data.id;
-
-    const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
-      agent_config: { thinking: 'high', permission_mode: 'yolo' },
-    });
-
-    expect(updated.body.code).toBe(0);
-    expect(readAgentState(liveMainAgent(id)!, false)).toMatchObject({
-      model: 'other',
-      thinking: 'high',
-      permission_mode: 'yolo',
-    });
-  });
-
-  it('creates a session without a model when none is available', async () => {
-    const cwd = home as string;
-    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-
-    expect(created.body.code).toBe(0);
-    expect(created.body.data.agent_config).toEqual({ model: '' });
-    expect(liveMainAgent(created.body.data.id)).toBeUndefined();
-
-    const thinking = await postJson<SessionWire>(
-      `/api/v1/sessions/${created.body.data.id}/profile`,
-      {
-        agent_config: { thinking: 'high' },
-      },
-    );
-    expect(thinking.body.code).toBe(40113);
-  });
-
-  for (const agentConfig of [{ thinking: 'high' }, { profile: 'agent' }]) {
-    it(`rejects agent_config ${JSON.stringify(agentConfig)} at creation when no model is available`, async () => {
-      const listed = async (): Promise<string[]> =>
-        (await getJson<PageWire>('/api/v1/sessions')).body.data.items.map((session) => session.id);
-      const before = await listed();
-
-      const created = await postJson<SessionWire>('/api/v1/sessions', {
-        metadata: { cwd: home as string },
-        agent_config: agentConfig,
-      });
-
-      expect(created.body.code).toBe(40113);
-      expect(await listed()).toEqual(before);
-    });
-  }
-
-  it('supports exclude_empty when listing sessions', async () => {
+  it('supports has_prompt=true when listing sessions', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
 
     const all = await getJson<PageWire>('/api/v1/sessions');
     expect(all.body.data.items.some((s) => s.id === created.body.data.id)).toBe(true);
 
-    const filtered = await getJson<PageWire>('/api/v1/sessions?exclude_empty=true');
+    const filtered = await getJson<PageWire>('/api/v1/sessions?has_prompt=true');
     expect(filtered.body.code).toBe(0);
     expect(filtered.body.data.items.some((s) => s.id === created.body.data.id)).toBe(false);
   });
@@ -846,12 +659,14 @@ describe('server-v2 /api/v1/sessions', () => {
     const page3 = await getJson<PageWire>(
       `/api/v1/sessions?page_size=3&before_id=${encodeURIComponent(cursor2)}`,
     );
-    expect(page3.body.data.items.map((s) => s.id)).toEqual([ids[0]!]);
+    expect(page3.body.data.items.map((s) => s.id)).toEqual([ids[0]]);
     expect(page3.body.data.has_more).toBe(false);
 
-    const seen = [...page1.body.data.items, ...page2.body.data.items, ...page3.body.data.items].map(
-      (s) => s.id,
-    );
+    const seen = [
+      ...page1.body.data.items,
+      ...page2.body.data.items,
+      ...page3.body.data.items,
+    ].map((s) => s.id);
     expect(new Set(seen).size).toBe(7);
     expect(new Set(seen)).toEqual(new Set(ids));
 
@@ -890,32 +705,27 @@ describe('server-v2 /api/v1/sessions', () => {
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
 
-    const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+    const updated = await postJson<ProfileWire>(`/api/v1/sessions/${id}/profile`, {
       title: 'renamed',
     });
     expect(updated.body.code).toBe(0);
-    expect(updated.body.data.title).toBe('renamed');
+    expect(updated.body.data.session.title).toBe('renamed');
 
     const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
     expect(got.body.data.title).toBe('renamed');
   });
 
   it('still accepts profile updates that carry the never-applied profile fields', async () => {
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home as string } });
+
+    const updated = await postJson<ProfileWire>(`/api/v1/sessions/${created.body.data.id}/profile`, {
+      title: 'renamed',
+      agent_config: { system_prompt: 'be brief', tools: ['Read'], mcp_servers: ['docs'] },
+      permission_rules: [],
     });
 
-    const updated = await postJson<SessionWire>(
-      `/api/v1/sessions/${created.body.data.id}/profile`,
-      {
-        title: 'renamed',
-        agent_config: { system_prompt: 'be brief', tools: ['Read'], mcp_servers: ['docs'] },
-        permission_rules: [],
-      },
-    );
-
     expect(updated.body.code).toBe(0);
-    expect(updated.body.data.title).toBe('renamed');
+    expect(updated.body.data.session.title).toBe('renamed');
   });
 
   it('returns title-unavailable when generation cannot run', async () => {
@@ -993,10 +803,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
     let toolsRequest: { method: string; params: { chat_content: string } } | undefined;
     const actualFetch = globalThis.fetch.bind(globalThis);
-    jest.spyOn(globalThis, 'fetch').mockImplementation((async (
-      input: string | Request | URL,
-      init?: RequestInit,
-    ) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         const body = init?.body;
@@ -1010,25 +817,29 @@ describe('server-v2 /api/v1/sessions', () => {
         });
       }
       return actualFetch(input, init);
-    }) as unknown as typeof fetch);
+    });
 
     const created = await postJson<SessionWire>('/api/v1/sessions', {
       metadata: { cwd: home as string },
     });
     const id = created.body.data.id;
     for (const text of ['first REST prompt', 'second REST prompt', 'third REST prompt']) {
-      const submitted = await postJson<{ prompt_id: string }>(`/api/v1/sessions/${id}/prompts`, {
-        content: [{ type: 'text', text }],
-      });
+      const submitted = await postJson<{ prompt_id: string }>(
+        `/api/v1/sessions/${id}/prompts`,
+        { content: [{ type: 'text', text }] },
+      );
       expect(submitted.body.code).toBe(0);
     }
 
-    const generated = await postJson<{ title: string }>(`/api/v1/sessions/${id}/title/generate`);
+    const generated = await postJson<{ title: string }>(
+      `/api/v1/sessions/${id}/title/generate`,
+    );
     expect(generated.body).toMatchObject({ code: 0, data: { title: 'generated from REST' } });
     expect(toolsRequest).toEqual({
       method: 'chat_title',
       params: {
-        chat_content: 'user: first REST prompt\nuser: second REST prompt\nuser: third REST prompt',
+        chat_content:
+          'user: first REST prompt\nuser: second REST prompt\nuser: third REST prompt',
       },
     });
 
@@ -1063,7 +874,9 @@ describe('server-v2 /api/v1/sessions', () => {
   });
 
   it('returns session-not-found when generating a title for a missing session', async () => {
-    const generated = await postJson<null>('/api/v1/sessions/sess_missing_title/title/generate');
+    const generated = await postJson<null>(
+      '/api/v1/sessions/sess_missing_title/title/generate',
+    );
 
     expect(generated.body.code).toBe(40401);
   });
@@ -1076,31 +889,21 @@ describe('server-v2 /api/v1/sessions', () => {
     const handle = getLiveSessionById((server as RunningServer).core.accessor, id)!;
     const occupied = new Error2(ErrorCodes.SESSION_OCCUPIED, 'occupied');
 
-    const setTitle = spyOn(handle.accessor.get(ISessionMetadata), 'setTitle').mockRejectedValue(
-      occupied,
-    );
+    const setTitle = vi
+      .spyOn(handle.accessor.get(ISessionMetadata), 'setTitle')
+      .mockRejectedValue(occupied);
     const profile = await postJson(`/api/v1/sessions/${id}/profile`, { title: 'occupied' });
     expect(profile.status).toBe(200);
     expect(profile.body.code).toBe(40931);
     setTitle.mockRestore();
 
-    const generateTitle = spyOn(
-      handle.accessor.get(ISessionTitleService),
-      'generateTitle',
-    ).mockRejectedValue(occupied);
+    const generateTitle = vi
+      .spyOn(handle.accessor.get(ISessionTitleService), 'generateTitle')
+      .mockRejectedValue(occupied);
     const generated = await postJson(`/api/v1/sessions/${id}/title/generate`);
     expect(generated.status).toBe(200);
     expect(generated.body.code).toBe(40931);
     generateTitle.mockRestore();
-
-    const createChild = spyOn(
-      (server as RunningServer).core.accessor.get(ISessionManager),
-      'createChild',
-    ).mockRejectedValue(occupied);
-    const child = await postJson(`/api/v1/sessions/${id}/children`, {});
-    expect(child.status).toBe(200);
-    expect(child.body.code).toBe(40931);
-    createChild.mockRestore();
   });
 
   it('no longer serves GET /status', async () => {
@@ -1142,7 +945,8 @@ describe('server-v2 /api/v1/sessions', () => {
     });
 
     expect(created.body.code).toBe(0);
-    expect(created.body.data.metadata).toMatchObject({ cwd, source: 'composer' });
+    expect(created.body.data.metadata).toMatchObject({ source: 'composer' });
+    expect(created.body.data.cwd).toBe(cwd);
     const state = readAgentState(await mainAgentOf(created.body.data.id), false);
     expect(state.plan_mode).toBe(true);
     expect(state.permission_mode).toBe('yolo');
@@ -1158,7 +962,8 @@ describe('server-v2 /api/v1/sessions', () => {
     });
 
     expect(created.body.code).toBe(0);
-    expect(created.body.data.metadata).toMatchObject({ cwd, source: 'composer' });
+    expect(created.body.data.metadata).toMatchObject({ source: 'composer' });
+    expect(created.body.data.cwd).toBe(cwd);
   });
 
   it('drops the child-link metadata keys when creating an ordinary session', async () => {
@@ -1171,161 +976,7 @@ describe('server-v2 /api/v1/sessions', () => {
     });
 
     expect(created.body.code).toBe(0);
-    expect(created.body.data.metadata).not.toHaveProperty('parent_session_id');
-    expect(created.body.data.metadata).not.toHaveProperty('child_session_kind');
-    const children = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children`);
-    expect(children.body.data.items.some((s) => s.id === created.body.data.id)).toBe(false);
-  });
-
-  it('moves a session in place to another cwd while retaining history and cold-resume bindings', async () => {
-    const destination = join(home as string, 'moved-project');
-    await mkdir(destination, { recursive: true });
-    await writeFile(join(destination, 'destination.txt'), 'new workspace');
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string, source: 'original' },
-      title: 'Keep title',
-    });
-    const id = created.body.data.id;
-    await ensureMainAgent(getLiveSessionById(server!.core.accessor, id)!);
-    const originalAgent = getLiveSessionById(server!.core.accessor, id)!
-      .accessor.get(IAgentLifecycleService)
-      .handleOf('main')!;
-    originalAgent.accessor.get(IAgentEnvironmentBindingService).bind('local', home as string);
-    await originalAgent.accessor
-      .get(IEventDispatcher)
-      .dispatch(
-        new ContextAppendMessage({
-          agentId: 'main',
-          message: {
-            role: 'user',
-            content: [{ type: 'text', text: 'Keep migration history' }],
-            toolCalls: [],
-          },
-        }),
-      );
-    const moved = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
-      metadata: { cwd: destination, marker: 'moved' },
-    });
-    expect(moved.body.code).toBe(0);
-    expect(moved.body.data.id).toBe(id);
-    expect(moved.body.data.metadata).toMatchObject({
-      cwd: destination,
-      source: 'original',
-      marker: 'moved',
-    });
-    expect(moved.body.data.workspace_id).not.toBe(created.body.data.workspace_id!);
-    expect(moved.body.data.title).toBe('Keep title');
-    await closeSessionById(server!.core.accessor, id);
-    const resumed = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
-    expect(resumed.body.data.metadata.cwd).toBe(destination);
-    const read = await postJson<{ content: string }>(`/api/v1/sessions/${id}/fs:read`, {
-      path: 'destination.txt',
-    });
-    expect(read.body.code).toBe(0);
-    expect(read.body.data.content).toBe('new workspace');
-    const agent = getLiveSessionById(server!.core.accessor, id)!
-      .accessor.get(IAgentLifecycleService)
-      .handleOf('main')!;
-    expect(agent.accessor.get(IAgentEnvironmentBindingService).current.cwd).toBe(destination);
-    expect(JSON.stringify(agent.accessor.get(IAgentContextMemoryService).get())).toContain(
-      'Keep migration history',
-    );
-  });
-
-  it('rolls a failed directory migration back without losing its source session', async () => {
-    const destination = join(home as string, 'rollback-project');
-    await mkdir(destination, { recursive: true });
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-    });
-    const fs = server!.core.accessor.get(IHostFileSystem);
-    const rename = fs.rename!.bind(fs);
-    let calls = 0;
-    const failure = spyOn(fs, 'rename').mockImplementation(async (from, to) => {
-      calls += 1;
-      if (calls === 1) throw new Error('injected move failure');
-      await rename(from, to);
-    });
-    try {
-      const result = await postJson<SessionWire>(
-        `/api/v1/sessions/${created.body.data.id}/profile`,
-        { metadata: { cwd: destination } },
-      );
-      expect(result.body.code).not.toBe(0);
-      const restored = await getJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}`);
-      expect(restored.body.data.workspace_id).toBe(created.body.data.workspace_id!);
-      expect(restored.body.data.metadata.cwd).toBe(home as string);
-    } finally {
-      failure.mockRestore();
-    }
-  });
-
-  it('rolls back a persistence failure after the session directory was moved', async () => {
-    const destination = join(home as string, 'rollback-after-rename');
-    await mkdir(destination, { recursive: true });
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-    });
-    const docs = server!.core.accessor.get(IAtomicDocumentStore);
-    const set = docs.set.bind(docs);
-    let injected = false;
-    const failure = spyOn(docs, 'set').mockImplementation(async (scope, key, value) => {
-      if (
-        !injected &&
-        key === 'state.json' &&
-        typeof value === 'object' &&
-        value !== null &&
-        'cwd' in value &&
-        value.cwd === destination
-      ) {
-        injected = true;
-        throw new Error('injected persistence failure');
-      }
-      await set(scope, key, value);
-    });
-    try {
-      const result = await postJson<SessionWire>(
-        `/api/v1/sessions/${created.body.data.id}/profile`,
-        { metadata: { cwd: destination } },
-      );
-      expect(injected).toBe(true);
-      expect(result.body.code).not.toBe(0);
-      await closeSessionById(server!.core.accessor, created.body.data.id);
-      expect(
-        (await getJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}`)).body.data
-          .workspace_id,
-      ).toBe(created.body.data.workspace_id!);
-    } finally {
-      failure.mockRestore();
-    }
-  });
-
-  it('refuses migration when a prompt cannot be quiesced and preserves its original cwd', async () => {
-    const destination = join(home as string, 'busy-migration');
-    await mkdir(destination, { recursive: true });
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-    });
-    const session = getLiveSessionById(server!.core.accessor, created.body.data.id)!;
-    await ensureMainAgent(session);
-    const loop = session.accessor
-      .get(IAgentLifecycleService)
-      .handleOf('main')!
-      .accessor.get(IAgentLoopService);
-    const pause = loop.tryAcquireQuiescence()!;
-    try {
-      const result = await postJson<SessionWire>(
-        `/api/v1/sessions/${created.body.data.id}/profile`,
-        { metadata: { cwd: destination } },
-      );
-      expect(result.body.code).toBe(40901);
-      expect(
-        (await getJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}`)).body.data.metadata
-          .cwd,
-      ).toBe(home as string);
-    } finally {
-      pause.dispose();
-    }
+    expect(created.body.data.metadata).toBeUndefined();
   });
 
   it('drops the reserved metadata keys when updating the session profile', async () => {
@@ -1335,9 +986,9 @@ describe('server-v2 /api/v1/sessions', () => {
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
 
-    const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+    const updated = await postJson<ProfileWire>(`/api/v1/sessions/${id}/profile`, {
       metadata: {
-        cwd,
+        cwd: '/elsewhere',
         goal: 'not a goal',
         parent_session_id: parentId,
         child_session_kind: 'child',
@@ -1346,48 +997,43 @@ describe('server-v2 /api/v1/sessions', () => {
     });
 
     expect(updated.body.code).toBe(0);
-    expect(updated.body.data.metadata).toEqual({ cwd, source: 'composer' });
-    const children = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children`);
-    expect(children.body.data.items.some((s) => s.id === id)).toBe(false);
+    expect(updated.body.data.session.metadata).toEqual({ source: 'composer' });
   });
 
-  for (const patch of [
+  it.each([
     { source: 'composer' },
     { parent_session_id: null, child_session_kind: null },
     { parent_session_id: 'session_other', child_session_kind: 'child', source: 'composer' },
-  ]) {
-    it(`keeps a child session linked when its profile metadata is ${JSON.stringify(patch)}`, async () => {
-      const cwd = home as string;
-      const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-      const parentId = parent.body.data.id;
-      const child = await postJson<SessionWire>(`/api/v1/sessions/${parentId}/children`, {});
-      const childId = child.body.data.id;
-
-      const updated = await postJson<SessionWire>(`/api/v1/sessions/${childId}/profile`, {
-        metadata: patch,
-      });
-
-      expect(updated.body.code).toBe(0);
-      const children = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children`);
-      expect(children.body.data.items.some((s) => s.id === childId)).toBe(true);
+  ])('keeps a child session linked when its profile metadata is %o', async (patch) => {
+    const cwd = home as string;
+    const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const parentId = parent.body.data.id;
+    const childMeta = await (server as RunningServer).core.accessor.get(ISessionManager).createChild({
+      sourceSessionId: parentId,
     });
-  }
+    const childId = childMeta.id;
 
-  it('preserves custom metadata when a profile patch names only its current cwd', async () => {
+    const updated = await postJson<ProfileWire>(`/api/v1/sessions/${childId}/profile`, {
+      metadata: patch,
+    });
+
+    expect(updated.body.code).toBe(0);
+    expect(updated.body.data.session.metadata?.['parent_session_id']).toBe(parentId);
+    expect(updated.body.data.session.metadata?.['child_session_kind']).toBe('child');
+  });
+
+  it('replaces the custom metadata even when the profile metadata names only reserved keys', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', {
       metadata: { cwd, source: 'composer' },
     });
 
-    const updated = await postJson<SessionWire>(
-      `/api/v1/sessions/${created.body.data.id}/profile`,
-      {
-        metadata: { cwd },
-      },
-    );
+    const updated = await postJson<ProfileWire>(`/api/v1/sessions/${created.body.data.id}/profile`, {
+      metadata: { cwd: '/elsewhere' },
+    });
 
     expect(updated.body.code).toBe(0);
-    expect(updated.body.data.metadata).toEqual({ cwd, source: 'composer' });
+    expect(updated.body.data.session.metadata).toBeUndefined();
   });
 
   it('reports an unknown creation model as a validation error and creates nothing', async () => {
@@ -1418,20 +1064,169 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(await listed()).toEqual(before);
   });
 
-  it.each([{ model: '' }, { tower_base: 'main' }])(
-    'does not create the main agent for agent_config %o, which has nothing to apply',
+  function liveMainAgent(id: string) {
+    const session = getLiveSessionById((server as RunningServer).core.accessor, id)!;
+    return session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
+  }
+
+  it('binds the main agent to the default model when the session is created', async () => {
+    await restartWithModels();
+
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+
+    expect(created.body.data).not.toHaveProperty('agent_config');
+    const main = liveMainAgent(created.body.data.id);
+    expect(main).toBeDefined();
+    expect(main!.accessor.get(IAgentLoopService).data().profileName).toBe('agent');
+    expect(readAgentState(main!, false).model).toBe('stub');
+  });
+
+  it('waits for the model configuration before choosing the creation model', async () => {
+    await restartWithModels();
+    const models = (server as RunningServer).core.accessor.get(IModelService);
+    let loaded = false;
+    let release!: () => void;
+    (models as { ready: Promise<void> }).ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(models, 'getDefaultModel').mockImplementation(() => (loaded ? 'stub' : undefined));
+
+    const pending = postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home as string } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    loaded = true;
+    release();
+    const created = await pending;
+
+    expect(created.body.data).not.toHaveProperty('agent_config');
+  });
+
+  it('keeps a thinking level given at creation without a model', async () => {
+    await restartWithModels();
+
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+      agent_config: { thinking: 'high' },
+    });
+
+    expect(created.body.code).toBe(0);
+    expect(readAgentState(liveMainAgent(created.body.data.id)!, false)).toMatchObject({
+      model: 'stub',
+      thinking: 'high',
+    });
+  });
+
+  it('binds the profile, model and thinking given at creation together', async () => {
+    await restartWithModels();
+
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+      agent_config: { profile: 'route-reviewer', model: 'other', thinking: 'high' },
+    });
+
+    expect(created.body.code).toBe(0);
+    const main = liveMainAgent(created.body.data.id)!;
+    expect(main.accessor.get(IAgentLoopService).data().profileName).toBe('route-reviewer');
+    expect(readAgentState(main, false)).toMatchObject({ model: 'other', thinking: 'high' });
+  });
+
+  it('rejects changing the profile after the session is created', async () => {
+    await restartWithModels();
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+
+    const updated = await postJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}/profile`, {
+      agent_config: { profile: 'route-reviewer' },
+    });
+
+    expect(updated.body.code).toBe(40001);
+    expect(JSON.stringify(updated.body)).toContain('agent_config.profile');
+    const main = liveMainAgent(created.body.data.id)!;
+    expect(main.accessor.get(IAgentLoopService).data().profileName).toBe('agent');
+  });
+
+  it('rejects an unknown profile at creation and creates nothing', async () => {
+    await restartWithModels();
+    const listed = async (): Promise<string[]> =>
+      (await getJson<PageWire>('/api/v1/sessions')).body.data.items.map((session) => session.id);
+    const before = await listed();
+
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+      agent_config: { profile: 'agent_does_not_exist' },
+    });
+
+    expect(created.body.code).toBe(40001);
+    expect(created.body.msg).toContain('agent_does_not_exist');
+    expect(await listed()).toEqual(before);
+  });
+
+  it('keeps the model of an existing session when the default model changes', async () => {
+    await restartWithModels();
+    const first = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+
+    await (server as RunningServer).core.accessor.get(IModelCatalog).setDefaultModel('other');
+    const second = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+
+    const got = await getJson<SessionWire>(`/api/v1/sessions/${first.body.data.id}`);
+    expect(readAgentState(liveMainAgent(first.body.data.id)!, false).model).toBe('stub');
+    expect(readAgentState(liveMainAgent(second.body.data.id)!, false).model).toBe('other');
+  });
+
+  it('keeps the client flow of model at creation, then thinking and permission through the profile', async () => {
+    await restartWithModels();
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+      agent_config: { model: 'other' },
+    });
+    const id = created.body.data.id;
+
+    const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      agent_config: { thinking: 'high', permission_mode: 'yolo' },
+    });
+
+    expect(updated.body.code).toBe(0);
+    expect(readAgentState(liveMainAgent(id)!, false)).toMatchObject({
+      model: 'other',
+      thinking: 'high',
+      permission_mode: 'yolo',
+    });
+  });
+
+  it('creates a session without a model when none is available', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+
+    expect(created.body.code).toBe(0);
+    expect(created.body.data).not.toHaveProperty('agent_config');
+    expect(liveMainAgent(created.body.data.id)).toBeUndefined();
+
+    const thinking = await postJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}/profile`, {
+      agent_config: { thinking: 'high' },
+    });
+    expect(thinking.body.code).toBe(40113);
+  });
+
+  it.each([{ thinking: 'high' }, { profile: 'agent' }])(
+    'rejects agent_config %o at creation when no model is available',
     async (agentConfig) => {
+      const listed = async (): Promise<string[]> =>
+        (await getJson<PageWire>('/api/v1/sessions')).body.data.items.map((session) => session.id);
+      const before = await listed();
+
       const created = await postJson<SessionWire>('/api/v1/sessions', {
         metadata: { cwd: home as string },
         agent_config: agentConfig,
       });
 
-      expect(created.body.code).toBe(0);
-      const session = getLiveSessionById(
-        (server as RunningServer).core.accessor,
-        created.body.data.id,
-      )!;
-      expect(session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)).toBeUndefined();
+      expect(created.body.code).toBe(40113);
+      expect(await listed()).toEqual(before);
     },
   );
 
@@ -1483,52 +1278,20 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(readAgentState(await mainAgentOf(id), false).tower_mode).toBe(false);
   });
 
-  it('projects legacy limited goal states as blocked for the official client', async () => {
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-      agent_config: { goal_objective: 'compatibility' },
-    });
-    const agent = getLiveSessionById(server!.core.accessor, created.body.data.id)!
-      .accessor.get(IAgentLifecycleService)
-      .handleOf('main')!;
-    const service = agent.accessor.get(IAgentGoalService);
-    const current = service.getGoal();
-    const limited = spyOn(service, 'getGoal').mockReturnValue({
-      ...current,
-      goal: { ...current.goal!, status: 'budget_limited' },
-    });
-    try {
-      const goal = await getJson<GoalWire>(`/api/v1/sessions/${created.body.data.id}/goal`);
-      expect(goal.body.data.status).toBe('blocked');
-      expect(goal.body.data.goalId).toBe(current.goal!.goalId);
-    } finally {
-      limited.mockRestore();
-    }
-  });
-
-  it('returns the current goal via GET /goal', async () => {
-    const cwd = home as string;
-    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+  it('no longer serves the legacy goal, profile GET, messages, or children routes', async () => {
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home as string } });
     const id = created.body.data.id;
 
-    const before = await getJson<unknown>(`/api/v1/sessions/${id}/goal`);
-    expect(before.body.data).toBeNull();
-
-    await postJson(`/api/v1/sessions/${id}/profile`, {
-      agent_config: { goal_objective: 'fix all lint warnings' },
-    });
-
-    const after = await getJson<{ objective: string; status: string } | null>(
-      `/api/v1/sessions/${id}/goal`,
-    );
-    expect(after.body.data?.objective).toBe('fix all lint warnings');
-    expect(after.body.data?.status).toBe('active');
+    expect((await getJson(`/api/v1/sessions/${id}/goal`)).status).toBe(404);
+    expect((await patchJson(`/api/v1/sessions/${id}/goal`, { objective: 'work' })).status).toBe(404);
+    expect((await getJson(`/api/v1/sessions/${id}/profile`)).status).toBe(404);
+    expect((await getJson(`/api/v1/sessions/${id}/messages`)).status).toBe(404);
+    expect((await getJson(`/api/v1/sessions/${id}/children`)).status).toBe(404);
+    expect((await postJson(`/api/v1/sessions/${id}/children`, {})).body.code).toBe(40001);
   });
 
-  it('edits the goal objective via PATCH /goal and publishes goal.updated', async () => {
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-    });
+  it('edits the current goal through profile goal_control edit', async () => {
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home as string } });
     const id = created.body.data.id;
     await postJson(`/api/v1/sessions/${id}/profile`, {
       agent_config: { goal_objective: 'fix all lint warnings' },
@@ -1541,39 +1304,17 @@ describe('server-v2 /api/v1/sessions', () => {
     const subscription = agent.accessor.get(IEventBus).subscribe((event) => events.push(event));
 
     try {
-      const edited = await patchJson<GoalWire>(`/api/v1/sessions/${id}/goal`, {
-        objective: 'fix all type errors',
+      const edited = await postJson<ProfileWire>(`/api/v1/sessions/${id}/profile`, {
+        agent_config: { goal_control: 'edit', goal_objective: 'fix all type errors' },
       });
 
       expect(edited.body.code).toBe(0);
-      expect(edited.body.data.objective).toBe('fix all type errors');
-      expect(edited.body.data.status).toBe('active');
       const updated = events.filter((event) => event.type === 'goal.updated');
       expect(updated).toHaveLength(1);
       expect(updated[0]).toMatchObject({ snapshot: { objective: 'fix all type errors' } });
     } finally {
       subscription.dispose();
     }
-  });
-
-  it('maps goal edit failures to typed errors', async () => {
-    const created = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-    });
-    const id = created.body.data.id;
-
-    const missing = await patchJson<null>(`/api/v1/sessions/${id}/goal`, { objective: 'work' });
-    expect(missing.body.code).toBe(40914);
-
-    await postJson(`/api/v1/sessions/${id}/profile`, {
-      agent_config: { goal_objective: 'fix all lint warnings' },
-    });
-    const invalid = await patchJson<null>(`/api/v1/sessions/${id}/goal`, {});
-    expect(invalid.body.code).toBe(40001);
-    const unknown = await patchJson<null>('/api/v1/sessions/ses_missing/goal', {
-      objective: 'work',
-    });
-    expect(unknown.body.code).toBe(40401);
   });
 
   it('starts one continuation when the Web profile resumes a blocked goal', async () => {
@@ -1614,9 +1355,9 @@ describe('server-v2 /api/v1/sessions', () => {
         agent_config: { goal_control: 'resume' },
       });
 
-      const refreshed = await getJson<{ status: string } | null>(`/api/v1/sessions/${rig.id}/goal`);
+      const refreshed = readGoalState(liveMainAgent(rig.id)!);
 
-      expect(refreshed.body.data?.status).toBe('active');
+      expect(refreshed?.status).toBe('active');
     } finally {
       await rig.cancel();
     }
@@ -1627,7 +1368,7 @@ describe('server-v2 /api/v1/sessions', () => {
       metadata: { cwd: home as string },
     });
     const id = created.body.data.id;
-    const takeover = jest.spyOn(
+    const takeover = vi.spyOn(
       (server as RunningServer).core.accessor.get(ISessionLockService),
       'takeover',
     );
@@ -1645,19 +1386,113 @@ describe('server-v2 /api/v1/sessions', () => {
     }
   });
 
-  it('archives a session via :archive and reflects archived flag on get', async () => {
-    const cwd = home as string;
-    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    const id = created.body.data.id;
+  it('archives a session, force-kills a SIGTERM-ignoring baseline MCP, and reacquires the workspace', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-server-v2-session-archive-mcp-'));
+    const fixture = fileURLToPath(
+      new URL('../../agent-core-v2/test/mcpCore/fixtures/mock-stdio-server.mjs', import.meta.url),
+    );
+    const spawned: IHostProcess[] = [];
+    let disposeReplacement: (() => void) | undefined;
+    const hostProcesses = (server as RunningServer).core.accessor.get(IHostProcessService);
+    const spawn = hostProcesses.spawn.bind(hostProcesses);
+    const spawnSpy = vi.spyOn(hostProcesses, 'spawn').mockImplementation(async (command, args, options) => {
+      const child = await spawn(command, args, options);
+      if (command === process.execPath && args?.[0] === fixture) spawned.push(child);
+      return child;
+    });
+    try {
+      vi.stubEnv('KIMI_CODE_TRUST_WORKSPACE', '1');
+      await mkdir(join(cwd, '.kimi-code'), { recursive: true });
+      await writeFile(
+        join(cwd, '.kimi-code', 'mcp.json'),
+        JSON.stringify({
+          mcpServers: {
+            fixture: {
+              command: process.execPath,
+              args: [fixture],
+              env: { KIMI_TEST_MCP_IGNORE_SIGTERM: '1' },
+            },
+          },
+        }),
+      );
+      const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+      const id = created.body.data.id;
+      const workspaceId = created.body.data.workspace_id;
+      const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
+      const workspace = manager.get(workspaceId);
+      expect(workspace).toBeDefined();
+      await workspace!.program.mcp.ready;
+      const connections = workspace!.program.mcp.connectionManager();
+      await vi.waitFor(() => {
+        expect(connections.list().some((entry) => entry.name === 'fixture' && entry.status === 'connected')).toBe(true);
+      });
+      expect(spawned).toHaveLength(1);
+      const child = spawned[0]!;
+      const killSpy = vi.spyOn(child, 'kill');
+      expect(child.exitCode).toBeNull();
+      let disposeSubscription: (() => void) | undefined;
+      const closed = new Promise<void>((resolve) => {
+        const subscription = manager.onDidChange((change) => {
+          if (change.workspaceId !== workspaceId || change.instance !== undefined) return;
+          subscription.dispose();
+          resolve();
+        });
+        disposeSubscription = () => subscription.dispose();
+      });
 
-    const archived = await postJson<{ archived: boolean }>(`/api/v1/sessions/${id}:archive`);
-    expect(archived.body.code).toBe(0);
-    expect(archived.body.data).toEqual({ archived: true });
+      const archived = await postJson<{ archived: boolean }>(`/api/v1/sessions/${id}:archive`);
+      expect(archived.body.code).toBe(0);
+      expect(archived.body.data).toEqual({ archived: true });
+      expect(manager.get(workspaceId)).toBeUndefined();
+      const replacementLeasePromise = manager.acquire({ workspaceId });
+      await closed;
+      disposeSubscription?.();
+      expect(connections.list()).toEqual([]);
+      expect(child.exitCode).not.toBeNull();
+      if (process.platform !== 'win32') expect(killSpy).toHaveBeenCalledWith('SIGKILL');
 
-    const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
-    expect(got.body.code).toBe(0);
-    expect(got.body.data.archived).toBe(true);
-  });
+      const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
+      expect(got.body.code).toBe(0);
+      expect(got.body.data.archived).toBe(true);
+
+      const replacementLease = await replacementLeasePromise;
+      disposeReplacement = () => {
+        replacementLease.dispose();
+      };
+      const replacement = replacementLease.instance;
+      expect(replacement).not.toBe(workspace);
+      await replacement.program.mcp.ready;
+      const replacementConnections = replacement.program.mcp.connectionManager();
+      await vi.waitFor(() => {
+        expect(replacementConnections.list().some((entry) => entry.name === 'fixture' && entry.status === 'connected')).toBe(true);
+      });
+      expect(spawned).toHaveLength(2);
+      const replacementChild = spawned[1]!;
+      expect(replacementChild.exitCode).toBeNull();
+      let disposeReplacementSubscription: (() => void) | undefined;
+      const replacementClosed = new Promise<void>((resolve) => {
+        const subscription = manager.onDidChange((change) => {
+          if (change.workspaceId !== workspaceId || change.instance !== undefined) return;
+          subscription.dispose();
+          resolve();
+        });
+        disposeReplacementSubscription = () => {
+          subscription.dispose();
+        };
+      });
+      replacementLease.dispose();
+      await replacementClosed;
+      disposeReplacementSubscription?.();
+      expect(replacementChild.exitCode).not.toBeNull();
+    } finally {
+      disposeReplacement?.();
+      spawnSpy.mockRestore();
+      for (const child of spawned) {
+        if (child.exitCode === null) await child.kill('SIGKILL');
+      }
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it('resumes a session whose workspace root is gone (root validity deferred to binding) and still archives it', async () => {
     const cwd = join(home as string, 'gone-ws');
@@ -1721,15 +1556,12 @@ describe('server-v2 /api/v1/sessions', () => {
 
       const got = await getJson<null>(`/api/v1/sessions/${id}`);
       expect(got.body.code).toBe(40401);
-      await expect(readFile(join(home!, 'server', 'events', `${id}.jsonl`))).rejects.toMatchObject({
-        code: 'ENOENT',
-      });
 
       expect(
         events
           .filter((event) => event.type === 'event.session.deleted')
           .map((event) => (event as { readonly payload?: unknown }).payload),
-      ).toEqual([{ sessionId: id, workspaceId }]);
+      ).toMatchObject([{ sessionId: id, workspaceId }]);
     } finally {
       sub.dispose();
     }
@@ -1756,7 +1588,7 @@ describe('server-v2 /api/v1/sessions', () => {
         events
           .filter((event) => event.type === 'event.session.deleted')
           .map((event) => (event as { readonly payload?: unknown }).payload),
-      ).toEqual([{ sessionId: id, workspaceId }]);
+      ).toMatchObject([{ sessionId: id, workspaceId }]);
     } finally {
       sub.dispose();
     }
@@ -1811,17 +1643,19 @@ describe('server-v2 /api/v1/sessions', () => {
       expect(first.body.code).toBe(0);
       expect(first.body.data.id).toBe(id);
 
-      const baseline = await getJson<{ items: unknown[]; has_more: boolean }>(
-        `/api/v1/sessions/${id}/messages`,
-      );
-      const baselineCount = baseline.body.data.items.length;
+      const readHistory = (sid: string) => {
+        const live = getLiveSessionById((server as RunningServer).core.accessor, sid);
+        const main = live?.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
+        return main?.accessor.get(IAgentLoopService).history() ?? [];
+      };
+      const baselineCount = readHistory(id).length;
 
       await writeFile(join(cwd, 'AGENTS.md'), 'new workspace rules');
-      const projectsPath = join(home as string, 'workspaces.json');
+      const projectsPath = join(home as string, 'projects.json');
       const projects = JSON.parse(await readFile(projectsPath, 'utf8')) as {
-        workspaces: Record<string, { root: string; additional_dirs?: string[] }>;
+        projects: Record<string, { root: string; additional_dirs?: string[] }>;
       };
-      const project = Object.values(projects.workspaces).find((entry) => entry.root === cwd);
+      const project = Object.values(projects.projects).find((entry) => entry.root === cwd);
       if (project === undefined) throw new Error('expected the session project');
       project.additional_dirs = [extra];
       await writeFile(projectsPath, JSON.stringify(projects), 'utf8');
@@ -1829,87 +1663,26 @@ describe('server-v2 /api/v1/sessions', () => {
       const second = await postJson<SessionWire>(`/api/v1/sessions/${id}:reload`);
       expect(second.body.code).toBe(0);
 
-      const after = await getJson<{
-        items: {
-          content: { type: string; text?: string }[];
-          metadata?: { origin?: { variant?: string } };
-        }[];
-        has_more: boolean;
-      }>(`/api/v1/sessions/${id}/messages`);
-      expect(after.body.data.items.length).toBeGreaterThan(baselineCount);
-      const text = JSON.stringify(after.body.data.items);
+      const afterItems = readHistory(id);
+      expect(afterItems.length).toBeGreaterThan(baselineCount);
+      const text = JSON.stringify(afterItems);
       expect(text).toContain('AGENTS.md');
       expect(text).toContain('were not included in your system prompt');
-      const workspaceDirsReminders = after.body.data.items.filter(
-        (item) => item.metadata?.origin?.variant === 'workspace_dirs_change',
-      );
-      expect(workspaceDirsReminders).toHaveLength(1);
+      expect(text).toContain(JSON.stringify(`Added directories: ${extra}.`).slice(1, -1));
       expect(
-        workspaceDirsReminders[0]?.content
-          .map((part) => (part.type === 'text' ? part.text : ''))
-          .join(''),
-      ).toContain(`Added directories: ${extra}.`);
+        afterItems.filter(
+          (item) => (item.origin as { variant?: string } | undefined)?.variant === 'workspace_dirs_change',
+        ),
+      ).toHaveLength(1);
 
       const third = await postJson<SessionWire>(`/api/v1/sessions/${id}:reload`);
       expect(third.body.code).toBe(0);
-      const reloaded = await getJson<{
-        items: { metadata?: { origin?: { variant?: string } } }[];
-        has_more: boolean;
-      }>(`/api/v1/sessions/${id}/messages`);
+      const reloadedItems = readHistory(id);
       expect(
-        reloaded.body.data.items.filter(
-          (item) => item.metadata?.origin?.variant === 'workspace_dirs_change',
+        reloadedItems.filter(
+          (item) => (item.origin as { variant?: string } | undefined)?.variant === 'workspace_dirs_change',
         ),
       ).toHaveLength(1);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(extra, { recursive: true, force: true });
-    }
-  });
-
-  it('restores workspace-dir reminders when :reload fails', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'kimi-reload-failure-cwd-'));
-    const extra = await mkdtemp(join(tmpdir(), 'kimi-reload-failure-extra-'));
-    await mkdir(join(cwd, '.git'));
-    try {
-      const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-      const id = created.body.data.id;
-      const before = getLiveSessionById((server as RunningServer).core.accessor, id);
-      if (before === undefined) throw new Error('expected a live session');
-      const main = await ensureMainAgent(before);
-      await main.accessor.get(IAgentChangeNotifierService).notifyWorkspaceDirsChanges();
-      const target = (server as RunningServer).core.accessor
-        .get(IWorkspaceInstanceManager)
-        .get(created.body.data.workspace_id);
-      if (target === undefined) throw new Error('expected the session workspace');
-      const projectsPath = join(home as string, 'workspaces.json');
-      const projects = JSON.parse(await readFile(projectsPath, 'utf8')) as {
-        workspaces: Record<string, { root: string; additional_dirs?: string[] }>;
-      };
-      const project = Object.values(projects.workspaces).find((entry) => entry.root === cwd);
-      if (project === undefined) throw new Error('expected the session project');
-      project.additional_dirs = [extra];
-      await writeFile(projectsPath, JSON.stringify(projects), 'utf8');
-      spyOn(target.program.instructions, 'reload').mockRejectedValueOnce(
-        new Error('instructions reload failed'),
-      );
-
-      const failed = await postJson<SessionWire>(`/api/v1/sessions/${id}:reload`);
-      expect(failed.body.code).toBe(50001);
-      expect(failed.body.msg).toBe('instructions reload failed');
-      expect(getLiveSessionById((server as RunningServer).core.accessor, id)).toBe(before);
-      const reminders = main.accessor
-        .get(IAgentContextMemoryService)
-        .get()
-        .filter(
-          (message) =>
-            message.origin?.kind === 'injection' &&
-            message.origin.variant === 'workspace_dirs_change',
-        );
-      expect(reminders).toHaveLength(1);
-      expect(
-        reminders[0]?.content.map((part) => (part.type === 'text' ? part.text : '')).join(''),
-      ).toContain(`Added directories: ${extra}.`);
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(extra, { recursive: true, force: true });
@@ -1972,14 +1745,12 @@ describe('server-v2 /api/v1/sessions', () => {
       const reloaded = await postJson<SessionWire>(`/api/v1/sessions/${id}:reload`);
       expect(reloaded.body.code).toBe(0);
 
-      const after = await getJson<{ items: unknown[]; has_more: boolean }>(
-        `/api/v1/sessions/${id}/messages`,
+      const live = getLiveSessionById((server as RunningServer).core.accessor, id);
+      const main = live?.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
+      const history = main?.accessor.get(IAgentLoopService).history() ?? [];
+      const subagentReminders = history.filter(
+        (item) => (item.origin as { variant?: string } | undefined)?.variant === 'subagents_change',
       );
-      const subagentReminders = (
-        after.body.data.items as {
-          metadata?: { origin?: { kind?: string; variant?: string } };
-        }[]
-      ).filter((item) => item.metadata?.origin?.variant === 'subagents_change');
       expect(subagentReminders).toHaveLength(1);
       const text = JSON.stringify(subagentReminders[0]);
       expect(text).toContain('Profiles added: deploy');
@@ -1990,56 +1761,55 @@ describe('server-v2 /api/v1/sessions', () => {
     }
   });
 
-  it.each(['closing', 'cleanup'] as const)(
-    'waits for %s before recreating an explicit session id',
-    async (phase) => {
-      const manager = server!.core.accessor.get(ISessionManager);
-      const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
-      const id = created.body.data.id;
-      let enter!: () => void;
-      let release!: () => void;
-      const entered = new Promise<void>((resolve) => {
-        enter = resolve;
+  it.each(['closing', 'cleanup'] as const)('waits for %s before recreating an explicit session id', async (phase) => {
+    const manager = server!.core.accessor.get(ISessionManager);
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
+    const id = created.body.data.id;
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => { enter = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const event = phase === 'closing' ? manager.onWillCloseSession! : manager.onWillDeleteSession!;
+    const sub = event((event) => {
+      if (event.sessionId !== id) return;
+      event.waitUntil(gate);
+      enter();
+    });
+    try {
+      const deletion = manager.delete(id);
+      await entered;
+      let recreated = false;
+      const creation = manager.create({ sessionId: id, workDir: home! }).then((handle) => {
+        recreated = true;
+        return handle;
       });
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const event =
-        phase === 'closing' ? manager.onWillCloseSession! : manager.onWillDeleteSession!;
-      const sub = event((event) => {
-        if (event.sessionId !== id) return;
-        event.waitUntil(gate);
-        enter();
-      });
-      try {
-        const deletion = manager.delete(id);
-        await entered;
-        let recreated = false;
-        const creation = manager.create({ sessionId: id, workDir: home! }).then((handle) => {
-          recreated = true;
-          return handle;
-        });
-        await new Promise<void>((resolve) => setImmediate(resolve));
-        expect(recreated).toBe(false);
-        release();
-        await deletion;
-        await creation;
-        expect(manager.get(id)).toBeDefined();
-      } finally {
-        release();
-        sub.dispose();
-      }
-    },
-  );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(recreated).toBe(false);
+      release();
+      await deletion;
+      await creation;
+      expect(manager.get(id)).toBeDefined();
+    } finally {
+      release();
+      sub.dispose();
+    }
+  });
 
-  it('rejects a missing session delete and an unsupported action suffix with their error codes', async () => {
+  it('rejects unsupported actions including removed abort and prediction actions', async () => {
     const { body } = await postJson<null>('/api/v1/sessions/sess_missing:delete');
     expect(body.code).toBe(40401);
 
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    const suffix = await postJson<null>(`/api/v1/sessions/${created.body.data.id}:restart`);
-    expect(suffix.body.code).toBe(40001);
+    const id = created.body.data.id;
+    expect((await postJson<null>(`/api/v1/sessions/${id}:restart`)).body.code).toBe(40001);
+    expect((await postJson<null>(`/api/v1/sessions/${id}:abort`)).body.code).toBe(40001);
+    expect(
+      (await postJson<null>(`/api/v1/sessions/${id}:predict-prompt`, { prediction_id: 'p1', expected_turn_id: 0 })).body.code,
+    ).toBe(40001);
+    expect(
+      (await postJson<null>(`/api/v1/sessions/${id}:cancel-prompt-prediction`, { prediction_id: 'p1' })).body.code,
+    ).toBe(40001);
   });
 
   it('cold-loads a persisted session on :undo and reports an unknown turn instead of 40401', async () => {
@@ -2050,53 +1820,40 @@ describe('server-v2 /api/v1/sessions', () => {
     await closeSessionById((server as RunningServer).core.accessor, id);
 
     const res = await postJson<null>(`/api/v1/sessions/${id}:undo`, { turn_id: 't_missing' });
-    expect(res.body.code).toBe(40422);
+    expect(res.body.code).toBe(40421);
   });
 
   it('returns 40901 when :undo reports a busy session', async () => {
     const created = await postJson<SessionWire>('/api/v1/sessions', {
       metadata: { cwd: home as string },
     });
-    const session = getLiveSessionById(
-      (server as RunningServer).core.accessor,
-      created.body.data.id,
-    );
+    const session = getLiveSessionById((server as RunningServer).core.accessor, created.body.data.id);
     if (session === undefined) throw new Error('expected live session');
-    await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
+    await session.accessor
+      .get(IAgentLifecycleService)
+      .create({ agentId: MAIN_AGENT_ID });
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    await agent.accessor.get(IEventDispatcher).dispatch(
-      new TurnPrompt({
-        agentId: MAIN_AGENT_ID,
-        input: [{ type: 'text', text: 'first prompt' }],
-        origin: { kind: 'user' },
-        turnId: 0,
-      }),
-    );
-    await agent.accessor.get(IEventDispatcher).dispatch(
-      new ContextAppendMessage({
-        agentId: MAIN_AGENT_ID,
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: 'first prompt' }],
-          toolCalls: [],
-          origin: { kind: 'user' },
-        },
-      }),
-    );
-    await agent.accessor
-      .get(IEventDispatcher)
-      .dispatch(new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }));
-    const page = await getJson<ConversationTurnsPage>(
-      `/api/v1/sessions/${created.body.data.id}/agents/main/turns`,
-    );
-    const undo = spyOn(ConversationFeed.prototype, 'undo').mockRejectedValue(
-      new Error2(ErrorCodes.SESSION_BUSY, 'session is busy'),
-    );
+    await agent.accessor.get(IEventDispatcher).dispatch(new TurnPrompt({
+      agentId: MAIN_AGENT_ID,
+      input: [{ type: 'text', text: 'first prompt' }],
+      origin: { kind: 'user' },
+      turnId: 0,
+    }));
+    await agent.accessor.get(IEventDispatcher).dispatch(new ContextAppendMessage({
+      agentId: MAIN_AGENT_ID,
+      message: { role: 'user', content: [{ type: 'text', text: 'first prompt' }], origin: { kind: 'user' } },
+    }));
+    await agent.accessor.get(IEventDispatcher).dispatch(new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }));
+    const page = await getJson<ConversationTurnsPage>(`/api/v1/sessions/${created.body.data.id}/agents/main/turns`);
+    const undo = vi
+      .spyOn(ConversationFeed.prototype, 'undo')
+      .mockRejectedValue(new Error2(ErrorCodes.SESSION_BUSY, 'session is busy'));
 
     try {
-      const response = await postJson<null>(`/api/v1/sessions/${created.body.data.id}:undo`, {
-        turn_id: page.body.data.turns[0]!.turn_id,
-      });
+      const response = await postJson<null>(
+        `/api/v1/sessions/${created.body.data.id}:undo`,
+        { turn_id: page.body.data.turns[0]!.turn_id },
+      );
 
       expect(response.body.code).toBe(40901);
     } finally {
@@ -2111,24 +1868,19 @@ describe('server-v2 /api/v1/sessions', () => {
     const id = created.body.data.id;
     const session = getLiveSessionById((server as RunningServer).core.accessor, id);
     if (session === undefined) throw new Error('expected live session');
-    await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
+    await session.accessor
+      .get(IAgentLifecycleService)
+      .create({ agentId: MAIN_AGENT_ID });
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const compactionService = agent.accessor.get(IAgentFullCompactionService);
-    const originalDescriptor = Object.getOwnPropertyDescriptor(compactionService, 'compacting');
-    Object.defineProperty(compactionService, 'compacting', {
-      configurable: true,
-      get: () => ({}) as never,
-    });
+    const compacting = vi
+      .spyOn(agent.accessor.get(IAgentFullCompactionService), 'compacting', 'get')
+      .mockReturnValue({} as never);
 
     try {
       const response = await postJson<null>(`/api/v1/sessions/${id}:reload`);
       expect(response.body.code).toBe(40901);
     } finally {
-      if (originalDescriptor === undefined) {
-        delete (compactionService as unknown as Record<string, unknown>)['compacting'];
-      } else {
-        Object.defineProperty(compactionService, 'compacting', originalDescriptor);
-      }
+      compacting.mockRestore();
     }
   });
 
@@ -2139,16 +1891,16 @@ describe('server-v2 /api/v1/sessions', () => {
     const id = created.body.data.id;
     const session = getLiveSessionById((server as RunningServer).core.accessor, id);
     if (session === undefined) throw new Error('expected live session');
-    await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
+    await session.accessor
+      .get(IAgentLifecycleService)
+      .create({ agentId: MAIN_AGENT_ID });
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const begin = spyOn(agent.accessor.get(IAgentFullCompactionService), 'begin').mockReturnValue(
-      false,
-    );
+    const begin = vi
+      .spyOn(agent.accessor.get(IAgentFullCompactionService), 'begin')
+      .mockReturnValue(false);
 
     try {
-      const response = await postJson<null>(`/api/v1/sessions/${id}:compact`, {
-        instruction: 'keep the plan',
-      });
+      const response = await postJson<null>(`/api/v1/sessions/${id}:compact`, { instruction: 'keep the plan' });
       expect(response.body.code).toBe(40910);
       expect(begin).toHaveBeenCalledWith({ source: 'manual', instruction: 'keep the plan' });
     } finally {
@@ -2156,67 +1908,15 @@ describe('server-v2 /api/v1/sessions', () => {
     }
   });
 
-  it('creates a child session tagged with parent_session_id and child_session_kind', async () => {
-    const cwd = home as string;
-    const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    expect(parent.body.code).toBe(0);
-    const parentId = parent.body.data.id;
-
-    const child = await postJson<SessionWire>(`/api/v1/sessions/${parentId}/children`, {
-      title: 'child-title',
-      metadata: { branch: 'direct-child' },
-    });
-    expect(child.status).toBe(200);
-    expect(child.body.code).toBe(0);
-    expect(child.body.data.id).not.toBe(parentId);
-    expect(child.body.data.title).toBe('child-title');
-    expect(child.body.data.metadata['parent_session_id']).toBe(parentId);
-    expect(child.body.data.metadata['child_session_kind']).toBe('child');
-    expect(child.body.data.metadata['branch']).toBe('direct-child');
-    expect(child.body.data.metadata.cwd).toBe(cwd);
-  });
-
-  it('defaults the child title to "Child: <parent title>"', async () => {
-    const cwd = home as string;
-    const parent = await postJson<SessionWire>('/api/v1/sessions', {
-      title: 'parent-title',
-      metadata: { cwd },
-    });
-    const child = await postJson<SessionWire>(
-      `/api/v1/sessions/${parent.body.data.id}/children`,
-      {},
-    );
-    expect(child.body.code).toBe(0);
-    expect(child.body.data.title).toBe('Child: parent-title');
-  });
-
-  it('lists direct children and omits grandchildren', async () => {
+  it('forks a session and rejects an incompatible source', async () => {
     const cwd = home as string;
     const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const parentId = parent.body.data.id;
-    const child = await postJson<SessionWire>(`/api/v1/sessions/${parentId}/children`, {
-      metadata: { branch: 'child' },
-    });
-    const childId = child.body.data.id;
-    const grandchild = await postJson<SessionWire>(`/api/v1/sessions/${childId}/children`, {
-      metadata: { branch: 'grandchild' },
-    });
-    const grandchildId = grandchild.body.data.id;
-
-    const parentChildren = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children`);
-    expect(parentChildren.body.code).toBe(0);
-    expect(parentChildren.body.data.items.some((s) => s.id === childId)).toBe(true);
-    expect(parentChildren.body.data.items.some((s) => s.id === grandchildId)).toBe(false);
-
-    const childChildren = await getJson<PageWire>(`/api/v1/sessions/${childId}/children`);
-    expect(childChildren.body.code).toBe(0);
-    expect(childChildren.body.data.items.some((s) => s.id === grandchildId)).toBe(true);
-  });
-
-  it('does not list a plain fork as a child (kind must be "child")', async () => {
-    const cwd = home as string;
-    const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    const parentId = parent.body.data.id;
+    const session = getLiveSessionById((server as RunningServer).core.accessor, parentId);
+    expect(session).toBeDefined();
+    await session!.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
+    const main = session!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
+    await main.accessor.get(IWireService).flush();
     const invalid = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {
       turn_index: -1,
     });
@@ -2224,9 +1924,37 @@ describe('server-v2 /api/v1/sessions', () => {
     const forked = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {});
     expect(forked.body.code).toBe(0);
 
-    const children = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children`);
-    expect(children.body.code).toBe(0);
-    expect(children.body.data.items.some((s) => s.id === forked.body.data.id)).toBe(false);
+    const sessionDir = sessionDirOf(
+      (server as RunningServer).core.accessor.get(IBootstrapService).homeDir,
+      `sessions/${parent.body.data.workspace_id}`,
+      parentId,
+    );
+    const wirePath = join(sessionDir, 'agents', MAIN_AGENT_ID, 'wire.jsonl');
+    const sourceWire = await readFile(wirePath, 'utf8');
+    expect(sourceWire).toContain('"min_protocol_version":"1.5"');
+    await writeFile(
+      wirePath,
+      sourceWire
+        .replace('"protocol_version":"1.5"', '"protocol_version":"9.9"')
+        .replace('"min_protocol_version":"1.5"', '"min_protocol_version":"9.9"'),
+    );
+    await closeSessionById((server as RunningServer).core.accessor, parentId);
+    const rating = await postJson<unknown>(`/api/v1/sessions/${parentId}/rating`, { op: 'evaluate', turn_id: 't0' });
+    expect(rating.body.code).toBe(40930);
+    const turns = await getJson<unknown>(`/api/v1/sessions/${parentId}/agents/${MAIN_AGENT_ID}/turns`);
+    expect(turns.body.code).toBe(40930);
+    expect(turns.body.msg).toContain('Upgrade Kimi Code');
+    const sliced = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {
+      turn_index: 999,
+    });
+    expect(sliced.body.code).toBe(40930);
+    expect(sliced.body.msg).toContain('Upgrade Kimi Code');
+    const incompatible = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {});
+    expect(incompatible.body.code).toBe(40930);
+    expect(incompatible.body.msg).toBe(
+      'This session requires a newer version of Kimi Code. Upgrade Kimi Code to the latest version to read this session.',
+    );
+    expect(incompatible.body.details).toEqual({ minReaderVersion: '9.9', readerVersion: '1.5' });
   });
 
   it('fork clears inherited cron tasks while the source keeps them', async () => {
@@ -2237,12 +1965,15 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(session).toBeDefined();
     await session!.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
     const main = session!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    main.accessor.get(IAgentContextMemoryService).append({
-      role: 'user',
-      content: [{ type: 'text', text: 'selected through REST' }],
-      toolCalls: [],
-      origin: { kind: 'user' },
-    });
+    const loop = main.accessor.get(IAgentLoopService);
+    loop.replaceHistory(historyEntries([
+      ...loop.history(),
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'selected through REST' }],
+        origin: { kind: 'user' },
+      },
+    ]), 'fork');
     await main.accessor.get(IWireService).flush();
     const cron = main.accessor.get(IAgentCronService);
     const task = cron.addTask({ cron: '0 9 * * *', prompt: 'fork me', recurring: true });
@@ -2258,7 +1989,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const resumed = await resumeSessionById((server as RunningServer).core.accessor, forkedId);
     expect(resumed).toBeDefined();
     const forkedMain = resumed!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    expect(forkedMain.accessor.get(IAgentContextMemoryService).get()[0]).toMatchObject({
+    expect(forkedMain.accessor.get(IAgentLoopService).history()[0]).toMatchObject({
       role: 'user',
       content: [{ type: 'text', text: 'selected through REST' }],
     });
@@ -2287,30 +2018,22 @@ describe('server-v2 /api/v1/sessions', () => {
       apply: (metadata: ISessionMetadata) =>
         metadata.update({ title: 'Replaceable title', titleKind: 'replaceable' }),
     },
-  ])(
-    'fork with a default title inherits the source titleKind "$kind"',
-    async ({ kind, title, apply }) => {
-      const cwd = home as string;
-      const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-      const parentId = parent.body.data.id;
-      const session = getLiveSessionById((server as RunningServer).core.accessor, parentId);
-      expect(session).toBeDefined();
-      await apply(session!.accessor.get(ISessionMetadata));
+  ])('fork with a default title inherits the source titleKind "$kind"', async ({ kind, title, apply }) => {
+    const cwd = home as string;
+    const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const parentId = parent.body.data.id;
+    const session = getLiveSessionById((server as RunningServer).core.accessor, parentId);
+    expect(session).toBeDefined();
+    await apply(session!.accessor.get(ISessionMetadata));
 
-      const forked = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {});
-      expect(forked.body.code).toBe(0);
+    const forked = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {});
+    expect(forked.body.code).toBe(0);
 
-      const forkedDir = join(
-        home as string,
-        'sessions',
-        parent.body.data.workspace_id,
-        forked.body.data.id,
-      );
-      const forkedState = JSON.parse(await readFile(join(forkedDir, 'state.json'), 'utf8'));
-      expect(forkedState.title).toBe(`Fork: ${title}`);
-      expect(forkedState.titleKind).toBe(kind);
-    },
-  );
+    const forkedDir = join(home as string, 'sessions', parent.body.data.workspace_id, forked.body.data.id);
+    const forkedState = JSON.parse(await readFile(join(forkedDir, 'state.json'), 'utf8'));
+    expect(forkedState.title).toBe(`Fork: ${title}`);
+    expect(forkedState.titleKind).toBe(kind);
+  });
 
   it('marks a fork with an explicit title as custom regardless of the source titleKind', async () => {
     const cwd = home as string;
@@ -2318,21 +2041,12 @@ describe('server-v2 /api/v1/sessions', () => {
     const parentId = parent.body.data.id;
     const session = getLiveSessionById((server as RunningServer).core.accessor, parentId);
     expect(session).toBeDefined();
-    await session!.accessor
-      .get(ISessionMetadata)
-      .setGeneratedTitleIfUncustomized('Generated title', { force: true });
+    await session!.accessor.get(ISessionMetadata).setGeneratedTitleIfUncustomized('Generated title', { force: true });
 
-    const forked = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {
-      title: 'Named fork',
-    });
+    const forked = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, { title: 'Named fork' });
     expect(forked.body.code).toBe(0);
 
-    const forkedDir = join(
-      home as string,
-      'sessions',
-      parent.body.data.workspace_id,
-      forked.body.data.id,
-    );
+    const forkedDir = join(home as string, 'sessions', parent.body.data.workspace_id, forked.body.data.id);
     const forkedState = JSON.parse(await readFile(join(forkedDir, 'state.json'), 'utf8'));
     expect(forkedState.title).toBe('Named fork');
     expect(forkedState.titleKind).toBe('custom');
@@ -2344,191 +2058,63 @@ describe('server-v2 /api/v1/sessions', () => {
     const session = getLiveSessionById((server as RunningServer).core.accessor, id)!;
     await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const dispatcher = agent.accessor.get(IEventDispatcher);
-    await dispatcher.dispatch(
-      new TurnPrompt({
-        agentId: MAIN_AGENT_ID,
-        input: [{ type: 'text', text: 'original prompt' }],
-        origin: { kind: 'user' },
-        turnId: 0,
-      }),
-    );
-    await dispatcher.dispatch(
-      new ContextAppendMessage({
-        agentId: MAIN_AGENT_ID,
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: 'original prompt' }],
-          toolCalls: [],
-          origin: { kind: 'user' },
-        },
-      }),
-    );
-    await dispatcher.dispatch(
-      new ContextAppendMessage({
-        agentId: MAIN_AGENT_ID,
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'answer before steer' }],
-          toolCalls: [],
-        },
-      }),
-    );
-    await dispatcher.dispatch(
-      new TurnSteer({
-        agentId: MAIN_AGENT_ID,
-        input: [{ type: 'text', text: 'steered prompt' }],
-        origin: { kind: 'user', inTurn: true },
-      }),
-    );
-    await dispatcher.dispatch(
-      new ContextAppendMessage({
-        agentId: MAIN_AGENT_ID,
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: 'steered prompt' }],
-          toolCalls: [],
-          origin: { kind: 'user', inTurn: true },
-        },
-      }),
-    );
-    await dispatcher.dispatch(
-      new ContextAppendMessage({
-        agentId: MAIN_AGENT_ID,
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'answer after steer' }],
-          toolCalls: [],
-        },
-      }),
-    );
-    await dispatcher.dispatch(
-      new TurnSteer({
-        agentId: MAIN_AGENT_ID,
-        input: [{ type: 'text', text: 'second steer' }],
-        origin: { kind: 'user', inTurn: true },
-      }),
-    );
-    await dispatcher.dispatch(
-      new ContextAppendMessage({
-        agentId: MAIN_AGENT_ID,
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: 'second steer' }],
-          toolCalls: [],
-          origin: { kind: 'user', inTurn: true },
-        },
-      }),
-    );
-    await dispatcher.dispatch(
-      new ContextAppendMessage({
-        agentId: MAIN_AGENT_ID,
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'answer after second steer' }],
-          toolCalls: [],
-        },
-      }),
-    );
-    await dispatcher.dispatch(
-      new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }),
-    );
-    await agent.accessor.get(IWireService).flush();
+    await agent.accessor.get(IEventDispatcher).dispatch(new TurnPrompt({
+      agentId: MAIN_AGENT_ID,
+      input: [{ type: 'text', text: 'original prompt' }],
+      origin: { kind: 'user' },
+      turnId: 0,
+    }));
+    const wire = agent.accessor.get(IWireService);
+    await agent.accessor.get(IEventDispatcher).dispatch(new ContextAppendMessage({
+      agentId: MAIN_AGENT_ID,
+      message: { role: 'user', content: [{ type: 'text', text: 'original prompt' }], origin: { kind: 'user' } },
+    }));
+    await agent.accessor.get(IEventDispatcher).dispatch(new ContextAppendMessage({
+      agentId: MAIN_AGENT_ID,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'answer before steer' }], toolCalls: [] },
+    }));
+    await agent.accessor.get(IEventDispatcher).dispatch(new TurnSteer({
+      agentId: MAIN_AGENT_ID,
+      input: [{ type: 'text', text: 'steered prompt' }],
+      origin: { kind: 'user' },
+      turnId: 0,
+    }));
+    await agent.accessor.get(IEventDispatcher).dispatch(new ContextAppendMessage({
+      agentId: MAIN_AGENT_ID,
+      message: { role: 'user', content: [{ type: 'text', text: 'steered prompt' }], origin: { kind: 'user' } },
+    }));
+    await agent.accessor.get(IEventDispatcher).dispatch(new ContextAppendMessage({
+      agentId: MAIN_AGENT_ID,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'answer after steer' }], toolCalls: [] },
+    }));
+    await agent.accessor.get(IEventDispatcher).dispatch(new TurnSteer({
+      agentId: MAIN_AGENT_ID,
+      input: [{ type: 'text', text: 'second steer' }],
+      origin: { kind: 'user' },
+      turnId: 0,
+    }));
+    await agent.accessor.get(IEventDispatcher).dispatch(new ContextAppendMessage({
+      agentId: MAIN_AGENT_ID,
+      message: { role: 'user', content: [{ type: 'text', text: 'second steer' }], origin: { kind: 'user' } },
+    }));
+    await agent.accessor.get(IEventDispatcher).dispatch(new ContextAppendMessage({
+      agentId: MAIN_AGENT_ID,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'answer after second steer' }], toolCalls: [] },
+    }));
+    await agent.accessor.get(IEventDispatcher).dispatch(new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }));
+    await wire.flush();
     const path = `/api/v1/sessions/${id}/agents/main/turns`;
     const before = await getJson<ConversationTurnsPage>(path);
     expect(before.body.code).toBe(0);
     const [turn] = before.body.data.turns;
     expect(before.body.data.turns).toHaveLength(1);
-    expect(
-      turn!.items.filter((item) => item.type === 'user_message').map((item) => item.placement),
-    ).toEqual(['opener', 'steer', 'steer']);
+    expect(turn!.items.filter((item) => item.type === 'user_message').map((item) => item.placement)).toEqual(['opener', 'steer', 'steer']);
 
     expect((await postJson<null>(`/api/v1/sessions/${id}:undo`, {})).body.code).toBe(40001);
-    expect(
-      (await postJson<null>(`/api/v1/sessions/${id}:undo`, { turn_id: 't_missing' })).body.code,
-    ).toBe(40422);
-    const undone = await postJson<{ removed_turn_ids: string[] }>(`/api/v1/sessions/${id}:undo`, {
-      turn_id: turn!.turn_id,
-    });
+    expect((await postJson<null>(`/api/v1/sessions/${id}:undo`, { turn_id: 't_missing' })).body.code).toBe(40421);
+    const undone = await postJson<{ removed_turn_ids: string[] }>(`/api/v1/sessions/${id}:undo`, { turn_id: turn!.turn_id });
     expect(undone.body).toMatchObject({ code: 0, data: { removed_turn_ids: [turn!.turn_id] } });
     expect((await getJson<ConversationTurnsPage>(path)).body.data.turns).toEqual([]);
-  });
-
-  it('serves tool task links after closing and restoring the session', async () => {
-    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
-    const id = created.body.data.id;
-    const session = getLiveSessionById((server as RunningServer).core.accessor, id)!;
-    await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
-    const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const dispatcher = agent.accessor.get(IEventDispatcher);
-    await dispatcher.dispatch(
-      new TurnPrompt({
-        agentId: MAIN_AGENT_ID,
-        input: [{ type: 'text', text: 'run' }],
-        origin: { kind: 'user' },
-        turnId: 0,
-      }),
-    );
-    for (const message of [
-      {
-        role: 'user',
-        id: 'task-prompt',
-        origin: { kind: 'user' },
-        content: [{ type: 'text', text: 'run' }],
-        toolCalls: [],
-      },
-      {
-        role: 'assistant',
-        content: [],
-        toolCalls: [{ type: 'function', id: 'task-call', name: 'Bash', arguments: '{}' }],
-      },
-    ] satisfies ContextMessage[]) {
-      await dispatcher.dispatch(new ContextAppendMessage({ agentId: MAIN_AGENT_ID, message }));
-    }
-    await dispatcher.dispatch(
-      new TaskStarted({
-        agentId: MAIN_AGENT_ID,
-        info: {
-          kind: 'process',
-          taskId: 'bash-linked',
-          parentToolCallId: 'task-call',
-          description: 'done',
-          command: 'bun test',
-          pid: 0,
-          exitCode: 0,
-          status: 'completed',
-          startedAt: 1,
-          endedAt: 2,
-        },
-      }),
-    );
-    await dispatcher.dispatch(
-      new ContextAppendMessage({
-        agentId: MAIN_AGENT_ID,
-        message: {
-          role: 'tool',
-          content: [{ type: 'text', text: 'done' }],
-          toolCalls: [],
-          toolCallId: 'task-call',
-        },
-      }),
-    );
-    await dispatcher.dispatch(
-      new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }),
-    );
-    await agent.accessor.get(IWireService).flush();
-    const path = `/api/v1/sessions/${id}/agents/main/turns`;
-    const live = await getJson<ConversationTurnsPage>(path);
-    expect(live.body.code).toBe(0);
-    expect(live.body.data.turns.flatMap((turn) => turn.items)).toContainEqual(
-      expect.objectContaining({ item_id: 'task-call', task_id: 'bash-linked' }),
-    );
-    await closeSessionById((server as RunningServer).core.accessor, id);
-    const restored = await getJson<ConversationTurnsPage>(path);
-    expect(restored.body.code).toBe(0);
-    expect(restored.body.data.turns.flatMap((turn) => turn.items)).toContainEqual(
-      expect.objectContaining({ item_id: 'task-call', task_id: 'bash-linked' }),
-    );
   });
 
   it('undoes a turn only once when two requests race for it', async () => {
@@ -2539,59 +2125,36 @@ describe('server-v2 /api/v1/sessions', () => {
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
     const dispatcher = agent.accessor.get(IEventDispatcher);
     for (let turnId = 0; turnId < 3; turnId++) {
-      await dispatcher.dispatch(
-        new TurnPrompt({
-          agentId: MAIN_AGENT_ID,
-          input: [{ type: 'text', text: `prompt ${turnId}` }],
-          origin: { kind: 'user' },
-          turnId,
-        }),
-      );
-      await dispatcher.dispatch(
-        new ContextAppendMessage({
-          agentId: MAIN_AGENT_ID,
-          message: {
-            role: 'user',
-            content: [{ type: 'text', text: `prompt ${turnId}` }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          },
-        }),
-      );
-      await dispatcher.dispatch(
-        new ContextAppendMessage({
-          agentId: MAIN_AGENT_ID,
-          message: {
-            role: 'assistant',
-            content: [{ type: 'text', text: `answer ${turnId}` }],
-            toolCalls: [],
-          },
-        }),
-      );
-      await dispatcher.dispatch(
-        new TurnEnded({ agentId: MAIN_AGENT_ID, turnId, reason: 'completed' }),
-      );
+      await dispatcher.dispatch(new TurnPrompt({
+        agentId: MAIN_AGENT_ID,
+        input: [{ type: 'text', text: `prompt ${turnId}` }],
+        origin: { kind: 'user' },
+        turnId,
+      }));
+      await dispatcher.dispatch(new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: { role: 'user', content: [{ type: 'text', text: `prompt ${turnId}` }], origin: { kind: 'user' } },
+      }));
+      await dispatcher.dispatch(new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: { role: 'assistant', content: [{ type: 'text', text: `answer ${turnId}` }], toolCalls: [] },
+      }));
+      await dispatcher.dispatch(new TurnEnded({ agentId: MAIN_AGENT_ID, turnId, reason: 'completed' }));
     }
     await agent.accessor.get(IWireService).flush();
     const path = `/api/v1/sessions/${id}/agents/main/turns`;
-    const turnIds = (await getJson<ConversationTurnsPage>(path)).body.data.turns.map(
-      (turn) => turn.turn_id,
-    );
+    const turnIds = (await getJson<ConversationTurnsPage>(path)).body.data.turns.map((turn) => turn.turn_id);
     expect(turnIds).toHaveLength(3);
 
     const results = await Promise.all([
-      postJson<{ removed_turn_ids: string[] }>(`/api/v1/sessions/${id}:undo`, {
-        turn_id: turnIds[2],
-      }),
-      postJson<{ removed_turn_ids: string[] }>(`/api/v1/sessions/${id}:undo`, {
-        turn_id: turnIds[2],
-      }),
+      postJson<{ removed_turn_ids: string[] }>(`/api/v1/sessions/${id}:undo`, { turn_id: turnIds[2] }),
+      postJson<{ removed_turn_ids: string[] }>(`/api/v1/sessions/${id}:undo`, { turn_id: turnIds[2] }),
     ]);
 
-    expect(results.map((result) => result.body.code).toSorted()).toEqual([0, 40422]);
-    expect(
-      (await getJson<ConversationTurnsPage>(path)).body.data.turns.map((turn) => turn.turn_id),
-    ).toEqual(turnIds.slice(0, 2));
+    expect(results.map((result) => result.body.code).toSorted()).toEqual([0, 40421]);
+    expect((await getJson<ConversationTurnsPage>(path)).body.data.turns.map((turn) => turn.turn_id)).toEqual(
+      turnIds.slice(0, 2),
+    );
   });
 
   it('forks an undo-branched wire self-contained and replays it equivalently', async () => {
@@ -2602,11 +2165,10 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(session).toBeDefined();
     await session!.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
     const agent = session!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const context = agent.accessor.get(IAgentContextMemoryService);
+    const context = agent.accessor.get(IAgentLoopService);
     const user = (text: string): ContextMessage => ({
       role: 'user',
       content: [{ type: 'text', text }],
-      toolCalls: [],
       origin: { kind: 'user' },
     });
     const assistant = (text: string): ContextMessage => ({
@@ -2614,15 +2176,32 @@ describe('server-v2 /api/v1/sessions', () => {
       content: [{ type: 'text', text }],
       toolCalls: [],
     });
-    context.append(user('first prompt'), assistant('first answer'));
-    context.append(user('second prompt'), assistant('second answer'));
+    const wire = agent.accessor.get(IWireService);
+    wire.append({
+      type: 'turn.prompt',
+      agentId: MAIN_AGENT_ID,
+      input: [{ type: 'text', text: 'first prompt' }],
+      origin: { kind: 'user' },
+      turnId: 0,
+    });
+    wire.append({ type: 'context.append_message', agentId: MAIN_AGENT_ID, message: user('first prompt') });
+    wire.append({ type: 'context.append_message', agentId: MAIN_AGENT_ID, message: assistant('first answer') });
+    wire.append({
+      type: 'turn.prompt',
+      agentId: MAIN_AGENT_ID,
+      input: [{ type: 'text', text: 'second prompt' }],
+      origin: { kind: 'user' },
+      turnId: 1,
+    });
+    wire.append({ type: 'context.append_message', agentId: MAIN_AGENT_ID, message: user('second prompt') });
+    wire.append({ type: 'context.append_message', agentId: MAIN_AGENT_ID, message: assistant('second answer') });
     await agent.accessor.get(IAgentConversationUndoService).undo(1);
-    await agent.accessor.get(IWireService).flush();
+    await wire.flush();
     const messageText = (messages: readonly ContextMessage[]) =>
       messages.map((message) =>
         message.content.map((part) => (part.type === 'text' ? part.text : '')).join(''),
       );
-    const sourceText = messageText(context.get());
+    const sourceText = messageText(context.history());
     expect(sourceText).toEqual(['first prompt', 'first answer']);
 
     const forked = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {});
@@ -2634,26 +2213,16 @@ describe('server-v2 /api/v1/sessions', () => {
         path.endsWith(join('agents', 'main', 'wire.jsonl')) &&
         (path.includes(parentId) || path.includes(forkedId)),
     );
-    const sourceLines = (
-      await readFile(
-        join(
-          home as string,
-          wireFiles.find((path) => path.includes(parentId))!,
-        ),
-        'utf8',
-      )
-    )
+    const sourceLines = (await readFile(
+      join(home as string, wireFiles.find((path) => path.includes(parentId))!),
+      'utf8',
+    ))
       .trimEnd()
       .split('\n');
-    const forkedLines = (
-      await readFile(
-        join(
-          home as string,
-          wireFiles.find((path) => path.includes(forkedId))!,
-        ),
-        'utf8',
-      )
-    )
+    const forkedLines = (await readFile(
+      join(home as string, wireFiles.find((path) => path.includes(forkedId))!),
+      'utf8',
+    ))
       .trimEnd()
       .split('\n');
     const recordType = (line: string) => (JSON.parse(line) as { type: string }).type;
@@ -2667,44 +2236,24 @@ describe('server-v2 /api/v1/sessions', () => {
     const forkedContext = resumed!.accessor
       .get(IAgentLifecycleService)
       .handleOf(MAIN_AGENT_ID)!
-      .accessor.get(IAgentContextMemoryService);
-    expect(messageText(forkedContext.get())).toEqual(sourceText);
+      .accessor.get(IAgentLoopService);
+    expect(messageText(forkedContext.history())).toEqual(sourceText);
   });
 
   it('continues a paginated attachment read after forking and removing the source file', async () => {
-    const parent = await postJson<SessionWire>('/api/v1/sessions', {
-      metadata: { cwd: home as string },
-    });
+    const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home as string } });
     const parentId = parent.body.data.id;
     const core = (server as RunningServer).core;
     const session = getLiveSessionById(core.accessor, parentId)!;
-    const body =
-      '😀'.repeat(600) +
-      '\n' +
-      Array.from({ length: 30 }, (_, i) => `line ${String(i)} é`).join('\n');
-    const output = await mcpResultToExecutableOutput(
-      {
-        isError: false,
-        content: [
-          {
-            type: 'resource',
-            resource: {
-              uri: 'example://report',
-              mimeType: 'text/plain',
-              blob: Buffer.from(body).toString('base64'),
-            },
-          },
-        ],
-      },
-      'mcp__example__report',
-      { attachmentStore: session.accessor.get(ISessionMediaStore) },
-    );
-    const text = renderToolResultForModel(output)
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n');
-    const sourcePath = JSON.parse(
-      /Original attachment saved at: ("[^\n]+")/.exec(text)![1]!,
-    ) as string;
+    const body = '😀'.repeat(600) + '\n' + Array.from({ length: 30 }, (_, i) => `line ${String(i)} é`).join('\n');
+    const output = await mcpResultToExecutableOutput({
+      isError: false,
+      content: [{ type: 'resource', resource: {
+        uri: 'example://report', mimeType: 'text/plain', blob: Buffer.from(body).toString('base64'),
+      } }],
+    }, 'mcp__example__report', { attachmentStore: session.accessor.get(ISessionMediaStore) });
+    const text = renderToolResultForModel(output).map((part) => part.type === 'text' ? part.text : '').join('\n');
+    const sourcePath = JSON.parse(/Original attachment saved at: ("[^\n]+")/.exec(text)![1]!) as string;
     const reference = JSON.parse(/Attachment reference: ("[^\n]+")/.exec(text)![1]!) as string;
     const sourceAgents = session.accessor.get(IAgentLifecycleService);
     await sourceAgents.create({ agentId: MAIN_AGENT_ID });
@@ -2712,11 +2261,7 @@ describe('server-v2 /api/v1/sessions', () => {
     let args: ReadInput | undefined = { path: reference, max_chars: 1000 };
     const firstExecution = await reader.resolveExecution(args);
     if (firstExecution.isError === true) throw new Error(JSON.stringify(firstExecution.output));
-    const first = await firstExecution.execute({
-      turnId: 1,
-      toolCallId: 'read-first',
-      signal: new AbortController().signal,
-    });
+    const first = await firstExecution.execute({ turnId: 1, toolCallId: 'read-first', signal: new AbortController().signal });
     expect(first.isError).not.toBe(true);
     let recovered = (first.output as string).replaceAll(/^\d+\t/gm, '');
     const firstNext = /Next Read: (\{[^\n]*\})/.exec(first.note ?? '')?.[1];
@@ -2736,11 +2281,7 @@ describe('server-v2 /api/v1/sessions', () => {
       expect(args.path).toBe(reference);
       const execution = await reader.resolveExecution(args);
       if (execution.isError === true) throw new Error(JSON.stringify(execution.output));
-      const read = await execution.execute({
-        turnId: 1,
-        toolCallId: `read-${String(pages++)}`,
-        signal: new AbortController().signal,
-      });
+      const read = await execution.execute({ turnId: 1, toolCallId: `read-${String(pages++)}`, signal: new AbortController().signal });
       expect(read.isError).not.toBe(true);
       if ((args.column_offset ?? 0) === 0) recovered += '\n';
       recovered += (read.output as string).replaceAll(/^\d+\t/gm, '');
@@ -2758,15 +2299,8 @@ describe('server-v2 /api/v1/sessions', () => {
     const session = getLiveSessionById((server as RunningServer).core.accessor, parentId);
     expect(session).toBeDefined();
     await session!.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
-    const cron = session!.accessor
-      .get(IAgentLifecycleService)
-      .handleOf(MAIN_AGENT_ID)!
-      .accessor.get(IAgentCronService);
-    const task = cron.addTask({
-      cron: '0 9 * * *',
-      prompt: 'survives corruption',
-      recurring: true,
-    });
+    const cron = session!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!.accessor.get(IAgentCronService);
+    const task = cron.addTask({ cron: '0 9 * * *', prompt: 'survives corruption', recurring: true });
     await closeSessionById((server as RunningServer).core.accessor, parentId);
 
     const wireRelatives = (await readdir(home as string, { recursive: true })).filter((path) =>
@@ -2789,173 +2323,139 @@ describe('server-v2 /api/v1/sessions', () => {
 
     const resumed = await resumeSessionById((server as RunningServer).core.accessor, forkedId);
     expect(resumed).toBeDefined();
-    const forkedCron = resumed!.accessor
-      .get(IAgentLifecycleService)
-      .handleOf(MAIN_AGENT_ID)!
-      .accessor.get(IAgentCronService);
+    const forkedCron = resumed!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!.accessor.get(IAgentCronService);
     expect(forkedCron.list().map((t) => ({ id: t.id, prompt: t.prompt }))).toEqual([
       { id: task.id, prompt: 'survives corruption' },
     ]);
   });
 
-  it(
-    'cold-forks a session with hundreds of agents without materializing it',
-    { timeout: 30_000 },
-    async () => {
-      const cwd = home as string;
-      const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-      const parentId = parent.body.data.id;
-      const parentWire = parent.body.data;
-      await closeSessionById((server as RunningServer).core.accessor, parentId);
+  it('cold-forks a session with hundreds of agents without materializing it', { timeout: 30_000 }, async () => {
+    const cwd = home as string;
+    const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const parentId = parent.body.data.id;
+    const parentWire = parent.body.data;
+    await closeSessionById((server as RunningServer).core.accessor, parentId);
 
-      const sessionDir = join(home as string, 'sessions', parentWire.workspace_id, parentId);
-      const statePath = join(sessionDir, 'state.json');
-      const state = JSON.parse(await readFile(statePath, 'utf8'));
+    const sessionDir = join(home as string, 'sessions', parentWire.workspace_id, parentId);
+    const statePath = join(sessionDir, 'state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
 
-      const subagentCount = 300;
-      const metadataLine = JSON.stringify({
-        type: 'metadata',
-        protocol_version: '1.5',
-        created_at: 1,
-      });
-      const recordLine = (n: number) =>
-        JSON.stringify({
-          type: 'context.append_message',
-          message: {
-            role: 'user',
-            content: [{ type: 'text', text: `hello ${n}` }],
-            toolCalls: [],
-            origin: { kind: 'user' },
-          },
-          time: n,
-        });
-      const planRevisionLine = JSON.stringify({
-        type: 'plan.revision',
-        id: 'plan-1',
-        version: 2,
-        key: 'plan/plan-1/v2.md',
-        sha256: 'deadbeef',
-        bytes: 128,
-        time: 5,
-      });
-
-      const agents: Record<
-        string,
-        {
-          homedir: string;
-          type: string;
-          parentAgentId: string | null;
-          labels: Record<string, string>;
-        }
-      > = {
-        main: {
-          homedir: join(sessionDir, 'agents', 'main'),
-          type: 'main',
-          parentAgentId: null,
-          labels: { kind: 'main' },
+    const subagentCount = 300;
+    const metadataLine = JSON.stringify({ type: 'metadata', protocol_version: '1.5', created_at: 1 });
+    const recordLine = (n: number) =>
+      JSON.stringify({
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: `hello ${n}` }],
+          toolCalls: [],
+          origin: { kind: 'user' },
         },
+        time: n,
+      });
+    const planRevisionLine = JSON.stringify({
+      type: 'plan.revision',
+      id: 'plan-1',
+      version: 2,
+      key: 'plan/plan-1/v2.md',
+      sha256: 'deadbeef',
+      bytes: 128,
+      time: 5,
+    });
+
+    const agents: Record<string, { homedir: string; type: string; parentAgentId: string | null; labels: Record<string, string> }> = {
+      main: {
+        homedir: join(sessionDir, 'agents', 'main'),
+        type: 'main',
+        parentAgentId: null,
+        labels: { kind: 'main' },
+      },
+    };
+    await mkdir(join(sessionDir, 'agents', 'main'), { recursive: true });
+    await writeFile(
+      join(sessionDir, 'agents', 'main', 'wire.jsonl'),
+      `${metadataLine}\n${recordLine(2)}\n${planRevisionLine}\n`,
+    );
+    for (let i = 0; i < subagentCount; i++) {
+      const agentId = `agent-${i}`;
+      agents[agentId] = {
+        homedir: join(sessionDir, 'agents', agentId),
+        type: 'sub',
+        parentAgentId: 'main',
+        labels: { swarm: 'test' },
       };
-      await mkdir(join(sessionDir, 'agents', 'main'), { recursive: true });
+      const agentDir = join(sessionDir, 'agents', agentId);
+      await mkdir(agentDir, { recursive: true });
+      if (i === 0) continue;
       await writeFile(
-        join(sessionDir, 'agents', 'main', 'wire.jsonl'),
-        `${metadataLine}\n${recordLine(2)}\n${planRevisionLine}\n`,
+        join(agentDir, 'wire.jsonl'),
+        `${metadataLine}\n${recordLine(i)}\n${recordLine(i + 1000)}\n`,
       );
-      for (let i = 0; i < subagentCount; i++) {
-        const agentId = `agent-${i}`;
-        agents[agentId] = {
-          homedir: join(sessionDir, 'agents', agentId),
-          type: 'sub',
-          parentAgentId: 'main',
-          labels: { swarm: 'test' },
-        };
-        const agentDir = join(sessionDir, 'agents', agentId);
-        await mkdir(agentDir, { recursive: true });
-        if (i === 0) continue;
-        await writeFile(
-          join(agentDir, 'wire.jsonl'),
-          `${metadataLine}\n${recordLine(i)}\n${recordLine(i + 1000)}\n`,
-        );
-      }
-      state.agents = agents;
-      state.custom = { origin: 'large-test' };
-      await writeFile(statePath, JSON.stringify(state));
+    }
+    state.agents = agents;
+    state.custom = { origin: 'large-test' };
+    await writeFile(statePath, JSON.stringify(state));
 
-      const startedAt = Date.now();
-      const forked = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {});
-      const elapsedMs = Date.now() - startedAt;
-      expect(forked.body.code).toBe(0);
-      const forkedId = forked.body.data.id;
-      process.stdout.write(
-        `fork of ${subagentCount + 1}-agent session completed in ${elapsedMs}ms\n`,
+    const startedAt = Date.now();
+    const forked = await postJson<SessionWire>(`/api/v1/sessions/${parentId}:fork`, {});
+    const elapsedMs = Date.now() - startedAt;
+    expect(forked.body.code).toBe(0);
+    const forkedId = forked.body.data.id;
+    process.stdout.write(`fork of ${subagentCount + 1}-agent session completed in ${elapsedMs}ms\n`);
+
+    expect(getLiveSessionById((server as RunningServer).core.accessor, forkedId)).toBeUndefined();
+
+    const forkedDir = join(home as string, 'sessions', parentWire.workspace_id, forkedId);
+    const forkedState = JSON.parse(await readFile(join(forkedDir, 'state.json'), 'utf8'));
+    expect(forkedState.title).toBe(`Fork: ${parentWire.title || parentId}`);
+    expect(forkedState.titleKind).toBeUndefined();
+    expect(forkedState.forkedFrom).toBe(parentId);
+    expect(forkedState.custom).toEqual({ origin: 'large-test' });
+    expect(Object.keys(forkedState.agents)).toHaveLength(subagentCount + 1);
+    for (const agentId of ['main', 'agent-0', 'agent-150', `agent-${subagentCount - 1}`]) {
+      const entry = forkedState.agents[agentId];
+      const source = agents[agentId]!;
+      expect(entry.homedir.replaceAll('\\', '/')).toBe(join(forkedDir, 'agents', agentId).replaceAll('\\', '/'));
+      expect(entry.type).toBe(source.type);
+      expect(entry.parentAgentId ?? null).toBe(source.parentAgentId);
+      expect(entry.labels).toEqual(
+        agentId === 'main' ? source.labels : { ...source.labels, parentAgentId: 'main' },
       );
+    }
 
-      expect(getLiveSessionById((server as RunningServer).core.accessor, forkedId)).toBeUndefined();
+    const mainWire = (await readFile(join(forkedDir, 'agents', 'main', 'wire.jsonl'), 'utf8'))
+      .trim()
+      .split('\n');
+    expect(mainWire.map((line) => JSON.parse(line).type)).toEqual([
+      'metadata',
+      'context.append_message',
+      'plan.revision',
+      'forked',
+    ]);
+    expect(JSON.parse(mainWire[2]!)).toMatchObject({ key: 'plan/plan-1/v2.md' });
 
-      const forkedDir = join(home as string, 'sessions', parentWire.workspace_id, forkedId);
-      const forkedState = JSON.parse(await readFile(join(forkedDir, 'state.json'), 'utf8'));
-      expect(forkedState.title).toBe(`Fork: ${parentWire.title || parentId}`);
-      expect(forkedState.titleKind).toBeUndefined();
-      expect(forkedState.forkedFrom).toBe(parentId);
-      expect(forkedState.custom).toEqual({ origin: 'large-test' });
-      expect(Object.keys(forkedState.agents)).toHaveLength(subagentCount + 1);
-      for (const agentId of ['main', 'agent-0', 'agent-150', `agent-${subagentCount - 1}`]) {
-        const entry = forkedState.agents[agentId];
-        const source = agents[agentId]!;
-        expect(entry.homedir.split(sep).join('/')).toBe(
-          join(forkedDir, 'agents', agentId).split(sep).join('/'),
-        );
-        expect(entry.type).toBe(source.type);
-        expect(entry.parentAgentId ?? null).toBe(source.parentAgentId);
-        expect(entry.labels).toEqual(
-          agentId === 'main' ? source.labels : { ...source.labels, parentAgentId: 'main' },
-        );
-      }
+    const emptyWire = (await readFile(join(forkedDir, 'agents', 'agent-0', 'wire.jsonl'), 'utf8'))
+      .trim()
+      .split('\n');
+    expect(emptyWire.map((line) => JSON.parse(line).type)).toEqual(['metadata', 'forked']);
 
-      const mainWire = (await readFile(join(forkedDir, 'agents', 'main', 'wire.jsonl'), 'utf8'))
-        .trim()
-        .split('\n');
-      expect(mainWire.map((line) => JSON.parse(line).type)).toEqual([
-        'metadata',
-        'context.append_message',
-        'plan.revision',
-        'forked',
-      ]);
-      expect(JSON.parse(mainWire[2]!)).toMatchObject({ key: 'plan/plan-1/v2.md' });
+    const sampledWire = (await readFile(join(forkedDir, 'agents', 'agent-150', 'wire.jsonl'), 'utf8'))
+      .trim()
+      .split('\n');
+    expect(sampledWire.map((line) => JSON.parse(line).type)).toEqual([
+      'metadata',
+      'context.append_message',
+      'context.append_message',
+      'forked',
+    ]);
 
-      const emptyWire = (await readFile(join(forkedDir, 'agents', 'agent-0', 'wire.jsonl'), 'utf8'))
-        .trim()
-        .split('\n');
-      expect(emptyWire.map((line) => JSON.parse(line).type)).toEqual(['metadata', 'forked']);
+    const listed = await getJson<SessionWire>(`/api/v1/sessions/${forkedId}`);
+    expect(listed.body.code).toBe(0);
 
-      const sampledWire = (
-        await readFile(join(forkedDir, 'agents', 'agent-150', 'wire.jsonl'), 'utf8')
-      )
-        .trim()
-        .split('\n');
-      expect(sampledWire.map((line) => JSON.parse(line).type)).toEqual([
-        'metadata',
-        'context.append_message',
-        'context.append_message',
-        'forked',
-      ]);
-
-      const listed = await getJson<SessionWire>(`/api/v1/sessions/${forkedId}`);
-      expect(listed.body.code).toBe(0);
-
-      const transcript = await getJson<{
-        items: { kind: string; marker?: string; payload?: { path?: string } }[];
-      }>(`/api/v1/sessions/${forkedId}/transcript?agent_id=main`);
-      expect(transcript.body.code).toBe(0);
-      const revisionMarker = transcript.body.data.items.find(
-        (item) => item.kind === 'marker' && item.marker === 'plan.revision',
-      );
-      expect(revisionMarker?.payload?.path).toContain(forkedId);
-
-      const resumed = await resumeSessionById((server as RunningServer).core.accessor, forkedId);
-      expect(resumed).toBeDefined();
-      expect(resumed!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)).toBeDefined();
-    },
-  );
+    const resumed = await resumeSessionById((server as RunningServer).core.accessor, forkedId);
+    expect(resumed).toBeDefined();
+    expect(resumed!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)).toBeDefined();
+  });
 
   it('keeps cron tasks across a server restart through the wire', async () => {
     const cwd = home as string;
@@ -2999,13 +2499,11 @@ describe('server-v2 /api/v1/sessions', () => {
     const session = getLiveSessionById((server as RunningServer).core.accessor, sessionId);
     await session!.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
     const main = session!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    await main.accessor.get(IEventDispatcher).dispatch(
-      new EnvironmentSetBinding({
-        agentId: MAIN_AGENT_ID,
-        environmentId: `acp:${sessionId}`,
-        cwd,
-      }),
-    );
+    await main.accessor.get(IEventDispatcher).dispatch(new EnvironmentSetBinding({
+      agentId: MAIN_AGENT_ID,
+      environmentId: `acp:${sessionId}`,
+      cwd,
+    }));
     const filePath = join(cwd, 'legacy-acp.txt');
     await writeFile(filePath, 'legacy ACP read');
 
@@ -3022,9 +2520,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
     const resumed = await resumeSessionById((server as RunningServer).core.accessor, sessionId);
     const resumedMain = resumed!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const execution = await resumedMain.accessor
-      .get(IReadTool)
-      .resolveExecution({ path: filePath });
+    const execution = await resumedMain.accessor.get(IReadTool).resolveExecution({ path: filePath });
     expect(execution.isError, JSON.stringify(execution)).not.toBe(true);
     if (execution.isError) return;
     const read = await execution.execute({
@@ -3049,10 +2545,7 @@ describe('server-v2 /api/v1/sessions', () => {
       debugEndpoints: true,
     });
     base = `http://127.0.0.1:${server.port}`;
-    const resumedAgain = await resumeSessionById(
-      (server as RunningServer).core.accessor,
-      sessionId,
-    );
+    const resumedAgain = await resumeSessionById((server as RunningServer).core.accessor, sessionId);
     const binding = resumedAgain!.accessor
       .get(IAgentLifecycleService)
       .handleOf(MAIN_AGENT_ID)!
@@ -3068,21 +2561,17 @@ describe('server-v2 /api/v1/sessions', () => {
     const session = getLiveSessionById((server as RunningServer).core.accessor, sessionId);
     await session!.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
     const main = session!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    await main.accessor.get(IEventDispatcher).dispatch(
-      new EnvironmentSetBinding({
-        agentId: MAIN_AGENT_ID,
-        environmentId,
-        cwd,
-      }),
-    );
+    await main.accessor.get(IEventDispatcher).dispatch(new EnvironmentSetBinding({
+      agentId: MAIN_AGENT_ID,
+      environmentId,
+      cwd,
+    }));
     await closeSessionById((server as RunningServer).core.accessor, sessionId);
     const environment = new FakeEnvironment(
       { environmentId, generation: 'legacy-acp-generation' },
       { capabilities: [] },
     );
-    const registration = (server as RunningServer).core.accessor
-      .get(IEnvironmentService)
-      .register(environment);
+    const registration = (server as RunningServer).core.accessor.get(IEnvironmentService).register(environment);
     try {
       const resumed = await resumeSessionById((server as RunningServer).core.accessor, sessionId);
       const binding = resumed!.accessor
@@ -3094,16 +2583,6 @@ describe('server-v2 /api/v1/sessions', () => {
       await registration.remove();
       await closeSessionById((server as RunningServer).core.accessor, sessionId);
     }
-  });
-
-  it('returns 40401 when listing children of a missing parent', async () => {
-    const { body } = await getJson<null>('/api/v1/sessions/sess_missing_parent/children');
-    expect(body.code).toBe(40401);
-  });
-
-  it('returns 40401 when creating a child for a missing parent', async () => {
-    const { body } = await postJson<null>('/api/v1/sessions/sess_missing_parent/children', {});
-    expect(body.code).toBe(40401);
   });
 
   it('returns an empty warnings list for an existing session', async () => {
@@ -3141,29 +2620,33 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(normal.body.data.items.some((s) => s.id === liveId)).toBe(true);
     expect(normal.body.data.items.some((s) => s.id === archivedId)).toBe(false);
 
-    const onlyArchived = await getJson<PageWire>('/api/v1/sessions?archived_only=true');
+    const onlyArchived = await getJson<PageWire>('/api/v1/sessions?archived=true');
     expect(onlyArchived.body.code).toBe(0);
     expect(onlyArchived.body.data.items.some((s) => s.id === archivedId)).toBe(true);
     expect(onlyArchived.body.data.items.some((s) => s.id === liveId)).toBe(false);
 
-    const all = await getJson<PageWire>('/api/v1/sessions?include_archive=true');
+    const all = await getJson<PageWire>('/api/v1/sessions?archived=all');
     expect(all.body.data.items.some((s) => s.id === liveId)).toBe(true);
     expect(all.body.data.items.some((s) => s.id === archivedId)).toBe(true);
   });
 
-  it('paginates archived_only without returning empty filtered pages', async () => {
+  it('paginates archived=true without returning empty filtered pages', async () => {
     await restartWithFreshHome();
     const cwd = home as string;
     const archivedOlder = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    await postJson<{ archived: boolean }>(`/api/v1/sessions/${archivedOlder.body.data.id}:archive`);
+    await postJson<{ archived: boolean }>(
+      `/api/v1/sessions/${archivedOlder.body.data.id}:archive`,
+    );
 
     const archivedNewer = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    await postJson<{ archived: boolean }>(`/api/v1/sessions/${archivedNewer.body.data.id}:archive`);
+    await postJson<{ archived: boolean }>(
+      `/api/v1/sessions/${archivedNewer.body.data.id}:archive`,
+    );
 
     await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
 
-    const first = await getJson<PageWire>('/api/v1/sessions?archived_only=true&page_size=1');
+    const first = await getJson<PageWire>('/api/v1/sessions?archived=true&page_size=1');
     expect(first.body.code).toBe(0);
     expect(first.body.data.items).toHaveLength(1);
     expect(first.body.data.items[0]).toMatchObject({
@@ -3173,7 +2656,7 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(first.body.data.has_more).toBe(true);
 
     const second = await getJson<PageWire>(
-      `/api/v1/sessions?archived_only=true&page_size=1&before_id=${archivedNewer.body.data.id}`,
+      `/api/v1/sessions?archived=true&page_size=1&before_id=${archivedNewer.body.data.id}`,
     );
     expect(second.body.code).toBe(0);
     expect(second.body.data.items).toHaveLength(1);
@@ -3184,7 +2667,7 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(second.body.data.has_more).toBe(false);
   });
 
-  it('keeps the after_id lower bound while a filtered drain pages for more candidates', async () => {
+  it('keeps the after_id lower bound while paging archived sessions', async () => {
     const cwd = home as string;
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -3200,21 +2683,19 @@ describe('server-v2 /api/v1/sessions', () => {
     await postJson<{ archived: boolean }>(`/api/v1/sessions/${archivedNewer.body.data.id}:archive`);
 
     const page = await getJson<PageWire>(
-      `/api/v1/sessions?archived_only=true&page_size=2&after_id=${archivedOlder.body.data.id}`,
+      `/api/v1/sessions?archived=true&page_size=2&after_id=${archivedOlder.body.data.id}`,
     );
     expect(page.body.code).toBe(0);
     expect(page.body.data.items.map((s) => s.id)).toEqual([archivedNewer.body.data.id]);
     expect(page.body.data.has_more).toBe(false);
   });
 
-  it('rejects archived_only combined with include_archive (40001)', async () => {
-    const { body } = await getJson<null>(
-      '/api/v1/sessions?archived_only=true&include_archive=true',
-    );
+  it('rejects an invalid archived filter value (40001)', async () => {
+    const { body } = await getJson<null>('/api/v1/sessions?archived=yes');
     expect(body.code).toBe(40001);
   });
 
-  it('returns a terminal empty page when archived_only busy filtering finds no match', async () => {
+  it('returns a terminal empty page when archived=true busy filtering finds no match', async () => {
     const cwd = home as string;
     const first = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const second = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
@@ -3223,20 +2704,16 @@ describe('server-v2 /api/v1/sessions', () => {
     await postJson<{ archived: boolean }>(`/api/v1/sessions/${second.body.data.id}:archive`);
 
     const page = await getJson<PageWire>(
-      '/api/v1/sessions?archived_only=true&busy=true&page_size=1',
+      '/api/v1/sessions?archived=true&busy=true&page_size=1',
     );
     expect(page.body.code).toBe(0);
-    expect(page.body.data).toEqual({ items: [], has_more: false });
+    expect(page.body.data).toEqual({ items: [], total: 0, has_more: false });
   });
 
-  it('rejects a malformed workspace_id when listing (40001)', async () => {
-    const { body } = await getJson<null>('/api/v1/sessions?workspace_id=not-a-workspace-id');
-    expect(body.code).toBe(40001);
-  });
-
-  it('returns 40410 for an unknown workspace_id when listing', async () => {
-    const { body } = await getJson<null>('/api/v1/sessions?workspace_id=wd_missing_000000000000');
-    expect(body.code).toBe(40410);
+  it('returns an empty list for an unknown workspace_id filter', async () => {
+    const { body } = await getJson<PageWire>('/api/v1/sessions?workspace_id=wd_missing_000000000000');
+    expect(body.code).toBe(0);
+    expect(body.data).toEqual({ items: [], total: 0, has_more: false });
   });
 
   it('lists the union of legacy split buckets for one workspace, in recency order', async () => {
@@ -3246,23 +2723,26 @@ describe('server-v2 /api/v1/sessions', () => {
     const typedId = encodeWorkDirKey(typedRoot);
     const lowerId = encodeWorkDirKey(lowerRoot);
     await writeFile(
-      join(home as string, 'workspaces.json'),
+      join(home as string, 'projects.json'),
       JSON.stringify({
-        version: 1,
-        workspaces: {
+        schema_version: 2,
+        projects: {
           [typedId]: {
             root: typedRoot,
             name: 'proj',
+            kind: 'implicit',
             created_at: '2024-01-01T00:00:00.000Z',
             last_opened_at: '2024-01-01T00:00:00.000Z',
           },
           [lowerId]: {
             root: lowerRoot,
             name: 'proj',
+            kind: 'implicit',
             created_at: '2024-01-01T00:00:00.000Z',
             last_opened_at: '2024-01-01T00:00:00.000Z',
           },
         },
+        deleted_project_ids: [],
       }),
       'utf8',
     );
@@ -3304,7 +2784,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
-    expect(created.body.data.busy).toBe(false);
+    expect(created.body.data.activity).toBe('idle');
 
     const idle = await getJson<PageWire>('/api/v1/sessions?busy=false');
     expect(idle.body.code).toBe(0);
@@ -3322,35 +2802,18 @@ describe('server-v2 /api/v1/sessions', () => {
     const session = getLiveSessionById((server as RunningServer).core.accessor, busy.body.data.id);
     if (session === undefined) throw new Error('expected live session');
     const activity = session.accessor.get(ISessionActivityView);
-    const state = spyOn(activity, 'state').mockReturnValue({ ...activity.state(), busy: true });
+    const state = vi
+      .spyOn(activity, 'state')
+      .mockReturnValue({ ...activity.state(), busy: true });
 
     try {
-      const page = await getJson<PageWire>(
-        '/api/v1/sessions?busy=true&page_size=1&include_archive=true',
-      );
+      const page = await getJson<PageWire>('/api/v1/sessions?busy=true&page_size=1&archived=all');
       expect(page.body.code).toBe(0);
-      expect(page.body.data.items.map((item) => item.id)).toEqual([busy.body.data.id]);
+      expect(page.body.data.items.map((s) => s.id)).toEqual([busy.body.data.id]);
       expect(page.body.data.has_more).toBe(false);
     } finally {
       state.mockRestore();
     }
-  });
-
-  it('filters child sessions by the busy query', async () => {
-    const cwd = home as string;
-    const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    const parentId = parent.body.data.id;
-    const child = await postJson<SessionWire>(`/api/v1/sessions/${parentId}/children`, {});
-    const childId = child.body.data.id;
-    expect(child.body.data.busy).toBe(false);
-
-    const idle = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children?busy=false`);
-    expect(idle.body.code).toBe(0);
-    expect(idle.body.data.items.some((s) => s.id === childId)).toBe(true);
-
-    const running = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children?busy=true`);
-    expect(running.body.code).toBe(0);
-    expect(running.body.data.items.some((s) => s.id === childId)).toBe(false);
   });
 
   it('hides a session from lists after its workspace is unregistered while keeping it gettable (gap G3)', async () => {
@@ -3376,14 +2839,10 @@ describe('server-v2 /api/v1/sessions', () => {
 
     const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
     expect(got.body.code).toBe(0);
-    expect(got.body.data.metadata.cwd).toBe(cwd);
-
-    const profile = await getJson<SessionWire>(`/api/v1/sessions/${id}/profile`);
-    expect(profile.body.code).toBe(0);
-    expect(profile.body.data.metadata.cwd).toBe(cwd);
+    expect(got.body.data.cwd).toBe(cwd);
   });
 
-  it('does not page a deleted workspace session into an active project', async () => {
+  it('does not page a deleted managed workspace session into a same-root active project', async () => {
     await restartWithFreshHome();
     const cwd = home as string;
     const activeWorkspace = await postJson<{ id: string }>('/api/v1/workspaces', {
@@ -3394,10 +2853,8 @@ describe('server-v2 /api/v1/sessions', () => {
       workspace_id: activeWorkspace.body.data.id,
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    const removedRoot = join(cwd, 'removed-root');
-    await mkdir(removedRoot, { recursive: true });
     const removedWorkspace = await postJson<{ id: string }>('/api/v1/workspaces', {
-      root: removedRoot,
+      root: cwd,
       name: 'removed',
     });
     const removed = await postJson<SessionWire>('/api/v1/sessions', {
@@ -3416,7 +2873,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
     const got = await getJson<SessionWire>(`/api/v1/sessions/${removed.body.data.id}`);
     expect(got.body.code).toBe(0);
-    expect(got.body.data.metadata.cwd).toBe(removedRoot);
+    expect(got.body.data.cwd).toBe(cwd);
   });
 
   it('merges metadata via profile and keeps cwd authoritative', async () => {
@@ -3424,31 +2881,31 @@ describe('server-v2 /api/v1/sessions', () => {
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
 
-    const first = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+    const first = await postJson<ProfileWire>(`/api/v1/sessions/${id}/profile`, {
       metadata: { foo: 'bar' },
     });
     expect(first.body.code).toBe(0);
-    expect(first.body.data.metadata['foo']).toBe('bar');
-    expect(first.body.data.metadata.cwd).toBe(cwd);
+    expect(first.body.data.session.metadata['foo']).toBe('bar');
+    expect(first.body.data.session.cwd).toBe(cwd);
 
     const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
     expect(got.body.data.metadata['foo']).toBe('bar');
-    expect(got.body.data.metadata.cwd).toBe(cwd);
+    expect(got.body.data.cwd).toBe(cwd);
   });
 
-  it('merges custom metadata on a second profile update', async () => {
+  it('replaces custom metadata on a second profile update (v1 semantics)', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
 
     await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, { metadata: { foo: 'bar' } });
-    const second = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+    const second = await postJson<ProfileWire>(`/api/v1/sessions/${id}/profile`, {
       metadata: { baz: 1 },
     });
     expect(second.body.code).toBe(0);
-    expect(second.body.data.metadata['foo']).toBe('bar');
-    expect(second.body.data.metadata['baz']).toBe(1);
-    expect(second.body.data.metadata.cwd).toBe(cwd);
+    expect(second.body.data.session.metadata['foo']).toBeUndefined();
+    expect(second.body.data.session.metadata['baz']).toBe(1);
+    expect(second.body.data.session.cwd).toBe(cwd);
   });
 
   it('applies agent_config.permission_mode via profile idempotently', async () => {
@@ -3530,24 +2987,11 @@ describe('server-v2 /api/v1/sessions', () => {
   it('derives the session title from the first prompt submitted via /api/v1', async () => {
     await restartWithFreshHome();
     const cwd = home as string;
-    await writeFile(
-      join(cwd, 'config.toml'),
-      [
-        'default_model = "stub"',
-        '',
-        '[providers.stub]',
-        'type = "openai"',
-        'base_url = "http://127.0.0.1:9999"',
-        'api_key = "stub"',
-        '',
-        '[models.stub]',
-        'provider = "stub"',
-        'model = "stub"',
-        'max_context_size = 1000',
-        '',
-      ].join('\n'),
-      'utf-8',
-    );
+    await writeFile(join(cwd, 'config.toml'), [
+      'default_model = "stub"', '', '[providers.stub]', 'type = "openai"',
+      'base_url = "http://127.0.0.1:9999"', 'api_key = "stub"', '',
+      '[models.stub]', 'provider = "stub"', 'model = "stub"', 'max_context_size = 1000', '',
+    ].join('\n'), 'utf-8');
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
     expect(created.body.data.title).toBe('');
@@ -3663,12 +3107,7 @@ describe('server-v2 /api/v1/sessions status context window', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, {
-        recursive: true,
-        force: true,
-        maxRetries: 25,
-        retryDelay: 100,
-      } as never).catch(() => undefined);
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
       home = undefined;
     }
   });
@@ -3699,13 +3138,10 @@ describe('server-v2 /api/v1/sessions status context window', () => {
   it('reports the default model context window before any model is bound', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    const session = getLiveSessionById(
-      (server as RunningServer).core.accessor,
-      created.body.data.id,
-    )!;
-    const usage = readUsageState(await ensureMainAgent(session));
-    expect(usage?.max_context_tokens).toBe(131072);
-    expect(usage?.context_tokens).toBe(0);
+    const session = getLiveSessionById((server as RunningServer).core.accessor, created.body.data.id)!;
+    const context = readContextState(await ensureMainAgent(session));
+    expect(context?.max_context_tokens).toBe(131072);
+    expect(context?.context_tokens).toBe(0);
   });
 });
 
@@ -3754,12 +3190,7 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, {
-        recursive: true,
-        force: true,
-        maxRetries: 25,
-        retryDelay: 100,
-      } as never).catch(() => undefined);
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
       home = undefined;
     }
   });
@@ -3799,7 +3230,7 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
     });
     const id = created.body.data.id;
 
-    await waitForAssertion(
+    await vi.waitFor(
       async () => {
         const listed = await getJson<PageWire>('/api/v1/sessions');
         expect(listed.body.data.items.some((s) => s.id === id)).toBe(true);
@@ -3817,7 +3248,7 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
     );
 
     await postJson<{ archived: boolean }>(`/api/v1/sessions/${id}:archive`);
-    const archivedOnly = await getJson<PageWire>('/api/v1/sessions?archived_only=true');
+    const archivedOnly = await getJson<PageWire>('/api/v1/sessions?archived=true');
     expect(archivedOnly.body.data.items.map((s) => s.id)).toEqual([id]);
 
     await (server as RunningServer).close();
@@ -3830,15 +3261,13 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
       debugEndpoints: true,
     });
     base = `http://127.0.0.1:${server.port}`;
-    const relisted = await getJson<PageWire>('/api/v1/sessions?include_archive=true');
+    const relisted = await getJson<PageWire>('/api/v1/sessions?archived=all');
     expect(relisted.body.data.items.map((s) => s.id)).toEqual([id]);
   });
 
   it('serves session routes from the authoritative store when the read model cannot open', async () => {
     await (server as RunningServer).close();
     server = undefined;
-    await drainSessionIndexMirror();
-    await drainQueryStoreDisposals();
     await rm(join(home as string, 'cache', 'query-store'), { recursive: true, force: true });
     await writeFile(join(home as string, 'cache', 'query-store'), 'sabotage', 'utf8');
 
@@ -3913,22 +3342,17 @@ describe('server-v2 /api/v1/sessions:btw', () => {
       'utf-8',
     );
     const realFetch = globalThis.fetch;
-    spyOn(globalThis, 'fetch').mockImplementation((async (
-      input: Parameters<typeof fetch>[0],
-      init?: Parameters<typeof fetch>[1],
-    ) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (!url.startsWith(modelBase)) return realFetch(input, init);
-      const messages = JSON.stringify(
-        JSON.parse(typeof init?.body === 'string' ? init.body : '{}').messages ?? [],
-      );
+      const messages = JSON.stringify(JSON.parse(typeof init?.body === 'string' ? init.body : '{}').messages ?? []);
       const side = messages.includes('side question');
       if (side) await sideAnswerGate;
       return new Response(sseBody(side ? sideAnswer : mainAnswer), {
         status: 200,
         headers: { 'Content-Type': 'text/event-stream' },
       });
-    }) as typeof fetch);
+    });
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
@@ -3941,14 +3365,14 @@ describe('server-v2 /api/v1/sessions:btw', () => {
   });
 
   afterAll(async () => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
     if (server !== undefined) {
       await server.close();
       server = undefined;
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
       home = undefined;
     }
   });
@@ -3962,35 +3386,40 @@ describe('server-v2 /api/v1/sessions:btw', () => {
     return (await res.json()) as Envelope<T>;
   }
 
-  async function transcriptTurns(sessionId: string, agentId: string) {
-    const res = await fetch(`${base}/api/v1/sessions/${sessionId}/transcript?agent_id=${agentId}`, {
+  async function agentTurns(sessionId: string, agentId: string) {
+    const res = await fetch(`${base}/api/v1/sessions/${sessionId}/agents/${agentId}/turns`, {
       headers: authHeaders(server as RunningServer),
     } as never);
-    const body = (await res.json()) as Envelope<AgentTranscriptSnapshot>;
-    return body.data.items.flatMap((item) => (item.kind === 'turn' ? [item] : []));
+    const body = (await res.json()) as Envelope<ConversationTurnsPage>;
+    return body.data.turns.filter((turn) => turn.kind === 'agent');
   }
 
-  function answerOf(turn: Awaited<ReturnType<typeof transcriptTurns>>[number]): string[] {
-    return turn.steps.flatMap((step) =>
-      step.frames.flatMap((frame) =>
-        frame.kind === 'text' && frame.role === 'assistant' ? [frame.text] : [],
-      ),
-    );
+  type AgentTurn = Awaited<ReturnType<typeof agentTurns>>[number];
+
+  function promptOf(turn: AgentTurn): string | undefined {
+    const opener = turn.items[0];
+    return opener?.type === 'user_message' ? opener.text : undefined;
+  }
+
+  function answerOf(turn: AgentTurn): string[] {
+    return turn.items.flatMap((item) => (item.type === 'assistant_message' ? [item.text] : []));
+  }
+
+  function endOf(turn: AgentTurn): string {
+    return turn.status === 'ended' ? turn.outcome ?? 'ended' : turn.status;
   }
 
   it('keeps the first side chat answer when its prompt starts before anyone reads the fork', async () => {
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
     const sessionId = created.data.id;
-    await transcriptTurns(sessionId, 'main');
+    await agentTurns(sessionId, 'main');
     await postJson(`/api/v1/sessions/${sessionId}/prompts`, {
       content: [{ type: 'text', text: 'main question' }],
       model: 'fake',
     });
-    await waitForAssertion(
+    await vi.waitFor(
       async () => {
-        expect((await transcriptTurns(sessionId, 'main')).map((turn) => turn.state)).toEqual([
-          'completed',
-        ]);
+        expect((await agentTurns(sessionId, 'main')).map(endOf)).toEqual(['completed']);
       },
       { timeout: 10_000 },
     );
@@ -4005,23 +3434,231 @@ describe('server-v2 /api/v1/sessions:btw', () => {
       agent_id: agentId,
       model: 'fake',
     });
-    await transcriptTurns(sessionId, agentId);
+    await agentTurns(sessionId, agentId);
     releaseSideAnswer();
 
-    await waitForAssertion(
+    await vi.waitFor(
       async () => {
-        const own = (await transcriptTurns(sessionId, agentId)).filter(
-          (turn) => turn.prompt === 'side question',
-        );
-        expect(own.map((turn) => turn.state)).toEqual(['completed']);
+        const own = (await agentTurns(sessionId, agentId)).filter((turn) => promptOf(turn) === 'side question');
+        expect(own.map(endOf)).toEqual(['completed']);
       },
       { timeout: 10_000 },
     );
     await new Promise((resolve) => setTimeout(resolve, 400));
-    const turns = await transcriptTurns(sessionId, agentId);
-    const own = turns.filter((turn) => turn.prompt === 'side question');
+    const turns = await agentTurns(sessionId, agentId);
+    const own = turns.filter((turn) => promptOf(turn) === 'side question');
     expect(own).toHaveLength(1);
     expect(answerOf(own[0]!)).toEqual([sideAnswer]);
-    expect(new Set(turns.map((turn) => turn.turnId)).size).toBe(turns.length);
+    expect(new Set(turns.map((turn) => turn.turn_id)).size).toBe(turns.length);
+  });
+});
+
+describe('POST /api/v1/sessions/{id}:wait and live turns buffer flush', () => {
+  let server: RunningServer | undefined;
+  let home: string | undefined;
+  let base: string;
+  let releaseModel: () => void = () => {};
+  let modelGate: Promise<void> = Promise.resolve();
+  const modelBase = 'https://fake-wait-llm.example.test/v1';
+
+  beforeAll(async () => {
+    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-wait-'));
+    await writeFile(
+      join(home, 'config.toml'),
+      [
+        'default_model = "fake"',
+        '',
+        '[providers.fake]',
+        'type = "openai"',
+        'api_key = "sk-test"',
+        `base_url = "${modelBase}"`,
+        '',
+        '[models.fake]',
+        'provider = "fake"',
+        'model = "fake-model"',
+        'max_context_size = 131072',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    const realFetch = globalThis.fetch;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith(modelBase)) return realFetch(input, init);
+      const gate = modelGate;
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const enc = new TextEncoder();
+          const send = (delta: Record<string, unknown>, finishReason: string | null) => {
+            controller.enqueue(
+              enc.encode(
+                `data: ${JSON.stringify({
+                  id: 'chatcmpl-wait',
+                  object: 'chat.completion.chunk',
+                  created: 0,
+                  model: 'fake-model',
+                  choices: [{ index: 0, delta, finish_reason: finishReason }],
+                })}\n\n`,
+              ),
+            );
+          };
+          send({ role: 'assistant', content: 'halfway ' }, null);
+          await gate;
+          send({ content: 'done' }, null);
+          send({}, 'stop');
+          controller.enqueue(enc.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  });
+
+  afterAll(async () => {
+    releaseModel();
+    vi.restoreAllMocks();
+    if (server !== undefined) {
+      await server.close();
+      server = undefined;
+    }
+    if (home !== undefined) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      home = undefined;
+    }
+  });
+
+  it('returns immediately when idle, times out and flushes in-flight turns while running, wakes on pending approval, and settles on completion', async () => {
+    const createRes = await fetch(`${base}/api/v1/sessions`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ cwd: home }),
+    } as never);
+    const sid = ((await createRes.json()) as Envelope<SessionWire>).data.id;
+
+    const idleWaitRes = await fetch(`${base}/api/v1/sessions/${sid}:wait`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ timeout_ms: 5000 }),
+    } as never);
+    const idleWait = (await idleWaitRes.json()) as Envelope<{
+      session: SessionWire;
+      pending_interactions: unknown[];
+      timed_out: boolean;
+    }>;
+    expect(idleWait.code).toBe(0);
+    expect(idleWait.data.timed_out).toBe(false);
+    expect(idleWait.data.session.activity).toBe('idle');
+    expect(idleWait.data.pending_interactions).toEqual([]);
+
+    modelGate = new Promise((resolve) => {
+      releaseModel = resolve;
+    });
+
+    await fetch(`${base}/api/v1/sessions/${sid}/prompts`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        prompt_id: 'p-wait-1',
+        content: [{ type: 'text', text: 'stream test' }],
+        model: 'fake',
+      }),
+    } as never);
+
+    const shortWaitRes = await fetch(`${base}/api/v1/sessions/${sid}:wait`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ timeout_ms: 80 }),
+    } as never);
+    const shortWait = (await shortWaitRes.json()) as Envelope<{
+      session: SessionWire;
+      pending_interactions: unknown[];
+      timed_out: boolean;
+    }>;
+    expect(shortWait.code).toBe(0);
+    expect(shortWait.data.timed_out).toBe(true);
+    expect(shortWait.data.session.activity).toBe('turn');
+
+    await vi.waitFor(async () => {
+      const turnsRes = await fetch(`${base}/api/v1/sessions/${sid}/agents/main/turns`, {
+        headers: authHeaders(server as RunningServer),
+      } as never);
+      const turnsBody = (await turnsRes.json()) as Envelope<ConversationTurnsPage>;
+      const last = turnsBody.data.turns.at(-1);
+      expect(last?.status).toBe('running');
+      const assistant = last?.items.find((i) => i.type === 'assistant_message');
+      expect(assistant && 'text' in assistant ? assistant.text : '').toContain('halfway ');
+    });
+
+    const abortCtrl = new AbortController();
+    const abortedWait = fetch(`${base}/api/v1/sessions/${sid}:wait`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ timeout_ms: 10_000 }),
+      signal: abortCtrl.signal,
+    } as never).catch(() => 'aborted');
+    setTimeout(() => abortCtrl.abort(), 30);
+    expect(await abortedWait).toBe('aborted');
+
+    const approvalWaitPromise = fetch(`${base}/api/v1/sessions/${sid}:wait`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ timeout_ms: 10_000 }),
+    } as never);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const parked = interactions.enqueue({
+      id: 'approval_wait_1',
+      kind: 'approval',
+      payload: {
+        toolCallId: 'tc_wait_1',
+        toolName: 'Bash',
+        action: 'run',
+        display: { command: 'echo ok' },
+      },
+      tags: { agentId: 'main', sessionId: sid, toolCallId: 'tc_wait_1' },
+    });
+
+    const approvalWait = (await (await approvalWaitPromise).json()) as Envelope<{
+      session: SessionWire;
+      pending_interactions: Array<{ interaction_id: string; kind: string }>;
+      timed_out: boolean;
+    }>;
+    expect(approvalWait.code).toBe(0);
+    expect(approvalWait.data.timed_out).toBe(false);
+    expect(approvalWait.data.pending_interactions.map((i) => i.interaction_id)).toEqual([parked.id]);
+
+    await fetch(`${base}/api/v1/sessions/${sid}/interactions/${parked.id}`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ kind: 'approval', decision: 'approved' }),
+    } as never);
+
+    const finalWaitPromise = fetch(`${base}/api/v1/sessions/${sid}:wait`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ timeout_ms: 10_000 }),
+    } as never);
+    setTimeout(() => releaseModel(), 30);
+
+    const finalWait = (await (await finalWaitPromise).json()) as Envelope<{
+      session: SessionWire;
+      pending_interactions: unknown[];
+      timed_out: boolean;
+    }>;
+    expect(finalWait.code).toBe(0);
+    expect(finalWait.data.timed_out).toBe(false);
+    expect(finalWait.data.session.activity).toBe('idle');
+    expect(finalWait.data.pending_interactions).toEqual([]);
   });
 });

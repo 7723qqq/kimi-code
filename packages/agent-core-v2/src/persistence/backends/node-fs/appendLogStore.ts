@@ -1,8 +1,15 @@
 import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Emitter, type Event } from '#/_base/event';
+
+import {
+  IFileSystemStorageService,
+  isStorageError,
+  StorageError,
+  StorageErrors,
+} from '#/persistence/interface/storage';
 import {
   AppendLogCorruptedError,
   IAppendLogStore,
@@ -11,12 +18,6 @@ import {
   type AppendLogRewriteOptions,
   type AppendLogWrite,
 } from '#/persistence/interface/appendLogStore';
-import {
-  IFileSystemStorageService,
-  isStorageError,
-  StorageError,
-  StorageErrors,
-} from '#/persistence/interface/storage';
 
 const textEncoder = new TextEncoder();
 
@@ -79,14 +80,11 @@ export class AppendLogStore extends Disposable implements IAppendLogStore {
     state.pending.push(record);
     if (state.storageFailure !== undefined && !state.failureWarned) {
       state.failureWarned = true;
-      this.logger.warn(
-        'append accepted while a storage failure is latched; the record may never reach disk',
-        {
-          scope,
-          key,
-          pending: state.pending.length,
-        },
-      );
+      this.logger.warn('append accepted while a storage failure is latched; the record may never reach disk', {
+        scope,
+        key,
+        pending: state.pending.length,
+      });
     }
     if (options?.onError !== undefined && state.onError === undefined) {
       state.onError = options.onError;
@@ -469,11 +467,7 @@ export class AppendLogStore extends Disposable implements IAppendLogStore {
     return wrote;
   }
 
-  private async recoveryOffset(
-    scope: string,
-    key: string,
-    recovery: AppendRecovery,
-  ): Promise<number> {
+  private async recoveryOffset(scope: string, key: string, recovery: AppendRecovery): Promise<number> {
     const diskLength = (await this.storage.size(scope, key)) ?? 0;
     const suffixLength = diskLength - recovery.baseLength;
     if (suffixLength < 0 || suffixLength > recovery.encoded.length) {

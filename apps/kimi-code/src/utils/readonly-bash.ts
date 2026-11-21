@@ -1,6 +1,10 @@
 import { basename } from 'node:path';
 
-import { descendantsOfType, parse, type SyntaxNode } from '@moonshot-ai/tree-sitter-bash';
+import {
+  descendantsOfType,
+  parse,
+  type SyntaxNode,
+} from '@moonshot-ai/tree-sitter-bash';
 
 export const READONLY_BASH_PARSE_BUDGET = { timeoutMs: 500, maxNodes: 20_000 } as const;
 
@@ -176,7 +180,6 @@ function commandReadonly({ name, args }: CommandParts): boolean {
   return false;
 }
 
-/** Whether a Bash command only reads: safe to fold into an explore-level summary group. */
 export function isReadonlyBash(source: string): boolean {
   const parsed = parse(source, READONLY_BASH_PARSE_BUDGET);
   if (!parsed.ok || parsed.hasError) return false;

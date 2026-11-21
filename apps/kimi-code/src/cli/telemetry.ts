@@ -1,4 +1,7 @@
-import { createKimiDeviceId, KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
+import {
+  createKimiDeviceId,
+  KIMI_CODE_PROVIDER_NAME,
+} from '@moonshot-ai/kimi-code-oauth';
 import {
   KimiAuthFacade,
   loadRuntimeConfigSafe,
@@ -8,6 +11,8 @@ import {
   type KimiConfig,
   type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
+
+import type { PromptHarness } from './prompt-session';
 import {
   initializeTelemetry,
   setTelemetryContext,
@@ -23,8 +28,7 @@ import {
   resolveKimiRegionFresh,
 } from '#/utils/region';
 
-import type { PromptHarness } from './prompt-session';
-import { createKimiCodeHostIdentity } from './version';
+import { createKimiCodeHostIdentity } from './host-identity';
 
 export interface CliTelemetryBootstrap {
   readonly homeDir: string;
@@ -81,22 +85,6 @@ export interface InitializeServerTelemetryOptions {
   readonly version: string;
 }
 
-/**
- * Bootstrap telemetry for the `kimi web` host.
- *
- * Mirrors {@link initializeCliTelemetry}: mints the device id, reads config to
- * honor the `telemetry` toggle and pick up the default model, and attaches the
- * sink with `ui_mode = "web"` so the module-level `track` /
- * `withTelemetryContext` / `shutdownTelemetry` (used for the startup event,
- * `server_started`, and the shutdown flush) share the same client + sink.
- *
- * The returned {@link TelemetryClient} is not handed to `startServer` — the
- * web runner discards it. Engine events emitted inside the server process
- * (`mcp_connected`, `session_load_failed`, plan-mode / cron events, …) are
- * covered by kap-server's own telemetry appender, initialized inside
- * `startServer` when called with `telemetry: true` (still gated by the config
- * `telemetry` toggle).
- */
 export function initializeServerTelemetry(
   options: InitializeServerTelemetryOptions,
 ): TelemetryClient {
@@ -138,17 +126,9 @@ function readServerTelemetryConfig(
 ): Pick<KimiConfig, 'telemetry' | 'defaultModel'> {
   try {
     const { config, fileError } = loadRuntimeConfigSafe(configPath);
-    // A broken config surfaces as a startup diagnostic from the engine's own
-    // config service; for telemetry just degrade to "enabled, no model" so we
-    // never block startup.
-    if (fileError !== undefined) {
-      return { defaultModel: undefined, telemetry: undefined };
-    }
-    return {
-      defaultModel: config.defaultModel,
-      telemetry: config.telemetry,
-    };
+    if (fileError !== undefined) return {};
+    return config;
   } catch {
-    return { defaultModel: undefined, telemetry: undefined };
+    return {};
   }
 }

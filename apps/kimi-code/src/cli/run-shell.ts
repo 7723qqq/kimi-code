@@ -1,51 +1,46 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 
-import { flushDiagnosticLogsSync, log, type KimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import {
+  createKimiHarness,
+  flushDiagnosticLogsSync,
+  log,
+  type KimiHarness,
+  type KimiHarnessOptions,
+  type TelemetryClient,
+} from '@moonshot-ai/kimi-code-sdk';
 import {
   setCrashPhase,
+  setTelemetryContext,
   shutdownTelemetry,
   track,
   withTelemetryContext,
 } from '@moonshot-ai/kimi-telemetry';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, TUI_HOST_UI_CAPABILITIES } from '#/constant/app';
-import { setLocale, t } from '#/i18n';
 import { detectPendingMigration, resolveLegacySourceHome, sameLegacyPath } from '#/migration/index';
 import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, resolveAnimationFrameRate, resolveTuiMode, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { KimiTUI } from '#/tui/index';
+import { startupTrace } from '#/utils/startup-trace';
 import { currentTheme, getColorPalette } from '#/tui/theme';
 import { combineStartupNotice } from '#/tui/utils/startup';
-import { resolveCommandPath } from '#/utils/process/resolve-command';
-import { startupTrace } from '#/utils/startup-trace';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
+import { resolveCommandPath } from '#/utils/process/resolve-command';
 
-import { resolveAgentProfileSelection } from './agent-selection';
-import { createTelemetryHarness } from './harness';
 import type { CLIOptions } from './options';
-import { initializeCliTelemetry } from './telemetry';
-
-/** The `node:child_process` surface the shell startup touches `stty` through. */
-export interface RunShellChildProcess {
-  readonly execFileSync: typeof execFileSync;
-  readonly spawnSync: typeof spawnSync;
-}
-
-const SYSTEM_CHILD_PROCESS: RunShellChildProcess = { execFileSync, spawnSync };
+import { resolveAgentProfileSelection } from './agent-selection';
+import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
+import { detectNativeInstall } from './update/source';
+import { createKimiCodeHostIdentity } from './host-identity';
 
 export async function runShell(
   opts: CLIOptions,
   version: string,
-  runOptions: {
-    readonly migrateOnly?: boolean;
-    readonly startupWarnings?: readonly string[];
-    readonly childProcess?: RunShellChildProcess;
-  } = {},
+  runOptions: { readonly migrateOnly?: boolean } = {},
 ): Promise<void> {
-  const childProcess = runOptions.childProcess ?? SYSTEM_CHILD_PROCESS;
   const startedAt = Date.now();
   const configStartedAt = startedAt;
   let tuiConfig: TuiConfig;
@@ -58,21 +53,23 @@ export async function runShell(
     configWarning = error.message;
   }
 
-  // Initialise the global Theme singleton before pi-tui grabs stdin.
-  const themeReady = getColorPalette(tuiConfig.theme).then(({ palette, resolved }) => {
-    currentTheme.setPalette(palette, resolved);
-  });
+  const palette = await getColorPalette(tuiConfig.theme);
+  currentTheme.setPalette(palette);
 
   const workDir = process.cwd();
-  // The agent-core-v2 route is the only engine (same engine as `kimi -p`):
-  // the harness is the SDK's v2-backed client, so the whole TUI runs on the
-  // agent-core-v2 engine.
-  const { harness, telemetryBootstrap } = createTelemetryHarness({
-    version,
+  const telemetryBootstrap = createCliTelemetryBootstrap();
+  const telemetryClient: TelemetryClient = {
+    track,
+    withContext: withTelemetryContext,
+    setContext: setTelemetryContext,
+  };
+  let tui!: KimiTUI;
+  const harnessOptions: KimiHarnessOptions = {
+    homeDir: telemetryBootstrap.homeDir,
+    identity: createKimiCodeHostIdentity(version),
     skillDirs: opts.skillsDirs,
-    // The TUI renders the mid-turn update panel; declaring it here is what
-    // makes the engine offer NotifyUser to this process and to no other host.
     uiCapabilities: TUI_HOST_UI_CAPABILITIES,
+    telemetry: telemetryClient,
     onOAuthRefresh: (outcome) => {
       if (outcome.success) {
         track('oauth_refresh', { outcome: 'success' });
@@ -83,8 +80,15 @@ export async function runShell(
         reason: outcome.reason,
       });
     },
+    sshPassword: {
+      prompt: (environmentId) => tui.promptSshPassword(environmentId),
+      askpassCommand: detectNativeInstall()
+        ? [process.execPath]
+        : [process.execPath, ...process.execArgv, process.argv[1]!],
+    },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
-  });
+  };
+  const harness = createKimiHarness(harnessOptions);
   startupTrace('harness:created');
   log.info('kimi-code starting', {
     version,
@@ -98,59 +102,32 @@ export async function runShell(
   const legacySource = resolveLegacySourceHome(process.env, homedir(), process.cwd());
   const sourceIsTarget = sameLegacyPath(legacySource.sourceHome, harness.homeDir);
   if (sourceIsTarget) {
-    await themeReady;
     process.stderr.write(
       `  KIMI_SHARE_DIR (${legacySource.sourceHome}) points at the Kimi Code home; legacy migration is disabled. Unset it or point it at the kimi-cli data directory to migrate.\n`,
     );
   }
-  const migrationPromise = sourceIsTarget
-    ? Promise.resolve(null)
-    : detectPendingMigration({
+  const migrationPlan = sourceIsTarget
+    ? null
+    : await detectPendingMigration({
         sourceHome: legacySource.sourceHome,
         skillsSourceHome: legacySource.skillsSourceHome,
         targetHome: harness.homeDir,
         ignoreMarker: runOptions.migrateOnly,
       });
-  const configPromise = runOptions.migrateOnly === true ? undefined : harness.getConfig();
-  const [migrationPlan, loadedConfig] = await Promise.all([
-    migrationPromise,
-    configPromise,
-    themeReady,
-  ]);
   if (runOptions.migrateOnly === true && migrationPlan === null) {
     if (!sourceIsTarget) {
-      process.stdout.write(t('tui.statusMessages.shellNothingToMigrate') + '\n');
+      process.stdout.write(`  Nothing to migrate from ${legacySource.sourceHome}.\n`);
     }
     await harness.close();
     return;
   }
-  const config = loadedConfig ?? (await harness.getConfig());
+  const config = await harness.getConfig();
   startupTrace('config:loaded');
-  // Config diagnostics (deprecated keys, invalid sections, ...) are surfaced
-  // by the TUI itself at `finishStartup` via `showConfigWarningsIfAny` —
-  // folded into the dim startup notice they were too easy to miss.
   const configMs = Date.now() - configStartedAt;
-  // Propagate locale from tui.toml to the CLI i18n engine, and to the engine's
-  // own translation instance so tool output and error copy follow the UI.
-  setLocale(tuiConfig.locale);
-  harness.setEngineLocale(tuiConfig.locale);
-
-  // Resolve --agent/--agent-file once for the startup session; validateOptions
-  // has already rejected them alongside --session/--continue.
   const agentProfile = await resolveAgentProfileSelection(opts, workDir);
   const tuiModeResolution = resolveTuiMode(tuiConfig.tuiMode);
   const animationFrameRateResolution = resolveAnimationFrameRate();
-  // Degraded native workers (embeddable-asset install failures) are appended to
-  // the same dim startup notice as tui.toml parse errors, so a broken install
-  // is visible on screen instead of only in the trace file.
-  const startupNotice = combineStartupNotice(
-    combineStartupNotice(
-      configWarning,
-      runOptions.startupWarnings?.length ? runOptions.startupWarnings.join('\n') : undefined,
-    ),
-    animationFrameRateResolution.warning,
-  );
-  const tui = new KimiTUI(harness, {
+  tui = new KimiTUI(harness, {
     cliOptions: opts,
     agentProfile,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
@@ -159,7 +136,7 @@ export async function runShell(
     animationFrameRate: animationFrameRateResolution.fps,
     version,
     workDir,
-    startupNotice,
+    startupNotice: combineStartupNotice(configWarning, animationFrameRateResolution.warning),
     migrationPlan,
     migrateOnly: runOptions.migrateOnly,
     telemetryDisabled: config.telemetry === false,
@@ -190,48 +167,28 @@ export async function runShell(
   };
 
   let savedStty: string | undefined;
-  // stty runs before tui.start() reaches the workspace trust gate, so it must
-  // never be resolved by name through PATH: a `.` or empty PATH segment would
-  // let an untrusted checkout plant an `stty` executable and run it pre-trust.
-  // resolveCommandPath returns an absolute path and refuses hits inside the
-  // cwd; when it cannot resolve stty, skip the save/restore entirely — it is
-  // best-effort terminal hygiene, not required for startup.
-  // stty is also POSIX-only, so skip it on Windows instead of relying on the
-  // catch below.
   const sttyPath = process.platform === 'win32' ? undefined : resolveCommandPath('stty');
   if (sttyPath !== undefined) {
     try {
-      // stty operates on the terminal behind stdin, so stdin must be the TTY —
-      // piping /dev/null (ignore) makes stty fail with "not a tty".
-      const saved = childProcess.execFileSync(sttyPath, ['-g'], {
+      const saved = execFileSync(sttyPath, ['-g'], {
         encoding: 'utf8',
         stdio: ['inherit', 'pipe', 'ignore'],
       });
       savedStty = saved.trim();
-      childProcess.execFileSync(sttyPath, ['-ixon'], { stdio: ['inherit', 'ignore', 'ignore'] });
-    } catch {
-      /* ignore */
-    }
+      execFileSync(sttyPath, ['-ixon'], { stdio: ['inherit', 'ignore', 'ignore'] });
+    } catch {}
   }
   const restoreStty = (): void => {
     if (sttyPath === undefined || savedStty === undefined) return;
     const args = savedStty.split(/\s+/).filter((arg) => arg.length > 0);
     if (args.length === 0) return;
-    childProcess.spawnSync(sttyPath, args, { stdio: ['inherit', 'ignore', 'ignore'] });
+    spawnSync(sttyPath, args, { stdio: ['inherit', 'ignore', 'ignore'] });
   };
 
-  // If we crash without going through KimiTUI.stop(), the terminal is left in
-  // raw mode with a hidden cursor and XON/XOFF flow control disabled. Restore
-  // both before exiting so the user's shell is usable afterwards.
   const emergencyExit = (exitCode: number): void => {
-    // The crash log above is only enqueued into the async sink; flush it
-    // synchronously or the `process.exit()` below would drop the one line that
-    // explains why we crashed. Best-effort: an exit path must never throw.
     try {
       flushDiagnosticLogsSync();
-    } catch {
-      /* ignore */
-    }
+    } catch {}
     restoreTerminalModes();
     restoreStty();
     process.exit(exitCode);
@@ -239,23 +196,17 @@ export async function runShell(
   const onUncaughtException = (error: unknown): void => {
     try {
       log.error('uncaughtException, restoring terminal and exiting', { error: String(error) });
-    } catch {
-      /* ignore */
-    }
+    } catch {}
     emergencyExit(1);
   };
   const onUnhandledRejection = (reason: unknown): void => {
     try {
       log.error('unhandledRejection, restoring terminal and exiting', { reason: String(reason) });
-    } catch {
-      /* ignore */
-    }
+    } catch {}
     emergencyExit(1);
   };
   process.on('uncaughtException', onUncaughtException);
   process.on('unhandledRejection', onUnhandledRejection);
-  // Remove the crash handlers once the TUI exits cleanly so repeated runShell()
-  // calls in the same process (e.g. tests) don't accumulate process listeners.
   const removeCrashHandlers = (): void => {
     process.off('uncaughtException', onUncaughtException);
     process.off('unhandledRejection', onUnhandledRejection);
@@ -275,15 +226,13 @@ export async function runShell(
       await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
     } catch {}
     const gutter = ' '.repeat(CHROME_GUTTER);
-    process.stdout.write(`${gutter}${t('tui.statusMessages.shellBye')}\n`);
+    process.stdout.write(`${gutter}Bye!\n`);
     const hints: string[] = [];
     if (sessionId !== '' && hasContent) {
-      hints.push(`${gutter}${t('tui.statusMessages.shellResumeHint', { sessionId })}`);
+      hints.push(`${gutter}To resume this session: kimi -r ${sessionId}`);
     }
     if (tui.exitOpenUrl !== undefined) {
-      hints.push(
-        `${gutter}${t('tui.statusMessages.webOpenUrl', { url: toTerminalHyperlink(tui.exitOpenUrl, tui.exitOpenUrl) })}`,
-      );
+      hints.push(`${gutter}open ${toTerminalHyperlink(tui.exitOpenUrl, tui.exitOpenUrl)}`);
     }
     if (hints.length > 0) {
       process.stderr.write(`\n${hints.join('\n')}\n`);
@@ -291,9 +240,6 @@ export async function runShell(
     removeCrashHandlers();
     restoreStty();
     if (tui.exitForegroundTask !== undefined) {
-      // `/web` starting a new server: the TUI has shut down cleanly; hand the
-      // terminal to the foreground server instead of exiting. The task runs
-      // until the server stops (Ctrl+C), then this process exits.
       await tui.exitForegroundTask(exitCode);
       return;
     }

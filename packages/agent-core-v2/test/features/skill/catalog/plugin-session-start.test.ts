@@ -1,16 +1,16 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
+import { appendContext } from '../../../agent/contextMemory/stubs';
 
-import type { LogContext, LogPayload } from '#/_base/log/log';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { runWillBeginStepHooks, type StubLoop } from '../../../agent/loop/stubs';
+import type { LogContext, LogPayload } from '#/_base/log/log';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import type { SkillDefinition } from '#/features/skill/catalog/types';
-
-import { runWillBeginStepHooks, type StubLoop } from '../../../agent/loop/stubs';
-import { stubPluginService } from '../../../app/plugin/stubs';
 import { appService, logServices, skillServices, testAgent } from '../../../harness';
+import { stubPluginService } from '../../../app/plugin/stubs';
 import { stubSkill } from './stubs';
 
 interface CapturedWarn {
@@ -32,7 +32,11 @@ body
 </plugin_session_start>
 </system-reminder>`;
 
-function skill(name: string, body: string, plugin?: SkillDefinition['plugin']): SkillDefinition {
+function skill(
+  name: string,
+  body: string,
+  plugin?: SkillDefinition['plugin'],
+): SkillDefinition {
   return stubSkill(name, {
     description: '',
     path: `/fake/${name}/SKILL.md`,
@@ -77,7 +81,7 @@ async function sessionStartRuntime(input: {
   );
   if (input.skipRestore !== true) await ctx.restorePersisted();
   if (input.history !== undefined) {
-    ctx.context.append(...input.history);
+    appendContext(ctx.context,...input.history);
   }
   return { ctx, warnings };
 }
@@ -88,17 +92,15 @@ async function injectDynamic(ctx: ReturnType<typeof testAgent>): Promise<void> {
 }
 
 function lastReminder(ctx: ReturnType<typeof testAgent>): string {
-  const last = ctx.context.get().findLast((message) => message.role === 'user');
+  const last = ctx.context.history().findLast((message) => message.role === 'user');
   return last?.content.map((part) => (part.type === 'text' ? part.text : '')).join('') ?? '';
 }
 
 function pluginSessionStartMessages(ctx: ReturnType<typeof testAgent>) {
-  return ctx.context
-    .get()
-    .filter(
-      (message) =>
-        message.origin?.kind === 'injection' && message.origin.variant === 'plugin_session_start',
-    );
+  return ctx.context.history().filter(
+    (message) =>
+      message.origin?.kind === 'injection' && message.origin.variant === 'plugin_session_start',
+  );
 }
 
 describe('plugin session-start dynamic injection', () => {
@@ -122,7 +124,7 @@ describe('plugin session-start dynamic injection', () => {
     expect(text).toContain('TodoList');
     expect(text).toContain('body of skill');
     expect(text).toContain('</plugin_session_start>');
-    expect(ctx.context.get().at(-1)?.origin).toEqual({
+    expect(ctx.context.history().at(-1)?.origin).toEqual({
       kind: 'injection',
       variant: 'plugin_session_start',
     });
@@ -163,7 +165,6 @@ describe('plugin session-start dynamic injection', () => {
         {
           role: 'user',
           content: [{ type: 'text', text: CURRENT_PLUGIN_SESSION_START_REMINDER }],
-          toolCalls: [],
           origin: { kind: 'injection', variant: 'plugin_session_start' },
         },
       ],
@@ -181,18 +182,16 @@ describe('plugin session-start dynamic injection', () => {
       skipRestore: true,
     });
 
-    await ctx.restore([
-      {
-        type: 'context.append_message',
-        time: 1,
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: CURRENT_PLUGIN_SESSION_START_REMINDER }],
-          toolCalls: [],
-          origin: { kind: 'injection', variant: 'plugin_session_start' },
-        },
+    await ctx.restore([{
+      type: 'context.append_message',
+      time: 1,
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: CURRENT_PLUGIN_SESSION_START_REMINDER }],
+        toolCalls: [],
+        origin: { kind: 'injection', variant: 'plugin_session_start' },
       },
-    ]);
+    }]);
 
     await injectDynamic(ctx);
 
@@ -241,7 +240,7 @@ describe('plugin session-start dynamic injection', () => {
 
     await injectDynamic(ctx);
 
-    expect(pluginSessionStartMessages(ctx)).toEqual([]);
+    expect(ctx.context.history()).toEqual([]);
   });
 
   it('resolves sessionStart skills by plugin identity when names collide', async () => {

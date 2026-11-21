@@ -1,12 +1,9 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import type { SystemPromptRenderResult } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import {
-  AgentFileParseError,
-  parseAgentFileText,
-} from '#/workspace/workspaceAgentProfileLoader/internal/agentFile';
+import { AgentFileParseError, parseAgentFileText } from '#/workspace/workspaceAgentProfileLoader/internal/agentFile';
 import { agentProfileFromFile } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileFromFile';
 import type { AgentFileDefinition } from '#/workspace/workspaceAgentProfileLoader/internal/types';
+import type { SystemPromptRenderResult } from '#/app/agentProfileCatalog/agentProfileCatalog';
 
 const FULL_FILE = `---
 name: code-reviewer
@@ -164,9 +161,9 @@ describe('parseAgentFileText', () => {
   });
 
   it('rejects non-string tool entries', () => {
-    expect(() => parse('---\nname: solo\ndescription: d\ntools:\n  - 42\n---\n\nbody\n')).toThrow(
-      /non-empty strings/,
-    );
+    expect(() =>
+      parse('---\nname: solo\ndescription: d\ntools:\n  - 42\n---\n\nbody\n'),
+    ).toThrow(/non-empty strings/);
   });
 
   it('rejects an empty prompt body', () => {

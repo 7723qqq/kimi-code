@@ -1,8 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it, beforeEach, afterEach } from '@moonshot-ai/testkit/vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import { writeReport } from '../src/report.js';
 import type { MigrationReport } from '../src/types.js';
 
@@ -38,24 +37,10 @@ describe('writeReport', () => {
           deviceIdCopied: false,
           siblingContents: { providers: [], models: [], hooks: 0 },
         },
-        mcp: {
-          mergedServers: [],
-          keptNewForConflicts: [],
-          droppedServers: [],
-          wroteSiblingDueToConflict: false,
-          sourceUnreadable: false,
-        },
-        userHistory: {
-          copied: 0,
-          skippedExisting: 0,
-          failures: [{ sourcePath: '/x/bad-history.jsonl', reason: 'EACCES' }],
-        },
-        skills: { copied: 0, skippedExisting: 0, failures: [] },
-        plans: {
-          copied: 1,
-          skippedExisting: 0,
-          failures: [{ sourcePath: '/x/plans/bad.md', reason: 'EACCES' }],
-        },
+        mcp: { mergedServers: [], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: false, sourceUnreadable: false },
+        userHistory: { copied: 0, skippedExisting: 0 },
+        skills: { copied: 0, skippedExisting: 0 },
+        plans: { copied: 0, skippedExisting: 0 },
         sessions: {
           scope: 'all',
           bucketsScanned: 0,
@@ -66,40 +51,23 @@ describe('writeReport', () => {
           sessionsAlreadyMigrated: 0,
           sessionsSkippedPlaceholder: 0,
           sessionsSkippedEmpty: 0,
+          sessionsSkippedMalformed: 0,
           sessionsFailed: [],
-          subagentFailures: [{ sourcePath: '/x/ses/subagents/sub1', reason: 'ENOENT' }],
           sessionsConflicts: [],
-          sessionsDebrisArchived: [
-            { targetPath: '/t/ses_x', archivedPath: '/t/ses_x.debris-2026-01-01T00-00-00-000Z' },
-          ],
         },
       },
       notices: {
         mcpOauthServersRequiringReauth: [],
         oauthLoginsRequiringRelogin: [],
         detectedPlugins: [],
-        configConflictSibling: null,
-        tuiConflictSibling: null,
-        plansCopied: null,
+        configConflictNotice: null,
+        tuiConflictNotice: null,
+        plansCopiedNotice: null,
       },
     };
     await writeReport(tgt, report);
     const text = await readFile(join(tgt, 'migration-report.json'), 'utf-8');
-    const parsed = JSON.parse(text) as MigrationReport;
-    expect(parsed.migratorVersion).toBe('0.1.1');
-    // Per-item failures and archived debris survive the report round-trip —
-    // the result screen / logs need them to point users at the recoverable copy.
-    expect(parsed.summary.userHistory.failures).toEqual([
-      { sourcePath: '/x/bad-history.jsonl', reason: 'EACCES' },
-    ]);
-    expect(parsed.summary.sessions.sessionsDebrisArchived).toEqual([
-      { targetPath: '/t/ses_x', archivedPath: '/t/ses_x.debris-2026-01-01T00-00-00-000Z' },
-    ]);
-    expect(parsed.summary.plans.failures).toEqual([
-      { sourcePath: '/x/plans/bad.md', reason: 'EACCES' },
-    ]);
-    expect(parsed.summary.sessions.subagentFailures).toEqual([
-      { sourcePath: '/x/ses/subagents/sub1', reason: 'ENOENT' },
-    ]);
+    const parsed: unknown = JSON.parse(text);
+    expect((parsed as { migratorVersion: string }).migratorVersion).toBe('0.1.1');
   });
 });

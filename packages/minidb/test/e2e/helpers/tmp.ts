@@ -1,4 +1,4 @@
-// test/e2e/helpers/tmp.ts
+// test/e2e/helpers/tmp.js
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';

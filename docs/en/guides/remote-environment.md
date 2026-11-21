@@ -18,7 +18,7 @@ The security boundaries are fixed:
 POSIX and Windows targets are supported. Windows targets require Git for Windows (Git Bash) and support SSH and custom command launchers, not Docker launchers.
 
 ::: info Remote environments vs. Remote Control
-[Remote Control](./remote-control.md) is the opposite direction: it lets another device (like your phone) watch and steer sessions that run on **this** machine. A remote environment does the reverse — this machine's CLI drives tool execution on **another** machine or container.
+[Remote Control](./web.md#remote-control) is the opposite direction: it lets another device (like your phone) watch and steer sessions that run on **this** machine. A remote environment does the reverse — this machine's CLI drives tool execution on **another** machine or container.
 :::
 
 ## Quick start
@@ -223,4 +223,4 @@ Several behaviors are deliberately scoped. Each of the following is a known limi
 ## Next steps
 
 - [`environments` configuration reference](../configuration/config-files.md#environments) — every field of the `[environments]` section
-- [Remote Control](./remote-control.md) — the reverse direction: steer this machine's sessions from another device
+- [Using in the Browser (Remote Control)](./web.md#remote-control): steer this machine's sessions from another device.

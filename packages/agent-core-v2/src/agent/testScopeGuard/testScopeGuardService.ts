@@ -3,6 +3,7 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { parseBooleanEnv } from '#/_base/utils/env';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { legacyDidExecuteContext } from '#/agent/toolExecutor/legacyHooks';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
@@ -44,9 +45,10 @@ export class AgentTestScopeGuardService extends Disposable implements IAgentTest
     super();
     this.enabled = parseBooleanEnv(bootstrap.getEnv(TEST_SCOPE_GUARD_ENV)) !== false;
     this._register(
-      toolExecutor.hooks.onDidExecuteTool.register('test-scope-guard', async (ctx, next) => {
-        await this.observe(ctx);
-        await next(ctx);
+      toolExecutor.registerHook({
+        afterExecute: async (context) => {
+          await this.observe(legacyDidExecuteContext(context));
+        },
       }),
     );
     this._register(

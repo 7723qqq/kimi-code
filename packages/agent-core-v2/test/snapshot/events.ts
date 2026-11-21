@@ -1,11 +1,10 @@
-import type { WireRecord } from '#/wire/record';
-
 import {
   createEventSnapshotter,
   type EventSnapshot,
   type EventSnapshotEntry,
   type WireSnapshotEntry,
 } from '../harness/snapshots';
+import type { WireRecord } from '#/wire/record';
 
 export interface RpcPromiseLike {
   resolve(value: unknown): void;
@@ -50,8 +49,15 @@ export function recordAgentEvents() {
   const onceWaiters: OnceWaiter[] = [];
   const onceAnyWaiters: OnceAnyWaiter[] = [];
   const takeWaiters: TakeWaiter[] = [];
+  const responded = new Set<RecordedEventEntry>();
 
-  const snapshotFrom = (start: number): EventSnapshot => snapshot(entries.slice(start));
+  const snapshotFrom = (start: number, end = entries.length): EventSnapshot =>
+    snapshot(entries.slice(start, end));
+
+  const recordedRpc = (event: string, start: number): number =>
+    entries.findIndex(
+      (entry, index) => index >= start && entry.type === '[rpc]' && entry.event === event,
+    );
 
   const emit = (entry: RecordedEventEntry): RecordedEventEntry => {
     entries.push(entry);
@@ -87,12 +93,26 @@ export function recordAgentEvents() {
         event: entry,
         events: snapshotFrom(waiter.start),
         respond(result: unknown) {
-          entry.response?.resolve(result);
+          respondEntry(entry, result);
         },
       });
     }
 
     return entry;
+  };
+
+  const respondEntry = (entry: RecordedEventEntry, result: unknown): void => {
+    responded.add(entry);
+    entry.response?.resolve(result);
+  };
+
+  const bufferedTake = (event: string, start: number): number => {
+    for (let index = entries.length - 1; index >= start; index -= 1) {
+      const entry = entries[index]!;
+      if (entry.event === 'turn.ended' || entry.event === 'prompt.aborted') return -1;
+      if (entry.type === '[rpc]' && entry.event === event && !responded.has(entry)) return index;
+    }
+    return -1;
   };
 
   return {
@@ -105,8 +125,14 @@ export function recordAgentEvents() {
     },
 
     until(event: string): Promise<EventSnapshot> {
+      const start = cursor;
+      const found = recordedRpc(event, start);
+      if (found >= 0) {
+        cursor = found + 1;
+        return Promise.resolve(snapshotFrom(start, found + 1));
+      }
       return new Promise((resolve) => {
-        eventWaiters.push({ event, start: cursor, resolve });
+        eventWaiters.push({ event, start, resolve });
       });
     },
 
@@ -122,17 +148,26 @@ export function recordAgentEvents() {
       });
     },
 
-    take<T = unknown>(
-      event: string,
-    ): Promise<{
+    take<T = unknown>(event: string): Promise<{
       event: RecordedEventEntry;
       events: EventSnapshot;
       respond(result: T): void;
     }> {
+      const start = cursor;
+      const buffered = bufferedTake(event, start);
+      if (buffered >= 0) {
+        const found = entries[buffered]!;
+        cursor = buffered + 1;
+        return Promise.resolve({
+          event: found,
+          events: snapshotFrom(start, buffered + 1),
+          respond: (result: T) => respondEntry(found, result),
+        });
+      }
       return new Promise((resolve) => {
         takeWaiters.push({
           event,
-          start: cursor,
+          start,
           resolve: ({ event: found, events: foundEvents, respond }) => {
             resolve({ event: found, events: foundEvents, respond: (result) => respond(result) });
           },
@@ -150,7 +185,7 @@ export function recordAgentEvents() {
     },
 
     respond(entry: RecordedEventEntry, result: unknown): void {
-      entry.response?.resolve(result);
+      respondEntry(entry, result);
     },
 
     respondPending(method: string, id: string, result: unknown): void {
@@ -168,7 +203,7 @@ export function recordAgentEvents() {
         } | null;
         return args?.id === id || args?.toolCallId === id;
       });
-      entry?.response?.resolve(result);
+      if (entry !== undefined) respondEntry(entry, result);
     },
   };
 }

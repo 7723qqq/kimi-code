@@ -1,24 +1,9 @@
-/**
- * Renders a compaction block in the transcript.
- *
- * Lifecycle:
- *   - constructed on `compaction.started` → blinking white bullet +
- *     "Compacting context..." and optional custom instruction
- *   - `markDone()` on `compaction.completed` → solid green bullet +
- *     "Compaction complete (X → Y tokens)"
- *   - `markCanceled()` on `compaction.cancelled` → solid warning bullet +
- *     "Compaction cancelled"
- *
- * Bullet animation mirrors `ToolCallComponent` (500ms blink) so the user
- * reads the same "work in progress" signal across the UI.
- */
-
 import { Container, Text, Spacer } from '@moonshot-ai/pi-tui';
 import type { TUI } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 
 const BLINK_INTERVAL = 500;
 
@@ -38,14 +23,12 @@ export class CompactionComponent extends Container {
   private summaryText: Text | undefined;
   private expanded = false;
 
-  constructor(ui?: TUI, instruction?: string | undefined, tip?: string) {
+  constructor(ui?: TUI, instruction?: string, tip?: string) {
     super();
     this.ui = ui;
     this.instruction = instruction;
     this.tip = tip;
 
-    // Top margin so the block isn't glued to the previous transcript
-    // entry (status line, tool result, etc.).
     this.addChild(new Spacer(1));
     this.headerText = new Text(this.buildHeader(), 0, 0);
     this.addChild(this.headerText);
@@ -71,10 +54,7 @@ export class CompactionComponent extends Container {
   }
 
   override invalidate(): void {
-    // Repaint the header with the active palette (it caches ANSI codes).
     this.headerText.setText(this.buildHeader());
-    // Rebuild instruction and summary text with fresh theme colours, preserving
-    // header → instruction → summary child order.
     const expanded = this.expanded;
     this.removeInstructionChild();
     if (expanded) {
@@ -164,15 +144,11 @@ export class CompactionComponent extends Container {
       const label = currentTheme.boldFg('success', t('tui.dialogs.compaction.complete'));
       const detail =
         this.tokensBefore !== undefined && this.tokensAfter !== undefined
-          ? currentTheme.dim(
-              ` ${t('tui.dialogs.compaction.detailTokens', { before: this.tokensBefore, after: this.tokensAfter })}`,
-            )
+          ? currentTheme.dim(` (${String(this.tokensBefore)} → ${String(this.tokensAfter)} tokens)`)
           : '';
       const shortcutHint =
         this.summary !== undefined && this.summary.length > 0
-          ? currentTheme.dim(
-              ` ${t('tui.dialogs.compaction.shortcutHint', { action: this.expanded ? t('tui.dialogs.compaction.hide') : t('tui.dialogs.compaction.show') })}`,
-            )
+          ? currentTheme.dim(t('tui.dialogs.compaction.shortcutHint', { action: this.expanded ? t('tui.dialogs.compaction.hide') : t('tui.dialogs.compaction.show') }))
           : '';
       return `${bullet}${label}${detail}${shortcutHint}`;
     }
@@ -183,9 +159,7 @@ export class CompactionComponent extends Container {
     }
     const bullet = this.blinkOn ? currentTheme.fg('text', STATUS_BULLET) : '  ';
     const label = currentTheme.boldFg('primary', t('tui.dialogs.compaction.compacting'));
-    const tip = this.tip
-      ? currentTheme.fg('textDim', t('tui.dialogs.compaction.tipPrefix', { tip: this.tip }))
-      : '';
+    const tip = this.tip ? currentTheme.fg('textDim', ` · Tip: ${this.tip}`) : '';
     return `${bullet}${label}${tip}`;
   }
 

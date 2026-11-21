@@ -1,18 +1,17 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { AgentEvent2 } from '#/app/event/event2';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { defineState } from '#/state/state';
-import '#/agent/contextMemory/conversationTime';
+
+import '#/agent/loop/turnOps';
 
 export interface PlanState {
   readonly active: boolean;
   readonly id?: string;
   readonly revisionCount?: Readonly<Record<string, number>>;
-
-  readonly lastTransition?: 'cancel' | 'exit';
 }
 
 const planModeEnterSchema = z.object({ agentId: z.string(), id: z.string() });
@@ -95,29 +94,19 @@ export const planKey = defineState('plan', (): PlanState => ({ active: false }))
     ctx.emit(new AgentStatusUpdated({ agentId: e.agentId, planMode: true }));
   })
   .on(PlanModeCancel, (s, e, ctx) => {
-    deactivate(s, e.agentId, 'cancel', ctx);
+    if (s.active) {
+      s.active = false;
+      delete s.id;
+    }
+    ctx.emit(new AgentStatusUpdated({ agentId: e.agentId, planMode: false }));
   })
   .on(PlanModeExit, (s, e, ctx) => {
-    deactivate(s, e.agentId, 'exit', ctx);
+    if (s.active) {
+      s.active = false;
+      delete s.id;
+    }
+    ctx.emit(new AgentStatusUpdated({ agentId: e.agentId, planMode: false }));
   })
   .on(PlanRevision, (s, e) => {
     s.revisionCount = { ...s.revisionCount, [e.id]: e.version };
   });
-
-function deactivate(
-  s: {
-    active: boolean;
-    id?: string;
-    lastTransition?: 'cancel' | 'exit';
-  },
-  agentId: string,
-  transition: 'cancel' | 'exit',
-  ctx: { emit(event: AgentStatusUpdated): void },
-): void {
-  if (s.active) {
-    s.active = false;
-    delete s.id;
-    s.lastTransition = transition;
-  }
-  ctx.emit(new AgentStatusUpdated({ agentId, planMode: false }));
-}

@@ -1,23 +1,17 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import { ILogService } from '#/_base/log/log';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentTaskService } from '#/agent/task/task';
-import { ISessionEventBus } from '#/app/event/eventBus';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
+import { ISessionEventBus } from '#/app/event/eventBus';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { SubagentSuspended } from '#/features/swarm/session/sessionSwarmService';
-import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ILogService } from '#/_base/log/log';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import {
-  SubagentCancelled,
-  SubagentCompleted,
-  SubagentFailed,
-  SubagentStarted,
-} from './mirrorAgentRun';
+import { SubagentCancelled, SubagentCompleted, SubagentFailed, SubagentStarted } from './mirrorAgentRun';
 import {
   ISessionSubagentScopeCacheService,
   resolveSubagentScopeCacheSize,
@@ -25,13 +19,6 @@ import {
 } from './subagentScopeCache';
 
 const MAX_EVICT_ATTEMPTS = 3;
-
-const SYSTEM_HOST_TIMERS: IHostTimers = {
-  _serviceBrand: undefined,
-  setClampedTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
-  setTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
-  clearTimeout: (handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
-};
 
 type EvictOutcome = 'removed' | 'missing' | 'closing' | 'deferred' | 'timeout' | 'failed';
 
@@ -43,7 +30,6 @@ export class SessionSubagentScopeCacheService
 
   private readonly capacity: number;
   private readonly removeTimeoutMs: number;
-  private readonly timers: IHostTimers;
   private readonly retired = new Map<string, number>();
   private readonly closing = new Set<string>();
   private evictions: Promise<void> = Promise.resolve();
@@ -52,12 +38,10 @@ export class SessionSubagentScopeCacheService
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ISessionEventBus bus: ISessionEventBus,
     @ILogService private readonly log: ILogService,
-    @IHostTimers timers?: IHostTimers,
   ) {
     super();
     this.capacity = resolveSubagentScopeCacheSize();
     this.removeTimeoutMs = resolveSubagentScopeEvictTimeoutMs();
-    this.timers = timers ?? SYSTEM_HOST_TIMERS;
     if (this.capacity === 0) return;
     this._register(
       bus.subscribe(SubagentCompleted, (event) => {
@@ -170,14 +154,14 @@ export class SessionSubagentScopeCacheService
       () => 'removed' as const,
       (error: unknown) => ({ error }),
     );
-    let timer: IHostTimerHandle | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const outcome = await Promise.race([
       removal,
       new Promise<'timeout'>((resolve) => {
-        timer = this.timers.setTimeout(() => resolve('timeout'), this.removeTimeoutMs);
+        timer = setTimeout(() => resolve('timeout'), this.removeTimeoutMs);
       }),
     ]);
-    if (timer !== undefined) this.timers.clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
     const durationMs = Date.now() - startedAt;
     if (outcome === 'timeout') {
       this.log.warn('subagent scope eviction timed out; moving on to the next eviction', {
@@ -202,7 +186,10 @@ export class SessionSubagentScopeCacheService
   private busy(handle: IAgentScopeHandle): boolean {
     const snapshot = handle.accessor.get(IAgentLoopService).snapshot();
     if (snapshot.state === 'running' || snapshot.hasPendingRequests) return true;
-    return handle.accessor.get(IAgentTaskService).list(true).length > 0;
+    return handle.accessor.get(IAgentToolExecutorService).handlers().some((handler) => {
+      const status = handler.snapshot().status;
+      return status === 'running' || status === 'stopping';
+    });
   }
 }
 

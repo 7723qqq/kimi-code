@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 
 import type { ClipboardModule } from './clipboard-native';
 
@@ -8,108 +9,13 @@ export type RunCommand = (
   args: string[],
   options?: RunCommandOptions,
 ) => { stdout: Buffer; ok: boolean };
-
-/** Timer handle shape shared with `RenderTimerHandle` (`#/utils/render-clock`). */
-export interface CommandTimerHandle {
-  unref?(): void;
-}
-
-/** Timer seam of `runCommandAsync`; structurally satisfied by `RenderClock` and
- *  `createFakeClock()`, so a test can drive the timeout without wall-clock waits. */
-export interface CommandTimers {
-  now(): number;
-  setTimeout(callback: () => void, delayMs: number): CommandTimerHandle;
-  clearTimeout(handle: CommandTimerHandle): void;
-}
-
-export const SYSTEM_COMMAND_TIMERS: CommandTimers = {
-  now: () => Date.now(),
-  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
-  clearTimeout: (handle) => {
-    clearTimeout(handle as ReturnType<typeof setTimeout>);
-  },
-};
-
-/** The slice of a spawned child `runCommandAsync` drives, so a test can supply
- *  one without a real subprocess. */
-export interface CommandChild {
-  onStdoutData(listener: (chunk: Buffer) => void): void;
-  onError(listener: () => void): void;
-  onClose(listener: (code: number | null) => void): void;
-  kill(): void;
-}
-
-export interface CommandSpawnOptions {
-  readonly env?: NodeJS.ProcessEnv;
-}
-
-export type CommandSpawn = (
-  command: string,
-  args: string[],
-  options: CommandSpawnOptions,
-) => CommandChild;
-
-export const SYSTEM_COMMAND_SPAWN: CommandSpawn = (command, args, options) => {
-  let child: Bun.Subprocess<'ignore', 'pipe', 'ignore'>;
-  try {
-    child = Bun.spawn({
-      cmd: [command, ...args],
-      stdin: 'ignore',
-      stdout: 'pipe',
-      stderr: 'ignore',
-      ...(options.env === undefined ? {} : { env: options.env }),
-    });
-  } catch {
-    return {
-      onStdoutData: () => {},
-      onError: (listener) => queueMicrotask(() => listener()),
-      onClose: () => {},
-      kill: () => {},
-    };
-  }
-  return {
-    onStdoutData: (listener) => {
-      const reader = child.stdout.getReader();
-      const pump = async (): Promise<void> => {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) return;
-          if (value !== undefined) listener(Buffer.from(value));
-        }
-      };
-      void pump().catch(() => {});
-    },
-    onError: () => {},
-    onClose: (listener) => {
-      void child.exited.then((code) => listener(code)).catch(() => listener(null));
-    },
-    kill: () => {
-      try {
-        child.kill();
-      } catch {
-        // already gone
-      }
-    },
-  };
-};
-
-export interface RunCommandAsyncOptions extends RunCommandOptions {
-  readonly timers?: CommandTimers;
-  readonly spawn?: CommandSpawn;
-}
-
 export type RunCommandAsync = (
   command: string,
   args: string[],
-  options?: RunCommandAsyncOptions,
+  options?: RunCommandOptions,
 ) => Promise<{ stdout: Buffer; ok: boolean }>;
 
-export const SUPPORTED_IMAGE_MIME_TYPES = [
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/gif',
-] as const;
+export const SUPPORTED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
 
 export const DEFAULT_LIST_TIMEOUT_MS = 1000;
 export const DEFAULT_MAX_BUFFER_BYTES = 50 * 1024 * 1024;
@@ -136,48 +42,31 @@ export function runCommand(
   args: string[],
   options?: RunCommandOptions,
 ): { stdout: Buffer; ok: boolean } {
-  try {
-    const result = Bun.spawnSync({
-      cmd: [command, ...args],
-      stdin: 'ignore',
-      stdout: 'pipe',
-      stderr: 'ignore',
-      timeout: options?.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS,
-      maxBuffer: DEFAULT_MAX_BUFFER_BYTES,
-      ...(options?.env === undefined ? {} : { env: options.env }),
-    });
-    if (result.exitCode !== 0) {
-      return { ok: false, stdout: Buffer.alloc(0) };
-    }
-    const stdout = Buffer.from(result.stdout);
-    if (stdout.length > DEFAULT_MAX_BUFFER_BYTES) {
-      return { ok: false, stdout: Buffer.alloc(0) };
-    }
-    return { ok: true, stdout };
-  } catch {
+  const result = spawnSync(command, args, {
+    timeout: options?.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS,
+    maxBuffer: DEFAULT_MAX_BUFFER_BYTES,
+    env: options?.env,
+  });
+  if (result.error !== undefined || result.status !== 0) {
     return { ok: false, stdout: Buffer.alloc(0) };
   }
+  const stdout = Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? '');
+  return { ok: true, stdout };
 }
 
-/**
- * Non-blocking counterpart of `runCommand`. Used by the clipboard image probe
- * on the startup path so a slow or wedged helper (notably `powershell.exe` on
- * WSL, or a stuck `wl-paste`/`xclip`) cannot freeze the event loop. The child
- * is killed and the promise resolves with `ok: false` once `timeoutMs` elapses
- * or the captured stdout exceeds `DEFAULT_MAX_BUFFER_BYTES`.
- */
 export function runCommandAsync(
   command: string,
   args: string[],
-  options?: RunCommandAsyncOptions,
+  options?: RunCommandOptions,
 ): Promise<{ stdout: Buffer; ok: boolean }> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS;
-  const timers = options?.timers ?? SYSTEM_COMMAND_TIMERS;
-  const spawnChild = options?.spawn ?? SYSTEM_COMMAND_SPAWN;
   return new Promise((resolve) => {
-    let child: CommandChild;
+    let child;
     try {
-      child = spawnChild(command, args, { env: options?.env });
+      child = spawn(command, args, {
+        env: options?.env,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
     } catch {
       resolve({ ok: false, stdout: Buffer.alloc(0) });
       return;
@@ -186,23 +75,21 @@ export function runCommandAsync(
     const chunks: Buffer[] = [];
     let totalBytes = 0;
     let settled = false;
-    let timer: CommandTimerHandle | undefined;
+    let timer: ReturnType<typeof setTimeout>;
 
-    // Marks the promise as settled and clears the timeout. Returns true only for
-    // the first caller, so each event handler below resolves at most once.
     const claim = (): boolean => {
       if (settled) return false;
       settled = true;
-      if (timer !== undefined) timers.clearTimeout(timer);
+      clearTimeout(timer);
       return true;
     };
 
-    timer = timers.setTimeout(() => {
+    timer = setTimeout(() => {
       child.kill();
       if (claim()) resolve({ ok: false, stdout: Buffer.alloc(0) });
     }, timeoutMs);
 
-    child.onStdoutData((chunk: Buffer) => {
+    child.stdout?.on('data', (chunk: Buffer) => {
       totalBytes += chunk.length;
       if (totalBytes > DEFAULT_MAX_BUFFER_BYTES) {
         child.kill();
@@ -212,11 +99,11 @@ export function runCommandAsync(
       chunks.push(chunk);
     });
 
-    child.onError(() => {
+    child.on('error', () => {
       if (claim()) resolve({ ok: false, stdout: Buffer.alloc(0) });
     });
 
-    child.onClose((code) => {
+    child.on('close', (code) => {
       if (code !== 0) {
         if (claim()) resolve({ ok: false, stdout: Buffer.alloc(0) });
         return;
@@ -247,8 +134,6 @@ export function isFileLikeNativeFormat(format: string): boolean {
     f.includes('file url') ||
     f.includes('nsfilenames') ||
     f.includes('com.apple.finder') ||
-    f.includes('cf_hdrop') ||
-    f.includes('filename') ||
     base === 'text/uri-list' ||
     base === 'public.url'
   );

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { StoreError } from '#/store/types';
+import { StoreError } from '#human/store/types';
 
 export type ExternalEvent<P = Record<string, unknown>> = P & { type: string; time: number };
 

@@ -1,6 +1,9 @@
+
+
 import { normalize } from 'pathe';
 
 import { Disposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IConfigService } from '#/app/config/config';
@@ -11,16 +14,25 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
+import type { ProfileData } from '#/agent/profile/profile';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { resolveEffectiveWorkspaceRoots, type EffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { loadAgentsMdForRoots, splitAgentsMdFiles, type LoadedAgentsMd } from '#/agent/profile/context';
+import { resolveSubagentModelPool, type SubagentModelPool } from '#/session/subagent/configSection';
+import { isToolActiveComposed } from '#/agent/toolPolicy/evaluate';
+import { TOOLS_SECTION, type ToolsConfig } from '#/agent/toolPolicy/configSection';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
-import { resolveSubagentModelPool, type SubagentModelPool } from '#/session/subagent/configSection';
+import { workspaceRootKey } from '#/_base/utils/workdir-slug';
 
 import {
   IAgentChangeNotifierService,
@@ -33,23 +45,19 @@ import {
   changeNotifierSnapshotKey,
   type ChangeNotifierSnapshotState,
 } from './changeNotifierOps';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { type LoadedAgentsMd } from '#/agent/profile/context';
-import { isToolActiveComposed } from '#/agent/toolPolicy/evaluate';
-import { type ToolsConfig } from '#/agent/toolPolicy/configSection';
-import { TOOLS_SECTION } from '#/agent/toolPolicy/configSection';
-import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { splitAgentsMdFiles } from '#/agent/profile/context';
-import { workspaceRootKey } from '#/_base/utils/workdir-slug';
-import { LifecycleScope } from '#/app/scopes';
-import { loadAgentsMdForRoots } from '#/agent/profile/context';
 
 const AGENTS_MD_CHANGE_VARIANT = 'agents_md_change';
 const SKILLS_CHANGE_VARIANT = 'skills_change';
 const SUBAGENTS_CHANGE_VARIANT = 'subagents_change';
 const WORKSPACE_DIRS_CHANGE_VARIANT = 'workspace_dirs_change';
+
+const SKILL_LISTING_MARKER = 'DISREGARD any earlier skill listings';
+
+interface AgentsMdChanges {
+  readonly modified: readonly string[];
+  readonly deleted: readonly string[];
+  readonly added: readonly string[];
+}
 
 interface WorkspacePrimaryChange {
   readonly workspaceId: string;
@@ -61,14 +69,6 @@ interface WorkspaceDirsChanges {
   readonly primary: readonly WorkspacePrimaryChange[];
   readonly added: readonly string[];
   readonly removed: readonly string[];
-}
-
-const SKILL_LISTING_MARKER = 'DISREGARD any earlier skill listings';
-
-interface AgentsMdChanges {
-  readonly modified: readonly string[];
-  readonly deleted: readonly string[];
-  readonly added: readonly string[];
 }
 
 export class AgentChangeNotifierService extends Disposable implements IAgentChangeNotifierService {
@@ -83,7 +83,7 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
 
   constructor(
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentLoopService private readonly profile: IAgentLoopService,
     @ISessionSkillCatalog private readonly skillCatalog: ISessionSkillCatalog,
     @ISessionAgentProfileCatalog private readonly agentCatalog: ISessionAgentProfileCatalog,
     @IAgentReminderService private readonly reminder: IAgentReminderService,
@@ -94,13 +94,13 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
     @IHostEnvironment private readonly localEnvironment: IHostEnvironment,
     @IConfigService private readonly config: IConfigService,
     @ISessionContext private readonly sessionContext: ISessionContext,
+    @ISessionWorkspaceInfo private readonly workspaceInfo: ISessionWorkspaceInfo,
     @ISessionInstructionsProvider private readonly instructions: ISessionInstructionsProvider,
     @ISessionToolPolicy private readonly sessionToolPolicy: ISessionToolPolicy,
     @ISessionToolPolicyGate private readonly toolPolicyGate: ISessionToolPolicyGate,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ILogService private readonly log: ILogService,
-    @ISessionWorkspaceInfo private readonly workspaceInfo: ISessionWorkspaceInfo,
   ) {
     super();
     this.states.contributeState(changeNotifierSnapshotKey);
@@ -229,10 +229,7 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
   }
 
   private boundExplicitAllowlist(profileData: ProfileData): readonly string[] | undefined {
-    if (
-      profileData.profileName === undefined ||
-      profileData.profileName === DEFAULT_AGENT_PROFILE_NAME
-    ) {
+    if (profileData.profileName === undefined || profileData.profileName === DEFAULT_AGENT_PROFILE_NAME) {
       return undefined;
     }
     const declared = profileData.subagents;
@@ -333,23 +330,6 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
     }
   }
 
-  async seedBeliefs(seed: BeliefsSeed): Promise<void> {
-    if (this.scopeContext.agentId !== MAIN_AGENT_ID) return;
-    try {
-      const files = hashAgentsMdContents(splitAgentsMdFiles(seed.agentsMd, seed.agentsMdPaths));
-      const pool = resolveSubagentModelPool(this.config);
-      await this.recordSnapshot({
-        agentsMdHash: undefined,
-        agentsMdFiles: files,
-        skillsHash: hashText(seed.skillsListing),
-        subagentNames: this.agentCatalog.list().map((profile) => profile.name),
-        modelPool: snapshotModelPool(pool),
-      });
-    } catch (error) {
-      this.log.warn('change notifier belief seeding failed', { error });
-    }
-  }
-
   notifyWorkspaceDirsChanges(): Promise<void> {
     return this.enqueueWorkspaceDirsNotification(() => this.notifyWorkspaceDirsChangesNow());
   }
@@ -424,6 +404,33 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
     }
   }
 
+  seedBeliefs(seed: BeliefsSeed): Promise<void> {
+    if (this.scopeContext.agentId !== MAIN_AGENT_ID) return Promise.resolve();
+    return this.enqueueWorkspaceDirsNotification(() => this.seedBeliefsNow(seed));
+  }
+
+  private async seedBeliefsNow(seed: BeliefsSeed): Promise<void> {
+    try {
+      await this.workspaceInfo.ready;
+      const files = hashAgentsMdContents(splitAgentsMdFiles(seed.agentsMd, seed.agentsMdPaths));
+      const pool = resolveSubagentModelPool(this.config);
+      const snapshot = this.snapshot;
+      await this.recordSnapshot({
+        agentsMdHash: undefined,
+        agentsMdFiles: files,
+        skillsHash: hashText(seed.skillsListing),
+        subagentNames: this.agentCatalog.list().map((profile) => profile.name),
+        modelPool: snapshotModelPool(pool),
+        workspacePrimaryByWorkspace:
+          snapshot.workspacePrimaryByWorkspace ?? { ...this.workspaceInfo.primaryByWorkspace },
+        workspaceAdditionalDirs:
+          snapshot.workspaceAdditionalDirs ?? [...this.workspaceInfo.additionalDirs],
+      });
+    } catch (error) {
+      this.log.warn('change notifier belief seeding failed', { error });
+    }
+  }
+
   private async recordSnapshot(patch: Partial<ChangeNotifierSnapshotState>): Promise<void> {
     const next = { ...this.snapshot, ...patch };
     await this.dispatcher.dispatch(
@@ -461,9 +468,7 @@ function sameStringSet(left: readonly string[], right: readonly string[]): boole
   return left.length === right.length && left.every((item) => right.includes(item));
 }
 
-function snapshotModelPool(
-  pool: SubagentModelPool | undefined,
-): SubagentModelPoolSnapshot | undefined {
+function snapshotModelPool(pool: SubagentModelPool | undefined): SubagentModelPoolSnapshot | undefined {
   if (pool === undefined) return undefined;
   return { defaultModel: pool.defaultModel, models: { ...pool.models } };
 }
@@ -597,8 +602,7 @@ function subagentsChangeText(diff: {
     lines.push(`- Profiles removed: ${diff.profilesRemoved.join(', ')}`);
   }
   if (diff.modelsAdded.length > 0) lines.push(`- Models added: ${diff.modelsAdded.join(', ')}`);
-  if (diff.modelsRemoved.length > 0)
-    lines.push(`- Models removed: ${diff.modelsRemoved.join(', ')}`);
+  if (diff.modelsRemoved.length > 0) lines.push(`- Models removed: ${diff.modelsRemoved.join(', ')}`);
   if (diff.modelsUpdated.length > 0) {
     lines.push(`- Model descriptions updated: ${diff.modelsUpdated.join(', ')}`);
   }
@@ -612,12 +616,9 @@ function subagentsChangeText(diff: {
       lines.push(`- Default model cleared (was ${from})`);
     }
   }
-  lines.push(
-    'You can use them right away — the Agent tool validates subagent_type against the live catalog.',
-  );
+  lines.push('You can use them right away — the Agent tool validates subagent_type against the live catalog.');
   return lines.join('\n');
 }
-
 
 function samePrimarySnapshot(
   previous: Readonly<Record<string, string>> | undefined,

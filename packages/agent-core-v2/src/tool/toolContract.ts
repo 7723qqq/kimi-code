@@ -1,6 +1,6 @@
+import type { ContentPart, SystemMessage, ToolDescription as Tool, UserMessage } from '@moonshot-ai/core/llm/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ContentPart, ToolCall, ToolDescription as Tool } from '#human/llm/message';
 
 export type ExecutableToolOutput = string | ContentPart[];
 
@@ -14,42 +14,27 @@ export interface ToolResultSpill {
   readonly suffix?: string;
 }
 
-export type ToolDeliveryKind = 'steer';
-
-export interface ToolDeliveryMessage {
-  readonly role: 'user';
-  readonly content: readonly ContentPart[];
-  readonly toolCalls?: readonly ToolCall[];
-  readonly origin?: unknown;
-}
-
-export interface ToolDelivery {
-  readonly kind: ToolDeliveryKind;
-  readonly message: ToolDeliveryMessage;
-}
+export type ToolRemind = (message: SystemMessage | UserMessage) => void;
 
 export interface ExecutableToolSuccessResult {
   readonly output: ExecutableToolOutput;
   readonly isError?: false | undefined;
-  readonly stopTurn?: boolean | undefined;
-  readonly stopTurnReason?: string;
   readonly truncated?: boolean | undefined;
   readonly note?: string;
-  readonly delivery?: ToolDelivery | undefined;
   readonly spill?: ToolResultSpill;
   readonly spillExempt?: true;
+  readonly stopTurn?: boolean;
+  readonly stopTurnReason?: string;
 }
 
 export interface ExecutableToolErrorResult {
   readonly output: ExecutableToolOutput;
   readonly isError: true;
-  readonly stopTurn?: boolean | undefined;
-  readonly stopTurnReason?: string;
   readonly truncated?: boolean | undefined;
   readonly note?: string;
-  readonly delivery?: ToolDelivery | undefined;
   readonly spill?: ToolResultSpill;
   readonly spillExempt?: true;
+  readonly stopTurn?: true;
 }
 
 export type ExecutableToolResult = ExecutableToolSuccessResult | ExecutableToolErrorResult;
@@ -61,19 +46,29 @@ export interface ToolUpdate {
   customKind?: string | undefined;
   customData?: unknown;
   replace?: boolean;
+  fields?: Readonly<Record<string, unknown>>;
 }
 
 export const MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE = 'mcp.oauth.authorization_url';
 
+export type ToolExecutionOrigin = 'loop' | 'shellCommand';
+
 export interface ExecutableToolContext {
+  readonly origin?: ToolExecutionOrigin;
   readonly turnId: number;
   readonly toolCallId: string;
   readonly trace?: LLMRequestTrace;
   readonly metadata?: unknown;
   readonly signal: AbortSignal;
   readonly steerSignal?: AbortSignal;
+  readonly remind?: ToolRemind;
+  readonly detach?: (text: string, brief?: string) => void;
+  readonly onDetach?: (acknowledge: (reason: unknown) => { readonly content: ContentPart[]; readonly brief?: string }) => void;
   readonly onUpdate?: ((update: ToolUpdate) => void) | undefined;
   readonly onForegroundTaskStart?: ((taskId: string) => void) | undefined;
+  readonly taskId?: string;
+  readonly write?: (text: string) => number | undefined;
+  readonly set?: (fields: Readonly<Record<string, unknown>>) => void;
 }
 
 export interface RunnableToolExecution {
@@ -81,10 +76,13 @@ export interface RunnableToolExecution {
   readonly accesses?: ToolAccesses | undefined;
   readonly display?: ToolInputDisplay | undefined;
   readonly description?: string;
-  readonly stopBatchAfterThis?: boolean | undefined;
   readonly approvalRule: string;
   readonly matchesRule?: ((ruleArgs: string) => boolean) | undefined;
   readonly execute: (ctx: ExecutableToolContext) => Promise<ExecutableToolResult>;
+  readonly stopping?: (context: {
+    readonly reason: unknown;
+    readonly abandon: (result?: ExecutableToolResult) => void;
+  }) => void;
 }
 
 export type ToolExecution = RunnableToolExecution | ExecutableToolErrorResult;
@@ -144,18 +142,8 @@ export function toolDefinitionSchemaSignature(
   return JSON.stringify([tool.name, tool.description, canonicalToolValue(parameters)]);
 }
 
-const versionSignatures = new WeakMap<object, string>();
-
 export function toolDefinitionVersionSignature(tool: ToolInfo): string {
-  const cached = versionSignatures.get(tool);
-  if (cached !== undefined) return cached;
-  const signature = JSON.stringify([
-    toolDefinitionSchemaSignature(tool),
-    tool.source,
-    tool.disclosure,
-  ]);
-  versionSignatures.set(tool, signature);
-  return signature;
+  return JSON.stringify([toolDefinitionSchemaSignature(tool), tool.source, tool.disclosure]);
 }
 
 export interface AgentTool<Input = unknown> extends ExecutableTool<Input> {
@@ -166,7 +154,6 @@ export type ToolResult = ExecutableToolResult & {
   readonly description?: string;
   readonly display?: ToolInputDisplay;
   readonly approvalRule?: string;
-  readonly stopBatchAfterThis?: boolean;
 };
 
 export type ToolFileAccessOperation = 'read' | 'write' | 'readwrite' | 'search';

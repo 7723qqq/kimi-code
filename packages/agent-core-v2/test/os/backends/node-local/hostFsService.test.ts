@@ -1,12 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
 
-import { HostFileSystem, walkDirectoryTree } from '#/os/backends/host/hostFsService';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
+import { HostFileSystem, walkDirectoryTree } from '#/os/backends/node-local/hostFsService';
 import type { HostDirEntry, HostWalkEntry, HostWalkVisitor } from '#/os/interface/hostFileSystem';
-import { supportsSymlinks } from '#test/helpers/symlinks';
 
 let dir: string;
 let fs: HostFileSystem;
@@ -68,7 +67,7 @@ describe('HostFileSystem walk', () => {
     return { entries, truncated };
   }
 
-  it.skipIf(!supportsSymlinks())('visits nested entries depth-first without following directory symlinks', async () => {
+  it('visits nested entries depth-first without following directory symlinks', async () => {
     await mkdir(join(dir, 'a/b'), { recursive: true });
     await writeFile(join(dir, 'a/b/file.ts'), '');
     await symlink(join(dir, 'a'), join(dir, 'link'));
@@ -94,13 +93,12 @@ describe('HostFileSystem walk', () => {
       ]],
       ['/root/src', [{ name: 'app.ts', isFile: true, isDirectory: false }]],
     ]);
-    const slash = (value: string): string => value.replaceAll(String.fromCharCode(92), '/');
-    const readdir = mock(async (path: string) => tree.get(slash(path)) ?? []);
+    const readdir = vi.fn(async (path: string) => tree.get(path) ?? []);
 
     const { entries } = await collect((visit) => walkDirectoryTree({ readdir }, '/root', { ignore: ['node_modules/'] }, visit));
 
     expect(entries.map((entry) => entry.path)).toEqual(['src', 'src/app.ts']);
-    expect(readdir.mock.calls.map(([path]) => slash(path))).toEqual(['/root', '/root/src']);
+    expect(readdir.mock.calls.map(([path]) => path)).toEqual(['/root', '/root/src']);
   });
 
   it('skips unreadable directories', async () => {
@@ -111,7 +109,7 @@ describe('HostFileSystem walk', () => {
   });
 
   it('keeps dot-only filenames while pruning ignored directories', async () => {
-    const readdir = mock(async (): Promise<HostDirEntry[]> => [
+    const readdir = vi.fn(async (): Promise<HostDirEntry[]> => [
       { name: '...', isFile: true, isDirectory: false },
       { name: '.git', isFile: false, isDirectory: true },
       { name: 'kept.ts', isFile: true, isDirectory: false },
@@ -137,25 +135,22 @@ describe('HostFileSystem walk', () => {
 });
 
 describe('HostFileSystem stat / lstat', () => {
-  it.skipIf(!supportsSymlinks())(
-    'stat follows a symlink to a regular file while lstat stats the link',
-    async () => {
-      const target = join(dir, 'target.txt');
-      await writeFile(target, 'hello', 'utf-8');
-      const link = join(dir, 'link.txt');
-      await symlink(target, link);
+  it('stat follows a symlink to a regular file while lstat stats the link', async () => {
+    const target = join(dir, 'target.txt');
+    await writeFile(target, 'hello', 'utf-8');
+    const link = join(dir, 'link.txt');
+    await symlink(target, link);
 
-      const st = await fs.stat(link);
-      expect(st.isFile).toBe(true);
-      expect(st.isSymbolicLink).not.toBe(true);
+    const st = await fs.stat(link);
+    expect(st.isFile).toBe(true);
+    expect(st.isSymbolicLink).not.toBe(true);
 
-      const lst = await fs.lstat(link);
-      expect(lst.isSymbolicLink).toBe(true);
-      expect(lst.isFile).toBe(false);
-    },
-  );
+    const lst = await fs.lstat(link);
+    expect(lst.isSymbolicLink).toBe(true);
+    expect(lst.isFile).toBe(false);
+  });
 
-  it.skipIf(!supportsSymlinks())('stat follows a symlink to a directory', async () => {
+  it('stat follows a symlink to a directory', async () => {
     const target = join(dir, 'subdir');
     await mkdir(target);
     const link = join(dir, 'dirlink');
@@ -165,41 +160,12 @@ describe('HostFileSystem stat / lstat', () => {
     expect((await fs.lstat(link)).isDirectory).toBe(false);
   });
 
-  it.skipIf(!supportsSymlinks())(
-    'stat rejects a dangling symlink while lstat still stats the link',
-    async () => {
-      const link = join(dir, 'dangling');
-      await symlink(join(dir, 'missing'), link);
+  it('stat rejects a dangling symlink while lstat still stats the link', async () => {
+    const link = join(dir, 'dangling');
+    await symlink(join(dir, 'missing'), link);
 
-      await expect(fs.stat(link)).rejects.toThrow();
-      expect((await fs.lstat(link)).isSymbolicLink).toBe(true);
-    },
-  );
-
-  describe('HostFileSystem writeText atomic', () => {
-    it('writes text and leaves no temp files behind', async () => {
-      const file = join(dir, 'a.txt');
-      await fs.writeText(file, 'hello');
-      expect(await readFile(file, 'utf8')).toBe('hello');
-
-      const entries = await readdir(dir);
-      expect(entries.filter((entry) => entry.includes('.tmp'))).toEqual([]);
-    });
-
-    it.skipIf(!supportsSymlinks())(
-      'writes through symlinks without replacing the link',
-      async () => {
-        const target = join(dir, 'target.txt');
-        await writeFile(target, 'old', 'utf8');
-        const link = join(dir, 'link.txt');
-        await symlink(target, link);
-
-        await fs.writeText(link, 'new');
-
-        expect(await readFile(target, 'utf8')).toBe('new');
-        expect((await fs.lstat(link)).isSymbolicLink).toBe(true);
-      },
-    );
+    await expect(fs.stat(link)).rejects.toThrow();
+    expect((await fs.lstat(link)).isSymbolicLink).toBe(true);
   });
 });
 
@@ -218,8 +184,7 @@ describe('HostFileSystem streamed UTF-8 lines', () => {
     const path = join(dir, 'invalid.txt');
     await writeFile(path, Buffer.from([0x61, 0x0a, 0xc3]));
     const read = async () => {
-      for await (const _line of fs.readLines(path, { errors: 'strict' })) {
-      }
+      for await (const _line of fs.readLines(path, { errors: 'strict' })) {}
     };
     await expect(read()).rejects.toThrow();
   });

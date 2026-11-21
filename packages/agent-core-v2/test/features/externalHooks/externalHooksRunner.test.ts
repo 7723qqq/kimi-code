@@ -1,45 +1,26 @@
-import { describe, expect, it, spyOn } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
+
+import type { ILogService } from '#/_base/log/log';
+import type { HookExecutionError } from '#/features/externalHooks/app/externalHooksRunner';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ContentPart } from '#human/llm/message';
 
+import { stubLog } from '../../_base/log/stubs';
 import { makeHookRunner } from './runner-stub';
 
-const HOOK_BIN = process.execPath;
-
 function nodeCommand(source: string): string {
-  const file = join(tmpdir(), `kimi-hook-${randomUUID()}.mjs`);
-  writeFileSync(file, source);
-  const quoted = (value: string): string => (/\s/.test(value) ? `"${value}"` : value);
-  return `${quoted(HOOK_BIN)} ${quoted(file)}`;
+  return `node -e ${JSON.stringify(source.replaceAll(/\s*\n\s*/g, ' '))}`;
 }
 
 describe('ExternalHooksRunnerService', () => {
   it('fires a hook whose matcher regex matches the matcher value', async () => {
     const runner = makeHookRunner([
-      {
-        event: 'PreToolUse',
-        matcher: 'Bash|Write',
-        command: nodeCommand('process.exit(0);'),
-        timeout: 5,
-      },
-      {
-        event: 'PreToolUse',
-        matcher: 'Read',
-        command: nodeCommand('process.exit(2);'),
-        timeout: 5,
-      },
-      {
-        event: 'Stop',
-        matcher: '',
-        command: nodeCommand('process.stdout.write("done");'),
-        timeout: 5,
-      },
+      { event: 'PreToolUse', matcher: 'Bash|Write', command: nodeCommand('process.exit(0);'), timeout: 5 },
+      { event: 'PreToolUse', matcher: 'Read', command: nodeCommand('process.exit(2);'), timeout: 5 },
+      { event: 'Stop', matcher: '', command: nodeCommand('process.stdout.write("done");'), timeout: 5 },
     ]);
 
     const results = await runner.trigger('PreToolUse', {
@@ -53,18 +34,8 @@ describe('ExternalHooksRunnerService', () => {
 
   it('returns no results when no hook matcher matches the matcher value', async () => {
     const runner = makeHookRunner([
-      {
-        event: 'PreToolUse',
-        matcher: 'Bash|Write',
-        command: nodeCommand('process.exit(0);'),
-        timeout: 5,
-      },
-      {
-        event: 'PreToolUse',
-        matcher: 'Read',
-        command: nodeCommand('process.exit(2);'),
-        timeout: 5,
-      },
+      { event: 'PreToolUse', matcher: 'Bash|Write', command: nodeCommand('process.exit(0);'), timeout: 5 },
+      { event: 'PreToolUse', matcher: 'Read', command: nodeCommand('process.exit(2);'), timeout: 5 },
     ]);
 
     const results = await runner.trigger('PreToolUse', { matcherValue: 'Grep', inputData: {} });
@@ -73,12 +44,7 @@ describe('ExternalHooksRunnerService', () => {
 
   it('maps exit code 2 to a block action', async () => {
     const runner = makeHookRunner([
-      {
-        event: 'PreToolUse',
-        matcher: 'Read',
-        command: nodeCommand('process.exit(2);'),
-        timeout: 5,
-      },
+      { event: 'PreToolUse', matcher: 'Read', command: nodeCommand('process.exit(2);'), timeout: 5 },
     ]);
 
     const results = await runner.trigger('PreToolUse', { matcherValue: 'Read', inputData: {} });
@@ -103,12 +69,7 @@ describe('ExternalHooksRunnerService', () => {
 
   it('fills a default triggerBlock reason when the hook result has none', async () => {
     const runner = makeHookRunner([
-      {
-        event: 'PreToolUse',
-        matcher: 'Read',
-        command: nodeCommand('process.exit(2);'),
-        timeout: 5,
-      },
+      { event: 'PreToolUse', matcher: 'Read', command: nodeCommand('process.exit(2);'), timeout: 5 },
     ]);
 
     await expect(
@@ -119,12 +80,7 @@ describe('ExternalHooksRunnerService', () => {
   it('aborts a running hook when the trigger signal aborts', async () => {
     const abortController = new AbortController();
     const runner = makeHookRunner([
-      {
-        event: 'PreToolUse',
-        matcher: 'Bash',
-        command: nodeCommand('setTimeout(() => {}, 60000);'),
-        timeout: 60,
-      },
+      { event: 'PreToolUse', matcher: 'Bash', command: nodeCommand('setTimeout(() => {}, 10000);'), timeout: 5 },
     ]);
     const startedAt = Date.now();
     setTimeout(() => {
@@ -137,7 +93,7 @@ describe('ExternalHooksRunnerService', () => {
       signal: abortController.signal,
     });
 
-    expect(Date.now() - startedAt).toBeLessThan(15000);
+    expect(Date.now() - startedAt).toBeLessThan(1000);
     expect(results).toHaveLength(1);
     expect(results[0]?.action).toBe('allow');
     expect(results[0]?.timedOut).toBeUndefined();
@@ -148,16 +104,14 @@ describe('ExternalHooksRunnerService', () => {
       {
         event: 'PreToolUse',
         matcher: 'Bash',
-        command: nodeCommand(
-          [
-            'let input = "";',
-            'process.stdin.on("data", (chunk) => { input += chunk; });',
-            'process.stdin.on("end", () => {',
-            '  const parsed = JSON.parse(input);',
-            '  process.stdout.write(String(parsed.tool_name) + " " + String(parsed.tool_call_id));',
-            '});',
-          ].join('\n'),
-        ),
+        command: nodeCommand([
+          'let input = "";',
+          'process.stdin.on("data", (chunk) => { input += chunk; });',
+          'process.stdin.on("end", () => {',
+          '  const parsed = JSON.parse(input);',
+          '  process.stdout.write(String(parsed.tool_name) + " " + String(parsed.tool_call_id));',
+          '});',
+        ].join('\n')),
         timeout: 5,
       },
     ]);
@@ -175,16 +129,14 @@ describe('ExternalHooksRunnerService', () => {
       [
         {
           event: 'SessionStart',
-          command: nodeCommand(
-            [
-              'let input = "";',
-              'process.stdin.on("data", (chunk) => { input += chunk; });',
-              'process.stdin.on("end", () => {',
-              '  const parsed = JSON.parse(input);',
-              '  process.stdout.write(String(parsed.hook_event_name) + " " + String(parsed.session_id) + " " + String(parsed.cwd));',
-              '});',
-            ].join('\n'),
-          ),
+          command: nodeCommand([
+            'let input = "";',
+            'process.stdin.on("data", (chunk) => { input += chunk; });',
+            'process.stdin.on("end", () => {',
+            '  const parsed = JSON.parse(input);',
+            '  process.stdout.write(String(parsed.hook_event_name) + " " + String(parsed.session_id) + " " + String(parsed.cwd));',
+            '});',
+          ].join('\n')),
           timeout: 5,
         },
       ],
@@ -200,9 +152,7 @@ describe('ExternalHooksRunnerService', () => {
       [
         {
           event: 'PreToolUse',
-          command: nodeCommand(
-            'process.stdout.write(process.cwd() + " " + String(process.env.PLUGIN_HOOK_TEST));',
-          ),
+          command: nodeCommand('process.stdout.write(process.cwd() + " " + String(process.env.PLUGIN_HOOK_TEST));'),
           timeout: 5,
           cwd: realpathSync(tmpdir()),
           env: { PLUGIN_HOOK_TEST: 'plugin-env' },
@@ -217,12 +167,7 @@ describe('ExternalHooksRunnerService', () => {
 
   it('treats an empty matcher string as a catch-all for any matcher value', async () => {
     const runner = makeHookRunner([
-      {
-        event: 'Stop',
-        matcher: '',
-        command: nodeCommand('process.stdout.write("done");'),
-        timeout: 5,
-      },
+      { event: 'Stop', matcher: '', command: nodeCommand('process.stdout.write("done");'), timeout: 5 },
     ]);
 
     const results = await runner.trigger('Stop', { matcherValue: 'anything', inputData: {} });
@@ -236,23 +181,17 @@ describe('ExternalHooksRunnerService', () => {
       { type: 'text', text: 'world' },
     ] satisfies readonly ContentPart[];
     const runner = makeHookRunner([
-      {
-        event: 'UserPromptSubmit',
-        matcher: 'hello world',
-        command: nodeCommand('process.exit(0);'),
-        timeout: 5,
-      },
+      { event: 'UserPromptSubmit', matcher: 'hello world', command: nodeCommand('process.exit(0);'), timeout: 5 },
     ]);
 
-    const results = await runner.trigger('UserPromptSubmit', {
-      matcherValue: input,
-      inputData: {},
-    });
+    const results = await runner.trigger('UserPromptSubmit', { matcherValue: input, inputData: {} });
     expect(results).toHaveLength(1);
   });
 
   it('returns no results for events that have no registered hooks', async () => {
-    const runner = makeHookRunner([{ event: 'PreToolUse', matcher: 'Bash', command: 'echo 1' }]);
+    const runner = makeHookRunner([
+      { event: 'PreToolUse', matcher: 'Bash', command: 'echo 1' },
+    ]);
 
     const results = await runner.trigger('UserPromptSubmit', { matcherValue: '', inputData: {} });
     expect(results).toHaveLength(0);
@@ -270,7 +209,7 @@ describe('ExternalHooksRunnerService', () => {
   });
 
   it('does not dedupe hooks that share a command but have different cwd', async () => {
-    const command = nodeCommand('process.stdout.write(process.cwd());');
+    const command = nodeCommand('process.stdout.write(process.cwd() + "\\n");');
     const runner = makeHookRunner([
       { event: 'Stop', command, timeout: 5, cwd: process.cwd() },
       { event: 'Stop', command, timeout: 5, cwd: tmpdir() },
@@ -285,63 +224,18 @@ describe('ExternalHooksRunnerService', () => {
 
   it('silently skips hooks whose matcher is not a valid regex', async () => {
     const runner = makeHookRunner([
-      {
-        event: 'PreToolUse',
-        matcher: '[invalid',
-        command: nodeCommand('process.exit(0);'),
-        timeout: 5,
-      },
+      { event: 'PreToolUse', matcher: '[invalid', command: nodeCommand('process.exit(0);'), timeout: 5 },
     ]);
 
     const results = await runner.trigger('PreToolUse', { matcherValue: 'Bash', inputData: {} });
     expect(results).toHaveLength(0);
   });
 
-  it('fails closed when trigger input preparation throws', async () => {
-    const inputData = {};
-    Object.defineProperty(inputData, 'broken', {
-      enumerable: true,
-      get() {
-        throw new Error('broken input');
-      },
-    });
-    const runner = makeHookRunner([
-      {
-        event: 'PreToolUse',
-        matcher: 'Bash',
-        command: nodeCommand('process.stdout.write("should-not-run");'),
-      },
-    ]);
-
-    await expect(
-      runner.trigger('PreToolUse', { matcherValue: 'Bash', inputData }),
-    ).resolves.toEqual([]);
-    await expect(
-      runner.triggerBlock('PreToolUse', { matcherValue: 'Bash', inputData }),
-    ).resolves.toEqual({ block: true, reason: 'broken input' });
-  });
-
-  it('fails open when fireAndForgetTrigger sees a synchronous trigger error', async () => {
-    const runner = makeHookRunner([]);
-    spyOn(runner, 'trigger').mockImplementation(() => {
-      throw new Error('trigger failed');
-    });
-
-    await expect(runner.fireAndForgetTrigger('Notification')).resolves.toEqual([]);
-  });
-
   it('invokes onTriggered with (event,target,count) and onResolved with (event,target,action)', async () => {
     const triggered: Array<[string, string, number]> = [];
     const resolved: Array<[string, string, string]> = [];
     const runner = makeHookRunner(
-      [
-        {
-          event: 'PreToolUse',
-          matcher: 'Bash',
-          command: nodeCommand('process.exit(0);'),
-          timeout: 5,
-        },
-      ],
+      [{ event: 'PreToolUse', matcher: 'Bash', command: nodeCommand('process.exit(0);'), timeout: 5 }],
       {
         onTriggered: (event, target, count) => triggered.push([event, target, count]),
         onResolved: (event, target, action) => resolved.push([event, target, action]),
@@ -356,14 +250,7 @@ describe('ExternalHooksRunnerService', () => {
 
   it('preserves a block result even when lifecycle callbacks throw', async () => {
     const runner = makeHookRunner(
-      [
-        {
-          event: 'PreToolUse',
-          matcher: 'Read',
-          command: nodeCommand('process.exit(2);'),
-          timeout: 5,
-        },
-      ],
+      [{ event: 'PreToolUse', matcher: 'Read', command: nodeCommand('process.exit(2);'), timeout: 5 }],
       {
         onTriggered: () => {
           throw new Error('trigger telemetry failed');
@@ -386,18 +273,8 @@ describe('ExternalHooksRunnerService', () => {
     } as unknown as ITelemetryService;
     const runner = makeHookRunner(
       [
-        {
-          event: 'PreToolUse',
-          matcher: 'Bash',
-          command: nodeCommand('process.exit(2);'),
-          timeout: 5,
-        },
-        {
-          event: 'PreToolUse',
-          matcher: 'Bash',
-          command: nodeCommand('process.exit(1);'),
-          timeout: 5,
-        },
+        { event: 'PreToolUse', matcher: 'Bash', command: nodeCommand('process.exit(2);'), timeout: 5 },
+        { event: 'PreToolUse', matcher: 'Bash', command: nodeCommand('process.exit(1);'), timeout: 5 },
       ],
       { telemetry },
     );
@@ -406,15 +283,7 @@ describe('ExternalHooksRunnerService', () => {
     await runner.trigger('PreToolUse', { matcherValue: 'Grep', inputData: {} });
 
     const spawnFailRunner = makeHookRunner(
-      [
-        {
-          event: 'PreToolUse',
-          matcher: 'Bash',
-          command: 'true',
-          timeout: 5,
-          cwd: '/nonexistent-hook-cwd',
-        },
-      ],
+      [{ event: 'PreToolUse', matcher: 'Bash', command: 'true', timeout: 5, cwd: '/nonexistent-hook-cwd' }],
       { telemetry },
     );
     await spawnFailRunner.trigger('PreToolUse', { matcherValue: 'Bash', inputData: {} });
@@ -445,15 +314,13 @@ describe('ExternalHooksRunnerService', () => {
     const runner = makeHookRunner([
       {
         event: 'SessionStart',
-        command: nodeCommand(
-          [
-            'let input = "";',
-            'process.stdin.on("data", (chunk) => { input += chunk; });',
-            'process.stdin.on("end", () => {',
-            '  process.stdout.write(String(JSON.parse(input).client_type));',
-            '});',
-          ].join('\n'),
-        ),
+        command: nodeCommand([
+          'let input = "";',
+          'process.stdin.on("data", (chunk) => { input += chunk; });',
+          'process.stdin.on("end", () => {',
+          '  process.stdout.write(String(JSON.parse(input).client_type));',
+          '});',
+        ].join('\n')),
         timeout: 5,
       },
     ]);
@@ -466,15 +333,13 @@ describe('ExternalHooksRunnerService', () => {
     const runner = makeHookRunner([
       {
         event: 'SessionStart',
-        command: nodeCommand(
-          [
-            'let input = "";',
-            'process.stdin.on("data", (chunk) => { input += chunk; });',
-            'process.stdin.on("end", () => {',
-            '  process.stdout.write(String(JSON.parse(input).client_type));',
-            '});',
-          ].join('\n'),
-        ),
+        command: nodeCommand([
+          'let input = "";',
+          'process.stdin.on("data", (chunk) => { input += chunk; });',
+          'process.stdin.on("end", () => {',
+          '  process.stdout.write(String(JSON.parse(input).client_type));',
+          '});',
+        ].join('\n')),
         timeout: 5,
       },
     ]);
@@ -495,5 +360,69 @@ describe('ExternalHooksRunnerService', () => {
     expect(runner.hasHooksFor('PreToolUse')).toBe(true);
     expect(runner.hasHooksFor('SessionHeartbeat')).toBe(true);
     expect(runner.hasHooksFor('Stop')).toBe(false);
+  });
+
+  function captureWarnings(): { log: ILogService; warnings: string[] } {
+    const warnings: string[] = [];
+    const log = {
+      ...stubLog(),
+      warn: (message: string) => {
+        warnings.push(message);
+      },
+    } as ILogService;
+    return { log, warnings };
+  }
+
+  function failingRunner(hooks: Parameters<typeof makeHookRunner>[0]) {
+    const { log, warnings } = captureWarnings();
+    const failures: HookExecutionError[] = [];
+    const runner = makeHookRunner(hooks, { log });
+    runner.onDidHookError((failure) => failures.push(failure));
+    return { runner, warnings, failures };
+  }
+
+  it('logs and reports a hook that exits with a non-zero, non-block code while failing open', async () => {
+    const { runner, warnings, failures } = failingRunner([
+      {
+        event: 'PostToolUse',
+        command: nodeCommand('process.stderr.write("boom"); process.exit(1);'),
+        timeout: 5,
+      },
+    ]);
+
+    const results = await runner.trigger('PostToolUse', {
+      inputData: { toolName: 'Write' },
+      sessionId: 'ses_1',
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.action).toBe('allow');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('PostToolUse');
+    expect(failures).toEqual([
+      expect.objectContaining({
+        event: 'PostToolUse',
+        sessionId: 'ses_1',
+        message: expect.stringContaining('exit code 1'),
+      }),
+    ]);
+    expect(failures[0]?.command).toContain('node');
+  });
+
+  it('does not report a deliberate block (exit code 2) as a failure', async () => {
+    const { runner, warnings, failures } = failingRunner([
+      {
+        event: 'PreToolUse',
+        matcher: 'Read',
+        command: nodeCommand('process.stderr.write("blocked"); process.exit(2);'),
+        timeout: 5,
+      },
+    ]);
+
+    await expect(
+      runner.triggerBlock('PreToolUse', { matcherValue: 'Read', inputData: {} }),
+    ).resolves.toEqual({ block: true, reason: 'blocked' });
+    expect(warnings).toHaveLength(0);
+    expect(failures).toHaveLength(0);
   });
 });

@@ -1,5 +1,6 @@
-import type { Message, TextPart } from '#/llm/message';
-import { SyntaxRequestFormatError } from '#/llm/syntax-errors';
+import type { Message, TextPart } from '#human/message';
+import type { DocumentURLPart } from '#human/message';
+import { SyntaxRequestFormatError } from '#human/llm/syntax-errors';
 
 import type { GoogleContent, GooglePart } from './contract';
 
@@ -91,7 +92,7 @@ export function lowerMessage(message: Message, lower: GoogleGenAILowerContext): 
   if (message.role === 'tool') {
     let textOutput = '';
     const mediaParts: GooglePart[] = [];
-    for (const part of message.content) {
+    for (const part of message.content as readonly (typeof message.content)[number][] | readonly DocumentURLPart[]) {
       switch (part.type) {
         case 'text':
           if (part.text) textOutput += part.text;
@@ -152,7 +153,7 @@ export function lowerMessage(message: Message, lower: GoogleGenAILowerContext): 
 
   const role = message.role === 'assistant' ? 'model' : 'user';
   const parts: GooglePart[] = [];
-  for (const part of message.content) {
+  for (const part of message.content as readonly (typeof message.content)[number][] | readonly DocumentURLPart[]) {
     switch (part.type) {
       case 'text': {
         const signature =

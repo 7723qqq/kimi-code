@@ -1,27 +1,22 @@
-import { isProxyConfigured } from '#/_base/utils/proxy';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { HttpFetchError } from '#/app/web/tools/fetch-url-types';
-import { IWebFetchService } from '#/app/web/web';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
-  RepoMutations,
   ToolAccesses,
-  ToolSideEffects,
   type ExecutableToolContext,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
+import { IWebFetchService } from '#/app/web/web';
+import { HttpFetchError } from '#/app/web/tools/fetch-url-types';
 import { FetchURLInputSchema, IFetchURLTool, type FetchURLInput } from './fetch-url';
 import DESCRIPTION from './fetch-url.md?raw';
 
 export class FetchURLTool implements IFetchURLTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'FetchURL' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(FetchURLInputSchema);
 
@@ -73,36 +68,12 @@ export class FetchURLTool implements IFetchURLTool {
           output: `Failed to fetch URL. Status: ${String(error.status)}. ${msg}`,
         };
       }
-      const causeText = describeErrorCause(error);
-      const proxyHint = isProxyConfigured(process.env)
-        ? ''
-        : ' No HTTP(S)_PROXY is configured on this machine; if the site is unreachable by direct connection, set one and restart.';
       return {
         isError: true,
-        output: `Failed to fetch URL due to network error: ${args.url}. ${msg}${causeText}${proxyHint}`,
+        output: `Failed to fetch URL due to network error: ${args.url}. ${msg}`,
       };
     }
   }
-}
-
-function describeErrorCause(error: unknown): string {
-  const parts: string[] = [];
-  let current: unknown = error;
-  for (let depth = 0; depth < 5; depth += 1) {
-    if (current === null || typeof current !== 'object') break;
-    const candidate = current as { cause?: unknown };
-    current = candidate.cause;
-    if (current === undefined || current === null) break;
-    if (current instanceof Error) {
-      const code = (current as NodeJS.ErrnoException).code;
-      parts.push(code === undefined ? current.message : `${current.message} (${String(code)})`);
-    } else if (typeof current === 'string') {
-      parts.push(current);
-    } else {
-      parts.push(JSON.stringify(current));
-    }
-  }
-  return parts.length > 0 ? ` Cause: ${parts.join(' <- ')}.` : '';
 }
 
 registerAgentToolService(IFetchURLTool, FetchURLTool, { name: 'FetchURL', domain: 'web' });

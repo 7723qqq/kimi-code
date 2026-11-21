@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import Fastify, { type FastifyInstance } from 'fastify';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   createHostCheck,
@@ -15,7 +15,6 @@ import {
 } from '../src/middleware/hostnames';
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { removeTempHome } from './helpers/tempHome';
 
 describe('stripPort', () => {
   it('strips the port from a hostname', () => {
@@ -44,16 +43,7 @@ describe('formatHostErrorMessage', () => {
 });
 
 describe('isAllowedHost (default allow set)', () => {
-  const allow = [
-    'localhost',
-    'localhost:80',
-    'foo.localhost',
-    '127.0.0.1',
-    '127.0.0.1:58627',
-    '[::1]',
-    '::1',
-    '8.8.8.8',
-  ];
+  const allow = ['localhost', 'localhost:80', 'foo.localhost', '127.0.0.1', '127.0.0.1:58627', '[::1]', '::1', '8.8.8.8'];
 
   for (const host of allow) {
     it(`allows ${host}`, () => {
@@ -192,7 +182,7 @@ describe('startServer allowedHosts — env + option merge', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });

@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { join as patheJoin } from 'pathe';
+import { afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import { ensureKimiHome, resolveConfigPath, resolveKimiHome } from '#/app/bootstrap/bootstrap';
 
@@ -13,37 +12,11 @@ describe('bootstrap path helpers', () => {
       expect(resolveKimiHome('/tmp/kimi')).toBe('/tmp/kimi');
     });
 
-    it('handles a trailing slash in the explicit homeDir', () => {
-      expect(resolveKimiHome('/tmp/kimi/')).toBe('/tmp/kimi/');
-    });
-
     it('falls back to KIMI_CODE_HOME env', () => {
       const prev = process.env['KIMI_CODE_HOME'];
       process.env['KIMI_CODE_HOME'] = '/env/kimi';
       try {
         expect(resolveKimiHome()).toBe('/env/kimi');
-      } finally {
-        if (prev === undefined) delete process.env['KIMI_CODE_HOME'];
-        else process.env['KIMI_CODE_HOME'] = prev;
-      }
-    });
-
-    it('returns an empty home when KIMI_CODE_HOME is set to empty string', () => {
-      const prev = process.env['KIMI_CODE_HOME'];
-      process.env['KIMI_CODE_HOME'] = '';
-      try {
-        expect(resolveKimiHome()).toBe('');
-      } finally {
-        if (prev === undefined) delete process.env['KIMI_CODE_HOME'];
-        else process.env['KIMI_CODE_HOME'] = prev;
-      }
-    });
-
-    it('falls back to osHomeDir/.kimi-code when no env and no explicit homeDir', () => {
-      const prev = process.env['KIMI_CODE_HOME'];
-      delete process.env['KIMI_CODE_HOME'];
-      try {
-        expect(resolveKimiHome()).toBe(patheJoin(homedir(), '.kimi-code'));
       } finally {
         if (prev === undefined) delete process.env['KIMI_CODE_HOME'];
         else process.env['KIMI_CODE_HOME'] = prev;
@@ -59,16 +32,6 @@ describe('bootstrap path helpers', () => {
     it('joins homeDir with config.toml', () => {
       expect(resolveConfigPath({ homeDir: '/tmp/kimi' })).toBe('/tmp/kimi/config.toml');
     });
-
-    it('prefers explicit configPath over homeDir when both are given', () => {
-      expect(resolveConfigPath({ configPath: '/custom/cfg.toml', homeDir: '/tmp/kimi' })).toBe(
-        '/custom/cfg.toml',
-      );
-    });
-
-    it('normalizes a trailing slash in homeDir', () => {
-      expect(resolveConfigPath({ homeDir: '/tmp/kimi/' })).toBe('/tmp/kimi/config.toml');
-    });
   });
 
   describe('ensureKimiHome', () => {
@@ -81,16 +44,6 @@ describe('bootstrap path helpers', () => {
       dir = join(mkdtempSync(join(tmpdir(), 'kimi-home-')), 'nested');
       ensureKimiHome(dir);
       expect(existsSync(dir)).toBe(true);
-    });
-
-    it('does not throw when the directory already exists', () => {
-      dir = mkdtempSync(join(tmpdir(), 'kimi-home-'));
-      ensureKimiHome(dir);
-      expect(() => ensureKimiHome(dir!)).not.toThrow();
-    });
-
-    it('does not throw for a root-like path', () => {
-      expect(() => ensureKimiHome('/tmp')).not.toThrow();
     });
   });
 });

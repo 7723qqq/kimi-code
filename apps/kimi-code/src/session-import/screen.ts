@@ -1,14 +1,8 @@
-/**
- * ImportSessionsScreenComponent — the page behind `/import-sessions` and
- * `kimi import-sessions`: scan → choose a window → import with progress →
- * summary. Rendering follows the migration screen conventions.
- */
 import { basename } from 'node:path';
 
 import { Container, matchesKey, Key, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 
@@ -21,15 +15,13 @@ import {
   type ImportReport,
   type ImportScan,
 } from './run-import';
+import { t } from '#/i18n';
 
 type Phase = 'scanning' | 'choose' | 'importing' | 'done' | 'failed';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
 const SPINNER_INTERVAL_MS = 80;
-const SOURCE_LABEL_KEYS = {
-  'claude-code': 'tui.messages.importSessions.sourceClaudeCode',
-  codex: 'tui.messages.importSessions.sourceCodex',
-} as const;
+const SOURCE_LABELS = { 'claude-code': t('tui.messages.importSessions.sourceClaudeCode'), codex: 'Codex' } as const;
 const MAX_LISTED_FAILURES = 3;
 const LONGEST_WINDOW_DAYS = Math.max(...IMPORT_WINDOW_DAYS);
 
@@ -38,12 +30,8 @@ export interface ImportSessionsScreenOptions {
   readonly scan: () => Promise<ImportScan>;
   readonly run: (
     candidates: readonly ImportCandidate[],
-    hooks: {
-      readonly onProgress: (progress: ImportProgress) => void;
-      readonly shouldStop: () => boolean;
-    },
+    hooks: { readonly onProgress: (progress: ImportProgress) => void; readonly shouldStop: () => boolean },
   ) => Promise<ImportReport>;
-  /** Called once when the page closes; `report` is absent when nothing was imported. */
   readonly onClose: (report: ImportReport | undefined) => void;
   readonly requestRender?: () => void;
   readonly colors?: ColorPalette;
@@ -55,9 +43,7 @@ interface Choice {
 }
 
 function sessions(count: number): string {
-  return count === 1
-    ? t('tui.messages.importSessions.sessionCount_one', { count })
-    : t('tui.messages.importSessions.sessionCount_other', { count });
+  return `${String(count)} session${count === 1 ? '' : 's'}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -86,8 +72,7 @@ export class ImportSessionsScreenComponent extends Container implements Focusabl
       (scan) => {
         this.scan = scan;
         this.phase = 'choose';
-        this.selectedIndex =
-          this.count(IMPORT_WINDOW_DAYS[0]) === 0 && this.count(IMPORT_WINDOW_DAYS[1]) > 0 ? 1 : 0;
+        this.selectedIndex = this.count(IMPORT_WINDOW_DAYS[0]) === 0 && this.count(IMPORT_WINDOW_DAYS[1]) > 0 ? 1 : 0;
         this.settle();
       },
       (error: unknown) => {
@@ -152,16 +137,10 @@ export class ImportSessionsScreenComponent extends Container implements Focusabl
   private body(colors: ColorPalette): string[] {
     const text = chalk.hex(colors.text);
     const muted = chalk.hex(colors.textMuted);
-    const spinner = chalk.hex(colors.accent)(
-      SPINNER_FRAMES[this.spinnerFrame] ?? SPINNER_FRAMES[0],
-    );
+    const spinner = chalk.hex(colors.accent)(SPINNER_FRAMES[this.spinnerFrame] ?? SPINNER_FRAMES[0]);
     switch (this.phase) {
       case 'scanning':
-        return [
-          `  ${spinner}  ${text(t('tui.messages.importSessions.scanning'))}`,
-          '',
-          muted(` ${t('tui.messages.importSessions.escCancel')}`),
-        ];
+        return [`  ${spinner}  ${text(t('tui.messages.importSessions.scanning'))}`, '', muted(' esc cancel')];
       case 'choose':
         return this.chooseBody(colors);
       case 'importing': {
@@ -169,29 +148,17 @@ export class ImportSessionsScreenComponent extends Container implements Focusabl
         const current =
           progress === undefined
             ? t('tui.messages.importSessions.preparing')
-            : `${String(progress.index + 1)}/${String(progress.total)} · ${basename(progress.candidate.cwd)} (${t(SOURCE_LABEL_KEYS[progress.candidate.source])})`;
+            : `${String(progress.index + 1)}/${String(progress.total)} · ${basename(progress.candidate.cwd)} (${SOURCE_LABELS[progress.candidate.source]})`;
         return [
           `  ${spinner}  ${text(current)}`,
           '',
-          muted(
-            this.stopRequested
-              ? ` ${t('tui.messages.importSessions.stopping')}`
-              : ` ${t('tui.messages.importSessions.stopHint')}`,
-          ),
+          muted(this.stopRequested ? t('tui.messages.importSessions.stopping') : t('tui.messages.importSessions.stopHint')),
         ];
       }
       case 'done':
         return this.reportBody(colors);
       case 'failed':
-        return [
-          chalk.hex(colors.error)(
-            ` ${t('tui.messages.importSessions.importFailed', {
-              reason: this.failure ?? t('tui.messages.importSessions.unknownError'),
-            })}`,
-          ),
-          '',
-          muted(` ${t('tui.messages.importSessions.enterClose')}`),
-        ];
+        return [chalk.hex(colors.error)(` Import failed: ${this.failure ?? t('tui.messages.importSessions.unknownError')}`), '', muted(t('tui.messages.importSessions.enterClose'))];
     }
   }
 
@@ -202,63 +169,35 @@ export class ImportSessionsScreenComponent extends Container implements Focusabl
     const alreadyImported = this.scan?.alreadyImported ?? 0;
     const missingFolder = this.scan?.missingFolder ?? 0;
     const notCounted = [
-      ...(alreadyImported > 0
-        ? [t('tui.messages.importSessions.alreadyImportedCount', { count: alreadyImported })]
-        : []),
-      ...(missingFolder > 0
-        ? [t('tui.messages.importSessions.missingFolderCount', { count: missingFolder })]
-        : []),
+      ...(alreadyImported > 0 ? [t('tui.messages.importSessions.alreadyImportedCount', { count: String(alreadyImported) })] : []),
+      ...(missingFolder > 0 ? [t('tui.messages.importSessions.missingFolderCount', { count: String(missingFolder) })] : []),
     ];
     const lines = choices.map((choice, index) => {
       const selected = index === this.selectedIndex;
-      const pointer = chalk.hex(selected ? colors.primary : colors.textDim)(
-        `  ${selected ? '❯' : ' '} `,
-      );
+      const pointer = chalk.hex(selected ? colors.primary : colors.textDim)(`  ${selected ? '❯' : ' '} `);
       const label = (selected ? chalk.hex(colors.primary).bold : text)(choice.label.padEnd(14));
       if (choice.days === undefined) return pointer + label;
       const count = this.count(choice.days);
-      const limit =
-        count > IMPORT_BATCH_LIMIT
-          ? t('tui.messages.importSessions.newestThisRun', { count: IMPORT_BATCH_LIMIT })
-          : '';
+      const limit = count > IMPORT_BATCH_LIMIT ? t('tui.messages.importSessions.newestThisRun', { count: String(IMPORT_BATCH_LIMIT) }) : '';
       return pointer + label + muted(`${sessions(count)}${limit}`);
     });
     if (this.count(LONGEST_WINDOW_DAYS) === 0) {
       const reasons = notCounted.length > 0 ? ` ${notCounted.join(', ')}.` : '';
-      return [
-        text(
-          ` ${t('tui.messages.importSessions.noSessions', { days: LONGEST_WINDOW_DAYS })}${reasons}`,
-        ),
-        '',
-        ...lines,
-        '',
-        muted(` ${t('tui.messages.importSessions.enterClose')}`),
-      ];
+      return [text(` No sessions from the last ${String(LONGEST_WINDOW_DAYS)} days to import.${reasons}`), '', ...lines, '', muted(t('tui.messages.importSessions.enterClose'))];
     }
     const recent = candidatesWithin(this.scan!, LONGEST_WINDOW_DAYS, this.options.now);
     const bySource = (['claude-code', 'codex'] as const)
-      .map(
-        (source) =>
-          [
-            t(SOURCE_LABEL_KEYS[source]),
-            recent.filter((candidate) => candidate.source === source).length,
-          ] as const,
-      )
+      .map((source) => [SOURCE_LABELS[source], recent.filter((candidate) => candidate.source === source).length] as const)
       .filter(([, count]) => count > 0)
       .map(([label, count]) => `${label} ${String(count)}`);
-    const summary = [
-      ...bySource,
-      ...(notCounted.length > 0
-        ? [t('tui.messages.importSessions.notCounted', { count: notCounted.join(', ') })]
-        : []),
-    ];
+    const summary = [...bySource, ...(notCounted.length > 0 ? [`not counted: ${notCounted.join(', ')}`] : [])];
     return [
-      text(` ${t('tui.messages.importSessions.localNote')}`),
+      text(t('tui.messages.importSessions.localNote')),
       '',
       ...lines,
       '',
       muted(` ${summary.join(' · ')}`),
-      muted(` ${t('tui.messages.importSessions.moveHint')}`),
+      muted(t('tui.messages.importSessions.moveHint')),
     ];
   }
 
@@ -266,15 +205,10 @@ export class ImportSessionsScreenComponent extends Container implements Focusabl
     const report = this.report!;
     const text = chalk.hex(colors.text);
     const muted = chalk.hex(colors.textMuted);
-    const importedCount = report.imported.length;
     const headline = report.stopped
-      ? importedCount === 1
-        ? t('tui.messages.importSessions.stopped_one', { count: importedCount })
-        : t('tui.messages.importSessions.stopped_other', { count: importedCount })
-      : importedCount > 0
-        ? importedCount === 1
-          ? t('tui.messages.importSessions.imported_one', { count: importedCount })
-          : t('tui.messages.importSessions.imported_other', { count: importedCount })
+      ? `Import stopped. Imported ${sessions(report.imported.length)}.`
+      : report.imported.length > 0
+        ? `Imported ${sessions(report.imported.length)}.`
         : t('tui.messages.importSessions.noneImported');
     const skipped = [
       [report.missingFolder, t('tui.messages.importSessions.missingFolder')],
@@ -284,51 +218,31 @@ export class ImportSessionsScreenComponent extends Container implements Focusabl
       [report.alreadyImported, t('tui.messages.importSessions.alreadyImported')],
     ] as const;
     const skippedTotal = skipped.reduce((total, [count]) => total + count, 0);
-    const lines = [
-      chalk.hex(report.imported.length > 0 ? colors.success : colors.text)(` ${headline}`),
-    ];
+    const lines = [chalk.hex(report.imported.length > 0 ? colors.success : colors.text)(` ${headline}`)];
     if (skippedTotal > 0) {
-      lines.push(text(` ${t('tui.messages.importSessions.skipped', { count: skippedTotal })}`));
+      lines.push(text(` Skipped ${String(skippedTotal)}:`));
       for (const [count, reason] of skipped) {
         if (count > 0) lines.push(muted(`   ${String(count)} ${reason}`));
       }
     }
     if (report.failed.length > 0) {
-      lines.push(
-        chalk.hex(colors.warning)(
-          ` ${t('tui.messages.importSessions.failed', { count: report.failed.length })}`,
-        ),
-      );
+      lines.push(chalk.hex(colors.warning)(` Failed ${String(report.failed.length)}:`));
       for (const failure of report.failed.slice(0, MAX_LISTED_FAILURES)) {
         lines.push(muted(`   ${basename(failure.path)}: ${failure.message}`));
       }
       if (report.failed.length > MAX_LISTED_FAILURES) {
-        lines.push(
-          muted(
-            `   ${t('tui.messages.importSessions.more', {
-              count: report.failed.length - MAX_LISTED_FAILURES,
-            })}`,
-          ),
-        );
+        lines.push(muted(t('tui.messages.importSessions.more', { count: String(report.failed.length - MAX_LISTED_FAILURES) })));
       }
     }
     if (report.imported.length > 0) {
-      lines.push('', muted(` ${t('tui.messages.importSessions.findThem')}`));
+      lines.push('', muted(t('tui.messages.importSessions.findThem')));
     }
-    return [...lines, '', muted(` ${t('tui.messages.importSessions.enterClose')}`)];
+    return [...lines, '', muted(t('tui.messages.importSessions.enterClose'))];
   }
 
   private choices(): Choice[] {
-    if (this.count(LONGEST_WINDOW_DAYS) === 0) {
-      return [{ label: t('tui.messages.importSessions.close') }];
-    }
-    return [
-      ...IMPORT_WINDOW_DAYS.map((days) => ({
-        label: t('tui.messages.importSessions.lastDays', { days }),
-        days,
-      })),
-      { label: t('tui.messages.importSessions.cancel') },
-    ];
+    if (this.count(LONGEST_WINDOW_DAYS) === 0) return [{ label: t('tui.messages.importSessions.close') }];
+    return [...IMPORT_WINDOW_DAYS.map((days) => ({ label: t('tui.messages.importSessions.lastDays', { days: String(days) }), days })), { label: t('tui.messages.importSessions.cancel') }];
   }
 
   private count(days: number): number {

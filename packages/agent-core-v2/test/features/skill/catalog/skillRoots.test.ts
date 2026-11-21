@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
+import { afterEach, beforeEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 import {
   configuredRoots,
@@ -10,10 +10,6 @@ import {
   projectRootsForDirs,
   userRoots,
 } from '#/features/skill/catalog/skillRoots';
-
-async function normalizedRealpath(p: string): Promise<string> {
-  return (await realpath(p)).replaceAll('\\', '/');
-}
 
 describe('skillRoots', () => {
   let root: string;
@@ -30,54 +26,6 @@ describe('skillRoots', () => {
     await mkdir(join(dir, '.git'), { recursive: true });
   }
 
-  describe('projectRootsForDirs', () => {
-    it('collects roots from every work dir without duplicating a shared project root', async () => {
-      await markGitRoot();
-      await mkdir(join(root, '.kimi-code/skills/commit'), { recursive: true });
-      const nested = join(root, 'packages/app');
-      await mkdir(nested, { recursive: true });
-
-      const single = await projectRoots(root);
-      const merged = await projectRootsForDirs([root, nested]);
-
-      expect(merged.length).toBeGreaterThan(0);
-      expect(merged.map((entry) => entry.path)).toEqual(single.map((entry) => entry.path));
-    });
-
-    it('keeps roots from work dirs that belong to different projects', async () => {
-      await markGitRoot();
-      await mkdir(join(root, '.kimi-code/skills/commit'), { recursive: true });
-      const other = join(root, 'other-project');
-      await markGitRoot(other);
-      await mkdir(join(other, '.agents/skills/review'), { recursive: true });
-
-      const merged = await projectRootsForDirs([root, other]);
-
-      expect(merged.some((entry) => entry.path.endsWith('.kimi-code/skills'))).toBe(true);
-      expect(merged.some((entry) => entry.path.endsWith('.agents/skills'))).toBe(true);
-    });
-
-    it('preserves directory priority and deduplicates resolved skill roots', async () => {
-      const primary = join(root, 'primary');
-      const secondary = join(root, 'secondary');
-      const primarySkills = join(primary, '.kimi-code/skills');
-      const secondarySkills = join(secondary, '.kimi-code/skills');
-      await mkdir(primarySkills, { recursive: true });
-      await mkdir(secondarySkills, { recursive: true });
-
-      const roots = await projectRootsForDirs([primary, secondary, primary]);
-
-      expect(roots.map((entry) => entry.path)).toEqual([
-        await normalizedRealpath(primarySkills),
-        await normalizedRealpath(secondarySkills),
-      ]);
-      expect(roots.map((entry) => entry.workspaceDir)).toEqual([
-        await normalizedRealpath(primary),
-        await normalizedRealpath(secondary),
-      ]);
-    });
-  });
-
   describe('projectRoots', () => {
     it('resolves the brand .kimi-code/skills directory at the .git root', async () => {
       await markGitRoot();
@@ -85,9 +33,9 @@ describe('skillRoots', () => {
 
       const roots = await projectRoots(root);
 
-      expect(
-        roots.some((r) => r.path.endsWith('.kimi-code/skills') && r.source === 'project'),
-      ).toBe(true);
+      expect(roots.some((r) => r.path.endsWith('.kimi-code/skills') && r.source === 'project')).toBe(
+        true,
+      );
     });
 
     it('falls back to the generic .agents/skills directory', async () => {
@@ -146,6 +94,28 @@ describe('skillRoots', () => {
     });
   });
 
+  describe('projectRootsForDirs', () => {
+    it('preserves directory priority and deduplicates resolved skill roots', async () => {
+      const primary = join(root, 'primary');
+      const secondary = join(root, 'secondary');
+      const primarySkills = join(primary, '.kimi-code/skills');
+      const secondarySkills = join(secondary, '.kimi-code/skills');
+      await mkdir(primarySkills, { recursive: true });
+      await mkdir(secondarySkills, { recursive: true });
+
+      const roots = await projectRootsForDirs([primary, secondary, primary]);
+
+      expect(roots.map((entry) => entry.path)).toEqual([
+        await realpath(primarySkills),
+        await realpath(secondarySkills),
+      ]);
+      expect(roots.map((entry) => entry.workspaceDir)).toEqual([
+        await realpath(primary),
+        await realpath(secondary),
+      ]);
+    });
+  });
+
   describe('userRoots', () => {
     it('resolves the brand skills directory under homeDir', async () => {
       await mkdir(join(root, 'skills/notes'), { recursive: true });
@@ -179,19 +149,14 @@ describe('skillRoots', () => {
       await mkdir(absDir, { recursive: true });
       await mkdir(join(root, 'relative'), { recursive: true });
 
-      const roots = await configuredRoots(
-        ['~', '~/notes', absDir, 'relative'],
-        root,
-        homeDir,
-        'extra',
-      );
+      const roots = await configuredRoots(['~', '~/notes', absDir, 'relative'], root, homeDir, 'extra');
       const paths = roots.map((root) => root.path);
 
       expect(roots.every((root) => root.source === 'extra')).toBe(true);
-      expect(paths).toContain(await normalizedRealpath(homeDir));
-      expect(paths).toContain(await normalizedRealpath(join(homeDir, 'notes')));
-      expect(paths).toContain(await normalizedRealpath(absDir));
-      expect(paths).toContain(await normalizedRealpath(join(root, 'relative')));
+      expect(paths).toContain(await realpath(homeDir));
+      expect(paths).toContain(await realpath(join(homeDir, 'notes')));
+      expect(paths).toContain(await realpath(absDir));
+      expect(paths).toContain(await realpath(join(root, 'relative')));
     });
   });
 });

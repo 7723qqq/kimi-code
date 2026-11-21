@@ -1,6 +1,6 @@
 import { createWriteStream } from 'node:fs';
 import { mkdir, mkdtemp, readdir, rename, rm, stat } from 'node:fs/promises';
-import type { Readable } from 'node:stream';
+import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import { dirname, join, relative, resolve } from 'pathe';
@@ -8,7 +8,11 @@ import { ZipFile, type ReadStreamOptions } from 'yazl';
 
 import { ErrorCodes, Error2 } from '#/errors';
 
-import { openZipSource, type ZipSource, type ZipSourceIdentity } from './file-source';
+import {
+  openZipSource,
+  type ZipSource,
+  type ZipSourceIdentity,
+} from './file-source';
 import type { ExportSessionManifest } from './sessionExport';
 
 export async function collectFilesRecursive(root: string, skipDir?: string): Promise<string[]> {
@@ -50,7 +54,9 @@ export async function writeExportZip(args: {
 }): Promise<readonly string[]> {
   const unusedSources = new Set<ZipSource>([
     ...args.sessionFiles.flatMap((entry) => (typeof entry === 'string' ? [] : [entry.source])),
-    ...(args.extraEntries ?? []).flatMap((entry) => ('source' in entry ? [entry.source] : [])),
+    ...(args.extraEntries ?? []).flatMap((entry) =>
+      'source' in entry ? [entry.source] : [],
+    ),
   ]);
   const pendingOpens = new Set<Promise<void>>();
   let activeSource: ZipSource | undefined;
@@ -280,7 +286,8 @@ async function findConflictingSource(args: {
 
   for (const entry of args.sessionFiles) {
     args.signal?.throwIfAborted();
-    const input = typeof entry === 'string' ? await statExisting(entry) : entry.source.identity;
+    const input =
+      typeof entry === 'string' ? await statExisting(entry) : entry.source.identity;
     if (input !== undefined && sameFile(output, input)) return sessionEntryPath(entry);
   }
   for (const entry of args.extraEntries ?? []) {
@@ -290,7 +297,9 @@ async function findConflictingSource(args: {
   return undefined;
 }
 
-async function statExisting(path: string): Promise<ZipSourceIdentity | undefined> {
+async function statExisting(
+  path: string,
+): Promise<ZipSourceIdentity | undefined> {
   try {
     const file = await stat(path, { bigint: true });
     return { device: file.dev, inode: file.ino };
@@ -300,7 +309,10 @@ async function statExisting(path: string): Promise<ZipSourceIdentity | undefined
   }
 }
 
-function sameFile(left: ZipSourceIdentity, right: ZipSourceIdentity): boolean {
+function sameFile(
+  left: ZipSourceIdentity,
+  right: ZipSourceIdentity,
+): boolean {
   return (
     left.inode !== 0n &&
     right.inode !== 0n &&

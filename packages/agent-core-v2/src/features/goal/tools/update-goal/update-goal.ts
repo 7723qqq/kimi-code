@@ -15,7 +15,5 @@ export const UpdateGoalToolInputSchema = z
 
 export type UpdateGoalToolInput = z.infer<typeof UpdateGoalToolInputSchema>;
 
-export interface IUpdateGoalTool extends AgentTool<UpdateGoalToolInput> {
-  readonly _serviceBrand: undefined;
-}
+export interface IUpdateGoalTool extends AgentTool<UpdateGoalToolInput> { readonly _serviceBrand: undefined }
 export const IUpdateGoalTool = createDecorator<IUpdateGoalTool>('updateGoalTool');

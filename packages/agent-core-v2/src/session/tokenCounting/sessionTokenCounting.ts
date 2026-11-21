@@ -5,10 +5,8 @@ import type {
   TokenCountingRequest,
   TokenCountingStrategy,
 } from '#/agent/tokenCounting/tokenCounting';
-import type { Message } from '#/llm-adapter/contract/message';
-import type { ImageTokenPricing } from '#/llm-adapter/contract/modelFamily';
-import type { ToolDescription as Tool } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
+import type { Message, ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 export interface TokenCountingRebaseInput {
   readonly length: number;
@@ -32,14 +30,13 @@ export interface ISessionTokenCountingService {
   statusSize(agent: AgentContext): number;
   recordTruncation(agent: AgentContext, cutIndex: number): void;
   rebase(agent: AgentContext, input: TokenCountingRebaseInput): void;
-  requestSize(request: TokenCountingRequest, pricing?: ImageTokenPricing): number;
+  requestSize(request: TokenCountingRequest): number;
 
   estimateText(text: string): number;
-  estimateMessage(message: Message, pricing?: ImageTokenPricing): number;
-  estimateMessages(messages: readonly Message[], pricing?: ImageTokenPricing): number;
+  estimateMessage(message: Message): number;
+  estimateMessages(messages: readonly Message[]): number;
   estimateTools(tools: readonly Tool[]): number;
 }
 
-export const ISessionTokenCountingService = createDecorator<ISessionTokenCountingService>(
-  'sessionTokenCountingService',
-);
+export const ISessionTokenCountingService =
+  createDecorator<ISessionTokenCountingService>('sessionTokenCountingService');

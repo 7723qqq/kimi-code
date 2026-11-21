@@ -1,14 +1,10 @@
-/**
- * Scenario: public Node SDK events are projected into the released VS Code Webview protocol.
- * Responsibilities: verify legacy shapes, routing state, and terminal metadata one event at a time.
- * Wiring: the pure adapter and real protocol types are used directly; there are no stubs.
- * Run: cd apps/vscode && bun test --isolate test/event-adapter.test.ts
- */
-
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 
 import { isPreflightError, getUserMessage } from '../shared/errors';
-import { adaptSdkEvent, createEventAdapterState } from '../src/runtime/event-adapter';
+import {
+  adaptSdkEvent,
+  createEventAdapterState,
+} from '../src/runtime/event-adapter';
 
 describe('event adapter (projects SDK events into the legacy Webview contract)', () => {
   it('emits the pending input when a main-agent turn starts', () => {
@@ -91,6 +87,7 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     const result = adaptSdkEvent(createEventAdapterState(), {
       type: 'tool.call.started',
       sessionId: 'session-1',
+      origin: 'loop',
       agentId: 'main',
       turnId: 7,
       toolCallId: 'tool-1',
@@ -151,6 +148,7 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     const result = adaptSdkEvent(createEventAdapterState(), {
       type: 'tool.result',
       sessionId: 'session-1',
+      origin: 'loop',
       agentId: 'main',
       turnId: 7,
       toolCallId: 'tool-1',
@@ -177,6 +175,7 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     const started = adaptSdkEvent(createEventAdapterState(), {
       type: 'tool.call.started',
       sessionId: 'session-1',
+      origin: 'loop',
       agentId: 'main',
       turnId: 7,
       toolCallId: 'tool-1',
@@ -192,6 +191,7 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     const finished = adaptSdkEvent(started.state, {
       type: 'tool.result',
       sessionId: 'session-1',
+      origin: 'loop',
       agentId: 'main',
       turnId: 7,
       toolCallId: 'tool-1',
@@ -202,14 +202,12 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
       type: 'ToolResult',
       payload: {
         return_value: {
-          display: [
-            {
-              type: 'diff',
-              path: 'src/index.ts',
-              old_text: 'old',
-              new_text: 'new',
-            },
-          ],
+          display: [{
+            type: 'diff',
+            path: 'src/index.ts',
+            old_text: 'old',
+            new_text: 'new',
+          }],
         },
       },
     });
@@ -219,6 +217,7 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     const started = adaptSdkEvent(createEventAdapterState(), {
       type: 'tool.call.started',
       sessionId: 'session-1',
+      origin: 'loop',
       agentId: 'main',
       turnId: 7,
       toolCallId: 'todo-1',
@@ -232,6 +231,7 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     const unrelated = adaptSdkEvent(started.state, {
       type: 'tool.result',
       sessionId: 'session-1',
+      origin: 'loop',
       agentId: 'main',
       turnId: 7,
       toolCallId: 'other',
@@ -247,6 +247,7 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     const matching = adaptSdkEvent(unrelated.state, {
       type: 'tool.result',
       sessionId: 'session-1',
+      origin: 'loop',
       agentId: 'main',
       turnId: 7,
       toolCallId: 'todo-1',
@@ -292,47 +293,6 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
       },
       _sessionId: 'session-1',
     });
-  });
-
-  it('emits a cache-break notice for a main-agent step', () => {
-    const result = adaptSdkEvent(createEventAdapterState(), cacheBreakEvent());
-
-    expect(result.event).toEqual({
-      type: 'StatusUpdate',
-      payload: { cache_break: { tokens: 1200, cause: 'unexplained' } },
-      _sessionId: 'session-1',
-    });
-  });
-
-  it('does not notify for an expected prefix reset', () => {
-    const result = adaptSdkEvent(
-      createEventAdapterState(),
-      cacheBreakEvent({ cause: 'prefix_reset' }),
-    );
-
-    expect(result.event).toBeUndefined();
-  });
-
-  it('ignores cache breaks from subagent steps', () => {
-    const result = adaptSdkEvent(createEventAdapterState(), cacheBreakEvent({ agentId: 'sub-1' }));
-
-    expect(result.event).toBeUndefined();
-  });
-
-  it('throttles cache-break notices for ten completed steps', () => {
-    let state = createEventAdapterState();
-    const first = adaptSdkEvent(state, cacheBreakEvent());
-    expect(first.event).toBeDefined();
-    state = first.state;
-
-    for (let step = 0; step < 9; step += 1) {
-      const quiet = adaptSdkEvent(state, cacheBreakEvent());
-      expect(quiet.event).toBeUndefined();
-      state = quiet.state;
-    }
-
-    const second = adaptSdkEvent(state, cacheBreakEvent());
-    expect(second.event).toBeDefined();
   });
 
   it('derives context_usage from the v2 context token pair', () => {
@@ -467,6 +427,7 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     const childEvent = adaptSdkEvent(spawned.state, {
       type: 'tool.call.started',
       sessionId: 'session-1',
+      origin: 'loop',
       agentId: 'child-1',
       turnId: 1,
       toolCallId: 'tool-1',
@@ -617,49 +578,3 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     expect(getUserMessage('session.stale', 'fallback')).not.toBe('fallback');
   });
 });
-
-function cacheBreakUsage(inputCacheRead: number): {
-  inputOther: number;
-  output: number;
-  inputCacheRead: number;
-  inputCacheCreation: number;
-} {
-  return { inputOther: 1200, output: 10, inputCacheRead, inputCacheCreation: 0 };
-}
-
-function cacheBreakEvent(
-  overrides: {
-    agentId?: string;
-    cause?: 'unexplained' | 'prefix_reset';
-    step?: number;
-  } = {},
-): Parameters<typeof adaptSdkEvent>[1] {
-  const cause = overrides.cause ?? 'unexplained';
-  return {
-    type: 'turn.step.completed',
-    sessionId: 'session-1',
-    agentId: overrides.agentId ?? 'main',
-    turnId: 7,
-    step: overrides.step ?? 2,
-    usage: cacheBreakUsage(1_000),
-    cacheBreak: {
-      cause,
-      previous: {
-        model: 'kimi-k2',
-        effort: 'off',
-        messageCount: 2,
-        usage: cacheBreakUsage(10_000),
-        at: 0,
-      },
-      current: {
-        model: 'kimi-k2',
-        effort: 'off',
-        messageCount: 3,
-        usage: cacheBreakUsage(1_000),
-        at: 1,
-      },
-      cacheReadDropRatio: 0.9,
-      intervalMs: 1_000,
-    },
-  };
-}

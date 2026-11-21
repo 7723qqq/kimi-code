@@ -1,0 +1,12 @@
+A	.changeset/fix-tui-transcript-history.md
+M	apps/kimi-code/src/tui/controllers/session-replay.ts
+M	apps/kimi-code/src/tui/controllers/streaming-ui.ts
+M	apps/kimi-code/src/tui/controllers/subagent-event-handler.ts
+M	apps/kimi-code/src/tui/kimi-tui.ts
+M	apps/kimi-code/src/tui/utils/transcript-component-metadata.ts
+M	apps/kimi-code/src/tui/utils/transcript-items.ts
+M	apps/kimi-code/test/tui/kimi-tui-message-flow.test.ts
+M	packages/node-sdk/src/replay.ts
+M	packages/node-sdk/src/sdk-rpc-client-v2.ts
+M	packages/node-sdk/src/v2/resume-replay.ts
+M	packages/node-sdk/test/sdk-rpc-client-v2.test.ts

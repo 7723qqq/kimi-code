@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
-import * as fsModule from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zstdCompressSync } from 'node:zlib';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
 import { nativeBinaryUrl, nativeManifestUrl } from '#/cli/update/native-manifest';
 import {
@@ -15,49 +15,39 @@ import {
 } from '#/cli/update/native-stage';
 import { getNativeStagedStateFile, getNativeStagingDir } from '#/utils/paths';
 
-const fsMocks = (() => ({
-  /** Records chmod/rename calls (path-based) so tests can assert ordering. */
-  calls: [] as Array<{
-    readonly op: 'chmod' | 'rename';
-    readonly path: string;
-    readonly dst?: string;
-  }>,
-  /** When > 0, the next open() wraps its handle so the first write is short. */
+const fsMocks = vi.hoisted(() => ({
+  calls: [] as Array<{ readonly op: 'chmod' | 'rename'; readonly path: string; readonly dst?: string }>,
   shortWriteBudget: 0,
-}))();
+}));
 
-// Captured before `mock.module` overwrites the namespace; the wrappers below
-// must delegate to the real implementations rather than recurse into themselves.
-const realFs = { chmod: fsModule.chmod, rename: fsModule.rename, open: fsModule.open };
-
-void mock.module('node:fs/promises', () => {
+void vi.mock('node:fs/promises', async () => {
+  const actual = await import('node:fs/promises');
   return {
-    ...fsModule,
+    ...actual,
     chmod: async (
-      path: Parameters<typeof realFs.chmod>[0],
-      mode: Parameters<typeof realFs.chmod>[1],
+      path: Parameters<typeof actual.chmod>[0],
+      mode: Parameters<typeof actual.chmod>[1],
     ) => {
       fsMocks.calls.push({ op: 'chmod', path: String(path) });
-      return realFs.chmod(path, mode);
+      return actual.chmod(path, mode);
     },
     rename: async (
-      src: Parameters<typeof realFs.rename>[0],
-      dst: Parameters<typeof realFs.rename>[1],
+      src: Parameters<typeof actual.rename>[0],
+      dst: Parameters<typeof actual.rename>[1],
     ) => {
       fsMocks.calls.push({ op: 'rename', path: String(src), dst: String(dst) });
-      return realFs.rename(src, dst);
+      return actual.rename(src, dst);
     },
     open: async (
-      path: Parameters<typeof realFs.open>[0],
-      flags: Parameters<typeof realFs.open>[1],
-      mode: Parameters<typeof realFs.open>[2],
+      path: Parameters<typeof actual.open>[0],
+      flags: Parameters<typeof actual.open>[1],
+      mode: Parameters<typeof actual.open>[2],
     ) => {
-      const handle = await realFs.open(path, flags, mode);
+      const handle = await actual.open(path, flags, mode);
       if (fsMocks.shortWriteBudget <= 0) return handle;
       fsMocks.shortWriteBudget -= 1;
       let truncated = false;
       return {
-        // FileHandle methods live on the prototype, so delegate explicitly.
         write: async (
           buffer: Buffer,
           offset?: number | null,
@@ -66,7 +56,6 @@ void mock.module('node:fs/promises', () => {
         ) => {
           const off = offset ?? 0;
           const len = length ?? buffer.length - off;
-          // The first write persists only half the requested bytes.
           const effectiveLen = !truncated && len > 1 ? Math.floor(len / 2) : len;
           truncated = true;
           const result = await handle.write(buffer, off, effectiveLen, position ?? null);
@@ -79,17 +68,14 @@ void mock.module('node:fs/promises', () => {
 });
 
 const VERSION = '0.7.0';
-const PAYLOAD = Buffer.from('fake-bun-binary-payload');
-// The CDN serves the bare platform binary; the manifest checksum is its sha256.
+const PAYLOAD = Buffer.from('fake-sea-binary-payload');
 const BINARY_FILENAME = 'kimi-code-linux-x64';
-const BUN_PAYLOAD = Buffer.from('fake-bun-binary-payload');
-const BUN_BINARY_FILENAME = 'kimi-code-bun-linux-x64';
+const COMPRESSED_FILENAME = 'kimi-code-linux-x64.zst';
 
 function sha256Hex(data: Buffer): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
-/** Write a staging artifact old enough for the orphan sweep to reap it. */
 async function agedOrphan(path: string, content: string | Buffer): Promise<void> {
   await writeFile(path, content);
   const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
@@ -100,64 +86,67 @@ interface MockCdnOptions {
   readonly version?: string;
   readonly payload: Buffer;
   readonly checksum?: string;
-  /** When set, the manifest carries a bun section serving this payload. */
-  readonly bun?: { readonly payload: Buffer };
-  /**
-   * When set, the bun entry additionally carries a `zstd` pointer and the CDN
-   * serves the compressed bytes; `payload` stays the decompressed binary the
-   * checksum must verify against.
-   */
-  readonly zstd?: { readonly compressed: Buffer };
+  readonly compressed?: {
+    readonly payload: Buffer | null;
+    readonly checksum?: string;
+    readonly field?: 'compressed' | 'zstd';
+  };
 }
 
 function mockCdnFetch(options: MockCdnOptions): typeof fetch {
   const version = options.version ?? VERSION;
-  const zstdFile = `${BUN_BINARY_FILENAME}.zst`;
+  const platformEntry: Record<string, unknown> = {
+    filename: BINARY_FILENAME,
+    checksum: options.checksum ?? sha256Hex(options.payload),
+  };
+  if (options.compressed !== undefined) {
+    const checksum =
+      options.compressed.checksum ?? sha256Hex(options.compressed.payload ?? Buffer.alloc(0));
+    if (options.compressed.field === 'zstd') {
+      platformEntry['zstd'] = { file: COMPRESSED_FILENAME, sha256: checksum };
+    } else {
+      platformEntry['compressed'] = { filename: COMPRESSED_FILENAME, checksum };
+    }
+  }
   const manifestBody = JSON.stringify({
     version,
     tag: `v${version}`,
-    bun: {
-      'linux-x64': {
-        filename: options.bun === undefined ? BINARY_FILENAME : BUN_BINARY_FILENAME,
-        checksum:
-          options.bun === undefined
-            ? (options.checksum ?? sha256Hex(options.payload))
-            : sha256Hex(options.bun.payload),
-        ...(options.zstd === undefined
-          ? {}
-          : { zstd: { file: zstdFile, sha256: sha256Hex(options.zstd.compressed) } }),
-      },
+    platforms: {
+      'linux-x64': platformEntry,
     },
   });
-  return mock(async (input: string | URL) => {
+  return vi.fn(async (input: string | URL) => {
     const url = String(input);
     if (url === nativeManifestUrl(version)) {
       return { ok: true, status: 200, text: async () => manifestBody, body: null };
     }
     if (url === nativeBinaryUrl(version, BINARY_FILENAME)) {
-      return binaryResponse(options.payload);
+      return {
+        ok: true,
+        status: 200,
+        text: async (): Promise<string> => '',
+        headers: {
+          get: (name: string): string | null =>
+            name === 'content-length' ? String(options.payload.length) : null,
+        },
+        body: [options.payload],
+      };
     }
-    if (options.bun !== undefined && url === nativeBinaryUrl(version, BUN_BINARY_FILENAME)) {
-      return binaryResponse(options.bun.payload);
-    }
-    if (options.zstd !== undefined && url === nativeBinaryUrl(version, zstdFile)) {
-      return binaryResponse(options.zstd.compressed);
+    if (url === nativeBinaryUrl(version, COMPRESSED_FILENAME) && options.compressed?.payload) {
+      const payload = options.compressed.payload;
+      return {
+        ok: true,
+        status: 200,
+        text: async (): Promise<string> => '',
+        headers: {
+          get: (name: string): string | null =>
+            name === 'content-length' ? String(payload.length) : null,
+        },
+        body: [payload],
+      };
     }
     return { ok: false, status: 404, text: async () => '', body: null };
-  }) as unknown as unknown as typeof fetch;
-}
-
-function binaryResponse(payload: Buffer): unknown {
-  return {
-    ok: true,
-    status: 200,
-    text: async (): Promise<string> => '',
-    headers: {
-      get: (name: string): string | null =>
-        name === 'content-length' ? String(payload.length) : null,
-    },
-    body: [payload],
-  };
+  }) as unknown as typeof fetch;
 }
 
 describe('stageNativeUpdate', () => {
@@ -172,6 +161,7 @@ describe('stageNativeUpdate', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await rm(workDir, { recursive: true, force: true });
   });
 
@@ -192,70 +182,154 @@ describe('stageNativeUpdate', () => {
       sha256: sha256Hex(PAYLOAD),
       exeSize: PAYLOAD.length,
     });
-    // The published exe name carries a unique per-worker infix: a staged
-    // executable is never replaced once published, so the pathname a swap
-    // validates at claim time is stable.
     expect(result.staged.exeFileName).toMatch(/^kimi-0\.7\.0\.\d+\.\d+\.\d+$/);
 
     const stagedOnDisk = await readStagedNativeUpdate(exePath);
     expect(stagedOnDisk).toEqual(result.staged);
     const exeBytes = await readFile(stagedExePath(exePath, result.staged));
     expect(exeBytes.equals(PAYLOAD)).toBe(true);
-    // The .part intermediate is gone once the download was promoted.
     const leftovers = (await readdir(getNativeStagingDir(exePath))).filter((entry) =>
       entry.endsWith('.part'),
     );
     expect(leftovers).toEqual([]);
   });
 
-  it('prefers the zstd artifact and verifies the decompressed bytes', async () => {
-    const compressed = zstdCompressSync(BUN_PAYLOAD);
+  it.each(['compressed', 'zstd'] as const)('downloads the %s artifact and stages the decompressed binary', async (field) => {
+    const fetchImpl = mockCdnFetch({
+      payload: PAYLOAD,
+      compressed: { payload: zstdCompressSync(PAYLOAD), field },
+    });
     const result = await stageNativeUpdate({
       version: VERSION,
       exePath,
       platform: 'linux',
       arch: 'x64',
-      fetchImpl: mockCdnFetch({
-        payload: PAYLOAD,
-        bun: { payload: BUN_PAYLOAD },
-        zstd: { compressed },
-      }),
+      fetchImpl,
     });
 
     expect(result.status).toBe('staged');
-    expect(result.staged.sha256).toBe(sha256Hex(BUN_PAYLOAD));
-    expect(result.staged.exeSize).toBe(BUN_PAYLOAD.length);
+    expect(result.staged.sha256).toBe(sha256Hex(PAYLOAD));
+    expect(result.staged.exeSize).toBe(PAYLOAD.length);
     const exeBytes = await readFile(stagedExePath(exePath, result.staged));
-    expect(exeBytes.equals(BUN_PAYLOAD)).toBe(true);
-    // Neither the .part nor the .zst.part intermediate survives.
+    expect(exeBytes.equals(PAYLOAD)).toBe(true);
+    expect(fetchImpl).not.toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, BINARY_FILENAME),
+      expect.anything(),
+    );
     const leftovers = (await readdir(getNativeStagingDir(exePath))).filter((entry) =>
       entry.endsWith('.part'),
     );
     expect(leftovers).toEqual([]);
   });
 
-  it('falls back to the bare download when the compressed artifact is corrupt', async () => {
+  it.each(['compressed', 'zstd'] as const)('falls back to the bare binary when the compressed artifact is missing (%s)', async (field) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchImpl = mockCdnFetch({
+      payload: PAYLOAD,
+      compressed: { payload: null, field },
+    });
     const result = await stageNativeUpdate({
       version: VERSION,
       exePath,
       platform: 'linux',
       arch: 'x64',
-      fetchImpl: mockCdnFetch({
-        payload: PAYLOAD,
-        bun: { payload: BUN_PAYLOAD },
-        zstd: { compressed: Buffer.from('not-a-zstd-frame') },
-      }),
+      fetchImpl,
     });
 
     expect(result.status).toBe('staged');
-    expect(result.staged.sha256).toBe(sha256Hex(BUN_PAYLOAD));
+    expect(fetchImpl).toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, BINARY_FILENAME),
+      expect.anything(),
+    );
     const exeBytes = await readFile(stagedExePath(exePath, result.staged));
-    expect(exeBytes.equals(BUN_PAYLOAD)).toBe(true);
+    expect(exeBytes.equals(PAYLOAD)).toBe(true);
   });
 
-  // chmod has no effect on the Windows permission model — the mode bits stay
-  // 0 regardless of the call — so the executable-bit contract is POSIX-only.
-  it.skipIf(process.platform === 'win32')('marks the staged exe executable', async () => {
+  it.each(['compressed', 'zstd'] as const)('falls back to the bare binary when the compressed artifact fails verification (%s)', async (field) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchImpl = mockCdnFetch({
+      payload: PAYLOAD,
+      compressed: { payload: zstdCompressSync(PAYLOAD), checksum: 'f'.repeat(64), field },
+    });
+    const result = await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      fetchImpl,
+    });
+
+    expect(result.status).toBe('staged');
+    expect(fetchImpl).toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, BINARY_FILENAME),
+      expect.anything(),
+    );
+    const exeBytes = await readFile(stagedExePath(exePath, result.staged));
+    expect(exeBytes.equals(PAYLOAD)).toBe(true);
+  });
+
+  it.each(['compressed', 'zstd'] as const)('falls back to the bare binary when the decompressed content fails verification (%s)', async (field) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchImpl = mockCdnFetch({
+      payload: PAYLOAD,
+      compressed: { payload: zstdCompressSync(Buffer.from('other-content')), field },
+    });
+    const result = await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      fetchImpl,
+    });
+
+    expect(result.status).toBe('staged');
+    expect(result.staged.sha256).toBe(sha256Hex(PAYLOAD));
+    const exeBytes = await readFile(stagedExePath(exePath, result.staged));
+    expect(exeBytes.equals(PAYLOAD)).toBe(true);
+  });
+
+  it('prefers zstd when both manifest formats are present', async () => {
+    const compressedPayload = zstdCompressSync(PAYLOAD);
+    const fetchImpl = mockCdnFetch({
+      payload: PAYLOAD,
+      compressed: { payload: compressedPayload, field: 'zstd' },
+    });
+    vi.mocked(fetchImpl).mockResolvedValueOnce(new Response(JSON.stringify({
+      version: VERSION,
+      platforms: {
+        'linux-x64': {
+          filename: BINARY_FILENAME,
+          checksum: sha256Hex(PAYLOAD),
+          zstd: { file: COMPRESSED_FILENAME, sha256: sha256Hex(compressedPayload) },
+          compressed: { filename: 'legacy.zst', checksum: 'a'.repeat(64) },
+        },
+      },
+    })));
+
+    const result = await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      fetchImpl,
+    });
+
+    expect(await readFile(stagedExePath(exePath, result.staged))).toEqual(PAYLOAD);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, COMPRESSED_FILENAME),
+      expect.anything(),
+    );
+    expect(fetchImpl).not.toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, 'legacy.zst'),
+      expect.anything(),
+    );
+    expect(fetchImpl).not.toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, BINARY_FILENAME),
+      expect.anything(),
+    );
+  });
+
+  it('marks the staged exe executable', async () => {
     const result = await stageNativeUpdate({
       version: VERSION,
       exePath,
@@ -277,55 +351,10 @@ describe('stageNativeUpdate', () => {
       manual: true,
     });
     expect(result.staged.manual).toBe(true);
-    // And it round-trips through the on-disk metadata.
     expect((await readStagedNativeUpdate(exePath))?.manual).toBe(true);
   });
 
-  it('stages the Bun artifact from the manifest bun section when engine is bun', async () => {
-    const result = await stageNativeUpdate({
-      version: VERSION,
-      exePath,
-      platform: 'linux',
-      arch: 'x64',
-      engine: 'bun',
-      fetchImpl: mockCdnFetch({ payload: PAYLOAD, bun: { payload: BUN_PAYLOAD } }),
-    });
-
-    expect(result.staged.engine).toBe('bun');
-    expect(result.staged.sha256).toBe(sha256Hex(BUN_PAYLOAD));
-    const exeBytes = await readFile(stagedExePath(exePath, result.staged));
-    expect(exeBytes.equals(BUN_PAYLOAD)).toBe(true);
-  });
-
-  it('refuses to stage when the release publishes no Bun builds', async () => {
-    const fetchImpl = mock(async (input: string | URL) => {
-      if (String(input) === nativeManifestUrl(VERSION)) {
-        return {
-          ok: true,
-          status: 200,
-          text: async () => JSON.stringify({ version: VERSION, bun: {} }),
-          body: null,
-        };
-      }
-      return { ok: false, status: 404, text: async () => '', body: null };
-    }) as unknown as unknown as typeof fetch;
-    await expect(
-      stageNativeUpdate({
-        version: VERSION,
-        exePath,
-        platform: 'linux',
-        arch: 'x64',
-        fetchImpl,
-      }),
-    ).rejects.toThrow(/does not publish a Bun build/);
-    // Nothing was staged and no leftovers were left behind.
-    expect(await readStagedNativeUpdate(exePath)).toBeNull();
-  });
-
   it('makes the download executable before publishing it at the staged name', async () => {
-    // A concurrent swap may move the staged exe into place the instant it
-    // appears at its published name, so the chmod must land on the private
-    // .part file first — a later chmod could hit an already-moved path.
     const result = await stageNativeUpdate({
       version: VERSION,
       exePath,
@@ -343,9 +372,10 @@ describe('stageNativeUpdate', () => {
     if (chmodCall === undefined || publishCall === undefined) {
       throw new Error('expected chmod(.part) and rename(.part → staged) calls');
     }
-    // The chmod lands on the very .part file that gets published, before it.
     expect(publishCall.path).toBe(chmodCall.path);
-    expect(fsMocks.calls.indexOf(chmodCall)).toBeLessThan(fsMocks.calls.indexOf(publishCall));
+    expect(fsMocks.calls.indexOf(chmodCall)).toBeLessThan(
+      fsMocks.calls.indexOf(publishCall),
+    );
   });
 
   it('reports download progress with the Content-Length total', async () => {
@@ -360,18 +390,17 @@ describe('stageNativeUpdate', () => {
         progress.push([downloaded, total]);
       },
     });
-    // One frame per chunk; the mock stream delivers the payload in one piece.
     expect(progress).toEqual([[PAYLOAD.length, PAYLOAD.length]]);
   });
 
   it('aborts a stalled download after the idle timeout', async () => {
     const manifestBody = JSON.stringify({
       version: VERSION,
-      bun: {
+      platforms: {
         'linux-x64': { filename: BINARY_FILENAME, checksum: 'a'.repeat(64) },
       },
     });
-    const fetchImpl = mock(async (input: string | URL, init?: RequestInit) => {
+    const fetchImpl = vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === nativeManifestUrl(VERSION)) {
         return { ok: true, status: 200, text: async () => manifestBody, body: null };
@@ -380,15 +409,10 @@ describe('stageNativeUpdate', () => {
         const signal = init?.signal;
         const body = (async function* (): AsyncGenerator<Buffer> {
           yield Buffer.from('first-chunk');
-          // Stall forever — only the idle timeout's abort can end this.
           await new Promise((_, reject) => {
-            signal?.addEventListener(
-              'abort',
-              () => {
-                reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
-              },
-              { once: true },
-            );
+            signal?.addEventListener('abort', () => {
+              reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
+            }, { once: true });
           });
         })();
         return {
@@ -400,10 +424,8 @@ describe('stageNativeUpdate', () => {
         };
       }
       return { ok: false, status: 404, text: async (): Promise<string> => '', body: null };
-    }) as unknown as unknown as typeof fetch;
+    }) as unknown as typeof fetch;
 
-    // Real timers with a 50 ms test override — fake timers interact badly
-    // with async-generator suspension, so the idle timeout is injectable.
     await expect(
       stageNativeUpdate({
         version: VERSION,
@@ -414,19 +436,12 @@ describe('stageNativeUpdate', () => {
         idleTimeoutMs: 50,
       }),
     ).rejects.toThrow(/stalled/);
-    // The failed attempt cleans up after itself.
     expect(await readStagedNativeUpdate(exePath)).toBeNull();
   });
 
   it('short-circuits when the same version is already staged', async () => {
     const firstFetch = mockCdnFetch({ payload: PAYLOAD });
-    await stageNativeUpdate({
-      version: VERSION,
-      exePath,
-      platform: 'linux',
-      arch: 'x64',
-      fetchImpl: firstFetch,
-    });
+    await stageNativeUpdate({ version: VERSION, exePath, platform: 'linux', arch: 'x64', fetchImpl: firstFetch });
 
     const secondFetch = mockCdnFetch({ payload: PAYLOAD });
     const result = await stageNativeUpdate({
@@ -442,7 +457,6 @@ describe('stageNativeUpdate', () => {
   });
 
   it('promotes an auto-staged payload to manual when an explicit upgrade adopts it', async () => {
-    // The passive downloader staged the version first (no manual marker).
     await stageNativeUpdate({
       version: VERSION,
       exePath,
@@ -462,7 +476,6 @@ describe('stageNativeUpdate', () => {
 
     expect(result.status).toBe('already-staged');
     expect(result.staged.manual).toBe(true);
-    // The promotion persisted to the on-disk metadata.
     expect((await readStagedNativeUpdate(exePath))?.manual).toBe(true);
   });
 
@@ -504,7 +517,7 @@ describe('stageNativeUpdate', () => {
   });
 
   it('persists the selected canary channel instead of inferring it from the version', async () => {
-    const target = '0.0.0-canary.42';
+    const target = '2.3.3-canary.20261028012345-0123456';
     const result = await stageNativeUpdate({
       version: target,
       channel: 'canary',
@@ -547,7 +560,7 @@ describe('stageNativeUpdate', () => {
       fetchImpl: mockCdnFetch({ payload: PAYLOAD }),
       manual: true,
     });
-    const devFetch = mockCdnFetch({ payload: PAYLOAD });
+    const canaryFetch = mockCdnFetch({ payload: PAYLOAD });
 
     const result = await stageNativeUpdate({
       version: VERSION,
@@ -555,12 +568,12 @@ describe('stageNativeUpdate', () => {
       exePath,
       platform: 'linux',
       arch: 'x64',
-      fetchImpl: devFetch,
+      fetchImpl: canaryFetch,
       manual: true,
     });
 
     expect(result.status).toBe('staged');
-    expect(devFetch).toHaveBeenCalled();
+    expect(canaryFetch).toHaveBeenCalled();
     expect(result.staged.channel).toBe('canary');
   });
 
@@ -572,10 +585,7 @@ describe('stageNativeUpdate', () => {
       arch: 'x64',
       fetchImpl: mockCdnFetch({ payload: PAYLOAD }),
     });
-    // Same-size corruption after the download: the metadata still validates
-    // (size matches), but the bytes no longer hash to the recorded checksum.
     await writeFile(stagedExePath(exePath, first.staged), Buffer.alloc(PAYLOAD.length));
-    // Size-only readers still see the stage as valid…
     expect(await readStagedNativeUpdate(exePath)).not.toBeNull();
 
     const secondFetch = mockCdnFetch({ payload: PAYLOAD });
@@ -587,9 +597,6 @@ describe('stageNativeUpdate', () => {
       fetchImpl: secondFetch,
     });
 
-    // …but adoption re-verifies the digest, so the payload is re-downloaded
-    // and published under a NEW generation name (a published exe is never
-    // replaced — the damaged one is left for the orphan cleanup).
     expect(second.status).toBe('staged');
     expect(secondFetch).toHaveBeenCalled();
     expect(second.staged.exeFileName).not.toBe(first.staged.exeFileName);
@@ -605,7 +612,6 @@ describe('stageNativeUpdate', () => {
       arch: 'x64',
       fetchImpl: mockCdnFetch({ payload: PAYLOAD }),
     });
-    // The metadata stays but the exe is deleted → not trustworthy, re-stage.
     await rm(stagedExePath(exePath, first.staged));
     expect(await readStagedNativeUpdate(exePath)).toBeNull();
 
@@ -628,10 +634,6 @@ describe('stageNativeUpdate', () => {
       fetchImpl: mockCdnFetch({ version: '0.6.0', payload: Buffer.from('old-payload') }),
     });
 
-    // The superseding download fails verification. The old record must
-    // survive: deleting it before the replacement is ready could remove a
-    // concurrent worker's freshly published record, and here it would lose
-    // a still-valid staged update.
     await expect(
       stageNativeUpdate({
         version: VERSION,
@@ -657,7 +659,6 @@ describe('stageNativeUpdate', () => {
     ).rejects.toThrow(/sha256 mismatch/);
 
     expect(await readStagedNativeUpdate(exePath)).toBeNull();
-    // Both the staged metadata and the .part download are gone.
     await expect(stat(getNativeStagedStateFile(exePath))).rejects.toThrow();
     await expect(stat(getNativeStagingDir(exePath))).rejects.toThrow();
   });
@@ -671,7 +672,7 @@ describe('stageNativeUpdate', () => {
         arch: 'arm64',
         fetchImpl: mockCdnFetch({ payload: PAYLOAD }),
       }),
-    ).rejects.toThrow(/does not publish a Bun build for win32-arm64/);
+    ).rejects.toThrow(/win32-arm64 not found/);
   });
 
   it('rejects a traversal version before deriving any filesystem path', async () => {
@@ -686,7 +687,6 @@ describe('stageNativeUpdate', () => {
       }),
     ).rejects.toThrow(/invalid semver/);
     expect(fetchImpl).not.toHaveBeenCalled();
-    // Nothing was created anywhere.
     await expect(stat(getNativeStagingDir(exePath))).rejects.toThrow();
   });
 
@@ -709,8 +709,6 @@ describe('stageNativeUpdate', () => {
 
     expect(result.status).toBe('staged');
     expect(result.staged.version).toBe(VERSION);
-    // The older stage's exe is left in place (it may be claim-held by a live
-    // swap); an unreferenced one is reaped by a later orphan cleanup.
     await expect(
       stat(join(getNativeStagingDir(exePath), first.staged.exeFileName)),
     ).resolves.toBeDefined();
@@ -724,9 +722,6 @@ describe('stageNativeUpdate', () => {
       arch: 'x64',
       fetchImpl: mockCdnFetch({ version: '0.6.0', payload: Buffer.from('old-payload') }),
     });
-    // Age the staged exe past the orphan grace period: it is still the
-    // applicable update (staged.json references it until the final atomic
-    // write replaces the record), so the cleanup must not reap it.
     const oldExe = stagedExePath(exePath, first.staged);
     const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
     await utimes(oldExe, old, old);
@@ -740,8 +735,6 @@ describe('stageNativeUpdate', () => {
     });
     expect(result.status).toBe('staged');
 
-    // Referenced at cleanup time → survives this run (a later cleanup reaps
-    // it once the new record has replaced the old one).
     await expect(stat(oldExe)).resolves.toBeDefined();
   });
 
@@ -749,19 +742,14 @@ describe('stageNativeUpdate', () => {
     const stagingDir = getNativeStagingDir(exePath);
     const { mkdir } = await import('node:fs/promises');
     await mkdir(stagingDir, { recursive: true });
-    // Orphans from interrupted earlier runs: a referenced-by-nothing exe and
-    // a stale .part download (aged past the orphan grace period).
     await agedOrphan(join(stagingDir, 'kimi-9.9.9'), Buffer.from('orphan-exe'));
     await agedOrphan(join(stagingDir, 'kimi-9.9.9.part'), Buffer.from('partial'));
-    // A live swap claim referencing its own staged exe must survive.
     const claimExe = 'kimi-8.8.8';
     await writeFile(join(stagingDir, claimExe), Buffer.from('swap-in-progress'));
     await writeFile(
       join(stagingDir, 'staged.json.swap-1234'),
       JSON.stringify({ exeFileName: claimExe }),
     );
-    // A fresh unreferenced exe is too young to be reaped: a concurrent
-    // worker may be about to publish its metadata.
     const youngExe = 'kimi-7.7.7';
     await writeFile(join(stagingDir, youngExe), Buffer.from('just-published'));
 
@@ -782,8 +770,6 @@ describe('stageNativeUpdate', () => {
   });
 
   it('retries short writes until each chunk is fully persisted', async () => {
-    // The first write to the .part file persists only half its bytes; the
-    // write loop must make up the remainder or the staged exe is truncated.
     fsMocks.shortWriteBudget = 1;
     const result = await stageNativeUpdate({
       version: VERSION,
@@ -803,8 +789,6 @@ describe('stageNativeUpdate', () => {
     await mkdir(join(stagingDir, 'some-other-tool'), { recursive: true });
     await writeFile(join(stagingDir, 'user-notes.txt'), 'not ours', 'utf-8');
     await writeFile(join(stagingDir, 'some-other-tool', 'cache.bin'), 'not ours either');
-    // A genuine updater-owned orphan to prove cleanup still works (aged past
-    // the orphan grace period).
     await agedOrphan(join(stagingDir, 'kimi-9.9.9'), Buffer.from('orphan-exe'));
 
     const result = await stageNativeUpdate({
@@ -828,7 +812,6 @@ describe('stageNativeUpdate', () => {
     await agedOrphan(join(stagingDir, 'kimi-1.2.3-rc.1'), Buffer.from('orphan'));
     await agedOrphan(join(stagingDir, 'kimi-1.2.3+build.5.exe'), Buffer.from('orphan'));
     await agedOrphan(join(stagingDir, 'kimi-1.2.3-rc.1.123.0.part'), Buffer.from('partial'));
-    // New-style published name with the unique per-worker infix.
     await agedOrphan(join(stagingDir, 'kimi-4.5.6.1234.1700000000000.0'), Buffer.from('orphan'));
 
     const result = await stageNativeUpdate({
@@ -850,19 +833,18 @@ describe('stageNativeUpdate', () => {
     const stagingDir = getNativeStagingDir(exePath);
     const exeFileName = `kimi-${VERSION}`;
     const otherPayload = Buffer.from('other-worker-payload');
-    const fetchImpl = mock(async (input: string | URL) => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
       const url = String(input);
       if (url === nativeManifestUrl(VERSION)) {
         const manifestBody = JSON.stringify({
           version: VERSION,
-          bun: {
+          platforms: {
             'linux-x64': { filename: BINARY_FILENAME, checksum: sha256Hex(PAYLOAD) },
           },
         });
         return { ok: true, status: 200, text: async () => manifestBody, body: null };
       }
       if (url === nativeBinaryUrl(VERSION, BINARY_FILENAME)) {
-        // A concurrent worker publishes its valid stage mid-download…
         const { mkdir } = await import('node:fs/promises');
         await mkdir(stagingDir, { recursive: true });
         await writeFile(join(stagingDir, exeFileName), otherPayload);
@@ -878,17 +860,15 @@ describe('stageNativeUpdate', () => {
             channel: 'stable',
           })}\n`,
         );
-        // …then this attempt's download fails.
         return { ok: false, status: 503, text: async () => '', body: null };
       }
       return { ok: false, status: 404, text: async (): Promise<string> => '', body: null };
-    }) as unknown as unknown as typeof fetch;
+    }) as unknown as typeof fetch;
 
     await expect(
       stageNativeUpdate({ version: VERSION, exePath, platform: 'linux', arch: 'x64', fetchImpl }),
     ).rejects.toThrow(/503/);
 
-    // The concurrent worker's stage survives this attempt's failure cleanup.
     const staged = await readStagedNativeUpdate(exePath);
     expect(staged?.version).toBe(VERSION);
     const bytes = await readFile(join(stagingDir, exeFileName));
@@ -898,36 +878,34 @@ describe('stageNativeUpdate', () => {
   it('preserves the staged exe a live swap claim references when this attempt fails', async () => {
     const stagingDir = getNativeStagingDir(exePath);
     const exeFileName = `kimi-${VERSION}`;
-    const fetchImpl = mock(async (input: string | URL) => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
       const url = String(input);
       if (url === nativeManifestUrl(VERSION)) {
         const manifestBody = JSON.stringify({
           version: VERSION,
-          bun: {
+          platforms: {
             'linux-x64': { filename: BINARY_FILENAME, checksum: sha256Hex(PAYLOAD) },
           },
         });
         return { ok: true, status: 200, text: async () => manifestBody, body: null };
       }
       if (url === nativeBinaryUrl(VERSION, BINARY_FILENAME)) {
-        // A swap claims the stage mid-download: the metadata is renamed
-        // aside (invisible to the metadata check), the exe still referenced
-        // by the live claim.
         const { mkdir } = await import('node:fs/promises');
         await mkdir(stagingDir, { recursive: true });
         await writeFile(join(stagingDir, exeFileName), PAYLOAD);
-        await writeFile(join(stagingDir, 'staged.json.swap-4321'), JSON.stringify({ exeFileName }));
-        // …then this attempt's download fails.
+        await writeFile(
+          join(stagingDir, 'staged.json.swap-4321'),
+          JSON.stringify({ exeFileName }),
+        );
         return { ok: false, status: 503, text: async () => '', body: null };
       }
       return { ok: false, status: 404, text: async (): Promise<string> => '', body: null };
-    }) as unknown as unknown as typeof fetch;
+    }) as unknown as typeof fetch;
 
     await expect(
       stageNativeUpdate({ version: VERSION, exePath, platform: 'linux', arch: 'x64', fetchImpl }),
     ).rejects.toThrow(/503/);
 
-    // The exe owned by the live swap survives this attempt's failure cleanup.
     const bytes = await readFile(join(stagingDir, exeFileName));
     expect(bytes.equals(PAYLOAD)).toBe(true);
   });
@@ -972,8 +950,6 @@ describe('promoteStagedUpdateToManual', () => {
     const adopted = await readStagedNativeUpdate(exePath);
     if (adopted === null) throw new Error('expected a staged record');
 
-    // A newer stage is published before the explicit upgrade's promote
-    // lands: the stale record must not overwrite it.
     await stageNativeUpdate({
       version: VERSION,
       exePath,

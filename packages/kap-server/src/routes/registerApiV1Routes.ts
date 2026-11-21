@@ -8,25 +8,18 @@ import { ulid } from 'ulid';
 
 import { okEnvelope } from '../envelope';
 import type { MetaFeature } from '../protocol/rest-meta';
-import type { IGuiStoreService } from '../services/guiStore/guiStore';
-import type { TranscriptService } from '../services/transcript/transcriptService';
-import { registerDebugRoutes } from '../transport/registerDebugRoutes';
-import { type IConnectionRegistry } from '../transport/ws/connectionRegistry';
-import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBroadcaster';
+import type { ConversationService } from '../services/conversation/conversationService';
 import { registerAuthRoute } from './auth';
 import { registerCapabilitiesRoutes } from './capabilities';
 import { registerClientConfigsRoutes } from './clientConfigs';
 import { registerConfigRoutes } from './config';
-import { registerConnectionsRoutes } from './connections';
-import { registerCronRoutes } from './cron';
 import { registerFileHistoryRoutes } from './fileHistory';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
-import { registerGuiStoreRoutes } from './guiStore';
 import { registerInteractionsRoutes } from './interactions';
-import { registerMcpRoutes } from './mcp';
-import { registerMessagesRoutes } from './messages';
+import { registerDebugRoutes } from '../transport/registerDebugRoutes';
 import { registerMetaRoute } from './meta';
+import { registerMcpRoutes } from './mcp';
 import { registerModelCatalogRoutes } from './modelCatalog';
 import { registerOAuthRoutes } from './oauth';
 import { registerPluginsRoutes } from './plugins';
@@ -34,18 +27,21 @@ import { registerPromptsRoutes } from './prompts';
 import { registerRemoteControlRoutes, type RemoteControlRouteOptions } from './remoteControl';
 import { registerEnvironmentRoutes } from './environment';
 import { registerSearchRoutes } from './search';
-import { registerSessionExportRoute } from './sessionExport';
 import { registerSessionMediaRoutes } from './sessionMedia';
 import { registerSessionRatingRoutes } from './sessionRating';
+import { registerSessionExportRoute } from './sessionExport';
+import { registerSessionListAndBatchRoutes } from './sessionList';
 import { registerSessionsRoutes } from './sessions';
+import type { HostBridgeManager } from '../services/hosts/hostBridgeManager';
+import { registerImportProvidersRoute } from '../services/hosts/hostProviders';
+import { registerHostsRoutes } from './hosts';
 import { registerShutdownRoutes } from './shutdown';
 import { registerSkillsRoutes } from './skills';
 import { registerToolsRoutes } from './tools';
-import { registerTranscriptRoutes } from './transcript';
 import { registerConversationRoutes } from './conversation';
-import type { ConversationService } from '../services/conversation/conversationService';
 import { registerWorkspaceFsRoutes } from './workspaceFs';
 import { registerWorkspacesRoutes } from './workspaces';
+import { hostSources } from '../services/hosts/hostFanout';
 
 interface ApiV1AppHost {
   register(
@@ -63,19 +59,19 @@ interface ApiV1RouteHost {
 }
 
 export interface RegisterApiV1RoutesOptions {
+  readonly serverId?: string;
   readonly serverVersion: string;
   readonly hostIdentity: KimiHostIdentity;
   readonly debugEndpoints?: boolean;
   readonly enableShutdown?: boolean;
-  readonly guiStore: IGuiStoreService;
   readonly onShutdown: () => void;
-  readonly connectionRegistry: IConnectionRegistry;
-  readonly broadcaster: SessionEventBroadcaster;
+  readonly drainIdleSessions: () => Promise<boolean>;
+  readonly hostBridges: HostBridgeManager;
   readonly conversations: ConversationService;
-  readonly transcriptService: TranscriptService;
   readonly sessionRating: SessionRatingHost;
   readonly remoteControl: RemoteControlRouteOptions;
   readonly dangerousBypassAuth?: boolean;
+  readonly managedHost?: boolean;
   readonly webTitle?: string;
 }
 
@@ -94,7 +90,8 @@ export async function registerApiV1Routes(
 
       registerMetaRoute(apiV1, {
         serverVersion: opts.serverVersion,
-        serverId: ulid(),
+        product: opts.hostIdentity.productName,
+        serverId: opts.serverId ?? ulid(),
         startedAt: new Date().toISOString(),
         dangerousBypassAuth: opts.dangerousBypassAuth === true,
         webTitle: opts.webTitle,
@@ -121,7 +118,6 @@ export async function registerApiV1Routes(
         opts.remoteControl.devices,
         opts.remoteControl.homeDir,
       );
-      registerCronRoutes(apiV1 as unknown as Parameters<typeof registerCronRoutes>[0], core);
       registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], core);
       registerClientConfigsRoutes(
         apiV1 as unknown as Parameters<typeof registerClientConfigsRoutes>[0],
@@ -135,8 +131,18 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0],
         core,
         opts.conversations,
+        hostSources(opts.hostBridges),
+      );
+      registerSessionListAndBatchRoutes(
+        apiV1 as unknown as Parameters<typeof registerSessionListAndBatchRoutes>[0],
+        core,
+        hostSources(opts.hostBridges),
       );
       registerEnvironmentRoutes(apiV1 as unknown as Parameters<typeof registerEnvironmentRoutes>[0], core);
+      registerHostsRoutes(apiV1 as unknown as Parameters<typeof registerHostsRoutes>[0], core, opts.hostBridges);
+      if (opts.managedHost === true) {
+        registerImportProvidersRoute(apiV1 as unknown as Parameters<typeof registerImportProvidersRoute>[0], core);
+      }
       registerSessionRatingRoutes(
         apiV1 as unknown as Parameters<typeof registerSessionRatingRoutes>[0],
         opts.sessionRating,
@@ -153,11 +159,6 @@ export async function registerApiV1Routes(
         core,
       );
       registerPluginsRoutes(apiV1 as unknown as Parameters<typeof registerPluginsRoutes>[0], core);
-      registerMessagesRoutes(
-        apiV1 as unknown as Parameters<typeof registerMessagesRoutes>[0],
-        core,
-        opts.transcriptService.projections,
-      );
       registerSearchRoutes(apiV1 as unknown as Parameters<typeof registerSearchRoutes>[0], core);
       registerInteractionsRoutes(
         apiV1 as unknown as Parameters<typeof registerInteractionsRoutes>[0],
@@ -166,7 +167,6 @@ export async function registerApiV1Routes(
       registerPromptsRoutes(
         apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0],
         core,
-        opts.transcriptService,
       );
       registerRemoteControlRoutes(
         apiV1 as unknown as Parameters<typeof registerRemoteControlRoutes>[0],
@@ -175,6 +175,7 @@ export async function registerApiV1Routes(
       registerWorkspacesRoutes(
         apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],
         core,
+        hostSources(opts.hostBridges),
       );
       registerWorkspaceFsRoutes(
         apiV1 as unknown as Parameters<typeof registerWorkspaceFsRoutes>[0],
@@ -186,24 +187,12 @@ export async function registerApiV1Routes(
         core,
       );
       registerFsRoutes(apiV1 as unknown as Parameters<typeof registerFsRoutes>[0], core);
-      registerGuiStoreRoutes(
-        apiV1 as unknown as Parameters<typeof registerGuiStoreRoutes>[0],
-        opts.guiStore,
-      );
       registerToolsRoutes(apiV1 as unknown as Parameters<typeof registerToolsRoutes>[0], core);
+      registerMcpRoutes(apiV1 as unknown as Parameters<typeof registerMcpRoutes>[0], core);
       registerFileHistoryRoutes(
         apiV1 as unknown as Parameters<typeof registerFileHistoryRoutes>[0],
         core,
       );
-      registerConnectionsRoutes(
-        apiV1 as unknown as Parameters<typeof registerConnectionsRoutes>[0],
-        opts.connectionRegistry,
-      );
-      registerMcpRoutes(apiV1 as unknown as Parameters<typeof registerMcpRoutes>[0], core);
-      registerTranscriptRoutes(apiV1 as unknown as Parameters<typeof registerTranscriptRoutes>[0], {
-        core,
-        transcriptService: opts.transcriptService,
-      });
       registerConversationRoutes(
         apiV1 as unknown as Parameters<typeof registerConversationRoutes>[0],
         opts.conversations,
@@ -211,6 +200,7 @@ export async function registerApiV1Routes(
       if (opts.enableShutdown !== false) {
         registerShutdownRoutes(apiV1 as unknown as Parameters<typeof registerShutdownRoutes>[0], {
           onShutdown: opts.onShutdown,
+          drainIdleSessions: opts.drainIdleSessions,
         });
       }
     },

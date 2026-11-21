@@ -14,10 +14,7 @@ export function steerPayloadText(
   return text;
 }
 
-export function steerEventParts(input: unknown): {
-  readonly texts: readonly string[];
-  readonly hasMedia: boolean;
-} {
+export function steerEventParts(input: unknown): { readonly texts: readonly string[]; readonly hasMedia: boolean } {
   if (typeof input === 'string') {
     return { texts: input.length > 0 ? [input] : [], hasMedia: false };
   }
@@ -48,7 +45,9 @@ export function steerMatchTexts(texts: readonly string[]): readonly string[] {
   return [texts.join(''), ...texts];
 }
 
-export function isTurnSteerEvent(event: object): event is {
+export function isTurnSteerEvent(
+  event: object,
+): event is {
   readonly type: 'turn.steer';
   readonly input?: unknown;
   readonly promptIds?: readonly string[];
@@ -57,7 +56,9 @@ export function isTurnSteerEvent(event: object): event is {
   return 'type' in event && event.type === 'turn.steer';
 }
 
-export function isTurnPromptEvent(event: object): event is {
+export function isTurnPromptEvent(
+  event: object,
+): event is {
   readonly type: 'turn.prompt';
   readonly input?: unknown;
   readonly promptId?: string;
@@ -77,9 +78,6 @@ export function isInTurnUserOrigin(origin: unknown): boolean {
   return 'kind' in origin && origin.kind === 'user' && 'inTurn' in origin && origin.inTurn === true;
 }
 
-// A shorter pending steer must not match inside a different message.
-// Skill activation text is prepended and ends at `</skill-loaded>`, so the
-// submitted user text is also a suffix immediately after `>`.
 function boundaryIndex(eventText: string, batchText: string): number {
   if (batchText.length === 0) return -1;
   if (eventText === batchText) return 0;

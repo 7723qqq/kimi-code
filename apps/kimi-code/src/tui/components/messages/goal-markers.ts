@@ -1,21 +1,10 @@
-/**
- * Low-profile transcript markers for the autonomous goal loop.
- *
- * Lifecycle changes (paused / resumed / cancelled) and `no_progress` verdicts
- * render as a single dim line — `○ Goal paused` — that expands (ctrl+o, shared
- * with tool output) to show the reason when there is one. Terminal outcomes use
- * the richer completion card (the `/goal` box), not this marker.
- */
-
-import { GoalPauseReason, isGoalPauseReason } from '@moonshot-ai/kimi-code-sdk';
-import type { GoalChange } from '@moonshot-ai/kimi-code-sdk';
 import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
+import { GOAL_PAUSED_AFTER_INTERRUPTION, type GoalChange } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
-import { STATUS_BULLET, STATUS_DOT } from '#/tui/constant/symbols';
+import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
-import { wrapText as wrap } from '#/tui/utils/wrap-text';
+import { t } from '#/i18n';
 
 const HEAD_INDENT = '  ';
 const DETAIL_INDENT = '    ';
@@ -44,7 +33,7 @@ export class GoalMarkerComponent implements Component {
     private readonly accentToken: ColorToken,
     options: GoalMarkerOptions = {},
   ) {
-    this.marker = options.marker ?? STATUS_DOT;
+    this.marker = options.marker ?? '◦';
     this.textToken = options.textToken ?? 'textDim';
     this.expandable = options.expandable ?? true;
     this.indent = options.indent ?? HEAD_INDENT;
@@ -103,11 +92,6 @@ export class GoalMarkerComponent implements Component {
   }
 }
 
-/**
- * Builds a marker for a lifecycle change (paused / resumed / blocked), or `null`
- * when the change should be silent (a `completion` change posts its own message,
- * not a marker). `expanded` seeds the initial ctrl+o state.
- */
 export function buildGoalMarker(
   change: GoalChange,
   expanded: boolean,
@@ -141,13 +125,12 @@ function markerSpec(
       case 'active':
         return prominentMarker(resumedHeadline(actor), 'primary');
       case 'blocked':
-        // The system stopped pursuing the goal; resumable via `/goal resume`.
         return { headline: t('tui.messages.goalMarkers.blocked'), accentToken: 'warning' };
       default:
         return null;
     }
   }
-  return null; // completion -> posts its own message, not a marker
+  return null;
 }
 
 function prominentMarker(headline: string, accentToken: ColorToken) {
@@ -165,47 +148,11 @@ function prominentMarker(headline: string, accentToken: ColorToken) {
   };
 }
 
-/**
- * The engine's pause reasons are C3 (a value code branches on), not copy: they
- * arrive as English sentences and are matched against `GoalPauseReason`. Map
- * each stable constant to its own locale entry so a Chinese UI shows Chinese
- * instead of interpolating the English sentence the engine produced.
- */
-const PAUSE_REASON_KEYS: Readonly<Record<string, string>> = {
-  [GoalPauseReason.RATE_LIMIT]: 'pausedReasonRateLimit',
-  [GoalPauseReason.PROVIDER_CONNECTION]: 'pausedReasonProviderConnection',
-  [GoalPauseReason.PROVIDER_AUTH]: 'pausedReasonProviderAuth',
-  [GoalPauseReason.PROVIDER_API]: 'pausedReasonProviderApi',
-  [GoalPauseReason.MODEL_CONFIG]: 'pausedReasonModelConfig',
-  [GoalPauseReason.RUNTIME]: 'pausedReasonRuntime',
-  [GoalPauseReason.CONTINUATION_FAILURE]: 'pausedReasonContinuationFailure',
-  [GoalPauseReason.PROVIDER_FILTERED]: 'pausedReasonProviderFiltered',
-};
-
-function pauseReasonLabel(reason: string): string {
-  for (const [constant, key] of Object.entries(PAUSE_REASON_KEYS)) {
-    if (!reason.startsWith(constant)) continue;
-    // The engine appends detail after a colon (`<reason>: <detail>`). The
-    // reason itself is translated; the detail is provider text and rides along
-    // verbatim, so a diagnostic keeps the specifics it was carrying.
-    const detail = reason.slice(constant.length);
-    return `${t(`tui.messages.goalMarkers.${key}`)}${detail}`;
-  }
-  return lowercaseFirst(reason);
-}
-
 function pausedHeadline(reason: string | undefined, actor: GoalMarkerActor | undefined): string {
-  if (reason === GoalPauseReason.INTERRUPTION)
-    return t('tui.messages.goalMarkers.pausedInterruption');
+  if (reason === GOAL_PAUSED_AFTER_INTERRUPTION) return "Goal paused due to user's interruption";
   if (actor === 'user') return t('tui.messages.goalMarkers.pausedByUser');
-  if (reason !== undefined && isGoalPauseReason(reason)) {
-    return t('tui.messages.goalMarkers.pausedWithLowerReason', {
-      reason: pauseReasonLabel(reason),
-    });
-  }
-  if (reason !== undefined && reason.length > 0) {
-    return t('tui.messages.goalMarkers.pausedWithReason', { reason });
-  }
+  if (reason?.startsWith('Paused ') === true) return `Goal ${lowercaseFirst(reason)}`;
+  if (reason !== undefined && reason.length > 0) return `Goal paused: ${reason}`;
   if (actor === 'model') return t('tui.messages.goalMarkers.pausedByAgent');
   return t('tui.messages.goalMarkers.pausedGeneric');
 }
@@ -218,4 +165,21 @@ function resumedHeadline(actor: GoalMarkerActor | undefined): string {
 
 function lowercaseFirst(text: string): string {
   return text.length === 0 ? text : `${text[0]!.toLowerCase()}${text.slice(1)}`;
+}
+
+function wrap(text: string, width: number): string[] {
+  const words = text.replaceAll(/\s+/g, ' ').trim().split(' ');
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current.length === 0 ? word : `${current} ${word}`;
+    if (candidate.length > width && current.length > 0) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.length > 0) lines.push(current);
+  return lines.length > 0 ? lines : [''];
 }

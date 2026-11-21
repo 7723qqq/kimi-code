@@ -1,15 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
+import type { ToolCall } from '#human/message';
+import { afterEach, beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
 import { ExitPlanModeTool } from '#/features/plan/tools/exit-plan-mode/exitPlanModeTool';
 import type { ToolResult } from '#/tool/toolContract';
-import type { ToolCall } from '#human/llm/message';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { executeLegacyTool } from '../../../agent/toolExecutor/execute';
 
-import {
-  recordingTelemetry as captureTelemetry,
-  type TelemetryRecord,
-} from '../../../app/telemetry/stubs';
+import { executeTool } from '../../../tools/fixtures/execute-tool';
+import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 import {
   createTestAgent,
   execEnvServices,
@@ -17,8 +16,10 @@ import {
   telemetryServices,
   type TestAgentContext,
 } from '../../../harness/agent';
-import { executeTool } from '../../../tools/fixtures/execute-tool';
-import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
+import {
+  recordingTelemetry as captureTelemetry,
+  type TelemetryRecord,
+} from '../../../app/telemetry/stubs';
 
 const ACTIVE_PLAN: NonNullable<PlanData> = {
   id: 'test-plan',
@@ -35,13 +36,13 @@ function planService({
 } = {}): IAgentPlanService {
   return {
     _serviceBrand: undefined,
-    enter: mock(async () => {}),
-    cancel: mock(),
-    clear: mock(async () => {}),
-    exit: exit ?? mock(),
+    enter: vi.fn(async () => {}),
+    cancel: vi.fn(),
+    clear: vi.fn(async () => {}),
+    exit: exit ?? vi.fn(),
     resolveFile: async () => undefined,
-    recordRevision: mock(async () => {}),
-    status: mock(async () => status),
+    recordRevision: vi.fn(async () => {}),
+    status: vi.fn(async () => status),
   };
 }
 
@@ -57,8 +58,8 @@ describe('AgentPlanService without an EnterPlanMode tool', () => {
         ctx = createTestAgent(
           execEnvServices({
             hostFs: createFakeHostFs({
-              mkdir: jest.fn().mockResolvedValue(undefined),
-              readText: jest.fn().mockResolvedValue(''),
+              mkdir: vi.fn().mockResolvedValue(undefined),
+              readText: vi.fn().mockResolvedValue(''),
             }),
           }),
           permissionModeServices(mode),
@@ -83,15 +84,12 @@ describe('AgentPlanService without an EnterPlanMode tool', () => {
           arguments: '{}',
         };
 
-        const result: ToolResult[] = [];
-        for await (const item of toolExecutor.execute([call], {
+        const result = await executeLegacyTool(toolExecutor, [call], {
           turnId: 1,
           signal: new AbortController().signal,
-        })) {
-          result.push(item.result);
-        }
+        });
 
-        expect(result[0]?.isError).toBe(true);
+        expect(result[0]?.result.isError).toBe(true);
         expect(await ctx.get(IAgentPlanService).status()).toBeNull();
         expect(records.some((record) => record.event === 'plan_enter_resolved')).toBe(false);
       });
@@ -122,12 +120,15 @@ describe('ExitPlanModeTool', () => {
       path: undefined,
     } as unknown as NonNullable<PlanData>;
 
-    const result = await executeTool(new ExitPlanModeTool(planService({ status })), {
-      turnId: 7,
-      toolCallId: 'call_exit_plan',
-      args: {},
-      signal: new AbortController().signal,
-    });
+    const result = await executeTool(
+      new ExitPlanModeTool(planService({ status })),
+      {
+        turnId: 7,
+        toolCallId: 'call_exit_plan',
+        args: {},
+        signal: new AbortController().signal,
+      },
+    );
 
     expect(result).toMatchObject({
       isError: true,

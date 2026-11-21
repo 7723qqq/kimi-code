@@ -1,7 +1,6 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, it, expect } from '@moonshot-ai/testkit/vitest';
 
 import {
-  cacheHitRatePercent,
   formatTokenCount,
   quotaUsageRows,
   renderProgressBar,
@@ -10,21 +9,6 @@ import {
   usagePercent,
   usagePercentFromRatio,
 } from '#/utils/usage/usage-format';
-
-// The real `t` resolves against the bundled locale trees, which tests do not
-// load, so it would hand back raw keys. Stub the strings this file asserts on.
-void mock.module('#/i18n', () => ({
-  t: (key: string) =>
-    (
-      ({
-        'tui.messages.usagePanel.limit5h': '5h limit',
-        'tui.messages.usagePanel.weeklyLimit': 'Weekly limit',
-        'tui.messages.usagePanel.monthlyLimit': 'Monthly limit',
-      }) as Record<string, string>
-    )[key] ?? key,
-  setLocale: mock(),
-  getLocale: () => 'en',
-}));
 
 describe('formatTokenCount', () => {
   it('passes small values through unchanged', () => {
@@ -127,25 +111,6 @@ describe('renderProgressBar', () => {
   });
 });
 
-describe('cacheHitRatePercent', () => {
-  it('uses reads over reads plus creations when writes are reported', () => {
-    expect(cacheHitRatePercent(1_792, 99, 5_000)).toBe(95);
-  });
-
-  it('falls back to the read share of all input without write data', () => {
-    expect(cacheHitRatePercent(200, 0, 800)).toBe(20);
-  });
-
-  it('reports full reads without write data as 100', () => {
-    expect(cacheHitRatePercent(800, 0, 0)).toBe(100);
-  });
-
-  it('reports zero for uncached input or no traffic', () => {
-    expect(cacheHitRatePercent(0, 0, 800)).toBe(0);
-    expect(cacheHitRatePercent(0, 0, 0)).toBe(0);
-  });
-});
-
 describe('safeUsageRatio', () => {
   it('matches footer context usage clamping semantics', () => {
     expect(safeUsageRatio(Number.NaN)).toBe(0);
@@ -184,12 +149,7 @@ describe('quotaUsageRows', () => {
     });
     expect(rows).toEqual([
       { name: '5h limit', usedRatio: 0.3, resetAt: '2026-09-11T18:00:00Z', breakdown: undefined },
-      {
-        name: 'Weekly limit',
-        usedRatio: 0.2,
-        resetAt: '2026-09-17T00:00:00Z',
-        breakdown: undefined,
-      },
+      { name: 'Weekly limit', usedRatio: 0.2, resetAt: '2026-09-17T00:00:00Z', breakdown: undefined },
       {
         name: 'Monthly limit',
         usedRatio: 0.4,

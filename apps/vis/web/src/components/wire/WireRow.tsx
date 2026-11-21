@@ -1,22 +1,17 @@
 import { memo, useCallback } from 'react';
 
-import { t } from '../../i18n';
 import type { WireEntry } from '../../types';
-import { formatDuration, formatWallClock, recordTime } from '../../util/time';
+import { formatDuration, formatWallClock } from '../../util/time';
 import { TypeBadge } from './TypeBadge';
 import { renderHeadline } from './WireHeadline';
 import { WireRowDetail } from './WireRowDetail';
+import { t } from '../../i18n';
 
-/** Pairing hint for a `tool.call` ↔ `tool.result` row. Computed by the
- *  parent (WireTab) from the full record list and threaded down here so
- *  the row can render an inline cross-reference and participate in the
- *  hover-highlight protocol. */
 export interface PairHint {
   toolCallId: string;
   kind: 'call' | 'result';
   callLineNo: number | null;
   resultLineNo: number | null;
-  /** result.time − call.time, when both records carry a timestamp. */
   durationMs: number | null;
 }
 
@@ -24,13 +19,9 @@ interface WireRowProps {
   entry: WireEntry;
   expanded: boolean;
   onToggle: () => void;
-  /** Scroll to a line and expand it — wired by the Wire tab via the virtualizer. */
   onJumpTo?: (lineNo: number) => void;
-  /** Set when this entry is a tool.call/tool.result; carries the matching counterpart's line. */
   pair?: PairHint;
-  /** True when another row from this pair is currently hovered. */
   highlighted: boolean;
-  /** Notify the parent that this row's pair group is being hovered. */
   onHoverPair?: (toolCallId: string | null) => void;
 }
 
@@ -44,9 +35,8 @@ export const WireRow = memo(function WireRow({
   onHoverPair,
 }: WireRowProps) {
   const record = entry.data;
-  const time = recordTime(record);
   const h = renderHeadline(record);
-  const timeTitle = formatTimeTitle(time);
+  const timeTitle = formatTimeTitle(record.time);
 
   const handleEnter = useCallback(() => {
     if (pair !== undefined && onHoverPair !== undefined) {
@@ -84,7 +74,7 @@ export const WireRow = memo(function WireRow({
             className="font-mono text-[11px] text-fg-3 tabular w-[68px] shrink-0"
             title={timeTitle}
           >
-            {time !== undefined ? formatWallClock(time) : t('wireRow.noTime')}
+            {record.time !== undefined ? formatWallClock(record.time) : t('wireRow.noTime')}
           </span>
           <span className="shrink-0">
             <TypeBadge type={record.type} />
@@ -123,20 +113,16 @@ function PairIndicator({
       ? t('wireRow.noMatchingResult')
       : t('wireRow.noPrecedingCall')
     : isCall
-      ? t('wireRow.jumpToResult', { target })
-      : t('wireRow.jumpToCall', { target });
+      ? `jump to tool.result on line ${target}`
+      : `jump to tool.call on line ${target}`;
 
   const className = `font-mono text-[10px] tabular ${
     orphan ? 'text-[var(--color-sev-error)]' : 'text-[var(--color-cat-tools)] hover:text-fg-0'
   }`;
 
-  // Show the call→result elapsed time on whichever row has its partner.
   const duration =
     pair.durationMs !== null ? (
-      <span
-        className="font-mono text-[10px] text-fg-3 tabular"
-        title={t('wireRow.callResultElapsed')}
-      >
+      <span className="font-mono text-[10px] text-fg-3 tabular" title="tool.call → tool.result elapsed">
         {formatDuration(pair.durationMs)}
       </span>
     ) : null;

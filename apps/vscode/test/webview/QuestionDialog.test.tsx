@@ -1,14 +1,10 @@
-import './setup';
-import { beforeEach, describe, expect, it, jest } from 'bun:test';
-
-import type { QuestionItem } from 'shared/legacy-sdk';
-
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QuestionDialog } from '@/components/QuestionDialog';
 import { useChatStore } from '@/stores';
+import type { QuestionItem } from 'shared/legacy-sdk';
 
-const { act, fireEvent, render, screen, waitFor, within } = await import('@testing-library/react');
-
-const respondQuestion = jest.fn().mockResolvedValue(undefined);
+const respondQuestion = vi.fn().mockResolvedValue(undefined);
 
 function makeQuestion(question: string, labels: string[], multiSelect = false): QuestionItem {
   return {
@@ -355,10 +351,10 @@ describe('QuestionDialog', () => {
   });
 
   it('resets navigation, answers, and custom drafts when a new question request arrives', async () => {
-    renderQuestion(
-      [makeQuestion('Old first', ['One']), makeQuestion('Old second', ['Two'])],
-      'old-request',
-    );
+    renderQuestion([
+      makeQuestion('Old first', ['One']),
+      makeQuestion('Old second', ['Two']),
+    ], 'old-request');
     fireEvent.click(optionButton('One'));
     expect(screen.getByText('Old second')).toBeTruthy();
     fireEvent.click(customResponseButton());
@@ -376,8 +372,7 @@ describe('QuestionDialog', () => {
 
     fireEvent.click(optionButton('Three'));
     await waitFor(() => {
-      expect(respondQuestion).toHaveBeenCalledTimes(1);
-      expect(respondQuestion).toHaveBeenCalledWith({ 'New first': 'Three' });
+      expect(respondQuestion).toHaveBeenCalledExactlyOnceWith({ 'New first': 'Three' });
     });
   });
 });

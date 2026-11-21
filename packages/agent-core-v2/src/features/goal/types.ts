@@ -1,18 +1,6 @@
-export type GoalStatus =
-  | 'active'
-  | 'paused'
-  | 'blocked'
-  | 'complete'
-  | 'budget_limited'
-  | 'usage_limited';
+export type GoalStatus = 'active' | 'paused' | 'blocked' | 'complete';
 
 export type GoalActor = 'user' | 'model' | 'runtime' | 'system';
-
-export type GoalAccountingMode =
-  | 'active_status_only'
-  | 'active_only'
-  | 'active_or_complete'
-  | 'active_or_stopped';
 
 export interface GoalBudgetLimits {
   readonly tokenBudget?: number;
@@ -31,8 +19,6 @@ export interface GoalBudgetReport {
   readonly turnBudgetReached: boolean;
   readonly wallClockBudgetReached: boolean;
   readonly overBudget: boolean;
-  readonly inputTokensUsed: number;
-  readonly outputTokensUsed: number;
 }
 
 export interface GoalSnapshot {
@@ -41,20 +27,10 @@ export interface GoalSnapshot {
   readonly completionCriterion?: string;
   readonly status: GoalStatus;
   readonly turnsUsed: number;
-
   readonly tokensUsed: number;
-
-  readonly inputTokensUsed: number;
-
-  readonly outputTokensUsed: number;
   readonly wallClockMs: number;
   readonly budget: GoalBudgetReport;
   readonly terminalReason?: string;
-  readonly blockedStreak?: number;
-
-  readonly createdAt: number;
-
-  readonly updatedAt: number;
 }
 
 export interface GoalToolResult {

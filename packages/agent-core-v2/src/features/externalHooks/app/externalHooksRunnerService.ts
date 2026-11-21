@@ -71,25 +71,14 @@ export class ExternalHooksRunnerService extends Disposable implements IExternalH
     event: string,
     args: ExternalHooksRunnerTriggerArgs = {},
   ): Promise<HookBlockDecision | undefined> {
-    try {
-      return blockDecision(event, await this.triggerInner(event, args, true));
-    } catch (error) {
-      return {
-        block: true,
-        reason: error instanceof Error ? error.message : String(error),
-      };
-    }
+    return blockDecision(event, await this.trigger(event, args));
   }
 
   fireAndForgetTrigger(
     event: string,
     args: ExternalHooksRunnerTriggerArgs = {},
   ): Promise<HookResult[]> {
-    try {
-      return this.trigger(event, args).catch((): HookResult[] => []);
-    } catch {
-      return Promise.resolve([]);
-    }
+    return this.trigger(event, args);
   }
 
   hasHooksFor(event: string): boolean {
@@ -114,7 +103,6 @@ export class ExternalHooksRunnerService extends Disposable implements IExternalH
   private async triggerInner(
     event: string,
     args: ExternalHooksRunnerTriggerArgs,
-    failClosed = false,
   ): Promise<HookResult[]> {
     await this.ready;
     const results = await runMatchedHooks(
@@ -139,7 +127,6 @@ export class ExternalHooksRunnerService extends Disposable implements IExternalH
           this.reportFailure(failedEvent, hook, message, args.sessionId);
         },
       },
-      failClosed,
     );
     if (results.length > 0) {
       this.telemetry.track2('external_hook_resolved', {

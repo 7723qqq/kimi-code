@@ -1,5 +1,6 @@
-import type { Message, TextPart } from '#/llm/message';
-import { SyntaxRequestFormatError } from '#/llm/syntax-errors';
+import type { Message, TextPart } from '#human/message';
+import type { DocumentURLPart } from '#human/message';
+import { SyntaxRequestFormatError } from '#human/llm/syntax-errors';
 
 import type { AnthropicWireContentBlock, AnthropicWireMessage } from './contract';
 
@@ -130,7 +131,7 @@ export function lowerMessage(
     content.push({ type: 'text', text: `<system>${text}</system>` });
   } else if (message.role === 'tool') {
     const blocks: AnthropicWireContentBlock[] = [];
-    for (const part of message.content) {
+    for (const part of message.content as readonly (typeof message.content)[number][] | readonly DocumentURLPart[]) {
       if (part.type === 'text') {
         if (part.text) {
           blocks.push({ type: 'text', text: part.text });
@@ -149,7 +150,7 @@ export function lowerMessage(
       content: blocks,
     });
   } else {
-    for (const part of message.content) {
+    for (const part of message.content as readonly (typeof message.content)[number][] | readonly DocumentURLPart[]) {
       if (part.type === 'think') {
         if (part.encrypted !== undefined) {
           content.push({ type: 'thinking', thinking: part.think, signature: part.encrypted });

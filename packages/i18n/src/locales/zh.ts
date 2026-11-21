@@ -5,6 +5,9 @@ type DeepPartial<T> = T extends string
     : never;
 
 export const zh: DeepPartial<typeof import('./en').default> = {
+  execution: {
+    incompleteCompletion: '任务仍未完成。模型在结束审计纠偏后仍只承诺继续或给出无依据的停工理由；运行时正在继续执行已授权任务，不会将其标记为完成。',
+  },
   errors: {
     configInvalid: '配置无效',
     sessionNotFound: '未找到会话',
@@ -110,6 +113,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
   },
   session: {
     newSession: '新会话',
+    removedDefaultModel:
+      '默认模型“{{model}}”未配置，已保留会话原模型“{{previousModel}}”。请使用 /model 或通过 -m 重启以选择可用模型。',
   },
   tools: {
     grepTimedOut: 'Grep 在 {{seconds}}s 后超时。请尝试更具体的路径或模式。',
@@ -388,6 +393,7 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     fileTooLarge: '上传大小 {{seen}} 字节超过限制 {{limit}} 字节',
   },
   remoteControl: {
+    invalidProxy: 'Remote Control 代理配置无效，正在直连。',
     disconnected: 'Remote Control 连接断开：{{error}}',
     connectionSilent: 'Remote Control {{label}} 连接已静默 {{seconds}} 秒，正在重连…',
     messageError: 'Remote Control 消息错误：{{error}}',

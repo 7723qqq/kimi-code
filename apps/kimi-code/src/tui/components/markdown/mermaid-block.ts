@@ -8,24 +8,20 @@ import {
   type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
-import type { KimiMarkdownOptions } from '#/tui/components/markdown/markdown';
 import { currentTheme } from '#/tui/theme';
-import { isMarkdownAltScreenActive, requestMarkdownRender } from '#/tui/utils/markdown-options';
+import type { KimiMarkdownOptions } from '#/tui/components/markdown/markdown';
+import {
+  isMarkdownAltScreenActive,
+  requestMarkdownRender,
+} from '#/tui/utils/markdown-options';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '#/utils/render-clock';
 
-import {
-  colorMermaidArt,
-  couldNotDrawMessage,
-  drawMermaid,
-  undrawnDiagramReason,
-} from './mermaid-art';
+import { colorMermaidArt, COULD_NOT_DRAW_MESSAGE, drawMermaid, undrawnDiagramReason } from './mermaid-art';
+import { t } from '#/i18n';
 
+const COPY_SOURCE_LABEL = t('tui.messages.mermaidCopySource');
+const COPIED_LABEL = '[Copied]';
+const COPY_FAILED_LABEL = t('tui.messages.mermaidCopyFailed');
 const COPIED_REVERT_MS = 1500;
 
 type CopyState = 'idle' | 'copied' | 'failed';
@@ -33,9 +29,8 @@ type CopyState = 'idle' | 'copied' | 'failed';
 export class MermaidBlock implements Component {
   private copyState: CopyState = 'idle';
   private pressed = false;
-  private copyRevertTimer: RenderTimerHandle | undefined;
+  private copyRevertTimer: ReturnType<typeof setTimeout> | undefined;
   private codeMarkdown: PiMarkdown | undefined;
-  private readonly clock: RenderClock;
   private layout:
     | {
         width: number;
@@ -52,10 +47,7 @@ export class MermaidBlock implements Component {
     private readonly paddingX: number,
     private readonly theme: MarkdownTheme,
     private readonly options: KimiMarkdownOptions,
-    clock: RenderClock = SYSTEM_RENDER_CLOCK,
-  ) {
-    this.clock = clock;
-  }
+  ) {}
 
   invalidate(): void {
     this.layout = undefined;
@@ -82,19 +74,12 @@ export class MermaidBlock implements Component {
     } else {
       const reason =
         draw.status === 'error'
-          ? couldNotDrawMessage()
+          ? COULD_NOT_DRAW_MESSAGE
           : draw.art !== null
-            ? t('tui.messages.mermaidTooWide', { columns: String(draw.art.width) })
+            ? t('tui.messages.mermaidTooWide', { columns: draw.art.width })
             : undrawnDiagramReason(this.fenceBody);
       content.push(currentTheme.fg('warning', truncateToWidth(reason, contentWidth, '…')));
-      this.codeMarkdown ??= new PiMarkdown(
-        this.fenceRaw,
-        0,
-        0,
-        this.theme,
-        undefined,
-        this.options,
-      );
+      this.codeMarkdown ??= new PiMarkdown(this.fenceRaw, 0, 0, this.theme, undefined, this.options);
       content.push(...this.codeMarkdown.render(contentWidth));
     }
     if (showButton) {
@@ -116,11 +101,7 @@ export class MermaidBlock implements Component {
     if (!this.showsCopyButton()) return undefined;
     const lines = this.render(event.width);
     if (lines.length === 0) return undefined;
-    const label = truncateToWidth(
-      this.copyLabel(),
-      Math.max(1, event.width - this.paddingX * 2),
-      '…',
-    );
+    const label = truncateToWidth(this.copyLabel(), Math.max(1, event.width - this.paddingX * 2), '…');
     const x = event.x - this.paddingX;
     const onLabel = event.y === lines.length - 1 && x >= 0 && x < visibleWidth(label);
 
@@ -161,9 +142,9 @@ export class MermaidBlock implements Component {
   }
 
   private copyLabel(): string {
-    if (this.copyState === 'copied') return t('tui.messages.mermaidCopied');
-    if (this.copyState === 'failed') return t('tui.messages.mermaidCopyFailed');
-    return t('tui.messages.mermaidCopySource');
+    if (this.copyState === 'copied') return COPIED_LABEL;
+    if (this.copyState === 'failed') return COPY_FAILED_LABEL;
+    return COPY_SOURCE_LABEL;
   }
 
   private copySource(): void {
@@ -172,18 +153,14 @@ export class MermaidBlock implements Component {
         this.copyState = 'copied';
         this.options.onVisualStateChange?.();
         requestMarkdownRender();
-        if (this.copyRevertTimer !== undefined) this.clock.clearTimeout(this.copyRevertTimer);
-        const revertTimer = this.clock.setTimeout(() => {
+        if (this.copyRevertTimer !== undefined) clearTimeout(this.copyRevertTimer);
+        this.copyRevertTimer = setTimeout(() => {
           this.copyRevertTimer = undefined;
           this.copyState = 'idle';
           this.options.onVisualStateChange?.();
           requestMarkdownRender();
         }, COPIED_REVERT_MS);
-        // Only the system clock's handle is unref'd: the acknowledgement must
-        // not keep the process alive. An injected clock owns liveness itself and
-        // hands back handles whose `unref` means "cancel".
-        if (this.clock === SYSTEM_RENDER_CLOCK) revertTimer.unref?.();
-        this.copyRevertTimer = revertTimer;
+        this.copyRevertTimer.unref?.();
       },
       () => {
         this.copyState = 'failed';

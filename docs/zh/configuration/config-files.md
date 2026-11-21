@@ -131,6 +131,7 @@ timeout = 5
 | [`github`](#github) | `table` | — | 内置 GitHub 工具 |
 | [`github_proxy`](#github_proxy) | `table` | — | 只对 GitHub 流量生效的代理与镜像加速 |
 | [`permission`](#permission) | `table` | — | 初始权限规则 |
+| [`hosts`](#hosts) | `table` | — | 通过 SSH 连接的完整远端项目服务 |
 | [`environments`](#environments) | `table` | — | 远程环境声明 |
 | [`hooks`](../customization/hooks.md) | `array<table>` | — | 生命周期 hook |
 | [`identity`](#identity) | `table` | — | 自定义 Agent 身份 |
@@ -739,6 +740,8 @@ fallback = true                        # 加速链路失败时回退直连原始
 
 用户规则在会话启动时从用户 `config.toml` 加载。为兼容旧配置，用户 `config.toml` 中的 `turn-override` 和 `session-runtime` 规则会静默忽略，不产生警告。
 
+如果用户 `config.toml` 无法读取、TOML 解析失败或配置节校验失败，会话会使用默认值或当前进程中最后一份有效的校验后配置继续运行；模型和凭据仍须有效才能发送请求。配置诊断和非交互输出会显示错误及警告。文件无法读取或解析期间，配置写回仍会被阻止，修复文件并重新加载后才可写入。
+
 项目规则仅在本地环境且 workspace 已信任时从 `.kimi-code/local.toml` 读取，省略 `scope` 时默认为 `project`。远程环境不支持项目规则。项目规则修改后需要新建会话生效，不会热重载。
 
 也可以在 `[permission]` 下设置 `dangerous_command_guard = false` 完全关闭所有内置 guard 确认策略：危险命令、敏感文件（如 `.env`、`id_rsa`）访问、git 控制路径访问在 "Always Ask" 和 "Ask When Needed" 模式下不再触发审批（"Never Ask" 模式本就不启用这些策略），默认 `true`。环境变量 `KIMI_CODE_DANGEROUS_COMMAND_GUARD=false` 会覆盖文件设置。全部内置 guard 关闭后，"Ask When Needed" 模式下只有你自己配置的 `ask` 规则仍会要求确认；"Always Ask" 模式下未被自动放行的工具照旧逐个询问。`Read`/`Write`/`Edit` 对秘密文件的硬阻断保持不变。此开关只适用于已经在 Agent 之外统一命令限权的环境。
@@ -774,6 +777,29 @@ pattern = "Bash"
 MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-code/mcp.json` 中，不在 `config.toml` 里。交互式配置入口是 `/mcp-config`，详见 [Model Context Protocol](../customization/mcp.md)。
 :::
 
+## `hosts`
+
+`hosts` 将 Web 和桌面端的项目列表连接到 SSH 主机上的完整 Kimi Code 服务。它不同于只重定向单个会话工具执行的 [`environments`](#environments)：每台主机独立保存项目、会话、模型配置和 Kimi 登录状态。连接前需在远端安装兼容的 Kimi Code，并配置好 SSH 访问。
+
+```toml
+[hosts.dev]
+host = "devbox"
+name = "开发服务器"
+enabled = true
+# identity_file = "~/.ssh/id_ed25519"
+# remote_bin = "~/.kimi-code/bin/kimi"
+```
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `host` | 是 | SSH 目标地址或已配置的 SSH 别名，不能以 `-` 开头 |
+| `name` | 否 | 显示名称，最多 64 个字符 |
+| `enabled` | 否 | 设为 `false` 可停用连接，而不删除主机配置 |
+| `identity_file` | 否 | 传给本地 SSH 客户端的身份文件 |
+| `remote_bin` | 否 | 远端 Kimi 可执行文件，默认为 `~/.kimi-code/bin/kimi` |
+
+表的键是稳定的主机 ID：由 1–64 个字母、数字、`.`、`_` 或 `-` 组成，并以字母或数字开头。客户端打开事件流后，本地服务会连接启用的主机，并在可恢复的故障后重连。连接端断开后，远端受管理服务可继续执行任务，并在空闲窗口结束后退出。各主机独立登录；复制自定义模型供应商需要显式操作，因为该操作会传输供应商凭据。连接诊断、聚合列表和复制行为由本地服务的 SSH 主机路由提供，请求与响应结构以 `GET /openapi.json` 为准。
+
 ## `environments`
 
 `environments` 声明远程环境——SSH 主机、Docker 兼容容器或自定义启动命令——会话绑定后，Agent 的工具即在目标环境中执行。功能介绍、边界与限制见 [远程环境](../guides/remote-environment.md)。
@@ -783,6 +809,8 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
 远端工作目录必须是 POSIX 绝对路径或 Windows 盘符路径；相对路径和 `~` 不会展开。Git Bash 与启动器要求详见 [Windows 目标环境](../guides/remote-environment.md#windows-目标环境)。
 
 可选的顶层 `default` 指定创建会话时未显式给出绑定时使用的环境。它必须指向一个已配置的条目，且该条目必须设置 `defaultCwd`——绑定由环境和工作目录成对构成，缺了工作目录的默认绑定会悬空。未设置 `default` 时，这些会话从 `local` 开始。TUI 的 `/new` 不用这个 default，而是保留当前环境。详见 [远程环境](../guides/remote-environment.md)。
+
+环境配置节非法时，有历史有效声明就沿用，否则隐式创建的会话回退到本地环境并保留诊断。此回退可能改变命令的执行位置，依赖远程环境前应先检查配置诊断。显式指定的环境仍须存在且有效，不会自动切换到本地。
 
 ### SSH 条目
 
@@ -849,7 +877,7 @@ defaultCwd = "/workspace"
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | 配色主题：`auto`（跟随终端）、`dark`、`light`，或[自定义主题](../customization/themes.md)的名字 |
 | `locale` | `string` | 自动探测 | 终端界面语言：`en` 或 `zh`，用 `/settings` 对话框即可切换并写入。未设置时，若 `KIMI_LANG` 或系统的 `LANG` / `LC_ALL` / `LC_MESSAGES` 表明是中文则取 `zh`，否则取 `en`；显式设置可固定为某一种语言 |
-| `tui_mode` | `string` | `regular` | 界面布局：`regular` 渲染进终端滚动缓冲区；`fullscreen`（实验性）接管鼠标，支持滚轮翻会话记录与面板、拖选复制、点击选中列表行与标签，以及在问题对话框中点选选项；`textual`（实验性）以独立 sidecar 进程运行 Rust textual-rs 前端，pi-tui 完全不启动、终端由 sidecar 独占，需先在 `apps/kimi-code/rust` 执行一次 `cargo build`；切换后需重启生效 |
+| `tui_mode` | `string` | `regular` | 界面布局：`regular` 渲染进终端滚动缓冲区；`fullscreen`（实验性）使用当前终端会话上报的鼠标事件，支持滚动、拖选复制和[点击控件](../reference/keyboard.md)，也可继续使用键盘；`textual`（实验性）以独立 sidecar 进程运行 Rust textual-rs 前端，pi-tui 完全不启动、终端由 sidecar 独占，需先在 `apps/kimi-code/rust` 执行一次 `cargo build`；切换后需重启生效 |
 | `copy_on_select` | `boolean` | `true` | 仅全屏模式：选中文本即复制；也可以按 `Ctrl-C` 复制 |
 | `render_latex` | `boolean` | `true` | 将 Markdown 消息中的 LaTeX 公式（`$…$`、`$$…$$`）渲染为 Unicode 文本；`false` 则保留原始源码 |
 | `disable_paste_burst` | `boolean` | `false` | 禁用非 bracketed paste 的粘贴突发兜底；默认开启，避免快速多行粘贴被逐行提交 |

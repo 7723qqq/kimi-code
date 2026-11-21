@@ -1,21 +1,17 @@
-import { IAgentPlanService } from '#/features/plan/plan';
-import type { PlanData } from '#/features/plan/plan';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import {
-  RepoMutations,
-  ToolSideEffects,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
+import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { IAgentPlanService } from '#/features/plan/plan';
+import type { PlanData } from '#/features/plan/plan';
+
+import DESCRIPTION from './exit-plan-mode.md?raw';
 import {
   ExitPlanModeInputSchema,
   IExitPlanModeTool,
   type ExitPlanModeInput,
   type ExitPlanModePlanSource,
 } from './exit-plan-mode';
-import DESCRIPTION from './exit-plan-mode.md?raw';
 
 type ResolvePlanResult =
   | { readonly ok: true; readonly plan: string; readonly path?: string | undefined }
@@ -24,8 +20,6 @@ type ResolvePlanResult =
 export class ExitPlanModeTool implements IExitPlanModeTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'ExitPlanMode' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ExitPlanModeInputSchema);
 
@@ -52,7 +46,8 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     if (data === null || data.content.trim().length === 0) return undefined;
     try {
       await this.planMode.recordRevision();
-    } catch {}
+    } catch {
+    }
     const display: ToolInputDisplay = {
       kind: 'plan_review',
       plan: data.content,

@@ -1,0 +1,14 @@
+{
+  "name": "kimi-code-icon-tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:icons": "bun build-brand-icons.mjs",
+    "export:layers": "bun export-icon-layers.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "sharp": "0.35.3"
+  }
+}

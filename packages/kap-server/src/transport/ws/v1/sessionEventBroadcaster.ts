@@ -1,9 +1,7 @@
-import { isInstantiationServiceDisposedError } from '@moonshot-ai/agent-core-v2';
 import type {
   ApprovalRequest,
   ApprovalResponse,
   Event2,
-  IAgentScopeHandle,
   IDisposable,
   Interaction,
   ISessionScopeHandle,
@@ -14,40 +12,44 @@ import type {
   Workspace,
 } from '@moonshot-ai/agent-core-v2';
 import {
+  Error2,
+  ErrorCodes,
   IAgentLifecycleService,
-  IAgentLoopService,
-  IEventBus,
+  IConfigRegistry,
+  IConfigService,
   IEventService,
   INTERACTION_TAG_SESSION_ID,
   INTERACTION_TAG_TOOL_CALL_ID,
   ISessionActivityView,
+  ISessionContext,
+  ISessionIndex,
   ISessionManager,
+  ISessionMetadata,
+  IWorkspaceService,
   followSessionLifecycles,
   getLiveSessionById,
   resumeSessionById,
   interactions,
   toDisposable,
 } from '@moonshot-ai/agent-core-v2';
-import {
-  detachGrades,
-  filterOpsForGrade,
-  gradeFor,
-  needsResetOnTransition,
-  redactSnapshotForGrade,
-  type AgentTranscript,
-  type TranscriptGrade,
-  type TranscriptGradeSpec,
-  type TranscriptOperation,
-  type TranscriptOpsEvent,
-  type TranscriptResetEvent,
-  type TranscriptStore,
-} from '@moonshot-ai/transcript';
-
-import type { ConversationMessage } from '../../../protocol/conversation';
+import type {
+  ConfigWarningItem,
+  HostChangedEvent,
+  ModelCatalogRefreshChange,
+  ModelCatalogRefreshFailure,
+  ModelCatalogRetiredDefault,
+  SessionCreatedEvent,
+  SessionMetaUpdatedEvent,
+  Event,
+  PushEvent,
+} from './events';
 import {
   configChangedEventSchema,
   modelCatalogChangedEventSchema,
 } from '../../../protocol/events-zod';
+import type { ConversationMessage } from '../../../protocol/conversation';
+import type { ConfigResponse } from '../../../protocol/rest-config';
+import { sessionSchema, type Session } from '../../../protocol/session';
 import type { InteractionEventMessage, InteractionOutcome } from '../../../protocol/interaction';
 import {
   approvalExpiresAt,
@@ -57,44 +59,25 @@ import {
 import { toWireQuestion } from '../../../protocol/question-wire';
 import type { AgentFeedMessage } from '../../../protocol/ws-agent';
 import type { TaskEventMessage, TaskListMessage } from '../../../protocol/ws-task';
+import { toConfigResponse } from '../../../routes/config';
+import { resolveSessionFacts, toWireSession, type SessionFacts, type SessionWireFields } from '../../../routes/sessions';
 import { toWireWorkspace } from '../../../routes/workspaces';
-import {
-  ConversationFeed,
-  type ConversationEvent,
-} from '../../../services/conversation/conversationFeed';
-import {
-  ConversationService,
-  type ConversationFeedCreated,
-} from '../../../services/conversation/conversationService';
-import { projectPromptContentParts } from '../../../services/messages/messageProjection';
-import type { TranscriptService } from '../../../services/transcript/transcriptService';
-import { mapError } from '../../errors';
-import { ensureMainAgent } from '../../mainAgent';
+import type { ConversationEvent, ConversationFeed } from '../../../services/conversation/conversationFeed';
 import type {
-  ConfigWarningItem,
-  ModelCatalogRefreshChange,
-  ModelCatalogRefreshFailure,
-  ModelCatalogRetiredDefault,
-  SessionCreatedEvent,
-  SessionMetaUpdatedEvent,
-  Event,
-} from './events';
-import { isVolatileEventType } from './events';
+  ConversationFeedCreated,
+  ConversationService,
+} from '../../../services/conversation/conversationService';
+import { mapError } from '../../errors';
+import { ensureMainAgent, MAIN_AGENT_ID } from '../../mainAgent';
 import { SessionAgentFeed } from './sessionAgentFeed';
 import { SessionTaskFeed } from './sessionTaskFeed';
 import { toTaskMessage } from './taskState';
 
+export type EventEnvelope = PushEvent & { readonly event_created_at: string };
+
 export interface BroadcastLogger {
   warn(obj: unknown, msg: string): void;
   error?(obj: unknown, msg: string): void;
-}
-
-export interface EventEnvelope {
-  readonly type: string;
-  readonly volatile?: boolean;
-  readonly session_id?: string;
-  readonly timestamp: string;
-  readonly payload: unknown;
 }
 
 export type BroadcastDelivery = 'subscription' | 'immediate';
@@ -111,33 +94,14 @@ export interface BroadcastTarget {
   send(frame: BroadcastFrame, delivery?: BroadcastDelivery): void;
 }
 
-export type AgentFilter = ReadonlySet<string> | undefined;
-
-export interface TargetSubscription {
-  readonly agentFilter?: AgentFilter;
-  readonly transcriptGrades?: TranscriptGradeSpec;
-}
-
-interface TranscriptStream {
-  readonly store: TranscriptStore;
-  readonly knownAgents: Set<string>;
-}
-
 interface SessionState {
   readonly sessionId: string;
-  deferredWork?: SessionActivityState;
   detached?: true;
-  readonly targets: Map<BroadcastTarget, TargetSubscription>;
-  queue: Promise<void>;
-  readonly agentDisposables: Map<string, IDisposable>;
+  readonly targets: Map<BroadcastTarget, Map<string, AgentSubscription>>;
   readonly lifecycleDisposables: IDisposable[];
   readonly knownInteractions: Map<string, Interaction>;
   tasks?: SessionTaskFeed;
   agents?: SessionAgentFeed;
-  readonly listedAgents: Map<BroadcastTarget, Set<string>>;
-  transcriptStream?: TranscriptStream;
-  readonly transcriptSeeded: Set<BroadcastTarget>;
-  readonly conversations: Map<BroadcastTarget, Map<string, AgentSubscription>>;
 }
 
 interface AgentSubscription {
@@ -151,57 +115,57 @@ interface ConversationAttachment {
   pending?: ConversationEvent[];
 }
 
-const GLOBAL_SESSION_ID = '__global__';
+interface WorkTracker {
+  readonly subscription: IDisposable;
+  deferred?: SessionActivityState;
+}
+
 const CONVERSATION_PAGE_TURNS = 10;
+
+function disposeSessionState(state: SessionState): void {
+  for (const d of state.lifecycleDisposables) d.dispose();
+  state.lifecycleDisposables.length = 0;
+  for (const agents of state.targets.values()) {
+    for (const subscription of agents.values()) releaseConversation(subscription);
+  }
+}
 
 function releaseConversation(subscription: AgentSubscription): void {
   subscription.generation += 1;
   subscription.conversation?.listener.dispose();
   subscription.conversation = undefined;
 }
-const TRANSCRIPT_RESET_TAIL_TURNS = 0;
-
-async function disposeSessionState(state: SessionState): Promise<void> {
-  for (const agents of state.conversations.values()) {
-    for (const subscription of agents.values()) releaseConversation(subscription);
-  }
-  for (const d of state.lifecycleDisposables) d.dispose();
-  for (const d of state.agentDisposables.values()) d.dispose();
-}
 
 export class SessionEventBroadcaster {
   private readonly sessions = new Map<string, SessionState>();
+  private readonly workTrackers = new Map<string, WorkTracker>();
   private readonly globalTargets = new Set<BroadcastTarget>();
-  private readonly pendingStates = new Map<string, Promise<SessionState | undefined>>();
-  private readonly evictions = new Map<string, Promise<void>>();
+  private globalQueue: Promise<void> = Promise.resolve();
   private readonly coreEventSubscription: IDisposable;
   private readonly deletionSubscription: IDisposable | undefined;
   private readonly createSubscription: IDisposable | undefined;
   private readonly lifecycleSubscription: IDisposable;
-  private closed = false;
-
   private readonly feedSubscription: IDisposable;
+  private closed = false;
 
   constructor(
     private readonly opts: {
       readonly core: Scope;
       readonly logger?: BroadcastLogger;
-      readonly transcriptService?: TranscriptService;
       readonly conversations: ConversationService;
     },
   ) {
     const sessionManager = opts.core.accessor.get(ISessionManager);
     this.deletionSubscription = sessionManager.onWillDeleteSession?.((event) => {
-      event.waitUntil(this.purgeSession(event.sessionId));
-    });
-    this.feedSubscription = opts.conversations.onDidCreateFeed((created) => {
-      this.onFeedCreated(created);
+      this.evictSession(event.sessionId);
     });
     this.lifecycleSubscription = followSessionLifecycles(opts.core.accessor, (service) => {
       const closeSubscription = service.onDidCloseSession((event) => {
+        this.untrackWork(event.sessionId);
         this.detachSession(event.sessionId);
       });
       const archiveSubscription = service.onDidArchiveSession((event) => {
+        this.untrackWork(event.sessionId);
         this.evictSession(event.sessionId);
       });
       return {
@@ -212,16 +176,27 @@ export class SessionEventBroadcaster {
       };
     });
     this.createSubscription = sessionManager.onDidCreateSession?.((event) => {
-      void this.reattachSession(event.sessionId).catch((error: unknown) =>
-        this.opts.logger?.warn(
-          { sessionId: event.sessionId, err: error },
-          'session event reattach failed',
-        ),
-      );
+      this.trackWork(event.sessionId, event.handle);
+      try {
+        this.reattachSession(event.sessionId);
+      } catch (error) {
+        this.opts.logger?.warn({ sessionId: event.sessionId, err: error }, 'session event reattach failed');
+      }
     });
+    for (const session of sessionManager.list()) this.trackWork(session.id, session);
     this.coreEventSubscription = opts.core.accessor
       .get(IEventService)
       .subscribe((event) => this.onCoreEvent(event));
+    this.feedSubscription = opts.conversations.onDidCreateFeed((created) => {
+      this.onFeedCreated(created);
+    });
+  }
+
+  publishHostChanged(hosts: HostChangedEvent['hosts']): void {
+    this.enqueueGlobal('event.host.changed', () => ({
+      type: 'event.host.changed',
+      hosts,
+    }));
   }
 
   addGlobalTarget(target: BroadcastTarget): void {
@@ -235,128 +210,31 @@ export class SessionEventBroadcaster {
   async subscribe(
     sessionId: string,
     target: BroadcastTarget,
-    filter?: AgentFilter,
-    transcriptGrades?: TranscriptGradeSpec,
-    opts?: { transcriptSince?: Record<string, number> },
-  ): Promise<boolean> {
+    agentIds: readonly string[],
+    accepted?: () => void,
+  ): Promise<void> {
     let session: ISessionScopeHandle | undefined;
     try {
       session = await resumeSessionById(this.opts.core.accessor, sessionId);
+      if (session !== undefined) await ensureMainAgent(session);
     } catch (error) {
       this.opts.logger?.warn(
         { sessionId, err: error instanceof Error ? error.message : String(error) },
-        'session subscribe resume failed',
+        'session subscribe failed',
       );
       throw error;
     }
-    if (session !== undefined) {
-      try {
-        await ensureMainAgent(session);
-      } catch (error) {
-        this.opts.logger?.warn(
-          { sessionId, err: error instanceof Error ? error.message : String(error) },
-          'session subscribe main agent failed',
-        );
-      }
+    if (session === undefined) {
+      throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session not found: ${sessionId}`);
     }
-    const state = await this.ensureState(sessionId);
-    if (state === undefined || this.sessions.get(sessionId) !== state) return false;
-    const prev = state.targets.get(target);
-    state.targets.set(target, { agentFilter: filter, transcriptGrades });
-    this.sendAgentLists(state, target, transcriptGrades);
-    if (transcriptGrades !== undefined) {
-      const gated = this.willSendTranscriptReset(state, transcriptGrades, prev);
-      if (gated) state.transcriptSeeded.delete(target);
-      await this.subscribeTranscript(
-        state,
-        target,
-        transcriptGrades,
-        prev?.transcriptGrades,
-        opts?.transcriptSince,
-      );
-      if (state.targets.has(target)) state.transcriptSeeded.add(target);
-    }
-    return true;
-  }
-
-  private willSendTranscriptReset(
-    state: SessionState,
-    spec: TranscriptGradeSpec,
-    prev: TargetSubscription | undefined,
-  ): boolean {
-    const service = this.opts.transcriptService;
-    if (service === undefined) return false;
-    const store = service.forSessionLive(state.sessionId);
-    if (store === undefined) return false;
-    for (const descriptor of store.agents()) {
-      const grade = gradeFor(spec, descriptor.agentId);
-      if (grade === 'off') continue;
-      if (needsResetOnTransition(gradeFor(prev?.transcriptGrades, descriptor.agentId), grade)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  async abortSession(sessionId: string): Promise<boolean> {
-    let session: ISessionScopeHandle | undefined;
-    try {
-      session = await resumeSessionById(this.opts.core.accessor, sessionId);
-    } catch (error) {
-      this.opts.logger?.warn(
-        { sessionId, err: error instanceof Error ? error.message : String(error) },
-        'session abort resume failed',
-      );
-      return false;
-    }
-    if (session === undefined) return false;
-    try {
-      const agent = await ensureMainAgent(session);
-      agent.accessor.get(IAgentLoopService).cancel();
-      return true;
-    } catch (error) {
-      this.opts.logger?.warn(
-        { sessionId, err: error instanceof Error ? error.message : String(error) },
-        'session abort failed',
-      );
-      return false;
-    }
-  }
-
-  async flushTranscriptSeed(_sessionId: string, _target: BroadcastTarget): Promise<void> {}
-
-  unsubscribe(sessionId: string, target: BroadcastTarget): void {
-    const state = this.sessions.get(sessionId);
-    if (state === undefined) return;
-    state.targets.delete(target);
-    state.transcriptSeeded.delete(target);
-    state.listedAgents.delete(target);
-    this.evictDetachedSession(sessionId);
-  }
-
-  async subscribeAgents(
-    sessionId: string,
-    target: BroadcastTarget,
-    agentIds: readonly string[],
-  ): Promise<boolean> {
-    let state = this.sessions.get(sessionId);
+    const state = this.ensureState(sessionId);
     if (state === undefined) {
-      try {
-        await this.reattachSession(sessionId);
-      } catch (error) {
-        this.opts.logger?.warn(
-          { sessionId, err: error instanceof Error ? error.message : String(error) },
-          'session subscribe conversation reattach failed',
-        );
-        throw error;
-      }
-      state = this.sessions.get(sessionId);
-      if (state === undefined) return false;
+      throw new Error(`session ${sessionId} closed while subscribing`);
     }
-    let agents = state.conversations.get(target);
+    let agents = state.targets.get(target);
     if (agents === undefined) {
       agents = new Map();
-      state.conversations.set(target, agents);
+      state.targets.set(target, agents);
     }
     const added: string[] = [];
     for (const agentId of agentIds) {
@@ -364,22 +242,14 @@ export class SessionEventBroadcaster {
       agents.set(agentId, { generation: 0 });
       added.push(agentId);
     }
-    this.sendAgentLists(
-      state,
-      target,
-      Object.fromEntries(agentIds.map((agentId) => [agentId, 'turn' as const])),
-    );
+    accepted?.();
+    this.sendAgentLists(state, target, added);
     for (const agentId of new Set(agentIds)) void this.sync(state, target, agentId);
-    return true;
   }
 
-  unsubscribeAgents(
-    sessionId: string,
-    target: BroadcastTarget,
-    agentIds?: readonly string[],
-  ): void {
+  unsubscribe(sessionId: string, target: BroadcastTarget, agentIds?: readonly string[]): void {
     const state = this.sessions.get(sessionId);
-    const agents = state?.conversations.get(target);
+    const agents = state?.targets.get(target);
     if (state === undefined || agents === undefined) return;
     for (const agentId of agentIds ?? [...agents.keys()]) {
       const subscription = agents.get(agentId);
@@ -388,35 +258,35 @@ export class SessionEventBroadcaster {
       agents.delete(agentId);
     }
     if (agents.size > 0) return;
-    state.conversations.delete(target);
+    state.targets.delete(target);
     this.evictDetachedSession(sessionId);
   }
 
-  conversationsOf(target: BroadcastTarget): string[] {
+  sessionsOf(target: BroadcastTarget): string[] {
     return [...this.sessions.values()]
-      .filter((state) => state.conversations.has(target))
+      .filter((state) => state.targets.has(target))
       .map((state) => state.sessionId)
       .toSorted();
   }
 
+  removeTarget(target: BroadcastTarget): void {
+    this.removeGlobalTarget(target);
+    for (const sessionId of this.sessionsOf(target)) this.unsubscribe(sessionId, target);
+  }
+
   private async sync(state: SessionState, target: BroadcastTarget, agentId: string): Promise<void> {
-    const subscription = state.conversations.get(target)?.get(agentId);
+    const subscription = state.targets.get(target)?.get(agentId);
     if (subscription === undefined) return;
     const generation = ++subscription.generation;
     const current = (): boolean =>
-      state.conversations.get(target)?.get(agentId) === subscription &&
-      subscription.generation === generation;
+      state.targets.get(target)?.get(agentId) === subscription && subscription.generation === generation;
     let feed: ConversationFeed;
     try {
       feed = await this.opts.conversations.feed(state.sessionId, agentId);
     } catch (error) {
       if (!current()) return;
       this.opts.logger?.warn(
-        {
-          sessionId: state.sessionId,
-          agentId,
-          err: error instanceof Error ? error.message : String(error),
-        },
+        { sessionId: state.sessionId, agentId, err: error instanceof Error ? error.message : String(error) },
         'session subscribe conversation failed',
       );
       releaseConversation(subscription);
@@ -430,7 +300,8 @@ export class SessionEventBroadcaster {
           code: failure.code,
           msg: failure.msg,
         });
-      } catch {}
+      } catch {
+      }
       return;
     }
     if (!current() || subscription.conversation?.feed === feed) return;
@@ -442,36 +313,13 @@ export class SessionEventBroadcaster {
       }),
     };
     subscription.conversation = attachment;
-    void this.sendPage(state, target, agentId, attachment).catch((error: unknown) => {
-      if (state.conversations.get(target)?.get(agentId)?.conversation !== attachment) return;
-      releaseConversation(subscription);
-      this.opts.logger?.warn(
-        { sessionId: state.sessionId, agentId, err: error },
-        'conversation initial page failed',
-      );
-      const failure = mapError(error, '');
-      try {
-        target.send({
-          type: 'turns.failed',
-          session_id: state.sessionId,
-          agent_id: agentId,
-          event_created_at: new Date().toISOString(),
-          code: failure.code,
-          msg: failure.msg,
-        });
-      } catch (sendError) {
-        this.opts.logger?.warn(
-          { sessionId: state.sessionId, agentId, err: sendError },
-          'conversation failure delivery failed',
-        );
-      }
-    });
+    void this.sendPage(state, target, agentId, attachment);
   }
 
   private onFeedCreated({ sessionId, agentId }: ConversationFeedCreated): void {
     const state = this.sessions.get(sessionId);
     if (state === undefined) return;
-    for (const [target, agents] of state.conversations) {
+    for (const [target, agents] of state.targets) {
       if (agents.has(agentId)) void this.sync(state, target, agentId);
     }
   }
@@ -483,7 +331,7 @@ export class SessionEventBroadcaster {
     attachment: ConversationAttachment,
     event: ConversationEvent,
   ): void {
-    if (state.conversations.get(target)?.get(agentId)?.conversation !== attachment) return;
+    if (state.targets.get(target)?.get(agentId)?.conversation !== attachment) return;
     if (attachment.pending !== undefined) attachment.pending.push(event);
     else this.sendConversation(target, state.sessionId, agentId, event);
   }
@@ -497,7 +345,7 @@ export class SessionEventBroadcaster {
     const pending: ConversationEvent[] = [];
     attachment.pending = pending;
     const page = await attachment.feed.page(undefined, CONVERSATION_PAGE_TURNS);
-    if (state.conversations.get(target)?.get(agentId)?.conversation !== attachment) return;
+    if (state.targets.get(target)?.get(agentId)?.conversation !== attachment) return;
     attachment.pending = undefined;
     try {
       target.send({
@@ -507,7 +355,8 @@ export class SessionEventBroadcaster {
         event_created_at: new Date().toISOString(),
         ...page,
       });
-    } catch {}
+    } catch {
+    }
     for (const event of pending) this.sendConversation(target, state.sessionId, agentId, event);
   }
 
@@ -524,176 +373,8 @@ export class SessionEventBroadcaster {
         agent_id: agentId,
         event_created_at: new Date().toISOString(),
       } as ConversationMessage);
-    } catch {}
-  }
-
-  unsubscribeTranscript(
-    sessionId: string,
-    target: BroadcastTarget,
-    agentIds?: readonly string[],
-  ): void {
-    const state = this.sessions.get(sessionId);
-    if (state === undefined) return;
-    const sub = state.targets.get(target);
-    if (sub === undefined) return;
-    const next = agentIds === undefined ? undefined : detachGrades(sub.transcriptGrades, agentIds);
-    if (next === undefined) {
-      state.targets.set(target, { agentFilter: sub.agentFilter, transcriptGrades: undefined });
-      state.transcriptSeeded.delete(target);
-    } else {
-      state.targets.set(target, { agentFilter: sub.agentFilter, transcriptGrades: next });
-      this.sendAgentLists(state, target, next);
+    } catch {
     }
-  }
-
-  private async subscribeTranscript(
-    state: SessionState,
-    target: BroadcastTarget,
-    spec: TranscriptGradeSpec,
-    prev: TranscriptGradeSpec | undefined,
-    transcriptSince?: Record<string, number>,
-  ): Promise<void> {
-    const service = this.opts.transcriptService;
-    if (service === undefined) return;
-    const store = service.forSessionLive(state.sessionId);
-    if (store === undefined) return;
-    await service.whenReady(state.sessionId);
-    const backfill = new Set(
-      Object.keys(spec).filter((agentId) => agentId !== '*' && gradeFor(spec, agentId) !== 'off'),
-    );
-    for (const descriptor of store.agents()) {
-      if (gradeFor(spec, descriptor.agentId) !== 'off') backfill.add(descriptor.agentId);
-    }
-    await Promise.all(
-      [...backfill].map((agentId) => service.ensureAgentHistory(state.sessionId, agentId)),
-    );
-    const current = state.targets.get(target);
-    if (current?.transcriptGrades === undefined) return;
-    const currentSpec = current.transcriptGrades;
-    this.ensureTranscriptStream(state, store);
-    for (const descriptor of store.agents()) {
-      const grade = gradeFor(currentSpec, descriptor.agentId);
-      if (grade === 'off') continue;
-      const transcript = store.getAgent(descriptor.agentId);
-      if (transcript === undefined) continue;
-      const since = transcriptSince?.[descriptor.agentId] ?? transcriptSince?.['*'];
-      if (since !== undefined) {
-        const catchup = service.getOpsSince(state.sessionId, descriptor.agentId, since);
-        if (catchup !== undefined && catchup.complete) {
-          this.replayTranscriptOps(state, target, descriptor.agentId, grade, catchup.batches);
-          continue;
-        }
-      }
-      if (!needsResetOnTransition(gradeFor(prev, descriptor.agentId), grade)) {
-        continue;
-      }
-      this.sendTranscriptReset(state, target, transcript, grade);
-    }
-  }
-
-  private replayTranscriptOps(
-    state: SessionState,
-    target: BroadcastTarget,
-    agentId: string,
-    grade: TranscriptGrade,
-    batches: readonly { seq: number; ops: readonly TranscriptOperation[] }[],
-  ): void {
-    for (const batch of batches) {
-      const filtered = filterOpsForGrade(grade, batch.ops);
-      if (filtered.length === 0) continue;
-      try {
-        target.send(
-          this.buildTranscriptEnvelope(state, 'transcript.ops', {
-            agent_id: agentId,
-            ops: filtered,
-            seq: batch.seq,
-          }),
-        );
-      } catch {}
-    }
-  }
-
-  private ensureTranscriptStream(state: SessionState, store: TranscriptStore): void {
-    if (state.transcriptStream?.store === store) return;
-    const service = this.opts.transcriptService;
-    if (service === undefined) return;
-    const stream: TranscriptStream = {
-      store,
-      knownAgents: new Set(store.agents().map((d) => d.agentId)),
-    };
-    state.transcriptStream = stream;
-
-    const opsDisposable = service.onSessionOps(state.sessionId, ({ agentId, ops }, seq) => {
-      for (const [target, sub] of state.targets) {
-        if (!state.transcriptSeeded.has(target)) continue;
-        const grade = gradeFor(sub.transcriptGrades, agentId);
-        const filtered = filterOpsForGrade(grade, ops);
-        if (filtered.length === 0) continue;
-        try {
-          target.send(
-            this.buildTranscriptEnvelope(state, 'transcript.ops', {
-              agent_id: agentId,
-              ops: filtered,
-              seq,
-            }),
-          );
-        } catch {}
-      }
-    });
-    if (opsDisposable !== undefined) state.lifecycleDisposables.push(opsDisposable);
-
-    state.lifecycleDisposables.push(
-      store.onRosterChange((agents) => {
-        for (const descriptor of agents) {
-          if (stream.knownAgents.has(descriptor.agentId)) continue;
-          stream.knownAgents.add(descriptor.agentId);
-          const transcript = store.getAgent(descriptor.agentId);
-          if (transcript === undefined) continue;
-          for (const [target, sub] of state.targets) {
-            if (!state.transcriptSeeded.has(target)) continue;
-            const grade = gradeFor(sub.transcriptGrades, descriptor.agentId);
-            if (grade === 'off') continue;
-            try {
-              this.sendTranscriptReset(state, target, transcript, grade);
-            } catch {}
-          }
-        }
-      }),
-    );
-  }
-
-  private sendTranscriptReset(
-    state: SessionState,
-    target: BroadcastTarget,
-    transcript: AgentTranscript,
-    grade: TranscriptGrade,
-  ): void {
-    const snapshot = redactSnapshotForGrade(
-      grade,
-      transcript.snapshot({ tailTurns: TRANSCRIPT_RESET_TAIL_TURNS }),
-    );
-    target.send(
-      this.buildTranscriptEnvelope(state, 'transcript.reset', {
-        agent_id: transcript.agentId,
-        snapshot,
-        has_more_older: snapshot.hasMoreOlder ?? false,
-        seq: this.opts.transcriptService?.getSeqWatermark(state.sessionId, transcript.agentId),
-      }),
-    );
-  }
-
-  private buildTranscriptEnvelope(
-    state: SessionState,
-    type: 'transcript.reset' | 'transcript.ops',
-    payload: Omit<TranscriptResetEvent, 'type'> | Omit<TranscriptOpsEvent, 'type'>,
-  ): EventEnvelope {
-    return {
-      type,
-      volatile: true,
-      session_id: state.sessionId,
-      timestamp: new Date().toISOString(),
-      payload: { type, ...payload },
-    };
   }
 
   async close(): Promise<void> {
@@ -704,80 +385,26 @@ export class SessionEventBroadcaster {
     this.createSubscription?.dispose();
     this.lifecycleSubscription.dispose();
     this.feedSubscription.dispose();
-    const disposals: Promise<void>[] = [];
-    for (const [sessionId, state] of this.sessions) {
-      disposals.push(disposeSessionState(state));
-      this.opts.transcriptService?.dropSession(sessionId);
-    }
+    for (const sessionId of this.workTrackers.keys()) this.untrackWork(sessionId);
+    for (const state of this.sessions.values()) disposeSessionState(state);
     this.sessions.clear();
-    await Promise.all(
-      [...this.pendingStates.values()].map((pending) => pending.catch(() => undefined)),
-    );
-    await Promise.all(
-      [...this.evictions.values()].map((eviction) => eviction.catch(() => undefined)),
-    );
-    await Promise.all(disposals);
-  }
-
-  private async purgeSession(sessionId: string): Promise<void> {
-    this.evictSession(sessionId);
-    await this.evictions.get(sessionId);
+    await this.globalQueue;
   }
 
   private evictSession(sessionId: string): void {
     const state = this.sessions.get(sessionId);
-    const pending = this.pendingStates.get(sessionId);
-    if (state === undefined && pending === undefined) {
-      this.opts.transcriptService?.dropSession(sessionId);
-      return;
-    }
-    if (state !== undefined) this.sessions.delete(sessionId);
-    const eviction = this.disposeLifecycleState(sessionId, state, pending).catch((error: unknown) =>
-      this.logDispatchDropped(sessionId, 'session.evict', error),
-    );
-    this.evictions.set(sessionId, eviction);
-    void eviction.finally(() => {
-      if (this.evictions.get(sessionId) === eviction) this.evictions.delete(sessionId);
-    });
-  }
-
-  private async disposeLifecycleState(
-    sessionId: string,
-    state: SessionState | undefined,
-    pending: Promise<SessionState | undefined> | undefined,
-  ): Promise<void> {
-    if (pending !== undefined) {
-      await pending.catch(() => undefined);
-      const late = this.sessions.get(sessionId);
-      if (late !== undefined) this.sessions.delete(sessionId);
-      await this.disposeEvicted(sessionId, state ?? late);
-      return;
-    }
-    await this.disposeEvicted(sessionId, state);
-  }
-
-  private async disposeEvicted(sessionId: string, state: SessionState | undefined): Promise<void> {
-    if (state !== undefined) {
-      state.targets.clear();
-      await state.queue.catch(() => undefined);
-      await disposeSessionState(state);
-    }
-    this.opts.transcriptService?.dropSession(sessionId);
+    if (state === undefined) return;
+    this.sessions.delete(sessionId);
+    disposeSessionState(state);
+    state.targets.clear();
   }
 
   private detachSession(sessionId: string): void {
     const state = this.sessions.get(sessionId);
     if (state === undefined || state.detached === true) return;
     state.detached = true;
-    for (const disposable of state.lifecycleDisposables) disposable.dispose();
-    state.lifecycleDisposables.length = 0;
-    for (const disposable of state.agentDisposables.values()) disposable.dispose();
-    state.agentDisposables.clear();
+    disposeSessionState(state);
     state.knownInteractions.clear();
-    state.deferredWork = undefined;
-    state.transcriptSeeded.clear();
-    state.transcriptStream = undefined;
-    this.opts.transcriptService?.dropSession(sessionId);
     this.evictDetachedSession(sessionId);
   }
 
@@ -787,112 +414,221 @@ export class SessionEventBroadcaster {
     this.evictSession(sessionId);
   }
 
-  private async reattachSession(sessionId: string): Promise<void> {
-    await this.pendingStates.get(sessionId);
+  private reattachSession(sessionId: string): void {
     const state = this.sessions.get(sessionId);
     if (state === undefined || state.detached !== true) return;
-    const session = getLiveSessionById(this.opts.core.accessor, sessionId);
-    if (session === undefined) return;
+    if (getLiveSessionById(this.opts.core.accessor, sessionId) === undefined) return;
     state.detached = undefined;
-    this.attachWorkView(session, state);
-    this.attachAgents(sessionId, session, state);
     this.attachInteractions(sessionId, state);
     this.attachAgentFeeds(sessionId, state);
-    state.listedAgents.clear();
-    for (const [target, subscription] of state.targets) {
-      this.sendAgentLists(state, target, subscription.transcriptGrades);
-    }
-    for (const [target, subscription] of state.targets) {
-      if (subscription.transcriptGrades === undefined) continue;
-      await this.subscribeTranscript(state, target, subscription.transcriptGrades, undefined);
-      if (state.targets.has(target)) state.transcriptSeeded.add(target);
+    for (const [target, agents] of state.targets) {
+      this.sendAgentLists(state, target, [...agents.keys()]);
+      for (const agentId of agents.keys()) void this.sync(state, target, agentId);
     }
   }
 
-  private async ensureState(sessionId: string): Promise<SessionState | undefined> {
+  private ensureState(sessionId: string): SessionState | undefined {
     if (this.closed) return undefined;
-    await this.evictions.get(sessionId);
     const existing = this.sessions.get(sessionId);
     if (existing !== undefined) {
-      if (existing.detached !== true) return existing;
-      await this.reattachSession(sessionId);
+      if (existing.detached === true) this.reattachSession(sessionId);
       return existing.detached === true ? undefined : existing;
     }
-    let pending = this.pendingStates.get(sessionId);
-    if (pending === undefined) {
-      pending = this.createSessionState(sessionId).finally(() => {
-        if (this.pendingStates.get(sessionId) === pending) {
-          this.pendingStates.delete(sessionId);
-        }
-      });
-      this.pendingStates.set(sessionId, pending);
-    }
-    return pending;
-  }
-
-  private async createSessionState(sessionId: string): Promise<SessionState | undefined> {
-    if (this.closed) return undefined;
-
-    const session = getLiveSessionById(this.opts.core.accessor, sessionId);
-    if (session === undefined) return undefined;
-
+    if (getLiveSessionById(this.opts.core.accessor, sessionId) === undefined) return undefined;
     const state: SessionState = {
       sessionId,
       targets: new Map(),
-      queue: Promise.resolve(),
-      agentDisposables: new Map(),
       lifecycleDisposables: [],
       knownInteractions: new Map(),
-      transcriptSeeded: new Set(),
-      listedAgents: new Map(),
-      conversations: new Map(),
     };
     this.sessions.set(sessionId, state);
-    try {
-      this.attachWorkView(session, state);
-      this.attachAgents(sessionId, session, state);
-      this.attachInteractions(sessionId, state);
-      this.attachAgentFeeds(sessionId, state);
-    } catch (error) {
-      this.sessions.delete(sessionId);
-      await disposeSessionState(state);
-      if (isInstantiationServiceDisposedError(error)) return undefined;
-      throw error;
-    }
+    this.attachInteractions(sessionId, state);
+    this.attachAgentFeeds(sessionId, state);
     return state;
   }
 
-  private ensureGlobalState(): Promise<SessionState | undefined> {
-    if (this.closed) return Promise.resolve(undefined);
-    const existing = this.sessions.get(GLOBAL_SESSION_ID);
-    if (existing !== undefined) return Promise.resolve(existing);
-    let pending = this.pendingStates.get(GLOBAL_SESSION_ID);
-    if (pending === undefined) {
-      pending = this.createGlobalState().finally(() => {
-        if (this.pendingStates.get(GLOBAL_SESSION_ID) === pending) {
-          this.pendingStates.delete(GLOBAL_SESSION_ID);
+  private attachAgentFeeds(sessionId: string, state: SessionState): void {
+    const session = getLiveSessionById(this.opts.core.accessor, sessionId);
+    if (session === undefined) return;
+    const agents = session.accessor.get(IAgentLifecycleService);
+    const tasks = new SessionTaskFeed(agents, (agentId, info) => {
+      this.sendAgentFrame(state, agentId, toTaskMessage(state.sessionId, agentId, info));
+    });
+    const agentStates = new SessionAgentFeed(sessionId, agents, (agentId, message) => {
+      this.sendAgentFrame(state, agentId, message);
+    });
+    state.tasks = tasks;
+    state.agents = agentStates;
+    state.lifecycleDisposables.push(tasks, agentStates);
+  }
+
+  private sendAgentLists(
+    state: SessionState,
+    target: BroadcastTarget,
+    agentIds: readonly string[],
+  ): void {
+    const tasks = state.tasks;
+    if (tasks === undefined) return;
+    for (const agentId of agentIds) {
+      const frames: BroadcastFrame[] = [
+        {
+          type: 'task.list',
+          session_id: state.sessionId,
+          agent_id: agentId,
+          tasks: tasks.running(agentId),
+        },
+        ...(state.agents?.snapshot(agentId) ?? []),
+      ];
+      for (const frame of frames) {
+        try {
+          target.send(frame);
+        } catch {
         }
-      });
-      this.pendingStates.set(GLOBAL_SESSION_ID, pending);
+      }
     }
-    return pending;
   }
 
-  private async createGlobalState(): Promise<SessionState | undefined> {
-    if (this.closed) return undefined;
-    const state: SessionState = {
-      sessionId: GLOBAL_SESSION_ID,
-      targets: new Map(),
-      queue: Promise.resolve(),
-      agentDisposables: new Map(),
-      lifecycleDisposables: [],
-      knownInteractions: new Map(),
-      transcriptSeeded: new Set(),
-      listedAgents: new Map(),
-      conversations: new Map(),
+  private sendAgentFrame(
+    state: SessionState,
+    agentId: string,
+    frame: TaskEventMessage | AgentFeedMessage,
+  ): void {
+    const ended = frame.type === 'agent' && frame.status === 'ended';
+    let checkEvict = false;
+    for (const [target, agents] of state.targets) {
+      const subscription = agents.get(agentId);
+      if (subscription === undefined) continue;
+      if (ended) {
+        subscription.conversation?.feed.flushPending();
+        releaseConversation(subscription);
+        if (agentId !== MAIN_AGENT_ID) {
+          agents.delete(agentId);
+          if (agents.size === 0) {
+            state.targets.delete(target);
+            checkEvict = true;
+          }
+        }
+      }
+      try {
+        target.send(frame);
+      } catch {
+      }
+    }
+    if (checkEvict) this.evictDetachedSession(state.sessionId);
+  }
+
+  private trackWork(sessionId: string, session: ISessionScopeHandle): void {
+    if (this.closed) return;
+    this.untrackWork(sessionId);
+    let workView: ISessionActivityView;
+    try {
+      workView = session.accessor.get(ISessionActivityView);
+      workView.state();
+    } catch (error) {
+      this.opts.logger?.warn({ sessionId, err: error }, 'session work tracking failed');
+      return;
+    }
+    const tracker: WorkTracker = {
+      subscription: workView.onDidChange(({ state: work, cause }) => {
+        if (cause === 'turn_ended') {
+          tracker.deferred = work;
+          queueMicrotask(() => {
+            if (this.workTrackers.get(sessionId) !== tracker) return;
+            this.flushDeferredWork(sessionId, tracker);
+          });
+          return;
+        }
+        this.flushDeferredWork(sessionId, tracker);
+        this.enqueueWorkChanged(sessionId, work);
+      }),
     };
-    this.sessions.set(GLOBAL_SESSION_ID, state);
-    return state;
+    this.workTrackers.set(sessionId, tracker);
+  }
+
+  private untrackWork(sessionId: string): void {
+    const tracker = this.workTrackers.get(sessionId);
+    if (tracker === undefined) return;
+    this.workTrackers.delete(sessionId);
+    tracker.subscription.dispose();
+  }
+
+  private flushDeferredWork(sessionId: string, tracker: WorkTracker): void {
+    const deferred = tracker.deferred;
+    if (deferred === undefined) return;
+    tracker.deferred = undefined;
+    this.enqueueWorkChanged(sessionId, deferred);
+  }
+
+  private async sessionEvent(
+    change: 'created' | 'updated' | 'archived' | 'restored' | 'deleted',
+    sessionId: string,
+    candidate?: unknown,
+    patch?: { title?: string; lastPrompt?: string },
+    factsOverride?: SessionFacts,
+    eventTime?: number,
+  ): Promise<Event | undefined> {
+    const parsed = sessionSchema.safeParse(candidate);
+    let session: Session | undefined = parsed.success ? parsed.data : undefined;
+    if (session === undefined) {
+      let summary = candidate as (SessionWireFields & { cwd?: string }) | undefined;
+      if (summary === undefined) {
+        const live = getLiveSessionById(this.opts.core.accessor, sessionId);
+        if (live !== undefined) {
+          try {
+            const meta = await live.accessor.get(ISessionMetadata).read();
+            const ctx = live.accessor.get(ISessionContext);
+            summary = {
+              id: meta.id,
+              workspaceId: ctx.workspaceId,
+              cwd: ctx.cwd,
+              title: meta.title,
+              lastPrompt: meta.lastPrompt,
+              createdAt: meta.createdAt,
+              updatedAt: meta.updatedAt,
+              archived: meta.archived,
+              archivedAt: meta.archivedAt,
+              custom: meta.custom,
+            };
+          } catch {
+            summary = undefined;
+          }
+        }
+      }
+      summary ??= (await this.opts.core.accessor.get(ISessionIndex).get(sessionId)) as
+        | (SessionWireFields & { cwd?: string })
+        | undefined;
+      if (summary === undefined) return undefined;
+      const cwd = summary.cwd ?? (await this.opts.core.accessor.get(IWorkspaceService).get(summary.workspaceId))?.root;
+      if (cwd === undefined) return undefined;
+      session = toWireSession(summary, cwd, factsOverride ?? resolveSessionFacts(this.opts.core, sessionId));
+    }
+    if (change === 'archived') {
+      session = {
+        ...session,
+        archived: true,
+        archived_at:
+          session.archived_at ?? new Date(eventTime ?? Date.now()).toISOString(),
+        activity: 'idle',
+        pending_interaction: undefined,
+      };
+    } else if (change === 'restored') {
+      const { archived_at: _archivedAt, ...rest } = session;
+      session = { ...rest, archived: false };
+    }
+    if (patch?.title !== undefined) session = { ...session, title: patch.title };
+    if (patch?.lastPrompt !== undefined) session = { ...session, last_prompt: patch.lastPrompt };
+    return { type: 'session', change, session };
+  }
+
+  private async currentConfig(): Promise<ConfigResponse> {
+    const config = this.opts.core.accessor.get(IConfigService);
+    await config.ready;
+    return toConfigResponse(config.getAll(), this.opts.core.accessor.get(IConfigRegistry));
+  }
+
+  private enqueueWorkChanged(sessionId: string, work: SessionActivityState): void {
+    const snapshotFacts: SessionFacts = { ...work, live: true };
+    this.enqueueGlobal('session', () => this.sessionEvent('updated', sessionId, undefined, undefined, snapshotFacts));
   }
 
   private onCoreEvent(event: Event2<any>): void {
@@ -900,68 +636,54 @@ export class SessionEventBroadcaster {
     if (event.type === 'event.session.created') {
       const payload = sessionCreatedPayload(corePayload);
       if (payload === undefined) return;
-      void this.dispatchSessionEvent(payload.sessionId, {
-        type: 'event.session.created',
-        session: payload.session,
-        agentId: 'main',
-        sessionId: payload.sessionId,
-      } as Event).catch((error: unknown) =>
-        this.logDispatchError(payload.sessionId, 'event.session.created', error),
-      );
+      this.enqueueGlobal(event.type, () => this.sessionEvent('created', payload.sessionId, payload.session));
       return;
     }
     if (event.type === 'event.session.archived' || event.type === 'event.session.restored') {
       const payload = sessionLifecyclePayload(corePayload);
       if (payload === undefined) return;
-      const type = event.type;
-      void this.dispatchGlobal({
-        type,
-        workspace_id: payload.workspaceId,
-        agentId: 'main',
-        sessionId: payload.sessionId,
-      } as Event).catch((error: unknown) => this.logDispatchError(GLOBAL_SESSION_ID, type, error));
+      const change = event.type === 'event.session.archived' ? 'archived' : 'restored';
+      const eventTime = typeof (event as { readonly time?: unknown }).time === 'number'
+        ? ((event as { readonly time: number }).time)
+        : undefined;
+      this.enqueueGlobal(event.type, () =>
+        this.sessionEvent(change, payload.sessionId, payload.session, undefined, undefined, eventTime),
+      );
       return;
     }
     if (event.type === 'event.session.deleted') {
       const payload = sessionLifecyclePayload(corePayload);
       if (payload === undefined) return;
-      void this.dispatchGlobal({
-        type: 'event.session.deleted',
-        workspace_id: payload.workspaceId,
-        agentId: 'main',
-        sessionId: payload.sessionId,
-      } as Event).catch((error: unknown) =>
-        this.logDispatchError(GLOBAL_SESSION_ID, 'event.session.deleted', error),
-      );
+      this.enqueueGlobal(event.type, () => this.sessionEvent('deleted', payload.sessionId, payload.session));
       return;
     }
     if (event.type === 'event.workspace.created' || event.type === 'event.workspace.updated') {
       const workspace = workspaceLifecyclePayload(corePayload);
       if (workspace === undefined) return;
-      const type = event.type;
-      void (async () => {
-        const wire = await toWireWorkspace(this.opts.core, workspace);
-        await this.dispatchGlobal({
-          type,
-          workspace: wire,
-          agentId: 'main',
-          sessionId: GLOBAL_SESSION_ID,
-        } as Event);
-      })().catch((error: unknown) => this.logDispatchError(GLOBAL_SESSION_ID, type, error));
+      const change = event.type === 'event.workspace.created' ? 'created' : 'updated';
+      this.enqueueGlobal(event.type, async () => ({
+        type: 'workspace',
+        change,
+        workspace: await toWireWorkspace(this.opts.core, workspace),
+      }));
       return;
     }
     if (event.type === 'event.workspace.deleted') {
       const payload = workspaceDeletedPayload(corePayload);
       if (payload === undefined) return;
-      void this.dispatchGlobal({
-        type: 'event.workspace.deleted',
-        workspace_id: payload.workspaceId,
-        root: payload.root,
-        agentId: 'main',
-        sessionId: GLOBAL_SESSION_ID,
-      } as Event).catch((error: unknown) =>
-        this.logDispatchError(GLOBAL_SESSION_ID, 'event.workspace.deleted', error),
-      );
+      this.enqueueGlobal(event.type, async () => ({
+        type: 'workspace',
+        change: 'deleted',
+        workspace: await toWireWorkspace(this.opts.core, payload.workspace ?? {
+          id: payload.workspaceId,
+          root: payload.root,
+          name: payload.root,
+          kind: 'implicit',
+          additionalDirs: [],
+          createdAt: 0,
+          lastOpenedAt: 0,
+        }),
+      }));
       return;
     }
     if (event.type === 'session.meta.updated') {
@@ -969,222 +691,77 @@ export class SessionEventBroadcaster {
       if (payload === undefined) return;
       const sessionId = sessionMetaUpdatedSessionId(corePayload);
       if (sessionId === undefined) return;
-      void this.dispatchSessionEvent(sessionId, {
-        type: 'session.meta.updated',
-        ...payload,
-        agentId: 'main',
-        sessionId,
-      } as Event).catch((error: unknown) =>
-        this.logDispatchError(sessionId, 'session.meta.updated', error),
-      );
+      this.enqueueGlobal(event.type, () => this.sessionEvent('updated', sessionId, undefined, {
+        title: payload.title ?? (typeof payload.patch?.['title'] === 'string' ? payload.patch['title'] : undefined),
+        lastPrompt: typeof payload.patch?.['lastPrompt'] === 'string' ? payload.patch['lastPrompt'] : undefined,
+      }));
       return;
     }
     if (event.type === 'event.plugin.changed') {
-      void this.dispatchGlobal({
-        type: 'event.plugin.changed',
-        agentId: 'main',
-        sessionId: GLOBAL_SESSION_ID,
-      } as Event).catch((error: unknown) =>
-        this.logDispatchError(GLOBAL_SESSION_ID, 'event.plugin.changed', error),
-      );
+      this.enqueueGlobal(event.type, () => ({ type: 'invalidated', kind: 'plugins' }));
       return;
     }
     if (event.type === 'event.capability.changed') {
       const payload = capabilityChangedPayload(corePayload);
       if (payload === undefined) return;
-      void this.dispatchGlobal({
+      this.enqueueGlobal(event.type, () => ({
         type: 'event.capability.changed',
         ...payload,
-        agentId: 'main',
-        sessionId: GLOBAL_SESSION_ID,
-      } as Event).catch((error: unknown) =>
-        this.logDispatchError(GLOBAL_SESSION_ID, 'event.capability.changed', error),
-      );
+      }));
       return;
     }
     if (event.type === 'event.config.warning') {
       const payload = configWarningPayload(corePayload);
       if (payload === undefined) return;
-      void this.dispatchGlobal({
-        type: 'event.config.warning',
+      this.enqueueGlobal(event.type, async () => ({
+        type: 'config',
+        config: await this.currentConfig(),
         warnings: payload.warnings,
-        agentId: 'main',
-        sessionId: GLOBAL_SESSION_ID,
-      } as Event).catch((error: unknown) =>
-        this.logDispatchError(GLOBAL_SESSION_ID, 'event.config.warning', error),
-      );
+      }));
       return;
     }
     if (event.type === 'event.config.changed') {
       const payload = configChangedPayload(corePayload);
       if (payload === undefined) return;
-      void this.dispatchGlobal({
-        type: 'event.config.changed',
-        changedFields: payload.changedFields,
-        changed_fields: payload.changedFields,
+      this.enqueueGlobal(event.type, () => ({
+        type: 'config',
         config: payload.config,
-        agentId: 'main',
-        sessionId: GLOBAL_SESSION_ID,
-      } as Event).catch((error: unknown) =>
-        this.logDispatchError(GLOBAL_SESSION_ID, 'event.config.changed', error),
-      );
+      }));
       return;
     }
     if (event.type === 'event.model_catalog.changed') {
       const payload = modelCatalogChangedPayload(corePayload);
       if (payload === undefined) return;
-      void this.dispatchGlobal({
-        type: 'event.model_catalog.changed',
-        changed: payload.changed,
-        unchanged: payload.unchanged,
-        failed: payload.failed,
-        retired_default: payload.retired_default,
-        agentId: 'main',
-        sessionId: GLOBAL_SESSION_ID,
-      } as Event).catch((error: unknown) =>
-        this.logDispatchError(GLOBAL_SESSION_ID, 'event.model_catalog.changed', error),
-      );
+      this.enqueueGlobal(event.type, () => ({ type: 'invalidated', kind: 'models' }));
       return;
     }
   }
 
-  private async dispatchGlobal(event: Event): Promise<void> {
-    const state = await this.ensureGlobalState();
-    if (state === undefined) return;
-    state.queue = state.queue
-      .then(() => this.dispatch(state, event, isVolatileEventType(event.type)))
-      .catch((error: unknown) => this.logDispatchDropped(state.sessionId, event.type, error));
+  private enqueueGlobal(
+    eventType: string,
+    build: () => Event | undefined | Promise<Event | undefined>,
+  ): void {
+    if (this.closed) return;
+    this.globalQueue = this.globalQueue
+      .then(async () => {
+        const event = await build();
+        if (event === undefined) return;
+        this.sendGlobal(event);
+      })
+      .catch((error: unknown) => this.logDispatchError(eventType, error));
   }
 
-  private async dispatchSessionEvent(sessionId: string, event: Event): Promise<void> {
-    let state: SessionState | undefined;
-    try {
-      state = await this.ensureState(sessionId);
-    } catch (error) {
-      if (isInstantiationServiceDisposedError(error)) {
-        return;
+  private sendGlobal(event: Event): void {
+    const { agentId: _agentId, sessionId: _sessionId, time, ...fields } = event;
+    const envelope = {
+      ...fields,
+      event_created_at: time !== undefined ? new Date(time).toISOString() : new Date().toISOString(),
+    } as EventEnvelope;
+    for (const target of this.globalTargets) {
+      try {
+        target.send(envelope, 'immediate');
+      } catch {
       }
-      throw error;
-    }
-    if (state === undefined) return;
-    state.queue = state.queue
-      .then(() => this.dispatch(state, event, isVolatileEventType(event.type)))
-      .catch((error: unknown) => this.logDispatchDropped(state.sessionId, event.type, error));
-  }
-
-  private attachWorkView(session: ISessionScopeHandle, state: SessionState): void {
-    const workView = session.accessor.get(ISessionActivityView);
-    workView.state();
-    state.lifecycleDisposables.push(
-      workView.onDidChange(({ state: work, cause }) => {
-        if (cause === 'turn_ended') {
-          state.deferredWork = work;
-          queueMicrotask(() => {
-            if (this.sessions.get(state.sessionId) !== state) return;
-            this.flushDeferredWork(state);
-          });
-          return;
-        }
-        this.flushDeferredWork(state);
-        this.enqueueWorkChanged(state, work);
-      }),
-    );
-  }
-
-  private flushDeferredWork(state: SessionState): void {
-    const deferred = state.deferredWork;
-    if (deferred === undefined) return;
-    state.deferredWork = undefined;
-    this.enqueueWorkChanged(state, deferred);
-  }
-
-  private attachAgents(sessionId: string, session: ISessionScopeHandle, state: SessionState): void {
-    const agents = session.accessor.get(IAgentLifecycleService);
-    const subscribeAgent = (handle: IAgentScopeHandle): void => {
-      if (state.agentDisposables.has(handle.id)) return;
-      state.agentDisposables.set(handle.id, this.attachAgent(sessionId, handle));
-    };
-    for (const agent of agents.list()) {
-      const handle = agents.handleOf(agent.agentId);
-      if (handle !== undefined) subscribeAgent(handle);
-    }
-    state.lifecycleDisposables.push(
-      agents.onDidCreate((context) => {
-        const handle = agents.handleOf(context.agentId);
-        if (handle !== undefined) subscribeAgent(handle);
-        this.enqueueDurable(state, {
-          type: 'agent.created',
-          agentId: context.agentId,
-          sessionId,
-        });
-      }),
-      agents.onDidClose((context) => {
-        const agentId = context.agentId;
-        const d = state.agentDisposables.get(agentId);
-        if (d !== undefined) {
-          d.dispose();
-          state.agentDisposables.delete(agentId);
-          this.enqueueDurable(state, {
-            type: 'agent.disposed',
-            agentId,
-            sessionId,
-          });
-        }
-      }),
-    );
-  }
-
-  private attachAgent(sessionId: string, handle: IAgentScopeHandle): IDisposable {
-    const eventBus = handle.accessor.get(IEventBus);
-    const disposables: IDisposable[] = [
-      eventBus.subscribe((event) => {
-        this.onAgentEvent(sessionId, handle.id, event);
-      }),
-    ];
-
-    return { dispose: () => disposables.forEach((disposable) => disposable.dispose()) };
-  }
-
-  private onAgentEvent(sessionId: string, agentId: string, event: Event2<any>): void {
-    const state = this.sessions.get(sessionId);
-    if (state === undefined) return;
-
-    let wireEvent: Event;
-    if (event.type === 'turn.started') {
-      const { promptAttachments: _internal, ...wireFields } = event as typeof event & {
-        promptAttachments?: unknown;
-      };
-      wireEvent = Object.assign({}, wireFields, { agentId, sessionId }) as unknown as Event;
-    } else if (
-      event.type === 'prompt.steered' ||
-      event.type === 'prompt.queued' ||
-      event.type === 'prompt.submitted'
-    ) {
-      const content = (
-        event as unknown as { content: Parameters<typeof projectPromptContentParts>[0] }
-      ).content;
-      wireEvent = Object.assign({}, event, {
-        content: projectPromptContentParts(content),
-        agentId,
-        sessionId,
-      }) as unknown as Event;
-    } else {
-      const wireType = V1_EVENT_TYPE_ALIASES[event.type] ?? event.type;
-      wireEvent = Object.assign({}, event, {
-        type: wireType,
-        agentId,
-        sessionId,
-      }) as unknown as Event;
-    }
-    const volatile = isVolatileSignal(wireEvent.type);
-    state.queue = state.queue
-      .then(() => this.dispatch(state, wireEvent, volatile))
-      .catch((error: unknown) => this.logDispatchDropped(state.sessionId, wireEvent.type, error));
-    const legacy = legacyTaskEvent(event, agentId, sessionId);
-    if (legacy !== undefined) {
-      state.queue = state.queue
-        .then(() => this.dispatch(state, legacy, volatile))
-        .catch((error: unknown) => this.logDispatchDropped(state.sessionId, legacy.type, error));
     }
   }
 
@@ -1207,7 +784,7 @@ export class SessionEventBroadcaster {
           for (const i of pendingInteractionsOf(sessionId)) {
             if (state.knownInteractions.has(i.id)) continue;
             state.knownInteractions.set(i.id, i);
-            this.enqueueInteraction(state, interactionMessage(i, sessionId));
+            this.sendInteraction(state, interactionMessage(i, sessionId));
           }
         }),
       ),
@@ -1216,327 +793,31 @@ export class SessionEventBroadcaster {
           const known = state.knownInteractions.get(id);
           if (known === undefined) return;
           state.knownInteractions.delete(id);
-          this.enqueueInteraction(state, interactionMessage(known, sessionId, { response }));
+          this.sendInteraction(state, interactionMessage(known, sessionId, { response }));
         }),
       ),
     );
   }
 
-  private enqueueInteraction(
-    state: SessionState,
-    message: InteractionEventMessage | undefined,
-  ): void {
+  private sendInteraction(state: SessionState, message: InteractionEventMessage | undefined): void {
     if (message === undefined) return;
-    state.queue = state.queue.then(() => {
-      for (const target of state.targets.keys()) {
-        try {
-          target.send(message);
-        } catch (error) {
-          this.logDispatchDropped(state.sessionId, 'interaction', error);
-        }
-      }
-    });
-  }
-
-  private attachAgentFeeds(sessionId: string, state: SessionState): void {
-    if (state.tasks !== undefined) return;
-    const agents = getLiveSessionById(this.opts.core.accessor, sessionId)?.accessor.get(
-      IAgentLifecycleService,
-    );
-    if (agents === undefined) return;
-    const tasks = new SessionTaskFeed(agents, (agentId, info) => {
-      this.sendAgentFrame(state, agentId, toTaskMessage(state.sessionId, agentId, info));
-    });
-    const agentStates = new SessionAgentFeed(sessionId, agents, (agentId, message) => {
-      this.sendAgentFrame(state, agentId, message);
-    });
-    state.tasks = tasks;
-    state.agents = agentStates;
-    state.lifecycleDisposables.push(tasks, agentStates);
-  }
-
-  private sendAgentLists(
-    state: SessionState,
-    target: BroadcastTarget,
-    spec: TranscriptGradeSpec | undefined,
-  ): void {
-    const feed = state.tasks;
-    if (feed === undefined) return;
-    let listed = state.listedAgents.get(target);
-    if (listed === undefined) {
-      listed = new Set();
-      state.listedAgents.set(target, listed);
-    }
-    const agentIds = new Set([
-      ...feed.agentIds(),
-      ...Object.keys(spec ?? {}).filter((id) => id !== '*'),
-    ]);
-    for (const agentId of agentIds) {
-      if (gradeFor(spec, agentId) === 'off') {
-        listed.delete(agentId);
-        continue;
-      }
-      if (listed.has(agentId)) continue;
-      listed.add(agentId);
-      const frames: BroadcastFrame[] = [
-        {
-          type: 'task.list',
-          session_id: state.sessionId,
-          agent_id: agentId,
-          tasks: feed.running(agentId),
-        },
-        ...(state.agents?.snapshot(agentId) ?? []),
-      ];
-      for (const frame of frames) {
-        try {
-          target.send(frame);
-        } catch (error) {
-          this.logDispatchDropped(state.sessionId, frame.type, error);
-        }
-      }
-    }
-  }
-
-  private sendAgentFrame(
-    state: SessionState,
-    agentId: string,
-    frame: TaskEventMessage | AgentFeedMessage,
-  ): void {
-    for (const [target, spec] of state.targets) {
-      const conversationSubscribed = state.conversations.get(target)?.has(agentId) === true;
-      if (!conversationSubscribed && gradeFor(spec.transcriptGrades, agentId) === 'off') continue;
+    for (const target of state.targets.keys()) {
       try {
-        target.send(frame);
-      } catch (error) {
-        this.logDispatchDropped(state.sessionId, frame.type, error);
+        target.send(message);
+      } catch {
       }
     }
   }
 
-  private enqueueDurable(state: SessionState, event: Event): void {
-    state.queue = state.queue
-      .then(() => this.dispatch(state, event, false))
-      .catch((error: unknown) => this.logDispatchDropped(state.sessionId, event.type, error));
-  }
-
-  private enqueueWorkChanged(state: SessionState, work: SessionActivityState): void {
-    state.queue = state.queue
-      .then(() =>
-        this.dispatch(
-          state,
-          {
-            type: 'event.session.work_changed',
-            busy: work.busy,
-            main_turn_active: work.mainTurnActive,
-            pending_interaction: work.pendingInteraction,
-            last_turn_reason: work.lastTurnReason,
-            agentId: 'main',
-            sessionId: state.sessionId,
-          } as Event,
-          false,
-        ),
-      )
-      .catch((error: unknown) =>
-        this.logDispatchDropped(state.sessionId, 'event.session.work_changed', error),
-      );
-  }
-
-  private logDispatchError(sessionId: string, eventType: string, error: unknown): void {
+  private logDispatchError(eventType: string, error: unknown): void {
     const logger = this.opts.logger;
     if (logger === undefined) return;
     if (logger.error !== undefined) {
-      logger.error({ sessionId, eventType, err: error }, 'session event dispatch failed');
+      logger.error({ eventType, err: error }, 'session event dispatch failed');
     } else {
-      logger.warn({ sessionId, eventType, err: error }, 'session event dispatch failed');
+      logger.warn({ eventType, err: error }, 'session event dispatch failed');
     }
   }
-
-  private logDispatchDropped(sessionId: string, eventType: string, error: unknown): void {
-    this.opts.logger?.warn(
-      { sessionId, eventType, err: error },
-      'session event dispatch failed; event dropped',
-    );
-  }
-
-  private async dispatch(state: SessionState, event: Event, volatile: boolean): Promise<void> {
-    const { targets, sessionId } = state;
-
-    const envelope = this.buildEnvelope(sessionId, event, volatile ? { volatile: true } : {});
-
-    if (isGlobalEvent(event.type)) {
-      const recipients = new Set<BroadcastTarget>(this.globalTargets);
-      for (const target of this.allTargets()) recipients.add(target);
-      for (const target of recipients) {
-        try {
-          target.send(envelope, 'immediate');
-        } catch {}
-      }
-    } else {
-      for (const [target, sub] of targets) {
-        if (!matchesAgentFilter(envelope, sub.agentFilter)) continue;
-        if (suppressedByTranscript(envelope, sub.transcriptGrades)) continue;
-        if (
-          (envelope.type === 'turn.started' || envelope.type === 'turn.ended') &&
-          (state.conversations.get(target)?.size ?? 0) > 0
-        ) {
-          continue;
-        }
-        try {
-          target.send(envelope);
-        } catch {}
-      }
-    }
-  }
-
-  private buildEnvelope(
-    sessionId: string,
-    event: Event,
-    extras: { volatile?: boolean },
-  ): EventEnvelope {
-    return {
-      type: event.type,
-      session_id: sessionId,
-      timestamp:
-        event.time !== undefined ? new Date(event.time).toISOString() : new Date().toISOString(),
-      payload: event,
-      ...extras,
-    };
-  }
-
-  private *allTargets(): Iterable<BroadcastTarget> {
-    for (const state of this.sessions.values()) {
-      for (const target of state.targets.keys()) yield target;
-    }
-  }
-}
-
-const VOLATILE_SIGNAL_TYPES = [
-  'assistant.delta',
-  'thinking.delta',
-  'tool.call.delta',
-  'tool.progress',
-  'shell.output',
-  'shell.started',
-  'shell.completed',
-  'background.task.output',
-  'agent.status.updated',
-] as const;
-
-const volatileSignalTypeSet: ReadonlySet<string> = new Set(VOLATILE_SIGNAL_TYPES);
-
-function isVolatileSignal(type: string): boolean {
-  return volatileSignalTypeSet.has(type);
-}
-
-const V1_EVENT_TYPE_ALIASES: Readonly<Record<string, string>> = {
-  'task.output': 'background.task.output',
-};
-
-function legacyTaskEvent(
-  event: Event2<any>,
-  agentId: string,
-  sessionId: string,
-): Event | undefined {
-  if (event.type !== 'task.started' && event.type !== 'task.terminated') return undefined;
-  const legacyType =
-    event.type === 'task.started' ? 'background.task.started' : 'background.task.terminated';
-  return Object.assign({}, event, { type: legacyType, agentId, sessionId }) as unknown as Event;
-}
-
-function isGlobalEvent(type: string): boolean {
-  return (
-    type === 'session.meta.updated' ||
-    type.startsWith('event.session.') ||
-    type.startsWith('event.workspace.') ||
-    type.startsWith('event.config.') ||
-    type.startsWith('event.model_catalog.') ||
-    type.startsWith('event.plugin.') ||
-    type.startsWith('event.capability.') ||
-    type.startsWith('event.di.')
-  );
-}
-
-function isAgentLifecycleEvent(type: string): boolean {
-  return type === 'agent.created' || type === 'agent.disposed';
-}
-
-function matchesAgentFilter(envelope: EventEnvelope, filter: AgentFilter): boolean {
-  if (filter === undefined) return true;
-  if (isGlobalEvent(envelope.type)) return true;
-  if (isAgentLifecycleEvent(envelope.type)) return true;
-  const payload = envelope.payload;
-  const agentId =
-    typeof payload === 'object' && payload !== null
-      ? (payload as { agentId?: unknown }).agentId
-      : undefined;
-  if (typeof agentId !== 'string') return true;
-  return filter.has(agentId);
-}
-
-const TRANSCRIPT_PROJECTED_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'turn.started',
-  'turn.ended',
-  'turn.step.started',
-  'turn.step.completed',
-  'turn.step.interrupted',
-  'turn.step.retrying',
-  'assistant.delta',
-  'thinking.delta',
-  'tool.call.delta',
-  'tool.call.started',
-  'tool.progress',
-  'tool.result',
-  'shell.started',
-  'shell.output',
-  'shell.completed',
-  'task.started',
-  'task.terminated',
-  'background.task.started',
-  'background.task.terminated',
-  'task.notified',
-  'subagent.spawned',
-  'subagent.started',
-  'subagent.completed',
-  'subagent.failed',
-  'subagent.cancelled',
-  'subagent.suspended',
-  'compaction.started',
-  'compaction.blocked',
-  'compaction.cancelled',
-  'compaction.completed',
-  'skill.activated',
-  'plugin_command.activated',
-  'cron.fired',
-  'error',
-  'warning',
-  'goal.updated',
-  'plan.revision',
-  'context.spliced',
-  'agent.status.updated',
-  'hook.result',
-  'prompt.submitted',
-  'prompt.started',
-  'prompt.completed',
-  'prompt.aborted',
-  'prompt.steered',
-  'turn.steer',
-]);
-
-function suppressedByTranscript(
-  envelope: EventEnvelope,
-  spec: TranscriptGradeSpec | undefined,
-): boolean {
-  if (spec === undefined) return false;
-  if (isGlobalEvent(envelope.type)) return false;
-  if (isAgentLifecycleEvent(envelope.type)) return false;
-  const payload = envelope.payload;
-  const agentId =
-    typeof payload === 'object' && payload !== null
-      ? (payload as { agentId?: unknown }).agentId
-      : undefined;
-  if (typeof agentId !== 'string') return false;
-  if (gradeFor(spec, agentId) === 'off') return false;
-  return TRANSCRIPT_PROJECTED_EVENT_TYPES.has(envelope.type);
 }
 
 function pendingInteractionsOf(sessionId: string): readonly Interaction[] {
@@ -1631,8 +912,8 @@ function sessionMetaUpdatedPayload(
   const title = typeof candidate.title === 'string' ? candidate.title : undefined;
   const patch =
     typeof candidate.patch === 'object' &&
-    candidate.patch !== null &&
-    !Array.isArray(candidate.patch)
+      candidate.patch !== null &&
+      !Array.isArray(candidate.patch)
       ? candidate.patch
       : undefined;
   if (title === undefined && patch === undefined) return undefined;
@@ -1656,8 +937,8 @@ function sessionCreatedPayload(
       : undefined;
   const session =
     typeof candidate.session === 'object' &&
-    candidate.session !== null &&
-    !Array.isArray(candidate.session)
+      candidate.session !== null &&
+      !Array.isArray(candidate.session)
       ? (candidate.session as SessionCreatedEvent['session'])
       : undefined;
   if (sessionId === undefined || session === undefined) return undefined;
@@ -1666,16 +947,16 @@ function sessionCreatedPayload(
 
 function sessionLifecyclePayload(
   payload: unknown,
-): { sessionId: string; workspaceId: string } | undefined {
+): { sessionId: string; workspaceId: string; session?: unknown } | undefined {
   if (typeof payload !== 'object' || payload === null) return undefined;
-  const candidate = payload as { sessionId?: unknown; workspaceId?: unknown };
+  const candidate = payload as { sessionId?: unknown; workspaceId?: unknown; session?: unknown };
   if (typeof candidate.sessionId !== 'string' || candidate.sessionId.length === 0) {
     return undefined;
   }
   if (typeof candidate.workspaceId !== 'string' || candidate.workspaceId.length === 0) {
     return undefined;
   }
-  return { sessionId: candidate.sessionId, workspaceId: candidate.workspaceId };
+  return { sessionId: candidate.sessionId, workspaceId: candidate.workspaceId, session: candidate.session };
 }
 
 function workspaceLifecyclePayload(payload: unknown): Workspace | undefined {
@@ -1689,14 +970,15 @@ function workspaceLifecyclePayload(payload: unknown): Workspace | undefined {
   if (typeof ws.root !== 'string' || ws.root.length === 0) return undefined;
   if (typeof ws.name !== 'string') return undefined;
   if (typeof ws.createdAt !== 'number' || typeof ws.lastOpenedAt !== 'number') return undefined;
+  const additionalDirs = Array.isArray(ws.additionalDirs)
+    ? ws.additionalDirs.filter((dir): dir is string => typeof dir === 'string')
+    : [];
   return {
     id: ws.id,
     root: ws.root,
     name: ws.name,
     kind: ws.kind === 'managed' ? 'managed' : 'implicit',
-    additionalDirs: Array.isArray(ws.additionalDirs)
-      ? ws.additionalDirs.filter((dir): dir is string => typeof dir === 'string')
-      : [],
+    additionalDirs,
     createdAt: ws.createdAt,
     lastOpenedAt: ws.lastOpenedAt,
   };
@@ -1704,14 +986,18 @@ function workspaceLifecyclePayload(payload: unknown): Workspace | undefined {
 
 function workspaceDeletedPayload(
   payload: unknown,
-): { workspaceId: string; root: string } | undefined {
+): { workspaceId: string; root: string; workspace?: Workspace } | undefined {
   if (typeof payload !== 'object' || payload === null) return undefined;
-  const candidate = payload as { workspaceId?: unknown; root?: unknown };
+  const candidate = payload as { workspaceId?: unknown; root?: unknown; workspace?: unknown };
   if (typeof candidate.workspaceId !== 'string' || candidate.workspaceId.length === 0) {
     return undefined;
   }
   if (typeof candidate.root !== 'string' || candidate.root.length === 0) return undefined;
-  return { workspaceId: candidate.workspaceId, root: candidate.root };
+  return {
+    workspaceId: candidate.workspaceId,
+    root: candidate.root,
+    workspace: candidate.workspace as Workspace | undefined,
+  };
 }
 
 interface CapabilityChangedPayload {
@@ -1722,7 +1008,7 @@ interface CapabilityChangedPayload {
     percent?: number;
     error?: string;
     note?: string;
-    confirmationRequired?: 'stop-processes';
+    confirmation_required?: 'stop-processes';
   };
 }
 
@@ -1735,8 +1021,11 @@ function capabilityChangedPayload(payload: unknown): CapabilityChangedPayload | 
   const running = (install as { running?: unknown }).running;
   if (typeof running !== 'boolean') return undefined;
   const out: CapabilityChangedPayload['install'] = { running };
-  if ((install as { confirmationRequired?: unknown }).confirmationRequired === 'stop-processes') {
-    out.confirmationRequired = 'stop-processes';
+  if (
+    (install as { confirmationRequired?: unknown }).confirmationRequired === 'stop-processes' ||
+    (install as { confirmation_required?: unknown }).confirmation_required === 'stop-processes'
+  ) {
+    out.confirmation_required = 'stop-processes';
   }
   for (const key of ['step', 'error', 'note'] as const) {
     const value = (install as Record<string, unknown>)[key];
@@ -1768,13 +1057,15 @@ const modelCatalogChangedPayloadSchema = modelCatalogChangedEventSchema.omit({ t
 
 function configChangedPayload(
   payload: unknown,
-): { changedFields: string[]; config: unknown } | undefined {
+): { changedFields: string[]; config: ConfigResponse } | undefined {
   const parsed = configChangedPayloadSchema.safeParse(payload);
   if (!parsed.success) return undefined;
   return { changedFields: parsed.data.changedFields, config: parsed.data.config };
 }
 
-function modelCatalogChangedPayload(payload: unknown):
+function modelCatalogChangedPayload(
+  payload: unknown,
+):
   | {
       changed: ModelCatalogRefreshChange[];
       unchanged: string[];

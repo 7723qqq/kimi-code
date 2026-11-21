@@ -1,4 +1,5 @@
-import { expect, describe, it } from "bun:test";
+import assert from "node:assert";
+import { describe, it } from "node:test";
 import { SelectList } from "../src/components/select-list.ts";
 import { visibleWidth } from "../src/utils.ts";
 
@@ -12,7 +13,7 @@ const testTheme = {
 
 const visibleIndexOf = (line: string, text: string): number => {
 	const index = line.indexOf(text);
-	expect(index).not.toBe(-1);
+	assert.notEqual(index, -1);
 	return visibleWidth(line.slice(0, index));
 };
 
@@ -29,9 +30,9 @@ describe("SelectList", () => {
 		const list = new SelectList(items, 5, testTheme);
 		const rendered = list.render(100);
 
-		expect(rendered.length > 0).toBeTruthy();
-		expect(!rendered[0].includes("\n")).toBeTruthy();
-		expect(rendered[0].includes("Line one Line two Line three")).toBeTruthy();
+		assert.ok(rendered.length > 0);
+		assert.ok(!rendered[0].includes("\n"));
+		assert.ok(rendered[0].includes("Line one Line two Line three"));
 	});
 
 	it("keeps descriptions aligned when the primary text is truncated", () => {
@@ -47,7 +48,7 @@ describe("SelectList", () => {
 		const list = new SelectList(items, 5, testTheme);
 		const rendered = list.render(80);
 
-		expect(visibleIndexOf(rendered[0], "short description")).toBe(visibleIndexOf(rendered[1], "long description"));
+		assert.equal(visibleIndexOf(rendered[0], "short description"), visibleIndexOf(rendered[1], "long description"));
 	});
 
 	it("uses the configured minimum primary column width", () => {
@@ -62,8 +63,8 @@ describe("SelectList", () => {
 		});
 		const rendered = list.render(80);
 
-		expect(rendered[0].indexOf("first")).toBe(14);
-		expect(rendered[1].indexOf("second")).toBe(14);
+		assert.equal(rendered[0].indexOf("first"), 14);
+		assert.equal(rendered[1].indexOf("second"), 14);
 	});
 
 	it("uses the configured maximum primary column width", () => {
@@ -82,8 +83,8 @@ describe("SelectList", () => {
 		});
 		const rendered = list.render(80);
 
-		expect(visibleIndexOf(rendered[0], "first")).toBe(22);
-		expect(visibleIndexOf(rendered[1], "second")).toBe(22);
+		assert.equal(visibleIndexOf(rendered[0], "first"), 22);
+		assert.equal(visibleIndexOf(rendered[1], "second"), 22);
 	});
 
 	it("allows overriding primary truncation while preserving description alignment", () => {
@@ -109,7 +110,7 @@ describe("SelectList", () => {
 		});
 		const rendered = list.render(80);
 
-		expect(rendered[0].includes("…")).toBeTruthy();
-		expect(visibleIndexOf(rendered[0], "first")).toBe(visibleIndexOf(rendered[1], "second"));
+		assert.ok(rendered[0].includes("…"));
+		assert.equal(visibleIndexOf(rendered[0], "first"), visibleIndexOf(rendered[1], "second"));
 	});
 });

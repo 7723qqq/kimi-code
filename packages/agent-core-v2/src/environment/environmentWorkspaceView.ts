@@ -2,17 +2,8 @@ import { ErrorCodes, Error2 } from '#/errors';
 import type { ShellPathBridge } from '#/_base/execEnv/shellPathBridge';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 
-import type {
-  Environment,
-  EnvironmentBinding,
-  EnvironmentPath,
-  EnvironmentWorkspaceRoots,
-} from './environment';
-import {
-  DEFAULT_ENVIRONMENT_HOST,
-  POSIX_ENVIRONMENT_PATH,
-  POSIX_ENVIRONMENT_WORKSPACE,
-} from './environmentDefaults';
+import type { Environment, EnvironmentBinding, EnvironmentPath, EnvironmentWorkspaceRoots } from './environment';
+import { DEFAULT_ENVIRONMENT_HOST, POSIX_ENVIRONMENT_PATH, POSIX_ENVIRONMENT_WORKSPACE } from './environmentDefaults';
 
 export class EnvironmentWorkspaceView {
   readonly binding: EnvironmentBinding;
@@ -20,8 +11,6 @@ export class EnvironmentWorkspaceView {
   readonly path: EnvironmentPath;
   readonly shellPathBridge: ShellPathBridge | undefined;
   readonly workDir: string;
-  readonly primaryDir: string | undefined;
-  readonly followsPrimary: boolean | undefined;
   readonly additionalDirs: readonly string[];
   readonly roots: readonly string[];
 
@@ -38,12 +27,7 @@ export class EnvironmentWorkspaceView {
     const workspace = environment.workspace ?? POSIX_ENVIRONMENT_WORKSPACE;
     const mapped = workspace.mapRoots(roots);
     this.workDir = this.path.resolve(mapped.workDir);
-    this.primaryDir =
-      mapped.primaryDir === undefined ? undefined : this.path.resolve(mapped.primaryDir);
-    this.followsPrimary = mapped.followsPrimary;
-    this.additionalDirs = [
-      ...new Set((mapped.additionalDirs ?? []).map((root) => this.path.resolve(root))),
-    ];
+    this.additionalDirs = [...new Set((mapped.additionalDirs ?? []).map((root) => this.path.resolve(root)))];
     this.roots = [this.workDir, ...this.additionalDirs];
   }
 
@@ -68,7 +52,5 @@ export class EnvironmentWorkspaceView {
 function contains(path: EnvironmentPath, root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   if (relative === '') return true;
-  return (
-    relative !== '..' && !relative.startsWith(`..${path.separator}`) && !path.isAbsolute(relative)
-  );
+  return relative !== '..' && !relative.startsWith(`..${path.separator}`) && !path.isAbsolute(relative);
 }

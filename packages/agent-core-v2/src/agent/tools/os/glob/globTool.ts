@@ -1,13 +1,13 @@
 import { dirname, normalize, relative, resolve } from 'pathe';
 
-import { ensureRgPath, rgUnavailableMessage, type RgProbe } from '#/os/backends/host/tools/rgLocator';
+import { ensureRgPath, rgUnavailableMessage, type RgProbe } from '#/os/backends/node-local/tools/rgLocator';
 import type { Environment } from '#/environment/environment';
 import {
   DEFAULT_TIMEOUT_MS,
   MAX_OUTPUT_BYTES,
   runRgOnce,
   shouldRetryRipgrepEagain,
-} from '#/os/backends/host/tools/runRg';
+} from '#/os/backends/node-local/tools/runRg';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { isHostFsNotFound } from '#/os/interface/hostFsErrors';
@@ -16,7 +16,15 @@ import { acquireOrWhenReady, IAgentEnvironmentService, pinnedGeneration } from '
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IOAuthService } from '#/app/auth/auth';
+import {
+  DEFAULT_TOOL_RESULT_MAX_RETAINED_CHARS,
+  ToolAccesses,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import {
   isWithinDirectory,
   resolvePathAccessPath,
@@ -25,16 +33,9 @@ import {
   SENSITIVE_DOT_VARIANT_SUFFIXES,
   type WorkspaceConfig,
 } from '#/tool/path-access';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
-import {
-  DEFAULT_TOOL_RESULT_MAX_RETAINED_CHARS,
-  RepoMutations,
-  ToolAccesses,
-  ToolSideEffects,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-
+import globDescription from './glob.md?raw';
 import {
   type GlobInput,
   GlobInputSchema,
@@ -42,13 +43,8 @@ import {
   DEFAULT_HEAD_LIMIT,
   WINDOWS_PATH_HINT,
 } from './glob';
-import globDescription from './glob.md?raw';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IOAuthService } from '#/app/auth/auth';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
 const VCS_DIRECTORIES_TO_EXCLUDE = ['.git', '.svn', '.hg', '.bzr', '.jj', '.sl'] as const;
-const RG_MAX_THREADS = 4;
 
 const SENSITIVE_KEY_BASENAMES = ['id_rsa', 'id_ed25519', 'id_ecdsa'] as const;
 const SENSITIVE_GLOBS_TO_EXCLUDE: readonly string[] = [
@@ -67,8 +63,6 @@ const SENSITIVE_GLOBS_TO_EXCLUDE: readonly string[] = [
 export class GlobTool implements IGlobTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Glob' as const;
-  readonly sideEffect = ToolSideEffects.read;
-  readonly repoMutation = RepoMutations.none;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GlobInputSchema);
   constructor(
     @IAgentEnvironmentService private readonly environment: IAgentEnvironmentService,
@@ -223,9 +217,7 @@ export class GlobTool implements IGlobTool {
 
     if (shouldRetryRipgrepEagain(run)) {
       try {
-        run = await runRgOnce(processService, buildRgArgs(rgPath, args, true, searchRoot, searchCwd), signal, {
-          cwd: searchCwd,
-        });
+        run = await runRgOnce(processService, buildRgArgs(rgPath, args, true, searchRoot, searchCwd), signal, { cwd: searchCwd });
       } catch (error) {
         return { isError: true, output: formatSpawnError(error, environment) };
       }
@@ -312,12 +304,12 @@ export class GlobTool implements IGlobTool {
           : String(kept.length);
         lines.push(`Showing matches ${String(offset + 1)}–${String(offset + count)} of ${total}.`);
       }
-      if (characterLimited)
-        lines.push('Character limit reached; only complete paths are returned.');
+      if (characterLimited) lines.push('Character limit reached; only complete paths are returned.');
       if (truncated) {
-        lines.push(`Continue with the same search arguments and offset=${String(offset + count)}.`);
-        if (!characterLimited)
-          lines.push('To remove the match-count limit, omit offset and use head_limit=0.');
+        lines.push(
+          `Continue with the same search arguments and offset=${String(offset + count)}.`,
+        );
+        if (!characterLimited) lines.push('To remove the match-count limit, omit offset and use head_limit=0.');
       }
       if (filteredSensitive > 0 && (kept.length > 0 || partial)) {
         footer.push(`Filtered ${String(filteredSensitive)} sensitive file(s).`);
@@ -327,12 +319,10 @@ export class GlobTool implements IGlobTool {
       }
       return { lines, footer };
     };
-    const noticeChars = Math.max(
-      ...[false, true].map((characterLimited) => {
-        const { lines, footer } = pageNotices(candidates.length, characterLimited);
-        return [...lines, ...footer].join('\n').length + 2;
-      }),
-    );
+    const noticeChars = Math.max(...[false, true].map((characterLimited) => {
+      const { lines, footer } = pageNotices(candidates.length, characterLimited);
+      return [...lines, ...footer].join('\n').length + 2;
+    }));
     let remaining = DEFAULT_TOOL_RESULT_MAX_RETAINED_CHARS - noticeChars;
     const displayLines: string[] = [];
     for (const path of candidates) {
@@ -343,8 +333,7 @@ export class GlobTool implements IGlobTool {
     if (candidates.length > 0 && displayLines.length === 0) {
       return {
         isError: true,
-        output:
-          'Glob cannot fit a complete path and its diagnostics within the output limit. Narrow the search path or pattern.',
+        output: 'Glob cannot fit a complete path and its diagnostics within the output limit. Narrow the search path or pattern.',
       };
     }
     const notices = pageNotices(displayLines.length, displayLines.length < candidates.length);
@@ -366,13 +355,15 @@ function createRgProbe(processService: IHostProcessService, cwd: string): RgProb
       const proc = await processService.spawn(command, rest, { cwd });
       try {
         proc.stdin.end();
-      } catch {}
+      } catch {
+      }
       proc.stdout.resume();
       proc.stderr.resume();
       const exitCode = await proc.wait();
       try {
         void proc.dispose();
-      } catch {}
+      } catch {
+      }
       return { exitCode };
     },
   };
@@ -406,9 +397,7 @@ function buildRgArgs(
   };
   const cmd: string[] = [rgPath];
   if (singleThreaded) cmd.push('-j', '1');
-  else cmd.push('-j', String(RG_MAX_THREADS));
   cmd.push('--files', '--hidden', '--sortr=modified');
-  if (args.include_ignored !== true) cmd.push('--no-require-git');
   for (const dir of VCS_DIRECTORIES_TO_EXCLUDE) {
     cmd.push('--glob', searchGlob(`!${dir}`));
   }

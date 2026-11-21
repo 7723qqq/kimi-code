@@ -1,11 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-
-import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
+import { afterAll, beforeAll, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { setLocale } from '#/i18n';
-import { formatGoalElapsed } from '#/tui/components/messages/goal-format';
 import {
   buildGoalReportLines,
   GoalCompletionMessageComponent,
@@ -16,6 +12,7 @@ import {
 } from '#/tui/components/messages/goal-panel';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { darkColors } from '#/tui/theme/colors';
+import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 
 const previousChalkLevel = chalk.level;
 beforeAll(() => {
@@ -37,7 +34,7 @@ function goal(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
     status: 'active',
     turnsUsed: 7,
     tokensUsed: 128_400,
-    wallClockMs: 252_000, // 4m12s
+    wallClockMs: 252_000,
     budget: {
       turnBudget: null,
       tokenBudget: null,
@@ -58,7 +55,7 @@ describe('buildGoalReportLines', () => {
     expect(out).toContain('Running');
     expect(out).toContain('4m 12s');
     expect(out).toContain('Turns');
-    expect(out).toContain('125k'); // formatTokenCount
+    expect(out).toContain('125k');
   });
 
   it('shows a no-stop-condition note for an unbounded active goal', () => {
@@ -66,11 +63,7 @@ describe('buildGoalReportLines', () => {
   });
 
   it('shows a Stop row with progress when a turn budget is set', () => {
-    const out = lines(
-      goal({
-        budget: { turnBudget: 20, tokenBudget: null, wallClockBudgetMs: null },
-      } as Partial<GoalSnapshot>),
-    );
+    const out = lines(goal({ budget: { turnBudget: 20, tokenBudget: null, wallClockBudgetMs: null } } as Partial<GoalSnapshot>));
     expect(out).toContain('Stop');
     expect(out).toContain('after 20 turns (7/20)');
     expect(out).not.toContain('No stop condition');
@@ -90,9 +83,7 @@ describe('buildGoalReportLines', () => {
   });
 
   it('shows the reason for a paused goal when one exists', () => {
-    const out = lines(
-      goal({ status: 'paused', terminalReason: 'Paused after provider rate limit' }),
-    );
+    const out = lines(goal({ status: 'paused', terminalReason: 'Paused after provider rate limit' }));
     expect(out).toContain('Status');
     expect(out).toContain('paused — Paused after provider rate limit');
   });
@@ -112,7 +103,6 @@ describe('buildGoalReportLines', () => {
 describe('GoalSetMessageComponent', () => {
   it('renders a marker-style lifecycle line without repeating the objective', () => {
     const rendered = new GoalSetMessageComponent().render(60);
-    // Leading blank line separates it from the line above.
     expect(rendered[0]).toBe('');
     expect(strip(rendered)).toBe('\n● Goal set');
   });
@@ -144,9 +134,9 @@ describe('UpcomingGoalAddedMessageComponent', () => {
     );
     expect(rendered[1]).toBe(
       chalk.hex(darkColors.primary).bold(STATUS_BULLET) +
-        chalk
-          .hex(darkColors.primary)
-          .bold('Upcoming goal added. It will start after the current goal is complete.'),
+        chalk.hex(darkColors.primary).bold(
+          'Upcoming goal added. It will start after the current goal is complete.',
+        ),
     );
   });
 
@@ -176,55 +166,12 @@ describe('GoalStatusMessageComponent', () => {
   });
 
   it('keeps the status box within narrow widths', () => {
-    const rendered = new GoalStatusMessageComponent(
-      goal({ objective: '管理飞书日历的技能描述 '.repeat(4).trim() }),
-    );
+    const rendered = new GoalStatusMessageComponent(goal({ objective: '管理飞书日历的技能描述 '.repeat(4).trim() }));
 
     for (const width of [39, 24, 20, 10]) {
       for (const line of rendered.render(width)) {
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
       }
-    }
-  });
-
-  it('memoizes the rendered box per width and rebuilds only after invalidate', () => {
-    const component = new GoalStatusMessageComponent(goal());
-
-    const first = component.render(80);
-    expect(component.render(80)).toBe(first);
-
-    const narrow = component.render(60);
-    expect(narrow).not.toBe(first);
-    expect(component.render(60)).toBe(narrow);
-
-    // A palette switch invalidates the cached box and repaints the body.
-    component.invalidate();
-    const rebuilt = component.render(60);
-    expect(rebuilt).not.toBe(narrow);
-    expect(strip(rebuilt)).toBe(strip(narrow));
-  });
-
-  it('keeps zh row labels aligned with their values', () => {
-    setLocale('zh');
-    try {
-      const rendered = strip(buildGoalReportLines(goal(), 60)).split('\n');
-      const elapsed = formatGoalElapsed(252_000);
-      const valueColumn = (line: string, value: string): number => {
-        const index = line.indexOf(value);
-        expect(index).toBeGreaterThanOrEqual(0);
-        return visibleWidth(line.slice(0, index));
-      };
-      const running = rendered.find((line) => line.includes(elapsed))!;
-      const turns = rendered.find((line) => line.includes('轮数'))!;
-      const tokens = rendered.find((line) => line.includes('Tokens'))!;
-
-      // `运行时间` is 8 columns wide but `轮数` is only 4 — the values must all
-      // still start at the same visible column (LABEL_WIDTH).
-      expect(valueColumn(running, elapsed)).toBe(11);
-      expect(valueColumn(turns, '7')).toBe(11);
-      expect(valueColumn(tokens, '125k')).toBe(11);
-    } finally {
-      setLocale('en');
     }
   });
 });

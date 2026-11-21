@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 
-import { MemoryBackend } from '#/store/backend/memory';
-import { TreeStore } from '#/store/store';
-import type { CorruptionReport, EntryLine } from '#/store/types';
+import { MemoryBackend } from '#human/store/backend/memory';
+import { TreeStore } from '#human/store/store';
+import type { CorruptionReport, EntryLine } from '#human/store/types';
 
 function openStore(
   backend: MemoryBackend = new MemoryBackend(),

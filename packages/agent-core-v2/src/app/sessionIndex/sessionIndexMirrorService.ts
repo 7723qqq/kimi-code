@@ -1,10 +1,10 @@
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IntervalTimer } from '#/_base/utils/timer';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { databaseBaseEnabled } from '#/persistence/configSection';
 import { IQueryStore } from '#/persistence/interface/queryStore';
@@ -201,13 +201,10 @@ export class SessionIndexMirror extends Disposable implements ISessionIndexMirro
         });
       }
       if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-        this.log.warn(
-          'session index mirror giving up until the next record; reconciliation will heal',
-          {
-            pending: this.pendingMap.size,
-            failures: this.consecutiveFailures,
-          },
-        );
+        this.log.warn('session index mirror giving up until the next record; reconciliation will heal', {
+          pending: this.pendingMap.size,
+          failures: this.consecutiveFailures,
+        });
         if (!this.giveUpTracked) {
           this.giveUpTracked = true;
           this.telemetry.track2('session_index_mirror_give_up', {

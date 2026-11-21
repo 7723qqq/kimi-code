@@ -1,7 +1,9 @@
 import { ErrorCodes, isKimiError, type PermissionMode } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
-
+import {
+  GoalStartPermissionPromptComponent,
+  type GoalStartPermissionChoice,
+} from '../components/dialogs/goal-start-permission-prompt';
 import {
   GoalQueueEditDialogComponent,
   GoalQueueManagerComponent,
@@ -9,14 +11,12 @@ import {
   type GoalQueueManagerAction,
 } from '../components/dialogs/goal-queue-manager';
 import {
-  GoalStartPermissionPromptComponent,
-  type GoalStartPermissionChoice,
-} from '../components/dialogs/goal-start-permission-prompt';
-import {
+  GoalSetMessageComponent,
   GoalStatusMessageComponent,
   UpcomingGoalAddedMessageComponent,
 } from '../components/messages/goal-panel';
-import { getLlmNotSetMessage } from '../constant/kimi-tui';
+import { LLM_NOT_SET_MESSAGE } from '../constant/kimi-tui';
+import { DOCK_APPROVAL_ROWS } from '../constant/rendering';
 import {
   appendGoalQueueItem,
   moveGoalQueueItem,
@@ -26,12 +26,15 @@ import {
   type GoalQueueSnapshot,
 } from '../goal-queue-store';
 import { formatErrorMessage } from '../utils/event-payload';
-import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
-import { nextTranscriptId } from '../utils/transcript-id';
-import type { SlashCommandHost } from './dispatch';
+import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
+import { isBlockingPromptPending } from '../tui-state';
 import { canRestoreSubmittedInput } from './resolve';
+import type { SlashCommandHost } from './dispatch';
+import { t } from '#/i18n';
 
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
+const RESUME_GOAL_INPUT = t('tui.statusMessages.resumeGoalInput');
+const START_NEXT_GOAL_NOW_MESSAGE = t('tui.statusMessages.startingNow');
 
 type GoalCommandHost = Pick<
   SlashCommandHost,
@@ -42,7 +45,6 @@ type GoalCommandHost = Pick<
   | 'showError'
   | 'showNotice'
   | 'showStatus'
-  | 'appendTranscriptEntry'
   | 'track'
   | 'mountEditorReplacement'
   | 'restoreEditor'
@@ -71,21 +73,11 @@ export type ParsedGoalCommand =
       readonly kind: 'error';
       readonly message: string;
       readonly severity?: 'error' | 'hint';
-      /** Restore the typed `/goal ...` line into the editor so the input is not lost. */
       readonly restoreInput?: boolean;
     };
 
 const CONTROL_SUBCOMMANDS = new Set(['pause', 'resume', 'cancel']);
 
-/**
- * Parses the deterministic `/goal` command grammar. Reserved subcommands
- * (`pause`/`resume`/`cancel`/`status`/`replace`) are only honored as the first
- * token; use `/goal -- <objective>` to start a goal whose text begins with one
- * of those words. (`cancel` is the single discard action — it removes the
- * current goal.) Stop conditions are expressed in the objective in natural
- * language (e.g. "…or stop after 20 turns"); the model honors them when it
- * self-audits each turn and reports `complete`/`blocked` via UpdateGoal.
- */
 export function parseGoalCommand(rawArgs: string): ParsedGoalCommand {
   const args = rawArgs.trim();
   if (args.length === 0 || args === 'status') return { kind: 'status' };
@@ -105,16 +97,12 @@ export function parseGoalCommand(rawArgs: string): ParsedGoalCommand {
     replace = true;
     index += 1;
   }
-  // `--` ends subcommand parsing so an objective can begin with a reserved word
-  // (e.g. `/goal -- pause the rollout`).
   if (tokens[index] === '--') {
     index += 1;
   }
 
   const objective = tokens.slice(index).join(' ').trim();
   if (objective.length === 0) {
-    // A usage hint, not a failure — shown in the same calm style as the other
-    // "nothing to act on" messages (no goal to pause/resume/cancel).
     return {
       kind: 'error',
       severity: 'hint',
@@ -125,7 +113,7 @@ export function parseGoalCommand(rawArgs: string): ParsedGoalCommand {
     return {
       kind: 'error',
       restoreInput: true,
-      message: t('tui.statusMessages.objectiveTooLong', { max: MAX_GOAL_OBJECTIVE_LENGTH }),
+      message: `Goal objective is too long (max ${MAX_GOAL_OBJECTIVE_LENGTH} characters). Put long content in a file and reference the file path.`,
     };
   }
   return { kind: 'create', objective, replace };
@@ -136,15 +124,9 @@ export async function handleGoalCommand(host: SlashCommandHost, args: string): P
   switch (parsed.kind) {
     case 'error':
       if (parsed.severity === 'hint') host.showStatus(parsed.message);
-      else {
-        host.showError(parsed.message);
-        // Give rejected input back so a long hand-typed objective is not
-        // lost — unless the user already moved on (a newer draft or an
-        // opened panel), which is possible after the async lazy-session
-        // creation on the v2 engine.
-        if (parsed.restoreInput === true && canRestoreSubmittedInput(host))
-          host.restoreInputText(`/goal ${args}`);
-      }
+      else host.showError(parsed.message);
+      if (parsed.restoreInput === true && canRestoreSubmittedInput(host))
+        host.restoreInputText(`/goal ${args}`);
       return;
     case 'status':
       await showGoalStatus(host);
@@ -179,17 +161,47 @@ function parseNextGoalCommand(tokens: readonly string[]): ParsedGoalCommand {
     return {
       kind: 'error',
       severity: 'hint',
-      message: t('tui.statusMessages.provideNextObjective'),
+      message:
+        t('tui.statusMessages.provideNextObjective'),
     };
   }
   if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
     return {
       kind: 'error',
       restoreInput: true,
-      message: t('tui.statusMessages.objectiveTooLong', { max: MAX_GOAL_OBJECTIVE_LENGTH }),
+      message: `Goal objective is too long (max ${MAX_GOAL_OBJECTIVE_LENGTH} characters). Put long content in a file and reference the file path.`,
     };
   }
   return { kind: 'next-add', objective };
+}
+
+export function goalObjectiveLengthWarning(text: string): string | undefined {
+  const trimmed = text.trimStart();
+  if (!trimmed.startsWith('/goal')) return undefined;
+  const args = trimmed.slice('/goal'.length);
+  if (args.length > 0 && args.charAt(0) !== ' ') return undefined;
+  const objective = extractGoalObjective(args);
+  if (objective === undefined || objective.length <= MAX_GOAL_OBJECTIVE_LENGTH) return undefined;
+  return t('tui.statusMessages.objectiveTooLongLive', { length: objective.length, max: MAX_GOAL_OBJECTIVE_LENGTH });
+}
+
+function extractGoalObjective(rawArgs: string): string | undefined {
+  const args = rawArgs.trim();
+  if (args.length === 0 || args === 'status') return undefined;
+  const tokens = args.split(/\s+/);
+  const first = tokens[0];
+  let index = 0;
+  if (first === 'next') {
+    if (tokens.length === 2 && tokens[1] === 'manage') return undefined;
+    index = 1;
+  } else {
+    if (first !== undefined && CONTROL_SUBCOMMANDS.has(first) && tokens.length === 1) {
+      return undefined;
+    }
+    if (tokens[index] === 'replace') index += 1;
+  }
+  if (tokens[index] === '--') index += 1;
+  return tokens.slice(index).join(' ').trim();
 }
 
 async function queueNextGoal(
@@ -202,14 +214,12 @@ async function queueNextGoal(
     const { goal } = await session.getGoal();
     hasCurrentGoal = goal !== null;
   } catch (error) {
-    host.showError(
-      t('tui.statusMessages.failedToInspectGoal', { error: formatErrorMessage(error) }),
-    );
+    host.showError(t('tui.statusMessages.failedToInspectGoal', { error: formatErrorMessage(error) }));
     return;
   }
 
   if (!hasCurrentGoal && !isBusy(host)) {
-    host.showStatus(t('tui.statusMessages.startingNow'));
+    host.showStatus(START_NEXT_GOAL_NOW_MESSAGE);
     await createGoal(
       host,
       { kind: 'create', objective: parsed.objective, replace: false },
@@ -226,16 +236,10 @@ async function queueNextGoal(
   }
   host.track('goal_queue_append');
   if (!hasCurrentGoal) host.requestQueuedGoalPromotion?.();
-  host.appendTranscriptEntry(
-    {
-      id: nextTranscriptId(),
-      kind: 'status',
-      turnId: undefined,
-      renderMode: 'plain',
-      content: '',
-    },
+  host.state.transcriptContainer.addChild(
     new UpcomingGoalAddedMessageComponent(),
   );
+  host.state.ui.requestRender();
 }
 
 async function showGoalQueueManager(
@@ -246,9 +250,7 @@ async function showGoalQueueManager(
   try {
     snapshot = await readGoalQueue(host.requireSession());
   } catch (error) {
-    host.showError(
-      t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }),
-    );
+    host.showError(t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }));
     return;
   }
 
@@ -261,11 +263,7 @@ async function showGoalQueueManager(
         try {
           return await handleGoalQueueManagerAction(host, action);
         } catch (error) {
-          host.showError(
-            t('tui.statusMessages.failedToUpdateUpcomingGoals', {
-              error: formatErrorMessage(error),
-            }),
-          );
+          host.showError(t('tui.statusMessages.failedToUpdateUpcomingGoals', { error: formatErrorMessage(error) }));
           return undefined;
         }
       },
@@ -301,14 +299,15 @@ async function handleGoalQueueManagerAction(
   }
 }
 
-async function showGoalQueueEditDialog(host: SlashCommandHost, goalId: string): Promise<void> {
+async function showGoalQueueEditDialog(
+  host: SlashCommandHost,
+  goalId: string,
+): Promise<void> {
   let snapshot: GoalQueueSnapshot;
   try {
     snapshot = await readGoalQueue(host.requireSession());
   } catch (error) {
-    host.showError(
-      t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }),
-    );
+    host.showError(t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }));
     return;
   }
 
@@ -324,11 +323,7 @@ async function showGoalQueueEditDialog(host: SlashCommandHost, goalId: string): 
       goal,
       onDone: (result) => {
         void handleGoalQueueEditResult(host, result).catch((error: unknown) => {
-          host.showError(
-            t('tui.statusMessages.failedToUpdateUpcomingGoal', {
-              error: formatErrorMessage(error),
-            }),
-          );
+          host.showError(t('tui.statusMessages.failedToUpdateUpcomingGoal', { error: formatErrorMessage(error) }));
         });
       },
     }),
@@ -358,9 +353,8 @@ export async function createGoal(
   rawArgs?: string,
   options: GoalStartOptions = {},
 ): Promise<boolean> {
-  // A goal must be able to start a model turn; refuse to create one otherwise.
   if (host.state.appState.model.trim().length === 0 || host.session === undefined) {
-    host.showError(getLlmNotSetMessage());
+    host.showError(LLM_NOT_SET_MESSAGE);
     return false;
   }
 
@@ -386,6 +380,7 @@ function showGoalStartPermissionPrompt(
     host.restoreInputText(commandText);
     host.showStatus(t('tui.statusMessages.goalNotStarted'));
   };
+  syncGoalStartPrompt(host, true);
   host.mountEditorReplacement(
     new GoalStartPermissionPromptComponent({
       mode: host.state.appState.permissionMode === 'yolo' ? 'yolo' : 'manual',
@@ -398,8 +393,18 @@ function showGoalStartPermissionPrompt(
         void startGoalWithPermission(host, parsed, choice, options);
       },
       onCancel: cancelStart,
+      layout: host.state.dockContainer === undefined ? undefined : { maxBodyRows: DOCK_APPROVAL_ROWS },
     }),
+    () => syncGoalStartPrompt(host, false),
   );
+}
+
+function syncGoalStartPrompt(host: GoalCommandHost, pending: boolean): void {
+  if (host.state.dockContainer === undefined) return;
+  if (pending) host.state.activeDialog = 'goal-start';
+  else if (host.state.activeDialog === 'goal-start') host.state.activeDialog = null;
+  host.state.notifyPanel.setPrompt(isBlockingPromptPending(host.state));
+  host.state.ui.requestRender();
 }
 
 async function startGoalWithPermission(
@@ -409,28 +414,19 @@ async function startGoalWithPermission(
   options: GoalStartOptions,
 ): Promise<void> {
   const previousMode = host.state.appState.permissionMode;
-  const switched = choice !== previousMode && (choice === 'auto' || choice === 'yolo');
+  const switched =
+    choice !== previousMode && (choice === 'auto' || choice === 'yolo');
   if (switched) {
     if (!(await setPermissionForGoal(host, choice))) return;
   }
   const started = await startGoal(host, parsed, options);
-  // The permission switch only exists to run this goal. If creation fails
-  // (e.g. a goal already exists and `replace` was not given), restore the
-  // previous mode so the session is not left more permissive than before.
   if (!started && switched) {
     await setPermissionForGoal(host, previousMode);
     return;
   }
-  // Only announce the switch once the goal really started: a failed creation
-  // would leave a stale permissive-mode notice in the transcript even though
-  // the rollback above restored the previous mode.
   if (switched) {
-    host.showNotice(
-      t('tui.statusMessages.permissionModeChanged', {
-        mode: permissionModeDisplayName(choice),
-      }),
-    );
-    host.showStatus(permissionModeDescription(choice), 'warning');
+    host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[choice]}`);
+    host.showStatus(PERMISSION_MODE_DESCRIPTIONS[choice], 'warning');
   }
 }
 
@@ -438,9 +434,7 @@ async function setPermissionForGoal(host: GoalCommandHost, mode: PermissionMode)
   try {
     await host.requireSession().setPermission(mode);
   } catch (error) {
-    host.showError(
-      t('tui.statusMessages.failedToSetPermission', { error: formatErrorMessage(error) }),
-    );
+    host.showError(`Failed to set permission mode: ${formatErrorMessage(error)}`);
     return false;
   }
   host.setAppState({ permissionMode: mode });
@@ -458,11 +452,10 @@ async function startGoal(
       replace: parsed.replace,
     });
   } catch (error) {
-    if (
-      isKimiError(error) &&
-      (error as { readonly code: string }).code === ErrorCodes.GOAL_ALREADY_EXISTS
-    ) {
-      host.showError(t('tui.statusMessages.goalAlreadyActive'));
+    if (isKimiError(error) && error.code === ErrorCodes.GOAL_ALREADY_EXISTS) {
+      host.showError(
+        t('tui.statusMessages.goalAlreadyActive'),
+      );
       return false;
     }
     host.showError(formatErrorMessage(error));
@@ -471,14 +464,8 @@ async function startGoal(
   if (options.beforeSend !== undefined && !(await options.beforeSend())) {
     return false;
   }
-  host.appendTranscriptEntry({
-    id: nextTranscriptId(),
-    kind: 'goal',
-    turnId: undefined,
-    renderMode: 'plain',
-    content: '',
-    goalData: { kind: 'created' },
-  });
+  host.state.transcriptContainer.addChild(new GoalSetMessageComponent());
+  host.state.ui.requestRender();
   if (options.sendInput !== undefined) {
     options.sendInput(parsed.objective);
   } else {
@@ -493,10 +480,7 @@ async function pauseGoal(host: SlashCommandHost): Promise<void> {
     await session.pauseGoal();
     if (isStreaming(host)) await session.cancel();
   } catch (error) {
-    if (
-      isKimiError(error) &&
-      (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND
-    ) {
+    if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
       host.showStatus(t('tui.statusMessages.noGoalToPause'));
       return;
     }
@@ -509,17 +493,14 @@ async function pauseGoal(host: SlashCommandHost): Promise<void> {
 
 async function resumeGoal(host: SlashCommandHost): Promise<void> {
   if (host.state.appState.model.trim().length === 0 || host.session === undefined) {
-    host.showError(getLlmNotSetMessage());
+    host.showError(LLM_NOT_SET_MESSAGE);
     return;
   }
 
   try {
     await host.requireSession().resumeGoal();
   } catch (error) {
-    if (
-      isKimiError(error) &&
-      (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND
-    ) {
+    if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
       host.showStatus(t('tui.statusMessages.noGoalToResume'));
       return;
     }
@@ -527,7 +508,7 @@ async function resumeGoal(host: SlashCommandHost): Promise<void> {
     return;
   }
   host.track('goal_resume');
-  host.sendNormalUserInput(t('tui.statusMessages.resumeGoalInput'));
+  host.sendNormalUserInput(RESUME_GOAL_INPUT);
 }
 
 async function cancelGoal(host: SlashCommandHost): Promise<void> {
@@ -536,10 +517,7 @@ async function cancelGoal(host: SlashCommandHost): Promise<void> {
     await session.cancelGoal();
     if (isStreaming(host)) await session.cancel();
   } catch (error) {
-    if (
-      isKimiError(error) &&
-      (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND
-    ) {
+    if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
       host.showStatus(t('tui.statusMessages.noGoalToCancel'));
       return;
     }
@@ -557,16 +535,10 @@ async function showGoalStatus(host: SlashCommandHost): Promise<void> {
     host.showStatus(t('tui.statusMessages.noGoalSet'));
     return;
   }
-  host.appendTranscriptEntry(
-    {
-      id: nextTranscriptId(),
-      kind: 'status',
-      turnId: undefined,
-      renderMode: 'plain',
-      content: '',
-    },
+  host.state.transcriptContainer.addChild(
     new GoalStatusMessageComponent(goal),
   );
+  host.state.ui.requestRender();
 }
 
 function isStreaming(host: SlashCommandHost): boolean {
@@ -575,51 +547,4 @@ function isStreaming(host: SlashCommandHost): boolean {
 
 function isBusy(host: SlashCommandHost): boolean {
   return isStreaming(host) || host.state.appState.isCompacting;
-}
-
-/**
- * Live pre-send check for the main editor: when the typed text is a `/goal`
- * create/next command whose objective already exceeds the length limit,
- * returns a warning to show while typing — before anything is submitted or
- * sent to the server. Returns undefined for non-goal input and for control
- * forms (`status`/`pause`/`resume`/`cancel`/`next manage`).
- */
-export function goalObjectiveLengthWarning(text: string): string | undefined {
-  // Submitted text is trimmed before dispatch, so match leading whitespace.
-  const trimmed = text.trimStart();
-  if (!trimmed.startsWith('/goal')) return undefined;
-  const args = trimmed.slice('/goal'.length);
-  // parseSlashInput splits the command name at a literal space only, so a
-  // newline/tab boundary (`/goal⏎…`, `/goalfoo`) is not the goal command.
-  if (args.length > 0 && args.charAt(0) !== ' ') return undefined;
-  const objective = extractGoalObjective(args);
-  if (objective === undefined || objective.length <= MAX_GOAL_OBJECTIVE_LENGTH) return undefined;
-  return t('tui.statusMessages.objectiveTooLongLive', {
-    length: objective.length,
-    max: MAX_GOAL_OBJECTIVE_LENGTH,
-  });
-}
-
-/**
- * Mirrors the parse grammar above: strips `next` / `replace` / `--` and
- * returns the objective text, or undefined when the args form a control
- * command that carries no objective.
- */
-function extractGoalObjective(rawArgs: string): string | undefined {
-  const args = rawArgs.trim();
-  if (args.length === 0 || args === 'status') return undefined;
-  const tokens = args.split(/\s+/);
-  const first = tokens[0];
-  let index = 0;
-  if (first === 'next') {
-    if (tokens.length === 2 && tokens[1] === 'manage') return undefined;
-    index = 1;
-  } else {
-    if (first !== undefined && CONTROL_SUBCOMMANDS.has(first) && tokens.length === 1) {
-      return undefined;
-    }
-    if (tokens[index] === 'replace') index += 1;
-  }
-  if (tokens[index] === '--') index += 1;
-  return tokens.slice(index).join(' ').trim();
 }

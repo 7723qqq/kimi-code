@@ -1,9 +1,9 @@
-// test/batch.test.ts
-import { expect, test } from 'bun:test';
+// test/batch.test.js
+import { test } from '@moonshot-ai/testkit/vitest';
+import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
 import { MiniDb } from '../src/index.js';
 
 async function tmpDir() {
@@ -19,9 +19,9 @@ test('batch applies multiple ops atomically', async () => {
       { op: 'set', key: 'b', value: { n: 2 } },
       { op: 'del', key: 'a' },
     ]);
-    expect(db.get('a')).toBe(undefined);
-    expect(db.get('b')).toStrictEqual({ n: 2 });
-    expect(db.size).toBe(1);
+    assert.equal(db.get('a'), undefined);
+    assert.deepEqual(db.get('b'), { n: 2 });
+    assert.equal(db.size, 1);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -37,18 +37,8 @@ test('batch with dt + indexes updates everything', async () => {
       { op: 'set', key: 'u1', value: { city: 'Paris' }, dt: { created: 100 } },
       { op: 'set', key: 'u2', value: { city: 'Paris' }, dt: { created: 200 } },
     ]);
-    expect(
-      db
-        .findEq('byCity', 'Paris')
-        .map((r) => r.key)
-        .toSorted(),
-    ).toStrictEqual(['u1', 'u2']);
-    expect(
-      db
-        .dtRange('created', { gte: 100 })
-        .map((r) => r.key)
-        .toSorted(),
-    ).toStrictEqual(['u1', 'u2']);
+    assert.deepEqual(db.findEq('byCity', 'Paris').map((r) => r.key).sort(), ['u1', 'u2']);
+    assert.deepEqual(db.dtRange('created', { gte: 100 }).map((r) => r.key).sort(), ['u1', 'u2']);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -61,16 +51,14 @@ test('batch unique violation rejects the whole batch', async () => {
   await db.createIndex('byEmail', { field: 'email', unique: true });
   await db.set('a', { email: 'duplicate@example.test' });
   try {
-    await expect(
-      db.batch([
-        { op: 'set', key: 'b', value: { email: 'unique@example.test' } },
-        { op: 'set', key: 'c', value: { email: 'duplicate@example.test' } },
-      ]),
-    ).rejects.toThrow(/unique/);
+    await assert.rejects(
+      () => db.batch([{ op: 'set', key: 'b', value: { email: 'unique@example.test' } }, { op: 'set', key: 'c', value: { email: 'duplicate@example.test' } }]),
+      /unique/,
+    );
     // neither op applied
-    expect(db.get('b')).toBe(undefined);
-    expect(db.get('c')).toBe(undefined);
-    expect(db.size).toBe(1);
+    assert.equal(db.get('b'), undefined);
+    assert.equal(db.get('c'), undefined);
+    assert.equal(db.size, 1);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -80,12 +68,7 @@ test('batch unique violation rejects the whole batch', async () => {
 test('batch is atomic on recovery: a corrupt batch frame skips the whole batch', async () => {
   const dir = await tmpDir();
   try {
-    let db = await MiniDb.open({
-      dir,
-      valueCodec: 'json',
-      fsyncPolicy: 'always',
-      autoCompact: false,
-    });
+    let db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'always', autoCompact: false });
     await db.set('before', { v: 0 });
     await db.batch([
       { op: 'set', key: 'x', value: { v: 1 } },
@@ -103,19 +86,13 @@ test('batch is atomic on recovery: a corrupt batch frame skips the whole batch',
     await fs.writeFile(wal, buf);
 
     db = await MiniDb.open({ dir, valueCodec: 'json', recovery: 'resync' });
-    expect(db.get('before').v, 'before survives').toBe(0);
+    assert.equal(db.get('before').v, 0, 'before survives');
     // the batch is either fully skipped or (if resync lands inside) neither x nor y appears
     // — but it must NEVER be the case that only one of x/y is present.
     const x = db.get('x');
     const y = db.get('y');
-    expect(
-      !(x !== undefined && y === undefined),
-      'batch must not be half-applied (x only)',
-    ).toBeTruthy();
-    expect(
-      !(x === undefined && y !== undefined),
-      'batch must not be half-applied (y only)',
-    ).toBeTruthy();
+    assert.ok(!(x !== undefined && y === undefined), 'batch must not be half-applied (x only)');
+    assert.ok(!(x === undefined && y !== undefined), 'batch must not be half-applied (y only)');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -127,7 +104,7 @@ test('empty batch is a no-op', async () => {
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   try {
     await db.batch([]);
-    expect(db.size).toBe(0);
+    assert.equal(db.size, 0);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });

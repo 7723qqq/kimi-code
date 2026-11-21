@@ -1,23 +1,52 @@
+import type { KimiConfig, ModelAlias, ProviderType } from '#/config/index';
 import {
-  catalogBaseUrl,
-  catalogProviderModels,
-  inferWireType,
-  resolveCatalogImport,
-  type Catalog,
-  type CatalogImportInvalidReason,
-  type CatalogImportResolution,
-  type CatalogModel,
-  type CatalogProviderEntry,
+  modelsDevBaseUrl,
+  modelsDevProviderModels,
+  resolveModelsDevImport,
   type ModelCapability,
-  type ProviderType,
-} from '@moonshot-ai/kosong';
+  type ModelsDevCatalog as Catalog,
+  type ModelsDevImportInvalidReason as CatalogImportInvalidReason,
+  type ModelsDevModel as CatalogModel,
+  type ModelsDevProviderEntry as CatalogProviderEntry,
+} from '@moonshot-ai/agent-core-v2';
 
-import type { KimiConfig, ModelAlias } from '#/config/index';
+export { modelsDevProviderModels as catalogProviderModels };
+export type { Catalog, CatalogImportInvalidReason, CatalogModel, CatalogProviderEntry };
 
-export { catalogBaseUrl, catalogProviderModels, inferWireType, resolveCatalogImport };
-export type { CatalogImportInvalidReason, CatalogImportResolution };
-export type { Catalog, CatalogModel, CatalogProviderEntry };
-export { DEFAULT_CATALOG_URL } from './catalog-defaults';
+export function catalogBaseUrl(entry: CatalogProviderEntry, wire: ProviderType): string | undefined {
+  return modelsDevBaseUrl(entry, wire);
+}
+
+export type CatalogImportResolution =
+  | {
+      readonly kind: 'ok';
+      readonly wire: ProviderType;
+      readonly guessed: boolean;
+      readonly baseUrl?: string;
+    }
+  | {
+      readonly kind: 'needs-base-url';
+      readonly wire: ProviderType;
+      readonly guessed: boolean;
+    }
+  | {
+      readonly kind: 'invalid';
+      readonly reason: CatalogImportInvalidReason;
+    };
+
+export function resolveCatalogImport(
+  entry: CatalogProviderEntry,
+  userBaseUrl?: string,
+): CatalogImportResolution {
+  return resolveModelsDevImport(entry, userBaseUrl) as CatalogImportResolution;
+}
+
+export function inferWireType(entry: CatalogProviderEntry): ProviderType | undefined {
+  const resolution = resolveModelsDevImport(entry);
+  return resolution.kind === 'invalid' ? undefined : (resolution.wire as ProviderType);
+}
+
+export const DEFAULT_CATALOG_URL = 'https://models.dev/api.json';
 
 export class RegistryImportError extends Error {
   constructor(
@@ -47,8 +76,7 @@ export interface FetchCatalogOptions {
 /**
  * Fetches a models.dev-style catalog. Public endpoint, no credentials needed.
  * `userAgent` identifies the host product (e.g. `kimi-code-cli/1.2.3`); when
- * omitted no `User-Agent` header is set and the runtime decides (`node` under
- * Node, `Bun/<version>` under Bun).
+ * omitted the request falls back to the runtime default (`User-Agent: node`).
  */
 export async function fetchCatalog(
   url: string,
@@ -88,8 +116,6 @@ export function catalogModelToAlias(providerId: string, model: CatalogModel): Mo
     maxContextSize: model.capability.max_context_tokens,
     maxInputSize: model.capability.max_input_tokens,
     maxOutputSize: model.maxOutputSize,
-    // A model that always reasons advertises `always_thinking` instead of
-    // `thinking`, so the UI locks thinking on and offers no off option.
     capabilities:
       model.alwaysThinking === true
         ? caps?.map((cap) => (cap === 'thinking' ? 'always_thinking' : cap))

@@ -1,8 +1,7 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import type { TurnEndReason } from '#/agent/loop/turnEvents';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { AgentEvent2 } from '#/app/event/event2';
-import type { HelloWorldStage } from '#/features/helloWorld/agent/helloWorld';
 import type { TowerExitReason } from '#/features/tower/tower';
 
 import type { UsageStatus } from './usage';
@@ -11,12 +10,12 @@ export interface AgentStatusUpdatedPayload {
   readonly agentId: string;
   usage?: UsageStatus;
   swarmMode?: boolean;
-  helloWorldMode?: boolean;
-  helloWorldStage?: HelloWorldStage;
   towerMode?: boolean;
   towerExitReason?: TowerExitReason;
   planMode?: boolean;
   specMode?: boolean;
+  helloWorldMode?: boolean;
+  helloWorldStage?: string;
   model?: string;
   thinkingEffort?: string;
   maxContextTokens?: number;
@@ -91,10 +90,7 @@ export interface AgentStatusUpdatedEvent {
   readonly maxContextTokens?: number;
   readonly contextUsage?: number;
   readonly planMode?: boolean;
-  readonly specMode?: boolean;
   readonly swarmMode?: boolean;
-  readonly helloWorldMode?: boolean;
-  readonly helloWorldStage?: HelloWorldStage;
   readonly towerMode?: boolean;
   readonly towerExitReason?: TowerExitReason;
   readonly permission?: PermissionMode;

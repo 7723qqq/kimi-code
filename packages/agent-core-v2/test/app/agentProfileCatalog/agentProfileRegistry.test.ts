@@ -1,17 +1,17 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
-import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator } from '#/_base/di/instantiation';
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
-import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import {
   AgentProfileContribution,
   type AgentProfileContributionRecord,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
 import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
+import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 
 interface IContributor {
   readonly record: AgentProfileContributionRecord;
@@ -36,9 +36,7 @@ function record(
     sourceId,
     priority: options?.priority,
     workspaceKey: options?.workspaceKey,
-    contribution: {
-      profiles: [normalizeAgentProfile({ name: marker, systemPrompt: () => marker })],
-    },
+    contribution: { profiles: [normalizeAgentProfile({ name: marker, systemPrompt: () => marker })] },
   };
 }
 
@@ -152,11 +150,7 @@ describe('AgentProfileRegistryService (collection fold)', () => {
 
   it('fires onDidChange with the decoded { sourceId, workspaceKey } payload', () => {
     const { container, registry } = makeFold();
-    const seen: {
-      readonly sourceId: string;
-      readonly workspaceKey?: string;
-      readonly contextKey?: string;
-    }[] = [];
+    const seen: { readonly sourceId: string; readonly workspaceKey?: string }[] = [];
     const subscription = registry.onDidChange((change) => seen.push(change));
 
     contribute(container, record('user', 'global'));
@@ -176,19 +170,13 @@ describe('AgentProfileRegistryService (collection fold)', () => {
     const { container, registry } = makeFold();
     const stale = contribute(container, record('user', 'v1'));
 
-    const seen: {
-      readonly sourceId: string;
-      readonly workspaceKey?: string;
-      readonly contextKey?: string;
-    }[] = [];
+    const seen: { readonly sourceId: string; readonly workspaceKey?: string }[] = [];
     const subscription = registry.onDidChange((change) => seen.push(change));
     contribute(container, record('user', 'v2'));
     stale.dispose();
 
     expect(registry.entries()[0]?.contribution.profiles[0]?.name).toBe('v2');
-    expect(seen).toStrictEqual([
-      { sourceId: 'user', workspaceKey: undefined, contextKey: undefined },
-    ]);
+    expect(seen).toStrictEqual([{ sourceId: 'user', workspaceKey: undefined, contextKey: undefined }]);
     subscription.dispose();
     container.dispose();
   });

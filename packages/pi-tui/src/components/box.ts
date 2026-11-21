@@ -1,166 +1,172 @@
-import {
-  type Component,
-  dispatchMouseEvent,
-  type MouseChildLayout,
-  MouseLayoutCache,
-  type TuiMouseDispatchResult,
-  type TuiMouseEvent,
-} from '../tui.ts';
-import { applyBackgroundToLine, visibleWidth } from '../utils.ts';
+import { type Component, dispatchMouseEvent, type TuiMouseDispatchResult, type TuiMouseEvent } from "../tui.ts";
+import { flattenLines, visibleWidth } from "../utils.ts";
 
 type RenderCache = {
-  childLines: string[];
-  width: number;
-  bgSample: string | undefined;
-  lines: string[];
+	childLines: string[];
+	width: number;
+	bgSample: string | undefined;
+	lines: string[];
 };
 
 /**
  * Box component - a container that applies padding and background to all children
  */
 export class Box implements Component {
-  children: Component[] = [];
-  private paddingX: number;
-  private paddingY: number;
-  private bgFn?: (text: string) => string;
+	children: Component[] = [];
+	private paddingX: number;
+	private paddingY: number;
+	private bgFn?: (text: string) => string;
 
-  // Cache for rendered output
-  private cache?: RenderCache;
-  private readonly mouseLayout = new MouseLayoutCache();
+	// Cache for rendered output
+	private cache?: RenderCache;
+	private mouseLayout?: { width: number; children: Array<{ component: Component; height: number }> };
 
-  constructor(paddingX = 1, paddingY = 1, bgFn?: (text: string) => string) {
-    this.paddingX = paddingX;
-    this.paddingY = paddingY;
-    this.bgFn = bgFn;
-  }
+	constructor(paddingX = 1, paddingY = 1, bgFn?: (text: string) => string) {
+		this.paddingX = paddingX;
+		this.paddingY = paddingY;
+		this.bgFn = bgFn;
+	}
 
-  addChild(component: Component): void {
-    this.children.push(component);
-    this.invalidateCache();
-  }
+	addChild(component: Component): void {
+		this.children.push(component);
+		this.invalidateCache();
+	}
 
-  removeChild(component: Component): void {
-    const index = this.children.indexOf(component);
-    if (index !== -1) {
-      this.children.splice(index, 1);
-      this.invalidateCache();
-    }
-  }
+	removeChild(component: Component): void {
+		const index = this.children.indexOf(component);
+		if (index !== -1) {
+			this.children.splice(index, 1);
+			this.invalidateCache();
+		}
+	}
 
-  clear(): void {
-    this.children = [];
-    this.invalidateCache();
-  }
+	clear(): void {
+		this.children = [];
+		this.invalidateCache();
+	}
 
-  setBgFn(bgFn?: (text: string) => string): void {
-    this.bgFn = bgFn;
-    // Don't invalidate here - we'll detect bgFn changes by sampling output
-  }
+	setBgFn(bgFn?: (text: string) => string): void {
+		this.bgFn = bgFn;
+		// Don't invalidate here - we'll detect bgFn changes by sampling output
+	}
 
-  private invalidateCache(): void {
-    this.cache = undefined;
-  }
+	setPaddingX(paddingX: number): void {
+		this.paddingX = paddingX;
+		this.invalidateCache();
+	}
 
-  private matchCache(width: number, childLines: string[], bgSample: string | undefined): boolean {
-    const cache = this.cache;
-    return (
-      !!cache &&
-      cache.width === width &&
-      cache.bgSample === bgSample &&
-      cache.childLines.length === childLines.length &&
-      cache.childLines.every((line, i) => line === childLines[i])
-    );
-  }
+	private invalidateCache(): void {
+		this.cache = undefined;
+	}
 
-  invalidate(): void {
-    this.invalidateCache();
-    for (const child of this.children) {
-      child.invalidate?.();
-    }
-  }
+	private matchCache(width: number, childLines: string[], bgSample: string | undefined): boolean {
+		const cache = this.cache;
+		return (
+			!!cache &&
+			cache.width === width &&
+			cache.bgSample === bgSample &&
+			cache.childLines.length === childLines.length &&
+			cache.childLines.every((line, i) => line === childLines[i])
+		);
+	}
 
-  handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    const contentWidth = Math.max(1, event.width - this.paddingX * 2);
-    const contentY = event.y - this.paddingY;
-    const contentX = event.x - this.paddingX;
-    if (contentY < 0 || contentX < 0 || contentX >= contentWidth) return undefined;
+	invalidate(): void {
+		this.invalidateCache();
+		for (const child of this.children) {
+			child.invalidate?.();
+		}
+	}
 
-    const hit = this.mouseLayout.hit(contentY, contentWidth, this.children);
-    if (hit === undefined) return undefined;
-    return dispatchMouseEvent(hit.component, {
-      ...event,
-      x: contentX,
-      y: hit.y,
-      width: contentWidth,
-      height: hit.height,
-    });
-  }
+	handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+		const contentWidth = Math.max(1, event.width - this.paddingX * 2);
+		const contentY = event.y - this.paddingY;
+		const contentX = event.x - this.paddingX;
+		if (contentY < 0 || contentX < 0 || contentX >= contentWidth) return undefined;
 
-  render(width: number): string[] {
-    if (this.children.length === 0) {
-      this.mouseLayout.record(Math.max(1, width - this.paddingX * 2), []);
-      return [];
-    }
+		const mouseChildren =
+			this.mouseLayout?.width === contentWidth
+				? this.mouseLayout.children
+				: this.children.map((component) => ({ component, height: component.render(contentWidth).length }));
+		let childY = 0;
+		for (const { component: child, height: childHeight } of mouseChildren) {
+			if (contentY >= childY && contentY < childY + childHeight) {
+				return dispatchMouseEvent(child, {
+					...event,
+					x: contentX,
+					y: contentY - childY,
+					width: contentWidth,
+					height: childHeight,
+				});
+			}
+			childY += childHeight;
+		}
+		return undefined;
+	}
 
-    const contentWidth = Math.max(1, width - this.paddingX * 2);
-    const leftPad = ' '.repeat(this.paddingX);
+	render(width: number): string[] {
+		if (this.children.length === 0) {
+			return [];
+		}
 
-    // Render all children
-    const childLines: string[] = [];
-    const mouseChildren: MouseChildLayout[] = [];
-    for (const child of this.children) {
-      const lines = child.render(contentWidth);
-      mouseChildren.push({ component: child, height: lines.length });
-      for (const line of lines) {
-        childLines.push(leftPad + line);
-      }
-    }
-    this.mouseLayout.record(contentWidth, mouseChildren);
+		const contentWidth = Math.max(1, width - this.paddingX * 2);
+		const leftPad = " ".repeat(this.paddingX);
 
-    if (childLines.length === 0) {
-      return [];
-    }
+		// Render all children. Keep the child lines unpadded: children usually return the same string
+		// objects every frame, so the cache check below is a cheap identity comparison per line.
+		// Padding here would create new strings that must be compared character by character.
+		const childLines: string[] = [];
+		const mouseChildren: Array<{ component: Component; height: number }> = [];
+		for (const child of this.children) {
+			const lines = child.render(contentWidth);
+			mouseChildren.push({ component: child, height: lines.length });
+			for (const line of lines) {
+				childLines.push(line);
+			}
+		}
+		this.mouseLayout = { width: contentWidth, children: mouseChildren };
 
-    // Check if bgFn output changed by sampling
-    const bgSample = this.bgFn ? this.bgFn('test') : undefined;
+		if (childLines.length === 0) {
+			return [];
+		}
 
-    // Check cache validity
-    if (this.matchCache(width, childLines, bgSample)) {
-      return this.cache!.lines;
-    }
+		// Check if bgFn output changed by sampling
+		const bgSample = this.bgFn ? this.bgFn("test") : undefined;
 
-    // Apply background and padding
-    const result: string[] = [];
+		// Check cache validity
+		if (this.matchCache(width, childLines, bgSample)) {
+			return this.cache!.lines;
+		}
 
-    // Top padding
-    for (let i = 0; i < this.paddingY; i++) {
-      result.push(this.applyBg('', width));
-    }
+		// Apply background and padding
+		const result: string[] = [];
 
-    // Content
-    for (const line of childLines) {
-      result.push(this.applyBg(line, width));
-    }
+		// Top padding
+		for (let i = 0; i < this.paddingY; i++) {
+			result.push(this.applyBg("", width));
+		}
 
-    // Bottom padding
-    for (let i = 0; i < this.paddingY; i++) {
-      result.push(this.applyBg('', width));
-    }
+		// Content
+		for (const line of childLines) {
+			result.push(this.applyBg(leftPad + line, width));
+		}
 
-    // Update cache
-    this.cache = { childLines, width, bgSample, lines: result };
+		// Bottom padding
+		for (let i = 0; i < this.paddingY; i++) {
+			result.push(this.applyBg("", width));
+		}
 
-    return result;
-  }
+		// Update cache
+		flattenLines(result);
+		this.cache = { childLines, width, bgSample, lines: result };
 
-  private applyBg(line: string, width: number): string {
-    const visLen = visibleWidth(line);
-    const padNeeded = Math.max(0, width - visLen);
-    const padded = line + ' '.repeat(padNeeded);
+		return result;
+	}
 
-    if (this.bgFn) {
-      return applyBackgroundToLine(padded, width, this.bgFn);
-    }
-    return padded;
-  }
+	private applyBg(line: string, width: number): string {
+		const visLen = visibleWidth(line);
+		const padNeeded = Math.max(0, width - visLen);
+		const padded = line + " ".repeat(padNeeded);
+		// Already padded to width, so apply the background directly instead of measuring the line again.
+		return this.bgFn ? this.bgFn(padded) : padded;
+	}
 }

@@ -1,36 +1,38 @@
-import { describe, expect, it, mock, spyOn } from 'bun:test';
-
-import type {
-  AutocompleteItem,
-  AutocompleteProvider,
-  AutocompleteSuggestions,
-  TUI,
+import {
+  CURSOR_MARKER,
+  FAKE_CURSOR_END,
+  FAKE_CURSOR_START,
+  type AutocompleteItem,
+  type AutocompleteProvider,
+  type AutocompleteSuggestions,
+  type TUI,
+  visibleWidth,
 } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
+import { describe, expect, it, onTestFinished, vi } from '@moonshot-ai/testkit/vitest';
 
 import { CustomEditor } from '#/tui/components/editor/custom-editor';
 import { FileMentionProvider } from '#/tui/components/editor/file-mention-provider';
+import { currentTheme } from '#/tui/theme';
 
 function makeEditor(): CustomEditor {
   const tui = {
-    requestRender: mock(),
-    render: mock(() => []),
+    requestRender: vi.fn(),
+    render: vi.fn(() => []),
     terminal: { rows: 40, cols: 120 },
   } as unknown as TUI;
   return new CustomEditor(tui);
 }
 
 async function flushAutocomplete(): Promise<void> {
-  // The editor serialises requests through `autocompleteRequestTask` and the
-  // task itself awaits the provider, so two microtask ticks are not enough:
-  // let the whole chain (including a zero-delay debounce timer) drain.
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 function providerReturning(items: AutocompleteItem[]): AutocompleteProvider {
   return {
-    getSuggestions: mock(async () => ({ items, prefix: '/' })),
-    applyCompletion: mock((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
+    getSuggestions: vi.fn(async () => ({ items, prefix: '/' })),
+    applyCompletion: vi.fn((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
   };
 }
 
@@ -40,12 +42,12 @@ function providerRecordingForce(items: AutocompleteItem[]): {
 } {
   const calls: Array<{ force: boolean | undefined; text: string }> = [];
   const provider: AutocompleteProvider = {
-    getSuggestions: mock(async (lines, cursorLine, cursorCol, options) => {
+    getSuggestions: vi.fn(async (lines, cursorLine, cursorCol, options) => {
       const text = (lines[cursorLine] ?? '').slice(0, cursorCol);
       calls.push({ force: options?.force, text });
       return { items, prefix: text };
     }),
-    applyCompletion: mock((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
+    applyCompletion: vi.fn((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
   };
   return { provider, calls };
 }
@@ -53,7 +55,7 @@ function providerRecordingForce(items: AutocompleteItem[]): {
 describe('CustomEditor autocomplete Escape handling', () => {
   it('escape closes a visible slash command menu without firing app-level escape', async () => {
     const editor = makeEditor();
-    const onEscape = mock();
+    const onEscape = vi.fn();
     editor.onEscape = onEscape;
     editor.setAutocompleteProvider(providerReturning([{ value: 'help', label: 'help' }]));
 
@@ -70,10 +72,10 @@ describe('CustomEditor autocomplete Escape handling', () => {
 
   it('escape cancels an in-flight slash command menu request', async () => {
     const editor = makeEditor();
-    const onEscape = mock();
+    const onEscape = vi.fn();
     let resolveSuggestions: (items: AutocompleteItem[]) => void = () => {};
     const provider: AutocompleteProvider = {
-      getSuggestions: mock(
+      getSuggestions: vi.fn(
         () =>
           new Promise<AutocompleteSuggestions | null>((resolve) => {
             resolveSuggestions = (items) => {
@@ -81,7 +83,7 @@ describe('CustomEditor autocomplete Escape handling', () => {
             };
           }),
       ),
-      applyCompletion: mock((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
+      applyCompletion: vi.fn((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
     };
     editor.onEscape = onEscape;
     editor.setAutocompleteProvider(provider);
@@ -100,23 +102,23 @@ describe('CustomEditor autocomplete Escape handling', () => {
 describe('CustomEditor onNonEscapeInput', () => {
   it('fires for a printable key and not for a lone Escape', () => {
     const editor = makeEditor();
-    const onNonEscapeInput = mock();
+    const onNonEscapeInput = vi.fn();
     editor.onNonEscapeInput = onNonEscapeInput;
 
     editor.handleInput('a');
-    expect(onNonEscapeInput).toHaveBeenCalledTimes(1);
+    expect(onNonEscapeInput).toHaveBeenCalledOnce();
 
     editor.handleInput('\u001B');
-    expect(onNonEscapeInput).toHaveBeenCalledTimes(1);
+    expect(onNonEscapeInput).toHaveBeenCalledOnce();
   });
 
   it('fires for control keys so they break a pending double-Esc', () => {
     const editor = makeEditor();
-    const onNonEscapeInput = mock();
+    const onNonEscapeInput = vi.fn();
     editor.onNonEscapeInput = onNonEscapeInput;
 
     editor.handleInput('\u0003');
-    expect(onNonEscapeInput).toHaveBeenCalledTimes(1);
+    expect(onNonEscapeInput).toHaveBeenCalledOnce();
   });
 });
 
@@ -260,7 +262,7 @@ describe('CustomEditor @ mention completion refresh', () => {
   it('reopens the next directory level after tab-accepting an @ directory', async () => {
     const editor = makeEditor();
     const provider: AutocompleteProvider = {
-      getSuggestions: mock(
+      getSuggestions: vi.fn(
         async (
           lines: string[],
           cursorLine: number,
@@ -276,7 +278,7 @@ describe('CustomEditor @ mention completion refresh', () => {
           return { items: [], prefix: '' };
         },
       ),
-      applyCompletion: mock(
+      applyCompletion: vi.fn(
         (
           lines: string[],
           cursorLine: number,
@@ -315,7 +317,12 @@ describe('CustomEditor @ mention completion refresh', () => {
 });
 
 describe('CustomEditor Tab key handling', () => {
-  it('does not open autocomplete when Tab is pressed with the dropdown closed', async () => {
+  it('keeps native completion closed and accepts a full prediction beyond its narrow preview', async () => {
+    const previousLevel = chalk.level;
+    chalk.level = 3;
+    onTestFinished(() => {
+      chalk.level = previousLevel;
+    });
     const editor = makeEditor();
     const provider = providerReturning([{ value: '@src/file.ts', label: 'file.ts' }]);
     editor.setAutocompleteProvider(provider);
@@ -326,11 +333,21 @@ describe('CustomEditor Tab key handling', () => {
 
     expect(provider.getSuggestions).not.toHaveBeenCalled();
     expect(editor.isShowingAutocomplete()).toBe(false);
+
+    const prediction = '请继续修复这个很长的 English prompt prediction，不要截断原文\n第二行也要保留';
+    editor.setPromptPrediction(prediction);
+    const rendered = editor.render(24);
+    const muted = currentTheme.fg('textMuted', 'x').split('x')[0]!;
+    expect(rendered.every((line) => visibleWidth(line) <= 24)).toBe(true);
+    expect(rendered.join('\n')).toContain('…');
+    expect(rendered.join('\n')).toContain(muted);
+    expect(editor.acceptPromptPrediction()).toBe(true);
+    expect(editor.getText()).toBe(prediction);
+    expect(editor.getPromptPrediction()).toBeUndefined();
   });
 });
 
 describe('CustomEditor slash argument hint', () => {
-  // oxlint-disable-next-line no-control-regex -- ESC (\u001B) is required to match ANSI SGR escape sequences
   const stripAnsi = (s: string): string => s.replaceAll(/\u001B\[[0-9;]*m/g, '');
 
   it('renders the argument hint after a command with a trailing space', () => {
@@ -405,14 +422,11 @@ describe('CustomEditor slash argument hint', () => {
     const contentLine = editor.render(90)[1] ?? '';
     const tokenIdx = contentLine.indexOf('/add-dir');
     expect(tokenIdx).toBeGreaterThan(-1);
-    // Prompt mode wraps `/add-dir` in a primary-colour ANSI sequence; in bash
-    // mode the token is plain text, so the byte right before it is a space.
     expect(contentLine[tokenIdx - 1]).toBe(' ');
   });
 });
 
 describe('CustomEditor slash menu description wrapping', () => {
-  // oxlint-disable-next-line no-control-regex -- ESC (\u001B) is required to match ANSI SGR escape sequences
   const stripAnsi = (s: string): string => s.replaceAll(/\u001B\[[0-9;]*m/g, '');
 
   it('wraps long slash command descriptions to at most two lines with an ellipsis', async () => {
@@ -435,11 +449,11 @@ describe('CustomEditor slash menu description wrapping', () => {
     const editor = makeEditor();
     const description = 'path '.repeat(60).trim();
     const provider: AutocompleteProvider = {
-      getSuggestions: mock(async () => ({
+      getSuggestions: vi.fn(async () => ({
         items: [{ value: '@src/file.ts', label: 'file.ts', description }],
         prefix: '@f',
       })),
-      applyCompletion: mock((lines, cursorLine, cursorCol) => ({
+      applyCompletion: vi.fn((lines, cursorLine, cursorCol) => ({
         lines,
         cursorLine,
         cursorCol,
@@ -448,7 +462,6 @@ describe('CustomEditor slash menu description wrapping', () => {
     editor.setAutocompleteProvider(provider);
 
     editor.handleInput('@');
-    // @-mention requests are debounced (20ms), unlike slash menus.
     await new Promise((resolve) => setTimeout(resolve, 30));
     await flushAutocomplete();
 
@@ -529,7 +542,7 @@ describe('CustomEditor paste marker expansion', () => {
 
   it('handles Ctrl+V expansion when cursor is on marker', () => {
     const editor = makeEditor();
-    editor.onPasteImage = mock(async () => false);
+    editor.onPasteImage = vi.fn(async () => false);
     const longText = 'line\n'.repeat(15).trimEnd();
     simulateLargePaste(editor, longText);
 
@@ -552,7 +565,6 @@ describe('CustomEditor paste marker expansion', () => {
     simulateLargePaste(editor, 'anything');
     expect(editor.getText()).toContain(longText);
 
-    // Undo (Ctrl+-) restores both the marker text and its paste-registry entry.
     editor.handleInput('\u001B[45;5u');
     expect(editor.getText()).toContain('[paste #1');
 
@@ -579,7 +591,6 @@ describe('CustomEditor paste marker expansion', () => {
     const longText = 'line\n'.repeat(15).trimEnd();
     simulateLargePaste(editor, longText);
 
-    // Split: PASTE_START in chunk 1, paste-end split across chunk 2 and 3
     editor.handleInput(`${PASTE_START}data`);
     editor.handleInput('\u001B[20');
     editor.handleInput('1~');
@@ -587,21 +598,18 @@ describe('CustomEditor paste marker expansion', () => {
     expect(editor.getText()).toContain(longText);
     expect(editor.getText()).not.toContain('data');
 
-    // Verify editor is not stuck — next keystrokes should work normally
     editor.handleInput('x');
     expect(editor.getText()).toContain('x');
   });
 
   it('falls back to the text paste path when the image paste handler rejects', async () => {
     const editor = makeEditor();
-    const onTextPaste = mock();
+    const onTextPaste = vi.fn();
     editor.onTextPaste = onTextPaste;
-    editor.onPasteImage = mock(async () => {
+    editor.onPasteImage = vi.fn(async () => {
       throw new Error('clipboard backend broken');
     });
 
-    // Regression: a rejecting onPasteImage must not leak an unhandled
-    // rejection — the CLI's crash path turns those into a silent exit.
     const rejections: unknown[] = [];
     const onRejection = (reason: unknown): void => {
       rejections.push(reason);
@@ -613,258 +621,104 @@ describe('CustomEditor paste marker expansion', () => {
         setImmediate(resolve);
       });
 
-      expect(onTextPaste).toHaveBeenCalledTimes(1);
+      expect(onTextPaste).toHaveBeenCalledOnce();
       expect(rejections).toHaveLength(0);
     } finally {
       process.off('unhandledRejection', onRejection);
     }
+  });
+
+  it('queues Enter and typing until an asynchronous image paste inserts its placeholder', async () => {
+    const editor = makeEditor();
+    const submit = vi.fn();
+    editor.onSubmit = submit;
+    let resolvePaste!: (handled: boolean) => void;
+    editor.onPasteImage = () =>
+      new Promise<boolean>((resolve) => {
+        resolvePaste = (handled) => {
+          editor.insertTextAtCursor?.('[image #1 (1×1)] ');
+          resolve(handled);
+        };
+      });
+
+    const pasteKey = process.platform === 'win32' ? '\u001Bv' : '\u0016';
+    editor.handleInput(pasteKey);
+    editor.handleInput('hello');
+    editor.handleInput('\r');
+
+    expect(editor.getText()).toBe('');
+    expect(submit).not.toHaveBeenCalled();
+
+    resolvePaste(true);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(submit).toHaveBeenCalledWith('[image #1 (1×1)] hello');
   });
 });
 
 describe('CustomEditor shortcut telemetry hooks', () => {
   it('reports undo shortcuts before delegating to the base editor', () => {
     const editor = makeEditor();
-    const onUndo = mock();
+    const onUndo = vi.fn();
     editor.onUndo = onUndo;
 
     editor.handleInput('a');
     editor.handleInput('\u001F');
 
-    expect(onUndo).toHaveBeenCalledTimes(1);
-  });
-
-  it('invokes onOptimizePrompt on Ctrl+P without changing the draft', () => {
-    const editor = makeEditor();
-    const onOptimizePrompt = mock();
-    editor.onOptimizePrompt = onOptimizePrompt;
-    editor.setText('fix the parser');
-    const cursor = editor.getCursor();
-
-    editor.handleInput('\u0010');
-
-    expect(onOptimizePrompt).toHaveBeenCalledTimes(1);
-    expect(editor.getText()).toBe('fix the parser');
-    expect(editor.getCursor()).toEqual(cursor);
-  });
-
-  it('leaves Ctrl+P to the editor default when no optimizer is wired', () => {
-    const editor = makeEditor();
-    const baseline = makeEditor();
-    for (const instance of [editor, baseline]) instance.setText('first\nsecond');
-    editor.handleInput('\u0010');
-    baseline.handleInput('\u0010');
-    expect(editor.getText()).toBe(baseline.getText());
-  });
-
-  it('marks the border as busy while a rewrite is in flight', () => {
-    const editor = makeEditor();
-    editor.setText('fix the parser');
-
-    const idle = editor.render(60).join('\n');
-    editor.optimizing = true;
-    const busy = editor.render(60).join('\n');
-
-    expect(busy).not.toBe(idle);
-    // The top border carries a label naming what is happening, so the wait is
-    // legible rather than just a colour change.
-    expect(busy).toContain('rewriting prompt');
-    expect(idle).not.toContain('rewriting prompt');
-  });
-
-  it('keeps the busy border even if the host repaints the border colour', () => {
-    const editor = makeEditor();
-    editor.setText('fix the parser');
-    editor.optimizing = true;
-
-    // Typing during the rewrite runs the host's border-highlight update, which
-    // reassigns `borderColor`. The busy flag lives on the editor precisely so
-    // that repaint cannot wipe the signal.
-    editor.borderColor = (s: string) => s;
-    expect(editor.render(60).join('\n')).toContain('rewriting prompt');
-  });
-
-  it('drops the busy label and returns to its own border once cleared', () => {
-    const editor = makeEditor();
-    editor.setText('fix the parser');
-    const idle = editor.render(60).join('\n');
-    editor.optimizing = true;
-    editor.render(60);
-    editor.optimizing = false;
-
-    expect(editor.render(60).join('\n')).toBe(idle);
-  });
-
-  it('routes a raw key to the status strip ahead of the normalized mapping', () => {
-    // `StatusSurfaceKey` carries no printable text, so a panel with an active
-    // inline input (an approval's rejection reason) receives the key here and
-    // the editor leaves the draft alone.
-    const editor = makeEditor();
-    const onStatusSurfaceRawInput = mock().mockReturnValue(true);
-    const onStatusSurfaceKey = mock().mockReturnValue(true);
-    editor.onStatusSurfaceRawInput = onStatusSurfaceRawInput;
-    editor.onStatusSurfaceKey = onStatusSurfaceKey;
-
-    editor.handleInput('r');
-
-    expect(onStatusSurfaceRawInput).toHaveBeenCalledWith('r');
-    expect(editor.getText()).toBe('');
-    // The raw channel answers first; a consumed key never reaches the mapping.
-    expect(onStatusSurfaceKey).not.toHaveBeenCalled();
-
-    // A key the mapping *would* claim — `3` is `digit3` — still goes raw while
-    // the panel's inline input is up, which is what makes the ordering (raw
-    // before `statusSurfaceKeyOf`) load-bearing.
-    editor.handleInput('3');
-    expect(onStatusSurfaceRawInput).toHaveBeenCalledWith('3');
-    expect(onStatusSurfaceKey).not.toHaveBeenCalled();
-    expect(editor.getText()).toBe('');
-  });
-
-  it('routes Ctrl+E through the raw channel, which has no normalized key', () => {
-    const editor = makeEditor();
-    const onStatusSurfaceRawInput = mock().mockReturnValue(true);
-    editor.onStatusSurfaceRawInput = onStatusSurfaceRawInput;
-
-    editor.handleInput('\u0005');
-
-    expect(onStatusSurfaceRawInput).toHaveBeenCalledWith('\u0005');
-  });
-
-  it('leaves the key to the editor when the raw channel rejects it', () => {
-    const editor = makeEditor();
-    editor.onStatusSurfaceRawInput = mock().mockReturnValue(false);
-    const onStatusSurfaceKey = mock().mockReturnValue(true);
-    editor.onStatusSurfaceKey = onStatusSurfaceKey;
-
-    editor.handleInput('r');
-
-    expect(onStatusSurfaceKey).not.toHaveBeenCalled();
-    expect(editor.getText()).toBe('r');
-  });
-
-  it('routes Ctrl+T to the status strip as a fold toggle', () => {
-    const editor = makeEditor();
-    const onStatusSurfaceKey = mock().mockReturnValue(true);
-    editor.onStatusSurfaceKey = onStatusSurfaceKey;
-
-    editor.handleInput('\u0014');
-
-    expect(onStatusSurfaceKey).toHaveBeenCalledWith('toggle');
+    expect(onUndo).toHaveBeenCalledOnce();
   });
 
   it.each(['\u000E', '\u001B[110;5u'] as const)(
     'toggles Updates focus on %j without changing the draft',
     (key) => {
       const editor = makeEditor();
-      const onStatusSurfaceKey = mock().mockReturnValue(true);
-      editor.onStatusSurfaceKey = onStatusSurfaceKey;
+      const onPageNotify = vi.fn().mockReturnValue(true);
+      editor.onPageNotify = onPageNotify;
       editor.setText('draft\nsecond line');
       const cursor = editor.getCursor();
       editor.handleInput(key);
-      expect(onStatusSurfaceKey).toHaveBeenCalledWith('focus');
+      expect(onPageNotify).toHaveBeenCalledWith();
       expect(editor.getText()).toBe('draft\nsecond line');
       expect(editor.getCursor()).toEqual(cursor);
     },
   );
 
-  it.each([
-    ['\u001B[D', 'left'],
-    ['\u001B[C', 'right'],
-    ['\u001B[A', 'up'],
-    ['\u001B[B', 'down'],
-    ['\u001B', 'escape'],
-    ['\r', 'enter'],
-  ] as const)('routes %j to the focused region as %s', (key, panelKey) => {
+  it('fades the whole box, keeping token hues, when keyboard or terminal focus is lost', () => {
+    const previousLevel = chalk.level;
+    chalk.level = 3;
+    onTestFinished(() => {
+      chalk.level = previousLevel;
+    });
+    const primary = currentTheme.fg('primary', 'x').split('x')[0]!;
+    const faint = '\u001B[2m';
     const editor = makeEditor();
-    const onStatusSurfaceKey = mock().mockReturnValue(true);
-    editor.onStatusSurfaceKey = onStatusSurfaceKey;
-    editor.onStatusSurfaceFocused = () => true;
-    editor.setText('draft');
-    editor.handleInput(key);
-    expect(onStatusSurfaceKey).toHaveBeenCalledWith(panelKey);
-    expect(editor.getText()).toBe('draft');
-  });
+    editor.setText('/help me');
 
-  it.each([
-    ['1', 'digit1'],
-    ['5', 'digit5'],
-    ['9', 'digit9'],
-  ] as const)('routes the %s key to the focused region as %s', (key, panelKey) => {
-    const editor = makeEditor();
-    const onStatusSurfaceKey = mock().mockReturnValue(true);
-    editor.onStatusSurfaceKey = onStatusSurfaceKey;
-    editor.setText('draft');
-    editor.handleInput(key);
-    expect(onStatusSurfaceKey).toHaveBeenCalledWith(panelKey);
-    expect(editor.getText()).toBe('draft');
-  });
+    editor.focused = true;
+    const focused = editor.render(40);
+    expect(focused.join('\n')).not.toContain(faint);
+    expect(focused[1]).toContain(FAKE_CURSOR_START);
+    expect(focused[1]).toContain(FAKE_CURSOR_END);
 
-  it('routes a Kitty-encoded digit the same way as a bare one', () => {
-    const editor = makeEditor();
-    const onStatusSurfaceKey = mock().mockReturnValue(true);
-    editor.onStatusSurfaceKey = onStatusSurfaceKey;
-    editor.setText('draft');
-    // Kitty's disambiguate flag sends `1` as CSI-u.
-    editor.handleInput('\u001B[49u');
-    expect(onStatusSurfaceKey).toHaveBeenCalledWith('digit1');
-    expect(editor.getText()).toBe('draft');
-  });
+    editor.focused = false;
+    const unfocused = editor.render(40);
+    expect(unfocused.every((line) => line.startsWith(faint))).toBe(true);
+    expect(unfocused[1]).toContain(`${primary}\u001B[1m/help\u001B[22m${faint}`);
+    expect(unfocused[1]).not.toContain('\u001B[7m');
+    expect(unfocused[1]).not.toContain(FAKE_CURSOR_START);
+    expect(unfocused[1]).not.toContain(FAKE_CURSOR_END);
 
-  it('leaves a digit to the editor when no region consumes it', () => {
-    const editor = makeEditor();
-    const baseline = makeEditor();
-    editor.onStatusSurfaceKey = () => false;
-    for (const instance of [editor, baseline]) instance.setText('draft');
-    editor.handleInput('7');
-    baseline.handleInput('7');
-    expect(editor.getText()).toBe(baseline.getText());
-  });
-
-  it('leaves Enter to the editor when no region consumes it', () => {
-    const editor = makeEditor();
-    const baseline = makeEditor();
-    editor.onStatusSurfaceKey = () => false;
-    for (const instance of [editor, baseline]) instance.setText('draft');
-    editor.handleInput('\r');
-    baseline.handleInput('\r');
-    expect(editor.getText()).toBe(baseline.getText());
-  });
-
-  it.each(['\u001B[D', '\u001B[A', '\u001B'] as const)(
-    'leaves %j to autocomplete even when the Updates panel is focused',
-    (key) => {
-      const editor = makeEditor();
-      const onStatusSurfaceKey = mock();
-      editor.onStatusSurfaceKey = onStatusSurfaceKey;
-      const internals = editor as unknown as { cancelAutocompleteActivity: () => void };
-      const cancelAutocomplete = spyOn(internals, 'cancelAutocompleteActivity');
-      cancelAutocomplete.mockImplementation(() => {});
-      spyOn(editor, 'hasAutocompleteActivity').mockReturnValue(true);
-      editor.setText('/rev');
-      editor.handleInput(key);
-      expect(onStatusSurfaceKey).not.toHaveBeenCalled();
-      if (key === '\u001B') expect(cancelAutocomplete).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it.each([
-    ['1', 'digit1'],
-    ['5', 'digit5'],
-    ['9', 'digit9'],
-  ] as const)('routes the %s key to the focused region as %s', (key, panelKey) => {
-    const editor = makeEditor();
-    const onStatusSurfaceKey = mock().mockReturnValue(true);
-    editor.onStatusSurfaceKey = onStatusSurfaceKey;
-    editor.setText('draft');
-    editor.handleInput(key);
-    expect(onStatusSurfaceKey).toHaveBeenCalledWith(panelKey);
-    expect(editor.getText()).toBe('draft');
+    editor.focused = true;
+    editor.terminalFocused = false;
+    const terminalUnfocused = editor.render(40);
+    expect(editor.focused).toBe(true);
+    expect(terminalUnfocused.map((line) => line.replace(CURSOR_MARKER, ''))).toEqual(unfocused);
   });
 
   it('keeps the original editor bindings when Updates paging is unavailable', () => {
     const editor = makeEditor();
     const baseline = makeEditor();
-    editor.onStatusSurfaceKey = () => false;
+    editor.onPageNotify = () => false;
     for (const instance of [editor, baseline]) instance.setText('first\nsecond');
     for (const key of ['\u0010', '\u000E']) {
       editor.handleInput(key);
@@ -873,10 +727,10 @@ describe('CustomEditor shortcut telemetry hooks', () => {
       expect(editor.getText()).toBe(baseline.getText());
     }
   });
+
 });
 
 describe('CustomEditor bash mode border label', () => {
-  // oxlint-disable-next-line no-control-regex -- ESC (\u001B) is required to match ANSI SGR escape sequences
   const stripAnsi = (s: string): string => s.replaceAll(/\u001B\[[0-9;]*m/g, '');
 
   it('shows "! shell mode" on the top border in bash mode', () => {
@@ -995,7 +849,6 @@ describe('CustomEditor bash mode file completion', () => {
     const editor = makeEditor();
     const { provider, calls } = providerRecordingForce([{ value: 'help', label: 'help' }]);
     editor.setAutocompleteProvider(provider);
-    // inputMode defaults to 'prompt'
 
     editor.handleInput('/');
     await flushAutocomplete();
@@ -1016,136 +869,8 @@ describe('CustomEditor bash mode file completion', () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     await flushAutocomplete();
 
-    // A force:false request would let pi-tui's own slash-command handling pop
-    // up subcommand completions for `/add-dir `. Bash mode must only ever
-    // request force:true path completion.
     expect(calls.length).toBeGreaterThan(0);
     expect(calls.every((call) => call.force === true)).toBe(true);
-  });
-});
-
-describe('CustomEditor drag & drop image path', () => {
-  it('attaches a quoted image path and consumes the input', () => {
-    const editor = makeEditor();
-    const onPasteMediaPath = mock(() => true);
-    editor.onPasteMediaPath = onPasteMediaPath;
-
-    editor.handleInput('"C:\\Users\\me\\img.png"');
-
-    expect(onPasteMediaPath).toHaveBeenCalledWith('C:\\Users\\me\\img.png');
-    expect(editor.getText()).toBe('');
-  });
-
-  it('attaches a bare image path without quotes', () => {
-    const editor = makeEditor();
-    const onPasteMediaPath = mock(() => true);
-    editor.onPasteMediaPath = onPasteMediaPath;
-
-    editor.handleInput('C:\\Users\\me\\img.png');
-    expect(onPasteMediaPath).toHaveBeenCalledWith('C:\\Users\\me\\img.png');
-    expect(editor.getText()).toBe('');
-  });
-
-  it('attaches a POSIX image path', () => {
-    const editor = makeEditor();
-    const onPasteMediaPath = mock(() => true);
-    editor.onPasteMediaPath = onPasteMediaPath;
-
-    editor.handleInput('/home/user/img.png');
-    expect(onPasteMediaPath).toHaveBeenCalledWith('/home/user/img.png');
-  });
-
-  it('routes a PDF path to the media handler', () => {
-    const editor = makeEditor();
-    const onPasteMediaPath = mock(() => true);
-    editor.onPasteMediaPath = onPasteMediaPath;
-
-    editor.handleInput('C:\\Users\\me\\report.pdf');
-
-    expect(onPasteMediaPath).toHaveBeenCalledWith('C:\\Users\\me\\report.pdf');
-    expect(editor.getText()).toBe('');
-  });
-
-  it('leaves non-image input as plain text', () => {
-    const editor = makeEditor();
-    const onPasteMediaPath = mock(() => true);
-    editor.onPasteMediaPath = onPasteMediaPath;
-
-    editor.handleInput('hello world');
-    expect(onPasteMediaPath).not.toHaveBeenCalled();
-    expect(editor.getText()).toBe('hello world');
-  });
-
-  it('leaves a non-image extension as plain text', () => {
-    const editor = makeEditor();
-    const onPasteMediaPath = mock(() => true);
-    editor.onPasteMediaPath = onPasteMediaPath;
-
-    editor.handleInput('C:\\Users\\me\\notes.txt');
-    expect(onPasteMediaPath).not.toHaveBeenCalled();
-    expect(editor.getText()).toBe('C:\\Users\\me\\notes.txt');
-  });
-
-  it('leaves an unquoted path with spaces as plain text', () => {
-    const editor = makeEditor();
-    const onPasteMediaPath = mock(() => true);
-    editor.onPasteMediaPath = onPasteMediaPath;
-
-    editor.handleInput('C:\\Users\\me\\My Image.png');
-    expect(onPasteMediaPath).not.toHaveBeenCalled();
-    expect(editor.getText()).toBe('C:\\Users\\me\\My Image.png');
-  });
-
-  it('falls through to text insertion when the handler rejects the path', () => {
-    const editor = makeEditor();
-    const onPasteMediaPath = mock(() => false);
-    editor.onPasteMediaPath = onPasteMediaPath;
-
-    editor.handleInput('C:\\Users\\me\\img.png');
-    expect(onPasteMediaPath).toHaveBeenCalledWith('C:\\Users\\me\\img.png');
-    expect(editor.getText()).toBe('C:\\Users\\me\\img.png');
-  });
-});
-
-describe('bare arrows and the status strip', () => {
-  function withStrip(editor: CustomEditor, focused: () => boolean): string[] {
-    const stripKeys: string[] = [];
-    editor.onStatusSurfaceFocused = focused;
-    editor.onStatusSurfaceKey = (key) => {
-      stripKeys.push(key);
-      return true;
-    };
-    return stripKeys;
-  }
-
-  it('keeps the bare arrows for the editor when no region is focused', () => {
-    const editor = makeEditor();
-    const stripKeys = withStrip(editor, () => false);
-
-    editor.handleInput('\x1b[B');
-    editor.handleInput('\x1b[A');
-
-    expect(stripKeys).toEqual([]);
-  });
-
-  it('hands the bare arrows to the strip when a region is focused', () => {
-    const editor = makeEditor();
-    const stripKeys = withStrip(editor, () => true);
-
-    editor.handleInput('\x1b[B');
-    editor.handleInput('\x1b[A');
-
-    expect(stripKeys).toEqual(['down', 'up']);
-  });
-
-  it('still scrolls the strip with shift+arrows while unfocused', () => {
-    const editor = makeEditor();
-    const stripKeys = withStrip(editor, () => false);
-
-    editor.handleInput('\x1b[1;2B');
-    editor.handleInput('\x1b[1;2A');
-
-    expect(stripKeys).toEqual(['down', 'up']);
   });
 });
 
@@ -1192,10 +917,7 @@ describe('CustomEditor alternate submit keys', () => {
     editor.setText('second');
     editor.handleInput('\r');
 
-    expect(submits).toEqual([
-      ['first', 'ctrl-q'],
-      ['second', 'enter'],
-    ]);
+    expect(submits).toEqual([['first', 'ctrl-q'], ['second', 'enter']]);
   });
 
   it.each(['\n', '\u001B\r'])('keeps %j inserting a newline', (data) => {
@@ -1209,33 +931,27 @@ describe('CustomEditor alternate submit keys', () => {
     expect(editor.getText()).toBe('line\n');
   });
 
-  it.each([CTRL_ENTER, SUPER_ENTER, CTRL_Q])(
-    'turns %j after a trailing backslash into a newline',
-    (data) => {
-      const editor = makeEditor();
-      const submits = submitting(editor);
-      editor.setText('line\\');
+  it.each([CTRL_ENTER, SUPER_ENTER, CTRL_Q])('turns %j after a trailing backslash into a newline', (data) => {
+    const editor = makeEditor();
+    const submits = submitting(editor);
+    editor.setText('line\\');
 
-      editor.handleInput(data);
+    editor.handleInput(data);
 
-      expect(submits).toEqual([]);
-      expect(editor.getText()).toBe('line\n');
-    },
-  );
+    expect(submits).toEqual([]);
+    expect(editor.getText()).toBe('line\n');
+  });
 
-  it.each([CTRL_ENTER, SUPER_ENTER, CTRL_Q])(
-    'inserts a newline for %j inside a paste burst',
-    (data) => {
-      const editor = makeEditor();
-      const submits = submitting(editor);
+  it.each([CTRL_ENTER, SUPER_ENTER, CTRL_Q])('inserts a newline for %j inside a paste burst', (data) => {
+    const editor = makeEditor();
+    const submits = submitting(editor);
 
-      for (const char of 'pasted text') editor.handleInput(char);
-      editor.handleInput(data);
+    for (const char of 'pasted text') editor.handleInput(char);
+    editor.handleInput(data);
 
-      expect(submits).toEqual([]);
-      expect(editor.getText()).toBe('pasted text\n');
-    },
-  );
+    expect(submits).toEqual([]);
+    expect(editor.getText()).toBe('pasted text\n');
+  });
 
   it('accepts an open slash menu the same way Enter does', async () => {
     const run = async (data: string) => {

@@ -1,67 +1,15 @@
-/**
- * `kimi -p` (print mode) entry point and shared print-mode utilities.
- *
- * The engine is always agent-core-v2: `runPrompt` delegates to the native v2
- * runner (`./v2/run-v2-print.ts`), which talks to the v2 DI services directly
- * and owns the turn/goal/background policy. This module keeps the small
- * print-mode helpers the v2 runner shares with the CLI entry chain:
- * time-bounded cleanup (`raceWithTimeout`), termination-signal handling
- * (`installPromptTerminationCleanup` / `signalExitCode`), and model resolution
- * (`requireConfiguredModel` / `configuredModel`).
- */
-
-import os from 'node:os';
-
-import { t } from '#/i18n';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '#/utils/render-clock';
-
 import type { CLIOptions } from './options';
+import { t } from '#/i18n';
 
-export type PromptClock = Pick<RenderClock, 'setTimeout' | 'clearTimeout'>;
-
-/**
- * Await `promise`, but stop waiting after `timeoutMs`.
- *
- * The timeout only bounds how long we WAIT — it does not change the outcome:
- *  - if `promise` settles first, its result is propagated (a rejection throws),
- *    so a cleanup step that actually fails in time still surfaces;
- *  - if the timeout wins, we resolve (give up waiting) and swallow the abandoned
- *    promise's eventual late rejection so it can't surface as an unhandled
- *    rejection.
- *
- * Used to bound shutdown so a wedged cleanup step can't keep a completed
- * headless run alive, without silently swallowing a cleanup that fails fast. The
- * timer stays ref'd so a cleanup step that suspends on an unref'd handle (e.g.
- * telemetry's retry backoff when the network is blocked) can't drain the event
- * loop and exit 0 before the rejection propagates — the timer keeps the loop
- * alive until it fires, then gives the rejection a chance to surface. A wedged
- * cleanup is still bounded by `timeoutMs`, so this can't hang the run forever.
- */
-export async function raceWithTimeout(
-  promise: Promise<void>,
-  timeoutMs: number,
-  clock: PromptClock = SYSTEM_RENDER_CLOCK,
-): Promise<void> {
-  // A non-positive timeout would make the timer fire immediately and silently
-  // skip waiting entirely — reject clearly-invalid values instead.
-  if (timeoutMs < 0) {
-    throw new RangeError(`raceWithTimeout: timeoutMs must be >= 0, got ${timeoutMs}`);
-  }
+export async function raceWithTimeout(promise: Promise<void>, timeoutMs: number): Promise<void> {
   let timedOut = false;
-  let timer: RenderTimerHandle | undefined;
-  // Attach the catch eagerly (synchronously) so `promise` is always consumed and
-  // a late rejection can never become an unhandled rejection. Before the timeout
-  // wins, the handler rethrows so a real cleanup failure still propagates.
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const guarded = promise.catch((error: unknown) => {
     if (timedOut) return;
     throw error;
   });
   const timedOutSignal = new Promise<void>((resolve) => {
-    timer = clock.setTimeout(() => {
+    timer = setTimeout(() => {
       timedOut = true;
       resolve();
     }, timeoutMs);
@@ -69,7 +17,7 @@ export async function raceWithTimeout(
   try {
     await Promise.race([guarded, timedOutSignal]);
   } finally {
-    if (timer !== undefined) clock.clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
@@ -95,9 +43,6 @@ export async function runPrompt(
   version: string,
   io: PromptRunIO = {},
 ): Promise<void> {
-  // The agent-core-v2 engine runs on its own native DI service runtime (see
-  // v2/run-v2-print.ts). Loaded lazily so the v2 module graph stays off the
-  // CLI startup path.
   const { runV2Print } = await import('./v2/run-v2-print');
   await runV2Print(opts, version, io);
 }
@@ -105,7 +50,9 @@ export async function runPrompt(
 export function requireConfiguredModel(...models: readonly (string | undefined)[]): string {
   const model = configuredModel(...models);
   if (model === undefined) {
-    throw new Error(t('tui.statusMessages.noModelPrompt'));
+    throw new Error(
+      t('tui.statusMessages.noModelPrompt'),
+    );
   }
   return model;
 }
@@ -125,8 +72,6 @@ export function installPromptTerminationCleanup(
     try {
       await cleanup();
     } finally {
-      // Exit regardless of cleanup outcome; the cleanup rejection propagates to
-      // the (already-exiting) caller.
       promptProcess.exit(signalExitCode(signal));
     }
   };
@@ -144,9 +89,7 @@ export function installPromptTerminationCleanup(
 }
 
 export function signalExitCode(signal: NodeJS.Signals): number {
-  if (signal === 'SIGINT') return 128 + os.constants.signals.SIGINT;
-  if (signal === 'SIGHUP') return 128 + os.constants.signals.SIGHUP;
-  if (signal === 'SIGTERM') return 128 + os.constants.signals.SIGTERM;
-  // Fall back to the SIGTERM convention (128 + 15) for any unhandled signal.
-  return 128 + (os.constants.signals.SIGTERM ?? 15);
+  if (signal === 'SIGINT') return 130;
+  if (signal === 'SIGHUP') return 129;
+  return 143;
 }

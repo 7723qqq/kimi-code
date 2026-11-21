@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { useDeleteSession, useImportZip, useSessions } from '../../hooks/useSession';
-import { t } from '../../i18n';
 import type { SessionSummary, SessionHealth } from '../../types';
 import { SessionCard } from './SessionCard';
 import { SessionFilter } from './SessionFilter';
+import { t } from '../../i18n';
 
 export type SessionSortKey = 'recent' | 'oldest' | 'most_records' | 'most_subagents';
 export type HealthFilter = 'all' | SessionHealth;
@@ -25,7 +25,7 @@ function sortSessions(sessions: readonly SessionSummary[], key: SessionSortKey):
     case 'most_records':
       return sessions.toSorted((a, b) => b.mainWireRecordCount - a.mainWireRecordCount);
     case 'most_subagents':
-      return sessions.toSorted((a, b) => b.agentCount - 1 - (a.agentCount - 1));
+      return sessions.toSorted((a, b) => (b.agentCount - 1) - (a.agentCount - 1));
   }
 }
 
@@ -68,11 +68,7 @@ export function SessionRail() {
       const result = await importZip.mutateAsync(file);
       void navigate(`/sessions/${result.sessionId}`);
     } catch (importError) {
-      window.alert(
-        t('session.importFailed', {
-          message: importError instanceof Error ? importError.message : String(importError),
-        }),
-      );
+      window.alert(`Import failed: ${importError instanceof Error ? importError.message : String(importError)}`);
     }
   }
 
@@ -107,7 +103,7 @@ export function SessionRail() {
 
   async function handleDeleteSession(session: SessionSummary) {
     const label = session.title ?? session.lastPrompt ?? session.sessionId;
-    if (!window.confirm(t('session.deleteConfirm', { label }))) {
+    if (!window.confirm(`Delete session "${label}"?\n\nThis removes its files from KIMI_CODE_HOME.`)) {
       return;
     }
     try {
@@ -134,20 +130,18 @@ export function SessionRail() {
         totalCount={data?.length ?? 0}
         filteredCount={filtered.length}
         importedCount={importedCount}
-        onImport={(file) => {
-          void handleImport(file);
-        }}
+        onImport={(file) => { void handleImport(file); }}
         importing={importZip.isPending}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         {isLoading ? (
-          <div className="p-3 font-mono text-[11px] text-fg-3">{t('session.loading')}</div>
+          <div className="p-3 font-mono text-[11px] text-fg-3">loading…</div>
         ) : error ? (
           <div className="p-3 font-mono text-[11px] text-[var(--color-sev-error)]">
             {error.message}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="p-3 font-mono text-[11px] text-fg-3">{t('session.noMatch')}</div>
+          <div className="p-3 font-mono text-[11px] text-fg-3">no sessions match</div>
         ) : grouped !== null ? (
           grouped.map(([group, items]) => (
             <div key={group}>

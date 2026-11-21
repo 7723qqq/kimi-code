@@ -1,86 +1,151 @@
-import './setup';
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { act, renderHook, waitFor } from '@testing-library/react';
-
-import { useAppInit } from '@/hooks/useAppInit';
-import { useSettingsStore } from '@/stores';
-
-const model = (name: string) => ({
-  name,
-  display_name: name,
-  provider: 'kimi',
-  provider_type: 'kimi',
-  max_context_size: 128_000,
-  capabilities: [],
-  support_efforts: [],
-  default_effort: null,
-});
-
-const handlers = new Map<string, () => void>();
-const getModels = mock();
-const unsubscribe = mock(() => {});
-
-void mock.module('@/services', () => ({
-  Events: {
-    ModelCatalogChanged: 'modelCatalogChanged',
-    ExtensionConfigChanged: 'extensionConfigChanged',
-  },
-  bridge: {
-    on: (event: string, handler: () => void) => {
-      handlers.set(event, handler);
-      return unsubscribe;
-    },
-    checkWorkspace: async () => ({ hasWorkspace: true, workspaceRoot: '/repo' }),
-    getExtensionConfig: async () => ({ theme: 'dark', changedKeys: [] }),
-    getSlashCommands: async () => [],
-    checkLoginStatus: async () => ({ loggedIn: true }),
-    getModels,
-  },
+const bridge = vi.hoisted(() => ({
+  on: vi.fn(),
+  checkWorkspace: vi.fn(),
+  getExtensionConfig: vi.fn(),
+  getSlashCommands: vi.fn(),
+  checkLoginStatus: vi.fn(),
+  getModels: vi.fn(),
 }));
 
-describe('useAppInit model catalog refresh', () => {
-  beforeEach(() => {
-    handlers.clear();
-    getModels.mockReset();
-    unsubscribe.mockClear();
-    getModels.mockImplementation(async () => ({
-      models: [model('boot-model')],
-      defaultModel: 'boot-model',
-      defaultThinking: false,
-      defaultThinkingEffort: undefined,
-    }));
-    useSettingsStore.setState({ models: [] });
+vi.mock("@/services", () => ({
+  bridge,
+  Events: {
+    ExtensionConfigChanged: "extensionConfigChanged",
+    ModelCatalogChanged: "modelCatalogChanged",
+  },
+}));
+vi.mock("@/components/ui/sonner", () => ({
+  toast: { error: vi.fn(), warning: vi.fn() },
+}));
+
+import { useAppInit } from "../../webview-ui/src/hooks/useAppInit";
+import { useSettingsStore } from "../../webview-ui/src/stores/settings.store";
+
+const PLAIN_MODEL = { id: "plain", name: "Plain", provider: "managed:kimi-code", capabilities: [] };
+const NEW_MODEL = { id: "new", name: "New", provider: "managed:kimi-code", capabilities: [] };
+const INITIAL_CONFIG = { models: [PLAIN_MODEL], defaultModel: "plain", defaultThinking: false };
+const listeners = new Map<string, Set<(data: unknown) => void>>();
+
+async function emitCatalogChanged(): Promise<void> {
+  await act(async () => {
+    for (const listener of [...(listeners.get("modelCatalogChanged") ?? [])]) listener({});
+  });
+}
+
+beforeEach(() => {
+  listeners.clear();
+  for (const mock of Object.values(bridge)) mock.mockReset();
+  bridge.on.mockImplementation((event: string, listener: (data: unknown) => void) => {
+    const eventListeners = listeners.get(event) ?? new Set<(data: unknown) => void>();
+    eventListeners.add(listener);
+    listeners.set(event, eventListeners);
+    return () => eventListeners.delete(listener);
+  });
+  bridge.checkWorkspace.mockResolvedValue({ hasWorkspace: true, path: "/workspace", workspaceRoot: "/workspace" });
+  bridge.getExtensionConfig.mockResolvedValue({
+    yoloMode: false,
+    autosave: true,
+    useCtrlEnterToSend: false,
+    enableNewConversationShortcut: false,
+    showThinkingContent: true,
+    showThinkingExpanded: false,
+    version: "test",
+  });
+  bridge.getSlashCommands.mockResolvedValue([]);
+  bridge.checkLoginStatus.mockResolvedValue({ loggedIn: true, siteBase: "https://example.com" });
+  bridge.getModels.mockResolvedValue(INITIAL_CONFIG);
+});
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+describe("useAppInit model catalog events", () => {
+  it("ignores a stale read that completes after a newer catalog read", async () => {
+    const { result } = renderHook(() => useAppInit());
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    let resolveFirst!: (config: typeof INITIAL_CONFIG) => void;
+    bridge.getModels
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveFirst = resolve;
+      }))
+      .mockResolvedValueOnce({
+        models: [PLAIN_MODEL, NEW_MODEL],
+        defaultModel: "new",
+        defaultThinking: false,
+      });
+
+    await emitCatalogChanged();
+    await emitCatalogChanged();
+    await waitFor(() => expect(useSettingsStore.getState().models).toHaveLength(2));
+    await act(async () => resolveFirst(INITIAL_CONFIG));
+
+    expect(useSettingsStore.getState().models).toHaveLength(2);
   });
 
-  it('applies a refreshed catalog broadcast by the extension', async () => {
+  it("reads fresh config on the next manual refresh", async () => {
     const { result } = renderHook(() => useAppInit());
-    await waitFor(() => expect(result.current.status).toBe('ready'));
-
-    getModels.mockImplementation(async () => ({
-      models: [model('refreshed-model')],
-      defaultModel: 'refreshed-model',
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    await emitCatalogChanged();
+    bridge.getModels.mockResolvedValue({
+      models: [PLAIN_MODEL, NEW_MODEL],
+      defaultModel: "new",
       defaultThinking: false,
-      defaultThinkingEffort: undefined,
-    }));
-
-    await act(async () => {
-      handlers.get('modelCatalogChanged')?.();
     });
 
-    await waitFor(() =>
-      expect(useSettingsStore.getState().models.map((entry) => entry.name)).toEqual([
-        'refreshed-model',
-      ]),
-    );
+    await act(async () => {
+      result.current.refresh();
+    });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(useSettingsStore.getState().models).toHaveLength(2);
   });
 
-  it('unsubscribes when the hook unmounts', async () => {
-    const { result, unmount } = renderHook(() => useAppInit());
-    await waitFor(() => expect(result.current.status).toBe('ready'));
+  it("uses the applied catalog count during initialization", async () => {
+    let resolveInitial!: (config: { models: never[]; defaultModel: null; defaultThinking: boolean }) => void;
+    bridge.getModels.mockReturnValueOnce(new Promise((resolve) => {
+      resolveInitial = resolve;
+    }));
+    const { result } = renderHook(() => useAppInit());
+    await waitFor(() => expect(bridge.getModels).toHaveBeenCalledTimes(1));
+    bridge.getModels.mockResolvedValueOnce({
+      models: [PLAIN_MODEL],
+      defaultModel: "plain",
+      defaultThinking: false,
+    });
 
-    unmount();
+    await emitCatalogChanged();
+    await act(async () => resolveInitial({
+      models: [],
+      defaultModel: null,
+      defaultThinking: false,
+    }));
 
-    expect(unsubscribe).toHaveBeenCalled();
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+  });
+
+  it("does not let initial loading overwrite a newer catalog", async () => {
+    let resolveInitial!: (config: typeof INITIAL_CONFIG) => void;
+    bridge.getModels.mockReturnValueOnce(new Promise((resolve) => {
+      resolveInitial = resolve;
+    }));
+    const { result } = renderHook(() => useAppInit());
+    await waitFor(() => expect(bridge.getModels).toHaveBeenCalledTimes(1));
+    bridge.getModels.mockResolvedValueOnce({
+      models: [PLAIN_MODEL, NEW_MODEL],
+      defaultModel: "new",
+      defaultThinking: false,
+    });
+
+    await emitCatalogChanged();
+    await waitFor(() => expect(useSettingsStore.getState().models).toHaveLength(2));
+    await act(async () => resolveInitial(INITIAL_CONFIG));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(useSettingsStore.getState().models).toHaveLength(2);
   });
 });

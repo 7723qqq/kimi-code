@@ -1,26 +1,29 @@
-import { beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { resolve as resolvePath } from 'node:path';
 
 import { join } from 'pathe';
+import { beforeEach, describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 
+import { AsyncEmitter, Emitter, Event } from '#/_base/event';
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import { type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
-import { AsyncEmitter, Emitter, Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { EXTRA_AGENT_DIRS_SECTION } from '#/workspace/workspaceAgentProfileLoader/configSection';
+import * as agentRoots from '#/workspace/workspaceAgentProfileLoader/internal/agentRoots';
+import { UserAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoaderService';
+import type { PluginAgentRoot, PluginReloadEvent } from '#/app/plugin/types';
 import {
   DEFAULT_AGENT_PROFILE_NAME,
   normalizeAgentProfile,
   type AgentProfile,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { AGENT_PROFILE_SOURCE_PRIORITY } from '#/app/agentProfileCatalog/agentProfileContribution';
 import { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
 import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { BuiltinAgentProfileLoaderService } from '#/app/agentProfileCatalog/builtinAgentProfileLoaderService';
+import { AGENT_PROFILE_SOURCE_PRIORITY } from '#/app/agentProfileCatalog/agentProfileContribution';
 import {
   _clearAgentProfileContributionsForTests,
   registerAgentProfile,
@@ -28,55 +31,51 @@ import {
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IPluginService } from '#/app/plugin/plugin';
-import { type PluginAgentRoot, type PluginReloadEvent } from '#/app/plugin/types';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
-import { ISessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
-import { SessionAgentProfileCatalogService } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalogService';
-import { EXTRA_AGENT_DIRS_SECTION } from '#/workspace/workspaceAgentProfileLoader/configSection';
-import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
-import { ExplicitAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoaderService';
-import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
-import { ExtraAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoaderService';
-import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
 import { PluginAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoaderService';
-import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
-import { UserAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoaderService';
-import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { SessionAgentProfileCatalogService } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalogService';
+import type { ISessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
+import { ExplicitAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoaderService';
+import { ExtraAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoaderService';
 import { WorkspaceAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoaderService';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
-import * as watchNamespace from '#human/utils/watch';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
+import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
+import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
+import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 
-const watchMockState = (() => ({ mode: 'inert' as 'inert' | 'real', calls: [] as string[] }))();
+const watchMockState = vi.hoisted(() => ({ mode: 'inert' as 'inert' | 'real', calls: [] as string[] }));
 
-const watchModule = watchNamespace;
-const originalWatch = watchModule.watch;
-const originalWatchCandidates = watchModule.watchCandidates;
-
-const watch = (path: string, options?: Parameters<typeof originalWatch>[1]) => {
-  watchMockState.calls.push(path);
-  if (watchMockState.mode === 'real') return originalWatch(path, options);
-  return {
-    ready: Promise.resolve(),
-    onDidChange: () => ({ dispose: () => {} }),
-    dispose: () => {},
+void vi.mock('#human/utils/watch', async () => {
+  const original = await import('#human/utils/watch');
+  const watch = (path: string, options?: Parameters<typeof original.watch>[1]) => {
+    if (watchMockState.mode === 'real') return original.watch(path, options);
+    watchMockState.calls.push(path);
+    return {
+      ready: Promise.resolve(),
+      onDidChange: () => ({ dispose: () => {} }),
+      dispose: () => {},
+    };
   };
-};
-
-spyOn(watchModule, 'watch').mockImplementation(watch as typeof originalWatch);
-spyOn(watchModule, 'watchCandidates').mockImplementation(((
-  root: string,
-  candidates: readonly string[],
-  options?: Parameters<typeof originalWatch>[1],
-) =>
-  watchMockState.mode === 'real'
-    ? originalWatchCandidates(root, candidates, options)
-    : watch(root, options)) as typeof watchModule.watchCandidates);
+  return {
+    ...original,
+    watch,
+    watchCandidates: (
+      root: string,
+      candidates: readonly string[],
+      options?: Parameters<typeof original.watch>[1],
+    ) =>
+      watchMockState.mode === 'real'
+        ? original.watchCandidates(root, candidates, options)
+        : watch(root, options),
+  };
+});
 
 function configStub(): IConfigService & {
   setExtraAgentDirs(dirs: readonly string[]): void;
@@ -125,15 +124,12 @@ function workspaceContextStub(workDir: string): IWorkspaceContext {
     workspaceId: 'wd_test',
     cwd: workDir,
     source: 'local',
-    meta: { id: 'wd_test', root: workDir, name: 'test', createdAt: 0, lastOpenedAt: 0 },
+    meta: { id: 'wd_test', root: workDir, name: 'test', kind: 'implicit', createdAt: 0, lastOpenedAt: 0 },
     persistenceScope: 'sessions/wd_test',
   };
 }
 
-function workspaceDirsStub(
-  workDir: string,
-  onDidChange: IWorkspaceDirs['onDidChange'] = Event.None as Event<void>,
-): IWorkspaceDirs {
+function workspaceDirsStub(workDir: string, onDidChange: IWorkspaceDirs['onDidChange'] = Event.None as Event<void>): IWorkspaceDirs {
   return {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
@@ -207,17 +203,17 @@ function pluginStub(
     onDidReload: reloadEmitter !== undefined ? reloadEmitter.event : () => ({ dispose: () => {} }),
     onDidMutate: () => ({ dispose: () => {} }),
     withMcpServersSuspended: async (_id, task) => task(),
-    reconcileAvailability: async () => {},
-    previewPlugin: async () => ({ skills: [], mcpServers: [] }),
     listPlugins: async () => [],
     installPlugin: async () => ({ id: '' }) as never,
     setPluginEnabled: async () => {},
     setPluginMcpServerEnabled: async () => {},
     removePlugin: async () => {},
     reloadPlugins: async () => ({ added: [], removed: [], errors: [] }),
+    reconcileAvailability: async () => {},
     getPluginInfo: async () => {
       throw new Error('getPluginInfo is not used by these tests');
     },
+    previewPlugin: async () => ({ skills: [], mcpServers: [] }),
     listPluginCommands: async () => [],
     checkUpdates: async () => [],
     pluginSkillRoots: async () => [],
@@ -387,16 +383,8 @@ describe('agent profile loaders + session catalog', () => {
 
   it('merges user and workspace agents; workspace wins on name collision', async () => {
     await withFixture(async (fixture) => {
-      await writeAgent(
-        join(fixture.homeDir, 'agents'),
-        'shared.md',
-        agentMd('shared', 'from user'),
-      );
-      await writeAgent(
-        join(fixture.homeDir, 'agents'),
-        'user-only.md',
-        agentMd('user-only', 'user agent'),
-      );
+      await writeAgent(join(fixture.homeDir, 'agents'), 'shared.md', agentMd('shared', 'from user'));
+      await writeAgent(join(fixture.homeDir, 'agents'), 'user-only.md', agentMd('user-only', 'user agent'));
       await writeAgent(
         join(fixture.workDir, '.kimi-code', 'agents'),
         'shared.md',
@@ -420,16 +408,8 @@ describe('agent profile loaders + session catalog', () => {
 
   it('orders sources user < extra < workspace < explicit', async () => {
     await withFixture(async (fixture) => {
-      await writeAgent(
-        join(fixture.homeDir, 'agents'),
-        'shared.md',
-        agentMd('shared', 'from user'),
-      );
-      await writeAgent(
-        join(fixture.homeDir, 'agents'),
-        'user-extra.md',
-        agentMd('user-extra', 'from user'),
-      );
+      await writeAgent(join(fixture.homeDir, 'agents'), 'shared.md', agentMd('shared', 'from user'));
+      await writeAgent(join(fixture.homeDir, 'agents'), 'user-extra.md', agentMd('user-extra', 'from user'));
       await writeAgent(fixture.extraDir, 'shared.md', agentMd('shared', 'from extra'));
       await writeAgent(fixture.extraDir, 'user-extra.md', agentMd('user-extra', 'from extra'));
       await writeAgent(
@@ -461,11 +441,7 @@ describe('agent profile loaders + session catalog', () => {
       const pluginAgentsDir = join(fixture.extraDir, 'plugin-agents');
       await writeAgent(pluginAgentsDir, 'shared.md', agentMd('shared', 'from plugin'));
       await writeAgent(pluginAgentsDir, 'plugin-only.md', agentMd('plugin-only', 'from plugin'));
-      await writeAgent(
-        join(fixture.homeDir, 'agents'),
-        'shared.md',
-        agentMd('shared', 'from user'),
-      );
+      await writeAgent(join(fixture.homeDir, 'agents'), 'shared.md', agentMd('shared', 'from user'));
       await withStack(
         fixture,
         { pluginAgentRoots: [{ path: pluginAgentsDir, source: 'plugin' }] },
@@ -510,7 +486,11 @@ describe('agent profile loaders + session catalog', () => {
 
   it('fails ready when an explicit agent file is invalid', async () => {
     await withFixture(async (fixture) => {
-      const bad = await writeAgent(fixture.workDir, 'bad.md', '---\nname: bad\n---\n\nbody\n');
+      const bad = await writeAgent(
+        fixture.workDir,
+        'bad.md',
+        '---\nname: bad\n---\n\nbody\n',
+      );
       await withStack(fixture, { explicitFiles: [bad] }, async (stack) => {
         await expect(stack.explicitLoader.ready).rejects.toThrow(/description/i);
       });
@@ -533,7 +513,11 @@ describe('agent profile loaders + session catalog', () => {
 
   it('recovers ready after a reload fixes a previously fatal explicit file', async () => {
     await withFixture(async (fixture) => {
-      const bad = await writeAgent(fixture.workDir, 'bad.md', '---\nname: bad\n---\n\nbody\n');
+      const bad = await writeAgent(
+        fixture.workDir,
+        'bad.md',
+        '---\nname: bad\n---\n\nbody\n',
+      );
       await withStack(fixture, { explicitFiles: [bad] }, async (stack) => {
         await expect(stack.explicitLoader.ready).rejects.toThrow(/description/i);
 
@@ -585,11 +569,7 @@ describe('agent profile loaders + session catalog', () => {
         'bad.md',
         '---\nname: bad\n---\n\nbody\n',
       );
-      await writeAgent(
-        join(fixture.workDir, '.kimi-code', 'agents'),
-        'good.md',
-        agentMd('good', 'valid'),
-      );
+      await writeAgent(join(fixture.workDir, '.kimi-code', 'agents'), 'good.md', agentMd('good', 'valid'));
       await withStack(fixture, undefined, async (stack) => {
         await stack.ready();
 
@@ -720,7 +700,7 @@ describe('agent profile loaders + session catalog', () => {
           .catch((error) =>
             stack.warnings.push(`agent profile loader "explicit" reload failed: ${String(error)}`),
           );
-        await waitForAssertion(() => {
+        await vi.waitFor(() => {
           expect(stack.warnings.some((w) => w.includes('reload failed'))).toBe(true);
         });
 
@@ -826,12 +806,7 @@ describe('agent profile loaders + session catalog', () => {
         );
 
         await expect(Promise.race([refreshed, timedOut])).resolves.toBe('workspace');
-        await waitForAssertion(
-          () => {
-            expect(stack.catalog.get('watched-agent')?.description).toBe('from watch');
-          },
-          { timeout: 5000 },
-        );
+        expect(stack.catalog.get('watched-agent')?.description).toBe('from watch');
       });
     });
   }, 15000);
@@ -841,9 +816,7 @@ describe('agent profile loaders + session catalog', () => {
       await withStack(fixture, undefined, async (stack) => {
         await stack.ready();
 
-        const bySourceId = new Map(
-          stack.registry.entries().map((entry) => [entry.sourceId, entry]),
-        );
+        const bySourceId = new Map(stack.registry.entries().map((entry) => [entry.sourceId, entry]));
         expect([...bySourceId.keys()].toSorted()).toEqual([
           'builtin',
           'explicit',
@@ -912,7 +885,7 @@ describe('workspace primary changes', () => {
         watchMockState.calls = [];
         Object.defineProperty(stack.workspaceContext, 'cwd', { get: () => next });
         stack.dirsChanges.fire();
-        await waitForAssertion(() => {
+        await vi.waitFor(() => {
           expect(stack.catalog.list().map((profile) => profile.name)).toContain('next');
         });
         expect(stack.catalog.list().map((profile) => profile.name)).not.toContain('first');
@@ -933,17 +906,16 @@ describe('workspace primary changes', () => {
       const initialStarted = new Promise<void>((resolve) => {
         markInitialStarted = resolve;
       });
-      const hostFs = new HostFileSystem();
-      const realStat = hostFs.stat.bind(hostFs);
-      const marker = resolvePath(fixture.workDir, '.git');
-      spyOn(hostFs, 'stat').mockImplementation(async (path) => {
-        if (path === marker) {
-          markInitialStarted();
-          await initialGate;
-        }
-        return realStat(path);
-      });
-      const stack = makeStack(fixture, { hostFs });
+      const candidates = vi.spyOn(agentRoots, 'projectAgentRootCandidates').mockImplementation(
+        async (_fs, primary) => {
+          if (primary === fixture.workDir) {
+            markInitialStarted();
+            await initialGate;
+          }
+          return { projectRoot: primary, candidates: [primary] };
+        },
+      );
+      const stack = makeStack(fixture);
       try {
         await initialStarted;
         watchMockState.calls = [];
@@ -955,17 +927,50 @@ describe('workspace primary changes', () => {
 
         releaseInitial();
         await stack.ready();
-        await waitForAssertion(() => {
-          expect(
-            watchMockState.calls.some(
-              (path) => path === next || path.startsWith(`${next}/`),
-            ),
-          ).toBe(true);
-        });
+        expect(watchMockState.calls.at(-1)).toBe(next);
       } finally {
         releaseInitial();
         stack.dispose();
+        candidates.mockRestore();
       }
+    });
+  });
+});
+
+describe('workspace loader watchEnabled', () => {
+  function userStub(): IUserAgentProfileLoader {
+    return {
+      getDefaultProfile: () => ({ renderSystemPrompt: () => 'prompt' }),
+    } as unknown as IUserAgentProfileLoader;
+  }
+
+  it('registers a project watcher only when watchEnabled is set', async () => {
+    await withFixture(async (fixture) => {
+      const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+      const make = (watchEnabled: boolean) =>
+        new WorkspaceAgentProfileLoaderService(
+          workspaceContextStub(fixture.workDir),
+          new HostFileSystem(),
+          workspaceDirsStub(fixture.workDir),
+          logStub(),
+          userStub(),
+          undefined,
+          undefined,
+          watchEnabled,
+        );
+
+      watchMockState.calls = [];
+      const disabled = make(false);
+      await disabled.ready;
+      await flush();
+      expect(watchMockState.calls).toEqual([]);
+      disabled.dispose();
+
+      const enabled = make(true);
+      await enabled.ready;
+      await flush();
+      expect(watchMockState.calls.length).toBeGreaterThan(0);
+      enabled.dispose();
     });
   });
 });

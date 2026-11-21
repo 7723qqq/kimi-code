@@ -1,14 +1,15 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-
+import { afterAll, afterEach, describe, expect, it } from '@moonshot-ai/testkit/vitest';
 import WebSocket from 'ws';
 
 import { WS_BEARER_PROTOCOL_PREFIX } from '../src/transport/ws/bearerProtocol';
-import { sharedServer } from './helpers/sharedServer';
+import { ensureSharedServer, sharedServer, stopSharedServer } from './helpers/sharedServer';
+
+await ensureSharedServer();
+afterAll(() => stopSharedServer());
 
 function openWs(url: string, protocols: string | string[]): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, protocols);
-    ws.on('error', () => {});
     ws.once('open', () => resolve(ws));
     ws.once('error', (err) => reject(err));
   });

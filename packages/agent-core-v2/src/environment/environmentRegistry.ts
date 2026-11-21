@@ -1,27 +1,11 @@
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { Emitter, type Event } from '#/_base/event';
-import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 
-import type {
-  Environment,
-  EnvironmentBinding,
-  EnvironmentCapability,
-  EnvironmentLease,
-} from './environment';
+import type { Environment, EnvironmentBinding, EnvironmentCapability, EnvironmentLease } from './environment';
 
-export type EnvironmentErrorCode =
-  | 'environment.not_found'
-  | 'environment.unavailable'
-  | 'environment.capability_unavailable'
-  | 'environment.conflict'
-  | 'environment.invalid_cwd';
+export type EnvironmentErrorCode = 'environment.not_found' | 'environment.unavailable' | 'environment.capability_unavailable' | 'environment.conflict' | 'environment.invalid_cwd';
 
 export class EnvironmentError extends Error {
-  constructor(
-    readonly code: EnvironmentErrorCode,
-    message: string,
-    options?: { readonly cause?: unknown },
-  ) {
+  constructor(readonly code: EnvironmentErrorCode, message: string, options?: { readonly cause?: unknown }) {
     super(message, options);
     this.name = 'EnvironmentError';
   }
@@ -45,21 +29,7 @@ interface Entry {
   closed: boolean;
 }
 
-export interface EnvironmentRegistryOptions {
-  readonly drainTimeoutMs?: number;
-  readonly timers?: IHostTimers;
-}
-
-const DEFAULT_ENVIRONMENT_DRAIN_TIMEOUT_MS = 5000;
-
-const SYSTEM_HOST_TIMERS: IHostTimers = {
-  _serviceBrand: undefined,
-  setClampedTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
-  setTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
-  clearTimeout: (handle) => {
-    globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>);
-  },
-};
+const ENVIRONMENT_DRAIN_TIMEOUT_MS = 5000;
 
 export interface EnvironmentRegistryChange {
   readonly environmentId: string;
@@ -90,14 +60,6 @@ export class EnvironmentRegistry {
   readonly onDidChange: Event<EnvironmentRegistryChange> = this.changeEmitter.event;
   private disposing = false;
 
-  private readonly drainTimeoutMs: number;
-  private readonly timers: IHostTimers;
-
-  constructor(options: EnvironmentRegistryOptions = {}) {
-    this.drainTimeoutMs = options.drainTimeoutMs ?? DEFAULT_ENVIRONMENT_DRAIN_TIMEOUT_MS;
-    this.timers = options.timers ?? SYSTEM_HOST_TIMERS;
-  }
-
   private list(): readonly Environment[] {
     return [...this.entries.values()].map((entry) => entry.environment);
   }
@@ -121,24 +83,17 @@ export class EnvironmentRegistry {
   inspect(binding: EnvironmentBinding): Environment {
     const environment = this.entries.get(binding.environmentId)?.environment;
     if (environment === undefined) {
-      throw new EnvironmentError(
-        'environment.not_found',
-        `environment ${binding.environmentId} does not exist`,
-      );
+      throw new EnvironmentError('environment.not_found', `environment ${binding.environmentId} does not exist`);
     }
     return environment;
   }
 
   register(environment: Environment): EnvironmentRegistrationHandle {
-    if (this.disposing)
-      throw new EnvironmentError('environment.unavailable', `environment registry is disposing`);
+    if (this.disposing) throw new EnvironmentError('environment.unavailable', `environment registry is disposing`);
     this.assertReady(environment);
     const environmentId = environment.identity.environmentId;
     if (this.entries.has(environmentId)) {
-      throw new EnvironmentError(
-        'environment.conflict',
-        `environment ${environmentId} already exists`,
-      );
+      throw new EnvironmentError('environment.conflict', `environment ${environmentId} already exists`);
     }
     this.entries.set(environmentId, this.createEntry(environment));
     this.publish(environment);
@@ -153,10 +108,7 @@ export class EnvironmentRegistry {
     await this.retire(previous, true);
   }
 
-  async acquireWhenReady(
-    binding: EnvironmentBinding,
-    required: readonly EnvironmentCapability[] = [],
-  ): Promise<EnvironmentLease> {
+  async acquireWhenReady(binding: EnvironmentBinding, required: readonly EnvironmentCapability[] = []): Promise<EnvironmentLease> {
     const entry = this.entries.get(binding.environmentId);
     if (entry !== undefined && !entry.closed && !environmentIsReady(entry.environment)) {
       if (typeof entry.environment.connect === 'function') await entry.environment.connect();
@@ -165,16 +117,10 @@ export class EnvironmentRegistry {
     return this.acquire(binding, required);
   }
 
-  acquire(
-    binding: EnvironmentBinding,
-    required: readonly EnvironmentCapability[] = [],
-  ): EnvironmentLease {
+  acquire(binding: EnvironmentBinding, required: readonly EnvironmentCapability[] = []): EnvironmentLease {
     const entry = this.entries.get(binding.environmentId);
     if (entry === undefined) {
-      throw new EnvironmentError(
-        'environment.not_found',
-        `environment ${binding.environmentId} does not exist`,
-      );
+      throw new EnvironmentError('environment.not_found', `environment ${binding.environmentId} does not exist`);
     }
     if (entry.closed || !environmentIsReady(entry.environment)) {
       const reason = entry.environment.connectError?.split('\n', 1)[0];
@@ -185,10 +131,7 @@ export class EnvironmentRegistry {
     }
     for (const capability of required) {
       if (!entry.environment.capabilities.has(capability)) {
-        throw new EnvironmentError(
-          'environment.capability_unavailable',
-          `environment ${binding.environmentId} does not provide ${capability}`,
-        );
+        throw new EnvironmentError('environment.capability_unavailable', `environment ${binding.environmentId} does not provide ${capability}`);
       }
     }
     entry.activeLeases += 1;
@@ -196,11 +139,7 @@ export class EnvironmentRegistry {
     return {
       environment: entry.environment,
       track: <T extends EnvironmentResource>(resource: T, sessionId?: string): T => {
-        if (!active || entry.closed)
-          throw new EnvironmentError(
-            'environment.unavailable',
-            `environment ${binding.environmentId} is unavailable`,
-          );
+        if (!active || entry.closed) throw new EnvironmentError('environment.unavailable', `environment ${binding.environmentId} is unavailable`);
         const originalDispose = resource.dispose.bind(resource);
         let disposed = false;
         const record: TrackedResource = {
@@ -217,11 +156,7 @@ export class EnvironmentRegistry {
           get: (target, property) => {
             if (property === 'dispose') {
               const descriptor = Reflect.getOwnPropertyDescriptor(target, property);
-              if (
-                descriptor === undefined ||
-                descriptor.configurable === true ||
-                descriptor.writable === true
-              ) {
+              if (descriptor === undefined || descriptor.configurable === true || descriptor.writable === true) {
                 return record.dispose;
               }
             }
@@ -261,9 +196,7 @@ export class EnvironmentRegistry {
     for (const record of records.toReversed()) {
       try {
         await record.dispose();
-      } catch (error) {
-        onUnexpectedError(error);
-      }
+      } catch {}
     }
   }
 
@@ -283,11 +216,7 @@ export class EnvironmentRegistry {
       closed: false,
       statusSubscription: environment.onDidChangeStatus((status) => {
         if (!entry.closed && this.entries.get(environment.identity.environmentId) === entry) {
-          this.changeEmitter.fire({
-            environmentId: environment.identity.environmentId,
-            current: environment,
-            status,
-          });
+          this.changeEmitter.fire({ environmentId: environment.identity.environmentId, current: environment, status });
         }
       }),
     };
@@ -303,17 +232,9 @@ export class EnvironmentRegistry {
   }
 
   private assertReady(environment: Environment): void {
-    if (environment.status === 'disposed')
-      throw new EnvironmentError(
-        'environment.unavailable',
-        `environment ${environment.identity.environmentId} is ${environment.status}`,
-      );
+    if (environment.status === 'disposed') throw new EnvironmentError('environment.unavailable', `environment ${environment.identity.environmentId} is ${environment.status}`);
     for (const capability of environment.capabilities) {
-      if (environment[capability] === undefined)
-        throw new EnvironmentError(
-          'environment.capability_unavailable',
-          `environment ${environment.identity.environmentId} declares ${capability} without an implementation`,
-        );
+      if (environment[capability] === undefined) throw new EnvironmentError('environment.capability_unavailable', `environment ${environment.identity.environmentId} declares ${capability} without an implementation`);
     }
   }
 
@@ -327,25 +248,23 @@ export class EnvironmentRegistry {
     for (const record of records) {
       try {
         await record.dispose();
-      } catch (error) {
-        onUnexpectedError(error);
-      }
+      } catch {}
     }
     await entry.environment.dispose();
   }
 
   private async waitForDrain(entry: Entry): Promise<void> {
     if (entry.activeLeases === 0) return;
-    let timeout: IHostTimerHandle | undefined;
+    let timeout: NodeJS.Timeout | undefined;
     await Promise.race([
       new Promise<void>((resolve) => {
         entry.drainResolvers.add(resolve);
       }),
       new Promise<void>((resolve) => {
-        timeout = this.timers.setTimeout(resolve, this.drainTimeoutMs);
+        timeout = setTimeout(resolve, ENVIRONMENT_DRAIN_TIMEOUT_MS);
       }),
     ]);
-    if (timeout !== undefined) this.timers.clearTimeout(timeout);
+    if (timeout !== undefined) clearTimeout(timeout);
     entry.drainResolvers.clear();
   }
 }

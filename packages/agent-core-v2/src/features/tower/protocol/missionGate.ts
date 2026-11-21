@@ -2,12 +2,12 @@ import picomatch from 'picomatch';
 
 import type { TowerMission, TowerReviewInfo, TowerState } from './types';
 
-export type TowerWorkerEnvironmentStatus = 'idle' | 'busy' | 'unknown';
+export type TowerWorkerRuntimeStatus = 'idle' | 'busy' | 'unknown';
 
 export interface TowerMissionWorkerRuntime {
   readonly agentId: string;
   readonly name: string;
-  readonly status: TowerWorkerEnvironmentStatus;
+  readonly status: TowerWorkerRuntimeStatus;
 }
 
 export interface TowerMissionBranchObservation {
@@ -153,11 +153,7 @@ export function evaluateMissionGate(input: TowerMissionGateInput): TowerMissionG
 
   const unmergedDeps = mission.deps.filter((dep) => {
     const dependency = state.missions.find((candidate) => candidate.id === dep);
-    return (
-      dependency !== undefined &&
-      dependency.status !== 'merged' &&
-      dependency.status !== 'abandoned'
-    );
+    return dependency !== undefined && dependency.status !== 'merged' && dependency.status !== 'abandoned';
   });
   if (unmergedDeps.length > 0) {
     return block(
@@ -294,9 +290,7 @@ function reviewBindingFor(
   if (review.reviewedCommit === tip) return 'exact-tip';
   if (mission.kind === 'artifact') return 'stale-tip';
   const waiver = mission.lastRebase;
-  return waiver !== undefined &&
-    waiver.fromCommit === review.reviewedCommit &&
-    waiver.toCommit === tip
+  return waiver !== undefined && waiver.fromCommit === review.reviewedCommit && waiver.toCommit === tip
     ? 'clean-rebase-waived'
     : 'stale-tip';
 }

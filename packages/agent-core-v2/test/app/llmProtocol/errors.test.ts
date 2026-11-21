@@ -1,5 +1,3 @@
-import { describe, expect, it } from 'bun:test';
-
 import {
   APIConnectionError,
   APIContextOverflowError,
@@ -19,6 +17,7 @@ import {
   normalizeAPIStatusError,
   parseRetryAfterMs,
 } from '#/llm-adapter/contract/errors';
+import { describe, expect, it } from '@moonshot-ai/testkit/vitest';
 
 describe('ChatProviderError', () => {
   it('is an instance of Error', () => {
@@ -150,9 +149,7 @@ describe('APIRequestTooLargeError', () => {
 
   it('is not retryable', () => {
     expect(
-      isRetryableGenerateError(
-        new APIRequestTooLargeError(413, 'Request exceeds the maximum size.'),
-      ),
+      isRetryableGenerateError(new APIRequestTooLargeError(413, 'Request exceeds the maximum size.')),
     ).toBe(false);
   });
 });
@@ -164,16 +161,17 @@ describe('isRetryableGenerateError', () => {
     expect(isRetryableGenerateError(new APIEmptyResponseError('empty'))).toBe(true);
   });
 
-  it.each([408, 409, 429, 500, 502, 503, 504, 529])('treats HTTP %i as retryable', (statusCode) => {
-    expect(isRetryableGenerateError(new APIStatusError(statusCode, 'retryable', true))).toBe(true);
-  });
+  it.each([408, 409, 429, 500, 502, 503, 504, 529])(
+    'treats HTTP %i as retryable',
+    (statusCode) => {
+      expect(isRetryableGenerateError(new APIStatusError(statusCode, 'retryable', true))).toBe(true);
+    },
+  );
 
   it('treats provider overload as retryable', () => {
     expect(isRetryableGenerateError(new APIProviderOverloadedError(529, 'Overloaded'))).toBe(true);
     expect(
-      isRetryableGenerateError(
-        new APIProviderOverloadedError(503, 'server is currently overloaded'),
-      ),
+      isRetryableGenerateError(new APIProviderOverloadedError(503, 'server is currently overloaded')),
     ).toBe(true);
   });
 
@@ -195,11 +193,13 @@ describe('isRetryableGenerateError', () => {
 
   it.each([
     ['Invalid data URL for image: data:image/png;base64'],
-    ['Unsupported media type for base64 image: image/avif, url: data:image/avif;base64,AAAA'],
+    [
+      'Unsupported media type for base64 image: image/avif, url: data:image/avif;base64,AAAA',
+    ],
   ])('does not retry deterministic provider validation error: %s', (message) => {
     expect(
       isRetryableGenerateError(
-        new ChatProviderError(message, 'provider.api_error', undefined, false),
+        new ChatProviderError(message, 'provider.api_error', undefined, undefined, false),
       ),
     ).toBe(false);
   });
@@ -216,7 +216,8 @@ describe('isImageFormatError', () => {
       isImageFormatError(
         new APIStatusError(
           400,
-          "messages.0.content.1.image.source.base64.media_type: Input should be 'image/jpeg'", false,
+          "messages.0.content.1.image.source.base64.media_type: Input should be 'image/jpeg'",
+          false,
         ),
       ),
     ).toBe(true);
@@ -237,9 +238,7 @@ describe('isImageFormatError', () => {
 
   it('matches client-side image whitelist throws', () => {
     expect(
-      isImageFormatError(
-        new ChatProviderError('Unsupported media type for base64 image: image/avif'),
-      ),
+      isImageFormatError(new ChatProviderError('Unsupported media type for base64 image: image/avif')),
     ).toBe(true);
     expect(
       isImageFormatError(
@@ -253,13 +252,11 @@ describe('isImageFormatError', () => {
     expect(isImageFormatError(new APIStatusError(422, 'image is bad', false))).toBe(false);
     expect(isImageFormatError(new APIStatusError(401, 'invalid api key', false))).toBe(false);
     expect(
-      isImageFormatError(
-        new APIContextOverflowError(400, 'context length exceeded for image model'),
-      ),
+      isImageFormatError(new APIContextOverflowError(400, 'context length exceeded for image model')),
     ).toBe(false);
-    expect(isImageFormatError(new APIRequestTooLargeError(413, 'image request too large'))).toBe(
-      false,
-    );
+    expect(
+      isImageFormatError(new APIRequestTooLargeError(413, 'image request too large')),
+    ).toBe(false);
     expect(isImageFormatError(new ChatProviderError('connection reset'))).toBe(false);
     expect(isImageFormatError(new Error('image is bad'))).toBe(false);
   });
@@ -277,7 +274,8 @@ describe('isImageFormatError', () => {
       isImageFormatError(
         new APIStatusError(
           400,
-          'messages.44.content.1.image.source.base64: image exceeds 5 MB maximum: 11641928 bytes > 5242880 bytes', false,
+          'messages.44.content.1.image.source.base64: image exceeds 5 MB maximum: 11641928 bytes > 5242880 bytes',
+          false,
         ),
       ),
     ).toBe(false);
@@ -289,7 +287,8 @@ describe('isImageFormatError', () => {
       isImageFormatError(
         new APIStatusError(
           400,
-          "messages.0.content.1.video.source.base64.media_type: Input should be 'video/mp4'", false,
+          "messages.0.content.1.video.source.base64.media_type: Input should be 'video/mp4'",
+          false,
         ),
       ),
     ).toBe(false);
@@ -307,13 +306,14 @@ describe('isImageFormatError', () => {
           'Unsupported media type for base64 image: image/avif',
           'provider.api_error',
           undefined,
+          undefined,
           false,
         ),
       ),
     ).toBe(false);
-    expect(isRetryableGenerateError(new APIStatusError(400, 'unsupported image format', false))).toBe(
-      false,
-    );
+    expect(
+      isRetryableGenerateError(new APIStatusError(400, 'unsupported image format', false)),
+    ).toBe(false);
   });
 });
 
@@ -444,10 +444,7 @@ describe('normalizeAPIStatusError', () => {
   });
 
   it('keeps a 413 with token-overflow wording as APIContextOverflowError', () => {
-    const error = normalizeAPIStatusError(
-      413,
-      'prompt is too long: 210000 tokens > 200000 maximum',
-    );
+    const error = normalizeAPIStatusError(413, 'prompt is too long: 210000 tokens > 200000 maximum');
     expect(error).toBeInstanceOf(APIContextOverflowError);
     expect(error).not.toBeInstanceOf(APIRequestTooLargeError);
   });
@@ -500,7 +497,8 @@ describe('isToolExchangeAdjacencyError', () => {
         new APIStatusError(
           400,
           'messages.5: `tool_result` block(s) provided when previous message does not ' +
-            'contain any `tool_use` blocks', false,
+            'contain any `tool_use` blocks',
+          false,
         ),
       ),
     ).toBe(true);
@@ -522,9 +520,7 @@ describe('isToolExchangeAdjacencyError', () => {
       isToolExchangeAdjacencyError(new APIStatusError(400, MOONSHOT_TOOL_CALL_ID_NOT_FOUND, false)),
     ).toBe(true);
     expect(
-      isToolExchangeAdjacencyError(
-        new APIStatusError(400, "tool_call_id 'call_abc123' is not found", false),
-      ),
+      isToolExchangeAdjacencyError(new APIStatusError(400, "tool_call_id 'call_abc123' is not found", false)),
     ).toBe(true);
   });
 
@@ -539,7 +535,8 @@ describe('isToolExchangeAdjacencyError', () => {
       isToolExchangeAdjacencyError(
         new APIStatusError(
           400,
-          "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'", false,
+          "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'",
+          false,
         ),
       ),
     ).toBe(true);
@@ -547,7 +544,8 @@ describe('isToolExchangeAdjacencyError', () => {
       isToolExchangeAdjacencyError(
         new APIStatusError(
           400,
-          'Role `tool` must be a response to a preceding message with `tool_calls`', false,
+          'Role `tool` must be a response to a preceding message with `tool_calls`',
+          false,
         ),
       ),
     ).toBe(true);
@@ -559,7 +557,8 @@ describe('isToolExchangeAdjacencyError', () => {
         new APIStatusError(
           400,
           "An assistant message with 'tool_calls' must be followed by tool messages responding to each " +
-            "'tool_call_id'. The following tool_call_ids did not have response messages: call_hSmZB4G8", false,
+            "'tool_call_id'. The following tool_call_ids did not have response messages: call_hSmZB4G8",
+          false,
         ),
       ),
     ).toBe(true);
@@ -568,7 +567,8 @@ describe('isToolExchangeAdjacencyError', () => {
         new APIStatusError(
           400,
           'An assistant message with "tool_calls" must be followed by tool messages responding to each ' +
-            '"tool_call_id". The following tool_call_ids did not have response messages: message[322].role', false,
+            '"tool_call_id". The following tool_call_ids did not have response messages: message[322].role',
+          false,
         ),
       ),
     ).toBe(true);
@@ -587,7 +587,7 @@ describe('isToolExchangeAdjacencyError', () => {
     expect(isToolExchangeAdjacencyError(new APIStatusError(400, 'resource not found', false))).toBe(false);
     expect(
       isToolExchangeAdjacencyError(
-        new APIStatusError(400, '400 Not supported model mimo-v2.5-pro-ultraspeed', false),
+        new APIStatusError(400, '400 Not supported model example-model', false),
       ),
     ).toBe(false);
     expect(isToolExchangeAdjacencyError(new APIStatusError(500, ANTHROPIC_MISSING_RESULT, true))).toBe(
@@ -618,7 +618,8 @@ describe('isRecoverableRequestStructureError', () => {
       isRecoverableRequestStructureError(
         new APIStatusError(
           400,
-          "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'", false,
+          "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'",
+          false,
         ),
       ),
     ).toBe(true);
@@ -627,7 +628,8 @@ describe('isRecoverableRequestStructureError', () => {
         new APIStatusError(
           400,
           "An assistant message with 'tool_calls' must be followed by tool messages responding to each " +
-            "'tool_call_id'. The following tool_call_ids did not have response messages: call_hSmZB4G8", false,
+            "'tool_call_id'. The following tool_call_ids did not have response messages: call_hSmZB4G8",
+          false,
         ),
       ),
     ).toBe(true);
@@ -664,7 +666,8 @@ describe('isRecoverableRequestStructureError', () => {
       isRecoverableRequestStructureError(
         new APIStatusError(
           400,
-          'messages: roles must alternate between "user" and "assistant", but found multiple "user" roles in a row', false,
+          'messages: roles must alternate between "user" and "assistant", but found multiple "user" roles in a row',
+          false,
         ),
       ),
     ).toBe(true);
@@ -675,7 +678,8 @@ describe('isRecoverableRequestStructureError', () => {
       isRecoverableRequestStructureError(
         new APIStatusError(
           400,
-          "400 the message at position 105 with role 'assistant' must not be empty", false,
+          "400 the message at position 105 with role 'assistant' must not be empty",
+          false,
         ),
       ),
     ).toBe(true);
@@ -683,9 +687,7 @@ describe('isRecoverableRequestStructureError', () => {
 
   it('does not match context overflow, auth, or non-status errors', () => {
     expect(
-      isRecoverableRequestStructureError(
-        new APIContextOverflowError(400, 'context length exceeded'),
-      ),
+      isRecoverableRequestStructureError(new APIContextOverflowError(400, 'context length exceeded')),
     ).toBe(false);
     expect(isRecoverableRequestStructureError(new APIStatusError(401, 'unauthorized', false))).toBe(false);
     expect(isRecoverableRequestStructureError(new APIStatusError(400, 'Bad request', false))).toBe(false);

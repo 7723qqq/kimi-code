@@ -1,32 +1,20 @@
-import { dirname } from 'node:path';
 
-import { DisposableStore } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService, type ISessionScopeHandle } from '#/_base/di/scope';
-import { Emitter, type Event, type IWaitUntil } from '#/_base/event';
-import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
-import { EnvironmentSetBinding } from '#/agent/environmentBinding/environmentBindingOps';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEnvironmentService } from '#/app/environment/environment';
+import { DisposableStore } from '#/_base/di/lifecycle';
 import { IEnvironmentDeclarationService } from '#/app/environmentDeclaration/environmentDeclaration';
-import { LifecycleScope } from '#/app/scopes';
-import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
-import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
 import { normalizeRemoteCwd } from '#/environment/environmentDefaults';
-import { Error2, ErrorCodes, isError2, SessionErrors, unwrapErrorCause } from '#/errors';
-import { IAgentCronService } from '#/features/cron/cronService';
+import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { Emitter, type Event, type IWaitUntil } from '#/_base/event';
+import { ScopeActivation, registerScopedService, type ISessionScopeHandle } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
+import { Error2, ErrorCodes, isError2, SessionErrors, unwrapErrorCause } from '#/errors';
+import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
+import { IAgentCronService } from '#/features/cron/cronService';
+import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionLockService, type SessionLockLease } from '#/persistence/interface/sessionLock';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionActivityView } from '#/session/sessionActivity/sessionActivity';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { encodeSessionMeta } from '#/session/sessionMetadata/sessionMetadataService';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 import {
   type CreateChildSessionOptions,
   type ForkSessionOptions,
@@ -39,11 +27,7 @@ import {
   type SessionWillCreateEvent,
 } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
-import {
-  IWorkspaceInstanceManager,
-  type WorkspaceInstanceLease,
-  type WorkspaceInstanceRef,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IWorkspaceInstanceManager, type WorkspaceInstanceLease, type WorkspaceInstanceRef } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 import {
   ISessionManager,
@@ -60,8 +44,6 @@ interface SessionControllerEntry {
   sessionCount: number;
   operationCount: number;
 }
-
-const MAX_RESUME_FAILURES = 64;
 
 export class SessionManager implements ISessionManager {
   declare readonly _serviceBrand: undefined;
@@ -92,15 +74,10 @@ export class SessionManager implements ISessionManager {
   constructor(
     @IWorkspaceInstanceManager private readonly workspaces: IWorkspaceInstanceManager,
     @ISessionIndex private readonly index: ISessionIndex,
-    @IEnvironmentDeclarationService
-    private readonly environmentDeclarations: IEnvironmentDeclarationService,
+    @IEnvironmentDeclarationService private readonly environmentDeclarations: IEnvironmentDeclarationService,
     @IEnvironmentService private readonly environments: IEnvironmentService,
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @ISessionLockService private readonly sessionLocks: ISessionLockService,
-    @IBootstrapService private readonly bootstrap: IBootstrapService,
-    @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
-    @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
-    @ISessionIndexMirror private readonly mirror: ISessionIndexMirror,
   ) {}
 
   async resolveCreationEnvironment(options: CreateManagedSessionOptions) {
@@ -116,14 +93,9 @@ export class SessionManager implements ISessionManager {
   async create(options: CreateManagedSessionOptions): Promise<ISessionScopeHandle> {
     const opened = await this.openCreation(options);
     try {
-      const effective =
-        opened.environmentId === undefined && opened.environmentCwd === undefined
-          ? options
-          : {
-              ...options,
-              environmentId: opened.environmentId,
-              environmentCwd: opened.environmentCwd,
-            };
+      const effective = opened.environmentId === undefined && opened.environmentCwd === undefined
+        ? options
+        : { ...options, environmentId: opened.environmentId, environmentCwd: opened.environmentCwd };
       const create = async () => {
         const entry = await this.controllerForWorkspace({
           workspaceId: opened.workspaceId,
@@ -140,10 +112,9 @@ export class SessionManager implements ISessionManager {
 
   private async openCreation(options: CreateManagedSessionOptions) {
     await this.environments.ready;
-    const declarations =
-      options.environmentId === LOCAL_ENVIRONMENT_ID
-        ? undefined
-        : await this.environmentDeclarations.declarations();
+    const declarations = options.environmentId === LOCAL_ENVIRONMENT_ID
+      ? undefined
+      : await this.environmentDeclarations.declarations();
     const environmentId = options.environmentId ?? declarations?.defaultId;
     const remote = environmentId !== undefined && environmentId !== LOCAL_ENVIRONMENT_ID;
     if (options.workDir !== undefined && !remote) await this.assertUsableWorkDir(options.workDir);
@@ -205,46 +176,30 @@ export class SessionManager implements ISessionManager {
     if (!stat.isDirectory) {
       try {
         stat = await this.hostFs.stat(await this.hostFs.realpath(workDir));
-      } catch {}
+      } catch {
+      }
     }
     if (!stat.isDirectory) {
-      throw new Error2(
-        ErrorCodes.FS_PATH_NOT_FOUND,
-        `workspace root ${workDir} is not a directory`,
-      );
+      throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${workDir} is not a directory`);
     }
   }
 
-  async resume(
-    sessionId: string,
-    options?: ResumeSessionOptions,
-  ): Promise<ISessionScopeHandle | undefined> {
+  async resume(sessionId: string, options?: ResumeSessionOptions): Promise<ISessionScopeHandle | undefined> {
     const inflight = this.pendingResumes.get(sessionId);
     if (inflight !== undefined) return inflight;
     this.resumeFailures.delete(sessionId);
     const promise = this.serializeLifecycle(sessionId, async () => {
       const entry = await this.controllerForSession(sessionId);
       if (entry === undefined) return undefined;
-      return this.runControllerOperation(entry, (controller) =>
-        controller.resume(
-          sessionId,
-          options,
-          this.reclaimed.has(sessionId) ? 'reclaimed' : 'resume',
-        ),
-      );
+      return this.runControllerOperation(entry, (controller) => controller.resume(
+        sessionId,
+        options,
+        this.reclaimed.has(sessionId) ? 'reclaimed' : 'resume',
+      ));
     }).finally(() => this.pendingResumes.delete(sessionId));
     this.pendingResumes.set(sessionId, promise);
     void promise.catch((error: unknown) => {
-      if (this.disposed) return;
-      this.resumeFailures.set(
-        sessionId,
-        error instanceof Error ? error : new Error('session resume failed'),
-      );
-      while (this.resumeFailures.size > MAX_RESUME_FAILURES) {
-        const oldest = this.resumeFailures.keys().next().value;
-        if (oldest === undefined) break;
-        this.resumeFailures.delete(oldest);
-      }
+      this.resumeFailures.set(sessionId, error instanceof Error ? error : new Error('session resume failed'));
     });
     return promise;
   }
@@ -258,9 +213,8 @@ export class SessionManager implements ISessionManager {
   }
 
   async whenResumeSettled(sessionId: string): Promise<void> {
-    const observed = this.resumeFailures.get(sessionId);
     await this.pendingResumes.get(sessionId);
-    const failure = this.resumeFailures.get(sessionId) ?? observed;
+    const failure = this.resumeFailures.get(sessionId);
     if (failure !== undefined) throw failure;
     await this.owners.get(sessionId)?.controller.whenResumeSettled(sessionId);
   }
@@ -279,10 +233,7 @@ export class SessionManager implements ISessionManager {
     return run;
   }
 
-  private serializeLifecycleForKeys<T>(
-    keys: readonly string[],
-    work: () => Promise<T>,
-  ): Promise<T> {
+  private serializeLifecycleForKeys<T>(keys: readonly string[], work: () => Promise<T>): Promise<T> {
     const [first, ...rest] = keys;
     if (first === undefined) return work();
     return this.serializeLifecycle(first, () => this.serializeLifecycleForKeys(rest, work));
@@ -312,145 +263,10 @@ export class SessionManager implements ISessionManager {
     await this.serializeLifecycle(sessionId, async () => {
       const entry = this.owners.get(sessionId);
       if (entry === undefined) return;
-      await this.runControllerOperation(this.retainController(entry), (controller) =>
-        controller.close(sessionId),
+      await this.runControllerOperation(
+        this.retainController(entry),
+        (controller) => controller.close(sessionId),
       );
-    });
-  }
-
-  move(
-    sessionId: string,
-    destination: { readonly workspaceId: string; readonly root: string },
-  ): Promise<ISessionScopeHandle> {
-    return this.serializeLifecycle(sessionId, async () => {
-      await this.assertUsableWorkDir(destination.root);
-      const source = await this.controllerForSession(sessionId);
-      if (source === undefined)
-        throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
-      return this.runControllerOperation(source, async (controller) => {
-        const handle = await controller.resume(sessionId);
-        if (handle === undefined)
-          throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
-        const context = handle.accessor.get(ISessionContext);
-        if (context.workspaceId === destination.workspaceId && context.cwd === destination.root)
-          return handle;
-        if (await this.retained(handle))
-          throw new Error2(
-            ErrorCodes.SESSION_BUSY,
-            'Cannot move a session with active work or scheduled tasks',
-          );
-        const quiescence = new DisposableStore();
-        try {
-          const lifecycle = handle.accessor.get(IAgentLifecycleService);
-          for (const entry of lifecycle.list()) {
-            const pause = lifecycle
-              .handleOf(entry.agentId)
-              ?.accessor.get(IAgentLoopService)
-              .tryAcquireQuiescence();
-            if (pause === undefined)
-              throw new Error2(
-                ErrorCodes.SESSION_BUSY,
-                'Cannot move a session with queued or running prompts',
-              );
-            quiescence.add(pause);
-          }
-          const metadata = await handle.accessor.get(ISessionMetadata).read();
-          if (
-            metadata.environmentId !== undefined &&
-            metadata.environmentId !== LOCAL_ENVIRONMENT_ID
-          ) {
-            throw new Error2(
-              ErrorCodes.REQUEST_INVALID,
-              'Change the remote environment binding instead of moving its host cwd',
-            );
-          }
-          if (this.hostFs.rename === undefined)
-            throw new Error2(
-              ErrorCodes.REQUEST_INVALID,
-              'Session storage does not support atomic directory moves',
-            );
-          const target = await this.controllerForWorkspace(destination);
-          return await this.runControllerOperation(target, async (targetController) => {
-            const targetScope = `${this.bootstrap.scope('sessions')}/${destination.workspaceId}/${sessionId}`;
-            const targetPath = this.storage.pathFor(targetScope, '');
-            if (targetPath === undefined)
-              throw new Error2(
-                ErrorCodes.REQUEST_INVALID,
-                'Session storage does not expose directory paths',
-              );
-            const exists = await this.hostFs.stat(targetPath).then(
-              () => true,
-              (error: unknown) => {
-                const code = (unwrapErrorCause(error) as NodeJS.ErrnoException | undefined)?.code;
-                if (code === 'ENOENT' || code === 'ENOTDIR') return false;
-                throw error;
-              },
-            );
-            if (exists)
-              throw new Error2(
-                ErrorCodes.REQUEST_INVALID,
-                'Destination session storage already exists',
-              );
-            const lease = this.sessionLocks.lease(sessionId);
-            let moved = false;
-            try {
-              await controller.close(sessionId);
-              await this.hostFs.mkdir(dirname(targetPath), { recursive: true });
-              await this.hostFs.rename!(context.sessionDir, targetPath);
-              moved = true;
-              const updated = {
-                ...metadata,
-                cwd: destination.root,
-                environmentCwd: undefined,
-                updatedAt: Date.now(),
-              };
-              await this.docs.set(targetScope, 'state.json', encodeSessionMeta(updated));
-              this.mirror.record({ ...updated, workspaceId: destination.workspaceId });
-              await this.mirror.drain();
-              const result = await targetController.resume(sessionId);
-              if (result === undefined) throw new Error('Moved session could not be restored');
-              const agents = result.accessor.get(IAgentLifecycleService);
-              for (const agentId of Object.keys(metadata.agents ?? { main: {} })) {
-                await agents.create({ agentId });
-                const agent = agents.handleOf(agentId)!;
-                if (
-                  agent.accessor.get(IAgentEnvironmentBindingService).current.environmentId ===
-                  LOCAL_ENVIRONMENT_ID
-                ) {
-                  await agent.accessor
-                    .get(IEventDispatcher)
-                    .dispatch(
-                      new EnvironmentSetBinding({
-                        agentId,
-                        environmentId: LOCAL_ENVIRONMENT_ID,
-                        cwd: destination.root,
-                      }),
-                    );
-                }
-              }
-              return result;
-            } catch (error) {
-              if (moved) {
-                await targetController.close(sessionId);
-                await this.hostFs.rename!(targetPath, context.sessionDir);
-                await this.docs.set(context.metaScope, 'state.json', encodeSessionMeta(metadata));
-                this.mirror.record({
-                  ...metadata,
-                  workspaceId: context.workspaceId,
-                  cwd: context.cwd,
-                });
-                await this.mirror.drain();
-              }
-              await controller.resume(sessionId);
-              throw error;
-            } finally {
-              lease.release();
-            }
-          });
-        } finally {
-          quiescence.dispose();
-        }
-      });
     });
   }
 
@@ -460,8 +276,7 @@ export class SessionManager implements ISessionManager {
       const entry = this.owners.get(sessionId);
       if (handle === undefined || entry === undefined) return false;
       return this.runControllerOperation(this.retainController(entry), async (controller) => {
-        if (Date.now() - handle.accessor.get(ISessionActivityView).lastActiveAt() < idleTimeoutMs)
-          return false;
+        if (Date.now() - handle.accessor.get(ISessionActivityView).lastActiveAt() < idleTimeoutMs) return false;
         let lease: SessionLockLease;
         try {
           lease = this.sessionLocks.lease(sessionId);
@@ -485,10 +300,7 @@ export class SessionManager implements ISessionManager {
     const agents = handle.accessor.get(IAgentLifecycleService);
     const hasCron = agents
       .list()
-      .some(
-        (agent) =>
-          (agents.handleOf(agent.agentId)?.accessor.get(IAgentCronService).list().length ?? 0) > 0,
-      );
+      .some((agent) => (agents.handleOf(agent.agentId)?.accessor.get(IAgentCronService).list().length ?? 0) > 0);
     if (hasCron) return true;
     const activity = handle.accessor.get(ISessionActivityView).state();
     return activity.busy || activity.pendingInteraction !== 'none';
@@ -512,15 +324,10 @@ export class SessionManager implements ISessionManager {
   ): Promise<ISessionScopeHandle | undefined> {
     const entry = await this.controllerForSession(sessionId);
     if (entry === undefined) return undefined;
-    return this.runControllerOperation(entry, (controller) =>
-      controller.restore(sessionId, options),
-    );
+    return this.runControllerOperation(entry, (controller) => controller.restore(sessionId, options));
   }
 
-  async restore(
-    sessionId: string,
-    options?: ResumeSessionOptions,
-  ): Promise<ISessionScopeHandle | undefined> {
+  async restore(sessionId: string, options?: ResumeSessionOptions): Promise<ISessionScopeHandle | undefined> {
     return this.serializeLifecycle(sessionId, () => this.restoreInner(sessionId, options));
   }
 
@@ -537,8 +344,7 @@ export class SessionManager implements ISessionManager {
           sessionId,
           signal: new AbortController().signal,
           waitUntil: (cleanup) => {
-            if (Object.isFrozen(cleanups))
-              throw new Error('waitUntil must be called synchronously');
+            if (Object.isFrozen(cleanups)) throw new Error('waitUntil must be called synchronously');
             cleanups.push(cleanup);
           },
         });
@@ -592,7 +398,6 @@ export class SessionManager implements ISessionManager {
     this.sessions.clear();
     this.owners.clear();
     this.reclaimed.clear();
-    this.resumeFailures.clear();
     this.willCreateEmitter.dispose();
     this.didCreateEmitter.dispose();
     this.willCloseEmitter.dispose();
@@ -626,39 +431,29 @@ export class SessionManager implements ISessionManager {
         sessionCount: 0,
         operationCount: 1,
       };
-      subscriptions.add(
-        controller.onWillCreateSession((event) => this.willCreateEmitter.fire(event)),
-      );
-      subscriptions.add(
-        controller.onDidCreateSession((event) => {
-          entry.sessionCount += 1;
-          this.reclaimed.delete(event.sessionId);
-          this.sessions.set(event.sessionId, event.handle);
-          this.owners.set(event.sessionId, entry);
-          this.didCreateEmitter.fire(event);
-        }),
-      );
-      subscriptions.add(
-        controller.onWillCloseSession((event) => this.willCloseEmitter.fire(event)),
-      );
-      subscriptions.add(
-        controller.onDidCloseSession((event) => {
-          entry.sessionCount -= 1;
-          this.sessions.delete(event.sessionId);
-          this.owners.delete(event.sessionId);
-          this.didCloseEmitter.fire(event);
-          this.retireEntryIfIdle(entry);
-        }),
-      );
-      subscriptions.add(
-        controller.onDidArchiveSession((event) => {
-          entry.sessionCount -= 1;
-          this.sessions.delete(event.sessionId);
-          this.owners.delete(event.sessionId);
-          this.didArchiveEmitter.fire(event);
-          this.retireEntryIfIdle(entry);
-        }),
-      );
+      subscriptions.add(controller.onWillCreateSession((event) => this.willCreateEmitter.fire(event)));
+      subscriptions.add(controller.onDidCreateSession((event) => {
+        entry.sessionCount += 1;
+        this.reclaimed.delete(event.sessionId);
+        this.sessions.set(event.sessionId, event.handle);
+        this.owners.set(event.sessionId, entry);
+        this.didCreateEmitter.fire(event);
+      }));
+      subscriptions.add(controller.onWillCloseSession((event) => this.willCloseEmitter.fire(event)));
+      subscriptions.add(controller.onDidCloseSession((event) => {
+        entry.sessionCount -= 1;
+        this.sessions.delete(event.sessionId);
+        this.owners.delete(event.sessionId);
+        this.didCloseEmitter.fire(event);
+        this.retireEntryIfIdle(entry);
+      }));
+      subscriptions.add(controller.onDidArchiveSession((event) => {
+        entry.sessionCount -= 1;
+        this.sessions.delete(event.sessionId);
+        this.owners.delete(event.sessionId);
+        this.didArchiveEmitter.fire(event);
+        this.retireEntryIfIdle(entry);
+      }));
       subscriptions.add(controller.onDidForkSession((event) => this.didForkEmitter.fire(event)));
       this.controllerEntries.add(entry);
       this.controllers.set(workspaceId, entry);
@@ -688,15 +483,9 @@ export class SessionManager implements ISessionManager {
   }
 
   private retireEntryIfIdle(entry: SessionControllerEntry): void {
-    if (
-      entry.sessionCount !== 0 ||
-      entry.operationCount !== 0 ||
-      !this.controllerEntries.has(entry)
-    )
-      return;
+    if (entry.sessionCount !== 0 || entry.operationCount !== 0 || !this.controllerEntries.has(entry)) return;
     this.controllerEntries.delete(entry);
-    if (this.controllers.get(entry.workspaceId) === entry)
-      this.controllers.delete(entry.workspaceId);
+    if (this.controllers.get(entry.workspaceId) === entry) this.controllers.delete(entry.workspaceId);
     this.disposeEntry(entry);
   }
 
@@ -712,9 +501,7 @@ export class SessionManager implements ISessionManager {
     }
   }
 
-  private async controllerForSession(
-    sessionId: string,
-  ): Promise<SessionControllerEntry | undefined> {
+  private async controllerForSession(sessionId: string): Promise<SessionControllerEntry | undefined> {
     const live = this.owners.get(sessionId);
     if (live !== undefined) return this.retainController(live);
     const summary = await this.index.get(sessionId);
@@ -724,10 +511,4 @@ export class SessionManager implements ISessionManager {
   }
 }
 
-registerScopedService(
-  LifecycleScope.App,
-  ISessionManager,
-  SessionManager,
-  ScopeActivation.OnScopeCreated,
-  'sessionManager',
-);
+registerScopedService(LifecycleScope.App, ISessionManager, SessionManager, ScopeActivation.OnScopeCreated, 'sessionManager');

@@ -101,9 +101,7 @@ export function createHostCheck(opts: HostCheckOptions): HostCheck {
     reply: FastifyReply,
   ): Promise<FastifyReply | void> => {
     if (!isAllowed(req.headers.host)) {
-      return reply
-        .code(403)
-        .send(errEnvelope(HOST_ERROR_CODE, formatHostErrorMessage(req.headers.host), req.id));
+      return reply.code(403).send(errEnvelope(HOST_ERROR_CODE, formatHostErrorMessage(req.headers.host), req.id));
     }
   };
   return { onRequest, isAllowed };

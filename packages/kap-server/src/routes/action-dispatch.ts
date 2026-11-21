@@ -51,11 +51,7 @@ export async function runAction<TAction extends string, TExtra>(opts: {
   if (parsed !== undefined && !parsed.success) {
     throw new Error2(ErrorCodes.VALIDATION_FAILED, z.prettifyError(parsed.error));
   }
-  await entry.handle({
-    ...opts.extra,
-    id: opts.id,
-    body: parsed === undefined ? opts.body : parsed.data,
-  });
+  await entry.handle({ ...opts.extra, id: opts.id, body: parsed === undefined ? opts.body : parsed.data });
   return true;
 }
 

@@ -1,10 +1,9 @@
-import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { readTodoItems } from '@moonshot-ai/agent-core-v2/features/todo/todoItem';
 
-import type { SessionMigrationFailure } from '../types.js';
 import { closeDanglingToolCalls } from './close-tool-calls.js';
 import { extractToolCallDisplays } from './tool-call-display.js';
 import {
@@ -33,76 +32,45 @@ interface SubagentEventLink {
   readonly firstPrompt?: string;
 }
 
-/**
- * Migrate every legacy `subagents/<agent_id>/` under a source session dir into
- * v2 per-agent wires at `<targetDir>/agents/<agentId>/wire.jsonl`, and return
- * the info needed to register them in meta.agents and to synthesize matching
- * task records in the main agent's wire. The legacy agent ids are kept as-is —
- * they are the keys the main agent's records (SubagentEvent payloads, tool
- * results) reference. A subagent whose wire already exists in the target is
- * reported but not rewritten, so re-runs stay idempotent.
- */
-export interface SubagentMigrationFailures {
-  readonly infos: readonly LegacySubagentInfo[];
-  readonly failures: readonly SessionMigrationFailure[];
-}
-
 export async function migrateLegacySubagents(
   sourceSessionDir: string,
   targetDir: string,
-): Promise<SubagentMigrationFailures> {
+): Promise<readonly LegacySubagentInfo[]> {
   const subagentsRoot = join(sourceSessionDir, 'subagents');
   let entries: string[];
   try {
     entries = await readdir(subagentsRoot);
   } catch {
-    return { infos: [], failures: [] };
+    return [];
   }
   const links = await extractSubagentEventLinks(sourceSessionDir);
-  const infos: LegacySubagentInfo[] = [];
-  const failures: SessionMigrationFailure[] = [];
+  const out: LegacySubagentInfo[] = [];
   for (const entry of entries) {
-    const dir = join(subagentsRoot, entry);
-    const outcome = await migrateOneSubagent(dir, links.get(entry), targetDir);
-    if (outcome === 'skip') continue;
-    if (outcome.ok) {
-      infos.push(outcome.info);
-      continue;
-    }
-    failures.push({ sourcePath: dir, reason: outcome.reason });
+    const info = await migrateOneSubagent(join(subagentsRoot, entry), links.get(entry), targetDir);
+    if (info !== undefined) out.push(info);
   }
-  return { infos, failures };
+  return out;
 }
-
-type SubagentMigrationOutcome =
-  | { readonly ok: true; readonly info: LegacySubagentInfo }
-  | { readonly ok: false; readonly reason: string }
-  | 'skip';
 
 async function migrateOneSubagent(
   dir: string,
   link: SubagentEventLink | undefined,
   targetDir: string,
-): Promise<SubagentMigrationOutcome> {
+): Promise<LegacySubagentInfo | undefined> {
   const meta = await readSubagentMeta(dir);
-  if (meta === undefined) {
-    return { ok: false, reason: 'subagent meta.json is missing or unreadable' };
-  }
+  if (meta === undefined) return undefined;
 
   const wirePath = join(targetDir, 'agents', meta.agentId, 'wire.jsonl');
   if (existsSync(wirePath)) {
     return {
-      ok: true,
-      info: {
-        agentId: meta.agentId,
-        subagentType: meta.subagentType,
-        description: meta.description ?? link?.firstPrompt ?? '',
-        status: mapSubagentStatus(meta.status),
-        startedAtMs: meta.createdAtMs ?? Date.now(),
-        endedAtMs: meta.updatedAtMs ?? meta.createdAtMs ?? Date.now(),
-        model: meta.model,
-        parentToolCallId: link?.parentToolCallId,
-      },
+      agentId: meta.agentId,
+      subagentType: meta.subagentType,
+      description: meta.description ?? link?.firstPrompt ?? '',
+      status: mapSubagentStatus(meta.status),
+      startedAtMs: meta.createdAtMs ?? Date.now(),
+      endedAtMs: meta.updatedAtMs ?? meta.createdAtMs ?? Date.now(),
+      model: meta.model,
+      parentToolCallId: link?.parentToolCallId,
     };
   }
 
@@ -117,7 +85,7 @@ async function migrateOneSubagent(
       displays = undefined;
     }
     messages = closeDanglingToolCalls(translateContextLines(contextLines, displays));
-    if (messages.length === 0) return 'skip';
+    if (messages.length === 0) return undefined;
     const createdAtMs = meta.createdAtMs ?? Date.now();
     await writeSubagentWire(targetDir, meta.agentId, {
       createdAtMs,
@@ -125,22 +93,19 @@ async function migrateOneSubagent(
       lastUsageTokenCount: extractLastUsageTokenCount(contextLines),
       todoItems: await readSubagentTodos(dir),
     });
-  } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  } catch {
+    return undefined;
   }
 
   return {
-    ok: true,
-    info: {
-      agentId: meta.agentId,
-      subagentType: meta.subagentType,
-      description: meta.description ?? link?.firstPrompt ?? '',
-      status: mapSubagentStatus(meta.status),
-      startedAtMs: meta.createdAtMs ?? Date.now(),
-      endedAtMs: meta.updatedAtMs ?? meta.createdAtMs ?? Date.now(),
-      model: meta.model,
-      parentToolCallId: link?.parentToolCallId,
-    },
+    agentId: meta.agentId,
+    subagentType: meta.subagentType,
+    description: meta.description ?? link?.firstPrompt ?? '',
+    status: mapSubagentStatus(meta.status),
+    startedAtMs: meta.createdAtMs ?? Date.now(),
+    endedAtMs: meta.updatedAtMs ?? meta.createdAtMs ?? Date.now(),
+    model: meta.model,
+    parentToolCallId: link?.parentToolCallId,
   };
 }
 
@@ -204,9 +169,6 @@ function mapSubagentStatus(status: string): 'completed' | 'failed' | 'lost' {
   return 'lost';
 }
 
-// The main wire's SubagentEvent records are the only place that links a
-// subagent run to the Agent tool call that spawned it (parent_tool_call_id)
-// and carries its launch prompt (first TurnBegin user_input).
 async function extractSubagentEventLinks(
   sourceSessionDir: string,
 ): Promise<ReadonlyMap<string, SubagentEventLink>> {
@@ -310,14 +272,9 @@ async function writeSubagentWire(
   await writeFile(join(wireDir, 'wire.jsonl'), lines.join('\n') + '\n', 'utf-8');
 }
 
-/**
- * The task.started/task.terminated records that make a migrated subagent show
- * up in the main agent's task list, exactly as a native run would leave them.
- */
-export function buildSubagentTaskRecords(info: LegacySubagentInfo): {
-  readonly started: WireRecord;
-  readonly terminated: WireRecord;
-} {
+export function buildSubagentTaskRecords(
+  info: LegacySubagentInfo,
+): { readonly started: WireRecord; readonly terminated: WireRecord } {
   const base = {
     kind: 'agent',
     taskId: info.agentId,

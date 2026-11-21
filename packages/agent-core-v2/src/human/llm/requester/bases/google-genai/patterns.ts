@@ -1,6 +1,6 @@
-import type { Message, ToolMessage } from '#/llm/message';
-import type { Pattern } from '#/llm/protocol/rewrite';
-import { SyntaxRequestFormatError } from '#/llm/syntax-errors';
+import type { Message, ToolMessage } from '#human/message';
+import type { Pattern } from '#human/llm/protocol/rewrite';
+import { SyntaxRequestFormatError } from '#human/llm/syntax-errors';
 
 export const sortToolRunByCallOrder: Pattern<Message> = {
   name: 'sortToolRunByCallOrder',

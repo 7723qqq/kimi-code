@@ -14,7 +14,7 @@
  * final assistant message, and width changes that invalidate Markdown caches.
  *
  * Run from the repository root:
- *   bun packages/pi-tui/test/alt-screen-large-transcript-bench.ts
+ *   node --experimental-strip-types packages/tui/test/alt-screen-large-transcript-bench.ts
  */
 
 import { performance } from "node:perf_hooks";
@@ -67,6 +67,7 @@ class NullTerminal implements Terminal {
 	clearScreen(): void {}
 	setTitle(_title: string): void {}
 	setProgress(_active: boolean): void {}
+	setProgramStatus(): void {}
 }
 
 const userMarkdown = [

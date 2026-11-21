@@ -121,7 +121,10 @@ interface StoredRecord {
 export type { StoredRecord };
 
 export class CollectionStore {
-  private readonly _records = new Map<CollectionToken<unknown>, Map<number, StoredRecord>>();
+  private readonly _records = new Map<
+    CollectionToken<unknown>,
+    Map<number, StoredRecord>
+  >();
   private readonly _views = new Set<CollectionViewImpl<unknown>>();
   private _nextId = 0;
 
@@ -203,7 +206,10 @@ export class CollectionStore {
     return out;
   }
 
-  storedRecordsFor(token: CollectionToken<unknown>, consumer: object): readonly StoredRecord[] {
+  storedRecordsFor(
+    token: CollectionToken<unknown>,
+    consumer: object,
+  ): readonly StoredRecord[] {
     const records = this._records.get(token);
     if (records === undefined) {
       return [];
@@ -218,7 +224,10 @@ export class CollectionStore {
   }
 
   definitionFor<T>(token: CollectionToken<T>, consumer: object): DefinitionRecord<T> | undefined {
-    const record = this.storedRecordsFor(token as CollectionToken<unknown>, consumer)[0];
+    const record = this.storedRecordsFor(
+      token as CollectionToken<unknown>,
+      consumer,
+    )[0];
     if (record === undefined) return undefined;
     return {
       definition: record.value as T,
@@ -242,7 +251,8 @@ export class CollectionViewImpl<T> implements CollectionView<T>, DefinitionView<
   private readonly _onDidChange = new Emitter<CollectionChange<T>>();
   private readonly _onDidChangeDefinition = new Emitter<DefinitionChange<T>>();
   readonly onDidChange: Event<CollectionChange<T>> = this._onDidChange.event;
-  readonly onDidChangeDefinition: Event<DefinitionChange<T>> = this._onDidChangeDefinition.event;
+  readonly onDidChangeDefinition: Event<DefinitionChange<T>> =
+    this._onDidChangeDefinition.event;
 
   constructor(
     private readonly _store: CollectionStore,
@@ -266,7 +276,9 @@ export class CollectionViewImpl<T> implements CollectionView<T>, DefinitionView<
     const previous = kind === 'removed' ? this.definitionRecord(records[0]) : undefined;
     const values = records.map((record) => record.value as T);
     this._onDidChange.fire(
-      kind === 'added' ? { added: values, removed: [] } : { added: [], removed: values },
+      kind === 'added'
+        ? { added: values, removed: [] }
+        : { added: [], removed: values },
     );
     if (isDefinitionToken(this.token)) {
       this._onDidChangeDefinition.fire({ current: this.current, previous });

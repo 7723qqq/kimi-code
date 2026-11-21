@@ -1,12 +1,12 @@
 import { cp, mkdir, rm, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
-const appRoot = resolve(import.meta.dirname, '..');
+
+const appRoot = resolve(dirname(Bun.fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(appRoot, '../..');
 const source = resolve(repoRoot, 'packages/pi-tui/native');
 const target = resolve(appRoot, 'native');
 
-// pi-tui ships platform-specific native helpers for darwin/linux/win32.
 const PLATFORMS = ['darwin', 'linux', 'win32'];
 
 async function assertPrebuilds(platform) {

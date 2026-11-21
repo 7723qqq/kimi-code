@@ -131,6 +131,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | [`github`](#github) | `table` | — | Built-in GitHub tools |
 | [`github_proxy`](#github_proxy) | `table` | — | Proxy and mirror acceleration scoped to GitHub traffic |
 | [`permission`](#permission) | `table` | — | Initial permission rules |
+| [`hosts`](#hosts) | `table` | — | Full remote project servers over SSH |
 | [`environments`](#environments) | `table` | — | Remote environment declarations |
 | [`hooks`](../customization/hooks.md) | `array<table>` | — | Lifecycle hooks |
 | [`identity`](#identity) | `table` | — | Custom agent identity |
@@ -740,6 +741,8 @@ This covers requests kimi-code makes itself — the GitHub tools and any GitHub 
 
 User rules are loaded from the user `config.toml` at session startup. For compatibility, legacy `turn-override` and `session-runtime` rules in the user config are silently ignored without a warning.
 
+If the user `config.toml` cannot be read or parsed, or a section fails validation, sessions continue with defaults or the last validated configuration held by the current process; sending requests still requires a valid model and credentials. Errors and warnings remain visible in configuration diagnostics and non-interactive output. Configuration writes stay blocked while the file cannot be read or parsed; fix the file and reload it before writing.
+
 Project rules are read from `.kimi-code/local.toml` only in the local environment when the workspace is trusted, with an omitted `scope` defaulting to `project`. Remote project rules are not supported. Project rule changes take effect in a new session and are not hot-reloaded.
 
 You can also set `dangerous_command_guard = false` under `[permission]` to turn off every built-in guard confirmation policy entirely: dangerous commands, access to sensitive files such as `.env` or `id_rsa`, and access to git control paths no longer ask for confirmation in Always Ask and Ask When Needed mode (these policies are never active in Never Ask mode); the default is `true`. An environment variable `KIMI_CODE_DANGEROUS_COMMAND_GUARD=false` overrides the file setting. With all built-in guards off, only `ask` rules you configured yourself can still prompt in Ask When Needed mode; in Always Ask mode, tools that are not auto-approved continue to prompt as before. The hard block that stops `Read`/`Write`/`Edit` from touching secret files stays in effect. Use this switch only for environments that already gate commands outside the agent.
@@ -775,6 +778,29 @@ pattern = "Bash"
 MCP server declarations are configured in `~/.kimi-code/mcp.json` or the project-local `.kimi-code/mcp.json`, not in `config.toml`. The interactive configuration entry point is `/mcp-config`; see [Model Context Protocol](../customization/mcp.md).
 :::
 
+## `hosts`
+
+`hosts` connects the Web and Desktop project lists to full Kimi Code servers on SSH hosts. Unlike [`environments`](#environments), which redirects one session's tools, each host keeps its own projects, sessions, model configuration, and Kimi login. Install a compatible Kimi Code on the remote host and configure SSH access before connecting.
+
+```toml
+[hosts.dev]
+host = "devbox"
+name = "Development server"
+enabled = true
+# identity_file = "~/.ssh/id_ed25519"
+# remote_bin = "~/.kimi-code/bin/kimi"
+```
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `host` | Yes | SSH destination or configured SSH alias; must not start with `-` |
+| `name` | No | Display name, up to 64 characters |
+| `enabled` | No | Set `false` to disable connection without removing the host |
+| `identity_file` | No | SSH identity file passed to the local SSH client |
+| `remote_bin` | No | Remote Kimi executable; defaults to `~/.kimi-code/bin/kimi` |
+
+The table key is a stable host id: 1–64 letters, digits, `.`, `_`, or `-`, beginning with a letter or digit. The local server connects enabled hosts when a client opens its event stream and reconnects after recoverable failures. The remote managed server can continue working when the connecting computer disconnects and exits after its idle window. Each host signs in independently; copying custom model providers is an explicit action because it transfers provider credentials. Connection diagnostics, aggregation, and provider-copy behavior are exposed by the local server's SSH host routes; inspect `GET /openapi.json` for the current request and response shapes.
+
 ## `environments`
 
 `environments` declares remote environments — SSH hosts, Docker-compatible containers, or custom launcher commands — that sessions can bind to so the agent's tools execute in the target environment. See [Remote environments](../guides/remote-environment.md) for the feature walkthrough, boundaries, and limitations.
@@ -784,6 +810,8 @@ Each entry is keyed by its environment id: at most 64 characters, no leading or 
 Remote working directories must be absolute POSIX paths or Windows drive paths; relative paths and `~` are not expanded. See [Windows target environments](../guides/remote-environment.md#windows-target-environments) for the Git Bash and launcher requirements.
 
 The optional top-level `default` names the environment a session binds to when creation does not specify one. It must reference a configured entry, and that entry must set `defaultCwd` — a binding pairs an environment with a working directory, so a default without one would dangle. Without a `default`, those sessions start on the `local` environment. A TUI `/new` does not use this default: it keeps the current environment. See [Remote environments](../guides/remote-environment.md).
+
+If the environment section is invalid, its last valid declarations remain in use. Without a valid prior declaration, implicit session creation falls back to the local environment and retains the diagnostic. This fallback can change where commands run, so check configuration diagnostics before relying on a remote environment. An explicitly selected environment must still exist and be valid; it never falls back to local automatically.
 
 ### SSH entries
 
@@ -850,7 +878,7 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | Color theme: `auto` (follow the terminal), `dark`, `light`, or the name of a [custom theme](../customization/themes.md) |
 | `locale` | `string` | auto-detected | UI language for the terminal: `en` or `zh`. The `/settings` dialog writes it for you. Unset, the CLI picks `zh` when `KIMI_LANG` or the system `LANG` / `LC_ALL` / `LC_MESSAGES` says Chinese, and `en` otherwise; set it explicitly to pin one language |
-| `tui_mode` | `string` | `regular` | UI layout: `regular` renders into the terminal scrollback; `fullscreen` (experimental) takes over the mouse — wheel scrolling, drag-to-copy, click-to-pick rows and tabs, and clickable question-dialog options; `textual` (experimental) runs the Rust textual-rs frontend as a separate sidecar process, so pi-tui never starts and the sidecar owns the terminal — it needs `cargo build` once in `apps/kimi-code/rust`; a switch takes effect after a restart |
+| `tui_mode` | `string` | `regular` | UI layout: `regular` renders into the terminal scrollback; `fullscreen` (experimental) uses mouse events reported by the terminal session for scrolling, drag-to-copy and [clickable controls](../reference/keyboard.md); all controls still have keyboard shortcuts; `textual` (experimental) runs the Rust textual-rs frontend as a separate sidecar process, so pi-tui never starts and the sidecar owns the terminal — it needs `cargo build` once in `apps/kimi-code/rust`; a switch takes effect after a restart |
 | `copy_on_select` | `boolean` | `true` | Fullscreen mode only: copy text as soon as you select it; you can also press `Ctrl-C` to copy |
 | `render_latex` | `boolean` | `true` | Render LaTeX math expressions (`$…$`, `$$…$$`) in Markdown messages as Unicode text; `false` keeps the raw source |
 | `disable_paste_burst` | `boolean` | `false` | Disable the non-bracketed paste-burst fallback that keeps rapid multi-line pastes from submitting line by line |

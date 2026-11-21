@@ -1,14 +1,14 @@
 import { z } from 'zod';
 
-import { AlreadyAuthorizedError, type McpOAuthService } from '#/mcpCore/oauth/service';
-import { qualifyMcpToolName } from '#/mcpCore/tool-naming';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
   type ExecutableTool,
   type ExecutableToolContext,
   type ExecutableToolResult,
 } from '#/tool/toolContract';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { AlreadyAuthorizedError, type McpOAuthService } from '#/mcpCore/oauth/service';
+import { qualifyMcpToolName } from '#/mcpCore/tool-naming';
 
 export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '#/tool/toolContract';
 
@@ -55,9 +55,7 @@ export function createMcpAuthTool(options: CreateMcpAuthToolOptions): Executable
   const parameters = toInputJsonSchema(z.object({}));
   const execute = async (ctx: ExecutableToolContext): Promise<ExecutableToolResult> => {
     const { signal, onUpdate } = ctx;
-    if (signal.aborted) {
-      return errorResult(serverName, new Error('aborted'));
-    }
+    signal.throwIfAborted();
 
     onUpdate?.({ kind: 'status', text: `Discovering OAuth metadata for ${serverName}…` });
 
@@ -83,7 +81,7 @@ export function createMcpAuthTool(options: CreateMcpAuthToolOptions): Executable
 
     const urlText = flow.authorizationUrl.toString();
     const waitTimeoutMs = timeoutMs ?? DEFAULT_AUTH_TIMEOUT_MS;
-    const customData: McpOAuthAuthorizationUrlUpdateData = {
+    const authorization: McpOAuthAuthorizationUrlUpdateData = {
       waitId: flow.waitId,
       serverName,
       authorizationUrl: urlText,
@@ -91,8 +89,7 @@ export function createMcpAuthTool(options: CreateMcpAuthToolOptions): Executable
     };
     onUpdate?.({
       kind: 'custom',
-      customKind: MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
-      customData,
+      fields: { [MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE]: authorization },
     });
     onUpdate?.({
       kind: 'status',

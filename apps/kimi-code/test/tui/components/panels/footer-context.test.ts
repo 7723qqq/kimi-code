@@ -1,12 +1,9 @@
-import { describe, expect, it } from 'bun:test';
-
+import { describe, it, expect } from '@moonshot-ai/testkit/vitest';
 import chalk from 'chalk';
 
-import { FooterComponent, formatFooterGitBadge } from '#/tui/components/chrome/footer';
+import { FooterComponent, formatFooterGitBadge, buildWeightedTips } from '#/tui/components/chrome/footer';
 import { darkColors } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
-import { buildWeightedTips } from '#/tui/utils/tip-rotation';
 
 const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 function strip(text: string): string {
@@ -33,7 +30,6 @@ function baseState(overrides: Partial<AppState> = {}): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
-    sessionStats: createEmptySessionStats(),
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -56,7 +52,9 @@ describe('FooterComponent — context NaN resilience', () => {
   });
 
   it('undefined-ish (coerced) usage → renders 0%', () => {
-    const fc = new FooterComponent(baseState({ contextUsage: undefined as unknown as number }));
+    const fc = new FooterComponent(
+      baseState({ contextUsage: undefined as unknown as number }),
+    );
     const out = strip(fc.render(120).join(''));
     expect(out).not.toMatch(/NaN/);
     expect(out).toMatch(/context: 0%/);
@@ -99,7 +97,6 @@ describe('FooterComponent — context NaN resilience', () => {
     const out = strip(fc.render(200).join(''));
     expect(out).not.toMatch(/Infinity|NaN/);
     expect(out).toMatch(/context: 0%/);
-    // With maxTokens=0, token-count annotation is suppressed.
     expect(out).not.toMatch(/\(500\//);
   });
 
@@ -166,50 +163,10 @@ describe('FooterComponent — context NaN resilience', () => {
   });
 });
 
-describe('FooterComponent · cache hit rate and token speed', () => {
-  it('hides the cache readout until usage is reported', () => {
-    const fc = new FooterComponent(baseState({}));
-    const out = strip(fc.render(200).join(''));
-    expect(out).not.toMatch(/cache/);
-    expect(out).toMatch(/context: 0%/);
-  });
-
-  it('leaves the cache hit rate to the status strip', () => {
-    // The hit rate is one of the session totals: it renders in the strip above
-    // the editor, beside the turns/steps and the timings. The footer used to
-    // repeat it on its second line, which put the same reading on screen twice.
-    const fc = new FooterComponent(baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99 }));
-    const out = strip(fc.render(200).join(''));
-    expect(out).not.toMatch(/cache hit/);
-    expect(out).toMatch(/context: 0%/);
-  });
-
-  it('leaves the token speed to the status strip', () => {
-    const fc = new FooterComponent(
-      baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99, tokenSpeed: 12.345 }),
-    );
-    const out = strip(fc.render(200).join(''));
-    expect(out).not.toMatch(/tok\/s/);
-    expect(out).toMatch(/context: 0%/);
-  });
-
-  it('never renders NaN for partial/undefined cache state', () => {
-    const fc = new FooterComponent(
-      baseState({
-        cacheReadTokens: undefined as unknown as number,
-        cacheMissTokens: undefined as unknown as number,
-        tokenSpeed: Number.NaN,
-      }),
-    );
-    const out = strip(fc.render(200).join(''));
-    expect(out).not.toMatch(/NaN/);
-  });
-});
-
 describe('buildWeightedTips — weighted rotation', () => {
   it('repeats higher-priority tips more often (length = sum of weights)', () => {
     const seq = buildWeightedTips([
-      { text: 'a' }, // weight 1 (default)
+      { text: 'a' },
       { text: 'b', priority: 3 },
       { text: 'c', priority: 2 },
     ]);

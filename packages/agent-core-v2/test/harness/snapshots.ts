@@ -1,6 +1,22 @@
-import type { Message } from '#/llm-adapter/contract/message';
-import type { Tool as LLMTool } from '#/llm-adapter/contract/message';
+import type { Message, ToolDescription as LLMTool } from '@moonshot-ai/core/llm/message';
+import { expect } from 'bun:test';
+
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
+
+interface SnapshotSerializer {
+  test(value: unknown): boolean;
+  serialize(value: unknown): string;
+}
+
+function addSnapshotSerializer(serializer: SnapshotSerializer): void {
+  try {
+    (
+      expect as unknown as { addSnapshotSerializer(serializer: SnapshotSerializer): void }
+    ).addSnapshotSerializer(serializer);
+  } catch (error) {
+    if (!(error instanceof Error) || !/Not implemented/.test(error.message)) throw error;
+  }
+}
 
 const IS_EVENT_ARRAY = Symbol('isEventArray');
 const IS_GENERATE_INPUT_SNAPSHOT = Symbol('isGenerateInputSnapshot');
@@ -42,48 +58,29 @@ export interface GenerateInputsSnapshot {
   readonly previous: GenerateCall | undefined;
 }
 
-const FINGERPRINT_FIELDS = ['toolsHash', 'historyHash'] as const;
-
-function stableFingerprints<T>(value: T): T {
-  if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map((entry) => stableFingerprints(entry)) as T;
-  const pinned: readonly string[] = FINGERPRINT_FIELDS;
-  const out: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    out[key] = pinned.includes(key) ? '<fingerprint>' : stableFingerprints(entry);
-  }
-  return out as T;
-}
-
-const PLATFORM_GATED_TOOL_NAMES: ReadonlySet<string> = new Set(['PowerShell']);
-
-export function eventSnapshot(events: readonly EventSnapshotEntry[], labels: SnapshotLabels) {
+export function eventSnapshot(
+  events: readonly EventSnapshotEntry[],
+  labels: SnapshotLabels,
+) {
   const normalized = events.map((event) => {
-    let stableEvent = stableFingerprints(event);
+    let stableEvent = event;
     if (event.type === '[wire]' && event.event === 'tool_select.initialized') {
       const args = event.args as { readonly tools: readonly { readonly name: string }[] };
       stableEvent = {
-        ...stableEvent,
-        args: {
-          ...args,
-          tools: args.tools
-            .map((tool) => tool.name)
-            .filter((name) => !PLATFORM_GATED_TOOL_NAMES.has(name)),
-        },
+        ...event,
+        args: { ...args, tools: args.tools.map((tool) => tool.name) },
       };
     }
     if (event.type === '[wire]' && event.event === 'llm.tools_snapshot') {
       const args = event.args as { readonly tools: readonly { readonly name: string }[] };
       stableEvent = {
-        ...stableEvent,
-        args: {
-          ...args,
-          hash: '<tools-hash>',
-          tools: args.tools
-            .map((tool) => tool.name)
-            .filter((name) => !PLATFORM_GATED_TOOL_NAMES.has(name)),
-        },
+        ...event,
+        args: { ...args, hash: '<tools-hash>', tools: args.tools.map((tool) => tool.name) },
       };
+    }
+    if (event.type === '[rpc]' && event.event === 'tool.updated') {
+      const args = event.args as { readonly taskId: string };
+      stableEvent = { ...event, args: { ...args, taskId: '<taskId>' } };
     }
     if (
       event.type === '[wire]' &&
@@ -92,12 +89,26 @@ export function eventSnapshot(events: readonly EventSnapshotEntry[], labels: Sna
       typeof event.args === 'object' &&
       'toolsHash' in event.args
     ) {
-      stableEvent = { ...stableEvent, args: { ...event.args, toolsHash: '<tools-hash>' } };
+      stableEvent = { ...event, args: { ...event.args, toolsHash: '<tools-hash>' } };
     }
     return normalizeValue(stableEvent, labels);
   });
   (normalized as unknown as Record<symbol, true>)[IS_EVENT_ARRAY] = true;
+  Object.defineProperty(normalized, 'toString', {
+    value: () => formatEventSnapshot(normalized as unknown as readonly EventSnapshotEntry[]),
+  });
   return normalized;
+}
+
+function formatEventSnapshot(events: readonly EventSnapshotEntry[]): string {
+  if (events.length === 0) return '[]';
+  const maxEventLength = Math.max(...events.map((event) => String(event.event).length), 0) + 2;
+  return events
+    .map((event) => {
+      const prefix = event.type === '[rpc]' ? '[emit]' : '[wire]';
+      return `${prefix} ${String(event.event).padEnd(maxEventLength, ' ')} ${stringifyCompact(event.args)}`;
+    })
+    .join('\n');
 }
 
 interface SnapshotLabels {
@@ -202,44 +213,52 @@ function hasSnapshotSymbol(val: unknown, symbol: symbol): boolean {
   );
 }
 
-function serializeEvents(val: unknown) {
-  const events = val as Array<Record<string, unknown>>;
-  if (events.length === 0) return '[]';
+addSnapshotSerializer({
+  test(val) {
+    return hasSnapshotSymbol(val, IS_EVENT_ARRAY);
+  },
+  serialize(val) {
+    const events = val as Array<Record<string, unknown>>;
+    if (events.length === 0) return '[]';
 
-  const maxEventLength = Math.max(...events.map((event) => String(event['event']).length), 0) + 2;
-  return events
-    .map((v) => {
-      const prefix = v['type'] === '[rpc]' ? '[emit]' : '[wire]';
-      return `${prefix} ${String(v['event']).padEnd(maxEventLength, ' ')} ${stringifyCompact(v['args'])}`;
-    })
-    .join('\n');
-}
+    const maxEventLength = Math.max(...events.map((event) => String(event['event']).length), 0) + 2;
+    return events
+      .map((v) => {
+        const prefix = v['type'] === '[rpc]' ? '[emit]' : '[wire]';
+        return `${prefix} ${String(v['event']).padEnd(maxEventLength, ' ')} ${stringifyCompact(v['args'])}`;
+      })
+      .join('\n');
+  },
+});
 
-function serializeGenerateInput(val: unknown) {
-  const snapshot = val as GenerateInputSnapshot;
-  return formatGenerateInput(snapshot.input, snapshot.previous);
-}
+addSnapshotSerializer({
+  test(val) {
+    return hasSnapshotSymbol(val, IS_GENERATE_INPUT_SNAPSHOT);
+  },
+  serialize(val) {
+    const snapshot = val as GenerateInputSnapshot;
+    return formatGenerateInput(snapshot.input, snapshot.previous);
+  },
+});
 
-function serializeGenerateInputs(val: unknown) {
-  const snapshot = val as GenerateInputsSnapshot;
-  let previous = snapshot.previous;
-  return snapshot.inputs
-    .map((input, index) => {
-      const formatted = formatGenerateInput(input, previous);
-      previous = input;
-      return `call ${String(index + 1)}:\n${indentLines(formatted)}`;
-    })
-    .join('\n\n');
-}
+addSnapshotSerializer({
+  test(val) {
+    return hasSnapshotSymbol(val, IS_GENERATE_INPUTS_SNAPSHOT);
+  },
+  serialize(val) {
+    const snapshot = val as GenerateInputsSnapshot;
+    let previous = snapshot.previous;
+    return snapshot.inputs
+      .map((input, index) => {
+        const formatted = formatGenerateInput(input, previous);
+        previous = input;
+        return `call ${String(index + 1)}:\n${indentLines(formatted)}`;
+      })
+      .join('\n\n');
+  },
+});
 
-export function renderSnapshot(val: unknown): unknown {
-  if (hasSnapshotSymbol(val, IS_EVENT_ARRAY)) return serializeEvents(val);
-  if (hasSnapshotSymbol(val, IS_GENERATE_INPUT_SNAPSHOT)) return serializeGenerateInput(val);
-  if (hasSnapshotSymbol(val, IS_GENERATE_INPUTS_SNAPSHOT)) return serializeGenerateInputs(val);
-  return val;
-}
-
-function formatGenerateInput(input: GenerateCall, previous: GenerateCall | undefined): string {
+export function formatGenerateInput(input: GenerateCall, previous: GenerateCall | undefined): string {
   const lines: string[] = [];
 
   if (previous === undefined || previous.systemPrompt !== input.systemPrompt) {
@@ -265,6 +284,17 @@ function formatGenerateInput(input: GenerateCall, previous: GenerateCall | undef
   return lines.join('\n');
 }
 
+export function formatGenerateInputs(inputs: readonly GenerateCall[], previous: GenerateCall | undefined): string {
+  let prior = previous;
+  return inputs
+    .map((input, index) => {
+      const formatted = formatGenerateInput(input, prior);
+      prior = input;
+      return `call ${String(index + 1)}:\n${indentLines(formatted)}`;
+    })
+    .join('\n\n');
+}
+
 function indentLines(text: string): string {
   return text
     .split('\n')
@@ -279,25 +309,20 @@ function formatSystemPrompt(systemPrompt: string): string {
 
 function formatToolNames(tools: GenerateCall['tools']): string {
   if (tools.length === 0) return '[]';
-  return tools
-    .map((tool) => tool.name)
-    .filter((name) => !PLATFORM_GATED_TOOL_NAMES.has(name))
-    .join(', ');
+  return tools.map((tool) => tool.name).join(', ');
 }
 
 function isMessagePrefix(previous: readonly Message[], input: readonly Message[]): boolean {
-  if (previous.length > input.length) return false;
-  return previous.every((message, index) => isDeepEqual(message, input[index]));
+  return firstDifference(previous, input, previous.length) === undefined;
 }
 
 function formatMessages(messages: readonly Message[]): string[] {
   if (messages.length === 0) return ['  []'];
 
   return messages.map((message) => {
-    const role =
-      message.toolCallId === undefined ? message.role : `${message.role}[${message.toolCallId}]`;
+    const role = message.role === 'tool' ? `${message.role}[${message.toolCallId}]` : message.role;
     const parts = [formatContent(message.content)];
-    if (message.toolCalls.length > 0) {
+    if (message.role === 'assistant' && message.toolCalls.length > 0) {
       parts.push(`calls ${message.toolCalls.map((call) => formatToolCall(call)).join(', ')}`);
     }
     return `  ${role}: ${parts.join('  ')}`;
@@ -335,7 +360,7 @@ function formatText(text: string): string {
   return JSON.stringify(normalizeWallTime(text));
 }
 
-function formatToolCall(call: Message['toolCalls'][number]): string {
+function formatToolCall(call: Extract<Message, { role: 'assistant' }>['toolCalls'][number]): string {
   return `${call.id}:${call.name} ${formatToolCallArguments(call.arguments)}`;
 }
 
@@ -385,19 +410,12 @@ function normalizeValue(value: unknown, labels: SnapshotLabels): unknown {
 
 function normalizeObjectField(key: string, value: unknown, labels: SnapshotLabels): unknown {
   if (
-    (key === 'time' || key === 'created_at' || key === 'since' || key === 'at') &&
+    (key === 'time' || key === 'created_at' || key === 'since' || key === 'at' || key === 'startedAt') &&
     typeof value === 'number'
   ) {
     return '<time>';
   }
-  if (
-    (key === 'finishedAt' || key === 'abortedAt' || key === 'steeredAt' || key === 'createdAt') &&
-    typeof value === 'string'
-  )
-    return '<time>';
-  if ((key === 'startedAt' || key === 'endedAt') && typeof value === 'number') {
-    return '<time>';
-  }
+  if ((key === 'finishedAt' || key === 'abortedAt' || key === 'steeredAt' || key === 'createdAt') && typeof value === 'string') return '<time>';
   if (key === 'protocol_version' && value === WIRE_PROTOCOL_VERSION) {
     return '<protocol-version>';
   }
@@ -428,10 +446,9 @@ function isUuid(value: string): boolean {
 }
 
 function interactionIdKind(value: string): string | undefined {
-  const match =
-    /^(approval|question|user_tool)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.exec(
-      value,
-    );
+  const match = /^(approval|question|user_tool)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.exec(
+    value,
+  );
   return match?.[1];
 }
 
@@ -461,9 +478,6 @@ function isVolatileDurationKey(key: string): boolean {
     key === 'llmServerDecodeMs' ||
     key === 'llmClientConsumeMs' ||
     key === 'llmClientBlockedMs' ||
-    key === 'llmFirstTokenOffsetMs' ||
-    key === 'llmLastTokenOffsetMs' ||
-    key === 'llmWindowOnFrameClock' ||
     key === 'durationMs'
   );
 }

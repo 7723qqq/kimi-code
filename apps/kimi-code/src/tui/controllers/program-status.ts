@@ -1,27 +1,22 @@
+
+
+import type { ProgramStatus } from '@moonshot-ai/pi-tui';
 import type {
   AgentBackgroundTaskInfo,
   BackgroundTaskInfo,
   TurnEndedEvent,
   TurnStartedEvent,
 } from '@moonshot-ai/kimi-code-sdk';
-import type { ProgramStatus } from '@moonshot-ai/pi-tui';
-
-import { t } from '#/i18n';
 
 import { PRODUCT_NAME } from '../constant/kimi-tui';
 import type { AppState } from '../types';
+import { t } from '#/i18n';
 
 const MAX_CHILD_RECORDS = 63;
-
-/**
- * The status a locked-out session reports. Built on each use rather than kept
- * as a constant: it carries a user-visible sentence, and the locale can change
- * while the process runs (`/settings`), so a value frozen at import time would
- * keep the language the process started in.
- */
-function authBlocked(): ProgramStatusBlocked {
-  return { kind: 'auth', message: t('tui.programStatus.authRequired') };
-}
+const AUTH_BLOCKED: ProgramStatusBlocked = {
+  kind: 'auth',
+  message: t('tui.programStatus.authRequired'),
+};
 
 export interface ProgramStatusTerminal {
   setProgramStatus(status: ProgramStatus): void;
@@ -188,10 +183,7 @@ export class ProgramStatusController implements ProgramStatusInteractionTracker 
   }
 
   failRequest(message: string): void {
-    this.outcome = {
-      state: 'error',
-      message: firstLine(message) ?? t('tui.programStatus.requestFailed'),
-    };
+    this.outcome = { state: 'error', message: firstLine(message) ?? t('tui.programStatus.requestFailed') };
     this.refresh();
   }
 
@@ -213,12 +205,7 @@ export class ProgramStatusController implements ProgramStatusInteractionTracker 
   }
 
   failSubagent(agentId: string, message: string): void {
-    this.settleSubagent(
-      agentId,
-      'error',
-      undefined,
-      firstLine(message) ?? t('tui.programStatus.subagentFailed'),
-    );
+    this.settleSubagent(agentId, 'error', undefined, firstLine(message) ?? t('tui.programStatus.subagentFailed'));
   }
 
   cancelSubagent(agentId: string): void {
@@ -282,8 +269,7 @@ export class ProgramStatusController implements ProgramStatusInteractionTracker 
     this.children.clear();
     this.interactions.clear();
     for (const info of tasks) {
-      if (info.kind !== 'agent' || info.agentId === undefined || info.status !== 'running')
-        continue;
+      if (info.kind !== 'agent' || info.agentId === undefined || info.status !== 'running') continue;
       this.children.set(info.agentId, {
         ...childBase(info, info.agentId),
         status: 'working',
@@ -327,9 +313,10 @@ export class ProgramStatusController implements ProgramStatusInteractionTracker 
 
   private rootStatus(): ProgramStatus {
     if (this.authRequired || this.authBlocks.size > 0) {
-      return { state: 'blocked', app: 'kimi-code', ...authBlocked() };
+      return { state: 'blocked', app: 'kimi-code', ...AUTH_BLOCKED };
     }
-    const blocked = this.interactionOfKind('permission') ?? this.interactionOfKind('question');
+    const blocked =
+      this.interactionOfKind('permission') ?? this.interactionOfKind('question');
     if (blocked !== undefined) {
       return {
         state: 'blocked',
@@ -387,7 +374,9 @@ export class ProgramStatusController implements ProgramStatusInteractionTracker 
     return title === undefined || title.length === 0 ? PRODUCT_NAME : title;
   }
 
-  private interactionOfKind(kind: 'permission' | 'question'): TrackedInteraction | undefined {
+  private interactionOfKind(
+    kind: 'permission' | 'question',
+  ): TrackedInteraction | undefined {
     let selected: TrackedInteraction | undefined;
     for (const interaction of this.interactions.values()) {
       if (interaction.kind !== kind) continue;
@@ -469,7 +458,10 @@ function childBase(
     agentId,
     taskId: info.taskId,
     title:
-      nonEmpty(info.description) ?? previous?.title ?? nonEmpty(info.subagentType) ?? 'Subagent',
+      nonEmpty(info.description) ??
+      previous?.title ??
+      nonEmpty(info.subagentType) ??
+      'Subagent',
     lastActive: previous?.lastActive ?? 0,
   };
 }
@@ -491,14 +483,11 @@ function childRank(child: ChildWork, blocked: boolean): number {
 }
 
 function defaultInteractionMessage(kind: 'permission' | 'question'): string {
-  return kind === 'permission'
-    ? t('tui.programStatus.approvalRequired')
-    : t('tui.programStatus.answerRequired');
+  return kind === 'permission' ? t('tui.programStatus.approvalRequired') : t('tui.programStatus.answerRequired');
 }
 
 function recordId(agentId: string): string {
-  const digest = new Bun.CryptoHasher('sha256').update(agentId).digest('hex');
-  return `agent-${digest.slice(0, 24)}`;
+  return `agent-${new Bun.CryptoHasher('sha256').update(agentId).digest('hex').slice(0, 24)}`;
 }
 
 function nonEmpty(text: string | undefined): string | undefined {

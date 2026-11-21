@@ -1,7 +1,7 @@
-import { isUnknownCapability, type ModelCapability } from '#/llm/capability';
-import type { LlmErrorMessage } from '#/llm/errors';
-import type { LlmModel } from '#/llm/model';
-import { SyntaxRequestFormatError } from '#/llm/syntax-errors';
+import { isUnknownCapability, type ModelCapability } from '#human/llm/capability';
+import type { LlmErrorMessage } from '#human/llm/errors';
+import type { LlmModel } from '#human/llm/model';
+import { SyntaxRequestFormatError } from '#human/llm/syntax-errors';
 
 export type ThinkingEffort = 'off' | 'on' | (string & {});
 

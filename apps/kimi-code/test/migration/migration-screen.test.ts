@@ -1,111 +1,14 @@
-import { describe, expect, it, mock } from 'bun:test';
-
+import { describe, expect, it, vi } from '@moonshot-ai/testkit/vitest';
 import {
-  type MigrationPlan,
-  type MigrationReport,
-  type RunMigrationInput,
+  MigrationScreenComponent,
+  type MigrationScreenResult,
+} from '#/migration/migration-screen';
+import { darkColors } from '#/tui/theme/colors';
+import type {
+  MigrationPlan,
+  MigrationReport,
+  RunMigrationInput,
 } from '@moonshot-ai/migration-legacy';
-
-import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/migration-screen';
-import type { RenderClock, RenderTimerHandle } from '#/utils/render-clock';
-import { createFakeClock } from '#test/helpers/fake-clock';
-
-/**
- * `createFakeClock` treats `unref()` as cancellation, but the progress spinner
- * still has to tick in the progress phase. The adapter keeps handle identity for
- * `clearInterval` while leaving `unref()` inert.
- */
-function createSpinnerClock() {
-  const inner = createFakeClock(0);
-  const handles = new Map<RenderTimerHandle, RenderTimerHandle>();
-  const clock: Pick<RenderClock, 'setInterval' | 'clearInterval'> = {
-    setInterval: (callback, intervalMs) => {
-      const handle: RenderTimerHandle = {};
-      handles.set(handle, inner.setInterval(callback, intervalMs));
-      return handle;
-    },
-    clearInterval: (handle) => {
-      const target = handles.get(handle);
-      if (target !== undefined) inner.clearInterval(target);
-    },
-  };
-  return {
-    clock,
-    advance: (byMs: number): void => {
-      inner.advance(byMs);
-    },
-    inner,
-  };
-}
-
-void mock.module('#/i18n', () => ({
-  t: (key: string, params?: Record<string, string>) => {
-    const translations: Record<string, string> = {
-      'tui.migration.badgeImported': '[imported]',
-      'tui.migration.title': ' Migrate from kimi-cli',
-      'tui.migration.foundExisting': ' Found an existing kimi-cli installation:',
-      'tui.migration.ask1Title': 'Migrate this data to kimi-code?',
-      'tui.migration.migrateNow': 'Migrate now',
-      'tui.migration.askLater': 'Ask me later',
-      'tui.migration.neverAgain': 'Never ask again',
-      'tui.migration.navHintAsk': ' ↑/↓ move · ⏎ select · esc {{action}}',
-      'tui.migration.ask2Title': 'Migrate chat sessions too? (they are bulky and slower)',
-      'tui.migration.configOnly': 'Config only',
-      'tui.migration.configPlusSessions': 'Config + {{count}} sessions',
-      'tui.migration.configPlusAllSessions': 'Config + all sessions',
-      'tui.migration.progressTitle': ' Migrating from kimi-cli',
-      'tui.migration.progressTranslating': 'Translating sessions…  {{done}} / {{total}}',
-      'tui.migration.stepLabelConfig': 'Config',
-      'tui.migration.stepLabelMcp': 'MCP',
-      'tui.migration.stepLabelReplHistory': 'REPL history',
-      'tui.migration.stepLabelSessions': 'Sessions',
-      'tui.migration.complete': ' Migration complete',
-      'tui.migration.skipped': '  Nothing needed migrating.',
-      'tui.migration.sessionsMigrated': '  ✓ {{count}} sessions migrated',
-      'tui.migration.plansMigrated': '  ✓ {{count}} plan files copied',
-      'tui.migration.kindsMigrated': '  ✓ {{kinds}}',
-      'tui.migration.pluginsNotSupported':
-        '  ⚠ {{count}} kimi-cli plugins — not yet supported for migration',
-      'tui.migration.oldDataKept': ' Old data kept at {{path}} — kimi-cli still works.',
-      'tui.migration.continueHint': ' ⏎ continue to kimi-code',
-      'tui.migration.hooksDropped': '  ⚠ {{count}} hooks dropped (incompatible)',
-      'tui.migration.configParseError':
-        '  ⚠ config.toml could not be parsed — review config.migrated-from-kimi-cli.toml',
-      'tui.migration.mcpUnreadable':
-        '  ⚠ mcp.json unreadable — review mcp.migrated-from-kimi-cli.json',
-      'tui.migration.sessionsFailed': '  ⚠ {{count}} sessions failed to migrate',
-      'tui.migration.contains': '     contains: {{items}}',
-      'tui.migration.containsProviders_one': '{{count}} provider',
-      'tui.migration.containsProviders_other': '{{count}} providers',
-      'tui.migration.containsModels_one': '{{count}} model',
-      'tui.migration.containsModels_other': '{{count}} models',
-      'tui.migration.containsHooks_one': '{{count}} hook',
-      'tui.migration.containsHooks_other': '{{count}} hooks',
-      'tui.migration.listSeparator': ', ',
-      'tui.migration.plansCopied_one':
-        '  ⓘ {{count}} plan file copied to {{path}} — a plain copy, not wired into plan mode.',
-      'tui.migration.plansCopied_other':
-        '  ⓘ {{count}} plan files copied to {{path}} — plain copies, not wired into plan mode.',
-      'tui.migration.emptySessionsSkipped': '  {{count}} empty sessions skipped',
-      'tui.migration.configConflicts': '  ⚠ {{count}} config conflicts kept yours: {{keys}}',
-      'tui.migration.mcpNeedsAuth': '  ⚠ {{count}} MCP servers need re-authentication',
-      'tui.migration.failed': ' Migration failed',
-      'tui.migration.reason': ' Reason: {{reason}}',
-      'tui.migration.retryHint': ' You can retry later by running "kimi migrate".',
-      'tui.migration.neverAskAgain': 'Never ask again',
-      'tui.migration.ask1TitleHint': 'Migrate this data to kimi-code?',
-    };
-    let value = translations[key] ?? key;
-    if (params) {
-      for (const [k, v] of Object.entries(params)) {
-        value = value.replaceAll(`{{${k}}}`, v);
-      }
-    }
-    return value;
-  },
-  setLocale: mock(),
-  getLocale: () => 'en',
-}));
 
 function makePlan(over: Partial<MigrationPlan> = {}): MigrationPlan {
   return {
@@ -115,7 +18,7 @@ function makePlan(over: Partial<MigrationPlan> = {}): MigrationPlan {
     hasUserHistory: true,
     hasSkills: false,
     hasPlans: false,
-    oauthCredentials: ['kimi-code.json'],
+    oauthCredentials: ['kimi-code'],
     workdirs: [],
     detectedPlugins: [],
     detectedMcpOauthServers: [],
@@ -144,26 +47,7 @@ describe('MigrationScreenComponent — ask phase', () => {
     expect(out).toContain('Never ask again');
   });
 
-  it('ask1 summary lists skills and unreadable sessions from the plan', () => {
-    const c = new MigrationScreenComponent({
-      plan: makePlan({
-        hasSkills: true,
-        sessionScanFailures: [{ sourcePath: '/x/.kimi/sessions/a', reason: 'unreadable' }],
-      }),
-      sourceHome: '/x/.kimi',
-      targetHome: '/y/.kimi-code',
-      onComplete: () => {},
-    });
-    const out = render(c);
-    expect(out).toContain('skills');
-    expect(out).toContain('1 unreadable');
-  });
-
   it('ask1 summary does not mention kimi-cli login (oauth is not a migrated kind)', async () => {
-    // OAuth credentials are deliberately never migrated, so the pre-migration
-    // summary must not list "kimi-cli login" alongside the real migratable
-    // data classes — that framing makes users believe their session will
-    // carry over, which it does not.
     const c = new MigrationScreenComponent({
       plan: makePlan(),
       sourceHome: '/x/.kimi',
@@ -185,8 +69,8 @@ describe('MigrationScreenComponent — ask phase', () => {
         result = r;
       },
     });
-    c.handleInput('\u001B[B'); // Down -> "Ask me later"
-    c.handleInput('\r'); // Enter
+    c.handleInput('\u001B[B');
+    c.handleInput('\r');
     expect(result?.decision).toBe('later');
   });
 
@@ -202,8 +86,8 @@ describe('MigrationScreenComponent — ask phase', () => {
       },
       onComplete: () => {},
     });
-    c.handleInput('\r'); // ask1: "Migrate now"
-    c.handleInput('\r'); // ask2: "Config only" (first option)
+    c.handleInput('\r');
+    c.handleInput('\r');
     await new Promise((r) => setTimeout(r, 0));
     expect(captured?.scope.sessions).toBe(false);
   });
@@ -220,9 +104,9 @@ describe('MigrationScreenComponent — ask phase', () => {
       },
       onComplete: () => {},
     });
-    c.handleInput('\r'); // ask1: Migrate now
-    c.handleInput('\u001B[B'); // ask2: down -> Also migrate sessions
-    c.handleInput('\r'); // ask2 select -> "Config + N sessions" begins migration immediately
+    c.handleInput('\r');
+    c.handleInput('\u001B[B');
+    c.handleInput('\r');
     await new Promise((r) => setTimeout(r, 0));
     expect(captured?.scope.sessions).toBe(true);
   });
@@ -234,10 +118,9 @@ describe('MigrationScreenComponent — ask phase', () => {
       targetHome: '/y/.kimi-code',
       onComplete: () => {},
     });
-    c.handleInput('\r'); // ask1: Migrate now -> ask2
+    c.handleInput('\r');
     const out = render(c);
     expect(out).toContain('Config only');
-    // Concrete count so the user sees the cost of "+ sessions" up front.
     expect(out).toContain('Config + 1365 sessions');
     expect(out).not.toContain('Most recent');
     expect(out).not.toContain('Migrate now');
@@ -250,10 +133,9 @@ describe('MigrationScreenComponent — ask phase', () => {
       targetHome: '/y/.kimi-code',
       onComplete: () => {},
     });
-    c.handleInput('\r'); // ask1 -> ask2
+    c.handleInput('\r');
     const out = render(c);
     expect(out).toContain('Config + all sessions');
-    // "Config + 0 sessions" would read as an obvious dead-end.
     expect(out).not.toContain('Config + 0 sessions');
   });
 
@@ -284,7 +166,7 @@ describe('MigrationScreenComponent — ask phase', () => {
       },
       onComplete: () => {},
     });
-    c.handleInput('\r'); // ask2: "Config only" (first option) — no ask1 gate
+    c.handleInput('\r');
     await new Promise((r) => setTimeout(r, 0));
     expect(captured?.scope.sessions).toBe(false);
   });
@@ -298,7 +180,6 @@ describe('MigrationScreenComponent — progress phase', () => {
       targetHome: '/y/.kimi-code',
       onComplete: () => {},
     });
-    // expose progress rendering via the test hook (see Step 5.2)
     c._testEnterProgress();
     c._testUpdateStep('config done');
     c._testUpdateSessionProgress(32, 50);
@@ -309,27 +190,25 @@ describe('MigrationScreenComponent — progress phase', () => {
   });
 
   it('animates the progress spinner while a migration step runs', async () => {
-    const { clock, advance, inner } = createSpinnerClock();
-    const c = new MigrationScreenComponent({
-      plan: makePlan(),
-      sourceHome: '/x/.kimi',
-      targetHome: '/y/.kimi-code',
-      skipDecisionStep: true,
-      // A migration that never settles keeps the screen in the progress
-      // phase so the spinner animation can be observed.
-      runMigration: () => new Promise<MigrationReport>(() => {}),
-      onComplete: () => {},
-      clock,
-    });
-    c.handleInput('\r'); // ask2: "Config only" -> migration begins
-    c._testUpdateSessionProgress(1, 3); // surface the spinner line
-    const before = c.render(80).join('\n');
-    advance(400); // several spinner frames
-    const after = c.render(80).join('\n');
-    // Before the fix nothing advanced the spinner — the frame, and the whole
-    // progress render, stayed frozen on the first braille glyph.
-    expect(after).not.toBe(before);
-    expect(inner.activeTimers).toBe(1);
+    vi.useFakeTimers();
+    try {
+      const c = new MigrationScreenComponent({
+        plan: makePlan(),
+        sourceHome: '/x/.kimi',
+        targetHome: '/y/.kimi-code',
+        skipDecisionStep: true,
+        runMigration: () => new Promise<MigrationReport>(() => {}),
+        onComplete: () => {},
+      });
+      c.handleInput('\r');
+      c._testUpdateSessionProgress(1, 3);
+      const before = c.render(80).join('\n');
+      vi.advanceTimersByTime(400);
+      const after = c.render(80).join('\n');
+      expect(after).not.toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('tracks Config and MCP as independent steps', () => {
@@ -340,11 +219,8 @@ describe('MigrationScreenComponent — progress phase', () => {
       onComplete: () => {},
     });
     c._testEnterProgress();
-    c._testUpdateStep('config done'); // config finished; MCP has not started
+    c._testUpdateStep('config done');
     const out = c.render(80).join('\n');
-    // Four checklist rows (config, mcp, user-history, sessions). With only
-    // config done, exactly one shows ✓ and the other three show ◐ — MCP is
-    // its own step and stays pending.
     expect((out.match(/✓/g) ?? []).length).toBe(1);
     expect((out.match(/◐/g) ?? []).length).toBe(3);
   });
@@ -377,16 +253,10 @@ function makeReport(
         deviceIdCopied: false,
         siblingContents: { providers: [], models: [], hooks: 0 },
       },
-      mcp: {
-        mergedServers: [],
-        keptNewForConflicts: [],
-        droppedServers: [],
-        wroteSiblingDueToConflict: false,
-        sourceUnreadable: false,
-      },
-      userHistory: { copied: 12, skippedExisting: 0, failures: [] },
-      skills: { copied: 0, skippedExisting: 0, failures: [] },
-      plans: { copied: 0, skippedExisting: 0, failures: [] },
+      mcp: { mergedServers: [], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: false, sourceUnreadable: false },
+      userHistory: { copied: 12, skippedExisting: 0 },
+      skills: { copied: 0, skippedExisting: 0 },
+      plans: { copied: 0, skippedExisting: 0 },
       sessions: {
         scope: 'all',
         bucketsScanned: 0,
@@ -397,10 +267,9 @@ function makeReport(
         sessionsAlreadyMigrated: 0,
         sessionsSkippedPlaceholder: 0,
         sessionsSkippedEmpty: 0,
+        sessionsSkippedMalformed: 0,
         sessionsFailed: [],
-        subagentFailures: [],
         sessionsConflicts: [],
-        sessionsDebrisArchived: [],
         ...over,
       },
       ...summaryOver,
@@ -409,9 +278,9 @@ function makeReport(
       mcpOauthServersRequiringReauth: [],
       oauthLoginsRequiringRelogin: [],
       detectedPlugins: ['p1', 'p2'],
-      configConflictSibling: null,
-      tuiConflictSibling: null,
-      plansCopied: null,
+      configConflictNotice: null,
+      tuiConflictNotice: null,
+      plansCopiedNotice: null,
       ...noticesOver,
     },
   };
@@ -430,20 +299,6 @@ describe('MigrationScreenComponent — result phase', () => {
     expect(out).toContain('Migration complete');
     expect(out).toContain('50 sessions migrated');
     expect(out).toContain('2 kimi-cli plugins');
-  });
-
-  it('renders the plans-copied notice when the report carries one', () => {
-    const c = new MigrationScreenComponent({
-      plan: makePlan(),
-      sourceHome: '/x/.kimi',
-      targetHome: '/y/.kimi-code',
-      onComplete: () => {},
-    });
-    c._testShowResult(
-      makeReport({}, {}, { plansCopied: { count: 3, directory: '~/.kimi-code/plans' } }),
-    );
-    const out = c.render(80).join('\n');
-    expect(out).toContain('3 plan files copied to ~/.kimi-code/plans');
   });
 
   it('renders nothing-needed-migrating when every counter is zero', () => {
@@ -472,7 +327,7 @@ describe('MigrationScreenComponent — result phase', () => {
             deviceIdCopied: false,
             siblingContents: { providers: [], models: [], hooks: 0 },
           },
-          userHistory: { copied: 0, skippedExisting: 0, failures: [] },
+          userHistory: { copied: 0, skippedExisting: 0 },
         },
       ),
     );
@@ -510,7 +365,7 @@ describe('MigrationScreenComponent — result phase', () => {
       ),
     );
     const out = c.render(80).join('\n');
-    expect(out).toContain('· hooks'); // appears in the ✓ migrated-kinds line
+    expect(out).toContain('· hooks');
     expect(out).toContain('1 hooks dropped');
   });
 
@@ -537,7 +392,6 @@ describe('MigrationScreenComponent — result phase', () => {
       targetHome: '/y/.kimi-code',
       onComplete: () => {},
     });
-    // config skipped (e.g. a malformed legacy config.toml).
     c._testShowResult(
       makeReport(
         {},
@@ -561,9 +415,7 @@ describe('MigrationScreenComponent — result phase', () => {
       ),
     );
     const out = c.render(80).join('\n');
-    // REPL history (copied) is still shown...
     expect(out).toContain('REPL history');
-    // ...but config must not be claimed as migrated.
     expect(out).not.toContain('config');
   });
 
@@ -593,13 +445,7 @@ describe('MigrationScreenComponent — result phase', () => {
             deviceIdCopied: false,
             siblingContents: { providers: [], models: [], hooks: 0 },
           },
-          mcp: {
-            mergedServers: ['m'],
-            keptNewForConflicts: [],
-            droppedServers: [],
-            wroteSiblingDueToConflict: true,
-            sourceUnreadable: false,
-          },
+          mcp: { mergedServers: ['m'], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: true, sourceUnreadable: false },
         },
       ),
     );
@@ -610,12 +456,6 @@ describe('MigrationScreenComponent — result phase', () => {
   });
 
   it('lists sibling-file contents in the config-fallback warning so the user knows what to merge', () => {
-    // When the target's `config.toml` could not be parsed and migration writes
-    // to `config.migrated-from-kimi-cli.toml` instead, the result screen must
-    // (a) name the sibling, (b) say what's in it so the user knows what to
-    // merge by hand, and (c) describe the trigger accurately (parse failure,
-    // not "unreadable"). Otherwise users have to crack the file open to find
-    // out — and they may not realize hooks landed in there at all.
     const c = new MigrationScreenComponent({
       plan: makePlan(),
       sourceHome: '/x/.kimi',
@@ -650,9 +490,7 @@ describe('MigrationScreenComponent — result phase', () => {
     );
     const out = c.render(80).join('\n');
     expect(out).toContain('config.migrated-from-kimi-cli.toml');
-    // Accurate trigger description (file parses, not "unreadable").
     expect(out).toContain('could not be parsed');
-    // Enumeration of what's inside the sibling.
     expect(out).toContain('2 providers');
     expect(out).toContain('1 model');
     expect(out).toContain('3 hooks');
@@ -668,7 +506,6 @@ describe('MigrationScreenComponent — result phase', () => {
     c._testShowResult(makeReport({ sessionsSkippedEmpty: 3 }));
     const out = c.render(80).join('\n');
     expect(out).toContain('3 empty sessions skipped');
-    // It is informational, not a failure.
     expect(out).not.toContain('3 sessions failed');
   });
 
@@ -730,15 +567,13 @@ describe('MigrationScreenComponent — execution wiring', () => {
       onComplete: (r) => {
         onCompleteResult = r;
       },
-      // injected runner for testability — no filesystem access
       runMigration: async (_input) => fakeReport,
     });
-    c.handleInput('\r'); // ask1: Migrate now
-    c.handleInput('\r'); // ask2: Config only -> begins migration
-    // migration is async; wait a tick
+    c.handleInput('\r');
+    c.handleInput('\r');
     await new Promise((res) => setTimeout(res, 0));
     expect(c.render(80).join('\n')).toContain('Migration complete');
-    c.handleInput('\r'); // dismiss result
+    c.handleInput('\r');
     expect(onCompleteResult?.decision).toBe('now');
     expect(onCompleteResult?.migrated).toBe(true);
   });
@@ -753,8 +588,8 @@ describe('MigrationScreenComponent — execution wiring', () => {
         throw new Error('boom');
       },
     });
-    c.handleInput('\r'); // ask1: Migrate now
-    c.handleInput('\r'); // ask2: Config only -> begins migration
+    c.handleInput('\r');
+    c.handleInput('\r');
     await new Promise((res) => setTimeout(res, 0));
     const out = c.render(80).join('\n');
     expect(out).toContain('Migration failed');

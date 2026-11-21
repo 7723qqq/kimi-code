@@ -1,20 +1,18 @@
-import { once } from 'node:events';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { once } from 'node:events';
 import { dirname, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 
-import { getSearchWorkerRuntimeState } from '@moonshot-ai/kap-server/search-worker-runtime';
 import { MiniDb } from '@moonshot-ai/minidb';
-
-import { t } from '#/i18n';
+import { getSearchWorkerRuntimeState } from '@moonshot-ai/kap-server/search-worker-runtime';
 
 import {
   getEmbeddedNativeAssetManifest,
   getNativeCacheBase,
   getNativePackageRoot,
 } from './native-assets';
-import { nativeAssetSmokeRequested } from './smoke-gate';
+import { t } from '#/i18n';
 
 const smokePackages = ['@mariozechner/clipboard', '@moonshot-ai/pi-tui'];
 
@@ -44,7 +42,7 @@ function smokePiTuiNativeLoad(): void {
 async function smokeMinidbWorker(): Promise<void> {
   const cacheBase = getNativeCacheBase();
   mkdirSync(cacheBase, { recursive: true });
-  const dir = mkdtempSync(join(cacheBase, 'minidb-smoke-'));
+  const dir = mkdtempSync(join(cacheBase, 'sea-minidb-smoke-'));
   let db: MiniDb<Record<string, unknown>> | null = null;
   try {
     db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
@@ -56,7 +54,7 @@ async function smokeMinidbWorker(): Promise<void> {
           return {
             op: 'set' as const,
             key: `doc-${id}`,
-            value: { text: `worker searchable document ${id}` },
+            value: { text: `sea worker searchable document ${id}` },
           };
         }),
       );
@@ -80,36 +78,20 @@ async function smokeMinidbWorker(): Promise<void> {
 }
 
 async function smokeSearchWorker(): Promise<void> {
-  // The extracted global-search worker entry must boot from disk and
-  // complete the versioned ready handshake.
   const runtime = getSearchWorkerRuntimeState();
   if (!runtime.configured) {
     throw new Error('search worker runtime was not configured');
   }
   const cacheBase = getNativeCacheBase();
   mkdirSync(cacheBase, { recursive: true });
-  const dir = mkdtempSync(join(cacheBase, 'search-worker-'));
+  const dir = mkdtempSync(join(cacheBase, 'sea-search-worker-'));
   const worker = new Worker(runtime.path, {
-    workerData: { dir, bootSalt: 'native-smoke' },
+    workerData: { dir, bootSalt: 'sea-smoke' },
   });
   try {
-    // A corrupted worker entry must fail the smoke test with a diagnosable
-    // error instead of surfacing as an unhandled 'error' event (which Node
-    // escalates to an uncaughtException). Racing error/exit against the
-    // handshake message makes a dead or broken worker reject immediately.
-    const ready = Promise.race([
-      once(worker, 'message', {
-        signal: AbortSignal.timeout(15_000),
-      }) as Promise<unknown[]>,
-      new Promise<never>((_, rejectWorker) => {
-        worker.once('error', rejectWorker);
-        worker.once('exit', (code) => {
-          rejectWorker(
-            new Error(`search worker exited before the ready handshake (code ${String(code)})`),
-          );
-        });
-      }),
-    ]);
+    const ready = once(worker, 'message', {
+      signal: AbortSignal.timeout(15_000),
+    }) as Promise<unknown[]>;
     const [event] = await ready;
     const v = (event as { type?: string; v?: number }).v;
     if ((event as { type?: string }).type !== 'ready' || typeof v !== 'number') {
@@ -138,7 +120,7 @@ async function runSmoke(): Promise<void> {
 }
 
 export function runNativeAssetSmokeIfRequested(): boolean {
-  if (!nativeAssetSmokeRequested()) return false;
+  if (process.env['KIMI_CODE_NATIVE_ASSET_SMOKE'] !== '1') return false;
   void runSmoke().then(
     () => process.exit(0),
     (error: unknown) => {

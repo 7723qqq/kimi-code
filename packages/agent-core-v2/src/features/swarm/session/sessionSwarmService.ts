@@ -1,14 +1,13 @@
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { Error2, ErrorCodes } from '#/errors';
+import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { linkAbortSignal } from '#/_base/utils/abort';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { Event2 } from '#/app/event/event2';
-import { Error2, ErrorCodes } from '#/errors';
+import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { hasPinnedPermissionMode } from '#/features/tower/tower';
-import { IHostClock } from '#/os/interface/hostClock';
-import { IHostTimers } from '#/os/interface/hostTimers';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { createAgentAwaitingClose } from '#/session/agentLifecycle/createAwaitingClose';
 import {
@@ -18,7 +17,6 @@ import {
   subagentParentAgentId,
   subagentSwarmItem,
 } from '#/session/agentLifecycle/subagentMetadata';
-import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import {
   classifyRunTermination,
   emitAgentRunSpawned,
@@ -27,10 +25,15 @@ import {
   SubagentFailed,
 } from '#/session/subagent/mirrorAgentRun';
 import { type AgentRunHandle, ISessionSubagentService } from '#/session/subagent/subagent';
+import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-import type { TokenUsage } from '#human/llm/usage';
 
+import {
+  ISessionSwarmService,
+  type SessionSwarmRunArgs,
+  type SessionSwarmRunResult,
+  type SessionSwarmTask,
+} from './sessionSwarm';
 import {
   resolveSwarmMaxConcurrency,
   AgentRunBatch,
@@ -39,12 +42,7 @@ import {
   type AgentRunBatchLauncher,
   type AgentRunAttemptHandle,
 } from './agentRunBatch';
-import {
-  ISessionSwarmService,
-  type SessionSwarmRunArgs,
-  type SessionSwarmRunResult,
-  type SessionSwarmTask,
-} from './sessionSwarm';
+import { SwarmMemberTasks } from './swarmMemberTask';
 
 export interface SubagentSuspendedPayload {
   readonly subagentId: string;
@@ -74,8 +72,6 @@ export class SessionSwarmService implements ISessionSwarmService {
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
-    @IHostClock private readonly clock: IHostClock,
-    @IHostTimers private readonly timers: IHostTimers,
   ) {}
 
   async getSwarmItem(args: {
@@ -90,13 +86,25 @@ export class SessionSwarmService implements ISessionSwarmService {
 
   run<T>(args: SessionSwarmRunArgs<T>): Promise<readonly SessionSwarmRunResult<T>[]> {
     const { callerAgentId, tasks } = args;
+    const maxConcurrency = resolveSwarmMaxConcurrency();
     const controller = new AbortController();
     this.inFlight.set(callerAgentId, controller);
     const unlinks: Array<() => void> = [];
+    const memberControllers = new Map<SessionSwarmTask, AbortController>();
     const linkedTasks: SessionSwarmTask<T>[] = tasks.map((task) => {
-      if (task.signal !== undefined) unlinks.push(linkAbortSignal(task.signal, controller));
-      return { ...task, signal: controller.signal };
+      const memberController = new AbortController();
+      if (task.signal !== undefined) unlinks.push(linkAbortSignal(task.signal, memberController));
+      unlinks.push(linkAbortSignal(controller.signal, memberController));
+      const linked = { ...task, signal: memberController.signal };
+      memberControllers.set(linked, memberController);
+      return linked;
     });
+    const caller = this.agentLifecycle.handleOf(callerAgentId);
+    const members = new SwarmMemberTasks(
+      caller?.accessor.get(IEventDispatcher),
+      callerAgentId,
+      linkedTasks,
+    );
     const terminalized = new Set<string>();
     const terminalize: TerminalizeSubagent = (agentId, event) => {
       if (terminalized.has(agentId)) return;
@@ -105,10 +113,8 @@ export class SessionSwarmService implements ISessionSwarmService {
     };
     const launcher: AgentRunBatchLauncher = {
       spawn: (options) => this.spawnAttempt(callerAgentId, options, terminalize),
-      resume: (agentId, options) =>
-        this.resumeAttempt(callerAgentId, agentId, options, false, terminalize),
-      retry: (agentId, options) =>
-        this.resumeAttempt(callerAgentId, agentId, options, true, terminalize),
+      resume: (agentId, options) => this.resumeAttempt(callerAgentId, agentId, options, false, terminalize),
+      retry: (agentId, options) => this.resumeAttempt(callerAgentId, agentId, options, true, terminalize),
       suspended: (event) => {
         this.dispatchSubagentEvent(
           callerAgentId,
@@ -117,6 +123,7 @@ export class SessionSwarmService implements ISessionSwarmService {
             reason: event.reason,
           }),
         );
+        members.suspended(event.task, event.reason);
       },
       abandoned: (event) => {
         terminalize(
@@ -130,12 +137,18 @@ export class SessionSwarmService implements ISessionSwarmService {
         );
       },
     };
-    const maxConcurrency = resolveSwarmMaxConcurrency();
     const promise = new AgentRunBatch(launcher, linkedTasks, {
       maxConcurrency,
-      clock: this.clock,
-      timers: this.timers,
+      signal: controller.signal,
+      onStarted: (task, handle) => members.started(task, handle),
+      onSettled: (result) => members.settled(result),
     }).run();
+    void promise.then(
+      (results) => {
+        for (const result of results) members.settled(result);
+      },
+      (error: unknown) => members.failAll(error),
+    );
     void promise
       .finally(() => {
         for (const unlink of unlinks) unlink();
@@ -146,7 +159,7 @@ export class SessionSwarmService implements ISessionSwarmService {
   }
 
   cancel({ callerAgentId }: { readonly callerAgentId: string }): void {
-    this.inFlight.get(callerAgentId)?.abort();
+    this.inFlight.get(callerAgentId)?.abort(userCancellationReason());
   }
 
   private dispatchSubagentEvent(callerAgentId: string, event: Event2): void {
@@ -180,6 +193,13 @@ export class SessionSwarmService implements ISessionSwarmService {
       modelSource: plan.modelSource,
     });
     const child = this.requireHandle(spawned.agentId, 'Agent instance');
+    try {
+      options.signal.throwIfAborted();
+    } catch (error) {
+      terminalize(spawned.agentId, runStartTerminalEvent(spawned.agentId, error, options.signal));
+      await this.agentLifecycle.remove(agentContextOf(child)).catch(() => undefined);
+      throw error;
+    }
     return this.observe(
       caller,
       child,
@@ -208,9 +228,9 @@ export class SessionSwarmService implements ISessionSwarmService {
       (await this.rebuildSubagent(agentId, meta, caller, options.signal));
     this.requireIdleSubagent(agentId, child);
     const profileName =
-      child.accessor.get(IAgentProfileService).data().profileName ?? RESUMED_PROFILE_FALLBACK;
+      child.accessor.get(IAgentLoopService).data().profileName ?? RESUMED_PROFILE_FALLBACK;
     if (!retryTurn) {
-      const resumedModel = child.accessor.get(IAgentProfileService).data().modelAlias;
+      const resumedModel = child.accessor.get(IAgentLoopService).data().modelAlias;
       emitAgentRunSpawned(caller, agentId, {
         profileName,
         parentToolCallId: options.parentToolCallId,
@@ -253,9 +273,12 @@ export class SessionSwarmService implements ISessionSwarmService {
       signal: options.signal,
       terminalize,
     });
+    const profile = child.accessor.get(IAgentLoopService);
     return {
       agentId,
       profileName,
+      model: profile.data().modelAlias,
+      thinkingEffort: profile.getEffectiveThinkingLevel(),
       completion: mirrored.then((r) => ({
         result: r.summary,
         usage: r.usage,
@@ -301,7 +324,7 @@ export class SessionSwarmService implements ISessionSwarmService {
         details: { agentId },
       });
     }
-    if (!hasPinnedPermissionMode(rebuilt.accessor.get(IAgentProfileService).data().profileName)) {
+    if (!hasPinnedPermissionMode(rebuilt.accessor.get(IAgentLoopService).data().profileName)) {
       rebuilt.accessor
         .get(IAgentPermissionModeService)
         .setMode(caller.accessor.get(IAgentPermissionModeService).mode);
@@ -312,13 +335,9 @@ export class SessionSwarmService implements ISessionSwarmService {
   private async requireOwnedSubagent(callerAgentId: string, agentId: string): Promise<AgentMeta> {
     const meta = await this.agentMeta(agentId);
     if (meta === undefined || !isSubagentMeta(meta)) {
-      throw new Error2(
-        ErrorCodes.AGENT_NOT_A_SUBAGENT,
-        `Agent instance "${agentId}" is not a subagent`,
-        {
-          details: { agentId },
-        },
-      );
+      throw new Error2(ErrorCodes.AGENT_NOT_A_SUBAGENT, `Agent instance "${agentId}" is not a subagent`, {
+        details: { agentId },
+      });
     }
     if (subagentParentAgentId(meta) !== callerAgentId) {
       throw new Error2(

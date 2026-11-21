@@ -30,11 +30,16 @@
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "hono": "^4.7.7",
-    "yauzl": "^3.3.0"
+    "yauzl": "^3.3.0",
+    "@moonshot-ai/agent-core-v2": "workspace:^",
+    "@moonshot-ai/core": "workspace:^"
   },
   "devDependencies": {
+    "@moonshot-ai/testkit": "workspace:*",
     "@types/yauzl": "^2.10.3",
     "@types/yazl": "^2.4.6",
+    "tsx": "^4.21.0",
+    "vitest": "4.1.4",
     "yazl": "catalog:"
   }
 }
