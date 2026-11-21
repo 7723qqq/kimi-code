@@ -1,6 +1,6 @@
 import type { ContentPart, Message, ThinkPart, ToolMessage, UserMessage } from '@moonshot-ai/core/llm/message';
 import { mediaUrlOf } from '#/llm/protocol/kit/media';
-import { toolResultToPlainText } from '#/llm/protocol/patterns';
+import { toolResultToPlainText } from '@moonshot-ai/core/llm/protocol/patterns';
 import type { Pattern } from '#/llm/protocol/pattern';
 import type { ToolMessageConversion } from '#/llm/protocol/protocol';
 

@@ -24,7 +24,7 @@ import {
   resolveThinkingEffortForModel,
   resolveThinkingKeep,
   type ModelThinkingMetadata,
-} from '#/llm/thinking';
+} from '@moonshot-ai/core/llm/thinking';
 
 const model: LlmModel = {
   provider: 'test',

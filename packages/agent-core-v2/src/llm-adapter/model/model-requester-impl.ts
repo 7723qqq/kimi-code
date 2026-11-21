@@ -11,9 +11,9 @@ import type {
   ProviderMediaContribution,
   ImageUploadInput,
   VideoUploadInput,
-} from '#human/llm/media/upload';
+} from '#human/media/upload';
 import { createMessageAccumulator, type ImageURLPart, type VideoURLPart } from '@moonshot-ai/core/llm/message';
-import type { LlmModel } from '#human/llm/model';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ProtocolName } from '#human/llm/protocol/base';
 import {
   LLM_BODY_TIMEOUT_ENV,

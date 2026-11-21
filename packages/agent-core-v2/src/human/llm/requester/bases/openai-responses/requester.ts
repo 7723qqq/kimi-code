@@ -6,7 +6,7 @@ import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
-import { applyThinking } from '#/llm/protocol/thinking';
+import { applyThinking } from '@moonshot-ai/core/llm/thinking';
 import {
   mergeRequestHeaders,
   type LlmClientContext,
@@ -18,10 +18,10 @@ import {
   type LlmRequestEvent,
   type ToolCallIdPolicy,
 } from '#/llm/requester/requester';
-import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
+import { createThinkingTagEventHandler } from '@moonshot-ai/core/llm/requester/thinking-tags';
 import { getLlmDispatcher } from '#/llm/requester/timeout';
-import { toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/syntax-errors';
-import { encodeReasoningEffortFallback } from '#/llm/thinking';
+import { toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
+import { encodeReasoningEffortFallback } from '@moonshot-ai/core/llm/thinking';
 
 import { convertOpenAIError } from '../openai/format';
 import { normalizeToolCallIdsForProvider, sanitizeOpenAIResponsesCallId } from '../tool-call-id';

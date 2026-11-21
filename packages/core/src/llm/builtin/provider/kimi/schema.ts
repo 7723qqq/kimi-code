@@ -1,4 +1,4 @@
-import { SyntaxRequestFormatError } from '#/llm/protocol/errors';
+import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/protocol/errors';
 
 export function derefJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const visited = new Set<string>();

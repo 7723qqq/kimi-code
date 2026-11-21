@@ -26,13 +26,13 @@ import type {
   StreamParser,
   StreamParserOptions,
 } from '#/llm/protocol/format';
-import { toolResultToPlainText } from '#/llm/protocol/patterns';
+import { toolResultToPlainText } from '@moonshot-ai/core/llm/protocol/patterns';
 import { applyPatterns } from '#/llm/protocol/rewrite';
 import type { ToolMessageConversion } from '#/llm/requester/requester';
 import type { ResponseFormat } from '#/llm/response-format';
 import type { LlmLogger } from '#/log/log';
 
-import type { OpenAIRawChunk, OpenAIRawStreamToolCallDelta, OpenAIWireMessage } from './contract';
+import type { OpenAIRawChunk, OpenAIRawStreamToolCallDelta, OpenAIWireMessage } from '@moonshot-ai/core/llm/builtin/protocol/openai/contract';
 import { lowerMessage } from './lower';
 import { extractToolMedia } from './patterns';
 import {

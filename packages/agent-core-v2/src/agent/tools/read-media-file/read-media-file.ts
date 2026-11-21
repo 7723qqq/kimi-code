@@ -1,4 +1,4 @@
-import type { VideoUploadInput as ProviderVideoUploadInput } from '#human/llm/media/upload';
+import type { VideoUploadInput as ProviderVideoUploadInput } from '#human/media/upload';
 import type { VideoURLPart } from '@moonshot-ai/core/llm/message';
 
 export const READ_MEDIA_FILE_TOOL_NAME = 'ReadMediaFile';

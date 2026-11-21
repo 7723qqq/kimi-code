@@ -410,7 +410,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         originTurnId,
         quiescence,
         get traceId() {
-          return this.trace?.traceId;
+          return this.trace?.requestId;
         },
         blockedByTurn: false,
       },

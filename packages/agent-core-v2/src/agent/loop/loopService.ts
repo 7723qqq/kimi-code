@@ -64,7 +64,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
-import { mergeSteerMessages, stripBundledSkillBlocks } from '#human/agent/origin';
+import { mergeSteerMessages, stripBundledSkillBlocks } from '@moonshot-ai/core/llm/origin';
 import { type FinishReason } from '@moonshot-ai/core/llm/response';
 import type { ContentPart, UserMessage } from '@moonshot-ai/core/llm/message';
 import { emptyUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';
@@ -551,7 +551,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
               activeToolCalls: turn.activeToolCalls,
               since: this.active?.startedAt,
             },
-      activeTraceId: this.activeRequestTrace?.traceId,
+      activeTraceId: this.activeRequestTrace?.requestId,
     };
   }
 

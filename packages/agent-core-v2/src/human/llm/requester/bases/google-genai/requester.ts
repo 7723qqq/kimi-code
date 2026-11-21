@@ -6,7 +6,7 @@ import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
-import { applyThinking } from '#/llm/protocol/thinking';
+import { applyThinking } from '@moonshot-ai/core/llm/thinking';
 import {
   mergeRequestHeaders,
   type LlmClientContext,
@@ -17,8 +17,8 @@ import {
   type LlmRequesterOptions,
   type LlmRequestEvent,
 } from '#/llm/requester/requester';
-import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
-import { toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/syntax-errors';
+import { createThinkingTagEventHandler } from '@moonshot-ai/core/llm/requester/thinking-tags';
+import { toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 
 import { getGoogleGenAIModelCapability } from './capability';
 import {

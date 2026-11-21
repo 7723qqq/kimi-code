@@ -1,7 +1,7 @@
 import type { Message, TextPart } from '@moonshot-ai/core/llm/message';
-import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/syntax-errors';
+import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/protocol/errors';
 
-import type { AnthropicWireContentBlock, AnthropicWireMessage } from './contract';
+import type { AnthropicWireContentBlock, AnthropicWireMessage } from '@moonshot-ai/core/llm/builtin/protocol/anthropic/contract';
 
 type AnthropicWireImageBlock = Extract<AnthropicWireContentBlock, { type: 'image' }>;
 

@@ -3,7 +3,7 @@ import { shake } from 'radashi';
 
 import { extractText, type ContentPart, type Message, type ToolDescription } from '@moonshot-ai/core/llm/message';
 import type { LlmModelSpec, LlmSampling, ResponseFormat, ThinkingRequestOptions } from '@moonshot-ai/core/llm/request';
-import { resolveThinkingEffort } from '#/llm/thinking';
+import { resolveThinkingEffort } from '@moonshot-ai/core/llm/thinking';
 import { mediaFileIdOf, mediaUrlOf } from '#/llm/protocol/kit/media';
 import { withExtras } from '#/llm/protocol/kit/params';
 import type { NativeModule, PipelineSpec } from '#/llm/protocol/pipeline';

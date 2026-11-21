@@ -1,6 +1,6 @@
 import type { Message } from '@moonshot-ai/core/llm/message';
 import type { LlmPolicy, LlmRunControl } from '#/llm/policy/policy';
-import { isAbortError, toLlmErrorMessage } from '#/llm/protocol/errors';
+import { isAbortError, toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import type { LlmRequestProfile } from '@moonshot-ai/core/llm/request';
 import type { LlmDimension, LlmRequestRest } from '#/llm/requester';
 import type { LlmOutcome, LlmRunEvent } from '#/llm/response';

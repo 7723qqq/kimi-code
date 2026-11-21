@@ -7,7 +7,7 @@ import {
   type UserMessage,
 } from '@moonshot-ai/core/llm/message';
 import { abortedToolOutput } from '#/utils/abort';
-import { errorText } from '#/llm/protocol/errors';
+import { errorText } from '@moonshot-ai/core/llm/protocol/errors';
 import type { ToolDetachAck, ToolResult } from '#/tool/types';
 import type { AsyncToolOutcome, Cause, ToolCallOutcome } from '../contract/outcome';
 

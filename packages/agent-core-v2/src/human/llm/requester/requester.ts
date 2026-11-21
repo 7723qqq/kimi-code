@@ -3,7 +3,7 @@ import type { FinishInfo } from '@moonshot-ai/core/llm/response';
 import type { Message, StreamedMessagePart, ToolDescription } from '@moonshot-ai/core/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ResponseFormat } from '#/llm/response-format';
-import type { ThinkingRequestOptions } from '#/llm/thinking';
+import type { ThinkingRequestOptions } from '@moonshot-ai/core/llm/thinking';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import type { AnthropicExtraParams } from './bases/anthropic/extra-params';

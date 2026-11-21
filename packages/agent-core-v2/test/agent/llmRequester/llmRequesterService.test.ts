@@ -70,7 +70,7 @@ import {
 } from '#human/agent/turn';
 import { UNKNOWN_CAPABILITY } from '@moonshot-ai/core/llm/capability';
 import { isToolCall, type StreamedMessagePart, type ToolCall } from '@moonshot-ai/core/llm/message';
-import type { LlmModel } from '#human/llm/model';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { LlmRequester } from '#human/llm/requester/requester';
 import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
 import { emptyUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';

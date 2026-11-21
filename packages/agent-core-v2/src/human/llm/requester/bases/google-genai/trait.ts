@@ -1,8 +1,8 @@
 import type { ToolDescription } from '@moonshot-ai/core/llm/message';
 import type { TraitContext } from '#/llm/protocol/base';
-import type { ThinkingStrategy } from '#/llm/protocol/thinking';
+import type { ThinkingStrategy } from '@moonshot-ai/core/llm/thinking';
 
-import type { GoogleContent } from './contract';
+import type { GoogleContent } from '@moonshot-ai/core/llm/builtin/protocol/google-genai/contract';
 
 export interface GoogleGenAITrait {
   readonly thinking?: ThinkingStrategy;

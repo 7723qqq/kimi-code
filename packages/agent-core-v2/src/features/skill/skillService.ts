@@ -17,7 +17,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { skillActivationPart } from '#human/agent/origin';
+import { skillActivationPart } from '@moonshot-ai/core/llm/origin';
 import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 import { isUserActivatableSkillType, type SkillDefinition } from './catalog/types';

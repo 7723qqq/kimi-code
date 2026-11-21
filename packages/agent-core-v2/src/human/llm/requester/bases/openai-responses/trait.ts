@@ -1,7 +1,7 @@
 import type { ToolDescription } from '@moonshot-ai/core/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { TraitContext } from '#/llm/protocol/base';
-import type { ThinkingStrategy } from '#/llm/protocol/thinking';
+import type { ThinkingStrategy } from '@moonshot-ai/core/llm/thinking';
 import type { ToolCallIdPolicy, ToolMessageConversion } from '#/llm/requester/requester';
 
 import type {

@@ -6,5 +6,5 @@
  */
 
 export interface LLMRequestTrace {
-  readonly traceId: string | undefined;
+  readonly requestId: string | undefined;
 }

@@ -10,7 +10,7 @@ import {
   type ToolCall,
 } from '@moonshot-ai/core/llm/message';
 import { openAIProtocol } from '#/llm/builtin/protocol/openai/index';
-import { SyntaxRequestFormatError } from '#/llm/protocol/errors';
+import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/protocol/errors';
 import type { LlmModule, Protocol } from '#/llm/protocol/protocol';
 import { emptyResponseError } from '#/llm/policy/settle';
 import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';

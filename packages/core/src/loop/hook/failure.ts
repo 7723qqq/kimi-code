@@ -1,5 +1,5 @@
 import { createUserMessage, type UserMessage } from '@moonshot-ai/core/llm/message';
-import { errorText } from '#/llm/protocol/errors';
+import { errorText } from '@moonshot-ai/core/llm/protocol/errors';
 import type { HookPoint as LoopHookPoint, ToolHookPoint } from '../contract/hook';
 import type { HookFailedEvent } from '../contract/emitted';
 import type { Cause } from '../contract/outcome';

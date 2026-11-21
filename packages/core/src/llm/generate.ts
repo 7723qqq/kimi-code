@@ -1,5 +1,5 @@
 import { resolveEndpoint } from '#/llm/endpoint';
-import { isAbortError, toLlmErrorMessage, toLlmSyntaxErrorMessage } from '#/llm/protocol/errors';
+import { isAbortError, toLlmErrorMessage, toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import type { DecodeSink, LlmModule, ProtocolReply } from '#/llm/protocol/protocol';
 import { withProtocolCapabilities } from '#/llm/protocol/rules/model';
 import type { LlmRequest } from '@moonshot-ai/core/llm/request';

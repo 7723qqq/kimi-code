@@ -1,4 +1,4 @@
-import { ThinkingConfigError } from '#/llm/protocol/errors';
+import { ThinkingConfigError } from '@moonshot-ai/core/llm/protocol/errors';
 import type {
   LlmModelSpec,
   ModelThinkingMetadata,

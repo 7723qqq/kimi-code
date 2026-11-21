@@ -20,13 +20,13 @@ import type {
   ToolDescription,
 } from '@moonshot-ai/core/llm/message';
 import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
-import { mergeConsecutiveUsers } from '#/llm/protocol/patterns';
+import { mergeConsecutiveUsers } from '@moonshot-ai/core/llm/protocol/patterns';
 import { applyPatterns } from '#/llm/protocol/rewrite';
 import type { ResponseFormat } from '#/llm/response-format';
-import { ThinkingConfigError, type ThinkingEffort } from '#/llm/thinking';
+import { ThinkingConfigError, type ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
-import type { GoogleContent } from './contract';
+import type { GoogleContent } from '@moonshot-ai/core/llm/builtin/protocol/google-genai/contract';
 import { buildRawIdById, buildToolNameById, lowerMessage } from './lower';
 import { sortToolRunByCallOrder } from './patterns';
 

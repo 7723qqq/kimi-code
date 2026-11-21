@@ -6,7 +6,7 @@ import {
 } from 'openai';
 
 import { headersToRecord, parseRetryAfterMs } from '#/llm/protocol/kit/http';
-import { isAbortError, toLlmErrorMessage } from '#/llm/protocol/errors';
+import { isAbortError, toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import {
   isTransientHttpStatus,
   toLlmStatusErrorMessage,

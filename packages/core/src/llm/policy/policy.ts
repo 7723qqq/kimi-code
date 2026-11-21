@@ -1,6 +1,6 @@
 import { estimateUsedContextTokens } from '#/llm/context-usage';
 import type { ToolDescription } from '@moonshot-ai/core/llm/message';
-import { isAbortError, toLlmErrorMessage } from '#/llm/protocol/errors';
+import { isAbortError, toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import type { LlmRequest } from '@moonshot-ai/core/llm/request';
 import type { LlmOutcome, LlmRunEvent, LlmRunStarted } from '#/llm/response';
 import { sha256Hex } from '#/utils/hash';

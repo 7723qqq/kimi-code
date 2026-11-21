@@ -1,5 +1,5 @@
 import type { ContentPart, Message } from '@moonshot-ai/core/llm/message';
-import { SyntaxRequestFormatError } from '#/llm/protocol/errors';
+import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/protocol/errors';
 import type { ModelLegality } from '#/llm/protocol/rules/model';
 import type { Pattern } from '#/llm/protocol/pattern';
 import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';

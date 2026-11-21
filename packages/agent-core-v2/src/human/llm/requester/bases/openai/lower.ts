@@ -1,7 +1,7 @@
 import { extractText, type ContentPart, type Message } from '@moonshot-ai/core/llm/message';
 import type { ToolMessageConversion } from '#/llm/requester/requester';
 
-import type { OpenAIContentPart, OpenAIWireMessage } from './contract';
+import type { OpenAIContentPart, OpenAIWireMessage } from '@moonshot-ai/core/llm/builtin/protocol/openai/contract';
 import { TOOL_RESULT_MEDIA_PLACEHOLDER } from './patterns';
 import { DEFAULT_REASONING_KEY, REASONING_DETAILS_KEY } from './reasoning-key';
 

@@ -23,8 +23,8 @@ import {
   createOAuthCredentialProvider,
   createStaticCredentialProvider,
 } from '#human/credentials/credentials';
-import { type ProviderMediaContribution } from '#human/llm/media/upload';
-import { type LlmModel } from '#human/llm/model';
+import { type ProviderMediaContribution } from '#human/media/upload';
+import { type LlmModel } from '@moonshot-ai/core/llm/model';
 import { createOpenAIRequester } from '#human/llm/requester/bases/openai/requester';
 import {
   type LlmRequestConfig,

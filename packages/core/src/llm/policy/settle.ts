@@ -5,7 +5,7 @@ import {
   isVacuousContentPart,
   type AssistantMessage,
 } from '@moonshot-ai/core/llm/message';
-import { isAbortError, toLlmErrorMessage } from '#/llm/protocol/errors';
+import { isAbortError, toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import { parseRetryAfterMs } from '#/llm/protocol/kit/http';
 import { withoutUndefinedStatusCode } from '#/llm/protocol/rules/status';
 import { createToolCallIdNormalizer } from '#/llm/protocol/rules/tool-call-ids';

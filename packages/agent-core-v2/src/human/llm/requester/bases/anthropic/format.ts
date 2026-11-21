@@ -22,14 +22,14 @@ import {
 import { NO_FINISH, type FinishInfo, type FinishReason } from '@moonshot-ai/core/llm/response';
 import type { Message, ToolDescription } from '@moonshot-ai/core/llm/message';
 import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
-import { mergeConsecutiveUsers } from '#/llm/protocol/patterns';
+import { mergeConsecutiveUsers } from '@moonshot-ai/core/llm/protocol/patterns';
 import { applyPatterns } from '#/llm/protocol/rewrite';
 import type { ResponseFormat } from '#/llm/response-format';
-import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/syntax-errors';
+import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/protocol/errors';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
-import { CONTEXT_MANAGEMENT_BETA } from './contract';
-import type { AnthropicRawStreamEvent, AnthropicRawUsage, AnthropicWireMessage } from './contract';
+import { CONTEXT_MANAGEMENT_BETA } from '@moonshot-ai/core/llm/builtin/protocol/anthropic/contract';
+import type { AnthropicRawStreamEvent, AnthropicRawUsage, AnthropicWireMessage } from '@moonshot-ai/core/llm/builtin/protocol/anthropic/contract';
 import { lowerMessage, messageContent } from './lower';
 import { audioToPlaceholder, stripUnsignedThinking } from './patterns';
 import { resolveDefaultMaxTokens, shouldPreserveUnsignedThinking } from './profile';

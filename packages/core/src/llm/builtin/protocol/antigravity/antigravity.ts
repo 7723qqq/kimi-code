@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 
 import type { ModelCapability } from '#/llm/capability';
 import type { FinishReason } from '@moonshot-ai/core/llm/response';
-import type { ThinkingEffort } from '#/llm/thinking';
+import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import type {
   Message,

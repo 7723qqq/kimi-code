@@ -1,6 +1,6 @@
 import { getTokenProvider } from '@aws/bedrock-token-generator';
 
-import { errorStatusCode } from '#/llm/protocol/errors';
+import { errorStatusCode } from '@moonshot-ai/core/llm/protocol/errors';
 import type { LlmCredential, LlmCredentialProvider } from '@moonshot-ai/core/llm/request';
 import { now } from '#/utils/now';
 

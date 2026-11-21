@@ -1,7 +1,7 @@
 import type { Message, ToolMessage } from '@moonshot-ai/core/llm/message';
 import type { ModelLegality } from '#/llm/protocol/rules/model';
 import type { Pattern } from '#/llm/protocol/pattern';
-import { SyntaxRequestFormatError } from '#/llm/protocol/errors';
+import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/protocol/errors';
 
 export const googleGenAIModelLegality: ModelLegality = {
   sampling: ['temperature', 'topP', 'topK', 'stop', 'seed', 'presencePenalty', 'frequencyPenalty'],

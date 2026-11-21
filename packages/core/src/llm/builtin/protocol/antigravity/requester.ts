@@ -6,8 +6,8 @@ import {
   type LlmRequestControl,
   type LlmRequester,
 } from '#/llm/requester/requester';
-import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
-import { thinkingMetadataOf } from '#/llm/thinking';
+import { createThinkingTagEventHandler } from '@moonshot-ai/core/llm/requester/thinking-tags';
+import { thinkingMetadataOf } from '@moonshot-ai/core/llm/thinking';
 import type { Message } from '@moonshot-ai/core/llm/message';
 
 import { AntigravityChatProvider, getAntigravityModelCapability } from './antigravity';

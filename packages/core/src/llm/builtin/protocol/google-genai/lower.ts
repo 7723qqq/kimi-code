@@ -3,10 +3,10 @@ import { shake } from 'radashi';
 
 import type { Message, TextPart, ToolDescription } from '@moonshot-ai/core/llm/message';
 import type { LlmSampling, ResponseFormat, ThinkingEffort } from '@moonshot-ai/core/llm/request';
-import { SyntaxRequestFormatError, ThinkingConfigError } from '#/llm/protocol/errors';
+import { SyntaxRequestFormatError, ThinkingConfigError } from '@moonshot-ai/core/llm/protocol/errors';
 import { mediaUrlOf } from '#/llm/protocol/kit/media';
 import { withExtras } from '#/llm/protocol/kit/params';
-import { mergeConsecutiveUsers } from '#/llm/protocol/patterns';
+import { mergeConsecutiveUsers } from '@moonshot-ai/core/llm/protocol/patterns';
 import type { NativeModule, PipelineSpec } from '#/llm/protocol/pipeline';
 import type { LlmModule } from '#/llm/protocol/protocol';
 import type { Pattern } from '#/llm/protocol/pattern';

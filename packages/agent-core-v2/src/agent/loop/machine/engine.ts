@@ -30,7 +30,7 @@ import { UNKNOWN_CAPABILITY } from '@moonshot-ai/core/llm/capability';
 import type { LlmErrorMessage } from '@moonshot-ai/core/llm/errors';
 import type { FinishInfo } from '@moonshot-ai/core/llm/response';
 import type { StreamedMessagePart } from '@moonshot-ai/core/llm/message';
-import type { LlmModel } from '#human/llm/model';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { LlmRecovery, LlmRecoveryRecord } from '#human/llm/requester/recovery';
 import type { LlmCredentialProvider, LlmRequestConfig } from '#human/llm/requester/requester';
 import { resolveMaxAttempts } from '#human/llm/requester/retry';
