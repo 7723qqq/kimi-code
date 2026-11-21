@@ -48,9 +48,9 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IWireService } from '#/wire/wire';
-import type { FinishReason } from '#human/llm/finish-reason';
-import { type StreamedMessagePart, type ToolCall } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
+import type { FinishReason } from '@moonshot-ai/core/llm/response';
+import { type StreamedMessagePart, type ToolCall } from '@moonshot-ai/core/llm/message';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 import {
   advanceTimersByTimeAsync,

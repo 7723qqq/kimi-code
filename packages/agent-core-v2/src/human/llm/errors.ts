@@ -1,4 +1,4 @@
-import type { FinishReason } from '#/llm/finish-reason';
+import type { FinishReason } from '@moonshot-ai/core/llm/response';
 
 export function sanitizeStatusErrorMessage(message: string): string {
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(message);

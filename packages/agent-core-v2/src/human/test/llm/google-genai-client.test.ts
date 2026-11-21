@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import type { LlmRequestEvent } from '#/llm/requester/requester';
-import { createUserMessage, type AssistantMessage, type Message } from '#/llm/message';
+import { createUserMessage, type AssistantMessage, type Message } from '@moonshot-ai/core/llm/message';
 
 const constructor = mock();
 

@@ -18,7 +18,6 @@ export interface SessionOccupancyHost {
 export interface SessionOccupancyPrompt {
   readonly session: Session;
   readonly error: unknown;
-  /** The rejected request was already a Retry, so offer takeover instead. */
   readonly retried: boolean;
   readonly retry: () => void;
   readonly restore: () => void;

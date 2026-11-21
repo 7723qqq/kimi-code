@@ -30,7 +30,7 @@ import { INTERACTION_TAG_SESSION_ID } from '#/human/interaction/interaction';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { stubPermissionModeService } from '../permissionMode/stubs';

@@ -40,7 +40,7 @@ import {
   type ToolUpdate,
 } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ContentPart, ToolCall } from '#human/llm/message';
+import type { ContentPart, ToolCall } from '@moonshot-ai/core/llm/message';
 
 import { BeforeToolExecuteEmitter } from './beforeToolExecuteEvent';
 import {

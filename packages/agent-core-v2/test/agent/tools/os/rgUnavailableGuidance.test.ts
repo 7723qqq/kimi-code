@@ -1,20 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { join } from 'node:path';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 import type { IHostFileSystem, HostFileStat } from '#/os/interface/hostFileSystem';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import * as rgLocator from '#/os/backends/host/tools/rgLocator';
+import { ensureRgPath } from '#/os/backends/node-local/tools/rgLocator';
 import { GlobTool } from '#/agent/tools/os/glob/globTool';
 import { GrepTool } from '#/agent/tools/os/grep/grepTool';
 import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../environment/stubs';
 
+vi.mock('#/os/backends/node-local/tools/rgLocator', async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import('#/os/backends/node-local/tools/rgLocator')>();
+  return { ...original, ensureRgPath: vi.fn() };
+});
 
-const ensureRgPathMock = spyOn(rgLocator, 'ensureRgPath');
+const ensureRgPathMock = vi.mocked(ensureRgPath);
 
 const LOCAL_SHARE_BIN_RG = join(
   '/kimi-home-test',

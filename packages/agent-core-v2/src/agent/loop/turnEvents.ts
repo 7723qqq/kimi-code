@@ -7,9 +7,9 @@ import type { CacheBreakObservation } from '#/agent/usage/cacheBreak';
 import type { CacheObservation } from '#/agent/usage/cacheObservation';
 import { AgentEvent2, registerEvent2Class } from '#/app/event/event2';
 import { annotateBundledSkillParts, isSkillActivationPart } from '#human/agent/origin';
-import type { FinishReason } from '#human/llm/finish-reason';
-import type { ContentPart, TextPart } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
+import type { FinishReason } from '@moonshot-ai/core/llm/response';
+import type { ContentPart, TextPart } from '@moonshot-ai/core/llm/message';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 export type {
   CacheBreakCause,

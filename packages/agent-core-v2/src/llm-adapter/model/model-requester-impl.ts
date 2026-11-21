@@ -5,14 +5,14 @@ import { performance, type EventLoopUtilization } from 'node:perf_hooks';
 import { AsyncEventQueue } from '#/_base/asyncEventQueue';
 import { applyCredential } from '#human/credentials/credentials';
 import { emptyResponseError } from '#human/llm/empty-response';
-import type { LlmErrorMessage } from '#human/llm/errors';
-import { NO_FINISH, type FinishInfo } from '#human/llm/finish-reason';
+import type { LlmErrorMessage } from '@moonshot-ai/core/llm/errors';
+import { NO_FINISH, type FinishInfo } from '@moonshot-ai/core/llm/response';
 import type {
   ProviderMediaContribution,
   ImageUploadInput,
   VideoUploadInput,
 } from '#human/llm/media/upload';
-import { createMessageAccumulator, type ImageURLPart, type VideoURLPart } from '#human/llm/message';
+import { createMessageAccumulator, type ImageURLPart, type VideoURLPart } from '@moonshot-ai/core/llm/message';
 import type { LlmModel } from '#human/llm/model';
 import type { ProtocolName } from '#human/llm/protocol/base';
 import {
@@ -28,8 +28,8 @@ import {
   type LlmRequestEvent,
   type LlmRequester,
 } from '#human/llm/requester/requester';
-import type { TokenUsage } from '#human/llm/usage';
-import { mergeUsagePatch } from '#human/llm/usage';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { mergeUsagePatch } from '@moonshot-ai/core/llm/usage';
 
 import {
   APITimeoutError,

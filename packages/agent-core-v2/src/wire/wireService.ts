@@ -13,7 +13,7 @@ import {
   StorageErrors,
 } from '#/persistence/interface/storage';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 import { WireError, WireErrors } from './errors';
 import { isHumanRecordType } from './human';

@@ -2,7 +2,7 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
-import type { ModelCapability } from '#human/llm/capability';
+import type { ModelCapability } from '@moonshot-ai/core/llm/capability';
 import {
   createProviderCatalogSync,
   type CatalogModel,

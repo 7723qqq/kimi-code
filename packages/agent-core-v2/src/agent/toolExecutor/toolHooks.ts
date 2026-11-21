@@ -6,7 +6,7 @@ import type {
   RunnableToolExecution,
   ToolAccesses,
 } from '#/tool/toolContract';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 
 export interface ToolExecutionHookContext {
   readonly turnId: number;

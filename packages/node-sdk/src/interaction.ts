@@ -1,6 +1,6 @@
 import type { QuestionRequest as CoreQuestionRequest } from '@moonshot-ai/agent-core-v2/agent/interaction/question';
 import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
-import type { ContentPart } from '@moonshot-ai/kosong';
+import type { ContentPart } from '@moonshot-ai/core';
 
 export type { ApprovalDecision, ApprovalResponse } from '@moonshot-ai/agent-core-v2/contract';
 export type {

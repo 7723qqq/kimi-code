@@ -9,9 +9,6 @@ export function mediaUrlPartToText(kind: MediaUrlKind, url: string): string {
     const size = summary.bytes !== undefined ? `, ${formatByteSize(summary.bytes)}` : '';
     return `[${kind} ${summary.mime}${size}]`;
   }
-  // An internal daemon file reference (`kimi-file://…?path=…`) never renders
-  // its wire form: the scheme resolves nowhere for the user and the query
-  // carries the materialization path. Render the bare placeholder instead.
   if (isDaemonFileUrl(url)) return `[${kind}]`;
   const text = `<${kind} url="${escapeAttribute(url)}">`;
   // Remote URLs become clickable OSC 8 links on hyperlink-capable terminals.

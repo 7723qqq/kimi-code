@@ -59,7 +59,7 @@ describe('check-import-boundaries', () => {
 
   it('allows intra-human imports through its own alias', () => {
     const violations = checkSource(
-      `import { createMessageAccumulator } from '#/llm/message';`,
+      `import { createMessageAccumulator } from '@moonshot-ai/core/llm/message';`,
       atHuman('llm/requester', 'machine.ts'),
     );
     expect(violations).toHaveLength(0);
@@ -86,7 +86,7 @@ describe('check-import-boundaries', () => {
 
   it('allows a non-adapter v2 file importing human vocabulary', () => {
     const violations = checkSource(
-      `import type { Message } from '#human/llm/message';\nimport { emptyUsage } from '#human/llm/usage';`,
+      `import type { Message } from '@moonshot-ai/core/llm/message';\nimport { emptyUsage } from '@moonshot-ai/core/llm/usage';`,
       at('agent', 'loop.ts'),
     );
     expect(violations).toHaveLength(0);

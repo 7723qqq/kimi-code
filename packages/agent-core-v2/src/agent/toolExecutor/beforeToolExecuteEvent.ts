@@ -6,7 +6,7 @@ import type {
   ExecutableToolResult,
   RunnableToolExecution,
 } from '#/tool/toolContract';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 
 import type {
   BeforeExecuteDecision,

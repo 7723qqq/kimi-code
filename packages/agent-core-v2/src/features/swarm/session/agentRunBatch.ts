@@ -7,7 +7,7 @@ import { isProviderRateLimitError } from '#/llm-adapter/contract/errors';
 import type { IHostClock } from '#/os/interface/hostClock';
 import type { IHostTimers, IHostTimerHandle } from '#/os/interface/hostTimers';
 import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
-import { type TokenUsage } from '#human/llm/usage';
+import { type TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import type { SessionSwarmRunResult, SessionSwarmTask } from './sessionSwarm';
 

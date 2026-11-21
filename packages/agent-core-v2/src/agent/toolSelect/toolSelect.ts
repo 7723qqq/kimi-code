@@ -1,7 +1,7 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { ToolInfo } from '#/tool/toolContract';
-import type { ToolDescription as Tool } from '#human/llm/message';
+import type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
 
 import type { ToolSearchHit } from './toolRetriever';
 import type { ToolSelectTool } from './toolSelectOps';

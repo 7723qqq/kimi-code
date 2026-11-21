@@ -151,6 +151,7 @@ export function shouldRetryRipgrepEagain(result: RunRgResult): boolean {
     result.exitCode !== 0 &&
     result.exitCode !== 1 &&
     !result.timedOut &&
+    !result.bufferTruncated &&
     isEagainRipgrepError(result.stderrText)
   );
 }

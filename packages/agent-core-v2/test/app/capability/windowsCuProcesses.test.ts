@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { expect, it } from 'bun:test';
+import { expect, it } from 'vitest';
 
 import { windowsPowerShellPath } from '#/app/capability/entries/kimiCu';
 import { windowsCuProcessScript } from '#/app/capability/entries/windowsCuProcesses';
@@ -65,6 +65,6 @@ it.skipIf(process.platform !== 'win32')('releases a locked plugin directory with
       child.kill();
       await exited;
     }
-    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(root, { recursive: true, force: true });
   }
 }, 30_000);

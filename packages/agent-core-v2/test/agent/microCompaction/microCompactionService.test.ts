@@ -34,7 +34,7 @@ import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTok
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { type WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
-import { emptyUsage } from '#human/llm/usage';
+import { emptyUsage } from '@moonshot-ai/core/llm/usage';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';

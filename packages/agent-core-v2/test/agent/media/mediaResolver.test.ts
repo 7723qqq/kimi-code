@@ -34,7 +34,7 @@ import type { Protocol } from '#/llm-adapter/protocol/protocol';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { createStaticCredentialProvider } from '#human/credentials/credentials';
-import type { ContentPart, ImageURLPart, VideoURLPart } from '#human/llm/message';
+import type { ContentPart, ImageURLPart, VideoURLPart } from '@moonshot-ai/core/llm/message';
 import type { LlmCredentialProvider } from '#human/llm/requester/requester';
 
 import { registerStateServices } from '../../state/stubs';

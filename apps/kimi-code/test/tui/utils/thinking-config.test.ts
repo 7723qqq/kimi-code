@@ -5,9 +5,6 @@ import { thinkingEffortFromConfig, thinkingEffortToConfig } from '@/tui/utils/th
 describe('thinkingEffortToConfig', () => {
   it.each([
     ['off', { enabled: false }],
-    // 'on' is the boolean-model on-signal, not a declared effort. It must not
-    // be persisted as `thinking.effort` — boolean models have no effort concept
-    // and resolve back to 'on' at runtime via defaultThinkingEffortFor.
     ['on', { enabled: true }],
     ['low', { enabled: true, effort: 'low' }],
     ['high', { enabled: true, effort: 'high' }],
@@ -17,13 +14,9 @@ describe('thinkingEffortToConfig', () => {
   });
 
   it.each([
-    // With no declared default effort, the historical rule applies: the
-    // model's highest declared level (last support_efforts entry) is
-    // session-only; anything below it persists as the global default.
     ['low', { enabled: true, effort: 'low' }],
     ['high', { enabled: true, effort: 'high' }],
     ['max', { enabled: true }],
-    // Undeclared values persist as-is (the provider validates them).
     ['ultra', { enabled: true, effort: 'ultra' }],
   ] as const)('maps %s → %o for [low, high, max] without a default', (effort, expected) => {
     expect(thinkingEffortToConfig(effort, { supportEfforts: ['low', 'high', 'max'] })).toEqual(
@@ -38,7 +31,6 @@ describe('thinkingEffortToConfig', () => {
   it.each([
     ['low', { enabled: true, effort: 'low' }],
     ['high', { enabled: true, effort: 'high' }],
-    // Above the delivered default: session-only.
     ['max', { enabled: true }],
   ] as const)('maps %s → %o for [low, high, max] with default high', (effort, expected) => {
     expect(
@@ -80,12 +72,9 @@ describe('thinkingEffortToConfig', () => {
     ['low', { enabled: true, effort: 'low' }],
     ['medium', { enabled: true, effort: 'medium' }],
     ['high', { enabled: true, effort: 'high' }],
-    // Above the effective default: session-only.
     ['xhigh', { enabled: true }],
     ['max', { enabled: true }],
   ] as const)(
-    // The shape the Anthropic profile inference hands the gate for the
-    // latest Claude models: five tiers with the default resolved to 'high'.
     'maps %s → %o for [low, medium, high, xhigh, max] with default high',
     (effort, expected) => {
       expect(
@@ -102,11 +91,9 @@ describe('thinkingEffortFromConfig', () => {
   it.each([
     [undefined, undefined],
     [{}, undefined],
-    // enabled with no concrete effort → let the model's own default apply.
     [{ enabled: true }, undefined],
     [{ enabled: false }, 'off'],
     [{ enabled: true, effort: 'high' }, 'high'],
-    // effort is honored even when enabled is not explicitly set.
     [{ effort: 'max' }, 'max'],
   ] as const)('%o → %s', (config, expected) => {
     expect(thinkingEffortFromConfig(config)).toBe(expected);

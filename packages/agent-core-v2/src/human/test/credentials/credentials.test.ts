@@ -6,7 +6,7 @@ import {
   createOAuthCredentialProvider,
   createStaticCredentialProvider,
 } from '#/credentials/credentials';
-import type { LlmModel } from '#/llm/model';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { LlmRecoveryContext, LlmRecoveryRecord } from '#/llm/requester/recovery';
 import type { LlmCredentialProvider } from '#/llm/requester/requester';
 

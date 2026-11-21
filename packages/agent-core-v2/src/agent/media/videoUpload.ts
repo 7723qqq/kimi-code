@@ -1,7 +1,7 @@
 import { VideoUploadUnsupportedError, errorStatusCode } from '#/llm-adapter/contract/errors';
 import { ProtocolErrors } from '#/llm-adapter/protocol/errors';
 import type { Protocol } from '#/llm-adapter/protocol/protocol';
-import type { VideoURLPart } from '#human/llm/message';
+import type { VideoURLPart } from '@moonshot-ai/core/llm/message';
 
 export function isMediaUploadAuthError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;

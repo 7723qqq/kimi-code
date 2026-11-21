@@ -37,7 +37,6 @@ interface SubagentReplayIndex {
   readonly byParentCall: ReadonlyMap<string, readonly SubagentReplayInvocation[]>;
 }
 
-/** Projects a complete resumed SDK session, including persisted subagent steps. */
 export function replaySessionToWebviewEvents(
   state: ResumedSessionState,
   sessionId: string,
@@ -52,7 +51,6 @@ export function replaySessionToWebviewEvents(
   );
 }
 
-/** Projects the public SDK resume replay into the released Webview protocol. */
 export function replayToWebviewEvents(
   agent: ResumedAgentState,
   sessionId: string,
@@ -508,7 +506,10 @@ function sumUsage(
     (total, usage) => ({
       inputOther: total.inputOther + usage.inputOther,
       output: total.output + usage.output,
-      inputCacheRead: total.inputCacheRead + usage.inputCacheRead,
+      inputCacheRead:
+        total.inputCacheRead === undefined || usage.inputCacheRead === undefined
+          ? undefined
+          : total.inputCacheRead + usage.inputCacheRead,
       inputCacheCreation: total.inputCacheCreation + usage.inputCacheCreation,
     }),
     { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },

@@ -65,9 +65,9 @@ import { defineState } from '#/state/state';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
 import { mergeSteerMessages, stripBundledSkillBlocks } from '#human/agent/origin';
-import { type FinishReason } from '#human/llm/finish-reason';
-import type { ContentPart, UserMessage } from '#human/llm/message';
-import { emptyUsage, type TokenUsage } from '#human/llm/usage';
+import { type FinishReason } from '@moonshot-ai/core/llm/response';
+import type { ContentPart, UserMessage } from '@moonshot-ai/core/llm/message';
+import { emptyUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
 import {

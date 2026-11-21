@@ -18,7 +18,7 @@ import {
 } from '#/agent/prompt/promptEvents';
 import { IEventBus } from '#/app/event/eventBus';
 import { IFileService } from '#/app/file/fileService';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 import type { LlmRequester } from '#human/llm/requester/requester';
 import { waitForAssertion } from '#test/helpers/waitFor';
 

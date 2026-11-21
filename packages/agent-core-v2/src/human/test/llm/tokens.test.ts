@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { ContentPart } from '#/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 import { imagePricingForModel } from '#/llm/modelFamily';
 import {
   estimateTokens,

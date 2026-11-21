@@ -22,8 +22,8 @@ import {
   estimateTokensForTools,
 } from '#/llm-adapter/contract/tokens';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import type { ToolDescription as Tool } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
+import type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import {
   ISessionTokenCountingService,

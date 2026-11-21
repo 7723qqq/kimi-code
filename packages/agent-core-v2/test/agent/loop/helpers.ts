@@ -2,7 +2,7 @@ import type { IAgentLoopService, Turn } from '#/agent/loop/loop';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentProfileService } from '#/index';
 import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import type { UserMessage } from '#human/llm/message';
+import type { UserMessage } from '@moonshot-ai/core/llm/message';
 
 import {
   createTestAgent,

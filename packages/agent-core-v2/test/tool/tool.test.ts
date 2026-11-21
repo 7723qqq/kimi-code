@@ -110,7 +110,7 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import { ToolAccesses, type ExecutableTool } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
 import { createAgentMachine } from '#human/agent/machine';
-import { type ToolCall } from '#human/llm/message';
+import { type ToolCall } from '@moonshot-ai/core/llm/message';
 import { createActor } from '#human/xstate2';
 import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from '#test/helpers/stubs';
 import { waitForAssertion } from '#test/helpers/waitFor';

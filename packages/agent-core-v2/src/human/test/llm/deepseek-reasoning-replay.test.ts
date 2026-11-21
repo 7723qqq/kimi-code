@@ -6,8 +6,8 @@ import {
   createUserMessage,
   type Message,
   type ToolDescription,
-} from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
+} from '@moonshot-ai/core/llm/message';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import {
   fullReasoningEchoRequired,
   ignoredSamplingParamsForModel,

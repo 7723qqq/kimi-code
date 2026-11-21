@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 
 import { headersToRecord, type LlmRemoteErrorMessage } from '#/llm/errors';
-import type { LlmModel } from '#/llm/model';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
@@ -20,7 +20,7 @@ import {
 } from '#/llm/requester/requester';
 import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
 import { getLlmDispatcher } from '#/llm/requester/timeout';
-import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
+import { toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/syntax-errors';
 import { encodeReasoningEffortFallback } from '#/llm/thinking';
 
 import { convertOpenAIError } from '../openai/format';

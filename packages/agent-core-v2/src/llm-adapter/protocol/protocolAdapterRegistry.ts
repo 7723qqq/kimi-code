@@ -17,7 +17,7 @@ import { openAIResponsesBase } from '#human/llm/requester/bases/openai-responses
 import { openAIBase } from '#human/llm/requester/bases/openai/requester';
 import type { OpenAITrait } from '#human/llm/requester/bases/openai/trait';
 import type { LlmErrorClassifier } from '#human/llm/requester/requester';
-import type { ModelThinkingMetadata } from '#human/llm/thinking';
+import type { ModelThinkingMetadata } from '@moonshot-ai/core/llm/thinking';
 
 import { UNKNOWN_CAPABILITY, toLlmCapability, type ModelCapability } from '../contract/capability';
 import type { Model } from '../model/catalog';

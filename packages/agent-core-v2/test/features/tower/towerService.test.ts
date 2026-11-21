@@ -75,7 +75,7 @@ import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { SubagentStarted } from '#/session/subagent/mirrorAgentRun';
 import { ToolAccesses } from '#/tool/toolContract';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { stubLog } from '../../_base/log/stubs';

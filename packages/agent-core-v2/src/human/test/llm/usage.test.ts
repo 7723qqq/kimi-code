@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import type { StreamParseSink } from '#/llm/protocol/format';
 import { anthropicFormat } from '#/llm/requester/bases/anthropic/format';
 import { createOpenAIFormat } from '#/llm/requester/bases/openai/format';
-import type { TokenUsage } from '#/llm/usage';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 const openAIFormat = createOpenAIFormat();
 

@@ -18,7 +18,7 @@ import {
 import { SessionPromptOptimizerService } from '#/features/promptOptimizer/promptOptimizerService';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { type ToolCall } from '#human/llm/message';
+import { type ToolCall } from '@moonshot-ai/core/llm/message';
 
 import {
   PROMPT_OPTIMIZER_COMPRESS_INSTRUCTION,

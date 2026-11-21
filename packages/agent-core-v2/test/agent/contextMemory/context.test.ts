@@ -19,7 +19,7 @@ import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
 import type { Message } from '#/llm-adapter/contract/message';
 import { estimateTokens, estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import { IWireService } from '#/wire/wire';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 
 import { createTestAgent, type TestAgentContext } from '../../harness';
 import { renderSnapshot } from '../../harness/snapshots';

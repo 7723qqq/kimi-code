@@ -59,7 +59,6 @@ describe('ensureSessionIndexEntry', () => {
       sessionDir: '/abs/x',
       workDir: '/abs/wd',
     });
-    // Same id, different dir — must not add a duplicate line.
     await ensureSessionIndexEntry(target, {
       sessionId: 'ses_x',
       sessionDir: '/abs/x-rerun',

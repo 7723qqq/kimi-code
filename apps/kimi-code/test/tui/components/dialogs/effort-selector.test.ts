@@ -22,12 +22,10 @@ describe('EffortSelectorComponent', () => {
       onCancel: mock(),
     });
     const out = text(picker);
-    // All efforts are rendered on a single row.
     expect(out).toContain('Off');
     expect(out).toContain('Low');
     expect(out).toContain('High');
     expect(out).toContain('Max');
-    // The active level is wrapped in brackets; the rest are not.
     expect(out).toContain('[ High ]');
     expect(out).not.toContain('[ Off ]');
     expect(out).not.toContain('[ Max ]');
@@ -98,24 +96,20 @@ describe('EffortSelectorComponent', () => {
       onCancel: mock(),
     });
 
-    // index 2 (high) -> 3 (max).
     picker.handleInput(RIGHT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith('max');
 
-    // Already at the right edge — another Right stays put.
     picker.handleInput(RIGHT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith('max');
 
-    // Walk back to the left edge (max -> high -> low -> off).
     picker.handleInput(LEFT);
     picker.handleInput(LEFT);
     picker.handleInput(LEFT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith('off');
 
-    // Already at the left edge — another Left stays put.
     picker.handleInput(LEFT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith('off');
@@ -175,6 +169,33 @@ describe('EffortSelectorComponent', () => {
     expect(lines[hintIdx + 1]).toBe('');
   });
 
+  it('updates the description as the highlighted effort changes', () => {
+    const picker = new EffortSelectorComponent({
+      efforts: ['off', 'low', 'high', 'max'],
+      currentValue: 'low',
+      descriptions: {
+        low: 'Light reasoning.',
+        high: 'Deeper reasoning.',
+        max: 'Maximum reasoning.',
+      },
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    expect(text(picker)).toContain('Light reasoning.');
+    expect(text(picker)).not.toContain('Deeper reasoning.');
+    picker.handleInput(RIGHT);
+    expect(text(picker)).toContain('Deeper reasoning.');
+    picker.handleInput(RIGHT);
+    expect(text(picker)).toContain('Maximum reasoning.');
+    picker.handleInput(LEFT);
+    picker.handleInput(LEFT);
+    picker.handleInput(LEFT);
+    expect(text(picker)).not.toContain('Light reasoning.');
+    expect(text(picker)).not.toContain('Deeper reasoning.');
+    expect(text(picker)).not.toContain('Maximum reasoning.');
+  });
+
   it('wraps a warning longer than the width instead of truncating it', () => {
     const warning =
       'Note: Switching effort invalidates the existing prompt cache. Use /new to avoid extra token costs.';
@@ -189,7 +210,6 @@ describe('EffortSelectorComponent', () => {
     const hintIdx = lines.findIndex((l) => l.includes('←→ switch'));
     expect(lines[hintIdx + 1]).not.toBe('');
     expect(lines[hintIdx + 2]).not.toBe('');
-    // Word-wrapped: nothing dropped — the full warning survives across lines.
     const squashed = lines.join('').replaceAll(/\s+/g, '');
     expect(squashed).toContain(warning.replaceAll(/\s+/g, ''));
   });

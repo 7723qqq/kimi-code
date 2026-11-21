@@ -1,4 +1,4 @@
-import type { ThinkingEffort } from '#human/llm/thinking';
+import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
 
 import type { IProtocolAdapterRegistry, Protocol } from '../protocol/protocol';
 import { getProviderDefinitions } from '../provider/provider-definition';
@@ -11,7 +11,7 @@ export interface ThinkingConfig {
   keep?: string;
 }
 
-export { resolveThinkingKeep } from '#human/llm/thinking';
+export { resolveThinkingKeep } from '@moonshot-ai/core/llm/thinking';
 
 export function drivesThinkingThroughTraits(providerType: string | undefined): boolean {
   if (providerType === undefined) return false;

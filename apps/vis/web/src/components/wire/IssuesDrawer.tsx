@@ -7,9 +7,6 @@ interface IssuesDrawerProps {
   issues: Issue[];
   onClose: () => void;
   onJumpTo?: (lineNo: number) => void;
-  /** Optional predicate: "is this line currently visible under the active
-   *  filter?". When provided, jump buttons for filtered-out lines are
-   *  disabled and flagged. */
   isLineVisible?: (lineNo: number) => boolean;
 }
 
@@ -47,7 +44,6 @@ function kindLabel(kind: Issue['kind']): string {
 }
 
 export function IssuesDrawer({ issues, onClose, onJumpTo, isLineVisible }: IssuesDrawerProps) {
-  // ESC closes — standard drawer affordance.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();

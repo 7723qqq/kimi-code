@@ -25,7 +25,7 @@ import { isHumanRecordType } from '#/wire/human';
 import type { PartsTransformer, WireRecord } from '#/wire/record';
 import { AGENT_SWITCHED_TYPE } from '#/wire/tree/index';
 import { IWireService } from '#/wire/wire';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 import {
   AgentModelContribution,

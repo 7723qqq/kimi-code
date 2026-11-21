@@ -186,17 +186,17 @@ export {
   type ToolCall,
   type ToolCallPart,
   type VideoURLPart,
-} from '#human/llm/message';
-export type { ToolDescription as Tool } from '#human/llm/message';
-export { addUsage, emptyUsage, grandTotal, inputTotal, type TokenUsage } from '#human/llm/usage';
-export type { FinishReason } from '#human/llm/finish-reason';
+} from '@moonshot-ai/core/llm/message';
+export type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+export { addUsage, emptyUsage, grandTotal, inputTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
+export type { FinishReason } from '@moonshot-ai/core/llm/response';
 export type {
   JsonObjectResponseFormat,
   JsonSchemaObject,
   JsonSchemaResponseFormat,
   ResponseFormat,
 } from '#human/llm/response-format';
-export type { ThinkingEffort, ThinkingRequestOptions } from '#human/llm/thinking';
+export type { ThinkingEffort, ThinkingRequestOptions } from '@moonshot-ai/core/llm/thinking';
 export type { VideoUploadInput } from '#human/llm/media/upload';
 export type { ToolCallIdPolicy } from '#human/llm/requester/requester';
 export type { SamplingOptions } from '#/llm-adapter/model/model-requester';

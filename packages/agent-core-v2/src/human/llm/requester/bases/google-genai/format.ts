@@ -11,20 +11,20 @@ import {
   toLlmStreamErrorMessage,
   type LlmRemoteErrorMessage,
 } from '#/llm/errors';
-import { NO_FINISH, type FinishInfo, type FinishReason } from '#/llm/finish-reason';
+import { NO_FINISH, type FinishInfo, type FinishReason } from '@moonshot-ai/core/llm/response';
 import type {
   Message,
   StreamedMessagePart,
   ThinkPart,
   ToolCall,
   ToolDescription,
-} from '#/llm/message';
+} from '@moonshot-ai/core/llm/message';
 import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
 import { mergeConsecutiveUsers } from '#/llm/protocol/patterns';
 import { applyPatterns } from '#/llm/protocol/rewrite';
 import type { ResponseFormat } from '#/llm/response-format';
 import { ThinkingConfigError, type ThinkingEffort } from '#/llm/thinking';
-import type { TokenUsage } from '#/llm/usage';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import type { GoogleContent } from './contract';
 import { buildRawIdById, buildToolNameById, lowerMessage } from './lower';

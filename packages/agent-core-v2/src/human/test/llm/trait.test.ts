@@ -13,7 +13,7 @@ import {
   kimiOpenAITrait,
 } from '#/llm-kimi/trait';
 import { isUnknownCapability, UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
-import type { FinishInfo } from '#/llm/finish-reason';
+import type { FinishInfo } from '@moonshot-ai/core/llm/response';
 import { createMemoryMediaUploadCache } from '#/llm/media/cache';
 import { createMediaRefResolver } from '#/llm/media/resolver';
 import { createMemoryMediaSource } from '#/llm/media/source';
@@ -27,8 +27,8 @@ import {
   type StreamedMessagePart,
   type ToolDescription,
   type VideoURLPart,
-} from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
+} from '@moonshot-ai/core/llm/message';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import { createProvider } from '#/llm/provider/definition';
 import {
   anthropicProvider,
@@ -44,7 +44,7 @@ import {
   sanitizeToolCallId,
 } from '#/llm/requester/bases/tool-call-id';
 import type { LlmClientContext, LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
-import type { TokenUsage } from '#/llm/usage';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import { startMockFilesApi } from '../../../../test/helpers/mockUpstream';
 import { setEnv, restoreEnvs } from '../../../../test/helpers/stubs';

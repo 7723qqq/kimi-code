@@ -1,2 +1,2 @@
-export type { TokenUsage } from '#human/llm/usage';
-export { inputTotal } from '#human/llm/usage';
+export type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+export { inputTotal } from '@moonshot-ai/core/llm/usage';

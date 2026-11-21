@@ -13,8 +13,8 @@ import {
   type SystemMessage,
   type ToolCall,
   type UserMessage,
-} from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
+} from '@moonshot-ai/core/llm/message';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { LlmRequestConfig, LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
 import { connectPlugins, type AgentPluginTarget } from '#/plugin';
 import { MemoryBackend } from '#/store/backend/memory';

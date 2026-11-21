@@ -8,7 +8,7 @@ import type {
 import type { ErrorCode } from '#/errors';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import type { ModelRequestParams } from '#/llm-adapter/model/model-requester';
-import type { ThinkingEffort } from '#human/llm/thinking';
+import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
 
 import type { ProfileErrors } from './errors';
 

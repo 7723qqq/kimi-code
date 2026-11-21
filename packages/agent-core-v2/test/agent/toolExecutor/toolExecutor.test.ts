@@ -69,7 +69,7 @@ import {
   type ToolUpdate,
 } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 
 import { registerLogServices, stubLog } from '../../_base/log/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';

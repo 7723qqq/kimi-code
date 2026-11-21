@@ -68,7 +68,7 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceCo
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import type { ToolSource } from '#/tool/toolContract';
-import { type ThinkingEffort } from '#human/llm/thinking';
+import { type ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
 
 import {
   extractAgentsMdPathsFromSystemPrompt,

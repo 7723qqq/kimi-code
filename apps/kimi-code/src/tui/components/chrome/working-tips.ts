@@ -12,11 +12,6 @@ export function currentWorkingTip(now = Date.now()): ToolbarTip | undefined {
   return rotation[index];
 }
 
-/**
- * Pick a random tip from the weighted working-tip rotation.
- * If `excludeText` is provided and there are other tips available, avoid
- * returning the same text twice in a row.
- */
 export function pickRandomWorkingTip(excludeText?: string): ToolbarTip | undefined {
   const rotation = getWorkingTipRotation();
   if (rotation.length === 0) return undefined;

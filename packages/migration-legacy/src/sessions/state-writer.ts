@@ -63,11 +63,6 @@ export async function writeSessionState(sessionDir: string, input: StateWriteInp
       input.oldState.additional_dirs?.length === 0 ? undefined : input.oldState.additional_dirs,
     agents: {
       main: {
-        // kimi-core's `Session.resume()` treats `agents.main.homedir` as the
-        // agent's *record directory* — where it reads `wire.jsonl`. The
-        // migrator writes the translated history to
-        // `<sessionDir>/agents/main/wire.jsonl`, so this must point there,
-        // NOT at the user's project workdir.
         homedir: join(sessionDir, 'agents', 'main'),
         type: 'main',
         parentAgentId: null,

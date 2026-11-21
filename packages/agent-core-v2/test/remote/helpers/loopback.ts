@@ -126,6 +126,10 @@ export async function connectInProcess(
 const require = createRequire(import.meta.url);
 const here = import.meta.dirname;
 
+function resolveTsxCli(): string {
+  const packageJson = require.resolve('tsx/package.json');
+  return join(dirname(packageJson), 'dist', 'cli.mjs');
+}
 
 export interface SpawnedExecutor {
   readonly bridge: ExecBridge;
@@ -135,7 +139,7 @@ export interface SpawnedExecutor {
 async function spawnExecutorBridge(env?: Record<string, string>): Promise<SpawnedExecutor> {
   const fixture = join(here, '..', 'fixtures', 'exec-server-child.ts');
   const { ExecBridge } = await import('#/remote/client/execBridge');
-  const child = spawn(process.execPath, [fixture], {
+  const child = spawn(process.execPath, [resolveTsxCli(), fixture], {
     env: { ...process.env, ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -268,7 +272,7 @@ export function throttleClientPipe(
   const endListeners = new Set<() => void>();
   const errorListeners = new Set<(error: Error) => void>();
   const maxBuffered = Math.max(options.bytesPerTick * 2, 16 * 1024);
-  let buffered: Buffer[] = [];
+  const buffered: Buffer[] = [];
   let bufferedTotal = 0;
   let release = false;
   let sourceEnded = false;

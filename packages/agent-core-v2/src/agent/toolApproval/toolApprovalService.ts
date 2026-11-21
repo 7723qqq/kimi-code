@@ -1,4 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { randomUUID } from 'node:crypto';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -179,7 +179,7 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
         duration_ms: Date.now() - startedAt,
         session_cache_written: false,
         has_feedback: false,
-        trace_id: context.trace?.traceId,
+        request_id: context.trace?.requestId,
       });
       void this.dispatcher.dispatch(
         new PermissionApprovalResolved({
@@ -227,7 +227,7 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
       duration_ms: Date.now() - startedAt,
       session_cache_written: sessionApprovalRule !== undefined,
       has_feedback: response.feedback !== undefined && response.feedback.length > 0,
-      trace_id: context.trace?.traceId,
+      request_id: context.trace?.requestId,
     });
 
     const resolved = result.resolveApproval?.(response);

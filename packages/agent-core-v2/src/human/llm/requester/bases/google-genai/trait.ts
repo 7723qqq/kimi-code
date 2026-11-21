@@ -1,4 +1,4 @@
-import type { ToolDescription } from '#/llm/message';
+import type { ToolDescription } from '@moonshot-ai/core/llm/message';
 import type { TraitContext } from '#/llm/protocol/base';
 import type { ThinkingStrategy } from '#/llm/protocol/thinking';
 

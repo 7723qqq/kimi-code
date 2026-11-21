@@ -22,7 +22,6 @@ export function BottomToolbar() {
     return bridge.on<FileChange[]>(Events.FileChangesUpdated, setFileChanges);
   }, []);
 
-  // Auto-close tab when data becomes empty
   useEffect(() => {
     if (activeTab === 'queue' && queue.length === 0) {
       setActiveTab(null);
@@ -47,11 +46,9 @@ export function BottomToolbar() {
 
   return (
     <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
-      {/* ApprovalDialog and QuestionDialog - priority, shrink-0 */}
       <ApprovalDialog />
       <QuestionDialog />
 
-      {/* Queue/Changes panel - takes remaining space */}
       {activeTab && (
         <div className="flex-1 min-h-16 max-h-32 overflow-y-auto mb-0.5 border border-border/60 rounded-md bg-card">
           {activeTab === 'queue' && <QueuedMessagesPanel />}
@@ -59,7 +56,6 @@ export function BottomToolbar() {
         </div>
       )}
 
-      {/* Tab bar - always at bottom, shrink-0 */}
       {hasTabs && (
         <div className="shrink-0 mb-0.5 rounded-md overflow-hidden bg-card">
           <div className="flex items-center gap-1 py-0.5 min-h-7">

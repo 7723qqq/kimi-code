@@ -2,13 +2,13 @@ import { describe, expect, it } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { emptyResponseError } from '#/llm/empty-response';
-import { NO_FINISH } from '#/llm/finish-reason';
+import { NO_FINISH } from '@moonshot-ai/core/llm/response';
 import {
   createMessageAccumulator,
   type AssistantMessage,
   type StreamedMessagePart,
-} from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
+} from '@moonshot-ai/core/llm/message';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
 

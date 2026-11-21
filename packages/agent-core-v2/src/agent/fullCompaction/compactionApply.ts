@@ -7,7 +7,7 @@ import type { IAssociativeMemoryService } from '#/features/associativeMemory/ser
 import type { IWireService } from '#/wire/wire';
 import type { IAgentStateService } from '#/agent/state/agentState';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import type { TokenUsage } from '#human/llm/usage';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import { historySafeToCompact } from './compactionUtils';
 import { buildCompactionSummaryText } from '#/agent/contextMemory/compactionHandoff';

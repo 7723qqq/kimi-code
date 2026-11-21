@@ -8,7 +8,7 @@ import {
   BUDGET_THINKING_EFFORTS,
   matchKnownAnthropicModelProfile,
   matchUnknownClaudeProfile,
-} from '@moonshot-ai/kosong/providers/anthropic-profile';
+} from '@moonshot-ai/core/llm/builtin/provider/anthropic';
 
 import type { ModelAlias, ProviderType } from '#/types';
 

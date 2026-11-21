@@ -1,4 +1,4 @@
-import type { ModelCapability as LlmModelCapability } from '#human/llm/capability';
+import type { ModelCapability as LlmModelCapability } from '@moonshot-ai/core/llm/capability';
 
 export interface ModelCapability {
   readonly image_in: boolean;

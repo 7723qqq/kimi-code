@@ -20,28 +20,15 @@ import { effortLabel } from './model-selector';
 
 export interface EffortSelectorOptions {
   readonly title?: string;
-  /** Selectable thinking efforts for the current model (e.g. ["off","low","high","max"]). */
   readonly efforts: readonly ThinkingEffort[];
-  /** Currently active effort (highlighted). */
   readonly currentValue: ThinkingEffort;
   readonly onSelect: (effort: ThinkingEffort) => void;
-  /** When provided, Alt+S applies the choice to the current session only. */
   readonly onSessionOnlySelect?: (effort: ThinkingEffort) => void;
   readonly onCancel: () => void;
-  /** When set, rendered as warning-colored lines directly below the key-hint
-   * line; wraps instead of truncating when it exceeds the width (e.g. the
-   * mid-conversation switch cost notice). */
   readonly warning?: string;
+  readonly descriptions?: Readonly<Record<string, string>>;
 }
 
-/**
- * Horizontal segmented picker for the `/effort` command.
- *
- * Mirrors the thinking control rendered under `/model` (see
- * `renderThinkingControl` in model-selector.ts): a single row of segments,
- * the active one wrapped in `[ ]`. ←/→ step the active segment, Enter
- * commits, and Alt+S (when provided) applies session-only.
- */
 export class EffortSelectorComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: EffortSelectorOptions;
@@ -156,6 +143,8 @@ export class EffortSelectorComponent extends Container implements Focusable {
       column += segmentWidth + 2;
     }
     lines.push(`  ${segments.join('  ')}`);
+    const description = this.opts.descriptions?.[this.opts.efforts[this.activeIndex]!];
+    if (description !== undefined) lines.push(currentTheme.fg('textMuted', ` ${description}`));
 
     lines.push('');
     lines.push(currentTheme.fg('primary', '─'.repeat(width)));

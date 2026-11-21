@@ -7,7 +7,7 @@ import { ErrorCodes, Error2 } from '#/errors';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
 import { EnvironmentError } from '#/environment/environmentRegistry';
-import type { ToolDescription as Tool } from '#human/llm/message';
+import type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
 
 import { HttpMcpClient } from './client-http';
 import { classifyRemoteDiscoveryError, isRemoteMcpConfig } from './client-remote';

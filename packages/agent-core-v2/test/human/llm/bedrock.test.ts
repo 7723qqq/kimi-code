@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
+import { UNKNOWN_CAPABILITY } from '@moonshot-ai/core/llm/capability';
 import { createBedrockAnthropicClient } from '#human/llm/provider/bedrock/anthropic';
 import { createBedrockTokenProvider } from '#human/llm/provider/bedrock/credentials';
 import {

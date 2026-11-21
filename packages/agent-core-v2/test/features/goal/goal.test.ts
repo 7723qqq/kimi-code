@@ -43,8 +43,8 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ExecutableTool, RunnableToolExecution } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import type { WireRecord } from '#/wire/record';
-import type { ToolCall } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';

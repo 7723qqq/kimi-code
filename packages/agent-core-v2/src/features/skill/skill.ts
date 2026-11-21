@@ -1,5 +1,5 @@
 import type { PromptFileAttachment } from '#/agent/contextMemory/types';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 export interface SkillActivationInput {
   readonly name: string;

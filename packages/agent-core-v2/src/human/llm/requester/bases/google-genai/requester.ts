@@ -2,7 +2,7 @@ import { GoogleGenAI as GenAIClient, type GenerateContentParameters } from '@goo
 import { assign, shake } from 'radashi';
 
 import type { LlmRemoteErrorMessage } from '#/llm/errors';
-import type { LlmModel } from '#/llm/model';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
@@ -18,7 +18,7 @@ import {
   type LlmRequestEvent,
 } from '#/llm/requester/requester';
 import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
-import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
+import { toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/syntax-errors';
 
 import { getGoogleGenAIModelCapability } from './capability';
 import {

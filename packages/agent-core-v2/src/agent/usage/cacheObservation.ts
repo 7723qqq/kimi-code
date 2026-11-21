@@ -1,6 +1,6 @@
 import type { LlmRequestProjection } from '#/agent/llmRequester/llmRequestOps';
-import type { ThinkingEffort } from '#human/llm/thinking';
-import { inputTotal, type TokenUsage } from '#human/llm/usage';
+import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
+import { inputTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 export interface CacheObservation {
   readonly modelAlias: string;

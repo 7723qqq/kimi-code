@@ -7,14 +7,6 @@ import { t } from '#/i18n';
 
 import type { CLIOptions } from './options';
 
-/**
- * Resolve which agent profile the launch flags select.
- *
- * `--agent` carries the profile name directly; `--agent-file` implicitly
- * selects the profile the file defines, so the file is parsed here (fatal on
- * error) so a bad file fails before any session work. Returns undefined when
- * neither flag is present.
- */
 export async function resolveAgentProfileSelection(
   opts: Pick<CLIOptions, 'agent' | 'agentFiles'>,
   workDir: string,

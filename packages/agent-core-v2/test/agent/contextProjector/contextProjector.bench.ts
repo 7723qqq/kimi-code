@@ -9,7 +9,7 @@ import { IAgentContextProjectorService } from '#/agent/contextProjector/contextP
 import { AgentContextProjectorService } from '#/agent/contextProjector/contextProjectorService';
 import { ErrorCodes, Error2 } from '#/errors';
 import type { Message } from '#/llm-adapter/contract/message';
-import type { ContentPart, TextPart, ToolCall } from '#human/llm/message';
+import type { ContentPart, TextPart, ToolCall } from '@moonshot-ai/core/llm/message';
 
 import { bench, reportBenchResults } from '../../_support/bench';
 

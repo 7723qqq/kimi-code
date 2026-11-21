@@ -1226,7 +1226,6 @@ describe('telemetry bootstrap', () => {
     track('first');
     setTelemetryModel('model-b');
     track('second');
-    // An unresolved (undefined) model leaves the sink untouched.
     setTelemetryModel(undefined);
     track('third');
     await shutdownTelemetry();
@@ -1413,8 +1412,6 @@ describe('crash handler', () => {
     client.attachSink(makeSink(transport));
     setCrashPhase('runtime');
     installCrashHandlersForClient(client);
-    // The TUI registers its own rejection handler; while one exists the
-    // crash handler must observe (not rethrow) so the lifecycle is untouched.
     const owner = (): void => {};
     process.on('unhandledRejection', owner);
     try {
@@ -1458,8 +1455,6 @@ describe('crash handler', () => {
     expect(transport.saved).toHaveLength(0);
 
     uninstallCrashHandlers();
-    // Drop every other listener so the crash handler is the sole one, as in
-    // print/server mode; an aborted-operation rejection must not be rethrown.
     const others = process.listeners('unhandledRejection');
     process.removeAllListeners('unhandledRejection');
     installCrashHandlersForClient(client);
@@ -1484,8 +1479,6 @@ describe('crash handler', () => {
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
     setCrashPhase('runtime');
-    // Vitest keeps its own rejection listeners; temporarily drop every
-    // listener so the crash handler is the sole one, as in print/server mode.
     const others = process.listeners('unhandledRejection');
     process.removeAllListeners('unhandledRejection');
     installCrashHandlersForClient(client);
@@ -1499,8 +1492,6 @@ describe('crash handler', () => {
         ),
       ).toThrow(reason);
 
-      // Tracked once as a rejection; when the rethrow later surfaces at the
-      // uncaughtException monitor it must not be reported a second time.
       expect(transport.saved[0]?.[0]).toMatchObject({
         event: 'crash',
         properties: {
@@ -1537,8 +1528,6 @@ describe('crash handler', () => {
         ),
       ).toThrow();
 
-      // The plain-object reason is rethrown through the monitor; it must be
-      // deduped there, not reported as a second crash.
       (process.emit as (event: string, ...args: unknown[]) => boolean)(
         'uncaughtExceptionMonitor',
         reason,
@@ -1578,8 +1567,6 @@ describe('crash handler', () => {
         ),
       ).toThrow();
 
-      // The rethrown null reaches the monitor: deduped, and the error-type
-      // classification must not itself throw on null/undefined.
       expect(() => {
         emitCrash(null as unknown as Error);
       }).not.toThrow();

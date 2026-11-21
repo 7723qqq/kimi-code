@@ -29,7 +29,7 @@ import {
 import { type AgentRunHandle, ISessionSubagentService } from '#/session/subagent/subagent';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-import type { TokenUsage } from '#human/llm/usage';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import {
   resolveSwarmMaxConcurrency,

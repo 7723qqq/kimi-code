@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { UserPromptOrigin } from '#/agent/contextMemory/types';
 import type { MessageContent } from '#/agent/prompt/messageContent';
 import { AgentEvent2, registerEvent2Class } from '#/app/event/event2';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 export interface PromptCompletedPayload {
   readonly agentId: string;

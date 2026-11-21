@@ -1,4 +1,4 @@
-import type { Message, StreamedMessagePart, ThinkPart } from '#/llm/message';
+import type { Message, StreamedMessagePart, ThinkPart } from '@moonshot-ai/core/llm/message';
 
 export const KNOWN_REASONING_KEYS = [
   'reasoning_content',

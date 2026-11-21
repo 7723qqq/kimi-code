@@ -1,6 +1,6 @@
 import type { AgentEmitted } from '#/agent/machine';
 import { createSystemEntry, createUserEntry, type SystemEntry, type UserEntry } from '#/agent/turn';
-import type { SystemMessage, UserMessage } from '#/llm/message';
+import type { SystemMessage, UserMessage } from '@moonshot-ai/core/llm/message';
 import type { ToolDefinition } from '#/tool/tool';
 
 export interface AgentPluginTarget {

@@ -6,7 +6,7 @@ import {
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
-} from '@moonshot-ai/kosong';
+} from '@moonshot-ai/core';
 
 import { log } from '#/logging/logger';
 

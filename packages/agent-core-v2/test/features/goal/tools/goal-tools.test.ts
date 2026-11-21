@@ -20,7 +20,7 @@ import { UpdateGoalToolInputSchema } from '#/features/goal/tools/update-goal/upd
 import { UpdateGoalTool } from '#/features/goal/tools/update-goal/updateGoalTool';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
-import { type ToolCall } from '#human/llm/message';
+import { type ToolCall } from '@moonshot-ai/core/llm/message';
 
 import { stubLoopWithHooks } from '../../../agent/loop/stubs';
 import {

@@ -1,9 +1,13 @@
 {
   "extends": "../../tsconfig.json",
-  "include": ["src", "test"],
+<<<<<<<< HEAD:packages/transcript/tsconfig.json
   "compilerOptions": {
+    "lib": ["ESNext"],
     "paths": {
       "#/*": ["./src/*.ts"]
     }
-  }
+  },
+========
+>>>>>>>> @moonshot-ai/kimi-code@2.7.0:packages/session-import/tsconfig.json
+  "include": ["src", "test"]
 }

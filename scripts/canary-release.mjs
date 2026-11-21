@@ -61,7 +61,7 @@ export function computeCanaryBaseVersion({ releasePlan, packageVersion }) {
 }
 
 export function resolveCanaryBaseVersion({ outputFile, packageVersion, execute = execFileSync }) {
-  execute('bun', ['run', 'changeset', 'status', '--output', outputFile], { stdio: 'inherit' });
+  execute('pnpm', ['changeset', 'status', '--output', outputFile], { stdio: 'inherit' });
   const releasePlan = JSON.parse(readFileSync(outputFile, 'utf8'));
   return computeCanaryBaseVersion({ releasePlan, packageVersion });
 }

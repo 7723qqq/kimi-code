@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 
 import { connectWithGuidance } from '#/remote/client/connectGuidance';
 import { HandshakeError } from '#/remote/client/connection';

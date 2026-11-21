@@ -10,7 +10,7 @@ import type {
   ToolResult as AgentToolResult,
   ToolUpdate as AgentToolUpdate,
 } from '#/tool/toolContract';
-import type { ContentPart, ToolCall } from '#human/llm/message';
+import type { ContentPart, ToolCall } from '@moonshot-ai/core/llm/message';
 import type { ToolExecuteInput, ToolExecutor, ToolResult, ToolUpdate } from '#human/tool/executor';
 import type { ToolDefinition } from '#human/tool/tool';
 

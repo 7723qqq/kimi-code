@@ -4,8 +4,8 @@ import type OpenAI from 'openai';
 import OpenAIClient from 'openai';
 
 import type { ImageUploadInput, VideoUploadInput } from '#/llm/media/upload';
-import type { ImageURLPart, VideoURLPart } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
+import type { ImageURLPart, VideoURLPart } from '@moonshot-ai/core/llm/message';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 
 import { KIMI_DEFAULT_BASE_URL } from './trait';
 

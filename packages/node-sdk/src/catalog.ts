@@ -10,7 +10,7 @@ import {
   type CatalogProviderEntry,
   type ModelCapability,
   type ProviderType,
-} from '@moonshot-ai/kosong';
+} from '@moonshot-ai/core';
 
 import type { KimiConfig, ModelAlias } from '#/config/index';
 

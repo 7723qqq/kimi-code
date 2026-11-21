@@ -74,7 +74,7 @@ describe('ActivityPaneComponent', () => {
     expect(lines).toEqual(['', 'working', '    429 · rate limited']);
   });
 
-  it.each(['waiting', 'tool', 'composing', 'thinking'] as const)(
+  it.each(['waiting', 'tool', 'composing', 'thinking', 'compacting'] as const)(
     'renders the %s spinner with tip after a spacer',
     (mode) => {
       const { spinner } = createMockSpinner('working');
@@ -91,7 +91,7 @@ describe('ActivityPaneComponent', () => {
     },
   );
 
-  it.each(['waiting', 'tool', 'composing'] as const)(
+  it.each(['waiting', 'tool', 'composing', 'compacting'] as const)(
     'does not render a tip for %s when none is provided',
     (mode) => {
       const { spinner } = createMockSpinner('working');
@@ -109,7 +109,7 @@ describe('ActivityPaneComponent', () => {
     expect(new ActivityPaneComponent({ mode: 'thinking' }).render(80)).toEqual([]);
   });
 
-  it.each(['waiting', 'tool', 'composing'] as const)(
+  it.each(['waiting', 'tool', 'composing', 'compacting'] as const)(
     'hides the tip for %s when the terminal is too narrow',
     (mode) => {
       const { spinner } = createMockSpinner('working');
@@ -119,7 +119,6 @@ describe('ActivityPaneComponent', () => {
         tip: 'ctrl+s: steer mid-turn',
       });
 
-      // Width 8 is exactly the width of "working" (no spinner frame in the mock).
       expect(component.render(8).map((line) => line.trimEnd())).toEqual(['', 'working']);
     },
   );

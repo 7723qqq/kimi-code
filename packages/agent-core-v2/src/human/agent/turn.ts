@@ -1,6 +1,6 @@
 import { emptyResponseError } from '#/llm/empty-response';
 import type { LlmErrorMessage } from '#/llm/errors';
-import { NO_FINISH, type FinishInfo } from '#/llm/finish-reason';
+import { NO_FINISH, type FinishInfo } from '@moonshot-ai/core/llm/response';
 import {
   createMessageAccumulator,
   createToolMessage,
@@ -12,8 +12,8 @@ import {
   type ToolCall,
   type ToolMessage,
   type UserMessage,
-} from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
+} from '@moonshot-ai/core/llm/message';
+import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import { createRequestActor, type LlmEvent, type MessageResolver } from '#/llm/requester/actor';
 import type {
   LlmRecovery,
@@ -31,7 +31,7 @@ import {
   type LlmRetryOptions,
 } from '#/llm/requester/retry';
 import { ToolCallIdNormalizer } from '#/llm/toolCallIdNormalizer';
-import { emptyUsage, type TokenUsage } from '#/llm/usage';
+import { emptyUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 import type { ToolResult } from '#/tool/executor';
 import type { ToolOutput } from '#/tool/machine';
 import { createAbortScope, withAbort, type AbortScope } from '#/utils/abort';

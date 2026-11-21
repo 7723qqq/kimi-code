@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { ToolAccesses } from '#/tool/toolContract';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 
 const signal = new AbortController().signal;
 

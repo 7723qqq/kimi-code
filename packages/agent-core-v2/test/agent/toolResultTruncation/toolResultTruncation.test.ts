@@ -12,7 +12,7 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import type { ExecutableToolResult } from '#/tool/toolContract';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 

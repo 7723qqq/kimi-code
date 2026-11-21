@@ -17,7 +17,7 @@ import type {
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
-import type { ToolDescription as KosongTool } from '#human/llm/message';
+import type { ToolDescription as KosongTool } from '@moonshot-ai/core/llm/message';
 
 export const fixturesDir = fileURLToPath(new URL('./fixtures/', import.meta.url));
 export const stdioFixture = fileURLToPath(

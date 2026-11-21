@@ -3,7 +3,7 @@ import { type IDisposable } from '#/_base/di/lifecycle';
 import type { McpServerEntry } from '#/mcpCore/connection-manager';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
-import type { ToolDescription as KosongTool } from '#human/llm/message';
+import type { ToolDescription as KosongTool } from '@moonshot-ai/core/llm/message';
 
 export const MCP_INITIAL_LOAD_WAIT_MS = 2000;
 

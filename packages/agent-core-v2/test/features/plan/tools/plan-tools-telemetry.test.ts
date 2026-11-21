@@ -4,7 +4,7 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
 import { ExitPlanModeTool } from '#/features/plan/tools/exit-plan-mode/exitPlanModeTool';
 import type { ToolResult } from '#/tool/toolContract';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 
 import {
   recordingTelemetry as captureTelemetry,

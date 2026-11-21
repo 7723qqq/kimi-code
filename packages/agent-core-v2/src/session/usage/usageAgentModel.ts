@@ -10,7 +10,7 @@ import {
   type UsageRecordScope,
 } from '#/agent/usage/usageOps';
 import { AgentModel, defineAgentModel, type AgentModelContext } from '#/state/agentModel';
-import { addUsage, type TokenUsage } from '#human/llm/usage';
+import { addUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 export interface UsageRecordInput {
   readonly model: string;

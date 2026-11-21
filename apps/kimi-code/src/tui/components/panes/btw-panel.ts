@@ -80,7 +80,7 @@ export class BtwPanelComponent implements Component {
     turn.thinking += delta;
   }
 
-  markDone(resultSummary?: string | undefined): void {
+  markDone(resultSummary?: string): void {
     const turn = this.currentTurn();
     if (turn === undefined) return;
     if (turn.answer.trim().length === 0 && resultSummary !== undefined) {

@@ -6,7 +6,7 @@ import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import type { CacheBreakDetectedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { TokenUsage } from '#human/llm/usage';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import {
   IAgentCacheBreakService,

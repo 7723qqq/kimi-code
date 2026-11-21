@@ -14,15 +14,15 @@ import {
   sanitizeStatusErrorMessage,
   type LlmErrorMessage,
   type LlmRemoteErrorMessage,
-} from '#human/llm/errors';
-import type { FinishReason } from '#human/llm/finish-reason';
+} from '@moonshot-ai/core/llm/errors';
+import type { FinishReason } from '@moonshot-ai/core/llm/response';
 
 export {
   errorStatusCode,
   isAbortError,
   parseRetryAfterMs,
   sanitizeStatusErrorMessage,
-} from '#human/llm/errors';
+} from '@moonshot-ai/core/llm/errors';
 
 export const CONFIG_INVALID_ERROR_CODE = 'config.invalid';
 

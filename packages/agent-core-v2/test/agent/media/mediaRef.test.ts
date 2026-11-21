@@ -16,7 +16,7 @@ import {
   mediaKindOfPart,
   parseDaemonFileUrl,
 } from '#/agent/media/mediaRef';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 describe('media kind classification', () => {
   it('classifies paths by suffix, case-insensitively', () => {

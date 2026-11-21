@@ -44,6 +44,11 @@ export const OsFsErrors = {
       retryable: false,
       public: true,
     },
+    'os.fs.directory_too_large': {
+      title: 'Directory listing exceeds the supported limit',
+      retryable: false,
+      public: true,
+    },
     'os.fs.unavailable': {
       retryable: true,
       public: true,
@@ -75,6 +80,7 @@ const REASONS: Record<HostFsErrorCode, string> = {
   'os.fs.already_exists': 'path already exists',
   'os.fs.permission_denied': 'permission denied',
   'os.fs.not_empty': 'directory is not empty',
+  'os.fs.directory_too_large': 'directory listing exceeds the supported limit',
   'os.fs.unavailable': 'filesystem resource unavailable',
   'os.fs.directory_too_large': 'directory listing exceeds the supported limit',
   'os.fs.unknown': 'unrecognized filesystem error',

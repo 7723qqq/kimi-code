@@ -13,8 +13,6 @@ describe('ShellRunComponent hardening', () => {
   let component: ShellRunComponent | undefined;
 
   afterEach(() => {
-    // Always clear the 1s timer so it can't keep the test process alive or
-    // fire requestRender after the test ends.
     component?.dispose();
     component = undefined;
   });

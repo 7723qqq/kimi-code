@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { Message, ToolCall } from '#/llm/message';
+import type { Message, ToolCall } from '@moonshot-ai/core/llm/message';
 import { ToolCallIdNormalizer } from '#/llm/toolCallIdNormalizer';
 
 function call(id: string, streamIndex?: number): ToolCall {

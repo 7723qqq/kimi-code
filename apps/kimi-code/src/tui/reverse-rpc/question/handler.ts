@@ -8,6 +8,8 @@ import {
 import type { ProgramStatusInteractionTracker } from '#/tui/controllers/program-status';
 import type { QuestionPanelData, QuestionPanelResponse } from '#/tui/reverse-rpc/types';
 
+import type { ProgramStatusInteractionTracker } from '#/tui/controllers/program-status';
+
 import type { QuestionController } from './controller';
 
 export function createQuestionAskHandler(

@@ -127,8 +127,6 @@ describe('StagingLeaseTracker', () => {
       const earlier = tracker.create([], ['/cache/a'], 'user');
       const exact = tracker.create([], ['/cache/b'], 'user', 'sub-2');
 
-      // The exact id wins over the earlier unclaimed same-origin lease, and
-      // the ambiguity warning stays silent.
       tracker.handleTurnStarted(turnStarted(1, 'user', 'sub-2'));
 
       expect(exact?.turnId).toBe('1');
@@ -230,9 +228,6 @@ describe('StagingLeaseTracker', () => {
 
     it('consumes one retain per id occurrence at turn end', () => {
       const { tracker, takeFileIds } = makeTracker();
-      // Multiplicity in the lease's id list is the retain count (creation
-      // sites dedupe per extraction): [7, 7] means two retains, e.g. a
-      // batched steer of two queued messages sharing the image.
       tracker.create([7, 7], [], 'user', 'sub-dup');
       tracker.handleTurnStarted(turnStarted(1, 'user', 'sub-dup'));
 
@@ -243,8 +238,6 @@ describe('StagingLeaseTracker', () => {
   });
 
   describe('abandonment', () => {
-    // Every abandonment entry point deletes daemon uploads and cache copies
-    // immediately, whether or not a turn ever consumed the lease.
     it.each([
       [
         'release',
@@ -290,9 +283,6 @@ describe('StagingLeaseTracker', () => {
     it('consumes only the retain and retires cache copies instead of deleting', () => {
       const { tracker, releaseRetains, deleted } = makeTracker();
 
-      // A recall restores the draft into the editor — not a discard: the
-      // daemon upload stays staged (only the retain is consumed) and the
-      // rewrite channel's cache copy retires to session lifetime.
       tracker.releaseRecalled([2], ['/cache/b']);
 
       expect(releaseRetains).toHaveBeenCalledWith([2]);
@@ -317,8 +307,6 @@ describe('StagingLeaseTracker', () => {
       expect(releaseRetains).not.toHaveBeenCalled();
       expect(deleted).toEqual({ fileIds: [], paths: [] });
 
-      // A deferred lease is gone for good: turn events cannot claim it and
-      // releaseAll does not sweep its media.
       tracker.handleTurnStarted(turnStarted(1, 'user', 'sub-1'));
       expect(lease?.turnId).toBeUndefined();
       tracker.releaseAll();
@@ -353,7 +341,6 @@ describe('StagingLeaseTracker', () => {
       expect(onError).toHaveBeenCalledTimes(1);
       expect(deleted.fileIds).toEqual(['file-1']);
       expect(deleted.paths).toEqual(['/cache/a']);
-      // A later turn end must not delete again.
       tracker.handleTurnEnded(turnEnded(1));
       tracker.releaseAll();
       expect(deleted.fileIds).toEqual(['file-1']);
@@ -368,7 +355,6 @@ describe('StagingLeaseTracker', () => {
       await tracker.drain();
       expect(deleted.fileIds).toEqual([]);
 
-      // The owning turn still releases it at turn end (uploads deleted, copies retired).
       tracker.handleTurnEnded(turnEnded(7));
       expect(deleted.fileIds).toEqual(['file-1']);
       expect(deleted.paths).toEqual([]);

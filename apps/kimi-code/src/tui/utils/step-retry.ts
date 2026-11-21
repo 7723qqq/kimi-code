@@ -20,7 +20,6 @@ export function formatStepRetryLabel(retry: StepRetryState): string {
   });
 }
 
-/** Detail line under the spinner: status code + provider message, single-line, capped. */
 export function formatStepRetryDetail(retry: StepRetryState): string {
   const message = retry.errorMessage.replaceAll(/\s+/g, ' ').trim();
   const code = retry.statusCode === undefined ? '' : String(retry.statusCode);

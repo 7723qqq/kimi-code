@@ -106,7 +106,7 @@ import { foldAgentWireReplay } from '#/v2/resume-replay';
 import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from './helpers/stubs';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
-import { APIProviderRateLimitError, APIStatusError } from '@moonshot-ai/kosong';
+import { APIProviderRateLimitError, APIStatusError } from '@moonshot-ai/core';
 
 function rejectingHostEnvironment(): IHostEnvironment {
   const ready = Promise.reject(

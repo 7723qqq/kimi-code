@@ -24,7 +24,6 @@ import { ToolCallCard } from './ToolRenderers';
 
 interface ChatMessageProps {
   message: ChatMessageType;
-  /** 0-indexed turn number for this message */
   turnIndex?: number;
   isStreaming?: boolean;
 }
@@ -196,7 +195,6 @@ function ForkButton({ turnIndex, className }: ForkButtonProps) {
     try {
       const result = await bridge.forkSession(sessionId, turnIndex);
       if (result) {
-        // Load the forked session
         const events = await bridge.loadSessionHistory(result.sessionId);
         await loadSession(result.sessionId, events);
       }
@@ -264,9 +262,6 @@ function UserMessage({ message }: { message: ChatMessageType }) {
         )}
       >
         {displayContent && (
-          // FIX: removed whitespace-pre-wrap — it conflicted with ReactMarkdown's
-          // block-level elements (<p>, <ol>, <li>), doubling vertical spacing.
-          // ReactMarkdown already handles paragraph breaks from \n\n.
           <div className="text-xs leading-relaxed wrap-break-word">
             <Markdown content={displayContent} enableEnrichment enableLocalImageRender={false} />
           </div>
@@ -370,7 +365,6 @@ function AssistantMessage({
               )}
             </div>
 
-            {/* 内嵌错误显示 */}
             {isShowingInlineError && message.inlineError && (
               <div className="@[420px]:pl-5">
                 <InlineError error={message.inlineError} />

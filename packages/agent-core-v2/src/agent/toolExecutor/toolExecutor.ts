@@ -12,7 +12,7 @@ import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import type { ToolResult } from '#/tool/toolContract';
 import type { ToolSource } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 
 export interface ToolCallStartedPayload {
   readonly toolCallId: string;

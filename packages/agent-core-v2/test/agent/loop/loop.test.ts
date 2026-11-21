@@ -26,8 +26,8 @@ import { APIProviderRateLimitError } from '#/llm-adapter/contract/errors';
 import { type ModelRequestTiming } from '#/llm-adapter/model/model-requester';
 import { type ExecutableTool } from '#/tool/toolContract';
 import { createAgentMachine } from '#human/agent/machine';
-import { type ToolCall } from '#human/llm/message';
-import { emptyUsage } from '#human/llm/usage';
+import { type ToolCall } from '@moonshot-ai/core/llm/message';
+import { emptyUsage } from '@moonshot-ai/core/llm/usage';
 import { createActor } from '#human/xstate2';
 import { waitForAssertion } from '#test/helpers/waitFor';
 

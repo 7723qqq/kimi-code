@@ -1,5 +1,5 @@
 import type { MediaPathTagKind } from '#human/llm/media/pathTag';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 export type MediaKind = MediaPathTagKind;
 

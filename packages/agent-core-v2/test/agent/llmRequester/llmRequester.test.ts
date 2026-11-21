@@ -14,8 +14,8 @@ import {
   APIStatusError,
 } from '#/llm-adapter/contract/errors';
 import type { Message } from '#/llm-adapter/contract/message';
-import type { StreamedMessagePart, ToolDescription as Tool } from '#human/llm/message';
-import { emptyUsage, inputTotal } from '#human/llm/usage';
+import type { StreamedMessagePart, ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+import { emptyUsage, inputTotal } from '@moonshot-ai/core/llm/usage';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';

@@ -2,7 +2,7 @@ import { Error2 } from '#/_base/errors/errors';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
 import { type ErrorCode } from '#/errors';
-import type { TokenUsage } from '#human/llm/usage';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import { UsageErrors } from './errors';
 

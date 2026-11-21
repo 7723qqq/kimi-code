@@ -13,8 +13,8 @@ import {
 import type {
   ProviderConfig as KosongProviderConfig,
   ProviderRequestAuth,
-} from '@moonshot-ai/kosong';
-import { APIStatusError, UNKNOWN_CAPABILITY } from '@moonshot-ai/kosong';
+} from '@moonshot-ai/core';
+import { APIStatusError, UNKNOWN_CAPABILITY } from '@moonshot-ai/core';
 
 import { ErrorCodes, KimiError } from '#/errors';
 import type { Logger } from '#/logging/index';

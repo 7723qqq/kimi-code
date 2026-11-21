@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import { parse as parseToml } from 'smol-toml';
 
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
@@ -145,5 +145,45 @@ describe('FileProjectLocalConfigService.resolveAdditionalDirs', () => {
     const { service: remote, stated } = service('/client/home', '');
     await expect(remote.resolveAdditionalDirs('/work', ['~/shared'])).resolves.toEqual(['/work/~/shared']);
     expect(stated).toEqual(['/work/~/shared']);
+  });
+
+  it('includes the resolved path when an additional directory is missing', async () => {
+    const fs = {
+      _serviceBrand: undefined,
+      stat: async () => {
+        throw new HostFsError(OsFsErrors.codes.OS_FS_NOT_FOUND, 'path does not exist');
+      },
+    } as unknown as IHostFileSystem;
+    const local = new FileProjectLocalConfigService(
+      { _serviceBrand: undefined, osHomeDir: '/client/home' } as never,
+      fs,
+    );
+
+    await expect(local.resolveAdditionalDirs('/work', ['../missing'])).rejects.toThrow(
+      'workspace.additional_dir must exist and be a directory: /missing',
+    );
+  });
+
+  it('includes the resolved path when an additional directory is a file', async () => {
+    const fs = {
+      _serviceBrand: undefined,
+      stat: async () => ({ isDirectory: false }),
+    } as unknown as IHostFileSystem;
+    const local = new FileProjectLocalConfigService(
+      { _serviceBrand: undefined, osHomeDir: '/client/home' } as never,
+      fs,
+    );
+
+    await expect(local.resolveAdditionalDirs('/work', ['file'])).rejects.toThrow(
+      'workspace.additional_dir must exist and be a directory: /work/file',
+    );
+  });
+
+  it('reports an empty additional directory value', async () => {
+    const { service: local } = service('/client/home');
+
+    await expect(local.resolveAdditionalDirs('/work', ['  '])).rejects.toThrow(
+      'workspace.additional_dir must not be empty',
+    );
   });
 });

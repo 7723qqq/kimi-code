@@ -28,7 +28,6 @@ describe('closeDanglingToolCalls', () => {
     ];
     const out = closeDanglingToolCalls(input);
 
-    // assistant followed immediately by synthesized tool result, then user.
     expect(out).toHaveLength(4);
     expect(out[1]?.role).toBe('assistant');
     const synthesized = out[2];
@@ -38,7 +37,6 @@ describe('closeDanglingToolCalls', () => {
       type: 'text',
       text: '[tool result unavailable — session imported from kimi-cli]',
     });
-    // trailing user message survives.
     expect(out[3]).toEqual(user('still here?'));
   });
 

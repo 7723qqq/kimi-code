@@ -19,14 +19,14 @@ import {
   toLlmTransportErrorMessage,
   type LlmRemoteErrorMessage,
 } from '#/llm/errors';
-import { NO_FINISH, type FinishInfo, type FinishReason } from '#/llm/finish-reason';
-import type { Message, ToolDescription } from '#/llm/message';
+import { NO_FINISH, type FinishInfo, type FinishReason } from '@moonshot-ai/core/llm/response';
+import type { Message, ToolDescription } from '@moonshot-ai/core/llm/message';
 import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
 import { mergeConsecutiveUsers } from '#/llm/protocol/patterns';
 import { applyPatterns } from '#/llm/protocol/rewrite';
 import type { ResponseFormat } from '#/llm/response-format';
-import { SyntaxRequestFormatError } from '#/llm/syntax-errors';
-import type { TokenUsage } from '#/llm/usage';
+import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/syntax-errors';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import { CONTEXT_MANAGEMENT_BETA } from './contract';
 import type { AnthropicRawStreamEvent, AnthropicRawUsage, AnthropicWireMessage } from './contract';

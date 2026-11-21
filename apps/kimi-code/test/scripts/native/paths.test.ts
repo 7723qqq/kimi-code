@@ -15,8 +15,6 @@ import {
   nativeSmokeHome,
 } from '../../../scripts/native/paths.mjs';
 
-// paths.mjs builds every path with node:path.resolve (backslashes on Windows).
-// Build expectations the same way so they match on every platform.
 const p = (...segments: string[]): string => resolve(appRoot, ...segments);
 
 describe('targetTriple', () => {

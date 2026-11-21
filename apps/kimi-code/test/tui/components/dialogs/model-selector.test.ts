@@ -57,9 +57,7 @@ describe('ModelSelectorComponent', () => {
     });
 
     const out = text(picker);
-    // Model name on the left, provider on the right, with the current marker.
     expect(out).toMatch(/❯ Kimi K2\s+Kimi Code ← current/);
-    // Provider is no longer inlined in parentheses next to the name.
     expect(out).not.toContain('Kimi K2 (Kimi Code)');
   });
 
@@ -73,17 +71,14 @@ describe('ModelSelectorComponent', () => {
       onCancel: mock(),
     });
 
-    // "/" no longer toggles thinking (it used to); here it is simply ignored.
     picker.handleInput('/');
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'on' });
 
-    // Right arrow flips the draft (true -> false).
     picker.handleInput(RIGHT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'off' });
 
-    // Left arrow flips it back.
     picker.handleInput(LEFT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'on' });
@@ -124,7 +119,6 @@ describe('ModelSelectorComponent', () => {
       onCancel: mock(),
     });
 
-    // Same setup as the toggle test above: either arrow would flip 'on' to 'off'.
     picker.handleInput(LEFT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'on' });
@@ -146,7 +140,6 @@ describe('ModelSelectorComponent', () => {
       onCancel: mock(),
     });
 
-    // Always-on: On selected, Off greyed out with an explanation.
     const alwaysOut = text(picker);
     expect(alwaysOut).toContain('[ On ]');
     expect(alwaysOut).toContain('Off (Unsupported)');
@@ -154,7 +147,6 @@ describe('ModelSelectorComponent', () => {
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'always', thinking: 'on' });
 
-    // Unsupported: Off selected, On greyed out — same style, mirrored.
     picker.handleInput(DOWN);
     const plainOut = text(picker);
     expect(plainOut).toContain('On (Unsupported)');
@@ -213,10 +205,10 @@ describe('ModelSelectorComponent', () => {
       onCancel: mock(),
     });
 
-    picker.handleInput(DOWN); // -> thinking model (defaults On)
-    picker.handleInput(RIGHT); // toggle -> Off
-    picker.handleInput(UP); // -> plain
-    picker.handleInput(DOWN); // -> thinking (the Off override persists)
+    picker.handleInput(DOWN);
+    picker.handleInput(RIGHT);
+    picker.handleInput(UP);
+    picker.handleInput(DOWN);
     picker.handleInput('\r');
 
     expect(onSelect).toHaveBeenCalledWith({ alias: 'thinking', thinking: 'off' });
@@ -230,15 +222,13 @@ describe('ModelSelectorComponent', () => {
         other: model('Kimi Other', ['thinking']),
       },
       currentValue: 'current',
-      currentThinkingEffort: 'off', // thinking deliberately off on the active model
+      currentThinkingEffort: 'off',
       onSelect,
       onCancel: mock(),
     });
 
-    // The active model reflects its live (off) state.
     expect(text(picker)).toContain('[ Off ]');
-    picker.handleInput(DOWN); // -> the other thinking-capable model
-    // A capable, non-active model defaults to On without any toggle.
+    picker.handleInput(DOWN);
     expect(text(picker)).toContain('[ On ]');
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({ alias: 'other', thinking: 'on' });
@@ -263,7 +253,6 @@ describe('ModelSelectorComponent', () => {
     expect(out).not.toContain('Kimi K2');
     expect(out).toContain('1 / 2');
 
-    // First Esc clears the query, second Esc cancels.
     picker.handleInput(ESC);
     expect(onCancel).not.toHaveBeenCalled();
     picker.handleInput(ESC);
@@ -282,7 +271,6 @@ describe('ModelSelectorComponent', () => {
       onCancel: mock(),
     });
 
-    // Default page size is 8, so 4 of the 12 models sit below the fold.
     expect(text(picker)).toContain('▼ 4 more');
   });
 
@@ -318,7 +306,6 @@ describe('ModelSelectorComponent', () => {
       onCancel: mock(),
     });
 
-    // Toggle thinking Off, then Alt+S applies the choice to the session only.
     picker.handleInput(RIGHT);
     picker.handleInput(`${ESC}s`);
     expect(onSessionOnlySelect).toHaveBeenCalledWith({ alias: 'kimi', thinking: 'off' });
@@ -362,13 +349,10 @@ describe('ModelSelectorComponent', () => {
     });
 
     const out = text(picker);
-    // The default effort (high) is the active segment.
     expect(out).toContain('[ High ]');
-    // All declared efforts plus the Off entry are present.
     expect(out).toContain('Low');
     expect(out).toContain('Max');
     expect(out).toContain('Off');
-    // Multi-segment control advertises the switch hint.
     expect(out).toContain('Thinking  (←→ to switch)');
   });
 
@@ -431,13 +415,11 @@ describe('ModelSelectorComponent', () => {
       onCancel: mock(),
     });
 
-    // high -> max (Right), then clamp on a second Right.
     picker.handleInput(RIGHT);
     picker.handleInput(RIGHT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'max' });
 
-    // max -> high -> low -> off (Left x3), then clamp on another Left.
     picker.handleInput(LEFT);
     picker.handleInput(LEFT);
     picker.handleInput(LEFT);
@@ -459,14 +441,11 @@ describe('ModelSelectorComponent', () => {
     });
 
     const raw = picker.render(120).join('\n');
-    // Off is not surfaced at all — the selectable segments are effort-only.
     expect(raw).not.toContain('Off (Unsupported)');
-    // The active effort is still highlighted.
     expect(strip(raw)).toContain('[ High ]');
 
-    // Cycling clamps at the last effort and never reaches Off.
-    picker.handleInput(RIGHT); // high -> max
-    picker.handleInput(RIGHT); // clamp at max
+    picker.handleInput(RIGHT);
+    picker.handleInput(RIGHT);
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenLastCalledWith({ alias: 'kimi', thinking: 'max' });
   });
@@ -483,7 +462,6 @@ describe('ModelSelectorComponent', () => {
       onCancel: mock(),
     });
 
-    // Non-current effort model falls back to its declared defaultEffort.
     expect(text(picker)).toContain('[ Max ]');
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({ alias: 'other', thinking: 'max' });
@@ -500,8 +478,6 @@ describe('ModelSelectorComponent', () => {
       onCancel: mock(),
     });
 
-    // support_efforts present but default_effort absent -> default to the
-    // middle entry (medium), not a hardcoded level.
     expect(text(picker)).toContain('[ Medium ]');
   });
 
@@ -519,7 +495,6 @@ describe('ModelSelectorComponent', () => {
     const hintIdx = lines.findIndex((l) => l.includes('↑↓ navigate'));
     expect(hintIdx).toBeGreaterThanOrEqual(0);
     expect(lines[hintIdx + 1]).toContain('Switching may increase token usage.');
-    // Model list is pushed below the inserted warning line, not overlapped.
     expect(lines.findIndex((l) => l.includes('Kimi K2'))).toBeGreaterThan(hintIdx + 1);
   });
 
@@ -539,9 +514,39 @@ describe('ModelSelectorComponent', () => {
     const hintIdx = lines.findIndex((l) => l.includes('↑↓ navigate'));
     expect(lines[hintIdx + 1]).not.toBe('');
     expect(lines[hintIdx + 2]).not.toBe('');
-    // Word-wrapped: nothing dropped — the full warning survives across lines.
     const squashed = lines.join('').replaceAll(/\s+/g, '');
     expect(squashed).toContain(warning.replaceAll(/\s+/g, ''));
+  });
+});
+
+describe('ModelSelectorComponent effort descriptions', () => {
+  it('updates descriptions for the highlighted effort and hides them for other providers', () => {
+    const picker = new ModelSelectorComponent({
+      models: {
+        kimi: effortModel('Kimi K3', ['low', 'high', 'max'], 'high'),
+        custom: { ...effortModel('Custom K3', ['low', 'high', 'max'], 'high'), provider: 'custom' },
+      },
+      currentValue: 'kimi',
+      currentThinkingEffort: 'high',
+      effortDescriptions: {
+        low: 'Light reasoning.',
+        high: 'Deeper reasoning.',
+        max: 'Maximum reasoning.',
+      },
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    expect(text(picker)).toContain('Deeper reasoning.');
+    picker.handleInput(RIGHT);
+    expect(text(picker)).toContain('Maximum reasoning.');
+    picker.handleInput(LEFT);
+    picker.handleInput(LEFT);
+    expect(text(picker)).toContain('Light reasoning.');
+    picker.handleInput(LEFT);
+    expect(text(picker)).not.toContain('Light reasoning.');
+    picker.handleInput(DOWN);
+    expect(text(picker)).not.toContain('Deeper reasoning.');
   });
 });
 

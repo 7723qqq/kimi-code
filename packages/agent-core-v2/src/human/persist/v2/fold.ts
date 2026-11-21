@@ -1,5 +1,5 @@
-import type { ContentPart, ToolCall } from '#/llm/message';
-import type { TokenUsage } from '#/llm/usage';
+import type { ContentPart, ToolCall } from '@moonshot-ai/core/llm/message';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import { readTodoItems, type TodoItem } from '#/todo/todoItem';
 
 import {

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { LlmCredentialProvider } from '#human/llm/requester/requester';
-import type { TokenUsage } from '#human/llm/usage';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import type { ModelCapability } from '../contract/capability';
 import type { Protocol, ProtocolProviderOptions } from '../protocol/protocol';

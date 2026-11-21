@@ -15,7 +15,7 @@ import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
 import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import { TokenCountingAgentModelDefinition } from '#/session/tokenCounting/tokenCountingAgentModel';
 import { IWireService } from '#/wire/wire';
-import type { TokenUsage } from '#human/llm/usage';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import {
   createTestAgent,

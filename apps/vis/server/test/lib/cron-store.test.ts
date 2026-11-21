@@ -21,8 +21,6 @@ describe('cron-store', () => {
   it('lists valid cron tasks sorted by creation time', async () => {
     const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
     cleanup = c;
-    // Written in the real on-disk shape — this doubles as a drift guard for
-    // the local CronTask mirror in agent-record-types.ts.
     await writeCron(sessionDir, 'a1b2c3d4.json', {
       id: 'a1b2c3d4',
       cron: '0 9 * * *',
@@ -40,7 +38,7 @@ describe('cron-store', () => {
     });
 
     const cron = await listCronTasks(sessionDir);
-    expect(cron.map((t) => t.id)).toEqual(['beefbeef', 'a1b2c3d4']); // createdAt asc
+    expect(cron.map((t) => t.id)).toEqual(['beefbeef', 'a1b2c3d4']);
     expect(cron[1]).toMatchObject({
       cron: '0 9 * * *',
       prompt: 'daily standup',
@@ -60,7 +58,7 @@ describe('cron-store', () => {
     });
     await mkdir(join(sessionDir, 'cron'), { recursive: true });
     await writeFile(join(sessionDir, 'cron', 'deadbeef.json'), '{ broken');
-    await writeCron(sessionDir, 'cafecafe.json', { id: 'cafecafe', cron: '* * * * *' }); // no prompt/createdAt
+    await writeCron(sessionDir, 'cafecafe.json', { id: 'cafecafe', cron: '* * * * *' });
     expect(await listCronTasks(sessionDir)).toEqual([]);
   });
 
@@ -76,7 +74,7 @@ describe('cron-store', () => {
     expect(isSafeCronId('DEADBEEF')).toBe(true);
     expect(isSafeCronId('01ARZ3NDEKTSV4RRFFQ69G5FAV')).toBe(true);
     expect(isSafeCronId('abc')).toBe(false);
-    expect(isSafeCronId('01ARZ3NDEKTSV4RRFFQ69G5FAO')).toBe(false); // 'O' is outside the ULID alphabet
+    expect(isSafeCronId('01ARZ3NDEKTSV4RRFFQ69G5FAO')).toBe(false);
     expect(isSafeCronId('../escape')).toBe(false);
   });
 
@@ -150,7 +148,6 @@ describe('cron-store', () => {
       prompt: 'only files',
       createdAt: 1000,
     });
-    // No wire.jsonl at all — legacy sessions still list their files.
     expect((await listCronTasks(sessionDir)).map((t) => t.id)).toEqual(['a1b2c3d4']);
   });
 
@@ -165,8 +162,6 @@ describe('cron-store', () => {
         task: { id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', cron: '* * * * *', prompt: 'p', createdAt: 1 },
         time: 2,
       }),
-      // Hand-edited / corrupted payloads: ids is not an array; cursor fields
-      // have the wrong types. The fold must skip them, not reject the read.
       '{"type":"cron.delete","agentId":"main","ids":"not-an-array","time":3}',
       '{"type":"cron.cursor","agentId":"main","id":42,"lastFiredAt":"soon","time":4}',
     ];

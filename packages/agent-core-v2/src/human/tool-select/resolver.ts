@@ -1,4 +1,4 @@
-import type { Message } from '#/llm/message';
+import type { Message } from '@moonshot-ai/core/llm/message';
 import type { MessageResolver } from '#/llm/requester/actor';
 
 import type { ToolSelectState } from './state';

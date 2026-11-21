@@ -12,7 +12,7 @@ import { IEventBus } from '#/app/event/eventBus';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import { executeModelSkill } from '#/features/skill/tools/skillTool';
 import { type SkillCatalog, type SkillDefinition } from '#/features/skill/catalog/types';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 
 import { recordingTelemetry } from '../../../app/telemetry/stubs';
 import { stubToolResultTruncationService } from '../../../agent/toolResultTruncation/stubs';

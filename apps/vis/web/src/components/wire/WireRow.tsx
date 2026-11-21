@@ -7,16 +7,11 @@ import { TypeBadge } from './TypeBadge';
 import { renderHeadline } from './WireHeadline';
 import { WireRowDetail } from './WireRowDetail';
 
-/** Pairing hint for a `tool.call` ↔ `tool.result` row. Computed by the
- *  parent (WireTab) from the full record list and threaded down here so
- *  the row can render an inline cross-reference and participate in the
- *  hover-highlight protocol. */
 export interface PairHint {
   toolCallId: string;
   kind: 'call' | 'result';
   callLineNo: number | null;
   resultLineNo: number | null;
-  /** result.time − call.time, when both records carry a timestamp. */
   durationMs: number | null;
 }
 
@@ -24,13 +19,9 @@ interface WireRowProps {
   entry: WireEntry;
   expanded: boolean;
   onToggle: () => void;
-  /** Scroll to a line and expand it — wired by the Wire tab via the virtualizer. */
   onJumpTo?: (lineNo: number) => void;
-  /** Set when this entry is a tool.call/tool.result; carries the matching counterpart's line. */
   pair?: PairHint;
-  /** True when another row from this pair is currently hovered. */
   highlighted: boolean;
-  /** Notify the parent that this row's pair group is being hovered. */
   onHoverPair?: (toolCallId: string | null) => void;
 }
 
@@ -130,7 +121,6 @@ function PairIndicator({
     orphan ? 'text-[var(--color-sev-error)]' : 'text-[var(--color-cat-tools)] hover:text-fg-0'
   }`;
 
-  // Show the call→result elapsed time on whichever row has its partner.
   const duration =
     pair.durationMs !== null ? (
       <span

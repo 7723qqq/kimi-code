@@ -9,7 +9,7 @@ import {
 } from '#/agent/prompt/promptMetadataText';
 import { LifecycleScope } from '#/app/scopes';
 import { annotateBundledSkillParts, isSkillActivationPart } from '#human/agent/origin';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 import {
   IAgentTitlePromptSource,

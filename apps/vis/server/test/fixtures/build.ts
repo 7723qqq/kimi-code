@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** Copy a fixture session into a temporary KIMI_CODE_HOME. */
 export async function buildSessionFixture(name: string): Promise<{
   home: string;
   sessionDir: string;
@@ -18,7 +17,6 @@ export async function buildSessionFixture(name: string): Promise<{
   await mkdir(sessionsDir, { recursive: true });
   await cp(src, sessionDir, { recursive: true });
 
-  // Write session_index.jsonl.
   await writeFile(
     join(home, 'session_index.jsonl'),
     JSON.stringify({

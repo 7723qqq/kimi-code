@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { AgentEvent2 } from '#/app/event/event2';
 import { defineState } from '#/state/state';
-import type { ThinkingEffort } from '#human/llm/thinking';
+import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
 
 import { ProfileError, ProfileErrors } from './profile';
 

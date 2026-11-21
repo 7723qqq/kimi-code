@@ -1,6 +1,6 @@
 import type { WireRecord } from '#/wire/record';
-import { type ContentPart, type ToolCall } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
+import { type ContentPart, type ToolCall } from '@moonshot-ai/core/llm/message';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import {
   COMPACT_USER_MESSAGE_MAX_TOKENS,

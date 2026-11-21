@@ -1,5 +1,5 @@
-import type { Message, TextPart } from '#/llm/message';
-import { SyntaxRequestFormatError } from '#/llm/syntax-errors';
+import type { Message, TextPart } from '@moonshot-ai/core/llm/message';
+import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/syntax-errors';
 
 import type { GoogleContent, GooglePart } from './contract';
 

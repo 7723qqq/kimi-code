@@ -32,7 +32,6 @@ export function useDeleteSession() {
   });
 }
 
-/** Import a debug zip; refreshes the session list on success. */
 export function useImportZip() {
   const qc = useQueryClient();
   return useMutation({

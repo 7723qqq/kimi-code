@@ -21,7 +21,7 @@ import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
-import type { ToolDescription as Tool } from '#human/llm/message';
+import type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
 
 import {
   collectLoadedDynamicTools,

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createRequire } from 'node:module';
 
-import type * as KosongModule from '@moonshot-ai/kosong';
+import type * as KosongModule from '@moonshot-ai/core';
 
 import { createKimiHarness, type KimiError } from '#/index';
 
@@ -16,8 +16,8 @@ const fakeProviderState = {
 
 // Bun calls the factory with no arguments and a module cannot import the
 // specifier it is replacing, so the real namespace comes from `createRequire`.
-void mock.module('@moonshot-ai/kosong', () => {
-  const actual = createRequire(import.meta.url)('@moonshot-ai/kosong') as typeof KosongModule;
+void mock.module('@moonshot-ai/core', () => {
+  const actual = createRequire(import.meta.url)('@moonshot-ai/core') as typeof KosongModule;
   return {
     ...actual,
     createProvider: () => ({

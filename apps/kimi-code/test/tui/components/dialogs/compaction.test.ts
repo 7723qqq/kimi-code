@@ -150,8 +150,6 @@ describe('CompactionComponent', () => {
   });
 
   it('repaints the header with the active palette on invalidate', () => {
-    // Force truecolor so palette differences surface as ANSI codes even when
-    // the test runner has no TTY.
     const previousLevel = chalk.level;
     chalk.level = 3;
     const component = new CompactionComponent();
@@ -168,7 +166,6 @@ describe('CompactionComponent', () => {
       component.invalidate();
       const after = headerOf();
 
-      // Same visible text, different ANSI colour codes.
       expect(strip(after)).toBe(strip(before));
       expect(after).not.toBe(before);
     } finally {

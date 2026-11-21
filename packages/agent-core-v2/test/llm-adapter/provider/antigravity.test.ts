@@ -6,7 +6,7 @@ import * as nodeOs from 'node:os';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { type Message, type StreamedMessagePart } from '#human/llm/message';
+import { type Message, type StreamedMessagePart } from '@moonshot-ai/core/llm/message';
 import {
   AntigravityChatProvider,
   AntigravityStreamedMessage,

@@ -21,8 +21,10 @@ export function resolveEffectiveWorkspaceRoots(
   const local = environmentId === LOCAL_ENVIRONMENT_ID;
   const primaryDir = local ? workspace.primaryByWorkspace[session.workspaceId] : undefined;
   const followsPrimary = local && binding?.cwd === undefined && primaryDir !== undefined;
-  const workDir =
-    binding?.cwd ?? (local ? (primaryDir ?? session.cwd) : (host?.cwd ?? host?.homeDir ?? session.cwd));
+  const workDir = binding?.cwd ??
+    (local
+      ? primaryDir ?? session.cwd
+      : host?.cwd ?? host?.homeDir ?? session.cwd);
   const workDirKey = workspaceRootKey(workDir);
   const seen = new Set([workDirKey]);
   const additionalDirs: string[] = [];

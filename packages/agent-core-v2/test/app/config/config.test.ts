@@ -119,7 +119,7 @@ import {
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '@moonshot-ai/core/llm/message';
 
 import { stubLog } from '../../_base/log/stubs';
 import { createTestAgent, type TestAgentContext } from '../../harness';

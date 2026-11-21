@@ -20,7 +20,7 @@ import { wrapSystemReminder } from '#/features/reminder/systemReminder';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import { defineState } from '#/state/state';
 import { parseToolCallArguments } from '#/tool/tool-args-parse';
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 import {
   IAgentToolDedupeService,
