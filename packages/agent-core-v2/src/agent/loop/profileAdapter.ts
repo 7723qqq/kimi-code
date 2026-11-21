@@ -5,7 +5,7 @@ import type { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
 import type { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import type { ThinkingEffort } from '@moonshot-ai/core/llm/request';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
-import type { InitializedLlmRequestPart } from '@moonshot-ai/core/llm/requester';
+import type { ModelRequestParams } from '#/llm-adapter/model/model-requester';
 import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import {
   EMPTY_LOOP_PROFILE,
@@ -75,7 +75,7 @@ export class AgentLoopProfileAdapter implements EffectiveProfileReader {
     return this.profile.resolveModelContext(this.snapshot());
   }
 
-  resolveRequestParams(): InitializedLlmRequestPart {
+  resolveRequestParams(): ModelRequestParams {
     return this.profile.resolveRequestParams(this.snapshot());
   }
 

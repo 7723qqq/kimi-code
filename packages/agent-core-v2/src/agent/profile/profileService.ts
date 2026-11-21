@@ -68,7 +68,7 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceCo
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import type { ToolSource } from '#/tool/toolContract';
-import { type ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
+import { type ThinkingEffort } from '#human/llm/thinking';
 
 import {
   extractAgentsMdPathsFromSystemPrompt,
@@ -201,13 +201,13 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
             : this.discovery.retiredModelReplacement(this.modelAlias);
         if (replacement !== undefined) await this.setModel(replacement).catch(() => {});
         this.syncTelemetryModelContext(this.modelAlias);
-        await this.refreshBoundSubagentAllowlist();
+        await this.refreshBoundSubagentAllowlistInternal();
         await next();
       }),
     );
     this._register(
       this.catalog.onDidChange(() => {
-        void this.refreshBoundSubagentAllowlist().catch(() => {});
+        void this.refreshBoundSubagentAllowlistInternal().catch(() => {});
       }),
     );
     this._register(
@@ -277,7 +277,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     }
     if (Object.keys(configChanged).length > 0) {
       void this.dispatcher.dispatch(new ConfigUpdate(this.resolveConfigPayload(configChanged)));
-      this.afterConfigDispatch(configChanged);
+      this.afterConfigDispatchInternal(configChanged);
     }
     if (activeToolNames !== undefined) {
       this.setActiveTools(activeToolNames);
@@ -304,7 +304,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
         subagents: snapshot.subagents,
       }),
     );
-    this.afterConfigDispatch({
+    this.afterConfigDispatchInternal({
       modelAlias: snapshot.modelAlias,
       profileName: snapshot.profileName,
       thinkingLevel: snapshot.thinkingLevel,
@@ -329,7 +329,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     return withoutDelegatingTargets(this.catalog, allowlist);
   }
 
-  private async refreshBoundSubagentAllowlist(): Promise<void> {
+  private async refreshBoundSubagentAllowlistInternal(): Promise<void> {
     if (this.scopeContext.agentId !== MAIN_AGENT_ID || this.profileName === undefined) return;
     await this.catalog.ready;
     const snapshot = this.data();
@@ -399,7 +399,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
         subagents: this.bindSubagents(profile.name, profile.subagents),
       }),
     );
-    this.afterConfigDispatch({
+    this.afterConfigDispatchInternal({
       modelAlias: alias,
       profileName: profile.name,
       thinkingLevel,
@@ -465,29 +465,31 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   useProfile(
     profile: ResolvedAgentProfile,
     context: SystemPromptContext,
-  ): SystemPromptRenderResult {
+  ): ProfileUpdateData & SystemPromptRenderResult {
     this.activeProfile = profile;
     const rendered = renderAgentProfilePrompt(profile, context);
-    this.update({
+    const changed: ProfileUpdateData = {
       profileName: profile.name,
       systemPrompt: rendered.text,
       environmentDisclosure: rendered.environment,
       agentsMdPaths: context.agentsMdPaths ?? [],
       disallowedTools: profile.disallowedTools ?? [],
-    });
+    };
+    this.update(changed);
     this.setActiveTools(profile.tools);
-    return rendered;
+    return { ...changed, ...rendered };
   }
 
-  async applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<void> {
+  async applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<ProfileUpdateData> {
     const context = await this.buildSystemPromptContext(profile, options);
-    const rendered = this.useProfile(profile, context);
-    this.warnAboutDroppedVars(rendered, profile.name);
-    this.seedAgentsMdReminder(context, rendered);
+    const applied = this.useProfile(profile, context);
+    this.warnAboutDroppedVars(applied, profile.name);
+    this.seedAgentsMdReminder(context, applied);
     await this.seedChangeNotifierBeliefs(context);
     this.cacheAgentsMdWarning(context);
     this.publishAgentsMdWarning();
     this.publishToolPatternWarnings(profile);
+    return applied;
   }
 
   private warnAboutDroppedVars(rendered: SystemPromptRenderResult, profileName: string): void {
@@ -683,7 +685,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     return payload;
   }
 
-  private afterConfigDispatch(changed: Omit<ProfileUpdateData, 'activeToolNames'>): void {
+  private afterConfigDispatchInternal(changed: Omit<ProfileUpdateData, 'activeToolNames'>): void {
     if (changed.modelAlias !== undefined) {
       this.syncTelemetryModelContext(changed.modelAlias);
     }
@@ -1077,6 +1079,102 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     if (this.plugins.hasLoadedSnapshot()) this.frozenPluginSections = resolved;
     return resolved;
   }
+
+  // ---- from upstream 2.7.0 (profile adapter contract) ----
+  afterConfigDispatch(
+    changed: Omit<ProfileUpdateData, 'activeToolNames'>,
+    _current: ProfileBindingSnapshot = this.profileState,
+  ): void {
+    if (changed.modelAlias !== undefined) {
+      this.syncTelemetryModelContext(changed.modelAlias);
+    }
+    if (changed.modelAlias !== undefined || changed.thinkingLevel !== undefined) {
+      this.warnAboutAnthropicThinkingEffort();
+    }
+    this.emitStatusUpdated(changed.modelAlias !== undefined || changed.thinkingLevel !== undefined);
+  }
+
+  defaultProfile(): ProfileBindingSnapshot {
+    const snapshot = this.data();
+    return {
+      modelAlias: snapshot.modelAlias,
+      profileName: snapshot.profileName,
+      thinkingLevel: snapshot.thinkingLevel,
+      systemPrompt: snapshot.systemPrompt,
+      environmentDisclosure: snapshot.environmentDisclosure,
+      renderGeneration: snapshot.renderGeneration,
+      agentsMdPaths: snapshot.agentsMdPaths,
+      activeToolNames: snapshot.activeToolNames,
+      disallowedTools: snapshot.disallowedTools ?? [],
+      subagents: snapshot.subagents,
+    };
+  }
+
+  prepareBindingSnapshot(snapshot: ProfileBindingSnapshot): ProfileBindingSnapshot {
+    this.activeProfile = undefined;
+    const agentsMdPaths =
+      snapshot.agentsMdPaths ?? extractAgentsMdPathsFromSystemPrompt(snapshot.systemPrompt);
+    this.agentsMdReminder.seedInjected(agentsMdPaths, this.workspace.workDir);
+    return { ...snapshot, agentsMdPaths };
+  }
+
+  prepareUpdate(
+    changed: ProfileUpdateData,
+    current?: ProfileBindingSnapshot,
+    activeTools?: readonly string[] | null,
+  ): import('./profileOps').ProfileUpdatePlan {
+    const { activeToolNames, ...configChanged } = changed;
+    if (changed.profileName !== undefined && this.activeProfile?.name !== changed.profileName) {
+      this.activeProfile = undefined;
+    }
+    const names = activeTools === undefined ? activeToolNames : activeTools;
+    return {
+      config: Object.keys(configChanged).length === 0
+        ? undefined
+        : this.resolveConfigPayload(configChanged),
+      tools: names === undefined
+        ? undefined
+        : names === null
+          ? new ToolsResetActiveTools({ agentId: this.scopeContext.agentId })
+          : new ToolsSetActiveTools({ agentId: this.scopeContext.agentId, names: [...names] }),
+    };
+  }
+
+  async refreshBoundSubagentAllowlist(
+    current?: ProfileBindingSnapshot,
+  ): Promise<ProfileBindingSnapshot | undefined> {
+    if (this.scopeContext.agentId !== MAIN_AGENT_ID || current?.profileName === undefined) return undefined;
+    await this.catalog.ready;
+    const subagents = this.bindSubagents(current.profileName, current.subagents);
+    if (
+      subagents?.length !== current.subagents?.length ||
+      subagents?.some((name, index) => name !== current.subagents?.[index])
+    ) {
+      return { ...current, subagents };
+    }
+    return undefined;
+  }
+
+  resolveBinding(
+    input: BindAgentInput,
+    current?: ProfileBindingSnapshot,
+  ): Promise<ProfileBindingSnapshot> {
+    return this.bind(input).then(() => this.data());
+  }
+
+  resolveModel(alias: string): ProfileSetModelResult {
+    return { model: alias, providerName: this.modelCatalog.get(alias).providerName };
+  }
+
+  resolveThinkingLevel(level: string, current?: ProfileBindingSnapshot): string {
+    this.assertThinkingEffortSupported(
+      level,
+      this.tryResolveRawModel(),
+      current?.modelAlias ?? '',
+    );
+    return normalizeRequestedThinkingEffort(level) ?? level;
+  }
+
 }
 
 registerScopedService(

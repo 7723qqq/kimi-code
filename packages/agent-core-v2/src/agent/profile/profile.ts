@@ -7,9 +7,10 @@ import type {
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import type { ErrorCode } from '#/errors';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
+import type { ProfileUpdatePlan } from './profileOps';
 import type { ModelRequestParams } from '#/llm-adapter/model/model-requester';
-import type { ThinkingEffort } from '#human/llm/thinking';
 import type { InitializedLlmRequestPart } from '@moonshot-ai/core/llm/requester';
+import type { ThinkingEffort } from '#human/llm/thinking';
 
 import type { ProfileErrors } from './errors';
 
@@ -120,27 +121,36 @@ export interface IAgentProfileService {
   bind(input: BindAgentInput): Promise<void>;
   setModel(model: string): Promise<ProfileSetModelResult>;
   setThinking(level: string): void;
-  republishStatus(): void;
-  getModel(): string;
-  useProfile(profile: ResolvedAgentProfile, context: SystemPromptContext): void;
-  applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<void>;
-  getAgentsMdWarning(): string | undefined;
-  data(): ProfileData;
-  getEffectiveThinkingLevel(): ThinkingEffort;
-  resolveModelContext(): ProfileModelContext;
-  resolveRequestParams(): ModelRequestParams;
-  getModelCapabilities(): ModelCapability;
+  republishStatus(snapshot?: ProfileBindingSnapshot): void;
+  getModel(snapshot?: ProfileBindingSnapshot): string;
+  useProfile(profile: ResolvedAgentProfile, context: SystemPromptContext): ProfileUpdateData;
+  applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<ProfileUpdateData>;
+  getAgentsMdWarning(snapshot?: ProfileBindingSnapshot): string | undefined;
+  data(snapshot?: ProfileBindingSnapshot): ProfileData;
+  getEffectiveThinkingLevel(snapshot?: ProfileBindingSnapshot): ThinkingEffort;
+  resolveModelContext(snapshot?: ProfileBindingSnapshot): ProfileModelContext;
+  resolveRequestParams(snapshot?: ProfileBindingSnapshot): ModelRequestParams;
+  getModelCapabilities(snapshot?: ProfileBindingSnapshot): ModelCapability;
   getModelWireName(): string | undefined;
-  getModelProviderType(alias?: string): string | undefined;
-  getMaxOutputSize(): number | undefined;
-  hasModel(): boolean;
-  isRunnable(): boolean;
-  hasProvider(): boolean;
-  getSystemPrompt(): string;
-  getActiveToolNames(): readonly string[] | undefined;
+  getModelProviderType(alias?: string, snapshot?: ProfileBindingSnapshot): string | undefined;
+  getMaxOutputSize(snapshot?: ProfileBindingSnapshot): number | undefined;
+  hasModel(snapshot?: ProfileBindingSnapshot): boolean;
+  isRunnable(snapshot?: ProfileBindingSnapshot): boolean;
+  hasProvider(snapshot?: ProfileBindingSnapshot): boolean;
+  getSystemPrompt(snapshot?: ProfileBindingSnapshot): string;
+  getActiveToolNames(snapshot?: ProfileBindingSnapshot): readonly string[] | undefined;
   addActiveTool(name: string): void;
   removeActiveTool(name: string): void;
-  refreshActiveTools(): Promise<void>;
+  refreshActiveTools(): Promise<void>;  // ---- from upstream 2.7.0 (profile adapter contract) ----
+  afterConfigDispatch(changed: Omit<ProfileUpdateData, 'activeToolNames'>, current?: ProfileBindingSnapshot): void;
+  defaultProfile(): ProfileBindingSnapshot;
+  prepareBindingSnapshot(snapshot: ProfileBindingSnapshot): ProfileBindingSnapshot;
+  prepareUpdate(changed: ProfileUpdateData, current?: ProfileBindingSnapshot, activeTools?: readonly string[] | null): ProfileUpdatePlan;
+  refreshBoundSubagentAllowlist(current?: ProfileBindingSnapshot): Promise<ProfileBindingSnapshot | undefined>;
+  resolveBinding(input: BindAgentInput, current?: ProfileBindingSnapshot): Promise<ProfileBindingSnapshot>;
+  resolveModel(model: string): ProfileSetModelResult;
+  resolveThinkingLevel(level: string, current?: ProfileBindingSnapshot): string;
+
 }
 
 export const IAgentProfileService = createDecorator<IAgentProfileService>('agentProfileService');
@@ -150,9 +160,9 @@ export interface EffectiveProfileReader {
   data(): ProfileData;
   getEffectiveThinkingLevel(): ThinkingEffort;
   resolveModelContext(): ProfileModelContext;
-  resolveRequestParams(): InitializedLlmRequestPart;
+  resolveRequestParams(): ModelRequestParams;
   getModelCapabilities(): ModelCapability;
-  getModelProviderType(alias?: string): string | undefined;
+  getModelProviderType(alias?: string, snapshot?: ProfileBindingSnapshot): string | undefined;
   getMaxOutputSize(): number | undefined;
   hasModel(): boolean;
   isRunnable(): boolean;
