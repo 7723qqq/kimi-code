@@ -120,3 +120,28 @@ export interface BackgroundTaskOutputEvent {
   readonly chunk: string;
   readonly outputSizeBytes: number;
 }
+
+export type AgentTaskSettlementStatus = 'completed' | 'failed' | 'timed_out' | 'killed';
+
+export interface AgentTaskSettlement {
+  readonly status: AgentTaskSettlementStatus;
+  readonly stopReason?: string;
+}
+
+export interface AgentTaskSink {
+  readonly signal: AbortSignal;
+  appendOutput(chunk: string): void;
+  settle(settlement: AgentTaskSettlement): Promise<boolean>;
+}
+
+export interface AgentTask {
+  readonly idPrefix: string;
+  readonly kind: AgentTaskKind;
+  readonly description: string;
+  readonly timeoutMs?: number;
+
+  start(sink: AgentTaskSink): void | Promise<void>;
+  onDetach?(): void;
+  forceStop?(): Promise<void>;
+  toInfo(base: AgentTaskInfoBase): AgentTaskInfo;
+}

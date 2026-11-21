@@ -3,7 +3,7 @@ import { isAbortError, toLlmErrorMessage, toLlmSyntaxErrorMessage } from '@moons
 import type { DecodeSink, LlmModule, ProtocolReply } from '#/llm/protocol/protocol';
 import { withProtocolCapabilities } from '#/llm/protocol/rules/model';
 import type { LlmRequest } from '@moonshot-ai/core/llm/request';
-import type { LlmErrorMessage, LlmRemoteErrorMessage, LlmStreamEvent, LlmTiming } from '#/llm/response';
+import type { LlmErrorMessage, LlmRemoteErrorMessage, LlmStreamEvent, LlmTiming } from '@moonshot-ai/core/llm/response';
 import { clock } from '#/utils/clock';
 import { log } from '#/utils/log';
 

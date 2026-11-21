@@ -5,7 +5,7 @@ import { createAssistantMessage, createUserMessage, type ToolDescription } from 
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { FormatRequestInput } from '#/llm/protocol/format';
 import { prepareOpenAIRequest } from '#/llm/requester/bases/openai/requester';
-import type { ResponseFormat } from '#/llm/response-format';
+import type { ResponseFormat } from '#human/llm/response-format';
 
 const DEEPSEEK = 'deepseek-v4.1-flash';
 const OTHER = 'gpt-4o';

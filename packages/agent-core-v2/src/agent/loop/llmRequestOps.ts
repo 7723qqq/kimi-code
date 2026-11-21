@@ -1,14 +1,29 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+
 import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';
+import type { ThinkingEffort } from '@moonshot-ai/core/llm/request';
+import type { ToolDescription } from '@moonshot-ai/core/llm/message';
 import { defineState } from '#/state/state';
-import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
 
 export interface LlmRequestToolSchema {
   readonly name: string;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
+}
+
+export function llmToolsSnapshotPayload(tools: readonly ToolDescription[]): {
+  readonly hash: string;
+  readonly tools: readonly LlmRequestToolSchema[];
+} {
+  const visible = tools
+    .filter((tool) => tool.deferred !== true)
+    .map(({ name, description, parameters }) => ({ name, description, parameters }));
+  return {
+    hash: new Bun.CryptoHasher('sha256').update(JSON.stringify(visible)).digest('hex'),
+    tools: visible,
+  };
 }
 
 export interface LlmRequestTraceState {
@@ -40,7 +55,7 @@ export interface LlmToolsSnapshot {
 
 const llmRequestSchema = z.object({
   agentId: z.string(),
-  kind: z.enum(['loop', 'compaction']),
+  kind: z.enum(['loop', 'compaction', 'prediction']),
   provider: z.string(),
   model: z.string(),
   modelAlias: z.string().optional(),
@@ -57,21 +72,11 @@ const llmRequestSchema = z.object({
   messageCount: z.number(),
   turnStep: z.string().optional(),
   attempt: z.string().optional(),
-  projection: z
-    .enum([
-      'strict',
-      'media-degraded',
-      'media-stripped',
-      'strict-media-degraded',
-      'strict-media-stripped',
-    ])
-    .optional(),
+  projection: z.enum(['strict', 'media-degraded', 'media-stripped', 'strict-media-degraded', 'strict-media-stripped']).optional(),
   droppedCount: z.number().optional(),
 });
 
 export type LlmRequestPayload = z.infer<typeof llmRequestSchema>;
-
-export type LlmRequestProjection = NonNullable<LlmRequestPayload['projection']>;
 
 export class LlmRequest extends AgentEvent2<LlmRequestPayload> {
   static override readonly type = 'llm.request';
@@ -80,7 +85,7 @@ export class LlmRequest extends AgentEvent2<LlmRequestPayload> {
 }
 export interface LlmRequest {
   readonly agentId: string;
-  readonly kind: 'loop' | 'compaction';
+  readonly kind: 'loop' | 'compaction' | 'prediction';
   readonly provider: string;
   readonly model: string;
   readonly modelAlias?: string;
@@ -106,10 +111,10 @@ export interface LlmRequest {
   readonly droppedCount?: number;
 }
 
-export const llmRequestTraceKey = defineState('llm.requestTrace', (): LlmRequestTraceState => ({
-  seenToolsHashes: [],
-}))
-  .replayable({ schema: z.custom<LlmRequestTraceState>() })
+export const llmRequestTraceKey = defineState(
+  'llm.requestTrace',
+  (): LlmRequestTraceState => ({ seenToolsHashes: [] }),
+).replayable({ schema: z.custom<LlmRequestTraceState>() })
   .on(LlmToolsSnapshot, (s, e) => {
     if (s.seenToolsHashes.includes(e.hash)) return;
     s.seenToolsHashes = [...s.seenToolsHashes, e.hash];

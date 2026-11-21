@@ -19,7 +19,7 @@ import {
   type LlmSentEvent,
   type LlmStreamEvent,
   type LlmTiming,
-} from '#/llm/response';
+} from '@moonshot-ai/core/llm/response';
 import { emptyUsage, mergeUsagePatch, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 export function usableOutputOf(message: AssistantMessage): AssistantMessage | null {

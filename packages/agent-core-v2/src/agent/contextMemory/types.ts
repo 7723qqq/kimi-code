@@ -1,7 +1,7 @@
 import type { AgentTaskStatus } from '#/agent/task/task';
 import type { Message } from '#/llm-adapter/contract/message';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart } from '#human/message';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';

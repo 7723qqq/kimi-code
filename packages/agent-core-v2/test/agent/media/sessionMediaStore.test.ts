@@ -22,7 +22,7 @@ import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageSe
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { providerImagePolicy } from '#human/llm/media/image-formats';
+import { providerImagePolicy } from '#human/media/image-formats';
 import type { ToolMessage } from '@moonshot-ai/core/llm/message';
 import { lowerMessage as lowerAnthropic } from '#human/llm/requester/bases/anthropic/lower';
 import { lowerMessage as lowerOpenAI } from '#human/llm/requester/bases/openai/lower';

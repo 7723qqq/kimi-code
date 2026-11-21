@@ -1,5 +1,5 @@
 import type { Message, ToolDescription, UserMessage } from '@moonshot-ai/core/llm/message';
-import type { LlmOutcome } from '#/llm/response';
+import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
 import { createPolicyRegistry, type PolicyRegistry } from '#/llm/policy/registry';
 import { isToolDetachAck } from '#/tool/tool-executor';
 import type { ToolExecutionResponse, ToolResult } from '#/tool/types';

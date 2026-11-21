@@ -1,4 +1,4 @@
-import { llmStatusErrorMessage, type LlmErrorMessage } from '#/llm/response';
+import { llmStatusErrorMessage, type LlmErrorMessage } from '@moonshot-ai/core/llm/response';
 
 export const DEFAULT_MAX_RETRY_ATTEMPTS = 10;
 

@@ -15,7 +15,7 @@ import type {
   LlmRemoteErrorMessage,
   LlmRunEvent,
   TokenUsage,
-} from '#/llm/response';
+} from '@moonshot-ai/core/llm/response';
 
 export const TEST_MODEL: LlmRequestModel = {
   spec: {

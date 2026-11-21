@@ -3,7 +3,7 @@ import { describe } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { estimateTokens } from '#/llm-adapter/contract/tokens';
+import { estimateTokens } from '@moonshot-ai/core/llm/tokens';
 
 interface BaselineSample {
   readonly category: string;

@@ -1,4 +1,4 @@
-import type { LlmErrorMessage } from '#/llm/errors';
+import type { LlmErrorMessage } from '@moonshot-ai/core/llm/errors';
 import type { FinishInfo } from '@moonshot-ai/core/llm/response';
 import type { AssistantMessage } from '@moonshot-ai/core/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';

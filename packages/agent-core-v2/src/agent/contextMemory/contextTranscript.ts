@@ -1,5 +1,5 @@
 import type { WireRecord } from '#/wire/record';
-import { type ContentPart, type ToolCall } from '@moonshot-ai/core/llm/message';
+import { type ContentPart, type ToolCall } from '#human/message';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import {

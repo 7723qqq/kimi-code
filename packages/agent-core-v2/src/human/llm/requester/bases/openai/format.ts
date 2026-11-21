@@ -16,7 +16,7 @@ import {
   toLlmStreamErrorMessage,
   toLlmTransportErrorMessage,
   type LlmRemoteErrorMessage,
-} from '#/llm/errors';
+} from '@moonshot-ai/core/llm/errors';
 import { NO_FINISH, type FinishInfo, type FinishReason } from '@moonshot-ai/core/llm/response';
 import { type Message, type StreamedMessagePart, type ToolDescription } from '@moonshot-ai/core/llm/message';
 import { reasoningEffortForModel } from '#/llm/modelFamily';
@@ -27,14 +27,14 @@ import type {
   StreamParserOptions,
 } from '#/llm/protocol/format';
 import { toolResultToPlainText } from '@moonshot-ai/core/llm/protocol/patterns';
-import { applyPatterns } from '#/llm/protocol/rewrite';
+import { applyPatterns } from '#human/llm/protocol/rewrite';
 import type { ToolMessageConversion } from '#/llm/requester/requester';
-import type { ResponseFormat } from '#/llm/response-format';
+import type { ResponseFormat } from '#human/llm/response-format';
 import type { LlmLogger } from '#/log/log';
 
 import type { OpenAIRawChunk, OpenAIRawStreamToolCallDelta, OpenAIWireMessage } from '@moonshot-ai/core/llm/builtin/protocol/openai/contract';
 import { lowerMessage } from './lower';
-import { extractToolMedia } from './patterns';
+import { extractToolMedia } from '@moonshot-ai/core/llm/protocol/patterns';
 import {
   convertReasoningDetails,
   extractReasoningDetails,

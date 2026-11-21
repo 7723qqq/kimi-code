@@ -1,10 +1,10 @@
 import { GoogleGenAI as GenAIClient, type GenerateContentParameters } from '@google/genai';
 import { assign, shake } from 'radashi';
 
-import type { LlmRemoteErrorMessage } from '#/llm/errors';
+import type { LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/errors';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
-import { resolveModelConnection } from '#/llm/protocol/connection';
+import { resolveModelConnection } from '#human/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
 import { applyThinking } from '@moonshot-ai/core/llm/thinking';
 import {

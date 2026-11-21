@@ -7,7 +7,7 @@ import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/reques
 import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';
 import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
 import type { LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
-import { LLM_BODY_TIMEOUT_ENV, LLM_HEADERS_TIMEOUT_ENV } from '#/llm/requester/timeout';
+import { LLM_BODY_TIMEOUT_ENV, LLM_HEADERS_TIMEOUT_ENV } from '#human/llm/requester/timeout';
 
 import { setGlobal, restoreGlobals } from '../../../../test/helpers/stubs';
 

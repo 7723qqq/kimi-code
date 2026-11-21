@@ -1,5 +1,5 @@
 import { headersToRecord, parseRetryAfterMs } from '#/llm/protocol/kit/http';
-import type { LlmRemoteErrorMessage } from '#/llm/response';
+import type { LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/response';
 
 const KIMI_QUOTA_EXHAUSTED_ERROR_CODES = new Set(['exceeded_current_quota_error']);
 

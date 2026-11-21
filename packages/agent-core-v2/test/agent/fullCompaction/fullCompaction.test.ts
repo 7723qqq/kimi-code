@@ -42,7 +42,7 @@ import {
 } from '#/llm-adapter/contract/errors';
 import { type Message } from '#/llm-adapter/contract/message';
 import { fromLlmMessage } from '#/llm-adapter/contract/message';
-import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import { estimateTokensForMessages } from '@moonshot-ai/core/llm/tokens';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';

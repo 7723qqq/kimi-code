@@ -1,5 +1,5 @@
 import type { AssistantMessage, Message, ToolCall } from '@moonshot-ai/core/llm/message';
-import type { LlmOutcome } from '#/llm/response';
+import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
 import type { ToolResult } from './contract/hook';
 import type { Cause } from './contract/outcome';
 

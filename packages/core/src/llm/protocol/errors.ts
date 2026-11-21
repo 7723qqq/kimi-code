@@ -1,4 +1,4 @@
-import type { LlmErrorMessage, LlmRemoteErrorMessage } from '#/llm/response';
+import type { LlmErrorMessage, LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/response';
 
 export function sanitizeStatusErrorMessage(message: string): string {
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(message);

@@ -2,7 +2,7 @@ import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
 import type { ProviderMediaContribution } from '#/llm/media/upload';
 import type { LlmConnection, LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ProtocolBase, ProtocolName } from '#/llm/protocol/base';
-import type { ProviderConnection } from '#/llm/protocol/connection';
+import type { ProviderConnection } from '#human/llm/protocol/connection';
 import type { AnthropicTrait } from '#/llm/requester/bases/anthropic/trait';
 import type { AntigravityTrait } from '#/llm/requester/bases/antigravity/trait';
 import type { GoogleGenAITrait } from '#/llm/requester/bases/google-genai/trait';

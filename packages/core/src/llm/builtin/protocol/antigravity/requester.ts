@@ -1,4 +1,4 @@
-import { isAbortError, toLlmErrorMessage, toLlmTransportErrorMessage } from '#/llm/errors';
+import { isAbortError, toLlmErrorMessage, toLlmTransportErrorMessage } from '@moonshot-ai/core/llm/errors';
 import type { ProtocolBase } from '#/llm/protocol/base';
 import {
   type LlmRequestConfig,

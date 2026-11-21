@@ -1,4 +1,4 @@
-import { errorStatusCode } from '#/llm/errors';
+import { errorStatusCode } from '@moonshot-ai/core/llm/errors';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { LlmRecovery } from '#/llm/requester/recovery';
 import {

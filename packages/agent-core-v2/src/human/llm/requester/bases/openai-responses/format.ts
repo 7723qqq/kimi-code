@@ -1,6 +1,6 @@
 import type OpenAI from 'openai';
 
-import type { LlmRemoteErrorMessage } from '#/llm/errors';
+import type { LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/errors';
 import { NO_FINISH, type FinishInfo } from '@moonshot-ai/core/llm/response';
 import type { StreamedMessagePart, ToolDescription } from '@moonshot-ai/core/llm/message';
 import type {
@@ -8,12 +8,12 @@ import type {
   ProtocolFormat,
   StreamParserOptions,
 } from '#/llm/protocol/format';
-import type { ResponseFormat } from '#/llm/response-format';
+import type { ResponseFormat } from '#human/llm/response-format';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import { isContextOverflowErrorCode, isOpenAIInsufficientQuotaCode } from '../openai/format';
 import { classifyDeepSeekCacheSplit } from '../openai/usage';
-import type { ResponsesInputItem } from './contract';
+import type { ResponsesInputItem } from '@moonshot-ai/core/llm/builtin/protocol/openai-responses/contract';
 import { lowerMessage } from './lower';
 
 type RawObject = Record<string, unknown>;

@@ -1,0 +1,167 @@
+import type { ContentPart, ToolCall, ToolDescription } from '#/llm/message';
+import type { ImageTokenPricing } from '#/llm/modelFamily';
+
+export interface EstimableMessage {
+  readonly role: string;
+  readonly content: readonly ContentPart[];
+  readonly toolCalls?: readonly ToolCall[];
+}
+
+const messageTokenEstimateCache = new WeakMap<EstimableMessage, number>();
+
+export const MEDIA_TOKEN_ESTIMATE = 2000;
+
+export function imageTokensFor(
+  pricing: ImageTokenPricing,
+  dimensions?: { readonly width: number; readonly height: number },
+): number {
+  const { patchPx, downsampleRatio, scaleUpFloorPx, tokenCap, fallbackTokens } = pricing;
+  if (dimensions === undefined) return fallbackTokens;
+  let width = dimensions.width;
+  let height = dimensions.height;
+  if (!(width > 0) || !(height > 0)) return fallbackTokens;
+  const cell = patchPx * downsampleRatio;
+  const shortEdge = Math.min(width, height);
+  if (shortEdge < scaleUpFloorPx) {
+    const scale = scaleUpFloorPx / shortEdge;
+    width *= scale;
+    height *= scale;
+  }
+  let cols = Math.max(1, Math.ceil(width / cell));
+  let rows = Math.max(1, Math.ceil(height / cell));
+  for (let step = 0; step < 8 && cols * rows > tokenCap; step += 1) {
+    const scale = Math.sqrt(tokenCap / (cols * rows));
+    width *= scale;
+    height *= scale;
+    cols = Math.max(1, Math.ceil(width / cell));
+    rows = Math.max(1, Math.ceil(height / cell));
+  }
+  return Math.min(cols * rows, tokenCap);
+}
+
+export interface TokenCharCounts {
+  readonly ascii: number;
+  readonly nonAscii: number;
+}
+
+export function countTokenChars(text: string): TokenCharCounts {
+  let ascii = 0;
+  let nonAscii = 0;
+  for (const char of text) {
+    if (char.codePointAt(0)! <= 127) {
+      ascii++;
+    } else {
+      nonAscii++;
+    }
+  }
+  return { ascii, nonAscii };
+}
+
+export function tokensForCharCounts(counts: TokenCharCounts): number {
+  return Math.ceil(counts.ascii / 4) + counts.nonAscii;
+}
+
+export function estimateTokens(text: string): number {
+  return tokensForCharCounts(countTokenChars(text));
+}
+
+export function estimateTokensForMessages(
+  messages: readonly EstimableMessage[],
+  pricing?: ImageTokenPricing,
+): number {
+  let total = 0;
+  for (const message of messages) {
+    total += estimateTokensForMessage(message, pricing);
+  }
+  return total;
+}
+
+const toolTextTokenCache = new Map<string, number>();
+const toolParametersTokenCache = new WeakMap<Record<string, unknown>, number>();
+
+function estimateToolTextTokens(text: string): number {
+  const cached = toolTextTokenCache.get(text);
+  if (cached !== undefined) return cached;
+  const estimate = estimateTokens(text);
+  toolTextTokenCache.set(text, estimate);
+  return estimate;
+}
+
+function estimateToolParametersTokens(parameters: Record<string, unknown>): number {
+  const cached = toolParametersTokenCache.get(parameters);
+  if (cached !== undefined) return cached;
+  const estimate = estimateTokens(JSON.stringify(parameters));
+  toolParametersTokenCache.set(parameters, estimate);
+  return estimate;
+}
+
+export function estimateTokensForTools(tools: readonly ToolDescription[]): number {
+  let total = 0;
+  for (const tool of tools) {
+    total += estimateToolTextTokens(tool.name);
+    total += estimateToolTextTokens(tool.description);
+    total += estimateToolParametersTokens(tool.parameters);
+  }
+  return total;
+}
+
+export function estimateTokensForMessage(
+  message: EstimableMessage,
+  pricing?: ImageTokenPricing,
+): number {
+  if (pricing === undefined) {
+    const cached = messageTokenEstimateCache.get(message);
+    if (cached !== undefined) {
+      return cached;
+    }
+  }
+
+  let total = estimateTokens(message.role);
+  total += estimateTokensForContentParts(message.content, pricing);
+  if (message.toolCalls !== undefined) {
+    for (const call of message.toolCalls) {
+      total += estimateTokens(call.name);
+      total += estimateTokens(JSON.stringify(call.arguments));
+    }
+  }
+  if (pricing === undefined) {
+    messageTokenEstimateCache.set(message, total);
+  }
+  return total;
+}
+
+export function estimateTokensForContentParts(
+  parts: readonly ContentPart[],
+  pricing?: ImageTokenPricing,
+): number {
+  let total = 0;
+  for (const part of parts) {
+    total += estimateTokensForContentPart(part, pricing);
+  }
+  return total;
+}
+
+export function estimateTokensForContentPart(
+  part: ContentPart,
+  pricing?: ImageTokenPricing,
+): number {
+  switch (part.type) {
+    case 'text':
+      return estimateTokens(part.text);
+    case 'think':
+      return estimateTokens(part.think);
+    case 'image_url':
+      return pricing === undefined
+        ? MEDIA_TOKEN_ESTIMATE
+        : imageTokensFor(pricing, part.imageUrl.dimensions);
+    case 'audio_url':
+    case 'video_url':
+    case 'document_url':
+      return MEDIA_TOKEN_ESTIMATE;
+    default: {
+      const exhaustive: never = part;
+      void exhaustive;
+      return 0;
+    }
+  }
+}

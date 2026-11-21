@@ -1,10 +1,10 @@
 import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 
-import { headersToRecord, type LlmRemoteErrorMessage } from '#/llm/errors';
+import { headersToRecord, type LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/errors';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
-import { resolveModelConnection } from '#/llm/protocol/connection';
+import { resolveModelConnection } from '#human/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
 import { applyThinking } from '@moonshot-ai/core/llm/thinking';
 import {
@@ -19,14 +19,14 @@ import {
   type ToolCallIdPolicy,
 } from '#/llm/requester/requester';
 import { createThinkingTagEventHandler } from '@moonshot-ai/core/llm/requester/thinking-tags';
-import { getLlmDispatcher } from '#/llm/requester/timeout';
+import { getLlmDispatcher } from '#human/llm/requester/timeout';
 import { toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import { encodeReasoningEffortFallback } from '@moonshot-ai/core/llm/thinking';
 
 import { convertOpenAIError } from '../openai/format';
 import { normalizeToolCallIdsForProvider, sanitizeOpenAIResponsesCallId } from '../tool-call-id';
 import { getOpenAIResponsesModelCapability } from './capability';
-import type { OpenAIResponsesRawChunk } from './contract';
+import type { OpenAIResponsesRawChunk } from '@moonshot-ai/core/llm/builtin/protocol/openai-responses/contract';
 import {
   applyOpenAIResponsesResponseFormat,
   assembleOpenAIResponsesRequest,

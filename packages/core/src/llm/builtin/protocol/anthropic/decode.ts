@@ -18,7 +18,7 @@ import {
   type FinishInfo,
   type FinishReason,
   type TokenUsage,
-} from '#/llm/response';
+} from '@moonshot-ai/core/llm/response';
 import type { DecodeSink, Decoder } from '#/llm/protocol/protocol';
 
 export type RawUsage = {

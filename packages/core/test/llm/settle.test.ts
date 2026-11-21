@@ -19,7 +19,7 @@ import {
   type FinishInfo,
   type LlmRemoteErrorMessage,
   type TokenUsage,
-} from '#/llm/response';
+} from '@moonshot-ai/core/llm/response';
 
 import {
   asyncChunks,

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 
 import { buildCompactionContinuationText } from '@moonshot-ai/agent-core-v2/agent/contextMemory/compactionHandoff';
-import { estimateTokensForMessages } from '@moonshot-ai/agent-core-v2/llm-adapter/contract/tokens';
+import { estimateTokensForMessages } from '@moonshot-ai/core/llm/tokens';
 
 import { projectContext } from '../../src/lib/context-projector';
 import { readAgentWire } from '../../src/lib/wire-reader';

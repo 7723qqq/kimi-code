@@ -12,7 +12,7 @@ import type {
   LlmErrorMessage,
   LlmRemoteErrorMessage,
   TokenUsage,
-} from '#/llm/response';
+} from '@moonshot-ai/core/llm/response';
 
 import { runPipeline, type EncodeHooks, type PipelineSpec } from './pipeline';
 import type { MediaSupport } from './rules/media';

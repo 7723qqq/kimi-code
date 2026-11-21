@@ -3,7 +3,7 @@ import type { LlmPolicy, LlmRunControl } from '#/llm/policy/policy';
 import { isAbortError, toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import type { LlmRequestProfile } from '@moonshot-ai/core/llm/request';
 import type { LlmDimension, LlmRequestRest } from '#/llm/requester';
-import type { LlmOutcome, LlmRunEvent } from '#/llm/response';
+import type { LlmOutcome, LlmRunEvent } from '@moonshot-ai/core/llm/response';
 import type { LoopProfile } from './contract/profile';
 import { isLlmOutcome } from './guards';
 

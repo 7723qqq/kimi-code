@@ -1,5 +1,5 @@
 import type { LlmRequest } from '@moonshot-ai/core/llm/request';
-import type { LlmNoticeSink } from '#/llm/response';
+import type { LlmNoticeSink } from '@moonshot-ai/core/llm/response';
 import type { LlmRecoveryRecord } from './recovery';
 
 export interface LlmResolveControl {

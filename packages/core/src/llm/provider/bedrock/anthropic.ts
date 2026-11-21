@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 import { createAnthropicBase } from '#/llm/requester/bases/anthropic/requester';
 import type { LlmClientContext } from '#/llm/requester/requester';
-import { getLlmDispatcher } from '#/llm/requester/timeout';
+import { getLlmDispatcher } from '#human/llm/requester/timeout';
 
 export function createBedrockAnthropicClient(request: LlmClientContext): Anthropic {
   const dispatcher = getLlmDispatcher();

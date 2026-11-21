@@ -720,7 +720,7 @@ export {
   resolveMaxImageEdgePx,
   resolveReadImageByteBudget,
 } from '#/agent/media/image-compress';
-export { providerImagePolicy, type ProviderImagePolicy } from '#human/llm/media/image-formats';
+export { providerImagePolicy, type ProviderImagePolicy } from '#human/media/image-formats';
 export {
   buildImageConversionGuidance,
   buildUnsupportedImageNotice,
@@ -802,7 +802,7 @@ export * from '#/agent/fullCompaction/contextRecovery';
 export * from '#/agent/fullCompaction/compactionInstruction';
 export * from '#/agent/llmRequester/llmRequester';
 export * from '#/agent/llmRequester/llmRequesterService';
-export * from '#/agent/llmRequester/llmRequestOps';
+export * from '#/agent/loop/llmRequestOps';
 import '#/agent/llmRequester/configSection';
 export * from '#/_base/utils/errorMessage';
 export * from '#/_base/utils/promise';

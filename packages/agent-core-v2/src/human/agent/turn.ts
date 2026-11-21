@@ -1,5 +1,5 @@
 import { emptyResponseError } from '#/llm/empty-response';
-import type { LlmErrorMessage } from '#/llm/errors';
+import type { LlmErrorMessage } from '@moonshot-ai/core/llm/errors';
 import { NO_FINISH, type FinishInfo } from '@moonshot-ai/core/llm/response';
 import {
   createMessageAccumulator,

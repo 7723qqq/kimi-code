@@ -8,7 +8,7 @@ import {
   estimateTokensForMessages,
   estimateTokensForTools,
   MEDIA_TOKEN_ESTIMATE,
-} from '#/llm-adapter/contract/tokens';
+} from '@moonshot-ai/core/llm/tokens';
 import { addUsage, emptyUsage, grandTotal, inputTotal } from '@moonshot-ai/core/llm/usage';
 
 describe('TokenUsage aggregation', () => {

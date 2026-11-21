@@ -15,7 +15,7 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type BeforeStepContext } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventBus } from '#/app/event/eventBus';
-import { estimateTokensForMessages } from '#/human/llm/tokens';
+import { estimateTokensForMessages } from '@moonshot-ai/core/llm/tokens';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { wrapSystemReminder } from './systemReminder';

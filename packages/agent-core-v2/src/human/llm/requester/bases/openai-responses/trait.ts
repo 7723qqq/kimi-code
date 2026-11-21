@@ -8,7 +8,7 @@ import type {
   OpenAIResponsesRawChunk,
   OpenAIResponsesRawUsage,
   ResponsesInputItem,
-} from './contract';
+} from '@moonshot-ai/core/llm/builtin/protocol/openai-responses/contract';
 
 export interface OpenAIResponsesTrait {
   readonly toolCallIdPolicy?: ToolCallIdPolicy;

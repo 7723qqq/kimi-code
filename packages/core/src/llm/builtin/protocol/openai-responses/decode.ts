@@ -3,7 +3,7 @@ import {
   type FinishInfo,
   type LlmRemoteErrorMessage,
   type TokenUsage,
-} from '#/llm/response';
+} from '@moonshot-ai/core/llm/response';
 import type { StreamedMessagePart } from '@moonshot-ai/core/llm/message';
 import type { DecodeSink, Decoder } from '#/llm/protocol/protocol';
 import { toLlmStreamErrorMessage } from '#/llm/protocol/rules/status';

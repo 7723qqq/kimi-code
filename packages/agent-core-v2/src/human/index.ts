@@ -1,4 +1,4 @@
-export * from './llm/message';
+export * from './message';
 export * from './llm/model';
 export * from './llm/capability';
 export * from './llm/errors';

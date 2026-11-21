@@ -4,7 +4,7 @@ import {
   type LlmRequesterExecution,
   type LlmRunControl,
 } from '#/llm/policy/policy';
-import type { LlmOutcome } from '#/llm/response';
+import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
 import type { LlmRequest } from '@moonshot-ai/core/llm/request';
 
 export type LlmDimension = keyof LlmRequest;

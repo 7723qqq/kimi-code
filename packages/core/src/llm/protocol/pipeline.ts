@@ -6,7 +6,7 @@ import type {
   ResponseFormat,
   ThinkingRequestOptions,
 } from '@moonshot-ai/core/llm/request';
-import type { LlmNotice, LlmNoticeSink } from '#/llm/response';
+import type { LlmNotice, LlmNoticeSink } from '@moonshot-ai/core/llm/response';
 
 import { applyPatterns, type Pattern } from './pattern';
 import type { LlmModule } from './protocol';

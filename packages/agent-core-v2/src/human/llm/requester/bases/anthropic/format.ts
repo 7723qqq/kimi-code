@@ -18,20 +18,20 @@ import {
   toLlmStreamErrorMessage,
   toLlmTransportErrorMessage,
   type LlmRemoteErrorMessage,
-} from '#/llm/errors';
+} from '@moonshot-ai/core/llm/errors';
 import { NO_FINISH, type FinishInfo, type FinishReason } from '@moonshot-ai/core/llm/response';
 import type { Message, ToolDescription } from '@moonshot-ai/core/llm/message';
 import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
 import { mergeConsecutiveUsers } from '@moonshot-ai/core/llm/protocol/patterns';
-import { applyPatterns } from '#/llm/protocol/rewrite';
-import type { ResponseFormat } from '#/llm/response-format';
+import { applyPatterns } from '#human/llm/protocol/rewrite';
+import type { ResponseFormat } from '#human/llm/response-format';
 import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/protocol/errors';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import { CONTEXT_MANAGEMENT_BETA } from '@moonshot-ai/core/llm/builtin/protocol/anthropic/contract';
 import type { AnthropicRawStreamEvent, AnthropicRawUsage, AnthropicWireMessage } from '@moonshot-ai/core/llm/builtin/protocol/anthropic/contract';
 import { lowerMessage, messageContent } from './lower';
-import { audioToPlaceholder, stripUnsignedThinking } from './patterns';
+import { audioToPlaceholder, stripUnsignedThinking } from '@moonshot-ai/core/llm/protocol/patterns';
 import { resolveDefaultMaxTokens, shouldPreserveUnsignedThinking } from './profile';
 
 const CLEAR_THINKING_EDIT = 'clear_thinking_20251015';

@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 
-import { headersToRecord, type LlmRemoteErrorMessage } from '#/llm/errors';
+import { headersToRecord, type LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/errors';
 import { modelKey, type LlmModel } from '@moonshot-ai/core/llm/model';
 import {
   type FamilyMaxOutputDefaults,
@@ -11,7 +11,7 @@ import {
   resolveModelFamily,
 } from '#/llm/modelFamily';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
-import { resolveModelConnection } from '#/llm/protocol/connection';
+import { resolveModelConnection } from '#human/llm/protocol/connection';
 import {
   remainingContextTokens,
   resolveMaxCompletionCap,
@@ -30,7 +30,7 @@ import {
   type ToolCallIdPolicy,
 } from '#/llm/requester/requester';
 import { createThinkingTagEventHandler } from '@moonshot-ai/core/llm/requester/thinking-tags';
-import { getLlmDispatcher } from '#/llm/requester/timeout';
+import { getLlmDispatcher } from '#human/llm/requester/timeout';
 import { toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import {
   encodeReasoningEffortFallback,

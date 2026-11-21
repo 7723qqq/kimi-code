@@ -1,5 +1,5 @@
 import type { LlmEndpoint, LlmRequest } from '@moonshot-ai/core/llm/request';
-import type { LlmErrorMessage } from '#/llm/response';
+import type { LlmErrorMessage } from '@moonshot-ai/core/llm/response';
 
 export interface LlmRecoveryRecord {
   readonly strategy: string;

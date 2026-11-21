@@ -1,6 +1,6 @@
 import { annotateBundledSkillParts, type UserPromptOrigin } from '#/llm/origin';
 import type { AssistantMessage, Message, ToolCall, ToolMessage, UserMessage } from '@moonshot-ai/core/llm/message';
-import type { LlmOutcome } from '#/llm/response';
+import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
 import type { ToolExecutionHandler, ToolResult } from '#/tool/types';
 import { withAbort, type AbortScope } from '#/utils/abort';
 import type { LoopInput } from './contract/command';

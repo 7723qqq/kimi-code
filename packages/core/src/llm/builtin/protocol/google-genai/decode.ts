@@ -12,7 +12,7 @@ import {
   type FinishReason,
   type LlmRemoteErrorMessage,
   type TokenUsage,
-} from '#/llm/response';
+} from '@moonshot-ai/core/llm/response';
 import type { StreamedMessagePart, ToolCall } from '@moonshot-ai/core/llm/message';
 import type { DecodeSink, Decoder } from '#/llm/protocol/protocol';
 

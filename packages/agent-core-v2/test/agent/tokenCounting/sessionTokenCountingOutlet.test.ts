@@ -7,7 +7,7 @@ import {
   estimateTokens,
   estimateTokensForMessages,
   estimateTokensForTools,
-} from '#/llm-adapter/contract/tokens';
+} from '@moonshot-ai/core/llm/tokens';
 import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { SessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCountingService';
 

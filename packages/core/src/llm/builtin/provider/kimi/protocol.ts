@@ -3,7 +3,7 @@ import { providerImagePolicy } from '#/llm/protocol/kit/media';
 import { requestIdFromHeader } from '#/llm/protocol/kit/http';
 import type { LlmErrorDiagnosticsInput } from '#/llm/protocol/protocol';
 import type { LlmModelSpec, ThinkingRequestOptions } from '@moonshot-ai/core/llm/request';
-import { llmStatusErrorMessage, type LlmRemoteErrorMessage } from '#/llm/response';
+import { llmStatusErrorMessage, type LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/response';
 import {
   anthropicProtocol,
   CONTEXT_MANAGEMENT_BETA,

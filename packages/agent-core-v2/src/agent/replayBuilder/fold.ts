@@ -12,7 +12,7 @@ import type {
   GoalStatus,
 } from '#/features/goal/types';
 import { createToolMessage } from '#/llm-adapter/contract/message';
-import { estimateTokens, estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import { estimateTokens, estimateTokensForMessages } from '@moonshot-ai/core/llm/tokens';
 import {
   isNewerWireVersion,
   migrateV1_4ToV1_5,

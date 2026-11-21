@@ -1,4 +1,4 @@
-import type { ProviderConnection } from '#/llm/protocol/connection';
+import type { ProviderConnection } from '#human/llm/protocol/connection';
 import { createProvider } from '#/llm/provider/definition';
 import { anthropicBase } from '#/llm/requester/bases/anthropic/requester';
 import { antigravityBase } from '#/llm/requester/bases/antigravity/requester';

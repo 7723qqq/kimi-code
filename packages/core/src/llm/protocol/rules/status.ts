@@ -1,4 +1,4 @@
-import type { LlmRemoteErrorMessage, LlmStatusErrorInfo } from '#/llm/response';
+import type { LlmRemoteErrorMessage, LlmStatusErrorInfo } from '@moonshot-ai/core/llm/response';
 
 const NETWORK_RE = /network|connection|connect|disconnect|terminated/i;
 const TIMEOUT_RE = /timed?\s*out|timeout|deadline/i;

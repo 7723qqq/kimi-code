@@ -13,7 +13,7 @@ import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/r
 import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';
 import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
 import type { LlmClientContext, LlmRequestEvent } from '#/llm/requester/requester';
-import type { ResponseFormat } from '#/llm/response-format';
+import type { ResponseFormat } from '#human/llm/response-format';
 
 const model: LlmModel = {
   provider: 'test',

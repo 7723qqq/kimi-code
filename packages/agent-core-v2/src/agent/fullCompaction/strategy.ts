@@ -1,6 +1,6 @@
 import type { ProfileModelContext } from '#/agent/profile/profile';
 import type { Message } from '#/llm-adapter/contract/message';
-import { estimateTokensForMessage } from '#/llm-adapter/contract/tokens';
+import { estimateTokensForMessage } from '@moonshot-ai/core/llm/tokens';
 
 import type { CompactionSource } from './types';
 

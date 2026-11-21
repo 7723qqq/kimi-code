@@ -5,7 +5,7 @@ import {
   fullCompactionWireRangesKey,
 } from '#/agent/fullCompaction/compactionOps';
 import { interruptionReminderKey } from '#/agent/interruptionReminder/interruptionReminderOps';
-import { llmRequestTraceKey } from '#/agent/llmRequester/llmRequestOps';
+import { llmRequestTraceKey } from '#/agent/loop/llmRequestOps';
 import { turnKey } from '#/agent/loop/turnOps';
 import { toolSelectKey } from '#/agent/toolSelect/toolSelectOps';
 import { mcpDiscoveryKey } from '#/agent/mcp/mcpDiscoveryOps';

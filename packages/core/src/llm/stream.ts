@@ -1,6 +1,6 @@
 import { runLlmRequest, type LlmRunControl } from '#/llm/policy/policy';
 import type { LlmRequest } from '@moonshot-ai/core/llm/request';
-import type { LlmRunEvent } from '#/llm/response';
+import type { LlmRunEvent } from '@moonshot-ai/core/llm/response';
 import { AsyncEventQueue } from '#/utils/async-event-queue';
 
 export function streamLlmRequest(

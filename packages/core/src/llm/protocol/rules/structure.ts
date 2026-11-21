@@ -4,7 +4,7 @@ import {
   type Message,
   type ToolMessage,
 } from '@moonshot-ai/core/llm/message';
-import type { LlmNoticeSink } from '#/llm/response';
+import type { LlmNoticeSink } from '@moonshot-ai/core/llm/response';
 
 import { SyntaxRequestFormatError } from '../errors';
 

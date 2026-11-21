@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import { DEFAULT_COMPACTION_CONFIG } from '#/agent/fullCompaction/strategy';
 import { DefaultCompactionStrategy } from '#/agent/fullCompaction/strategy';
 import { type Message } from '#/llm-adapter/contract/message';
-import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import { estimateTokensForMessages } from '@moonshot-ai/core/llm/tokens';
 
 describe('DefaultCompactionStrategy', () => {
   it('keeps an oversized trailing user message as recent', () => {

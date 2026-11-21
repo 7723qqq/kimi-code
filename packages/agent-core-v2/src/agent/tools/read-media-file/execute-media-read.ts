@@ -22,7 +22,7 @@ import { VideoUploadUnsupportedError } from '#/llm-adapter/contract/errors';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ExecutableToolResult } from '#/tool/toolContract';
-import { providerImagePolicy } from '#human/llm/media/image-formats';
+import { providerImagePolicy } from '#human/media/image-formats';
 import type { ContentPart } from '@moonshot-ai/core/llm/message';
 
 import { MAX_MEDIA_BYTES, MAX_MEDIA_MEGABYTES, type VideoUploader } from './read-media-file';
