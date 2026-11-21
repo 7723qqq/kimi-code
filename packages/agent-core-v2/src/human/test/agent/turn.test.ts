@@ -13,7 +13,7 @@ import { credentialsRecovery } from '#/credentials/credentials';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { LlmErrorMessage } from '@moonshot-ai/core/llm/errors';
 import { createMediaDegradeRecovery } from '#/llm/media/degrade';
-import { ContentPart, Message, UserMessage } from '@moonshot-ai/core/llm/message';
+import { ContentPart, Message, UserMessage } from '#/llm/message';
 import { LlmModel } from '@moonshot-ai/core/llm/model';
 import { createRequestActor, type LlmEvent } from '#/llm/requester/actor';
 import { LlmCredentialProvider, LlmRequester } from '#/llm/requester/requester';

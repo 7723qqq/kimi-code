@@ -22,7 +22,7 @@ import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
-import type { ToolDescription as KosongTool } from '@moonshot-ai/core/llm/message';
+import type { ToolDescription as KosongTool } from '#human/llm/message';
 
 import { IAgentMcpService, MCP_INITIAL_LOAD_WAIT_MS } from './mcp';
 import { mcpDiscoveryKey, McpToolsDiscovered, type McpToolCollision } from './mcpDiscoveryOps';

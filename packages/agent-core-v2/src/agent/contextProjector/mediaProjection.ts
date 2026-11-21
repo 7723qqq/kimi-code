@@ -1,6 +1,6 @@
 import { buildMediaPathTag, mediaKindOfPart } from '#/agent/media/mediaRef';
 import type { Message } from '#/llm-adapter/contract/message';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart } from '#human/llm/message';
 
 import type { MediaStripSnapshot } from './contextProjector';
 

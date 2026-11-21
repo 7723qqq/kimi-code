@@ -4,7 +4,7 @@ import {
   createMessageAccumulator,
   type ContentPart,
   type StreamedMessagePart,
-} from '@moonshot-ai/core/llm/message';
+} from '#/llm/message';
 import type { LlmRequestEvent } from '#/llm/requester/requester';
 import { createThinkingTagEventHandler } from '@moonshot-ai/core/llm/requester/thinking-tags';
 import { createThinkingTagParser, normalizeThinkingTags } from '#/llm/thinking-tags';

@@ -40,7 +40,7 @@ import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTok
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import { IWireService } from '#/wire/wire';
-import type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+import type { ToolDescription as Tool } from '#human/llm/message';
 import { inputTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import { renderCompactionInstruction } from './compactionInstruction';

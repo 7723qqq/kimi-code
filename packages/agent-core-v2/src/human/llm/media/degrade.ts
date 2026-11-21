@@ -1,4 +1,4 @@
-import type { ContentPart, Message } from '@moonshot-ai/core/llm/message';
+import type { ContentPart, Message } from '#/llm/message';
 import type { LlmRecovery } from '#/llm/requester/recovery';
 
 export const MEDIA_DEGRADE_KEEP_RECENT = 2;

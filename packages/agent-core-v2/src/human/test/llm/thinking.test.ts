@@ -8,7 +8,7 @@ import {
   createMessageAccumulator,
   createUserMessage,
   type Message,
-} from '@moonshot-ai/core/llm/message';
+} from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import {
   fullReasoningEchoRequired,

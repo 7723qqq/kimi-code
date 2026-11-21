@@ -1,4 +1,4 @@
-import { extractText, type ContentPart, type Message } from '@moonshot-ai/core/llm/message';
+import { extractText, type ContentPart, type Message } from '#/llm/message';
 import type { ToolMessageConversion } from '#/llm/requester/requester';
 
 import type { OpenAIContentPart, OpenAIWireMessage } from '@moonshot-ai/core/llm/builtin/protocol/openai/contract';

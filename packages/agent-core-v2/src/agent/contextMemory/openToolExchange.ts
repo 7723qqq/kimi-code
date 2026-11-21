@@ -1,4 +1,4 @@
-import { createToolMessage } from '@moonshot-ai/core/llm/message';
+import { createToolMessage } from '#/llm-adapter/contract/message';
 
 import type { ContextMessage } from './types';
 

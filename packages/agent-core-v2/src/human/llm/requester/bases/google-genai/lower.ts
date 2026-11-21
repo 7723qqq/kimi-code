@@ -1,4 +1,4 @@
-import type { Message, TextPart } from '@moonshot-ai/core/llm/message';
+import type { Message, TextPart } from '#/llm/message';
 import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/protocol/errors';
 
 import type { GoogleContent, GooglePart } from '@moonshot-ai/core/llm/builtin/protocol/google-genai/contract';

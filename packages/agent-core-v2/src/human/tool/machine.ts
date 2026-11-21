@@ -1,4 +1,4 @@
-import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolCall } from '#/llm/message';
 import { assign, emit, fromCallback, fromPromise, setup } from '#/xstate2';
 
 import type {

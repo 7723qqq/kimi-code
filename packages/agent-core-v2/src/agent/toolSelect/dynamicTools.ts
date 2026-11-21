@@ -1,7 +1,7 @@
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { isMcpToolName, toolDefinitionSchemaSignature, type ToolInfo } from '#/tool/toolContract';
 import { wrapSystemReminder } from '#/features/reminder/systemReminder';
-import type { ToolDescription } from '@moonshot-ai/core/llm/message';
+import type { ToolDescription } from '#human/llm/message';
 
 import { SELECT_TOOLS_TOOL_NAME, type ToolSelectAnnouncementDisclosure } from './toolSelect';
 

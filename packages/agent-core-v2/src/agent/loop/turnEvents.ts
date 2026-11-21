@@ -8,7 +8,7 @@ import type { CacheObservation } from '#/agent/usage/cacheObservation';
 import { AgentEvent2, registerEvent2Class } from '#/app/event/event2';
 import { annotateBundledSkillParts, isSkillActivationPart } from '@moonshot-ai/core/llm/origin';
 import type { FinishReason } from '@moonshot-ai/core/llm/response';
-import type { ContentPart, TextPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart, TextPart } from '#human/llm/message';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 export type {

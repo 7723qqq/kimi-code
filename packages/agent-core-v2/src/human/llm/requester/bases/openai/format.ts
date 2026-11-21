@@ -18,7 +18,7 @@ import {
   type LlmRemoteErrorMessage,
 } from '@moonshot-ai/core/llm/errors';
 import { NO_FINISH, type FinishInfo, type FinishReason } from '@moonshot-ai/core/llm/response';
-import { type Message, type StreamedMessagePart, type ToolDescription } from '@moonshot-ai/core/llm/message';
+import { type Message, type StreamedMessagePart, type ToolDescription } from '#/llm/message';
 import { reasoningEffortForModel } from '#/llm/modelFamily';
 import type {
   FormatRequestInput,

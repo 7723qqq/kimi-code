@@ -29,7 +29,7 @@ import {
   type AssistantMessage,
   type StreamedMessagePart,
   type ToolCall,
-} from '@moonshot-ai/core/llm/message';
+} from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { LlmEvent } from '#/llm/requester/actor';
 import type { LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';

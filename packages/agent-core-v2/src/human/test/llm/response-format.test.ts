@@ -6,7 +6,7 @@ import {
   createToolMessage,
   createUserMessage,
   type Message,
-} from '@moonshot-ai/core/llm/message';
+} from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
 import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';

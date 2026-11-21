@@ -7,7 +7,7 @@ import {
   createMessageAccumulator,
   type AssistantMessage,
   type StreamedMessagePart,
-} from '@moonshot-ai/core/llm/message';
+} from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };

@@ -9,7 +9,7 @@ import type { AgentEventStore, TurnIndexState } from '#/agent/slices';
 import type { HistoryMessage } from '#/agent/turn';
 import { createSlice } from '#/eventStore/slice';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createUserMessage, extractText } from '@moonshot-ai/core/llm/message';
+import { createUserMessage, extractText } from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { LlmRequester } from '#/llm/requester/requester';
 import { openSessionStore } from '#/persist/open';

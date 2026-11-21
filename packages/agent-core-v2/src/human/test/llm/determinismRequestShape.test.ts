@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createUserMessage } from '@moonshot-ai/core/llm/message';
+import { createUserMessage } from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { FormatRequestInput } from '#/llm/protocol/format';
 import { prepareOpenAIRequest } from '#/llm/requester/bases/openai/requester';

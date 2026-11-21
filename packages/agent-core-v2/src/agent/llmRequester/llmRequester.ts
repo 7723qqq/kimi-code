@@ -4,7 +4,7 @@ import type { FinishReason } from '@moonshot-ai/core/llm/response';
 import type { LlmCredentialProvider } from '#human/llm/requester/requester';
 import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
 import type { Message } from '#/llm-adapter/contract/message';
-import type { StreamedMessagePart, ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+import type { StreamedMessagePart, ToolDescription as Tool } from '#human/llm/message';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import type { ModelRequestTiming } from '#/llm-adapter/model/model-requester';

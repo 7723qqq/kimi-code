@@ -12,7 +12,7 @@ import {
   type ToolCall,
   type ToolMessage,
   type UserMessage,
-} from '@moonshot-ai/core/llm/message';
+} from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import { createRequestActor, type LlmEvent, type MessageResolver } from '#/llm/requester/actor';
 import type {

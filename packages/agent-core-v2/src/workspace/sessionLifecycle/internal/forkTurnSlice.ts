@@ -6,7 +6,7 @@ import {
   isSkillActivationPart,
   type BundledSkillActivation,
 } from '@moonshot-ai/core/llm/origin';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart } from '#human/llm/message';
 import {
   promptMetadataTextFromContentParts,
   promptMetadataTextFromText,

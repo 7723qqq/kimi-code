@@ -7,7 +7,7 @@ import type {
 } from '#/agent/tokenCounting/tokenCounting';
 import type { Message } from '#/llm-adapter/contract/message';
 import type { ImageTokenPricing } from '#/llm-adapter/contract/modelFamily';
-import type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+import type { ToolDescription as Tool } from '#human/llm/message';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 export interface TokenCountingRebaseInput {

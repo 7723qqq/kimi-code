@@ -1,5 +1,5 @@
 import { promptDisplayTextFromContentParts } from '@moonshot-ai/core/llm/origin';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart } from '#human/llm/message';
 
 const MAX_TITLE_LENGTH = 200;
 const MAX_LAST_PROMPT_LENGTH = 4000;

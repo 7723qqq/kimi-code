@@ -3,7 +3,7 @@ import { freeze, isDraft, original } from 'immer';
 import { createToolMessage } from '#/llm-adapter/contract/message';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import type { FinishReason } from '@moonshot-ai/core/llm/response';
-import type { ContentPart, ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ContentPart, ToolCall } from '#human/llm/message';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import { shouldRenderWallTime } from './toolResultRender';

@@ -66,7 +66,7 @@ import type { ExecutableToolResult } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
 import { mergeSteerMessages, stripBundledSkillBlocks } from '@moonshot-ai/core/llm/origin';
 import { type FinishReason } from '@moonshot-ai/core/llm/response';
-import type { ContentPart, UserMessage } from '@moonshot-ai/core/llm/message';
+import type { ContentPart, UserMessage } from '#human/message';
 import { emptyUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';

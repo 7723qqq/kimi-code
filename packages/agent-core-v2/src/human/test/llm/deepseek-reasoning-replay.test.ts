@@ -6,7 +6,7 @@ import {
   createUserMessage,
   type Message,
   type ToolDescription,
-} from '@moonshot-ai/core/llm/message';
+} from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import {
   fullReasoningEchoRequired,

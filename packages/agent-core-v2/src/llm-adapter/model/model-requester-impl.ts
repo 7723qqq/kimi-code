@@ -12,7 +12,7 @@ import type {
   ImageUploadInput,
   VideoUploadInput,
 } from '#human/media/upload';
-import { createMessageAccumulator, type ImageURLPart, type VideoURLPart } from '@moonshot-ai/core/llm/message';
+import { createMessageAccumulator, type ImageURLPart, type VideoURLPart } from '#human/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ProtocolName } from '#human/llm/protocol/base';
 import {

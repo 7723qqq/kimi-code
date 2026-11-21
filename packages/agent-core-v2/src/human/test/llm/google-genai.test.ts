@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createToolMessage, createUserMessage } from '@moonshot-ai/core/llm/message';
+import { createToolMessage, createUserMessage } from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
 import type { LlmRequestEvent } from '#/llm/requester/requester';

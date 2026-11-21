@@ -12,7 +12,7 @@ import { ApiError as RawGoogleApiError } from '@google/genai';
 import { classifyKimiQuotaError } from '#/llm-kimi/errors';
 import { kimiConnection, kimiOpenAITrait } from '#/llm-kimi/trait';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createAssistantMessage, createUserMessage, type Message } from '@moonshot-ai/core/llm/message';
+import { createAssistantMessage, createUserMessage, type Message } from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import { convertGoogleGenAIError } from '#/llm/requester/bases/google-genai/format';
 import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';

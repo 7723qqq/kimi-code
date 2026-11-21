@@ -1,5 +1,5 @@
 import { storeActor } from '#/eventStore/actor';
-import { createUserMessage, type ToolCall, type UserMessage } from '@moonshot-ai/core/llm/message';
+import { createUserMessage, type ToolCall, type UserMessage } from '#/llm/message';
 import type { LlmRequestConfig } from '#/llm/requester/requester';
 import type { ToolExecutor, ToolResult } from '#/tool/executor';
 import { createToolMachine, type ToolEvent, type ToolOutput } from '#/tool/machine';

@@ -1,6 +1,6 @@
 import type { LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/errors';
 import type { FinishInfo } from '@moonshot-ai/core/llm/response';
-import type { Message, StreamedMessagePart, ToolDescription } from '@moonshot-ai/core/llm/message';
+import type { Message, StreamedMessagePart, ToolDescription } from '#/llm/message';
 import type { LlmRequestConfig } from '#/llm/requester/requester';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 

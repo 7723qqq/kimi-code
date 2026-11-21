@@ -1,25 +1,13 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-import { nothing, original } from 'immer';
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
 import type { EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { AgentEvent2 } from '#/app/event/event2';
+import { AgentEvent2, registerEvent2Class } from '#/app/event/event2';
 import { defineState } from '#/state/state';
-import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
+import { nothing, original } from 'immer';
+import type { ThinkingEffort } from '@moonshot-ai/core/llm/request';
 
-import { ProfileError, ProfileErrors } from './profile';
-
-export interface ProfileModelState {
-  readonly modelAlias?: string;
-  readonly profileName?: string;
-  readonly thinkingLevel: string;
-  readonly systemPrompt: string;
-  readonly environmentDisclosure?: EnvironmentDisclosureSnapshot;
-  readonly renderGeneration: number;
-  readonly agentsMdPaths?: readonly string[];
-  readonly disallowedTools?: readonly string[];
-  readonly subagents?: readonly string[];
-}
+import { ProfileError, ProfileErrors, type ProfileBindingSnapshot } from './profile';
 
 const profileBindSchema = z.object({
   agentId: z.string(),
@@ -127,6 +115,127 @@ export class WarningIssued extends AgentEvent2<WarningIssuedPayload> {
 }
 export interface WarningIssued extends WarningIssuedPayload {}
 
+export const EMPTY_LOOP_PROFILE: ProfileBindingSnapshot = {
+  thinkingLevel: 'off',
+  systemPrompt: '',
+  renderGeneration: 0,
+};
+
+export interface ProfileUpdatePlan {
+  readonly config?: ConfigUpdatePayload;
+  readonly tools?: ToolsSetActiveTools | ToolsResetActiveTools;
+}
+
+export function reduceLoopProfileBind(
+  current: ProfileBindingSnapshot | undefined,
+  event: ProfileBind,
+): ProfileBindingSnapshot {
+  return {
+    modelAlias: event.modelAlias ?? current?.modelAlias,
+    profileName: event.profileName ?? current?.profileName,
+    thinkingLevel: event.thinkingEffort,
+    systemPrompt: event.systemPrompt,
+    environmentDisclosure: event.environmentDisclosure,
+    renderGeneration: event.renderGeneration ?? (current?.renderGeneration ?? 0) + 1,
+    agentsMdPaths: event.agentsMdPaths ?? current?.agentsMdPaths,
+    activeToolNames: event.activeToolNames,
+    disallowedTools: event.disallowedTools,
+    subagents: event.subagents,
+  };
+}
+
+export function reduceLoopConfigUpdate(
+  current: ProfileBindingSnapshot,
+  event: ConfigUpdatePayload,
+): ProfileBindingSnapshot {
+  let next: { -readonly [K in keyof ProfileBindingSnapshot]: ProfileBindingSnapshot[K] } | undefined;
+  const update = (): { -readonly [K in keyof ProfileBindingSnapshot]: ProfileBindingSnapshot[K] } =>
+    next ??= { ...current };
+  if (event.modelAlias !== undefined && event.modelAlias !== current.modelAlias) {
+    update().modelAlias = event.modelAlias;
+  }
+  if (event.profileName !== undefined && event.profileName !== current.profileName) {
+    update().profileName = event.profileName;
+  }
+  const thinkingLevel = configUpdateThinkingLevel(event);
+  if (thinkingLevel !== undefined && thinkingLevel !== current.thinkingLevel) {
+    update().thinkingLevel = thinkingLevel;
+  }
+  if (
+    event.systemPrompt !== undefined &&
+    (event.systemPrompt !== current.systemPrompt ||
+      event.environmentDisclosure !== undefined ||
+      event.renderGeneration !== undefined)
+  ) {
+    next = update();
+    next.systemPrompt = event.systemPrompt;
+    next.environmentDisclosure = event.environmentDisclosure;
+    next.renderGeneration = event.renderGeneration ?? (current.renderGeneration ?? 0) + 1;
+  }
+  if (event.agentsMdPaths !== undefined && !stringArrayEqual(event.agentsMdPaths, current.agentsMdPaths)) {
+    update().agentsMdPaths = event.agentsMdPaths;
+  }
+  if (event.disallowedTools !== undefined && !stringArrayEqual(event.disallowedTools, current.disallowedTools)) {
+    update().disallowedTools = event.disallowedTools;
+  }
+  return next ?? current;
+}
+
+export function reduceLoopActiveTools(
+  current: ProfileBindingSnapshot,
+  names: readonly string[] | undefined,
+): ProfileBindingSnapshot {
+  return stringArrayEqual(names, current.activeToolNames) ? current : { ...current, activeToolNames: names };
+}
+
+function stringArrayEqual(
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function configUpdateThinkingLevel(e: ConfigUpdatePayload): ThinkingEffort | undefined {
+  if (e.thinkingEffort !== undefined && e.thinkingLevel !== undefined) {
+    if (e.thinkingEffort !== e.thinkingLevel) {
+      throw new ProfileError(
+        ProfileErrors.codes.THINKING_ALIAS_CONFLICT,
+        `config.update has conflicting thinkingEffort (${e.thinkingEffort}) and legacy thinkingLevel (${e.thinkingLevel})`,
+        {
+          type: 'config.update',
+          thinkingEffort: e.thinkingEffort,
+          thinkingLevel: e.thinkingLevel,
+        },
+      );
+    }
+    return e.thinkingEffort;
+  }
+  if (e.thinkingEffort !== undefined) return e.thinkingEffort;
+  return e.thinkingLevel;
+}
+
+export type ActiveToolsState = readonly string[] | undefined;
+
+registerEvent2Class(ProfileBind);
+registerEvent2Class(ConfigUpdate);
+registerEvent2Class(ToolsSetActiveTools);
+registerEvent2Class(ToolsResetActiveTools);
+
+// ---- fork-only state keys (kept from the pre-merge fork line) ----
+export interface ProfileModelState {
+  readonly modelAlias?: string;
+  readonly profileName?: string;
+  readonly thinkingLevel: string;
+  readonly systemPrompt: string;
+  readonly environmentDisclosure?: EnvironmentDisclosureSnapshot;
+  readonly renderGeneration: number;
+  readonly agentsMdPaths?: readonly string[];
+  readonly disallowedTools?: readonly string[];
+  readonly subagents?: readonly string[];
+}
+
 export const profileKey = defineState('profile', (): ProfileModelState => ({
   thinkingLevel: 'off',
   systemPrompt: '',
@@ -175,36 +284,6 @@ export const profileKey = defineState('profile', (): ProfileModelState => ({
       s.disallowedTools = e.disallowedTools as string[];
     }
   });
-
-function stringArrayEqual(
-  a: readonly string[] | undefined,
-  b: readonly string[] | undefined,
-): boolean {
-  if (a === b) return true;
-  if (a === undefined || b === undefined) return false;
-  return a.length === b.length && a.every((value, index) => value === b[index]);
-}
-
-function configUpdateThinkingLevel(e: ConfigUpdatePayload): ThinkingEffort | undefined {
-  if (e.thinkingEffort !== undefined && e.thinkingLevel !== undefined) {
-    if (e.thinkingEffort !== e.thinkingLevel) {
-      throw new ProfileError(
-        ProfileErrors.codes.THINKING_ALIAS_CONFLICT,
-        `config.update has conflicting thinkingEffort (${e.thinkingEffort}) and legacy thinkingLevel (${e.thinkingLevel})`,
-        {
-          type: 'config.update',
-          thinkingEffort: e.thinkingEffort,
-          thinkingLevel: e.thinkingLevel,
-        },
-      );
-    }
-    return e.thinkingEffort;
-  }
-  if (e.thinkingEffort !== undefined) return e.thinkingEffort;
-  return e.thinkingLevel;
-}
-
-export type ActiveToolsState = readonly string[] | undefined;
 
 export const profileActiveToolsKey = defineState(
   'profile.activeTools',

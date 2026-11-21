@@ -11,7 +11,7 @@ import {
 import { qualifyMcpToolName } from '#/mcpCore/tool-naming';
 import type { MCPClient, MCPToolResult } from '#/mcpCore/types';
 import type { ExecutableTool, ExecutableToolContext } from '#/tool/toolContract';
-import type { ToolDescription as KosongTool } from '@moonshot-ai/core/llm/message';
+import type { ToolDescription as KosongTool } from '#human/llm/message';
 
 interface McpToolOptions {
   readonly serverName?: string;

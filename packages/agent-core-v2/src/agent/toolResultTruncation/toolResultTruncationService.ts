@@ -19,7 +19,7 @@ import {
   type ExecutableToolResult,
 } from '#/tool/toolContract';
 import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart } from '#human/llm/message';
 
 import {
   IAgentToolResultTruncationService,

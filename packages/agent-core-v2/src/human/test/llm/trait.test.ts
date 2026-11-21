@@ -27,7 +27,7 @@ import {
   type StreamedMessagePart,
   type ToolDescription,
   type VideoURLPart,
-} from '@moonshot-ai/core/llm/message';
+} from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import { createProvider } from '#/llm/provider/definition';
 import {

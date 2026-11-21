@@ -8,7 +8,8 @@ import type {
 import type { ErrorCode } from '#/errors';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import type { ModelRequestParams } from '#/llm-adapter/model/model-requester';
-import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
+import type { ThinkingEffort } from '#human/llm/thinking';
+import type { InitializedLlmRequestPart } from '@moonshot-ai/core/llm/requester';
 
 import type { ProfileErrors } from './errors';
 
@@ -143,3 +144,22 @@ export interface IAgentProfileService {
 }
 
 export const IAgentProfileService = createDecorator<IAgentProfileService>('agentProfileService');
+
+// ---- from upstream 2.7.0 ----
+export interface EffectiveProfileReader {
+  data(): ProfileData;
+  getEffectiveThinkingLevel(): ThinkingEffort;
+  resolveModelContext(): ProfileModelContext;
+  resolveRequestParams(): InitializedLlmRequestPart;
+  getModelCapabilities(): ModelCapability;
+  getModelProviderType(alias?: string): string | undefined;
+  getMaxOutputSize(): number | undefined;
+  hasModel(): boolean;
+  isRunnable(): boolean;
+  hasProvider(): boolean;
+  getModel(): string;
+  getSystemPrompt(): string;
+  getActiveToolNames(): readonly string[] | undefined;
+  getAgentsMdWarning(): string | undefined;
+  republishStatus(): void;
+}

@@ -2,7 +2,7 @@ import type OpenAI from 'openai';
 
 import type { LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/errors';
 import { NO_FINISH, type FinishInfo } from '@moonshot-ai/core/llm/response';
-import type { StreamedMessagePart, ToolDescription } from '@moonshot-ai/core/llm/message';
+import type { StreamedMessagePart, ToolDescription } from '#/llm/message';
 import type {
   FormatRequestInput,
   ProtocolFormat,

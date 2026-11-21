@@ -1,4 +1,4 @@
-import type { ContentPart, Message } from '@moonshot-ai/core/llm/message';
+import type { ContentPart, Message } from '#/llm/message';
 
 import { convertToolResultToPlainText } from '../tool-result-text';
 import type { ResponsesInputContentItem, ResponsesInputItem } from '@moonshot-ai/core/llm/builtin/protocol/openai-responses/contract';

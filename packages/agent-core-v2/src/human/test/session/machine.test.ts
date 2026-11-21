@@ -12,7 +12,7 @@ import {
 import { createEventStore } from '#/eventStore/eventStore';
 import { journalFromBranch } from '#/eventStore/journal';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createAssistantMessage, createUserMessage, extractText } from '@moonshot-ai/core/llm/message';
+import { createAssistantMessage, createUserMessage, extractText } from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { LlmRequester } from '#/llm/requester/requester';
 import { emptyUsage } from '@moonshot-ai/core/llm/usage';

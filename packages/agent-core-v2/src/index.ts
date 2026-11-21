@@ -186,8 +186,8 @@ export {
   type ToolCall,
   type ToolCallPart,
   type VideoURLPart,
-} from '@moonshot-ai/core/llm/message';
-export type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+} from '#human/llm/message';
+export type { ToolDescription as Tool } from '#human/llm/message';
 export { addUsage, emptyUsage, grandTotal, inputTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 export type { FinishReason } from '@moonshot-ai/core/llm/response';
 export type {

@@ -41,7 +41,7 @@ import {
 import type { Message } from '#/llm-adapter/contract/message';
 import { type ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
 import type { LlmCredentialProvider } from '#human/llm/requester/requester';
-import { isToolCall, type StreamedMessagePart, type ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+import { isToolCall, type StreamedMessagePart, type ToolDescription as Tool } from '#human/llm/message';
 import { emptyUsage, inputTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 import { ILogService, type LogContext } from '#/_base/log/log';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';

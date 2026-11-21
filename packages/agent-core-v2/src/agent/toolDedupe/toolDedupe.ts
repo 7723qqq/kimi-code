@@ -1,6 +1,6 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { ExecutableToolErrorResult, ExecutableToolSuccessResult } from '#/tool/toolContract';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart } from '#human/llm/message';
 
 export type ToolDedupeOutput = string | ContentPart[];
 

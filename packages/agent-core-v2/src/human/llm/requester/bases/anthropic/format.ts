@@ -20,7 +20,7 @@ import {
   type LlmRemoteErrorMessage,
 } from '@moonshot-ai/core/llm/errors';
 import { NO_FINISH, type FinishInfo, type FinishReason } from '@moonshot-ai/core/llm/response';
-import type { Message, ToolDescription } from '@moonshot-ai/core/llm/message';
+import type { Message, ToolDescription } from '#/llm/message';
 import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
 import { mergeConsecutiveUsers } from '@moonshot-ai/core/llm/protocol/patterns';
 import { applyPatterns } from '#human/llm/protocol/rewrite';

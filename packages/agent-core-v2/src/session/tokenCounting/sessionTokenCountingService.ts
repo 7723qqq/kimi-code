@@ -22,7 +22,7 @@ import {
   estimateTokensForTools,
 } from '@moonshot-ai/core/llm/tokens';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+import type { ToolDescription as Tool } from '#human/llm/message';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 import {

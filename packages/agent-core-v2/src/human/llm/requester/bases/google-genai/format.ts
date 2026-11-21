@@ -18,7 +18,7 @@ import type {
   ThinkPart,
   ToolCall,
   ToolDescription,
-} from '@moonshot-ai/core/llm/message';
+} from '#/llm/message';
 import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
 import { mergeConsecutiveUsers } from '@moonshot-ai/core/llm/protocol/patterns';
 import { applyPatterns } from '#human/llm/protocol/rewrite';
