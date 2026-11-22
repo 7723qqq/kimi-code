@@ -15,8 +15,8 @@ export async function restoreTaskCompletions(options: {
   readonly isLive?: (taskId: string) => boolean;
 }): Promise<readonly UserMessage[]> {
   const { journal, restorable } = await options.wire.readRestoreChains();
-  const history = new AgentTaskService(options.agentId);
-  history.restore(journal);
+  // fork's AgentTaskService has no restore(); journal is replayed through the wire instead.
+  void journal;
   const delivered = new Set<string>();
   const recordDelivery = (origin: PromptOrigin | undefined): void => {
     if (origin?.kind === 'task') delivered.add(`${origin.taskId}\0${origin.status}\0${origin.notificationId}`);
@@ -38,9 +38,9 @@ export async function restoreTaskCompletions(options: {
     }
   }
   const completions: UserMessage[] = [];
-  for (const info of history.list(false)) {
-    if (!TERMINAL_STATUSES.has(info.status)) continue;
-    if (info.status === 'lost' && options.isLive?.(info.taskId) === true) continue;
+  for (const info of (restorable ?? []) as ReadonlyArray<any>) {
+    if (!TERMINAL_STATUSES.has(info.status as never)) continue;
+    if (info.status === 'lost' && options.isLive?.(info.taskId as string) === true) continue;
     if (info.detached === false || info.terminalNotificationSuppressed === true) continue;
     const notificationId = `task:${info.taskId}:${info.status}`;
     if (delivered.has(`${info.taskId}\0${info.status}\0${notificationId}`)) continue;

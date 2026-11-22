@@ -219,6 +219,7 @@ export interface PermissionApprovalResultEvent {
   session_cache_written: boolean;
   has_feedback: boolean;
   trace_id?: string;
+  request_id?: string;
 }
 
 export interface PlanSubmittedEvent {

@@ -23,6 +23,8 @@ export class AgentInterruptionReminderService
   extends Disposable
   implements IAgentInterruptionReminderService
 {
+
+  notifyUserCancellation(..._args: unknown[]): void {}
   declare readonly _serviceBrand: undefined;
 
   constructor(
