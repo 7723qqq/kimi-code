@@ -14,7 +14,7 @@ import { FileProjectLocalConfigService } from '#/persistence/backends/node-fs/pr
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
 import { WorkspaceService } from '#/app/workspace/workspaceService';
 import type { Workspace } from '#/app/workspace/workspace';
@@ -55,7 +55,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     const hostFs = new HostFileSystem();
     const bootstrap = stubBootstrap(homeDir);
     persistence = disposables.add(
-      new FileWorkspacePersistence(new JsonAtomicDocumentStore(storage), storage, bootstrap),
+      new FileWorkspacePersistence(new JsonAtomicDocumentStore(storage), bootstrap, storage, noopLog),
     );
     const localConfig = new FileProjectLocalConfigService(bootstrap, hostFs);
     workspaces = new WorkspaceService(
@@ -97,10 +97,10 @@ describe('WorkspaceDirsService (registry source)', () => {
           persistenceScope: `sessions/${workspaceId}`,
         } as unknown as IWorkspaceContext,
         new FileProjectLocalConfigService(bootstrap, hostFs),
+        noopLog as never,
+        new WorkspaceStateService(),
         workspaces,
         persistence,
-        noopLog,
-        new WorkspaceStateService(),
         environmentId,
         followsPrimary,
       ),

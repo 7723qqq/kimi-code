@@ -1,3 +1,4 @@
+import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { join } from 'pathe';
 import { createDecorator } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -65,7 +66,7 @@ export class AgentTaskOutputService implements IAgentTaskOutputService {
       join(session.sessionDir, 'agents', scopeContext.agentId),
       scopeContext.scope(),
       byteStore,
-      byteStore as never,
+      byteStore as unknown as IAtomicDocumentStore,
       fallbackRoot,
       () => environment === undefined ? undefined : environmentTempTarget(environment, 'task-output'),
     ) as never;
@@ -109,10 +110,10 @@ export class AgentTaskOutputService implements IAgentTaskOutputService {
 
   private async notificationOutputSnapshot(info: AgentTaskInfo): Promise<AgentTaskOutputSnapshot> {
     if (info.kind === 'question') {
-      const output = await this.readTaskOutputSnapshot(info.taskId, QUESTION_ANSWER_INLINE_BYTES) as never;
+      const output = await this.readTaskOutputSnapshot(info.taskId, QUESTION_ANSWER_INLINE_BYTES) as Record<string, unknown> | undefined;
       return output === undefined ? emptyOutputSnapshot() : { ...output, fullOutputAvailable: true };
     }
-    const persisted = await this.readTaskOutputSnapshot(info.taskId, 0) as never;
+    const persisted = await this.readTaskOutputSnapshot(info.taskId, 0) as Record<string, unknown> | undefined;
     if (persisted !== undefined) return { ...persisted, fullOutputAvailable: true };
     return emptyOutputSnapshot();
   }

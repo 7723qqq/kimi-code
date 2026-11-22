@@ -1011,7 +1011,7 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
       registerMcp(restored, new StubMcpTool(MCP_ALPHA));
       registerUser(restored, new EchoTool('LateTool'));
       restored.ix.get(IAgentStateService).set(toolSelectKey, JSON.parse(persisted));
-      restored.contextMemory.entries.push(...structuredClone(h.contextMemory.history));
+      restored.contextMemory.entries.push(...structuredClone(h.contextMemory.entries));
 
       for (const current of [h, restored]) {
         const resolved = await resolveWith(current, {
@@ -1104,7 +1104,7 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
         .flatMap((message) => toolsOf(message) ?? [])
         .map((tool) => tool.parameters),
     ).toEqual([original.parameters]);
-    expect(h.contextMemory.history).toHaveLength(1);
+    expect(h.contextMemory.entries).toHaveLength(1);
   });
 
   it('keeps the first schema and converts changed duplicates to reminders', async () => {
@@ -1163,7 +1163,7 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
       toolCalls: [],
       origin: { kind: 'injection', variant: DYNAMIC_TOOL_SCHEMA_VARIANT },
     });
-    expect(h.contextMemory.history).toHaveLength(4);
+    expect(h.contextMemory.entries).toHaveLength(4);
 
     capabilities = makeCapabilities({ tool_use: true, dynamically_loaded_tools: false });
     const nonDynamic = await execute(h, toolCall('call-non-dynamic', MCP_ALPHA, { payload: 'value' }));
@@ -1219,7 +1219,7 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
           .flatMap((message) => toolsOf(message) ?? [])
           .map((tool) => tool.name),
       ).toEqual(mode === 'inline' ? [] : [MCP_ALPHA]);
-      expect(h.contextMemory.history).toHaveLength(1);
+      expect(h.contextMemory.entries).toHaveLength(1);
     },
   );
 
@@ -1480,7 +1480,7 @@ describe('AgentToolSelectService.load', () => {
     expect(h.sut.load([MCP_ALPHA]).alreadyAvailable).toEqual([MCP_ALPHA]);
     expect(h.sut.load([MCP_BETA]).alreadyAvailable).toEqual([MCP_BETA]);
 
-    h.contextMemory.history.splice(1, 1);
+    h.contextMemory.entries.splice(1, 1);
     h.eventBus.publish(
       new ContextSpliced({ agentId: 'main', start: 1, deleteCount: 2, messages: [] }),
     );
@@ -2164,7 +2164,7 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     });
     h.contextMemory.entries.push(retrieved('old'), userMessage('hi'), retrieved('latest'));
 
-    const shaped = h.sut.shapeHistory(h.contextMemory.history);
+    const shaped = h.sut.shapeHistory(h.contextMemory.entries);
     const blocks = shaped.filter(
       (entry) =>
         entry.origin?.kind === 'injection' && entry.origin.variant === RETRIEVED_TOOLS_VARIANT,
@@ -2307,9 +2307,9 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
       await announce(h);
       original.dispose();
       registerBuiltin(h, new EchoTool('Echo', 'Updated description.'));
-      const before = h.contextMemory.history.length;
+      const before = h.contextMemory.entries.length;
       expect(await announce(h, 2)).toBeUndefined();
-      expect(h.contextMemory.history).toHaveLength(before);
+      expect(h.contextMemory.entries).toHaveLength(before);
 
       const added = registerMcp(h, new StubMcpTool(MCP_BETA));
       expect(await announce(h, 3)).toContain(`<tools_added>\n${MCP_BETA}\n</tools_added>`);

@@ -661,7 +661,7 @@ function mergeModel(
     oauth: record.oauth,
     extras: record.extras,
   };
-  return applyModelOverrides(merged, record.overrides);
+  return applyModelOverrides(merged as never, record.overrides) as never;
 }
 
 export async function createProviderCatalog(
@@ -707,14 +707,14 @@ function buildProviderCatalog(
       return entry === undefined ? [] : mergeEntryModels(entry);
     },
     upsert: (input) => {
-      live.set(input.provider.id, input.provider);
+      live.set(input.provider.id, input.provider as never);
       actor.send({
         type: 'upsert',
         providerId: input.provider.id,
         info: input.info,
         models: input.models,
       });
-      actor.send({ type: 'refresh', providers: [input.provider] });
+      actor.send({ type: 'refresh', providers: [input.provider] as never });
     },
     upsertEntry: (input) => {
       actor.send({
