@@ -479,6 +479,10 @@ export interface PredictionGeneratedEvent {
   request_id?: string;
   prediction_chars?: number;
   input_tokens?: number;
+  input_other?: number;
+  input_cache_read?: number;
+  input_cache_creation?: number;
+  output_tokens?: number;
   output_tokens?: number;
   ttft_ms?: number;
 }

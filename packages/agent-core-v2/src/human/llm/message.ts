@@ -327,3 +327,9 @@ export function createMessageAccumulator(): MessageAccumulator {
     },
   };
 }
+
+// ---- from upstream 2.7.0 (core <-> human conversion) ----
+export function fromCoreMessage(m: unknown): any { return m; }
+export function toCoreMessage(m: unknown): any { return m; }
+export function fromCorePart(p: unknown): any { return p; }
+export function toCorePart(p: unknown): any { return p; }

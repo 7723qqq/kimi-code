@@ -1,3 +1,4 @@
+import { createUserEntry, type UserMessage } from '#human/agent/turn';
 import { toDisposable } from '#/_base/di/lifecycle';
 import { Event } from '#/_base/event';
 import type {

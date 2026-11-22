@@ -1464,12 +1464,12 @@ describe('AgentLLMRequesterService trace id', () => {
     const { service } = createService(requester, passthroughProjector);
     const request = service.start({ source: { type: 'turn', turnId: 1, step: 1 } });
     await headersArrived;
-    expect(request.trace.traceId).toBe('trace-req-1');
+    expect(request.trace.requestId).toBe('trace-req-1');
     releaseStream.resolve();
     const finish = await request.result;
 
-    expect(finish.traceId).toBe('trace-req-1');
-    expect(request.trace.traceId).toBe('trace-req-1');
+    expect(finish.requestId).toBe('trace-req-1');
+    expect(request.trace.requestId).toBe('trace-req-1');
   });
 
   it('reports an absent trace before a request that returns none', async () => {
@@ -1477,8 +1477,8 @@ describe('AgentLLMRequesterService trace id', () => {
     const request = service.start();
     const finish = await request.result;
 
-    expect(finish.traceId).toBeUndefined();
-    expect(request.trace.traceId).toBeUndefined();
+    expect(finish.requestId).toBeUndefined();
+    expect(request.trace.requestId).toBeUndefined();
   });
 
   it('attaches trace_id, turn_id and step_no to api_error from the failed request', async () => {
@@ -1503,7 +1503,7 @@ describe('AgentLLMRequesterService trace id', () => {
         step_no: 2,
       }),
     });
-    expect(request.trace.traceId).toBe('trace-fail-1');
+    expect(request.trace.requestId).toBe('trace-fail-1');
   });
 
   it('probes the compaction request prefix against the last completed turn', async () => {
@@ -1549,7 +1549,7 @@ describe('AgentLLMRequesterService trace id', () => {
 
     const apiError = telemetryRecords.find((record) => record.event === 'api_error');
     expect(apiError?.properties?.['trace_id']).toBe('trace-mid-stream');
-    expect(request.trace.traceId).toBe('trace-mid-stream');
+    expect(request.trace.requestId).toBe('trace-mid-stream');
   });
 
   it('clears the previous physical request trace before a projection retry', async () => {
@@ -1575,7 +1575,7 @@ describe('AgentLLMRequesterService trace id', () => {
     await expect(request.result).rejects.toThrow('socket hang up');
 
     expect(attempts).toBe(2);
-    expect(request.trace.traceId).toBeUndefined();
+    expect(request.trace.requestId).toBeUndefined();
     expect(
       telemetryRecords.find((record) => record.event === 'api_error')?.properties?.['trace_id'],
     ).toBeUndefined();
