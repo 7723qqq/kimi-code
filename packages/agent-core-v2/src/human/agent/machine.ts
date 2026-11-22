@@ -1,7 +1,7 @@
 import { storeActor } from '#/eventStore/actor';
 import { createUserMessage, type ToolCall, type UserMessage } from '#/llm/message';
 import type { LlmRequestConfig } from '#/llm/requester/requester';
-import type { ToolExecutor, ToolResult } from '#/tool/executor';
+import type { ToolExecutor, ToolResult } from '#human/tool/executor';
 import { createToolMachine, type ToolEvent, type ToolOutput } from '#/tool/machine';
 import type { ToolDefinition } from '#/tool/tool';
 import { createAbortScope, withAbort, type AbortScope } from '#/utils/abort';
