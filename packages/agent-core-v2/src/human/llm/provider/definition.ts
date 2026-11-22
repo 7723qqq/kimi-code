@@ -1,6 +1,6 @@
 import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
 import type { ProviderMediaContribution } from '#/llm/media/upload';
-import type { LlmConnection, LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmConnection, LlmModel } from '#/llm/model';
 import type { ProtocolBase, ProtocolName } from '#/llm/protocol/base';
 import type { ProviderConnection } from '#human/llm/protocol/connection';
 import type { AnthropicTrait } from '#/llm/requester/bases/anthropic/trait';

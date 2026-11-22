@@ -19,7 +19,7 @@ import { OrderedHookSlot } from '#/hooks';
 import type { IHostClock } from '#/os/interface/hostClock';
 import { makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { ToolAccesses } from '#/tool/toolContract';
-import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolCall } from '#human/llm/message';
 
 import { fakeEnvironment, stubAgentEnvironment } from '../../environment/stubs';
 

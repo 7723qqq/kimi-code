@@ -43,7 +43,7 @@ import {
 } from '#/tool/rule-match';
 import { ToolAccesses, type ToolAccesses as ToolAccessList } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolCall } from '#human/llm/message';
 
 import { recordingTelemetry } from '../../app/telemetry/stubs';
 import { stubPermissionModeService } from '../permissionMode/stubs';

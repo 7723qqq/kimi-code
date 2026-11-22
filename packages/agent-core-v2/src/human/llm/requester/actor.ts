@@ -1,7 +1,7 @@
 import { applyCredential } from '#/credentials/credentials';
-import { isAbortError, toLlmErrorMessage } from '@moonshot-ai/core/llm/errors';
+import { isAbortError, toLlmErrorMessage } from '#/llm/errors';
 import type { Message } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import { fromCallback } from '#/xstate2';
 
 import type { LlmRecoveryRecord } from './recovery';

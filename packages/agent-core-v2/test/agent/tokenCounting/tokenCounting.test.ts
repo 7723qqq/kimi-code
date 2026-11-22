@@ -12,10 +12,10 @@ import {
   type TokenCountingState,
 } from '#/agent/tokenCounting/tokenCountingOps';
 import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
-import { estimateTokensForMessages } from '@moonshot-ai/core/llm/tokens';
+import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import { TokenCountingAgentModelDefinition } from '#/session/tokenCounting/tokenCountingAgentModel';
 import { IWireService } from '#/wire/wire';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#human/llm/usage';
 
 import {
   createTestAgent,

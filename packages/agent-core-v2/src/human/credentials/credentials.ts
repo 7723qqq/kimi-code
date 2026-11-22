@@ -1,5 +1,5 @@
-import { errorStatusCode } from '@moonshot-ai/core/llm/errors';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import { errorStatusCode } from '#/llm/errors';
+import type { LlmModel } from '#/llm/model';
 import type { LlmRecovery } from '#/llm/requester/recovery';
 import {
   mergeRequestHeaders,

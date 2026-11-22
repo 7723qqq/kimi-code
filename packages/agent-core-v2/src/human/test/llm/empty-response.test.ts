@@ -8,7 +8,7 @@ import {
   type AssistantMessage,
   type StreamedMessagePart,
 } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
 

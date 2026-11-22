@@ -39,7 +39,7 @@ import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolCall } from '#human/llm/message';
 
 import HELLO_WORLD_MODE_ENTER_REMINDER from '../../../src/features/helloWorld/agent/enter-reminder.md?raw';
 import HELLO_WORLD_MODE_EXIT_REMINDER from '../../../src/features/helloWorld/agent/exit-reminder.md?raw';

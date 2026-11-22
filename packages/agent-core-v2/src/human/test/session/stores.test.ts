@@ -6,7 +6,7 @@ import type { AgentEventStore } from '#/agent/slices';
 import { createUserEntry } from '#/agent/turn';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createUserMessage, extractText } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import type { LlmRequester } from '#/llm/requester/requester';
 import type { AgentSwitched } from '#/session/events';
 import { SessionStores } from '#/session/stores';

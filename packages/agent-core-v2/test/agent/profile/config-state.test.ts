@@ -4,7 +4,7 @@ import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ModelRecord } from '#/llm-adapter/model/model';
-import { emptyUsage } from '@moonshot-ai/core/llm/usage';
+import { emptyUsage } from '#human/llm/usage';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';

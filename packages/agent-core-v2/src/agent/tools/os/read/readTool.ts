@@ -44,7 +44,7 @@ import {
   countTokenChars,
   tokensForCharCounts,
   type TokenCharCounts,
-} from '@moonshot-ai/core/llm/tokens';
+} from '#/llm-adapter/contract/tokens';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { isHostFsNotDirectory, isHostFsNotFound } from '#/os/interface/hostFsErrors';

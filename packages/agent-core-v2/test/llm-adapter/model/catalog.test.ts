@@ -33,7 +33,7 @@ import {
 } from '#/llm-adapter/provider/provider';
 import '#/llm-adapter/model/errors';
 import type { LlmRequester } from '#human/llm/requester/requester';
-import { emptyUsage } from '@moonshot-ai/core/llm/usage';
+import { emptyUsage } from '#human/llm/usage';
 import '#/llm-adapter/model/model-service';
 import { expectRejection } from '#test/helpers/assertions';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';

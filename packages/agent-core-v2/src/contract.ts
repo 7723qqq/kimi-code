@@ -27,7 +27,7 @@ export * from '#/features/todo/todoOps';
 export * from '#/features/tower/towerOps';
 
 export * from '#/llm-adapter/contract/message';
-export * from '@moonshot-ai/core/llm/tokens';
+export * from '#/llm-adapter/contract/tokens';
 
 export * from '#/session/sessionMetadata/sessionMetaEvents';
 

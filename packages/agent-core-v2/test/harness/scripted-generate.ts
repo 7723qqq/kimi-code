@@ -1,6 +1,6 @@
 import { isAbortError } from '#/llm-adapter/contract/errors';
 import { fromLlmMessage, type Message, type Tool } from '#/llm-adapter/contract/message';
-import { estimateTokensForMessages } from '@moonshot-ai/core/llm/tokens';
+import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import type { SamplingOptions } from '#/llm-adapter/model/model-requester';
 import { translateProviderError } from '#/llm-adapter/protocol/errors';
 import { type FinishReason } from '@moonshot-ai/core/llm/response';
@@ -9,7 +9,7 @@ import {
   isToolCall,
   isToolCallPart,
   type StreamedMessagePart,
-} from '@moonshot-ai/core/llm/message';
+} from '#/llm-adapter/contract/message';
 import type {
   ExtraParams,
   LlmRequestConfig,
@@ -17,8 +17,8 @@ import type {
   LlmRequestControl,
   LlmRequester,
 } from '#human/llm/requester/requester';
-import type { ThinkingRequestOptions } from '@moonshot-ai/core/llm/thinking';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { ThinkingRequestOptions } from '#human/llm/thinking';
+import type { TokenUsage } from '#human/llm/usage';
 
 import {
   generateInputSnapshot,

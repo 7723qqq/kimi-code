@@ -63,7 +63,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { type ExecutableTool, type ToolDisclosure, type ToolExecution } from '#/tool/toolContract';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { IWireService } from '#/wire/wire';
-import type { ToolDescription as Tool, ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolDescription as Tool, ToolCall } from '#human/llm/message';
 
 import { registerLogServices } from '../../_base/log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';

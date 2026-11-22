@@ -16,7 +16,7 @@ import { imagePricingForModel } from '#/llm-adapter/contract/modelFamily';
 import {
   estimateTokensForContentParts,
   estimateTokensForMessages,
-} from '@moonshot-ai/core/llm/tokens';
+} from '#/llm-adapter/contract/tokens';
 import { IHostClock } from '#/os/interface/hostClock';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IEventDispatcher } from '#/state/eventDispatcher';

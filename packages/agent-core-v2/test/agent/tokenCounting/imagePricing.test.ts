@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { imagePricingForModel } from '#/llm-adapter/contract/modelFamily';
-import { MEDIA_TOKEN_ESTIMATE } from '@moonshot-ai/core/llm/tokens';
+import { MEDIA_TOKEN_ESTIMATE } from '#/llm-adapter/contract/tokens';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 
 import { createTestAgent, type TestAgentContext } from '../../harness';

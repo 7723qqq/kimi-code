@@ -17,9 +17,9 @@ import { type ContextMessage } from '#/agent/contextMemory/types';
 import { buildImageCompressionCaption } from '#/agent/media/image-compress';
 import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
 import type { Message } from '#/llm-adapter/contract/message';
-import { estimateTokens, estimateTokensForMessages } from '@moonshot-ai/core/llm/tokens';
+import { estimateTokens, estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import { IWireService } from '#/wire/wire';
-import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolCall } from '#/llm-adapter/contract/message';
 
 import { createTestAgent, type TestAgentContext } from '../../harness';
 import { renderSnapshot } from '../../harness/snapshots';

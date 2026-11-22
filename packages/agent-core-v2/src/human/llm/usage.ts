@@ -1,8 +1,8 @@
 export interface TokenUsage {
   inputOther: number;
   output: number;
-  inputCacheRead: number;
-  inputCacheCreation: number;
+  inputCacheRead?: number;
+  inputCacheCreation?: number;
   raw?: Record<string, unknown>;
 }
 
@@ -11,7 +11,7 @@ export function emptyUsage(): TokenUsage {
 }
 
 export function inputTotal(usage: TokenUsage): number {
-  return usage.inputOther + usage.inputCacheRead + usage.inputCacheCreation;
+  return usage.inputOther + (usage.inputCacheRead ?? 0) + (usage.inputCacheCreation ?? 0);
 }
 
 export function grandTotal(usage: TokenUsage): number {
@@ -19,15 +19,15 @@ export function grandTotal(usage: TokenUsage): number {
 }
 
 export function chargeableTokens(usage: TokenUsage): number {
-  return usage.inputOther + usage.inputCacheCreation + usage.output;
+  return usage.inputOther + (usage.inputCacheCreation ?? 0) + usage.output;
 }
 
 export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   return {
     inputOther: a.inputOther + b.inputOther,
     output: a.output + b.output,
-    inputCacheRead: a.inputCacheRead + b.inputCacheRead,
-    inputCacheCreation: a.inputCacheCreation + b.inputCacheCreation,
+    inputCacheRead: (a.inputCacheRead ?? 0) + (b.inputCacheRead ?? 0),
+    inputCacheCreation: (a.inputCacheCreation ?? 0) + (b.inputCacheCreation ?? 0),
   };
 }
 

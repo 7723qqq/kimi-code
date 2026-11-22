@@ -29,7 +29,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { DeepReadonly } from '#/state/state';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart } from '#human/llm/message';
 
 import {
   registerTestAgentWire,

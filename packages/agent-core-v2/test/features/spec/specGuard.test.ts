@@ -28,7 +28,7 @@ import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreServic
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { ToolAccesses } from '#/tool/toolContract';
-import { type ToolCall } from '@moonshot-ai/core/llm/message';
+import { type ToolCall } from '#human/llm/message';
 
 import { stubPermissionModeService } from '../../agent/permissionMode/stubs';
 import {

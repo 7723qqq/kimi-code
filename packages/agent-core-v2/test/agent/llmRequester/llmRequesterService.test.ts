@@ -68,12 +68,12 @@ import {
   type TurnInput,
   type TurnLlmEvent,
 } from '#human/agent/turn';
-import { UNKNOWN_CAPABILITY } from '@moonshot-ai/core/llm/capability';
-import { isToolCall, type StreamedMessagePart, type ToolCall } from '@moonshot-ai/core/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
+import { isToolCall, type StreamedMessagePart, type ToolCall } from '#/llm-adapter/contract/message';
+import type { LlmModel } from '#/llm-adapter/model/model';
 import type { LlmRequester } from '#human/llm/requester/requester';
-import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
-import { emptyUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { ThinkingEffort } from '#human/llm/thinking';
+import { emptyUsage, type TokenUsage } from '#human/llm/usage';
 import { createActor, emit, setup, SimulatedClock } from '#human/xstate2';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';

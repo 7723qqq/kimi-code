@@ -2,7 +2,7 @@ import { KIMI_OPEN_PLATFORM_API_BASE_GLOBAL } from '@moonshot-ai/runtime-shared'
 
 import { providerImagePolicy } from '#/llm/media/image-formats';
 import type { ContentPart, ToolDescription } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import type { ProtocolEndpoint, ProviderConnection } from '#human/llm/protocol/connection';
 import { CONTEXT_MANAGEMENT_BETA } from '#/llm/requester/bases/anthropic/contract';
 import type { AnthropicTrait } from '#/llm/requester/bases/anthropic/trait';

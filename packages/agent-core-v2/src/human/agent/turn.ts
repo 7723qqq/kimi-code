@@ -1,5 +1,5 @@
 import { emptyResponseError } from '#/llm/empty-response';
-import type { LlmErrorMessage } from '@moonshot-ai/core/llm/errors';
+import type { LlmErrorMessage } from '#/llm/errors';
 import { NO_FINISH, type FinishInfo } from '@moonshot-ai/core/llm/response';
 import {
   createMessageAccumulator,
@@ -13,7 +13,7 @@ import {
   type ToolMessage,
   type UserMessage,
 } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import { createRequestActor, type LlmEvent, type MessageResolver } from '#/llm/requester/actor';
 import type {
   LlmRecovery,

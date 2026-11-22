@@ -15,7 +15,7 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart } from '#human/llm/message';
 
 const LARGE = 'A'.repeat(5000);
 const SMALL = 'AQID';

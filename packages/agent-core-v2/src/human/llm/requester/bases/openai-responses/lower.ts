@@ -1,7 +1,7 @@
 import type { ContentPart, Message } from '#/llm/message';
 
 import { convertToolResultToPlainText } from '../tool-result-text';
-import type { ResponsesInputContentItem, ResponsesInputItem } from '@moonshot-ai/core/llm/builtin/protocol/openai-responses/contract';
+import type { ResponsesInputContentItem, ResponsesInputItem } from './contract';
 
 const OMITTED_AUDIO_PLACEHOLDER = '(audio omitted: unsupported audio format)';
 const OMITTED_VIDEO_PLACEHOLDER = '(video omitted: not supported by this provider)';

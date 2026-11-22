@@ -4,7 +4,7 @@ import { kimiAnthropicTrait } from '#/llm-kimi/trait';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { providerImagePolicy } from '#/llm/media/image-formats';
 import type { Message } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import { lowerMessage } from '#/llm/requester/bases/anthropic/lower';
 import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
 import type { LlmClientContext } from '#/llm/requester/requester';

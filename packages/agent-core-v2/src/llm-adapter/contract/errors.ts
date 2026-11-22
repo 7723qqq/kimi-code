@@ -1,4 +1,4 @@
-import { Error2, type Error2Options } from '#/_base/errors/errors';
+import { Error2, type Error2Options } from '#human/llm/errors';
 import { errorMessage } from '#/_base/utils/errorMessage';
 import {
   appendThinkingEffortConfigHint,
@@ -14,15 +14,16 @@ import {
   sanitizeStatusErrorMessage,
   type LlmErrorMessage,
   type LlmRemoteErrorMessage,
-} from '@moonshot-ai/core/llm/errors';
-import type { FinishReason } from '@moonshot-ai/core/llm/response';
+} from '#human/llm/errors';
+import type { LlmErrorDiagnostics } from '@moonshot-ai/core/llm/errors';
+import type { FinishReason } from '#human/llm/finish-reason';
 
 export {
   errorStatusCode,
   isAbortError,
   parseRetryAfterMs,
   sanitizeStatusErrorMessage,
-} from '@moonshot-ai/core/llm/errors';
+} from '#human/llm/errors';
 
 export const CONFIG_INVALID_ERROR_CODE = 'config.invalid';
 
@@ -653,6 +654,15 @@ export function llmMessageFromError(error: unknown): LlmRemoteErrorMessage | und
   }
   if (error instanceof ChatProviderError) {
     return { kind: 'provider', message: error.message, retryable: error.retryable };
+  }
+  return undefined;
+}
+
+// ---- from upstream 2.7.0 ----
+export function errorDiagnostics(error: unknown): LlmErrorDiagnostics | undefined {
+  if (error instanceof ChatProviderError) return error.diagnostics;
+  if (error instanceof Error2) {
+    return error.details?.['diagnostics'] as LlmErrorDiagnostics | undefined;
   }
   return undefined;
 }

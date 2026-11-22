@@ -28,7 +28,7 @@ import {
   type ToolDescription,
   type VideoURLPart,
 } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import { createProvider } from '#/llm/provider/definition';
 import {
   anthropicProvider,

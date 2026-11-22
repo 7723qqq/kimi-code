@@ -10,7 +10,7 @@ import {
   registerProviderDefinition,
   resolveProviderEndpoint,
 } from '#/llm-adapter/provider/provider-definition';
-import { thinkingMetadataOf } from '@moonshot-ai/core/llm/thinking';
+import { thinkingMetadataOf } from '#human/llm/thinking';
 
 const ENV_KEYS = [
   'OPENAI_API_KEY',

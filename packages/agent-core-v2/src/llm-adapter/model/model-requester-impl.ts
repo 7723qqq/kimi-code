@@ -5,7 +5,7 @@ import { performance, type EventLoopUtilization } from 'node:perf_hooks';
 import { AsyncEventQueue } from '#/_base/asyncEventQueue';
 import { applyCredential } from '#human/credentials/credentials';
 import { emptyResponseError } from '#human/llm/empty-response';
-import type { LlmErrorMessage } from '@moonshot-ai/core/llm/errors';
+import type { LlmErrorMessage } from '#human/llm/errors';
 import { NO_FINISH, type FinishInfo } from '@moonshot-ai/core/llm/response';
 import type {
   ProviderMediaContribution,
@@ -13,7 +13,7 @@ import type {
   VideoUploadInput,
 } from '#human/media/upload';
 import { createMessageAccumulator, type ImageURLPart, type VideoURLPart } from '#human/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#human/llm/model';
 import type { ProtocolName } from '#human/llm/protocol/base';
 import {
   LLM_BODY_TIMEOUT_ENV,

@@ -7,7 +7,7 @@ import {
   type Message,
   type ToolDescription,
 } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import {
   fullReasoningEchoRequired,
   ignoredSamplingParamsForModel,

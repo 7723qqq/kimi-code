@@ -1,7 +1,7 @@
 import type { FinishReason } from '@moonshot-ai/core/llm/response';
 import type { ImageUploadInput, VideoUploadInput } from '#human/media/upload';
 import type { ResponseFormat } from '#human/llm/response-format';
-import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
+import type { ThinkingEffort } from '#human/llm/thinking';
 import type { TokenUsage } from '#human/llm/usage';
 
 import type {

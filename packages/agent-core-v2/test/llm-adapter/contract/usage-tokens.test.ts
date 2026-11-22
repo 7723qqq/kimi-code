@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { Message } from '@moonshot-ai/core/llm/message';
+import type { Message } from '#/llm-adapter/contract/message';
 import {
   estimateTokens,
   estimateTokensForContentPart,
@@ -8,8 +8,8 @@ import {
   estimateTokensForMessages,
   estimateTokensForTools,
   MEDIA_TOKEN_ESTIMATE,
-} from '@moonshot-ai/core/llm/tokens';
-import { addUsage, emptyUsage, grandTotal, inputTotal } from '@moonshot-ai/core/llm/usage';
+} from '#/llm-adapter/contract/tokens';
+import { addUsage, emptyUsage, grandTotal, inputTotal } from '#human/llm/usage';
 
 describe('TokenUsage aggregation', () => {
   it('emptyUsage leaves cache read unknown', () => {

@@ -7,7 +7,7 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type PromptHandle } from '#/agent/loop/loop';
 import { IAgentTitlePromptSource } from '#/session/sessionTitle/agentTitlePromptSource';
 import { AgentTitlePromptSourceService } from '#/session/sessionTitle/agentTitlePromptSourceService';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart } from '#human/llm/message';
 
 const USER_ORIGIN: ContextMessage['origin'] = { kind: 'user' };
 

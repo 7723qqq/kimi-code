@@ -44,7 +44,7 @@ import type { ISessionWorkspaceContext } from '#/session/workspaceContext/worksp
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { FoldContext } from '#/state/state';
 import type { RunnableToolExecution } from '#/tool/toolContract';
-import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolCall } from '#human/llm/message';
 
 import {
   stubToolExecutorEvents,

@@ -13,7 +13,7 @@ import { createEventStore } from '#/eventStore/eventStore';
 import { journalFromBranch } from '#/eventStore/journal';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createAssistantMessage, createUserMessage, extractText } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import type { LlmRequester } from '#/llm/requester/requester';
 import { emptyUsage } from '#/llm/usage';
 import { createSessionMachine, type AgentActorRef } from '#/session/machine';

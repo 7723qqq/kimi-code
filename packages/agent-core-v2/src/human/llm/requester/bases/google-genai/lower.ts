@@ -1,7 +1,7 @@
 import type { Message, TextPart } from '#/llm/message';
 import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/protocol/errors';
 
-import type { GoogleContent, GooglePart } from '@moonshot-ai/core/llm/builtin/protocol/google-genai/contract';
+import type { GoogleContent, GooglePart } from './contract';
 
 function toolCallIdToName(toolCallId: string, toolNameById: Map<string, string>): string {
   const name = toolNameById.get(toolCallId);

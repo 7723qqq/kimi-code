@@ -5,7 +5,7 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentGoalService } from '#/features/goal/goalService';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolCall } from '#human/llm/message';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { runWillBeginStepHooks, type StubLoop } from '../../../agent/loop/stubs';

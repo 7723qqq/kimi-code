@@ -9,7 +9,7 @@ import {
   createUserMessage,
   type Message,
 } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import {
   fullReasoningEchoRequired,
   ignoredSamplingParamsForModel,
@@ -24,7 +24,7 @@ import {
   resolveThinkingEffortForModel,
   resolveThinkingKeep,
   type ModelThinkingMetadata,
-} from '@moonshot-ai/core/llm/thinking';
+} from '#/llm/thinking';
 
 const model: LlmModel = {
   provider: 'test',

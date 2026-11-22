@@ -64,7 +64,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
-import { mergeSteerMessages, stripBundledSkillBlocks } from '@moonshot-ai/core/llm/origin';
+import { mergeSteerMessages, stripBundledSkillBlocks } from '#human/agent/origin';
 import { type FinishReason } from '@moonshot-ai/core/llm/response';
 import type { ContentPart, UserMessage } from '#human/message';
 import { emptyUsage, type TokenUsage } from '#/agent/usage/cacheBreak';

@@ -21,7 +21,7 @@ import {
   IAgentLifecycleService,
   type AgentScopeCreatedEvent,
 } from '#/session/agentLifecycle/agentLifecycle';
-import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolCall } from '#human/llm/message';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import {

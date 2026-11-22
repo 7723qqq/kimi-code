@@ -11,7 +11,7 @@ import {
   estimateTokens,
   estimateTokensForMessage,
   estimateTokensForMessages,
-} from '@moonshot-ai/core/llm/tokens';
+} from '#/llm-adapter/contract/tokens';
 
 export {
   buildCompactionContinuationText,

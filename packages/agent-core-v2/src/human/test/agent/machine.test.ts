@@ -30,7 +30,7 @@ import {
   type StreamedMessagePart,
   type ToolCall,
 } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import type { LlmEvent } from '#/llm/requester/actor';
 import type { LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
 import type { LlmRetryOptions } from '#/llm/requester/retry';

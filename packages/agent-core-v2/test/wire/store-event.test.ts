@@ -20,7 +20,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import { type ContentPart } from '@moonshot-ai/core/llm/message';
+import { type ContentPart } from '#human/llm/message';
 
 import {
   recordingWireLog,

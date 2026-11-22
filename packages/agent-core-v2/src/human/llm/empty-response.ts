@@ -1,7 +1,7 @@
-import type { LlmErrorMessage } from '@moonshot-ai/core/llm/errors';
+import type { LlmErrorMessage } from '#/llm/errors';
 import type { FinishInfo } from '@moonshot-ai/core/llm/response';
 import type { AssistantMessage } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 
 function formatFinishReasonHint(finish: FinishInfo): string {
   if (finish.finishReason === null && finish.rawFinishReason === null) return '';

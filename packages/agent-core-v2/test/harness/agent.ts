@@ -241,8 +241,8 @@ import {
   type SessionWillCloseEvent,
 } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import type { LlmRequester } from '#human/llm/requester/requester';
-import { type ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
-import { type TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { type ThinkingEffort } from '#human/llm/thinking';
+import { type TokenUsage } from '#/agent/usage/usage';
 
 import { stubAgentIdentity } from '../app/agentIdentity/stubs';
 import { stubClientIdentity } from '../app/bootstrap/stubs';

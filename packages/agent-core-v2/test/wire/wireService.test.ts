@@ -23,7 +23,7 @@ import { WIRE_MIN_READER_VERSION, WIRE_PROTOCOL_VERSION } from '#/wire/migration
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 import { wireJournalBackupKey } from '#/wire/repair';
 import { IWireService } from '#/wire/wire';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart } from '#human/llm/message';
 
 import { recordingWireLog, registerTestAgentWire, testWireScope, noopLogger } from './stubs';
 

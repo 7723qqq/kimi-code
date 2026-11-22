@@ -7,7 +7,7 @@ import {
   kimiResponsesTrait,
   KIMI_DEFAULT_BASE_URL,
 } from '#human/llm-kimi/trait';
-import type { ModelCapability as HumanModelCapability } from '@moonshot-ai/core/llm/capability';
+import type { ModelCapability as HumanModelCapability } from '#human/llm/capability';
 import { resolveModelFamily } from '#human/llm/modelFamily';
 import type { ProtocolEndpoint, ProviderConnection } from '#human/llm/protocol/connection';
 import { bedrockAnthropicBase } from '#human/llm/provider/bedrock/anthropic';

@@ -1,12 +1,12 @@
 import { GoogleGenAI as GenAIClient, type GenerateContentParameters } from '@google/genai';
 import { assign, shake } from 'radashi';
 
-import type { LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/errors';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmRemoteErrorMessage } from '#/llm/errors';
+import type { LlmModel } from '#/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#human/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
-import { applyThinking } from '@moonshot-ai/core/llm/thinking';
+import { applyThinking } from '#/llm/protocol/thinking';
 import {
   mergeRequestHeaders,
   type LlmClientContext,
@@ -17,8 +17,8 @@ import {
   type LlmRequesterOptions,
   type LlmRequestEvent,
 } from '#/llm/requester/requester';
-import { createThinkingTagEventHandler } from '@moonshot-ai/core/llm/requester/thinking-tags';
-import { toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
+import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
+import { toLlmSyntaxErrorMessage } from '#/llm/errors';
 
 import { getGoogleGenAIModelCapability } from './capability';
 import {

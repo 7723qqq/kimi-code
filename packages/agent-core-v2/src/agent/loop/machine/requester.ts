@@ -7,7 +7,7 @@ import type {
 import { unwrapErrorCause } from '#/errors';
 import { llmMessageFromError } from '#/llm-adapter/contract/errors';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import { toLlmErrorMessage, type LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/errors';
+import { toLlmErrorMessage, type LlmRemoteErrorMessage } from '#/errors';
 import type {
   LlmRequestConfig,
   LlmRequestContent,

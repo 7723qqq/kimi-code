@@ -1,4 +1,4 @@
-import { promptDisplayTextFromContentParts } from '@moonshot-ai/core/llm/origin';
+import { promptDisplayTextFromContentParts } from '#human/agent/origin';
 import type { ContentPart } from '#human/llm/message';
 
 const MAX_TITLE_LENGTH = 200;

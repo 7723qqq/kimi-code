@@ -6,7 +6,7 @@ import type {
   ToolExecutionResult,
 } from '#/agent/toolExecutor/toolExecutor';
 import type { ToolInfo } from '#/tool/toolContract';
-import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolCall } from '#human/llm/message';
 import type { ToolExecuteInput } from '#human/tool/executor';
 
 function call(id: string, name: string): ToolCall {

@@ -4,7 +4,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { type ExecutableTool } from '#/tool/toolContract';
-import { type ToolCall } from '@moonshot-ai/core/llm/message';
+import { type ToolCall } from '#human/llm/message';
 
 import { createTestAgent, permissionModeServices } from '../../harness/agent';
 import { type GenerateCall } from '../../harness/snapshots';

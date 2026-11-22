@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createUserMessage, type ToolDescription } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import {
   kimiAnthropicTrait,
   kimiConnection,

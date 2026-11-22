@@ -36,7 +36,7 @@ import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolic
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import type { ExecutableTool, ToolExecution, ToolResult, ToolSource } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
-import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolCall } from '#human/llm/message';
 import type { WatchChange } from '#human/utils/watch';
 
 import { deferredAgentIdentityStub } from '../../app/agentIdentity/stubs';

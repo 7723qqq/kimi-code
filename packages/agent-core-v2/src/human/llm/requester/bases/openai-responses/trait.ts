@@ -1,14 +1,14 @@
 import type { ToolDescription } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import type { TraitContext } from '#/llm/protocol/base';
-import type { ThinkingStrategy } from '@moonshot-ai/core/llm/thinking';
+import type { ThinkingStrategy } from '#/llm/protocol/thinking';
 import type { ToolCallIdPolicy, ToolMessageConversion } from '#/llm/requester/requester';
 
 import type {
   OpenAIResponsesRawChunk,
   OpenAIResponsesRawUsage,
   ResponsesInputItem,
-} from '@moonshot-ai/core/llm/builtin/protocol/openai-responses/contract';
+} from './contract';
 
 export interface OpenAIResponsesTrait {
   readonly toolCallIdPolicy?: ToolCallIdPolicy;

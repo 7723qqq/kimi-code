@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createUserMessage, type Message } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
 import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
 import type { LlmClientContext } from '#/llm/requester/requester';

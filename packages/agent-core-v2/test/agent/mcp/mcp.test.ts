@@ -39,7 +39,7 @@ import { ISessionContext, makeSessionContext } from '#/session/sessionContext/se
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { type WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
-import { type ContentPart, type ToolDescription as KosongTool } from '@moonshot-ai/core/llm/message';
+import { type ContentPart, type ToolDescription as KosongTool } from '#human/llm/message';
 
 import { stubLog } from '../../_base/log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';

@@ -42,15 +42,15 @@ import {
 } from '#/llm-adapter/contract/errors';
 import { type Message } from '#/llm-adapter/contract/message';
 import { fromLlmMessage } from '#/llm-adapter/contract/message';
-import { estimateTokensForMessages } from '@moonshot-ai/core/llm/tokens';
+import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IWireService } from '#/wire/wire';
 import type { FinishReason } from '@moonshot-ai/core/llm/response';
-import { type StreamedMessagePart, type ToolCall } from '@moonshot-ai/core/llm/message';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { type StreamedMessagePart, type ToolCall } from '#/llm-adapter/contract/message';
+import type { TokenUsage } from '#human/llm/usage';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 import {
   advanceTimersByTimeAsync,

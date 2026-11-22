@@ -3,7 +3,7 @@ import { ILogService, type ILogger } from '#/_base/log/log';
 import { LifecycleScope } from '#/app/scopes';
 import { KimiFiles, kimiFilesBaseUrl, type KimiFilesFetch } from '#human/llm-kimi/files';
 import type { ProviderMediaContribution } from '#human/media/upload';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#human/llm/model';
 import type { ProtocolBase } from '#human/llm/protocol/base';
 import type { ProviderConnection } from '#human/llm/protocol/connection';
 import type { ProtocolTraitFor } from '#human/llm/provider/definition';
@@ -17,7 +17,7 @@ import { openAIResponsesBase } from '#human/llm/requester/bases/openai-responses
 import { openAIBase } from '#human/llm/requester/bases/openai/requester';
 import type { OpenAITrait } from '#human/llm/requester/bases/openai/trait';
 import type { LlmErrorClassifier } from '#human/llm/requester/requester';
-import type { ModelThinkingMetadata } from '@moonshot-ai/core/llm/thinking';
+import type { ModelThinkingMetadata } from '#human/llm/thinking';
 
 import { UNKNOWN_CAPABILITY, toLlmCapability, type ModelCapability } from '../contract/capability';
 import type { Model } from '../model/catalog';

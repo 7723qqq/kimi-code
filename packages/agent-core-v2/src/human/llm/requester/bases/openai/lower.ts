@@ -1,8 +1,8 @@
 import { extractText, type ContentPart, type Message } from '#/llm/message';
 import type { ToolMessageConversion } from '#/llm/requester/requester';
 
-import type { OpenAIContentPart, OpenAIWireMessage } from '@moonshot-ai/core/llm/builtin/protocol/openai/contract';
-import { TOOL_RESULT_MEDIA_PLACEHOLDER } from '@moonshot-ai/core/llm/protocol/patterns';
+import type { OpenAIContentPart, OpenAIWireMessage } from './contract';
+import { TOOL_RESULT_MEDIA_PLACEHOLDER } from './patterns';
 import { DEFAULT_REASONING_KEY, REASONING_DETAILS_KEY } from './reasoning-key';
 
 const OMITTED_AUDIO_PLACEHOLDER = '(audio omitted: not supported by this provider)';

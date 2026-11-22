@@ -1,13 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { assign, shake } from 'radashi';
 
-import { headersToRecord, type LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/errors';
+import { headersToRecord, type LlmRemoteErrorMessage } from '#/llm/errors';
 import { providerImagePolicy } from '#/llm/media/image-formats';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#human/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
-import { applyThinking } from '@moonshot-ai/core/llm/thinking';
+import { applyThinking } from '#/llm/protocol/thinking';
 import {
   mergeRequestHeaders,
   type LlmClientContext,
@@ -19,10 +19,10 @@ import {
   type LlmRequestEvent,
   type ToolCallIdPolicy,
 } from '#/llm/requester/requester';
-import { createThinkingTagEventHandler } from '@moonshot-ai/core/llm/requester/thinking-tags';
+import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
 import { getLlmDispatcher } from '#human/llm/requester/timeout';
-import { toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
-import { ThinkingConfigError } from '@moonshot-ai/core/llm/thinking';
+import { toLlmSyntaxErrorMessage } from '#/llm/errors';
+import { ThinkingConfigError } from '#/llm/thinking';
 
 import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
 import { getAnthropicModelCapability } from './capability';

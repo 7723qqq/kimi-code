@@ -1,9 +1,9 @@
-import type { LlmErrorMessage, LlmRemoteErrorMessage } from '@moonshot-ai/core/llm/errors';
+import type { LlmErrorMessage, LlmRemoteErrorMessage } from '#/llm/errors';
 import type { FinishInfo } from '@moonshot-ai/core/llm/response';
 import type { Message, StreamedMessagePart, ToolDescription } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import type { ResponseFormat } from '#human/llm/response-format';
-import type { ThinkingRequestOptions } from '@moonshot-ai/core/llm/thinking';
+import type { ThinkingRequestOptions } from '#/llm/thinking';
 import type { TokenUsage } from '#/llm/usage';
 
 import type { AnthropicExtraParams } from './bases/anthropic/extra-params';

@@ -7,7 +7,7 @@ import {
   createUserMessage,
   type Message,
 } from '#/llm/message';
-import type { LlmModel } from '@moonshot-ai/core/llm/model';
+import type { LlmModel } from '#/llm/model';
 import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
 import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
 import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';

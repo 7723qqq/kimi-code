@@ -1,5 +1,5 @@
 import type { LlmRequestProjection } from '#/agent/loop/llmRequestOps';
-import type { ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
+import type { ThinkingEffort } from '#human/llm/thinking';
 import { inputTotal, type TokenUsage } from '#human/llm/usage';
 
 export interface CacheObservation {

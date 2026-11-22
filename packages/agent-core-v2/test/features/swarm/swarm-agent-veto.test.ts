@@ -25,7 +25,7 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import type { ToolCall } from '@moonshot-ai/core/llm/message';
+import type { ToolCall } from '#human/llm/message';
 
 import { stubContextMemory } from '../../agent/contextMemory/stubs';
 import {

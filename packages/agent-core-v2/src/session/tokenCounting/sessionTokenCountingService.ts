@@ -20,7 +20,7 @@ import {
   estimateTokensForMessage,
   estimateTokensForMessages,
   estimateTokensForTools,
-} from '@moonshot-ai/core/llm/tokens';
+} from '#/llm-adapter/contract/tokens';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { ToolDescription as Tool } from '#human/llm/message';
 import type { TokenUsage } from '#human/llm/usage';

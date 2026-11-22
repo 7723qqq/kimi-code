@@ -17,7 +17,7 @@ import {
   modelSupportsThinking,
   modelSupportsThinkingEffort,
   normalizeRequestedThinkingEffort,
-} from '@moonshot-ai/core/llm/thinking';
+} from '#/llm-adapter/model/thinking';
 import type { ThinkingConfig } from '#/llm-adapter/model/thinking';
 
 export const SUBAGENT_SECTION = 'subagent';

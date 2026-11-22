@@ -37,7 +37,7 @@ import {
   type ExecutableToolContext,
   type ExecutableToolResult,
 } from '#/tool/toolContract';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ContentPart } from '#human/llm/message';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubConfigService } from '../../../app/config/stubs';

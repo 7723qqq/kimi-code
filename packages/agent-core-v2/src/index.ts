@@ -196,7 +196,7 @@ export type {
   JsonSchemaResponseFormat,
   ResponseFormat,
 } from '#human/llm/response-format';
-export type { ThinkingEffort, ThinkingRequestOptions } from '@moonshot-ai/core/llm/thinking';
+export type { ThinkingEffort, ThinkingRequestOptions } from '#human/llm/thinking';
 export type { VideoUploadInput } from '#human/media/upload';
 export type { ToolCallIdPolicy } from '#human/llm/requester/requester';
 export type { SamplingOptions } from '#/llm-adapter/model/model-requester';

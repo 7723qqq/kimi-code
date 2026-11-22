@@ -4,8 +4,8 @@ import {
   estimateTokensForContentPart,
   estimateTokensForMessage,
   MEDIA_TOKEN_ESTIMATE,
-} from '@moonshot-ai/core/llm/tokens';
-import type { ContentPart } from '@moonshot-ai/core/llm/message';
+} from '#/llm-adapter/contract/tokens';
+import type { ContentPart } from '#human/llm/message';
 
 describe('token estimates for media content parts', () => {
   const imagePart: ContentPart = {

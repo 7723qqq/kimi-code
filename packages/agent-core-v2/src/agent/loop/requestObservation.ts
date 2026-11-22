@@ -11,11 +11,11 @@ import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ApiErrorEvent, CacheBreakDetectedEvent } from '#/app/telemetry/events';
 import { unwrapErrorCause } from '#/errors';
 import { countMediaParts } from '@moonshot-ai/core/llm/builtin/policy/media-degrade';
-import type { Message, ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+import type { Message, ToolDescription as Tool } from '#human/llm/message';
 import type { LlmRequest, ThinkingEffort } from '@moonshot-ai/core/llm/request';
 import type { LlmRecoveryRecord } from '@moonshot-ai/core/llm/policy/recovery';
 import { llmErrorRequestId, type LlmOutcome, type LlmRunEvent, type LlmTiming } from '@moonshot-ai/core/llm/response';
-import { emptyUsage, grandTotal, inputTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { emptyUsage, grandTotal, inputTotal, type TokenUsage } from '#human/llm/usage';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import {
   APIStatusError,

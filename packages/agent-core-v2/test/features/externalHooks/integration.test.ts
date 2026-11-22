@@ -78,7 +78,7 @@ import {
   type SessionCreateSource,
   type SessionWillCloseEvent,
 } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { emptyUsage } from '@moonshot-ai/core/llm/usage';
+import { emptyUsage } from '#human/llm/usage';
 
 import { stubLoopWithHooks, stubToolExecutor } from '../../agent/loop/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
