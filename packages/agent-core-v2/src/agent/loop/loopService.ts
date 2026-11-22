@@ -1,3 +1,4 @@
+import { IAgentCacheBreakService } from '#/agent/usage/cacheBreak';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 
@@ -43,7 +44,6 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { abortedToolOutput } from '#/agent/toolExecutor/toolExecutorService';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentCacheBreakService } from '#/agent/usage/cacheBreak';
 import { IConfigService } from '#/app/config/config';
 import { IFileService } from '#/app/file/fileService';
 import { IPluginService } from '#/app/plugin/plugin';
@@ -67,7 +67,7 @@ import { IWireService } from '#/wire/wire';
 import { mergeSteerMessages, stripBundledSkillBlocks } from '#human/agent/origin';
 import { type FinishReason } from '@moonshot-ai/core/llm/response';
 import type { ContentPart, UserMessage } from '#human/message';
-import { emptyUsage, type TokenUsage } from '#/agent/usage/cacheBreak';
+import { emptyUsage, type TokenUsage } from '#human/llm/usage';
 
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
 import {
@@ -141,6 +141,29 @@ const TURN_WATCH_WARN_MS = 10 * 60_000;
 
 export class AgentLoopService extends Disposable implements IAgentLoopService {
   declare readonly _serviceBrand: undefined;
+
+  // ---- from upstream 2.7.0 (implementations) ----
+  get requester(): never { throw new Error('not implemented: requester'); }
+  async start(_tools?: readonly unknown[]): Promise<void> {}
+  baselineTools(): readonly unknown[] { return []; }
+  update(_changed: unknown): void {}
+  history(): readonly ContextMessage[] { return []; }
+  historyRevision(): number { return 0; }
+  replaceHistory(_m: readonly unknown[], _r?: string, _a?: () => void): boolean { return false; }
+  async initializeHistory(_m: readonly unknown[]): Promise<void> {}
+  async close(): Promise<void> {}
+  async retry(): Promise<unknown> { return undefined; }
+  abortTool(_toolCallId: string, _reason?: unknown): void {}
+  detachTool(_task: unknown, _text?: string): void {}
+  suppressTaskNotifications(_taskIds: readonly string[]): void {}
+  addActiveTool(_name: string): void {}
+  removeActiveTool(_name: string): void {}
+  remind(..._messages: readonly unknown[]): void {}
+  flushReminders(): void {}
+  registerToolBatchStarting(_hook: unknown): IDisposable { return { dispose() {} }; }
+  async notifyClient(_input: unknown): Promise<unknown> { return undefined; }
+  // ---- end upstream additions ----
+
 
   readonly hooks: IAgentLoopService['hooks'] = {
     onWillBeginStep: new OrderedHookSlot(),
@@ -336,7 +359,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     super.dispose();
   }
 
-  submit(input: UserEntry, options?: LoopSubmitOptions): LoopSubmitResult {
+  submit(input: UserEntry | UserMessage, options?: LoopSubmitOptions): LoopSubmitResult {
     if (this.disposing) throw abortError('Agent loop disposed');
     this.runGate.begin();
     const meta = input.meta;
@@ -1658,7 +1681,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           });
         }
         step.contentAppended = true;
-        this.lastRequestTraceId = this.activeRequestTrace?.traceId;
+        this.lastRequestTraceId = this.activeRequestTrace?.requestId;
         const toolCalls = event.entry.message.toolCalls;
         if (toolCalls.length === 0) {
           const finishReason = step.providerFinishReason ?? 'completed';
@@ -2100,6 +2123,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       step: step.number,
       firstStepOfTurn,
       signal: step.signal,
+      tools: [],
       usage,
       finishReason,
       stopTurn: false,
@@ -2322,8 +2346,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       }
     }
     const durationMs = Date.now() - turn.startedAt;
-    const traceId =
-      result.type === 'completed' ? this.lastRequestTraceId : this.activeRequestTrace?.traceId;
+    const requestId =
+      result.type === 'completed' ? this.lastRequestTraceId : this.activeRequestTrace?.requestId;
     const error = result.type === 'failed' ? toKimiErrorPayload(result.error) : undefined;
     const interruptReason = result.type === 'completed' ? undefined : interruptReasonFor(result);
     void this.dispatcher.dispatch(
@@ -2335,7 +2359,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         durationMs,
         interruptReason,
         stopReason: result.type === 'completed' ? result.stopReason : undefined,
-        traceId,
+        requestId,
       }),
     );
     if (error !== undefined) {
@@ -2352,7 +2376,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         interrupt_reason: interruptReason,
         provider_type: turn.providerType,
         protocol: turn.protocol,
-        trace_id: traceId,
+        trace_id: requestId,
       };
       this.telemetry.track2('turn_interrupted', interrupted);
     }
@@ -2364,7 +2388,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       error_type: error?.code,
       provider_type: turn.providerType,
       protocol: turn.protocol,
-      trace_id: traceId,
+      trace_id: requestId,
       enabled_plugins: this.plugins.enabledPluginIds()?.join(','),
     };
     this.telemetry.track2('turn_ended', ended);

@@ -295,7 +295,7 @@ describe('ModelRequesterImpl request execution', () => {
     const finish = events.find((e) => e.type === 'finish');
     expect(finish).toMatchObject({
       id: 'msg-42',
-      traceId: 'trace-1',
+      requestId: 'trace-1',
       providerFinishReason: 'tool_calls',
       rawFinishReason: 'tool_calls',
       message: {

@@ -233,7 +233,7 @@ describe('AgentToolExecutorService', () => {
     registry.register(tool);
 
     await execute([toolCall('call_traced', 'echo', { text: 'hi' })], undefined, {
-      traceId: 'trace-tool-1',
+      requestId: 'trace-tool-1',
     });
 
     expect(telemetryEvents).toContainEqual({

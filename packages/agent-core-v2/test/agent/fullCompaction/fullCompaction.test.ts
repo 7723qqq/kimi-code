@@ -1322,10 +1322,10 @@ describe('FullCompaction', () => {
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
     const fullCompaction = ctx.get(IAgentFullCompactionService);
-    for (let i = 0; i < 10 && fullCompaction.compacting?.traceId === undefined; i += 1) {
+    for (let i = 0; i < 10 && fullCompaction.compacting?.requestId === undefined; i += 1) {
       await Promise.resolve();
     }
-    expect(fullCompaction.compacting?.traceId).toBe('trace-compact-retry');
+    expect(fullCompaction.compacting?.requestId).toBe('trace-compact-retry');
 
     void ctx.rpc.cancelCompaction({});
     await cancelled;
@@ -4232,7 +4232,7 @@ function wrappedCompactionSummary(text: string): string {
   return `<system-reminder>\n${COMPACTION_SUMMARY_PREFIX}\n${text}\n</system-reminder>`;
 }
 
-function textResult(text: string, traceId: string | null = null): LegacyGenerateResult {
+function textResult(text: string, requestId: string | null = null): LegacyGenerateResult {
   return {
     id: 'mock-compaction-oauth-retry',
     message: {
@@ -4257,13 +4257,13 @@ interface ScriptedStream {
   readonly usage: TokenUsage | null;
   readonly finishReason: FinishReason | null;
   readonly rawFinishReason: string | null;
-  readonly traceId: string | null;
+  readonly requestId: string | null;
   [Symbol.asyncIterator](): AsyncIterator<StreamedMessagePart>;
 }
 
 function mockStreamedMessage(
   parts: readonly StreamedMessagePart[],
-  traceId: string | null = null,
+  requestId: string | null = null,
   opts?: { finishReason?: FinishReason | null; rawFinishReason?: string | null },
 ): ScriptedStream {
   return {
@@ -4292,7 +4292,7 @@ function realKosongGenerate(
       emit?.({ type: 'llm.sent' });
       emit?.({
         type: 'llm.streaming.headers',
-        headers: streamed.traceId === null ? {} : { 'x-trace-id': streamed.traceId },
+        headers: streamed.requestId === null ? {} : { 'x-trace-id': streamed.requestId },
       });
       for await (const part of streamed) {
         emit?.({ type: 'llm.streaming.part', part });

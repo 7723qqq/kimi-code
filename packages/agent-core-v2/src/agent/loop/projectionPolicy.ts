@@ -24,7 +24,7 @@ function projectRequest(
     ...request,
     content: {
       ...request.content,
-      messages: projector.project(request.content.messages, strict),
+      messages: projector.project(request.content.messages as never, strict) as never,
     },
   };
 }

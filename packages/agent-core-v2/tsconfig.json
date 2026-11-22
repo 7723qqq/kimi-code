@@ -3,7 +3,7 @@
   "compilerOptions": {
     "experimentalDecorators": true,
     "paths": {
-      "#/*": ["./src/*.ts", "./src/human/*.ts"]
+      "#/*": ["./src/*.ts", "./src/human/*.ts", "../core/src/*.ts"]
     }
   },
   "include": ["src", "test"],

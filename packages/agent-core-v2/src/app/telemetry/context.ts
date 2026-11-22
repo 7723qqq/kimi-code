@@ -26,4 +26,5 @@ export interface TelemetryContextPatch
     Partial<AgentTelemetryContext>,
     Partial<TurnTelemetryContext> {
   readonly model?: string;
+  readonly trace_id?: string;
 }

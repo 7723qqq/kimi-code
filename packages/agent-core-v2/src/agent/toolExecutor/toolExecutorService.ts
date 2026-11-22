@@ -1,3 +1,4 @@
+import type { IDisposable } from '#/_base/di/lifecycle';
 import type { AgentToolExecutor, AgentToolExecutionHandler, AgentToolHook } from './toolExecutor';
 import { toDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -125,9 +126,9 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         const handler = this.handlerForCall(call.id);
         return handler === undefined
           ? { content: [{ type: 'text', text: `unknown tool: ${call.name}` }], isError: true }
-          : handler.handle(call as never, _context as never);
+          : (handler as unknown as { handle(c: unknown, x: unknown): Promise<unknown> }).handle(call as never, _context as never);
       },
-    } as AgentToolExecutor;
+    } as unknown as AgentToolExecutor;
   }
 
   registerHook(hook: AgentToolHook): IDisposable {
@@ -377,7 +378,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       outcome,
       duration_ms: durationMs,
       dup_type: dupType,
-      trace_id: options.trace?.traceId,
+      trace_id: options.trace?.requestId,
     };
     if (result.isError === true) properties['error_type'] = toolTelemetryErrorType(outcome);
     this.telemetry.track2('tool_call', properties);

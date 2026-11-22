@@ -260,7 +260,7 @@ describe('core LoopService integration', () => {
     loop.hooks.onDidFinishStep.register('ordinary-notify', async (hookCtx, next) => {
       if (hookCtx.turnId === 0 && hookCtx.step === 1) {
         loop.notify({
-          message: { role: 'user', content: [{ type: 'text', text: 'ordinary continuation' }] },
+          message: { role: 'user', content: [{ type: 'text', text: 'ordinary continuation' }] } as never,
         });
       }
       await next();
@@ -268,7 +268,7 @@ describe('core LoopService integration', () => {
     loop.hooks.onDidFinishStep.register('bypass-notify', async (hookCtx, next) => {
       if (hookCtx.turnId === 1 && hookCtx.step === 1) {
         loop.notify({
-          message: { role: 'user', content: [{ type: 'text', text: 'bypass continuation' }] },
+          message: { role: 'user', content: [{ type: 'text', text: 'bypass continuation' }] } as never,
           bypassMaxSteps: true,
         });
       }
@@ -312,7 +312,7 @@ describe('core LoopService integration', () => {
         role: 'user',
         id: 'seed-1',
         content: [{ type: 'text', text: 'wake up' }],
-      },
+      } as never,
     });
 
     const lifecycle: string[] = [];

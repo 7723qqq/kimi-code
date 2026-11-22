@@ -3,9 +3,9 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import { APIEmptyResponseError, APIStatusError } from '#/app/llmProtocol/errors';
 import type { Message } from '#/app/llmProtocol/message';
-import type { TokenUsage } from '#/app/llmProtocol/usage';
+import type { TokenUsage } from '#human/llm/usage';
 import { estimateTokensForMessage } from '#/llm-adapter/contract/tokens';
-import { grandTotal } from '#/app/llmProtocol/usage';
+import { grandTotal } from '#human/llm/usage';
 
 export const COMPACTION_OVERFLOW_SHRINK_RATIOS = [0.7, 0.5, 0.35] as const;
 

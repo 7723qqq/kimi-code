@@ -13,7 +13,7 @@ import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 export interface ToolCallStartedPayload {
   readonly agentId: string;
-  readonly origin: ToolExecutionOrigin;
+  readonly origin?: ToolExecutionOrigin;
   readonly turnId: number;
   readonly toolCallId: string;
   readonly name: string;
@@ -30,7 +30,7 @@ export interface ToolCallStarted extends ToolCallStartedPayload {}
 
 export interface ToolUpdatedPayload {
   readonly agentId: string;
-  readonly origin: ToolExecutionOrigin;
+  readonly origin?: ToolExecutionOrigin;
   readonly turnId: number;
   readonly toolCallId: string;
   readonly taskId: string;
@@ -48,7 +48,7 @@ export interface ToolUpdated extends ToolUpdatedPayload {}
 
 export interface ToolResultEventPayload {
   readonly agentId: string;
-  readonly origin: ToolExecutionOrigin;
+  readonly origin?: ToolExecutionOrigin;
   readonly turnId: number;
   readonly toolCallId: string;
   readonly output: unknown;

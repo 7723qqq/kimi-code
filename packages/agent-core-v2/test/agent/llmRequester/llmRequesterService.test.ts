@@ -1407,7 +1407,7 @@ describe('AgentLLMRequesterService trace id', () => {
     project: (messages: readonly ContextMessage[]) => messages,
   };
 
-  function createTracedRequester(traceId: string | null): ModelRequester {
+  function createTracedRequester(requestId: string | null): ModelRequester {
     const model: Model = {
       id: 'm',
       name: 'wire-model',
@@ -1430,7 +1430,7 @@ describe('AgentLLMRequesterService trace id', () => {
           providerFinishReason: 'completed',
           rawFinishReason: 'stop',
           id: 'resp-1',
-          traceId: traceId ?? undefined,
+          requestId: traceId ?? undefined,
         };
       },
     };
@@ -1445,7 +1445,7 @@ describe('AgentLLMRequesterService trace id', () => {
         _input: unknown,
         _signal: unknown,
         requestOptions: {
-          onTraceId?: (traceId: string | null) => void;
+          onTraceId?: (requestId: string | null) => void;
         },
       ) {
         requestOptions.onTraceId?.('trace-req-1');
@@ -1457,19 +1457,19 @@ describe('AgentLLMRequesterService trace id', () => {
           providerFinishReason: 'completed',
           rawFinishReason: 'stop',
           id: 'resp-1',
-          traceId: 'trace-req-1',
+          requestId: 'trace-req-1',
         } satisfies ModelRequestEvent;
       },
     });
     const { service } = createService(requester, passthroughProjector);
     const request = service.start({ source: { type: 'turn', turnId: 1, step: 1 } });
     await headersArrived;
-    expect(request.trace.traceId).toBe('trace-req-1');
+    expect(request.trace.requestId).toBe('trace-req-1');
     releaseStream.resolve();
     const finish = await request.result;
 
-    expect(finish.traceId).toBe('trace-req-1');
-    expect(request.trace.traceId).toBe('trace-req-1');
+    expect(finish.requestId).toBe('trace-req-1');
+    expect(request.trace.requestId).toBe('trace-req-1');
   });
 
   it('reports an absent trace before a request that returns none', async () => {
@@ -1477,8 +1477,8 @@ describe('AgentLLMRequesterService trace id', () => {
     const request = service.start();
     const finish = await request.result;
 
-    expect(finish.traceId).toBeUndefined();
-    expect(request.trace.traceId).toBeUndefined();
+    expect(finish.requestId).toBeUndefined();
+    expect(request.trace.requestId).toBeUndefined();
   });
 
   it('attaches trace_id, turn_id and step_no to api_error from the failed request', async () => {
@@ -1503,7 +1503,7 @@ describe('AgentLLMRequesterService trace id', () => {
         step_no: 2,
       }),
     });
-    expect(request.trace.traceId).toBe('trace-fail-1');
+    expect(request.trace.requestId).toBe('trace-fail-1');
   });
 
   it('probes the compaction request prefix against the last completed turn', async () => {
@@ -1535,7 +1535,7 @@ describe('AgentLLMRequesterService trace id', () => {
     Object.defineProperty(requester, 'request', {
       value: async function* (...args: unknown[]) {
         const requestOptions = args[2] as
-          | { onTraceId?: (traceId: string | null) => void }
+          | { onTraceId?: (requestId: string | null) => void }
           | undefined;
         requestOptions?.onTraceId?.('trace-mid-stream');
         const events: ModelRequestEvent[] = [];
@@ -1549,7 +1549,7 @@ describe('AgentLLMRequesterService trace id', () => {
 
     const apiError = telemetryRecords.find((record) => record.event === 'api_error');
     expect(apiError?.properties?.['trace_id']).toBe('trace-mid-stream');
-    expect(request.trace.traceId).toBe('trace-mid-stream');
+    expect(request.trace.requestId).toBe('trace-mid-stream');
   });
 
   it('clears the previous physical request trace before a projection retry', async () => {
@@ -1561,7 +1561,7 @@ describe('AgentLLMRequesterService trace id', () => {
         for (const event of events) yield event;
         attempts += 1;
         const requestOptions = args[2] as
-          | { onTraceId?: (traceId: string | null) => void }
+          | { onTraceId?: (requestId: string | null) => void }
           | undefined;
         if (attempts === 1) {
           requestOptions?.onTraceId?.('trace-first-projection');
@@ -1575,7 +1575,7 @@ describe('AgentLLMRequesterService trace id', () => {
     await expect(request.result).rejects.toThrow('socket hang up');
 
     expect(attempts).toBe(2);
-    expect(request.trace.traceId).toBeUndefined();
+    expect(request.trace.requestId).toBeUndefined();
     expect(
       telemetryRecords.find((record) => record.event === 'api_error')?.properties?.['trace_id'],
     ).toBeUndefined();
@@ -1600,7 +1600,7 @@ describe('AgentLLMRequesterService trace id', () => {
         _input: unknown,
         _signal: unknown,
         requestOptions: {
-          onTraceId?: (traceId: string | null) => void;
+          onTraceId?: (requestId: string | null) => void;
         },
       ) {
         requestOptions?.onTraceId?.(nextTrace);
@@ -1610,7 +1610,7 @@ describe('AgentLLMRequesterService trace id', () => {
           providerFinishReason: 'completed',
           rawFinishReason: 'stop',
           id: 'resp-1',
-          traceId: nextTrace ?? undefined,
+          requestId: nextTrace ?? undefined,
         } satisfies ModelRequestEvent;
       },
     });

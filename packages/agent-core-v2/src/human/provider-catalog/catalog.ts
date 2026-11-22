@@ -1,5 +1,5 @@
 import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
-import type { LlmErrorMessage } from '@moonshot-ai/core/llm/errors';
+import type { LlmErrorMessage } from '#human/llm/errors';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ProtocolName } from '#/llm/protocol/base';
 import type { Provider } from '#/llm/provider/definition';

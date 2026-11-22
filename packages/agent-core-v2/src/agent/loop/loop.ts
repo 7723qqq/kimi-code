@@ -248,7 +248,7 @@ export interface LoopDetachedTask {
 export interface IAgentLoopService {
   readonly _serviceBrand: undefined;
 
-  submit(input: UserEntry, options?: LoopSubmitOptions): LoopSubmitResult;
+  submit(input: UserEntry | UserMessage, options?: LoopSubmitOptions): LoopSubmitResult;
 
   steer(promptIds: readonly string[]): Promise<void>;
 

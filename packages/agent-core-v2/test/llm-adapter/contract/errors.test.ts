@@ -223,7 +223,7 @@ describe('model error retryability', () => {
     expect(error).toMatchObject({
       statusCode: undefined,
       requestId: 'req-stream',
-      traceId: 'trace-stream',
+      requestId: 'trace-stream',
       retryable: true,
     });
     expect(isRetryableGenerateError(error)).toBe(true);
@@ -291,7 +291,7 @@ describe('model error HTTP status source', () => {
     expect(error).toMatchObject({
       message: 'backend HTTP 503',
       statusCode: 503,
-      traceId: 'trace-http',
+      requestId: 'trace-http',
       retryable: true,
     });
     expect(isRetryableGenerateError(error)).toBe(true);
@@ -314,7 +314,7 @@ describe('model error HTTP status source', () => {
     expect(error).toMatchObject({
       code: 'provider.auth_error',
       statusCode: 403,
-      traceId: 'trace-http',
+      requestId: 'trace-http',
     });
     expect(isRetryableGenerateError(error)).toBe(false);
   });

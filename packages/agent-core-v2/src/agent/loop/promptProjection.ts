@@ -50,7 +50,7 @@ interface ActivePromptState extends ActivePrompt {
   readonly steeredPromptIds: Set<string>;
 }
 
-const EMPTY_HANDLE_MESSAGE: ContextMessage = { role: 'user', content: [] };
+const EMPTY_HANDLE_MESSAGE = { role: 'user', content: [] } as unknown as ContextMessage;
 
 export class AgentPromptProjection {
   private readonly waiters = new Map<string, PromptWaiter>();
@@ -241,9 +241,9 @@ export class AgentPromptProjection {
         activePromptId: active.id,
         promptIds: [id],
         messageId: id,
-        content: stripBundledSkillBlocks(projection.message),
+        content: stripBundledSkillBlocks(projection.message as never),
         steeredAt: new Date().toISOString(),
-      }));
+      } as never));
     }
     return accepted;
   }
@@ -349,11 +349,11 @@ export class AgentPromptProjection {
       promptId,
       userMessageId: projection.userMessageId,
       status,
-      content: stripBundledSkillBlocks(projection.message),
+      content: stripBundledSkillBlocks(projection.message as never),
       origin: projection.origin,
       clientMetadata: projection.origin.kind === 'user' ? projection.origin.clientMetadata : undefined,
       createdAt: projection.createdAt,
-    }));
+    } as never));
   }
 
   private publishQueued(projection: PromptProjection & { readonly id?: string }, includeCurrent: boolean): void {
@@ -362,7 +362,7 @@ export class AgentPromptProjection {
     void this.dispatcher.dispatch(new PromptQueued({
       agentId: this.agentId,
       promptId,
-      content: stripBundledSkillBlocks(projection.message),
+      content: stripBundledSkillBlocks(projection.message as never),
       clientMetadata: projection.origin.kind === 'user' ? projection.origin.clientMetadata : undefined,
       queueLength: this.queueLength(includeCurrent),
     }));
@@ -404,7 +404,7 @@ function projectionFromEntry(entry: UserMessage): ActivePrompt {
     },
     userMessageId: entry.attributes?.userMessageId ?? entry.attributes?.promptId ?? '',
     createdAt: entry.attributes?.createdAt ?? new Date().toISOString(),
-  };
+  } as never;
 }
 
 export function promptHistoryEntry(event: { readonly message: Message }): UserMessage | undefined {

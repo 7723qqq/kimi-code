@@ -49,6 +49,7 @@ export function stubContextMemory(eventBus?: IEventBus): StubContextMemory {
     get messages() {
       return messages;
     },
+    history: () => [...messages],
     get: () => [...messages],
     prefixRevision: () => revision,
     append: (...inserted) => {
@@ -102,6 +103,7 @@ class StubContextMemoryService implements IAgentContextMemoryService {
   get messages(): readonly ContextMessage[] {
     return this.impl.messages;
   }
+  history(): readonly ContextMessage[] { return this.messages; }
   get(): readonly ContextMessage[] {
     return this.impl.get();
   }

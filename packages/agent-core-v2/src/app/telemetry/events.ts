@@ -162,6 +162,7 @@ export interface ApiErrorEvent {
   step_no?: number;
   trace_id?: string;
   estimated_request_bytes?: number;
+  request_id?: string;
 }
 
 export interface SkillInvokedEvent {
@@ -476,6 +477,10 @@ export interface PredictionGeneratedEvent {
   reason?: string;
   duration_ms: number;
   request_id?: string;
+  prediction_chars?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  ttft_ms?: number;
 }
 
 export interface AgentsMdReminderShownEvent {
@@ -840,6 +845,7 @@ export const telemetryEventDefinitions = {
       thinking_effort: 'Effective thinking effort the turn ran with',
       trace_id:
         'Trace id of the most recent LLM request in this turn (the failed request when the turn errored); absent for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   turn_ended: defineAgentTelemetryEvent<TurnEndedEvent>({
@@ -859,6 +865,7 @@ export const telemetryEventDefinitions = {
         'Trace id of the most recent LLM request in this turn; absent for non-Kimi protocols',
       enabled_plugins:
         'Comma-separated sorted ids of enabled, loaded plugins when the turn ends; empty string for a known empty set, absent when no plugin snapshot is available',
+      request_id: 'Request id',
     },
   }),
   prompt_cache_probe: defineAgentTelemetryEvent<PromptCacheProbeEvent>({
@@ -930,6 +937,7 @@ export const telemetryEventDefinitions = {
       error_type: 'Error category when the call failed',
       trace_id:
         'Trace id of the LLM request that produced this tool call; absent for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   api_error: defineAgentTelemetryEvent<ApiErrorEvent>({
@@ -954,6 +962,7 @@ export const telemetryEventDefinitions = {
         'Trace id of the failed request, from its response headers or its error response; absent when the failure happened before any response headers arrived (network errors, local aborts), and for non-Kimi protocols',
       estimated_request_bytes:
         'Estimated outgoing request body size in bytes; absent when the failure happened before a request body was assembled',
+      request_id: 'Request id',
     },
   }),
   skill_invoked: defineAgentTelemetryEvent<SkillInvokedEvent>({
@@ -983,6 +992,7 @@ export const telemetryEventDefinitions = {
       from: 'What was running when cancelled',
       trace_id:
         'Trace id of the in-flight request, or of the most recent request between steps; absent for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   conversation_undo: defineAgentTelemetryEvent<ConversationUndoEvent>({
@@ -1032,6 +1042,7 @@ export const telemetryEventDefinitions = {
       has_feedback: 'Whether the user attached feedback',
       trace_id:
         'Trace id of the LLM request that produced the gated tool call; absent for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   plan_submitted: defineAgentTelemetryEvent<PlanSubmittedEvent>({
@@ -1187,6 +1198,7 @@ export const telemetryEventDefinitions = {
       input_cache_read: 'Cache-read input tokens',
       input_cache_creation: 'Cache-creation input tokens',
       trace_id: 'Trace id of the final compaction request round; absent for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   micro_compaction_finished: defineAgentTelemetryEvent<MicroCompactionFinishedEvent>({
@@ -1227,6 +1239,7 @@ export const telemetryEventDefinitions = {
       error_type: 'Error class name',
       trace_id:
         'Trace id of the failed compaction request, from its response headers or its error response; absent when the failure happened before any request or before response headers arrived (network errors), and for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   context_projection_repaired: defineAgentTelemetryEvent<ContextProjectionRepairedEvent>({
@@ -1294,6 +1307,7 @@ export const telemetryEventDefinitions = {
     properties: {
       trace_id:
         'Trace id of the LLM request that produced the questioning tool call; absent for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   question_answered: defineAgentTelemetryEvent<QuestionAnsweredEvent>({
@@ -1304,6 +1318,7 @@ export const telemetryEventDefinitions = {
       method: 'Input method used to answer',
       trace_id:
         'Trace id of the LLM request that produced the questioning tool call; absent for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   goal_created: defineAgentTelemetryEvent<GoalCreatedEvent>({
@@ -1361,6 +1376,7 @@ export const telemetryEventDefinitions = {
       args_hash: 'Hash of the tool call arguments',
       trace_id:
         'Trace id of the LLM request that produced the duplicate tool call; absent for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   tool_call_repeat: defineAgentTelemetryEvent<ToolCallRepeatEvent>({
@@ -1374,6 +1390,7 @@ export const telemetryEventDefinitions = {
       action: 'Intervention action taken',
       trace_id:
         'Trace id of the LLM request that produced the repeated tool call; absent for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   tool_call_turn_repeat: defineAgentTelemetryEvent<ToolCallTurnRepeatEvent>({
@@ -1389,6 +1406,7 @@ export const telemetryEventDefinitions = {
       args_hash: 'Hash of the tool call arguments',
       trace_id:
         'Trace id of the LLM request that produced the repeated tool call; absent for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   tool_call_repeat_handoff: defineAgentTelemetryEvent<ToolCallRepeatHandoffEvent>({
@@ -1420,6 +1438,7 @@ export const telemetryEventDefinitions = {
       reminded_count: 'Number of AGENTS.md paths listed in the reminder',
       trace_id:
         'Trace id of the LLM request that produced the tool call; absent for non-Kimi protocols',
+      request_id: 'Request id',
     },
   }),
   notify_user_nudge_shown: defineAgentTelemetryEvent<NotifyUserNudgeShownEvent>({

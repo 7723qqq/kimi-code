@@ -60,7 +60,7 @@ function makeContext(
   return {
     turnId: 1,
     signal: options.signal ?? new AbortController().signal,
-    trace: options.traceId === undefined ? undefined : { traceId: options.traceId },
+    trace: options.requestId === undefined ? undefined : { requestId: options.requestId },
     toolCall,
     toolCalls: [toolCall],
     args,
@@ -655,7 +655,7 @@ describe('AgentToolApprovalService', () => {
       const svc = make();
 
       await svc.requestToolApproval(
-        makeContext('bash', {}, { traceId: 'trace-approval-1' }),
+        makeContext('bash', {}, { requestId: 'trace-approval-1' }),
         ask(),
         'fallback-ask',
       );

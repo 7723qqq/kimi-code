@@ -94,7 +94,7 @@ export class AgentTaskOutputService implements IAgentTaskOutputService {
     let snapshot = output;
     if (snapshot === undefined) {
       try {
-        snapshot = await this.notificationOutputSnapshot(info);
+        snapshot = await this.notificationOutputSnapshot(info) as never;
       } catch (error) {
         this.log.error('task notification output read failed; delivering without output', {
           taskId: info.taskId,
@@ -108,10 +108,10 @@ export class AgentTaskOutputService implements IAgentTaskOutputService {
 
   private async notificationOutputSnapshot(info: AgentTaskInfo): Promise<AgentTaskOutputSnapshot> {
     if (info.kind === 'question') {
-      const output = await this.readTaskOutputSnapshot(info.taskId, QUESTION_ANSWER_INLINE_BYTES);
+      const output = await this.readTaskOutputSnapshot(info.taskId, QUESTION_ANSWER_INLINE_BYTES) as never;
       return output === undefined ? emptyOutputSnapshot() : { ...output, fullOutputAvailable: true };
     }
-    const persisted = await this.readTaskOutputSnapshot(info.taskId, 0);
+    const persisted = await this.readTaskOutputSnapshot(info.taskId, 0) as never;
     if (persisted !== undefined) return { ...persisted, fullOutputAvailable: true };
     return emptyOutputSnapshot();
   }

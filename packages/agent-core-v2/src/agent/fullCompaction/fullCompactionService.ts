@@ -229,7 +229,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     if (active !== null) {
       this.telemetry.track2('cancel', {
         from: 'compacting',
-        trace_id: active.traceId,
+        trace_id: active.trace,
       });
     }
     active?.abortController.abort();
@@ -409,7 +409,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         tokenCount,
         originTurnId,
         quiescence,
-        get traceId() {
+        get trace() {
           return this.trace?.requestId;
         },
         blockedByTurn: false,
@@ -728,7 +728,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         retry_count: generationState.retryCount,
         thinking_effort: thinkingEffort,
         error_type: error instanceof Error ? error.name : 'Unknown',
-        trace_id: findAPIStatusError(error)?.traceId ?? active.traceId,
+        trace_id: findAPIStatusError(error)?.traceId ?? active.trace,
       };
       this.telemetry.track2('compaction_failed', properties);
       if (
@@ -772,7 +772,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   private inFlightTurnOf(history: readonly ContextMessage[]): ContextMessage[] {
     if (this.loopService.snapshot().state !== 'running') return [];
     let lastUserIndex = -1;
-    for (let i = history.length - 1; i >= 0; i--) {
+    for (let i = (history as never as unknown[]).length - 1; i >= 0; i--) {
       if (isRealUserInput(history[i]!)) {
         lastUserIndex = i;
         break;

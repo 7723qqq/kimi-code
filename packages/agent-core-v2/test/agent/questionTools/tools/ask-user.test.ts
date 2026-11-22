@@ -422,7 +422,7 @@ describe('AskUserQuestionTool', () => {
       toolCallId: 'call_question',
       args: input(),
       signal,
-      trace: { traceId: 'trace-q-1' },
+      trace: { requestId: 'trace-q-1' },
     });
 
     expect(result).toMatchObject({ isError: false });

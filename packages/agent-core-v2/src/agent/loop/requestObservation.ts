@@ -212,7 +212,7 @@ export class AgentLoopRequestObserver {
     if (event.reason === 'backoff') {
       if (infiniteRetry) {
         this.log.warn('llm request failed; retrying indefinitely (KIMI_CODE_INFINITE_RETRY)', {
-          model: request.model.spec.name,
+          model: request.model.name,
           ...request.logFields,
           attempt: event.failedAttempt,
           delayMs: event.delayMs,
@@ -223,7 +223,7 @@ export class AgentLoopRequestObserver {
     }
     if (event.strategy === 'structure') {
       this.log.warn('provider rejected request structure; resending with strict projection', {
-        model: request.model.spec.name,
+        model: request.model.name,
         ...request.logFields,
       });
       this.telemetry.track2('llm_request_projection_fallback', {
@@ -243,7 +243,7 @@ export class AgentLoopRequestObserver {
           ? 'provider rejected request as too large; resending with rejected media stripped'
           : 'provider rejected an image in the request; resending with rejected media stripped',
       {
-        model: request.model.spec.name,
+        model: request.model.name,
         ...request.logFields,
       },
     );
@@ -300,8 +300,8 @@ export class AgentLoopRequestObserver {
       this.tokenCounting.measured(
         this.scopeContext.agentContext,
         observation.media.previousMediaRecovery === undefined
-          ? request.messages
-          : (recorded?.messages ?? request.messages),
+          ? request.messages as never
+          : (recorded?.messages ?? request.messages) as never,
         [responseMessage],
         usage,
       );
@@ -387,7 +387,7 @@ export class AgentLoopRequestObserver {
     const snapshot = llmToolsSnapshotPayload(input.tools);
     const config = {
       provider: request.model.protocol,
-      model: request.model.spec.name,
+      model: request.model.name,
       modelAlias: request.modelAlias,
       thinkingEffort: request.thinkingEffort,
       systemPromptChars: input.systemPrompt.length,
@@ -497,8 +497,8 @@ export class AgentLoopRequestObserver {
       curr_input_other: curr.usage.inputOther,
       prev_output: prev.usage.output,
       curr_output: curr.usage.output,
-      prev_input_cache_creation: prev.usage.inputCacheCreation,
-      curr_input_cache_creation: curr.usage.inputCacheCreation,
+      prev_input_cache_creation: prev.usage.inputCacheCreation ?? 0,
+      curr_input_cache_creation: curr.usage.inputCacheCreation ?? 0,
       prev_total_tokens: prevTotal,
       cache_reuse_ratio: currRead / prevTotal,
       cache_read_drop_ratio: prevRead === 0 ? undefined : readDrop / prevRead,
@@ -515,19 +515,19 @@ export class AgentLoopRequestObserver {
     if (request.model.protocol !== 'anthropic') return;
     const effort = request.thinkingEffort;
     if (effort === 'on' || effort === 'off') return;
-    const supportEfforts = request.model.spec.thinking?.supportEfforts?.filter((value) => value.length > 0);
+    const supportEfforts = (request.model as unknown as { supportEfforts?: string[] }).supportEfforts?.filter((value) => value.length > 0);
     if (supportEfforts === undefined || supportEfforts.length === 0 || supportEfforts.includes(effort)) return;
     const code = 'anthropic-thinking-effort-not-listed';
     const knownEfforts = supportEfforts.join(',');
-    const message = `Thinking effort "${effort}" is not listed for model "${request.model.spec.name}" (known: ${supportEfforts.join(', ')}). The configured value will be sent unchanged to the Anthropic-compatible backend.`;
-    const key = [code, request.modelAlias, request.model.spec.name, effort, knownEfforts].join('\u0000');
+    const message = `Thinking effort "${effort}" is not listed for model "${request.model.name}" (known: ${supportEfforts.join(', ')}). The configured value will be sent unchanged to the Anthropic-compatible backend.`;
+    const key = [code, request.modelAlias, request.model.name, effort, knownEfforts].join('\u0000');
     const emitted = this.states.get(llmRequesterEmittedThinkingEffortWarningsKey);
     if (emitted.has(key)) return;
     emitted.add(key);
     try {
       this.log.warn(message, {
         modelAlias: request.modelAlias,
-        model: request.model.spec.name,
+        model: request.model.name,
         effort,
         knownEfforts,
       });
