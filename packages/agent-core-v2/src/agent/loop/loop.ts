@@ -5,12 +5,18 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { ToolCallOutcome } from '@moonshot-ai/core/loop/contract/outcome';
 import type { ToolCall } from '#human/llm/message';
 import type { Hooks } from '#/hooks';
+import type { LoopHooks } from '@moonshot-ai/core/loop/contract/hook';
 import type { FinishReason } from '@moonshot-ai/core/llm/response';
 import type { ContentPart, TextPart } from '#human/llm/message';
 import type { TokenUsage } from '#human/llm/usage';
 
 import { LoopErrors } from './errors';
 import type { UserEntry } from './machine';
+import type { LoopRequester } from './requesterContract';
+import type { ToolDescription as Tool } from '#human/llm/message';
+import type { ProfileUpdateData } from '#/agent/profile/profile';
+import type { Message, UserMessage } from '#human/llm/message';
+
 import type {
   MachineEngine,
   MachineEngineAttachBundle,
@@ -226,6 +232,17 @@ export interface LoopNotify {
 export interface LoopNotifyHandle {
   readonly dropped: boolean;
   drop(): void;
+}
+
+
+// ---- from upstream 2.7.0 ----
+export type LoopNotifyMessage = UserMessage;
+
+export interface LoopDetachedTask {
+  readonly taskId: string;
+  readonly toolCallId: string;
+  info(): unknown;
+  readonly completion: unknown;
 }
 
 export interface IAgentLoopService {

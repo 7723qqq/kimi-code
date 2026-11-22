@@ -1,3 +1,4 @@
+import type { AgentToolExecutor, AgentToolExecutionHandler, AgentToolHook } from './toolExecutor';
 import { toDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AsyncEmitter, type Event } from '#/_base/event';
@@ -111,6 +112,51 @@ export const toolExecutorDupTypeTurnIdKey = defineState<number | undefined>(
 
 export class AgentToolExecutorService implements IAgentToolExecutorService {
   declare readonly _serviceBrand: undefined;
+
+  // ---- from upstream 2.7.0 ----
+  private readonly handlerMap = new Map<string, AgentToolExecutionHandler>();
+  private readonly callHandlers = new Map<string, AgentToolExecutionHandler>();
+  private readonly toolHooks: AgentToolHook[] = [];
+  private readonly legacyStarting: Array<(event: BeforeToolExecuteEvent) => void | Promise<void>> = [];
+
+  get executor(): AgentToolExecutor {
+    return {
+      execute: async (call, _context) => {
+        const handler = this.handlerForCall(call.id);
+        return handler === undefined
+          ? { content: [{ type: 'text', text: `unknown tool: ${call.name}` }], isError: true }
+          : handler.handle(call as never, _context as never);
+      },
+    } as AgentToolExecutor;
+  }
+
+  registerHook(hook: AgentToolHook): IDisposable {
+    this.toolHooks.push(hook);
+    return { dispose: () => { const i = this.toolHooks.indexOf(hook); if (i >= 0) this.toolHooks.splice(i, 1); } };
+  }
+
+  registerLegacyStarting(listener: (event: BeforeToolExecuteEvent) => void | Promise<void>): IDisposable {
+    this.legacyStarting.push(listener);
+    return { dispose: () => { const i = this.legacyStarting.indexOf(listener); if (i >= 0) this.legacyStarting.splice(i, 1); } };
+  }
+
+  handlers(): readonly AgentToolExecutionHandler[] {
+    return [...this.handlerMap.values()];
+  }
+
+  handler(taskId: string): AgentToolExecutionHandler | undefined {
+    return this.handlerMap.get(taskId);
+  }
+
+  handlerForCall(toolCallId: string): AgentToolExecutionHandler | undefined {
+    return this.callHandlers.get(toolCallId);
+  }
+
+  release(taskId: string): void {
+    this.handlerMap.delete(taskId);
+    for (const [id, h] of this.callHandlers) if (h === this.handlerMap.get(taskId)) this.callHandlers.delete(id);
+  }
+  // ---- end upstream additions ----
 
   private readonly beforeExecuteEmitter = new BeforeToolExecuteEmitter();
   readonly onBeforeExecuteTool: Event<BeforeToolExecuteEvent> = this.beforeExecuteEmitter.event;

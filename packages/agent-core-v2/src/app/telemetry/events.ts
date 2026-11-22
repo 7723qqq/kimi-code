@@ -463,6 +463,21 @@ export interface ToolCallRepeatHandoffEvent {
   outcome: 'text' | 'vetoed';
 }
 
+
+// ---- from upstream 2.7.0 ----
+export interface PredictionRequestedEvent {
+  prediction_id: string;
+  turn_id: number;
+}
+export interface PredictionGeneratedEvent {
+  prediction_id: string;
+  turn_id: number;
+  status: 'generated' | 'empty' | 'invalid' | 'tool_call' | 'timeout' | 'cancelled' | 'stale' | 'error';
+  reason?: string;
+  duration_ms: number;
+  request_id?: string;
+}
+
 export interface AgentsMdReminderShownEvent {
   turn_id: number;
   tool_name: string;
@@ -1384,6 +1399,16 @@ export const telemetryEventDefinitions = {
         'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
       outcome: 'Whether the model answered in text or its tool calls were vetoed',
     },
+  }),
+  prediction_requested: defineAgentTelemetryEvent<PredictionRequestedEvent>({
+    owner: 'kimi-code',
+    comment: 'A prompt prediction request started.',
+    properties: { prediction_id: 'Prediction id', turn_id: 'Turn index' },
+  }),
+  prediction_generated: defineAgentTelemetryEvent<PredictionGeneratedEvent>({
+    owner: 'kimi-code',
+    comment: 'A prompt prediction finished.',
+    properties: { prediction_id: 'Prediction id', turn_id: 'Turn index', status: 'Outcome', duration_ms: 'Elapsed ms' },
   }),
   agents_md_reminder_shown: defineAgentTelemetryEvent<AgentsMdReminderShownEvent>({
     owner: 'kimi-code',

@@ -27,6 +27,10 @@ import type { ContextMessage } from './types';
 export class AgentContextMemoryService extends Disposable implements IAgentContextMemoryService {
   declare readonly _serviceBrand: undefined;
 
+  history(): readonly ContextMessage[] {
+    return this.get();
+  }
+
   private revision = 0;
 
   constructor(
