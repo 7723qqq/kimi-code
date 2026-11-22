@@ -75,6 +75,7 @@ export interface TurnInterruptedEvent {
   protocol?: string;
   thinking_effort?: string;
   trace_id?: string;
+  request_id?: string;
 }
 
 export interface TurnEndedEvent {
@@ -87,6 +88,7 @@ export interface TurnEndedEvent {
   protocol?: string;
   thinking_effort?: string;
   trace_id?: string;
+  request_id?: string;
   enabled_plugins?: string;
 }
 

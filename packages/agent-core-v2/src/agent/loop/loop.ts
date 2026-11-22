@@ -2,6 +2,8 @@ import { createDecorator } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { Error2, isError2, type Error2Options } from '#/_base/errors/errors';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import type { ToolCallOutcome } from '@moonshot-ai/core/loop/contract/outcome';
+import type { ToolCall } from '#human/llm/message';
 import type { Hooks } from '#/hooks';
 import type { FinishReason } from '@moonshot-ai/core/llm/response';
 import type { ContentPart, TextPart } from '#human/llm/message';
@@ -73,10 +75,25 @@ export interface BeforeStepContext {
   readonly signal: AbortSignal;
 }
 
+export interface AfterStepTool {
+  readonly toolCall: ToolCall;
+  readonly outcome: ToolCallOutcome;
+  readonly result?: {
+    readonly output: string | readonly ContentPart[];
+    readonly isError?: boolean;
+    readonly note?: string;
+    readonly durationMs?: number;
+    readonly stopTurn?: boolean;
+    readonly stopTurnReason?: string;
+  };
+}
+
 export interface AfterStepContext extends BeforeStepContext {
   readonly usage: TokenUsage;
   readonly finishReason: FinishReason;
   stopTurn: boolean;
+  readonly tools: readonly AfterStepTool[];
+  stopReason?: string;
 }
 
 export interface LoopErrorContext {

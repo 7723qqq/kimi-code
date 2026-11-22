@@ -125,7 +125,7 @@ interface ActiveTurn {
   streamPartCount: number;
   streamToolIds: Map<number | string | undefined, string>;
   readyResolved: boolean;
-  mode: 'agent' | 'plan' | undefined;
+  mode: 'agent' | 'plan' | 'spec' | undefined;
   providerType: string | undefined;
   protocol: string | undefined;
 }
@@ -229,6 +229,7 @@ export class AgentTurnProjection {
   private contextForHistory(entry: Message, failed = false, answered?: ReadonlySet<string>): ContextMessage {
     const message = liveContextFromHistoryEntry(entry, failed, answered);
     if (message.role !== 'tool') return message;
+    if (message.toolCallId === undefined) return message;
     let projected = message;
     const note = this.toolNotes.get(message.toolCallId);
     if (message.note === undefined && note !== undefined) {
