@@ -70,7 +70,7 @@ import {
 } from '#human/agent/turn';
 import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
 import { isToolCall, type StreamedMessagePart, type ToolCall } from '#/llm-adapter/contract/message';
-import type { LlmModel } from '#/llm-adapter/model/model';
+import type { LlmModel } from '#human/llm/model';
 import type { LlmRequester } from '#human/llm/requester/requester';
 import type { ThinkingEffort } from '#human/llm/thinking';
 import { emptyUsage, type TokenUsage } from '#human/llm/usage';
@@ -1468,7 +1468,7 @@ describe('AgentLLMRequesterService trace id', () => {
     releaseStream.resolve();
     const finish = await request.result;
 
-    expect(finish.requestId).toBe('trace-req-1');
+    expect(finish.traceId).toBe('trace-req-1');
     expect(request.trace.requestId).toBe('trace-req-1');
   });
 
@@ -1477,7 +1477,7 @@ describe('AgentLLMRequesterService trace id', () => {
     const request = service.start();
     const finish = await request.result;
 
-    expect(finish.requestId).toBeUndefined();
+    expect(finish.traceId).toBeUndefined();
     expect(request.trace.requestId).toBeUndefined();
   });
 

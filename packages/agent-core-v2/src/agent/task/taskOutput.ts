@@ -111,10 +111,10 @@ export class AgentTaskOutputService implements IAgentTaskOutputService {
   private async notificationOutputSnapshot(info: AgentTaskInfo): Promise<AgentTaskOutputSnapshot> {
     if (info.kind === 'question') {
       const output = await this.readTaskOutputSnapshot(info.taskId, QUESTION_ANSWER_INLINE_BYTES) as Record<string, unknown> | undefined;
-      return output === undefined ? emptyOutputSnapshot() : { ...output, fullOutputAvailable: true };
+      return output === undefined ? emptyOutputSnapshot() : { ...output, fullOutputAvailable: true } as AgentTaskOutputSnapshot;
     }
     const persisted = await this.readTaskOutputSnapshot(info.taskId, 0) as Record<string, unknown> | undefined;
-    if (persisted !== undefined) return { ...persisted, fullOutputAvailable: true };
+    if (persisted !== undefined) return { ...persisted, fullOutputAvailable: true } as AgentTaskOutputSnapshot;
     return emptyOutputSnapshot();
   }
 }

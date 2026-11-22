@@ -3043,7 +3043,7 @@ describe('AgentTowerService', () => {
           generation: 0,
         }),
         bus,
-        { list: () => [] } as unknown as IAgentTaskService,
+        { list: () => [] } as unknown as IAgentTaskService as never,
         { handleOf: () => undefined } as unknown as IAgentLifecycleService,
       );
       const result = await executeTool(tool, {
@@ -3204,7 +3204,7 @@ describe('AgentTowerService', () => {
           generation: 0,
         }),
         bus,
-        { list: () => [] } as unknown as IAgentTaskService,
+        { list: () => [] } as unknown as IAgentTaskService as never,
         { handleOf: () => undefined } as unknown as IAgentLifecycleService,
       );
 
@@ -3241,7 +3241,7 @@ describe('AgentTowerService', () => {
           generation: 0,
         }),
         bus,
-        { list: () => [] } as unknown as IAgentTaskService,
+        { list: () => [] } as unknown as IAgentTaskService as never,
         { handleOf: () => undefined } as unknown as IAgentLifecycleService,
       );
       const publish = jest.spyOn(bus, 'publish').mockImplementationOnce(() => {

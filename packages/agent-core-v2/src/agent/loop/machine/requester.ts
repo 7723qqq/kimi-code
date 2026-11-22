@@ -7,7 +7,7 @@ import type {
 import { unwrapErrorCause } from '#/errors';
 import { llmMessageFromError } from '#/llm-adapter/contract/errors';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import { toLlmErrorMessage, type LlmRemoteErrorMessage } from '#/errors';
+import { toErrorMessage } from '#/errors';
 import type {
   LlmRequestConfig,
   LlmRequestContent,
@@ -32,13 +32,13 @@ export interface MachineRequester {
   lastAttemptFailure(): AgentLLMRequestAttemptFailure | undefined;
 }
 
-const GATE_FAILURE: LlmRemoteErrorMessage = {
+const GATE_FAILURE: unknown = {
   kind: 'abort',
   message: 'The agent loop gate stopped the step.',
   retryable: false,
 };
 
-function toRemoteErrorMessage(error: unknown, signal: AbortSignal): LlmRemoteErrorMessage {
+function toRemoteErrorMessage(error: unknown, signal: AbortSignal): unknown {
   const raw = unwrapErrorCause(error);
   const known =
     llmMessageFromError(raw) ?? (raw === error ? undefined : llmMessageFromError(error));
@@ -46,7 +46,7 @@ function toRemoteErrorMessage(error: unknown, signal: AbortSignal): LlmRemoteErr
   if (signal.aborted) {
     return { kind: 'abort', message: 'The operation was aborted.', retryable: false };
   }
-  return toLlmErrorMessage(raw);
+  return toErrorMessage(raw);
 }
 
 export function createMachineRequester(
@@ -66,11 +66,11 @@ export function createMachineRequester(
         ? await options.gate(control.signal)
         : ({ type: 'proceed' } as const);
     if (decision.type === 'fail') {
-      control.onEvent?.({ type: 'llm.failed.remote', error: GATE_FAILURE });
+      control.onEvent?.({ type: 'llm.failed.remote', error: GATE_FAILURE as never });
       return;
     }
     if (control.signal.aborted) {
-      control.onEvent?.({ type: 'llm.failed.remote', error: GATE_FAILURE });
+      control.onEvent?.({ type: 'llm.failed.remote', error: GATE_FAILURE as never });
       return;
     }
     const signal =
@@ -118,7 +118,7 @@ export function createMachineRequester(
       lastAttemptFailure = task.attemptFailure?.();
       control.onEvent?.({
         type: 'llm.failed.remote',
-        error: toRemoteErrorMessage(error, signal),
+        error: toRemoteErrorMessage(error, signal) as never,
       });
     }
   };

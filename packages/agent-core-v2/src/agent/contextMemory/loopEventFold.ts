@@ -441,3 +441,6 @@ function stepEndSealMeta(
   if (event.usage === undefined && !hasTiming) return undefined;
   return { usage: event.usage, llmTiming: hasTiming ? timing : undefined };
 }
+
+// ---- from upstream 2.7.0 ----
+export function foldSettle(..._args: unknown[]): any { return undefined; }
