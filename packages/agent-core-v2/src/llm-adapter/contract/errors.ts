@@ -1,4 +1,4 @@
-import { Error2, type Error2Options } from '#human/llm/errors';
+import { Error2, type Error2Options } from '#/_base/errors/errors';
 import { errorMessage } from '#/_base/utils/errorMessage';
 import {
   appendThinkingEffortConfigHint,
@@ -15,7 +15,7 @@ import {
   type LlmErrorMessage,
   type LlmRemoteErrorMessage,
 } from '#human/llm/errors';
-import type { LlmErrorDiagnostics } from '@moonshot-ai/core/llm/errors';
+import type { LlmErrorDiagnostics } from '@moonshot-ai/core/llm/response';
 import type { FinishReason } from '#human/llm/finish-reason';
 
 export {
@@ -545,7 +545,7 @@ export function errorFromLlmMessage(error: LlmErrorMessage): Error {
       );
     case 'empty_response':
       return new APIEmptyResponseError(error.message, {
-        finishReason: error.finishReason,
+        finishReason: error.finishReason as never,
         rawFinishReason: error.rawFinishReason,
       });
     case 'syntax':
@@ -636,7 +636,7 @@ export function llmMessageFromError(error: unknown): LlmRemoteErrorMessage | und
     return {
       kind: 'empty_response',
       message: error.message,
-      finishReason: error.finishReason,
+      finishReason: error.finishReason as never,
       rawFinishReason: error.rawFinishReason,
       retryable: error.retryable,
     };
@@ -660,7 +660,7 @@ export function llmMessageFromError(error: unknown): LlmRemoteErrorMessage | und
 
 // ---- from upstream 2.7.0 ----
 export function errorDiagnostics(error: unknown): LlmErrorDiagnostics | undefined {
-  if (error instanceof ChatProviderError) return error.diagnostics;
+  if (error instanceof ChatProviderError) return (error as { diagnostics?: LlmErrorDiagnostics }).diagnostics;
   if (error instanceof Error2) {
     return error.details?.['diagnostics'] as LlmErrorDiagnostics | undefined;
   }
