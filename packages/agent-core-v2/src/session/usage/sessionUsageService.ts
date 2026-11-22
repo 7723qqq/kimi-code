@@ -5,7 +5,7 @@ import { agentSpaceOf } from '#/agent/agentContext/agentSpace';
 import type { AgentLLMRequestSource } from '#/agent/loop/requesterContract';
 import type { UsageRecordedContext, UsageStatus } from '#/agent/usage/usage';
 import { copyUsage } from '#/agent/usage/usageOps';
-import { emptyUsage, type TokenUsage } from '#/agent/usage/usage';
+import { emptyUsage, type TokenUsage } from '#human/llm/usage';
 
 import { ISessionUsageService } from './sessionUsage';
 import { UsageAgentModelDefinition } from './usageAgentModel';

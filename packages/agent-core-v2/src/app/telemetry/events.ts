@@ -483,7 +483,7 @@ export interface PredictionGeneratedEvent {
   input_cache_read?: number;
   input_cache_creation?: number;
   output_tokens?: number;
-  output_tokens?: number;
+  cache_read_pct?: number;
   ttft_ms?: number;
 }
 
@@ -886,6 +886,7 @@ export const telemetryEventDefinitions = {
       input_cache_read: 'Cache-read input tokens of the probed request',
       input_cache_creation: 'Cache-creation input tokens of the probed request',
       output_tokens: 'Output tokens of the probed request',
+      cache_hit_rate: 'Fraction of input tokens served from the prompt cache',
       model_match: 'Whether the baseline and probed requests use the same model; absent without a baseline',
       tools_match:
         'Whether the provider-visible tool table hash equals the baseline request; absent without a usable baseline or when the model or context revision differs',
@@ -1430,7 +1431,22 @@ export const telemetryEventDefinitions = {
   prediction_generated: defineAgentTelemetryEvent<PredictionGeneratedEvent>({
     owner: 'kimi-code',
     comment: 'A prompt prediction finished.',
-    properties: { prediction_id: 'Prediction id', turn_id: 'Turn index', status: 'Outcome', duration_ms: 'Elapsed ms' },
+    properties: {
+      prediction_id: 'Prediction id',
+      turn_id: 'Turn index',
+      status: 'Outcome',
+      reason: 'Cancel/stop reason when not simply generated',
+      duration_ms: 'Elapsed ms',
+      request_id: 'Request id',
+      prediction_chars: 'Characters in the prediction',
+      input_tokens: 'Input tokens',
+      input_other: 'Non-cached input tokens',
+      input_cache_read: 'Cache-read input tokens',
+      input_cache_creation: 'Cache-write input tokens',
+      output_tokens: 'Output tokens',
+      cache_read_pct: 'Cache read ratio',
+      ttft_ms: 'Time to first token',
+    },
   }),
   agents_md_reminder_shown: defineAgentTelemetryEvent<AgentsMdReminderShownEvent>({
     owner: 'kimi-code',

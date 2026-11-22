@@ -27,6 +27,15 @@ export function stubToolExecutorEvents(): ToolExecutorEventStubs {
     execute: async function* () {},
     onBeforeExecuteTool: beforeEmitter.event,
     onWillExecuteTool: willEmitter.event,
+    // ---- upstream 2.7.0 members ----
+    executor: { execute: async () => ({ content: [], isError: false } as never) } as never,
+    registerHook: () => ({ dispose() {} }),
+    registerLegacyStarting: () => ({ dispose() {} }),
+    handlers: () => [],
+    handler: () => undefined,
+    handlerForCall: () => undefined,
+    release: () => {},
+    // ---- end upstream ----
     hooks: {
       onExecuteTool: new OrderedHookSlot<ResolvedToolExecutionHookContext>(),
       onDidExecuteTool: didExecuteSlot,

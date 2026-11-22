@@ -753,3 +753,12 @@ function buildProviderCatalog(
     },
   };
 }
+
+// ---- from upstream 2.7.0 ----
+export interface CatalogProviderHandle {
+  readonly id: string;
+  readonly requester?: unknown;
+  readonly endpoint?: unknown;
+  readonly listModels?: (signal: AbortSignal) => Promise<readonly unknown[]>;
+  readonly media?: unknown;
+}

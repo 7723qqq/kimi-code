@@ -1,4 +1,5 @@
-import { createUserEntry, type UserMessage } from '#human/agent/turn';
+import { createUserEntry } from '#human/agent/turn';
+import type { UserMessage } from '#human/llm/message';
 import { toDisposable } from '#/_base/di/lifecycle';
 import { Event } from '#/_base/event';
 import type {
@@ -342,6 +343,15 @@ export function stubToolExecutor(): IAgentToolExecutorService {
     execute: async function* () {},
     onBeforeExecuteTool: Event.None as Event<BeforeToolExecuteEvent>,
     onWillExecuteTool: Event.None as Event<WillExecuteToolEvent>,
+    // ---- upstream 2.7.0 members ----
+    executor: { execute: async () => ({ content: [], isError: false } as never) } as never,
+    registerHook: () => ({ dispose() {} }),
+    registerLegacyStarting: () => ({ dispose() {} }),
+    handlers: () => [],
+    handler: () => undefined,
+    handlerForCall: () => undefined,
+    release: () => {},
+    // ---- end upstream ----
     hooks: {
       onExecuteTool: new OrderedHookSlot<ResolvedToolExecutionHookContext>(),
       onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>(),

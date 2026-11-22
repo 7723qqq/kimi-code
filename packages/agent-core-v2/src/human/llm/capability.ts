@@ -5,6 +5,7 @@ export interface ModelCapability {
   readonly thinking: boolean;
   readonly tool_use: boolean;
   readonly pdf_in?: boolean;
+  readonly max_context_tokens?: number;
   readonly dynamically_loaded_tools?: boolean;
 }
 

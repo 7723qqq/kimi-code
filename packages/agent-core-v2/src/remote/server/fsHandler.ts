@@ -1,6 +1,6 @@
 import { isAbsolute } from 'node:path';
 
-import { type HostFileSystem, walkDirectoryTree } from '#/os/backends/node-local/hostFsService';
+import { type HostFileSystem, walkDirectoryTree } from '#/os/backends/host/hostFsService';
 import type { HostFileStat } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors, toHostFsError } from '#/os/interface/hostFsErrors';
 

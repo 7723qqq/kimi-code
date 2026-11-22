@@ -154,7 +154,7 @@ export class SessionPromptPredictionService extends Disposable implements ISessi
       const outcome = await abortable(requester.generate(
         {
           content: {
-            messages: historyFromContext([...contextSnapshot, createUserMessage(PROMPT_PREDICTION_INSTRUCTION)]),
+            messages: historyFromContext([...contextSnapshot, createUserMessage(PROMPT_PREDICTION_INSTRUCTION)] as never),
           },
           profile: {},
         },
