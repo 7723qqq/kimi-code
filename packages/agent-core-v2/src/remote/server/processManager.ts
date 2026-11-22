@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises';
-import type { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import type { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { OsProcessErrors, type IHostProcess } from '#/os/interface/hostProcess';
 import { PROCESS_TERMINATION_GRACE_MS } from '../processLifecycle';
 

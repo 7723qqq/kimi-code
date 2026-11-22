@@ -32,8 +32,8 @@ import {
   type InitializeResult,
   type RemoteEnvironmentInfo,
 } from '#/remote/protocol/methods';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 
 import { FsHandler } from './fsHandler';
 import { ProcessManager } from './processManager';

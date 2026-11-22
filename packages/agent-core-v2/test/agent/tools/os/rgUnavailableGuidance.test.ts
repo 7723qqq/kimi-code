@@ -7,15 +7,15 @@ import type { IHostFileSystem, HostFileStat } from '#/os/interface/hostFileSyste
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { ensureRgPath } from '#/os/backends/node-local/tools/rgLocator';
+import { ensureRgPath } from '#/os/backends/host/tools/rgLocator';
 import { GlobTool } from '#/agent/tools/os/glob/globTool';
 import { GrepTool } from '#/agent/tools/os/grep/grepTool';
 import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../environment/stubs';
 
-vi.mock('#/os/backends/node-local/tools/rgLocator', async (importOriginal) => {
+vi.mock('#/os/backends/host/tools/rgLocator', async (importOriginal) => {
   const original =
-    await importOriginal<typeof import('#/os/backends/node-local/tools/rgLocator')>();
+    await importOriginal<typeof import('#/os/backends/host/tools/rgLocator')>();
   return { ...original, ensureRgPath: vi.fn() };
 });
 
@@ -131,7 +131,7 @@ describe('rg-unavailable guidance', () => {
   });
 
   for (const { name, execute } of TOOLS) {
-    describe(name, () => {
+    describe(`${name}`, () => {
       it('keeps the local-binding guidance byte-identical', async () => {
         ensureRgPathMock.mockRejectedValue(new Error('boom'));
         const result = await execute(createBackend({ environmentId: 'local', homeDir: '/home/test' }));
