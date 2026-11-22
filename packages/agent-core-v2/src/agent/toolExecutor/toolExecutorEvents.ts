@@ -93,3 +93,20 @@ export interface ToolListUpdatedEvent extends Omit<ToolListUpdatedPayload, 'agen
 export interface McpServerStatusEvent extends Omit<McpServerStatusEventPayload, 'agentId'> {
   readonly type: 'mcp.server.status';
 }
+
+// ---- kept from fork ----
+export class ToolProgress extends AgentEvent2<ToolProgressPayload> {
+  static override readonly type = 'tool.progress';
+  static override readonly observable = true;
+}
+
+export interface ToolProgressPayload {
+  readonly agentId: string;
+  readonly turnId: number;
+  readonly toolCallId: string;
+  readonly update: ToolUpdate;
+}
+
+export interface ToolProgressEvent extends Omit<ToolProgressPayload, 'agentId'> {
+  readonly type: 'tool.progress';
+}

@@ -92,21 +92,30 @@ export interface SystemMessage {
   readonly tools?: ToolDescription[];
 }
 
+
+export interface MessageAttributes {
+  readonly promptId?: string;
+  readonly [key: string]: unknown;
+}
+
 export interface UserMessage {
   readonly role: 'user';
   content: ContentPart[];
+  attributes?: MessageAttributes;
 }
 
 export interface AssistantMessage {
   readonly role: 'assistant';
   content: ContentPart[];
   toolCalls: ToolCall[];
+  attributes?: MessageAttributes;
 }
 
 export interface ToolMessage {
   readonly role: 'tool';
   content: ContentPart[];
   readonly toolCallId: string;
+  attributes?: MessageAttributes;
 }
 
 export type Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage;

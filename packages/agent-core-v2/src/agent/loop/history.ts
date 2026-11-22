@@ -36,7 +36,7 @@ function historyEntryFromContextWithOptions(
         content: entry.content,
         ...(entry.tools === undefined ? {} : { tools: entry.tools }),
         ...(attributes === undefined ? {} : { attributes }),
-      };
+      } as any;
     }
     case 'user': {
       const attributes = compactAttributes<UserMessageAttributes>({
@@ -47,20 +47,20 @@ function historyEntryFromContextWithOptions(
         role: 'user',
         content: entry.content,
         ...(attributes === undefined ? {} : { attributes }),
-      };
+      } as any;
     }
     case 'assistant': {
       const attributes = compactAttributes<AssistantMessageAttributes>({
         ...base,
         messageId: entry.providerMessageId,
-        usage: entry.usage ?? (entry.partial === true ? undefined : emptyUsage()),
+        usage: (entry.usage ?? (entry.partial === true ? undefined : emptyUsage())) as any,
       });
       return {
         role: 'assistant',
         content: entry.content,
         toolCalls: entry.toolCalls,
         ...(attributes === undefined ? {} : { attributes }),
-      };
+      } as any;
     }
     case 'tool': {
       const attributes = compactAttributes<ToolMessageAttributes>({
@@ -79,7 +79,7 @@ function historyEntryFromContextWithOptions(
         content,
         toolCallId: entry.toolCallId,
         ...(attributes === undefined ? {} : { attributes }),
-      };
+      } as any;
     }
   }
 }
