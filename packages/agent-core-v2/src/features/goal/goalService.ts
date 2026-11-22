@@ -50,7 +50,7 @@ import { Forked } from '#/session/agentLifecycle/forked';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ExecutableToolResult } from '#/tool/toolContract';
-import { chargeableTokens } from '@moonshot-ai/core/llm/usage';
+import { chargeableTokens } from '#/agent/usage/usage';
 
 import type { GoalReasonInput, ResumeGoalInput } from './goal';
 import { IGoalDeadlineScheduler } from './goalDeadlineScheduler';

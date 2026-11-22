@@ -18,7 +18,7 @@ import {
 import type { CatalogModel, CatalogProviderInfo } from '#human/llm/provider-catalog';
 import { createBedrockTokenProvider } from '#human/llm/provider/bedrock/credentials';
 import type { LlmCredentialProvider } from '#human/llm/requester/requester';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#human/llm/usage';
 
 import {
   isUnknownCapability,

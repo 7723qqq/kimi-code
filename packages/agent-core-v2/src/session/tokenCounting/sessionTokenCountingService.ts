@@ -23,7 +23,7 @@ import {
 } from '@moonshot-ai/core/llm/tokens';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { ToolDescription as Tool } from '#human/llm/message';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#human/llm/usage';
 
 import {
   ISessionTokenCountingService,

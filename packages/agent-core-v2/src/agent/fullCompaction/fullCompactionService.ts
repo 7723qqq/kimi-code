@@ -41,7 +41,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import { IWireService } from '#/wire/wire';
 import type { ToolDescription as Tool } from '#human/llm/message';
-import { inputTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { inputTotal, type TokenUsage } from '#human/llm/usage';
 
 import { renderCompactionInstruction } from './compactionInstruction';
 import { generateCompactionSummary } from './compactionGeneration';

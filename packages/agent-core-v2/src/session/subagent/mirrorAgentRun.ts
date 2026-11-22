@@ -13,7 +13,7 @@ import { isProviderRateLimitError } from '#/llm-adapter/contract/errors';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { type TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { type TokenUsage } from '#human/llm/usage';
 
 import type { SubagentModelSource } from './configSection';
 import { type AgentRunCompletion, type AgentRunHandle, ISessionSubagentService } from './subagent';

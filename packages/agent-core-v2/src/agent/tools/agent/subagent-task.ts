@@ -4,7 +4,7 @@ import { type AgentTask, type AgentTaskInfoBase, type AgentTaskSink } from '#/ag
 import { REPEAT_BREAKER_STOP_REASON } from '#/agent/toolDedupe/toolDedupe';
 import { ErrorCodes, isError2 } from '#/errors';
 import type { SubagentModelSource } from '#/session/subagent/configSection';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#human/llm/usage';
 
 const REPEAT_BREAKER_SETTLE_REASON =
   'stopped by the repeat breaker after issuing the same tool call repeatedly; its output is a handoff, not a finished result';

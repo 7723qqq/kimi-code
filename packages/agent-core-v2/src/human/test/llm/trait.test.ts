@@ -44,7 +44,7 @@ import {
   sanitizeToolCallId,
 } from '#/llm/requester/bases/tool-call-id';
 import type { LlmClientContext, LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#/llm/usage';
 
 import { startMockFilesApi } from '../../../../test/helpers/mockUpstream';
 import { setEnv, restoreEnvs } from '../../../../test/helpers/stubs';

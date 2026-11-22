@@ -9,7 +9,7 @@ import type {
   StreamParserOptions,
 } from '#/llm/protocol/format';
 import type { ResponseFormat } from '#human/llm/response-format';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#/llm/usage';
 
 import { isContextOverflowErrorCode, isOpenAIInsufficientQuotaCode } from '../openai/format';
 import { classifyDeepSeekCacheSplit } from '../openai/usage';

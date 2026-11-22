@@ -26,7 +26,7 @@ import { mergeConsecutiveUsers } from '@moonshot-ai/core/llm/protocol/patterns';
 import { applyPatterns } from '#human/llm/protocol/rewrite';
 import type { ResponseFormat } from '#human/llm/response-format';
 import { SyntaxRequestFormatError } from '@moonshot-ai/core/llm/protocol/errors';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#/llm/usage';
 
 import { CONTEXT_MANAGEMENT_BETA } from '@moonshot-ai/core/llm/builtin/protocol/anthropic/contract';
 import type { AnthropicRawStreamEvent, AnthropicRawUsage, AnthropicWireMessage } from '@moonshot-ai/core/llm/builtin/protocol/anthropic/contract';

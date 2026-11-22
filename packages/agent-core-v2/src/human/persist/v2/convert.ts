@@ -1,7 +1,7 @@
 import type { AssistantMeta, HistoryMessage } from '#/agent/turn';
 import type { FinishReason } from '@moonshot-ai/core/llm/response';
 import type { ContentPart } from '#/llm/message';
-import { emptyUsage } from '@moonshot-ai/core/llm/usage';
+import { emptyUsage } from '#/llm/usage';
 
 import type { V2AssistantExtra, V2ContextMessage, V2PromptOrigin } from './fold';
 

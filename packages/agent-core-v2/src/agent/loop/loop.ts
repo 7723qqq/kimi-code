@@ -5,7 +5,7 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { Hooks } from '#/hooks';
 import type { FinishReason } from '@moonshot-ai/core/llm/response';
 import type { ContentPart, TextPart } from '#human/llm/message';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#human/llm/usage';
 
 import { LoopErrors } from './errors';
 import type { UserEntry } from './machine';

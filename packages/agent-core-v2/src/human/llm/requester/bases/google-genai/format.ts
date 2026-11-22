@@ -24,7 +24,7 @@ import { mergeConsecutiveUsers } from '@moonshot-ai/core/llm/protocol/patterns';
 import { applyPatterns } from '#human/llm/protocol/rewrite';
 import type { ResponseFormat } from '#human/llm/response-format';
 import { ThinkingConfigError, type ThinkingEffort } from '@moonshot-ai/core/llm/thinking';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#/llm/usage';
 
 import type { GoogleContent } from '@moonshot-ai/core/llm/builtin/protocol/google-genai/contract';
 import { buildRawIdById, buildToolNameById, lowerMessage } from './lower';

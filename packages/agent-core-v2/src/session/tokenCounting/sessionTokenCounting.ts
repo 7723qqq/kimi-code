@@ -8,7 +8,7 @@ import type {
 import type { Message } from '#/llm-adapter/contract/message';
 import type { ImageTokenPricing } from '#/llm-adapter/contract/modelFamily';
 import type { ToolDescription as Tool } from '#human/llm/message';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#human/llm/usage';
 
 export interface TokenCountingRebaseInput {
   readonly length: number;

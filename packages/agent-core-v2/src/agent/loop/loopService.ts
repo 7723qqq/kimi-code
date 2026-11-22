@@ -67,7 +67,7 @@ import { IWireService } from '#/wire/wire';
 import { mergeSteerMessages, stripBundledSkillBlocks } from '@moonshot-ai/core/llm/origin';
 import { type FinishReason } from '@moonshot-ai/core/llm/response';
 import type { ContentPart, UserMessage } from '#human/message';
-import { emptyUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { emptyUsage, type TokenUsage } from '#/agent/usage/cacheBreak';
 
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
 import {
@@ -1092,7 +1092,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     turn.current = step;
     turn.interruptStep = step.number;
     this.activeRequestTrace = undefined;
-    this.telemetry.setContext({ trace_id: undefined });
+    this.telemetry.setContext({ request_id: undefined });
     EventEmitter.setMaxListeners(MAX_STEP_SIGNAL_LISTENERS, turn.controller.signal);
     const gateSignal = AbortSignal.any([turn.controller.signal, turn.steerController.signal]);
     try {

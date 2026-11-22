@@ -15,7 +15,7 @@ import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createAssistantMessage, createUserMessage, extractText } from '#/llm/message';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { LlmRequester } from '#/llm/requester/requester';
-import { emptyUsage } from '@moonshot-ai/core/llm/usage';
+import { emptyUsage } from '#/llm/usage';
 import { createSessionMachine, type AgentActorRef } from '#/session/machine';
 import { MemoryBackend } from '#/store/backend/memory';
 import { TreeStore } from '#/store/store';

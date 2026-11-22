@@ -4,7 +4,7 @@ import { createToolMessage } from '#/llm-adapter/contract/message';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import type { FinishReason } from '@moonshot-ai/core/llm/response';
 import type { ContentPart, ToolCall } from '#human/llm/message';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#human/llm/usage';
 
 import { shouldRenderWallTime } from './toolResultRender';
 import type { ContextMessage, ContextContentTiming, ContextMessageTiming } from './types';

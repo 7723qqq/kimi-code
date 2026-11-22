@@ -31,7 +31,7 @@ import {
   type LlmRetryOptions,
 } from '#/llm/requester/retry';
 import { ToolCallIdNormalizer } from '#/llm/toolCallIdNormalizer';
-import { emptyUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { emptyUsage, type TokenUsage } from '#/llm/usage';
 import type { ToolResult } from '#/tool/executor';
 import type { ToolOutput } from '#/tool/machine';
 import { createAbortScope, withAbort, type AbortScope } from '#/utils/abort';

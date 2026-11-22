@@ -4,7 +4,7 @@ import type { Message, StreamedMessagePart, ToolDescription } from '#/llm/messag
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
 import type { ResponseFormat } from '#human/llm/response-format';
 import type { ThinkingRequestOptions } from '@moonshot-ai/core/llm/thinking';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { TokenUsage } from '#/llm/usage';
 
 import type { AnthropicExtraParams } from './bases/anthropic/extra-params';
 import type { GoogleGenAIExtraParams } from './bases/google-genai/extra-params';
