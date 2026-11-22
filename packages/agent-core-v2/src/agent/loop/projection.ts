@@ -352,8 +352,8 @@ function projectedContent(source: ContextMessage, onAnomaly?: OnAnomaly): Conten
           note: source.note,
           durationMs: source.durationMs,
         })
-      : source.content;
-  return cleanContent(source, content, onAnomaly);
+      : source.content as never;
+  return cleanContent(source, content as never, onAnomaly);
 }
 
 function cleanContent(

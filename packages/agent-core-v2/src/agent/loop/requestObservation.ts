@@ -501,7 +501,7 @@ export class AgentLoopRequestObserver {
       curr_input_cache_creation: curr.usage.inputCacheCreation ?? 0,
       prev_total_tokens: prevTotal,
       cache_reuse_ratio: currRead / prevTotal,
-      cache_read_drop_ratio: prevRead === 0 ? undefined : readDrop / prevRead,
+      cache_read_drop_ratio: (prevRead === 0 ? undefined : readDrop / prevRead) as number,
       tools_match: prev.toolsHash === curr.toolsHash,
       system_prompt_match: prev.systemPromptHash === curr.systemPromptHash,
       history_prefix_match: historyPrefixMatches(prev, messages),

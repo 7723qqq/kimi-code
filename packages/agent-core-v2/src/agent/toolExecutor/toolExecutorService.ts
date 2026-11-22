@@ -122,7 +122,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
   get executor(): AgentToolExecutor {
     return {
-      execute: async (call, _context) => {
+      execute: async (call: any, _context: any) => {
         const handler = this.handlerForCall(call.id);
         return handler === undefined
           ? { content: [{ type: 'text', text: `unknown tool: ${call.name}` }], isError: true }

@@ -132,6 +132,7 @@ export interface CacheBreakDetectedEvent {
   curr_input_cache_creation: number;
   cache_read_drop_ratio: number;
   interval_ms: number;
+  request_kind?: string;
 }
 
 export type ToolCallOutcome = 'success' | 'error' | 'cancelled';
