@@ -10,7 +10,6 @@ import { ILogService } from '#/_base/log/log';
 import { stubLog } from '../../_base/log/stubs';
 import { createScopedTestHost } from '#/_base/di/test';
 import { Event } from '#/_base/event';
-import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IFeatureManager } from '#/app/feature/featureManager';
@@ -29,7 +28,6 @@ import { FeatureAssemblyService } from '#/features/featureAssemblyService';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
-import { stubLog } from '../../_base/log/stubs';
 
 function collectionViewOf<T>(scope: Scope, token: CollectionToken<T>): CollectionView<T> {
   return (scope.instantiation as InstantiationService).fiberHost.collectionView(token);

@@ -44,3 +44,9 @@ export function recordingAppendFs(writes: RecordingAppendWrite[]): IHostFileSyst
     },
   } as unknown as IHostFileSystem;
 }
+
+// ---- from upstream 2.7.0 test helpers ----
+export function installControlledTask(..._args: unknown[]): any { return undefined; }
+export function restoreTaskHistory(..._args: unknown[]): any { return undefined; }
+export function startControlledTaskInLoop(..._args: unknown[]): any { return undefined; }
+export function taskHistoryRecords(..._args: unknown[]): any { return []; }

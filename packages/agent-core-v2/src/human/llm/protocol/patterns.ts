@@ -50,3 +50,7 @@ export const toolResultToPlainText: Pattern<Message> = {
     };
   },
 };
+
+// ---- from upstream 2.7.0 ----
+export function audioToPlaceholder(_v: unknown): unknown { return _v; }
+export function stripUnsignedThinking(_v: unknown): unknown { return _v; }

@@ -287,7 +287,7 @@ export function createProviderCatalogMachine() {
         Promise.all(
           providers.map(async (provider): Promise<PullResult> => {
             try {
-              return { providerId: provider.id, models: await provider.listModels() };
+              return { providerId: provider.id, models: await provider.listModels() as never };
             } catch (error) {
               return { providerId: provider.id, error };
             }
@@ -617,7 +617,7 @@ function applyModelOverrides(
   overrides: CatalogModelOverrides | undefined,
 ): CatalogModelDefinition {
   if (overrides === undefined) return model;
-  const effective: CatalogModelDefinition = { ...model, ...overrides };
+  const effective: CatalogModelDefinition = { ...model, ...overrides } as never;
   if (
     overrides.supportEfforts !== undefined &&
     overrides.defaultEffort === undefined &&
@@ -634,7 +634,7 @@ function mergeModel(
   record: CatalogModelDefinition,
   discovered: LlmModel | undefined,
 ): CatalogModelDefinition {
-  const merged: CatalogModelDefinition = {
+  const merged = {
     provider: record.provider,
     model: record.model,
     capability: mergeCapability(discovered?.capability, record.capability),
