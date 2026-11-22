@@ -61,6 +61,7 @@ export interface ToolUpdate {
   customKind?: string | undefined;
   customData?: unknown;
   replace?: boolean;
+  fields?: Readonly<Record<string, unknown>>;
 }
 
 export const MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE = 'mcp.oauth.authorization_url';
@@ -74,6 +75,15 @@ export interface ExecutableToolContext {
   readonly steerSignal?: AbortSignal;
   readonly onUpdate?: ((update: ToolUpdate) => void) | undefined;
   readonly onForegroundTaskStart?: ((taskId: string) => void) | undefined;
+  // ---- from upstream 2.7.0 ----
+  readonly detach?: (text: string, brief?: string) => void;
+  readonly onDetach?: (acknowledge: (reason: unknown) => { readonly content: ContentPart[]; readonly brief?: string }) => void;
+  readonly origin?: ToolExecutionOrigin;
+  readonly remind?: ToolRemind;
+  readonly set?: (fields: Readonly<Record<string, unknown>>) => void;
+  readonly taskId?: string;
+  readonly write?: (text: string) => number | undefined;
+
 }
 
 export interface RunnableToolExecution {
@@ -84,7 +94,11 @@ export interface RunnableToolExecution {
   readonly stopBatchAfterThis?: boolean | undefined;
   readonly approvalRule: string;
   readonly matchesRule?: ((ruleArgs: string) => boolean) | undefined;
-  readonly execute: (ctx: ExecutableToolContext) => Promise<ExecutableToolResult>;
+  readonly execute: (ctx: ExecutableToolContext) => Promise<ExecutableToolResult>;  readonly stopping?: (context: {
+    readonly reason: unknown;
+    readonly abandon: (result?: ExecutableToolResult) => void;
+  }) => void;
+
 }
 
 export type ToolExecution = RunnableToolExecution | ExecutableToolErrorResult;
@@ -288,3 +302,8 @@ const MCP_NAME_PREFIX = 'mcp__';
 export function isMcpToolName(name: string): boolean {
   return name.startsWith(MCP_NAME_PREFIX);
 }
+
+// ---- from upstream 2.7.0 ----
+export type ToolExecutionOrigin = 'loop' | 'shellCommand';
+
+export type ToolRemind = (message: SystemMessage | UserMessage) => void;

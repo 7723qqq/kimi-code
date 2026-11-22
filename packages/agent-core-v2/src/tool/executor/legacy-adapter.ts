@@ -151,7 +151,7 @@ export class LegacyExecutableToolAdapter<Input = unknown>
         context.onDetach(() => ({ content: textToolContent(text), brief }));
         context.detach(text);
       },
-      onDetach: (acknowledge) => context.onDetach(acknowledge),
+      onDetach: (acknowledge) => context.onDetach(acknowledge as never),
       onUpdate: (update) => this.update(context, update),
       taskId: context.taskId,
       write: (text) => context.write(text),

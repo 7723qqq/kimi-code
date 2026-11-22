@@ -53,8 +53,8 @@ export class AgentCacheBreakService extends Service implements IAgentCacheBreakS
     const previous = this.baseline;
     this.baseline = current;
     if (previous === undefined) return undefined;
-    const previousRead = previous.usage.inputCacheRead;
-    const currentRead = usage.inputCacheRead;
+    const previousRead = previous.usage.inputCacheRead ?? 0;
+    const currentRead = usage.inputCacheRead ?? 0;
     if (currentRead >= previousRead * CACHE_BREAK_DROP_RATIO) return undefined;
     if (previousRead - currentRead <= CACHE_BREAK_MIN_DROP_TOKENS) return undefined;
     const cause = classifyCacheBreak(previous, current);
@@ -89,8 +89,8 @@ export class AgentCacheBreakService extends Service implements IAgentCacheBreakS
       curr_input_other: usage.inputOther,
       prev_output: previous.usage.output,
       curr_output: usage.output,
-      prev_input_cache_creation: previous.usage.inputCacheCreation,
-      curr_input_cache_creation: usage.inputCacheCreation,
+      prev_input_cache_creation: previous.usage.inputCacheCreation ?? 0,
+      curr_input_cache_creation: usage.inputCacheCreation ?? 0,
       cache_read_drop_ratio: observation.cacheReadDropRatio,
       interval_ms: observation.intervalMs,
     };
