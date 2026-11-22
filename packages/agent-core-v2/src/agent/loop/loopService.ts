@@ -145,14 +145,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   // ---- from upstream 2.7.0 (implementations) ----
   get requester(): never { throw new Error('not implemented: requester'); }
   async start(_tools?: readonly unknown[]): Promise<void> {}
-  baselineTools(): readonly unknown[] { return []; }
+  baselineTools(): never[] { return []; }
   update(_changed: unknown): void {}
   history(): readonly ContextMessage[] { return []; }
   historyRevision(): number { return 0; }
   replaceHistory(_m: readonly unknown[], _r?: string, _a?: () => void): boolean { return false; }
   async initializeHistory(_m: readonly unknown[]): Promise<void> {}
   async close(): Promise<void> {}
-  async retry(): Promise<unknown> { return undefined; }
+  async retry(): Promise<never> { return undefined as never; }
   abortTool(_toolCallId: string, _reason?: unknown): void {}
   detachTool(_task: unknown, _text?: string): void {}
   suppressTaskNotifications(_taskIds: readonly string[]): void {}
@@ -161,7 +161,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   remind(..._messages: readonly unknown[]): void {}
   flushReminders(): void {}
   registerToolBatchStarting(_hook: unknown): IDisposable { return { dispose() {} }; }
-  async notifyClient(_input: unknown): Promise<unknown> { return undefined; }
+  async notifyClient(_input: unknown): Promise<never> { return undefined as never; }
   // ---- end upstream additions ----
 
 
@@ -359,7 +359,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     super.dispose();
   }
 
-  submit(input: UserEntry | UserMessage, options?: LoopSubmitOptions): LoopSubmitResult {
+  submit(raw: UserEntry | UserMessage, options?: LoopSubmitOptions): LoopSubmitResult {
+    const input: UserEntry = 'message' in raw && 'meta' in raw ? raw : { message: raw as UserMessage, meta: {} };
     if (this.disposing) throw abortError('Agent loop disposed');
     this.runGate.begin();
     const meta = input.meta;

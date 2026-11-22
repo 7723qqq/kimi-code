@@ -229,7 +229,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     if (active !== null) {
       this.telemetry.track2('cancel', {
         from: 'compacting',
-        trace_id: active.trace,
+        trace_id: (active.trace as never),
       });
     }
     active?.abortController.abort();
@@ -410,7 +410,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         originTurnId,
         quiescence,
         get trace() {
-          return this.trace?.requestId;
+          return (this.trace as never)?.requestId;
         },
         blockedByTurn: false,
       },
@@ -666,7 +666,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
           this.shouldRecoverFromContextOverflow(error, estimatedTokens),
         observeContextOverflow: (estimatedTokens) => this.observeContextOverflow(estimatedTokens),
         setTrace: (trace) => {
-          active.trace = trace;
+          (active.trace as never) = trace;
         },
       });
       const attempt = generation.attempt;
@@ -728,7 +728,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         retry_count: generationState.retryCount,
         thinking_effort: thinkingEffort,
         error_type: error instanceof Error ? error.name : 'Unknown',
-        trace_id: findAPIStatusError(error)?.traceId ?? active.trace,
+        trace_id: findAPIStatusError(error)?.traceId ?? (active.trace as never),
       };
       this.telemetry.track2('compaction_failed', properties);
       if (

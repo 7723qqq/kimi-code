@@ -98,7 +98,7 @@ export interface AfterStepContext extends BeforeStepContext {
   readonly usage: TokenUsage;
   readonly finishReason: FinishReason;
   stopTurn: boolean;
-  readonly tools: readonly AfterStepTool[];
+  readonly tools?: readonly AfterStepTool[];
   stopReason?: string;
 }
 

@@ -65,13 +65,14 @@ export class AgentTaskOutputService implements IAgentTaskOutputService {
       join(session.sessionDir, 'agents', scopeContext.agentId),
       scopeContext.scope(),
       byteStore,
+      byteStore as never,
       fallbackRoot,
       () => environment === undefined ? undefined : environmentTempTarget(environment, 'task-output'),
-    );
+    ) as never;
   }
 
   open(taskId: string): ToolOutput {
-    return this.persistence.open(taskId);
+    return (this.persistence as never as { open(t: string): ToolOutput }).open(taskId);
   }
 
   appendTaskOutput(taskId: string, chunk: string): Promise<void> {
@@ -83,7 +84,7 @@ export class AgentTaskOutputService implements IAgentTaskOutputService {
   }
 
   readTaskOutputTail(taskId: string, maxBytes: number): Promise<AgentTaskOutputTail | undefined> {
-    return this.persistence.readTaskOutputTail(taskId, maxBytes);
+    return (this.persistence as never as { readTaskOutputTail(t: string, m: number): Promise<AgentTaskOutputTail | undefined> }).readTaskOutputTail(taskId, maxBytes);
   }
 
   async createCompletion(
