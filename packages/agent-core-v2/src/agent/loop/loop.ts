@@ -265,6 +265,27 @@ export interface IAgentLoopService {
     onDidFinishStep: AfterStepContext;
     onBeforeSubmitPrompt: PromptSubmitContext;
   }>;
+  // ---- from upstream 2.7.0 (fork keeps its own members above) ----
+  readonly requester: LoopRequester;
+  start(tools?: readonly Tool[]): Promise<void>;
+  baselineTools(): readonly Tool[];
+  update(changed: ProfileUpdateData): void;
+  history(): readonly ContextMessage[];
+  historyRevision(): number;
+  replaceHistory(messages: readonly Message[], reason?: string, onAccepted?: () => void): boolean;
+  initializeHistory(messages: readonly Message[]): Promise<void>;
+  close(): Promise<void>;
+  retry(): Promise<TurnResult | undefined>;
+  abortTool(toolCallId: string, reason?: unknown): void;
+  detachTool(task: LoopDetachedTask, text?: string): void;
+  suppressTaskNotifications(taskIds: readonly string[]): void;
+  addActiveTool(name: string): void;
+  removeActiveTool(name: string): void;
+  remind(...messages: readonly Message[]): void;
+  flushReminders(): void;
+  registerToolBatchStarting(hook: LoopHooks['tool.batch-starting']): IDisposable;
+  notifyClient(input: LoopNotifyMessage): Promise<SteerResult>;
+
 }
 
 export const IAgentLoopService = createDecorator<IAgentLoopService>('agentLoopService');

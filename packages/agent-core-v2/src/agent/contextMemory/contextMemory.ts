@@ -47,6 +47,7 @@ export interface IAgentContextMemoryService {
   clear(): void;
 
   applyCompaction(input: ContextCompactionInput): ContextCompactionResult;
+  history(): readonly ContextMessage[];
 }
 
 export const IAgentContextMemoryService = createDecorator<IAgentContextMemoryService>(

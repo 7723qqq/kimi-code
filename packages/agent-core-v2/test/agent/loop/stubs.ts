@@ -15,10 +15,11 @@ import type { UserEntry } from '#human/agent/turn';
 
 export function submitPromptTurn(
   loop: IAgentLoopService,
-  input: UserEntry,
+  input: UserEntry | UserMessage,
   options?: LoopSubmitOptions,
 ): { readonly turn: Turn } {
-  const { id } = loop.submit(input, options);
+  const entry = 'message' in input && 'meta' in input ? input : createUserEntry(input as UserMessage);
+  const { id } = loop.submit(entry, options);
   const handle = loop.promptHandle(id);
   if (handle === undefined) throw new Error(`missing prompt handle for ${id}`);
   let backing: Turn | undefined;

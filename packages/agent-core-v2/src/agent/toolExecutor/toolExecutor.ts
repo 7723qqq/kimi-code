@@ -1,4 +1,6 @@
 import { createDecorator } from '#/_base/di/instantiation';
+import type { LegacyToolAgentContext, LegacyToolFields, LegacyToolPreparation, ToolExecutionHandler, ToolExecutor, ToolExecutorHook } from '#/tool/executor';
+import type { AgentTaskFields } from '#/agent/task/handler';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import type { Event } from '#/_base/event';
 import type {
@@ -45,6 +47,15 @@ export type ToolCallGuard = (tool: {
 
 export type ToolCallDupType = 'same_step' | 'cross_step';
 
+
+export interface AgentToolFields extends LegacyToolFields {
+  readonly task?: AgentTaskFields;
+}
+
+export type AgentToolHook = ToolExecutorHook<LegacyToolAgentContext, LegacyToolPreparation>;
+export type AgentToolExecutionHandler = ToolExecutionHandler<AgentToolFields, LegacyToolPreparation>;
+export type AgentToolExecutor = ToolExecutor<LegacyToolAgentContext>;
+
 export interface IAgentToolExecutorService {
   readonly _serviceBrand: undefined;
 
@@ -67,6 +78,15 @@ export interface IAgentToolExecutorService {
   registerToolCallGuard(guard: ToolCallGuard): IDisposable;
   registerUnavailableToolDescriber(describer: UnavailableToolDescriber): IDisposable;
   registerMissingToolDescriber(describer: MissingToolDescriber): IDisposable;
+  // ---- from upstream 2.7.0 ----
+  readonly executor: AgentToolExecutor;
+  registerHook(hook: AgentToolHook): IDisposable;
+  registerLegacyStarting(listener: (event: BeforeToolExecuteEvent) => void | Promise<void>): IDisposable;
+  handlers(): readonly AgentToolExecutionHandler[];
+  handler(taskId: string): AgentToolExecutionHandler | undefined;
+  handlerForCall(toolCallId: string): AgentToolExecutionHandler | undefined;
+  release(taskId: string): void;
+
 }
 
 export const IAgentToolExecutorService = createDecorator<IAgentToolExecutorService>(
