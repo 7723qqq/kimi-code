@@ -35,6 +35,8 @@ export interface CatalogModelOverrides {
 }
 
 export interface CatalogModelDefinition extends LlmModel {
+  // ---- from fork's LlmModel shape ----
+  readonly id?: string;
   readonly displayName?: string;
   readonly maxOutputSize?: number;
   readonly reasoningKey?: string;
@@ -551,7 +553,7 @@ export interface ProviderCatalog {
   providerInfo(providerId: string): CatalogProviderInfo | undefined;
   models(providerId: string): readonly CatalogModel[];
   upsert(input: {
-    provider: Provider;
+    provider: Provider | CatalogProviderHandle;
     info?: CatalogProviderInfo;
     models?: readonly CatalogModelDefinition[];
   }): void;
@@ -761,4 +763,8 @@ export interface CatalogProviderHandle {
   readonly endpoint?: unknown;
   readonly listModels?: (signal: AbortSignal) => Promise<readonly unknown[]>;
   readonly media?: unknown;
+  // ---- from upstream 2.7.0 ----
+  readonly protocols?: readonly string[];
+  resolveModel?(id: string): unknown;
+  createRequester?(...args: unknown[]): unknown;
 }

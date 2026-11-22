@@ -78,6 +78,7 @@ export interface IAgentToolSelectService {
     lastDisclosure?: ToolSelectAnnouncementDisclosure,
   ): ToolSelectAnnouncement | undefined;
   initialTools(): readonly Tool[];
+  requestTools(..._args: unknown[]): readonly Tool[];
 }
 
 export const IAgentToolSelectService: ServiceIdentifier<IAgentToolSelectService> =

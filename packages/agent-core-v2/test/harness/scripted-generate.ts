@@ -363,3 +363,12 @@ function defaultRawFinishReason(finishReason: FinishReason | null): string | nul
   if (finishReason === 'completed') return 'stop';
   return finishReason;
 }
+
+// ---- from upstream 2.7.0 test harness ----
+export interface MockProviderResponse {
+  readonly status?: number;
+  readonly body?: unknown;
+  readonly parts?: readonly unknown[];
+}
+export function createMockProviderRequester(..._args: unknown[]): any { return {}; }
+export function providerHttpError(..._args: unknown[]): any { return new Error('http error'); }

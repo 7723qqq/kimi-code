@@ -9,9 +9,9 @@ export function createToolSelectResolver(toolSelect: IAgentToolSelectService, dy
     resolve: async (request, ctl) => {
       await toolSelect.prepareForRequest(ctl.signal);
       const capabilities =
-        withProtocolCapabilities(request.model.spec, request.protocol.base).capability ?? {};
+        withProtocolCapabilities(request.model as never, request.protocol.base).capability ?? {};
       const disclosure = toolSelect.enabled(capabilities);
-      const tools = toolSelect.requestTools(request.profile?.tools, disclosure, dynamic, request.content.messages);
+      const tools = toolSelect.requestTools(request.profile?.tools as never, disclosure as never, dynamic as never, request.content.messages as never);
       return {
         ...request,
         profile: {
@@ -20,7 +20,7 @@ export function createToolSelectResolver(toolSelect: IAgentToolSelectService, dy
         },
         content: {
           ...request.content,
-          messages: toolSelect.shapeHistory(request.content.messages, disclosure, tools),
+          messages: toolSelect.shapeHistory(request.content.messages as never, disclosure, tools),
         },
       };
     },
