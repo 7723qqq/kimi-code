@@ -99,7 +99,7 @@ export function createAgentMediaPolicy(
       id: 'agent-media-tools',
       recoveryRequest: 'resolved',
       resolve: async (current) => {
-        if (model.spec.capability?.image_in === true || model.spec.capability?.video_in === true) {
+        if (model.capabilities.image_in === true || model.capabilities.video_in === true) {
           return current;
         }
         const messages = hideReadMediaFile(current.content.messages);
@@ -120,13 +120,13 @@ export function createAgentMediaPolicy(
       id: 'agent-media',
       resolve: async (current, control) => {
         mediaPaths =
-          countMediaParts(current.content.messages) === 0
+          countMediaParts(current.content.messages as never) === 0
             ? new Map()
-            : await service.displayPaths(current.content.messages);
-        const messages = await service.resolve(current.content.messages, model, request, control.signal);
-        return messages === current.content.messages
+            : await service.displayPaths(current.content.messages as never);
+        const messages = await service.resolve(current.content.messages as never, request as never, control.signal);
+        return (messages === current.content.messages
           ? current
-          : { ...current, content: { ...current.content, messages } };
+          : { ...current, content: { ...current.content, messages } }) as never;
       },
     },
     recovery: createMediaDegradeRecovery(replacement),

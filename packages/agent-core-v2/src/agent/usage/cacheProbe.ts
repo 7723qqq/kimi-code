@@ -17,10 +17,10 @@ type PromptCacheUsage = Pick<
 export function cacheProbeUsage(usage: TokenUsage | undefined): PromptCacheUsage {
   const inputTokens = usage === undefined ? undefined : inputTotal(usage);
   return {
-    input_tokens: inputTokens,
-    input_cache_read: usage?.inputCacheRead,
-    input_cache_creation: usage?.inputCacheCreation,
-    output_tokens: usage?.output,
+    input_tokens: inputTokens ?? 0,
+    input_cache_read: usage?.inputCacheRead ?? 0,
+    input_cache_creation: usage?.inputCacheCreation ?? 0,
+    output_tokens: usage?.output ?? 0,
     cache_hit_rate:
       usage === undefined ||
       usage.inputCacheRead === undefined ||

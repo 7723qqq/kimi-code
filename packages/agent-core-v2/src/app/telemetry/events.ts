@@ -101,6 +101,7 @@ export interface PromptCacheProbeEvent {
   input_cache_read: number;
   input_cache_creation: number;
   output_tokens: number;
+  cache_hit_rate?: number;
   model_match?: boolean;
   tools_match?: boolean;
   system_prompt_match?: boolean;
