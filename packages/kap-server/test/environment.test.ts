@@ -45,26 +45,20 @@ interface SessionWire {
   workspace_id: string;
 }
 
-function resolveTsxCli(): string {
-  const packageJson = require.resolve('tsx/package.json');
-  return join(dirname(packageJson), 'dist', 'cli.mjs');
-}
-
 function resolveExecServerFixture(): string {
   const packageJson = require.resolve('@moonshot-ai/agent-core-v2/package.json');
   return join(dirname(packageJson), 'test', 'remote', 'fixtures', 'exec-server-child.ts');
 }
 
-function configToml(): string {
+function configToml(defaultCwd: string): string {
   const node = process.execPath;
-  const tsx = resolveTsxCli();
   const fixture = resolveExecServerFixture();
   return [
     '[environments.loop]',
     `command = ${JSON.stringify(node)}`,
-    `args = ${JSON.stringify([tsx, fixture])}`,
+    `args = ${JSON.stringify([fixture])}`,
     'env = { EXEC_SERVER_VERSION = "9.9.9-test" }',
-    'defaultCwd = "/tmp"',
+    `defaultCwd = ${JSON.stringify(defaultCwd)}`,
     '',
   ].join('\n');
 }
@@ -77,7 +71,7 @@ describe('server-v2 /api/v1 environment routes', () => {
 
     beforeAll(async () => {
       home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-environment-on-'));
-      await writeFile(join(home, 'config.toml'), configToml(), 'utf-8');
+      await writeFile(join(home, 'config.toml'), configToml(home), 'utf-8');
       process.env['KIMI_CODE_WATCH'] = '1';
       server = await startServer({
         hostIdentity: TEST_HOST_IDENTITY,
@@ -138,10 +132,10 @@ describe('server-v2 /api/v1 environment routes', () => {
         'utf-8',
       );
       const incompatible = await call<null>('GET', `/api/v1/sessions/${id}/environment`);
-      expect(incompatible.body.code).toBe(40930);
+      expect(incompatible.body.code).toBe(40940);
       expect(incompatible.body.msg).toContain('Upgrade Kimi Code');
       const incompatibleList = await call<null>('GET', `/api/v1/sessions/${id}/environments`);
-      expect(incompatibleList.body.code).toBe(40930);
+      expect(incompatibleList.body.code).toBe(40940);
       expect(incompatibleList.body.msg).toContain('Upgrade Kimi Code');
     });
 
@@ -155,19 +149,19 @@ describe('server-v2 /api/v1 environment routes', () => {
 
       const binding = await call<EnvironmentBindingWire>('GET', `/api/v1/sessions/${id}/environment`);
       expect(binding.body.code).toBe(0);
-      expect(binding.body.data).toMatchObject({ environment_id: 'loop', cwd: '/tmp' });
+      expect(binding.body.data).toMatchObject({ environment_id: 'loop', cwd: home });
 
       const withCwd = await call<SessionWire>('POST', '/api/v1/sessions', {
         metadata: { cwd: home as string },
         environment_id: 'loop',
-        environment_cwd: '/tmp',
+        environment_cwd: home,
       });
       expect(withCwd.body.code).toBe(0);
       const withCwdBinding = await call<EnvironmentBindingWire>(
         'GET',
         `/api/v1/sessions/${withCwd.body.data.id}/environment`,
       );
-      expect(withCwdBinding.body.data).toMatchObject({ environment_id: 'loop', cwd: '/tmp' });
+      expect(withCwdBinding.body.data).toMatchObject({ environment_id: 'loop', cwd: home });
     }, 90_000);
 
     it('rejects session creation with an undeclared environment or a lone environment_cwd', async () => {
@@ -180,7 +174,7 @@ describe('server-v2 /api/v1 environment routes', () => {
 
       const cwdOnly = await call<null>('POST', '/api/v1/sessions', {
         metadata: { cwd: home as string },
-        environment_cwd: '/tmp',
+        environment_cwd: home,
       });
       expect(cwdOnly.body.code).toBe(40001);
       expect(cwdOnly.body.msg).toContain('environment_cwd');
