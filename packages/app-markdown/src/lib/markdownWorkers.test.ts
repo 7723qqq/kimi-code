@@ -5,8 +5,6 @@ import {
   setMermaidWorker,
   clearMermaidWorker,
 } from 'markstream-vue';
-import { ensureMarkdownWorkers } from './markdownWorkers';
-
 vi.mock('markstream-vue', () => ({
   setKaTeXWorker: vi.fn(),
   clearKaTeXWorker: vi.fn(),
@@ -19,6 +17,8 @@ vi.mock('markstream-vue/workers/katexRenderer.worker?worker&type=module', () => 
 vi.mock('markstream-vue/workers/mermaidParser.worker?worker&type=module', () => ({
   default: class FakeMermaidWorker {},
 }));
+
+const { ensureMarkdownWorkers } = await import('./markdownWorkers');
 
 vi.hoisted(() => {
   vi.stubGlobal('Worker', class {});

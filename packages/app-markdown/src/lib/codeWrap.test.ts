@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyCodeBlockState,
   CODE_NUMS_CLASS,
@@ -270,11 +270,11 @@ class FakeMutationObserver {
 }
 
 beforeEach(() => {
-  (globalThis as Record<string, unknown>).document = {
+  vi.stubGlobal('document', {
     createElement: () => new StubElement(),
-  };
+  });
   FakeMutationObserver.instances = [];
-  (globalThis as Record<string, unknown>).MutationObserver = FakeMutationObserver;
+  vi.stubGlobal('MutationObserver', FakeMutationObserver);
 });
 
 describe('ensureCodeBlockToggles', () => {
@@ -781,7 +781,7 @@ describe('codeTooltip singleton (ensureCodeTooltip)', () => {
   }
 
   beforeAll(() => {
-    (globalThis as Record<string, unknown>).document = {
+    vi.stubGlobal('document', {
       createElement: () => new TipStubEl(),
       getElementById: () => null,
       head,
@@ -794,12 +794,12 @@ describe('codeTooltip singleton (ensureCodeTooltip)', () => {
           docListeners.set(type, [...(docListeners.get(type) ?? []), fn]);
         },
       },
-    };
-    (globalThis as Record<string, unknown>).Element = TipStubEl;
-    (globalThis as Record<string, unknown>).getComputedStyle = () => ({
-      getPropertyValue: () => '',
     });
-    (globalThis as Record<string, unknown>).window = {
+    vi.stubGlobal('Element', TipStubEl);
+    vi.stubGlobal('getComputedStyle', () => ({
+      getPropertyValue: () => '',
+    }));
+    vi.stubGlobal('window', {
       addEventListener: (type: string, fn: () => void) => {
         winListeners.set(type, [...(winListeners.get(type) ?? []), fn]);
       },
@@ -819,7 +819,7 @@ describe('codeTooltip singleton (ensureCodeTooltip)', () => {
         state.clearCount += 1;
         timers.delete(id);
       },
-    };
+    });
     ensureCodeTooltip();
     firePointerMove(new TipStubEl());
     firePointerMove(new TipStubEl());
@@ -965,4 +965,8 @@ describe('codeTooltip singleton (ensureCodeTooltip)', () => {
     docListeners.get('focusin')![0]!({ target: el });
     expect(visibleNow()).toBe(false);
   });
+});
+
+afterAll(() => {
+  vi.unstubAllGlobals();
 });

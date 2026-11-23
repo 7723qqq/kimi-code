@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import { openDialogCount, openMenuCount, openSheetCount } from '@moonshot-ai/app-ui';
 import {
@@ -243,7 +243,7 @@ describe('linkTooltip singleton (ensureLinkTooltip)', () => {
   }
 
   beforeAll(() => {
-    (globalThis as Record<string, unknown>).document = {
+    vi.stubGlobal('document', {
       createElement: (tag: string) => new StubEl(tag),
       getElementById: () => null,
       activeElement: null as StubEl | null,
@@ -257,13 +257,13 @@ describe('linkTooltip singleton (ensureLinkTooltip)', () => {
           docListeners.set(type, [...(docListeners.get(type) ?? []), fn]);
         },
       },
-    };
-    (globalThis as Record<string, unknown>).Element = StubEl;
-    (globalThis as Record<string, unknown>).Node = StubEl;
-    (globalThis as Record<string, unknown>).getComputedStyle = () => ({
-      getPropertyValue: () => '',
     });
-    (globalThis as Record<string, unknown>).window = {
+    vi.stubGlobal('Element', StubEl);
+    vi.stubGlobal('Node', StubEl);
+    vi.stubGlobal('getComputedStyle', () => ({
+      getPropertyValue: () => '',
+    }));
+    vi.stubGlobal('window', {
       addEventListener: (type: string, fn: () => void) => {
         winListeners.set(type, [...(winListeners.get(type) ?? []), fn]);
       },
@@ -286,7 +286,7 @@ describe('linkTooltip singleton (ensureLinkTooltip)', () => {
         state.clearCount += 1;
         timers.delete(id);
       },
-    };
+    });
     ensureLinkTooltip(fullHost);
     firePointerMove(new StubEl());
     firePointerMove(new StubEl());
@@ -808,4 +808,8 @@ describe('linkTooltip singleton (ensureLinkTooltip)', () => {
     expect(keyProcess.defaultPrevented).toBe(false);
     expect(visibleNow()).toBe(true);
   });
+});
+
+afterAll(() => {
+  vi.unstubAllGlobals();
 });

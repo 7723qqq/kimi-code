@@ -260,14 +260,14 @@ beforeEach(() => {
   StubResizeObserver.instances = [];
   writeText.mockReset();
   writeText.mockResolvedValue(undefined);
-  (globalThis as Record<string, unknown>).document = {
+  vi.stubGlobal('document', {
     createElement: () => new StubElement(),
-  };
-  (globalThis as Record<string, unknown>).ResizeObserver = StubResizeObserver;
-  (globalThis as Record<string, unknown>).getComputedStyle = (el?: StubElement) => ({
+  });
+  vi.stubGlobal('ResizeObserver', StubResizeObserver);
+  vi.stubGlobal('getComputedStyle', (el?: StubElement) => ({
     columnGap: '6px',
     overflowX: el?.overflowX ?? 'visible',
-  });
+  }));
   vi.stubGlobal('navigator', { clipboard: { writeText } });
 });
 
