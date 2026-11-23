@@ -51,9 +51,9 @@ function rawIconSvg(specifier: string): string {
 }
 for (const specifier of iconSpecifiers) {
   if (specifier.includes('?raw')) {
-    mock.module(specifier, () => ({ default: rawIconSvg(specifier) }));
+    await mock.module(specifier, () => ({ default: rawIconSvg(specifier) }));
   } else {
-    mock.module(specifier, async () => {
+    await mock.module(specifier, async () => {
       const { defineComponent } = await import('vue');
       return { default: defineComponent({ name: 'TestkitIconStub', render: () => null }) };
     });
@@ -63,7 +63,7 @@ for (const specifier of [
   'markstream-vue/workers/katexRenderer.worker?worker&type=module',
   'markstream-vue/workers/mermaidParser.worker?worker&type=module',
 ]) {
-  mock.module(specifier, () => ({ default: class TestkitWorker {} }));
+  await mock.module(specifier, () => ({ default: class TestkitWorker {} }));
 }
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
