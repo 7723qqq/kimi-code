@@ -172,7 +172,7 @@ class LoopMailbox {
     return ack;
   }
 
-  steer(promptIds: readonly string[]): LoopAck<'prompt.steered'> {
+  steer(promptIds: readonly string[], merged?: UserMessage): LoopAck<'prompt.steered'> {
     const messages = this.normal.filter(
       (message) => message.attributes?.promptId !== undefined && promptIds.includes(message.attributes.promptId),
     );
@@ -183,7 +183,8 @@ class LoopMailbox {
       return ack;
     }
     this.normal = this.normal.filter((item) => !messages.includes(item));
-    this.notifyEntries.push(...messages);
+    if (merged === undefined) this.notifyEntries.push(...messages);
+    else this.notifyEntries.push(merged);
     const ack: LoopAck<'prompt.steered'> = { type: 'prompt.steered', promptIds: ids, messages };
     this.emit(ack);
     return ack;
@@ -761,10 +762,10 @@ class LoopActor implements Loop {
     return ack;
   }
 
-  steer(promptIds: readonly string[]): LoopAck<'prompt.steered'> | undefined {
+  steer(promptIds: readonly string[], merged?: UserMessage): LoopAck<'prompt.steered'> | undefined {
     this.check({ type: 'input.steer', promptIds });
     if (!this.open()) return undefined;
-    const ack = this.mailbox.steer(promptIds);
+    const ack = this.mailbox.steer(promptIds, merged);
     if ((ack.messages?.length ?? 0) > 0) {
       this.releaseIntake();
       if (this.turn?.phase === 'requesting') this.abortRequest();

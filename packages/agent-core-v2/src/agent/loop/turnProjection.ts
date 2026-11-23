@@ -663,15 +663,14 @@ export class AgentTurnProjection {
       }
       case 'message.appended': {
         const history = loop.state.messages;
-        const appended = history.at(-1);
-        if (appended !== undefined) {
-          void this.options.dispatcher.dispatch(new ContextSpliced({
-            agentId: this.options.scopeContext.agentId,
-            start: history.length - 1,
-            deleteCount: 0,
-            messages: [contextFromHistoryEntry(appended)],
-          }));
-        }
+        const appended = event.message;
+        const inHistory = history.at(-1) === event.message;
+        void this.options.dispatcher.dispatch(new ContextSpliced({
+          agentId: this.options.scopeContext.agentId,
+          start: inHistory ? history.length - 1 : history.length,
+          deleteCount: 0,
+          messages: [contextFromHistoryEntry(appended)],
+        }));
         this.options.prompts.appended(event);
         if (this.active !== undefined) this.options.prompts.materialized(this.active.turn);
         if (event.source !== 'llm') return;
@@ -735,7 +734,15 @@ export class AgentTurnProjection {
       }
       case 'prompt.notified':
       case 'prompt.steered': {
-        if (this.options.prompts.projectSteered(event)) this.active?.steerController.abort(abortError('Steered by new input'));
+        if (this.options.prompts.projectSteered(event)) {
+          const turn = this.active;
+          const step = turn?.current;
+          if (turn !== undefined && step !== undefined) {
+            this.emitStepInterrupted(turn.id, step.number, 'steered', undefined, step.uuid);
+            turn.current = undefined;
+          }
+          turn?.steerController.abort(abortError('Steered by new input'));
+        }
         return;
       }
       default:

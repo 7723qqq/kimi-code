@@ -53,7 +53,7 @@ export interface Loop {
   recordNotification(message: UserMessage): LoopAck<'prompt.notified'> | undefined;
   remind(...messages: readonly RemindMessage[]): LoopAck<'prompt.reminded'> | undefined;
   flushReminders(): void;
-  steer(promptIds: readonly string[]): LoopAck<'prompt.steered'> | undefined;
+  steer(promptIds: readonly string[], merged?: UserMessage): LoopAck<'prompt.steered'> | undefined;
   sendNow(message: UserMessage): LoopAck<'prompt.notified'> | undefined;
   sendNow(promptIds: readonly string[]): void;
   cancel(promptId: string): LoopAck<'prompt.canceled'> | undefined;

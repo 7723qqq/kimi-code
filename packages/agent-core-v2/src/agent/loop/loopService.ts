@@ -869,12 +869,27 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   submit(input: UserMessage, options?: LoopSubmitOptions): LoopSubmitResult;
   submit(input: UserMessage | PromptPayload, options?: LoopSubmitOptions): LoopSubmitResult | Promise<PromptLaunchResult | undefined> {
     if ('input' in input) return this.submitClient(input);
+    const origin = input.attributes?.origin as PromptOrigin | undefined;
+    const tracked = (input.attributes as { readonly tracked?: boolean } | undefined)?.tracked;
+    if (origin !== undefined && origin.kind !== 'user' && tracked !== true) {
+      const { id, entry } = this.admit(input);
+      this.sendNotification(entry, options?.steerIfActive === true);
+      this.maybeSettle();
+      return { id };
+    }
     const { id, entry } = this.admit(input);
     this.ensureStarted();
     if (this.loop !== undefined && this.quiescenceDepth === 0) this.loop.submit(entry);
     else this.pendingSubmissions.push(entry);
     if (options?.steerIfActive === true && this.loop?.state.turn !== undefined) {
-      this.loop.steer([id]);
+      const turn = this.loop.state.turn;
+      const pendingEntry = this.loop.state.inbox.normal.find(
+        (item) => item.attributes?.promptId === id,
+      );
+      const merged = pendingEntry === undefined
+        ? undefined
+        : this.prompts.steer([pendingEntry], turn.id);
+      if (merged !== undefined) this.loop.steer([id], merged);
     }
     this.maybeSettle();
     return { id };
@@ -896,10 +911,20 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this.telemetry.track2('input_steer', { parts: input.content.length });
     await this.updatePromptMetadata(promptMetadataTextFromContentParts(input.content));
     const status = this.snapshot();
-    const steerable = status.state === 'running';
-    const queued = status.state === 'running' || status.paused || status.queue.length > 0;
+    const loop = this.loop;
+    const steerable = loop?.state.turn !== undefined;
+    const queued = steerable || status.paused || status.queue.length > 0;
     const { id } = steerable ? this.sendNow(input) : this.submit(input);
     const handle = this.promptHandle(id)!;
+    if (steerable && loop?.state.turn !== undefined) {
+      return {
+        turn_id: loop.state.turn.id,
+        prompt_id: id,
+        created_at: handle.createdAt,
+        state: 'running',
+        steered: true,
+      };
+    }
     if (!steerable && queued) {
       return { prompt_id: id, created_at: handle.createdAt, state: 'queued', steered: false };
     }
@@ -963,7 +988,15 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (loop.state.turn?.id !== activeTurnId || ![...ids].every((id) => pending.has(id))) {
       throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, 'one or more prompts are no longer pending');
     }
-    loop.steer(promptIds);
+    const entries = loop.state.inbox.normal.filter((entry) => {
+      const id = entry.attributes?.promptId;
+      return id !== undefined && ids.has(id);
+    });
+    const merged = this.prompts.steer(entries, activeTurnId);
+    if (merged === undefined) {
+      throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, 'no active prompt to steer into');
+    }
+    loop.steer(promptIds, merged);
   }
 
   promptHandle(id: string): PromptHandle | undefined {
@@ -1083,7 +1116,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const notificationCount =
       (loop === undefined ? 0 : loop.state.inbox.notify.length + loop.state.inbox.remind.length) +
       this.pendingNotifications.length;
-    return this.turns.snapshot(loop, queue, notificationCount, this.quiescenceDepth > 0, this.hasPendingRequests());
+    const snapshot = this.turns.snapshot(loop, queue, notificationCount, this.quiescenceDepth > 0, this.hasPendingRequests());
+    return { ...snapshot, activePromptId: this.prompts.activePrompt()?.id };
   }
 
   private async materializeDaemonRefs(message: { readonly content: readonly ContentPart[] }): Promise<void> {
