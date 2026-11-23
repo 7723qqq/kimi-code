@@ -72,9 +72,10 @@ const BASE_LLM_MODEL: LlmModel = {
 function gatewayReturning(
   requester: LlmRequester,
   media?: ProviderMediaContribution,
+  llmModel: LlmModel = BASE_LLM_MODEL,
 ): ModelLlmGateway {
   return {
-    resolve: () => ({ requester, protocol: 'openai', model: BASE_LLM_MODEL, media }),
+    resolve: () => ({ requester, protocol: 'openai', model: llmModel, media }),
   };
 }
 
@@ -232,6 +233,73 @@ describe('ModelRequesterImpl request execution', () => {
       { role: 'tool', content: [{ type: 'text', text: 'r' }], toolCallId: 'c1' },
     ]);
     expect(call.control.signal).toBe(signal);
+  });
+
+  it('sends the session header on every model request', async () => {
+    const requester = new FakeLlmRequester();
+    requester.handler = (_i, emit) => textStream(emit);
+    const impl = new ModelRequesterImpl(
+      modelWith(createStaticCredentialProvider('sk-1')),
+      gatewayReturning(requester),
+    );
+
+    await collect(impl.request(INPUT, undefined, { sessionId: 'session-123' }));
+
+    expect(requester.calls[0]?.config.model.defaultHeaders).toEqual({
+      'x-opencode-session': 'session-123',
+    });
+  });
+
+  it('keeps existing model headers beside the session header', async () => {
+    const requester = new FakeLlmRequester();
+    requester.handler = (_i, emit) => textStream(emit);
+    const impl = new ModelRequesterImpl(
+      modelWith(createStaticCredentialProvider('sk-1')),
+      gatewayReturning(requester, undefined, {
+        ...BASE_LLM_MODEL,
+        defaultHeaders: { 'x-tenant': 'acme' },
+      }),
+    );
+
+    await collect(impl.request(INPUT, undefined, { sessionId: 'session-456' }));
+
+    expect(requester.calls[0]?.config.model.defaultHeaders).toEqual({
+      'x-tenant': 'acme',
+      'x-opencode-session': 'session-456',
+    });
+  });
+
+  it('keeps an explicitly configured session header', async () => {
+    const requester = new FakeLlmRequester();
+    requester.handler = (_i, emit) => textStream(emit);
+    const impl = new ModelRequesterImpl(
+      modelWith(createStaticCredentialProvider('sk-1')),
+      gatewayReturning(requester, undefined, {
+        ...BASE_LLM_MODEL,
+        defaultHeaders: { 'X-Opencode-Session': 'configured-session' },
+      }),
+    );
+
+    await collect(impl.request(INPUT, undefined, { sessionId: 'session-789' }));
+
+    expect(requester.calls[0]?.config.model.defaultHeaders).toEqual({
+      'X-Opencode-Session': 'configured-session',
+    });
+  });
+
+  it('uses a process session id when no session is provided', async () => {
+    const requester = new FakeLlmRequester();
+    requester.handler = (_i, emit) => textStream(emit);
+    const impl = new ModelRequesterImpl(
+      modelWith(createStaticCredentialProvider('sk-1')),
+      gatewayReturning(requester),
+    );
+
+    await collect(impl.request(INPUT));
+
+    expect(requester.calls[0]?.config.model.defaultHeaders?.['x-opencode-session']).toMatch(
+      /^ses_/,
+    );
   });
 
   it('omits the thinking intent when no effort is requested', async () => {

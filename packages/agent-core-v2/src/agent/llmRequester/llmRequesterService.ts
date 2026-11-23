@@ -27,6 +27,7 @@ import {
   type MediaPathTag,
 } from '#/agent/media/mediaRef';
 import { READ_MEDIA_FILE_TOOL_NAME } from '#/agent/tools/read-media-file/read-media-file';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IConfigService } from '#/app/config/config';
 import {
@@ -208,6 +209,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+    @ISessionContext private readonly sessionContext: ISessionContext,
     @IAgentStateService private readonly states: IAgentStateService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IInstantiationService private readonly instantiation?: IInstantiationService,
@@ -920,6 +922,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       params: {
         ...baseParams,
         ...budgetParams,
+        sessionId: this.sessionContext.sessionId,
         ...(usedContextTokens === undefined ? {} : { usedContextTokens }),
         ...(optedOut ? { maxCompletionTokens: maxCompletionTokensCap } : {}),
       },

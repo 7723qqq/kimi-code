@@ -288,6 +288,55 @@ describe('defaultHeaders', () => {
     expect(finish).toEqual({ finishReason: 'completed', rawFinishReason: 'end_turn' });
     expect(messageId).toBe('msg_1');
   });
+
+  it('forwards the session header through every model protocol', async () => {
+    const modelWithHeaders: LlmModel = {
+      ...model,
+      defaultHeaders: { 'x-opencode-session': 'session-1' },
+    };
+
+    const openai = stubOpenAIClient(chatCompletionChunks);
+    await createOpenAIRequester({ clientFactory: openai.clientFactory }).generate(
+      { model: modelWithHeaders },
+      { messages },
+      { signal: new AbortController().signal },
+    );
+    expect(openai.headers()?.['x-opencode-session']).toBe('session-1');
+
+    const responses = stubResponsesClient([
+      { type: 'response.completed', response: { id: 'resp_1', status: 'completed' } },
+    ]);
+    await createOpenAIResponsesRequester({ clientFactory: responses.clientFactory }).generate(
+      { model: modelWithHeaders },
+      { messages },
+      { signal: new AbortController().signal },
+    );
+    expect(responses.headers()?.['x-opencode-session']).toBe('session-1');
+
+    const anthropic = stubAnthropicClient(anthropicStreamEvents);
+    await createAnthropicRequester({ clientFactory: anthropic.clientFactory }).generate(
+      { model: modelWithHeaders },
+      { messages },
+      { signal: new AbortController().signal },
+    );
+    expect(anthropic.headers()?.['x-opencode-session']).toBe('session-1');
+
+    const google = stubGoogleClient([{ candidates: [] }]);
+    await createGoogleGenAIRequester({ clientFactory: google.clientFactory }).generate(
+      { model: modelWithHeaders },
+      { messages },
+      { signal: new AbortController().signal },
+    );
+    expect(google.headers()?.['x-opencode-session']).toBe('session-1');
+
+    const kimi = stubOpenAIClient(chatCompletionChunks);
+    await createOpenAIRequester({ ...kimiOpenAI, clientFactory: kimi.clientFactory }).generate(
+      { model: modelWithHeaders },
+      { messages },
+      { signal: new AbortController().signal },
+    );
+    expect(kimi.headers()?.['x-opencode-session']).toBe('session-1');
+  });
 });
 
 describe('capability', () => {

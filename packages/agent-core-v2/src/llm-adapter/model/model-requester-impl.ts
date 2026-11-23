@@ -57,6 +57,7 @@ import type {
   ModelRequestTiming,
   SamplingOptions,
 } from './model-requester';
+import { withSessionHeader } from './session-header';
 
 export interface ResolvedLlmModel {
   readonly requester: LlmRequester;
@@ -287,12 +288,16 @@ export class ModelRequesterImpl implements ModelRequester {
     };
 
     const credential = await this.model.credentialProvider?.resolve();
+    const requestModel = applyCredential(
+      withSessionHeader(resolved.model, params?.sessionId),
+      credential,
+    );
     const stall = createStallTimeout((error) => {
       queue.fail(error);
     });
     try {
       await requester.generate(
-        { ...config, model: applyCredential(resolved.model, credential) },
+        { ...config, model: requestModel },
         content,
         {
           signal: stall.signal(signal),
