@@ -56,6 +56,9 @@ export function submitPromptTurn(
       ready: handle.launched.then(async (turn) => {
         await turn?.ready;
       }),
+      started: handle.launched.then(async (turn) => {
+        await turn?.started;
+      }),
       result,
       cancel: (reason) => loop.cancel({ promptId: id }, reason),
     },
@@ -101,6 +104,7 @@ export function makeTurn(id: number): StubTurn {
     id,
     signal: controller.signal,
     ready: Promise.resolve(),
+    started: Promise.resolve(),
     result: Promise.resolve({ type: 'completed', steps: 0, truncated: false }),
     cancel: (reason) => {
       controller.abort(reason);

@@ -209,7 +209,15 @@ function setup(options: {
     );
     return {
       binding: agentBinding,
-      agentEnvironment: new AgentEnvironmentService(agentScopeContext, agentBinding, registry as unknown as IEnvironmentService, eventBus, session, workspaceInfo),
+      agentEnvironment: new AgentEnvironmentService(
+        agentScopeContext,
+        agentBinding,
+        registry as unknown as IEnvironmentService,
+        eventBus,
+        session,
+        workspaceInfo,
+        { _serviceBrand: undefined, decorate: (lease) => lease },
+      ),
       state: agentState,
     };
   };

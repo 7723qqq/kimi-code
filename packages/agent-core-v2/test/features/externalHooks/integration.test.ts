@@ -84,6 +84,7 @@ import { stubLoopWithHooks, stubToolExecutor } from '../../agent/loop/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
+import { waitForAssertion } from '../../helpers/waitFor';
 import { makeHookRunner } from './runner-stub';
 
 const HOOK_BIN = process.execPath;
@@ -415,7 +416,7 @@ describe('IExternalHooksRunnerService integration', () => {
     expect(results[0]?.reason).toContain('tests not written');
   });
 
-  it('limits external Stop hook continuations to once per active turn', async () => {
+  it('runs the external Stop hook after TurnEnded instead of after each step', async () => {
     const disposables = new DisposableStore();
     let ix: TestInstantiationService | undefined;
     try {
@@ -464,26 +465,13 @@ describe('IExternalHooksRunnerService integration', () => {
         finishReason: 'filtered',
       };
       await loop.hooks.onDidFinishStep.run(filtered);
-      expect(loop.snapshot().hasPendingRequests).toBe(false);
       expect(stopInputs).toEqual([]);
       expect(context.messages).toEqual([]);
 
       const first = makeAfterStep(signal);
       await loop.hooks.onDidFinishStep.run(first);
-      expect(loop.snapshot().hasPendingRequests).toBe(true);
-      expect(context.messages.at(-1)).toEqual(
-        expect.objectContaining({
-          role: 'user',
-          content: [{ type: 'text', text: 'continue 1' }],
-          origin: { kind: 'system_trigger', name: 'stop_hook' },
-        }),
-      );
-      expect(loop.drainNextBatch(context)).toBeDefined();
-
-      const second = makeAfterStep(signal);
-      await loop.hooks.onDidFinishStep.run(second);
+      expect(stopInputs).toEqual([]);
       expect(loop.snapshot().hasPendingRequests).toBe(false);
-      expect(stopInputs).toEqual([{ stopHookActive: false }]);
 
       eventBus.publish(
         new TurnEnded({
@@ -493,19 +481,36 @@ describe('IExternalHooksRunnerService integration', () => {
           durationMs: 0,
         }),
       );
-
-      const nextTurn = makeAfterStep(signal);
-      await loop.hooks.onDidFinishStep.run(nextTurn);
+      await waitForAssertion(() => {
+        expect(stopInputs).toHaveLength(1);
+      });
+      expect(stopInputs[0]).toMatchObject({
+        turnId: 0,
+        step: 1,
+        firstStepOfTurn: true,
+        finishReason: 'completed',
+        stopHookActive: false,
+      });
       expect(loop.snapshot().hasPendingRequests).toBe(true);
+      expect(loop.drainNextBatch(context)).toBeDefined();
       expect(context.messages.at(-1)).toEqual(
         expect.objectContaining({
           role: 'user',
-          content: [{ type: 'text', text: 'continue 2' }],
+          content: [{ type: 'text', text: 'continue 1' }],
           origin: { kind: 'system_trigger', name: 'stop_hook' },
         }),
       );
-      expect(loop.drainNextBatch(context)).toBeDefined();
-      expect(stopInputs).toEqual([{ stopHookActive: false }, { stopHookActive: false }]);
+
+      eventBus.publish(
+        new TurnEnded({
+          agentId: 'main',
+          turnId: 1,
+          reason: 'completed',
+          durationMs: 0,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(stopInputs).toHaveLength(1);
     } finally {
       ix?.dispose();
       disposables.dispose();
@@ -776,19 +781,26 @@ describe('IExternalHooksRunnerService integration', () => {
       ix.set(IExternalHooksRunnerService, new SyncDescriptor(ExternalHooksRunnerService));
       ix.set(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService));
       ix.get(IAgentExternalHooksService);
+      const eventBus = ix.get(IEventBus);
 
       const afterStep = makeAfterStep(new AbortController().signal);
-      let completed = false;
-      const pending = loop.hooks.onDidFinishStep.run(afterStep).then(() => {
-        completed = true;
-      });
+      await loop.hooks.onDidFinishStep.run(afterStep);
+      eventBus.publish(
+        new TurnEnded({
+          agentId: 'main',
+          turnId: afterStep.turnId,
+          reason: 'completed',
+          durationMs: 0,
+        }),
+      );
       await flushMicrotasks();
-      expect(completed).toBe(false);
+      expect(loop.snapshot().hasPendingRequests).toBe(false);
 
       resolveReady();
-      await pending;
-
-      expect(loop.snapshot().hasPendingRequests).toBe(true);
+      await waitForAssertion(() => {
+        expect(loop.snapshot().hasPendingRequests).toBe(true);
+      });
+      loop.drainNextBatch(context);
       expect(context.messages.at(-1)).toEqual(
         expect.objectContaining({
           role: 'user',

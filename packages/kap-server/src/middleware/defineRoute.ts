@@ -12,6 +12,15 @@ function unwrapZod(schema: z.ZodTypeAny): z.ZodTypeAny {
     seen.add(current);
     const def = (current as unknown as { _zod?: { def?: Record<string, unknown> } })._zod?.def;
     if (def === undefined) return current;
+    const pipeIn = def['in'];
+    if (
+      pipeIn instanceof z.ZodObject ||
+      pipeIn instanceof z.ZodUnion ||
+      pipeIn instanceof z.ZodDiscriminatedUnion
+    ) {
+      current = pipeIn as z.ZodTypeAny;
+      continue;
+    }
     const pipeOut = def['out'];
     if (pipeOut !== undefined && pipeOut !== null && typeof pipeOut === 'object') {
       current = pipeOut as z.ZodTypeAny;

@@ -532,6 +532,9 @@ export default {
       serverRunOptionDebugEndpoints:
         '挂载 /api/v1/debug/* 路由用于测试自省。默认关闭；生产环境请勿启用。',
       serverRunOptionNoOpen: '不在默认浏览器中打开 Web UI。',
+      serverRunOptionOpen: '在默认浏览器中打开 Web UI。',
+      serverRunOptionJson:
+        '使用内存态临时 bearer token 启动（隐含 --no-open），并在 stdout 输出一行就绪 JSON。',
       providerApiKey: '注册表 API 密钥。回退到 KIMI_REGISTRY_API_KEY；公开注册表可省略。',
       providerListJson: '以 JSON 格式输出原始供应商/模型配置。',
       providerRemoveForce: '连同 /login 管理的账号一起移除，不加该标志时会被拒绝。',
@@ -1118,7 +1121,7 @@ export default {
         title: '向 Kimi Code 发送反馈',
         subtitleDefault: '告诉我们哪些功能好用，哪些不好用。',
         subtitleEmpty: '反馈内容不能为空。',
-        footer: 'Enter 提交 · Esc 取消',
+        footer: 'Enter 提交 · Shift-Enter/Ctrl-J 换行 · Esc 取消',
       },
       goalQueueManager: {
         title: '待启动目标',
@@ -1133,7 +1136,7 @@ export default {
         subtitle: '更新队列中的目标。',
         errorEmpty: '目标描述不能为空。',
         errorTooLong: '目标描述不能超过 {{max}} 个字符。',
-        footer: 'Enter 提交 · Shift-Enter/Ctrl-J 换行 · Esc 取消',
+        footer: 'Enter 提交 · Esc 取消',
         previous: '… {{count}} 项之前',
         more: '… {{count}} 项更多',
       },
@@ -2437,6 +2440,7 @@ export default {
       // sub/web/run.ts
       rcCannotCombineWithBypassAuth: '--remote-control 不能与 --dangerous-bypass-auth 同时使用。',
       rcRequiresLoopbackHost: '--remote-control 需要回环主机。',
+      jsonOptionConflict: '--json 不能与 {{option}} 同时使用。',
       // sub/web/deprecated-server.ts
       deprecatedServerNotice:
         '`kimi server` 已弃用，不再可用。\n请改用 `kimi web` — 它会在前台运行本地服务器并打开 Web UI（加 `--no-open` 可跳过）。\n如需停止 0.28.0 之前版本启动的服务器，请使用 `{{stopCmd}}`。\n本提示将在 Kimi Code 的下一个主版本中移除。\n',
@@ -3257,7 +3261,7 @@ export default {
       danceOff: '使用 {{cmd}} 保持彩虹效果。',
       // tui/constant/feedback.ts
       feedbackSubmitting: '正在提交反馈…',
-      feedbackSubmitted: '反馈已提交，谢谢！',
+      feedbackSubmitted: '感谢你抽出时间写下反馈，这会帮助我们把 Kimi 做得更好。',
       feedbackCancelled: '反馈已取消。',
       feedbackNetworkError: '网络错误，提交反馈失败。',
       feedbackOpeningGithub: '正在打开 GitHub Issues 作为备选…',

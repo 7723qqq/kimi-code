@@ -7,7 +7,7 @@ onMounted(() => redirectLegacyServerApiAnchor('en'))
 
 # Server API (Beta)
 
-The local server started by `kimi web` exposes two programmatic surfaces: a REST API (`/api/v1`, plus `/api/v2/sessions` and `/api/v2/mcp`) and a WebSocket event stream (`/api/v1/ws`). This page covers the conventions shared by all endpoints and walks through the minimal flow. For how to start the server and its command-line options, see the [kimi command](./kimi-command.md#kimi-web) reference; for an end-to-end walkthrough, see [Drive a session over the API](#drive-a-session-over-the-api) below. The endpoint groups are documented on separate pages:
+The local server started by `kimi web` exposes two programmatic surfaces: a REST API (`/api/v1`, plus `/api/v1/sessions` and `/api/v1/mcp`) and a WebSocket event stream (`/api/v1/ws`). This page covers the conventions shared by all endpoints and walks through the minimal flow. For how to start the server and its command-line options, see the [kimi command](./kimi-command.md#kimi-web) reference; for an end-to-end walkthrough, see [Drive a session over the API](#drive-a-session-over-the-api) below. The endpoint groups are documented on separate pages:
 
 - [Sessions and conversations](./server-api-conversation.md): the WebSocket protocol, and how a client connects, subscribes, receives conversation events, and recovers after a disconnect.
 - [Session endpoints](./server-api-sessions.md): creating, listing, and modifying sessions, session actions (fork, compaction, undo, and more), messages and transcripts, prompts, and interactions.
@@ -93,7 +93,7 @@ Error codes are grouped by band:
 List endpoints come in two styles:
 
 - **Cursor style**: `before_id` / `after_id` (mutually exclusive) plus `page_size` (1–100), responding with `{ items, has_more }`. Used by the session list, message list, transcript, and others.
-- **`page_token`**: an opaque token (bound to a fingerprint of the query conditions), used by `POST /api/v1/search` and `GET /api/v2/sessions`. Changing any query condition mid-pagination invalidates the token: v2 returns `40922`, search returns `40001`. `GET /api/v2/sessions` also offers a stateless `page` page-number mode as an alternative.
+- **`page_token`**: an opaque token (bound to a fingerprint of the query conditions), used by `POST /api/v1/search` and `GET /api/v1/sessions`. Changing any query condition mid-pagination invalidates the token: v2 returns `40922`, search returns `40001`. `GET /api/v1/sessions` also offers a stateless `page` page-number mode as an alternative.
 
 ## Drive a session over the API
 

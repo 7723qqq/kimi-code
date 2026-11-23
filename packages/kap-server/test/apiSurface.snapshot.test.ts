@@ -16,7 +16,7 @@ describe('API surface snapshot', () => {
   let server: RunningServer | undefined;
 
   beforeAll(async () => {
-    home = mkdtempSync(join(tmpdir(), 'kimi-server-v2-api-surface-'));
+    home = mkdtempSync(join(tmpdir(), 'kimi-server-api-surface-'));
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
@@ -40,7 +40,7 @@ describe('API surface snapshot', () => {
     }
   });
 
-  it('matches the documented v2 route table and meta endpoints', async () => {
+  it('matches the documented v1 route table and meta endpoints', async () => {
     const base = `http://${server!.host}:${server!.port}`;
 
     const openApiRes = await fetch(`${base}/openapi.json`, {

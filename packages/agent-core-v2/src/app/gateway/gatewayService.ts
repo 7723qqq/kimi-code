@@ -50,6 +50,7 @@ export class RestGateway implements IRestGateway {
     const turn = await loop.promptHandle(id)?.launched;
     if (turn === undefined) return undefined;
     await turn.ready.catch(() => undefined);
+    await turn.started.catch(() => undefined);
     return turn.id === undefined ? undefined : { turn_id: turn.id };
   }
   async steer(
@@ -68,6 +69,7 @@ export class RestGateway implements IRestGateway {
     const turn = await service.promptHandle(id)?.launched;
     if (turn === undefined) return undefined;
     await turn.ready.catch(() => undefined);
+    await turn.started.catch(() => undefined);
     return turn.id === undefined ? undefined : { turn_id: turn.id };
   }
   cancel(sessionId: string, agentId: string, reason?: string): Promise<void> {

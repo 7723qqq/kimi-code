@@ -729,6 +729,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     void this.dispatcher.dispatch(
       new ToolCallStarted({
         agentId: this.scopeContext.agentId,
+        origin: options.origin,
         turnId: options.turnId,
         toolCallId: call.toolCall.id,
         name: call.toolName,
@@ -753,6 +754,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     void this.dispatcher.dispatch(
       new ToolResultEvent({
         agentId: this.scopeContext.agentId,
+        origin: options.origin,
         turnId: options.turnId,
         toolCallId: call.toolCall.id,
         output: result.output,

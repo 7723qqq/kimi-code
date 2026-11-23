@@ -114,6 +114,7 @@ export class AgentShellCommandService implements IAgentShellCommandService {
       }
 
       const result = await execution.execute({
+        origin: 'shellCommand',
         turnId: -1,
         toolCallId: 'shell-command',
         signal: controller.signal,

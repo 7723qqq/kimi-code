@@ -9,6 +9,7 @@ import {
 
 export const listWorkspacesResponseSchema = z.object({
   items: z.array(workspaceSchema),
+  unavailable_hosts: z.array(z.string()).optional(),
 });
 export type ListWorkspacesResponse = z.infer<typeof listWorkspacesResponseSchema>;
 

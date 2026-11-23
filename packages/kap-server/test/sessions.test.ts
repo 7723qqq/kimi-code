@@ -114,6 +114,7 @@ interface SessionWire {
 interface PageWire {
   items: SessionWire[];
   has_more: boolean;
+  total?: number;
 }
 
 function goalContinuationStarts(events: readonly Event2<any>[]): readonly Event2<any>[] {
@@ -3226,7 +3227,7 @@ describe('server-v2 /api/v1/sessions', () => {
       '/api/v1/sessions?archived_only=true&busy=true&page_size=1',
     );
     expect(page.body.code).toBe(0);
-    expect(page.body.data).toEqual({ items: [], has_more: false });
+    expect(page.body.data).toEqual({ items: [], has_more: false, total: 0 });
   });
 
   it('rejects a malformed workspace_id when listing (40001)', async () => {

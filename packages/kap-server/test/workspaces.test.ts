@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, jest } from 'bun:test';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
@@ -348,9 +348,13 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(body.data.config_path.split(sep).join('/')).toBe(
       join(root, '.kimi-code', 'local.toml').split(sep).join('/'),
     );
-    const toml = await readFile(body.data.config_path, 'utf8');
-    expect(toml).toContain('additional_dir');
-    expect(toml).toContain(extra.split(sep).join('/'));
+    const stored = await getJson<ListWire>('/api/v1/workspaces');
+    expect(stored.body.code).toBe(0);
+    const entry = stored.body.data.items.find((workspace) => workspace.id === id);
+    expect(entry?.additional_dirs.map((dir) => dir.split(sep).join('/'))).toContain(
+      extra.split(sep).join('/'),
+    );
+    await expect(stat(join(root, '.kimi-code', 'local.toml'))).rejects.toThrow();
   });
 
   it('adds a relative directory without persisting when persist is false', async () => {

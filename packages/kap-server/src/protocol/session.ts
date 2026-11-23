@@ -57,6 +57,7 @@ export type SessionGit = z.infer<typeof sessionGitSchema>;
 export const sessionSchema = z.object({
   id: z.string().min(1),
   workspace_id: workspaceIdSchema,
+  cwd: z.string(),
   host_id: z.string().optional(),
   title: z.string(),
   created_at: isoDateTimeSchema,
@@ -71,6 +72,7 @@ export const sessionSchema = z.object({
   archived_at: isoDateTimeSchema.optional(),
   current_prompt_id: z.string().min(1).optional(),
   last_prompt: z.string().optional(),
+  git: sessionGitSchema.optional(),
   metadata: sessionMetadataSchema,
   agent_config: sessionAgentConfigSchema,
   usage: sessionUsageSchema,

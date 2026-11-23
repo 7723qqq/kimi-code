@@ -604,7 +604,6 @@ describe('CLI options parsing', () => {
         'snapshot',
         'acp',
         'web',
-        'server',
         'rc',
         'login',
         'doctor',

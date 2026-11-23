@@ -76,6 +76,20 @@ describe('SubagentActivityStore', () => {
     expect(record?.version).toBeGreaterThan(0);
   });
 
+  it('records thinking deltas and marks a cancelled agent', () => {
+    const store = new SubagentActivityStore();
+    store.ensureRecord(spawn());
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0 }));
+    store.applyEvent(ev({ type: 'thinking.delta', turnId: 1, delta: 'considering' }));
+
+    expect(store.get('agent-1')?.steps[0]?.thinkingTail).toBe('considering');
+    expect(store.get('agent-1', 'tc-1')).toBeDefined();
+    expect(store.get('agent-1', 'other')).toBeUndefined();
+
+    store.markCancelled('agent-1');
+    expect(store.get('agent-1')?.status).toBe('cancelled');
+  });
+
   it('shows a status progress update as the live output tail', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());

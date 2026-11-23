@@ -304,6 +304,28 @@ describe('kimi-webbridge entry', () => {
     ]);
   });
 
+  it('requires confirmation before stopping a running Windows daemon', async () => {
+    const userHome = path.join(root, 'user-home');
+    await mkdir(path.join(userHome, '.kimi-webbridge', 'bin'), { recursive: true });
+    await writeFile(
+      path.join(userHome, '.kimi-webbridge', 'bin', 'kimi-webbridge.exe'),
+      'bin',
+    );
+    const plugins = fakePlugins([
+      { id: 'kimi-browser-extension', enabled: true, state: 'ok', version: '1.11.3' },
+    ]);
+    const { fetchImpl } = fakeFetch({
+      statusSequence: [{ running: true, version: 'v1.11.3', extension_connected: true }],
+    });
+    const entry = createKimiWebbridgeEntry(
+      makeCtx({ platform: 'win32', arch: 'x64', plugins: plugins.service, fetchImpl }),
+    );
+
+    await expect(entry.install(() => {})).rejects.toThrow(
+      'WebBridge daemon must be stopped before updating its binary',
+    );
+  });
+
   it('detects legacy wiring and prefers the canonical plugin when both exist', async () => {
     const { fetchImpl } = fakeFetch({
       statusSequence: [{ running: true, version: 'v1.11.3', extension_connected: true }],

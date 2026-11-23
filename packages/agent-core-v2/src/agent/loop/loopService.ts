@@ -928,6 +928,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         userMessageId: input.userMessageId,
         status,
         content: stripBundledSkillBlocks(input.message),
+        origin: input.origin,
         clientMetadata: input.origin.clientMetadata,
         createdAt: input.createdAt,
       }),
@@ -1475,6 +1476,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       state: 'queued',
       signal: controller.signal,
       ready,
+      started: Promise.resolve(),
       result,
       cancel: (reason) => {
         if (this.active?.turn === turn) {
@@ -1536,7 +1538,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       }),
     );
     turn.state = 'running';
-    void this.dispatcher.dispatch(
+    turn.started = this.dispatcher.dispatch(
       new TurnStarted({
         agentId: this.scopeContext.agentId,
         turnId: id,

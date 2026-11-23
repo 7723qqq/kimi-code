@@ -24,6 +24,7 @@ import {
   InMemorySkillCatalog,
   isUserActivatableSkillType,
   reloadOnStale,
+  getLiveSessionById,
   resumeSessionById,
   MERGE_ALL_AVAILABLE_SKILLS_SECTION,
   SKILL_SOURCE_PRIORITY,
@@ -105,7 +106,9 @@ async function resolveActivatedSession(
   sessionId: string,
   requestId: string,
 ): Promise<ResolvedSession> {
-  const handle = await resumeSessionById(core.accessor, sessionId);
+  const handle =
+    getLiveSessionById(core.accessor, sessionId) ??
+    (await resumeSessionById(core.accessor, sessionId));
   if (handle !== undefined) return { handle };
 
   const summary = await core.accessor.get(ISessionIndex).get(sessionId);

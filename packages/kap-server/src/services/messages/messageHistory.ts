@@ -1,6 +1,7 @@
 import {
-  ISessionIndex,
+  ISessionMetadata,
   IWireService,
+  getLiveSessionById,
   resumeSessionById,
   type IAgentScopeHandle,
   type Scope,
@@ -115,15 +116,15 @@ async function loadMessages(
   sessionId: string,
   projections: WireProjectionService,
 ): Promise<Message[]> {
-  const summary = await core.accessor.get(ISessionIndex).get(sessionId);
-  if (summary === undefined) {
+  const session =
+    getLiveSessionById(core.accessor, sessionId) ??
+    (await resumeSessionById(core.accessor, sessionId));
+  if (session === undefined) {
     throw new SessionNotFoundError(sessionId);
   }
-
-  const session = await resumeSessionById(core.accessor, sessionId);
-  if (session === undefined) return [];
   const agent = await ensureMainAgent(session);
-  return loadMessageHistory(agent, sessionId, summary.createdAt, projections);
+  const meta = await session.accessor.get(ISessionMetadata).read();
+  return loadMessageHistory(agent, sessionId, meta.createdAt, projections);
 }
 
 export async function loadMessageHistory(

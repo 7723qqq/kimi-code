@@ -717,6 +717,11 @@ export class SessionManager implements ISessionManager {
   ): Promise<SessionControllerEntry | undefined> {
     const live = this.owners.get(sessionId);
     if (live !== undefined) return this.retainController(live);
+    for (const entry of this.controllerEntries) {
+      if (entry.controller.list().some((handle) => handle.id === sessionId)) {
+        return this.retainController(entry);
+      }
+    }
     const summary = await this.index.get(sessionId);
     if (summary === undefined) return undefined;
     await this.environments.ready;

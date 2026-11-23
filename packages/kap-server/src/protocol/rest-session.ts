@@ -9,6 +9,7 @@ import { z } from 'zod';
 
 import { ErrorCode } from './error-codes';
 import { goalSnapshotSchema } from './goal';
+import { workspaceIdSchema } from './workspace';
 import { pendingInteractionSchema } from './interaction';
 import { cursorQuerySchema, pageResponseSchema } from './pagination';
 import { booleanQueryParam } from './query-params';
@@ -110,7 +111,27 @@ export const listSessionsQuerySchema = z
     archived_only: booleanQueryParam,
     hosts: z.literal('include').optional(),
   })
+  .strict()
   .superRefine((value, ctx) => {
+    if (value.hosts !== 'include') {
+      const workspaceIds =
+        value.workspace_id === undefined
+          ? []
+          : typeof value.workspace_id === 'string'
+            ? [value.workspace_id]
+            : value.workspace_id;
+      for (const id of workspaceIds) {
+        const parsed = workspaceIdSchema.safeParse(id);
+        if (!parsed.success) {
+          ctx.addIssue({
+            code: 'custom',
+            message: parsed.error.issues[0]?.message ?? 'invalid workspace_id',
+            path: ['workspace_id'],
+            params: { code: ErrorCode.VALIDATION_FAILED },
+          });
+        }
+      }
+    }
     if (value.archived_only === true && value.include_archive === true) {
       ctx.addIssue({
         code: 'custom',

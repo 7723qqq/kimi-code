@@ -8,10 +8,15 @@
  * `startServer`).
  */
 
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { ServerLogger } from '@moonshot-ai/kap-server';
+import {
+  KIMI_AGENT_PROTOCOL_VERSION,
+  type IAuthTokenService,
+  type ServerLogger,
+} from '@moonshot-ai/kap-server';
 import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
 import { type Command, Option } from 'commander';
@@ -72,6 +77,7 @@ interface RoutedServer {
 
 export interface WebCliOptions extends ServerCliOptions {
   open?: boolean;
+  json?: boolean;
   remoteControl?: boolean;
 }
 
@@ -168,9 +174,10 @@ export function buildWebUrl(origin: string, token: string): string {
 /** Build the `web` command, mounting the runner action on `cmd` itself. */
 export function buildWebCommand(
   cmd: Command,
-  opts: { forceRemoteControl?: boolean } = {},
+  opts: { forceRemoteControl?: boolean; defaultOpen?: boolean } = {},
 ): Command {
   const forceRemoteControl = opts.forceRemoteControl === true;
+  const defaultOpen = opts.defaultOpen ?? true;
   const withServerOptions = cmd
     .option(
       '--port <port>',
@@ -209,9 +216,27 @@ export function buildWebCommand(
         t('cli.optionDescriptions.serverRunOptionRemoteControl'),
       ).default(false),
     );
+    withServerOptions.option(
+      '--json',
+      t('cli.optionDescriptions.serverRunOptionJson'),
+      false,
+    );
+  }
+  if (defaultOpen) {
+    withServerOptions.option(
+      '--no-open',
+      t('cli.optionDescriptions.serverRunOptionNoOpen'),
+      true,
+    );
+  } else {
+    withServerOptions.option(
+      '--open',
+      t('cli.optionDescriptions.serverRunOptionOpen'),
+      false,
+    );
+    withServerOptions.addOption(new Option('--no-open').hideHelp());
   }
   return withServerOptions
-    .option('--no-open', t('cli.optionDescriptions.serverRunOptionNoOpen'), true)
     .action(async (opts: WebCliOptions) => {
       try {
         await handleWebCommand(forceRemoteControl ? { ...opts, remoteControl: true } : opts);
@@ -222,21 +247,90 @@ export function buildWebCommand(
     });
 }
 
+function createEphemeralAuthTokenService(secret: string): IAuthTokenService {
+  const expected = Buffer.from(secret, 'utf8');
+  return {
+    _serviceBrand: undefined,
+    getToken: () => secret,
+    isValid: async (candidate: string) => {
+      const actual = Buffer.from(candidate, 'utf8');
+      return actual.length === expected.length && timingSafeEqual(actual, expected);
+    },
+  };
+}
+
+export function formatJsonBootLine(origin: string, token: string): string {
+  const trimmed = origin.replace(/\/+$/, '');
+  const schemeIdx = trimmed.indexOf('://');
+  const scheme = schemeIdx >= 0 ? trimmed.slice(0, schemeIdx) : 'http';
+  const hostPort = schemeIdx >= 0 ? trimmed.slice(schemeIdx + 3) : trimmed;
+  const lastColon = hostPort.lastIndexOf(':');
+  const rawHost = lastColon >= 0 ? hostPort.slice(0, lastColon) : hostPort;
+  const portSuffix = lastColon >= 0 ? hostPort.slice(lastColon) : '';
+  const canonicalHost =
+    rawHost === '' || rawHost === '0.0.0.0'
+      ? '127.0.0.1'
+      : rawHost === '::'
+        ? '[::1]'
+        : rawHost.includes(':') && !rawHost.startsWith('[')
+          ? `[${rawHost}]`
+          : rawHost;
+  const normalizedOrigin = `${scheme}://${canonicalHost}${portSuffix}`;
+  const url = new URL(normalizedOrigin);
+  const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${wsProtocol}//${url.host}/api/v1/ws`;
+  return `${JSON.stringify({
+    origin: normalizedOrigin,
+    ws_url: wsUrl,
+    token,
+    kimi_agent_protocol_version: KIMI_AGENT_PROTOCOL_VERSION,
+  })}\n`;
+}
+
 export async function handleWebCommand(
   opts: WebCliOptions,
   deps: WebCommandDeps = DEFAULT_WEB_COMMAND_DEPS,
 ): Promise<void> {
   const parsed = parseServerOptions(opts);
+  const jsonMode = opts.json === true;
+  if (jsonMode && opts.remoteControl === true) {
+    throw new Error(t('tui.statusMessages.jsonOptionConflict', { option: '--remote-control' }));
+  }
+  if (jsonMode && parsed.dangerousBypassAuth) {
+    throw new Error(t('tui.statusMessages.jsonOptionConflict', { option: '--dangerous-bypass-auth' }));
+  }
+  if (jsonMode && parsed.socketPath !== undefined) {
+    throw new Error(t('tui.statusMessages.jsonOptionConflict', { option: '--socket' }));
+  }
+  if (jsonMode && parsed.debugEndpoints) {
+    throw new Error(t('tui.statusMessages.jsonOptionConflict', { option: '--debug-endpoints' }));
+  }
+  if (jsonMode && parsed.allowRemoteShutdown) {
+    throw new Error(t('tui.statusMessages.jsonOptionConflict', { option: '--allow-remote-shutdown' }));
+  }
   if (opts.remoteControl === true && parsed.dangerousBypassAuth) {
     throw new Error(t('tui.statusMessages.rcCannotCombineWithBypassAuth'));
   }
   if (opts.remoteControl === true && !isLoopbackHost(parsed.host)) {
     throw new Error(t('tui.statusMessages.rcRequiresLoopbackHost'));
   }
+  const ephemeralToken = jsonMode ? randomBytes(32).toString('base64url') : undefined;
+  const runOptions: ParsedServerOptions = jsonMode
+    ? {
+        ...parsed,
+        authTokenService: createEphemeralAuthTokenService(ephemeralToken ?? ''),
+        skipInstanceRegistry: true,
+        logToStderr: true,
+      }
+    : parsed;
   const run = deps.startServerForeground ?? startServerForeground;
   let remoteControl: RemoteControlHandle | undefined;
-  await run(parsed, {
+  await run(runOptions, {
     onReady: async (origin, controls) => {
+      if (jsonMode) {
+        deps.stdout.write(formatJsonBootLine(origin, ephemeralToken ?? ''));
+        return;
+      }
       // Resolve the persistent token only once the server is up: a fresh
       // server writes `server.token` on first boot, so reading it beforehand
       // would miss first-time starts and the browser would hit the auth gate.
@@ -422,7 +516,10 @@ async function runServerInProcess(
   // logger, close }`, so adapt it to the `RoutedServer` surface the rest of
   // this runner consumes.
   const { createServerLogger, startServer } = await import('@moonshot-ai/kap-server');
-  const logger = createServerLogger({ level: options.logLevel });
+  const logger = createServerLogger({
+    level: options.logLevel,
+    stream: options.logToStderr === true ? process.stderr : undefined,
+  });
   const webAssetsDir = serverWebAssetsDir();
   if (webAssetsDir === undefined) {
     logger.info('dev mode: web assets not built; starting the API server without the web UI');
@@ -449,6 +546,8 @@ async function runServerInProcess(
     insecureNoTls: options.insecureNoTls,
     allowRemoteShutdown: options.allowRemoteShutdown,
     allowedHosts: options.allowedHosts,
+    authTokenService: options.authTokenService,
+    skipInstanceRegistry: options.skipInstanceRegistry,
     disableAuth: options.dangerousBypassAuth,
     webTitle: options.webTitle,
     // Attach the engine's cloud telemetry appender (still gated by the config

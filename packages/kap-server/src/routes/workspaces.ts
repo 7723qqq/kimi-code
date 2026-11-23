@@ -36,13 +36,14 @@ import {
   workspaceTrustResponseSchema,
 } from '../protocol/rest-workspace';
 import type { Workspace as WorkspaceWire } from '../protocol/workspace';
+import { collectFromHosts, hostProjects, type HostSources } from '../services/hosts/hostFanout';
 
 interface WorkspaceRouteHost {
   get(
     path: string,
     options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
     handler: (
-      req: { id: string },
+      req: { id: string; query?: unknown },
       reply: { send(payload: unknown): unknown },
     ) => Promise<void> | void,
   ): unknown;
@@ -72,7 +73,11 @@ interface WorkspaceRouteHost {
   ): unknown;
 }
 
-export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): void {
+export function registerWorkspacesRoutes(
+  app: WorkspaceRouteHost,
+  core: Scope,
+  hosts?: HostSources,
+): void {
   const duplicateDirDetailsSchema = z.array(
     z.object({ path: z.string(), directory: z.string() }),
   );
@@ -81,6 +86,7 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
     {
       method: 'GET',
       path: '/workspaces',
+      querystring: z.object({ hosts: z.literal('include').optional() }).strict(),
       success: { data: listWorkspacesResponseSchema },
       description: 'List registered workspaces',
       tags: ['workspaces'],
@@ -88,6 +94,22 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
     async (req, reply) => {
       const items = await core.accessor.get(IWorkspaceService).list();
       const projected = await Promise.all(items.map((ws) => toWireWorkspace(core, ws)));
+      if (
+        (req.query as { readonly hosts?: string }).hosts === 'include' &&
+        hosts !== undefined
+      ) {
+        const remote = await collectFromHosts(hosts, hostProjects);
+        reply.send(
+          okEnvelope(
+            {
+              items: [...projected, ...remote.items],
+              unavailable_hosts: remote.unavailable,
+            },
+            req.id,
+          ),
+        );
+        return;
+      }
       reply.send(okEnvelope({ items: projected }, req.id));
     },
   );

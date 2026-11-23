@@ -739,6 +739,7 @@ export class AgentTurnProjection {
       state: 'queued',
       signal: controller.signal,
       ready,
+      started: Promise.resolve(),
       result,
       cancel: (reason) => this.active?.id === turnId
         ? this.options.cancel(turnId, reason ?? userCancellationReason())
@@ -793,6 +794,7 @@ export class AgentTurnProjection {
       prompt: turnPromptText(prompt.message.content.filter((part) => !isUserPromptSubmitHookPart(part)), prompt.origin),
       promptAttachments: turnPromptAttachments(prompt.message.content, prompt.origin),
     }));
+    turn.started = active.started;
     const started: TurnStartedTelemetryEvent = {
       turn_id: turnId,
       mode: active.mode ?? 'agent',

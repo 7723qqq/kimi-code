@@ -1,6 +1,6 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
-exports[`API surface snapshot matches the documented v2 route table and meta endpoints 1`] = `
+exports[`API surface snapshot matches the documented v1 route table and meta endpoints 1`] = `
 {
   "meta": [
     [
@@ -23,6 +23,14 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     [
       "DELETE",
       "/api/v1/files/{file_id}",
+    ],
+    [
+      "DELETE",
+      "/api/v1/hosts/{id}",
+    ],
+    [
+      "DELETE",
+      "/api/v1/mcp/servers/{name}",
     ],
     [
       "DELETE",
@@ -134,7 +142,23 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     ],
     [
       "GET",
+      "/api/v1/hosts",
+    ],
+    [
+      "GET",
+      "/api/v1/hosts:ssh-hosts",
+    ],
+    [
+      "GET",
+      "/api/v1/mcp/auth-statuses",
+    ],
+    [
+      "GET",
       "/api/v1/mcp/servers",
+    ],
+    [
+      "GET",
+      "/api/v1/mcp/servers/{name}",
     ],
     [
       "GET",
@@ -374,11 +398,43 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     ],
     [
       "POST",
+      "/api/v1/hosts:connect",
+    ],
+    [
+      "POST",
+      "/api/v1/hosts:copy-providers",
+    ],
+    [
+      "POST",
+      "/api/v1/hosts:test",
+    ],
+    [
+      "POST",
+      "/api/v1/mcp/auth:begin",
+    ],
+    [
+      "POST",
+      "/api/v1/mcp/auth:cancel",
+    ],
+    [
+      "POST",
       "/api/v1/mcp/auth:complete",
     ],
     [
       "POST",
-      "/api/v1/mcp/servers/{tail}",
+      "/api/v1/mcp/auth:reset",
+    ],
+    [
+      "POST",
+      "/api/v1/mcp/servers",
+    ],
+    [
+      "POST",
+      "/api/v1/mcp/servers:inspect",
+    ],
+    [
+      "POST",
+      "/api/v1/mcp/servers:test",
     ],
     [
       "POST",
@@ -431,6 +487,14 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     [
       "POST",
       "/api/v1/sessions",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions:archive",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions:restore",
     ],
     [
       "POST",
@@ -547,6 +611,14 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     [
       "POST",
       "/api/v1/workspaces/{workspace_id}/untrust",
+    ],
+    [
+      "PUT",
+      "/api/v1/hosts/{id}",
+    ],
+    [
+      "PUT",
+      "/api/v1/mcp/servers/{name}",
     ],
     [
       "PUT",

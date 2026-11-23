@@ -29,6 +29,7 @@ function makeTurn(result: TurnResult): Turn {
     id: 1,
     signal: controller.signal,
     ready: Promise.resolve(),
+    started: Promise.resolve(),
     result: Promise.resolve(result),
     cancel: () => {
       controller.abort();
@@ -45,6 +46,7 @@ function pendingTurn(id: number): { readonly turn: Turn; finish(result: TurnResu
       id,
       signal: controller.signal,
       ready: Promise.resolve(),
+      started: Promise.resolve(),
       result,
       cancel: () => {
         controller.abort();

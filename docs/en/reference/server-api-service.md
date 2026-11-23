@@ -25,6 +25,7 @@ On success, `data` carries:
 | Field | Type | Description |
 | --- | --- | --- |
 | `server_version` | string | Server version |
+| `product` | string? | Host product name, when the host identity declares one |
 | `capabilities` | object | Capability map — `websocket`, `file_upload`, `fs_query`, `mcp`, all always `true` |
 | `server_id` | string | Unique id of this server instance |
 | `started_at` | string | Boot time, ISO 8601 |
@@ -850,7 +851,7 @@ Adds an additional directory to the workspace, with the same semantics as the CL
 | --- | --- | --- | --- |
 | `workspace_id` | path | string | **Required.** Workspace id |
 | `path` | body | string | **Required.** Directory to add |
-| `persist` | body | boolean | Defaults to `true`: appends to `workspace.additional_dir` in `<project root>/.kimi-code/local.toml`. With `false`, the directory only joins the in-memory ephemeral set shared by all sessions of the workspace |
+| `persist` | body | boolean | Defaults to `true`: stores the directory in the workspace registry so later sessions reuse it. With `false`, the directory only joins the in-memory ephemeral set shared by all sessions of the workspace |
 
 On success, `data` is `{ project_root, config_path, additional_dirs, persisted }`, where `additional_dirs` lists every additional directory (existing ones included) and `persisted` reports whether this call wrote to disk.
 
@@ -963,10 +964,10 @@ On success, `data` is `null`.
 | --- | --- |
 | `POST /api/v1/search` | Cross-session full-text search; `mode` is `terms` (default) or `literal` (exact substring); `page_token` pagination |
 | `GET /api/v1/connections` | List live WebSocket connections |
-| `GET /api/v2/sessions` | Next-generation session list, see below |
-| `POST /api/v2/sessions:archive` | Batch-archive sessions, see below |
-| `POST /api/v2/sessions:restore` | Batch-restore archived sessions, see below |
-| `/api/v2/mcp/*` | Unified MCP management plane, see below |
+| `GET /api/v1/sessions` | Domain-grouped session list, see below |
+| `POST /api/v1/sessions:archive` | Batch-archive sessions, see below |
+| `POST /api/v1/sessions:restore` | Batch-restore archived sessions, see below |
+| `/api/v1/mcp/*` | Unified MCP management plane, see below |
 | `/api/v1/debug/*` | Reflection debug RPC; mounted only with `--debug-endpoints` on loopback, not a stable protocol |
 
 ### `POST /api/v1/search`
@@ -996,30 +997,31 @@ Lists the WebSocket clients currently connected to this server, oldest connectio
 
 On success, `data` is `{ connections }` where each item is `{ id, connected_at, remote_address, user_agent, has_client_hello, subscriptions }`: `connected_at` is an ISO 8601 timestamp, `remote_address` and `user_agent` are `null` when unknown, `has_client_hello` reports whether the client sent its handshake frame, and `subscriptions` lists the session ids the connection is subscribed to.
 
-## `GET /api/v2/sessions`
+## `GET /api/v1/sessions`
 
-A next-generation session query for list views — filtering, sorting, and field groups all travel in query parameters:
+Session list with filtering, sorting, optional workspace grouping, git metadata, and an id projection. Exact request and response schemas are in `/openapi.json`.
 
 | Parameter | Description |
 | --- | --- |
-| `workspace.id` | Filter by workspace; repeatable |
-| `activity.status` | Filter by activity status: `running` / `approval` / `question` / `failed` / `idle`; repeatable |
-| `meta.updated_after` | Only sessions updated after this time (epoch milliseconds) |
-| `meta.updated_before` | Only sessions updated before this time (epoch milliseconds) |
-| `meta.archived` | `true` / `false` (default) / `all` |
-| `meta.has_prompt` | `true` keeps only sessions that carry a user prompt, `false` keeps only empty ones (the `exclude_empty` equivalent of `GET /api/v1/sessions`) |
-| `view` | `flat` (default) / `by_workspace`, see below |
-| `group.page_size` | Sessions returned per workspace under `view=by_workspace`: 1–100, default 5 (up to 10000 with the `id,archived` projection); rejected without the grouped view (`40001`) |
-| `sort` | `meta.updated_at_desc` (default) / `meta.updated_at_asc` / `meta.created_at_desc` |
-| `include` | Comma-separated extra field groups; currently only `git` (branch and PR info, deduplicated per environment and working directory and cached for 60 seconds) |
-| `fields` | Comma-separated item projection; currently only `id,archived`, trimming each item to `{ id, archived }` (select-all-matching flows). Not combinable with `include=git` (`40001`) |
-| `page_size` | 1–100, default 50; up to 10000 with the `id,archived` projection. Under `view=by_workspace` it counts groups per page |
-| `page_token` | Pagination token from the previous page |
-| `page` | Stateless 1-based page number; mutually exclusive with `page_token` (`40001` when combined) |
+| `workspace_id` | Filter by workspace id; repeatable (OR) |
+| `archived` | `false` (default) / `true` / `all` |
+| `has_prompt` | `true` keeps sessions with a user prompt, `false` keeps empty ones |
+| `busy` | `true` / `false`; filter by the live busy flag |
+| `activity` | `idle` / `turn` / `background`; repeatable (OR) |
+| `updated_after` / `updated_before` | ISO 8601 timestamps; both bounds are inclusive |
+| `sort` | `updated_at_desc` (default) / `updated_at_asc` / `created_at_desc` |
+| `view` | `flat` (default) / `by_workspace` |
+| `group_page_size` | Sessions per group under `view=by_workspace`: 1–10000, default 5 |
+| `include` | Comma-separated extra groups; only `git` today (branch and PR, cached per environment and cwd) |
+| `fields` | Comma-separated projection; only `id,archived`; raises the page-size ceiling to 10000; not with `include=git` |
+| `page_size` | 1–100 (default 50); 10000 with `fields=id,archived`; groups per page under `view=by_workspace` |
+| `page_token` / `page` / `before_id` / `after_id` | Pagination; only one mode at a time (`40001` otherwise); `before_id`/`after_id` are rejected with the grouped view |
+| `include_archive` / `archived_only` / `exclude_empty` | Legacy aliases: `archived=all` / `archived=true` / `has_prompt=true` |
+| `hosts` | `include` merges sessions from app-created projects on every SSH host; unavailable hosts are listed in `unavailable_hosts` |
 
-Every response item carries the `workspace`, `meta`, and `activity` groups, plus `git` when `include=git` — or just `{ id, archived }` under `fields=id,archived`. The `activity` group also reports `model`: the session's bound model alias while it is live in this process, `null` for cold (not currently loaded) sessions. Every page additionally carries `total`, the size of the filtered set. Listing scans the session index up to a bound — `20000` entries (`100000` under the `id,archived` projection) — before filtering, sorting, and paginating in memory, so `total` counts the scanned window rather than the whole store. When the scan saturates that bound the page carries `scan_truncated: true` (absent otherwise) and the server logs a warning: `total` is then a lower bound on the full matching count, and the reliable escape hatch is narrowing the query conditions (workspace, time range, `meta.has_prompt`). The page token binds the first page's query conditions (including the projection); changing them mid-pagination returns `40922`. `page` mode is a stateless alternative for jumping to arbitrary pages: every request is an independent snapshot, no token is minted, and `next_page_token` is always `null`.
+A flat page is `{ items, total, has_more, next_page_token? }`. Each item is the full session record: `id`, `workspace_id`, `cwd`, `title`, `created_at`/`updated_at` (ISO 8601), `busy`, `activity`, `pending_interaction`, `last_turn_reason`/`last_turn_outcome`, `archived`/`archived_at`, `last_prompt`, `metadata` (including `cwd` and custom keys), `agent_config`, `usage`, `permission_rules`, `message_count`, plus `git` when requested. With `fields=id,archived` each item is `{ id, archived, host_id? }`.
 
-With `view=by_workspace` the same filtered, sorted set is re-projected into per-workspace groups, so an overview client replaces one polling loop per workspace with a single request:
+`view=by_workspace` returns `{ groups: [{ workspace_id, sessions, total, host_id? }], total, has_more, next_page_token? }`; each group's `total` is the workspace's full matching count. The page token binds the query fingerprint, including `view` and the grouping parameters; changing them mid-pagination returns `40922`. `page` is a stateless alternative that returns a snapshot and mints no token.
 
 ```json
 {
@@ -1028,22 +1030,40 @@ With `view=by_workspace` the same filtered, sorted set is re-projected into per-
   "data": {
     "groups": [
       {
-        "workspace": { "id": "wd_my-app_a1b2c3d4e5f6", "cwd": "/Users/dev/my-app" },
-        "sessions": [ { "id": "session_...", "workspace": { "id": "wd_my-app_a1b2c3d4e5f6", "cwd": "/Users/dev/my-app" }, "meta": { "title": "Fix the login page", "last_prompt": "adjust the button spacing", "created_at": 1787000000000, "updated_at": 1787000100000, "archived": false, "archived_at": null }, "activity": { "status": "idle", "model": "kimi-for-coding" } } ],
+        "workspace_id": "wd_my-app_a1b2c3d4e5f6",
+        "sessions": [
+          {
+            "id": "session_...",
+            "workspace_id": "wd_my-app_a1b2c3d4e5f6",
+            "cwd": "/Users/dev/my-app",
+            "title": "Fix the login page",
+            "created_at": "2026-11-20T08:00:00.000Z",
+            "updated_at": "2026-11-20T08:05:00.000Z",
+            "busy": false,
+            "activity": "idle",
+            "pending_interaction": "none",
+            "archived": false,
+            "last_prompt": "adjust the button spacing",
+            "metadata": { "cwd": "/Users/dev/my-app" },
+            "agent_config": { "model": "kimi-for-coding" },
+            "usage": { "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0, "context_tokens": 0 },
+            "permission_rules": [],
+            "message_count": 3
+          }
+        ],
         "total": 42
       }
     ],
-    "total": 7,
-    "has_more": true,
-    "next_page_token": "eyJ2IjoxLCJmIjoi..."
+    "total": 1,
+    "has_more": false
   },
   "request_id": "req_..."
 }
 ```
 
-Each group carries the workspace's first `group.page_size` sessions under the requested `sort` plus `total`, the workspace's full matching-session count (for a "view all" entry). Only workspaces with at least one matching session appear; groups order by their first session's sort key, ties broken by workspace id. `page` and `page_token` paginate over groups (the outer `total` is the group count), with the same fingerprint binding: the token also covers `view` and the grouping parameters, so flipping them mid-pagination returns `40922`.
+Sessions from a deleted workspace are hidden. A workspace id that is not visible rejects the whole request with `40410`.
 
-## `POST /api/v2/sessions:archive` and `POST /api/v2/sessions:restore`
+## `POST /api/v1/sessions:archive` and `POST /api/v1/sessions:restore`
 
 Batch archive/restore for session-management views. The body is `{ "ids": ["session_..."] }` — non-empty, at most 5000 unique ids (duplicates collapse). Live sessions go through the full lifecycle; cold sessions are patched on disk without being loaded.
 
@@ -1065,30 +1085,30 @@ Only a body validation failure fails the whole request (`40001`). Otherwise the 
 }
 ```
 
-## MCP management (`/api/v2/mcp`)
+## MCP management (`/api/v1/mcp`)
 
-The `/api/v2/mcp/*` routes are the server's unified MCP management plane: they manage the MCP server registry itself, independent of any session — global (user-level) CRUD with per-entry validation, connection-test probes, a locator-addressed inspection catalog, per-server auth-status listing, and the full OAuth flow lifecycle.
+The `/api/v1/mcp/*` routes are the server's unified MCP management plane: they manage the MCP server registry itself, independent of any session — global (user-level) CRUD with per-entry validation, connection-test probes, a locator-addressed inspection catalog, per-server auth-status listing, and the full OAuth flow lifecycle.
 
 | Method and path | Description |
 | --- | --- |
-| `GET /api/v2/mcp/servers` | List every known MCP server |
-| `GET /api/v2/mcp/servers/{name}` | Get one server by runtime name |
-| `POST /api/v2/mcp/servers` | Add a server to the user-level `mcp.json` |
-| `PUT /api/v2/mcp/servers/{name}` | Replace a user-level entry |
-| `DELETE /api/v2/mcp/servers/{name}` | Remove a user-level entry |
-| `POST /api/v2/mcp/servers:test` | Probe a real connection to one server |
-| `POST /api/v2/mcp/servers:inspect` | Locator-addressed catalog with a batched connection probe |
-| `GET /api/v2/mcp/auth-statuses` | Per-server OAuth state over the catalog |
-| `POST /api/v2/mcp/auth:begin` | Begin an interactive OAuth flow |
-| `POST /api/v2/mcp/auth:complete` | Await the browser callback and finish the code exchange |
-| `POST /api/v2/mcp/auth:cancel` | Tear down a begun OAuth flow |
-| `POST /api/v2/mcp/auth:reset` | Clear a server's stored credentials |
+| `GET /api/v1/mcp/servers` | List every known MCP server |
+| `GET /api/v1/mcp/servers/{name}` | Get one server by runtime name |
+| `POST /api/v1/mcp/servers` | Add a server to the user-level `mcp.json` |
+| `PUT /api/v1/mcp/servers/{name}` | Replace a user-level entry |
+| `DELETE /api/v1/mcp/servers/{name}` | Remove a user-level entry |
+| `POST /api/v1/mcp/servers:test` | Probe a real connection to one server |
+| `POST /api/v1/mcp/servers:inspect` | Locator-addressed catalog with a batched connection probe |
+| `GET /api/v1/mcp/auth-statuses` | Per-server OAuth state over the catalog |
+| `POST /api/v1/mcp/auth:begin` | Begin an interactive OAuth flow |
+| `POST /api/v1/mcp/auth:complete` | Await the browser callback and finish the code exchange |
+| `POST /api/v1/mcp/auth:cancel` | Tear down a begun OAuth flow |
+| `POST /api/v1/mcp/auth:reset` | Clear a server's stored credentials |
 
 Two addressing schemes appear on this plane. The CRUD routes and `servers:test` take a plain runtime `name`; the inspection and OAuth routes take a **locator** — `{ "source": "global", "name" }` for a file-layer entry or `{ "source": "plugin", "pluginId", "serverName" }` for a plugin-manifest entry — because a plugin entry and a file entry can share one runtime name. Inspection items additionally carry a stable `serverId` wire id: `global:<name>` or `plugin:<pluginId>:<serverName>` (URL-encoded).
 
 Most routes accept an optional `cwd` (a query parameter, or a body field on the `:`-action routes). Without it the catalog covers the user-level file and plugin manifests only; with it, the project-root and project-local layers of that directory join in — but only when the workspace is trusted, otherwise the project layers are skipped. For `servers:test` on a stdio server, `cwd` is also the child process's working directory. Connection probes and OAuth calls wait for the server's configuration to finish loading before acting.
 
-### `GET /api/v2/mcp/servers` and `GET /api/v2/mcp/servers/{name}`
+### `GET /api/v1/mcp/servers` and `GET /api/v1/mcp/servers/{name}`
 
 Lists every MCP server the management plane knows about; the second route returns the single entry with that runtime name.
 
@@ -1108,14 +1128,14 @@ On success, `data` is an array of managed servers (a single object for the get r
 - `40001`: validation failure
 - `40408`: no server with that name
 
-### `POST` / `PUT` / `DELETE /api/v2/mcp/servers`
+### `POST` / `PUT` / `DELETE /api/v1/mcp/servers`
 
 Global CRUD against the user-level `mcp.json`. The add body is a full server config including `name` — `transport` (`stdio` / `http` / `sse`) discriminates the shape, and each entry is validated before it is written. The update body carries the same config without `name` (the path names the entry); delete takes no body. All three return the refreshed server list in `data`. A write whose name collides with a project-layer entry is rejected as read-only — edit the defining file instead; a same-named plugin entry does not block the write, and the new file entry shadows it.
 
 - `40001`: validation failure, or the target entry is read-only
 - `40408`: (update/delete) no server with that name
 
-### `POST /api/v2/mcp/servers:test`
+### `POST /api/v1/mcp/servers:test`
 
 Probes a real connection to one server and never persists anything. Pass either `name` to test a registry entry (plugin and trusted project layers included) or `server` (a full inline config, `name` included) to probe it as-is; passing both or neither fails `40001`.
 
@@ -1130,7 +1150,7 @@ On success, `data` is `{ success, output }`: when the connection succeeds, `outp
 - `40001`: both or neither target form passed, an invalid inline config, or a runtime name shared by multiple enabled servers
 - `40408`: no server with that name
 
-### `POST /api/v2/mcp/servers:inspect`
+### `POST /api/v1/mcp/servers:inspect`
 
 The locator-addressed catalog (redacted configs) plus a batched real-connection probe of every OAuth candidate.
 
@@ -1144,7 +1164,7 @@ On success, `data` is an array of inspections, each `{ serverId, locator, runtim
 - `40001`: validation failure
 - `40408`: a `targets` locator matches nothing
 
-### `GET /api/v2/mcp/auth-statuses`
+### `GET /api/v1/mcp/auth-statuses`
 
 Per-server OAuth state over the registry catalog — the lightweight alternative to `servers:inspect` when only the auth dimension is needed.
 
@@ -1155,7 +1175,7 @@ Per-server OAuth state over the registry catalog — the lightweight alternative
 
 On success, `data` is an array of `{ name, authStatus }` with the same `authStatus` enum as `servers:inspect`. Verification probes may refresh or invalidate stored credentials.
 
-### `POST /api/v2/mcp/auth:begin` / `:complete` / `:cancel` / `:reset`
+### `POST /api/v1/mcp/auth:begin` / `:complete` / `:cancel` / `:reset`
 
 The OAuth flow lifecycle for remote servers. `auth:begin` takes a locator body (plus the optional `cwd` query) and answers `data` `{ status: "authorization-required", flowId, authorizationUrl }` — open the URL in a browser to grant access — or `{ status: "already-authorized" }` when a grant already exists. The target server must use a remote transport (`http` / `sse`) and must not carry a static bearer token; static headers are allowed only when the config explicitly sets `auth: "oauth"`.
 

@@ -113,6 +113,7 @@ export class AgentSkillService implements IAgentSkillService {
       );
     }
     await turn.ready.catch(() => undefined);
+    await turn.started.catch(() => undefined);
     if (turn.id === undefined) {
       throw new Error2(ErrorCodes.INTERNAL, 'Skill activation turn ended before it started');
     }
@@ -192,6 +193,7 @@ export class AgentSkillService implements IAgentSkillService {
       else if (this.modelToolParent?.turnId === turn.id) this.modelToolParent = undefined;
     }
     if (turn !== undefined) await turn.ready.catch(() => undefined);
+    if (turn !== undefined) await turn.started.catch(() => undefined);
     return {
       turn_id: turn?.id,
       prompt_id: id,

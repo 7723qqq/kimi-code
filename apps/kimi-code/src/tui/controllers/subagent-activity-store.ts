@@ -54,6 +54,7 @@ export interface SubagentStepActivity {
   readonly step: number;
   /** Assistant text of this step, trailing window only. */
   textTail: string;
+  thinkingTail?: string;
   readonly toolCalls: SubToolCallActivity[];
   retrying?: string;
 }
@@ -68,7 +69,7 @@ export interface SubagentActivityRecord {
   readonly steps: SubagentStepActivity[];
   /** Count of real `turn.step.started` events seen (monotonic). */
   totalSteps: number;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
   resultSummary?: string;
   error?: string;
   /** Bumped on every mutation; the viewer caches its render against this. */
@@ -158,8 +159,12 @@ export class SubagentActivityStore {
     return record;
   }
 
-  get(agentId: string): SubagentActivityRecord | undefined {
-    return this.records.get(agentId);
+  get(agentId: string, parentToolCallId?: string): SubagentActivityRecord | undefined {
+    const record = this.records.get(agentId);
+    if (parentToolCallId !== undefined && record?.parentToolCallId !== parentToolCallId) {
+      return undefined;
+    }
+    return record;
   }
 
   agentIds(): readonly string[] {
@@ -197,10 +202,12 @@ export class SubagentActivityStore {
         this.bump(record);
         return;
       }
-      case 'assistant.delta': {
+      case 'assistant.delta':
+      case 'thinking.delta': {
         const record = this.recordFor(event.agentId);
         const step = this.currentStep(record);
-        step.textTail = tail(step.textTail + event.delta, SUBAGENT_STEP_TEXT_TAIL_CHARS);
+        const field = event.type === 'assistant.delta' ? 'textTail' : 'thinkingTail';
+        step[field] = tail((step[field] ?? '') + event.delta, SUBAGENT_STEP_TEXT_TAIL_CHARS);
         this.bump(record);
         return;
       }
@@ -314,6 +321,14 @@ export class SubagentActivityStore {
     if (record === undefined) return;
     record.status = 'failed';
     record.error = error;
+    this.dropStreamingBuffers(agentId);
+    this.bump(record);
+  }
+
+  markCancelled(agentId: string): void {
+    const record = this.records.get(agentId);
+    if (record === undefined) return;
+    record.status = 'cancelled';
     this.dropStreamingBuffers(agentId);
     this.bump(record);
   }

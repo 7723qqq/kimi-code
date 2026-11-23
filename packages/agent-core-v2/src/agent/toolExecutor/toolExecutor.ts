@@ -12,7 +12,7 @@ import type {
 import type { OrderedHookSlot } from '#/hooks';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import type { ToolResult } from '#/tool/toolContract';
-import type { ToolSource } from '#/tool/toolContract';
+import type { ToolExecutionOrigin, ToolSource } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import type { ToolCall } from '#human/llm/message';
 
@@ -27,6 +27,7 @@ export interface ToolExecutorExecuteOptions {
   readonly signal: AbortSignal;
   readonly steerSignal?: AbortSignal;
   readonly turnId: number;
+  readonly origin?: ToolExecutionOrigin;
   readonly trace?: LLMRequestTrace;
   readonly onToolCall?: (payload: ToolCallStartedPayload) => void;
 }

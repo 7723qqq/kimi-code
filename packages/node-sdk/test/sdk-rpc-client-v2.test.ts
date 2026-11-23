@@ -1677,6 +1677,65 @@ key = "${titleOAuthRef.key}"
     }
   });
 
+  it('warns and preserves the previous session model when the default model is missing', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-missing-model-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
+    tempDirs.push(homeDir, workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      await client.setConfig({
+        providers: {
+          acme: { type: 'openai', baseUrl: 'https://acme.example.test/v1' },
+        },
+        models: {
+          'acme/old': { provider: 'acme', model: 'old-wire', maxContextSize: 100_000 },
+          'acme/new': { provider: 'acme', model: 'new-wire', maxContextSize: 100_000 },
+        },
+        defaultModel: 'acme/old',
+      });
+      await client.createSession({ id: 'ses_missing_default', workDir, model: 'acme/old' });
+      await client.closeSession({ sessionId: 'ses_missing_default' });
+
+      const sessionDir = await findSessionDir(homeDir, 'ses_missing_default');
+      const wirePath = join(sessionDir, 'agents', MAIN_AGENT_ID, 'wire.jsonl');
+      const records = (await readFile(wirePath, 'utf-8'))
+        .trim()
+        .split('\n')
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              type?: string;
+              profileName?: string;
+              config?: { profileName?: string };
+            },
+        );
+      for (const record of records) {
+        if (record.type === 'profile.bind') delete record.profileName;
+        if (record.type === 'config_updated' && record.config !== undefined) {
+          delete record.config.profileName;
+        }
+      }
+      await writeFile(
+        wirePath,
+        `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+      );
+
+      await writeFile(
+        join(homeDir, 'config.toml'),
+        `default_model = "acme/old"\n\n[providers.acme]\ntype = "openai"\nbase_url = "https://acme.example.test/v1"\n\n[models."acme/new"]\nprovider = "acme"\nmodel = "new-wire"\nmax_context_size = 100000\n`,
+      );
+      await client.getConfig({ reload: true });
+
+      const resumed = await client.resumeSession({ id: 'ses_missing_default' });
+      expect(resumed.agents[MAIN_AGENT_ID]?.config.modelAlias).toBe('acme/old');
+      expect(resumed.warning).toContain('acme/old');
+      expect(resumed.warning).toContain('/model');
+    } finally {
+      await client.close();
+    }
+  });
+
   it('rejects a resume whose engine restore fails without an unhandled rejection from the overlapped fold', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-resume-fail-'));
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));

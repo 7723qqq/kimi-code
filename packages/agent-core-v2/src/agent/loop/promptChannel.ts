@@ -75,6 +75,7 @@ export class AgentPromptChannel implements IAgentPromptChannel {
       throw new Error2(ErrorCodes.INTERNAL, 'Steer failed to launch a turn');
     }
     await turn.ready.catch(() => undefined);
+    await turn.started.catch(() => undefined);
     return {
       turn_id: turn.id,
       prompt_id: id,
@@ -104,6 +105,7 @@ async function launchResult(
   const turn = await loop.promptHandle(id)?.launched;
   if (turn === undefined) return undefined;
   await turn.ready.catch(() => undefined);
+  await turn.started.catch(() => undefined);
   return turn.id === undefined ? undefined : { turn_id: turn.id };
 }
 

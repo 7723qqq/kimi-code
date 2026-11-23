@@ -551,6 +551,9 @@ export default {
       serverRunOptionDebugEndpoints:
         'Mount /api/v1/debug/* routes for test introspection. OFF by default; production callers leave this unset.',
       serverRunOptionNoOpen: 'Do not open the web UI in the default browser.',
+      serverRunOptionOpen: 'Open the web UI in the default browser.',
+      serverRunOptionJson:
+        'Start with an in-memory ephemeral bearer token (implies --no-open) and emit a single ready JSON line on stdout.',
       providerApiKey:
         'Registry API key. Falls back to KIMI_REGISTRY_API_KEY; omit both for public registries.',
       providerListJson: 'Emit the raw providers/models config as JSON.',
@@ -1155,7 +1158,7 @@ export default {
         title: 'Send feedback to Kimi Code',
         subtitleDefault: "Tell us what's working or what's not.",
         subtitleEmpty: 'Feedback cannot be empty.',
-        footer: 'Enter to submit  ·  Esc to cancel',
+        footer: 'Enter submit · Shift-Enter/Ctrl-J newline · Esc cancel',
       },
       goalQueueManager: {
         title: 'Upcoming goals',
@@ -2540,6 +2543,7 @@ export default {
       rcCannotCombineWithBypassAuth:
         '--remote-control cannot be combined with --dangerous-bypass-auth.',
       rcRequiresLoopbackHost: '--remote-control requires a loopback host.',
+      jsonOptionConflict: '--json cannot be combined with {{option}}.',
       // sub/web/deprecated-server.ts
       deprecatedServerNotice:
         '`kimi server` has been deprecated and no longer works.\nUse `kimi web` instead — it runs the local server in the foreground and opens the web UI (`--no-open` to skip).\nTo stop a server started by a version before 0.28.0, use `{{stopCmd}}`.\nThis notice will be removed in the next major version of Kimi Code.\n',
@@ -3373,7 +3377,7 @@ export default {
       danceOff: 'Use {{cmd}} to keep the rainbow on.',
       // tui/constant/feedback.ts
       feedbackSubmitting: 'Submitting feedback…',
-      feedbackSubmitted: 'Feedback submitted, thank you!',
+      feedbackSubmitted: "Thanks for taking the time to write this. It'll help us make Kimi better",
       feedbackCancelled: 'Feedback cancelled.',
       feedbackNetworkError: 'Network error, failed to submit feedback.',
       feedbackOpeningGithub: 'Opening GitHub Issues as fallback…',

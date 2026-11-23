@@ -25,7 +25,10 @@ import { registerFsRoutes } from './fs';
 import { registerGuiStoreRoutes } from './guiStore';
 import { registerInteractionsRoutes } from './interactions';
 import { registerMcpRoutes } from './mcp';
-import { registerV2McpAuthCompleteRoute } from './v2/mcp';
+import { registerMcpManagementRoutes } from './mcpManagement';
+import { registerHostsRoutes } from './hosts';
+import type { HostBridgeManager } from '../services/hosts/hostBridgeManager';
+import { hostSources } from '../services/hosts/hostFanout';
 import { registerMessagesRoutes } from './messages';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
@@ -39,6 +42,7 @@ import { registerSessionExportRoute } from './sessionExport';
 import { registerSessionMediaRoutes } from './sessionMedia';
 import { registerSessionRatingRoutes } from './sessionRating';
 import { registerSessionsRoutes } from './sessions';
+import { registerSessionListAndBatchRoutes } from './sessionList';
 import { registerShutdownRoutes } from './shutdown';
 import { registerSkillsRoutes } from './skills';
 import { registerToolsRoutes } from './tools';
@@ -74,6 +78,7 @@ export interface RegisterApiV1RoutesOptions {
   readonly broadcaster: SessionEventBroadcaster;
   readonly conversations: ConversationService;
   readonly transcriptService: TranscriptService;
+  readonly hosts: HostBridgeManager;
   readonly sessionRating: SessionRatingHost;
   readonly remoteControl: RemoteControlRouteOptions;
   readonly dangerousBypassAuth?: boolean;
@@ -95,6 +100,7 @@ export async function registerApiV1Routes(
 
       registerMetaRoute(apiV1, {
         serverVersion: opts.serverVersion,
+        product: opts.hostIdentity.productName,
         serverId: ulid(),
         startedAt: new Date().toISOString(),
         dangerousBypassAuth: opts.dangerousBypassAuth === true,
@@ -136,6 +142,12 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0],
         core,
         opts.conversations,
+        hostSources(opts.hosts),
+      );
+      registerSessionListAndBatchRoutes(
+        apiV1 as unknown as Parameters<typeof registerSessionListAndBatchRoutes>[0],
+        core,
+        hostSources(opts.hosts),
       );
       registerEnvironmentRoutes(apiV1 as unknown as Parameters<typeof registerEnvironmentRoutes>[0], core);
       registerSessionRatingRoutes(
@@ -176,6 +188,7 @@ export async function registerApiV1Routes(
       registerWorkspacesRoutes(
         apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],
         core,
+        hostSources(opts.hosts),
       );
       registerWorkspaceFsRoutes(
         apiV1 as unknown as Parameters<typeof registerWorkspaceFsRoutes>[0],
@@ -201,9 +214,14 @@ export async function registerApiV1Routes(
         opts.connectionRegistry,
       );
       registerMcpRoutes(apiV1 as unknown as Parameters<typeof registerMcpRoutes>[0], core);
-      registerV2McpAuthCompleteRoute(
-        apiV1 as unknown as Parameters<typeof registerV2McpAuthCompleteRoute>[0],
+      registerMcpManagementRoutes(
+        apiV1 as unknown as Parameters<typeof registerMcpManagementRoutes>[0],
         core,
+      );
+      registerHostsRoutes(
+        apiV1 as unknown as Parameters<typeof registerHostsRoutes>[0],
+        core,
+        opts.hosts,
       );
       registerTranscriptRoutes(apiV1 as unknown as Parameters<typeof registerTranscriptRoutes>[0], {
         core,

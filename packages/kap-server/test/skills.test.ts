@@ -431,6 +431,7 @@ describe('server-v2 /api/v1 skills', () => {
       const messages = await getJson<{
         items: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
       }>(`/api/v1/sessions/${id}/messages`);
+      expect(messages.body).toMatchObject({ code: 0 });
       const userMsg = messages.body.data.items.find(
         (m) =>
           m.role === 'user' &&
@@ -489,6 +490,7 @@ describe('server-v2 /api/v1 skills', () => {
       const messages = await getJson<{
         items: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
       }>(`/api/v1/sessions/${id}/messages`);
+      expect(messages.body).toMatchObject({ code: 0 });
       const userMsg = messages.body.data.items.find(
         (m) =>
           m.role === 'user' &&

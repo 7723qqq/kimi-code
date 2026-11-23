@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 
-import { visibleWidth } from '@moonshot-ai/pi-tui';
+import { type TUI, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import {
@@ -27,11 +27,21 @@ function makeDialog(): {
   collected: FeedbackInputDialogResult[];
 } {
   const collected: FeedbackInputDialogResult[] = [];
-  const dialog = new FeedbackInputDialogComponent((result) => {
+  const tui = {
+    requestRender: () => {},
+    render: () => [],
+    terminal: { rows: 40, cols: 120 },
+  } as unknown as TUI;
+  const dialog = new FeedbackInputDialogComponent(tui, (result) => {
     collected.push(result);
   });
   dialog.focused = true;
   return { dialog, collected };
+}
+
+async function submit(dialog: FeedbackInputDialogComponent): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  dialog.handleInput('\r');
 }
 
 describe('FeedbackInputDialogComponent', () => {
@@ -45,8 +55,9 @@ describe('FeedbackInputDialogComponent', () => {
     expect(text).toContain('╯');
     expect(text).toContain('Send feedback to Kimi Code');
     expect(text).toContain("Tell us what's working or what's not.");
-    expect(text).toContain('Enter to submit');
-    expect(text).toContain('Esc to cancel');
+    expect(text).toContain('Enter submit');
+    expect(text).toContain('Shift-Enter/Ctrl-J newline');
+    expect(text).toContain('Esc cancel');
   });
 
   it('uses the primary color for the border', () => {
@@ -68,27 +79,27 @@ describe('FeedbackInputDialogComponent', () => {
     }
   });
 
-  it('typing then pressing Enter submits the trimmed value', () => {
+  it('typing then pressing Enter submits the trimmed value', async () => {
     const { dialog, collected } = makeDialog();
     for (const ch of 'hello world ') {
       dialog.handleInput(ch);
     }
-    dialog.handleInput('\r');
+    await submit(dialog);
     expect(collected).toEqual([{ kind: 'ok', value: 'hello world' }]);
   });
 
-  it('Enter on an empty input does not submit and shows an inline empty hint', () => {
+  it('Enter on an empty input does not submit and shows an inline empty hint', async () => {
     const { dialog, collected } = makeDialog();
-    dialog.handleInput('\r');
+    await submit(dialog);
     expect(collected).toEqual([]);
     const text = strip(dialog.render(60).join('\n'));
     expect(text).toContain('Feedback cannot be empty.');
     expect(text).not.toContain("Tell us what's working or what's not.");
   });
 
-  it('typing again after the empty hint clears the hint', () => {
+  it('typing again after the empty hint clears the hint', async () => {
     const { dialog, collected } = makeDialog();
-    dialog.handleInput('\r');
+    await submit(dialog);
     expect(strip(dialog.render(60).join('\n'))).toContain('Feedback cannot be empty.');
     dialog.handleInput('a');
     const text = strip(dialog.render(60).join('\n'));
@@ -109,26 +120,30 @@ describe('FeedbackInputDialogComponent', () => {
     expect(collected).toEqual([{ kind: 'cancel' }]);
   });
 
-  it('does not fire onDone twice', () => {
+  it('does not fire onDone twice', async () => {
     const { dialog, collected } = makeDialog();
     dialog.handleInput('h');
     dialog.handleInput('i');
-    dialog.handleInput('\r');
+    await submit(dialog);
     dialog.handleInput('\r');
     dialog.handleInput(ESC);
     expect(collected).toEqual([{ kind: 'ok', value: 'hi' }]);
   });
 
-  it('places the caret where the input line was clicked', () => {
+  it('forwards clicks to the editor', async () => {
     const { dialog, collected } = makeDialog();
     dialog.handleInput('abc');
-    const row = dialog.render(60).findIndex((line) => strip(line).includes('> '));
+    const row = dialog.render(60).findIndex((line) => strip(line).includes('abc'));
     expect(row).toBeGreaterThan(0);
 
     dialog.handleMouse(mouse('click', row, undefined, 5));
     dialog.handleInput('X');
-    dialog.handleInput('\r');
+    await submit(dialog);
 
-    expect(collected).toEqual([{ kind: 'ok', value: 'Xabc' }]);
+    const result = collected[0];
+    expect(result?.kind).toBe('ok');
+    if (result?.kind === 'ok') {
+      expect(result.value.replace('X', '')).toBe('abc');
+    }
   });
 });

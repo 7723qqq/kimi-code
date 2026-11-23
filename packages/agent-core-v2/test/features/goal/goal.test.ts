@@ -211,6 +211,7 @@ function makeTurn(id: number): StubTurn {
     id,
     signal: new AbortController().signal,
     ready: Promise.resolve(),
+    started: Promise.resolve(),
     result: Promise.resolve({ type: 'completed', steps: 0, truncated: false }),
     cancel: () => true,
   };

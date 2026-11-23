@@ -238,7 +238,7 @@ export interface MemoryDispatcher {
 const REQUEST_INVALID = 40001;
 const CONFLICT = 40902;
 const NOT_FOUND = 40404;
-/** kap-server wire codes mirrored so memory/ipc surface the same numeric codes as `/api/v2/mcp`. */
+/** kap-server wire codes mirrored so memory/ipc surface the same numeric codes as `/api/v1/mcp`. */
 const MCP_SERVER_NOT_FOUND = 40408;
 const MCP_OAUTH_FAILED = 40929;
 const PROMPT_ID_CONFLICT = 40927;
@@ -275,7 +275,7 @@ function rethrowFileErrorAsRpc(error: unknown): never {
  * Same treatment for the MCP management plane: its coded rejections cross as
  * `RPCError`s carrying the kap-server wire codes, so memory and ipc behave
  * identically (a raw `Error2` would cross ipc as a generic 50001) and both
- * match `/api/v2/mcp` — `mcp.server_not_found` → 40408, `request.invalid` /
+ * match `/api/v1/mcp` — `mcp.server_not_found` → 40408, `request.invalid` /
  * `config.invalid` → 40001, `mcp.oauth_failed` → 40929.
  */
 function rethrowMcpManagementErrorAsRpc(error: unknown): never {

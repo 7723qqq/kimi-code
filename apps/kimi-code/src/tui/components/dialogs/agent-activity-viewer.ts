@@ -25,6 +25,7 @@ import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData } from '#/tui/types';
 
 import { AssistantMessageComponent } from '../messages/assistant-message';
+import { ThinkingComponent } from '../messages/thinking';
 import { extractKeyArgument } from '../messages/tool-call';
 import { pickChip } from '../messages/tool-renderers/chip';
 import { parseReadMediaOutput } from '../messages/tool-renderers/media';
@@ -125,6 +126,13 @@ export class AgentActivityViewer {
       out.push(currentTheme.dim(`── step ${String(step.step)} ──`));
       if (step.retrying !== undefined) {
         out.push(currentTheme.fg('warning', `${MESSAGE_INDENT}↻ ${step.retrying}`));
+      }
+      if (step.thinkingTail !== undefined && step.thinkingTail.trim().length > 0) {
+        const thinking = new ThinkingComponent(step.thinkingTail);
+        out.push(
+          currentTheme.dim(`${MESSAGE_INDENT}Thinking`),
+          ...thinking.renderRowDetail(innerWidth),
+        );
       }
       if (step.textTail.trim().length > 0) {
         const message = new AssistantMessageComponent();

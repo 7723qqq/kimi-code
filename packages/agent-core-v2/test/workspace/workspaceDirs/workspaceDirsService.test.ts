@@ -126,7 +126,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     await workspaces.update(project.id, { additionalDirs: [dirC] });
     for (let index = 0; index < 32; index += 1) changes.fire();
     release([project]);
-    await dirs.dispose();
+    await dirs.disposeAsync();
     expect(list).toHaveBeenCalledTimes(2);
     expect(dirs.additionalDirs).toEqual([dirC]);
   });
@@ -532,7 +532,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     const list = spyOn(workspaces, 'list').mockImplementationOnce(() => pending);
     const dirs = createDirs(dirA, encodeWorkDirKey(dirA));
     let settled = false;
-    const disposal = Promise.resolve(dirs.dispose()).then(() => {
+    const disposal = dirs.disposeAsync().then(() => {
       settled = true;
     });
 

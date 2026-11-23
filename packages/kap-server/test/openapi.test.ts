@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import { sharedAuthHeaders, sharedServer } from './helpers/sharedServer';
 
-describe('server-v2 OpenAPI', () => {
+describe('server OpenAPI', () => {
   async function fetchOpenApi(): Promise<Record<string, unknown>> {
     const res = await fetch(`${sharedServer().base}/openapi.json`, {
       headers: sharedAuthHeaders(),
@@ -21,7 +21,7 @@ describe('server-v2 OpenAPI', () => {
     expect(typeof info['version']).toBe('string');
   });
 
-  it('covers the core /api/v1 routes v2 registers', async () => {
+  it('covers the core /api/v1 routes', async () => {
     const doc = await fetchOpenApi();
     const paths = asRecord(doc['paths']);
 

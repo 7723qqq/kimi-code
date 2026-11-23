@@ -59,7 +59,6 @@ import { createAsyncApiDocument } from './protocol/asyncapi';
 import { resolveRequestId } from './request-id';
 import { registerRequestLogging } from './requestLogging';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
-import { registerApiV2Routes } from './routes/registerApiV2Routes';
 import { registerWebAssetRoutes } from './routes/webAssets';
 import { drainGlobalSearchDisposals } from './search/searchService';
 import { classify } from './security/bindClassify';
@@ -118,6 +117,7 @@ export interface ServerStartOptions {
   readonly socketPath?: string;
   readonly managedBy?: string;
   readonly authTokenService?: IAuthTokenService;
+  readonly skipInstanceRegistry?: boolean;
   readonly disableAuth?: boolean;
   readonly webTitle?: string;
   readonly rpcToken?: string;
@@ -153,13 +153,17 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const registry = createInstanceRegistry({
     instancesDir: opts.instancesDir ?? join(homeDir, 'server', 'instances'),
   });
-  const registration: InstanceRegistration = await registry.register({
-    pid: process.pid,
-    host,
-    port,
-    startedAt: Date.now(),
-    serverVersion,
-  });
+  const registration: InstanceRegistration =
+    opts.skipInstanceRegistry === true
+      ? { serverId: 'skipped', update: async () => {}, release: async () => {} }
+      : await registry.register({
+          pid: process.pid,
+          host,
+          port,
+          startedAt: Date.now(),
+          serverVersion,
+          product: opts.hostIdentity.productName,
+        });
   const exposureClass = classify(host, { bindClass: opts.bindClass });
   if (exposureClass !== 'loopback' && opts.insecureNoTls !== true) {
     await registration.release();
@@ -464,14 +468,14 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
           { name: 'models', description: 'Configured model aliases' },
           { name: 'providers', description: 'Configured providers' },
           { name: 'sessions', description: 'Session lifecycle' },
-          { name: 'v2-sessions', description: 'Domain-grouped session list query (API v2)' },
           { name: 'workspaces', description: 'Workspace registry + folder picker' },
           { name: 'messages', description: 'Message history' },
           { name: 'search', description: 'Global message search' },
           { name: 'transcript', description: 'Turn-granular session transcript' },
           { name: 'prompts', description: 'Prompt submission & abort' },
           { name: 'interactions', description: 'Approval and question responses' },
-          { name: 'tools', description: 'Tool & MCP server management' },
+          { name: 'tools', description: 'Tool listing' },
+          { name: 'mcp', description: 'MCP server registry & OAuth management' },
           { name: 'fs', description: 'Filesystem operations' },
           { name: 'files', description: 'File upload & download' },
           { name: 'remote-control', description: 'Remote Control tunnel' },
@@ -512,12 +516,11 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     broadcaster,
     conversations,
     transcriptService,
+    hosts: hostBridges,
     sessionRating,
     dangerousBypassAuth: opts.disableAuth === true,
     webTitle: opts.webTitle,
   });
-
-  await registerApiV2Routes(app, core);
 
   const wssV1 = registerWsV1(core, {
     registry: connectionRegistry,

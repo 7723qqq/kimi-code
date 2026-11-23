@@ -121,36 +121,65 @@ describe('kimi web', () => {
     expect(longs).not.toContain('--allow-remote-terminals');
   });
 
-  it('routes `kimi server` and any legacy subcommand to a deprecation notice', async () => {
-    for (const argv of [
-      ['node', 'kimi', 'server'],
-      ['node', 'kimi', 'server', 'run', '--port', '1'],
-      ['node', 'kimi', 'server', 'status'],
-      ['node', 'kimi', 'server', 'ps', '--json'],
-    ]) {
-      const program = makeProgram();
-      let stderr = '';
-      const exitCalls: number[] = [];
-      const errSpy = spyOn(process.stderr, 'write').mockImplementation((chunk) => {
-        stderr += String(chunk);
-        return true;
-      });
-      const exitSpy = spyOn(process, 'exit').mockImplementation(((code?: number) => {
-        exitCalls.push(code ?? 0);
-        return undefined;
-      }) as never);
+  it('exposes the hidden foreground `kimi server` command with --open', () => {
+    const program = makeProgram();
+    const server = program.commands.find((command) => command.name() === 'server');
+    expect(server).toBeDefined();
+    const longs = server!.options.map((option) => option.long).filter(Boolean);
+    expect(longs).toContain('--open');
+    expect(longs).toContain('--no-open');
+    expect(longs).toContain('--json');
+  });
+});
 
-      await program.parseAsync(argv);
-      errSpy.mockRestore();
-      exitSpy.mockRestore();
+describe('`kimi web --json`', () => {
+  it('formats a single loopback boot line with the websocket url', async () => {
+    const { formatJsonBootLine } = await import('#/cli/sub/web/run');
+    const line = formatJsonBootLine('http://0.0.0.0:4321/', 'tok');
+    expect(JSON.parse(line)).toEqual({
+      origin: 'http://127.0.0.1:4321',
+      ws_url: 'ws://127.0.0.1:4321/api/v1/ws',
+      token: 'tok',
+      kimi_agent_protocol_version: expect.any(String),
+    });
+  });
 
-      expect(exitCalls).toEqual([1]);
-      expect(stderr).toContain('`kimi server` has been deprecated and no longer works.');
-      expect(stderr).toContain('kimi web');
-      expect(stderr).toContain('kimi server kill');
-      expect(stderr).toContain('0.28.0');
-      expect(stderr).toContain('next major version');
-    }
+  it('emits one json line with an ephemeral token and does not open the browser', async () => {
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner, calls } = makeRunner('http://0.0.0.0:4321');
+    const { stdout, stderr, readStdout } = makeIo();
+    const openUrl = mock();
+
+    await handleWebCommand(
+      { json: true },
+      { startServerForeground: runner, openUrl, stdout, stderr },
+    );
+
+    expect(calls.options?.skipInstanceRegistry).toBe(true);
+    expect(calls.options?.logToStderr).toBe(true);
+    const token = calls.options?.authTokenService?.getToken();
+    if (token === undefined) throw new Error('expected an ephemeral token');
+    expect(await calls.options?.authTokenService?.isValid(token)).toBe(true);
+    expect(await calls.options?.authTokenService?.isValid('wrong')).toBe(false);
+    expect(JSON.parse(readStdout())).toEqual({
+      origin: 'http://127.0.0.1:4321',
+      ws_url: 'ws://127.0.0.1:4321/api/v1/ws',
+      token,
+      kimi_agent_protocol_version: expect.any(String),
+    });
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it('rejects incompatible flags in json mode', async () => {
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner } = makeRunner();
+    const { stdout, stderr } = makeIo();
+    await expect(
+      handleWebCommand(
+        { json: true, remoteControl: true },
+        { startServerForeground: runner, openUrl: mock(), stdout, stderr },
+      ),
+    ).rejects.toThrow('--remote-control');
   });
 });
 
@@ -869,11 +898,11 @@ function makeLegacyKillDeps(overrides: Partial<LegacyKillDeps> = {}): {
 describe('`kimi server kill` (deprecated, legacy servers only)', () => {
   const legacyLock = { pid: 1234, host: '127.0.0.1', port: 58627 };
 
-  it('is registered as the only working subcommand of the deprecated `server` command', () => {
+  it('registers the legacy kill cleanup command on `kimi server`', () => {
     const program = makeProgram();
     const server = program.commands.find((c) => c.name() === 'server');
     expect(server).toBeDefined();
-    expect(server?.commands.map((c) => c.name())).toEqual(['kill']);
+    expect(server?.commands.map((c) => c.name())).toContain('kill');
   });
 
   it('prints a deprecation notice naming the 0.28.0 cutoff on every run', async () => {

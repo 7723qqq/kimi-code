@@ -25,7 +25,7 @@ interface HostsRouteHost {
   delete(path: string, options: { preHandler: unknown[]; schema?: Record<string, unknown> }, handler: never): unknown;
 }
 
-const hostIdBodySchema = z.object({ id: z.string() });
+const hostIdBodySchema = z.object({ id: z.string() }).strict();
 const testResultSchema = z.object({
   connected: z.boolean(),
   remote_version: z.string().optional(),

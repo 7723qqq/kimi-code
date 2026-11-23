@@ -101,7 +101,7 @@ export function transformOpenApiDocument(
   if (paths === undefined) return document;
 
   for (const path of Object.keys(paths)) {
-    if (path.startsWith('/api/v2/') || path === '/api/v1/client_configs') delete paths[path];
+    if (path === '/api/v1/client_configs') delete paths[path];
   }
   const authComplete = paths['/api/v1/mcp/auth{complete}'];
   if (authComplete !== undefined) {

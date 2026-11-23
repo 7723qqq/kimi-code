@@ -20,16 +20,10 @@ import {
   drainQueryStoreDisposals,
   drainSessionIndexMirror,
   drainSessionMetadataWrites,
-  ensureMainAgent,
   getLiveSessionById,
-  IAgentLifecycleService,
-  IAgentEnvironmentBindingService,
   IAppendLogStore,
-  IHostEnvironment,
-  IHostProcessService,
   ISessionContext,
   ISessionIndexMirror,
-  IEnvironmentService,
   logSeed,
   resolveConfigPath,
   resolveKimiHome,
@@ -47,7 +41,7 @@ import { acpClientFromContext } from './acp-client';
 // module side effects. `IAcpConnection` is used below to bind the ACP client
 // connection.
 import { IAcpConnection } from './acp-fs';
-import { AcpEnvironmentProviderFactory } from './acp-terminal';
+import './acp-terminal';
 import { AcpServer, type AcpServerOptions, createAcpAgentApp } from './server';
 
 export interface RunAcpServerOptions extends AcpServerOptions {
@@ -130,8 +124,7 @@ export async function runAcpServerWithStream(
 
   // Route every inbound ACP method to the `AcpServer`. The app must be
   // connected before the outbound client surface (`conn.client`) — and thus
-  // the server — exists, and the environment provider attaches asynchronously
-  // before the server can be built, so handlers await `serverReady` instead of
+  // the server — exists, so handlers await `serverReady` instead of
   // dereferencing a half-initialized binding.
   let resolveServer: ((server: AcpServer) => void) | undefined;
   const serverReady = new Promise<AcpServer>((resolve) => {
@@ -144,29 +137,12 @@ export async function runAcpServerWithStream(
   // file IO. The `acp` `IHostFileSystem` reads it lazily via
   // `IAcpConnection.get()`.
   acpConnection.bind(client);
-  const acpEnvironmentProvider = new AcpEnvironmentProviderFactory(acpConnection, core.accessor.get(IHostEnvironment), core.accessor.get(IHostProcessService));
-  const acpProviderRegistration = await core.accessor.get(IEnvironmentService).addProvider(acpEnvironmentProvider);
   const server = new AcpServer(client, klient, acpConnection, {
     agentInfo: opts.agentInfo,
     disableAuth: opts.disableAuth,
     terminalAuthEnv: opts.terminalAuthEnv,
     terminalAuthLegacyCommand: opts.terminalAuthLegacyCommand,
     slashCommands: opts.slashCommands,
-    bindSessionEnvironment: async (sessionId) => {
-      const handle = getLiveSessionById(core.accessor, sessionId);
-      if (handle === undefined) throw new Error(`session ${sessionId} is not live`);
-      const context = handle.accessor.get(ISessionContext);
-      const environmentId = acpEnvironmentProvider.bindSession(sessionId, context.cwd);
-      const agentContext = await ensureMainAgent(handle, { environmentId, environmentCwd: context.cwd });
-      handle.accessor
-        .get(IAgentLifecycleService)
-        .handleOf(agentContext.agentId)!
-        .accessor.get(IAgentEnvironmentBindingService)
-        .bind(environmentId, context.cwd);
-    },
-    unbindSessionEnvironment: async (sessionId) => {
-      await acpEnvironmentProvider.unbindSession(sessionId);
-    },
     // Prompt-image compression persists originals into the session's own
     // media-originals dir (same resolution as kap-server's prompt route):
     // live session scope → `ISessionContext.sessionDir`. A session that is
@@ -201,7 +177,6 @@ export async function runAcpServerWithStream(
       // still open, so a queued summary lands in the read model.
       await drainSessionMetadataWrites();
       await core.accessor.get(ISessionIndexMirror).drain();
-      await acpProviderRegistration.dispose();
       core.dispose();
       // `core.dispose()` runs the mirror's and the query store's synchronous
       // `dispose()`, whose drains/closes are asynchronous — await them so an

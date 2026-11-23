@@ -24,7 +24,6 @@ import {
   ISessionTitleService,
   IEventService,
   SessionCreated,
-  IWorkspaceAliases,
   ISessionManager,
   IWorkspaceInstanceManager,
   IWorkspaceService,
@@ -61,7 +60,6 @@ import { defineRoute } from '../middleware/defineRoute';
 import { detailsSchema, sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import { projectGoalStatus } from '../protocol/goal';
-import { pageResponseSchema } from '../protocol/pagination';
 import { booleanQueryParam } from '../protocol/query-params';
 import { type PendingInteraction } from '../protocol/interaction';
 import { listPendingInteractions } from '../protocol/interaction-wire';
@@ -97,12 +95,11 @@ import {
   emptySessionUsage,
   sessionSchema,
   type Session,
+  type SessionGit,
   type SessionPendingInteraction,
 } from '../protocol/session';
-import { workspaceIdSchema } from '../protocol/workspace';
 import type { ConversationService } from '../services/conversation/conversationService';
 import { readLegacyStatus } from '../services/legacyStatus/legacyStatus';
-import { loadWorkspaceVisibility } from '../services/workspaceVisibility';
 import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, dispatchAction } from './action-dispatch';
 import { sendEnvironmentError } from './environment';
@@ -114,6 +111,7 @@ import {
 } from './sessionAgentConfig';
 import { sendMappedError as sendSessionMappedError, sessionConflictErrors } from './sessionErrors';
 import { customSessionMetadata, updateSessionProfile } from './sessionProfile';
+import { hostGet, HostSourceError, type HostSources } from '../services/hosts/hostFanout';
 
 interface SessionRouteHost {
   post(
@@ -141,39 +139,6 @@ interface SessionRouteHost {
     ) => Promise<void> | void,
   ): unknown;
 }
-
-const DEFAULT_SESSION_LIST_PAGE_SIZE = 20;
-
-const sessionsListQueryCoercion = z
-  .object({
-    before_id: z.string().min(1).optional(),
-    after_id: z.string().min(1).optional(),
-    page_size: z.coerce.number().int().min(1).max(100).optional(),
-    busy: booleanQueryParam,
-    include_archive: booleanQueryParam,
-    exclude_empty: booleanQueryParam,
-    archived_only: booleanQueryParam,
-    workspace_id: workspaceIdSchema.optional(),
-  })
-  .superRefine((value, ctx) => {
-    if (value.before_id !== undefined && value.after_id !== undefined) {
-      ctx.addIssue({
-        code: 'custom',
-        message: t('serverErrors.paginationMutuallyExclusive'),
-        path: ['before_id'],
-        params: { code: ErrorCode.VALIDATION_FAILED },
-      });
-    }
-    if (value.archived_only === true && value.include_archive === true) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'archived_only and include_archive are mutually exclusive',
-        path: ['archived_only'],
-        params: { code: ErrorCode.VALIDATION_FAILED },
-      });
-    }
-  })
-  .strict();
 
 const sessionChildrenListQueryCoercion = z
   .object({
@@ -218,10 +183,44 @@ const sessionActionRequestSchema = z.preprocess(
     .strict(),
 );
 
+const getSessionQuerySchema = z
+  .object({ hosts: z.literal('include').optional() })
+  .strict();
+
+async function loadSessionSummary(
+  core: Scope,
+  sessionId: string,
+): Promise<SessionSummary | undefined> {
+  const indexed = await core.accessor.get(ISessionIndex).get(sessionId);
+  if (indexed !== undefined) return indexed;
+  const handle =
+    getLiveSessionById(core.accessor, sessionId) ??
+    (await resumeSessionById(core.accessor, sessionId));
+  if (handle === undefined) return undefined;
+  const meta = await handle.accessor.get(ISessionMetadata).read();
+  const context = handle.accessor.get(ISessionContext);
+  return {
+    id: meta.id,
+    workspaceId: context.workspaceId,
+    cwd: meta.cwd ?? context.cwd,
+    environmentId: meta.environmentId,
+    environmentCwd: meta.environmentCwd,
+    title: meta.title,
+    lastPrompt: meta.lastPrompt,
+    createdAt: meta.createdAt,
+    updatedAt: meta.updatedAt,
+    archived: meta.archived,
+    archivedAt: meta.archivedAt,
+    custom: meta.custom,
+    lastTurnReason: meta.lastTurnReason,
+  };
+}
+
 export function registerSessionsRoutes(
   app: SessionRouteHost,
   core: Scope,
   conversations: ConversationService,
+  hosts?: HostSources,
 ): void {
   const createRoute = defineRoute(
     {
@@ -343,148 +342,13 @@ export function registerSessionsRoutes(
     createRoute.handler as Parameters<SessionRouteHost['post']>[2],
   );
 
-  const listRoute = defineRoute(
-    {
-      method: 'GET',
-      path: '/sessions',
-      querystring: sessionsListQueryCoercion,
-      success: { data: pageResponseSchema(sessionSchema) },
-      errors: {
-        [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
-        [ErrorCode.WORKSPACE_NOT_FOUND]: {},
-        [ErrorCode.PAGE_TOKEN_MISMATCH]: {},
-      },
-      description: 'List sessions',
-      tags: ['sessions'],
-    },
-    async (req, reply) => {
-      const raw = req.query;
-      const archivedOnly = raw.archived_only === true;
-
-      const { roots, visibleWorkspaceIds } = await loadWorkspaceVisibility(core);
-
-      if (raw.workspace_id !== undefined && !roots.has(raw.workspace_id)) {
-        reply.send(
-          errEnvelope(
-            ErrorCode.WORKSPACE_NOT_FOUND,
-            `workspace ${raw.workspace_id} does not exist`,
-            req.id,
-          ),
-        );
-        return;
-      }
-
-      const workspaceIds =
-        raw.workspace_id === undefined
-          ? undefined
-          : await core.accessor.get(IWorkspaceAliases).resolveAliasIds(raw.workspace_id);
-      const index = core.accessor.get(ISessionIndex);
-      const includeArchived = archivedOnly ? true : raw.include_archive;
-
-      if (raw.after_id !== undefined && (await index.get(raw.after_id)) === undefined) {
-        reply.send(
-          errEnvelope(
-            ErrorCode.PAGE_TOKEN_MISMATCH,
-            t('serverErrors.invalidCursorId', { id: raw.after_id }),
-            req.id,
-          ),
-        );
-        return;
-      }
-
-      interface Eligible {
-        readonly summary: SessionSummary;
-        readonly cwd: string;
-        readonly facts?: SessionFacts;
-      }
-
-      const collect = async (
-        pageSize: number,
-      ): Promise<{ visible: Eligible[]; hasMore: boolean }> => {
-        const wanted = pageSize + 1;
-        const collected: Eligible[] = [];
-        let before = raw.before_id;
-        const after = raw.after_id;
-        const afterCursor = after !== undefined ? await index.get(after) : undefined;
-        const newerThanCursor = (summary: SessionSummary): boolean =>
-          afterCursor === undefined ||
-          summary.updatedAt > afterCursor.updatedAt ||
-          (summary.updatedAt === afterCursor.updatedAt && summary.id > afterCursor.id);
-        while (collected.length < wanted) {
-          const page = await index.listRecent({
-            workspaceIds,
-            includeArchived,
-            limit: wanted - collected.length,
-            before,
-            after: before === undefined ? after : undefined,
-          });
-          if (page.items.length === 0) break;
-          let exhausted = false;
-          for (const summary of page.items) {
-            if (!visibleWorkspaceIds.has(summary.workspaceId)) continue;
-            if (!newerThanCursor(summary)) {
-              exhausted = true;
-              break;
-            }
-            const cwd = summary.cwd ?? roots.get(summary.workspaceId);
-            if (cwd === undefined) continue;
-            if (raw.exclude_empty === true && (summary.lastPrompt ?? '').length === 0) continue;
-            if (archivedOnly && !summary.archived) continue;
-            const facts = resolveSessionFacts(core, summary.id);
-            if (raw.busy !== undefined && facts.busy !== raw.busy) continue;
-            collected.push({ summary, cwd, facts });
-          }
-          if (exhausted || page.nextCursor === undefined) break;
-          before = page.nextCursor;
-        }
-        return { visible: collected.slice(0, pageSize), hasMore: collected.length > pageSize };
-      };
-
-      if (!archivedOnly && raw.page_size === undefined) {
-        const page = await index.listRecent({
-          workspaceIds,
-          includeArchived,
-          before: raw.before_id,
-          after: raw.after_id,
-        });
-        const eligible: Eligible[] = [];
-        for (const summary of page.items) {
-          if (!visibleWorkspaceIds.has(summary.workspaceId)) continue;
-          const cwd = summary.cwd ?? roots.get(summary.workspaceId);
-          if (cwd === undefined) continue;
-          if (raw.exclude_empty === true && (summary.lastPrompt ?? '').length === 0) continue;
-          eligible.push({ summary, cwd });
-        }
-        const projected = eligible.map(({ summary, cwd }) =>
-          toWireSession(summary, cwd, resolveSessionFacts(core, summary.id)),
-        );
-        const items =
-          raw.busy !== undefined
-            ? projected.filter((session) => session.busy === raw.busy)
-            : projected;
-        reply.send(okEnvelope({ items, has_more: false }, req.id));
-        return;
-      }
-
-      const pageSize = raw.page_size ?? DEFAULT_SESSION_LIST_PAGE_SIZE;
-      const { visible, hasMore } = await collect(pageSize);
-      const items = visible.map(({ summary, cwd, facts }) =>
-        toWireSession(summary, cwd, facts ?? resolveSessionFacts(core, summary.id)),
-      );
-      reply.send(okEnvelope({ items, has_more: hasMore }, req.id));
-    },
-  );
-  app.get(
-    listRoute.path,
-    listRoute.options,
-    listRoute.handler as Parameters<SessionRouteHost['get']>[2],
-  );
 
   const getRoute = defineRoute(
     {
       method: 'GET',
       path: '/sessions/{session_id}',
       params: sessionIdParamSchema,
+      querystring: getSessionQuerySchema,
       success: { data: sessionSchema },
       errors: {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
@@ -496,8 +360,44 @@ export function registerSessionsRoutes(
     },
     async (req, reply) => {
       const { session_id } = req.params;
-      const summary = await core.accessor.get(ISessionIndex).get(session_id);
+      const summary = await loadSessionSummary(core, session_id);
       if (summary === undefined) {
+        if (
+          (req.query as { readonly hosts?: string }).hosts === 'include' &&
+          hosts !== undefined
+        ) {
+          let unavailable = false;
+          for (const source of hosts.sources()) {
+            const session = await source.getSession();
+            if (session === undefined) {
+              unavailable = true;
+              continue;
+            }
+            try {
+              const remote = await hostGet<Session>(
+                session,
+                `/api/v1/sessions/${encodeURIComponent(session_id)}`,
+              );
+              reply.send(okEnvelope({ ...remote, host_id: source.id }, req.id));
+              return;
+            } catch (error) {
+              if (error instanceof HostSourceError && error.code === ErrorCode.SESSION_NOT_FOUND) {
+                continue;
+              }
+              unavailable = true;
+            }
+          }
+          if (unavailable) {
+            reply.send(
+              errEnvelope(
+                ErrorCode.HOST_UNAVAILABLE,
+                `session ${session_id} could not be found on every host`,
+                req.id,
+              ),
+            );
+            return;
+          }
+        }
         reply.send(
           errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
         );
@@ -541,7 +441,7 @@ export function registerSessionsRoutes(
     },
     async (req, reply) => {
       const { session_id } = req.params;
-      const summary = await core.accessor.get(ISessionIndex).get(session_id);
+      const summary = await loadSessionSummary(core, session_id);
       if (summary === undefined) {
         reply.send(
           errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
@@ -1610,13 +1510,14 @@ export function toWireSession(
   fields: SessionWireFields,
   cwd: string,
   facts: SessionFacts,
-  _git?: unknown,
+  git?: SessionGit,
 ): Session {
   const lastTurnReason =
     facts.lastTurnReason ?? (facts.live === false ? fields.lastTurnReason : undefined);
   return {
     id: fields.id,
     workspace_id: fields.workspaceId,
+    cwd,
     title: fields.title ?? '',
     created_at: new Date(fields.createdAt).toISOString(),
     updated_at: new Date(fields.updatedAt).toISOString(),
@@ -1631,6 +1532,7 @@ export function toWireSession(
       lastTurnReason === 'cancelled' ? 'interrupted' : lastTurnReason,
     archived: fields.archived,
     last_prompt: fields.lastPrompt,
+    ...(git === undefined ? {} : { git }),
     metadata: buildWireMetadata(fields.custom, cwd),
     agent_config: { model: facts.model ?? '' },
     usage: emptySessionUsage(),

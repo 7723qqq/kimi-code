@@ -339,7 +339,6 @@ describe('sessions across hosts', () => {
 
 describe('projects across hosts', () => {
   it('returns projects and session groups within five seconds even if an SSH host stops answering', async () => {
-    jest.useFakeTimers();
     const transport = new PassThrough();
     const stalled = new StdioHostSession(transport);
     const project = { id: 'wm_healthy', kind: 'managed' } as const;
@@ -347,28 +346,23 @@ describe('projects across hosts', () => {
       { id: 'healthy', session: fakeHost([project], [{ id: 'remote', workspace: project.id, updated: 10 }]) },
       { id: 'stalled', session: stalled },
     ]);
-    const onProjects = mock();
-    const onGroups = mock();
     try {
-      void collectFromHosts(hosts, hostProjects).then(onProjects);
-      void list({ view: 'by_workspace' }, hosts, [{ id: 'local', workspace: 'wm_local', updated: 20 }]).then(onGroups);
+      const [projects, groups] = await Promise.all([
+        collectFromHosts(hosts, hostProjects),
+        list({ view: 'by_workspace' }, hosts, [{ id: 'local', workspace: 'wm_local', updated: 20 }]),
+      ]);
 
-      await advanceTimersByTimeAsync((ms) => {
-        jest.advanceTimersByTime(ms);
-      }, 5_000);
-
-      expect(onProjects).toHaveBeenCalledWith({
+      expect(projects).toEqual({
         items: [{ ...project, host_id: 'healthy' }],
         unavailable: ['stalled'],
       });
-      expect(onGroups).toHaveBeenCalledWith(expect.objectContaining({
+      expect(groups).toMatchObject({
         groups: [expect.objectContaining({ workspace_id: 'wm_local' }), expect.objectContaining({ workspace_id: project.id })],
         unavailable_hosts: ['stalled'],
-      }));
+      });
     } finally {
       stalled.close();
       transport.destroy();
-      jest.useRealTimers();
     }
   });
 

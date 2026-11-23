@@ -60,5 +60,3 @@ src/human/tool-select/resolver.ts  test-only  exercised by upstream and local to
 src/human/tool-select/state.ts  test-only  exercised by upstream and local tool-select plugin tests
 src/human/tool-select/tool.ts  test-only  exercised by upstream and local tool-select plugin tests
 src/human/tool/wait-for.ts  test-only  kernel wait-for helper imported by upstream and local machine tests
-src/session/requestAttribution/requestAttribution.ts  upstream-dead  upstream 2.7.0 request attribution; only the dead upstream loop cluster imports it
-src/session/requestAttribution/requestAttributionService.ts  upstream-dead  upstream 2.7.0 request attribution service; only the dead upstream loop cluster imports it

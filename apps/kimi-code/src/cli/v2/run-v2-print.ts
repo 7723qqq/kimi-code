@@ -618,7 +618,8 @@ async function runNativeTurn(
       ? new PromptJsonWriter(stdout)
       : new PromptTranscriptWriter(stdout, stderr);
 
-  await agent.accessor.get(IAuthSummaryService).ensureReady();
+  const sessionModel = agent.accessor.get(IAgentProfileService).data().modelAlias;
+  await agent.accessor.get(IAuthSummaryService).ensureReady(sessionModel || undefined);
 
   const turnEndings = createPrintTurnEndings();
   const subscription = agent.accessor.get(IEventBus).subscribe((event: Event2<any>) => {

@@ -199,7 +199,7 @@ packages/
 
 **`klient`** (v0.1.3) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction. Both declared transports exist; only `memory` (in-process) has a consumer today — `acp-server/src/start.ts` and `node-sdk/src/sdk-rpc-client-v2.ts` both call `createKlient({ scope })`, and nothing imports `@moonshot-ai/klient/ipc`. Also hosts e2e suites.
 
-**`kap-server`** — The Kimi Code local server. Backed by DI × Scope agent engine. Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`), plus a `/api/v2` route group and the `/api/v1/debug/*` debug surface. Bootstrapped from `src/start.ts`.
+**`kap-server`** — The Kimi Code local server. Backed by DI × Scope agent engine. Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`) and the `/api/v1/debug/*` debug surface. Bootstrapped from `src/start.ts`.
 
 **`transcript`** (v0.0.2) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
 

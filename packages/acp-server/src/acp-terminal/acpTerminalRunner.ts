@@ -1,51 +1,22 @@
-import * as posixPath from 'node:path/posix';
-import * as win32Path from 'node:path/win32';
 import { PassThrough, Writable, type Readable } from 'node:stream';
 
-import type {
-  HostEnvironmentInfo,
-  HostProcessOptions,
-  IHostEnvironment,
-  IHostFileSystem,
-  IHostProcess,
-  IHostProcessService,
+import {
+  IAgentEnvironmentOverlay,
+  LOCAL_ENVIRONMENT_ID,
+  LifecycleScope,
+  ScopeActivation,
+  overrideScopedService,
+  type EnvironmentLease,
+  type HostProcessOptions,
+  type IHostProcess,
+  type IHostProcessService,
   ISessionContext,
-  Environment,
-  EnvironmentPath,
-  EnvironmentProviderAttachment,
-  EnvironmentProviderFactory,
-  EnvironmentProviderHost,
 } from '@moonshot-ai/agent-core-v2';
 
 import { AcpHostFileSystem, IAcpConnection, type IAcpTerminalHandle } from '../acp-fs';
 
 const OUTPUT_BYTE_LIMIT = 4 * 1024 * 1024;
 const OUTPUT_POLL_MS = 250;
-
-export interface AcpTerminalTimerHandle {
-  unref?(): void;
-}
-
-export interface AcpTerminalTimers {
-  setInterval(callback: () => void, intervalMs: number): AcpTerminalTimerHandle;
-  clearInterval(handle: AcpTerminalTimerHandle): void;
-}
-
-export const ACP_TERMINAL_TIMERS: AcpTerminalTimers = {
-  setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
-  clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
-};
-
-/**
- * Pushed onto the tool's `stdout` (and therefore into the model's tool result)
- * when the client's terminal buffer no longer shares a prefix with what we
- * already forwarded — either because it truncated at `outputByteLimit` or
- * because it dropped bytes from the head. Without this marker the model would
- * silently read output whose beginning is missing.
- */
-const TRUNCATION_NOTICE =
-  '\n[terminal] output truncated at 4 MiB; earlier bytes are not recoverable\n';
-let nextGeneration = 1;
 
 function isBashToolInvocation(args: readonly string[], options?: HostProcessOptions): boolean {
   return (
@@ -71,7 +42,6 @@ class AcpProcessService implements IHostProcessService {
     private readonly cwd: string,
     private readonly connection: IAcpConnection,
     private readonly local: IHostProcessService,
-    private readonly timers: AcpTerminalTimers,
   ) {}
 
   async spawn(
@@ -79,8 +49,8 @@ class AcpProcessService implements IHostProcessService {
     args: readonly string[] = [],
     options?: HostProcessOptions,
   ): Promise<IHostProcess> {
-    if (!this.connection.terminalEnabled || !isBashToolInvocation(args, options)) {
-      return this.local.spawn(command, args, { ...options, cwd: options?.cwd ?? this.cwd });
+    if (!isBashToolInvocation(args, options)) {
+      return this.local.spawn(command, args, options);
     }
 
     const handle = await this.connection.get().createTerminal({
@@ -96,7 +66,7 @@ class AcpProcessService implements IHostProcessService {
       shellCommand: args[1] ?? '',
       terminalId: handle.id,
     });
-    return new AcpTerminalProcess(handle, this.timers);
+    return new AcpTerminalProcess(handle);
   }
 }
 
@@ -109,20 +79,11 @@ class AcpTerminalProcess implements IHostProcess {
 
   private _exitCode: number | null = null;
   private emitted = 0;
-  /**
-   * Set once the client's buffer stopped being a superset of what we already
-   * forwarded (truncation, or an unmarked shrink); the notice is written at
-   * most once so a long-running command cannot flood the tool result.
-   */
-  private truncatedNotified = false;
-  private readonly pollTimer: AcpTerminalTimerHandle;
+  private readonly pollTimer: ReturnType<typeof setInterval>;
   private readonly waitPromise: Promise<number>;
   private released = false;
 
-  constructor(
-    private readonly handle: IAcpTerminalHandle,
-    private readonly timers: AcpTerminalTimers,
-  ) {
+  constructor(private readonly handle: IAcpTerminalHandle) {
     this.stdin = new Writable({
       write(_chunk, _encoding, callback) {
         callback();
@@ -135,7 +96,7 @@ class AcpTerminalProcess implements IHostProcess {
     const waitPromise = this.run();
     waitPromise.catch(() => {});
     this.waitPromise = waitPromise;
-    this.pollTimer = this.timers.setInterval(() => {
+    this.pollTimer = setInterval(() => {
       void this.pump();
     }, OUTPUT_POLL_MS);
     this.pollTimer.unref?.();
@@ -159,7 +120,8 @@ class AcpTerminalProcess implements IHostProcess {
     this.stopPolling();
     try {
       await this.handle.release();
-    } catch {}
+    } catch {
+    }
   }
 
   private async run(): Promise<number> {
@@ -173,162 +135,51 @@ class AcpTerminalProcess implements IHostProcess {
 
   private async pump(): Promise<void> {
     try {
-      const { output, truncated } = await this.handle.currentOutput();
-      if (truncated === true) {
-        // The client's buffer no longer starts where our forwarded prefix
-        // ended: it hit its own `outputByteLimit` and dropped the head, so
-        // `output` is a rolling window whose offset we cannot know. Rebasing
-        // on its current length keeps later deltas contiguous; the bytes we
-        // never saw are unrecoverable, which is exactly what the one-shot
-        // marker tells the model.
-        this.notifyTruncated();
-        this.emitted = output.length;
-        return;
-      }
+      const { output } = await this.handle.currentOutput();
       if (output.length > this.emitted) {
         this.stdout.write(output.slice(this.emitted));
         this.emitted = output.length;
-        return;
-      }
-      if (output.length < this.emitted) {
-        // An unmarked shrink (the client dropped bytes without flagging it):
-        // same verdict as a truncation — the head is gone, so make it
-        // observable rather than silently resuming at a shifted offset.
-        this.notifyTruncated();
+      } else if (output.length < this.emitted) {
         this.emitted = output.length;
       }
-    } catch {}
-  }
-
-  /** Write {@link TRUNCATION_NOTICE} at most once per process. */
-  private notifyTruncated(): void {
-    if (this.truncatedNotified) return;
-    this.truncatedNotified = true;
-    this.stdout.write(TRUNCATION_NOTICE);
+    } catch {
+    }
   }
 
   private stopPolling(): void {
-    this.timers.clearInterval(this.pollTimer);
+    clearInterval(this.pollTimer);
   }
 }
 
-class AcpSessionEnvironment implements Environment {
-  readonly identity;
-  readonly capabilities = new Set(['process', 'fs'] as const);
-  readonly host: HostEnvironmentInfo;
-  readonly path: EnvironmentPath;
-  readonly workspace = { mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots };
-  readonly fs: IHostFileSystem;
-  readonly process;
-  readonly watch = undefined;
-  readonly status = 'ready' as const;
-  readonly onDidChangeStatus = () => ({ dispose: () => {} });
+export class AcpEnvironmentOverlay implements IAgentEnvironmentOverlay {
+  declare readonly _serviceBrand: undefined;
 
   constructor(
-    sessionId: string,
-    cwd: string,
-    connection: IAcpConnection,
-    environment: IHostEnvironment,
-    local: IHostProcessService,
-    timers: AcpTerminalTimers,
-  ) {
-    this.identity = {
-      environmentId: AcpEnvironmentProviderFactory.environmentId(sessionId),
-      generation: `acp-${String(nextGeneration++)}`,
-    };
-    this.host = {
-      osKind: environment.osKind,
-      osArch: environment.osArch,
-      osVersion: environment.osVersion,
-      shellName: environment.shellName,
-      shellPath: environment.shellPath,
-      pathClass: environment.pathClass,
-      homeDir: environment.homeDir,
-    };
-    const path = environment.pathClass === 'win32' ? win32Path : posixPath;
-    this.path = {
-      separator: path.sep as '/' | '\\',
-      delimiter: path.delimiter as ':' | ';',
-      isAbsolute: (p: string) => path.isAbsolute(p),
-      join: (...paths: readonly string[]) => path.join(...paths),
-      relative: (from: string, to: string) => path.relative(from, to),
-      resolve: (...paths: readonly string[]) => path.resolve(...paths),
-      basename: (p: string) => path.basename(p),
-      dirname: (p: string) => path.dirname(p),
-    };
-    this.fs = new AcpHostFileSystem({ sessionId } as unknown as ISessionContext, connection);
-    this.process = new AcpProcessService(sessionId, cwd, connection, local, timers);
-  }
-
-  dispose(): void {}
-}
-
-class AcpSessionEnvironmentAttachment implements EnvironmentProviderAttachment {
-  private readonly sessions = new Map<string, { remove(): Promise<void> }>();
-
-  constructor(
-    private readonly host: EnvironmentProviderHost,
-    private readonly connection: IAcpConnection,
-    private readonly environment: IHostEnvironment,
-    private readonly local: IHostProcessService,
-    private readonly timers: AcpTerminalTimers,
+    @ISessionContext private readonly session: ISessionContext,
+    @IAcpConnection private readonly connection: IAcpConnection,
   ) {}
 
-  bindSession(sessionId: string, cwd: string): string {
-    const environmentId = AcpEnvironmentProviderFactory.environmentId(sessionId);
-    if (this.sessions.has(sessionId)) return environmentId;
-    const registration = this.host.registerEnvironment(
-      new AcpSessionEnvironment(sessionId, cwd, this.connection, this.environment, this.local, this.timers),
-    );
-    this.sessions.set(sessionId, registration);
-    return environmentId;
-  }
-
-  async unbindSession(sessionId: string): Promise<void> {
-    const registration = this.sessions.get(sessionId);
-    if (registration === undefined) return;
-    this.sessions.delete(sessionId);
-    await registration.remove();
-  }
-
-  async dispose(): Promise<void> {
-    const registrations = [...this.sessions.values()];
-    this.sessions.clear();
-    for (const registration of registrations.toReversed()) await registration.remove();
+  decorate(lease: EnvironmentLease): EnvironmentLease {
+    if (lease.environment.identity.environmentId !== LOCAL_ENVIRONMENT_ID) return lease;
+    const process = this.connection.terminalEnabled
+      ? new AcpProcessService(this.session.sessionId, this.session.cwd, this.connection, lease.environment.process!)
+      : lease.environment.process;
+    const fs = new AcpHostFileSystem(this.session, this.connection);
+    const environment = new Proxy(lease.environment, {
+      get: (target, property) => {
+        if (property === 'fs') return fs;
+        if (property === 'process') return process;
+        return Reflect.get(target, property, target);
+      },
+    });
+    return { ...lease, environment };
   }
 }
 
-export class AcpEnvironmentProviderFactory implements EnvironmentProviderFactory {
-  readonly id = 'acp';
-  private attachment: AcpSessionEnvironmentAttachment | undefined;
-
-  constructor(
-    private readonly connection: IAcpConnection,
-    private readonly environment: IHostEnvironment,
-    private readonly local: IHostProcessService,
-    private readonly timers: AcpTerminalTimers = ACP_TERMINAL_TIMERS,
-  ) {}
-
-  static environmentId(sessionId: string): string {
-    return `acp:${sessionId}`;
-  }
-
-  async attach(host: EnvironmentProviderHost): Promise<EnvironmentProviderAttachment> {
-    const attachment = new AcpSessionEnvironmentAttachment(host, this.connection, this.environment, this.local, this.timers);
-    this.attachment = attachment;
-    return { dispose: async () => {
-      if (this.attachment !== attachment) return;
-      this.attachment = undefined;
-      await attachment.dispose();
-    } };
-  }
-
-  bindSession(sessionId: string, cwd: string): string {
-    if (this.attachment === undefined) throw new Error('ACP environment provider is not attached');
-    return this.attachment.bindSession(sessionId, cwd);
-  }
-
-  async unbindSession(sessionId: string): Promise<void> {
-    await this.attachment?.unbindSession(sessionId);
-  }
-}
+overrideScopedService(
+  LifecycleScope.Session,
+  IAgentEnvironmentOverlay,
+  AcpEnvironmentOverlay,
+  ScopeActivation.OnDemand,
+  'acp',
+);

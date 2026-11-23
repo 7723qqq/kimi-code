@@ -8,6 +8,7 @@ import {
   IAgentContextMemoryService,
   IWireService,
   ISessionIndex,
+  ISessionContext,
   ISessionMetadata,
   IAgentLoopService,
   followSessionLifecycles,
@@ -567,21 +568,22 @@ export class TranscriptService {
     sessionId: string,
     agentId: string = MAIN_AGENT_ID,
   ): Promise<AgentTranscriptSnapshot | undefined> {
-    const summary = await this.deps.core.accessor.get(ISessionIndex).get(sessionId);
-    if (summary === undefined) return undefined;
+    const liveSession = getLiveSessionById(this.deps.core.accessor, sessionId);
+    const workspaceId =
+      liveSession?.accessor.get(ISessionContext)?.workspaceId ??
+      (await this.deps.core.accessor.get(ISessionIndex).get(sessionId))?.workspaceId;
+    if (workspaceId === undefined) return undefined;
     if (!isPlainAgentId(agentId)) {
       return groupMessagesIntoSnapshot([]);
     }
-    const liveAgents = getLiveSessionById(this.deps.core.accessor, sessionId)?.accessor.get(
-      IAgentLifecycleService,
-    );
+    const liveAgents = liveSession?.accessor.get(IAgentLifecycleService);
     await this.drainLiveWire(liveAgents, sessionId, agentId);
     let folded: AgentTranscriptSnapshot;
     try {
       folded = await this.projections.readColdSnapshot({
         sessionId,
         agentId,
-        workspaceId: summary.workspaceId,
+        workspaceId,
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {

@@ -90,7 +90,8 @@ describe('AgentShellCommandService', () => {
     const events: { type: string; commandId?: string; isError?: boolean }[] = [];
     ctx.get(IEventBus).subscribe((event) => events.push(event as (typeof events)[number]));
 
-    await shell.run({ command: 'echo hello', commandId: 'cmd-1' });
+    const result = await shell.run({ command: 'echo hello', commandId: 'cmd-1' });
+    expect(result).toMatchObject({ stdout: 'hello\n', isError: false });
     expect(events.filter((e) => e.type === 'shell.completed')).toEqual([
       expect.objectContaining({
         type: 'shell.completed',

@@ -13,12 +13,12 @@ import {
 } from '@moonshot-ai/agent-core-v2/mcpCore/config-schema';
 import { z } from 'zod';
 
-import { defineRoute } from '../../middleware/defineRoute';
-import { detailsSchema } from '../../protocol/common';
-import { errEnvelope, okEnvelope } from '../../protocol/envelope';
-import { ErrorCode } from '../../protocol/error-codes';
+import { defineRoute } from '../middleware/defineRoute';
+import { detailsSchema } from '../protocol/common';
+import { errEnvelope, okEnvelope } from '../protocol/envelope';
+import { ErrorCode } from '../protocol/error-codes';
 
-interface V2McpRouteHost {
+interface McpManagementRouteHost {
   get(
     path: string,
     options: { preHandler: unknown[]; schema?: Record<string, unknown> },
@@ -208,7 +208,7 @@ function sendMappedError(
   throw err;
 }
 
-export function registerV2McpAuthCompleteRoute(app: V2McpRouteHost, core: Scope): void {
+export function registerMcpAuthCompleteRoute(app: McpManagementRouteHost, core: Scope): void {
   const management = (): IMcpManagementService => core.accessor.get(IMcpManagementService);
   const authCompleteRoute = defineRoute(
     {
@@ -219,7 +219,7 @@ export function registerV2McpAuthCompleteRoute(app: V2McpRouteHost, core: Scope)
       errors: oauthErrorSchemas,
       description:
         'Await the browser callback of a begun flow and finish the code exchange (`40001` for an unknown `flowId`).',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       const { raw } = reply as unknown as { raw: ServerResponse };
@@ -242,11 +242,11 @@ export function registerV2McpAuthCompleteRoute(app: V2McpRouteHost, core: Scope)
   app.post(
     authCompleteRoute.path,
     authCompleteRoute.options,
-    authCompleteRoute.handler as Parameters<V2McpRouteHost['post']>[2],
+    authCompleteRoute.handler as Parameters<McpManagementRouteHost['post']>[2],
   );
 }
 
-export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
+export function registerMcpManagementRoutes(app: McpManagementRouteHost, core: Scope): void {
   const management = (): IMcpManagementService => core.accessor.get(IMcpManagementService);
 
   const listServersRoute = defineRoute(
@@ -258,7 +258,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       errors: baseErrorSchemas,
       description:
         'List every MCP server the management plane knows about (user-level file, plugin manifests; project layers join when `cwd` is given). Read-only entries carry redacted configs.',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       try {
@@ -272,7 +272,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   app.get(
     listServersRoute.path,
     listServersRoute.options,
-    listServersRoute.handler as Parameters<V2McpRouteHost['get']>[2],
+    listServersRoute.handler as Parameters<McpManagementRouteHost['get']>[2],
   );
 
   const getServerRoute = defineRoute(
@@ -284,7 +284,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       success: { data: mcpManagedServerSchema },
       errors: namedServerErrorSchemas,
       description: 'Get one MCP server by runtime name (`40408` when unknown).',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       try {
@@ -298,7 +298,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   app.get(
     getServerRoute.path,
     getServerRoute.options,
-    getServerRoute.handler as Parameters<V2McpRouteHost['get']>[2],
+    getServerRoute.handler as Parameters<McpManagementRouteHost['get']>[2],
   );
 
   const addServerRoute = defineRoute(
@@ -311,7 +311,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       errors: baseErrorSchemas,
       description:
         'Add a server to the user-level `mcp.json`; a same-named read-only entry (plugin / project layer) is rejected. Returns the refreshed list.',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       try {
@@ -325,7 +325,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   app.post(
     addServerRoute.path,
     addServerRoute.options,
-    addServerRoute.handler as Parameters<V2McpRouteHost['post']>[2],
+    addServerRoute.handler as Parameters<McpManagementRouteHost['post']>[2],
   );
 
   const updateServerRoute = defineRoute(
@@ -339,7 +339,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       errors: namedServerErrorSchemas,
       description:
         'Replace the user-level entry named in the path (the body carries no `name`); read-only entries reject the write. Returns the refreshed list.',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       try {
@@ -356,7 +356,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   app.put(
     updateServerRoute.path,
     updateServerRoute.options,
-    updateServerRoute.handler as Parameters<V2McpRouteHost['put']>[2],
+    updateServerRoute.handler as Parameters<McpManagementRouteHost['put']>[2],
   );
 
   const removeServerRoute = defineRoute(
@@ -369,7 +369,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       errors: namedServerErrorSchemas,
       description:
         'Remove a user-level entry; read-only entries reject the delete. Returns the refreshed list.',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       try {
@@ -383,7 +383,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   app.delete(
     removeServerRoute.path,
     removeServerRoute.options,
-    removeServerRoute.handler as Parameters<V2McpRouteHost['delete']>[2],
+    removeServerRoute.handler as Parameters<McpManagementRouteHost['delete']>[2],
   );
 
   const testServerRoute = defineRoute(
@@ -395,7 +395,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       errors: namedServerErrorSchemas,
       description:
         'Probe a real connection to one server: pass `name` to test a registry entry (plugin and project layers included) or an inline `server` config to probe it as-is. Never persists anything.',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       try {
@@ -409,7 +409,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   app.post(
     testServerRoute.path,
     testServerRoute.options,
-    testServerRoute.handler as Parameters<V2McpRouteHost['post']>[2],
+    testServerRoute.handler as Parameters<McpManagementRouteHost['post']>[2],
   );
 
   const inspectServersRoute = defineRoute(
@@ -421,7 +421,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       errors: namedServerErrorSchemas,
       description:
         'The locator-addressed catalog (redacted configs) plus a batched real-connection probe of every OAuth candidate. `targets` narrows the catalog; omitted inspects all. `cwd` includes trusted project layers.',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       try {
@@ -437,7 +437,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   app.post(
     inspectServersRoute.path,
     inspectServersRoute.options,
-    inspectServersRoute.handler as Parameters<V2McpRouteHost['post']>[2],
+    inspectServersRoute.handler as Parameters<McpManagementRouteHost['post']>[2],
   );
 
   const authStatusesRoute = defineRoute(
@@ -449,7 +449,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       errors: baseErrorSchemas,
       description:
         'Per-server OAuth state over the registry catalog. Omitted `verify` preserves implicit OAuth detection; `verify=false` is fully offline; `verify=true` verifies every candidate. Probes may refresh or invalidate credentials.',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       try {
@@ -466,7 +466,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   app.get(
     authStatusesRoute.path,
     authStatusesRoute.options,
-    authStatusesRoute.handler as Parameters<V2McpRouteHost['get']>[2],
+    authStatusesRoute.handler as Parameters<McpManagementRouteHost['get']>[2],
   );
 
   const authBeginRoute = defineRoute(
@@ -479,7 +479,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       errors: namedServerOAuthErrorSchemas,
       description:
         'Begin an interactive OAuth flow for a remote server. Answers `authorization-required` with the flow handle + URL, or `already-authorized` when a grant exists.',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       try {
@@ -493,10 +493,10 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   app.post(
     authBeginRoute.path,
     authBeginRoute.options,
-    authBeginRoute.handler as Parameters<V2McpRouteHost['post']>[2],
+    authBeginRoute.handler as Parameters<McpManagementRouteHost['post']>[2],
   );
 
-  registerV2McpAuthCompleteRoute(app, core);
+  registerMcpAuthCompleteRoute(app, core);
 
   const authCancelRoute = defineRoute(
     {
@@ -506,7 +506,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       success: { data: z.null() },
       errors: oauthErrorSchemas,
       description: 'Tear down a begun OAuth flow without finishing it; unknown flows are ignored.',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       try {
@@ -520,7 +520,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   app.post(
     authCancelRoute.path,
     authCancelRoute.options,
-    authCancelRoute.handler as Parameters<V2McpRouteHost['post']>[2],
+    authCancelRoute.handler as Parameters<McpManagementRouteHost['post']>[2],
   );
 
   const authResetRoute = defineRoute(
@@ -533,7 +533,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
       errors: namedServerOAuthErrorSchemas,
       description:
         'Clear the stored credentials of one server; the invalidation event reaches live sessions.',
-      tags: ['v2-mcp'],
+      tags: ['mcp'],
     },
     async (req, reply) => {
       try {
@@ -547,6 +547,6 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   app.post(
     authResetRoute.path,
     authResetRoute.options,
-    authResetRoute.handler as Parameters<V2McpRouteHost['post']>[2],
+    authResetRoute.handler as Parameters<McpManagementRouteHost['post']>[2],
   );
 }

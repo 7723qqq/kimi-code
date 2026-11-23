@@ -147,6 +147,7 @@ export interface Turn {
   readonly state?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   readonly signal: AbortSignal;
   readonly ready: Promise<void>;
+  readonly started: Promise<void>;
   readonly result: Promise<LoopRunResult>;
   cancel(reason?: unknown): boolean;
 }

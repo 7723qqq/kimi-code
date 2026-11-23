@@ -25,6 +25,7 @@
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `server_version` | string | 服务版本 |
+| `product` | string? | 宿主产品名（宿主身份声明时返回） |
 | `capabilities` | object | 能力集——`websocket`、`file_upload`、`fs_query`、`mcp`，均恒为 `true` |
 | `server_id` | string | 本服务实例的唯一 id |
 | `started_at` | string | 启动时间，ISO 8601 格式 |
@@ -848,7 +849,7 @@
 | --- | --- | --- | --- |
 | `workspace_id` | path | string | **必填。** 工作区 id |
 | `path` | body | string | **必填。** 要添加的目录 |
-| `persist` | body | boolean | 缺省 `true`：追加到 `<项目根>/.kimi-code/local.toml` 的 `workspace.additional_dir`；为 `false` 时仅加入内存中的临时集合（同一工作区所有会话共享），不写盘 |
+| `persist` | body | boolean | 缺省 `true`：将目录写入工作区 registry，后续会话会自动复用；为 `false` 时仅加入内存中的临时集合（同一工作区所有会话共享），不写盘 |
 
 成功时 `data` 为 `{ project_root, config_path, additional_dirs, persisted }`，其中 `additional_dirs` 是全部附加目录（含既有目录），`persisted` 表示本次是否写盘。
 
@@ -961,10 +962,10 @@
 | --- | --- |
 | `POST /api/v1/search` | 跨会话全文搜索，`mode` 为 `terms`（默认）或 `literal`（精确子串），`page_token` 分页 |
 | `GET /api/v1/connections` | 列出当前在线的 WebSocket 连接 |
-| `GET /api/v2/sessions` | 新一代会话列表，见下文 |
-| `POST /api/v2/sessions:archive` | 批量归档会话，见下文 |
-| `POST /api/v2/sessions:restore` | 批量恢复已归档会话，见下文 |
-| `/api/v2/mcp/*` | 统一的 MCP 管理面，见下文 |
+| `GET /api/v1/sessions` | 按工作区分组的会话列表，见下文 |
+| `POST /api/v1/sessions:archive` | 批量归档会话，见下文 |
+| `POST /api/v1/sessions:restore` | 批量恢复已归档会话，见下文 |
+| `/api/v1/mcp/*` | 统一的 MCP 管理面，见下文 |
 | `/api/v1/debug/*` | 反射式调试 RPC，仅 `--debug-endpoints` 且 loopback 时挂载，不属于稳定协议 |
 
 ### `POST /api/v1/search`
@@ -994,30 +995,33 @@
 
 成功时 `data` 为 `{ connections }`，每项为 `{ id, connected_at, remote_address, user_agent, has_client_hello, subscriptions }`：`connected_at` 为 ISO 8601 时间戳；`remote_address` 与 `user_agent` 未知时为 `null`；`has_client_hello` 报告客户端是否已发送握手帧；`subscriptions` 列出该连接订阅的会话 id。
 
-## `GET /api/v2/sessions`
+## `GET /api/v1/sessions`
 
-面向列表页的新一代会话查询，筛选、排序、字段组都在查询参数里：
+## `GET /api/v1/sessions`
+
+会话列表，支持过滤、排序、按工作区分组、git 元数据和 id 投影。精确的请求与响应 schema 见 `/openapi.json`。
 
 | 参数 | 说明 |
 | --- | --- |
-| `workspace.id` | 按工作区过滤，可重复 |
-| `activity.status` | 按活动状态过滤：`running` / `approval` / `question` / `failed` / `idle`，可重复 |
-| `meta.updated_after` | 只看该时间（epoch 毫秒）之后更新过的会话 |
-| `meta.updated_before` | 只看该时间（epoch 毫秒）之前更新过的会话 |
-| `meta.archived` | `true` / `false`（默认）/ `all` |
-| `meta.has_prompt` | `true` 只保留有用户 prompt 的会话，`false` 只保留空会话（等价 `GET /api/v1/sessions` 的 `exclude_empty`） |
-| `view` | `flat`（默认）/ `by_workspace`，见下文 |
-| `group.page_size` | `view=by_workspace` 时每个工作区返回的会话数：1–100，默认 5（使用 `id,archived` 投影时上限 10000）；未开分组视图时传入返回 `40001` |
-| `sort` | `meta.updated_at_desc`（默认）/ `meta.updated_at_asc` / `meta.created_at_desc` |
-| `include` | 逗号分隔的附加字段组；目前支持 `git`（分支与 PR 信息，按环境与工作目录去重并缓存 60 秒） |
-| `fields` | 逗号分隔的字段投影；目前仅支持 `id,archived`，每项裁剪为 `{ id, archived }`（用于全选匹配场景）。不可与 `include=git` 同传（`40001`） |
-| `page_size` | 1–100，默认 50；使用 `id,archived` 投影时上限放宽至 10000。`view=by_workspace` 时按组计数 |
-| `page_token` | 上一页返回的翻页令牌 |
-| `page` | 无状态的 1 起始页码；与 `page_token` 互斥（同传返回 `40001`） |
+| `workspace_id` | 按工作区 id 过滤，可重复（OR） |
+| `archived` | `false`（默认）/ `true` / `all` |
+| `has_prompt` | `true` 只保留有用户 prompt 的会话，`false` 只保留空会话 |
+| `busy` | `true` / `false`；按实时 busy 标记过滤 |
+| `activity` | `idle` / `turn` / `background`，可重复（OR） |
+| `updated_after` / `updated_before` | ISO 8601 时间戳；两端均为闭区间 |
+| `sort` | `updated_at_desc`（默认）/ `updated_at_asc` / `created_at_desc` |
+| `view` | `flat`（默认）/ `by_workspace` |
+| `group_page_size` | `view=by_workspace` 时每组返回的会话数：1–10000，默认 5 |
+| `include` | 逗号分隔的附加字段组；目前仅 `git`（分支与 PR，按环境与 cwd 缓存） |
+| `fields` | 逗号分隔的投影；仅 `id,archived`；把 page_size 上限放宽到 10000；不可与 `include=git` 同传 |
+| `page_size` | 1–100（默认 50）；`fields=id,archived` 时 10000；`view=by_workspace` 时按组计数 |
+| `page_token` / `page` / `before_id` / `after_id` | 翻页；同一时间只能用一种（否则 `40001`）；分组视图下拒绝 `before_id`/`after_id` |
+| `include_archive` / `archived_only` / `exclude_empty` | 兼容别名：`archived=all` / `archived=true` / `has_prompt=true` |
+| `hosts` | `include` 合并所有 SSH 主机上应用创建的会话；不可用主机会列在 `unavailable_hosts` |
 
-响应每项固定包含 `workspace`、`meta`、`activity` 三组，`include=git` 时附加 `git` 组；`fields=id,archived` 时仅返回 `{ id, archived }`。`activity` 组还会带上 `model`：会话仍加载在当前进程时为其绑定的模型别名，冷会话（未加载）为 `null`。每页额外携带 `total`，即过滤后的集合大小。翻页令牌绑定首页查询条件（含投影），中途改条件返回 `40922`。`page` 模式是跳页用的无状态替代：每次请求都是独立快照，不签发令牌，`next_page_token` 恒为 `null`。
+扁平页为 `{ items, total, has_more, next_page_token? }`。每项是完整的会话记录：`id`、`workspace_id`、`cwd`、`title`、`created_at`/`updated_at`（ISO 8601）、`busy`、`activity`、`pending_interaction`、`last_turn_reason`/`last_turn_outcome`、`archived`/`archived_at`、`last_prompt`、`metadata`（含 `cwd` 与自定义键）、`agent_config`、`usage`、`permission_rules`、`message_count`，请求 `include=git` 时再加 `git`。`fields=id,archived` 时每项为 `{ id, archived, host_id? }`。
 
-`view=by_workspace` 时，同一份过滤、排序后的集合会重新投影为按工作区分组的形态，概览页因此可以用一次请求替代「每个工作区各一轮询」：
+`view=by_workspace` 返回 `{ groups: [{ workspace_id, sessions, total, host_id? }], total, has_more, next_page_token? }`；每组的 `total` 是该工作区匹配过滤条件的完整会话数。翻页令牌绑定查询指纹，包含 `view` 与分组参数；中途修改返回 `40922`。`page` 是无状态替代，每次返回独立快照，不签发令牌。
 
 ```json
 {
@@ -1026,22 +1030,40 @@
   "data": {
     "groups": [
       {
-        "workspace": { "id": "wd_my-app_a1b2c3d4e5f6", "cwd": "/Users/dev/my-app" },
-        "sessions": [ { "id": "session_...", "workspace": { "id": "wd_my-app_a1b2c3d4e5f6", "cwd": "/Users/dev/my-app" }, "meta": { "title": "Fix the login page", "last_prompt": "adjust the button spacing", "created_at": 1787000000000, "updated_at": 1787000100000, "archived": false, "archived_at": null }, "activity": { "status": "idle", "model": "kimi-for-coding" } } ],
+        "workspace_id": "wd_my-app_a1b2c3d4e5f6",
+        "sessions": [
+          {
+            "id": "session_...",
+            "workspace_id": "wd_my-app_a1b2c3d4e5f6",
+            "cwd": "/Users/dev/my-app",
+            "title": "Fix the login page",
+            "created_at": "2026-11-20T08:00:00.000Z",
+            "updated_at": "2026-11-20T08:05:00.000Z",
+            "busy": false,
+            "activity": "idle",
+            "pending_interaction": "none",
+            "archived": false,
+            "last_prompt": "adjust the button spacing",
+            "metadata": { "cwd": "/Users/dev/my-app" },
+            "agent_config": { "model": "kimi-for-coding" },
+            "usage": { "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0, "context_tokens": 0 },
+            "permission_rules": [],
+            "message_count": 3
+          }
+        ],
         "total": 42
       }
     ],
-    "total": 7,
-    "has_more": true,
-    "next_page_token": "eyJ2IjoxLCJmIjoi..."
+    "total": 1,
+    "has_more": false
   },
   "request_id": "req_..."
 }
 ```
 
-每组携带该工作区按请求 `sort` 排序的前 `group.page_size` 条会话，以及该工作区匹配过滤条件的会话总数 `total`（用作「查看全部」入口）。只有至少有一条匹配会话的工作区才会出现；组间按组内首条会话的 sort key 排序，相同则按工作区 id。`page` 与 `page_token` 按组翻页（外层 `total` 为组数），指纹绑定规则相同：令牌同时覆盖 `view` 与分组参数，翻页途中变更同样返回 `40922`。
+已删除工作区的会话会被隐藏；不可见的 workspace id 会让整个请求以 `40410` 拒绝。
 
-## `POST /api/v2/sessions:archive` 与 `POST /api/v2/sessions:restore`
+## `POST /api/v1/sessions:archive` 与 `POST /api/v1/sessions:restore`
 
 面向会话管理页的批量归档/恢复。请求体为 `{ "ids": ["session_..."] }`——非空、去重后不超过 5000 条。仍在线的会话走完整生命周期；未加载的冷会话直接改写磁盘上的元数据，不会被加载。
 
@@ -1063,30 +1085,30 @@
 }
 ```
 
-## MCP 管理（`/api/v2/mcp`）
+## MCP 管理（`/api/v1/mcp`）
 
-`/api/v2/mcp/*` 路由是服务的统一 MCP 管理面：独立于任何会话，直接管理 MCP server 注册表本身——全局（用户级）CRUD 与逐条校验、连接测试探测、locator 寻址的检查目录、按 server 的授权状态列表，以及完整的 OAuth 流程生命周期。
+`/api/v1/mcp/*` 路由是服务的统一 MCP 管理面：独立于任何会话，直接管理 MCP server 注册表本身——全局（用户级）CRUD 与逐条校验、连接测试探测、locator 寻址的检查目录、按 server 的授权状态列表，以及完整的 OAuth 流程生命周期。
 
 | 方法与路径 | 说明 |
 | --- | --- |
-| `GET /api/v2/mcp/servers` | 列出所有已知 MCP server |
-| `GET /api/v2/mcp/servers/{name}` | 按运行时名称获取单个 server |
-| `POST /api/v2/mcp/servers` | 向用户级 `mcp.json` 添加 server |
-| `PUT /api/v2/mcp/servers/{name}` | 替换一个用户级条目 |
-| `DELETE /api/v2/mcp/servers/{name}` | 删除一个用户级条目 |
-| `POST /api/v2/mcp/servers:test` | 对单个 server 发起真实连接探测 |
-| `POST /api/v2/mcp/servers:inspect` | locator 寻址的目录及批量连接探测 |
-| `GET /api/v2/mcp/auth-statuses` | 目录中各 server 的 OAuth 状态 |
-| `POST /api/v2/mcp/auth:begin` | 开始一次交互式 OAuth 流程 |
-| `POST /api/v2/mcp/auth:complete` | 等待浏览器回调并完成 code 交换 |
-| `POST /api/v2/mcp/auth:cancel` | 终止已开始的 OAuth 流程 |
-| `POST /api/v2/mcp/auth:reset` | 清除某个 server 已存储的凭据 |
+| `GET /api/v1/mcp/servers` | 列出所有已知 MCP server |
+| `GET /api/v1/mcp/servers/{name}` | 按运行时名称获取单个 server |
+| `POST /api/v1/mcp/servers` | 向用户级 `mcp.json` 添加 server |
+| `PUT /api/v1/mcp/servers/{name}` | 替换一个用户级条目 |
+| `DELETE /api/v1/mcp/servers/{name}` | 删除一个用户级条目 |
+| `POST /api/v1/mcp/servers:test` | 对单个 server 发起真实连接探测 |
+| `POST /api/v1/mcp/servers:inspect` | locator 寻址的目录及批量连接探测 |
+| `GET /api/v1/mcp/auth-statuses` | 目录中各 server 的 OAuth 状态 |
+| `POST /api/v1/mcp/auth:begin` | 开始一次交互式 OAuth 流程 |
+| `POST /api/v1/mcp/auth:complete` | 等待浏览器回调并完成 code 交换 |
+| `POST /api/v1/mcp/auth:cancel` | 终止已开始的 OAuth 流程 |
+| `POST /api/v1/mcp/auth:reset` | 清除某个 server 已存储的凭据 |
 
 该管理面有两种寻址方式。CRUD 路由与 `servers:test` 使用普通的运行时 `name`；检查与 OAuth 路由使用 **locator**——文件层条目用 `{ "source": "global", "name" }`，插件清单条目用 `{ "source": "plugin", "pluginId", "serverName" }`——因为插件条目和文件条目可能共用同一个运行时名称。检查条目还带有一个稳定的 `serverId` 线上标识：`global:<name>` 或 `plugin:<pluginId>:<serverName>`（URL 编码）。
 
 大多数路由接受可选的 `cwd`（查询参数，`:`-action 路由则为请求体字段）。不传时目录只覆盖用户级文件与插件清单；传入后，该目录的项目根层与项目本地层会并入——但仅当工作区受信任时，否则项目层会被跳过。对 stdio server 执行 `servers:test` 时，`cwd` 同时是子进程的工作目录。连接探测与 OAuth 调用会等待服务配置加载完成后再执行。
 
-### `GET /api/v2/mcp/servers` 与 `GET /api/v2/mcp/servers/{name}`
+### `GET /api/v1/mcp/servers` 与 `GET /api/v1/mcp/servers/{name}`
 
 列出管理面已知的全部 MCP server；第二个路由返回该运行时名称对应的单个条目。
 
@@ -1106,14 +1128,14 @@
 - `40001`：校验失败
 - `40408`：不存在该名称的 server
 
-### `POST` / `PUT` / `DELETE /api/v2/mcp/servers`
+### `POST` / `PUT` / `DELETE /api/v1/mcp/servers`
 
 针对用户级 `mcp.json` 的全局 CRUD。新增请求体是包含 `name` 的完整 server 配置——`transport`（`stdio` / `http` / `sse`）决定配置形状，每条配置写入前都会校验。更新请求体携带同样的配置但不含 `name`（由路径指定条目）；删除无请求体。三者都在 `data` 中返回刷新后的 server 列表。若写入与项目层的同名条目冲突，会因只读被拒绝——请改为编辑定义它的文件；与同名的插件条目冲突并不阻止写入，新的文件条目会将其遮蔽。
 
 - `40001`：校验失败，或目标条目为只读
 - `40408`：（更新/删除）不存在该名称的 server
 
-### `POST /api/v2/mcp/servers:test`
+### `POST /api/v1/mcp/servers:test`
 
 对单个 server 发起真实连接探测，不持久化任何内容。传 `name` 探测注册表条目（含插件与受信任的项目层），或传 `server`（包含 `name` 的完整内联配置）按原样探测；两者都传或都不传会报 `40001`。
 
@@ -1128,7 +1150,7 @@
 - `40001`：两种目标形式都传或都不传、内联配置无效，或运行时名称被多个启用的 server 共用
 - `40408`：不存在该名称的 server
 
-### `POST /api/v2/mcp/servers:inspect`
+### `POST /api/v1/mcp/servers:inspect`
 
 locator 寻址的目录（脱敏配置），外加对每个 OAuth 候选的批量真实连接探测。
 
@@ -1142,7 +1164,7 @@ locator 寻址的目录（脱敏配置），外加对每个 OAuth 候选的批�
 - `40001`：校验失败
 - `40408`：`targets` 中有 locator 未匹配到任何条目
 
-### `GET /api/v2/mcp/auth-statuses`
+### `GET /api/v1/mcp/auth-statuses`
 
 注册表目录中各 server 的 OAuth 状态——只需要授权维度时，这是比 `servers:inspect` 更轻量的选择。
 
@@ -1153,7 +1175,7 @@ locator 寻址的目录（脱敏配置），外加对每个 OAuth 候选的批�
 
 成功时 `data` 是 `{ name, authStatus }` 数组，`authStatus` 取值与 `servers:inspect` 相同。验证探测可能刷新或作废已存储的凭据。
 
-### `POST /api/v2/mcp/auth:begin` / `:complete` / `:cancel` / `:reset`
+### `POST /api/v1/mcp/auth:begin` / `:complete` / `:cancel` / `:reset`
 
 远程 server 的 OAuth 流程生命周期。`auth:begin` 接受 locator 请求体（外加可选的 `cwd` 查询参数），返回 `data` 为 `{ status: "authorization-required", flowId, authorizationUrl }`——在浏览器中打开该 URL 完成授权——或当授权已存在时返回 `{ status: "already-authorized" }`。目标 server 必须使用远程传输（`http` / `sse`）且不含静态 bearer token；静态请求头仅当配置显式设置 `auth: "oauth"` 时允许。
 

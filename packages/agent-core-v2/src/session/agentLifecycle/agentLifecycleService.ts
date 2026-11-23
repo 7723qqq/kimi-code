@@ -17,6 +17,7 @@ import {
 } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { IEnvironmentService } from '#/app/environment/environment';
 import { ISessionEventBus } from '#/app/event/eventBus';
 import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
 import { permissionModeConfiguredKey } from '#/agent/permissionMode/permissionModeOps';
@@ -128,6 +129,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @ISessionContext private readonly ctx: ISessionContext,
     @ISessionWorkdir private readonly workdir: ISessionWorkdir,
+    @IEnvironmentService private readonly environments: IEnvironmentService,
     @ISessionMetadata private readonly sessionMetadata: ISessionMetadata,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IConfigService private readonly config: IConfigService,
@@ -345,7 +347,13 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         accessor: {
           get: (id) => container.invokeFunction((accessor) => accessor.get(id)),
         },
-        dispose: () => container.disposeAsync(),
+        dispose: async () => {
+          try {
+            await handle.accessor.get(IAgentLoopService).close();
+          } finally {
+            await container.disposeAsync();
+          }
+        },
       };
       this.rosterAdopt(scopeHandle);
       managed = this.roster.get(agentId);
@@ -372,6 +380,13 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       handle.accessor.get(IAgentPermissionModeService);
       handle.accessor.get(IAgentMcpService);
       await handle.accessor.get(IEventDispatcher).restore();
+      const binding = handle.accessor.get(IAgentEnvironmentBindingService);
+      if (
+        binding.current.environmentId.startsWith('acp:') &&
+        this.environments.current(binding.current.environmentId) === undefined
+      ) {
+        binding.bind(this.workdir.environmentId, binding.current.cwd ?? this.workdir.cwd);
+      }
       attachInteractionAgent(agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));
       stage = 'bootstrap';
       await this.bindBootstrap(handle, opts);
@@ -550,18 +565,26 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     signal: AbortSignal,
   ): Promise<ScopeFactoryOutput> {
     try {
-      this.rosterAdopt(handle);
+      const scopeHandle: IAgentScopeHandle = {
+        ...handle,
+        dispose: () =>
+          handle.accessor
+            .get(IAgentLoopService)
+            .close()
+            .then(() => handle.dispose()),
+      };
+      this.rosterAdopt(scopeHandle);
       const managed = this.roster.get(agent.agentId);
-      signal.addEventListener('abort', () => { void handle.dispose(); }, { once: true });
+      signal.addEventListener('abort', () => { void scopeHandle.dispose(); }, { once: true });
       const loop = handle.accessor.get(IAgentLoopService);
       const bundle = loop.buildAttachBundle();
       loop.attachEngine(self as unknown as MachineEngineAttachRef, bundle);
       if (managed !== undefined) managed.bundle = bundle;
       this.onDidCreateEmitter.fire(agent);
-      this.onDidCreateScopeEmitter.fire({ context: agent, handle });
+      this.onDidCreateScopeEmitter.fire({ context: agent, handle: scopeHandle });
       attachInteractionAgent(agent.agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));
       return Promise.resolve({
-        handle: { disposeAsync: () => Promise.resolve(handle.dispose()) },
+        handle: { disposeAsync: () => Promise.resolve(scopeHandle.dispose()) },
         store: bundle.store,
         turnLogic: bundle.turnLogic,
         toolLogic: bundle.toolLogic,
@@ -657,6 +680,11 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       await new Promise((resolve) => setTimeout(resolve, REMOVE_PROMPT_QUIESCE_POLL_MS));
     }
     let stopError: Error | undefined;
+    try {
+      await loop.close();
+    } catch (error) {
+      stopError = error instanceof Error ? error : new Error(String(error));
+    }
     try {
       await handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed');
     } catch (error) {

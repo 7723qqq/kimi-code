@@ -7,7 +7,7 @@ onMounted(() => redirectLegacyServerApiAnchor('zh'))
 
 # 服务 API【测试版】
 
-`kimi web` 启动的本地服务暴露两组程序化接口：REST API（`/api/v1`，另有 `/api/v2/sessions` 和 `/api/v2/mcp`）和 WebSocket 事件流（`/api/v1/ws`）。本页说明所有接口共用的约定，并用一个最小例子走通完整流程。如何启动服务及其命令行选项见 [kimi 命令](./kimi-command.md#kimi-web) 参考；端到端的上手流程见下文「[用 API 驱动一个会话](#用-api-驱动一个会话)」。各类接口的细节分在以下几页：
+`kimi web` 启动的本地服务暴露两组程序化接口：REST API（`/api/v1`，另有 `/api/v1/sessions` 和 `/api/v1/mcp`）和 WebSocket 事件流（`/api/v1/ws`）。本页说明所有接口共用的约定，并用一个最小例子走通完整流程。如何启动服务及其命令行选项见 [kimi 命令](./kimi-command.md#kimi-web) 参考；端到端的上手流程见下文「[用 API 驱动一个会话](#用-api-驱动一个会话)」。各类接口的细节分在以下几页：
 
 - [会话与对话](./server-api-conversation.md)：WebSocket 协议，以及客户端如何建立连接、订阅会话、接收对话事件、断线后恢复。
 - [会话接口](./server-api-sessions.md)：创建、列出、修改会话，会话动作（分叉、压缩、撤销等），消息与转录，提示词与交互。
@@ -93,7 +93,7 @@ HTTP 状态码几乎总是 200，业务结果以 `code` 为准。例外情况：
 列表端点有两种分页风格：
 
 - **游标式**：`before_id` / `after_id`（互斥）加 `page_size`（1–100），响应为 `{ items, has_more }`。用于会话列表、消息列表、转录等。
-- **`page_token`**：不透明令牌（绑定了查询条件的指纹），用于 `POST /api/v1/search` 与 `GET /api/v2/sessions`。翻页途中改变任何查询条件会使令牌失效：v2 返回 `40922`，search 返回 `40001`。`GET /api/v2/sessions` 另提供无状态的 `page` 页码模式作为替代。
+- **`page_token`**：不透明令牌（绑定了查询条件的指纹），用于 `POST /api/v1/search` 与 `GET /api/v1/sessions`。翻页途中改变任何查询条件会使令牌失效：v2 返回 `40922`，search 返回 `40001`。`GET /api/v1/sessions` 另提供无状态的 `page` 页码模式作为替代。
 
 ## 用 API 驱动一个会话
 

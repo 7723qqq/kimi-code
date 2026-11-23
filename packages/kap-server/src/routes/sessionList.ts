@@ -307,6 +307,7 @@ async function listSessionsHere(
   core: Scope,
   gitResolver: GitDomainResolver,
   raw: Omit<ListSessionsQuery, 'hosts'>,
+  options: { readonly remoteHosts?: boolean } = {},
 ): Promise<SessionsListOutcome> {
       const query: NormalizedQuery = {
         workspaceFilter: asArray(raw.workspace_id),
@@ -337,17 +338,28 @@ async function listSessionsHere(
         }
       }
 
+      const { roots, registeredWorkspaceIds, visibleWorkspaceIds } =
+        await loadWorkspaceVisibility(core);
+
       let workspaceIds: string[] | undefined;
       if (query.workspaceFilter !== undefined) {
         const aliases = core.accessor.get(IWorkspaceAliases);
         const sets = await Promise.all(
           query.workspaceFilter.map((id) => aliases.resolveAliasIds(id)),
         );
+        if (options.remoteHosts !== true) {
+          for (const id of query.workspaceFilter) {
+            if (!visibleWorkspaceIds.has(id)) {
+              return {
+                ok: false,
+                code: ErrorCode.WORKSPACE_NOT_FOUND,
+                message: `workspace ${id} does not exist`,
+              };
+            }
+          }
+        }
         workspaceIds = [...new Set(sets.flat())];
       }
-
-      const { roots, registeredWorkspaceIds, visibleWorkspaceIds } =
-        await loadWorkspaceVisibility(core);
       const index = core.accessor.get(ISessionIndex);
       const page = await index.listRecent({
         workspaceIds,
@@ -598,7 +610,10 @@ export function registerSessionListAndBatchRoutes(
     async (req, reply) => {
       const raw = req.query;
       const { hosts: includeHosts, ...query } = raw;
-      const local = (next: Omit<ListSessionsQuery, 'hosts'>) => listSessionsHere(core, gitResolver, next);
+      const local = (next: Omit<ListSessionsQuery, 'hosts'>) =>
+        listSessionsHere(core, gitResolver, next, {
+          remoteHosts: includeHosts === 'include' && hosts !== undefined,
+        });
       const outcome = includeHosts === 'include' && hosts !== undefined
         ? raw.view !== 'by_workspace' && raw.page_size === undefined && raw.page_token === undefined && raw.page === undefined && raw.before_id === undefined && raw.after_id === undefined
           ? await listAllSessionsAcrossHosts(query, hosts, local)
