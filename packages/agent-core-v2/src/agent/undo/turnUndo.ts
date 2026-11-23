@@ -39,6 +39,7 @@ export function isValidUndoCount(count: number): boolean {
 }
 
 export function isUndoAnchorOrigin(origin: PromptOrigin | undefined): boolean {
+  if (origin !== undefined && 'inTurn' in origin && origin.inTurn === true) return false;
   if (origin === undefined || origin.kind === 'user') return true;
   return (
     (origin.kind === 'skill_activation' || origin.kind === 'plugin_command') &&
