@@ -851,7 +851,7 @@ Adds an additional directory to the workspace, with the same semantics as the CL
 | --- | --- | --- | --- |
 | `workspace_id` | path | string | **Required.** Workspace id |
 | `path` | body | string | **Required.** Directory to add |
-| `persist` | body | boolean | Defaults to `true`: stores the directory in the workspace registry so later sessions reuse it. With `false`, the directory only joins the in-memory ephemeral set shared by all sessions of the workspace |
+| `persist` | body | boolean | Defaults to `true`: stores the directory in the workspace registry so later sessions reuse it, and mirrors the entry into `workspace.additional_dir` in `<project root>/.kimi-code/local.toml`. With `false`, the directory only joins the in-memory ephemeral set shared by all sessions of the workspace |
 
 On success, `data` is `{ project_root, config_path, additional_dirs, persisted }`, where `additional_dirs` lists every additional directory (existing ones included) and `persisted` reports whether this call wrote to disk.
 

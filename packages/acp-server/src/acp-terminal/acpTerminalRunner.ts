@@ -18,6 +18,23 @@ import { AcpHostFileSystem, IAcpConnection, type IAcpTerminalHandle } from '../a
 const OUTPUT_BYTE_LIMIT = 4 * 1024 * 1024;
 const OUTPUT_POLL_MS = 250;
 
+export interface AcpTerminalTimerHandle {
+  unref?(): void;
+}
+
+export interface AcpTerminalTimers {
+  setInterval(callback: () => void, intervalMs: number): AcpTerminalTimerHandle;
+  clearInterval(handle: AcpTerminalTimerHandle): void;
+}
+
+export const ACP_TERMINAL_TIMERS: AcpTerminalTimers = {
+  setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
+  clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+};
+
+const TRUNCATION_NOTICE =
+  '\n[terminal] output truncated at 4 MiB; earlier bytes are not recoverable\n';
+
 function isBashToolInvocation(args: readonly string[], options?: HostProcessOptions): boolean {
   return (
     args.length === 2 &&
@@ -42,6 +59,7 @@ class AcpProcessService implements IHostProcessService {
     private readonly cwd: string,
     private readonly connection: IAcpConnection,
     private readonly local: IHostProcessService,
+    private readonly timers: AcpTerminalTimers = ACP_TERMINAL_TIMERS,
   ) {}
 
   async spawn(
@@ -66,7 +84,7 @@ class AcpProcessService implements IHostProcessService {
       shellCommand: args[1] ?? '',
       terminalId: handle.id,
     });
-    return new AcpTerminalProcess(handle);
+    return new AcpTerminalProcess(handle, this.timers);
   }
 }
 
@@ -79,11 +97,15 @@ class AcpTerminalProcess implements IHostProcess {
 
   private _exitCode: number | null = null;
   private emitted = 0;
-  private readonly pollTimer: ReturnType<typeof setInterval>;
+  private truncatedNotified = false;
+  private readonly pollTimer: AcpTerminalTimerHandle;
   private readonly waitPromise: Promise<number>;
   private released = false;
 
-  constructor(private readonly handle: IAcpTerminalHandle) {
+  constructor(
+    private readonly handle: IAcpTerminalHandle,
+    private readonly timers: AcpTerminalTimers = ACP_TERMINAL_TIMERS,
+  ) {
     this.stdin = new Writable({
       write(_chunk, _encoding, callback) {
         callback();
@@ -96,7 +118,7 @@ class AcpTerminalProcess implements IHostProcess {
     const waitPromise = this.run();
     waitPromise.catch(() => {});
     this.waitPromise = waitPromise;
-    this.pollTimer = setInterval(() => {
+    this.pollTimer = this.timers.setInterval(() => {
       void this.pump();
     }, OUTPUT_POLL_MS);
     this.pollTimer.unref?.();
@@ -135,19 +157,33 @@ class AcpTerminalProcess implements IHostProcess {
 
   private async pump(): Promise<void> {
     try {
-      const { output } = await this.handle.currentOutput();
+      const { output, truncated } = await this.handle.currentOutput();
+      if (truncated === true) {
+        this.notifyTruncated();
+        this.emitted = output.length;
+        return;
+      }
       if (output.length > this.emitted) {
         this.stdout.write(output.slice(this.emitted));
         this.emitted = output.length;
-      } else if (output.length < this.emitted) {
+        return;
+      }
+      if (output.length < this.emitted) {
+        this.notifyTruncated();
         this.emitted = output.length;
       }
     } catch {
     }
   }
 
+  private notifyTruncated(): void {
+    if (this.truncatedNotified) return;
+    this.truncatedNotified = true;
+    this.stdout.write(TRUNCATION_NOTICE);
+  }
+
   private stopPolling(): void {
-    clearInterval(this.pollTimer);
+    this.timers.clearInterval(this.pollTimer);
   }
 }
 
@@ -157,12 +193,19 @@ export class AcpEnvironmentOverlay implements IAgentEnvironmentOverlay {
   constructor(
     @ISessionContext private readonly session: ISessionContext,
     @IAcpConnection private readonly connection: IAcpConnection,
+    private readonly timers: AcpTerminalTimers = ACP_TERMINAL_TIMERS,
   ) {}
 
   decorate(lease: EnvironmentLease): EnvironmentLease {
     if (lease.environment.identity.environmentId !== LOCAL_ENVIRONMENT_ID) return lease;
     const process = this.connection.terminalEnabled
-      ? new AcpProcessService(this.session.sessionId, this.session.cwd, this.connection, lease.environment.process!)
+      ? new AcpProcessService(
+          this.session.sessionId,
+          this.session.cwd,
+          this.connection,
+          lease.environment.process!,
+          this.timers,
+        )
       : lease.environment.process;
     const fs = new AcpHostFileSystem(this.session, this.connection);
     const environment = new Proxy(lease.environment, {

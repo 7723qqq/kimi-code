@@ -1,5 +1,5 @@
 import { mkdtempSync } from 'node:fs';
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
@@ -272,7 +272,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     expect(fired).toBeGreaterThan(0);
   });
 
-  it('persists added dirs to the workspace registry instead of local.toml', async () => {
+  it('persists added dirs to the project local.toml and the workspace registry', async () => {
     const project = await workspaces.create({ root: dirA, name: 'proj' });
     const dirs = createDirs(dirA, project.id, 'managed');
     await dirs.ready;
@@ -285,11 +285,17 @@ describe('WorkspaceDirsService (registry source)', () => {
 
     const entry = await workspaces.get(project.id);
     expect(entry?.additionalDirs).toEqual([dirB]);
-    await expect(stat(join(dirA, '.kimi-code', 'local.toml'))).rejects.toThrow();
+
+    const escaped = dirB.replaceAll('\\', '\\\\');
+    const raw = await readFile(join(dirA, '.kimi-code', 'local.toml'), 'utf8');
+    expect(raw).toContain('additional_dir');
+    expect(raw).toContain(`"${escaped}"`);
 
     const again = await dirs.addDir({ path: dirB, persist: true });
     expect(again.additionalDirs).toEqual([dirB]);
     expect((await workspaces.get(project.id))?.additionalDirs).toEqual([dirB]);
+    const rawAgain = await readFile(join(dirA, '.kimi-code', 'local.toml'), 'utf8');
+    expect(rawAgain.split(`"${escaped}"`)).toHaveLength(2);
   });
 
   it('registers the hash entry on demand when persisting from a hash scope', async () => {
