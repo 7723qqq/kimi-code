@@ -77,6 +77,7 @@ export interface AgentLLMTurnRequestSnapshot {
   readonly startedAt: number;
   readonly finishedAt: number;
   readonly observation?: CacheObservation;
+  readonly tools?: readonly Tool[];
 }
 
 export interface IAgentLLMRequesterService {

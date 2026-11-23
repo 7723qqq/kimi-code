@@ -42,7 +42,8 @@ import { OrderedHookSlot } from '#/hooks';
 import { toCorePart } from '#human/message';
 import type { StreamedMessagePart as ForkStreamedPart } from '#human/llm/message';
 import type { StreamedMessagePart as CoreStreamedPart } from '@moonshot-ai/core/llm/message';
-import { ContextSpliced } from '#/agent/contextMemory/contextEvents';import { newMessageId } from '#/agent/contextMemory/messageId';
+import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
+import { newMessageId } from '#/agent/contextMemory/messageId';
 import { type ContextMessage, type PromptOrigin } from '#/agent/contextMemory/types';
 import { gateImageFormatParts } from '#/agent/media/image-compress';
 import { daemonFileRefFromPart } from '#/agent/media/mediaRef';
@@ -147,6 +148,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private readonly pendingReminders: Message[] = [];
   private readonly pendingNotifications: UserMessage[] = [];
   private readonly pendingSendNowNotifications = new Set<string>();
+  private readonly pendingTurnScopedNotifications = new Set<string>();
   private readonly suppressedTaskNotifications = new Set<string>();
   private readonly settleWaiters: Array<() => void> = [];
   private quiescenceDepth = 0;
@@ -238,6 +240,24 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this._register(this.events.subscribe(ContextSpliced, (event) => {
       if (event.agentId === this.scopeContext.agentId) this.adoptExternalContext();
     }));
+    this._register(this.toolExecutor.hooks.onDidExecuteTool.register('loop.tool-delivery', async (ctx, next) => {
+      const delivery = ctx.result.delivery;
+      if (delivery !== undefined) {
+        const { delivery: _delivery, ...rest } = ctx.result;
+        ctx.result = rest;
+        if (delivery.kind === 'steer') {
+          this.submit(
+            {
+              role: 'user',
+              content: delivery.message.content.map((part) => toCorePart(part as never)),
+              attributes: { origin: delivery.message.origin as PromptOrigin | undefined },
+            },
+            { steerIfActive: true },
+          );
+        }
+      }
+      await next(ctx);
+    }));
     this.states.contributeState(turnKey);
     this.states.contributeState(loopLastRequestIdKey);
     this.states.contributeState(loopDisposingKey);
@@ -279,7 +299,15 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   baselineTools(): readonly Tool[] {
-    return this.loop?.state.profile.tools ?? this.toolSelect.initialTools();
+    return this.loop?.state.profile.tools ?? this.toolsForActiveProfile();
+  }
+
+  private toolsForActiveProfile(): readonly Tool[] {
+    const all = this.toolSelect.initialTools().filter((tool) => tool.deferred !== true);
+    const active = this.getActiveToolNames();
+    if (active === undefined) return all;
+    const allowed = new Set(active);
+    return all.filter((tool) => allowed.has(tool.name));
   }
 
   private get toolSelect(): IAgentToolSelectService {
@@ -405,10 +433,28 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const context = this.instantiation
       .invokeFunction((accessor) => accessor.get(IAgentContextMemoryService))
       .get();
-    if (context.length <= loop.state.messages.length) return;
-    const tail = context.slice(loop.state.messages.length);
+    const messages = loop.state.messages;
+    let cursor = 0;
+    let subsequence = true;
+    for (const message of messages) {
+      while (cursor < context.length && !sameContextMessage(message, context[cursor]!)) cursor += 1;
+      if (cursor === context.length) {
+        subsequence = false;
+        break;
+      }
+      cursor += 1;
+    }
+    if (subsequence) {
+      if (context.length !== messages.length) {
+        loop.setContext(historyFromContextPreservingToolNotes(context), 'compaction');
+      }
+      return;
+    }
+    const known = new Set(messages.map(messageSignature));
+    const missing = context.filter((message) => !known.has(messageSignature(message)));
+    if (missing.length === 0) return;
     loop.setContext(
-      [...loop.state.messages, ...historyFromContextPreservingToolNotes(tail)],
+      [...messages, ...historyFromContextPreservingToolNotes(missing)],
       'compaction',
     );
   }
@@ -438,7 +484,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       await this.wire.drainPersisted().catch(() => undefined);
       const snapshot = this.journal.snapshot();
       this.profileAdapter.restore(snapshot);
-      const tools = initialTools === undefined ? this.toolSelect.initialTools() : [...initialTools];
+      const tools = initialTools === undefined ? this.toolsForActiveProfile() : [...initialTools];
       const taskHistory = this.instantiation.invokeFunction((accessor) => accessor.get(IAgentTaskService));
       await taskHistory.reconcile();
       const completions = await restoreTaskCompletions({
@@ -504,7 +550,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         ...this.batchStartingHooks.values(),
         createMaxStepsHook(
           () => this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
-          (event) => loop.state.turn?.bypassMaxSteps === true && event.step === 1,
+          (event) =>
+            loop.state.turn?.bypassMaxSteps === true &&
+            (event.step === 1 || event.step === loop.state.turn?.bypassStep),
         ),
         { point: 'turn.starting', hook: (event, signal) => this.turnStarting(event, signal) },
         { point: 'message.appending', hook: (event, signal) => this.messageAppending(event, signal) },
@@ -631,13 +679,21 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           1,
         );
         let accumulator = createMessageAccumulator();
+        const requestMessages = rest.content?.messages ?? [];
+        await this.toolSelect.prepareForRequest(control.signal);
+        const requestTools = this.toolSelect.requestTools(
+          rest.profile?.tools as unknown as readonly Tool[] | undefined,
+          this.toolSelect.enabled(),
+          options.dynamicTools === true,
+          requestMessages as never,
+        );
         for (let attempt = 1; ; attempt += 1) {
           const task = this.llmRequester.start(
             {
-              messages: (rest.content?.messages ?? []).map((message) =>
+              messages: requestMessages.map((message) =>
                 contextFromHistoryEntry(message),
               ),
-              tools: rest.profile?.tools as unknown as readonly Tool[] | undefined,
+              tools: requestTools as unknown as readonly Tool[],
               systemPrompt: rest.profile?.systemPrompt,
               source: source as unknown as AgentLLMRequestSource,
               maxOutputSize: options.maxOutputSize,
@@ -843,6 +899,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this.notifications.close();
     this.pendingSubmissions.length = 0;
     this.pendingNotifications.length = 0;
+    this.pendingTurnScopedNotifications.clear();
     this.turns.close(reason);
     this.closePromise = (async () => {
       try {
@@ -1021,7 +1078,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     });
     const admitted = this.admit(entry);
     this.notifications.register(id, note);
-    this.sendNotification(admitted.entry);
+    this.sendNotification(
+      admitted.entry,
+      false,
+      note.turnScoped !== false && (note.bypassMaxSteps === true || note.message === undefined),
+    );
     this.maybeSettle();
     const notifications = this.notifications;
     return {
@@ -1080,16 +1141,18 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     loop.flushReminders();
   }
 
-  private sendNotification(entry: UserMessage, sendNow = false): void {
+  private sendNotification(entry: UserMessage, sendNow = false, turnScoped = false): void {
     this.ensureStarted();
     if (this.loop !== undefined && this.quiescenceDepth === 0) {
       if (sendNow) this.loop.sendNow(entry);
+      else if (turnScoped) this.loop.notifyScoped(entry);
       else this.loop.notify(entry);
       return;
     }
     this.pendingNotifications.push(entry);
     const id = entry.attributes?.promptId;
     if (sendNow && id !== undefined) this.pendingSendNowNotifications.add(id);
+    else if (turnScoped && id !== undefined) this.pendingTurnScopedNotifications.add(id);
   }
 
   private dropNotification(id: string): void {
@@ -1098,6 +1161,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       if (this.pendingNotifications[index]!.attributes?.promptId === id) this.pendingNotifications.splice(index, 1);
     }
     this.pendingSendNowNotifications.delete(id);
+    this.pendingTurnScopedNotifications.delete(id);
     this.loop?.cancel(id);
     this.notifications.drop(id);
     this.maybeSettle();
@@ -1273,8 +1337,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     for (const entry of this.pendingNotifications.splice(0)) {
       const id = entry.attributes?.promptId;
       const sendNow = id !== undefined && this.pendingSendNowNotifications.delete(id);
+      const turnScoped = id !== undefined && this.pendingTurnScopedNotifications.delete(id);
       if (id === undefined || notify.has(id)) continue;
       if (sendNow) loop.sendNow(entry);
+      else if (turnScoped) loop.notifyScoped(entry);
       else loop.notify(entry);
     }
     if (this.quiescenceDepth > 0) return;
@@ -1414,3 +1480,12 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'loop',
 );
+
+function sameContextMessage(left: Message, right: { readonly role?: string; readonly content?: unknown; readonly toolCalls?: unknown; readonly toolCallId?: string }): boolean {
+  if (left === right) return true;
+  return messageSignature(left) === messageSignature(right);
+}
+
+function messageSignature(message: { readonly role?: string; readonly content?: unknown; readonly toolCalls?: unknown; readonly toolCallId?: string }): string {
+  return JSON.stringify([message.role, message.content, message.toolCalls ?? [], message.toolCallId]);
+}

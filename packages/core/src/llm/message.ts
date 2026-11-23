@@ -195,6 +195,7 @@ export interface UserMessageAttributes extends MessageAttributes {
   toolCallId?: string;
   bypassMaxSteps?: boolean;
   promptOnly?: true;
+  tracked?: boolean;
 }
 
 export interface ToolMessageAttributes extends MessageAttributes {

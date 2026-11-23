@@ -289,7 +289,11 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   }
 
   private defaultTools(): readonly Tool[] {
-    return this.toolSelect.defaultTools();
+    const last = this.llmRequester.lastTurnRequest()?.tools;
+    if (last !== undefined) return last;
+    const baseline = this.loopService.baselineTools();
+    if (baseline.length > 0) return baseline;
+    return this.toolSelect.initialTools();
   }
 
   private shouldRecoverFromContextOverflow(
@@ -438,9 +442,10 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     return true;
   }
 
-  private markCompleted(active: ActiveCompaction): boolean {
+  private async markCompleted(active: ActiveCompaction): Promise<boolean> {
     if (this._compacting !== active) return false;
-    void this.dispatcher.dispatch(new FullCompactionComplete({ agentId: this.agent.agentId }));
+    await this.dispatcher.dispatch(new FullCompactionComplete({ agentId: this.agent.agentId }));
+    await this.wire.flush();
     this._compacting = null;
     return true;
   }
@@ -570,7 +575,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       const result = await this.compactionRound(active, data);
       if (this._compacting !== active) throw compactionCancelledReason(active);
       this.lastCompactedTokenCount = result.tokensAfter;
-      if (!this.markCompleted(active)) {
+      if (!(await this.markCompleted(active))) {
         throw compactionCancelledReason(active);
       }
       const { contextSummary: _contextSummary, ...eventResult } = result;
@@ -659,6 +664,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         compactionMaxOutputSize,
         originTurnId: active.originTurnId,
         tokenProfile,
+        tools: this.defaultTools().filter((tool) => tool.deferred !== true),
         getEffectiveMaxContextTokens: () => this.getEffectiveMaxContextTokens(),
         llmRequester: this.llmRequester,
         preShrinkHistory: (history, maxOutputSize) =>

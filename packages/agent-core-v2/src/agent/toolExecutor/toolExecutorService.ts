@@ -104,6 +104,7 @@ export class AgentToolExecutorService extends Service implements IAgentToolExecu
   private readonly announced = new WeakSet<object>();
   private readonly completed = new WeakSet<object>();
   private readonly progressByHandler = new WeakMap<object, string>();
+  private readonly statusByHandler = new WeakMap<object, string>();
   private readonly executedPrepared = new WeakSet<object>();
 
   constructor(
@@ -156,7 +157,6 @@ export class AgentToolExecutorService extends Service implements IAgentToolExecu
         );
       },
       afterExecute: async (context) => {
-        if (context.prepared?.kind !== 'execute') return;
         const executed = this.executedPrepared.has(context.prepared);
         const hookContext = executed
           ? { ...legacyDidExecuteContext(context), outcome: 'executed' as const }
@@ -165,7 +165,9 @@ export class AgentToolExecutorService extends Service implements IAgentToolExecu
           await this.hooks.onDidExecuteTool.run(hookContext);
         } catch (error) {
           const text = `onDidExecuteTool hook failed for "${context.call.name}": ${toErrorMessage(error)}`;
-          context.prepared.result = { output: text, isError: true };
+          if (context.prepared?.kind === 'execute' || context.prepared?.kind === 'synthetic') {
+            context.prepared.result = { output: text, isError: true };
+          }
           return legacyRejectedResult(context, text);
         }
         if (context.prepared?.kind === 'execute') context.prepared.result = hookContext.result;
@@ -296,7 +298,10 @@ export class AgentToolExecutorService extends Service implements IAgentToolExecu
       started.push(entry);
       this.watchAbort(entry, options.signal);
       const prepared = await this.awaitPrepared(handler);
-      if (prepared?.kind === 'execute' && prepared.execution.stopBatchAfterThis === true) {
+      const stopBatch = prepared?.kind === 'execute'
+        ? prepared.execution.stopBatchAfterThis === true
+        : prepared?.result?.stopTurn === true;
+      if (stopBatch) {
         stopped = true;
       }
     }
@@ -363,6 +368,7 @@ export class AgentToolExecutorService extends Service implements IAgentToolExecu
           ? content.map((part) => (part.type === 'text' ? part.text : '')).join('')
           : content;
     const stopTurnReason = response.stopTurnReason ?? legacy?.stopTurnReason;
+    const stopTurn = response.stopTurn === true || legacy?.stopTurn === true;
     return {
       toolCallId: entry.call.id,
       toolName: entry.call.name,
@@ -370,11 +376,12 @@ export class AgentToolExecutorService extends Service implements IAgentToolExecu
         ...legacy,
         output,
         isError: response.outcome.type === 'success' ? legacy?.isError : true,
-        stopTurn: response.stopTurn === true || legacy?.stopTurn === true,
+        stopTurn,
         stopTurnReason,
-        stopBatchAfterThis: prepared?.kind === 'execute'
-          ? prepared.execution.stopBatchAfterThis
-          : legacy?.stopBatchAfterThis,
+        stopBatchAfterThis:
+          (prepared?.kind === 'execute'
+            ? prepared.execution.stopBatchAfterThis
+            : legacy?.stopBatchAfterThis) ?? (stopTurn ? true : undefined),
       } as ToolResult,
       durationMs: Date.now() - entry.startedAt,
     };
@@ -535,6 +542,28 @@ export class AgentToolExecutorService extends Service implements IAgentToolExecu
               text: progress.text,
               percent: progress.percent,
               replace: progress.replace,
+            },
+          }));
+        }
+      }
+      const rawStatus = snapshot.fields['status'] as
+        | string
+        | { readonly text?: string; readonly statusReplace?: boolean }
+        | undefined;
+      const statusText = typeof rawStatus === 'string' ? rawStatus : rawStatus?.text;
+      const statusReplace = typeof rawStatus === 'string' ? undefined : rawStatus?.statusReplace;
+      if (statusText !== undefined) {
+        const signature = `${statusText}\u0000${String(statusReplace)}`;
+        if (this.statusByHandler.get(handler) !== signature) {
+          this.statusByHandler.set(handler, signature);
+          void this.dispatcher.dispatch(new ToolProgress({
+            agentId: this.scopeContext.agentId,
+            turnId: event.context.turnId,
+            toolCallId: event.call.id,
+            update: {
+              kind: 'status',
+              text: statusText,
+              replace: statusReplace,
             },
           }));
         }
@@ -711,12 +740,14 @@ function coreResultFromLegacy(
         },
       }
     : { type: 'success' };
+  const finalStopTurn = stopTurn || result.stopTurn === true;
+  const finalStopReason = stopTurnReason ?? result.stopTurnReason;
   return {
     toolCallId,
     content,
     outcome,
-    stopTurn,
-    ...(stopTurnReason === undefined ? {} : { stopTurnReason }),
+    stopTurn: finalStopTurn,
+    ...(finalStopReason === undefined ? {} : { stopTurnReason: finalStopReason }),
   };
 }
 

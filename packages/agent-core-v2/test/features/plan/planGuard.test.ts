@@ -295,7 +295,7 @@ describe('AgentPlanService plan-guard listener', () => {
           }),
         );
 
-        expect(decision).toBeUndefined();
+        expect(decision).toEqual({ allow: true });
         expect(permissionRan).toBe(false);
       },
     );
@@ -312,7 +312,7 @@ describe('AgentPlanService plan-guard listener', () => {
         }),
       );
 
-      expect(decision).toBeUndefined();
+      expect(decision).toEqual({ allow: true });
       expect(permissionRan).toBe(false);
     });
 

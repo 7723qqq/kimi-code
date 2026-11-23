@@ -268,16 +268,29 @@ export class AgentPromptProjection {
     } as never);
   }
 
-  projectSteered(event: { readonly messages?: readonly UserMessage[]; readonly message?: UserMessage }): boolean {
+  projectSteered(
+    event: { readonly messages?: readonly UserMessage[]; readonly message?: UserMessage },
+    turn?: Turn,
+  ): boolean {
     const entries = event.messages ?? (event.message === undefined ? [] : [event.message]);
     if (entries.length === 0) return false;
     const promptIds = entries
       .map((entry) => entry.attributes?.promptId)
       .filter((id): id is string => id !== undefined);
+    const resolveLaunched = (): void => {
+      if (turn === undefined) return;
+      for (const id of promptIds) {
+        const waiter = this.waiters.get(id);
+        if (waiter !== undefined) this.launched(waiter, turn);
+      }
+    };
     if (this.pendingSteer !== undefined && samePromptIds(this.pendingSteer.promptIds, promptIds)) {
+      resolveLaunched();
       return true;
     }
-    return this.steer(entries) !== undefined;
+    const steered = this.steer(entries) !== undefined;
+    if (steered) resolveLaunched();
+    return steered;
   }
 
   steer(messages: readonly UserMessage[], turnId?: number): UserMessage | undefined {
@@ -309,19 +322,20 @@ export class AgentPromptProjection {
       })),
     );
     const messageId = accepted.length === 1 ? accepted[0]!.id : newMessageId();
+    const origin = accepted.length === 1 ? accepted[0]!.projection.origin : merged.origin;
     const message = {
       role: 'user',
       content: merged.content,
       attributes: {
         promptId: messageId,
-        origin: markInTurnOrigin(merged.origin),
+        origin: markInTurnOrigin(origin),
       },
     } as UserMessage;
     const pending = {
       content: merged.content,
       promptIds,
       messageId,
-      origin: merged.origin,
+      origin,
       message,
       turnSteerSent: turnId !== undefined,
     };

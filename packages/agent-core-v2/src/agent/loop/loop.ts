@@ -236,6 +236,7 @@ export interface PromptSubmitContext {
 export interface LoopNotify {
   readonly message?: ContextMessage;
   readonly bypassMaxSteps?: boolean;
+  readonly turnScoped?: boolean;
   readonly onConsume?: () => void;
   readonly onDrop?: () => void;
 }

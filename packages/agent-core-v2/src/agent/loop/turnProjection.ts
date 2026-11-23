@@ -436,7 +436,8 @@ export class AgentTurnProjection {
         const handler = event.taskId === undefined ? undefined : toolExecutor.handler(event.taskId);
         const snapshot = handler?.snapshot();
         const prepared = snapshot?.prepared;
-        const result = prepared?.kind === 'execute' || prepared?.kind === 'synthetic' ? prepared.result : undefined;
+        const preparedResult = prepared?.kind === 'execute' || prepared?.kind === 'synthetic' ? prepared.result : undefined;
+        const result = preparedResult ?? event.result;
         const stop = result as { stopTurn?: boolean; stopTurnReason?: string } | undefined;
         const toolMessage = event.outcome.message;
         return {
@@ -737,10 +738,10 @@ export class AgentTurnProjection {
       }
       case 'prompt.notified':
       case 'prompt.steered': {
-        if (this.options.prompts.projectSteered(event)) {
+        if (this.options.prompts.projectSteered(event, this.active?.turn)) {
           const turn = this.active;
           const step = turn?.current;
-          if (turn !== undefined && step !== undefined) {
+          if (turn !== undefined && step !== undefined && step.pendingToolIds.size === 0) {
             this.emitStepInterrupted(turn.id, step.number, 'steered', undefined, step.uuid);
             turn.current = undefined;
           }

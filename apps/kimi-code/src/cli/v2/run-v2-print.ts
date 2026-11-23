@@ -634,7 +634,7 @@ async function runNativeTurn(
     const { id } = loop.submit({
       role: 'user',
       content: [{ type: 'text', text: prompt }],
-      attributes: { origin: { kind: 'user' }, tracked: true } as never,
+      attributes: { origin: { kind: 'user' }, tracked: true },
     });
     const handle = loop.promptHandle(id)!;
     const turn = await handle.launched;

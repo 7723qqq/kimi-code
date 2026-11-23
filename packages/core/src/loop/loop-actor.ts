@@ -688,7 +688,6 @@ class LoopActor implements Loop {
         return;
       case 'tool.prepared':
         this.announceTool(message.slot);
-        this.prepareNextTool(message.slot);
         return;
       case 'tool.responded':
         this.respondToTool(message.slot, message.response);
@@ -757,6 +756,21 @@ class LoopActor implements Loop {
     return ack;
   }
 
+  notifyScoped(message: UserMessage): LoopAck<'prompt.notified'> | undefined {
+    const normalized = normalizeUserMessage(message);
+    this.check({ type: 'input.notify', message: normalized });
+    if (!this.open()) return undefined;
+    const ack = this.mailbox.notify(normalized);
+    const turn = this.turn;
+    if (turn !== undefined && turn.outcome === undefined && turn.phase === 'ending') {
+      this.adoptNotify();
+    } else {
+      this.releaseIntake();
+    }
+    this.kick();
+    return ack;
+  }
+
   recordNotification(message: UserMessage): LoopAck<'prompt.notified'> | undefined {
     const normalized = normalizeUserMessage({
       ...message,
@@ -780,11 +794,11 @@ class LoopActor implements Loop {
     if (!this.open()) return undefined;
     const ack = this.mailbox.steer(promptIds, merged);
     if ((ack.messages?.length ?? 0) > 0) {
-      const interruptible = this.canInterruptSteer();
-      if (interruptible) this.adoptSteered();
+      const steerable = this.canSteerInTurn();
+      if (steerable) this.adoptSteered();
       else this.mailbox.queue(this.mailbox.takeSteered());
       this.releaseIntake();
-      if (interruptible) this.abortRequest();
+      if (steerable) this.abortRequest();
     }
     this.kick();
     return ack;
@@ -799,10 +813,10 @@ class LoopActor implements Loop {
       this.check({ type: 'input.notify', message: normalized });
       if (!this.open()) return undefined;
       const ack = this.mailbox.notify(normalized);
-      const interruptible = this.canInterruptSteer();
-      if (interruptible) this.adoptNotify();
+      const steerable = this.canSteerInTurn();
+      if (steerable) this.adoptNotify();
       this.releaseIntake();
-      if (interruptible) this.abortRequest();
+      if (steerable) this.abortRequest();
       this.kick();
       return ack;
     }
@@ -817,19 +831,17 @@ class LoopActor implements Loop {
     if (![...ids].every((id) => normal.has(id) || notify.has(id))) return;
     const pending = promptIds.filter((id) => normal.has(id));
     if (pending.length > 0) this.mailbox.steer(pending);
-    const interruptible = this.canInterruptSteer();
-    if (interruptible) this.adoptSteered();
+    const steerable = this.canSteerInTurn();
+    if (steerable) this.adoptSteered();
     else this.mailbox.queue(this.mailbox.takeSteered());
     this.releaseIntake();
-    if (interruptible) this.abortRequest();
+    if (steerable) this.abortRequest();
     this.kick();
   }
 
-  private canInterruptSteer(): boolean {
+  private canSteerInTurn(): boolean {
     const turn = this.turn;
-    if (turn === undefined) return false;
-    if (turn.phase !== 'stepStarting' && turn.phase !== 'requesting') return false;
-    return this.step?.toolCallStreaming !== true;
+    return turn !== undefined && turn.outcome === undefined;
   }
 
   private adoptSteered(): void {
@@ -1608,27 +1620,8 @@ class LoopActor implements Loop {
     if (slots.length === 0) this.advanceTools(turn, step);
   }
 
-  private prepareNextTool(slot: LiveTool): void {
-    if (slot.advanced === true) return;
-    slot.advanced = true;
-    const turn = this.turn;
-    const step = this.step;
-    if (turn?.id !== slot.turnId || turn.step !== slot.step || turn.phase !== 'acting' || step === undefined) {
-      return;
-    }
-    if (step.stopTurn === true) return;
-    const prepared = slot.handler.snapshot().prepared as
-      | { readonly stopBatchAfterThis?: boolean; readonly execution?: { readonly stopBatchAfterThis?: boolean } }
-      | undefined;
-    if (prepared?.stopBatchAfterThis === true || prepared?.execution?.stopBatchAfterThis === true) {
-      step.skipBatch = true;
-      return;
-    }
-    const next = this.nextToolCall(step);
-    if (next !== undefined) this.executeTool(this.startToolCall(turn, step, next));
-  }
-
-  private advanceTools(turn: LiveTurn, step: StepState): void {    if (this.turn !== turn || this.step !== step || turn.phase !== 'acting') return;
+  private advanceTools(turn: LiveTurn, step: StepState): void {
+    if (this.turn !== turn || this.step !== step || turn.phase !== 'acting') return;
     if (step.stopTurn === true || step.skipBatch === true) {
       this.skipPendingTools(turn, step);
     } else {
@@ -1653,7 +1646,7 @@ class LoopActor implements Loop {
       };
       const result: ToolResult = {
         toolCallId: call.toolCall.id,
-        content: [{ type: 'text', text: 'Tool call skipped after a stop-turn result.' }],
+        content: [{ type: 'text', text: 'Tool skipped because a previous tool call stopped the turn.' }],
         outcome: { type: 'failed', error },
       };
       const outcome = { type: 'failed' as const, message: toolOutcomeMessage(call.toolCall, result), error };
@@ -1747,6 +1740,14 @@ class LoopActor implements Loop {
         toolCallId: slot.toolCall.id,
         outcome,
         detached: false,
+        result: {
+          output: response.content.every((part) => part.type === 'text')
+            ? response.content.map((part) => (part.type === 'text' ? part.text : '')).join('')
+            : response.content,
+          isError: response.outcome.type === 'success' ? undefined : true,
+          stopTurn: response.stopTurn === true ? true : undefined,
+          stopTurnReason: response.stopTurnReason,
+        },
       });
     }
     const turn = this.turn;
@@ -1978,9 +1979,20 @@ class LoopActor implements Loop {
 
   private finalizeStep(turn: LiveTurn, step: StepState): void {
     const draft = step.outcome ?? { type: 'aborted' as const };
-    const outcome = draft.type === 'continue' && this.mailbox.hasNotify && turn.pending.length === 0
+    let outcome: StepOutcome = draft.type === 'continue' && this.mailbox.hasNotify && turn.pending.length === 0
       ? { type: 'done' as const, cause: { by: 'loop', reason: 'notify' } }
       : draft;
+    const continuation = turn.pending.some(
+      (item) =>
+        item.message.attributes?.bypassMaxSteps === true ||
+        (item.kind === 'notify' && item.message.content.length === 0),
+    );
+    if (outcome.type === 'done' && continuation) {
+      turn.bypassMaxSteps = true;
+      turn.bypassStep = turn.step + 1;
+      turn.outcome = undefined;
+      outcome = { type: 'continue', cause: { by: 'loop', reason: 'handoff' } };
+    }
     step.outcome = outcome;
     if (turn.promptOnly !== true) this.record(this.endedStep(turn.id, turn.step, outcome, step.llm));
     this.step = undefined;

@@ -55,6 +55,8 @@ export type ToolReturn =
       readonly subtype?: 'error' | 'timeout';
       readonly reason: string;
       readonly data?: unknown;
+      readonly stopTurn?: boolean;
+      readonly stopTurnReason?: string;
     };
 
 export interface ToolAcknowledgement {

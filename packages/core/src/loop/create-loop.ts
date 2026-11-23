@@ -50,6 +50,7 @@ export interface Loop {
   readonly policy: PolicyRegistry;
   submit(message: UserMessage): LoopAck<'prompt.submitted'> | undefined;
   notify(message: UserMessage): LoopAck<'prompt.notified'> | undefined;
+  notifyScoped(message: UserMessage): LoopAck<'prompt.notified'> | undefined;
   recordNotification(message: UserMessage): LoopAck<'prompt.notified'> | undefined;
   remind(...messages: readonly RemindMessage[]): LoopAck<'prompt.reminded'> | undefined;
   flushReminders(): void;

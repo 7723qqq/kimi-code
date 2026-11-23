@@ -694,7 +694,12 @@ class CallControl<TContext> {
       };
       return { toolCallId: this.call.id, content: value.content, outcome };
     }
-    if (cause !== undefined) return this.errorResult(cause, value.content);
+    if (cause !== undefined) {
+      const result = this.errorResult(cause, value.content);
+      return value.stopTurn === true
+        ? { ...result, stopTurn: true, stopTurnReason: value.stopTurnReason }
+        : result;
+    }
     if (value.outcome === 'failed') {
       const error: ToolError = {
         outcome: 'failed',
@@ -703,7 +708,12 @@ class CallControl<TContext> {
         reason: value.reason,
         data: value.data,
       };
-      return { toolCallId: this.call.id, content: value.content, outcome: { type: 'failed', error } };
+      return {
+        toolCallId: this.call.id,
+        content: value.content,
+        outcome: { type: 'failed', error },
+        ...(value.stopTurn === true ? { stopTurn: true, stopTurnReason: value.stopTurnReason } : {}),
+      };
     }
     return {
       toolCallId: this.call.id,

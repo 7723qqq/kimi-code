@@ -1353,6 +1353,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
         toolCalls: [],
         origin: context.origin,
       },
+      turnScoped: false,
       onConsume: () => {
         this.pendingNotificationRequests.delete(key);
         this.fireNotificationHook(context.notification);

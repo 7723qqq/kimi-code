@@ -1,9 +1,13 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentProfileService, ProfileError, ProfileErrors } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { TurnStarted } from '#/agent/loop/turnEvents';
+import { TurnEnded } from '#/agent/loop/turnOps';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import { IConfigService } from '#/app/config/config';
+import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
@@ -16,6 +20,9 @@ import { IAgentToolPolicyService } from './toolPolicy';
 export class AgentToolPolicyService extends Disposable implements IAgentToolPolicyService {
   declare readonly _serviceBrand: undefined;
   private globalPolicy: ToolsConfig | undefined;
+  private turnPolicy:
+    | { readonly activeToolNames: readonly string[] | undefined; readonly disallowedTools: readonly string[] | undefined }
+    | undefined;
 
   constructor(
     @IAgentProfileService private readonly profile: IAgentProfileService,
@@ -23,9 +30,23 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
     @ISessionToolPolicy private readonly sessionToolPolicy: ISessionToolPolicy,
     @ISessionToolPolicyGate private readonly toolPolicyGate: ISessionToolPolicyGate,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
+    @IEventBus eventBus: IEventBus,
+    @IAgentScopeContext scopeContext: IAgentScopeContext,
   ) {
     super();
     this.globalPolicy = this.config.get<ToolsConfig | undefined>(TOOLS_SECTION);
+    this._register(eventBus.subscribe(TurnStarted, (event) => {
+      if (event.agentId !== scopeContext.agentId) return;
+      const data = this.profile.data();
+      this.turnPolicy = {
+        activeToolNames: data.activeToolNames,
+        disallowedTools: data.disallowedTools,
+      };
+    }));
+    this._register(eventBus.subscribe(TurnEnded, (event) => {
+      if (event.agentId !== scopeContext.agentId) return;
+      this.turnPolicy = undefined;
+    }));
     this._register(
       this.config.onDidSectionChange((event) => {
         if (event.domain !== TOOLS_SECTION) return;
@@ -44,11 +65,11 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
   }
 
   isToolActive(name: string, source: ToolSource = 'builtin'): boolean {
-    const profile = this.profile.data();
+    const policy = this.activePolicy();
     return this.isToolActiveForProfile(
       {
-        tools: profile.activeToolNames,
-        disallowedTools: profile.disallowedTools,
+        tools: policy.activeToolNames,
+        disallowedTools: policy.disallowedTools,
       },
       name,
       source,
@@ -70,12 +91,12 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
   }
 
   getPolicyFingerprint(): string {
-    const profile = this.profile.data();
+    const policy = this.activePolicy();
     return JSON.stringify(
       [
         this.toolPolicyGate.disabledTools,
-        profile.activeToolNames,
-        profile.disallowedTools,
+        policy.activeToolNames,
+        policy.disallowedTools,
         this.globalPolicy?.enabled,
         this.globalPolicy?.disabled,
         this.sessionToolPolicy.disabledTools(),
@@ -84,11 +105,11 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
   }
 
   isToolActiveForDisclosure(name: string, source: ToolSource = 'builtin'): boolean {
-    const profile = this.profile.data();
+    const policy = this.activePolicy();
     return isToolActiveComposed(
       {
         workspaceDisabledTools: this.toolPolicyGate.disabledTools,
-        profile: { disallowedTools: profile.disallowedTools },
+        profile: { disallowedTools: policy.disallowedTools },
         global: this.globalPolicy,
         sessionDisabledTools: this.sessionToolPolicy.disabledTools(),
       },
@@ -112,6 +133,12 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
       name,
       source,
     );
+  }
+
+  private activePolicy(): { readonly activeToolNames: readonly string[] | undefined; readonly disallowedTools: readonly string[] | undefined } {
+    if (this.turnPolicy !== undefined) return this.turnPolicy;
+    const data = this.profile.data();
+    return { activeToolNames: data.activeToolNames, disallowedTools: data.disallowedTools };
   }
 
   async setSessionDisabledTools(names: readonly string[]): Promise<void> {

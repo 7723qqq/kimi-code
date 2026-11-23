@@ -102,7 +102,7 @@ export class TokenCountingAgentModel extends AgentModel<TokenCountingState> {
 
   measured(
     input: readonly Message[],
-    _output: readonly Message[],
+    output: readonly Message[],
     usage: TokenUsage,
   ): Promise<void> {
     const context = this.context();
@@ -110,10 +110,12 @@ export class TokenCountingAgentModel extends AgentModel<TokenCountingState> {
     if (!matchesContext(input as unknown as readonly CoreMessage[], context) || tokens === undefined) {
       return Promise.resolve();
     }
+    const exchangeEnd = input.length + output.length;
+    const length = context.length >= exchangeEnd ? context.length : exchangeEnd;
     return this.emit(
       new TokenCountingMeasured({
         agentId: this.agent.agentId,
-        length: context.length,
+        length,
         tokens,
       }),
     );

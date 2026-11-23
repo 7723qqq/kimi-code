@@ -47,7 +47,6 @@ import { profileKey } from '#/agent/profile/profileOps';
 import { abortError } from '#/_base/utils/abort';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { IAgentTaskService } from '#/agent/task/task';
 
@@ -336,7 +335,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       stage = 'toolActivation';
       await handle.accessor.get(IAgentToolActivationService).activate();
       stage = 'start';
-      await loop.start(opts.initialTools);
+      if (opts.initialTools !== undefined) await loop.start(opts.initialTools);
       return agent;
     } catch (error) {
       this.telemetry.track2('agent_create_failed', {
@@ -414,7 +413,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         thinking: override.thinking ?? sourceData.thinkingLevel,
       },
       initialProfile: override?.profile === undefined ? sourceData : undefined,
-      initialTools: override?.profile === undefined ? sourceLoop.baselineTools() : undefined,
       environmentId: sourceBinding.environmentId,
       environmentCwd: sourceBinding.cwd,
       forkedFrom: source.id,
@@ -428,7 +426,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       if (override.thinking !== undefined) childProfile.setThinking(override.thinking);
     }
 
-    const sourceMessages = source.accessor.get(IAgentContextMemoryService)?.get() ?? sourceLoop.history();
+    const sourceMessages = sourceLoop.history();
     if (sourceMessages.length > 0) {
       await child.accessor
         .get(IAgentLoopService)

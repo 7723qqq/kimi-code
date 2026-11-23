@@ -161,10 +161,21 @@ export function historySafeToCompact(
   original: readonly ContextMessage[],
 ): boolean {
   if (current.length < original.length) return false;
-  if (!original.every((message, index) => message === current[index])) return false;
+  if (!original.every((message, index) => sameCompactedMessage(message, current[index]!))) return false;
   return current
     .slice(original.length)
     .every((message) => isRealUserInput(message) || message.origin?.kind === 'injection');
+}
+
+function sameCompactedMessage(left: ContextMessage, right: ContextMessage): boolean {
+  if (left === right) return true;
+  if (left.role !== right.role) return false;
+  return (
+    JSON.stringify(left.content) === JSON.stringify(right.content) &&
+    JSON.stringify(left.toolCalls ?? []) === JSON.stringify(right.toolCalls ?? []) &&
+    JSON.stringify(left.tools ?? null) === JSON.stringify(right.tools ?? null) &&
+    JSON.stringify(left.origin ?? null) === JSON.stringify(right.origin ?? null)
+  );
 }
 
 export function shrinkCompactionHistoryAfterOverflow<T extends Message>(

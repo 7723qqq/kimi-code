@@ -3,6 +3,7 @@ import { fromCallback, setup } from 'xstate';
 import { createDecorator, IInstantiationService } from '#/_base/di/instantiation';
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { ILogService } from '#/_base/log/log';
+import type { Message as CoreMessage } from '@moonshot-ai/core/llm/message';
 import {
   AgentActorService,
   type AgentActorContext,
@@ -15,6 +16,7 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type BeforeStepContext } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventBus } from '#/app/event/eventBus';
+import { toCoreMessage } from '#/human/message';
 import { estimateTokensForMessages } from '#/human/llm/tokens';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
@@ -136,9 +138,25 @@ function appendResult(
     disclosure: result.disclosure,
   };
   const resolved = result.content;
+  const context = runtime.get(IAgentContextMemoryService);
+  const loop = runtime.get(IAgentLoopService);
+  const deliver = (message: ContextMessage): void => {
+    if (loop.snapshot().state !== 'running') {
+      context.append(message);
+      return;
+    }
+    const core = toCoreMessage(message as never);
+    loop.remind({
+      ...core,
+      attributes: {
+        ...core.attributes,
+        origin: origin as unknown as NonNullable<CoreMessage['attributes']>['origin'],
+      },
+    });
+  };
   if (typeof resolved === 'string') {
     if (resolved.trim().length === 0) return;
-    runtime.get(IAgentContextMemoryService).append({
+    deliver({
       role: 'user',
       content: [{ type: 'text', text: wrapSystemReminder(resolved) }],
       toolCalls: [],
@@ -154,7 +172,7 @@ function appendResult(
     ) {
       return;
     }
-    runtime.get(IAgentContextMemoryService).append({
+    deliver({
       role: message.role,
       content: [...message.content],
       toolCalls: [],
@@ -164,7 +182,7 @@ function appendResult(
     return;
   }
   if (resolved.length === 0) return;
-  runtime.get(IAgentContextMemoryService).append({
+  deliver({
     role: 'user',
     content: [...resolved],
     toolCalls: [],

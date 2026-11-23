@@ -621,6 +621,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
           inputTokens: usage === undefined ? undefined : inputTotal(usage),
           startedAt,
           finishedAt: Date.now(),
+          tools: providerVisibleTools(input.tools),
           observation: buildCacheObservation({
             modelAlias: request.modelAlias,
             protocol: request.model.protocol,
@@ -640,7 +641,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         request.source,
       );
       if (usage !== undefined) {
-        this.tokenCounting.measured(this.scopeContext.agentContext, request.messages, [message], usage);
+        this.tokenCounting.measured(this.scopeContext.agentContext, input.messages, [message], usage);
       }
       this.logResponse(request.logFields, usage ?? emptyUsage(), timing);
 

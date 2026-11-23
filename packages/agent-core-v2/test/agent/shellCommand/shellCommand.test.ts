@@ -138,6 +138,8 @@ describe('AgentShellCommandService', () => {
       _serviceBrand: undefined,
       register: () => ({ dispose: () => {} }),
       list: () => [fakeBash],
+      listReferences: () => [],
+      onDidChange: () => ({ dispose: () => {} }),
       resolve: () => fakeBash,
     } as unknown as IAgentToolRegistryService;
     ctx = createTestAgent(agentService(IAgentToolRegistryService, registry));

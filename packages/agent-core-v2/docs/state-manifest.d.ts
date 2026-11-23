@@ -1278,6 +1278,12 @@ export interface AgentStateSnapshot {
       readonly cacheCreation: number;
       readonly outputTokens: number;
     };
+    readonly tools?: readonly /* ToolDescription — packages/agent-core-v2/src/human/llm/message.ts */ {
+      name: string;
+      description: string;
+      parameters: Record<string, unknown>;
+      deferred?: true;
+    }[];
   } | undefined;
   'llmRequester.mediaRecovery': /* MediaRecovery — packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts */ {
     readonly modelAlias: string;

@@ -11,6 +11,7 @@ import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { Event } from '#/_base/event';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { INHERITED_IN_FLIGHT_TOOL_OUTPUT } from '#/agent/contextMemory/openToolExchange';
+import { historyFromContextPreservingToolNotes } from '#/agent/loop/history';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -590,6 +591,10 @@ describe('subagent task reminders and fork request parity', () => {
           compactedCount: context.get().length,
           tokensBefore: 1000,
         });
+        child.accessor.get(IAgentLoopService).replaceHistory(
+          historyFromContextPreservingToolNotes(context.get()),
+          'compaction',
+        );
         expect(taskReminders(context.get())).toHaveLength(0);
       };
       if (insideStep) {

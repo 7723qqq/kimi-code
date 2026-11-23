@@ -294,9 +294,7 @@ export class AgentLoopRequestObserver {
       const { attributes: _attributes, ...responseMessage } = message;
       this.tokenCounting.measured(
         this.scopeContext.agentContext,
-        observation.media.previousMediaRecovery === undefined
-          ? request.messages as never
-          : (recorded?.messages ?? request.messages) as never,
+        (recorded?.messages ?? request.messages) as never,
         [responseMessage],
         usage,
       );

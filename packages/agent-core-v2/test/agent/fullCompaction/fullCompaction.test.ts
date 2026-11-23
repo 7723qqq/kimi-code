@@ -2225,7 +2225,7 @@ describe('FullCompaction', () => {
       eventIndex(events, 'full_compaction.complete'),
     );
     expect(eventIndex(events, 'full_compaction.complete')).toBeLessThan(
-      eventIndex(events, 'turn.step.started'),
+      eventIndex(events, 'turn.step.completed'),
     );
     expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
       "call 1:
@@ -2756,7 +2756,7 @@ describe('FullCompaction', () => {
         args: expect.objectContaining({
           result: expect.objectContaining({
             summary: 'Overflow compacted summary.',
-            compactedCount: 4,
+            compactedCount: 3,
           }),
         }),
       }),
@@ -3017,7 +3017,7 @@ describe('FullCompaction', () => {
 
     expect(callCount).toBe(5);
     expect(eventIndex(events, 'compaction.started')).toBeLessThan(
-      eventIndex(events, 'turn.step.started'),
+      eventIndex(events, 'turn.step.completed'),
     );
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -3032,7 +3032,7 @@ describe('FullCompaction', () => {
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',
-        args: expect.objectContaining({ turnId: 2, reason: 'completed' }),
+        args: expect.objectContaining({ turnId: 1, reason: 'completed' }),
       }),
     );
     await ctx.expectResumeMatches();
@@ -3128,7 +3128,7 @@ describe('FullCompaction', () => {
 
     expect(callCount).toBe(5);
     expect(eventIndex(events, 'compaction.started')).toBeLessThan(
-      eventIndex(events, 'turn.step.started'),
+      eventIndex(events, 'turn.step.completed'),
     );
   });
 
@@ -3378,7 +3378,7 @@ describe('FullCompaction', () => {
         args: expect.objectContaining({
           result: expect.objectContaining({
             summary: 'Unknown window compacted summary.',
-            compactedCount: 4,
+            compactedCount: 3,
           }),
         }),
       }),

@@ -19,6 +19,7 @@ export interface LoopTurn {
   readonly trigger: TurnTrigger;
   readonly step: number;
   readonly bypassMaxSteps?: boolean;
+  bypassStep?: number;
 }
 
 export interface LoopToolCall {
@@ -403,7 +404,7 @@ export function viewOf({ phase, held, inbox, durable, turn, tools }: AgentState)
     profile,
     messages,
     nextTurnId,
-    ...(current === undefined ? {} : { turn: { id: current.id, trigger: current.trigger, step: current.step, bypassMaxSteps: current.bypassMaxSteps } }),
+    ...(current === undefined ? {} : { turn: { id: current.id, trigger: current.trigger, step: current.step, bypassMaxSteps: current.bypassMaxSteps, ...(current.bypassStep === undefined ? {} : { bypassStep: current.bypassStep }) } }),
     calls: Array.from(tools.values(), (slot) => ({ toolCall: slot.toolCall, turnId: slot.turnId, detached: slot.detached })),
     completionPending: Array.from(tools.values()).some((slot) => slot.completionPending === true),
   };

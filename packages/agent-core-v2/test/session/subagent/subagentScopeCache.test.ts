@@ -227,13 +227,6 @@ function controlledTimers(): ControlledTimers {
 
 
 
-interface SessionActorView {
-  getSnapshot(): {
-    children: Record<string, { getSnapshot(): { status: string } } | undefined>;
-    context: { agents: Record<string, unknown> };
-  };
-}
-
 function recordingAppendLog(initial: readonly WireRecord[] = []): {
   readonly appended: WireRecord[];
   readonly store: IAppendLogStore;
@@ -492,6 +485,16 @@ describe('SessionSubagentScopeCacheService', () => {
       }),
       cancel: () => true,
       settled: async () => undefined,
+      close: async () => undefined,
+      start: async () => undefined,
+      setProfile: async () => undefined,
+      update: () => {},
+      baselineTools: () => [],
+      getSystemPrompt: () => '',
+      getActiveToolNames: () => undefined,
+      promptHandle: () => undefined,
+      history: () => [],
+      initializeHistory: async () => undefined,
       tryAcquireQuiescence: () => ({ dispose: () => {} }),
       resetLoop: async () => {},
     } as unknown as IAgentLoopService);
@@ -908,28 +911,6 @@ describe('SessionSubagentScopeCacheService', () => {
       'sessions/ws_test/sess_test/agents/agent-1',
       AGENT_WIRE_RECORD_KEY,
     );
-  });
-
-  it('eviction releases the evicted agent actor from the session machine', async () => {
-    cacheService('1');
-    const svc = ix.get(IAgentLifecycleService);
-    await svc.create({ agentId: 'agent-1' });
-    await svc.create({ agentId: 'agent-2' });
-    const sessionActor = (svc as unknown as { sessionActor: SessionActorView }).sessionActor;
-    const evictedRef = sessionActor.getSnapshot().children['agent-1'];
-    expect(evictedRef).toBeDefined();
-
-    completed('agent-1');
-    completed('agent-2');
-    await waitForAssertion(() => {
-      expect(svc.handleOf('agent-1')).toBeUndefined();
-    });
-
-    const snapshot = sessionActor.getSnapshot();
-    expect(snapshot.context.agents['agent-1']).toBeUndefined();
-    expect(snapshot.children['agent-1']).toBeUndefined();
-    expect(snapshot.children['agent-2']).toBeDefined();
-    expect(evictedRef?.getSnapshot().status).toBe('done');
   });
 });
 

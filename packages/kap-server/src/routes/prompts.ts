@@ -450,7 +450,7 @@ export function registerPromptsRoutes(
                   clientMetadata,
                 } as PromptOrigin,
                 tracked: true,
-              } as never,
+              },
             },
             { steerIfActive: directSteer || undefined },
           );

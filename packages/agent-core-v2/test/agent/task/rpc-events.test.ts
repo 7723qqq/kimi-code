@@ -349,12 +349,15 @@ async function drainNotifications(ctx: TestAgentContext): Promise<void> {
   });
 }
 
-function notificationMessageFor(agent: FakeTaskAgent, taskId: string): TestContextMessage {
-  for (const call of agent.context.appendUserMessage.mock
-    .calls as unknown as TestContextMessage[][]) {
-    for (const message of call) {
-      if (message.origin?.kind === 'task' && message.origin.taskId === taskId) return message;
+function notificationMessageFor(ctx: TestAgentContext, taskId: string): TestContextMessage {
+  for (const message of ctx.context.get()) {
+    if (message.origin?.kind === 'task' && message.origin.taskId === taskId) {
+      return message as TestContextMessage;
     }
+  }
+  for (const call of ctx.llmCalls.flatMap((entry) => entry.history)) {
+    const message = call as unknown as TestContextMessage;
+    if (message.origin?.kind === 'task' && message.origin.taskId === taskId) return message;
   }
   throw new Error(`Expected an appended notification message for ${taskId}`);
 }
@@ -583,7 +586,7 @@ describe('AgentTaskService — notification delivery', () => {
     });
     await turnEnd;
 
-    const message = notificationMessageFor(agent, taskId);
+    const message = notificationMessageFor(ctx, taskId);
     expect(message.origin).toEqual({
       kind: 'task',
       taskId,
@@ -618,7 +621,7 @@ describe('AgentTaskService — notification delivery', () => {
     });
     await turnEnd;
 
-    const message = notificationMessageFor(agent, taskId);
+    const message = notificationMessageFor(ctx, taskId);
     expect(message.origin).toEqual({
       kind: 'task',
       taskId,
@@ -657,7 +660,7 @@ describe('AgentTaskService — notification delivery', () => {
     });
     await turnEnd;
 
-    const text = notificationMessageFor(agent, taskId).content[0]!.text;
+    const text = notificationMessageFor(ctx, taskId).content[0]!.text;
     expect(text).toContain('Title: Background question dismissed');
     expect(text).toContain('The user dismissed "Which database?" without answering.');
     expect(text).toContain(`<answer>\n${dismissed}\n</answer>`);
@@ -684,7 +687,7 @@ describe('AgentTaskService — notification delivery', () => {
     });
     await turnEnd;
 
-    const text = notificationMessageFor(agent, taskId).content[0]!.text;
+    const text = notificationMessageFor(ctx, taskId).content[0]!.text;
     expect(text).toContain('Title: Background question completed');
     expect(text).toContain('Which database? completed.');
     expect(text).not.toContain('dismissed');
@@ -715,7 +718,7 @@ describe('AgentTaskService — notification delivery', () => {
     });
     await turnEnd;
 
-    const message = notificationMessageFor(agent, taskId);
+    const message = notificationMessageFor(ctx, taskId);
     expect(message.origin).toMatchObject({ kind: 'task', taskId, status: 'failed' });
     const text = message.content[0]!.text;
     expect(text).toContain('Title: Background question failed');
@@ -737,7 +740,7 @@ describe('AgentTaskService — notification delivery', () => {
     });
     await drainNotifications(ctx);
 
-    const message = notificationMessageFor(agent, taskId);
+    const message = notificationMessageFor(ctx, taskId);
     expect(message.origin).toEqual({
       kind: 'task',
       taskId,
@@ -761,7 +764,7 @@ describe('AgentTaskService — notification delivery', () => {
     });
     await drainNotifications(ctx);
 
-    const message = notificationMessageFor(agent, taskId);
+    const message = notificationMessageFor(ctx, taskId);
     expect(message.origin).toEqual({
       kind: 'task',
       taskId,
@@ -1377,7 +1380,7 @@ describe('AgentTaskService — notification delivery', () => {
     });
 
     await drainNotifications(ctx);
-    expect(notificationMessageFor(agent, taskId).content[0]!.text).toContain(
+    expect(notificationMessageFor(ctx, taskId).content[0]!.text).toContain(
       'inspect repository completed.',
     );
   });
@@ -1428,7 +1431,7 @@ describe('AgentTaskService — agent recovery notification bodies', () => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await drainNotifications(ctx);
-    const text = notificationMessageFor(agent, taskId).content[0]!.text;
+    const text = notificationMessageFor(ctx, taskId).content[0]!.text;
     expect(text).toContain('agent_id="agent-7"');
     expect(text).toMatch(/Agent\(resume="agent-7"/);
     expect(text).toMatch(/agent_id.*NOT source_id|source_id.*NOT agent_id/);
@@ -1448,7 +1451,7 @@ describe('AgentTaskService — agent recovery notification bodies', () => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await drainNotifications(ctx);
-    const text = notificationMessageFor(agent, taskId).content[0]!.text;
+    const text = notificationMessageFor(ctx, taskId).content[0]!.text;
     expect(text).toContain('agent_id="agent-8"');
     expect(text).not.toMatch(/Agent\(resume="agent-8"/);
   });
@@ -1463,7 +1466,7 @@ describe('AgentTaskService — agent recovery notification bodies', () => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await drainNotifications(ctx);
-    const text = notificationMessageFor(agent, taskId).content[0]!.text;
+    const text = notificationMessageFor(ctx, taskId).content[0]!.text;
     expect(text).not.toContain('agent_id=');
     expect(text).not.toMatch(/Agent\(resume=/);
     expect(text).toContain(`source_id="${taskId}"`);
