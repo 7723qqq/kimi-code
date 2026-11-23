@@ -278,6 +278,14 @@ class FakeModelImpl implements FakeModel {
     } catch (error) {
       this.problem(`request #${record.index} could not play ${step.label}: ${describeError(error)}`);
       record.transition('failed');
+      if (!sink.headSent && error instanceof TestkitError) {
+        respondEncoded(sink, codec, {
+          status: 400,
+          message: messageOf(error),
+          type: 'testkit_error',
+        });
+        return;
+      }
       throw error;
     }
     if (sink.gone && !record.settled) record.transition('aborted');

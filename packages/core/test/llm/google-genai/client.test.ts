@@ -1,16 +1,22 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 
-const mocks = vi.hoisted(() => ({ genAIConstructor: vi.fn() }));
+const actualGoogleGenAI = await import('@google/genai');
+const genAIConstructor = mock();
 
-vi.mock('@google/genai', () => ({
-  GoogleGenAI: mocks.genAIConstructor,
+mock.module('@google/genai', () => ({
+  ...actualGoogleGenAI,
+  GoogleGenAI: genAIConstructor,
 }));
 
-import { googleGenAIProtocol } from '#/llm/builtin/protocol/google-genai/index';
+afterAll(() => {
+  mock.restore();
+});
+
+const { googleGenAIProtocol } = await import('#/llm/builtin/protocol/google-genai/index');
 
 describe('Google GenAI client', () => {
   beforeEach(() => {
-    mocks.genAIConstructor.mockClear();
+    genAIConstructor.mockClear();
   });
 
   it('passes Vertex project and location to the SDK when using ADC', () => {
@@ -19,8 +25,8 @@ describe('Google GenAI client', () => {
       { vertexai: true, project: 'test-project', location: 'test-location' },
     );
 
-    expect(mocks.genAIConstructor).toHaveBeenCalledTimes(1);
-    expect(mocks.genAIConstructor).toHaveBeenCalledWith({
+    expect(genAIConstructor).toHaveBeenCalledTimes(1);
+    expect(genAIConstructor).toHaveBeenCalledWith({
       apiKey: undefined,
       vertexai: true,
       project: 'test-project',
@@ -35,8 +41,8 @@ describe('Google GenAI client', () => {
       { vertexai: true, project: 'test-project', location: 'test-location' },
     );
 
-    expect(mocks.genAIConstructor).toHaveBeenCalledTimes(1);
-    expect(mocks.genAIConstructor).toHaveBeenCalledWith({
+    expect(genAIConstructor).toHaveBeenCalledTimes(1);
+    expect(genAIConstructor).toHaveBeenCalledWith({
       apiKey: 'test-key',
       vertexai: true,
       project: undefined,

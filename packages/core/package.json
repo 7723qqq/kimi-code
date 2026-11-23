@@ -34,7 +34,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "bun test --isolate"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.2",
@@ -48,7 +48,6 @@
     "undici": "^8.5.0"
   },
   "devDependencies": {
-    "pino": "^9.5.0",
-    "vitest": "4.1.4"
+    "pino": "^9.5.0"
   }
 }

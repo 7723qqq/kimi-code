@@ -4,18 +4,18 @@
 
 ## 在模型准备回复时取消
 
-下面是一个完整测试文件。将它保存为 `tests/scenarios/cancel-example.test.ts`，在仓库根目录运行 `pnpm exec vitest run --reporter=agent tests/scenarios/cancel-example.test.ts`。每个测试文件都从 Vitest 的 `test` 调用 `extend`，这样仓库的 lint 能识别测试体里的断言。
+下面是一个完整测试文件。将它保存为 `tests/scenarios/cancel-example.test.ts`，在仓库根目录运行 `bun test tests/scenarios/cancel-example.test.ts`。每个测试文件用 `scenarioTest(...)` 取得 `model` 和 `kap`，它会在失败时先输出诊断信息再关闭资源。
 
 ```ts
 import { once } from 'node:events';
 
 import { deferred } from '@moonshot-ai/testkit/fixtures';
 import { say } from '@moonshot-ai/testkit/model';
-import { expect, test as base } from 'vitest';
+import { expect } from 'bun:test';
 
-import { scenarioFixtures, type ScenarioFixtures } from './support/scenario';
+import { scenarioTest } from './support/scenario';
 
-const test = base.extend<ScenarioFixtures>(scenarioFixtures());
+const test = scenarioTest();
 
 test('取消正在准备的回复后，同一会话仍能继续', async ({ kap, model }) => {
   const preparing = deferred<AbortSignal>();
@@ -74,5 +74,5 @@ test('取消正在准备的回复后，同一会话仍能继续', async ({ kap, 
 ## 重启、清理与失败诊断
 
 - **测试重启时**，`await kap.restart()` 会关闭当前 WebSocket 和服务，再用同一份 home 和 token 启动。重启后重新读取 `kap.turns(session.id)` 可以检验历史是否恢复。要继续观察实时事件，重新 `connect()` 并订阅。用例使用进程级 `HOME`，同一 worker 内的 KAP 场景应顺序运行。[重启后继续会话](../../../tests/scenarios/conversation.test.ts#L203)
-- **使用场景夹具时**，夹具在停止服务前验证脚本，因此能报告仍未放行的命名挂起点。随后关闭连接与服务、还原 `HOME`、删除自建的临时 home，并由模型夹具关闭模型。如果直接调用 `startKap()`，要自行验证并关闭传入的模型。调用方提供的 home 也由调用方清理。[驱动的资源管理](../src/kap/harness.ts) · [Vitest 夹具](../src/vitest/index.ts)
+- **使用场景夹具时**，夹具在停止服务前验证脚本，因此能报告仍未放行的命名挂起点。随后关闭连接与服务、还原 `HOME`、删除自建的临时 home，并由模型夹具关闭模型。如果直接调用 `startKap()`，要自行验证并关闭传入的模型。调用方提供的 home 也由调用方清理。[驱动的资源管理](../src/kap/harness.ts) · [Bun 夹具](../src/bun/index.ts)
 - **定位失败时**，先看失败输出里的请求编号、通道、状态和步骤。若模型已响应但客户端卡住，再结合最近的 WebSocket 帧和服务日志判断停在哪个回合。夹具各保留最近 32 条帧与日志摘要，客户端连接后才有帧可看。`scenarioFixtures()` 默认采集服务日志，自定义 logger 或 logLevel 时，夹具会提示其诊断日志不可用。[失败诊断与快照错误示例](../../../tests/scenarios/verification.test.ts)

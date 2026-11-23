@@ -1,10 +1,12 @@
+import { expect, spyOn, test } from 'bun:test';
+import { createFixtureContext } from '@moonshot-ai/testkit/bun';
 import { held, say } from '@moonshot-ai/testkit/model';
-import { expect, test, vi } from 'vitest';
 
 import { scenarioFixtures } from './support/scenario';
 
-test('fails a scenario that leaves a reached hold unreleased', async (context) => {
+test('fails a scenario that leaves a reached hold unreleased', async () => {
   const fixtures = scenarioFixtures();
+  const { context } = createFixtureContext('fails a scenario that leaves a reached hold unreleased');
   const run = fixtures.model(context, async (model) => {
     await fixtures.kap({ model }, async (kap) => {
       model.script(held('forgotten', say('late')));
@@ -13,11 +15,12 @@ test('fails a scenario that leaves a reached hold unreleased', async (context) =
       await model.hold('forgotten').reached();
     });
   });
-  await expect(run).rejects.toThrow(/hold "forgotten" was reached by request #0 but never released, failed, or cut/);
+  await rejects(run, /hold "forgotten" was reached by request #0 but never released, failed, or cut/);
 });
 
-test('passes the same scenario once it releases the hold', async (context) => {
+test('passes the same scenario once it releases the hold', async () => {
   const fixtures = scenarioFixtures();
+  const { context } = createFixtureContext('passes the same scenario once it releases the hold');
   const run = fixtures.model(context, async (model) => {
     await fixtures.kap({ model }, async (kap) => {
       model.script(held('released', say('late')));
@@ -28,11 +31,14 @@ test('passes the same scenario once it releases the hold', async (context) => {
       await kap.waitIdle(session.id);
     });
   });
-  await expect(run).resolves.toBeUndefined();
+  expect(await run).toBeUndefined();
 });
 
-test('reports model requests, WebSocket frames and server logs when teardown fails', async (context) => {
+test('reports model requests, WebSocket frames and server logs when teardown fails', async () => {
   const fixtures = scenarioFixtures();
+  const { context } = createFixtureContext(
+    'reports model requests, WebSocket frames and server logs when teardown fails',
+  );
   const failureHooks: Parameters<typeof context.onTestFailed>[0][] = [];
   const run = fixtures.model({ ...context, onTestFailed: (hook) => { failureHooks.push(hook); } }, async (model) => {
     await fixtures.kap({ model }, async (kap) => {
@@ -46,8 +52,8 @@ test('reports model requests, WebSocket frames and server logs when teardown fai
       await socket.waitFor((frame) => frame.type === 'turn.started');
     });
   });
-  await expect(run).rejects.toThrow(/hold "unfinished"/);
-  const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+  await rejects(run, /hold "unfinished"/);
+  const write = spyOn(process.stderr, 'write').mockReturnValue(true);
   try {
     for (const hook of failureHooks) await hook(context);
     const output = write.mock.calls.map(([message]) => String(message)).join('');
@@ -61,15 +67,18 @@ test('reports model requests, WebSocket frames and server logs when teardown fai
   }
 });
 
-test('subscribes to an existing KAP session twice and reports which requested agent failed', async (context) => {
+test('subscribes to an existing KAP session twice and reports which requested agent failed', async () => {
   const fixtures = scenarioFixtures();
+  const { context } = createFixtureContext(
+    'subscribes to an existing KAP session twice and reports which requested agent failed',
+  );
   await fixtures.model(context, async (model) => {
     await fixtures.kap({ model }, async (kap) => {
       const socket = await kap.connect();
       const session = await kap.createSession();
       await socket.subscribe(session.id);
       await socket.subscribe(session.id);
-      await expect(socket.subscribe(session.id, { agentIds: ['main', 'missing-agent'] })).rejects.toMatchObject({
+      await rejects(socket.subscribe(session.id, { agentIds: ['main', 'missing-agent'] }), {
         name: 'KapCommandError',
         response: { type: 'turns.failed', session_id: session.id, agent_id: 'missing-agent', msg: 'agent not found: missing-agent' },
       });
@@ -77,3 +86,18 @@ test('subscribes to an existing KAP session twice and reports which requested ag
     });
   });
 });
+
+async function rejects(promise: Promise<unknown>, expected: RegExp | Record<string, unknown>): Promise<void> {
+  let failure: unknown;
+  try {
+    await promise;
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toBeDefined();
+  if (expected instanceof RegExp) {
+    expect(String(failure)).toMatch(expected);
+  } else {
+    expect(failure).toMatchObject(expected);
+  }
+}

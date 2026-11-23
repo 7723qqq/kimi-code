@@ -1,3 +1,3 @@
-import { useNetworkGuard } from '@moonshot-ai/testkit/vitest';
+import { useNetworkGuard } from '@moonshot-ai/testkit/bun';
 
 useNetworkGuard();

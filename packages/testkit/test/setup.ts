@@ -1,3 +1,3 @@
-import { useNetworkGuard } from '#/vitest/index';
+import { useNetworkGuard } from '#/bun/index';
 
 useNetworkGuard();

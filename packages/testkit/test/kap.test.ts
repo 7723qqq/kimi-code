@@ -1,6 +1,8 @@
 import type { AddressInfo } from 'node:net';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
+
+import { poll } from './poll.ts';
 import { WebSocketServer, type WebSocket as ServerSocket } from 'ws';
 
 import { WaitTimeoutError } from '#/errors';
@@ -173,7 +175,7 @@ describe('KapSocket', () => {
     await socket.waitFor((frame) => frame.type === 'hello');
     expect(offered).toBe(`${WS_BEARER_PROTOCOL_PREFIX}tok`);
     expect(socket.frames.map((frame) => frame.type)).toEqual(['hello']);
-    await expect.poll(() => pongs).toEqual([{ type: 'pong' }]);
+    await poll(() => expect(pongs).toEqual([{ type: 'pong' }]));
   });
 
   it('matches command responses by request id and raises failed commands', async () => {
@@ -268,12 +270,14 @@ describe('KapSocket', () => {
     let peerSocket: ServerSocket | undefined;
     const url = await serve((peer) => {
       peerSocket = peer;
-      peer.send(JSON.stringify({ type: 'agent' }));
-      peer.send('not json');
+      setTimeout(() => {
+        peer.send(JSON.stringify({ type: 'agent' }));
+        peer.send('not json');
+      }, 50);
     });
     const socket = await connect(url);
-    await expect(socket.waitFor((frame) => frame.type === 'never', { timeoutMs: 30 })).rejects.toThrow(WaitTimeoutError);
-    await expect(socket.waitFor((frame) => frame.type === 'never', { timeoutMs: 30 })).rejects.toThrow(
+    await expect(socket.waitFor((frame) => frame.type === 'never', { timeoutMs: 250 })).rejects.toThrow(WaitTimeoutError);
+    await expect(socket.waitFor((frame) => frame.type === 'never', { timeoutMs: 250 })).rejects.toThrow(
       /received 1 frame\(s\), latest: agent; 1 unreadable frame\(s\), first: "not json"/,
     );
     const waiting = socket.waitFor((frame) => frame.type === 'never', { timeoutMs: 5_000 });

@@ -1,16 +1,16 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, jest, spyOn } from 'bun:test';
 
 import { log, setLog } from '#/utils/log';
 
 afterEach(() => {
-  vi.restoreAllMocks();
+  jest.restoreAllMocks();
 });
 
 describe('utils log', () => {
   it('is silent by default', () => {
     setLog();
-    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const stdout = spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderr = spyOn(process.stderr, 'write').mockReturnValue(true);
     log.debug('zeroth');
     log.info({ provider: 'kimi' }, 'first');
     log.warn('second');

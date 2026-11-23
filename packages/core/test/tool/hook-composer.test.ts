@@ -1,5 +1,5 @@
 // Core hook 组合契约；不包含 Issue #4439 的配置 regex matcher，也不包含 loop 调度。
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { composeToolExecutorHooks } from '#/tool/hook-composer';
 import { textToolContent } from '#/tool/tool-executor';
@@ -52,8 +52,8 @@ describe('composeToolExecutorHooks', () => {
   });
 
   it('stops validating and starting at the first rejection', async () => {
-    const laterValidating = vi.fn();
-    const laterStarting = vi.fn();
+    const laterValidating = mock();
+    const laterStarting = mock();
     const rejected = composeToolExecutorHooks([
       { validating: () => ({ reject: 'validation denied' }) },
       { validating: laterValidating },
@@ -91,7 +91,7 @@ describe('composeToolExecutorHooks', () => {
   // https://github.com/MoonshotAI/kimi-code/issues/437
   // https://github.com/MoonshotAI/kimi-code/issues/4437
   it('chains permitting rewrites until a rejection and skips later hooks', async () => {
-    const later = vi.fn();
+    const later = mock();
     const composed = composeToolExecutorHooks([
       { permitting: () => ({ args: { first: true } }) },
       {
@@ -152,7 +152,7 @@ describe('composeToolExecutorHooks', () => {
   });
 
   it('isolates observe failures and continues with the remaining hooks', () => {
-    const second = vi.fn();
+    const second = mock();
     const composed = composeToolExecutorHooks([
       {
         observe: () => {
@@ -185,7 +185,7 @@ describe('composeToolExecutorHooks', () => {
 
 describe('As a policy author, I want partially implemented hooks to be optional so that composed policies only act on decisions they understand', () => {
   it('skips missing validating hooks and undefined validating decisions', () => {
-    const later = vi.fn(() => ({ args: { validated: true } }));
+    const later = mock(() => ({ args: { validated: true } }));
     const composed = composeToolExecutorHooks([
       {},
       { validating: () => undefined },
@@ -197,7 +197,7 @@ describe('As a policy author, I want partially implemented hooks to be optional 
   });
 
   it('skips missing starting hooks and undefined starting decisions', async () => {
-    const later = vi.fn(() => ({ args: { started: true } }));
+    const later = mock(() => ({ args: { started: true } }));
     const composed = composeToolExecutorHooks([
       {},
       { starting: () => undefined },
@@ -211,7 +211,7 @@ describe('As a policy author, I want partially implemented hooks to be optional 
   });
 
   it('skips missing permitting hooks and undefined permitting decisions', async () => {
-    const later = vi.fn(() => ({ args: { permitted: true } }));
+    const later = mock(() => ({ args: { permitted: true } }));
     const composed = composeToolExecutorHooks([
       {},
       { permitting: () => undefined },

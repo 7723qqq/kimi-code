@@ -32,25 +32,23 @@ import {
   type WaitForArgs,
   type WriteArgs,
 } from '@moonshot-ai/testkit/model';
-import { test as base, expect } from 'vitest';
+import { expect } from 'bun:test';
 
-import { scenarioFixtures, type ScenarioFixtures } from './support/scenario';
+import { scenarioTest } from './support/scenario';
 
 const SECOND_MODEL = 'testkit-second';
 
-const test = base.extend<ScenarioFixtures>(
-  scenarioFixtures({
-    config: {
-      models: { [SECOND_MODEL]: { provider: FAKE_PROVIDER_DEFAULTS.alias, model: 'testkit-model-2', maxContextSize: FAKE_PROVIDER_DEFAULTS.maxContextSize } },
-      extra: {
-        secondary_model: {
-          default_model: FAKE_PROVIDER_DEFAULTS.alias,
-          models: { [FAKE_PROVIDER_DEFAULTS.alias]: 'the default model', [SECOND_MODEL]: 'a second model' },
-        },
+const test = scenarioTest({
+  config: {
+    models: { [SECOND_MODEL]: { provider: FAKE_PROVIDER_DEFAULTS.alias, model: 'testkit-model-2', maxContextSize: FAKE_PROVIDER_DEFAULTS.maxContextSize } },
+    extra: {
+      secondary_model: {
+        default_model: FAKE_PROVIDER_DEFAULTS.alias,
+        models: { [FAKE_PROVIDER_DEFAULTS.alias]: 'the default model', [SECOND_MODEL]: 'a second model' },
       },
     },
-  }),
-);
+  },
+});
 
 const EVERY_ARGUMENT: readonly ReplyStep[] = [
   bash({ command: 'ls', cwd: '.', timeout: 30, description: 'list', run_in_background: true, disable_timeout: true } satisfies Required<BashArgs>),

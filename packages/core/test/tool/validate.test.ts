@@ -1,5 +1,5 @@
 // Tool 级 schema 校验与缓存测试，不涉及 LLM 参数生成或 loop 重试。
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { ExecutableTool } from '#/tool/types';
 import { toolArgsError } from '#/tool/validate';

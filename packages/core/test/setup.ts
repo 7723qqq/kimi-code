@@ -1,4 +1,4 @@
-import { afterEach, beforeEach } from 'vitest';
+import { afterEach, beforeEach } from 'bun:test';
 import pino from 'pino';
 
 import { setClock } from '#/utils/clock';
@@ -20,9 +20,8 @@ const injectedLog: LogImpl = {
   error: viaPino('error'),
 };
 
-beforeEach((context) => {
-  const retried = (context.task.result?.retryCount ?? 0) > 0;
-  logger.level = envVerbose || retried ? 'debug' : 'info';
+beforeEach(() => {
+  logger.level = envVerbose ? 'debug' : 'info';
   setLog(injectedLog);
 });
 

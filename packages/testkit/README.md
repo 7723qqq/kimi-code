@@ -7,11 +7,11 @@ Shared test infrastructure for this repository: a protocol-level fake model, a d
 | `@moonshot-ai/testkit/model` | the fake model, the step DSL, tool-call builders, and the provider config that points the product at the fake model |
 | `@moonshot-ai/testkit/kap` | `startKap`: a KAP server backed by the fake model, with REST and WebSocket clients and a turn reducer |
 | `@moonshot-ai/testkit/fixtures` | temporary homes, a `config.toml` writer, environment isolation, the network guard, waits, timeouts, media samples and normalizers |
-| `@moonshot-ai/testkit/vitest` | fixture definitions for `test.extend` and the network guard hooks |
+| `@moonshot-ai/testkit/bun` | `model`/`kap` fixture definitions, `kapTest`, `poll`, and the network guard hooks for `bun:test` |
 
 ## Writing a test
 
-This is a private workspace package. When adopting it in another package, add `"@moonshot-ai/testkit": "workspace:^"` to that package's `devDependencies` and run `pnpm install` at the repository root. Choose a guide by what the test needs to observe.
+This is a private workspace package. When adopting it in another package, add `"@moonshot-ai/testkit": "workspace:^"` to that package's `devDependencies` and run `bun install` at the repository root. Choose a guide by what the test needs to observe.
 
 | What you want to test | Guide |
 |---|---|
@@ -23,19 +23,19 @@ This is a private workspace package. When adopting it in another package, add `"
 To try the tool-call example or run both suites, use these commands from the repository root.
 
 ```sh
-pnpm exec vitest run --reporter=agent tests/scenarios/conversation.test.ts -t 'runs a tool call'
-pnpm exec vitest run --reporter=agent packages/testkit tests/scenarios
+bun test tests/scenarios/conversation.test.ts -t 'runs a tool call'
+bun test packages/testkit tests/scenarios
 ```
 
 ## A scenario test
 
 ```ts
+import { expect } from 'bun:test';
 import { createServerLogger, startServer, type RunningServer } from '@moonshot-ai/kap-server';
 import { bash, say } from '@moonshot-ai/testkit/model';
-import { kapFixtures, type KapFixtures } from '@moonshot-ai/testkit/vitest';
-import { test as base, expect } from 'vitest';
+import { kapFixtures, kapTest, type KapFixtures } from '@moonshot-ai/testkit/bun';
 
-const test = base.extend<KapFixtures<RunningServer>>(kapFixtures({ startServer, createServerLogger, config: { defaultPermissionMode: 'yolo' } }));
+const test = kapTest(kapFixtures({ startServer, createServerLogger, config: { defaultPermissionMode: 'yolo' } }));
 
 test('runs a tool and answers', async ({ kap, model }) => {
   model.script(bash('echo hi'), say('done'));
@@ -44,11 +44,14 @@ test('runs a tool and answers', async ({ kap, model }) => {
   await kap.prompt(session.id, 'run it');
   await kap.waitIdle(session.id);
 
-  expect(model.request(1).view.messages.at(-1)).toMatchObject({ role: 'tool', text: 'hi\n' });
+  expect(model.request(1).view.messages.at(-1)).toMatchObject({
+    role: 'tool',
+    text: expect.stringContaining('hi'),
+  });
 });
 ```
 
-Define `test` in the test file itself with `base.extend(...)`. The repository's `vitest/no-standalone-expect` lint rule recognizes only `extend` chains of vitest's own `test` in the same file, so a `test` imported from a helper module fails lint.
+Define the test function in the test file itself with `kapTest(kapFixtures(...))`. It composes the `model` and `kap` fixtures, runs the failure diagnostics before closing them, and keeps the per-test timeout at 10 seconds.
 
 The `model` fixture calls `model.verify()` after the test and prints a request summary on failure. The `kap` fixture runs verification before shutdown so an unreleased hold stays visible. It then stops the server and removes the temporary home.
 

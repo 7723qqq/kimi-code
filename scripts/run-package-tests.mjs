@@ -104,7 +104,7 @@ const includeHeavy = process.env['KIMI_TEST_HEAVY'] === '1' || args.includes('--
 const roots = args
   .filter((arg) => arg.startsWith('--root='))
   .map((arg) => arg.slice('--root='.length));
-const TEST_TIMEOUT_MS = Number(flag('test-timeout') ?? flag('timeout') ?? 30_000);
+const TEST_TIMEOUT_MS = Number(flag('test-timeout') ?? flag('timeout') ?? 10_000);
 const FILE_TIMEOUT_MS = Number(flag('file-timeout') ?? 300_000);
 const reportSlowest = Number(flag('report-slowest') ?? 0);
 const timingsPath = flag('timings');

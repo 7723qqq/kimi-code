@@ -1,4 +1,4 @@
-import { describe } from 'vitest';
+import { describe } from 'bun:test';
 
 import { googleGenAIProtocol } from '#/llm/builtin/protocol/google-genai/index';
 

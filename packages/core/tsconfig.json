@@ -1,6 +1,10 @@
 {
   "extends": "../../tsconfig.json",
-  "compilerOptions": {},
+  "compilerOptions": {
+    "paths": {
+      "#/*": ["./src/*.ts"]
+    }
+  },
   "include": ["src", "test"],
   "exclude": [
     "src/llm/provider/bedrock",

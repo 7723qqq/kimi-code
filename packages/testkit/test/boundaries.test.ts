@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
 
 const PACKAGE_ROOT = join(import.meta.dirname, '..');
 

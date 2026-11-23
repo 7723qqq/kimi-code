@@ -85,6 +85,14 @@ export interface WaitIdleOptions {
 
 export const TESTKIT_HOST_IDENTITY: KapHostIdentity = { productName: 'testkit', version: '0.0.0-test', platform: 'testkit' };
 
+function isNotFound(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { readonly code?: unknown }).code === 40401
+  );
+}
+
 const BASE_CONFIG: KimiConfig = {
   extra: { model_catalog: { refresh_on_start: false, refresh_interval_ms: 0 } },
 };
@@ -151,7 +159,7 @@ export class KapHarness<S extends KapRunningServer = KapRunningServer> {
 
   async createSession(options: CreateSessionOptions = {}): Promise<KapSession> {
     return this.rest.post<KapSession>('/api/v1/sessions', {
-      cwd: options.cwd ?? this.home.workspace,
+      metadata: { cwd: options.cwd ?? this.home.workspace },
       title: options.title,
       agent_config: options.agentConfig,
     });
@@ -253,9 +261,18 @@ export class KapHarness<S extends KapRunningServer = KapRunningServer> {
         continue;
       }
       if (waited.timed_out) continue;
-      const [session, queue] = await Promise.all([this.session(sessionId), this.prompts(sessionId)]);
-      last = session;
-      if (session.activity === 'idle' && session.pending_interaction === 'none' && queue.active === null && queue.queued.length === 0) return session;
+      const session = waited.session;
+      const queue = await this.prompts(sessionId).catch((error: unknown) => {
+        if (isNotFound(error)) return { active: null, queued: [] } as KapPromptQueue;
+        throw error;
+      });
+      if (
+        session.activity === 'idle' &&
+        session.pending_interaction === 'none' &&
+        queue.active === null &&
+        queue.queued.length === 0
+      )
+        return session;
       await sleep(25);
     }
   }

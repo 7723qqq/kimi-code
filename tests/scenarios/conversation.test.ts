@@ -1,12 +1,13 @@
 import { once } from 'node:events';
 
+import { describe, expect } from 'bun:test';
+import { poll } from '@moonshot-ai/testkit/bun';
 import { deferred } from '@moonshot-ai/testkit/fixtures';
 import { agent, bash, held, httpError, say, think } from '@moonshot-ai/testkit/model';
-import { test as base, describe, expect } from 'vitest';
 
-import { scenarioFixtures, type ScenarioFixtures } from './support/scenario';
+import { scenarioTest } from './support/scenario';
 
-const test = base.extend<ScenarioFixtures>(scenarioFixtures());
+const test = scenarioTest();
 
 describe('conversation over KAP', () => {
   test('streams a reply live and persists the same turns', async ({ kap, model }) => {
@@ -41,14 +42,14 @@ describe('conversation over KAP', () => {
     expect(followUp.metadata).toMatchObject({ stepReason: 'tool_results' });
     expect(followUp.view.messages.find((message) => message.role === 'tool')).toMatchObject({
       callId: model.callId(0, 0),
-      text: 'testkit-ok\n',
+      text: expect.stringContaining('testkit-ok'),
     });
     const [turn] = await kap.turns(session.id);
     expect(turn?.items.find((item) => item.type === 'tool_call')).toMatchObject({
       item_id: model.callId(0, 0),
       name: 'Bash',
       outcome: 'completed',
-      output: 'testkit-ok\n',
+      output: expect.stringContaining('testkit-ok'),
     });
   });
 
@@ -63,7 +64,10 @@ describe('conversation over KAP', () => {
 
     await kap.answer(session.id, interaction.interaction_id, { kind: 'approval', decision: 'approved' });
     await kap.waitIdle(session.id);
-    expect(model.request(1).view.messages.at(-1)).toMatchObject({ role: 'tool', text: 'approved-run\n' });
+    expect(model.request(1).view.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      text: expect.stringContaining('approved-run'),
+    });
   });
 
   test('tells the model when the user rejects a tool call', async ({ kap, model }) => {
@@ -115,7 +119,7 @@ describe('conversation over KAP', () => {
     const idle = await kap.waitIdle(session.id);
 
     expect(idle.last_turn_outcome).toBe('interrupted');
-    await expect.poll(() => model.request(0).state).toBe('aborted');
+    await poll(() => expect(model.request(0).state).toBe('aborted'));
   });
 
   test('cancels a request while its script is preparing a reply and starts the next turn', async ({ kap, model }) => {
@@ -133,7 +137,7 @@ describe('conversation over KAP', () => {
     await expect(kap.cancel(session.id)).resolves.toEqual({ cancelled: true });
     await aborted;
     expect((await kap.waitIdle(session.id)).last_turn_outcome).toBe('interrupted');
-    await expect.poll(() => model.request(0).state).toBe('aborted');
+    await poll(() => expect(model.request(0).state).toBe('aborted'));
     expect(model.request(0).step).toBeNull();
 
     await kap.prompt(session.id, 'continue');

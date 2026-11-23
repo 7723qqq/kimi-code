@@ -4,15 +4,15 @@
 
 ## 写第一个 SDK 用例
 
-下面是可直接放进 `packages/testkit/test/` 的完整 Vitest 测试文件。在其他工作区使用时，给测试所在的包声明 `@moonshot-ai/testkit` 的 `workspace:^` 开发依赖，以及用例实际导入的 SDK。
+下面是可直接放进 `packages/testkit/test/` 的完整 Bun 测试文件。在其他工作区使用时，给测试所在的包声明 `@moonshot-ai/testkit` 的 `workspace:^` 开发依赖，以及用例实际导入的 SDK。
 
 ```ts
 import { say } from '@moonshot-ai/testkit/model';
-import { modelFixtures, type ModelFixtures } from '@moonshot-ai/testkit/vitest';
+import { modelFixtures, modelTest } from '@moonshot-ai/testkit/bun';
 import OpenAI from 'openai';
-import { expect, test as base } from 'vitest';
+import { expect } from 'bun:test';
 
-const test = base.extend<ModelFixtures>(modelFixtures());
+const test = modelTest(modelFixtures());
 
 test('reads a reply from the side lane', async ({ model }) => {
   model.lane('side').script(say('hello'));
@@ -100,5 +100,5 @@ Electron 窗口、原生对话框、剪贴板、Browser MCP、重启后的用户
 从仓库根目录单独运行表中取消与后续回合的桌面用例。这个命令会构建桌面应用，并用 Playwright 启动 Electron。[完整用例](../../../apps/desktop/e2e/turn-stop-then-send.spec.ts)
 
 ```sh
-pnpm --filter kimi-code-app run e2e:headless --project turns-transcript --no-deps --grep 'the desktop cancels its testkit provider stream'
+bun --filter kimi-code-app run e2e:headless --project turns-transcript --no-deps --grep 'the desktop cancels its testkit provider stream'
 ```

@@ -9,6 +9,10 @@
     "#/*": "./src/*.ts"
   },
   "exports": {
+    "./bun": {
+      "types": "./src/bun/index.ts",
+      "default": "./src/bun/index.ts"
+    },
     "./model": {
       "types": "./src/model/index.ts",
       "default": "./src/model/index.ts"
@@ -20,15 +24,11 @@
     "./fixtures": {
       "types": "./src/fixtures/index.ts",
       "default": "./src/fixtures/index.ts"
-    },
-    "./vitest": {
-      "types": "./src/vitest/index.ts",
-      "default": "./src/vitest/index.ts"
     }
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "bun test --timeout 10000 --path-ignore-patterns=\"test-fixtures/**\""
   },
   "dependencies": {
     "smol-toml": "^1.6.1",
@@ -38,7 +38,6 @@
     "@anthropic-ai/sdk": "^0.95.2",
     "@google/genai": "^1.49.0",
     "@types/ws": "^8.18.0",
-    "openai": "^6.34.0",
-    "vitest": "4.1.4"
+    "openai": "^6.34.0"
   }
 }

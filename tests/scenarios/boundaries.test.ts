@@ -1,10 +1,10 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
 
 const ROOT = import.meta.dirname;
-const ALLOWED = [/^vitest$/, /^node:/, /^@moonshot-ai\/testkit\/(model|kap|fixtures|vitest)$/, /^@moonshot-ai\/kap-server$/, /^\.\/support\/[\w-]+$/];
+const ALLOWED = [/^bun:test$/, /^node:/, /^@moonshot-ai\/testkit\/(model|kap|fixtures|bun)$/, /^@moonshot-ai\/kap-server$/, /^\.\/support\/[\w-]+$/];
 
 it('drives the product only through the KAP server entry and the testkit', async () => {
   const offending: string[] = [];
@@ -24,7 +24,7 @@ async function sourceFiles(directory: string): Promise<string[]> {
     if (entry.name === 'node_modules') continue;
     const path = join(directory, entry.name);
     if (entry.isDirectory()) files.push(...(await sourceFiles(path)));
-    else if (entry.name.endsWith('.ts') && entry.name !== 'vitest.config.ts') files.push(path);
+    else if (entry.name.endsWith('.ts')) files.push(path);
   }
   return files;
 }

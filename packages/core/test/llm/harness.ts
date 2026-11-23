@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
 
 import type { ResolvedEndpoint } from '#/llm/endpoint';
 import { createUserMessage, type Message, type StreamedMessagePart } from '@moonshot-ai/core/llm/message';
@@ -118,7 +118,7 @@ export function runEncodeFixtures<TOptions, TRequest, TResponse, TChunk, TClient
       expect(() => protocol.encode(fixture.module)).toThrow(fixture.expectedError);
       return;
     }
-    expect(protocol.encode(fixture.module)).toEqual(fixture.expected);
+    expect(protocol.encode(fixture.module)).toEqual(fixture.expected as TRequest);
   });
 }
 
@@ -152,13 +152,13 @@ export function runDecodeFixtures<TOptions, TRequest, TResponse, TChunk, TClient
       expect(() => decodeChunks(protocol, module, fixture.chunks)).toThrow(fixture.expectedError);
       return;
     }
-    expect(decodeChunks(protocol, module, fixture.chunks)).toEqual(fixture.expected);
+    expect(decodeChunks(protocol, module, fixture.chunks)).toEqual(fixture.expected as DecodedEvent[]);
     if (fixture.replay !== undefined) {
       expect(decodeChunks(
         protocol,
         module,
         protocol.replay(fixture.replay.response),
-      )).toEqual(fixture.replay.expected ?? fixture.expected);
+      )).toEqual((fixture.replay.expected ?? fixture.expected) as DecodedEvent[]);
     }
   });
 }

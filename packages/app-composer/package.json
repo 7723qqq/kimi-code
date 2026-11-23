@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "test": "bun test --preload ../../scripts/test/bun-vitest-compat.ts"
   },
   "exports": {
     ".": "./src/public.ts",

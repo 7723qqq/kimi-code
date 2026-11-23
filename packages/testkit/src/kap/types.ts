@@ -5,8 +5,11 @@ export interface KapSession {
   readonly workspace_id: string;
   readonly cwd: string;
   readonly title: string;
-  readonly activity: 'idle' | 'turn' | 'background';
+  readonly busy: boolean;
+  readonly activity?: 'idle' | 'turn' | 'background';
+  readonly main_turn_active?: boolean;
   readonly pending_interaction: 'none' | 'approval' | 'question';
+  readonly last_turn_reason?: 'completed' | 'cancelled' | 'failed';
   readonly last_turn_outcome?: 'completed' | 'interrupted' | 'failed';
   readonly archived: boolean;
   readonly [key: string]: unknown;

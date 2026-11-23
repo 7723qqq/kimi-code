@@ -1,9 +1,9 @@
+import { describe, expect } from 'bun:test';
 import { bash, fakeModelConfig, say, think, withUsage, type FakeProviderType, type ProtocolName } from '@moonshot-ai/testkit/model';
-import { test as base, describe, expect } from 'vitest';
 
-import { scenarioFixtures, type ScenarioFixtures } from './support/scenario';
+import { scenarioTest } from './support/scenario';
 
-const test = base.extend<ScenarioFixtures>(scenarioFixtures());
+const test = scenarioTest();
 
 test('exposes the configured model alias and sends the wire model name through its provider', async ({ kap, model }) => {
   expect(await kap.rest.get('/api/v1/providers/testkit')).toMatchObject({ id: 'testkit', models: ['testkit'] });
@@ -35,7 +35,7 @@ const PROVIDERS: ReadonlyArray<{ readonly type: FakeProviderType; readonly proto
 ];
 
 describe.each(PROVIDERS)('the engine talking to a $type provider', ({ type, protocol, path }) => {
-  const test = base.extend<ScenarioFixtures>(scenarioFixtures({ provider: type }));
+  const test = scenarioTest({ provider: type });
 
   test('decodes thinking, a tool call, its result and the final answer', async ({ kap, model }) => {
     model.script(

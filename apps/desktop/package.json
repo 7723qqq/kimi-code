@@ -20,7 +20,7 @@
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:renderer": "vue-tsc --noEmit -p tsconfig.renderer.json",
-    "test": "vitest run",
+    "test": "bun test --preload ../../scripts/test/bun-vitest-compat.ts",
     "e2e": "node e2e/run.mjs",
     "e2e:headless": "node e2e/run.mjs",
     "postinstall": "node scripts/rebuild-native.mjs",

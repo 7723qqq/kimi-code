@@ -1,4 +1,4 @@
-import { describe } from 'vitest';
+import { describe } from 'bun:test';
 
 import { openAIResponsesProtocol } from '#/llm/builtin/protocol/openai-responses/index';
 

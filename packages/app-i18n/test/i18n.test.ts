@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { createApp } from 'vue';
 import { createI18n } from 'vue-i18n';
 import { createKimiI18n, KimiI18nKey, useKimiI18n } from '../src';

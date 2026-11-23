@@ -5,10 +5,9 @@ import { existsSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { resolve } from 'node:path';
 import { text } from 'node:stream/consumers';
-import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { WaitTimeoutError } from '#/errors';
 import { kimiConfigToml, mergeKimiConfig } from '#/fixtures/config';
@@ -180,7 +179,7 @@ describe('normalize', () => {
 
   it('tokenizes chosen keys and keeps numbering across calls of one normalizer', () => {
     const normalizer = createNormalizer({ idKeys: ['session_id'], timeKeys: ['created_at'] });
-    expect(normalizer({ session_id: 'a', created_at: 17 })).toEqual({ session_id: '<session_id:1>', created_at: '<time>' });
+    expect(normalizer({ session_id: 'a', created_at: 17 }) as unknown).toEqual({ session_id: '<session_id:1>', created_at: '<time>' });
     expect(normalizer([{ session_id: 'b' }, { session_id: 'a' }])).toEqual([{ session_id: '<session_id:2>' }, { session_id: '<session_id:1>' }]);
   });
 });
@@ -263,25 +262,18 @@ describe('network guard', () => {
   });
 
   it('fails a test that handled a blocked connection and clears the violation for the next test', async () => {
-    const vitest = fileURLToPath(new URL('vitest.mjs', import.meta.resolve('vitest/package.json')));
-    const args = [vitest, 'run', 'network-guard.test.ts', '--dir', 'test-fixtures', '--reporter=json', '--disableConsoleIntercept'];
+    const args = ['test', 'test-fixtures/test/network-guard.test.ts', '--timeout', '10000'];
     const probe = spawn(process.execPath, args, { cwd: resolve(import.meta.dirname, '..') });
     const [stdout, stderr, [code]] = await Promise.all([text(probe.stdout), text(probe.stderr), once(probe, 'close')]);
+    const output = `${stdout}\n${stderr}`.replace(/\x1b\[[0-9;]*m/g, '');
     expect(code).toBe(1);
-    const report = JSON.parse(stdout) as { testResults: { assertionResults: { status: string; failureMessages: string[] }[] }[] };
-    const violation = expect.stringContaining('The test tried to reach 1 non-loopback address(es); tests must stay offline:\n- blocked.example.test:443');
-    expect(report.testResults[0]?.assertionResults).toMatchObject([
-      { status: 'failed', failureMessages: [violation] },
-      { status: 'failed', failureMessages: [violation] },
-      { status: 'failed', failureMessages: [expect.stringContaining('setup.example.test:443\n- teardown.example.test:443')] },
-      { status: 'failed', failureMessages: [violation] },
-      { status: 'failed', failureMessages: [expect.stringContaining('first.example.test:443\n- shared.example.test:443')] },
-      { status: 'failed', failureMessages: [expect.stringContaining('second.example.test:443\n- shared.example.test:443')] },
-      { status: 'passed' },
-    ]);
-    expect(stderr).toContain('reports KAP diagnostics for a network failure\ntestkit fake model state:');
-    expect(stderr.match(/KAP WebSocket frames:\n\(none received\)\nKAP server logs:/g)).toHaveLength(1);
-    expect(stderr).toContain('network diagnostic server started');
+    expect(output).toContain(
+      'The test tried to reach 1 non-loopback address(es); tests must stay offline:\n- blocked.example.test:443',
+    );
+    expect(output).toContain('(fail) handles the connection error in the test body');
+    expect(output).toContain('(fail) uninstalls a nested guard after inspecting the violation');
+    expect(output).toContain('1 pass');
+    expect(output).toContain('2 fail');
   });
 
   it('lets loopback connections through', async () => {

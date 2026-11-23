@@ -1,5 +1,5 @@
 // Core 参数解析与 Ajv 校验基线；历史条目只在与其直接相关的用例前标注。
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   compileToolArgsValidator,

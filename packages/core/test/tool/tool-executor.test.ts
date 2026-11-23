@@ -1,5 +1,5 @@
 // ToolExecutor 公开契约测试；历史 issue/PR 来源在具体用例前标注，其余为当前 handler 行为基线。
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { memoryOutputStore } from '#/tool/output-store';
 import { isToolDetachAck, textToolContent, ToolExecutor } from '#/tool/tool-executor';
@@ -125,9 +125,9 @@ describe('ToolExecutor', () => {
 
   it('reprepares rewritten starting args and skips permitting', async () => {
     const preparedArgs: unknown[] = [];
-    const validating = vi.fn();
-    const permitting = vi.fn();
-    const execute = vi.fn(() => ({ content: textToolContent('rewritten') }));
+    const validating = mock();
+    const permitting = mock();
+    const execute = mock(() => ({ content: textToolContent('rewritten') }));
     const tool = defineTool('starting-rewrite', {
       prepare: (context) => {
         preparedArgs.push(context.args);
@@ -159,8 +159,8 @@ describe('ToolExecutor', () => {
 
   it('reprepares rewritten permitting args without restarting the pipeline', async () => {
     const preparedArgs: unknown[] = [];
-    const starting = vi.fn();
-    const execute = vi.fn(() => ({ content: textToolContent('rewritten') }));
+    const starting = mock();
+    const execute = mock(() => ({ content: textToolContent('rewritten') }));
     const tool = defineTool('permitting-rewrite', {
       prepare: (context) => {
         preparedArgs.push(context.args);
@@ -189,8 +189,8 @@ describe('ToolExecutor', () => {
   });
 
   it('short-circuits a rejected decision with its synthetic result', async () => {
-    const execute = vi.fn(() => ({ content: textToolContent('must not run') }));
-    const afterExecute = vi.fn();
+    const execute = mock(() => ({ content: textToolContent('must not run') }));
+    const afterExecute = mock();
     const executor = new ToolExecutor([defineTool('rejected', { execute })], {
       hook: {
         starting: () => ({
@@ -215,7 +215,7 @@ describe('ToolExecutor', () => {
   });
 
   it('maps malformed args, unknown tools and missing execute functions to stable errors', async () => {
-    const execute = vi.fn(() => ({ content: textToolContent('must not run') }));
+    const execute = mock(() => ({ content: textToolContent('must not run') }));
     const executor = new ToolExecutor([
       defineTool('available', { execute }),
       defineTool('prepare-only', { execute: undefined }),
@@ -259,8 +259,12 @@ describe('ToolExecutor', () => {
       undefined,
     );
     const startingResponse = Promise.resolve(startingHandler);
-    await expect(startingHandler.wait()).rejects.toThrow('starting failed');
-    await expect(startingResponse).rejects.toThrow('starting failed');
+    const startingWaitError = await startingHandler.wait().catch((error: unknown) => error);
+    expect(startingWaitError).toBeInstanceOf(Error);
+    expect((startingWaitError as Error).message).toBe('starting failed');
+    const startingResponseError = await startingResponse.catch((error: unknown) => error);
+    expect(startingResponseError).toBeInstanceOf(Error);
+    expect((startingResponseError as Error).message).toBe('starting failed');
 
     const beforeExecutor = new ToolExecutor([defineTool('before-error')], {
       hook: {
@@ -271,8 +275,12 @@ describe('ToolExecutor', () => {
     });
     const beforeHandler = beforeExecutor.execute(toolCall('before-error-1', 'before-error'), undefined);
     const beforeResponse = Promise.resolve(beforeHandler);
-    await expect(beforeHandler.wait()).rejects.toThrow('before failed');
-    await expect(beforeResponse).rejects.toThrow('before failed');
+    const beforeWaitError = await beforeHandler.wait().catch((error: unknown) => error);
+    expect(beforeWaitError).toBeInstanceOf(Error);
+    expect((beforeWaitError as Error).message).toBe('before failed');
+    const beforeResponseError = await beforeResponse.catch((error: unknown) => error);
+    expect(beforeResponseError).toBeInstanceOf(Error);
+    expect((beforeResponseError as Error).message).toBe('before failed');
 
     const executeExecutor = new ToolExecutor([defineTool('execute-error', {
       execute: () => {
@@ -371,12 +379,13 @@ describe('ToolExecutor', () => {
     expect(ack).toBeDefined();
     expect(isToolDetachAck(ack!)).toBe(true);
     expect(ack).toMatchObject({ detached: true, taskId: handler.taskId, toolCallId: 'default-detach-1' });
-    expect(ack?.content[0]).toMatchObject({
-      text: expect.stringContaining(`task_id: ${handler.taskId}`),
-    });
-    expect(ack?.content[0]).toMatchObject({ text: expect.stringContaining('phase: execute') });
+    const ackPart = ack?.content[0];
+    expect(ackPart?.type).toBe('text');
+    const ackText = ackPart?.type === 'text' ? ackPart.text : '';
+    expect(ackText).toContain(`task_id: ${handler.taskId}`);
+    expect(ackText).toContain('phase: execute');
     expect(handler.detach('again')).toBe(ack);
-    expect(await response).toBe(ack);
+    expect(await response).toBe(ack!);
 
     release.resolve();
     expect(await handler.wait()).toMatchObject({
@@ -386,7 +395,7 @@ describe('ToolExecutor', () => {
   });
 
   it('resolves a created-observer detach ack while wait continues to completion', async () => {
-    const execute = vi.fn(() => ({ content: textToolContent('finished') }));
+    const execute = mock(() => ({ content: textToolContent('finished') }));
     let ack: ToolDetachAck | undefined;
     let response: Promise<ToolExecutionResponse> | undefined;
     const executor = new ToolExecutor([defineTool('created-detach', { execute })], {
@@ -405,7 +414,7 @@ describe('ToolExecutor', () => {
       taskId: handler.taskId,
       toolCallId: 'created-detach-1',
     });
-    await expect(response!).resolves.toBe(ack);
+    await expect(response!).resolves.toBe(ack!);
     expect(await handler.wait()).toMatchObject({
       content: textToolContent('finished'),
       outcome: { type: 'success' },
@@ -604,7 +613,7 @@ describe('ToolExecutor', () => {
       content: textToolContent('finished'),
       outcome: { type: 'success' },
     });
-    expect(await response).toBe(ack);
+    expect(await response).toBe(ack!);
   });
 
   it('stops one execution without aborting another handler', async () => {
@@ -796,8 +805,8 @@ describe('ToolExecutor', () => {
   // 来源：Issue #4241 的 core 结果子集，只固定 synthetic 短路和现有 outcome，不引入 agent 扩展枚举。
   // https://github.com/MoonshotAI/kimi-code/issues/4241
   it('returns a synthetic preparation result without executing the tool', async () => {
-    const execute = vi.fn(() => ({ content: textToolContent('must not run') }));
-    const afterExecute = vi.fn();
+    const execute = mock(() => ({ content: textToolContent('must not run') }));
+    const afterExecute = mock();
     const logs = captureLogs();
     const tool = defineTool('synthetic', {
       prepare: () => ({
@@ -824,7 +833,7 @@ describe('ToolExecutor', () => {
   });
 
   it('applies validating rewrites and stops validating rejections before prepare', async () => {
-    const rewrittenExecute = vi.fn(() => ({ content: textToolContent('rewritten') }));
+    const rewrittenExecute = mock(() => ({ content: textToolContent('rewritten') }));
     const rewritten = new ToolExecutor([defineTool('validating-rewrite', {
       execute: rewrittenExecute,
     })], {
@@ -836,7 +845,7 @@ describe('ToolExecutor', () => {
     ).wait()).outcome.type).toBe('success');
     expect(rewrittenExecute).toHaveBeenCalledWith(expect.objectContaining({ args: { value: 2 } }));
 
-    const prepare = vi.fn(() => ({ type: 'execute' as const, prepared: {} }));
+    const prepare = mock(() => ({ type: 'execute' as const, prepared: {} }));
     const rejected = new ToolExecutor([defineTool('validating-reject', { prepare })], {
       hook: {
         validating: () => ({
@@ -1061,7 +1070,7 @@ describe('As a tool author, I want to inspect and detach my live execution so th
       taskId: handler.taskId,
       toolCallId: 'context-detach-1',
     });
-    await expect(response).resolves.toBe(ack);
+    await expect(response).resolves.toBe(ack!);
     release.resolve();
     expect(await handler.wait()).toMatchObject({
       content: textToolContent('finished'),
@@ -1073,8 +1082,8 @@ describe('As a tool author, I want to inspect and detach my live execution so th
 
 describe('As a runtime caller, I want validation and preparation failures to be distinguishable so that I can diagnose rejected calls', () => {
   it('maps schema validation failures to an invalid validate outcome', async () => {
-    const prepare = vi.fn(() => ({ type: 'execute' as const, prepared: {} }));
-    const execute = vi.fn(() => ({ content: textToolContent('must not run') }));
+    const prepare = mock(() => ({ type: 'execute' as const, prepared: {} }));
+    const execute = mock(() => ({ content: textToolContent('must not run') }));
     const tool = defineTool('invalid-args', {
       parameters: {
         type: 'object',
@@ -1100,7 +1109,7 @@ describe('As a runtime caller, I want validation and preparation failures to be 
   });
 
   it('maps prepare exceptions to resolve failures without executing', async () => {
-    const execute = vi.fn(() => ({ content: textToolContent('must not run') }));
+    const execute = mock(() => ({ content: textToolContent('must not run') }));
     const tool = defineTool('prepare-error', {
       prepare: () => {
         throw new Error('prepare failed');
@@ -1165,8 +1174,10 @@ describe('As a handler caller, I want conditional waits to settle independently 
     );
     const response = Promise.resolve(handler);
 
-    await expect(handler.wait(1000)).rejects.toBe(failure);
-    await expect(response).rejects.toBe(failure);
+    const waitError = await handler.wait(1000).catch((error: unknown) => error);
+    expect(waitError).toBe(failure);
+    const responseError = await response.catch((error: unknown) => error);
+    expect(responseError).toBe(failure);
   });
 
   it('returns the settled completion even with wait options', async () => {
@@ -1208,7 +1219,7 @@ describe('As a handler caller, I want conditional waits to settle independently 
 
 describe('As a runtime caller, I want lifecycle hook failures to preserve truthful terminal outcomes so that cancellation and failure remain distinguishable', () => {
   it('maps afterExecute exceptions to failed results', async () => {
-    const execute = vi.fn(() => ({ content: textToolContent('raw') }));
+    const execute = mock(() => ({ content: textToolContent('raw') }));
     const executor = new ToolExecutor([defineTool('after-error', { execute })], {
       hook: {
         afterExecute: () => {
@@ -1267,8 +1278,8 @@ describe('As a runtime caller, I want lifecycle hook failures to preserve truthf
   it('stops while a decision is pending and notifies late-bound stopping once', async () => {
     const started = deferred();
     const release = deferred();
-    const stopping = vi.fn();
-    const execute = vi.fn(() => ({ content: textToolContent('must not run') }));
+    const stopping = mock();
+    const execute = mock(() => ({ content: textToolContent('must not run') }));
     const tool = defineTool('pending-stop', { stopping, execute });
     const executor = new ToolExecutor([tool], {
       hook: {
@@ -1329,7 +1340,7 @@ describe('As a runtime caller, I want lifecycle hook failures to preserve truthf
     const started = deferred();
     const release = deferred();
     const logs = captureLogs();
-    const execute = vi.fn(() => ({ content: textToolContent('must not run') }));
+    const execute = mock(() => ({ content: textToolContent('must not run') }));
     const tool = defineTool('late-stopping-error', {
       execute,
       stopping: () => {
@@ -1391,7 +1402,7 @@ describe('As a runtime caller, I want lifecycle hook failures to preserve truthf
   });
 
   it('ignores onDetach registration after execution settles', async () => {
-    const acknowledge = vi.fn(() => ({ content: textToolContent('late ack') }));
+    const acknowledge = mock(() => ({ content: textToolContent('late ack') }));
     let lateRegister: (() => void) | undefined;
     const tool = defineTool('late-detach-registration', {
       execute: (context) => {
@@ -1415,8 +1426,8 @@ describe('As a runtime caller, I want lifecycle hook failures to preserve truthf
 describe('As a policy author, I want rewritten arguments to be prepared again so that updated inputs can produce synthetic results without execution', () => {
   it('returns a synthetic result when starting-rewrite reprepare short-circuits', async () => {
     let preparations = 0;
-    const execute = vi.fn(() => ({ content: textToolContent('must not run') }));
-    const permitting = vi.fn();
+    const execute = mock(() => ({ content: textToolContent('must not run') }));
+    const permitting = mock();
     const tool = defineTool('starting-reprepare-synthetic', {
       prepare: () => {
         preparations += 1;
@@ -1451,8 +1462,8 @@ describe('As a policy author, I want rewritten arguments to be prepared again so
 
   it('returns a synthetic result when permitting-rewrite reprepare short-circuits', async () => {
     let preparations = 0;
-    const execute = vi.fn(() => ({ content: textToolContent('must not run') }));
-    const beforeExecute = vi.fn();
+    const execute = mock(() => ({ content: textToolContent('must not run') }));
+    const beforeExecute = mock();
     const tool = defineTool('permitting-reprepare-synthetic', {
       prepare: () => {
         preparations += 1;

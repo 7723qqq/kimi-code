@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { kimiRendererViteConfig } from '#/index';
 describe('kimiRendererViteConfig', () => {
   it('emits worker.format es, es2022 target, and kimi icons collection, no alias', () => {
