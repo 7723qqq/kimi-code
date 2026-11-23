@@ -3,14 +3,12 @@ import type { ServerResponse } from 'node:http';
 import {
   ErrorCodes,
   IMcpManagementService,
-  isError2,
-  type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import {
   McpServerHttpConfigSchema,
   McpServerSseConfigSchema,
   McpServerStdioConfigSchema,
-} from '@moonshot-ai/agent-core-v2/mcpCore/config-schema';
+  isError2,
+  type Scope,
+} from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
 import { defineRoute } from '../middleware/defineRoute';
