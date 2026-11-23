@@ -133,6 +133,7 @@ export function contextFromHistoryEntry(
     Object.entries({
       ...coreMessage,
       content,
+      toolCalls: entry.role === 'assistant' ? entry.toolCalls : [],
       id: attributes?.promptId ?? legacy.id,
       origin: attributes?.origin ?? legacy.origin,
       providerMessageId: attributes?.messageId ?? legacy.providerMessageId,
@@ -144,5 +145,5 @@ export function contextFromHistoryEntry(
       durationMs: attributes?.durationMs ?? legacy.durationMs,
       toolCallDisplays: displays,
     }).filter(([, value]) => value !== undefined),
-  ) as ContextMessage;
+  ) as unknown as ContextMessage;
 }

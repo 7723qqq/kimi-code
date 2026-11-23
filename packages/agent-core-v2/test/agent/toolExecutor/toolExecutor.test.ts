@@ -20,6 +20,8 @@ import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentE
 import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type { IAgentTaskService } from '#/agent/task/task';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTaskOutputService } from '#/agent/task/taskOutput';
+import { stubTaskOutputService } from './stubs';
 import {
   ToolCallStarted,
   ToolProgress,
@@ -113,6 +115,7 @@ beforeEach(() => {
       registerTestAgentWireServices(reg, 'wire/tool-executor');
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
+      reg.defineInstance(IAgentTaskOutputService, stubTaskOutputService());
       reg.defineInstance(
         IAgentScopeContext,
         makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
@@ -166,7 +169,10 @@ describe('AgentToolExecutorService', () => {
       }),
     ]);
     expect(eventTypes()).toEqual(['tool.result']);
-    expect(protocolEventTypes()).toEqual(['tool.call.started', 'tool.result']);
+    expect(protocolEventTypes().filter((type) => type !== 'tool.updated')).toEqual([
+      'tool.call.started',
+      'tool.result',
+    ]);
     expect(telemetryEvents).toContainEqual({
       event: 'tool_call',
       properties: expect.objectContaining({

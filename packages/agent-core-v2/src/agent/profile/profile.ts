@@ -116,8 +116,8 @@ export interface IAgentProfileService {
   register(): void;
   configure(options: ProfileServiceOptions): void;
   update(changed: ProfileUpdateData): void;
-  applyBindingSnapshot(snapshot: ProfileBindingSnapshot): void;
-  bind(input: BindAgentInput): Promise<void>;
+  applyBindingSnapshot(snapshot: ProfileBindingSnapshot): ProfileBindingSnapshot;
+  bind(input: BindAgentInput): Promise<ProfileBindingSnapshot>;
   setModel(model: string): Promise<ProfileSetModelResult>;
   setThinking(level: string): void;
   republishStatus(snapshot?: ProfileBindingSnapshot): void;

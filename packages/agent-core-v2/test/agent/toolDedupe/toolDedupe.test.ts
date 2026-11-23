@@ -19,6 +19,8 @@ import {
   type ToolExecutionResult,
 } from '#/agent/toolExecutor/toolExecutor';
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import { IAgentTaskOutputService } from '#/agent/task/taskOutput';
+import { stubTaskOutputService } from '../toolExecutor/stubs';
 import {
   type ToolDidExecuteContext,
   type ResolvedToolExecutionHookContext,
@@ -123,6 +125,7 @@ function createHarness(
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       if (events === undefined) {
         reg.define(IAgentToolExecutorService, AgentToolExecutorService);
+      reg.defineInstance(IAgentTaskOutputService, stubTaskOutputService());
       } else {
         reg.defineInstance(IAgentToolExecutorService, events.executor);
       }

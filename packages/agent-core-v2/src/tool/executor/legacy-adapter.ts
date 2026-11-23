@@ -299,7 +299,11 @@ function legacyResult(result: ExecutableToolResult, toolName: string): ToolRetur
       reason: contentText(content) || `Tool "${toolName}" returned an error.`,
     };
   }
-  return { content, outcome: 'success' };
+  return {
+    content,
+    outcome: 'success',
+    ...(result.stopTurn === true ? { stopTurn: true, stopTurnReason: result.stopTurnReason } : {}),
+  };
 }
 
 export { legacyResult as toLegacyToolReturn };

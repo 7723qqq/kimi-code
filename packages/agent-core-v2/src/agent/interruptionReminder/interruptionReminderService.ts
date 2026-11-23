@@ -54,6 +54,7 @@ export class AgentInterruptionReminderService
 function lastComparableMessage(messages: readonly ContextMessage[]): ContextMessage | undefined {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
+    if (message.role === 'user' && message.content.length === 0) continue;
     if (
       message.role === 'assistant' &&
       message.partial === true &&

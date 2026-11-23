@@ -422,16 +422,25 @@ export class TranscriptService {
       });
     }
     for (const item of snapshot.queue) {
-      if (item.meta?.tracked !== true) continue;
+      const attributes = item.attributes as
+        | {
+            readonly promptId?: string;
+            readonly tracked?: boolean;
+            readonly origin?: UserPromptOrigin;
+          }
+        | undefined;
+      if (attributes?.tracked !== true) continue;
+      const handle =
+        attributes.promptId === undefined ? undefined : loop.promptHandle(attributes.promptId);
       ops.push({
         op: 'prompt.upsert',
         prompt: {
-          promptId: item.meta?.promptId ?? '',
+          promptId: attributes.promptId ?? '',
           status: 'queued',
-          userMessageId: item.meta?.userMessageId ?? '',
-          content: projectPromptContentParts(item.message.content),
-          createdAt: item.meta?.createdAt ?? '',
-          clientMetadata: (item.meta?.origin as UserPromptOrigin | undefined)?.clientMetadata,
+          userMessageId: handle?.userMessageId ?? attributes.promptId ?? '',
+          content: projectPromptContentParts(handle?.message.content ?? item.content),
+          createdAt: handle?.createdAt ?? '',
+          clientMetadata: (attributes.origin as UserPromptOrigin | undefined)?.clientMetadata,
         },
       });
     }

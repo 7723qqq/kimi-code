@@ -747,14 +747,13 @@ describe('server-v2 /api/v1 prompts', () => {
       ...loop.snapshot(),
       queue: [
         {
-          message: { role: 'user', content: [{ type: 'text', text: 'browser wire' }] },
-          meta: {
+          role: 'user' as const,
+          content: [{ type: 'text' as const, text: 'browser wire' }],
+          attributes: {
             promptId: 'queued-example',
-            userMessageId: 'queued-example',
             tracked: true,
-            createdAt: '2026-01-01T00:00:00.000Z',
             origin,
-          },
+          } as never,
         },
       ],
     });

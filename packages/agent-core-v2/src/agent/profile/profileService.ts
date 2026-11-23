@@ -284,7 +284,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     }
   }
 
-  applyBindingSnapshot(snapshot: ProfileBindingSnapshot): void {
+  applyBindingSnapshot(snapshot: ProfileBindingSnapshot): ProfileBindingSnapshot {
     this.activeProfile = undefined;
     this.activeToolNamesOverlay = undefined;
     const agentsMdPaths =
@@ -314,6 +314,18 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       disallowedTools: snapshot.disallowedTools ?? [],
     });
     this.agentsMdReminder.seedInjected(agentsMdPaths, this.workspace.workDir);
+    return {
+      modelAlias: snapshot.modelAlias,
+      profileName: snapshot.profileName,
+      thinkingLevel: snapshot.thinkingLevel,
+      systemPrompt: snapshot.systemPrompt,
+      environmentDisclosure: snapshot.environmentDisclosure,
+      renderGeneration: snapshot.renderGeneration,
+      agentsMdPaths,
+      activeToolNames: snapshot.activeToolNames,
+      disallowedTools: snapshot.disallowedTools ?? [],
+      subagents: snapshot.subagents,
+    };
   }
 
   private bindSubagents(
@@ -342,7 +354,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     }
   }
 
-  async bind(input: BindAgentInput): Promise<void> {
+  async bind(input: BindAgentInput): Promise<ProfileBindingSnapshot> {
     await this.catalog.ready;
     await this.identity.resolved();
     this.assertBindable(input.profile);
@@ -411,6 +423,17 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
     this.publishAgentsMdWarning();
     this.publishToolPatternWarnings(profile);
+    return {
+      modelAlias: alias,
+      profileName: profile.name,
+      thinkingLevel,
+      systemPrompt: rendered.text,
+      environmentDisclosure: rendered.environment,
+      agentsMdPaths: context.agentsMdPaths ?? [],
+      activeToolNames: profile.tools,
+      disallowedTools: profile.disallowedTools ?? [],
+      subagents: this.bindSubagents(profile.name, profile.subagents),
+    };
   }
 
   async setModel(alias: string): Promise<ProfileSetModelResult> {

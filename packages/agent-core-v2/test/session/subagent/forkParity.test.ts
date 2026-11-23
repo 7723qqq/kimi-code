@@ -1,3 +1,4 @@
+import { loopUserEntry } from '#/agent/loop/userEntry';
 import { createControlledPromise } from '@antfu/utils';
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
@@ -270,10 +271,10 @@ describe('subagent task reminders and fork request parity', () => {
     ctx.mockNextResponse({ type: 'text', text: 'parent final answer' });
 
     const loop = parent.accessor.get(IAgentLoopService);
-    const { id } = loop.submit({
+    const { id } = loop.submit(loopUserEntry({
       message: { role: 'user', content: [{ type: 'text', text: 'start the parity probe' }] },
       meta: { origin: { kind: 'user' }, tracked: true },
-    });
+    }));
     const completion = await loop.promptHandle(id)!.completion;
     expect(completion.state).toBe('completed');
 
@@ -385,10 +386,10 @@ describe('subagent task reminders and fork request parity', () => {
   async function runPrompt(agent: IAgentScopeHandle): Promise<void> {
     ctx.mockNextResponse({ type: 'text', text: CHILD_FINAL_TEXT });
     const loop = agent.accessor.get(IAgentLoopService);
-    const { id } = loop.submit({
+    const { id } = loop.submit(loopUserEntry({
       message: { role: 'user', content: [{ type: 'text', text: 'continue the task' }] },
       meta: { origin: { kind: 'user' }, tracked: true },
-    });
+    }));
     expect((await loop.promptHandle(id)!.completion).state).toBe('completed');
   }
 
@@ -417,10 +418,10 @@ describe('subagent task reminders and fork request parity', () => {
     ctx.mockNextResponse({ type: 'text', text: 'parent final answer' });
 
     const loop = ctx.get(IAgentLoopService);
-    const { id } = loop.submit({
+    const { id } = loop.submit(loopUserEntry({
       message: { role: 'user', content: [{ type: 'text', text: 'start the main fork probe' }] },
       meta: { origin: { kind: 'user' }, tracked: true },
-    });
+    }));
     const completion = await loop.promptHandle(id)!.completion;
     expect(completion.state).toBe('completed');
   }
@@ -806,10 +807,10 @@ describe('subagent task reminders and fork request parity', () => {
     );
 
     const loop = ctx.get(IAgentLoopService);
-    const { id } = loop.submit({
+    const { id } = loop.submit(loopUserEntry({
       message: { role: 'user', content: [{ type: 'text', text: 'investigate the parser loop in the background' }] },
       meta: { origin: { kind: 'user' }, tracked: true },
-    });
+    }));
     expect((await loop.promptHandle(id)!.completion).state).toBe('completed');
 
     expect(parentScript.calls).toHaveLength(3);
@@ -864,10 +865,10 @@ describe('subagent task reminders and fork request parity', () => {
     });
 
     const loop = ctx.get(IAgentLoopService);
-    const { id } = loop.submit({
+    const { id } = loop.submit(loopUserEntry({
       message: { role: 'user', content: [{ type: 'text', text: 'investigate the parser loop' }] },
       meta: { origin: { kind: 'user' }, tracked: true },
-    });
+    }));
     await childStreaming;
     loop.cancel(undefined, userCancellationReason());
     expect((await loop.promptHandle(id)!.completion).state).toBe('cancelled');

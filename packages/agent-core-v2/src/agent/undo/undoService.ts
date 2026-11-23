@@ -16,6 +16,7 @@ import { isUserPromptSubmitHookPart } from '#/agent/contextMemory/hookParts';
 import type { UserPromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { loopUserAttributes } from '#/agent/loop/userEntry';
 import { turnKey } from '#/agent/loop/turnOps';
 import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -143,7 +144,7 @@ export class AgentConversationUndoService extends Service implements IAgentConve
         this.log.warn('undo state restore failed; retrying once', { error });
         await this.dispatcher.restore();
       }
-      await this.loop.resetMachineEngine();
+      await this.loop.resetLoop();
       this.tokenCounting.recordTruncation(this.agentCtx.agentContext, this.context.get().length);
       await this.reconcileParticipants();
       await this.flushAfterReconcile();
@@ -248,14 +249,14 @@ export class AgentConversationUndoService extends Service implements IAgentConve
     if (this.agentCtx.agentId !== MAIN_AGENT_ID) return;
     const pending = this.loop
       .snapshot()
-      .queue.filter((item) => item.meta?.tracked === true)
+      .queue.filter((item) => loopUserAttributes(item).tracked === true)
       .at(-1);
     let lastPrompt =
       pending === undefined
         ? undefined
         : promptMetadataTextFromContentParts(
-            pending.message.content.filter((part) => !isUserPromptSubmitHookPart(part)),
-            (pending.meta?.origin as UserPromptOrigin | undefined)?.clientMetadata,
+            pending.content.filter((part) => !isUserPromptSubmitHookPart(part)),
+            (loopUserAttributes(pending).origin as UserPromptOrigin | undefined)?.clientMetadata,
           );
     if (lastPrompt === undefined) {
       const history = this.context.get();

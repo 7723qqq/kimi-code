@@ -77,7 +77,7 @@
 //     llmRequester.mediaRecovery                      src/agent/llmRequester/llmRequesterService.ts
 //     llmRequester.turnConfigs                        src/agent/llmRequester/llmRequesterService.ts
 //     loop.disposing                                  src/agent/loop/loopService.ts
-//     loop.lastRequestTraceId                         src/agent/loop/loopService.ts
+//     loop.lastRequestId                              src/agent/loop/turnProjection.ts
 //     mcp.discovery                                   src/agent/mcp/mcpDiscoveryOps.ts
 //     mcp.discoveryWritesReady                        src/agent/mcp/mcpService.ts
 //     mcp.failures                                    src/agent/mcp/mcpFailureOps.ts
@@ -1357,7 +1357,6 @@ export interface AgentStateSnapshot {
   };
   // src/agent/loop/loopService.ts
   'loop.disposing': boolean;
-  'loop.lastRequestTraceId': string | undefined;
   // src/agent/loop/requestObservation.ts
   'llmRequester.lastMeasuredRequest': /* MeasuredRequest — packages/agent-core-v2/src/agent/loop/requestObservation.ts */ {
     readonly modelAlias: string;
@@ -1394,6 +1393,8 @@ export interface AgentStateSnapshot {
       readonly durationMs?: number;
     };
   };
+  // src/agent/loop/turnProjection.ts
+  'loop.lastRequestId': string | undefined;
   // src/agent/mcp/mcpDiscoveryOps.ts
   // replayable · durable — folds: McpToolsDiscovered
   'mcp.discovery': /* McpDiscoveryState — packages/agent-core-v2/src/agent/mcp/mcpDiscoveryOps.ts */ {

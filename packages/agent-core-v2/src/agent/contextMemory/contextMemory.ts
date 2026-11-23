@@ -29,6 +29,7 @@ export interface ContextCompactionResult {
   keptHeadUserMessageCount?: number;
   appendedInjectionCount: number;
   droppedCount?: number;
+  messages?: readonly ContextMessage[];
 }
 
 export interface IAgentContextMemoryService {

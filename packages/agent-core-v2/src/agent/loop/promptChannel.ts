@@ -18,6 +18,7 @@ import {
   type SteerPayload,
   type SteerResult,
 } from './loop';
+import { loopUserEntry } from './userEntry';
 
 export interface IAgentPromptChannel {
   readonly _serviceBrand: undefined;
@@ -42,10 +43,10 @@ export class AgentPromptChannel implements IAgentPromptChannel {
   async submit(payload: PromptPayload): Promise<PromptLaunchResult | undefined> {
     await this.updateMetadata(promptMetadataTextFromContentParts(payload.input));
     const status = this.loop.snapshot();
-    const { id } = this.loop.submit({
+    const { id } = this.loop.submit(loopUserEntry({
       message: { role: 'user', content: [...payload.input] },
       meta: { promptId: payload.promptId, origin: { kind: 'user' }, tracked: true },
-    });
+    }));
     if (status.state === 'running' || status.paused || status.queue.length > 0) return undefined;
     return launchResult(this.loop, id);
   }
@@ -56,10 +57,10 @@ export class AgentPromptChannel implements IAgentPromptChannel {
     const status = this.loop.snapshot();
     const steerable = status.activeTurnId !== undefined;
     const { id } = this.loop.submit(
-      {
+      loopUserEntry({
         message: { role: 'user', content: [...payload.input] },
         meta: { origin: { kind: 'user' }, tracked: true },
-      },
+      }),
       { steerIfActive: true },
     );
     const handle = this.loop.promptHandle(id)!;

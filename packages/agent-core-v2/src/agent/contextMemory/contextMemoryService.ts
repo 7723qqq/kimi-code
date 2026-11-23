@@ -138,9 +138,8 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
       messages: [...result.messages],
       tokens: result.tokensAfter,
     });
-    const { messages: _messages, ...publicResult } = result;
-    void _messages;
-    return publicResult;
+    const { messages, ...publicResult } = result;
+    return { ...publicResult, messages };
   }
 
   private publishSplice(input: Omit<ContextSplicedPayload, 'agentId'>): void {

@@ -24,6 +24,7 @@ import {
   touchForkedFileHistory,
 } from '#/features/fileHistory/fileHistoryRetention';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { loopUserAttributes } from '#/agent/loop/userEntry';
 import { readUserPermissionRules } from '#/agent/permissionRules/configSection';
 import { IProjectPermissionRulesService } from '#/agent/permissionRules/projectPermissionRules';
 import { IAgentPlanService } from '#/features/plan/plan';
@@ -694,7 +695,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
             queuedPromptIds.set(
               agentHandle.id,
               snapshot.queue.flatMap((item) => {
-                const promptId = item.meta?.promptId;
+                const promptId = loopUserAttributes(item).promptId;
                 return typeof promptId === 'string' ? [promptId] : [];
               }),
             );

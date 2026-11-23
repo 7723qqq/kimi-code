@@ -4,6 +4,7 @@ import { escapeXml } from '#/_base/utils/xml-escape';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { PromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { loopUserEntry } from '#/agent/loop/userEntry';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -254,12 +255,12 @@ export class AgentShellCommandService implements IAgentShellCommandService {
 
   private notifyBackgrounded(output: string): void {
     this.loop.submit(
-      {
+      loopUserEntry({
         message: { role: 'user', content: [{ type: 'text', text: output }] },
         meta: {
           origin: { kind: 'injection', variant: 'shell_command_backgrounded' } as PromptOrigin,
         },
-      },
+      }),
       { steerIfActive: true },
     );
   }

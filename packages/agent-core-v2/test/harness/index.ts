@@ -36,6 +36,7 @@ export {
 } from './agent';
 export {
   createScriptedGenerate,
+  providerHttpError,
   requesterFromGenerateFn,
   type LegacyGenerateFn,
   type LegacyGenerateResult,

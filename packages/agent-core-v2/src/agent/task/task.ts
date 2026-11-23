@@ -92,6 +92,7 @@ export interface IAgentTaskService {
   registerTask(task: AgentTask, options?: RegisterAgentTaskOptions): string;
   getTask(taskId: string): AgentTaskInfo | undefined;
   list(activeOnly?: boolean, limit?: number): readonly AgentTaskInfo[];
+  reconcile(): Promise<readonly AgentTaskInfo[]>;
   persistOutput(taskId: string): void;
   getOutputSnapshot(taskId: string, maxPreviewBytes: number): Promise<AgentTaskOutputSnapshot>;
   readOutput(taskId: string, tail?: number): Promise<string>;

@@ -674,6 +674,7 @@ class LoopActor implements Loop {
         return;
       case 'tool.prepared':
         this.announceTool(message.slot);
+        this.prepareNextTool(message.slot);
         return;
       case 'tool.responded':
         this.respondToTool(message.slot, message.response);
@@ -1514,41 +1515,111 @@ class LoopActor implements Loop {
   private startActing(turn: LiveTurn, step: StepState): void {
     if (!this.isCurrentStep(turn, step, 'acting')) return;
     const slots: LiveTool[] = [];
+    step.nextCallIndex = 0;
+    step.stopTurn = false;
     if (turn.outcome?.type === 'aborted') {
       this.settleUnstartedTools(turn, step, turn.outcome.reason);
     } else {
-      for (const call of step.calls) {
-        if (step.settled[call.key] !== undefined) continue;
-        const context: LoopToolContext = {
-          origin: 'loop',
-          turnId: turn.id,
-          step: turn.step,
-          ...this.toolContext?.(turn.id),
-        };
-        const handler = this.executor.execute(call.toolCall, context);
-        const slot: LiveTool = {
-          key: call.key,
-          toolCall: call.toolCall,
-          turnId: turn.id,
-          step: turn.step,
-          handler,
-          detached: false,
-          announced: false,
-          responded: false,
-          done: false,
-          waiters: new Set(),
-        };
-        this.tools.set(call.key, slot);
-        slots.push(slot);
-      }
+      const first = this.nextToolCall(step);
+      if (first !== undefined) slots.push(this.startToolCall(turn, step, first));
     }
     this.post({ type: 'tools.execute', turn, step, slots });
+  }
+
+  private nextToolCall(step: StepState): StepState['calls'][number] | undefined {
+    let index = step.nextCallIndex ?? 0;
+    while (index < step.calls.length) {
+      const call = step.calls[index++]!;
+      step.nextCallIndex = index;
+      if (step.settled[call.key] === undefined) return call;
+    }
+    step.nextCallIndex = index;
+    return undefined;
+  }
+
+  private startToolCall(turn: LiveTurn, step: StepState, call: StepState['calls'][number]): LiveTool {
+    const context: LoopToolContext = {
+      origin: 'loop',
+      turnId: turn.id,
+      step: turn.step,
+      ...this.toolContext?.(turn.id),
+    };
+    const handler = this.executor.execute(call.toolCall, context);
+    const slot: LiveTool = {
+      key: call.key,
+      toolCall: call.toolCall,
+      turnId: turn.id,
+      step: turn.step,
+      handler,
+      detached: false,
+      announced: false,
+      responded: false,
+      done: false,
+      waiters: new Set(),
+    };
+    this.tools.set(call.key, slot);
+    return slot;
   }
 
   private executeTools(turn: LiveTurn, step: StepState, slots: LiveTool[]): void {
     if (!this.isCurrentStep(turn, step, 'acting')) return;
     for (const slot of slots) this.executeTool(slot);
+    if (slots.length === 0) this.advanceTools(turn, step);
+  }
+
+  private prepareNextTool(slot: LiveTool): void {
+    if (slot.advanced === true) return;
+    slot.advanced = true;
+    const turn = this.turn;
+    const step = this.step;
+    if (turn?.id !== slot.turnId || turn.step !== slot.step || turn.phase !== 'acting' || step === undefined) {
+      return;
+    }
+    if (step.stopTurn === true) return;
+    const prepared = slot.handler.snapshot().prepared as
+      | { readonly stopBatchAfterThis?: boolean; readonly execution?: { readonly stopBatchAfterThis?: boolean } }
+      | undefined;
+    if (prepared?.stopBatchAfterThis === true || prepared?.execution?.stopBatchAfterThis === true) {
+      step.skipBatch = true;
+      return;
+    }
+    const next = this.nextToolCall(step);
+    if (next !== undefined) this.executeTool(this.startToolCall(turn, step, next));
+  }
+
+  private advanceTools(turn: LiveTurn, step: StepState): void {    if (this.turn !== turn || this.step !== step || turn.phase !== 'acting') return;
+    if (step.stopTurn === true || step.skipBatch === true) {
+      this.skipPendingTools(turn, step);
+    } else {
+      const next = this.nextToolCall(step);
+      if (next !== undefined) {
+        this.executeTool(this.startToolCall(turn, step, next));
+        return;
+      }
+    }
     if (allSettled(step)) this.post({ type: 'acting.complete', turn, step });
+  }
+
+  private skipPendingTools(turn: LiveTurn, step: StepState): void {
+    let call = this.nextToolCall(step);
+    while (call !== undefined) {
+      this.record({ type: 'tool.started', turnId: turn.id, step: turn.step, toolCall: call.toolCall });
+      const error = {
+        outcome: 'failed' as const,
+        type: 'rejected' as const,
+        phase: 'starting' as const,
+        reason: 'Skipped after a tool result asked to stop the turn.',
+      };
+      const result: ToolResult = {
+        toolCallId: call.toolCall.id,
+        content: [{ type: 'text', text: 'Tool call skipped after a stop-turn result.' }],
+        outcome: { type: 'failed', error },
+      };
+      const outcome = { type: 'failed' as const, message: toolOutcomeMessage(call.toolCall, result), error };
+      this.record({ type: 'tool.ended', toolCallId: call.toolCall.id, outcome, detached: false });
+      settle(step, call.key, outcome);
+      call = this.nextToolCall(step);
+    }
   }
 
   private executeTool(slot: LiveTool): void {
@@ -1607,7 +1678,7 @@ class LoopActor implements Loop {
     if (turn?.id !== slot.turnId || turn.step !== slot.step || step === undefined) return;
     step.outcome = { type: 'failed', error };
     step.settled[slot.key] = null;
-    if (allSettled(step)) this.post({ type: 'acting.complete', turn, step });
+    this.advanceTools(turn, step);
   }
 
   private respondToTool(slot: LiveTool, response: ToolExecutionResponse): void {
@@ -1640,11 +1711,12 @@ class LoopActor implements Loop {
     const turn = this.turn;
     const step = this.step;
     if (turn?.id !== slot.turnId || turn.step !== slot.step || step === undefined) return;
+    if (!isToolDetachAck(response) && response.stopTurn === true) step.stopTurn = true;
     const outcome = isToolDetachAck(response)
       ? { type: 'succeeded' as const, message: toolOutcomeMessage(slot.toolCall, response, true) }
       : toolOutcomeOf(slot);
     settle(step, slot.key, outcome);
-    if (allSettled(step)) this.post({ type: 'acting.complete', turn, step });
+    this.advanceTools(turn, step);
   }
 
   private completeTool(slot: LiveTool, result: ToolResult): void {

@@ -1,4 +1,5 @@
 import { toDisposable } from '#/_base/di/lifecycle';
+import { Emitter } from '#/_base/event';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
 import {
@@ -14,6 +15,7 @@ import {
   type ToolReference,
   type ToolRegistration,
   type ToolRegistrationOptions,
+  type ToolRegistryChange,
 } from './toolRegistry';
 import './builtinToolAssemblyService';
 
@@ -57,6 +59,8 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
   declare readonly _serviceBrand: undefined;
   private readonly tools = new Map<string, ToolEntry>();
   private readonly pendingTools = new Map<string, ToolEntry>();
+  private readonly changeEmitter = new Emitter<ToolRegistryChange>();
+  readonly onDidChange = this.changeEmitter.event;
   private registryRevision = 0;
 
   get revision(): number {
@@ -71,6 +75,7 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
     if (current === undefined) {
       this.pendingTools.delete(tool.name);
       this.tools.set(tool.name, candidate);
+      this.changeEmitter.fire({ type: 'registered', tool });
       return this.registration(candidate, 'active');
     }
     if (
@@ -79,6 +84,7 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
       const replacement = { ...candidate, info: current.info };
       this.pendingTools.delete(tool.name);
       this.tools.set(tool.name, replacement);
+      this.changeEmitter.fire({ type: 'registered', tool });
       return this.registration(replacement, 'active');
     }
     this.pendingTools.set(tool.name, candidate);
@@ -139,6 +145,7 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
     if (entry === undefined) return undefined;
     this.tools.delete(name);
     this.registryRevision += 1;
+    this.changeEmitter.fire({ type: 'unregistered', tool: entry.tool });
     return entry;
   }
 }

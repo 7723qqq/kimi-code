@@ -624,6 +624,7 @@ function testSession(overrides: Partial<Session> = {}): Session {
   const base: Session = {
     id: 'sess_example',
     workspace_id: 'wd_example_0123456789ab',
+    cwd: '/tmp/example-server-e2e',
     title: 'Example session',
     created_at: '2026-06-09T00:00:00.000Z',
     updated_at: '2026-06-09T00:00:00.000Z',

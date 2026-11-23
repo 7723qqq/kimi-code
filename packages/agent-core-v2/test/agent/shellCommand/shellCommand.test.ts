@@ -175,6 +175,7 @@ describe('AgentShellCommandService', () => {
     const emptyRegistry: IAgentToolRegistryService = {
       _serviceBrand: undefined,
       revision: 0,
+      onDidChange: () => ({ dispose: () => {} }),
       register: () => ({ dispose: () => {} }),
       list: () => [],
       listReferences: () => [],

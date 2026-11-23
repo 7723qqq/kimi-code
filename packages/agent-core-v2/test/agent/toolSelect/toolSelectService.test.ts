@@ -31,6 +31,8 @@ import {
   type ToolExecutionResult,
 } from '#/agent/toolExecutor/toolExecutor';
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import { IAgentTaskOutputService } from '#/agent/task/taskOutput';
+import { stubTaskOutputService } from '../toolExecutor/stubs';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
@@ -240,7 +242,7 @@ class RecordingEventBus implements IEventBus {
   }
 }
 
-class FakeLoopService implements IAgentLoopService {
+class FakeLoopService {
   readonly _serviceBrand = undefined;
 
   get requester(): never { return undefined as never; }
@@ -292,7 +294,7 @@ class FakeLoopService implements IAgentLoopService {
       paused: false,
       hasPendingRequests: false,
       turn: undefined,
-      activeTraceId: undefined,
+      activeRequestId: undefined,
     };
   }
 
@@ -322,7 +324,9 @@ class FakeLoopService implements IAgentLoopService {
 
   async resetMachineEngine(): Promise<void> {}
 
-  async settled(): Promise<void> {}
+  async settled(): Promise<undefined> {
+    return undefined;
+  }
 
   registerLoopErrorHandler(): IDisposable {
     throw new Error('unused in this suite');
@@ -404,7 +408,7 @@ function registerSharedServices(
   const states = registerStateServices(reg);
   reg.defineInstance(IEventBus, eventBus);
   reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryRecords));
-  reg.defineInstance(IAgentLoopService, loop);
+  reg.defineInstance(IAgentLoopService, loop as unknown as IAgentLoopService);
   reg.definePartialInstance(IAgentMcpService, {
     waitForInitialLoad: () => Promise.resolve(),
   });
@@ -455,7 +459,7 @@ function registerSharedServices(
       states.agent.set(toolSelectKey, next);
     },
   } as unknown as IEventDispatcher);
-  reg.defineInstance(IAgentReminderService, createReminderHarness(loop, contextMemory, eventBus));
+  reg.defineInstance(IAgentReminderService, createReminderHarness(loop as unknown as IAgentLoopService, contextMemory, eventBus));
   reg.define(IAgentToolRegistryService, AgentToolRegistryService);
   reg.define(IAgentToolSelectService, AgentToolSelectService);
   reg.define(IAgentToolSelectAnnouncementsService, AgentToolSelectAnnouncementsService);
@@ -527,6 +531,7 @@ function createExecutorHarness(): ExecutorHarness {
         makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
       );
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
+      reg.defineInstance(IAgentTaskOutputService, stubTaskOutputService());
       registerToolResultTruncationServices(reg);
     },
     strict: true,

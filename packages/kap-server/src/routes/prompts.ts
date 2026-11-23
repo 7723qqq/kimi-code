@@ -440,8 +440,9 @@ export function registerPromptsRoutes(
           const status = resolved.prompt.snapshot();
           const { id } = resolved.prompt.submit(
             {
-              message: { role: 'user', content: parts },
-              meta: {
+              role: 'user',
+              content: parts,
+              attributes: {
                 promptId: reservation.id,
                 origin: {
                   kind: 'user',
@@ -449,7 +450,7 @@ export function registerPromptsRoutes(
                   clientMetadata,
                 } as PromptOrigin,
                 tracked: true,
-              },
+              } as never,
             },
             { steerIfActive: directSteer || undefined },
           );
@@ -650,20 +651,29 @@ function projectPromptList(loop: IAgentLoopService) {
   return {
     active: active === undefined ? null : projectPromptSnapshot(active),
     queued: snapshot.queue
-      .filter((item) => item.meta?.tracked === true)
-      .map((item) =>
-        projectPromptSnapshot({
-          id: item.meta?.promptId ?? '',
-          userMessageId: item.meta?.userMessageId ?? '',
-          createdAt: item.meta?.createdAt ?? '',
+      .filter((item) => {
+        const attributes = item.attributes as { readonly tracked?: boolean } | undefined;
+        return attributes?.tracked === true;
+      })
+      .map((item) => {
+        const attributes = item.attributes as
+          | { readonly promptId?: string; readonly origin?: PromptOrigin }
+          | undefined;
+        const handle =
+          attributes?.promptId === undefined ? undefined : loop.promptHandle(attributes.promptId);
+        return projectPromptSnapshot({
+          id: attributes?.promptId ?? '',
+          userMessageId: handle?.userMessageId ?? attributes?.promptId ?? '',
+          createdAt: handle?.createdAt ?? '',
           state: 'pending',
           message: {
-            ...item.message,
+            role: 'user',
+            content: [...(handle?.message.content ?? item.content)],
             toolCalls: [],
-            origin: item.meta?.origin as PromptOrigin | undefined,
+            origin: (attributes?.origin as PromptOrigin | undefined) ?? handle?.message.origin,
           },
-        }),
-      ),
+        });
+      }),
   };
 }
 

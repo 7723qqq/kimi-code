@@ -5,6 +5,7 @@ import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { stripBundledSkillBlocks } from '@moonshot-ai/core/llm/origin';
 import type { Message, UserMessage } from '@moonshot-ai/core/llm/message';
 import { newMessageId } from '#/agent/contextMemory/messageId';
+import { TurnSteer } from './turnOps';
 import {
   PromptAborted,
   PromptCompleted,
@@ -55,6 +56,9 @@ const EMPTY_HANDLE_MESSAGE = { role: 'user', content: [] } as unknown as Context
 export class AgentPromptProjection {
   private readonly waiters = new Map<string, PromptWaiter>();
   private readonly steered = new Map<string, PromptProjection>();
+  private pendingSteer:
+    | { readonly content: readonly unknown[]; readonly promptIds: readonly string[]; readonly messageId: string }
+    | undefined;
   private readonly terminalStates = new Map<string, PromptState>();
   private readonly pendingTurns = new Map<number, PendingTurn>();
   private readonly entriesByTurn = new Map<number, UserMessage>();
@@ -216,36 +220,58 @@ export class AgentPromptProjection {
   materialized(turn: Turn): void {
     const active = this.active;
     if (active === undefined) return;
+    let steeredMaterialized = false;
     for (const [id, turnId] of this.materializedTurnIds) {
       if (turnId !== turn.id) continue;
       active.steeredPromptIds.add(id);
+      if (this.pendingSteer?.promptIds.includes(id) === true) steeredMaterialized = true;
       const waiter = this.waiters.get(id);
       if (waiter !== undefined) this.launched(waiter, turn);
       this.materializedTurnIds.delete(id);
+    }
+    if (steeredMaterialized && this.pendingSteer !== undefined) {
+      const pending = this.pendingSteer;
+      this.pendingSteer = undefined;
+      void this.dispatcher.dispatch(new TurnSteer({
+        agentId: this.agentId,
+        input: [...pending.content] as never,
+        origin: { kind: 'user' },
+        messageId: pending.messageId,
+        promptIds: [...pending.promptIds],
+        turnId: turn.id,
+      } as never));
     }
   }
 
   projectSteered(event: { readonly messages?: readonly UserMessage[]; readonly message?: UserMessage }): boolean {
     const active = this.active;
     if (active === undefined) return false;
-    let accepted = false;
-    for (const entry of event.messages ?? (event.message === undefined ? [] : [event.message])) {
+    const entries = event.messages ?? (event.message === undefined ? [] : [event.message]);
+    const accepted: Array<{ readonly id: string; readonly projection: PromptProjection }> = [];
+    for (const entry of entries) {
       const id = entry.attributes?.promptId;
       if (id === undefined) continue;
       this.ensure(entry, true);
       const projection = projectionFromEntry(entry);
       this.steered.set(id, projection);
-      accepted = true;
-      void this.dispatcher.dispatch(new PromptSteered({
-        agentId: this.agentId,
-        activePromptId: active.id,
-        promptIds: [id],
-        messageId: id,
-        content: stripBundledSkillBlocks(projection.message as never),
-        steeredAt: new Date().toISOString(),
-      } as never));
+      accepted.push({ id, projection });
     }
-    return accepted;
+    if (accepted.length === 0) return false;
+    const messageId = newMessageId();
+    const content = accepted.flatMap(({ projection }) =>
+      stripBundledSkillBlocks(projection.message as never) as never[],
+    );
+    const promptIds = accepted.map(({ id }) => id);
+    this.pendingSteer = { content, promptIds, messageId };
+    void this.dispatcher.dispatch(new PromptSteered({
+      agentId: this.agentId,
+      activePromptId: active.id,
+      promptIds,
+      messageId,
+      content,
+      steeredAt: new Date().toISOString(),
+    } as never));
+    return true;
   }
 
   appended(event: Extract<LoopEmitted, { type: 'message.appended' }>): void {

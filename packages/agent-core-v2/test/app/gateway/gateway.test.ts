@@ -15,7 +15,8 @@ import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { type UserEntry } from '#human/agent/turn';
+import type { UserMessage } from '@moonshot-ai/core/llm/message';
+import { loopUserAttributes } from '#/agent/loop/userEntry';
 
 import { stubLog } from '../../_base/log/stubs';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
@@ -49,14 +50,16 @@ describe('RestGateway', () => {
     ix = disposables.add(new TestInstantiationService());
     promptCalls = [];
     turnService = stubLoopWithHooks({ hasActiveTurn: true });
-    turnService.submit = (input: UserEntry) => {
+    turnService.submit = ((input: UserMessage) => {
+      const attributes = loopUserAttributes(input);
       promptCalls.push({
-        ...input.message,
+        role: 'user',
+        content: [...input.content],
         toolCalls: [],
-        origin: input.meta?.origin as PromptOrigin | undefined,
+        origin: attributes.origin as PromptOrigin | undefined,
       });
       return { id: 'p' };
-    };
+    }) as StubLoop['submit'];
 
     const agentHandle: IAgentScopeHandle = {
       id: 'main',

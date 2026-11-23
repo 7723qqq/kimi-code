@@ -1,5 +1,6 @@
 import type { PromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { loopUserEntry } from '#/agent/loop/userEntry';
 import type { IAgentTaskService } from '#/agent/task/task';
 import type { ISessionEventBus } from '#/app/event/eventBus';
 import { BROADCAST_NAME, TOWER_NAME } from '#/features/tower/protocol/index';
@@ -70,7 +71,7 @@ function steerIntoRunningAgent(services: TowerDeliveryServices, sent: TowerSendR
         ? `${item.subject.slice(0, STEER_SUBJECT_PREVIEW_MAX)}…`
         : item.subject;
     loop.submit(
-      {
+      loopUserEntry({
         message: {
           role: 'user',
           content: [
@@ -81,7 +82,7 @@ function steerIntoRunningAgent(services: TowerDeliveryServices, sent: TowerSendR
           ],
         },
         meta: { origin: { kind: 'injection', variant: 'tower_inbox_steer' } as PromptOrigin },
-      },
+      }),
       { steerIfActive: true },
     );
     return `\nnote: ${item.to} is mid-turn — the message was steered into its running turn; it sees the directive at its next step boundary.`;

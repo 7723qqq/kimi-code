@@ -817,7 +817,6 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
         toolCalls: [],
         origin: { kind: 'injection', variant: TOWER_INBOX_WAKE_VARIANT },
       },
-      turnScoped: false,
       onConsume: () => {
         this.inboxWakeHandle = undefined;
         this.inboxWakePending = false;

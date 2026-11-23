@@ -10,6 +10,7 @@ import { closeTrailingOpenToolExchange } from '#/agent/contextMemory/openToolExc
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
+import { historyFromContextPreservingToolNotes } from '#/agent/loop/history';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
@@ -700,6 +701,10 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         compactedCount: apply.compactedCount,
         droppedCount: apply.droppedCount,
       };
+      this.loopService.replaceHistory(
+        historyFromContextPreservingToolNotes(apply.messages),
+        'compaction',
+      );
 
       const properties: CompactionFinishedEvent = {
         turn_id: active.originTurnId,

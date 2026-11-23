@@ -85,6 +85,9 @@ export interface StepState {
   readonly calls: StepCall[];
   readonly settled: Record<string, ToolMessage | null>;
   outcome?: StepOutcome;
+  stopTurn?: boolean;
+  skipBatch?: boolean;
+  nextCallIndex?: number;
 }
 
 export interface LiveTool {
@@ -95,6 +98,7 @@ export interface LiveTool {
   readonly handler: ToolExecutionHandler;
   detached: boolean;
   announced: boolean;
+  advanced?: boolean;
   responded: boolean;
   done: boolean;
   result?: ToolResult;
@@ -406,6 +410,7 @@ export function viewOf({ phase, held, inbox, durable, turn, tools }: AgentState)
 }
 
 export function draftOutcome(step: StepState): StepOutcome {
+  if (step.stopTurn === true) return { type: 'done', cause: { by: 'loop', reason: 'stop_turn' } };
   if (step.outcome !== undefined) return step.outcome;
   const llm = step.llm;
   if (llm === undefined) return { type: 'failed' };

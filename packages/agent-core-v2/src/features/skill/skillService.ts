@@ -7,6 +7,7 @@ import type {
   SkillActivationOrigin,
 } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type PromptLaunchResult, type Turn } from '#/agent/loop/loop';
+import { loopUserEntry } from '#/agent/loop/userEntry';
 import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventService } from '#/app/event/event';
@@ -156,7 +157,7 @@ export class AgentSkillService implements IAgentSkillService {
     const status = this.loop.snapshot();
     const steerable = input.steerIfActive === true && status.activeTurnId !== undefined;
     const { id } = this.loop.submit(
-      {
+      loopUserEntry({
         message: {
           role: 'user',
           content: [...prepared.map((activation) => activation.part), ...input.input],
@@ -171,7 +172,7 @@ export class AgentSkillService implements IAgentSkillService {
           } as PromptOrigin,
           tracked: true,
         },
-      },
+      }),
       { steerIfActive: input.steerIfActive },
     );
     const handle = this.loop.promptHandle(id)!;
@@ -323,10 +324,10 @@ export class AgentSkillService implements IAgentSkillService {
     if (input === undefined) return undefined;
     const steer = this.loop.snapshot().state === 'running';
     const { id } = this.loop.submit(
-      {
+      loopUserEntry({
         message: { role: 'user', content: [...input] },
         meta: { promptId, origin, tracked: !steer },
-      },
+      }),
       { steerIfActive: steer },
     );
     return this.loop.promptHandle(id)!.launched;

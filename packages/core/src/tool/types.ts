@@ -43,6 +43,8 @@ export interface ToolResult {
   readonly toolCallId: string;
   readonly content: ContentPart[];
   readonly outcome: ToolOutcome;
+  readonly stopTurn?: boolean;
+  readonly stopTurnReason?: string;
 }
 
 export type ToolReturn =
@@ -235,6 +237,11 @@ export type ToolStartingDecision = ToolDecision | ToolPermitSkip;
 export interface ToolExecutorPolicy<TContext = unknown, TPrepared = unknown> {
   readonly outputStore?: ToolOutputStore;
   readonly hook?: ToolExecutorHook<TContext, TPrepared>;
+  readonly preflight?: (call: ToolCall, context: TContext) => string | undefined;
+  readonly wrapExecute?: (
+    context: ToolDecisionContext<unknown, TContext, TPrepared>,
+    next: () => Promise<ToolReturn>,
+  ) => Promise<ToolReturn>;
   readonly renderError?: (call: ToolCall, error: ToolError) => ContentPart[];
   readonly detached?: (
     call: ToolCall,

@@ -127,6 +127,10 @@ class FakeTaskService implements IAgentTaskService {
 
   refresh(): void {}
 
+  async reconcile(): Promise<readonly AgentTaskInfo[]> {
+    return [];
+  }
+
   async readOutputTail(): Promise<{ readonly offset: number; readonly data: Uint8Array }> {
     return { offset: 0, data: new Uint8Array() };
   }
