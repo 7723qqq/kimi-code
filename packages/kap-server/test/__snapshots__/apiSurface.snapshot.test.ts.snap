@@ -45,10 +45,6 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
       "/api/v1/workspaces/{workspace_id}",
     ],
     [
-      "DELETE",
-      "/api/v2/mcp/servers/{name}",
-    ],
-    [
       "GET",
       "/api/v1/auth",
     ],
@@ -314,22 +310,6 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     ],
     [
       "GET",
-      "/api/v2/mcp/auth-statuses",
-    ],
-    [
-      "GET",
-      "/api/v2/mcp/servers",
-    ],
-    [
-      "GET",
-      "/api/v2/mcp/servers/{name}",
-    ],
-    [
-      "GET",
-      "/api/v2/sessions",
-    ],
-    [
-      "GET",
       "/asyncapi.json",
     ],
     [
@@ -351,10 +331,6 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     [
       "POST",
       "/api/v1/capabilities/{tail}",
-    ],
-    [
-      "POST",
-      "/api/v1/client_configs",
     ],
     [
       "POST",
@@ -395,6 +371,10 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     [
       "POST",
       "/api/v1/gui/store/setItem",
+    ],
+    [
+      "POST",
+      "/api/v1/mcp/auth:complete",
     ],
     [
       "POST",
@@ -458,6 +438,10 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     ],
     [
       "POST",
+      "/api/v1/sessions/{session_id}:cancel",
+    ],
+    [
+      "POST",
       "/api/v1/sessions/{session_id}:delete",
     ],
     [
@@ -467,6 +451,10 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     [
       "POST",
       "/api/v1/sessions/{session_id}:takeover",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions/{session_id}:wait",
     ],
     [
       "POST",
@@ -561,48 +549,8 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
       "/api/v1/workspaces/{workspace_id}/untrust",
     ],
     [
-      "POST",
-      "/api/v2/mcp/auth:begin",
-    ],
-    [
-      "POST",
-      "/api/v2/mcp/auth:cancel",
-    ],
-    [
-      "POST",
-      "/api/v2/mcp/auth:complete",
-    ],
-    [
-      "POST",
-      "/api/v2/mcp/auth:reset",
-    ],
-    [
-      "POST",
-      "/api/v2/mcp/servers",
-    ],
-    [
-      "POST",
-      "/api/v2/mcp/servers:inspect",
-    ],
-    [
-      "POST",
-      "/api/v2/mcp/servers:test",
-    ],
-    [
-      "POST",
-      "/api/v2/sessions:archive",
-    ],
-    [
-      "POST",
-      "/api/v2/sessions:restore",
-    ],
-    [
       "PUT",
       "/api/v1/providers/{provider_id}",
-    ],
-    [
-      "PUT",
-      "/api/v2/mcp/servers/{name}",
     ],
   ],
 }
