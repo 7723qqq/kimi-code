@@ -39,8 +39,6 @@ import {
   takeoverSessionResponseSchema,
   deleteSessionResponseSchema,
   getSessionResponseSchema,
-  sessionCancelResponseSchema,
-  waitSessionResponseSchema,
 } from '../protocol/rest-session';
 
 const binarySchema = {
@@ -101,6 +99,15 @@ export function transformOpenApiDocument(
 ): Record<string, unknown> {
   const paths = asRecord(document['paths']);
   if (paths === undefined) return document;
+
+  for (const path of Object.keys(paths)) {
+    if (path.startsWith('/api/v2/') || path === '/api/v1/client_configs') delete paths[path];
+  }
+  const authComplete = paths['/api/v1/mcp/auth{complete}'];
+  if (authComplete !== undefined) {
+    paths['/api/v1/mcp/auth:complete'] = authComplete;
+    delete paths['/api/v1/mcp/auth{complete}'];
+  }
 
   patchFileUpload(paths);
   patchFileDownload(paths);
@@ -192,14 +199,8 @@ function patchSessionAction(paths: Record<string, unknown>): void {
     description: 'Session lock takeover response',
     content: jsonContent(openApiDocumentEnvelopeJsonSchema(takeoverSessionResponseSchema)),
   });
-  projectSessionAction(paths, pathItem, 'cancel', 'runSessionCancelAction', {
-    description: 'Session cancel response',
-    content: jsonContent(openApiDocumentEnvelopeJsonSchema(sessionCancelResponseSchema)),
-  });
-  projectSessionAction(paths, pathItem, 'wait', 'runSessionWaitAction', {
-    description: 'Session wait response',
-    content: jsonContent(openApiDocumentEnvelopeJsonSchema(waitSessionResponseSchema)),
-  });
+  projectSessionAction(paths, pathItem, 'cancel', 'runSessionCancelAction', undefined);
+  projectSessionAction(paths, pathItem, 'wait', 'runSessionWaitAction', undefined);
   delete paths[internalPath];
 }
 
@@ -208,14 +209,14 @@ function projectSessionAction(
   pathItem: Record<string, unknown>,
   action: string,
   operationId: string,
-  okResponse: Record<string, unknown>,
+  okResponse: Record<string, unknown> | undefined,
 ): void {
   const cloned = cloneRecord(pathItem);
   replacePathParamName(cloned, 'tail', 'session_id');
   const clonedOperation = asRecord(cloned['post']);
   if (clonedOperation !== undefined) {
     clonedOperation['operationId'] = operationId;
-    setResponse(clonedOperation, '200', okResponse);
+    if (okResponse !== undefined) setResponse(clonedOperation, '200', okResponse);
   }
   paths[`/api/v1/sessions/{session_id}:${action}`] = cloned;
 }

@@ -208,6 +208,44 @@ function sendMappedError(
   throw err;
 }
 
+export function registerV2McpAuthCompleteRoute(app: V2McpRouteHost, core: Scope): void {
+  const management = (): IMcpManagementService => core.accessor.get(IMcpManagementService);
+  const authCompleteRoute = defineRoute(
+    {
+      method: 'POST',
+      path: '/mcp/auth:complete',
+      body: authCompleteBodySchema,
+      success: { data: z.null() },
+      errors: oauthErrorSchemas,
+      description:
+        'Await the browser callback of a begun flow and finish the code exchange (`40001` for an unknown `flowId`).',
+      tags: ['v2-mcp'],
+    },
+    async (req, reply) => {
+      const { raw } = reply as unknown as { raw: ServerResponse };
+      const disconnect = new AbortController();
+      const onClose = (): void => {
+        if (raw.writableFinished) return;
+        disconnect.abort();
+      };
+      raw.once('close', onClose);
+      try {
+        await management().completeServerAuth(req.body, { signal: disconnect.signal });
+        reply.send(okEnvelope(null, req.id));
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
+      } finally {
+        raw.off('close', onClose);
+      }
+    },
+  );
+  app.post(
+    authCompleteRoute.path,
+    authCompleteRoute.options,
+    authCompleteRoute.handler as Parameters<V2McpRouteHost['post']>[2],
+  );
+}
+
 export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
   const management = (): IMcpManagementService => core.accessor.get(IMcpManagementService);
 
@@ -458,40 +496,7 @@ export function registerV2McpRoutes(app: V2McpRouteHost, core: Scope): void {
     authBeginRoute.handler as Parameters<V2McpRouteHost['post']>[2],
   );
 
-  const authCompleteRoute = defineRoute(
-    {
-      method: 'POST',
-      path: '/mcp/auth::complete',
-      body: authCompleteBodySchema,
-      success: { data: z.null() },
-      errors: oauthErrorSchemas,
-      description:
-        'Await the browser callback of a begun flow and finish the code exchange (`40001` for an unknown `flowId`).',
-      tags: ['v2-mcp'],
-    },
-    async (req, reply) => {
-      const { raw } = reply as unknown as { raw: ServerResponse };
-      const disconnect = new AbortController();
-      const onClose = (): void => {
-        if (raw.writableFinished) return;
-        disconnect.abort();
-      };
-      raw.once('close', onClose);
-      try {
-        await management().completeServerAuth(req.body, { signal: disconnect.signal });
-        reply.send(okEnvelope(null, req.id));
-      } catch (error) {
-        sendMappedError(reply, req.id, error);
-      } finally {
-        raw.off('close', onClose);
-      }
-    },
-  );
-  app.post(
-    authCompleteRoute.path,
-    authCompleteRoute.options,
-    authCompleteRoute.handler as Parameters<V2McpRouteHost['post']>[2],
-  );
+  registerV2McpAuthCompleteRoute(app, core);
 
   const authCancelRoute = defineRoute(
     {

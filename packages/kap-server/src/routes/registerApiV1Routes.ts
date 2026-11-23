@@ -25,6 +25,7 @@ import { registerFsRoutes } from './fs';
 import { registerGuiStoreRoutes } from './guiStore';
 import { registerInteractionsRoutes } from './interactions';
 import { registerMcpRoutes } from './mcp';
+import { registerV2McpAuthCompleteRoute } from './v2/mcp';
 import { registerMessagesRoutes } from './messages';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
@@ -200,6 +201,10 @@ export async function registerApiV1Routes(
         opts.connectionRegistry,
       );
       registerMcpRoutes(apiV1 as unknown as Parameters<typeof registerMcpRoutes>[0], core);
+      registerV2McpAuthCompleteRoute(
+        apiV1 as unknown as Parameters<typeof registerV2McpAuthCompleteRoute>[0],
+        core,
+      );
       registerTranscriptRoutes(apiV1 as unknown as Parameters<typeof registerTranscriptRoutes>[0], {
         core,
         transcriptService: opts.transcriptService,
