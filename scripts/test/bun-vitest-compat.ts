@@ -223,13 +223,13 @@ async function settleMicrotasks(): Promise<void> {
 }
 
 async function advanceTimersByTimeAsync(milliseconds: number): Promise<typeof vi> {
-  vi.advanceTimersByTime(milliseconds);
+  jest.advanceTimersByTime(milliseconds);
   await settleMicrotasks();
   return vi;
 }
 
 async function runAllTimersAsync(): Promise<typeof vi> {
-  vi.runAllTimers();
+  jest.runAllTimers();
   await settleMicrotasks();
   return vi;
 }
