@@ -271,6 +271,7 @@ function normalizeFinishReason(reason: string): string {
 
 function stepFinishReason(outcome: StepOutcome, assistant: AssistantMessage | undefined): string {
   if (outcome.type === 'done' && outcome.cause?.reason === 'steered') return 'interrupted';
+  if (outcome.type === 'continue' && outcome.cause?.reason === 'steered') return 'interrupted';
   switch (outcome.type) {
     case 'failed':
     case 'blocked':
