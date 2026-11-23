@@ -57,7 +57,6 @@ class NullTerminal implements Terminal {
 	clearScreen(): void {}
 	setTitle(_title: string): void {}
 	setProgress(_active: boolean): void {}
-	setProgramStatus(): void {}
 }
 
 /** Editor stand-in: caches lines per (text, width), re-renders when text changes. */

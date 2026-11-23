@@ -7,11 +7,7 @@
  */
 
 import { expect, describe, it } from "bun:test";
-import {
-  getCapabilities,
-  imagesProtocolIsGuessed,
-  resetCapabilitiesCache,
-} from "../src/terminal-image.ts";
+import { getCapabilities, imagesProtocolIsGuessed, resetCapabilitiesCache } from "../src/terminal-image.ts";
 import type { Component, TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
@@ -53,11 +49,11 @@ function withNoImageTerminal<T>(fn: () => T): T {
 }
 
 function withWindowsTerminal<T>(fn: () => T): T {
-  return withNoImageTerminal(() => {
-    process.env.WT_SESSION = "a1b2c3d4-0000-0000-0000-000000000000";
-    resetCapabilitiesCache();
-    return fn();
-  });
+	return withNoImageTerminal(() => {
+		process.env.WT_SESSION = "a1b2c3d4-0000-0000-0000-000000000000";
+		resetCapabilitiesCache();
+		return fn();
+	});
 }
 
 class InputRecorder implements Component {

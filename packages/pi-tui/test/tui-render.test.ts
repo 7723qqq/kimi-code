@@ -173,8 +173,13 @@ describe("TUI bounded render output", () => {
 		tui.renderNow();
 
 		expect(terminal.writes.length > 2, "large output should be split across terminal writes").toBeTruthy();
-		expect(terminal.writes.every((write) => write.length <= MAX_RENDER_WRITE_CHARS), "each terminal write should stay below the configured limit").toBeTruthy();
-		expect(terminal.writes.join(""), "chunking must preserve the synchronized render output").toBe(`\x1b[?2026h${kittyLine}\r\n${kittyLine}\x1b[?2026l`);
+		expect(
+			terminal.writes.every((write) => write.length <= MAX_RENDER_WRITE_CHARS),
+			"each terminal write should stay below the configured limit",
+		).toBeTruthy();
+		expect(terminal.writes.join(""), "chunking must preserve the synchronized render output").toBe(
+			`\x1b[?2026h${kittyLine}\r\n${kittyLine}\x1b[?2026l`,
+		);
 	});
 
 	it("splits large differential updates without a full redraw", () => {
@@ -228,8 +233,14 @@ describe("TUI Kitty image cleanup", () => {
 			await terminal.waitForRender();
 
 			const writes = terminal.getWrites();
-			expect(writes.includes(`\x1b[2K\r\n\x1b[2K\x1b[1A${imageSequence}\x1b[1B`), "reserved rows should be cleared before the image placement is drawn").toBeTruthy();
-			expect(!writes.includes(`${imageSequence}\r\n\x1b[2K`), "reserved row clears must not run after the image placement is drawn").toBeTruthy();
+			expect(
+				writes.includes(`\x1b[2K\r\n\x1b[2K\x1b[1A${imageSequence}\x1b[1B`),
+				"reserved rows should be cleared before the image placement is drawn",
+			).toBeTruthy();
+			expect(
+				!writes.includes(`${imageSequence}\r\n\x1b[2K`),
+				"reserved row clears must not run after the image placement is drawn",
+			).toBeTruthy();
 
 			tui.stop();
 		} finally {
@@ -304,8 +315,14 @@ describe("TUI Kitty image cleanup", () => {
 
 			const writes = terminal.getWrites();
 			expect(tui.fullRedraws > redrawsBeforeImage, "scrolling image append should force a full redraw").toBeTruthy();
-			expect(writes.includes(`\r\n\r\n\x1b[2A${imageSequence}\x1b[2B`), "full redraw should reserve visible image rows before drawing the placement").toBeTruthy();
-			expect(!writes.includes(`${imageSequence}\r\n\x1b[0m`), "full redraw must not write reserved padding rows after drawing the placement").toBeTruthy();
+			expect(
+				writes.includes(`\r\n\r\n\x1b[2A${imageSequence}\x1b[2B`),
+				"full redraw should reserve visible image rows before drawing the placement",
+			).toBeTruthy();
+			expect(
+				!writes.includes(`${imageSequence}\r\n\x1b[0m`),
+				"full redraw must not write reserved padding rows after drawing the placement",
+			).toBeTruthy();
 
 			tui.stop();
 		} finally {
@@ -345,7 +362,10 @@ describe("TUI Kitty image cleanup", () => {
 
 			const writes = terminal.getWrites();
 			expect(writes.includes(imageSequence), "image placement should be drawn").toBeTruthy();
-			expect(!writes.includes(`\x1b[${imageLines.length - 1}A${imageSequence}`), "taller-than-viewport images must keep the #4461 first-row placement path").toBeTruthy();
+			expect(
+				!writes.includes(`\x1b[${imageLines.length - 1}A${imageSequence}`),
+				"taller-than-viewport images must keep the #4461 first-row placement path",
+			).toBeTruthy();
 
 			tui.stop();
 		} finally {
@@ -855,7 +875,10 @@ describe("TUI differential rendering", () => {
 		// Upstream behavior: a change above the viewport triggers a
 		// destructive full redraw, which repaints the tail of the new
 		// content and leaves no stale rows on screen.
-		expect(tui.fullRedraws > redrawsBeforeSwitch, "Branch switch above the viewport should trigger a full redraw").toBeTruthy();
+		expect(
+			tui.fullRedraws > redrawsBeforeSwitch,
+			"Branch switch above the viewport should trigger a full redraw",
+		).toBeTruthy();
 
 		const viewport = terminal.getViewport();
 		for (let i = 0; i < 10; i++) {
@@ -904,9 +927,7 @@ describe("Viewport clamping on above-viewport in-place changes", () => {
 
 		// In-place change: modify line 2 (above the viewport at rows 5-9)
 		// without changing the total line count.
-		component.lines = component.lines.map((line, i) =>
-			i === 2 ? "Line 2 (CHANGED)" : line,
-		);
+		component.lines = component.lines.map((line, i) => (i === 2 ? "Line 2 (CHANGED)" : line));
 		tui.requestRender();
 		await terminal.waitForRender();
 
@@ -923,7 +944,9 @@ describe("Viewport clamping on above-viewport in-place changes", () => {
 
 		// 3. Terminal scroll position (viewportY) must be unchanged.
 		const scrollYAfter = xterm.buffer.active.viewportY;
-		expect(scrollYAfter, "Terminal scroll position must not change on in-place above-viewport edit").toBe(scrollYBefore);
+		expect(scrollYAfter, "Terminal scroll position must not change on in-place above-viewport edit").toBe(
+			scrollYBefore,
+		);
 
 		// 4. Visible viewport content must still show the correct tail.
 		const viewport = terminal.getViewport();
@@ -1019,9 +1042,7 @@ describe("Viewport clamping on above-viewport in-place changes", () => {
 		terminal.clearWrites();
 
 		// In-place change on line 1 (strictly above the viewport at line 3).
-		top.lines = top.lines.map((line, i) =>
-			i === 1 ? "Top 1 (CHANGED)" : line,
-		);
+		top.lines = top.lines.map((line, i) => (i === 1 ? "Top 1 (CHANGED)" : line));
 		tui.requestRender();
 		await terminal.waitForRender();
 

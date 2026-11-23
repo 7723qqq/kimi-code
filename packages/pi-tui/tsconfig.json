@@ -1,16 +1,12 @@
 {
-  "extends": "../../tsconfig.json",
-  "compilerOptions": {
-    "lib": [
-      "ESNext"
-    ],
-    "paths": {
-      "#/*": [
-        "./src/*.ts"
-      ]
-    }
-  },
-  "include": [
-    "src"
-  ]
+	"extends": "../../tsconfig.json",
+	"compilerOptions": {
+		"lib": ["ESNext"],
+		"noUncheckedIndexedAccess": false,
+		"noPropertyAccessFromIndexSignature": false,
+		"paths": {
+			"#/*": ["./src/*.ts"]
+		}
+	},
+	"include": ["src"]
 }

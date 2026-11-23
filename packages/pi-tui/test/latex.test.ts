@@ -292,7 +292,9 @@ c_n
 	});
 
 	it("renders common symbols, roots, sums, and integrals", () => {
-		expect(renderLatex(String.raw`\sum_{i=0}^n \alpha_i + \int_0^\infty e^{-x^2}\,dx = \sqrt{\pi}`)).toBe("∑ᵢ₌₀ⁿ αᵢ + ∫₀^∞ e^(-x²) dx = √π");
+		expect(renderLatex(String.raw`\sum_{i=0}^n \alpha_i + \int_0^\infty e^{-x^2}\,dx = \sqrt{\pi}`)).toBe(
+			"∑ᵢ₌₀ⁿ αᵢ + ∫₀^∞ e^(-x²) dx = √π",
+		);
 	});
 
 	it("renders common accents and binomial notation", () => {
@@ -300,18 +302,24 @@ c_n
 	});
 
 	it("renders extended symbols and negated relations", () => {
-		expect(renderLatex(String.raw`\epsilon+\varepsilon+\varsigma+\varkappa+\oplus+\otimes+\therefore+\because`)).toBe("ϵ+ε+ς+ϰ+⊕+⊗+∴+∵");
+		expect(renderLatex(String.raw`\epsilon+\varepsilon+\varsigma+\varkappa+\oplus+\otimes+\therefore+\because`)).toBe(
+			"ϵ+ε+ς+ϰ+⊕+⊗+∴+∵",
+		);
 		expect(renderLatex(String.raw`A\not\subseteq B,\quad x\not\in X`)).toBe("A ⊈ B, x ∉ X");
 	});
 
 	it("renders relational algebra join operators", () => {
 		expect(renderLatex(String.raw`R\bowtie S,\quad R\Join S`)).toBe("R ⋈ S, R ⋈ S");
 		expect(renderLatex(String.raw`R\ltimes S,\quad R\rtimes S`)).toBe("R ⋉ S, R ⋊ S");
-		expect(renderLatex(String.raw`R\leftouterjoin S,\quad R\rightouterjoin S,\quad R\fullouterjoin S`)).toBe("R ⟕ S, R ⟖ S, R ⟗ S");
+		expect(renderLatex(String.raw`R\leftouterjoin S,\quad R\rightouterjoin S,\quad R\fullouterjoin S`)).toBe(
+			"R ⟕ S, R ⟖ S, R ⟗ S",
+		);
 	});
 
 	it("renders delimiter commands and invisible delimiters", () => {
-		expect(renderLatex(String.raw`\lvert{x}\rvert+\lVert{v}\rVert+\left.\frac{dy}{dx}\right|_{x=0}`)).toBe("|x|+‖v‖+dy/(dx)|ₓ₌₀");
+		expect(renderLatex(String.raw`\lvert{x}\rvert+\lVert{v}\rVert+\left.\frac{dy}{dx}\right|_{x=0}`)).toBe(
+			"|x|+‖v‖+dy/(dx)|ₓ₌₀",
+		);
 		expect(renderLatex(String.raw`\left\lbrace x \middle| x>0 \right\rbrace`)).toBe("{ x | x > 0 }");
 	});
 
@@ -322,23 +330,32 @@ c_n
 	});
 
 	it("renders indexed roots and additional accents and wrappers", () => {
-		expect(renderLatex(String.raw`\sqrt[2]{x}+\sqrt[3]{x}+\sqrt[4]{x}+\sqrt[n]{x}+\sqrt[k]{x+1}`)).toBe("√x+∛x+∜x+ⁿ√x+ᵏ√(x+1)");
-		expect(renderLatex(String.raw`\acute{x}+\grave{y}+\widehat{xyz}+\overrightarrow{AB}`)).toBe("x́+ỳ+widehat(xyz)+overrightarrow(AB)");
+		expect(renderLatex(String.raw`\sqrt[2]{x}+\sqrt[3]{x}+\sqrt[4]{x}+\sqrt[n]{x}+\sqrt[k]{x+1}`)).toBe(
+			"√x+∛x+∜x+ⁿ√x+ᵏ√(x+1)",
+		);
+		expect(renderLatex(String.raw`\acute{x}+\grave{y}+\widehat{xyz}+\overrightarrow{AB}`)).toBe(
+			"x́+ỳ+widehat(xyz)+overrightarrow(AB)",
+		);
 		expect(renderLatex(String.raw`\textnormal{hello}+\mbox{world}+\boldsymbol{x}`)).toBe("hello+world+x");
 	});
 
 	it("renders additional display environments", () => {
 		expect(renderLatex(String.raw`\begin{equation}\begin{split}a&=b\\&=c\end{split}\end{equation}`)).toBe("a = b\n= c");
-		expect(renderLatex(String.raw`\begin{alignedat}{2}a&=b&\quad c&=d\\e&=f&g&=h\end{alignedat}`)).toBe("a = b c = d\ne = f g = h");
+		expect(renderLatex(String.raw`\begin{alignedat}{2}a&=b&\quad c&=d\\e&=f&g&=h\end{alignedat}`)).toBe(
+			"a = b c = d\ne = f g = h",
+		);
 	});
 
 	it("uses natural case conditions and aligns matrix columns", () => {
-		expect(renderLatex(String.raw`\begin{cases}a & x<0 \\ b & \text{if }x=0 \\ c & \text{otherwise}\end{cases}`)).toBe("⎧ a if x < 0\n⎨ b if x = 0\n⎩ c otherwise");
+		expect(renderLatex(String.raw`\begin{cases}a & x<0 \\ b & \text{if }x=0 \\ c & \text{otherwise}\end{cases}`)).toBe(
+			"⎧ a if x < 0\n⎨ b if x = 0\n⎩ c otherwise",
+		);
 		expect(renderLatex(String.raw`\begin{pmatrix}1&200\\3000&4\end{pmatrix}`)).toBe("⎛ 1    │ 200 ⎞\n⎝ 3000 │ 4   ⎠");
 	});
 
 	it("composes matrices with fractions and adjacent matrices", () => {
-		expect(renderLatex(
+		expect(
+			renderLatex(
 				String.raw`R\left(\frac{\pi}{4}\right)
 =
 \begin{pmatrix}
@@ -346,8 +363,10 @@ c_n
 \frac{\sqrt{2}}{2} & \frac{\sqrt{2}}{2}
 \end{pmatrix}.`,
 				{ display: true },
-			)).toBe("   π\nR( ─ ) = ⎛ (√2)/2 │ -(√2)/2 ⎞\n   4     ⎝ (√2)/2 │ (√2)/2  ⎠.");
-		expect(renderLatex(
+			),
+		).toBe("   π\nR( ─ ) = ⎛ (√2)/2 │ -(√2)/2 ⎞\n   4     ⎝ (√2)/2 │ (√2)/2  ⎠.");
+		expect(
+			renderLatex(
 				String.raw`\mathbf w
 =
 R\left(\frac{\pi}{4}\right)
@@ -355,12 +374,17 @@ R\left(\frac{\pi}{4}\right)
 =
 \begin{pmatrix}\frac{\sqrt{2}}{2}\\\frac{\sqrt{2}}{2}\end{pmatrix}.`,
 				{ display: true },
-			)).toBe("       π\nw = R( ─ ) ⎛ 1 ⎞ = ⎛ (√2)/2 ⎞\n       4   ⎝ 0 ⎠   ⎝ (√2)/2 ⎠.");
-		expect(renderLatex(
+			),
+		).toBe("       π\nw = R( ─ ) ⎛ 1 ⎞ = ⎛ (√2)/2 ⎞\n       4   ⎝ 0 ⎠   ⎝ (√2)/2 ⎠.");
+		expect(
+			renderLatex(
 				String.raw`A\mathbf e_1=\begin{pmatrix}\pi\\0\end{pmatrix},\qquad A\mathbf e_2=\begin{pmatrix}0\\\frac{1}{\pi}\end{pmatrix}.`,
 				{ display: true },
-			)).toBe("Ae₁ = ⎛ π ⎞, Ae₂ = ⎛ 0   ⎞\n      ⎝ 0 ⎠        ⎝ 1/π ⎠.");
-		expect(renderLatex(String.raw`\sum_{i=0}^n x_i=\begin{pmatrix}a&b\\c&d\end{pmatrix}.`, { display: true })).toBe(" n\n ∑  xᵢ = ⎛ a │ b ⎞\ni=0      ⎝ c │ d ⎠.");
+			),
+		).toBe("Ae₁ = ⎛ π ⎞, Ae₂ = ⎛ 0   ⎞\n      ⎝ 0 ⎠        ⎝ 1/π ⎠.");
+		expect(renderLatex(String.raw`\sum_{i=0}^n x_i=\begin{pmatrix}a&b\\c&d\end{pmatrix}.`, { display: true })).toBe(
+			" n\n ∑  xᵢ = ⎛ a │ b ⎞\ni=0      ⎝ c │ d ⎠.",
+		);
 	});
 
 	it("normalizes relation, multiplication, and named-operator spacing", () => {
@@ -383,28 +407,36 @@ R\left(\frac{\pi}{4}\right)
 (1,1,1),\ (1,1,2),\ (1,2,5),\ (1,5,13),\ (2,5,29),\
 (1,13,34),\ (1,34,89)
 }.`;
-		expect(renderLatex(source, { display: true })).toBe("[(1,1,1), (1,1,2), (1,2,5), (1,5,13), (2,5,29), (1,13,34), (1,34,89)].");
+		expect(renderLatex(source, { display: true })).toBe(
+			"[(1,1,1), (1,1,2), (1,2,5), (1,5,13), (2,5,29), (1,13,34), (1,34,89)].",
+		);
 		expect(renderLatex("a\\\r\nb")).toBe("a b");
 	});
 
 	it("stacks operator limits in display mode", () => {
 		expect(renderLatex(String.raw`\sum_{i=0}^n x_i`, { display: true })).toBe(" n\n ∑  xᵢ\ni=0");
 		expect(renderLatex(String.raw`\min_{x\in X} f(x)`, { display: true })).toBe("min f(x)\nx∈X");
-		expect(renderLatex(String.raw`\operatorname*{arg\,max}_{x\in X} f(x)`, {
+		expect(
+			renderLatex(String.raw`\operatorname*{arg\,max}_{x\in X} f(x)`, {
 				display: true,
-			})).toBe("arg max f(x)\n  x∈X");
+			}),
+		).toBe("arg max f(x)\n  x∈X");
 		expect(renderLatex(String.raw`\int\nolimits_0^1 f(x)\,dx`, { display: true })).toBe("∫₀¹ f(x) dx");
 		expect(renderLatex(String.raw`\int\limits_0^1 f(x)\,dx`, { display: true })).toBe("1\n∫ f(x) dx\n0");
 	});
 
 	it("uses the middle brace for intermediate case rows", () => {
-		expect(renderLatex(String.raw`\begin{cases}a & x<0 \\ b & x=0 \\ c & x>0\end{cases}`)).toBe("⎧ a if x < 0\n⎨ b if x = 0\n⎩ c if x > 0");
+		expect(renderLatex(String.raw`\begin{cases}a & x<0 \\ b & x=0 \\ c & x>0\end{cases}`)).toBe(
+			"⎧ a if x < 0\n⎨ b if x = 0\n⎩ c if x > 0",
+		);
 	});
 
 	it("stacks fractions in display mode", () => {
-		expect(renderLatex(String.raw`x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}`, {
+		expect(
+			renderLatex(String.raw`x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}`, {
 				display: true,
-			})).toBe("    -b±√(b²-4ac)\nx = ────────────\n         2a");
+			}),
+		).toBe("    -b±√(b²-4ac)\nx = ────────────\n         2a");
 		expect(renderLatex(String.raw`\frac{x^2+1}{x-1}`, { display: true })).toBe("x²+1\n────\nx-1");
 		expect(renderLatex("\\frac{1}\n{2}", { display: true })).toBe("1\n─\n2");
 	});

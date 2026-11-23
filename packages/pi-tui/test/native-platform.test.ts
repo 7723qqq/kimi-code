@@ -52,50 +52,47 @@ test.skipIf(!["darwin", "win32"].includes(process.platform) || !["arm64", "x64"]
 	},
 );
 
-test.skipIf(!["arm64", "x64"].includes(process.arch))(
-	"Linux loads X11 lazily and rechecks DISPLAY",
-	async () => {
-		const require = createRequire(import.meta.url);
-		const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
-		const display = process.env.DISPLAY;
-		const waylandDisplay = process.env.WAYLAND_DISPLAY;
-		const modulePath = fileURLToPath(
-			new URL(`../native/linux/prebuilds/linux-${process.arch}/linux-platform-x11.node`, import.meta.url),
-		);
-		const previous = require.cache[modulePath];
-		try {
-			Object.defineProperty(process, "platform", { value: "linux" });
-			delete process.env.DISPLAY;
-			process.env.WAYLAND_DISPLAY = "wayland-0";
-			expect(getNativeClipboard()).toBe(undefined); // Wayland paste uses wl-paste.
-			let available = false;
-			const helper = {
-				getText: mock(async () => (available ? "X11" : undefined)),
-				getImage: mock(async () => null),
-			};
-			const module = new Module(modulePath);
-			module.exports = helper;
-			require.cache[modulePath] = module;
-			process.env.DISPLAY = ":0";
-			const clipboard = getNativeClipboard()!;
-			expect(clipboard).toBe(helper);
-			expect(helper.getText.mock.calls.length).toBe(0);
-			expect(await clipboard.getText()).toBe(undefined);
-			available = true;
-			expect(await clipboard.getText()).toBe("X11");
-			expect(await clipboard.getImage()).toBe(null);
-			delete process.env.DISPLAY;
-			expect(getNativeClipboard()).toBe(undefined);
-			process.env.DISPLAY = ":1";
-			expect(getNativeClipboard()).toBe(clipboard);
-		} finally {
-			Object.defineProperty(process, "platform", platform);
-			if (display === undefined) delete process.env.DISPLAY;
-			else process.env.DISPLAY = display;
-			if (waylandDisplay === undefined) delete process.env.WAYLAND_DISPLAY;
-			else process.env.WAYLAND_DISPLAY = waylandDisplay;
-			if (previous) require.cache[modulePath] = previous;
-			else delete require.cache[modulePath];
-		}
-	},
-);
+test.skipIf(!["arm64", "x64"].includes(process.arch))("Linux loads X11 lazily and rechecks DISPLAY", async () => {
+	const require = createRequire(import.meta.url);
+	const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+	const display = process.env.DISPLAY;
+	const waylandDisplay = process.env.WAYLAND_DISPLAY;
+	const modulePath = fileURLToPath(
+		new URL(`../native/linux/prebuilds/linux-${process.arch}/linux-platform-x11.node`, import.meta.url),
+	);
+	const previous = require.cache[modulePath];
+	try {
+		Object.defineProperty(process, "platform", { value: "linux" });
+		delete process.env.DISPLAY;
+		process.env.WAYLAND_DISPLAY = "wayland-0";
+		expect(getNativeClipboard()).toBe(undefined); // Wayland paste uses wl-paste.
+		let available = false;
+		const helper = {
+			getText: mock(async () => (available ? "X11" : undefined)),
+			getImage: mock(async () => null),
+		};
+		const module = new Module(modulePath);
+		module.exports = helper;
+		require.cache[modulePath] = module;
+		process.env.DISPLAY = ":0";
+		const clipboard = getNativeClipboard()!;
+		expect(clipboard).toBe(helper);
+		expect(helper.getText.mock.calls.length).toBe(0);
+		expect(await clipboard.getText()).toBe(undefined);
+		available = true;
+		expect(await clipboard.getText()).toBe("X11");
+		expect(await clipboard.getImage()).toBe(null);
+		delete process.env.DISPLAY;
+		expect(getNativeClipboard()).toBe(undefined);
+		process.env.DISPLAY = ":1";
+		expect(getNativeClipboard()).toBe(clipboard);
+	} finally {
+		Object.defineProperty(process, "platform", platform);
+		if (display === undefined) delete process.env.DISPLAY;
+		else process.env.DISPLAY = display;
+		if (waylandDisplay === undefined) delete process.env.WAYLAND_DISPLAY;
+		else process.env.WAYLAND_DISPLAY = waylandDisplay;
+		if (previous) require.cache[modulePath] = previous;
+		else delete require.cache[modulePath];
+	}
+});

@@ -1,9 +1,6 @@
 import { expect, describe, it } from "bun:test";
 
-import {
-	hasUnsafeTerminalChars,
-	sanitizeTerminalPayload,
-} from "../src/terminal-sanitize.ts";
+import { hasUnsafeTerminalChars, sanitizeTerminalPayload } from "../src/terminal-sanitize.ts";
 
 describe("terminal-sanitize", () => {
 	it("detects control bytes that can escape an OSC payload", () => {
@@ -41,9 +38,7 @@ describe("terminal escape payloads", () => {
 		const { ProcessTerminal } = await import("../src/terminal.ts");
 		const writes: string[] = [];
 		const original = process.stdout.write.bind(process.stdout);
-		(process.stdout as unknown as { write: (chunk: string) => boolean }).write = (
-			chunk: string,
-		) => {
+		(process.stdout as unknown as { write: (chunk: string) => boolean }).write = (chunk: string) => {
 			writes.push(String(chunk));
 			return true;
 		};
@@ -53,7 +48,10 @@ describe("terminal escape payloads", () => {
 			const titleWrite = writes.find((chunk) => chunk.startsWith("\x1b]0;"));
 			expect(titleWrite !== undefined, "setTitle writes an OSC 0 sequence").toBeTruthy();
 			expect(titleWrite).toBe("\x1b]0;session]2;pwned\x07");
-			expect(!/[\u0000-\u0008\u000a-\u001f]/.test(titleWrite.slice(4, -1)), "the title payload carries no raw control byte").toBeTruthy();
+			expect(
+				!/[\u0000-\u0008\u000a-\u001f]/.test(titleWrite.slice(4, -1)),
+				"the title payload carries no raw control byte",
+			).toBeTruthy();
 		} finally {
 			(process.stdout as unknown as { write: typeof original }).write = original;
 		}

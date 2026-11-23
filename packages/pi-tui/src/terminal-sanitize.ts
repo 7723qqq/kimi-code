@@ -23,7 +23,7 @@ const ALL_CONTROL_CHARS_GLOBAL = /[\u0000-\u001f\u007f-\u009f]/g;
  * is ordinary layout, not an injection vector.
  */
 export function hasUnsafeTerminalChars(text: string): boolean {
-  return UNSAFE_CHARS.test(text);
+	return UNSAFE_CHARS.test(text);
 }
 
 /**
@@ -33,7 +33,7 @@ export function hasUnsafeTerminalChars(text: string): boolean {
  * payload close the sequence.
  */
 export function sanitizeTerminalPayload(text: string): string {
-  return text.replace(UNSAFE_CHARS_GLOBAL, '\uFFFD');
+	return text.replace(UNSAFE_CHARS_GLOBAL, "\uFFFD");
 }
 
 /**
@@ -44,8 +44,8 @@ export function sanitizeTerminalPayload(text: string): string {
  * write nothing at all.
  */
 export function sanitizeTitleParameter(title: string): string {
-  return title
-    .replace(/[\t\n\r\u00a0]+/g, ' ')
-    .replace(ALL_CONTROL_CHARS_GLOBAL, '')
-    .trim();
+	return title
+		.replace(/[\t\n\r\u00a0]+/g, " ")
+		.replace(ALL_CONTROL_CHARS_GLOBAL, "")
+		.trim();
 }

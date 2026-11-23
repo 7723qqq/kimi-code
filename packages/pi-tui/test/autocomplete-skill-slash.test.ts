@@ -1,5 +1,4 @@
-import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it, expect } from "bun:test";
 import { CombinedAutocompleteProvider } from "../src/autocomplete.ts";
 
 describe("CombinedAutocompleteProvider slash-command filter", () => {
@@ -17,19 +16,19 @@ describe("CombinedAutocompleteProvider slash-command filter", () => {
 		const result = await provider.getSuggestions([line], 0, line.length, {
 			signal: new AbortController().signal,
 		});
-		assert.ok(result, `expected suggestions for "/${prefix}"`);
+		expect(result).toBeTruthy();
 		return result.items.map((item) => item.value);
 	}
 
 	it("ranks skill:research-idea first for query 'idea'", async () => {
 		const items = await suggestionsFor("idea");
-		assert.equal(items[0], "skill:research-idea");
-		assert.ok(items.indexOf("skill:deep-research") > items.indexOf("skill:research-idea"));
+		expect(items[0]).toBe("skill:research-idea");
+		expect(items.indexOf("skill:deep-research") > items.indexOf("skill:research-idea")).toBeTruthy();
 	});
 
 	it("keeps ordinary slash commands matching", async () => {
 		const items = await suggestionsFor("mod");
-		assert.ok(items.includes("model"));
+		expect(items.includes("model")).toBeTruthy();
 	});
 
 	it("completes commands after leading whitespace and preserves it", async () => {
@@ -42,15 +41,12 @@ describe("CombinedAutocompleteProvider slash-command filter", () => {
 			const result = await provider.getSuggestions([line], 0, line.length, {
 				signal: new AbortController().signal,
 			});
-			assert.ok(result);
-			assert.equal(result.prefix, line.trimStart());
-			assert.deepStrictEqual(
-				result.items.map((item) => item.value),
-				["model"],
-			);
+			expect(result).toBeTruthy();
+			expect(result.prefix).toBe(line.trimStart());
+			expect(result.items.map((item) => item.value)).toEqual(["model"]);
 			const applied = provider.applyCompletion([line], 0, line.length, result.items[0]!, result.prefix);
-			assert.equal(applied.lines[0], expected);
-			assert.equal(applied.cursorCol, expected.length);
+			expect(applied.lines[0]).toBe(expected);
+			expect(applied.cursorCol).toBe(expected.length);
 		}
 	});
 
@@ -60,7 +56,7 @@ describe("CombinedAutocompleteProvider slash-command filter", () => {
 				{
 					name: "model",
 					getArgumentCompletions: (prefix: string) => {
-						assert.equal(prefix, "son");
+						expect(prefix).toBe("son");
 						return [{ value: "sonnet", label: "sonnet" }];
 					},
 				},
@@ -71,28 +67,25 @@ describe("CombinedAutocompleteProvider slash-command filter", () => {
 		const result = await provider.getSuggestions([line], 0, line.length, {
 			signal: new AbortController().signal,
 		});
-		assert.ok(result);
-		assert.equal(result.prefix, "son");
+		expect(result).toBeTruthy();
+		expect(result.prefix).toBe("son");
 		const applied = provider.applyCompletion([line], 0, line.length, result.items[0]!, result.prefix);
-		assert.equal(applied.lines[0], "  /model sonnet");
+		expect(applied.lines[0]).toBe("  /model sonnet");
 	});
 
 	it("keeps explicit skill: queries working", async () => {
 		const items = await suggestionsFor("skill:side");
-		assert.ok(items.includes("skill:to-sidecar"));
+		expect(items.includes("skill:to-sidecar")).toBeTruthy();
 	});
 
 	// Regression test for #9944.
 	it("lists skills while typing the skill prefix", async () => {
 		const items = await suggestionsFor("skill");
-		assert.deepStrictEqual(
-			items.filter((item) => item.startsWith("skill:")),
-			commands.filter((command) => command.name.startsWith("skill:")).map((command) => command.name),
-		);
+		expect(items.filter((item) => item.startsWith("skill:"))).toEqual(commands.filter((command) => command.name.startsWith("skill:")).map((command) => command.name));
 	});
 
 	it("keeps fuzzy skill-prefix shorthand working", async () => {
 		const items = await suggestionsFor("skbra");
-		assert.ok(items.includes("skill:brainstorm"));
+		expect(items.includes("skill:brainstorm")).toBeTruthy();
 	});
 });

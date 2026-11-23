@@ -253,7 +253,9 @@ describe("viewport layout", () => {
 		const automatic = new ScrollView(fittingContent, { scrollbar: "auto", scrollbarThumbStyle });
 		renderLayoutFrame(automatic, 6, 4, () => {});
 		automatic.scrollBy(1);
-		expect(renderLayoutFrame(automatic, 6, 4, () => {}).lines.every((line) => !/[│┃]/.test(stripTerminalSequences(line)))).toBeTruthy();
+		expect(
+			renderLayoutFrame(automatic, 6, 4, () => {}).lines.every((line) => !/[│┃]/.test(stripTerminalSequences(line))),
+		).toBeTruthy();
 
 		const alwaysFitting = new ScrollView(fittingContent, { scrollbar: "always", scrollbarThumbStyle });
 		const alwaysFittingFrame = renderLayoutFrame(alwaysFitting, 6, 4, () => {});
@@ -297,10 +299,7 @@ describe("viewport layout", () => {
 		const borderForeground = "\x1b[31m";
 		const content = {
 			render: (width: number) =>
-				Array.from(
-					{ length: 8 },
-					() => `${background}${"x".repeat(width - 1)}${borderForeground}│\x1b[39m\x1b[49m`,
-				),
+				Array.from({ length: 8 }, () => `${background}${"x".repeat(width - 1)}${borderForeground}│\x1b[39m\x1b[49m`),
 			invalidate: () => {},
 		};
 		const scrollView = new ScrollView(content, {
@@ -415,12 +414,7 @@ describe("pointer index", () => {
 			render: () => ["one", "two"],
 			invalidate: () => {},
 		});
-		const frame = renderLayoutFrame(
-			new VStack([{ component: scrollView, basis: 0, grow: 1 }]),
-			10,
-			4,
-			() => {},
-		);
+		const frame = renderLayoutFrame(new VStack([{ component: scrollView, basis: 0, grow: 1 }]), 10, 4, () => {});
 
 		expect(frame.scrollBoxes.some((box) => box.scrollView === scrollView)).toBe(true);
 		expect(getScrollViewBox(frame, scrollView)).toBeDefined();

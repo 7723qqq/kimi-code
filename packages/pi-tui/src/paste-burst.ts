@@ -13,49 +13,46 @@ const PASTE_ENTER_SUPPRESS_WINDOW_MS = 120;
  * Enter should insert a newline instead of submitting.
  */
 export class PasteBurst {
-  private lastPlainCharAt?: number;
-  private consecutivePlainChars = 0;
-  private activeUntil = 0;
-  private enterSuppressUntil = 0;
+	private lastPlainCharAt?: number;
+	private consecutivePlainChars = 0;
+	private activeUntil = 0;
+	private enterSuppressUntil = 0;
 
-  onPlainChar(now: number): void {
-    if (
-      this.lastPlainCharAt !== undefined &&
-      now - this.lastPlainCharAt <= PASTE_BURST_CHAR_INTERVAL_MS
-    ) {
-      this.consecutivePlainChars++;
-    } else {
-      this.consecutivePlainChars = 1;
-    }
+	onPlainChar(now: number): void {
+		if (this.lastPlainCharAt !== undefined && now - this.lastPlainCharAt <= PASTE_BURST_CHAR_INTERVAL_MS) {
+			this.consecutivePlainChars++;
+		} else {
+			this.consecutivePlainChars = 1;
+		}
 
-    this.lastPlainCharAt = now;
+		this.lastPlainCharAt = now;
 
-    if (this.consecutivePlainChars >= PASTE_BURST_MIN_CHARS) {
-      this.extendWindow(now);
-    }
-  }
+		if (this.consecutivePlainChars >= PASTE_BURST_MIN_CHARS) {
+			this.extendWindow(now);
+		}
+	}
 
-  shouldInsertNewlineInsteadOfSubmit(now: number): boolean {
-    if (now <= this.activeUntil || now <= this.enterSuppressUntil) {
-      return true;
-    }
+	shouldInsertNewlineInsteadOfSubmit(now: number): boolean {
+		if (now <= this.activeUntil || now <= this.enterSuppressUntil) {
+			return true;
+		}
 
-    return (
-      this.lastPlainCharAt !== undefined &&
-      this.consecutivePlainChars >= PASTE_BURST_MIN_CHARS &&
-      now - this.lastPlainCharAt <= PASTE_BURST_CHAR_INTERVAL_MS
-    );
-  }
+		return (
+			this.lastPlainCharAt !== undefined &&
+			this.consecutivePlainChars >= PASTE_BURST_MIN_CHARS &&
+			now - this.lastPlainCharAt <= PASTE_BURST_CHAR_INTERVAL_MS
+		);
+	}
 
-  extendWindow(now: number): void {
-    this.activeUntil = now + PASTE_BURST_ACTIVE_IDLE_TIMEOUT_MS;
-    this.enterSuppressUntil = now + PASTE_ENTER_SUPPRESS_WINDOW_MS;
-  }
+	extendWindow(now: number): void {
+		this.activeUntil = now + PASTE_BURST_ACTIVE_IDLE_TIMEOUT_MS;
+		this.enterSuppressUntil = now + PASTE_ENTER_SUPPRESS_WINDOW_MS;
+	}
 
-  reset(): void {
-    this.lastPlainCharAt = undefined;
-    this.consecutivePlainChars = 0;
-    this.activeUntil = 0;
-    this.enterSuppressUntil = 0;
-  }
+	reset(): void {
+		this.lastPlainCharAt = undefined;
+		this.consecutivePlainChars = 0;
+		this.activeUntil = 0;
+		this.enterSuppressUntil = 0;
+	}
 }

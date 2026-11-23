@@ -123,7 +123,8 @@ export function parseColor(value: string | number): Color {
 
 	const hex = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(value);
 	if (hex) {
-		const digits = hex[1]!.length === 3 ? [...hex[1]!].map((digit) => digit + digit).join("") : hex[1]!;
+		const hexDigits = hex[1]!;
+		const digits = hexDigits.length === 3 ? [...hexDigits].map((digit) => digit + digit).join("") : hexDigits;
 		return rgbColor(
 			Number.parseInt(digits.slice(0, 2), 16),
 			Number.parseInt(digits.slice(2, 4), 16),

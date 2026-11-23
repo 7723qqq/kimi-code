@@ -53,7 +53,7 @@
 	"scripts": {
 		"build": "tsdown",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"test": "bun test --isolate --timeout 30000",
+		"test": "bun test --isolate --timeout 10000",
 		"clean": "rm -rf dist"
 	},
 	"dependencies": {

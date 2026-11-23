@@ -1,29 +1,5 @@
 # @moonshot-ai/pi-tui
 
-## 0.87.0
-
-### Minor Changes
-
-- [#4752](https://github.com/MoonshotAI/kimi-code/pull/4752) [`5aa81c5`](https://github.com/MoonshotAI/kimi-code/commit/5aa81c5e22de5a446290e33ce02ddc259b0f5c36) Thanks [@sailist](https://github.com/sailist)! - Add opt-in gitignored-file completion and provider-specific autocomplete debounce with previews for appended queries.
-
-- [#4618](https://github.com/MoonshotAI/kimi-code/pull/4618) [`e6ae8ed`](https://github.com/MoonshotAI/kimi-code/commit/e6ae8ed4bdd0a99a3f5d4c4dc1b19b0b2f9a4a9c) Thanks [@Grapedge](https://github.com/Grapedge)! - Add browser-style animation frame requests to the TUI: every animation shares one frame clock that ticks at most every 120 ms, pauses when the TUI stops, and resumes when it starts.
-
-### Patch Changes
-
-- [#4870](https://github.com/MoonshotAI/kimi-code/pull/4870) [`bd75a36`](https://github.com/MoonshotAI/kimi-code/commit/bd75a36f436c343e4cb3023b6a6f1b83ccbf62eb) Thanks [@Grapedge](https://github.com/Grapedge)! - Let the host set the animation frame rate to a whole number from 1 to 60 frames per second; frames stay 120 ms apart until it does.
-
-## 0.86.0
-
-### Minor Changes
-
-- [#4347](https://github.com/MoonshotAI/kimi-code/pull/4347) [`b3c6e0a`](https://github.com/MoonshotAI/kimi-code/commit/b3c6e0a75a3b1716a360a75eed7194be9b97c176) Thanks [@Grapedge](https://github.com/Grapedge)! - Support OSC 7501 child records and tmux passthrough for program-status reports.
-
-- [#4347](https://github.com/MoonshotAI/kimi-code/pull/4347) [`b3c6e0a`](https://github.com/MoonshotAI/kimi-code/commit/b3c6e0a75a3b1716a360a75eed7194be9b97c176) Thanks [@Grapedge](https://github.com/Grapedge)! - Add terminal color utilities, program status reporting, and wheel acceleration, with upstream input and rendering fixes.
-
-### Patch Changes
-
-- [#4310](https://github.com/MoonshotAI/kimi-code/pull/4310) [`8df234a`](https://github.com/MoonshotAI/kimi-code/commit/8df234a618f5ba1f5261cc1696b0cf4340989f8e) Thanks [@Grapedge](https://github.com/Grapedge)! - Add an opt-in guard that ignores mouse-button gestures immediately after the terminal regains focus.
-
 ## 0.85.0
 
 ### Minor Changes

@@ -47,7 +47,10 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 
 			// Old implementation would return false (BUG!)
 			const oldResult = oldIsImageLine(lineWithImageSequence, terminalWithoutImageSupport);
-			expect(oldResult, "Bug: old implementation returns false for line containing image sequence when terminal has no image support").toBe(false);
+			expect(
+				oldResult,
+				"Bug: old implementation returns false for line containing image sequence when terminal has no image support",
+			).toBe(false);
 		});
 
 		it("new implementation returns true correctly", async () => {

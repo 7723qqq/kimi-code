@@ -253,14 +253,19 @@ describe("detectCapabilities", () => {
 	});
 
 	it("applies environment overrides", () => {
-		expect(withEnv({ PI_HYPERLINKS: "1", PI_IMAGE_PROTOCOL: "kitty", PI_TRUE_COLOR: "1" }, () => detectCapabilities())).toStrictEqual({ images: "kitty", trueColor: true, hyperlinks: true });
-		expect(withEnv({ TERM_PROGRAM: "iterm.app", PI_HYPERLINKS: "0", PI_IMAGE_PROTOCOL: "none", PI_TRUE_COLOR: "0" }, () =>
+		expect(
+			withEnv({ PI_HYPERLINKS: "1", PI_IMAGE_PROTOCOL: "kitty", PI_TRUE_COLOR: "1" }, () => detectCapabilities()),
+		).toStrictEqual({ images: "kitty", trueColor: true, hyperlinks: true });
+		expect(
+			withEnv({ TERM_PROGRAM: "iterm.app", PI_HYPERLINKS: "0", PI_IMAGE_PROTOCOL: "none", PI_TRUE_COLOR: "0" }, () =>
 				detectCapabilities(),
-			)).toStrictEqual({ images: null, trueColor: false, hyperlinks: false });
+			),
+		).toStrictEqual({ images: null, trueColor: false, hyperlinks: false });
 	});
 
 	it("preserves auto-detection for auto environment overrides", () => {
-		expect(withEnv(
+		expect(
+			withEnv(
 				{
 					TERM_PROGRAM: "ghostty",
 					PI_HYPERLINKS: "auto",
@@ -268,7 +273,8 @@ describe("detectCapabilities", () => {
 					PI_TRUE_COLOR: "auto",
 				},
 				() => detectCapabilities(),
-			)).toStrictEqual({ images: "kitty", trueColor: true, hyperlinks: true });
+			),
+		).toStrictEqual({ images: "kitty", trueColor: true, hyperlinks: true });
 	});
 
 	it("applies and clears programmatic overrides", () => {
@@ -555,8 +561,8 @@ describe("sixel encoding", () => {
 		try {
 			const pixels = new Uint8Array(2 * 2 * 4);
 			for (let y = 0; y < 2; y++) {
-				pixels[(y * 2) * 4] = 255; // left column red
-				pixels[(y * 2) * 4 + 3] = 255;
+				pixels[y * 2 * 4] = 255; // left column red
+				pixels[y * 2 * 4 + 3] = 255;
 				pixels[(y * 2 + 1) * 4 + 1] = 255; // right column green
 				pixels[(y * 2 + 1) * 4 + 3] = 255;
 			}
@@ -594,7 +600,10 @@ describe("sixel encoding", () => {
 			// targetW = 2 cells x 10px = 20 columns; every pixel is red, so each
 			// band emits `#180` followed by 20 chars of 63+63 ('~': all 6 rows lit).
 			const firstBand = pixelPart.split("-")[0]!;
-			expect(firstBand.startsWith("#180"), `expected a color selector, got ${JSON.stringify(firstBand.slice(0, 6))}`).toBeTruthy();
+			expect(
+				firstBand.startsWith("#180"),
+				`expected a color selector, got ${JSON.stringify(firstBand.slice(0, 6))}`,
+			).toBeTruthy();
 			expect(firstBand.slice("#180".length), "every column must paint all 6 rows red").toBe("~".repeat(20));
 		} finally {
 			setCellDimensions({ widthPx: 9, heightPx: 18 });
@@ -841,11 +850,7 @@ describe("Kitty image cursor movement", () => {
 	it("truncates long image fallback lines to render width", () => {
 		setCapabilities({ images: null, trueColor: false, hyperlinks: false });
 		try {
-			const longPath = join(
-				homedir(),
-				"images",
-				`${"generated-image-with-a-very-long-absolute-path".repeat(4)}.png`,
-			);
+			const longPath = join(homedir(), "images", `${"generated-image-with-a-very-long-absolute-path".repeat(4)}.png`);
 			const width = 40;
 			const image = new Image(
 				"AAAA",
@@ -856,7 +861,10 @@ describe("Kitty image cursor movement", () => {
 			);
 			const lines = image.render(width);
 			expect(lines.length).toBe(1);
-			expect(visibleWidth(lines[0]) <= width, `fallback line wider than ${width}: visible=${visibleWidth(lines[0])} raw=${JSON.stringify(lines[0])}`).toBeTruthy();
+			expect(
+				visibleWidth(lines[0]) <= width,
+				`fallback line wider than ${width}: visible=${visibleWidth(lines[0])} raw=${JSON.stringify(lines[0])}`,
+			).toBeTruthy();
 			expect(lines[0].includes("..."), "expected ellipsis when truncating long fallback path").toBeTruthy();
 			expect(lines[0].includes("~"), "expected home-shortened path in fallback").toBeTruthy();
 		} finally {
@@ -928,7 +936,10 @@ describe("imageFallback", () => {
 			const abs = join(homedir(), ".pi", "agent", "shot.png");
 			const result = imageFallback("image/png", { widthPx: 10, heightPx: 10 }, abs);
 			expect(result.includes("\x1b]8;;file://"), "expected OSC 8 file link").toBeTruthy();
-			expect(result.includes(abs.replaceAll("\\", "/")) || result.includes(abs), "file URL should target absolute path").toBeTruthy();
+			expect(
+				result.includes(abs.replaceAll("\\", "/")) || result.includes(abs),
+				"file URL should target absolute path",
+			).toBeTruthy();
 			// Visible text must use ~/... not the expanded home path.
 			const visible = result.replace(/\x1b\]8;;.*?\x1b\\/g, "");
 			expect(visible).toBe(`[Image: ~${sep}.pi${sep}agent${sep}shot.png [image/png] 10x10]`);

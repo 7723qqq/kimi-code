@@ -224,7 +224,9 @@ const toolchain = requestedToolchain ?? (process.platform === "win32" && vsDevCm
 
 if (toolchain === "msvc") {
 	if (!vsDevCmd || !hasMsvc) {
-		throw new Error("Microsoft C++ Build Tools not found. Install the Visual Studio C++ workload or set PI_TUI_WIN32_TOOLCHAIN=mingw.");
+		throw new Error(
+			"Microsoft C++ Build Tools not found. Install the Visual Studio C++ workload or set PI_TUI_WIN32_TOOLCHAIN=mingw.",
+		);
 	}
 	for (const target of targets) buildWithMsvc(target, vsDevCmd);
 } else {

@@ -27,7 +27,10 @@ describe("regional indicator width regression", () => {
 	it("treats all regional-indicator singleton graphemes as width 2", () => {
 		for (let cp = 0x1f1e6; cp <= 0x1f1ff; cp++) {
 			const regionalIndicator = String.fromCodePoint(cp);
-			expect(visibleWidth(regionalIndicator), `Expected ${regionalIndicator} (U+${cp.toString(16).toUpperCase()}) to be width 2`).toBe(2);
+			expect(
+				visibleWidth(regionalIndicator),
+				`Expected ${regionalIndicator} (U+${cp.toString(16).toUpperCase()}) to be width 2`,
+			).toBe(2);
 		}
 	});
 

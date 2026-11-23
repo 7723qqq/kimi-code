@@ -1168,7 +1168,10 @@ describe("Editor component", () => {
 			for (const line of contentLines) {
 				// Words at end of line should be complete (no partial words)
 				const lastChar = line.trimEnd().slice(-1);
-				expect(lastChar === "" || /[\w.,!?;:]/.test(lastChar), `Line ends unexpectedly with: "${lastChar}"`).toBeTruthy();
+				expect(
+					lastChar === "" || /[\w.,!?;:]/.test(lastChar),
+					`Line ends unexpectedly with: "${lastChar}"`,
+				).toBeTruthy();
 			}
 		});
 
@@ -1188,7 +1191,10 @@ describe("Editor component", () => {
 				const trimmedStart = line.trimStart();
 				// The line should either be all padding or start with a word character
 				if (trimmedStart.length > 0) {
-					expect(!/^\s+\S/.test(line.trimEnd()), `Line ${i} starts with unexpected whitespace before content`).toBeTruthy();
+					expect(
+						!/^\s+\S/.test(line.trimEnd()),
+						`Line ${i} starts with unexpected whitespace before content`,
+					).toBeTruthy();
 				}
 			}
 		});
@@ -1339,7 +1345,10 @@ describe("Editor component", () => {
 			const chunks = wordWrapLine(line, 187);
 
 			for (const chunk of chunks) {
-				expect(visibleWidth(chunk.text) <= 187, `chunk "${chunk.text.slice(0, 20)}..." has visible width ${visibleWidth(chunk.text)}, expected <= 187`).toBeTruthy();
+				expect(
+					visibleWidth(chunk.text) <= 187,
+					`chunk "${chunk.text.slice(0, 20)}..." has visible width ${visibleWidth(chunk.text)}, expected <= 187`,
+				).toBeTruthy();
 			}
 			// Verify no content is lost
 			const reconstructed = chunks.map((c) => line.slice(c.startIndex, c.endIndex)).join("");
@@ -1360,7 +1369,10 @@ describe("Editor component", () => {
 
 			// Every chunk must fit within maxWidth
 			for (const chunk of chunks) {
-				expect(visibleWidth(chunk.text) <= 10, `chunk "${chunk.text}" has visible width ${visibleWidth(chunk.text)}, expected <= 10`).toBeTruthy();
+				expect(
+					visibleWidth(chunk.text) <= 10,
+					`chunk "${chunk.text}" has visible width ${visibleWidth(chunk.text)}, expected <= 10`,
+				).toBeTruthy();
 			}
 
 			// Verify no content is lost
@@ -1419,7 +1431,10 @@ describe("Editor component", () => {
 			const chunks = wordWrapLine(line, 10, segments);
 
 			for (const chunk of chunks) {
-				expect(visibleWidth(chunk.text) <= 10, `chunk "${chunk.text}" has visible width ${visibleWidth(chunk.text)}, expected <= 10`).toBeTruthy();
+				expect(
+					visibleWidth(chunk.text) <= 10,
+					`chunk "${chunk.text}" has visible width ${visibleWidth(chunk.text)}, expected <= 10`,
+				).toBeTruthy();
 			}
 
 			const reconstructed = chunks.map((c) => line.slice(c.startIndex, c.endIndex)).join("");
@@ -1449,7 +1464,10 @@ describe("Editor component", () => {
 
 			// All chunks must fit
 			for (const chunk of chunks) {
-				expect(visibleWidth(chunk.text) <= 10, `chunk "${chunk.text}" has visible width ${visibleWidth(chunk.text)}, expected <= 10`).toBeTruthy();
+				expect(
+					visibleWidth(chunk.text) <= 10,
+					`chunk "${chunk.text}" has visible width ${visibleWidth(chunk.text)}, expected <= 10`,
+				).toBeTruthy();
 			}
 
 			// Last chunk should contain "world" (normal wrapping resumes)
@@ -2427,7 +2445,10 @@ describe("Editor component", () => {
 			// copying the registry grows this figure by 265 MB or more, while a
 			// shared registry stays within the drift of the noise floor.
 			const growth = heapAfter(120, true) - heapAfter(120, false);
-			expect(growth < 100 * 1024 * 1024, `undo snapshots must not copy the paste payload per step (grew ${Math.round(growth / 1024 / 1024)} MB)`).toBeTruthy();
+			expect(
+				growth < 100 * 1024 * 1024,
+				`undo snapshots must not copy the paste payload per step (grew ${Math.round(growth / 1024 / 1024)} MB)`,
+			).toBeTruthy();
 		});
 
 		it("restores the paste registry and expands the payload after undo", () => {
@@ -2441,7 +2462,10 @@ describe("Editor component", () => {
 			editor.handleInput("tail");
 			editor.handleInput("\x1b[45;5u"); // Ctrl+- (undo)
 			expect(editor.getText()).toBe(marker);
-			expect(editor.getExpandedText().includes("payload11"), "the undone snapshot still expands its payload").toBeTruthy();
+			expect(
+				editor.getExpandedText().includes("payload11"),
+				"the undone snapshot still expands its payload",
+			).toBeTruthy();
 		});
 
 		it("caps undo stack depth", () => {
@@ -2629,7 +2653,11 @@ describe("Editor component", () => {
 				},
 				applyCompletion,
 			};
-			const rendered = () => editor.render(80).map((line) => stripVTControlCharacters(line)).join("\n");
+			const rendered = () =>
+				editor
+					.render(80)
+					.map((line) => stripVTControlCharacters(line))
+					.join("\n");
 
 			editor.setAutocompleteProvider(mockProvider);
 			editor.handleInput("@");
@@ -2824,7 +2852,9 @@ describe("Editor component", () => {
 			jest.useFakeTimers();
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			let aborts = 0;
-			let releaseOld: ((suggestions: { items: { value: string; label: string }[]; prefix: string }) => void) | undefined;
+			let releaseOld:
+				| ((suggestions: { items: { value: string; label: string }[]; prefix: string }) => void)
+				| undefined;
 			const requests: string[] = [];
 			const mockProvider: AutocompleteProvider = {
 				autocompleteDebounceMs: 80,
@@ -2834,7 +2864,13 @@ describe("Editor component", () => {
 					if (text === "@a") {
 						return await new Promise((resolve) => {
 							releaseOld = resolve;
-							options.signal.addEventListener("abort", () => { aborts += 1; }, { once: true });
+							options.signal.addEventListener(
+								"abort",
+								() => {
+									aborts += 1;
+								},
+								{ once: true },
+							);
 						});
 					}
 					const value = text === "@ab" ? "@ab-new" : "@initial";
@@ -2859,7 +2895,10 @@ describe("Editor component", () => {
 
 			expect(aborts).toBe(1);
 			expect(requests).toStrictEqual(["@", "@a", "@ab"]);
-			const output = editor.render(80).map((line) => stripVTControlCharacters(line)).join("\n");
+			const output = editor
+				.render(80)
+				.map((line) => stripVTControlCharacters(line))
+				.join("\n");
 			expect(output.includes("ab-new")).toBeTruthy();
 			expect(output.includes("a-old")).toBeFalsy();
 		});
@@ -2953,7 +2992,6 @@ describe("Editor component", () => {
 			} finally {
 				process.off("unhandledRejection", onUnhandled);
 			}
-
 		});
 
 		it("hides autocomplete when backspacing slash command to empty", async () => {
@@ -3466,7 +3504,11 @@ describe("Editor component", () => {
 			expect(editor.isShowingAutocomplete()).toBe(false);
 		});
 
-		function inlineProviderWith(item: { value: string; label: string; data?: Record<string, unknown> }): AutocompleteProvider {
+		function inlineProviderWith(item: {
+			value: string;
+			label: string;
+			data?: Record<string, unknown>;
+		}): AutocompleteProvider {
 			return {
 				getSuggestions: async (lines, cursorLine, cursorCol) => {
 					const beforeCursor = (lines[cursorLine] || "").slice(0, cursorCol);
@@ -4349,7 +4391,10 @@ describe("Editor component", () => {
 			const expanded = editor.getExpandedText();
 			expect(expanded.split("ONE0").length - 1, "ONE appears once").toBe(1);
 			expect(expanded.split("TWO0").length - 1, "TWO appears once").toBe(1);
-			expect(text.match(/\[paste #(\d+) \+12 lines\]/g)).toStrictEqual(["[paste #1 +12 lines]", "[paste #2 +12 lines]"]);
+			expect(text.match(/\[paste #(\d+) \+12 lines\]/g)).toStrictEqual([
+				"[paste #1 +12 lines]",
+				"[paste #2 +12 lines]",
+			]);
 		});
 
 		it("keeps deletion geometry correct when backspace renumbers 2-digit marker ids", () => {
@@ -4587,7 +4632,10 @@ describe("Editor component", () => {
 			const lines = editor.render(8);
 			// Every rendered line must fit within the width (marker is split)
 			for (const line of lines) {
-				expect(visibleWidth(line) <= 8, `line exceeds width 8: visible=${visibleWidth(line)} text=${JSON.stringify(line)}`).toBeTruthy();
+				expect(
+					visibleWidth(line) <= 8,
+					`line exceeds width 8: visible=${visibleWidth(line)} text=${JSON.stringify(line)}`,
+				).toBeTruthy();
 			}
 		});
 
@@ -4619,7 +4667,10 @@ describe("Editor component", () => {
 			const renderWidth = 54;
 			const lines = editor.render(renderWidth);
 			for (const line of lines) {
-				expect(visibleWidth(line) <= renderWidth, `line exceeds width ${renderWidth}: visible=${visibleWidth(line)} text=${JSON.stringify(line)}`).toBeTruthy();
+				expect(
+					visibleWidth(line) <= renderWidth,
+					`line exceeds width ${renderWidth}: visible=${visibleWidth(line)} text=${JSON.stringify(line)}`,
+				).toBeTruthy();
 			}
 		});
 
@@ -4645,7 +4696,10 @@ describe("Editor component", () => {
 			const renderWidth = 54;
 			const lines = editor.render(renderWidth);
 			for (const line of lines) {
-				expect(visibleWidth(line) <= renderWidth, `line exceeds width ${renderWidth}: visible=${visibleWidth(line)} text=${JSON.stringify(line)}`).toBeTruthy();
+				expect(
+					visibleWidth(line) <= renderWidth,
+					`line exceeds width ${renderWidth}: visible=${visibleWidth(line)} text=${JSON.stringify(line)}`,
+				).toBeTruthy();
 			}
 		});
 
@@ -4888,11 +4942,11 @@ describe("wordWrapLine narrow width", () => {
 		const chunks = wordWrapLine("中文文本", 1);
 		expect(chunks.map((c) => c.text)).toStrictEqual(["中", "文", "文", "本"]);
 		expect(chunks.map((c) => [c.startIndex, c.endIndex])).toStrictEqual([
-				[0, 1],
-				[1, 2],
-				[2, 3],
-				[3, 4],
-			]);
+			[0, 1],
+			[1, 2],
+			[2, 3],
+			[3, 4],
+		]);
 	});
 
 	it("handles mixed narrow and wide graphemes at maxWidth 1", () => {

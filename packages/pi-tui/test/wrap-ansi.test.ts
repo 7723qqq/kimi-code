@@ -88,10 +88,7 @@ describe("wrapTextWithAnsi", () => {
 			for (let i = 0; i < wrapped.length - 1; i++) {
 				const line = wrapped[i];
 				// If this line has underline on, it should end with underline off (not full reset)
-				if (
-					(line.includes("[4m") || line.includes("[4;") || line.includes(";4m")) &&
-					!line.includes(underlineOff)
-				) {
+				if ((line.includes("[4m") || line.includes("[4;") || line.includes(";4m")) && !line.includes(underlineOff)) {
 					expect(line.endsWith(underlineOff)).toBe(true);
 					expect(line.endsWith("\x1b[0m")).toBe(false);
 				}
@@ -209,7 +206,10 @@ describe("wrapTextWithAnsi with OSC 8 hyperlinks", () => {
 			// OR it is the line where the close appeared with no following content.
 			const stripped = line.replace(/\x1b\]8;;[^\x1b\x07]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, "");
 			if (stripped.trim().length > 0) {
-				expect(line.startsWith(`\x1b]8;;${url}\x1b\\`) || line.includes(`\x1b]8;;${url}\x1b\\`), `Line "${line}" has visible text but no OSC 8 re-open`).toBeTruthy();
+				expect(
+					line.startsWith(`\x1b]8;;${url}\x1b\\`) || line.includes(`\x1b]8;;${url}\x1b\\`),
+					`Line "${line}" has visible text but no OSC 8 re-open`,
+				).toBeTruthy();
 			}
 		}
 	});
@@ -223,7 +223,10 @@ describe("wrapTextWithAnsi with OSC 8 hyperlinks", () => {
 			const line = lines[i];
 			// Every non-final line that is inside a hyperlink should end with the close
 			if (line.includes(`\x1b]8;;${url}\x1b\\`)) {
-				expect(line.endsWith("\x1b]8;;\x1b\\"), `Non-final line "${line}" is inside a hyperlink but does not close it`).toBeTruthy();
+				expect(
+					line.endsWith("\x1b]8;;\x1b\\"),
+					`Non-final line "${line}" is inside a hyperlink but does not close it`,
+				).toBeTruthy();
 			}
 		}
 	});

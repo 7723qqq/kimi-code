@@ -13,7 +13,13 @@ import type { TUI } from "../src/tui.ts";
 function createLoader(intervalMs = 5): { loader: Loader; repaints: { count: number } } {
 	const repaints = { count: 0 };
 	const ui = { requestRender: () => (repaints.count += 1) } as unknown as TUI;
-	const loader = new Loader(ui, (s) => s, (s) => s, "Loading...", { intervalMs });
+	const loader = new Loader(
+		ui,
+		(s) => s,
+		(s) => s,
+		"Loading...",
+		{ intervalMs },
+	);
 	return { loader, repaints };
 }
 

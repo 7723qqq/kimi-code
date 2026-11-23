@@ -26,12 +26,6 @@
     "tools/bun-migrate/test/node-surface.test.mjs": "The suite's title and comment state the catalogue invariant (`Node has ... Bun lacks`); no runner API stand-in is defined."
   },
   "node-test-import": {
-    "packages/pi-tui/test/autocomplete-skill-slash.test.ts": "Upstream 2.7.0 file kept verbatim. Upstream runs the pi-tui suite with `node --test`; the fork's suite in this directory is the bun:test rewrite, and this upstream file is not part of it. Porting it to bun:test is a separate change.",
-    "packages/pi-tui/test/colors.test.ts": "Upstream 2.7.0 file kept verbatim. Upstream runs the pi-tui suite with `node --test`; the fork's suite in this directory is the bun:test rewrite, and this upstream file is not part of it. Porting it to bun:test is a separate change.",
-    "packages/pi-tui/test/exit-restore.test.ts": "Upstream 2.7.0 file kept verbatim. Upstream runs the pi-tui suite with `node --test`; the fork's suite in this directory is the bun:test rewrite, and this upstream file is not part of it. Porting it to bun:test is a separate change.",
-    "packages/pi-tui/test/regression-slice-by-column-ansi-order.test.ts": "Upstream 2.7.0 file kept verbatim. Upstream runs the pi-tui suite with `node --test`; the fork's suite in this directory is the bun:test rewrite, and this upstream file is not part of it. Porting it to bun:test is a separate change.",
-    "packages/pi-tui/test/visible-width.test.ts": "Upstream 2.7.0 file kept verbatim. Upstream runs the pi-tui suite with `node --test`; the fork's suite in this directory is the bun:test rewrite, and this upstream file is not part of it. Porting it to bun:test is a separate change.",
-    "packages/pi-tui/test/wheel-scroll.test.ts": "Upstream 2.7.0 file kept verbatim. Upstream runs the pi-tui suite with `node --test`; the fork's suite in this directory is the bun:test rewrite, and this upstream file is not part of it. Porting it to bun:test is a separate change.",
     "scripts/canary-linux.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",
     "scripts/canary-provider.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",
     "scripts/canary-release.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",
@@ -56,5 +50,8 @@
   },
   "vitest-only-matcher": {
     "packages/kap-server/test/hosts.test.ts": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean; it uses vitest matchers that bun:test only aliases at runtime, and the fork's Bun-only runner does not execute this file."
+  },
+  "vi-binding": {
+    "scripts/test/bun-vitest-compat.ts": "Compatibility preload for the fork's existing vitest-style web/desktop suites; it augments Bun's vi with the missing stubGlobal/unstubAllGlobals/stubEnv/setSystemTime helpers. Remove this entry together with the preload once those suites are ported to bun:test."
   }
 }

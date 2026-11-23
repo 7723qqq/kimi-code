@@ -382,7 +382,10 @@ describe("Markdown component", () => {
 			expect(firstSegment, "Expected first column segment").toBeTruthy();
 			const firstColumnWidth = firstSegment.length - 2;
 
-			expect(firstColumnWidth >= longestWord.length, `Expected first column width >= ${longestWord.length}, got ${firstColumnWidth}`).toBeTruthy();
+			expect(
+				firstColumnWidth >= longestWord.length,
+				`Expected first column width >= ${longestWord.length}, got ${firstColumnWidth}`,
+			).toBeTruthy();
 		});
 
 		it("should render table with alignment", () => {
@@ -546,7 +549,9 @@ describe("Markdown component", () => {
 				const finalLinkCol = finalLine.indexOf("five six");
 				const finalSeparatorCol = finalLine.indexOf("│", finalLinkCol);
 				const finalBorderCol = finalLine.lastIndexOf("│");
-				expect(finalLinkCol >= 0 && finalSeparatorCol > finalLinkCol && finalBorderCol > finalSeparatorCol).toBeTruthy();
+				expect(
+					finalLinkCol >= 0 && finalSeparatorCol > finalLinkCol && finalBorderCol > finalSeparatorCol,
+				).toBeTruthy();
 				expect(getCell(terminal, finalRow, finalSeparatorCol).getFgColor()).toBe(quoteColor);
 				expect(getCell(terminal, finalRow, finalBorderCol).getFgColor()).toBe(quoteColor);
 			} finally {
@@ -730,7 +735,9 @@ describe("Markdown component", () => {
 			const lines = markdown.render(80);
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
 
-			expect(plainLines.at(-1), `Expected table to end without a blank line: ${JSON.stringify(plainLines)}`).not.toBe("");
+			expect(plainLines.at(-1), `Expected table to end without a blank line: ${JSON.stringify(plainLines)}`).not.toBe(
+				"",
+			);
 		});
 	});
 
@@ -927,7 +934,9 @@ A=
 
 		it("preserves incomplete backslash delimiters while streaming", () => {
 			const inline = new Markdown(String.raw`Map \(\mathbb{C}^3`, 0, 0, defaultMarkdownTheme);
-			expect(inline.render(80).map((line) => stripAnsi(line).trimEnd())).toStrictEqual([String.raw`Map \(\mathbb{C}^3`]);
+			expect(inline.render(80).map((line) => stripAnsi(line).trimEnd())).toStrictEqual([
+				String.raw`Map \(\mathbb{C}^3`,
+			]);
 
 			const display = new Markdown("\\[\nx^2", 0, 0, defaultMarkdownTheme);
 			expect(display.render(80).map((line) => stripAnsi(line).trimEnd())).toStrictEqual(["\\[", "x^2"]);
@@ -953,12 +962,16 @@ A=
 				},
 			);
 
-			expect(markdown.render(80).map((line) => stripAnsi(line).trimEnd())).toStrictEqual([String.raw`Map $\mathbb{C}^3 \to \mathbb{C}^3$`]);
+			expect(markdown.render(80).map((line) => stripAnsi(line).trimEnd())).toStrictEqual([
+				String.raw`Map $\mathbb{C}^3 \to \mathbb{C}^3$`,
+			]);
 		});
 
 		it("switches from raw to rendered math when a streamed delimiter closes", () => {
 			const markdown = new Markdown(String.raw`Map $\mathbb{C}^3`, 0, 0, defaultMarkdownTheme);
-			expect(markdown.render(80).map((line) => stripAnsi(line).trimEnd())).toStrictEqual([String.raw`Map $\mathbb{C}^3`]);
+			expect(markdown.render(80).map((line) => stripAnsi(line).trimEnd())).toStrictEqual([
+				String.raw`Map $\mathbb{C}^3`,
+			]);
 
 			markdown.setText(String.raw`Map $\mathbb{C}^3$`);
 
@@ -1016,16 +1029,10 @@ A=
 		});
 
 		it("should preserve gray italic styling after bold text", () => {
-			const markdown = new Markdown(
-				"This is thinking with **bold text** and more after",
-				1,
-				0,
-				defaultMarkdownTheme,
-				{
-					color: (text) => chalk.gray(text),
-					italic: true,
-				},
-			);
+			const markdown = new Markdown("This is thinking with **bold text** and more after", 1, 0, defaultMarkdownTheme, {
+				color: (text) => chalk.gray(text),
+				italic: true,
+			});
 
 			const lines = markdown.render(80);
 			const joinedOutput = lines.join("\n");
@@ -1104,7 +1111,10 @@ again, hello world`,
 			const afterBackticks = plainLines.slice(closingBackticksIndex + 1);
 			const emptyLineCount = afterBackticks.findIndex((line) => line !== "");
 
-			expect(emptyLineCount, `Expected 1 empty line after code block, but found ${emptyLineCount}. Lines after backticks: ${JSON.stringify(afterBackticks.slice(0, 5))}`).toBe(1);
+			expect(
+				emptyLineCount,
+				`Expected 1 empty line after code block, but found ${emptyLineCount}. Lines after backticks: ${JSON.stringify(afterBackticks.slice(0, 5))}`,
+			).toBe(1);
 		});
 
 		it("should normalize paragraph and code block spacing to one blank line", () => {
@@ -1141,7 +1151,10 @@ more text`,
 				const lines = markdown.render(80);
 				const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
 
-				expect(plainLines.at(-1), `Expected code block to end without a blank line: ${JSON.stringify(plainLines)}`).not.toBe("");
+				expect(
+					plainLines.at(-1),
+					`Expected code block to end without a blank line: ${JSON.stringify(plainLines)}`,
+				).not.toBe("");
 			}
 		});
 	});
@@ -1168,7 +1181,10 @@ again, hello world`,
 			const afterDivider = plainLines.slice(dividerIndex + 1);
 			const emptyLineCount = afterDivider.findIndex((line) => line !== "");
 
-			expect(emptyLineCount, `Expected 1 empty line after divider, but found ${emptyLineCount}. Lines after divider: ${JSON.stringify(afterDivider.slice(0, 5))}`).toBe(1);
+			expect(
+				emptyLineCount,
+				`Expected 1 empty line after divider, but found ${emptyLineCount}. Lines after divider: ${JSON.stringify(afterDivider.slice(0, 5))}`,
+			).toBe(1);
 		});
 
 		it("should not add a trailing blank line when divider is the last rendered block", () => {
@@ -1176,7 +1192,9 @@ again, hello world`,
 			const lines = markdown.render(80);
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
 
-			expect(plainLines.at(-1), `Expected divider to end without a blank line: ${JSON.stringify(plainLines)}`).not.toBe("");
+			expect(plainLines.at(-1), `Expected divider to end without a blank line: ${JSON.stringify(plainLines)}`).not.toBe(
+				"",
+			);
 		});
 	});
 
@@ -1200,7 +1218,10 @@ This is a paragraph`,
 			const afterHeading = plainLines.slice(headingIndex + 1);
 			const emptyLineCount = afterHeading.findIndex((line) => line !== "");
 
-			expect(emptyLineCount, `Expected 1 empty line after heading, but found ${emptyLineCount}. Lines after heading: ${JSON.stringify(afterHeading.slice(0, 5))}`).toBe(1);
+			expect(
+				emptyLineCount,
+				`Expected 1 empty line after heading, but found ${emptyLineCount}. Lines after heading: ${JSON.stringify(afterHeading.slice(0, 5))}`,
+			).toBe(1);
 		});
 
 		it("should not add a trailing blank line when heading is the last rendered block", () => {
@@ -1208,7 +1229,9 @@ This is a paragraph`,
 			const lines = markdown.render(80);
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
 
-			expect(plainLines.at(-1), `Expected heading to end without a blank line: ${JSON.stringify(plainLines)}`).not.toBe("");
+			expect(plainLines.at(-1), `Expected heading to end without a blank line: ${JSON.stringify(plainLines)}`).not.toBe(
+				"",
+			);
 		});
 	});
 
@@ -1234,7 +1257,10 @@ again, hello world`,
 			const afterQuote = plainLines.slice(quoteIndex + 1);
 			const emptyLineCount = afterQuote.findIndex((line) => line !== "");
 
-			expect(emptyLineCount, `Expected 1 empty line after blockquote, but found ${emptyLineCount}. Lines after quote: ${JSON.stringify(afterQuote.slice(0, 5))}`).toBe(1);
+			expect(
+				emptyLineCount,
+				`Expected 1 empty line after blockquote, but found ${emptyLineCount}. Lines after quote: ${JSON.stringify(afterQuote.slice(0, 5))}`,
+			).toBe(1);
 		});
 
 		it("should not add a trailing blank line when blockquote is the last rendered block", () => {
@@ -1242,7 +1268,10 @@ again, hello world`,
 			const lines = markdown.render(80);
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
 
-			expect(plainLines.at(-1), `Expected blockquote to end without a blank line: ${JSON.stringify(plainLines)}`).not.toBe("");
+			expect(
+				plainLines.at(-1),
+				`Expected blockquote to end without a blank line: ${JSON.stringify(plainLines)}`,
+			).not.toBe("");
 		});
 	});
 
@@ -1325,8 +1354,14 @@ bar`,
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 			const quotedLines = plainLines.filter((line) => line.startsWith("│ "));
 
-			expect(quotedLines.some((line) => line.includes("1. bla bla")), `Missing ordered list item: ${JSON.stringify(quotedLines)}`).toBeTruthy();
-			expect(quotedLines.some((line) => line.includes("- nested bullet")), `Missing unordered list item: ${JSON.stringify(quotedLines)}`).toBeTruthy();
+			expect(
+				quotedLines.some((line) => line.includes("1. bla bla")),
+				`Missing ordered list item: ${JSON.stringify(quotedLines)}`,
+			).toBeTruthy();
+			expect(
+				quotedLines.some((line) => line.includes("- nested bullet")),
+				`Missing unordered list item: ${JSON.stringify(quotedLines)}`,
+			).toBeTruthy();
 		});
 
 		it("should wrap long blockquote lines and add border to each wrapped line", () => {
@@ -1341,7 +1376,10 @@ bar`,
 			const contentLines = plainLines.filter((line) => line.length > 0);
 
 			// Should have multiple lines due to wrapping
-			expect(contentLines.length > 1, `Expected multiple wrapped lines, got: ${JSON.stringify(contentLines)}`).toBeTruthy();
+			expect(
+				contentLines.length > 1,
+				`Expected multiple wrapped lines, got: ${JSON.stringify(contentLines)}`,
+			).toBeTruthy();
 
 			// Every content line should start with the quote border
 			for (const line of contentLines) {
@@ -1356,16 +1394,10 @@ bar`,
 		});
 
 		it("should properly indent wrapped blockquote lines with styling", () => {
-			const markdown = new Markdown(
-				"> This is styled text that is long enough to wrap",
-				0,
-				0,
-				defaultMarkdownTheme,
-				{
-					color: (text) => chalk.yellow(text), // This should NOT be applied to blockquotes
-					italic: true,
-				},
-			);
+			const markdown = new Markdown("> This is styled text that is long enough to wrap", 0, 0, defaultMarkdownTheme, {
+				color: (text) => chalk.yellow(text), // This should NOT be applied to blockquotes
+				italic: true,
+			});
 
 			const lines = markdown.render(25);
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
@@ -1393,7 +1425,10 @@ bar`,
 			const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 
 			// Should have the quote border
-			expect(plainLines.some((line) => line.startsWith("│ ")), "Should have quote border").toBeTruthy();
+			expect(
+				plainLines.some((line) => line.startsWith("│ ")),
+				"Should have quote border",
+			).toBeTruthy();
 
 			// Content should be preserved
 			const allPlain = plainLines.join(" ");
@@ -1434,8 +1469,14 @@ bar`,
 			// Look at the ANSI codes between the code span end and "should not be optional".
 			// There should be bold (\x1b[1m) and cyan (\x1b[36m) re-applied.
 			const precedingChunk = joinedOutput.slice(Math.max(0, afterCodeIndex - 40), afterCodeIndex);
-			expect(precedingChunk.includes("\x1b[1m"), `Should re-apply bold before text after code: ${precedingChunk}`).toBeTruthy();
-			expect(precedingChunk.includes("\x1b[36m"), `Should re-apply cyan before text after code: ${precedingChunk}`).toBeTruthy();
+			expect(
+				precedingChunk.includes("\x1b[1m"),
+				`Should re-apply bold before text after code: ${precedingChunk}`,
+			).toBeTruthy();
+			expect(
+				precedingChunk.includes("\x1b[36m"),
+				`Should re-apply cyan before text after code: ${precedingChunk}`,
+			).toBeTruthy();
 		});
 
 		it("should preserve heading styling after inline code for h1", () => {
@@ -1585,10 +1626,11 @@ bar`,
 			const plainLines = lines.map((line) => line.replace(/\x1b[^a-zA-Z]*[a-zA-Z]|\x1b\].*?\x1b\\/g, ""));
 			expect(plainLines.join("").includes("click here"), "Should contain link text").toBeTruthy();
 			// URL is NOT printed inline as plain text
-			const rawPlain = lines.map((line) =>
-				line.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, ""),
-			);
-			expect(!rawPlain.join("").includes("(https://example.com)"), "URL should not appear inline in parentheses").toBeTruthy();
+			const rawPlain = lines.map((line) => line.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, ""));
+			expect(
+				!rawPlain.join("").includes("(https://example.com)"),
+				"URL should not appear inline in parentheses",
+			).toBeTruthy();
 		});
 
 		it("should not emit OSC 8 when the href carries control bytes", () => {
@@ -1610,7 +1652,10 @@ bar`,
 			const lines = markdown.render(80);
 			const joined = lines.join("");
 
-			expect(joined.includes("\x1b]8;;mailto:test@example.com\x1b\\"), "Should contain OSC 8 open with mailto URL").toBeTruthy();
+			expect(
+				joined.includes("\x1b]8;;mailto:test@example.com\x1b\\"),
+				"Should contain OSC 8 open with mailto URL",
+			).toBeTruthy();
 			expect(joined.includes("\x1b]8;;\x1b\\"), "Should contain OSC 8 close sequence").toBeTruthy();
 		});
 
@@ -1623,9 +1668,7 @@ bar`,
 
 			expect(joined.includes("\x1b]8;;https://example.com\x1b\\"), "Should contain OSC 8 hyperlink").toBeTruthy();
 			// URL should not also appear as raw parenthetical text
-			const rawPlain = lines.map((line) =>
-				line.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, ""),
-			);
+			const rawPlain = lines.map((line) => line.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, ""));
 			expect(!rawPlain.join("").includes("(https://example.com)"), "URL should not appear twice").toBeTruthy();
 		});
 
@@ -1642,15 +1685,19 @@ bar`,
 			const joined = lines.join("");
 
 			// The hyperlink target must stop at the CJK boundary…
-			expect(joined.includes("\x1b]8;;https://example.com/app/pull/232\x1b\\"), "OSC 8 target should end at the URL, before the full-width parenthesis").toBeTruthy();
+			expect(
+				joined.includes("\x1b]8;;https://example.com/app/pull/232\x1b\\"),
+				"OSC 8 target should end at the URL, before the full-width parenthesis",
+			).toBeTruthy();
 			// …and the CJK text must not be part of any hyperlink target.
 			expect(!joined.includes("%EF%BC%88"), "OSC 8 target should not contain encoded CJK").toBeTruthy();
 			expect(!/\x1b\]8;;[^\x1b]*（/.test(joined), "No hyperlink target should contain CJK characters").toBeTruthy();
 			// The full source text still renders visibly.
-			const rawPlain = lines.map((line) =>
-				line.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, ""),
-			);
-			expect(rawPlain.join("").includes("https://example.com/app/pull/232（本地 main 已退回"), "URL and following CJK text should both render").toBeTruthy();
+			const rawPlain = lines.map((line) => line.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, ""));
+			expect(
+				rawPlain.join("").includes("https://example.com/app/pull/232（本地 main 已退回"),
+				"URL and following CJK text should both render",
+			).toBeTruthy();
 		});
 
 		it("should strip a trailing full-width parenthesis after a bare URL", () => {
@@ -1660,7 +1707,10 @@ bar`,
 			const lines = markdown.render(80);
 			const joined = lines.join("");
 
-			expect(joined.includes("\x1b]8;;https://example.com/page\x1b\\"), "OSC 8 target should exclude the wrapping full-width parenthesis").toBeTruthy();
+			expect(
+				joined.includes("\x1b]8;;https://example.com/page\x1b\\"),
+				"OSC 8 target should exclude the wrapping full-width parenthesis",
+			).toBeTruthy();
 		});
 
 		it("should keep CJK characters inside the URL path", () => {
@@ -1670,7 +1720,10 @@ bar`,
 			const lines = markdown.render(80);
 			const joined = lines.join("");
 
-			expect(joined.includes("\x1b]8;;https://example.com/wiki/测试页面\x1b\\"), "CJK path characters remain part of the hyperlink target").toBeTruthy();
+			expect(
+				joined.includes("\x1b]8;;https://example.com/wiki/测试页面\x1b\\"),
+				"CJK path characters remain part of the hyperlink target",
+			).toBeTruthy();
 		});
 
 		it("should keep balanced full-width parentheses inside the URL path", () => {
@@ -1685,7 +1738,10 @@ bar`,
 			const lines = markdown.render(80);
 			const joined = lines.join("");
 
-			expect(joined.includes("\x1b]8;;https://example.com/wiki/中华人民共和国（1949年）\x1b\\"), "Balanced full-width parens remain part of the hyperlink target").toBeTruthy();
+			expect(
+				joined.includes("\x1b]8;;https://example.com/wiki/中华人民共和国（1949年）\x1b\\"),
+				"Balanced full-width parens remain part of the hyperlink target",
+			).toBeTruthy();
 		});
 
 		it("should keep CJK punctuation inside balanced full-width parentheses", () => {
@@ -1700,7 +1756,10 @@ bar`,
 			const lines = markdown.render(80);
 			const joined = lines.join("");
 
-			expect(joined.includes("\x1b]8;;https://example.com/wiki/中华人民共和国（北京，1949年）\x1b\\"), "Punctuation inside balanced full-width parens remains part of the hyperlink target").toBeTruthy();
+			expect(
+				joined.includes("\x1b]8;;https://example.com/wiki/中华人民共和国（北京，1949年）\x1b\\"),
+				"Punctuation inside balanced full-width parens remains part of the hyperlink target",
+			).toBeTruthy();
 		});
 	});
 
@@ -1720,7 +1779,10 @@ bar`,
 			const joinedPlain = plainLines.join(" ");
 
 			// The content inside the tags should be visible
-			expect(joinedPlain.includes("hidden content") || joinedPlain.includes("<thinking>"), "Should render HTML-like tags or their content as text, not hide them").toBeTruthy();
+			expect(
+				joinedPlain.includes("hidden content") || joinedPlain.includes("<thinking>"),
+				"Should render HTML-like tags or their content as text, not hide them",
+			).toBeTruthy();
 		});
 
 		it("should render HTML tags in code blocks correctly", () => {
@@ -1731,7 +1793,10 @@ bar`,
 			const joinedPlain = plainLines.join("\n");
 
 			// HTML in code blocks should be visible
-			expect(joinedPlain.includes("<div>") && joinedPlain.includes("</div>"), "Should render HTML in code blocks").toBeTruthy();
+			expect(
+				joinedPlain.includes("<div>") && joinedPlain.includes("</div>"),
+				"Should render HTML in code blocks",
+			).toBeTruthy();
 		});
 	});
 

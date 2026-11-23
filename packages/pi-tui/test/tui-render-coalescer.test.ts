@@ -100,7 +100,10 @@ describe("render coalescer clean-frame guard", () => {
 			tui.renderNow();
 			await delay(200);
 			// Every frame changed a row, so every request it raised deserves another frame.
-			expect(tui.frames >= 4, `a frame that produced output must keep the chain alive, saw ${tui.frames} frames`).toBeTruthy();
+			expect(
+				tui.frames >= 4,
+				`a frame that produced output must keep the chain alive, saw ${tui.frames} frames`,
+			).toBeTruthy();
 		} finally {
 			tui.stop();
 		}
@@ -140,7 +143,9 @@ describe("render coalescer clean-frame guard", () => {
 			const framesBeforeInput = tui.frames;
 			terminal.sendInput("hello");
 			await new Promise<void>((resolve) => process.nextTick(resolve));
-			expect(tui.frames, "input must render on its own frame after the guard dropped a request").toBe(framesBeforeInput + 1);
+			expect(tui.frames, "input must render on its own frame after the guard dropped a request").toBe(
+				framesBeforeInput + 1,
+			);
 			expect(component.text).toBe("typed hello");
 		} finally {
 			tui.stop();
@@ -159,7 +164,10 @@ describe("render coalescer clean-frame guard", () => {
 			// A forced frame clears the previous-screen cache before it runs, so it repaints every
 			// row and reports output whatever the content is: the clean-frame test cannot end this
 			// chain. The forced cap answers the frame's own request once, then drops it.
-			expect(tui.frames >= 2 && tui.frames <= 3, `a forced self-request must not hold a render chain, saw ${tui.frames} frames`).toBeTruthy();
+			expect(
+				tui.frames >= 2 && tui.frames <= 3,
+				`a forced self-request must not hold a render chain, saw ${tui.frames} frames`,
+			).toBeTruthy();
 			const framesAfterChain = tui.frames;
 			await delay(200);
 			expect(tui.frames, "the forced chain must stop, not merely slow down").toBe(framesAfterChain);
