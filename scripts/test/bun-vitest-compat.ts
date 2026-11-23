@@ -1,6 +1,56 @@
 import { jest, vi } from 'bun:test';
+import { JSDOM } from 'jsdom';
 
 type UnknownRecord = Record<string, unknown>;
+
+const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+  url: 'http://localhost/',
+  pretendToBeVisual: true,
+});
+const domWindow = dom.window as unknown as UnknownRecord;
+for (const key of [
+  'window',
+  'document',
+  'navigator',
+  'location',
+  'history',
+  'localStorage',
+  'sessionStorage',
+  'Event',
+  'CustomEvent',
+  'UIEvent',
+  'MouseEvent',
+  'PointerEvent',
+  'KeyboardEvent',
+  'FocusEvent',
+  'InputEvent',
+  'DragEvent',
+  'ClipboardEvent',
+  'WheelEvent',
+  'getComputedStyle',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'matchMedia',
+] as const) {
+  const value = domWindow[key];
+  if (value === undefined) continue;
+  try {
+    Object.defineProperty(globalThis, key, {
+      value: typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(domWindow) : value,
+      configurable: true,
+      writable: true,
+    });
+  } catch {}
+}
+for (const key of Object.getOwnPropertyNames(domWindow)) {
+  if (key in globalThis) continue;
+  const value = domWindow[key];
+  if (typeof value !== 'function' && typeof value !== 'object') continue;
+  try {
+    Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+  } catch {}
+}
+(globalThis as UnknownRecord)['self'] = domWindow;
 
 const bunVi = vi as unknown as UnknownRecord;
 const savedGlobals = new Map<string, { had: boolean; value: unknown }>();
