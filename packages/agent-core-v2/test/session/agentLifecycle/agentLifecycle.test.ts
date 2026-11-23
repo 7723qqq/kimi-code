@@ -488,6 +488,7 @@ describe('AgentLifecycleService', () => {
       cancel: loopCancel,
       settled: loopSettled,
       tryAcquireQuiescence: jest.fn(() => ({ dispose: jest.fn() })),
+      close: jest.fn(async () => {}),
       buildAttachBundle: () => stubAttachBundle(),
       attachEngine: () => stubAttachEngine(),
     } as unknown as IAgentLoopService);
