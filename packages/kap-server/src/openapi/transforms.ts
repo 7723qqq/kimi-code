@@ -39,6 +39,8 @@ import {
   takeoverSessionResponseSchema,
   deleteSessionResponseSchema,
   getSessionResponseSchema,
+  sessionCancelResponseSchema,
+  waitSessionResponseSchema,
 } from '../protocol/rest-session';
 
 const binarySchema = {
@@ -189,6 +191,14 @@ function patchSessionAction(paths: Record<string, unknown>): void {
   projectSessionAction(paths, pathItem, 'takeover', 'runSessionTakeoverAction', {
     description: 'Session lock takeover response',
     content: jsonContent(openApiDocumentEnvelopeJsonSchema(takeoverSessionResponseSchema)),
+  });
+  projectSessionAction(paths, pathItem, 'cancel', 'runSessionCancelAction', {
+    description: 'Session cancel response',
+    content: jsonContent(openApiDocumentEnvelopeJsonSchema(sessionCancelResponseSchema)),
+  });
+  projectSessionAction(paths, pathItem, 'wait', 'runSessionWaitAction', {
+    description: 'Session wait response',
+    content: jsonContent(openApiDocumentEnvelopeJsonSchema(waitSessionResponseSchema)),
   });
   delete paths[internalPath];
 }
