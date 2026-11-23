@@ -62,6 +62,7 @@ export interface ProviderDefinition<N extends Protocol = Protocol> {
   readonly endpoint?: ProtocolEndpoint;
   readonly endpoints?: readonly ProtocolEndpoint[];
   readonly hostHeaders?: 'full' | 'user-agent';
+  readonly requestMetadata?: boolean;
   readonly modelSource?: ModelSource;
 }
 
@@ -263,6 +264,7 @@ registerProviderDefinition({
   classifyError: classifyKimiQuotaError,
   endpoint: kimiEndpoint,
   hostHeaders: 'full',
+  requestMetadata: true,
   modelSource: 'oauth-catalog',
 });
 
@@ -274,6 +276,7 @@ registerProviderDefinition({
   classifyError: classifyKimiQuotaError,
   endpoint: kimiEndpoint,
   hostHeaders: 'full',
+  requestMetadata: true,
   modelSource: 'oauth-catalog',
 });
 
@@ -285,6 +288,7 @@ registerProviderDefinition({
   classifyError: classifyKimiQuotaError,
   endpoint: kimiEndpoint,
   hostHeaders: 'full',
+  requestMetadata: true,
   modelSource: 'oauth-catalog',
 });
 

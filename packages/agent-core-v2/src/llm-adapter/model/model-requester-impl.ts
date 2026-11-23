@@ -268,8 +268,15 @@ export class ModelRequesterImpl implements ModelRequester {
     let traceId: string | null | undefined;
     let failed: LlmErrorMessage | undefined;
 
+    const baseModel =
+      params?.headers === undefined
+        ? resolved.model
+        : {
+            ...resolved.model,
+            defaultHeaders: { ...resolved.model.defaultHeaders, ...params.headers },
+          };
     const config: LlmRequestConfig = {
-      model: resolved.model,
+      model: baseModel,
       systemPrompt: input.systemPrompt,
       tools: wireTools(input.tools),
       cacheKey: params?.cacheKey,
@@ -289,7 +296,7 @@ export class ModelRequesterImpl implements ModelRequester {
 
     const credential = await this.model.credentialProvider?.resolve();
     const requestModel = applyCredential(
-      withSessionHeader(resolved.model, params?.sessionId),
+      withSessionHeader(baseModel, params?.sessionId),
       credential,
     );
     const stall = createStallTimeout((error) => {

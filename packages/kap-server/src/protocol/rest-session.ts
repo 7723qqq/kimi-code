@@ -9,6 +9,7 @@ import { z } from 'zod';
 
 import { ErrorCode } from './error-codes';
 import { goalSnapshotSchema } from './goal';
+import { pendingInteractionSchema } from './interaction';
 import { cursorQuerySchema, pageResponseSchema } from './pagination';
 import { booleanQueryParam } from './query-params';
 import {
@@ -426,6 +427,36 @@ export const sessionAbortResponseSchema = z.object({
   aborted: z.boolean(),
 });
 export type SessionAbortResponse = z.infer<typeof sessionAbortResponseSchema>;
+
+export const cancelSessionRequestSchema = z
+  .object({
+    agent_id: z.string().min(1).optional(),
+    include_background: z.boolean().optional(),
+  })
+  .strict();
+export type CancelSessionRequest = z.infer<typeof cancelSessionRequestSchema>;
+
+export const sessionCancelResponseSchema = z.object({
+  cancelled: z.boolean(),
+});
+export type SessionCancelResponse = z.infer<typeof sessionCancelResponseSchema>;
+
+export const DEFAULT_SESSION_WAIT_TIMEOUT_MS = 15_000;
+export const MAX_SESSION_WAIT_TIMEOUT_MS = 60_000;
+
+export const waitSessionRequestSchema = z
+  .object({
+    timeout_ms: z.number().int().min(0).max(MAX_SESSION_WAIT_TIMEOUT_MS).optional(),
+  })
+  .strict();
+export type WaitSessionRequest = z.infer<typeof waitSessionRequestSchema>;
+
+export const waitSessionResponseSchema = z.object({
+  session: sessionSchema,
+  pending_interactions: z.array(pendingInteractionSchema),
+  timed_out: z.boolean(),
+});
+export type WaitSessionResponse = z.infer<typeof waitSessionResponseSchema>;
 
 function fitsUtf8ByteLimit(value: string, limit: number): boolean {
   let bytes = 0;

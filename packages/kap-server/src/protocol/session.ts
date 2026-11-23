@@ -66,6 +66,7 @@ export const sessionSchema = z.object({
   main_turn_active: z.boolean().optional(),
   pending_interaction: sessionPendingInteractionSchema.optional(),
   last_turn_reason: z.enum(['completed', 'cancelled', 'failed']).optional(),
+  last_turn_outcome: z.enum(['completed', 'interrupted', 'failed']).optional(),
   archived: z.boolean().optional(),
   archived_at: isoDateTimeSchema.optional(),
   current_prompt_id: z.string().min(1).optional(),

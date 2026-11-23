@@ -7,7 +7,10 @@ import {
   IAgentLifecycleService,
   IAgentLoopService,
   IAgentPluginService,
+  IAgentTaskService,
+  IAtomicDocumentStore,
   IAuthSummaryService,
+  IBootstrapService,
   IConfigService,
   IPluginService,
   ISessionAgentProfileCatalog,
@@ -26,16 +29,24 @@ import {
   IWorkspaceInstanceManager,
   IWorkspaceService,
   closeSessionById,
+  followSessionLifecycles,
   getLiveSessionById,
+  interactions,
   programForSession,
   resolveSubagentModelPool,
   reloadOnStale,
   resumeSessionById,
   setSessionArchived,
+  toDisposable,
   Error2,
+  legacySessionMetaScopeOf,
+  sessionScopeOf,
+  workspacePersistenceScope,
   type IAgentScopeHandle,
+  type IDisposable,
   type ISessionScopeHandle,
   type Scope,
+  type SessionMeta,
   type SessionSummary,
   type SubagentModelPoolSnapshot,
 } from '@moonshot-ai/agent-core-v2';
@@ -52,10 +63,15 @@ import { ErrorCode } from '../protocol/error-codes';
 import { projectGoalStatus } from '../protocol/goal';
 import { pageResponseSchema } from '../protocol/pagination';
 import { booleanQueryParam } from '../protocol/query-params';
+import { type PendingInteraction } from '../protocol/interaction';
+import { listPendingInteractions } from '../protocol/interaction-wire';
 import {
   archiveSessionResponseSchema,
+  cancelSessionRequestSchema,
   compactSessionRequestSchema,
   compactSessionResponseSchema,
+  DEFAULT_SESSION_WAIT_TIMEOUT_MS,
+  MAX_SESSION_WAIT_TIMEOUT_MS,
   createSessionChildRequestSchema,
   createSessionRequestSchema,
   deleteSessionResponseSchema,
@@ -67,12 +83,15 @@ import {
   optimizePromptSessionRequestSchema,
   optimizePromptSessionResponseSchema,
   sessionAbortResponseSchema,
+  sessionCancelResponseSchema,
   sessionWarningsResponseSchema,
   startBtwSessionResponseSchema,
   takeoverSessionResponseSchema,
   undoSessionRequestSchema,
   undoSessionResponseSchema,
   updateSessionProfileRequestSchema,
+  waitSessionRequestSchema,
+  waitSessionResponseSchema,
 } from '../protocol/rest-session';
 import {
   emptySessionUsage,
@@ -189,6 +208,8 @@ const sessionActionRequestSchema = z.preprocess(
       instruction: z.string().optional(),
       turn_id: z.string().min(1).optional(),
       agent_id: z.string().min(1).optional(),
+      include_background: z.boolean().optional(),
+      timeout_ms: z.number().int().min(0).max(MAX_SESSION_WAIT_TIMEOUT_MS).optional(),
       count: z.number().int().positive().optional(),
       page_size: z.number().int().min(1).max(100).optional(),
       text: z.string().optional(),
@@ -668,11 +689,13 @@ export function registerSessionsRoutes(
           compactSessionResponseSchema,
           undoSessionResponseSchema,
           sessionAbortResponseSchema,
+          sessionCancelResponseSchema,
           startBtwSessionResponseSchema,
           optimizePromptSessionResponseSchema,
           archiveSessionResponseSchema,
           deleteSessionResponseSchema,
           takeoverSessionResponseSchema,
+          waitSessionResponseSchema,
         ]),
       },
       errors: {
@@ -974,6 +997,8 @@ type SessionAction =
   | 'compact'
   | 'undo'
   | 'abort'
+  | 'cancel'
+  | 'wait'
   | 'btw'
   | 'optimize'
   | 'restore'
@@ -992,6 +1017,7 @@ interface SessionActionExtra {
 interface DisconnectObservableReply {
   readonly raw?: {
     readonly writableFinished?: boolean;
+    readonly destroyed?: boolean;
     once(event: 'close', listener: () => void): unknown;
     off(event: 'close', listener: () => void): unknown;
   };
@@ -1007,6 +1033,8 @@ const sessionActions: ActionTable<SessionAction, SessionActionExtra> = {
   compact: { body: compactSessionRequestSchema, handle: compactSessionAction },
   undo: { body: undoSessionRequestSchema, handle: undoSessionAction },
   abort: { handle: abortSessionAction },
+  cancel: { body: cancelSessionRequestSchema, handle: cancelSessionAction },
+  wait: { body: waitSessionRequestSchema, handle: waitSessionAction },
   btw: { handle: btwSessionAction },
   optimize: { body: optimizePromptSessionRequestSchema, handle: optimizePromptSessionAction },
   restore: { handle: restoreSessionAction },
@@ -1091,6 +1119,273 @@ async function abortSessionAction(ctx: SessionActionCtx): Promise<void> {
   agent.accessor.get(IAgentLoopService).cancel();
   requestLog(req)?.info({ session_id: id, action: 'abort' }, 'session action completed');
   reply.send(okEnvelope({ aborted: true }, req.id));
+}
+
+async function cancelSessionAction(
+  ctx: SessionActionCtx<z.infer<typeof cancelSessionRequestSchema>>,
+): Promise<void> {
+  const { core, req, reply, id, body } = ctx;
+  const targetAgentId = body.agent_id ?? MAIN_AGENT_ID;
+  let live = getLiveSessionById(core.accessor, id);
+  if (live === undefined) {
+    try {
+      await core.accessor.get(ISessionManager).whenResumeSettled(id);
+    } catch {}
+    live = getLiveSessionById(core.accessor, id);
+  }
+  if (live === undefined) {
+    const summary = await core.accessor.get(ISessionIndex).get(id);
+    if (summary === undefined) {
+      throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
+    }
+    if (targetAgentId !== MAIN_AGENT_ID) {
+      const docs = core.accessor.get(IAtomicDocumentStore);
+      const metaScope = sessionScopeOf(
+        workspacePersistenceScope(
+          core.accessor.get(IBootstrapService).scope('sessions'),
+          summary.workspaceId,
+        ),
+        id,
+      );
+      const raw =
+        (await docs.get<SessionMeta>(metaScope, 'state.json')) ??
+        (await docs.get<SessionMeta>(legacySessionMetaScopeOf(metaScope), 'state.json'));
+      if (raw?.agents?.[targetAgentId] === undefined) {
+        throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `agent ${targetAgentId} does not exist`);
+      }
+    }
+    requestLog(req)?.info(
+      { session_id: id, action: 'cancel', cancelled: false },
+      'session action completed',
+    );
+    reply.send(okEnvelope({ cancelled: false }, req.id));
+    return;
+  }
+
+  const lifecycle = live.accessor.get(IAgentLifecycleService);
+  const agent = lifecycle.handleOf(targetAgentId);
+  if (targetAgentId !== MAIN_AGENT_ID && agent === undefined) {
+    const persisted = (await live.accessor.get(ISessionMetadata).read()).agents?.[targetAgentId];
+    if (persisted === undefined) {
+      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `agent ${targetAgentId} does not exist`);
+    }
+    requestLog(req)?.info(
+      {
+        session_id: id,
+        action: 'cancel',
+        agent_id: targetAgentId,
+        include_background: body.include_background === true,
+        cancelled: false,
+      },
+      'session action completed',
+    );
+    reply.send(okEnvelope({ cancelled: false }, req.id));
+    return;
+  }
+
+  let cancelled = agent !== undefined ? agent.accessor.get(IAgentLoopService).cancel() : false;
+  if (body.include_background === true) {
+    const handles: IAgentScopeHandle[] = [];
+    if (body.agent_id !== undefined) {
+      if (agent !== undefined) handles.push(agent);
+    } else {
+      for (const context of lifecycle.list()) {
+        const handle = lifecycle.handleOf(context.agentId);
+        if (handle !== undefined) handles.push(handle);
+      }
+    }
+    for (const handle of handles) {
+      const taskService = handle.accessor.get(IAgentTaskService);
+      for (const task of taskService.list(true)) {
+        if (task.detached) {
+          await taskService.stopByUser(task.taskId);
+          cancelled = true;
+        }
+      }
+    }
+  }
+
+  requestLog(req)?.info(
+    {
+      session_id: id,
+      action: 'cancel',
+      agent_id: targetAgentId,
+      include_background: body.include_background === true,
+      cancelled,
+    },
+    'session action completed',
+  );
+  reply.send(okEnvelope({ cancelled }, req.id));
+}
+
+async function readWaitSnapshot(
+  core: Scope,
+  id: string,
+): Promise<{
+  session: Session;
+  pendingInteractions: PendingInteraction[];
+  settled: boolean;
+  live: ISessionScopeHandle | undefined;
+}> {
+  const live = getLiveSessionById(core.accessor, id);
+  const pendingInteractions = listPendingInteractions(id);
+  let baseSession: Session;
+  if (live !== undefined) {
+    const meta = await live.accessor.get(ISessionMetadata).read();
+    const context = live.accessor.get(ISessionContext);
+    baseSession = toWireSession(
+      { ...meta, workspaceId: context.workspaceId },
+      context.cwd,
+      resolveSessionFacts(core, id),
+    );
+  } else {
+    const summary = await core.accessor.get(ISessionIndex).get(id);
+    if (summary === undefined) {
+      throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
+    }
+    const cwd =
+      summary.cwd ?? (await core.accessor.get(IWorkspaceService).get(summary.workspaceId))?.root;
+    if (cwd === undefined) {
+      throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} has no recoverable cwd`);
+    }
+    baseSession = toWireSession(summary, cwd, resolveSessionFacts(core, id));
+  }
+  const session =
+    pendingInteractions.length > 0 && baseSession.pending_interaction === 'none'
+      ? { ...baseSession, pending_interaction: pendingInteractions[0]!.kind }
+      : baseSession;
+  const settled =
+    session.activity !== 'turn' ||
+    session.pending_interaction !== 'none' ||
+    pendingInteractions.length > 0;
+  return { session, pendingInteractions, settled, live };
+}
+
+async function waitSessionAction(
+  ctx: SessionActionCtx<z.infer<typeof waitSessionRequestSchema>>,
+): Promise<void> {
+  const { core, req, reply, id, body } = ctx;
+  const timeoutMs = body.timeout_ms ?? DEFAULT_SESSION_WAIT_TIMEOUT_MS;
+  const initial = await readWaitSnapshot(core, id);
+  if (initial.settled) {
+    reply.send(
+      okEnvelope(
+        {
+          session: initial.session,
+          pending_interactions: initial.pendingInteractions,
+          timed_out: false,
+        },
+        req.id,
+      ),
+    );
+    return;
+  }
+  if (timeoutMs === 0 || initial.live === undefined) {
+    reply.send(
+      okEnvelope(
+        {
+          session: initial.session,
+          pending_interactions: initial.pendingInteractions,
+          timed_out: initial.live !== undefined,
+        },
+        req.id,
+      ),
+    );
+    return;
+  }
+
+  const liveHandle = initial.live;
+  const raw = (reply as unknown as DisconnectObservableReply).raw;
+  const outcome = await new Promise<'settled' | 'timeout' | 'aborted'>((resolve) => {
+    let done = false;
+    const disposables: IDisposable[] = [];
+    const onClose = (): void => {
+      if (raw?.writableFinished === true) return;
+      finish('aborted');
+    };
+    const finish = (result: 'settled' | 'timeout' | 'aborted'): void => {
+      if (done) return;
+      done = true;
+      raw?.off('close', onClose);
+      for (const disposable of disposables.splice(0)) disposable.dispose();
+      resolve(result);
+    };
+
+    raw?.once('close', onClose);
+    if (raw?.destroyed === true && !raw.writableFinished) {
+      finish('aborted');
+      return;
+    }
+
+    try {
+      disposables.push(
+        liveHandle.accessor.get(ISessionActivityView).onDidChange(({ state }) => {
+          if (!state.mainTurnActive || state.pendingInteraction !== 'none') {
+            finish('settled');
+          }
+        }),
+      );
+    } catch {
+      finish('settled');
+      return;
+    }
+
+    disposables.push(
+      toDisposable(
+        interactions.onDidChangePending(() => {
+          if (listPendingInteractions(id).length > 0) {
+            finish('settled');
+          }
+        }),
+      ),
+      followSessionLifecycles(core.accessor, (service) => {
+        const closeSub = service.onDidCloseSession((event) => {
+          if (event.sessionId === id) finish('settled');
+        });
+        const archiveSub = service.onDidArchiveSession((event) => {
+          if (event.sessionId === id) finish('settled');
+        });
+        return {
+          dispose: () => {
+            closeSub.dispose();
+            archiveSub.dispose();
+          },
+        };
+      }),
+    );
+    const deleteSub = core.accessor.get(ISessionManager).onWillDeleteSession?.((event) => {
+      if (event.sessionId === id) finish('settled');
+    });
+    if (deleteSub !== undefined) disposables.push(deleteSub);
+
+    const timer = setTimeout(() => finish('timeout'), timeoutMs);
+    disposables.push(toDisposable(() => clearTimeout(timer)));
+
+    const recheck = resolveSessionFacts(core, id);
+    if (
+      !recheck.mainTurnActive ||
+      recheck.pendingInteraction !== 'none' ||
+      listPendingInteractions(id).length > 0
+    ) {
+      finish('settled');
+    }
+  });
+
+  if (outcome === 'aborted') {
+    return;
+  }
+
+  const after = await readWaitSnapshot(core, id);
+  reply.send(
+    okEnvelope(
+      {
+        session: after.session,
+        pending_interactions: after.pendingInteractions,
+        timed_out: outcome === 'timeout' && !after.settled,
+      },
+      req.id,
+    ),
+  );
 }
 
 async function btwSessionAction(ctx: SessionActionCtx): Promise<void> {
@@ -1317,6 +1612,8 @@ export function toWireSession(
   facts: SessionFacts,
   _git?: unknown,
 ): Session {
+  const lastTurnReason =
+    facts.lastTurnReason ?? (facts.live === false ? fields.lastTurnReason : undefined);
   return {
     id: fields.id,
     workspace_id: fields.workspaceId,
@@ -1326,10 +1623,12 @@ export function toWireSession(
     archived_at:
       fields.archivedAt === undefined ? undefined : new Date(fields.archivedAt).toISOString(),
     busy: facts.busy,
+    activity: facts.mainTurnActive ? 'turn' : facts.busy ? 'background' : 'idle',
     main_turn_active: facts.mainTurnActive,
     pending_interaction: facts.pendingInteraction,
-    last_turn_reason:
-      facts.lastTurnReason ?? (facts.live === false ? fields.lastTurnReason : undefined),
+    last_turn_reason: lastTurnReason,
+    last_turn_outcome:
+      lastTurnReason === 'cancelled' ? 'interrupted' : lastTurnReason,
     archived: fields.archived,
     last_prompt: fields.lastPrompt,
     metadata: buildWireMetadata(fields.custom, cwd),

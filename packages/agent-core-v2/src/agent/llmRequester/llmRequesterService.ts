@@ -65,6 +65,9 @@ import type {
 } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { RequestMetadataTracker, requestMetadataHeaders } from '#/agent/loop/requestMetadata';
+import { ISessionRequestAttributionService } from '#/session/requestAttribution/requestAttribution';
+import { getProviderDefinition } from '#/llm-adapter/provider/provider-definition';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { WarningIssued } from '#/agent/profile/profileOps';
 
@@ -184,6 +187,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   declare readonly _serviceBrand: undefined;
 
   private readonly toolCallIdNormalizer = new ToolCallIdNormalizer();
+  private readonly requestMetadata: RequestMetadataTracker;
 
   private microCompactionService: IAgentMicroCompactionService | undefined;
   private get microCompaction(): IAgentMicroCompactionService | undefined {
@@ -214,6 +218,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IInstantiationService private readonly instantiation?: IInstantiationService,
     @IHostTimers private readonly hostTimers?: IHostTimers,
+    @ISessionRequestAttributionService private readonly attribution?: ISessionRequestAttributionService,
   ) {
     this.states.contributeState(llmRequestTraceKey);
     this.states.contributeState(llmRequesterLastConfigLogSignatureKey);
@@ -221,6 +226,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     this.states.contributeState(llmRequesterMediaRecoveryKey);
     this.states.contributeState(llmRequesterEmittedThinkingEffortWarningsKey);
     this.states.contributeState(llmRequesterLastTurnRequestKey);
+    this.requestMetadata = new RequestMetadataTracker(scopeContext, dispatcher, attribution);
   }
 
   private get lastConfigLogSignature(): string | undefined {
@@ -923,6 +929,16 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         ...baseParams,
         ...budgetParams,
         sessionId: this.sessionContext.sessionId,
+        headers:
+          getProviderDefinition(
+            requester.model.providerType ?? '',
+            requester.model.protocol,
+          )?.requestMetadata === true
+            ? {
+                ...baseParams.headers,
+                ...requestMetadataHeaders(this.requestMetadata.resolve(overrides.source)),
+              }
+            : baseParams.headers,
         ...(usedContextTokens === undefined ? {} : { usedContextTokens }),
         ...(optedOut ? { maxCompletionTokens: maxCompletionTokensCap } : {}),
       },

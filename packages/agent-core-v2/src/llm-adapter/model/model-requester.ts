@@ -62,6 +62,7 @@ export interface ModelRequestAttemptFailure {
 export interface ModelRequestParams {
   readonly cacheKey?: string;
   readonly sessionId?: string;
+  readonly headers?: Readonly<Record<string, string>>;
   readonly sampling?: SamplingOptions;
   readonly thinkingEffort?: ThinkingEffort;
   readonly thinkingKeep?: string;
