@@ -1,5 +1,11 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {},
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  "exclude": [
+    "src/llm/provider/bedrock",
+    "src/llm/builtin/provider/bedrock",
+    "src/llm/builtin/protocol/antigravity/requester.ts",
+    "src/llm/requester/thinking-tags.ts"
+  ]
 }

@@ -21,8 +21,11 @@ export interface MetaRouteOptions {
   readonly getFeatures: () => MetaFeature[] | Promise<MetaFeature[]>;
 }
 
+export const KIMI_AGENT_PROTOCOL_VERSION = '1.0.0';
+
 export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void {
   const staticData = Object.freeze({
+    kimi_agent_protocol_version: KIMI_AGENT_PROTOCOL_VERSION,
     server_version: opts.serverVersion,
     capabilities: Object.freeze({
       websocket: true as const,
@@ -30,6 +33,8 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
       fs_query: true as const,
       mcp: true as const,
       tasks: true as const,
+      interactions_list: true as const,
+      session_wait: true as const,
     }),
     server_id: opts.serverId,
     started_at: opts.startedAt,

@@ -15,5 +15,14 @@ export function fakeModelCatalog(): IModelCatalog {
     setDefaultModel: async () => {
       throw new Error('modelCatalog.setDefaultModel not exercised in this test');
     },
+    getRequester: (() => {
+      throw new Error('modelCatalog.getRequester not exercised in this test');
+    }) as never,
+    generate: (async () => {
+      throw new Error('modelCatalog.generate not exercised in this test');
+    }) as never,
+    ping: (async () => {
+      throw new Error('modelCatalog.ping not exercised in this test');
+    }) as never,
   };
 }

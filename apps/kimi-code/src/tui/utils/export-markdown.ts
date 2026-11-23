@@ -82,7 +82,8 @@ export function formatToolCallMd(tc: ToolCall): string {
 }
 
 function formatToolResultMd(msg: ContextMessage, toolName: string, hint: string): string {
-  const callId = msg.toolCallId ?? 'unknown';
+  const callId =
+    (msg as { readonly toolCallId?: string }).toolCallId ?? 'unknown';
   const parts: string[] = [];
   for (const part of msg.content) {
     const text = formatContentPartMd(part);
@@ -204,7 +205,10 @@ function buildOverview(
     }
   }
 
-  const toolCallCount = history.reduce((sum, msg) => sum + msg.toolCalls.length, 0);
+  const toolCallCount = history.reduce(
+    (sum, msg) => sum + ('toolCalls' in msg ? msg.toolCalls.length : 0),
+    0,
+  );
 
   return [
     '## Overview',

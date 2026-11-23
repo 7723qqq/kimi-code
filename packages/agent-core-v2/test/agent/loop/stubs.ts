@@ -169,6 +169,7 @@ function stubAttachEngine(): MachineEngine {
     submit: () => {},
     steer: () => {},
     notify: () => {},
+
     remind: () => {},
     cancelQueueItem: () => {},
     abort: () => {},
@@ -226,6 +227,31 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
   const hasPending = () => pending.length > 0;
   const stub: StubLoop = {
     _serviceBrand: undefined,
+    requester: {} as never,
+    async start() {},
+    baselineTools: () => [],
+    update() {},
+    history: () => [],
+    historyRevision: () => 0,
+    replaceHistory: () => false,
+    async initializeHistory() {},
+    async close() {},
+    async retry() {
+      return undefined;
+    },
+    abortTool() {},
+    detachTool() {},
+    suppressTaskNotifications() {},
+    addActiveTool() {},
+    removeActiveTool() {},
+    remind() {},
+    flushReminders() {},
+    registerToolBatchStarting() {
+      return { dispose() {} };
+    },
+    async notifyClient() {
+      return { prompt_id: 'p', created_at: new Date().toISOString(), state: 'queued' };
+    },
     hooks,
     launches,
     cancels,
@@ -343,7 +369,6 @@ export function stubToolExecutor(): IAgentToolExecutorService {
     execute: async function* () {},
     onBeforeExecuteTool: Event.None as Event<BeforeToolExecuteEvent>,
     onWillExecuteTool: Event.None as Event<WillExecuteToolEvent>,
-    // ---- upstream 2.7.0 members ----
     executor: { execute: async () => ({ content: [], isError: false } as never) } as never,
     registerHook: () => ({ dispose() {} }),
     registerLegacyStarting: () => ({ dispose() {} }),
@@ -351,7 +376,6 @@ export function stubToolExecutor(): IAgentToolExecutorService {
     handler: () => undefined,
     handlerForCall: () => undefined,
     release: () => {},
-    // ---- end upstream ----
     hooks: {
       onExecuteTool: new OrderedHookSlot<ResolvedToolExecutionHookContext>(),
       onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>(),

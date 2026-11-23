@@ -3029,7 +3029,7 @@ describe('foldAgentWireReplay', () => {
       { type: 'metadata', protocol_version: '1.5', created_at: 1000 },
       {
         type: 'context.append_message',
-        message: { role: 'user', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
+        message: { role: 'user', content: [{ type: 'text', text: 'hello' }] },
         time: 1001,
       },
       { type: 'permission.set_mode', mode: 'auto', time: 1002 },
@@ -3064,7 +3064,7 @@ describe('foldAgentWireReplay', () => {
     expect(folded.replay).toEqual([
       {
         type: 'message',
-        message: { role: 'user', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
+        message: { role: 'user', content: [{ type: 'text', text: 'hello' }] },
         time: 1001,
       },
       { type: 'permission_updated', mode: 'auto', time: 1002 },
@@ -3146,7 +3146,6 @@ describe('foldAgentWireReplay turn limiting', () => {
       message: {
         role: 'user',
         content: [{ type: 'text', text }],
-        toolCalls: [],
         ...(origin === undefined ? {} : { origin }),
       },
       time,
@@ -3339,7 +3338,6 @@ describe('foldAgentWireReplay turn limiting', () => {
           message: {
             role: 'user',
             content: [{ type: 'text', text: 'kept question' }],
-            toolCalls: [],
             origin: { kind: 'user' },
           },
         },
@@ -3464,7 +3462,6 @@ describe('foldAgentWireReplay turn limiting', () => {
         message: {
           role: 'user',
           content: [{ type: 'text', text: 'last question' }],
-          toolCalls: [],
           origin: { kind: 'user' },
         },
       },

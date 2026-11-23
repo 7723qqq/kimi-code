@@ -1,17 +1,9 @@
+import { createCloudAppender, IConfigService, IOAuthToolkit, ITelemetryService, type Scope, type TelemetryProperties, ISessionIndex, IWorkspaceService } from '@moonshot-ai/agent-core-v2';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { nativeTheme } from 'electron';
-import {
-  createCloudAppender,
-  IConfigService,
-  IOAuthToolkit,
-  ITelemetryService,
-  type Scope,
-  type TelemetryProperties,
-} from '@moonshot-ai/agent-core-v2';
-import { ISessionIndex } from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
-import { IWorkspaceService } from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
+
 import { resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
 
 import { DESKTOP_PRODUCT_NAME, DESKTOP_UI_MODE } from '../../shared/identity';

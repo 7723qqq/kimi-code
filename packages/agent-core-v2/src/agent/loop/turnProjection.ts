@@ -36,6 +36,7 @@ import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import type { FinishReason, LlmTiming } from '@moonshot-ai/core/llm/response';
 import type { ThinkingEffort } from '@moonshot-ai/core/llm/request';
 import { emptyUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { emptyUsage as emptyHumanUsage, usageFromCore } from '#human/llm/usage';
 import type { AssistantMessage, Message, UserMessage } from '@moonshot-ai/core/llm/message';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
@@ -202,7 +203,7 @@ export class AgentTurnProjection {
 
   private turnRequestId(promptOnly: boolean, cancelled: boolean, completed: boolean): string | undefined {
     if (promptOnly || cancelled) return undefined;
-    return completed ? this.lastRequestId : (this.activeRequestTrace?.requestId ?? this.lastRequestId);
+    return completed ? this.lastRequestId : this.activeRequestTrace?.requestId;
   }
 
   history(source: readonly Message[]): readonly ContextMessage[] {
@@ -254,7 +255,7 @@ export class AgentTurnProjection {
       state: loop?.state.turn === undefined && active === undefined ? 'idle' : 'running',
       activeTurnId: loop?.state.turn?.id ?? active?.id,
       activePromptId: this.options.prompts.activePrompt()?.id,
-      queue,
+      queue: queue as never,
       notificationCount,
       paused,
       hasPendingRequests,
@@ -270,7 +271,7 @@ export class AgentTurnProjection {
             activeToolCalls: (loop?.state.calls ?? []).map((call) => ({ toolCallId: call.toolCall.id, name: call.toolCall.name })),
             since: active.startedAt,
           },
-      activeRequestId: this.activeRequestTrace?.requestId,
+      activeTraceId: this.activeRequestTrace?.requestId,
     };
   }
 
@@ -334,7 +335,7 @@ export class AgentTurnProjection {
         step: step.number,
         firstStepOfTurn: step.number === 1,
         signal: step.signal,
-        usage: step.usage ?? emptyUsage(),
+        usage: usageFromCore(step.usage) ?? emptyHumanUsage(),
         finishReason,
         tools: step.tools,
         stopTurn: step.tools.some((tool) => tool.result?.stopTurn === true),
@@ -427,7 +428,13 @@ export class AgentTurnProjection {
         return {
           ...event,
           result: {
-            output: result?.output ?? toolMessage.content,
+            output: (
+              typeof result?.output === 'string'
+                ? result.output
+                : Array.isArray(result?.output)
+                  ? result.output
+                  : toolMessage.content
+            ) as never,
             isError: event.outcome.type === 'succeeded' ? result?.isError : true,
             note: result?.note,
             durationMs: event.detached || snapshot === undefined ? undefined : legacyToolDurationMs(snapshot),
@@ -826,7 +833,7 @@ export class AgentTurnProjection {
       turnId: turn.id,
       step: step.number,
       stepId: step.uuid,
-      usage,
+      usage: usageFromCore(usage),
       finishReason: normalized,
       llmFirstTokenLatencyMs: step.timing?.firstTokenLatencyMs,
       llmStreamDurationMs: step.timing?.streamDurationMs,
@@ -925,7 +932,7 @@ export class AgentTurnProjection {
       durationMs,
       interruptReason,
       stopReason: result.type === 'completed' ? result.stopReason : undefined,
-      requestId,
+      traceId: requestId,
     }));
     if (error !== undefined) void this.options.dispatcher.dispatch(new AgentErrorEvent({ ...error, agentId: this.options.scopeContext.agentId }));
     this.options.prompts.complete(turn.id, result);

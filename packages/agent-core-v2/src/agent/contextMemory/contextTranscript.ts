@@ -1,5 +1,5 @@
 import type { WireRecord } from '#/wire/record';
-import { type ContentPart, type ToolCall } from '#human/message';
+import { type ContentPart, type ToolCall } from '#/llm-adapter/contract/message';
 import type { TokenUsage } from '#human/llm/usage';
 
 import {

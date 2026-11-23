@@ -1,5 +1,5 @@
 import { IEnvironmentService } from '#/app/environment/environment';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { Emitter, Event } from '#/_base/event';
 import { createScopedTestHost } from '#/_base/di/test';
@@ -97,10 +97,7 @@ function setup(options: {
       agentContext: stubAgentContext(agentId, 1),
       scope: (subKey?: string) => subKey ?? '',
     };
-    const environment = new AgentEnvironmentService(scopeContext, binding, registry as unknown as IEnvironmentService, eventBus, session, workspaceInfo, {
-      _serviceBrand: undefined,
-      decorate: (lease) => lease,
-    });
+    const environment = new AgentEnvironmentService(scopeContext, binding, registry as unknown as IEnvironmentService, eventBus, session, workspaceInfo);
     const shadow = new AgentWorkspaceContextService(sessionState, {
       current: environment,
       onDidChange: () => ({ dispose: () => {} }),

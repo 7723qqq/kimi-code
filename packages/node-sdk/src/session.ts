@@ -478,6 +478,23 @@ export class Session {
     await this.rpc.cancelCompaction({ sessionId: this.id });
   }
 
+  async predictNextPrompt(options: {
+    readonly predictionId: string;
+    readonly expectedTurnId: number;
+  }): Promise<string | null> {
+    this.ensureOpen();
+    return this.rpc.predictNextPrompt({ sessionId: this.id, ...options });
+  }
+
+  async cancelPromptPrediction(predictionId: string, reason?: string): Promise<boolean> {
+    this.ensureOpen();
+    return this.rpc.cancelPromptPrediction({
+      sessionId: this.id,
+      predictionId,
+      reason: reason as never,
+    });
+  }
+
   async undoHistory(count: number = 1): Promise<void> {
     this.ensureOpen();
     await this.rpc.undoHistory({ sessionId: this.id, count });

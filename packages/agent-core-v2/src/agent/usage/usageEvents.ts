@@ -7,6 +7,8 @@ import type { TowerExitReason } from '#/features/tower/tower';
 
 import type { UsageStatus } from './usage';
 
+export type { TokenUsage } from '#human/llm/usage';
+
 export interface AgentStatusUpdatedPayload {
   readonly agentId: string;
   usage?: UsageStatus;

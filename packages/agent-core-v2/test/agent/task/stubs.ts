@@ -4,8 +4,11 @@ import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   AgentTaskPersistence,
   type AgentTaskInfo,
-  type IAgentTaskService,
+  IAgentTaskService,
 } from '#/agent/task/task';
+import { TaskStarted, TaskTerminated } from '#/agent/task/taskOps';
+import type { WireRecord } from '#/wire/record';
+import type { TestAgentContext } from '../../harness';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 
@@ -45,8 +48,72 @@ export function recordingAppendFs(writes: RecordingAppendWrite[]): IHostFileSyst
   } as unknown as IHostFileSystem;
 }
 
-// ---- from upstream 2.7.0 test helpers ----
-export function installControlledTask(..._args: unknown[]): any { return undefined; }
-export function restoreTaskHistory(..._args: unknown[]): any { return undefined; }
-export function startControlledTaskInLoop(..._args: unknown[]): any { return undefined; }
-export function taskHistoryRecords(..._args: unknown[]): any { return []; }
+export function taskHistoryRecords(
+  infos: readonly AgentTaskInfo[],
+  agentId = 'main',
+): WireRecord[] {
+  return infos.flatMap((info) => {
+    const started = {
+      type: TaskStarted.type,
+      agentId,
+      info: { ...info, status: 'running', endedAt: null },
+    } as unknown as WireRecord;
+    if (info.status === 'running') return [started];
+    return [
+      started,
+      { type: TaskTerminated.type, agentId, info } as unknown as WireRecord,
+    ];
+  });
+}
+
+export async function restoreTaskHistory(
+  ctx: { restore(records: readonly WireRecord[]): Promise<void> },
+  infos: readonly AgentTaskInfo[],
+  agentId = 'main',
+  preceding: readonly WireRecord[] = [],
+): Promise<void> {
+  await ctx.restore([...preceding, ...taskHistoryRecords(infos, agentId)]);
+}
+
+export interface ControlledTaskHelper {
+  readonly handler: { readonly taskId: string; wait(): Promise<void> };
+  readonly resolve: (value: string) => void;
+}
+
+export function installControlledTask(_ctx: TestAgentContext): void {}
+
+export async function startControlledTaskInLoop(
+  ctx: TestAgentContext,
+  options: { readonly description?: string } = {},
+): Promise<ControlledTaskHelper> {
+  const tasks = ctx.get(IAgentTaskService);
+  let resolveCompletion: (value: string) => void = () => {};
+  const completion = new Promise<string>((resolve) => {
+    resolveCompletion = resolve;
+  });
+  const taskId = tasks.registerTask(
+    {
+      idPrefix: 'controlled',
+      kind: 'question',
+      description: options.description ?? 'controlled task',
+      start: async ({ settle }) => {
+        await completion;
+        await settle({ status: 'completed' });
+      },
+      toInfo: (base) => ({
+        ...base,
+        kind: 'question',
+        questionCount: 1,
+        toolCallId: 'controlled-call',
+      }),
+    },
+    { detached: true },
+  );
+  const wait = async (): Promise<void> => {
+    await tasks.wait(taskId);
+  };
+  return {
+    handler: { taskId, wait },
+    resolve: resolveCompletion,
+  };
+}

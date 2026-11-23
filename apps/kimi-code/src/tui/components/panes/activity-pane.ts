@@ -38,7 +38,8 @@ export class ActivityPaneComponent extends Container {
       (options.mode === 'waiting' ||
         options.mode === 'tool' ||
         options.mode === 'composing' ||
-        options.mode === 'thinking') &&
+        options.mode === 'thinking' ||
+        options.mode === 'compacting') &&
       options.spinner !== undefined
     ) {
       this.addChild(new Spacer(1));

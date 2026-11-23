@@ -58,3 +58,13 @@ export async function waitUntil<T>(
     await new Promise((resolve) => setTimeout(resolve, interval));
   }
 }
+
+const realSetTimeout = setTimeout;
+
+export async function advanceTimersByTimeAsync(
+  advance: (ms: number) => void | Promise<void>,
+  ms: number,
+): Promise<void> {
+  await advance(ms);
+  for (let i = 0; i < 200; i += 1) await Promise.resolve();
+}

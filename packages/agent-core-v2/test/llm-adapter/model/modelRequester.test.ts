@@ -23,7 +23,7 @@ import {
   createOAuthCredentialProvider,
   createStaticCredentialProvider,
 } from '#human/credentials/credentials';
-import { type ProviderMediaContribution } from '#human/media/upload';
+import { type ProviderMediaContribution } from '#human/llm/media/upload';
 import { type LlmModel } from '#human/llm/model';
 import { createOpenAIRequester } from '#human/llm/requester/bases/openai/requester';
 import {
@@ -295,7 +295,7 @@ describe('ModelRequesterImpl request execution', () => {
     const finish = events.find((e) => e.type === 'finish');
     expect(finish).toMatchObject({
       id: 'msg-42',
-      requestId: 'trace-1',
+      traceId: 'trace-1',
       providerFinishReason: 'tool_calls',
       rawFinishReason: 'tool_calls',
       message: {

@@ -177,6 +177,20 @@ const ZERO_USAGE: TokenUsage = {
 /** Idle gaps shorter than this are noise; only larger ones get surfaced. */
 const IDLE_GAP_MS = 3000;
 
+function normalizeUsage(u: {
+  readonly inputOther: number;
+  readonly output: number;
+  readonly inputCacheRead?: number;
+  readonly inputCacheCreation?: number;
+}): TokenUsage {
+  return {
+    inputOther: u.inputOther,
+    output: u.output,
+    inputCacheRead: u.inputCacheRead ?? 0,
+    inputCacheCreation: u.inputCacheCreation ?? 0,
+  };
+}
+
 function addUsage(into: TokenUsage, u: TokenUsage): void {
   into.inputOther += u.inputOther;
   into.output += u.output;
@@ -469,14 +483,15 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
               step.durationMs = t - step.beginTime;
             step.isError = ev.finishReason === 'filtered' || ev.finishReason === 'error';
             if ('usage' in ev && ev.usage !== undefined) {
-              step.usage = ev.usage;
-              if (current) addUsage(current.tokens, ev.usage);
-              addUsage(cache, ev.usage);
+              const usage = normalizeUsage(ev.usage);
+              step.usage = usage;
+              if (current) addUsage(current.tokens, usage);
+              addUsage(cache, usage);
               // A zero-usage step.end (e.g. a content-filtered response) must
               // not reset the context-window fill to 0 — the engine's
               // token counting keeps the prior snapshot in that case. Carry the
               // running value so the chart shows no false drop.
-              const fill = contextFill(ev.usage);
+              const fill = contextFill(usage);
               if (fill > 0) {
                 contextTokens = fill;
                 if (contextTokens > peakContext) peakContext = contextTokens;

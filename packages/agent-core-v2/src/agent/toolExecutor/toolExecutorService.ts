@@ -4,6 +4,7 @@ import { toDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AsyncEmitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { BugIndicatingError } from '#/errors';
 import { isAbortError, isUserCancellation } from '#/_base/utils/abort';
 import { errorMessage } from '#/_base/utils/errorMessage';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -23,6 +24,11 @@ import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { OrderedHookSlot } from '#/hooks';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
+import {
+  type LegacyToolAgentContext,
+  type LegacyToolPreparation,
+  type ToolDecisionContext,
+} from '#/tool/executor';
 import {
   compileToolArgsValidator,
   validateToolArgs,
@@ -44,7 +50,10 @@ import {
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import type { ContentPart, ToolCall } from '#human/llm/message';
 
-import { BeforeToolExecuteEmitter } from './beforeToolExecuteEvent';
+import {
+  denyToolExecution,
+  BeforeToolExecuteEmitter,
+} from './beforeToolExecuteEvent';
 import {
   IAgentToolExecutorService,
   type MissingToolDescriber,
@@ -114,7 +123,6 @@ export const toolExecutorDupTypeTurnIdKey = defineState<number | undefined>(
 export class AgentToolExecutorService implements IAgentToolExecutorService {
   declare readonly _serviceBrand: undefined;
 
-  // ---- from upstream 2.7.0 ----
   private readonly handlerMap = new Map<string, AgentToolExecutionHandler>();
   private readonly callHandlers = new Map<string, AgentToolExecutionHandler>();
   private readonly toolHooks: AgentToolHook[] = [];
@@ -157,7 +165,6 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     this.handlerMap.delete(taskId);
     for (const [id, h] of this.callHandlers) if (h === this.handlerMap.get(taskId)) this.callHandlers.delete(id);
   }
-  // ---- end upstream additions ----
 
   private readonly beforeExecuteEmitter = new BeforeToolExecuteEmitter();
   readonly onBeforeExecuteTool: Event<BeforeToolExecuteEvent> = this.beforeExecuteEmitter.event;
@@ -468,7 +475,13 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       return settleSynthetic(call.args, decision.veto, 'vetoed', displayFields);
     }
 
-    const executionMetadata = decision?.executionMetadata;
+    const permitting = await this.runPermittingHooks(beforeContext, execution);
+
+    if (permitting?.veto !== undefined) {
+      return settleSynthetic(call.args, permitting.veto, 'vetoed', displayFields);
+    }
+
+    const executionMetadata = permitting?.executionMetadata ?? decision?.executionMetadata;
 
     await this.willExecuteEmitter.fireAsync(
       {
@@ -491,6 +504,49 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       resolvedAccesses: execution.accesses,
       stopBatchAfterThis: execution.stopBatchAfterThis,
     };
+  }
+
+  private async runPermittingHooks(
+    context: ResolvedToolExecutionHookContext,
+    execution: RunnableToolExecution,
+  ): Promise<{ readonly veto?: ExecutableToolResult; readonly executionMetadata?: unknown }> {
+    let executionMetadata: unknown;
+    for (const hook of this.toolHooks) {
+      if (hook.permitting === undefined) continue;
+      const hookContext: ToolDecisionContext<
+        unknown,
+        LegacyToolAgentContext,
+        LegacyToolPreparation
+      > = {
+        call: context.toolCall,
+        taskId: context.toolCall.id,
+        args: context.args,
+        signal: context.signal,
+        context: {
+          turnId: context.turnId,
+          trace: context.trace,
+          origin: 'loop',
+        },
+        prepared: {
+          kind: 'execute',
+          execution,
+          approvalRule: execution.approvalRule,
+        },
+      };
+      const decision = await hook.permitting(hookContext);
+      if (decision !== undefined && 'reject' in decision) {
+        return { veto: denyToolExecution(decision.reject) };
+      }
+      if (decision !== undefined && 'rewrite' in decision) {
+        throw new BugIndicatingError(
+          `Tool hook rewrote arguments for "${context.toolCall.name}" after preparation`,
+        );
+      }
+      if (hookContext.context.metadata !== undefined) {
+        executionMetadata = hookContext.context.metadata;
+      }
+    }
+    return executionMetadata === undefined ? {} : { executionMetadata };
   }
 
   private prepareSkippedToolCall(

@@ -468,7 +468,7 @@ export class TranscriptService {
       if (agent !== undefined) {
         const current = entry.store.ensureAgent(agentId).snapshot();
         const retained = groupMessagesIntoSnapshot(
-          agent.accessor.get(IAgentContextMemoryService).get(),
+          agent.accessor.get(IAgentContextMemoryService).get() as never,
         );
         snapshot = {
           ...current,

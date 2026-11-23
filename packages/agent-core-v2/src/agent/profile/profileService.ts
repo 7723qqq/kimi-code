@@ -1080,7 +1080,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     return resolved;
   }
 
-  // ---- from upstream 2.7.0 (profile adapter contract) ----
   afterConfigDispatch(
     changed: Omit<ProfileUpdateData, 'activeToolNames'>,
     _current: ProfileBindingSnapshot = this.profileState,
@@ -1157,7 +1156,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
   resolveBinding(
     input: BindAgentInput,
-    current?: ProfileBindingSnapshot,
+    _current?: ProfileBindingSnapshot,
   ): Promise<ProfileBindingSnapshot> {
     return this.bind(input).then(() => this.data());
   }

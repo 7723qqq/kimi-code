@@ -12,7 +12,7 @@ const hostWireObjectSchema = z
   .strict();
 
 export const hostWireSchema: z.ZodType<HostEntry, z.input<typeof hostWireObjectSchema>> =
-  hostWireObjectSchema.transform((entry) => ({
+  hostWireObjectSchema.strict().transform((entry) => ({
     host: entry.host,
     name: entry.name,
     enabled: entry.enabled,

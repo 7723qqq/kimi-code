@@ -112,7 +112,7 @@ const GZIP_COMPRESSIBLE_TYPES = new Set([
   'image/svg+xml',
 ]);
 export async function gzipAsync(body: Buffer): Promise<Buffer> {
-  const stream = new Blob([body]).stream().pipeThrough(new CompressionStream('gzip'));
+  const stream = new Blob([new Uint8Array(body)]).stream().pipeThrough(new CompressionStream('gzip'));
   return Buffer.from(await new Response(stream).arrayBuffer());
 }
 

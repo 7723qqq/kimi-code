@@ -85,6 +85,7 @@ import {
 } from './services/telemetry';
 import { TranscriptService } from './services/transcript/transcriptService';
 import { extractWsBearerToken } from './transport/ws/bearerProtocol';
+import { HostBridgeManager } from './services/hosts/hostBridgeManager';
 import { ConnectionRegistry, type IConnectionRegistry } from './transport/ws/connectionRegistry';
 import { registerWsDebug, WS_DEBUG_PATH } from './transport/ws/debug/registerWsDebug';
 import type { ConfigWarningItem } from './transport/ws/v1/events';
@@ -114,6 +115,8 @@ export interface ServerStartOptions {
   readonly disableHostCheck?: boolean;
   readonly insecureNoTls?: boolean;
   readonly allowRemoteShutdown?: boolean;
+  readonly socketPath?: string;
+  readonly managedBy?: string;
   readonly authTokenService?: IAuthTokenService;
   readonly disableAuth?: boolean;
   readonly webTitle?: string;
@@ -130,6 +133,7 @@ export interface ServerStartOptions {
 export interface RunningServer {
   readonly app: FastifyInstance;
   readonly core: Scope;
+  readonly hostBridges: HostBridgeManager;
   readonly connectionRegistry: IConnectionRegistry;
   readonly authTokenService: IAuthTokenService;
   readonly host: string;
@@ -380,6 +384,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       const appendLogStore = core.accessor.get(IAppendLogStore);
       legacyAcpBindingSubscription?.dispose();
       await remoteEnvironmentProvider.dispose();
+      hostBridges.close();
       core.dispose();
       await appendLogStore.drainRetirements();
       await drainSessionIndexMirror();
@@ -398,6 +403,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   };
 
   const connectionRegistry = new ConnectionRegistry();
+  const hostBridges = new HostBridgeManager(core);
   const transcriptService = new TranscriptService({ homeDir, core, logger });
   const conversations = new ConversationService(core);
   const sessionRating = createServerSessionRating(core, { debugEndpoints, logger });
@@ -652,7 +658,16 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   process.on('unhandledRejection', onUnhandledRejection);
   process.on('uncaughtException', onUncaughtException);
 
-  return { app, core, connectionRegistry, authTokenService, host, port: boundPort, close };
+  return {
+    app,
+    core,
+    hostBridges,
+    connectionRegistry,
+    authTokenService,
+    host,
+    port: boundPort,
+    close,
+  };
 }
 
 export const PORT_RETRY_LIMIT = 100;

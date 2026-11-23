@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { FileMeta, GetResult, IFileService } from '@moonshot-ai/agent-core-v2';
 import type { IHostFileSystem } from '@moonshot-ai/agent-core-v2/os/interface/hostFileSystem';

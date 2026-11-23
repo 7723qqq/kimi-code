@@ -178,8 +178,8 @@ describe('EffortSelectorComponent', () => {
         high: 'Deeper reasoning.',
         max: 'Maximum reasoning.',
       },
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     expect(text(picker)).toContain('Light reasoning.');

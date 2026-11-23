@@ -288,7 +288,7 @@ function normalizeLegacyResult(result: ExecutableToolResult): ExecutableToolResu
 function legacyResult(result: ExecutableToolResult, toolName: string): ToolReturn {
   const output: ContentPart[] = typeof result.output === 'string'
     ? textToolContent(result.output)
-    : result.output;
+    : (result.output as unknown as ContentPart[]);
   const content: ContentPart[] = typeof result.note === 'string'
     ? [...output, { type: 'text', text: result.note }]
     : output;

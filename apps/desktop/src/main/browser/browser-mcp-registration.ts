@@ -1,24 +1,5 @@
 import type { AgentContext, ContextInjectionContext, ContextMessage, ExecutableTool, IAgentScopeHandle, IDisposable, ISessionScopeHandle, Scope, ToolDidExecuteContext } from '@moonshot-ai/agent-core-v2';
-import {
-  IAgentLifecycleService,
-  IAgentLoopService,
-  IAgentProfileService,
-  IAgentReminderService,
-  IAgentToolExecutorService,
-  IAgentToolRegistryService,
-  IAgentToolSelectService,
-  IEventBus,
-  ISessionMcpHandle,
-  MAIN_AGENT_ID,
-  SELECT_TOOLS_TOOL_NAME,
-  SubagentSpawned,
-} from '@moonshot-ai/agent-core-v2';
-import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
-import { ISessionEphemeralMcpServers } from '@moonshot-ai/agent-core-v2/session/mcp/ephemeralMcpServers';
-import { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
-import { legacyDidExecuteContext, legacyRejectedResult, type LegacyAfterContext, type LegacyDecisionContext } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/legacyHooks';
-import { ISessionEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
-import { ISessionMetadata, type AgentMeta } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
+import { IAgentLifecycleService, IAgentLoopService, IAgentProfileService, IAgentReminderService, IAgentToolExecutorService, IAgentToolRegistryService, IAgentToolSelectService, IEventBus, ISessionMcpHandle, MAIN_AGENT_ID, SELECT_TOOLS_TOOL_NAME, SubagentSpawned, ISessionManager, ISessionEphemeralMcpServers, TurnEnded, legacyDidExecuteContext, legacyRejectedResult, type LegacyAfterContext, type LegacyDecisionContext, ISessionEventBus, ISessionMetadata, type AgentMeta } from '@moonshot-ai/agent-core-v2';
 import type { BrowserSubagentRun } from '../../shared/browser-run';
 import type { DesktopBrowserAccess, DesktopBrowserAgentControl, DesktopBrowserMcpHandle } from './browser-mcp';
 import { DESKTOP_BROWSER_CONTROL_OFF_REASON, DESKTOP_BROWSER_UNAVAILABLE_NOTICE, describeBlockedDesktopBrowser } from './browser-mcp';

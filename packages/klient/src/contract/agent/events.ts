@@ -90,6 +90,16 @@ export const toolCallDeltaEventSchema = z.object({
   argumentsPart: z.string().optional(),
 });
 
+export const toolUpdatedEventSchema = z.object({
+  type: z.literal('tool.updated'),
+  time: z.number().optional(),
+  turnId: z.number(),
+  toolCallId: z.string(),
+  status: z.string(),
+  detached: z.boolean(),
+  fields: z.record(z.string(), z.unknown()),
+});
+
 export const toolProgressEventSchema = z.object({
   type: z.literal('tool.progress'),
   time: z.number().optional(),
@@ -217,6 +227,7 @@ export interface AgentEventPayloads {
   'tool.call.started': z.infer<typeof toolCallStartedEventSchema>;
   'tool.call.delta': z.infer<typeof toolCallDeltaEventSchema>;
   'tool.progress': z.infer<typeof toolProgressEventSchema>;
+  'tool.updated': z.infer<typeof toolUpdatedEventSchema>;
   'tool.result': z.infer<typeof toolResultEventSchema>;
   'prompt.completed': z.infer<typeof promptCompletedEventSchema>;
   'prompt.aborted': z.infer<typeof promptAbortedEventSchema>;
@@ -276,6 +287,12 @@ export const agentEvents = {
     name: 'events',
     type: 'tool.progress',
     schema: toolProgressEventSchema,
+  },
+  'tool.updated': {
+    kind: 'stream',
+    name: 'events',
+    type: 'tool.updated',
+    schema: toolUpdatedEventSchema,
   },
   'tool.result': {
     kind: 'stream',

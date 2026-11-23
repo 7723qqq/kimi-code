@@ -65,8 +65,11 @@ import { defineState } from '#/state/state';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
 import { mergeSteerMessages, stripBundledSkillBlocks } from '#human/agent/origin';
-import { type FinishReason } from '@moonshot-ai/core/llm/response';
-import type { ContentPart, UserMessage } from '#human/message';
+import { type FinishReason, type LlmOutcome } from '@moonshot-ai/core/llm/response';
+import type { ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
+import type { Message as HumanMessage, UserMessage } from '#human/llm/message';
+import type { ContentPart } from '#/llm-adapter/contract/message';
+import { toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import { emptyUsage, type TokenUsage } from '#human/llm/usage';
 
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
@@ -93,6 +96,11 @@ import {
   type Turn,
   type TurnResult,
 } from './loop';
+import type {
+  CoreLoopRequester,
+  CoreLoopRequesterOptions,
+  LoopRequester,
+} from './requesterContract';
 import { createUserEntry, type UserEntry } from './machine';
 import {
   attachMachineEngine,
@@ -142,28 +150,179 @@ const TURN_WATCH_WARN_MS = 10 * 60_000;
 export class AgentLoopService extends Disposable implements IAgentLoopService {
   declare readonly _serviceBrand: undefined;
 
-  // ---- from upstream 2.7.0 (implementations) ----
-  get requester(): never { throw new Error('not implemented: requester'); }
-  async start(_tools?: readonly unknown[]): Promise<void> {}
-  baselineTools(): never[] { return []; }
-  update(_changed: unknown): void {}
-  history(): readonly ContextMessage[] { return []; }
-  historyRevision(): number { return 0; }
-  replaceHistory(_m: readonly unknown[], _r?: string, _a?: () => void): boolean { return false; }
-  async initializeHistory(_m: readonly unknown[]): Promise<void> {}
-  async close(): Promise<void> {}
-  async retry(): Promise<never> { return undefined as never; }
-  abortTool(_toolCallId: string, _reason?: unknown): void {}
-  detachTool(_task: unknown, _text?: string): void {}
-  suppressTaskNotifications(_taskIds: readonly string[]): void {}
-  addActiveTool(_name: string): void {}
-  removeActiveTool(_name: string): void {}
-  remind(..._messages: readonly unknown[]): void {}
-  flushReminders(): void {}
-  registerToolBatchStarting(_hook: unknown): IDisposable { return { dispose() {} }; }
-  async notifyClient(_input: unknown): Promise<never> { return undefined as never; }
-  // ---- end upstream additions ----
+  private baseline: readonly Tool[] | undefined;
 
+  get requester(): LoopRequester {
+    return {
+      coreRequester: (options) => this.createCoreRequester(options),
+      prepareOperation: async (options, signal) => {
+        signal.throwIfAborted();
+        return this.createCoreRequester({
+          ...options,
+          runtime: { historyRevision: () => this.context.prefixRevision() },
+        });
+      },
+    };
+  }
+
+  private createCoreRequester(options: CoreLoopRequesterOptions): CoreLoopRequester {
+    return {
+      generate: async (rest, control) => {
+        try {
+          const finish = await this.llmRequester.request(
+            {
+              messages: rest.content?.messages as never,
+              tools: rest.profile?.tools as never,
+              systemPrompt: rest.profile?.systemPrompt,
+              source: options.source(),
+              maxOutputSize: options.maxOutputSize,
+            },
+            undefined,
+            control.signal,
+          );
+          return {
+            type: 'done',
+            message: finish.message,
+            usage: finish.usage,
+            requestId: finish.traceId,
+            timing: finish.timing,
+          } as unknown as LlmOutcome;
+        } catch (error) {
+          if (control.signal.aborted) {
+            return {
+              type: 'aborted',
+              message: null,
+              reason: control.signal.reason,
+            } as unknown as LlmOutcome;
+          }
+          return {
+            type: 'failed',
+            error: toLlmErrorMessage(error),
+            rawError: error,
+          } as unknown as LlmOutcome;
+        }
+      },
+    };
+  }
+
+  async start(tools?: readonly Tool[]): Promise<void> {
+    if (tools !== undefined) this.baseline = tools;
+  }
+
+  baselineTools(): readonly Tool[] {
+    return this.baseline ?? (this.toolRegistry.list() as unknown as readonly Tool[]);
+  }
+
+  update(_changed: Parameters<IAgentLoopService['update']>[0]): void {}
+
+  history(): readonly ContextMessage[] {
+    return this.context.get();
+  }
+
+  historyRevision(): number {
+    return this.context.prefixRevision();
+  }
+
+  replaceHistory(
+    messages: Parameters<IAgentLoopService['replaceHistory']>[0],
+    _reason?: string,
+    onAccepted?: () => void,
+  ): boolean {
+    if (this.engine === undefined) return false;
+    void this.engine.resetHistory(messages as never).then(
+      () => {
+        onAccepted?.();
+      },
+      () => undefined,
+    );
+    return true;
+  }
+
+  async initializeHistory(
+    messages: Parameters<IAgentLoopService['initializeHistory']>[0],
+  ): Promise<void> {
+    await this.engine?.resetHistory(messages as never);
+  }
+
+  private closePromise: Promise<void> | undefined;
+
+  close(): Promise<void> {
+    if (this.closePromise !== undefined) return this.closePromise;
+    const reason = abortError('Agent loop disposed');
+    const active = this.active;
+    if (active !== undefined) {
+      active.turn.cancel(reason);
+      this.interruptMachineRunForCancel(active, reason);
+    }
+    if (this.engine !== undefined) {
+      for (const item of this.engine.snapshot().queue) {
+        const promptId = item.meta?.promptId;
+        if (promptId !== undefined) this.engine.cancelQueueItem(promptId);
+      }
+      this.engine.abort(reason);
+    }
+    for (const waiter of this.promptWaiters.values()) this.settleWaiterCancelled(waiter);
+    this.closePromise = this.settled().then(() => {
+      this.dispose();
+    });
+    return this.closePromise;
+  }
+
+  private get closing(): boolean {
+    return this.closePromise !== undefined;
+  }
+
+  async retry(): ReturnType<IAgentLoopService['retry']> {
+    return undefined;
+  }
+
+  abortTool(toolCallId: string, reason?: unknown): void {
+    void this.toolExecutor.handlerForCall(toolCallId)?.stop(reason);
+  }
+
+  detachTool(
+    task: Parameters<IAgentLoopService['detachTool']>[0],
+    _text?: string,
+  ): void {
+    const handler = this.toolExecutor.handler(task.taskId);
+    handler?.detach();
+    this.toolExecutor.release(task.taskId);
+  }
+
+  suppressTaskNotifications(_taskIds: readonly string[]): void {}
+
+  addActiveTool(name: string): void {
+    this.profile.addActiveTool(name);
+  }
+
+  removeActiveTool(name: string): void {
+    this.profile.removeActiveTool(name);
+  }
+
+  remind(...messages: readonly HumanMessage[]): void {
+    for (const message of messages) {
+      this.engine?.remind(randomUUID(), message as never);
+    }
+  }
+
+  flushReminders(): void {}
+
+  registerToolBatchStarting(
+    _hook: Parameters<IAgentLoopService['registerToolBatchStarting']>[0],
+  ): IDisposable {
+    return { dispose() {} };
+  }
+
+  async notifyClient(
+    input: Parameters<IAgentLoopService['notifyClient']>[0],
+  ): ReturnType<IAgentLoopService['notifyClient']> {
+    const result = this.submit(input as never, { steerIfActive: true });
+    return {
+      prompt_id: result.id,
+      created_at: new Date().toISOString(),
+      state: 'queued',
+    };
+  }
 
   readonly hooks: IAgentLoopService['hooks'] = {
     onWillBeginStep: new OrderedHookSlot(),
@@ -361,7 +520,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   submit(raw: UserEntry | UserMessage, options?: LoopSubmitOptions): LoopSubmitResult {
     const input: UserEntry = 'message' in raw && 'meta' in raw ? raw : { message: raw as UserMessage, meta: {} };
-    if (this.disposing) throw abortError('Agent loop disposed');
+    if (this.disposing || this.closing) throw abortError('Agent loop disposed');
     this.runGate.begin();
     const meta = input.meta;
     const id = meta?.promptId ?? newMessageId();
@@ -419,7 +578,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   async steer(promptIds: readonly string[]): Promise<void> {
-    if (this.disposing) throw abortError('Agent loop disposed');
+    if (this.disposing || this.closing) throw abortError('Agent loop disposed');
     if (promptIds.length === 0) {
       throw new Error2(ErrorCodes.REQUEST_INVALID, 'prompt_ids must not be empty');
     }
@@ -493,7 +652,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   notify(note: LoopNotify = {}): LoopNotifyHandle {
-    if (this.disposing) throw abortError('Agent loop disposed');
+    if (this.disposing || this.closing) throw abortError('Agent loop disposed');
     const nudge: Nudge = {
       contextMessage: note.message,
       bypassMaxSteps: note.bypassMaxSteps ?? false,
@@ -839,7 +998,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   tryAcquireQuiescence(): IDisposable | undefined {
-    if (this.disposing) throw abortError('Agent loop disposed');
+    if (this.disposing || this.closing) throw abortError('Agent loop disposed');
     if (
       this.quiescenceDepth > 0 ||
       this.historySnapshotDepth > 0 ||
@@ -855,7 +1014,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   tryAcquireHistorySnapshot(): IDisposable | undefined {
-    if (this.disposing) throw abortError('Agent loop disposed');
+    if (this.disposing || this.closing) throw abortError('Agent loop disposed');
     if (this.quiescenceDepth > 0 || this.historySnapshotDepth > 0) return undefined;
     this.historySnapshotDepth += 1;
     return toDisposable(() => {
@@ -931,7 +1090,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private settleUnboundRecord(
     pending: { readonly id: number; readonly queueItemId?: string; readonly entry?: UserEntry },
-    outcome: { readonly outcome: MachineTurnOutcome; readonly error?: unknown },
+    outcome: {
+      readonly outcome: MachineTurnOutcome;
+      readonly error?: unknown;
+    },
   ): void {
     const active = this.active;
     if (active !== undefined) {
@@ -977,7 +1139,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private endPreGateTurn(
     turn: ActiveTurn,
-    outcome: { readonly outcome: MachineTurnOutcome; readonly error?: unknown },
+    outcome: { readonly outcome: MachineTurnOutcome; readonly error?: unknown }
   ): void {
     if (outcome.outcome === 'aborted') {
       const reason = turn.controller.signal.aborted
@@ -1116,7 +1278,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     turn.current = step;
     turn.interruptStep = step.number;
     this.activeRequestTrace = undefined;
-    this.telemetry.setContext({ request_id: undefined });
+    this.telemetry.setContext({ trace_id: undefined, request_id: undefined });
     EventEmitter.setMaxListeners(MAX_STEP_SIGNAL_LISTENERS, turn.controller.signal);
     const gateSignal = AbortSignal.any([turn.controller.signal, turn.steerController.signal]);
     try {
@@ -1463,7 +1625,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private projectMachineEvent(event: MachineEngineEvent): void {
     switch (event.type) {
       case 'turnStarted': {
-        this.pendingMachineTurn = {
+            this.pendingMachineTurn = {
           id: event.machineTurnId,
           queueItemId: event.queueItemId,
           entry: event.entry,
@@ -1663,7 +1825,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         step.entry = event.entry;
         step.usage = event.usage;
         step.timing = event.timing;
-        step.providerFinishReason = event.finish?.finishReason ?? undefined;
+        step.providerFinishReason = (event.finish?.finishReason ?? undefined) as never;
         step.rawFinishReason = event.finish?.rawFinishReason ?? undefined;
         step.messageId = event.messageId;
         for (const [block, part] of event.entry.message.content.entries()) {
@@ -2360,7 +2522,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         durationMs,
         interruptReason,
         stopReason: result.type === 'completed' ? result.stopReason : undefined,
-        requestId,
+        traceId: requestId,
       }),
     );
     if (error !== undefined) {

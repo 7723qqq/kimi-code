@@ -77,6 +77,7 @@ const llmRequestSchema = z.object({
 });
 
 export type LlmRequestPayload = z.infer<typeof llmRequestSchema>;
+export type LlmRequestProjection = NonNullable<LlmRequestPayload['projection']>;
 
 export class LlmRequest extends AgentEvent2<LlmRequestPayload> {
   static override readonly type = 'llm.request';

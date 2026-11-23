@@ -79,6 +79,15 @@ logs/
 # husky hooks — the directory is never committed.
 /.husky/
 
+# Desktop main-process bundle. `apps/desktop/tsdown.config.ts` writes to
+# `out/`, but older desktop builds emitted here; the directory is a build
+# artifact and is never committed.
+apps/desktop/out-backend/
+
+# History-rewrite tool state (refs, index, rev map). Local bookkeeping for
+# the fork's rewritten mirror of upstream — not source.
+.git-rewrite/
+
 # Zig build output for the structural review tool (tools/review).
 tools/review/zig-out/
 tools/review/.zig-cache/

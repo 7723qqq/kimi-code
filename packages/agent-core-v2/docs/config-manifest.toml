@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (41 sections · 3 overlay(s))
+# Index (42 sections · 3 overlay(s))
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
@@ -22,6 +22,7 @@
 #   github                   src/agent/tools/github/configSection.ts
 #   github_proxy             src/agent/tools/github/configSection.ts
 #   hooks                    src/features/externalHooks/configSection.ts
+#   hosts                    src/app/hostsConfig/configSection.ts
 #   identity                 src/app/agentIdentity/configSection.ts
 #   image                    src/agent/media/configSection.ts
 #   llmRequester             src/agent/llmRequester/configSection.ts
@@ -222,6 +223,23 @@ extra_skill_dirs = []
   # timeout: integer
   # cwd: string
   # env: record<string, string>
+
+# ##########################################################################
+# hosts
+#   owner: src/app/hostsConfig/configSection.ts
+#   scope: core
+#   hooks: custom fromToml · custom toToml
+# ##########################################################################
+
+[hosts]
+
+# one [hosts."<name>"] table per entry:
+# [hosts."<name>"]
+  # host: string
+  # name: string
+  # enabled: boolean
+  # identity_file: string
+  # remote_bin: string
 
 # ##########################################################################
 # identity

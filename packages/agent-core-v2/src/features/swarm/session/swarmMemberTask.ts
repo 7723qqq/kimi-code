@@ -52,8 +52,6 @@ export class SwarmMemberTasks {
       taskId: firstStart ? handle.agentId : entry.info.taskId,
       agentId: handle.agentId,
       subagentType: handle.profileName,
-      model: handle.model ?? entry.info.model,
-      thinkingEffort: handle.thinkingEffort ?? entry.info.thinkingEffort,
       stateReason: undefined,
       startedAt: firstStart ? Date.now() : entry.info.startedAt,
     };

@@ -1,4 +1,4 @@
-import type { TaskWaitInput, TaskWaitOutcome } from '#/tool/executor';
+import type { TaskWaitInput, TaskWaitOutcome } from '#human/tool/executor';
 import { createToolMachine } from '#/tool/machine';
 import { waitFor, type ActorRefFrom } from '#/xstate2';
 

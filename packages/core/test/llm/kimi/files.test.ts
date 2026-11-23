@@ -38,10 +38,10 @@ describe('Kimi file uploads', () => {
       ...failures.map(({ body }) => Response.json(body)),
       Response.json({ id: 'img-ready', extract_status: 'ready', status: 'uploaded' }),
     ];
-    const mockFetch: typeof fetch = async (input) => {
-      if (new Request(input).url === 'data:,') return new Response();
+    const mockFetch = (async (input: string | URL | Request) => {
+      if (new Request(input as unknown as Request).url === 'data:,') return new Response();
       return responses.shift()!;
-    };
+    }) as unknown as typeof fetch;
     const upload = () =>
       kimiFiles.upload(
         { data: new Uint8Array([1]), kind: 'image', mimeType: 'image/png' },

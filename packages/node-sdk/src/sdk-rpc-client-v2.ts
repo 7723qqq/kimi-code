@@ -345,6 +345,8 @@ function promptSubmissionResult(result: {
   };
 }
 
+import {ISessionPromptPredictionService} from '@moonshot-ai/agent-core-v2';
+
 export class SDKRpcClientV2 extends SDKRpcClientBase {
   readonly homeDir: string;
   readonly configPath: string;
@@ -1378,9 +1380,19 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    */
   private async workspaceIdsFor(workDir: string): Promise<readonly string[]> {
     const workspaces = await this.klient.global.workspaces.list();
-    const match = workspaces.find((workspace) => normalizeWorkDir(workspace.root) === workDir);
-    if (match === undefined) return [encodeWorkDirKey(workDir)];
-    return this.engineAccessor.get(IWorkspaceAliases).resolveAliasIds(match.id);
+    const ids: string[] = [];
+    for (const workspace of workspaces) {
+      if (normalizeWorkDir(workspace.root) === workDir) {
+        ids.push(
+          ...(await this.engineAccessor.get(IWorkspaceAliases).resolveAliasIds(workspace.id)),
+        );
+        continue;
+      }
+      const members = workspace.additionalDirs ?? [];
+      if (members.some((dir) => normalizeWorkDir(dir) === workDir)) ids.push(workspace.id);
+    }
+    if (ids.length === 0) return [encodeWorkDirKey(workDir)];
+    return ids;
   }
 
   override async listSessions(input: ListSessionsOptions = {}): Promise<readonly SessionSummary[]> {
@@ -2257,6 +2269,27 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * silent no-op while one is already running, and rejects with
    * `compaction.unable` on an empty history or an active turn.
    */
+  override async predictNextPrompt(
+    input: SessionIdRpcInput & { predictionId: string; expectedTurnId: number },
+  ): Promise<string | null> {
+    const session = this.requireLiveSession(input.sessionId);
+    return session.accessor
+      .get(ISessionPromptPredictionService)
+      .predict({ predictionId: input.predictionId, expectedTurnId: input.expectedTurnId });
+  }
+
+  override async cancelPromptPrediction(
+    input: SessionIdRpcInput & {
+      predictionId: string;
+      reason?: import('@moonshot-ai/agent-core-v2').PromptPredictionCancelReason;
+    },
+  ): Promise<boolean> {
+    const session = this.requireLiveSession(input.sessionId);
+    return session.accessor
+      .get(ISessionPromptPredictionService)
+      .cancel(input.predictionId, input.reason);
+  }
+
   override async compact(input: SessionIdRpcInput & CompactOptions): Promise<void> {
     await this.withStaleReload(input.sessionId, async () => {
       const agent = await this.agentScope(input.sessionId);

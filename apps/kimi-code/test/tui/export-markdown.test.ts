@@ -20,7 +20,6 @@ function userMsg(text: string, origin?: PromptOrigin): ContextMessage {
   return {
     role: 'user',
     content: [{ type: 'text', text }],
-    toolCalls: [],
     origin,
   };
 }
@@ -46,7 +45,6 @@ function toolMsg(callId: string, text: string): ContextMessage {
   return {
     role: 'tool',
     content: [{ type: 'text', text }],
-    toolCalls: [],
     toolCallId: callId,
   };
 }
@@ -325,7 +323,6 @@ describe('buildExportMarkdown', () => {
             imageUrl: { url: 'kimi-file://f_1?path=%2FUsers%2Falice%2Fmedia%2Ff_1.png' },
           },
         ],
-        toolCalls: [],
         origin: { kind: 'user' },
       },
       assistantMsg('a screenshot'),
@@ -392,7 +389,6 @@ describe('buildExportMarkdown', () => {
           } as ContentPart,
           { type: 'text', text: 'clean prompt' },
         ],
-        toolCalls: [],
         origin: { kind: 'user' },
       },
       userMsg('hello', { kind: 'user' }),

@@ -30,7 +30,6 @@ export class SessionUsageService extends Service implements ISessionUsageService
       agent,
       model,
       usage: copyUsage(recordedUsage),
-      usageReported: usage !== undefined,
       source,
       firstRecord,
     });

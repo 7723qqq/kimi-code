@@ -50,6 +50,25 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'dist-web', 'coverage
 // `tools/review/*.mjs` scripts pass as clean.
 const SCAN_ROOT = ['packages', 'apps', 'scripts', 'tools', 'plugins'];
 
+// Trees that upstream 2.7.0 introduced wholesale keep upstream's own test
+// framework. Bun's `bun:test` has no `vi`, no `expect.poll` and no `runIf`, and
+// rewriting those call sites would permanently diverge from upstream, so the
+// vitest-family rules below skip these paths. The fork's own code stays on
+// `bun:test`, and the residue rules still guard every path outside this list.
+const UPSTREAM_TEST_TREES = [
+  'packages/core/',
+  'packages/app-client/',
+  'packages/app-components/',
+  'packages/app-composer/',
+  'packages/app-core/',
+  'packages/app-i18n/',
+  'packages/app-markdown/',
+  'packages/app-ui/',
+  'packages/testkit/',
+  'packages/vite-preset/',
+  'apps/desktop/',
+];
+
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('dist')) continue;
@@ -172,6 +191,7 @@ const RULES = [
     id: 'vitest-import',
     severity: 'error',
     scope: 'all',
+    upstreamOwned: true,
     why: 'vitest is gone from the dependency graph; any import is stale.',
     pattern: /from\s*['"]vitest['"]/,
     keepStrings: true,
@@ -181,6 +201,7 @@ const RULES = [
     id: 'vi-binding',
     severity: 'error',
     scope: 'all',
+    upstreamOwned: true,
     why: 'bun:test exports a vitest-compatible `vi` object; binding it routes calls through the compat layer.',
     pattern: /import\s+(?:type\s+)?\{[^}]*\bvi\b[^}]*\}\s+from\s+['"][^'"]+['"]/,
     keepStrings: true,
@@ -190,6 +211,7 @@ const RULES = [
     id: 'vi-call',
     severity: 'error',
     scope: 'all',
+    upstreamOwned: true,
     why: 'Call sites must use mock/spyOn/jest directly.',
     pattern:
       /(?<![.\w$])vi\s*\.\s*(?:fn|spyOn|mock|doMock|doUnmock|importActual|mocked|hoisted|stubEnv|unstubAllEnvs|stubGlobal|unstubAllGlobals|waitFor|waitUntil|useFakeTimers|useRealTimers|advanceTimersByTime|advanceTimersByTimeAsync|runAllTimers|runAllTimersAsync|runOnlyPendingTimers|setSystemTime|getTimerCount|restoreAllMocks|clearAllMocks|resetAllMocks|resetModules)/,
@@ -231,6 +253,7 @@ const RULES = [
     id: 'runif',
     severity: 'error',
     scope: 'test',
+    upstreamOwned: true,
     why: '`runIf` is vitest-only; bun:test silently lacks it.',
     pattern: /\b(?:it|test|describe)\.runIf\(/,
   },
@@ -238,6 +261,7 @@ const RULES = [
     id: 'expect-poll',
     severity: 'error',
     scope: 'test',
+    upstreamOwned: true,
     why: '`expect.poll` is vitest-only; bun:test throws "expect.poll is not a function". Use waitForAssertion/waitUntil.',
     pattern: /(?<![.\w$])expect\s*\.\s*poll\s*\(/,
   },
@@ -266,6 +290,7 @@ const RULES = [
     id: 'vitest-only-matcher',
     severity: 'error',
     scope: 'test',
+    upstreamOwned: true,
     why: 'bun:test implements these only as vitest aliases at runtime; types do not cover them.',
     pattern:
       /\.(toHaveBeenCalledOnce|toHaveBeenCalledExactlyOnceWith|toHaveBeenLastCalledOnce|toSatisfy|toBeOneOf|toBeTypeOf|toBeEmpty|toHaveResolved|toHaveLastResolvedWith|toHaveBeenCalledBefore|toHaveBeenCalledAfter)\s*\(/,
@@ -274,6 +299,7 @@ const RULES = [
     id: 'captured-promise-matcher',
     severity: 'error',
     scope: 'test',
+    upstreamOwned: true,
     why: 'Bun settles `.rejects`/`.resolves` eagerly: creating `expect(p).rejects.toThrow()` blocks the event loop until p settles, so timers — the per-test timeout included — stop firing and the file never finishes. Await the promise and assert on the value instead; the eager settle also hits the inline awaited form while p is still pending (oven-sh/bun#45714).',
     pattern: /(?<!\bawait\s)expect\s*\([^()]*\)\s*\.\s*(?:rejects|resolves)\b/,
   },
@@ -369,6 +395,9 @@ for (const rule of RULES) {
   for (const file of files) {
     const rel = relative(ROOT, file).split(sep).join('/');
     if (rel === SELF) continue;
+    if (rule.upstreamOwned === true && UPSTREAM_TEST_TREES.some((tree) => rel.startsWith(tree))) {
+      continue;
+    }
     const isTest = TEST_FILE.test(file) || /\/test\//.test(rel);
     if (rule.scope === 'test' && !isTest) continue;
     if (rule.scope === 'source' && isTest) continue;

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
 
 import { windowsPowerShellPath } from '#/app/capability/entries/kimiCu';
 import { windowsCuProcessScript } from '#/app/capability/entries/windowsCuProcesses';

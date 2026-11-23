@@ -16,8 +16,8 @@ const CACHE_NOTICE_MIN_STEPS = 10;
 export interface AdapterTokenUsage {
   readonly inputOther: number;
   readonly output: number;
-  readonly inputCacheRead: number;
-  readonly inputCacheCreation: number;
+  readonly inputCacheRead?: number;
+  readonly inputCacheCreation?: number;
 }
 
 export interface SubagentParent {
@@ -399,8 +399,8 @@ function usageDelta(
   return {
     input_other: delta(current.inputOther, previous?.inputOther),
     output: delta(current.output, previous?.output),
-    input_cache_read: delta(current.inputCacheRead, previous?.inputCacheRead),
-    input_cache_creation: delta(current.inputCacheCreation, previous?.inputCacheCreation),
+    input_cache_read: delta(current.inputCacheRead ?? 0, previous?.inputCacheRead),
+    input_cache_creation: delta(current.inputCacheCreation ?? 0, previous?.inputCacheCreation),
   };
 }
 

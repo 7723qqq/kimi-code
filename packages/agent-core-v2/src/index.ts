@@ -6,6 +6,16 @@ export * from '#/_base/di/instantiationService';
 export * from '#/_base/di/lifecycle';
 export * from '#/_base/di/scope';
 export * from './app/scopes';
+export {
+  HOSTS_SECTION,
+  hostEntrySchema,
+  hostIdSchema,
+  hostsSectionSchema,
+  type HostEntry,
+  type HostsSection,
+} from './app/hostsConfig/configSection';
+export { IAgentTaskOutputService } from './agent/task/taskOutput';
+
 export * from '#/_base/di/serviceCollection';
 export * from '#/_base/di/cascadeEngine';
 export * from '#/_base/di/dependencyGraph';
@@ -197,7 +207,7 @@ export type {
   ResponseFormat,
 } from '#human/llm/response-format';
 export type { ThinkingEffort, ThinkingRequestOptions } from '#human/llm/thinking';
-export type { VideoUploadInput } from '#human/media/upload';
+export type { VideoUploadInput } from '#human/llm/media/upload';
 export type { ToolCallIdPolicy } from '#human/llm/requester/requester';
 export type { SamplingOptions } from '#/llm-adapter/model/model-requester';
 export * from '#/llm-adapter/contract/request-trace';
@@ -386,6 +396,10 @@ import '#/features/btw/btwFeature';
 export * from '#/features/promptOptimizer/promptOptimizer';
 export * from '#/features/promptOptimizer/promptOptimizerService';
 import '#/features/promptOptimizer/promptOptimizerFeature';
+import '#/features/promptPrediction/promptPredictionFeature';
+export * from '#/features/promptPrediction/promptPrediction';
+export * from '#/agent/toolExecutor/legacyHooks';
+export * from '#/session/mcp/ephemeralMcpServers';
 export * from '#/features/spec/spec';
 export * from '#/features/spec/specOps';
 export * from '#/features/spec/specService';
@@ -720,7 +734,7 @@ export {
   resolveMaxImageEdgePx,
   resolveReadImageByteBudget,
 } from '#/agent/media/image-compress';
-export { providerImagePolicy, type ProviderImagePolicy } from '#human/media/image-formats';
+export { providerImagePolicy, type ProviderImagePolicy } from '#human/llm/media/image-formats';
 export {
   buildImageConversionGuidance,
   buildUnsupportedImageNotice,

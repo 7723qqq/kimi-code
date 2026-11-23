@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { ISessionEventBus } from '#/app/event/eventBus';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import '#/agent/loop/turnOps';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { AgentEnvironmentService, type IAgentEnvironmentOverlay } from '#/agent/environmentBinding/agentEnvironment';
+import { AgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { AgentEnvironmentBindingService, PROJECT_CONTEXT_REMINDER_VARIANT } from '#/agent/environmentBinding/environmentBindingService';
 import { environmentBindingKey, EnvironmentSetBinding } from '#/agent/environmentBinding/environmentBindingOps';
 import { AgentStateService } from '#/agent/state/agentStateService';
@@ -209,10 +209,7 @@ function setup(options: {
     );
     return {
       binding: agentBinding,
-      agentEnvironment: new AgentEnvironmentService(agentScopeContext, agentBinding, registry as unknown as IEnvironmentService, eventBus, session, workspaceInfo, {
-        _serviceBrand: undefined,
-        decorate: (lease) => lease,
-      } satisfies IAgentEnvironmentOverlay),
+      agentEnvironment: new AgentEnvironmentService(agentScopeContext, agentBinding, registry as unknown as IEnvironmentService, eventBus, session, workspaceInfo),
       state: agentState,
     };
   };
@@ -255,10 +252,10 @@ describe('AgentEnvironmentBindingService', () => {
     registry.register(environment('offline', 'offline-one', 'disconnected'));
 
     expect(() => binding.bind('missing')).toThrowError(
-      expect.objectContaining<Partial<EnvironmentError>>({ code: 'environment.not_found' }),
+      expect.objectContaining({ code: 'environment.not_found' }),
     );
     expect(() => binding.bind('offline')).toThrowError(
-      expect.objectContaining<Partial<EnvironmentError>>({ code: 'environment.unavailable' }),
+      expect.objectContaining({ code: 'environment.unavailable' }),
     );
     expect(binding.current).toEqual({ environmentId: 'local' });
   });
@@ -350,13 +347,13 @@ describe('AgentEnvironmentBindingService environment reminder', () => {
 });
 
 function probeFs(files: Record<string, string>, directories: readonly string[] = []): IHostFileSystem {
-  const stat = vi.fn(async (path: string): Promise<HostFileStat> => {
+  const stat = mock(async (path: string): Promise<HostFileStat> => {
     const content = files[path];
     if (content !== undefined) return { isFile: true, isDirectory: false, size: content.length };
     if (directories.includes(path)) return { isFile: false, isDirectory: true, size: 0 };
     throw new Error(`missing: ${path}`);
   });
-  const readText = vi.fn(async (path: string): Promise<string> => {
+  const readText = mock(async (path: string): Promise<string> => {
     const content = files[path];
     if (content === undefined) throw new Error(`missing: ${path}`);
     return content;

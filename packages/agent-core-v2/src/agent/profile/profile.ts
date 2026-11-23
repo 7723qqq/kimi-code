@@ -9,7 +9,6 @@ import type { ErrorCode } from '#/errors';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import type { ProfileUpdatePlan } from './profileOps';
 import type { ModelRequestParams } from '#/llm-adapter/model/model-requester';
-import type { InitializedLlmRequestPart } from '@moonshot-ai/core/llm/requester';
 import type { ThinkingEffort } from '#human/llm/thinking';
 
 import type { ProfileErrors } from './errors';
@@ -141,7 +140,7 @@ export interface IAgentProfileService {
   getActiveToolNames(snapshot?: ProfileBindingSnapshot): readonly string[] | undefined;
   addActiveTool(name: string): void;
   removeActiveTool(name: string): void;
-  refreshActiveTools(): Promise<void>;  // ---- from upstream 2.7.0 (profile adapter contract) ----
+  refreshActiveTools(): Promise<void>;
   afterConfigDispatch(changed: Omit<ProfileUpdateData, 'activeToolNames'>, current?: ProfileBindingSnapshot): void;
   defaultProfile(): ProfileBindingSnapshot;
   prepareBindingSnapshot(snapshot: ProfileBindingSnapshot): ProfileBindingSnapshot;
@@ -155,7 +154,6 @@ export interface IAgentProfileService {
 
 export const IAgentProfileService = createDecorator<IAgentProfileService>('agentProfileService');
 
-// ---- from upstream 2.7.0 ----
 export interface EffectiveProfileReader {
   data(): ProfileData;
   getEffectiveThinkingLevel(): ThinkingEffort;

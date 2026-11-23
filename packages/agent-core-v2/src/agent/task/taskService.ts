@@ -18,6 +18,7 @@ import { IAgentLoopService, type LoopNotifyHandle } from '#/agent/loop/loop';
 import { WarningIssued } from '#/agent/profile/profileOps';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { IWireService } from '#/wire/wire';
 import { environmentTempTarget, IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -258,6 +259,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     undoParticipants: IAgentConversationUndoParticipantRegistry,
     @ILogService private readonly log: ILogService,
     @IAgentStateService private readonly states: IAgentStateService,
+    @IWireService private readonly wire: IWireService,
     @IAgentEnvironmentService private readonly environment: IAgentEnvironmentService,
     @IFlagService flags: IFlagService,
     @IAgentToolRegistryService tools: IAgentToolRegistryService,
@@ -297,6 +299,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
         }
         await this.restoreAfterReplay();
         await next();
+        await this.flushRestoredTaskNotifications();
       }),
     );
     this._register(
@@ -332,6 +335,9 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     }
   }
 
+  private readonly wireRestoredTaskIds = new Set<string>();
+  private readonly pendingRestoredNotifications: AgentTaskInfo[] = [];
+
   private get ghosts(): Map<string, AgentTaskInfo> {
     return this.states.get(taskGhostsKey);
   }
@@ -358,6 +364,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
   private async restoreAfterReplay(): Promise<void> {
     this.restoreGhostsFromWire();
+    await this.restoreTaskHistoryFromWireJournal();
     await this.loadFromDisk({ replace: false });
     await this.reconcile();
   }
@@ -374,6 +381,23 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     for (const [taskId, info] of this.states.get(taskKey)) {
       if (this.tasks.has(taskId)) continue;
       this.ghosts.set(taskId, info);
+      this.wireRestoredTaskIds.add(taskId);
+    }
+  }
+
+  private async restoreTaskHistoryFromWireJournal(): Promise<void> {
+    const chains = await this.wire.readRestoreChains();
+    for (const record of chains.journal) {
+      if (record.type !== 'task.started' && record.type !== 'task.terminated') continue;
+      if (record['agentId'] !== this.scopeContext.agentId) continue;
+      const info = record['info'] as AgentTaskInfo | undefined;
+      if (info === undefined) continue;
+      const taskId = info.taskId;
+      if (this.tasks.has(taskId)) continue;
+      const existing = this.ghosts.get(taskId);
+      if (existing !== undefined && existing.status !== 'running') continue;
+      this.ghosts.set(taskId, info);
+      this.wireRestoredTaskIds.add(taskId);
     }
   }
 
@@ -613,11 +637,36 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   async reconcile(): Promise<readonly AgentTaskInfo[]> {
     const lostTasks = await this.markLoadedTasksLost();
     for (const info of lostTasks) {
+      if (this.wireRestoredTaskIds.has(info.taskId)) {
+        this.pendingRestoredNotifications.push(info);
+        continue;
+      }
       this.recordTaskTerminated(info);
     }
     this.appendPreviousSessionTasksReminder();
     await this.restoreAgentTaskNotifications();
     return lostTasks;
+  }
+
+  private async flushRestoredTaskNotifications(): Promise<void> {
+    for (const info of this.pendingRestoredNotifications.splice(0)) {
+      if (info.detached === false || info.terminalNotificationSuppressed === true) continue;
+      const origin: TaskOrigin = {
+        kind: 'task',
+        taskId: info.taskId,
+        status: 'lost',
+        notificationId: taskNotificationId(info.taskId, 'lost'),
+      };
+      if (this.hasDeliveredTaskOrigin(info)) continue;
+      const notification = buildAgentTaskNotification(info, this.nowMs());
+      this.context.append({
+        role: 'user',
+        content: [{ type: 'text', text: renderNotificationXml(notification) }],
+        toolCalls: [],
+        origin,
+      });
+      this.markDeliveredNotification(origin);
+    }
   }
 
   async getOutputSnapshot(
@@ -1021,6 +1070,16 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const persistence = this.persistence;
     for (const [taskId, info] of this.ghosts) {
       if (TERMINAL_STATUSES.has(info.status)) continue;
+      if (this.wireRestoredTaskIds.has(taskId)) {
+        const updated: AgentTaskInfo = {
+          ...info,
+          status: 'lost',
+          endedAt: info.endedAt ?? null,
+        };
+        this.ghosts.set(taskId, updated);
+        lostTasks.push(updated);
+        continue;
+      }
       const updated: AgentTaskInfo = {
         ...info,
         status: 'lost',
@@ -1417,7 +1476,6 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       toolCalls: [],
       origin: context.origin,
     });
-    this.fireNotificationHook(context.notification);
   }
 
   private async buildAgentTaskNotificationContext(

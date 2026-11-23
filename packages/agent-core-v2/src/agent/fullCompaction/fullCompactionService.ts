@@ -33,7 +33,7 @@ import { IAgentTaskService } from '#/agent/task/task';
 import { IAssociativeMemoryService } from '#/features/associativeMemory/service';
 import { OrderedHookSlot } from '#/hooks';
 import { APIContextOverflowError } from '#/llm-adapter/contract/errors';
-import { createUserMessage, type Message } from '#/llm-adapter/contract/message';
+import { createUserMessage, toLlmMessage, type Message } from '#/llm-adapter/contract/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
@@ -283,7 +283,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     return this.tokenCounting.requestSize({
       systemPrompt: this.profile.getSystemPrompt(),
       tools: this.defaultTools().filter((tool) => tool.deferred !== true),
-      messages,
+      messages: messages.map(toLlmMessage),
     });
   }
 
@@ -409,8 +409,8 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         tokenCount,
         originTurnId,
         quiescence,
-        get trace() {
-          return this.trace;
+        get requestId() {
+          return this.trace?.requestId;
         },
         blockedByTurn: false,
       },

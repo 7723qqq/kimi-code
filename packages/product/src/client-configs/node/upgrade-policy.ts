@@ -14,7 +14,7 @@ function minimumVersion(value: unknown): string | null {
 }
 
 export const clientUpgradePolicySchema = z.unknown().transform((raw): ClientUpgradePolicy => {
-  const record = typeof raw === 'object' && raw !== null ? raw as Record<string, unknown> : {};
+  const record = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
   return {
     cliMinVersion: minimumVersion(record['cli_min_version']),
     desktopMinVersion: minimumVersion(record['desktop_min_version']),

@@ -11,7 +11,7 @@ import {
   resolveModelFamily,
 } from '#/llm/modelFamily';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
-import { resolveModelConnection } from '#human/llm/protocol/connection';
+import { resolveModelConnection } from '#/llm/protocol/connection';
 import {
   remainingContextTokens,
   resolveMaxCompletionCap,
@@ -30,13 +30,13 @@ import {
   type ToolCallIdPolicy,
 } from '#/llm/requester/requester';
 import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
-import { getLlmDispatcher } from '#human/llm/requester/timeout';
-import { toLlmSyntaxErrorMessage } from '#human/llm/syntax-errors';
+import { getLlmDispatcher } from '#/llm/requester/timeout';
+import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 import {
   encodeReasoningEffortFallback,
   resolveThinkingEffortForModel,
   type ThinkingEffort,
-} from '#human/llm/thinking';
+} from '#/llm/thinking';
 import type { LlmLogger } from '#/log/log';
 
 import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';

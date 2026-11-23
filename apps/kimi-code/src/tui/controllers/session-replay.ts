@@ -513,6 +513,7 @@ export class SessionReplayRenderer {
   }
 
   private renderToolResult(context: ReplayRenderContext, message: ContextMessage): void {
+    if (message.role !== 'tool') return;
     const toolCallId = message.toolCallId;
     if (toolCallId === undefined) return;
     const call = context.toolCalls.get(toolCallId);

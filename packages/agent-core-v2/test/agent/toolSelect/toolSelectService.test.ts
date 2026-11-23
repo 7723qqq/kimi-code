@@ -243,7 +243,6 @@ class RecordingEventBus implements IEventBus {
 class FakeLoopService implements IAgentLoopService {
   readonly _serviceBrand = undefined;
 
-  // ---- to satisfy IAgentLoopService (fork + upstream members) ----
   get requester(): never { return undefined as never; }
   async start(_t?: readonly unknown[]): Promise<void> {}
   baselineTools(): never[] { return []; }
@@ -260,6 +259,7 @@ class FakeLoopService implements IAgentLoopService {
   addActiveTool(_n: string): void {}
   removeActiveTool(_n: string): void {}
   remind(..._m: readonly unknown[]): void {}
+
   flushReminders(): void {}
   registerToolBatchStarting(_h: unknown): { dispose(): void } { return { dispose() {} }; }
   async notifyClient(_i: unknown): Promise<never> { return undefined as never; }
@@ -1253,6 +1253,7 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
 
     expect(h.sut.shapeHistory(h.contextMemory.get())).toEqual([]);
     expect(h.sut.load([USER_DEFERRED])).toEqual({
+      schemas: [],
       toLoad: [],
       alreadyAvailable: [],
       alreadyCallable: [],
@@ -1281,6 +1282,7 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
     expect(inline).toEqual(expect.objectContaining({ name: USER_DEFERRED, disclosure: undefined }));
     expect(inline?.deferred).toBeUndefined();
     expect(h.sut.load([USER_DEFERRED])).toEqual({
+      schemas: [],
       toLoad: [],
       alreadyAvailable: [],
       alreadyCallable: [USER_DEFERRED],
@@ -1357,6 +1359,7 @@ describe('AgentToolSelectService.load', () => {
     registerUser(h, new EchoTool(USER_DEFERRED), 'deferred');
 
     expect(h.sut.load([USER_DEFERRED])).toEqual({
+      schemas: [expect.objectContaining({ name: USER_DEFERRED })],
       toLoad: [USER_DEFERRED],
       alreadyAvailable: [],
       alreadyCallable: [],
@@ -1594,6 +1597,7 @@ describe('AgentToolSelectService.load', () => {
     registerBuiltin(h, new EchoTool());
 
     expect(h.sut.load(['Echo'])).toEqual({
+      schemas: [],
       toLoad: [],
       alreadyAvailable: [],
       alreadyCallable: ['Echo'],
@@ -1613,6 +1617,7 @@ describe('AgentToolSelectService.load', () => {
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
 
     expect(h.sut.load(['MCP__SRV__ALPHA'])).toEqual({
+      schemas: [],
       toLoad: [],
       alreadyAvailable: [],
       alreadyCallable: [],
@@ -1631,6 +1636,7 @@ describe('AgentToolSelectService.load', () => {
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
 
     expect(h.sut.load(['mcp__alpha'])).toEqual({
+      schemas: [],
       toLoad: [],
       alreadyAvailable: [],
       alreadyCallable: [],
@@ -1649,6 +1655,7 @@ describe('AgentToolSelectService.load', () => {
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
 
     expect(h.sut.load(['alpha_extra'])).toEqual({
+      schemas: [],
       toLoad: [],
       alreadyAvailable: [],
       alreadyCallable: [],
@@ -1720,6 +1727,7 @@ describe('AgentToolSelectService.load', () => {
         registration.dispose();
       }
       expect(h.sut.load([MCP_GONE])).toEqual({
+        schemas: [],
         toLoad: [],
         alreadyAvailable: [],
         alreadyCallable: [],

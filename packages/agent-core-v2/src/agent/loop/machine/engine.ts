@@ -28,7 +28,7 @@ import { createEventStoreSync } from '#human/eventStore/eventStore';
 import { memoryJournal, type SyncStoreJournal } from '#human/eventStore/journal';
 import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
 import type { LlmErrorMessage } from '#human/llm/errors';
-import type { FinishInfo } from '@moonshot-ai/core/llm/response';
+import type { FinishInfo } from '#human/llm/finish-reason';
 import type { StreamedMessagePart } from '#human/llm/message';
 import type { LlmModel } from '#human/llm/model';
 import type { LlmRecovery, LlmRecoveryRecord } from '#human/llm/requester/recovery';

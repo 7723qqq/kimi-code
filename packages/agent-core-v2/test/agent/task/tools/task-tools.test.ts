@@ -1327,7 +1327,8 @@ describe('WaitForTool (harness)', () => {
         ctx.get(IEventBus).subscribe(ToolProgress, (event) => {
           if (
             timing === 'before-request' &&
-            (event.toolCallId === 'wait-specific' || event.toolCallId === 'wait-any')
+            ((event as unknown as { toolCallId: string }).toolCallId === 'wait-specific' ||
+              (event as unknown as { toolCallId: string }).toolCallId === 'wait-any')
           ) {
             slow.resolveWait(0);
           }

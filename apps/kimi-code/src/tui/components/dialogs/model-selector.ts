@@ -96,6 +96,7 @@ export interface ModelSelectorOptions {
   /** Set to false to hide the Thinking footer and disable ←/→ effort
    * switching — for pickers whose selection carries no thinking level. */
   readonly thinkingControl?: boolean;
+  readonly effortDescriptions?: Readonly<Record<string, string>>;
   readonly onSelect: (selection: ModelSelection) => void;
   /** When provided, Alt+S invokes this instead of onSelect — used to apply the
    * choice to the current session only, without persisting it as the default. */
@@ -446,6 +447,13 @@ export class ModelSelectorComponent extends Container implements Focusable {
     const segments = segmentsFor(choice.model);
     const active = this.effectiveEffort(choice);
     const rendered = segments.map((effort) => segment(effortLabel(effort), effort === active));
-    return `  ${rendered.join('  ')}`;
+    // The descriptions belong to the model the session currently uses; showing
+    // them while another provider is highlighted would describe efforts the
+    // highlighted model does not have.
+    const description =
+      choice.alias === this.opts.currentValue ? this.opts.effortDescriptions?.[active] : undefined;
+    return description === undefined
+      ? `  ${rendered.join('  ')}`
+      : `  ${rendered.join('  ')}\n  ${currentTheme.fg('textMuted', description)}`;
   }
 }

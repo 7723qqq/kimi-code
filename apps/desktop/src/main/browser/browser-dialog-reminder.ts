@@ -1,6 +1,5 @@
 import type { ContextInjectionContext, IAgentScopeHandle, IDisposable, ISessionScopeHandle, Scope } from '@moonshot-ai/agent-core-v2';
-import { IAgentLifecycleService, IAgentReminderService, MAIN_AGENT_ID } from '@moonshot-ai/agent-core-v2';
-import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
+import { IAgentLifecycleService, IAgentReminderService, MAIN_AGENT_ID, ISessionManager } from '@moonshot-ai/agent-core-v2';
 import type { BrowserDialogRecord, BrowserPendingDialog } from '../../shared/browser-dialogs';
 import type { BrowserDialogReminder } from './browser-automation';
 

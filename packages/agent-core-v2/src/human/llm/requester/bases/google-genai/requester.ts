@@ -4,7 +4,7 @@ import { assign, shake } from 'radashi';
 import type { LlmRemoteErrorMessage } from '#/llm/errors';
 import type { LlmModel } from '#/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
-import { resolveModelConnection } from '#human/llm/protocol/connection';
+import { resolveModelConnection } from '#/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
 import { applyThinking } from '#/llm/protocol/thinking';
 import {
@@ -18,7 +18,7 @@ import {
   type LlmRequestEvent,
 } from '#/llm/requester/requester';
 import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
-import { toLlmSyntaxErrorMessage } from '#/llm/errors';
+import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 
 import { getGoogleGenAIModelCapability } from './capability';
 import {

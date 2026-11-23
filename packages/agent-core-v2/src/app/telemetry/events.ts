@@ -133,6 +133,18 @@ export interface CacheBreakDetectedEvent {
   cache_read_drop_ratio: number;
   interval_ms: number;
   request_kind?: string;
+  prev_request_kind?: string;
+  prev_turn_id?: number;
+  prev_step_no?: number;
+  prev_total_tokens?: number;
+  curr_total_tokens?: number;
+  cache_reuse_ratio?: number;
+  tools_match?: boolean;
+  system_prompt_match?: boolean;
+  history_prefix_match?: boolean;
+  gap_ms?: number;
+  trace_id?: string;
+  prev_trace_id?: string;
 }
 
 export type ToolCallOutcome = 'success' | 'error' | 'cancelled';
@@ -467,7 +479,6 @@ export interface ToolCallRepeatHandoffEvent {
 }
 
 
-// ---- from upstream 2.7.0 ----
 export interface PredictionRequestedEvent {
   prediction_id: string;
   turn_id: number;
@@ -487,6 +498,12 @@ export interface PredictionGeneratedEvent {
   output_tokens?: number;
   cache_read_pct?: number;
   ttft_ms?: number;
+  stream_duration_ms?: number;
+  request_build_ms?: number;
+  server_first_token_ms?: number;
+  server_decode_ms?: number;
+  client_consume_ms?: number;
+  client_blocked_ms?: number;
 }
 
 export interface AgentsMdReminderShownEvent {
@@ -928,6 +945,19 @@ export const telemetryEventDefinitions = {
       curr_input_cache_creation: 'Cache-creation input tokens of the current step',
       cache_read_drop_ratio: 'Fraction of the previous cache-read tokens that disappeared',
       interval_ms: 'Milliseconds from the previous step completion to the current one',
+      request_kind: 'Request kind of the step that read less cache',
+      prev_request_kind: 'Request kind of the previous step',
+      prev_turn_id: 'Per-agent turn index of the previous step',
+      prev_step_no: 'One-based step number of the previous step',
+      prev_total_tokens: 'Total input tokens of the previous step',
+      curr_total_tokens: 'Total input tokens of the current step',
+      cache_reuse_ratio: 'Fraction of the previous total tokens reused from cache',
+      tools_match: 'Whether the provider-visible tool table hash equals the previous step',
+      system_prompt_match: 'Whether the system prompt hash equals the previous step',
+      history_prefix_match: 'Whether the projected messages start with the previous step history',
+      gap_ms: 'Milliseconds between the previous request finishing and the current starting',
+      trace_id: 'Request trace id of the step that read less cache',
+      prev_trace_id: 'Request trace id of the previous step',
     },
   }),
   tool_call: defineAgentTelemetryEvent<ToolCallEvent>({
@@ -1448,6 +1478,12 @@ export const telemetryEventDefinitions = {
       output_tokens: 'Output tokens',
       cache_read_pct: 'Cache read ratio',
       ttft_ms: 'Time to first token',
+      stream_duration_ms: 'Streaming duration in milliseconds',
+      request_build_ms: 'Request build duration in milliseconds',
+      server_first_token_ms: 'Server first-token latency in milliseconds',
+      server_decode_ms: 'Server decode duration in milliseconds',
+      client_consume_ms: 'Client consume duration in milliseconds',
+      client_blocked_ms: 'Client blocked duration in milliseconds',
     },
   }),
   agents_md_reminder_shown: defineAgentTelemetryEvent<AgentsMdReminderShownEvent>({

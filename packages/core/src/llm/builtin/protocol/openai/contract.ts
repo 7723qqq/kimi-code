@@ -26,6 +26,9 @@ export type OpenAIRawUsage = {
   completion_tokens?: number;
   cached_tokens?: number;
   prompt_tokens_details?: { cached_tokens?: number } | null;
+  input_tokens_details?: { cached_tokens?: number } | null;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
 };
 
 export type OpenAIRawStreamToolCallDelta = {

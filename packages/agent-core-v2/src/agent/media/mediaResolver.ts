@@ -1,6 +1,5 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import type { Message } from '#/llm-adapter/contract/message';
-import type { Model } from '#/llm-adapter/model/catalog';
 import type { ModelRequester } from '#/llm-adapter/model/model-requester';
 
 export interface IAgentMediaResolverService {

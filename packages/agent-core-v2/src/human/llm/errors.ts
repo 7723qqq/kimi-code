@@ -1,4 +1,4 @@
-import type { FinishReason } from '@moonshot-ai/core/llm/response';
+import type { FinishReason } from '#/llm/finish-reason';
 
 export function sanitizeStatusErrorMessage(message: string): string {
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(message);
@@ -361,6 +361,3 @@ export function isImageFormatStatusError(statusCode: number, message: string): b
     (MEDIA_TYPE_FIELD_PATTERN.test(lowerMessage) && lowerMessage.includes('image'))
   );
 }
-
-// ---- from upstream 2.7.0 ----
-export class SyntaxRequestFormatError extends Error {}

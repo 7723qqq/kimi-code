@@ -154,7 +154,7 @@ describe('deepseek cache-field classification agrees across engines', () => {
     for (const testCase of CASES) {
       const engine = parseOpenAIUsage(testCase.usage);
       const prompt = testCase.usage['prompt_tokens'] as number;
-      expect(engine!.inputCacheRead + engine!.inputOther).toBeLessThanOrEqual(prompt);
+      expect((engine!.inputCacheRead ?? 0) + engine!.inputOther).toBeLessThanOrEqual(prompt);
     }
   });
 });
@@ -252,7 +252,7 @@ describe('responses cache-field classification agrees across engines', () => {
     expect(engine!.inputOther).toBe(0);
     expect(engine!.inputCacheRead).toBe(150);
     expect(kosong.inputOther).toBe(engine!.inputOther);
-    expect(kosong.inputCacheRead).toBe(engine!.inputCacheRead);
+    expect(kosong.inputCacheRead ?? 0).toBe(engine!.inputCacheRead ?? 0);
   });
 
   it('keeps a consistent DeepSeek split verbatim on both reads', () => {

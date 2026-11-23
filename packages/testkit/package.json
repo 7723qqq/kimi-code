@@ -38,6 +38,7 @@
     "@anthropic-ai/sdk": "^0.95.2",
     "@google/genai": "^1.49.0",
     "@types/ws": "^8.18.0",
-    "openai": "^6.34.0"
+    "openai": "^6.34.0",
+    "vitest": "4.1.4"
   }
 }

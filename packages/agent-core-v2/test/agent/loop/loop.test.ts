@@ -2612,7 +2612,7 @@ function createTimingRequester(): IAgentLLMRequesterService {
       };
     },
     start(overrides, onPart, signal) {
-      return { trace: { traceId: undefined }, result: this.request(overrides, onPart, signal) };
+      return { trace: { requestId: undefined }, result: this.request(overrides, onPart, signal) };
     },
   };
   return requester;

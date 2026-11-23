@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn, jest } from 'bun:test';
 
 import { ErrorCode } from '../src/protocol/error-codes';
+
+import { advanceTimersByTimeAsync } from './helpers/waitFor';
 
 import { listAllSessionsAcrossHosts, listSessionsAcrossHosts, type SessionsListOutcome } from '../src/routes/sessionsAcrossHosts';
 import type { ListSessionsQuery } from '../src/protocol/rest-session';
@@ -337,7 +339,7 @@ describe('sessions across hosts', () => {
 
 describe('projects across hosts', () => {
   it('returns projects and session groups within five seconds even if an SSH host stops answering', async () => {
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     const transport = new PassThrough();
     const stalled = new StdioHostSession(transport);
     const project = { id: 'wm_healthy', kind: 'managed' } as const;
@@ -345,13 +347,15 @@ describe('projects across hosts', () => {
       { id: 'healthy', session: fakeHost([project], [{ id: 'remote', workspace: project.id, updated: 10 }]) },
       { id: 'stalled', session: stalled },
     ]);
-    const onProjects = vi.fn();
-    const onGroups = vi.fn();
+    const onProjects = mock();
+    const onGroups = mock();
     try {
       void collectFromHosts(hosts, hostProjects).then(onProjects);
       void list({ view: 'by_workspace' }, hosts, [{ id: 'local', workspace: 'wm_local', updated: 20 }]).then(onGroups);
 
-      await vi.advanceTimersByTimeAsync(5_000);
+      await advanceTimersByTimeAsync((ms) => {
+        jest.advanceTimersByTime(ms);
+      }, 5_000);
 
       expect(onProjects).toHaveBeenCalledWith({
         items: [{ ...project, host_id: 'healthy' }],
@@ -364,7 +368,7 @@ describe('projects across hosts', () => {
     } finally {
       stalled.close();
       transport.destroy();
-      vi.useRealTimers();
+      jest.useRealTimers();
     }
   });
 
@@ -380,7 +384,7 @@ describe('projects across hosts', () => {
       last_opened_at: '2026-01-01T00:00:00.000Z',
       session_count: 0,
     };
-    const list = vi.spyOn(HostBridgeManager.prototype, 'list').mockReturnValue([
+    const list = spyOn(HostBridgeManager.prototype, 'list').mockReturnValue([
       { id: 'dev', entry: { host: 'dev' }, bridge: { session: fakeHost([project, { ...project, id: 'wd_cli_000000000000', kind: 'implicit' } as never], []) } as never },
       { id: 'off', entry: { host: 'off' }, bridge: undefined },
     ]);
@@ -438,7 +442,7 @@ describe('v1 sessions across hosts', () => {
     const remote: Array<Record<string, unknown>> = [];
     const requests: string[] = [];
     const dev = { id: 'dev', entry: { host: 'dev' }, bridge: { session: sessionHost([{ id: 'wm_dev', kind: 'managed' }], remote, requests) } as never };
-    const list = vi.spyOn(HostBridgeManager.prototype, 'list').mockReturnValue([dev, { id: 'off', entry: { host: 'off' }, bridge: undefined }]);
+    const list = spyOn(HostBridgeManager.prototype, 'list').mockReturnValue([dev, { id: 'off', entry: { host: 'off' }, bridge: undefined }]);
     const server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     const call = (path: string, body?: unknown) =>
       fetch(`http://127.0.0.1:${server.port}${path}`, {
@@ -457,7 +461,7 @@ describe('v1 sessions across hosts', () => {
       const all = await call('/api/v1/sessions?hosts=include&include_archive=true');
       expect(all).toMatchObject({ code: 0, data: { has_more: false, unavailable_hosts: ['off'] } });
       const items = all.data['items'] as Array<{ id: string; host_id?: string }>;
-      expect(items.map((item) => [item.id, item.host_id])).toEqual([[remoteId, 'dev'], [local['id'], undefined]]);
+      expect(items.map((item) => [item.id, item.host_id])).toEqual([[remoteId, 'dev'], [local['id'] as string, undefined]]);
       const sessionPaths = requests.filter((path) => path.startsWith('/api/v1/sessions'));
       expect(sessionPaths).toHaveLength(1);
       const forwarded = new URL(sessionPaths[0]!, 'http://example.test').searchParams;
@@ -490,7 +494,7 @@ describe('v1 sessions across hosts', () => {
       const groups = grouped.data['groups'] as Array<{ workspace_id: string; host_id?: string; sessions: Array<{ id: string; host_id?: string }> }>;
       expect(groups.map((group) => [group.workspace_id, group.host_id])).toEqual([
         ['wm_dev', 'dev'],
-        [local['workspace_id'], undefined],
+        [local['workspace_id'] as string, undefined],
       ]);
       expect(groups[0]!.sessions).toEqual([expect.objectContaining({ id: remoteId, host_id: 'dev' })]);
       expect(await call('/api/v1/sessions?hosts=include&view=by_workspace&workspace_id=wm_dev')).toMatchObject({

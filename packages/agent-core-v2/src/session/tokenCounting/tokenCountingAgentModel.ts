@@ -197,7 +197,12 @@ function matchesContext(input: readonly Message[], context: readonly ContextMess
 }
 
 function tokenUsageTotal(usage: TokenUsage): number {
-  return usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
+  return (
+    (usage.inputCacheRead ?? 0) +
+    (usage.inputCacheCreation ?? 0) +
+    usage.inputOther +
+    usage.output
+  );
 }
 
 function normalizeSliceIndex(index: number, length: number): number {

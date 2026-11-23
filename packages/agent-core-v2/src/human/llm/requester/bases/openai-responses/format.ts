@@ -1,14 +1,14 @@
 import type OpenAI from 'openai';
 
 import type { LlmRemoteErrorMessage } from '#/llm/errors';
-import { NO_FINISH, type FinishInfo } from '@moonshot-ai/core/llm/response';
+import { NO_FINISH, type FinishInfo } from '#/llm/finish-reason';
 import type { StreamedMessagePart, ToolDescription } from '#/llm/message';
 import type {
   FormatRequestInput,
   ProtocolFormat,
   StreamParserOptions,
 } from '#/llm/protocol/format';
-import type { ResponseFormat } from '#human/llm/response-format';
+import type { ResponseFormat } from '#/llm/response-format';
 import type { TokenUsage } from '#/llm/usage';
 
 import { isContextOverflowErrorCode, isOpenAIInsufficientQuotaCode } from '../openai/format';

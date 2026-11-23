@@ -11,6 +11,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { HOST_API_LEVEL, HOST_PROTOCOL_VERSION } from '@moonshot-ai/kap-server';
 import type { Command } from 'commander';
 
+import { t } from '#/i18n';
 import { getDataDir } from '#/utils/paths';
 
 import { detectNativeInstall } from '../../update/source';
@@ -107,7 +108,10 @@ async function acquireLock(
       }
     }
   }
-  throw new EnsureDaemonError('lock_timeout', `timed out waiting for ${lockPath}`);
+  throw new EnsureDaemonError(
+    'lock_timeout',
+    t('cli.ensureDaemon.lockTimeout', { path: lockPath }),
+  );
 }
 
 function agentSocketPath(deps: EnsureDaemonDeps): string {
@@ -136,7 +140,7 @@ async function findOrStart(deps: EnsureDaemonDeps): Promise<EnsureDaemonResult> 
     if (!stopped) {
       throw new EnsureDaemonError(
         'version_mismatch_busy',
-        `a kimi server of version ${existing.version} is still running work on this host; retry after it finishes`,
+        t('cli.ensureDaemon.versionMismatchBusy', { version: existing.version }),
       );
     }
     let closed = false;
@@ -152,7 +156,7 @@ async function findOrStart(deps: EnsureDaemonDeps): Promise<EnsureDaemonResult> 
     if (!closed) {
       throw new EnsureDaemonError(
         'start_timeout',
-        'the previous kimi server did not shut down in time',
+        t('cli.ensureDaemon.previousServerStuck'),
       );
     }
   }
@@ -165,7 +169,10 @@ async function findOrStart(deps: EnsureDaemonDeps): Promise<EnsureDaemonResult> 
     }
     await deps.wait(POLL_INTERVAL_MS);
   }
-  throw new EnsureDaemonError('start_timeout', `the kimi server did not start; see ${logPath}`);
+  throw new EnsureDaemonError(
+    'start_timeout',
+    t('cli.ensureDaemon.startTimeout', { path: logPath }),
+  );
 }
 
 export async function ensureDaemon(deps: EnsureDaemonDeps): Promise<EnsureDaemonResult> {
@@ -206,7 +213,10 @@ function spawnDetachedServer(socketPath: string, logPath: string, agentSocket: s
     child.on('error', () => {});
     child.unref();
     if (child.pid === undefined) {
-      throw new EnsureDaemonError('start_timeout', `unable to start the kimi server; see ${logPath}`);
+      throw new EnsureDaemonError(
+        'start_timeout',
+        t('cli.ensureDaemon.spawnFailed', { path: logPath }),
+      );
     }
   } finally {
     closeSync(log);
@@ -352,8 +362,8 @@ function defaultDeps(): EnsureDaemonDeps {
 export function registerEnsureDaemonCommand(web: Command): void {
   web
     .command('ensure-daemon', { hidden: true })
-    .description('Internal: reuse or start a background server and bridge stdio to its socket.')
-    .option('--probe', 'Only report the host protocol and version.')
+    .description(t('cli.ensureDaemon.commandDescription'))
+    .option('--probe', t('cli.ensureDaemon.probeDescription'))
     .action(async (options: { probe?: boolean }) => {
       const report = (payload: Record<string, unknown>): void => {
         process.stdout.write(

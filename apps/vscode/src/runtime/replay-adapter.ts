@@ -491,8 +491,8 @@ function resumedStatusPayload(agent: ResumedAgentState): {
           token_usage: {
             input_other: totalUsage.inputOther,
             output: totalUsage.output,
-            input_cache_read: totalUsage.inputCacheRead,
-            input_cache_creation: totalUsage.inputCacheCreation,
+            input_cache_read: totalUsage.inputCacheRead ?? 0,
+            input_cache_creation: totalUsage.inputCacheCreation ?? 0,
           },
         }),
   };
@@ -506,10 +506,7 @@ function sumUsage(
     (total, usage) => ({
       inputOther: total.inputOther + usage.inputOther,
       output: total.output + usage.output,
-      inputCacheRead:
-        total.inputCacheRead === undefined || usage.inputCacheRead === undefined
-          ? undefined
-          : total.inputCacheRead + usage.inputCacheRead,
+      inputCacheRead: total.inputCacheRead + usage.inputCacheRead,
       inputCacheCreation: total.inputCacheCreation + usage.inputCacheCreation,
     }),
     { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },

@@ -38,13 +38,31 @@ export function emptySessionUsage(): SessionUsage {
 export const sessionPendingInteractionSchema = z.enum(['none', 'approval', 'question']);
 export type SessionPendingInteraction = z.infer<typeof sessionPendingInteractionSchema>;
 
+export const sessionActivitySchema = z.enum(['idle', 'turn', 'background']);
+export type SessionActivity = z.infer<typeof sessionActivitySchema>;
+
+export const sessionPullRequestSchema = z.object({
+  number: z.number().int(),
+  state: z.enum(['open', 'closed', 'merged']),
+  url: z.string(),
+});
+export type SessionPullRequest = z.infer<typeof sessionPullRequestSchema>;
+
+export const sessionGitSchema = z.object({
+  branch: z.string().optional(),
+  pull_request: sessionPullRequestSchema.optional(),
+});
+export type SessionGit = z.infer<typeof sessionGitSchema>;
+
 export const sessionSchema = z.object({
   id: z.string().min(1),
   workspace_id: workspaceIdSchema,
+  host_id: z.string().optional(),
   title: z.string(),
   created_at: isoDateTimeSchema,
   updated_at: isoDateTimeSchema,
   busy: z.boolean(),
+  activity: sessionActivitySchema.optional(),
   main_turn_active: z.boolean().optional(),
   pending_interaction: sessionPendingInteractionSchema.optional(),
   last_turn_reason: z.enum(['completed', 'cancelled', 'failed']).optional(),

@@ -43,6 +43,7 @@ export const metaResponseSchema = z.object({
   experimental_flags: z.record(z.string(), z.boolean()).optional(),
   web_title: z.string().optional(),
   features: z.array(metaFeatureSchema).optional(),
+  backend: z.enum(['v1', 'v2']).optional(),
 });
 
 export type MetaResponse = z.infer<typeof metaResponseSchema>;

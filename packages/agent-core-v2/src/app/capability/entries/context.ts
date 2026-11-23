@@ -3,7 +3,6 @@ import type { KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 import type { FetchLike } from '#/_base/utils/fetchLike';
 import type { IPluginMarketplaceService } from '#/app/plugin/marketplaceService';
 import type { IPluginService } from '#/app/plugin/plugin';
-import type { IPluginMarketplaceService } from '#/app/plugin/marketplaceService';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 
 export interface CapabilityEntryContext {

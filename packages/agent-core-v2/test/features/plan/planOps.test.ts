@@ -188,6 +188,7 @@ describe('plan ops (wire-backed)', () => {
         message: {
           role: 'user',
           content: [{ type: 'text', text: 'keep me' }],
+          toolCalls: [],
           origin: { kind: 'user' },
         },
       }),

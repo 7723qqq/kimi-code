@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { createUserMessage, extractText, type ToolCall } from '@moonshot-ai/core/llm/message';
 import {

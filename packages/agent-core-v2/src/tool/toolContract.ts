@@ -76,7 +76,6 @@ export interface ExecutableToolContext {
   readonly steerSignal?: AbortSignal;
   readonly onUpdate?: ((update: ToolUpdate) => void) | undefined;
   readonly onForegroundTaskStart?: ((taskId: string) => void) | undefined;
-  // ---- from upstream 2.7.0 ----
   readonly detach?: (text: string, brief?: string) => void;
   readonly onDetach?: (acknowledge: (reason: unknown) => { readonly content: ContentPart[]; readonly brief?: string }) => void;
   readonly origin?: ToolExecutionOrigin;
@@ -304,7 +303,6 @@ export function isMcpToolName(name: string): boolean {
   return name.startsWith(MCP_NAME_PREFIX);
 }
 
-// ---- from upstream 2.7.0 ----
 export type ToolExecutionOrigin = 'loop' | 'shellCommand';
 
 export type ToolRemind = (message: SystemMessage | UserMessage) => void;

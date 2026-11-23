@@ -59,7 +59,7 @@ describe('check-import-boundaries', () => {
 
   it('allows intra-human imports through its own alias', () => {
     const violations = checkSource(
-      `import { createMessageAccumulator } from '#/llm-adapter/contract/message';`,
+      `import { createMessageAccumulator } from '#/llm/message';`,
       atHuman('llm/requester', 'machine.ts'),
     );
     expect(violations).toHaveLength(0);

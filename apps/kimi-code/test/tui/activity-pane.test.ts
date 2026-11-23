@@ -130,7 +130,7 @@ describe('updateActivityPane terminal progress', () => {
   });
 
   it('shows compacting activity and terminal progress until compaction ends', () => {
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     try {
       const { driver, state, setProgress } = makeDriverWithTerminalProgress();
       state.appState.streamingPhase = 'thinking';
@@ -151,7 +151,7 @@ describe('updateActivityPane terminal progress', () => {
         .render(200)
         .map((line) => line.trimEnd())
         .join('\n');
-      expect(output).toBe(workingOutput.replace('Working…', 'Compacting…'));
+      expect(output).toBe(workingOutput.replace('Working…', 'Compacting context…'));
 
       driver.updateActivityPane();
 
@@ -168,16 +168,16 @@ describe('updateActivityPane terminal progress', () => {
       driver.updateActivityPane();
 
       const idleOutput = strip(state.activityContainer.render(80).join('\n'));
-      expect(idleOutput).not.toContain('Compacting…');
+      expect(idleOutput).not.toContain('Compacting context…');
       expect(setProgress).toHaveBeenCalledTimes(2);
       expect(setProgress).toHaveBeenLastCalledWith(false);
     } finally {
-      vi.useRealTimers();
+      jest.useRealTimers();
     }
   });
 
   it('keeps question dialogs ahead of compacting activity', () => {
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     try {
       const { driver, state, setProgress } = makeDriverWithTerminalProgress();
       state.appState.isCompacting = true;
@@ -199,13 +199,13 @@ describe('updateActivityPane terminal progress', () => {
       driver.updateActivityPane();
 
       const output = strip(state.activityContainer.render(80).join('\n'));
-      expect(output).toContain('⠋ Compacting…');
+      expect(output).toContain('⠋ Compacting context…');
 
       state.appState.isCompacting = false;
       state.appState.streamingPhase = 'idle';
       driver.updateActivityPane();
     } finally {
-      vi.useRealTimers();
+      jest.useRealTimers();
     }
   });
 

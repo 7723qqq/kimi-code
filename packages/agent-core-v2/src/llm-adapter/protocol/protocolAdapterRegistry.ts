@@ -2,7 +2,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService, type ILogger } from '#/_base/log/log';
 import { LifecycleScope } from '#/app/scopes';
 import { KimiFiles, kimiFilesBaseUrl, type KimiFilesFetch } from '#human/llm-kimi/files';
-import type { ProviderMediaContribution } from '#human/media/upload';
+import type { ProviderMediaContribution } from '#human/llm/media/upload';
 import type { LlmModel } from '#human/llm/model';
 import type { ProtocolBase } from '#human/llm/protocol/base';
 import type { ProviderConnection } from '#human/llm/protocol/connection';

@@ -150,6 +150,31 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     return this.defaultToolsForDisclosure(disclosure);
   }
 
+  initialTools(): readonly Tool[] {
+    return this.defaultToolsForDisclosure(this.enabled());
+  }
+
+  requestTools(
+    base: readonly Tool[] | undefined,
+    disclosure = this.enabled(),
+    dynamic = false,
+    messages: readonly ContextMessage[] = this.context.get(),
+  ): readonly Tool[] {
+    if (!dynamic) return base ?? this.defaultToolsForDisclosure(disclosure);
+    if (disclosure) return base ?? [];
+    const loaded = collectLoadedDynamicTools(messages, this.toolRegistry.list());
+    const tools = (base ?? [])
+      .filter((tool) => tool.name !== SELECT_TOOLS_TOOL_NAME)
+      .map((tool) => (tool.deferred === true ? { ...tool, deferred: undefined } : tool));
+    const names = new Set(tools.map((tool) => tool.name));
+    for (const tool of loaded.values()) {
+      if (names.has(tool.name)) continue;
+      tools.push({ ...tool, deferred: undefined });
+      names.add(tool.name);
+    }
+    return tools.toSorted((left, right) => left.name.localeCompare(right.name));
+  }
+
   shapeTools(
     entries: readonly ToolInfo[],
     disclosure = this.enabled(),
@@ -224,6 +249,10 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       for (const name of toLoad) this.pendingLoaded.add(name);
     }
     return {
+      schemas: toLoad.flatMap((name) => {
+        const tool = this.schemaOf(name);
+        return tool === undefined ? [] : [tool];
+      }),
       toLoad,
       alreadyAvailable,
       alreadyCallable,
@@ -389,7 +418,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     return this.activeTools('initial');
   }
 
-  private initialTools(): readonly ToolSelectTool[] {
+  private initialSelectTools(): readonly ToolSelectTool[] {
     return this.modelState().initial ?? this.activeTools('initial');
   }
 
@@ -471,7 +500,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   }
 
   private capableTools(includeRuntime: boolean): readonly ToolSelectTool[] {
-    const initial = this.initialTools();
+    const initial = this.initialSelectTools();
     const initialNames = new Set(initial.map((tool) => tool.name));
     const current = includeRuntime ? this.currentTools() : this.liveTools('initial');
     const currentByName = new Map(current.map((tool) => [tool.name, tool]));
@@ -629,7 +658,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       info.disclosure === 'deferred' ||
       ('origin' in info &&
         info.origin === 'runtime' &&
-        !this.initialTools().some(
+        !this.initialSelectTools().some(
           (tool) => tool.name === info.name && tool.disclosure !== 'deferred',
         ))
     );

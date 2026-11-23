@@ -377,7 +377,7 @@ describe('ISessionActivityView (Session scope aggregate of agent activity + inte
     expect(view.state().busy).toBe(false);
   });
 
-  it('re-seeds an idle session after restore when a background task is no longer live', async () => {
+  it('re-seeds from restored agent state when restore completes', async () => {
     const main = lifecycle.addAgent(MAIN_AGENT_ID);
     const { view, changes } = viewWithChanges();
 
@@ -392,7 +392,7 @@ describe('ISessionActivityView (Session scope aggregate of agent activity + inte
     await main.runRestore();
 
     expect(view.state()).toEqual({
-      busy: false,
+      busy: true,
       mainTurnActive: false,
       pendingInteraction: 'none',
       lastTurnReason: 'completed',

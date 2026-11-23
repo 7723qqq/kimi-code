@@ -11,7 +11,7 @@ import {
   toLlmStreamErrorMessage,
   type LlmRemoteErrorMessage,
 } from '#/llm/errors';
-import { NO_FINISH, type FinishInfo, type FinishReason } from '@moonshot-ai/core/llm/response';
+import { NO_FINISH, type FinishInfo, type FinishReason } from '#/llm/finish-reason';
 import type {
   Message,
   StreamedMessagePart,
@@ -21,14 +21,14 @@ import type {
 } from '#/llm/message';
 import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
 import { mergeConsecutiveUsers } from '#/llm/protocol/patterns';
-import { applyPatterns } from '#human/llm/protocol/rewrite';
-import type { ResponseFormat } from '#human/llm/response-format';
+import { applyPatterns } from '#/llm/protocol/rewrite';
+import type { ResponseFormat } from '#/llm/response-format';
 import { ThinkingConfigError, type ThinkingEffort } from '#/llm/thinking';
 import type { TokenUsage } from '#/llm/usage';
 
 import type { GoogleContent } from './contract';
 import { buildRawIdById, buildToolNameById, lowerMessage } from './lower';
-import { sortToolRunByCallOrder } from '#/llm/protocol/patterns';
+import { sortToolRunByCallOrder } from './patterns';
 
 export function defaultGoogleGenAITool(tool: ToolDescription): Record<string, unknown> {
   return {

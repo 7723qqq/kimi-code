@@ -13,6 +13,7 @@ import type {
 import type {
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
+  ToolProgressEvent,
   ToolUpdatedEvent,
 } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 import type { ToolResultEvent } from '@moonshot-ai/agent-core-v2/contract';
@@ -238,6 +239,23 @@ export function toolCallStartedUpgradeToSessionUpdate(
       content,
     },
   };
+}
+
+export function toolProgressToSessionUpdate(
+  sessionId: string,
+  event: ToolProgressEvent,
+): SessionNotification | null {
+  if (event.update.kind === 'status' && event.update.text) {
+    return {
+      sessionId,
+      update: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: acpToolCallId(event.turnId, event.toolCallId),
+        title: event.update.text,
+      },
+    };
+  }
+  return null;
 }
 
 export function toolUpdatedToSessionUpdate(

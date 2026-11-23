@@ -608,5 +608,6 @@ export function getAntigravityModelCapability(): ModelCapability {
     audio_in: false,
     thinking: true,
     tool_use: false,
+    max_context_tokens: 200_000,
   };
 }

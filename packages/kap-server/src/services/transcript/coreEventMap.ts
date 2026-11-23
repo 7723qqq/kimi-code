@@ -383,7 +383,7 @@ export class AgentTranscriptProjector {
       case 'turn.step.started':
         return this.onStepStarted(event);
       case 'turn.step.completed':
-        return this.onStepCompleted(event);
+        return this.onStepCompleted(event as never);
       case 'turn.step.interrupted':
         return this.onStepFinished(event);
       case 'turn.step.retrying':
@@ -421,7 +421,7 @@ export class AgentTranscriptProjector {
       case 'subagent.failed':
       case 'subagent.cancelled':
       case 'subagent.suspended':
-        return this.onSubagentRun(event);
+        return this.onSubagentRun(event as never);
       case 'goal.updated':
         return this.onGoalUpdated(event);
       case 'agent.status.updated':

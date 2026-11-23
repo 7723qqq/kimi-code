@@ -203,6 +203,9 @@ function toQuestionResult(
         break;
     }
   }
-  if (body.method === undefined || body.method === 'click') return { answers: flattened };
-  return { answers: flattened, method: body.method };
+  return {
+    answers: flattened,
+    method: body.method === 'click' ? undefined : body.method,
+    note: body.note,
+  };
 }

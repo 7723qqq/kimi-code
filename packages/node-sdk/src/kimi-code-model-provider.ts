@@ -10,10 +10,8 @@ import {
   type KimiHostIdentity,
   type ManagedKimiOAuthRef,
 } from '@moonshot-ai/kimi-code-oauth';
-import type {
-  ProviderConfig as KosongProviderConfig,
-  ProviderRequestAuth,
-} from '@moonshot-ai/core';
+import type { ProviderConfig as KosongProviderConfig } from './model-provider';
+import type { ProviderRequestAuth } from '@moonshot-ai/core';
 import { APIStatusError, UNKNOWN_CAPABILITY } from '@moonshot-ai/core';
 
 import { ErrorCodes, KimiError } from '#/errors';

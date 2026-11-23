@@ -37,6 +37,7 @@ export interface ToolSelectAnnouncement {
 }
 
 export interface LoadToolsResult {
+  readonly schemas: readonly Tool[];
   readonly toLoad: readonly string[];
   readonly alreadyAvailable: readonly string[];
   readonly alreadyCallable: readonly string[];

@@ -227,8 +227,8 @@ export class ActivityPaneController {
     const state = this.host.state;
     if (state.activeDialog === 'session-picker') return 'hidden';
     if (state.livePane.pendingApproval !== null) return 'hidden';
-    if (state.appState.isCompacting) return 'hidden';
     if (state.livePane.pendingQuestion !== null) return 'hidden';
+    if (state.appState.isCompacting) return 'compacting';
 
     const streamingPhase = state.appState.streamingPhase;
 

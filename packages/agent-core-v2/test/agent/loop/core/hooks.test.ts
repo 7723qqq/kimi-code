@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { createUserMessage, extractText, type Message, type ToolCall, type ToolMessage } from '@moonshot-ai/core/llm/message';
 import type {
@@ -103,7 +103,7 @@ describe('step.starting', () => {
 
   it('applies history rewrites during step start and an in-flight request', async () => {
     let sent: Message[] = [];
-    const capturing = createMockProviderRequester((request) => {
+    const capturing = createMockProviderRequester((request: { readonly content: { readonly messages: readonly Message[] } }) => {
       sent = [...request.content.messages];
       return done('ok');
     });

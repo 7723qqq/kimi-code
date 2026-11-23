@@ -83,7 +83,7 @@ describe('Bedrock provider', () => {
     });
 
     const requests: RequestInit[] = [];
-    const fetchStub: typeof fetch = async (_input, init) => {
+    const fetchStub = (async (_input: string | URL | Request, init?: RequestInit) => {
       requests.push(init ?? {});
       return new Response(
         JSON.stringify({
@@ -98,7 +98,7 @@ describe('Bedrock provider', () => {
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
-    };
+    }) as unknown as typeof fetch;
     const input = {
       model: 'claude-test',
       max_tokens: 1,

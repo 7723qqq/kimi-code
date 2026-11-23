@@ -350,9 +350,6 @@ describe('AgentPluginService plugin-change reminder', () => {
       errors: [],
       mutation: { kind: 'enable', id: 'demo' },
     });
-    await ctx.restorePersisted();
-    ctx.get(IAgentLoopService).flushReminders();
-
     const messages = findPluginChangeMessages(ctx);
     expect(messages).toHaveLength(1);
     expect(messageText(messages[0]!)).toContain('Plugin "demo" was enabled.');
@@ -464,9 +461,6 @@ describe('AgentPluginService plugin-change reminder', () => {
     sinkChange.fire('plugin');
     sinkChange.fire('plugin');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    await ctx.restorePersisted();
-    ctx.get(IAgentLoopService).flushReminders();
-
     expect(findPluginChangeMessages(ctx)).toHaveLength(2);
     expect(findPluginSessionStartEventMessages(ctx)).toHaveLength(1);
 

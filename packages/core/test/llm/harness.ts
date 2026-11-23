@@ -261,7 +261,7 @@ export async function requestJson(
   input: Parameters<typeof fetch>[0],
   init?: Parameters<typeof fetch>[1],
 ): Promise<{ request: Request; body: unknown }> {
-  const request = new Request(input, init);
+  const request = new Request(input as unknown as Request, init);
   return { request, body: await request.json() };
 }
 
@@ -271,7 +271,7 @@ export function runTransportFixtures<TOptions, TRequest, TResponse, TChunk, TCli
 ): void {
   it.each(fixtures)('$name', async (fixture) => {
     const calls: { request: Request; body: unknown }[] = [];
-    const fetch: typeof globalThis.fetch = async (input, init) => {
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       calls.push(await requestJson(input, init));
       if (fixture.response.sse !== undefined) {
         const sse = fixture.response.sse;
@@ -285,7 +285,7 @@ export function runTransportFixtures<TOptions, TRequest, TResponse, TChunk, TCli
         status: fixture.response.status,
         headers: fixture.response.headers,
       });
-    };
+    }) as unknown as typeof globalThis.fetch;
     const { apiKey, ...endpoint } = fixture.endpoint;
     const { outcome } = await runGenerate(protocol, {
       module: fixture.module,

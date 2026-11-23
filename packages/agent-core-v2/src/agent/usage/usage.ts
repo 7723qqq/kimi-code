@@ -6,6 +6,8 @@ import type { TokenUsage } from '#human/llm/usage';
 
 import { UsageErrors } from './errors';
 
+export type { TokenUsage } from '#human/llm/usage';
+export { addUsage, chargeableTokens } from '#human/llm/usage';
 export { UsageErrors } from './errors';
 
 export type UsageErrorCode = (typeof UsageErrors.codes)[keyof typeof UsageErrors.codes];
@@ -29,4 +31,5 @@ export interface UsageRecordedContext {
   readonly usage: Readonly<TokenUsage>;
   readonly source?: AgentLLMRequestSource;
   readonly firstRecord: boolean;
+  readonly usageReported?: boolean;
 }

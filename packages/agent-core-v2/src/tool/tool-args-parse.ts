@@ -1,6 +1,5 @@
 export * from '@moonshot-ai/core/tool/args';
 
-// ---- kept from fork ----
 export function parseToolCallArguments(raw: unknown): {
   readonly data: unknown;
   readonly parseFailed: boolean;

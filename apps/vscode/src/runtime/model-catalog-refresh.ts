@@ -1,12 +1,12 @@
-import type { KimiHarness } from "@moonshot-ai/kimi-code-sdk";
+import type { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 
 const DEFAULT_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const MAX_INTERVAL_MS = 2_147_483_647;
-const INTERVAL_ENV = "KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS";
-const REFRESH_ON_START_ENV = "KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START";
+const INTERVAL_ENV = 'KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS';
+const REFRESH_ON_START_ENV = 'KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START';
 
 export interface ModelCatalogRefreshOptions {
-  readonly harness: Pick<KimiHarness, "getConfig" | "refreshProviderModels">;
+  readonly harness: Pick<KimiHarness, 'getConfig' | 'refreshProviderModels'>;
   readonly onChanged: () => void;
   readonly log: (message: string, error?: unknown) => void;
   readonly env?: NodeJS.ProcessEnv;
@@ -22,15 +22,15 @@ export function startModelCatalogRefresh(options: ModelCatalogRefreshOptions): (
     if (disposed || refreshing) return;
     refreshing = true;
     try {
-      const result = await options.harness.refreshProviderModels({ scope: "all" });
+      const result = await options.harness.refreshProviderModels({ scope: 'all' });
       if (result.failed.length > 0) {
-        options.log("Model catalog refresh completed with failures", result.failed);
+        options.log('model_catalog_refresh_partial', result.failed);
       }
       if (!disposed && result.changed.length > 0) {
         options.onChanged();
       }
     } catch (error) {
-      options.log("Model catalog refresh failed", error);
+      options.log('model_catalog_refresh_failed', error);
     } finally {
       refreshing = false;
     }
@@ -51,7 +51,7 @@ export function startModelCatalogRefresh(options: ModelCatalogRefreshOptions): (
         timer.unref?.();
       }
     } catch (error) {
-      options.log("Failed to start model catalog refresh", error);
+      options.log('model_catalog_refresh_start_failed', error);
     }
   })();
 
@@ -77,7 +77,7 @@ function resolveRefreshOnStart(env: NodeJS.ProcessEnv, configValue: boolean | un
   const raw = env[REFRESH_ON_START_ENV];
   if (raw !== undefined && raw.trim().length > 0) {
     const normalized = raw.trim().toLowerCase();
-    return normalized === "1" || normalized === "true" || normalized === "yes";
+    return normalized === '1' || normalized === 'true' || normalized === 'yes';
   }
   return configValue ?? true;
 }

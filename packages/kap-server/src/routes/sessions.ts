@@ -1315,6 +1315,7 @@ export function toWireSession(
   fields: SessionWireFields,
   cwd: string,
   facts: SessionFacts,
+  _git?: unknown,
 ): Session {
   return {
     id: fields.id,

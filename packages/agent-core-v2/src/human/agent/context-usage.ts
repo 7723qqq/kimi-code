@@ -10,7 +10,12 @@ export interface ContextUsagePrefix {
 }
 
 export function calculateContextTokens(usage: TokenUsage): number {
-  return usage.inputOther + usage.inputCacheRead + usage.inputCacheCreation + usage.output;
+  return (
+    usage.inputOther +
+    (usage.inputCacheRead ?? 0) +
+    (usage.inputCacheCreation ?? 0) +
+    usage.output
+  );
 }
 
 export function estimateTextTokens(text: string): number {

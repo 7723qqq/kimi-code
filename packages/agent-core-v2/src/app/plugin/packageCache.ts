@@ -1,14 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto';
-import {
-  mkdir,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  utimes,
-  writeFile,
-} from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readdir, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { Error2, ErrorCodes } from '#/errors';
@@ -18,7 +9,7 @@ import { downloadZip } from './archive';
 const ARCHIVE_CACHE_LIMIT_BYTES = 500 * 1024 * 1024;
 
 interface ArchiveLoadOptions {
-  readonly expectedSha256: string;
+  readonly expectedSha256?: string;
   readonly expectedPluginId?: string;
   readonly fetchImpl?: typeof fetch;
 }
@@ -32,38 +23,41 @@ export class PluginPackageCache {
   }
 
   async load(source: string, options: ArchiveLoadOptions): Promise<Buffer> {
-    const expectedSha256 = options.expectedSha256.toLowerCase();
-    if (!/^[a-f0-9]{64}$/.test(expectedSha256)) {
+    const expectedSha256 = options.expectedSha256?.toLowerCase();
+    if (expectedSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedSha256)) {
       throw new Error2(ErrorCodes.VALIDATION_FAILED, 'Invalid plugin archive SHA-256', {
         details: { expectedSha256: options.expectedSha256 },
       });
     }
-    const existing = this.loads.get(expectedSha256);
+    const key = expectedSha256 ?? source;
+    const existing = this.loads.get(key);
     if (existing !== undefined) return existing;
     const load = this.loadShared(source, expectedSha256, options);
-    this.loads.set(expectedSha256, load);
+    this.loads.set(key, load);
     try {
       return await load;
     } finally {
-      if (this.loads.get(expectedSha256) === load) this.loads.delete(expectedSha256);
+      if (this.loads.get(key) === load) this.loads.delete(key);
     }
   }
 
   private async loadShared(
     source: string,
-    expectedSha256: string,
+    expectedSha256: string | undefined,
     options: ArchiveLoadOptions,
   ): Promise<Buffer> {
-    const filePath = path.join(this.root, `${expectedSha256}.zip`);
-    const cached = await readVerifiedArchive(filePath, expectedSha256);
-    if (cached !== undefined) {
-      const now = new Date();
-      await utimes(filePath, now, now).catch(() => undefined);
-      return cached;
+    if (expectedSha256 !== undefined) {
+      const filePath = path.join(this.root, `${expectedSha256}.zip`);
+      const cached = await readVerifiedArchive(filePath, expectedSha256);
+      if (cached !== undefined) {
+        const now = new Date();
+        await utimes(filePath, now, now).catch(() => undefined);
+        return cached;
+      }
     }
     const buffer = await downloadZip(source, undefined, options.fetchImpl);
     const actualSha256 = archiveSha256(buffer);
-    if (actualSha256 !== expectedSha256) {
+    if (expectedSha256 !== undefined && actualSha256 !== expectedSha256) {
       throw new Error2(
         ErrorCodes.PLUGIN_LOAD_FAILED,
         `Plugin archive SHA-256 mismatch: expected ${expectedSha256}, got ${actualSha256}`,
@@ -76,7 +70,7 @@ export class PluginPackageCache {
         },
       );
     }
-    await this.store(expectedSha256, buffer);
+    await this.store(actualSha256, buffer);
     return buffer;
   }
 
@@ -100,7 +94,7 @@ export class PluginPackageCache {
 }
 
 function archiveSha256(buffer: Buffer): string {
-  return createHash('sha256').update(buffer).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(buffer).digest('hex');
 }
 
 async function readVerifiedArchive(
@@ -109,7 +103,7 @@ async function readVerifiedArchive(
 ): Promise<Buffer | undefined> {
   let buffer: Buffer;
   try {
-    buffer = await readFile(filePath);
+    buffer = Buffer.from(await Bun.file(filePath).bytes());
   } catch {
     return undefined;
   }

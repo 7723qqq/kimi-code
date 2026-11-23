@@ -11,7 +11,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import Fastify from 'fastify';
 import { FileTokenStorage, KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 import { IConfigService, IOAuthService, hostIdSchema, hostsSectionSchema } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn, jest } from 'bun:test';
 import WebSocketClient, { WebSocketServer, type WebSocket as NodeWebSocket } from 'ws';
 
 import { HOST_API_LEVEL, HOST_PROTOCOL_VERSION } from '../src/services/hosts/hostProtocol';
@@ -23,6 +23,7 @@ import { StdioHostSession } from '../src/services/hosts/stdioHostSession';
 import { JsonlRpcStream, RPC_BACKPRESSURE_TIMEOUT_MS } from '../src/transport/jsonlRpcStream';
 import { startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { advanceTimersByTimeAsync, waitForAssertion } from './helpers/waitFor';
 import {
   HostConnectError,
   SshKapBridge,
@@ -206,7 +207,7 @@ describe('ssh bootstrap', () => {
         const bridge = new SshKapBridge({ host: 'dev' }, { sshProgram: ssh });
         const pending = bridge.connect();
         let pid = 0;
-        await vi.waitFor(() => {
+        await waitForAssertion(() => {
           pid = Number.parseInt(readFileSync(pidfile, 'utf8'), 10);
           expect(pid).toBeGreaterThan(0);
         });
@@ -310,7 +311,7 @@ done
             });
           });
           expect(messages).toEqual(['hello']);
-          await vi.waitFor(() => {
+          await waitForAssertion(() => {
             expect(bridge.session).toBeUndefined();
             expect(bridge.status).toBe('ready');
           });
@@ -341,7 +342,7 @@ while IFS= read -r line; do :; done
         const bridge = new SshKapBridge({ host: 'dev' }, { sshProgram: ssh });
         try {
           await bridge.connect();
-          await vi.waitFor(
+          await waitForAssertion(
             () => {
               expect(readFileSync(join(dir, 'count'), 'utf8').trim().split('\n')).toHaveLength(3);
               expect(bridge.session).toBeDefined();
@@ -380,7 +381,7 @@ while IFS= read -r line; do :; done
         });
         try {
           bridge.start();
-          await vi.waitFor(
+          await waitForAssertion(
             () => {
               expect(states).toContainEqual({ status: 'connecting', failure: 'connection_refused', error: refused });
             },
@@ -388,7 +389,7 @@ while IFS= read -r line; do :; done
           );
           await expect(bridge.connect()).rejects.toBeInstanceOf(HostConnectError);
           rmSync(down);
-          await vi.waitFor(
+          await waitForAssertion(
             () => {
               expect(bridge.status).toBe('ready');
               expect(bridge.session).toBeDefined();
@@ -409,7 +410,7 @@ while IFS= read -r line; do :; done
         const bridge = new SshKapBridge({ host: 'dev' }, { sshProgram: ssh });
         try {
           bridge.start();
-          await vi.waitFor(() => {
+          await waitForAssertion(() => {
             expect(bridge.failure).toBe('authentication_failed');
           });
           await sleep(1_500);
@@ -428,7 +429,7 @@ describe('host auto-connect', () => {
     const config = {
       ready: Promise.resolve(),
       get: <T,>() => section as T,
-      replace: vi.fn(async () => {}),
+      replace: mock(async () => {}),
       onDidSectionChange: (next: typeof listener) => {
         listener = next;
         return { dispose() {} };
@@ -448,7 +449,7 @@ describe('host auto-connect', () => {
 
   it('connects enabled hosts once a client has connected, including hosts added later', async () => {
     const started: string[] = [];
-    const start = vi.spyOn(SshKapBridge.prototype, 'start').mockImplementation(function (this: SshKapBridge) {
+    const start = spyOn(SshKapBridge.prototype, 'start').mockImplementation(function (this: SshKapBridge) {
       started.push((this as unknown as { entry: { host: string } }).entry.host);
     });
     const section: Record<string, { host: string; enabled?: boolean }> = {
@@ -461,7 +462,7 @@ describe('host auto-connect', () => {
       expect(started).toEqual([]);
       manager.activate();
       manager.activate();
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(started).toEqual(['dev-box']);
       });
       section['added'] = { host: 'added-box' };
@@ -513,7 +514,7 @@ done
             method: 'GET', path: '/held', headers: {}, timeoutMs: 10,
           });
           await expect(request).rejects.toThrow('host request timed out');
-          await vi.waitFor(() => expect(readFileSync(join(dir, 'cancel'), 'utf8')).toContain('"type":"http.cancel"'));
+          await waitForAssertion(() => expect(readFileSync(join(dir, 'cancel'), 'utf8')).toContain('"type":"http.cancel"'));
         } finally {
           bridge.dispose();
         }
@@ -556,14 +557,14 @@ describe('host WebSocket backpressure', () => {
       await new Promise<void>((resolve) => ws.once('open', resolve));
       blocked = true;
       ws.send('first');
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(received).toEqual(['first']);
       });
       ws.send('second');
       await new Promise<void>((resolve) => setTimeout(resolve, 20));
       expect(received).toEqual(['first']);
       release();
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(received).toEqual(['first', 'second']);
       });
     } finally {
@@ -574,14 +575,14 @@ describe('host WebSocket backpressure', () => {
 
   it('buffers a maximum-size body frame and closes the RPC stream once its send buffer exceeds the limit', async () => {
     const stream = new Duplex({ read() {}, write() {} });
-    const onClose = vi.fn();
+    const onClose = mock();
     const rpc = new JsonlRpcStream<{ type: string; body: string }>(stream, () => {}, () => {}, onClose);
     const body = Buffer.alloc(HOST_RPC_MAX_BODY_BYTES).toString('base64');
     rpc.write({ type: 'http.res', body });
     expect(stream.destroyed).toBe(false);
     for (let frame = 0; frame < 3; frame += 1) rpc.write({ type: 'http.res', body });
     expect(stream.destroyed).toBe(true);
-    await vi.waitFor(() => expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ name: 'RpcBackpressureError' })));
+    await waitForAssertion(() => expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ name: 'RpcBackpressureError' })));
   });
 });
 
@@ -595,7 +596,7 @@ describe('host management routes', () => {
       homeDir: home,
       logLevel: 'silent',
     });
-    const probe = vi.spyOn(SshKapBridge.prototype, 'probe').mockResolvedValue(undefined);
+    const probe = spyOn(SshKapBridge.prototype, 'probe').mockResolvedValue(undefined);
     const request = (method: string, path: string, body?: unknown) => fetch(`http://127.0.0.1:${server.port}${path}`, {
       method,
       headers: { authorization: `Bearer ${server.authTokenService.getToken()}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
@@ -622,7 +623,7 @@ describe('host management routes', () => {
       const remaining = await request('GET', '/api/v1/hosts');
       expect(await remaining.json()).toEqual({ code: 0, msg: 'success', data: { hosts: [{ id: 'other', host: 'other.example.test', status: 'pending' }] }, request_id: expect.any(String) });
     } finally {
-      vi.restoreAllMocks();
+      jest.restoreAllMocks();
       await server.close();
       await rm(home, { recursive: true, force: true });
     }
@@ -666,7 +667,7 @@ void serve();
         const server = await startServer({
           hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: dir, logLevel: 'silent',
         });
-        const list = vi.spyOn(server.hostBridges, 'list').mockReturnValue([{ id: 'example', entry, bridge }]);
+        const list = spyOn(server.hostBridges, 'list').mockReturnValue([{ id: 'example', entry, bridge }]);
         const get = async (path: string): Promise<unknown> => {
           const response = await fetch(`http://127.0.0.1:${server.port}${path}`, {
             headers: { authorization: `Bearer ${server.authTokenService.getToken()}` },
@@ -677,7 +678,7 @@ void serve();
         try {
           const session = await bridge.connect();
           await expect(session.request({ method: 'GET', path: '/api/v1/healthz', headers: {} })).rejects.toBeInstanceOf(HostRequestError);
-          await vi.waitFor(() => expect(bridge.session).toBeUndefined());
+          await waitForAssertion(() => expect(bridge.session).toBeUndefined());
           const listWorkspaces = () => get('/api/v1/workspaces?hosts=include');
           const listSessions = () => get('/api/v1/sessions?hosts=include');
           const first = await Promise.all([listWorkspaces(), listSessions()]);
@@ -748,9 +749,9 @@ describe('host HTTP proxy', () => {
     try {
       await new Promise<void>((resolve) => socket.once('connect', resolve));
       socket.write('POST /api/v1/hosts/dev/proxy/api/v1/sessions/s1/messages HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx');
-      await vi.waitFor(() => expect(sessionRequest).toBeDefined());
+      await waitForAssertion(() => expect(sessionRequest).toBeDefined());
       socket.destroy();
-      await vi.waitFor(() => expect(sessionRequest.signal?.aborted).toBe(true));
+      await waitForAssertion(() => expect(sessionRequest.signal?.aborted).toBe(true));
     } finally {
       socket.destroy();
       await app.close();
@@ -773,7 +774,8 @@ async function withManagedHostPair(
 ): Promise<void> {
   const localHome = await mkdtemp(join(tmpdir(), 'kimi-host-local-'));
   const remoteHome = await mkdtemp(join(tmpdir(), 'kimi-host-remote-'));
-  vi.stubGlobal('fetch', vi.fn(fetchImpl));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mock(fetchImpl) as unknown as typeof fetch;
   writeFileSync(join(localHome, 'config.toml'), '[hosts.dev]\nhost = "dev"\n');
   const env = { KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START: '0', KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS: '0' };
   const local = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: localHome, logLevel: 'silent', env });
@@ -800,14 +802,20 @@ async function withManagedHostPair(
     }),
     openWebSocket: () => { throw new Error('not used'); },
   };
-  vi.spyOn(SshKapBridge.prototype, 'connect').mockResolvedValue(session);
-  vi.spyOn(SshKapBridge.prototype, 'session', 'get').mockReturnValue(session);
+  spyOn(SshKapBridge.prototype, 'connect').mockResolvedValue(session as never);
+  (
+    spyOn as unknown as (
+      target: object,
+      key: string,
+      kind: string,
+    ) => { mockReturnValue(value: unknown): void }
+  )(SshKapBridge.prototype, 'session', 'get').mockReturnValue(session);
   try {
     await run({ local, remote, localHome, remoteHome, session, paths });
   } finally {
     client.destroy();
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
+    globalThis.fetch = originalFetch;
+    jest.restoreAllMocks();
     local.hostBridges.close();
     await local.close();
     await remote.close();
@@ -949,7 +957,7 @@ function rpcClient(socketPath: string) {
       socket.write(`${JSON.stringify(frame)}\n`);
     },
     async next(): Promise<Record<string, unknown>> {
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(frames.length).toBeGreaterThan(0);
       });
       return frames.shift()!;
@@ -1023,7 +1031,7 @@ describe('stdio rpc transport', () => {
       await requestStarted;
       client.send({ type: 'http.cancel', id: 'cancel' });
       client.send({ type: 'http.req', id: 'next', method: 'GET', path: '/next', headers: {} });
-      await vi.waitFor(() => expect(client.frames.some((frame) => frame['id'] === 'next')).toBe(true));
+      await waitForAssertion(() => expect(client.frames.some((frame) => frame['id'] === 'next')).toBe(true));
       await sleep(150);
       expect(client.frames.some((frame) => frame['id'] === 'cancel')).toBe(false);
     } finally {
@@ -1071,7 +1079,7 @@ describe('stdio rpc transport', () => {
     attachRpcStream(stream, { app, wssV1 });
     try {
       stream.push(`${JSON.stringify({ type: 'ws.open', id: 'live', path: '/api/v1/ws' })}\n`);
-      await vi.waitFor(() => expect(connected).toBeDefined());
+      await waitForAssertion(() => expect(connected).toBeDefined());
       for (let message = 0; message < 100; message += 1) connected.send('x'.repeat(1024));
       expect(connected.bufferedAmount).toBe(0);
       hold = true;
@@ -1086,7 +1094,7 @@ describe('stdio rpc transport', () => {
   });
 
   it('closes the entire RPC stream after sustained backpressure', async () => {
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     try {
       const app = Fastify();
       const wssV1 = new WebSocketServer({ noServer: true });
@@ -1102,23 +1110,29 @@ describe('stdio rpc transport', () => {
       });
       attachRpcStream(stream, { app, wssV1 });
       stream.push(`${JSON.stringify({ type: 'ws.open', id: 'slow', path: '/api/v1/ws' })}\n`);
-      await vi.waitFor(() => expect(connected).toBeDefined());
+      await waitForAssertion(() => expect(connected).toBeDefined());
       stream.emit('drain');
       connected.send('first');
       stream.emit('drain');
       connected.send('second');
-      await vi.advanceTimersByTimeAsync(RPC_BACKPRESSURE_TIMEOUT_MS - 1);
+      await advanceTimersByTimeAsync((ms) => {
+        jest.advanceTimersByTime(ms);
+      }, RPC_BACKPRESSURE_TIMEOUT_MS - 1);
       expect(connected.readyState).toBe(connected.OPEN);
       stream.emit('drain');
       connected.send('third');
-      await vi.advanceTimersByTimeAsync(RPC_BACKPRESSURE_TIMEOUT_MS - 1);
+      await advanceTimersByTimeAsync((ms) => {
+        jest.advanceTimersByTime(ms);
+      }, RPC_BACKPRESSURE_TIMEOUT_MS - 1);
       expect(connected.readyState).toBe(connected.OPEN);
-      await vi.advanceTimersByTimeAsync(2);
+      await advanceTimersByTimeAsync((ms) => {
+        jest.advanceTimersByTime(ms);
+      }, 2);
       expect(stream.destroyed).toBe(true);
       expect(connected.readyState).toBe(3);
       await app.close();
     } finally {
-      vi.useRealTimers();
+      jest.useRealTimers();
     }
   });
 });

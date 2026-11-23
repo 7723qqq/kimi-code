@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { createUserMessage } from '@moonshot-ai/core/llm/message';
 import { createMockProviderRequester } from '../../../harness/scripted-generate';
@@ -68,7 +68,7 @@ describe('loop.wait', () => {
     await expect(pending).rejects.toThrow('stop-waiting');
     await loop.close();
 
-    const never = createMockProviderRequester((_request, signal) => ({
+    const never = createMockProviderRequester((_request: unknown, signal: AbortSignal) => ({
       parts: [{ type: 'text', text: 'pending' }],
       error: signal.aborted
         ? signal.reason

@@ -223,7 +223,6 @@ registerEvent2Class(ConfigUpdate);
 registerEvent2Class(ToolsSetActiveTools);
 registerEvent2Class(ToolsResetActiveTools);
 
-// ---- fork-only state keys (kept from the pre-merge fork line) ----
 export interface ProfileModelState {
   readonly modelAlias?: string;
   readonly profileName?: string;

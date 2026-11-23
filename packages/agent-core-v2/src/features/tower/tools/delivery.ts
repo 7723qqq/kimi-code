@@ -1,7 +1,6 @@
 import type { PromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { agentTaskInfo } from '#/agent/task/handler';
+import type { IAgentTaskService } from '#/agent/task/task';
 import type { ISessionEventBus } from '#/app/event/eventBus';
 import { BROADCAST_NAME, TOWER_NAME } from '#/features/tower/protocol/index';
 import type { TowerSendResult, TowerState } from '#/features/tower/protocol/index';
@@ -12,7 +11,7 @@ const STEER_SUBJECT_PREVIEW_MAX = 120;
 
 export interface TowerDeliveryServices {
   readonly sessionBus: ISessionEventBus | undefined;
-  readonly toolExecutor: IAgentToolExecutorService | undefined;
+  readonly tasks: IAgentTaskService | undefined;
   readonly agentLifecycle: IAgentLifecycleService;
   readonly state: TowerState;
 }
@@ -46,12 +45,10 @@ export function deliverTowerMessage(
   const undelivered =
     item.from === TOWER_NAME &&
     entry !== undefined &&
-    services.toolExecutor !== undefined &&
-    !services.toolExecutor.handlers().some((handler) => {
-      if (handler.snapshot().fields.task === undefined) return false;
-      const info = agentTaskInfo(handler);
-      return info.kind === 'agent' && info.agentId === entry.agentId;
-    });
+    services.tasks !== undefined &&
+    !services.tasks
+      .list(true)
+      .some((task) => task.kind === 'agent' && task.agentId === entry.agentId);
   const note = undelivered
     ? `\nnote: ${item.to} has no running task in this session — the message sits in its inbox until you deliver it with Agent(resume="${entry.agentId}", run_in_background=true, prompt="...")`
     : '';
@@ -72,18 +69,21 @@ function steerIntoRunningAgent(services: TowerDeliveryServices, sent: TowerSendR
       item.subject.length > STEER_SUBJECT_PREVIEW_MAX
         ? `${item.subject.slice(0, STEER_SUBJECT_PREVIEW_MAX)}…`
         : item.subject;
-    loop.notify({
-      message: {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: `[tower inbox] new message from ${item.from}: "${subject}" — read it now with TowerInbox and act on it before continuing.`,
-          },
-        ],
-        origin: { kind: 'injection', variant: 'tower_inbox_steer' } as PromptOrigin,
+    loop.submit(
+      {
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `[tower inbox] new message from ${item.from}: "${subject}" — read it now with TowerInbox and act on it before continuing.`,
+            },
+          ],
+        },
+        meta: { origin: { kind: 'injection', variant: 'tower_inbox_steer' } as PromptOrigin },
       },
-    });
+      { steerIfActive: true },
+    );
     return `\nnote: ${item.to} is mid-turn — the message was steered into its running turn; it sees the directive at its next step boundary.`;
   } catch {
     return '';

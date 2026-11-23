@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 8 keys · Session: 9 keys · Agent: 78 keys)
+// Index (App: 0 keys · Workspace: 8 keys · Session: 9 keys · Agent: 79 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -69,9 +69,10 @@
 //     helloWorld                                      src/features/helloWorld/helloWorldOps.ts
 //     helloWorldRun                                   src/features/helloWorld/helloWorldOps.ts
 //     interruptionReminder                            src/agent/interruptionReminder/interruptionReminderOps.ts
-//     llm.requestTrace                                src/agent/llmRequester/llmRequestOps.ts
+//     llm.requestTrace                                src/agent/loop/llmRequestOps.ts
 //     llmRequester.emittedThinkingEffortWarnings      src/agent/llmRequester/llmRequesterService.ts
 //     llmRequester.lastConfigLogSignature             src/agent/llmRequester/llmRequesterService.ts
+//     llmRequester.lastMeasuredRequest                src/agent/loop/requestObservation.ts
 //     llmRequester.lastTurnRequest                    src/agent/llmRequester/llmRequesterService.ts
 //     llmRequester.mediaRecovery                      src/agent/llmRequester/llmRequesterService.ts
 //     llmRequester.turnConfigs                        src/agent/llmRequester/llmRequesterService.ts
@@ -1243,12 +1244,13 @@ export interface AgentStateSnapshot {
   'fullCompaction.lastCompactedTokenCount': number | null;
   'fullCompaction.observedMaxContextTokensByModel': Map<string, number>;
   // src/agent/interruptionReminder/interruptionReminderOps.ts
-  // replayable · durable — folds: InterruptionReminderRecorded
-  'interruptionReminder': null;
-  // src/agent/llmRequester/llmRequestOps.ts
-  // replayable · durable — folds: LlmToolsSnapshot, LlmRequest
-  'llm.requestTrace': /* LlmRequestTraceState — packages/agent-core-v2/src/agent/llmRequester/llmRequestOps.ts */ {
-    readonly seenToolsHashes: readonly string[];
+  // replayable · durable · undoable — folds: InterruptionCancellationRequested, InterruptionReminderRecorded
+  'interruptionReminder': /* InterruptionReminderState — packages/agent-core-v2/src/agent/interruptionReminder/interruptionReminderOps.ts */ {
+    readonly pending: /* InterruptionReminderPending — packages/agent-core-v2/src/agent/interruptionReminder/interruptionReminderOps.ts */ {
+      readonly turnId: number;
+      readonly ownerPromptId?: string;
+    } | undefined;
+    readonly consumedTurnIds: readonly number[];
   };
   // src/agent/llmRequester/llmRequesterService.ts
   'llmRequester.emittedThinkingEffortWarnings': Set<string>;
@@ -1346,9 +1348,38 @@ export interface AgentStateSnapshot {
     };
     readonly systemPrompt: string;
   }>;
+  // src/agent/loop/llmRequestOps.ts
+  // replayable · durable — folds: LlmToolsSnapshot, LlmRequest
+  'llm.requestTrace': /* LlmRequestTraceState — packages/agent-core-v2/src/agent/loop/llmRequestOps.ts */ {
+    readonly seenToolsHashes: readonly string[];
+  };
   // src/agent/loop/loopService.ts
   'loop.disposing': boolean;
   'loop.lastRequestTraceId': string | undefined;
+  // src/agent/loop/requestObservation.ts
+  'llmRequester.lastMeasuredRequest': /* MeasuredRequest — packages/agent-core-v2/src/agent/loop/requestObservation.ts */ {
+    readonly modelAlias: string;
+    readonly contextRevision: number;
+    readonly inputTokens: number;
+    readonly startedAt: number;
+    readonly finishedAt: number;
+    readonly thinkingEffort: /* ThinkingEffort — packages/core/src/llm/request.ts */ 'off' | 'on' | (string & {});
+    readonly requestKind?: string;
+    readonly turnId?: number;
+    readonly step?: number;
+    readonly traceId?: string;
+    readonly usage: /* TokenUsage — packages/agent-core-v2/src/human/llm/usage.ts */ {
+      inputOther: number;
+      output: number;
+      inputCacheRead: number;
+      inputCacheCreation: number;
+      raw?: Record<string, unknown>;
+    };
+    readonly systemPromptHash: string;
+    readonly toolsHash: string;
+    readonly messageCount: number;
+    readonly historyHash: string;
+  } | undefined;
   // src/agent/loop/turnOps.ts
   // replayable · durable — folds: ContextAppendLoopEvent, TurnPrompt, TurnSteer, ContextUndo, ContextApplyCompaction, ContextClear, TurnCancel, TurnEnded
   'turn': /* TurnModelState — packages/agent-core-v2/src/agent/loop/turnOps.ts */ {
@@ -1485,7 +1516,7 @@ export interface AgentStateSnapshot {
   'shellCommand.tasks': Map<string, string>;
   // src/agent/task/taskOps.ts
   // replayable · durable — folds: TaskStarted, TaskTerminated
-  'task': /* TaskModelState — packages/agent-core-v2/src/agent/task/taskOps.ts */ Map<string, /* AgentTaskInfo — packages/agent-core-v2/src/agent/task/types.ts */ /* QuestionTaskInfo — packages/agent-core-v2/src/agent/tools/ask-user-question/question-background-task.ts */ {
+  'task': /* TaskModelState — packages/agent-core-v2/src/agent/task/taskOps.ts */ Map<string, /* AgentTaskInfo — packages/agent-core-v2/src/agent/task/types.ts */ /* QuestionTaskInfo — packages/agent-core-v2/src/agent/task/types.ts */ {
     readonly kind: 'question';
     readonly questionCount: number;
     readonly toolCallId?: string;
@@ -1500,17 +1531,13 @@ export interface AgentStateSnapshot {
     readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
     readonly outputPath?: string;
-  } | /* SubagentTaskInfo — packages/agent-core-v2/src/agent/tools/agent/subagent-task.ts */ {
-    readonly kind: 'agent';
-    readonly agentId?: string;
-    readonly subagentType?: string;
-    readonly parentToolCallId?: string;
-    readonly model?: string;
-    readonly thinkingEffort?: string;
+  } | /* ProcessTaskInfo — packages/agent-core-v2/src/agent/task/types.ts */ {
+    readonly kind: 'process';
+    readonly command: string;
+    readonly pid: number;
+    readonly exitCode: number | null;
     readonly stopCode?: string;
-    readonly swarmIndex?: number;
-    readonly stateReason?: string;
-    readonly resultSummary?: string;
+    readonly parentToolCallId?: string;
     readonly taskId: string;
     readonly description: string;
     readonly status: /* AgentTaskStatus — packages/agent-core-v2/src/agent/task/types.ts */ 'completed' | 'failed' | 'running' | 'timed_out' | 'killed' | 'lost';
@@ -1522,12 +1549,17 @@ export interface AgentStateSnapshot {
     readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
     readonly outputPath?: string;
-  } | /* ProcessTaskInfo — packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts */ {
-    readonly kind: 'process';
-    readonly command: string;
-    readonly pid: number;
-    readonly exitCode: number | null;
+  } | /* SubagentTaskInfo — packages/agent-core-v2/src/agent/task/types.ts */ {
+    readonly kind: 'agent';
+    readonly agentId?: string;
+    readonly subagentType?: string;
     readonly parentToolCallId?: string;
+    readonly model?: string;
+    readonly thinkingEffort?: string;
+    readonly stopCode?: string;
+    readonly swarmIndex?: number;
+    readonly stateReason?: string;
+    readonly resultSummary?: string;
     readonly taskId: string;
     readonly description: string;
     readonly status: /* AgentTaskStatus — packages/agent-core-v2/src/agent/task/types.ts */ 'completed' | 'failed' | 'running' | 'timed_out' | 'killed' | 'lost';
@@ -1543,7 +1575,7 @@ export interface AgentStateSnapshot {
   // src/agent/task/taskService.ts
   'task.activeTaskReminderPending': boolean;
   'task.deliveredNotificationKeys': Set<string>;
-  'task.ghosts': Map<string, /* AgentTaskInfo — packages/agent-core-v2/src/agent/task/types.ts */ /* QuestionTaskInfo — packages/agent-core-v2/src/agent/tools/ask-user-question/question-background-task.ts */ {
+  'task.ghosts': Map<string, /* AgentTaskInfo — packages/agent-core-v2/src/agent/task/types.ts */ /* QuestionTaskInfo — packages/agent-core-v2/src/agent/task/types.ts */ {
     readonly kind: 'question';
     readonly questionCount: number;
     readonly toolCallId?: string;
@@ -1558,17 +1590,13 @@ export interface AgentStateSnapshot {
     readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
     readonly outputPath?: string;
-  } | /* SubagentTaskInfo — packages/agent-core-v2/src/agent/tools/agent/subagent-task.ts */ {
-    readonly kind: 'agent';
-    readonly agentId?: string;
-    readonly subagentType?: string;
-    readonly parentToolCallId?: string;
-    readonly model?: string;
-    readonly thinkingEffort?: string;
+  } | /* ProcessTaskInfo — packages/agent-core-v2/src/agent/task/types.ts */ {
+    readonly kind: 'process';
+    readonly command: string;
+    readonly pid: number;
+    readonly exitCode: number | null;
     readonly stopCode?: string;
-    readonly swarmIndex?: number;
-    readonly stateReason?: string;
-    readonly resultSummary?: string;
+    readonly parentToolCallId?: string;
     readonly taskId: string;
     readonly description: string;
     readonly status: /* AgentTaskStatus — packages/agent-core-v2/src/agent/task/types.ts */ 'completed' | 'failed' | 'running' | 'timed_out' | 'killed' | 'lost';
@@ -1580,12 +1608,17 @@ export interface AgentStateSnapshot {
     readonly resumeReminded?: boolean;
     readonly timeoutMs?: number;
     readonly outputPath?: string;
-  } | /* ProcessTaskInfo — packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts */ {
-    readonly kind: 'process';
-    readonly command: string;
-    readonly pid: number;
-    readonly exitCode: number | null;
+  } | /* SubagentTaskInfo — packages/agent-core-v2/src/agent/task/types.ts */ {
+    readonly kind: 'agent';
+    readonly agentId?: string;
+    readonly subagentType?: string;
     readonly parentToolCallId?: string;
+    readonly model?: string;
+    readonly thinkingEffort?: string;
+    readonly stopCode?: string;
+    readonly swarmIndex?: number;
+    readonly stateReason?: string;
+    readonly resultSummary?: string;
     readonly taskId: string;
     readonly description: string;
     readonly status: /* AgentTaskStatus — packages/agent-core-v2/src/agent/task/types.ts */ 'completed' | 'failed' | 'running' | 'timed_out' | 'killed' | 'lost';
@@ -1607,7 +1640,7 @@ export interface AgentStateSnapshot {
   'toolDedupe.callKeyByCallId': Map<string, string>;
   'toolDedupe.consecutiveCount': number;
   'toolDedupe.consecutiveKey': string | null;
-  'toolDedupe.handoffPhase': /* HandoffPhase — packages/agent-core-v2/src/agent/toolDedupe/toolDedupeService.ts */ 'idle' | 'active' | 'pending' | 'done';
+  'toolDedupe.handoffPhase': /* HandoffPhase — packages/agent-core-v2/src/agent/toolDedupe/toolDedupeService.ts */ 'idle' | 'pending' | 'active' | 'done';
   'toolDedupe.originalCallIndex': Map<string, number>;
   'toolDedupe.stepCalls': string[];
   'toolDedupe.syntheticCallIds': Set<string>;

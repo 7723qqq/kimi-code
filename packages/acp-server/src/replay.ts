@@ -49,7 +49,7 @@ export function projectHistoryToSessionUpdates(
       case 'assistant': {
         turnId += 1;
         for (const part of message.content) {
-          const update = assistantContentPartToUpdate(part, sessionId, turnId);
+          const update = assistantContentPartToUpdate(part as never, sessionId, turnId);
           if (update !== null) out.push(update);
         }
         for (const toolCall of message.toolCalls ?? []) {
@@ -59,7 +59,7 @@ export function projectHistoryToSessionUpdates(
         break;
       }
       case 'tool': {
-        const update = toolMessageToUpdate(message, sessionId, toolCallTurnIds);
+        const update = toolMessageToUpdate(message as never, sessionId, toolCallTurnIds);
         if (update !== null) out.push(update);
         break;
       }
@@ -122,7 +122,12 @@ function toolMessageToUpdate(
   sessionId: string,
   toolCallTurnIds: ReadonlyMap<string, number>,
 ): SessionNotification | null {
-  const rawToolCallId = message.toolCallId;
+  const toolMessage = message as unknown as {
+    readonly toolCallId?: string;
+    readonly isError?: boolean;
+    readonly content: ContentPart[];
+  };
+  const rawToolCallId = toolMessage.toolCallId;
   if (!rawToolCallId) {
     return null;
   }
@@ -130,14 +135,14 @@ function toolMessageToUpdate(
   if (turnId === undefined) {
     return null;
   }
-  const isError = message.isError === true;
+  const isError = toolMessage.isError === true;
   return {
     sessionId,
     update: {
       sessionUpdate: 'tool_call_update',
       toolCallId: `${turnId}:${rawToolCallId}`,
       status: isError ? 'failed' : 'completed',
-      content: toolMessageContentToAcpToolCallContent(message.content),
+      content: toolMessageContentToAcpToolCallContent(toolMessage.content),
     },
   };
 }

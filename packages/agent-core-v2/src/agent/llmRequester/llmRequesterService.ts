@@ -90,7 +90,7 @@ import {
   LlmToolsSnapshot,
   type LlmRequestPayload,
   type LlmRequestToolSchema,
-} from './llmRequestOps';
+} from '#/agent/loop/llmRequestOps';
 import { isAbortError } from '#/_base/utils/abort';
 import { parseBooleanEnv } from '#/_base/utils/env';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
@@ -299,7 +299,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     const setTrace = (traceId: string | undefined): void => {
       trace.set(traceId);
       if (overrides.source?.type === 'turn') {
-        this.telemetry.setContext({ request_id: traceId });
+        this.telemetry.setContext({ trace_id: traceId });
       }
     };
     setTrace(undefined);
@@ -584,7 +584,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
           turn_id: request.source?.turnId,
           provider_type: request.model.providerType ?? request.model.protocol,
           protocol: request.model.protocol,
-          input_tokens: inputTotal(usage ?? emptyUsage()),
+          input_tokens: inputTotal(usage ?? emptyUsage()) ?? 0,
           input_cache_read: usage?.inputCacheRead ?? 0,
           input_cache_creation: usage?.inputCacheCreation ?? 0,
           output_tokens: usage?.output ?? 0,

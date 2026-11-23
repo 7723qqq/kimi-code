@@ -12,7 +12,7 @@ import {
   openAIConnection,
   resolveProviderDefinition,
 } from '#/llm-adapter/provider/provider-definition';
-import type { LlmModel } from '#/llm-adapter/model/model';
+import type { LlmModel } from '#human/llm/model';
 import { resolveModelFamily } from '#human/llm/modelFamily';
 import { resolveModelConnection } from '#human/llm/protocol/connection';
 

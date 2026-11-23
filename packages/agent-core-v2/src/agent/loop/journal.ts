@@ -26,6 +26,8 @@ import {
 } from '#/agent/contextMemory/loopEventFold';
 import type { AssistantMessage, Message, UserMessage } from '@moonshot-ai/core/llm/message';
 
+import { usageFromCore } from '#/human/llm/usage';
+
 import { contextFromHistoryEntry, historyFromContext } from './history';
 import { TurnPrompt } from './turnOps';
 import type {
@@ -394,7 +396,7 @@ export class LoopJournal {
             turnId: String(requesting.turnId),
             step: requesting.step,
             finishReason: 'error',
-            usage: step.assistant?.attributes?.usage,
+            usage: usageFromCore(step.assistant?.attributes?.usage),
             messageId: step.assistant?.attributes?.messageId,
           });
           this.steps.delete(key);
@@ -469,7 +471,7 @@ export class LoopJournal {
           turnId: String(event.turnId),
           step: event.step,
           finishReason: stepFinishReason(event.outcome, assistant),
-          usage: assistant?.attributes?.usage,
+          usage: usageFromCore(assistant?.attributes?.usage),
           llmFirstTokenLatencyMs: event.timing?.firstTokenLatencyMs ?? event.llmTiming?.llmFirstTokenLatencyMs,
           llmStreamDurationMs: event.timing?.streamDurationMs ?? event.llmTiming?.llmStreamDurationMs,
           llmRequestBuildMs: event.timing?.requestBuildMs,

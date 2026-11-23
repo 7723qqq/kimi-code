@@ -1,30 +1,24 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
+import * as scopeModule from '#/_base/di/scope';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
 
-const { createScopedChildHandleMock } = vi.hoisted(() => ({
-  createScopedChildHandleMock: vi.fn(),
-}));
-
-vi.mock('#/_base/di/scope', async (importOriginal) => {
-  const original = await importOriginal<typeof import('#/_base/di/scope')>();
-  return { ...original, createScopedChildHandle: createScopedChildHandleMock };
-});
+const createScopedChildHandleMock = spyOn(scopeModule, 'createScopedChildHandle');
 
 describe('SessionLifecycleService', () => {
   it('does not rescan workspace skills when additional dirs are session-only', async () => {
     const calls: string[] = [];
     const workspaceDirs = {
       ready: Promise.resolve(),
-      mergeAdditionalDirs: vi.fn(async () => {
+      mergeAdditionalDirs: mock(async () => {
         calls.push('merge');
       }),
       sessionInfo: () => ({}),
     };
     const workspaceSkillCatalog = {
       sessionData: () => ({}),
-      reloadSources: vi.fn(() => {
+      reloadSources: mock(() => {
         calls.push('reload');
         return Promise.resolve();
       }),
@@ -37,12 +31,14 @@ describe('SessionLifecycleService', () => {
       fs: {},
       instructions: { sessionProvider: () => ({}) },
       agentProfiles: { ready },
-      dispose: vi.fn(),
+      dispose: mock(),
     };
     const handle = {
+      id: 'child',
+      kind: 'agent',
       accessor: { get: () => ({ ready }) },
-      dispose: vi.fn(),
-    };
+      dispose: mock(),
+    } as never;
     createScopedChildHandleMock.mockReset();
     createScopedChildHandleMock.mockImplementation(() => {
       calls.push('scope');

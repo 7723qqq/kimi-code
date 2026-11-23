@@ -5,6 +5,7 @@ import type {
   Role,
   ToolCall,
   ToolDescription,
+  ToolMessage,
 } from '#human/llm/message';
 
 export type {
@@ -17,6 +18,8 @@ export type {
   ThinkPart,
   ToolCall,
   ToolCallPart,
+  ToolDescription,
+  ToolMessage,
   VideoURLPart,
 } from '#human/llm/message';
 

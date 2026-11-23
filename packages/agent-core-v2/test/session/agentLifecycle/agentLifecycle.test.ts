@@ -205,6 +205,7 @@ function stubAttachEngine(): MachineEngine {
     submit: () => {},
     steer: () => {},
     notify: () => {},
+
     remind: () => {},
     cancelQueueItem: () => {},
     abort: () => {},

@@ -18,7 +18,7 @@ describe('projectHistoryToSessionUpdates', () => {
 
   it('projects a user text message to a user_message_chunk', () => {
     const messages: ContextMessage[] = [
-      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+      { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
     ];
     const updates = projectHistoryToSessionUpdates(SESSION_ID, messages);
     expect(kinds(updates)).toEqual(['user_message_chunk']);
@@ -30,7 +30,7 @@ describe('projectHistoryToSessionUpdates', () => {
 
   it('projects an assistant text + tool call and correlates the tool result', () => {
     const messages: ContextMessage[] = [
-      { role: 'user', content: [{ type: 'text', text: 'read a.ts' }] },
+      { role: 'user', content: [{ type: 'text', text: 'read a.ts' }], toolCalls: [] },
       {
         role: 'assistant',
         content: [{ type: 'text', text: 'reading' }],
@@ -39,6 +39,7 @@ describe('projectHistoryToSessionUpdates', () => {
       {
         role: 'tool',
         content: [{ type: 'text', text: 'file body' }],
+        toolCalls: [],
         toolCallId: 'c1',
       },
     ];
@@ -73,6 +74,7 @@ describe('projectHistoryToSessionUpdates', () => {
       {
         role: 'tool',
         content: [{ type: 'text', text: 'boom' }],
+        toolCalls: [],
         toolCallId: 'c1',
         isError: true,
       },
@@ -98,6 +100,7 @@ describe('projectHistoryToSessionUpdates', () => {
       {
         role: 'tool',
         content: [{ type: 'text', text: 'orphan' }],
+        toolCalls: [],
         toolCallId: 'unknown',
       },
     ];

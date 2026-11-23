@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import { createTestLoop as createLoop } from './core/factory';
 import { createUserMessage, extractText, type ToolCall, type ToolMessage } from '@moonshot-ai/core/llm/message';
 import { createMockProviderRequester, type MockProviderResponse } from '../../harness/scripted-generate';
 import { textToolContent, type ToolReturn } from '#/tool/executor';
 import { executorFrom } from './core/executor';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 function call(id: string, name = 'Bash'): ToolCall {
   return { type: 'function', id, name, arguments: '{}' };
@@ -134,7 +135,7 @@ describe('actor handler execution', () => {
     });
     const executeClose = closingExecutor.execute.bind(closingExecutor);
     const closingHandlers: Array<ReturnType<typeof closingExecutor.execute>> = [];
-    vi.spyOn(closingExecutor, 'execute').mockImplementation((toolCall, context) => {
+    spyOn(closingExecutor, 'execute').mockImplementation((toolCall, context) => {
       const handler = executeClose(toolCall, context);
       closingHandlers.push(handler);
       return handler;
@@ -162,7 +163,7 @@ describe('actor handler execution', () => {
     expect((await active).type).toBe('done');
     toolGate.resolve();
     await completionRequested;
-    const closeStop = vi.spyOn(closingHandlers[0]!, 'stop');
+    const closeStop = spyOn(closingHandlers[0]!, 'stop');
     const closing = closingLoop.close();
     let closed = false;
     void closing.then(() => {
@@ -220,7 +221,7 @@ describe('actor handler execution', () => {
       });
       const execute = resetExecutor.execute.bind(resetExecutor);
       const handlers: Array<ReturnType<typeof resetExecutor.execute>> = [];
-      vi.spyOn(resetExecutor, 'execute').mockImplementation((toolCall, context) => {
+      spyOn(resetExecutor, 'execute').mockImplementation((toolCall, context) => {
         const handler = execute(toolCall, context);
         handlers.push(handler);
         return handler;
@@ -239,7 +240,7 @@ describe('actor handler execution', () => {
       const detachedReset = resetLoop.wait('tool.ended', { match: (event) => event.detached });
       expect((await resetLoop.runTurn(prompt())).type).toBe('done');
       await detachedReset;
-      const stop = vi.spyOn(handlers[0]!, 'stop');
+      const stop = spyOn(handlers[0]!, 'stop');
       if (timing === 'before') {
         resetGate.resolve();
         await resetLoop.wait('tool.async_ended');
@@ -310,14 +311,14 @@ describe('actor handler execution', () => {
       executor,
     });
     expect((await loop.runTurn(prompt())).type).toBe('done');
-    await vi.waitFor(() => expect(gates).toHaveLength(1));
+    await waitForAssertion(() => expect(gates).toHaveLength(1));
 
     let secondSettled = false;
     const secondTurn = loop.runTurn(prompt());
     void secondTurn.then(() => {
       secondSettled = true;
     });
-    await vi.waitFor(() => expect(gates).toHaveLength(2));
+    await waitForAssertion(() => expect(gates).toHaveLength(2));
     const oldCompleted = loop.wait('tool.async_ended');
     gates[0]?.resolve();
     await oldCompleted;

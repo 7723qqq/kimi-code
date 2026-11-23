@@ -26,7 +26,17 @@ export function isImportedSession(
 
 export function formatSessionLabel(input: SessionLabelInput): string {
   const prefix = isImportedSession(input.metadata) ? `${formatImportedBadge()} ` : '';
-  return `${prefix}${input.title}`;
+  return `${prefix}${formatSourceBadge(input.metadata)}${input.title}`;
+}
+
+function formatSourceBadge(
+  metadata: Readonly<Record<string, unknown>> | undefined,
+): string {
+  if (metadata === undefined) return '';
+  const source = metadata['imported_from'];
+  if (source === 'claude-code') return '[Claude Code] ';
+  if (source === 'codex') return '[Codex] ';
+  return '';
 }
 
 const IMPORTED_FLAG_KEY = 'imported_from_kimi_cli';

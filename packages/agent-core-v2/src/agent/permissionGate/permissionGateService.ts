@@ -6,12 +6,7 @@ import type { PermissionData } from '#/agent/permissionPolicy/types';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { runLegacyStarting } from '#/agent/toolExecutor/legacyHooks';
-import type {
-  BeforeExecuteDecision,
-  BeforeToolExecuteEvent,
-  ResolvedToolExecutionHookContext,
-} from '#/agent/toolExecutor/toolHooks';
+import type { BeforeExecuteDecision, BeforeToolExecuteEvent, ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 
@@ -28,12 +23,7 @@ export class AgentPermissionGate extends Service implements IAgentPermissionGate
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
   ) {
     super();
-    this._register(toolExecutor.registerHook({
-      permitting: async (context) => {
-        const decision = await runLegacyStarting(context, (event) => this.adjudicate(event));
-        return decision !== undefined && 'skipPermitting' in decision ? undefined : decision;
-      },
-    }));
+    this._register(toolExecutor.onBeforeExecuteTool((event) => this.adjudicate(event)));
   }
 
   data(): PermissionData {

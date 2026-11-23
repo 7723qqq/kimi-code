@@ -25,7 +25,12 @@ import {
 
 function totalOf(usage: TokenUsage | undefined): number {
   if (usage === undefined) return 0;
-  return usage.inputOther + usage.output + usage.inputCacheRead + usage.inputCacheCreation;
+  return (
+    usage.inputOther +
+    usage.output +
+    (usage.inputCacheRead ?? 0) +
+    (usage.inputCacheCreation ?? 0)
+  );
 }
 
 function tokenCountingState(ctx: TestAgentContext) {

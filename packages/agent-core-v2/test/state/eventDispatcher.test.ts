@@ -45,6 +45,8 @@ const noopBlob: IAgentBlobService = {
 function stubWireJournal(journal: WireRecord[]): IWireService {
   return {
     _serviceBrand: undefined,
+    readLoopChain: () => [],
+    readHumanJournal: () => [],
     seal: async () => {},
     appendRecord: (record) => {
       journal.push(record as WireRecord);

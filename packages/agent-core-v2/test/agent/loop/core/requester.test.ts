@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { createUserMessage, extractText } from '@moonshot-ai/core/llm/message';
 import type { LlmRecovery } from '@moonshot-ai/core/llm/policy/recovery';

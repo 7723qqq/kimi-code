@@ -475,6 +475,15 @@ export abstract class SDKRpcClientBase {
   abstract clearPlan(input: SessionIdRpcInput): Promise<void>;
 
   abstract compact(input: SessionIdRpcInput & CompactOptions): Promise<void>;
+  abstract predictNextPrompt(
+    input: SessionIdRpcInput & { predictionId: string; expectedTurnId: number },
+  ): Promise<string | null>;
+  abstract cancelPromptPrediction(
+    input: SessionIdRpcInput & {
+      predictionId: string;
+      reason?: import('@moonshot-ai/agent-core-v2').PromptPredictionCancelReason;
+    },
+  ): Promise<boolean>;
 
   abstract cancelCompaction(input: SessionIdRpcInput): Promise<void>;
 

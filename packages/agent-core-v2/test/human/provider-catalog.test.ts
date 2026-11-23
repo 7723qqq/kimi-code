@@ -11,18 +11,18 @@ import { createProviderCatalog } from '../../src/human/provider-catalog/catalog'
 
 const modelDef: CatalogModelDefinition = {
   id: 'm1',
-  spec: {
-    provider: 'test',
-    name: 'm1',
-    capability: {
-      image_in: false,
-      video_in: false,
-      audio_in: false,
-      thinking: false,
-      tool_use: true,
-    },
-    maxContextSize: 4096,
+  provider: 'test',
+  model: 'm1',
+  name: 'm1',
+  capability: {
+    image_in: false,
+    video_in: false,
+    audio_in: false,
+    thinking: false,
+    tool_use: true,
+    max_context_tokens: 4096,
   },
+  maxContextSize: 4096,
 };
 
 function doneResponse(): MockProviderResponse {
@@ -139,10 +139,8 @@ describe('providerCatalog ping', () => {
         ...modelDef,
         protocol: 'anthropic',
         betaApi: true,
-        endpoint: {
-          baseUrl: 'https://model.example.test',
-          headers: { 'x-endpoint-source': 'model' },
-        },
+        baseUrl: 'https://model.example.test',
+        defaultHeaders: { 'x-endpoint-source': 'model' },
       }],
     });
 

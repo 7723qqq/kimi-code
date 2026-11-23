@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { WebSocket, type RawData } from 'ws';
 import {
   IAgentLifecycleService,
@@ -1000,4 +1000,4 @@ describe('conversation contract e2e', () => {
 
     channel.close();
   });
-}, 90000);
+});

@@ -538,8 +538,8 @@ export interface SessionTodoItem {
 export interface TokenUsage {
   readonly inputOther: number;
   readonly output: number;
-  readonly inputCacheRead: number;
-  readonly inputCacheCreation: number;
+  readonly inputCacheRead?: number;
+  readonly inputCacheCreation?: number;
 }
 
 export interface SessionUsage {

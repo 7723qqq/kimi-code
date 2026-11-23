@@ -1,7 +1,7 @@
 import type { createAgentMachine, AgentEvent, AgentInput } from '#/agent/machine';
 import type { TurnLlmEvent, TurnToolEvent } from '#/agent/turn';
 import type { LlmRequestConfig } from '#/llm/requester/requester';
-import type { ToolUpdate } from '#/tool/executor';
+import type { ToolUpdate } from '#human/tool/executor';
 import {
   assign,
   emit,

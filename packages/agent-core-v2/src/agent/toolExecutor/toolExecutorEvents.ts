@@ -9,6 +9,7 @@ import type {
 import { AgentEvent2 } from '#/app/event/event2';
 import type { ToolExecutionOrigin } from '#/tool/toolContract';
 import type { ToolExecutionStatus } from '#/tool/executor';
+import type { ToolUpdate } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 export interface ToolCallStartedPayload {
@@ -94,11 +95,11 @@ export interface McpServerStatusEvent extends Omit<McpServerStatusEventPayload, 
   readonly type: 'mcp.server.status';
 }
 
-// ---- kept from fork ----
 export class ToolProgress extends AgentEvent2<ToolProgressPayload> {
   static override readonly type = 'tool.progress';
   static override readonly observable = true;
 }
+export interface ToolProgress extends ToolProgressPayload {}
 
 export interface ToolProgressPayload {
   readonly agentId: string;

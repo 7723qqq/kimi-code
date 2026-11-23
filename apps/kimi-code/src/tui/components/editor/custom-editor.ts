@@ -193,6 +193,24 @@ export class CustomEditor extends Editor {
    * strip-local binding cannot claim them there.
    */
   public onStatusSurfaceKey?: (key: StatusSurfaceKey) => boolean;
+
+  private promptPrediction: string | undefined;
+
+  setPromptPrediction(text: string | undefined): void {
+    this.promptPrediction = text;
+  }
+
+  getPromptPrediction(): string | undefined {
+    return this.promptPrediction;
+  }
+
+  acceptPromptPrediction(): boolean {
+    const prediction = this.promptPrediction;
+    if (prediction === undefined) return false;
+    this.promptPrediction = undefined;
+    this.setText(`${this.getText()}${prediction}`);
+    return true;
+  }
   /**
    * Whether the status strip currently holds the keyboard.
    *
@@ -369,6 +387,36 @@ export class CustomEditor extends Editor {
     (this as unknown as AutocompleteInternals).cancelAutocomplete();
   }
 
+
+  private renderPromptPrediction(lines: string[], width: number): void {
+    const prediction = this.promptPrediction;
+    if (prediction === undefined || this.inputMode === 'bash') return;
+    if (lines.length < 3) return;
+    const firstContentIdx = 1;
+    const lastContentIdx = lines.length - 2;
+    let cursorIdx = -1;
+    for (let index = firstContentIdx; index <= lastContentIdx; index++) {
+      if (lines[index]?.includes(CURSOR_BLOCK) === true) {
+        cursorIdx = index;
+        break;
+      }
+    }
+    const targetIdx = cursorIdx === -1 ? firstContentIdx : cursorIdx;
+    const target = lines[targetIdx];
+    if (target === undefined) return;
+    const segments = prediction.split(String.fromCharCode(10));
+    const first = segments[0] ?? '';
+    lines[targetIdx] = injectGhostSegment(target, first, this.getText().length, width);
+    if (segments.length < 2) return;
+    const prefix = ' '.repeat(EDITOR_LEFT_PADDING);
+    const visibleWidth = stripSgr(lines[targetIdx] ?? '').length;
+    for (let index = 1; index < segments.length; index++) {
+      const segment = segments[index] ?? '';
+      const padded = segment.length >= visibleWidth ? segment : segment + ' '.repeat(visibleWidth - segment.length);
+      lines.splice(targetIdx + index, 0, prefix + padded);
+    }
+  }
+
   override render(width: number): string[] {
     const lines = super.render(width);
     if (lines.length < 3) return lines;
@@ -417,6 +465,7 @@ export class CustomEditor extends Editor {
         }
       }
     }
+    this.renderPromptPrediction(lines, width);
     const hint = this.computeArgumentHint();
     if (hint !== undefined) {
       const line = lines[firstContentIdx];
@@ -965,6 +1014,27 @@ function injectArgumentHint(
   // Everything after the insertion point is trailing padding + right padding
   // (plain spaces). Replace it with the hint followed by the remaining spaces
   // so the visible line width is preserved.
+  const trailing = line.length - insertAt;
+  return line.slice(0, insertAt) + colored + ' '.repeat(Math.max(0, trailing - trimmed.length));
+}
+
+function injectGhostSegment(
+  line: string,
+  ghost: string,
+  realTextLength: number,
+  width: number,
+): string {
+  if (ghost.length === 0) return line;
+  const cursorIdx = line.indexOf(CURSOR_BLOCK);
+  const cursorPresent = cursorIdx !== -1;
+  const contentWidth = Math.max(1, width - EDITOR_LEFT_PADDING * 2);
+  const available = contentWidth - realTextLength - (cursorPresent ? 1 : 0);
+  const trimmed = truncateHint(ghost, available);
+  if (trimmed.length === 0) return line;
+  const colored = currentTheme.fg('textDim', trimmed);
+  const insertAt = cursorPresent
+    ? cursorIdx + CURSOR_BLOCK.length
+    : mapVisibleIdxToRaw(line, EDITOR_LEFT_PADDING + realTextLength);
   const trailing = line.length - insertAt;
   return line.slice(0, insertAt) + colored + ' '.repeat(Math.max(0, trailing - trimmed.length));
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it, spyOn } from 'bun:test';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import type { QuestionRequest } from '@moonshot-ai/kimi-code-sdk';
 
@@ -137,11 +137,11 @@ describe('question reverse-rpc', () => {
 
   it('tracks the requesting agent until the question handler settles', async () => {
     const controller = new QuestionController();
-    vi.spyOn(controller, 'show').mockRejectedValue(new Error('boom'));
+    spyOn(controller, 'show').mockRejectedValue(new Error('boom'));
     const token = Symbol('question');
     const tracker = {
-      startInteraction: vi.fn(() => token),
-      endInteraction: vi.fn(),
+      startInteraction: mock(() => token),
+      endInteraction: mock(),
     };
     const handler = createQuestionAskHandler(controller, tracker);
 

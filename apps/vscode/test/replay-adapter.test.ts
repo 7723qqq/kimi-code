@@ -37,7 +37,7 @@ function message(
     role,
     content,
     toolCalls: options.toolCalls ?? [],
-    toolCallId: options.toolCallId,
+    toolCallId: options.toolCallId ?? '',
     isError: options.isError,
     origin: options.origin,
   };

@@ -3,7 +3,7 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import { APIEmptyResponseError, APIStatusError } from '#/app/llmProtocol/errors';
 import type { Message } from '#/app/llmProtocol/message';
-import type { TokenUsage } from '#human/llm/usage';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
 import { estimateTokensForMessage } from '#/llm-adapter/contract/tokens';
 import { grandTotal } from '#human/llm/usage';
 

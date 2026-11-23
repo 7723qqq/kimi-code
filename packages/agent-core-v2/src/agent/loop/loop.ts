@@ -235,7 +235,6 @@ export interface LoopNotifyHandle {
 }
 
 
-// ---- from upstream 2.7.0 ----
 export type LoopNotifyMessage = UserMessage;
 
 export interface LoopDetachedTask {
@@ -282,7 +281,6 @@ export interface IAgentLoopService {
     onDidFinishStep: AfterStepContext;
     onBeforeSubmitPrompt: PromptSubmitContext;
   }>;
-  // ---- from upstream 2.7.0 (fork keeps its own members above) ----
   readonly requester: LoopRequester;
   start(tools?: readonly Tool[]): Promise<void>;
   baselineTools(): readonly Tool[];

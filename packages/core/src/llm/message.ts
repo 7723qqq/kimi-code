@@ -6,6 +6,7 @@ export type FinishReason =
   | 'truncated'
   | 'filtered'
   | 'paused'
+  | 'error'
   | 'other';
 
 export interface FinishInfo {
@@ -34,6 +35,8 @@ export interface ContentPartBase {
   meta?: ContentPartMeta;
 }
 
+export type Role = 'system' | 'user' | 'assistant' | 'tool';
+
 export interface TextPart extends ContentPartBase {
   type: 'text';
   text: string;
@@ -50,7 +53,12 @@ export interface ThinkPart extends ContentPartBase {
 
 export interface ImageURLPart {
   type: 'image_url';
-  imageUrl: { url: string; id?: string; name?: string };
+  imageUrl: {
+    url: string;
+    id?: string;
+    name?: string;
+    dimensions?: { readonly width: number; readonly height: number };
+  };
 }
 
 export interface AudioURLPart {
@@ -61,6 +69,11 @@ export interface AudioURLPart {
 export interface VideoURLPart {
   type: 'video_url';
   videoUrl: { url: string; id?: string; name?: string };
+}
+
+export interface DocumentURLPart {
+  type: 'document_url';
+  documentUrl: { url: string; mimeType: string; id?: string; name?: string };
 }
 
 export type MediaPart = ImageURLPart | AudioURLPart | VideoURLPart;
@@ -133,7 +146,13 @@ export function mediaPlaceholderText(kind: MediaKind, reason: MediaPlaceholderRe
   return MEDIA_PLACEHOLDER_TEXT[reason][kind];
 }
 
-export type ContentPart = TextPart | ThinkPart | ImageURLPart | AudioURLPart | VideoURLPart;
+export type ContentPart =
+  | TextPart
+  | ThinkPart
+  | ImageURLPart
+  | AudioURLPart
+  | VideoURLPart
+  | DocumentURLPart;
 
 export interface ToolCall {
   type: 'function';
@@ -230,6 +249,7 @@ export function isVacuousContentPart(part: ContentPart): boolean {
     case 'image_url':
     case 'audio_url':
     case 'video_url':
+    case 'document_url':
       return false;
   }
 }

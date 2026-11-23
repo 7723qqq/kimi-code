@@ -1,26 +1,10 @@
+import { IAgentLifecycleService, IAgentLoopService, IAgentReminderService, IAgentMcpService, IEventBus, SubagentSpawned, IAgentPermissionModeService, IAgentToolApprovalService, IAgentToolExecutorService, IAgentToolPolicyService, IAgentProfileService, IAgentToolRegistryService, IAgentToolSelectService, ISessionManager, ISessionMcpHandle, ISessionEventBus, TurnEnded } from '@moonshot-ai/agent-core-v2';
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import {
-  IAgentLifecycleService,
-  IAgentLoopService,
-  IAgentReminderService,
-  IAgentMcpService,
-  IEventBus,
-  SubagentSpawned,
-  IAgentPermissionModeService,
-  IAgentToolApprovalService,
-  IAgentToolExecutorService,
-  IAgentToolPolicyService,
-  IAgentProfileService,
-  IAgentToolRegistryService,
-  IAgentToolSelectService,
-  ISessionManager,
-  ISessionMcpHandle,
-} from '@moonshot-ai/agent-core-v2';
+
 import { startServer } from '@moonshot-ai/kap-server';
-import { historyEntryFromContext } from '@moonshot-ai/agent-core-v2/agent/loop/history';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   DESKTOP_BROWSER_DIRECT_REMINDER,
@@ -32,8 +16,7 @@ import {
 } from '../../../src/main/browser/browser-mcp-registration';
 import { runBrowserAutomation } from '../../../src/main/browser/browser-automation';
 import { DESKTOP_BROWSER_BLOCKED_GUIDANCE, DESKTOP_BROWSER_DISABLED_ERROR, startDesktopBrowserMcp, type DesktopBrowserAgentControl } from '../../../src/main/browser/browser-mcp';
-import { ISessionEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
-import { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+
 import { browserControlOwnership } from '../../../src/main/browser/browser-control-ownership';
 
 vi.mock('../../../src/main/browser/browser-automation', () => ({
@@ -286,9 +269,11 @@ it('keeps the built-in browser for chats that already used it when agent control
     .callTool('run', { protocol: 'kimi.browser/1.0.0', operation: 'browser.get_state' });
   const useTool = (agent: Agent, toolName: string, args: string) => {
     const loop = agent.accessor.get(IAgentLoopService);
-    loop.remind(historyEntryFromContext(
-      { role: 'assistant', content: [], toolCalls: [{ type: 'function', id: `call-${toolName}`, name: toolName, arguments: args }] },
-    ));
+    loop.remind({
+      role: 'assistant',
+      content: [],
+      toolCalls: [{ type: 'function', id: `call-${toolName}`, name: toolName, arguments: args }],
+    });
     loop.flushReminders();
   };
   try {
@@ -302,12 +287,11 @@ it('keeps the built-in browser for chats that already used it when agent control
     useTool(used!, name, '{}');
     useTool(past!, 'select_tools', JSON.stringify({ names: [name] }));
     const schemaLoop = schema!.accessor.get(IAgentLoopService);
-    schemaLoop.remind(historyEntryFromContext({
+    schemaLoop.remind({
       role: 'system',
       content: [],
       tools: [{ name, description: 'Built-in browser', parameters: {} }],
-      origin: { kind: 'injection', variant: 'dynamic_tool_schema' },
-    }));
+    });
     schemaLoop.flushReminders();
     await sessions.close(pastSession!.id);
 
@@ -393,8 +377,8 @@ it('does not keep the built-in browser for chats whose only browser attempts wer
     const loop = agent.accessor.get(IAgentLoopService);
     const id = `call-${toolName}`;
     loop.remind(
-      historyEntryFromContext({ role: 'assistant', content: [], toolCalls: [{ type: 'function', id, name: toolName, arguments: args }] }),
-      historyEntryFromContext({ role: 'tool', content: [{ type: 'text', text: output }], toolCallId: id, isError: true }),
+      { role: 'assistant', content: [], toolCalls: [{ type: 'function', id, name: toolName, arguments: args }] },
+      { role: 'tool', content: [{ type: 'text', text: output }], toolCallId: id },
     );
     loop.flushReminders();
   };

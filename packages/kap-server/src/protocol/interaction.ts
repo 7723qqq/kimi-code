@@ -61,28 +61,25 @@ export const interactionRespondParamsSchema = z.object({
   interaction_id: z.string().min(1),
 });
 
-export const approvalInteractionRespondSchema = z.object({
-  kind: z.literal('approval'),
-  decision: approvalDecisionSchema,
-  scope: approvalScopeSchema.optional(),
-  feedback: z.string().optional(),
-  selected_label: z.string().optional(),
-});
-
-export const questionInteractionRespondSchema = z
-  .object({
-    kind: z.literal('question'),
-    answers: z.record(z.string().min(1), questionAnswerSchema).optional(),
-    dismissed: z.literal(true).optional(),
-    method: questionAnswerMethodSchema.optional(),
-  })
-  .refine((body) => (body.dismissed === true) !== (body.answers !== undefined), {
-    message: 'provide exactly one of answers or dismissed',
-  });
-
 export const interactionRespondRequestSchema = z.discriminatedUnion('kind', [
-  approvalInteractionRespondSchema,
-  questionInteractionRespondSchema,
+  z.strictObject({
+    kind: z.literal('approval'),
+    decision: approvalDecisionSchema,
+    scope: approvalScopeSchema.optional(),
+    feedback: z.string().optional(),
+    selected_label: z.string().optional(),
+  }),
+  z
+    .strictObject({
+      kind: z.literal('question'),
+      answers: z.record(z.string().min(1), questionAnswerSchema).optional(),
+      dismissed: z.literal(true).optional(),
+      method: questionAnswerMethodSchema.optional(),
+      note: z.string().optional(),
+    })
+    .refine((body) => (body.dismissed === true) !== (body.answers !== undefined), {
+      message: 'provide exactly one of answers or dismissed',
+    }),
 ]);
 export type InteractionRespondRequest = z.infer<typeof interactionRespondRequestSchema>;
 

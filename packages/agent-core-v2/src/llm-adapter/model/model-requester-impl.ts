@@ -6,12 +6,12 @@ import { AsyncEventQueue } from '#/_base/asyncEventQueue';
 import { applyCredential } from '#human/credentials/credentials';
 import { emptyResponseError } from '#human/llm/empty-response';
 import type { LlmErrorMessage } from '#human/llm/errors';
-import { NO_FINISH, type FinishInfo } from '@moonshot-ai/core/llm/response';
+import { NO_FINISH, type FinishInfo } from '#human/llm/finish-reason';
 import type {
   ProviderMediaContribution,
   ImageUploadInput,
   VideoUploadInput,
-} from '#human/media/upload';
+} from '#human/llm/media/upload';
 import { createMessageAccumulator, type ImageURLPart, type VideoURLPart } from '#human/llm/message';
 import type { LlmModel } from '#human/llm/model';
 import type { ProtocolName } from '#human/llm/protocol/base';

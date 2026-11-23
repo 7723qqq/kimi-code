@@ -29,7 +29,6 @@ function userTurn(text: string, time: number): AgentReplayRecord {
     message: {
       role: 'user',
       content: [{ type: 'text', text }],
-      toolCalls: [],
       origin: { kind: 'user' },
     },
   };
@@ -42,7 +41,6 @@ function cronTurn(text: string, time: number): AgentReplayRecord {
     message: {
       role: 'user',
       content: [{ type: 'text', text }],
-      toolCalls: [],
       origin: {
         kind: 'cron_job',
         jobId: 'job-1',
@@ -62,7 +60,6 @@ function cronMissedTurn(text: string, time: number): AgentReplayRecord {
     message: {
       role: 'user',
       content: [{ type: 'text', text }],
-      toolCalls: [],
       origin: { kind: 'cron_missed', count: 3 },
     },
   };
@@ -75,7 +72,6 @@ function injection(text: string, time: number): AgentReplayRecord {
     message: {
       role: 'user',
       content: [{ type: 'text', text }],
-      toolCalls: [],
       origin: { kind: 'injection', variant: 'reminder' },
     },
   };
@@ -130,7 +126,6 @@ describe('limitAgentReplayByTurns', () => {
       message: {
         role: 'user',
         content: [{ type: 'text', text: '/skill:review src/app.ts' }],
-        toolCalls: [],
         origin,
       },
     };

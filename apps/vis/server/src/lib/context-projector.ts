@@ -253,8 +253,8 @@ export function projectContext(
           // resetting to 0 — so guard against a false drop here too.
           if ('usage' in ev && ev.usage !== undefined) {
             const fill =
-              ev.usage.inputCacheRead +
-              ev.usage.inputCacheCreation +
+              (ev.usage.inputCacheRead ?? 0) +
+              (ev.usage.inputCacheCreation ?? 0) +
               ev.usage.inputOther +
               ev.usage.output;
             if (fill > 0) contextTokens = fill;

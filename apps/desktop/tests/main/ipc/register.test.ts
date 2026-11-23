@@ -789,7 +789,7 @@ describe('native browser IPC', () => {
       import('electron'),
       import('@moonshot-ai/kap-server'),
       import('@moonshot-ai/agent-core-v2'),
-      import('@moonshot-ai/agent-core-v2/app/event/eventBus'),
+      import('@moonshot-ai/agent-core-v2'),
       import('../../../src/main/browser/browser-mcp'),
       import('../../../src/main/browser/browser-mcp-registration'),
       import('../../../src/main/browser/browser-automation'),

@@ -1,6 +1,6 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import type { CacheObservation } from '#/agent/usage/cacheObservation';
-import type { FinishReason } from '@moonshot-ai/core/llm/response';
+import type { FinishReason } from '#human/llm/finish-reason';
 import type { LlmCredentialProvider } from '#human/llm/requester/requester';
 import type { ThinkingEffort } from '#human/llm/thinking';
 import type { Message } from '#/llm-adapter/contract/message';

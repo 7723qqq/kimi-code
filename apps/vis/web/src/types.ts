@@ -1,3 +1,12 @@
+import type { TokenUsage as SdkTokenUsage } from '@moonshot-ai/kimi-code-sdk';
+
+export type TokenUsage = {
+  -readonly [K in keyof SdkTokenUsage]: SdkTokenUsage[K];
+} & {
+  inputCacheRead: number;
+  inputCacheCreation: number;
+};
+
 export type {
   SessionSummary,
   SessionDetail,
@@ -12,7 +21,6 @@ export type {
   AgentRecordOf,
   ContextMessage,
   PromptOrigin,
-  TokenUsage,
   PermissionMode,
   LoopRecordedEvent,
   ContentPart,
@@ -33,9 +41,7 @@ export type {
   ImportResult,
   LogLine,
   LogsResponse,
-  CoreContentPart,
 } from '../../server/src/lib/agent-record-types';
-export { mediaUrlOf } from '../../server/src/lib/agent-record-types';
 
 export type {
   ProjectedMessage,

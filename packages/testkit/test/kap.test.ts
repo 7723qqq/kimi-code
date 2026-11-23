@@ -86,10 +86,10 @@ describe('KapRest', () => {
 
   function restWith(status: number, body: string): { readonly rest: KapRest; readonly seen: Seen[] } {
     const seen: Seen[] = [];
-    const fetchImpl: typeof fetch = (input, init) => {
+    const fetchImpl = ((input: string | URL | Request, init?: RequestInit) => {
       seen.push({ url: input instanceof Request ? input.url : String(input), init });
       return Promise.resolve(new Response(body, { status, headers: { 'content-type': 'application/json' } }));
-    };
+    }) as unknown as typeof fetch;
     return { rest: new KapRest('http://kap.test', () => 'tok', fetchImpl), seen };
   }
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import {
   matchEffortSwitchRule,
@@ -43,7 +43,7 @@ afterEach(() => {
 
 describe('effort switch config', () => {
   it('parses descriptions and confirm rules independently', async () => {
-    await refreshEffortSwitchConfig({ fetchImpl: vi.fn(async () => response(CLOUD_CONFIG)) as typeof fetch });
+    await refreshEffortSwitchConfig({ fetchImpl: mock(async () => response(CLOUD_CONFIG)) as unknown as typeof fetch });
 
     expect(peekEffortSwitchConfig()).toEqual(CLOUD_CONFIG);
     expect(resolveEffortDescription(CLOUD_CONFIG, 'low')).toBe('Light reasoning.');
@@ -57,7 +57,7 @@ describe('effort switch config', () => {
 
   it('keeps valid entries when other descriptions or rules are malformed', async () => {
     await refreshEffortSwitchConfig({
-      fetchImpl: vi.fn(async () =>
+      fetchImpl: mock(async () =>
         response({
           descriptions: {
             enable: false,
@@ -76,7 +76,7 @@ describe('effort switch config', () => {
             ],
           },
         }),
-      ) as typeof fetch,
+      ) as unknown as typeof fetch,
     });
 
     const config = peekEffortSwitchConfig();
@@ -103,16 +103,16 @@ describe('effort switch config', () => {
   });
 
   it('does not automatically retry a settled empty or failed load', async () => {
-    const missing = vi.fn(async () => new Response(JSON.stringify({ name: 'other', config: null })));
+    const missing = mock(async () => new Response(JSON.stringify({ name: 'other', config: null })));
     expect(needsEffortSwitchConfigRefresh()).toBe(true);
-    await refreshEffortSwitchConfig({ fetchImpl: missing as typeof fetch });
+    await refreshEffortSwitchConfig({ fetchImpl: missing as unknown as typeof fetch });
     expect(needsEffortSwitchConfigRefresh()).toBe(false);
 
     resetEffortSwitchConfigCache();
-    const failing = vi.fn(async () => {
+    const failing = mock(async () => {
       throw new Error('offline');
     });
-    await refreshEffortSwitchConfig({ fetchImpl: failing as typeof fetch });
+    await refreshEffortSwitchConfig({ fetchImpl: failing as unknown as typeof fetch });
     expect(needsEffortSwitchConfigRefresh()).toBe(false);
   });
 });

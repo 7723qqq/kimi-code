@@ -175,7 +175,8 @@ export class CacheHintController {
   estimateSwitchLossTokens(): number | undefined {
     const usage = this.lastMeasuredUsage;
     if (usage === undefined) return undefined;
-    const total = usage.inputOther + usage.inputCacheRead + usage.inputCacheCreation;
+    const total =
+      usage.inputOther + (usage.inputCacheRead ?? 0) + (usage.inputCacheCreation ?? 0);
     return total > 0 ? total : undefined;
   }
 

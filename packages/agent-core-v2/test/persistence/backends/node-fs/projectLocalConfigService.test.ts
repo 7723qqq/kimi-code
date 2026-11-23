@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { parse as parseToml } from 'smol-toml';
 
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';

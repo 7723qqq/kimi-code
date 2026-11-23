@@ -414,6 +414,17 @@ export default {
     loading: 'Loading…',
   },
   cli: {
+    ensureDaemon: {
+      commandDescription:
+        'Internal: reuse or start a background server and bridge stdio to its socket.',
+      probeDescription: 'Only report the host protocol and version.',
+      lockTimeout: 'Timed out waiting for {{path}}',
+      versionMismatchBusy:
+        'A kimi server of version {{version}} is still running work on this host; retry after it finishes',
+      previousServerStuck: 'The previous kimi server did not shut down in time',
+      startTimeout: 'The kimi server did not start; see {{path}}',
+      spawnFailed: 'Unable to start the kimi server; see {{path}}',
+    },
     program: {
       description: 'The Starting Point for Next-Gen Agents',
       helpOption: 'Show help.',
@@ -1441,6 +1452,11 @@ export default {
             title: 'Prompt optimizer',
             description:
               'Let the input box rewrite a drafted prompt through the current model, reaching it from the TUI shortcut and the session API.',
+          },
+          prompt_prediction: {
+            title: 'Prompt prediction',
+            description:
+              'Suggest what the user might type next after a finished turn, shown as ghost text in the input box.',
           },
           subagent_backends: {
             title: 'External subagent backends',

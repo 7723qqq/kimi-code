@@ -1,8 +1,8 @@
 import type { LlmErrorMessage, LlmRemoteErrorMessage } from '#/llm/errors';
-import type { FinishInfo } from '@moonshot-ai/core/llm/response';
+import type { FinishInfo } from '#/llm/finish-reason';
 import type { Message, StreamedMessagePart, ToolDescription } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
-import type { ResponseFormat } from '#human/llm/response-format';
+import type { ResponseFormat } from '#/llm/response-format';
 import type { ThinkingRequestOptions } from '#/llm/thinking';
 import type { TokenUsage } from '#/llm/usage';
 

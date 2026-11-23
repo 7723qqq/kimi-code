@@ -442,5 +442,8 @@ function stepEndSealMeta(
   return { usage: event.usage, llmTiming: hasTiming ? timing : undefined };
 }
 
-// ---- from upstream 2.7.0 ----
-export function foldSettle(..._args: unknown[]): any { return undefined; }
+export function foldSettle(state: readonly ContextMessage[]): readonly ContextMessage[] {
+  const bound = boundOf(state, false);
+  bound.fold.settle(undefined);
+  return bind(bound, bound.sink.current());
+}

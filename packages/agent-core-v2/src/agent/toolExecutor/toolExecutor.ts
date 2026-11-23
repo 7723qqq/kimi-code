@@ -78,7 +78,6 @@ export interface IAgentToolExecutorService {
   registerToolCallGuard(guard: ToolCallGuard): IDisposable;
   registerUnavailableToolDescriber(describer: UnavailableToolDescriber): IDisposable;
   registerMissingToolDescriber(describer: MissingToolDescriber): IDisposable;
-  // ---- from upstream 2.7.0 ----
   readonly executor: AgentToolExecutor;
   registerHook(hook: AgentToolHook): IDisposable;
   registerLegacyStarting(listener: (event: BeforeToolExecuteEvent) => void | Promise<void>): IDisposable;

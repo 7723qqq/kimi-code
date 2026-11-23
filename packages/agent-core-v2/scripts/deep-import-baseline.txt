@@ -41,12 +41,20 @@
 # dispatches to the shim. codeShimSource is import-free by construction, so the
 # narrow import adds nothing to the CLI startup graph, while going through the
 # engine root would pull the whole graph into every CLI invocation.
+# Session git must run through the leased environment fs/process, matching routes/fs.ts;
+# the root exports only the workspace wrapper, not the environment-bound GitService.
+# The conversation feed folds agent-internal records and needs the same event
+# identities and fold helpers the engine emits; the root entry does not
+# re-export these modules.
+# These cases prove remote git never falls back to the local cwd; they need the same
+# FakeEnvironment fixture boundary already used by fs/prompts/rpc/sessions/workspaceFs.
+
 apps/kimi-code/src/cli/commands.ts features/codeRuntime/codeShimSource
+apps/kimi-code/src/cli/main.ts features/codeRuntime/codeShimSource
 apps/kimi-code/src/cli/v2/run-v2-print.ts app/mcpConfig/configLoader
 apps/kimi-code/src/cli/v2/validate-config.ts app/config/deprecations
 apps/kimi-code/src/cli/v2/validate-config.ts app/config/toml
 apps/kimi-code/src/constant/app.ts app/plugin/marketplace
-apps/kimi-code/src/cli/main.ts features/codeRuntime/codeShimSource
 apps/kimi-code/src/utils/plugin-marketplace.ts app/plugin/marketplace
 apps/kimi-code/test/cli/v2-run-print.test.ts app/mcpConfig/configLoader
 apps/kimi-inspect/src/App.tsx app/sessionIndex/sessionIndex
@@ -123,6 +131,7 @@ packages/kap-server/src/protocol/rest-meta.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-modelCatalog.ts llm-adapter/model/catalog
 packages/kap-server/src/protocol/rest-prompt.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-prompt.ts app/sessionLegacy/sessionProtocol
+packages/kap-server/src/protocol/rest-session.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-session.ts app/sessionLegacy/sessionProtocol
 packages/kap-server/src/protocol/rest-snapshot.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-terminal.ts os/interface/terminal
@@ -153,26 +162,23 @@ packages/kap-server/src/routes/registerApiV1Routes.ts _base/di/fiber
 packages/kap-server/src/routes/registerApiV1Routes.ts app/feature/featureManager
 packages/kap-server/src/routes/registerApiV1Routes.ts app/flag/flag
 packages/kap-server/src/routes/runtime.ts runtime/runtimeRegistry
+packages/kap-server/src/routes/sessionList.ts app/git/gitService
 packages/kap-server/src/routes/sessionMedia.ts agent/media/sessionMediaStore
 packages/kap-server/src/routes/sessionMedia.ts app/file/fileService
 packages/kap-server/src/routes/sessionMedia.ts app/sessionManager/sessionLookup
 packages/kap-server/src/routes/sessions.ts session/sessionMetadata/sessionMetaEvents
 packages/kap-server/src/routes/v2/mcp.ts mcpCore/config-schema
-# Session git must run through the leased environment fs/process, matching routes/fs.ts;
-# the root exports only the workspace wrapper, not the environment-bound GitService.
 packages/kap-server/src/routes/v2/sessions.ts app/git/gitService
 packages/kap-server/src/routes/workspaceFs.ts _base/text/encoding
 packages/kap-server/src/routes/workspaceFs.ts _base/utils/fileMeta
 packages/kap-server/src/routes/workspaceFs.ts app/hostFolderBrowser/hostFolderBrowser
 packages/kap-server/src/search/wireExtract.ts agent/media/mediaRef
-# The conversation feed folds agent-internal records and needs the same event
-# identities and fold helpers the engine emits; the root entry does not
-# re-export these modules.
 packages/kap-server/src/services/conversation/conversationFeed.ts agent/mcp/mcpEvents
 packages/kap-server/src/services/conversation/conversationFeed.ts agent/profile/profileOps
 packages/kap-server/src/services/conversation/conversationFold.ts agent/contextMemory/hookParts
 packages/kap-server/src/services/conversation/conversationFold.ts human/agent/errors
 packages/kap-server/src/services/conversation/conversationFold.ts human/agent/origin
+packages/kap-server/src/services/hosts/hostProviders.ts app/kosongConfig/configSection
 packages/kap-server/src/services/transcript/coreEventMap.ts agent/contextMemory/hookParts
 packages/kap-server/src/services/transcript/coreEventMap.ts human/agent/origin
 packages/kap-server/src/services/transcript/transcriptService.ts features/tower/protocol/index
@@ -196,6 +202,8 @@ packages/kap-server/test/services/transcript.test.ts features/tower/protocol/ind
 packages/kap-server/test/sessionEventBroadcaster.test.ts agent/loop/turnEvents
 packages/kap-server/test/sessionEventBroadcaster.test.ts app/event/event2
 packages/kap-server/test/sessionEventBroadcaster.test.ts app/event/eventBusService
+packages/kap-server/test/sessionList.test.ts app/git/git
+packages/kap-server/test/sessionList.test.ts environment/fakeEnvironment
 packages/kap-server/test/sessions.test.ts _base/utils/workdir-slug
 packages/kap-server/test/sessions.test.ts agent/contextMemory/toolResultRender
 packages/kap-server/test/sessions.test.ts agent/environmentBinding/environmentBindingOps
@@ -208,8 +216,6 @@ packages/kap-server/test/sessions.test.ts app/sessionLegacy/sessionProtocol
 packages/kap-server/test/sessions.test.ts environment/fakeEnvironment
 packages/kap-server/test/sessions.test.ts session/sessionMetadata/sessionMetaEvents
 packages/kap-server/test/v2Sessions.test.ts app/git/git
-# These cases prove remote git never falls back to the local cwd; they need the same
-# FakeEnvironment fixture boundary already used by fs/prompts/rpc/sessions/workspaceFs.
 packages/kap-server/test/v2Sessions.test.ts environment/fakeEnvironment
 packages/kap-server/test/workspaceFs.test.ts environment/fakeEnvironment
 packages/kap-server/test/workspaces.test.ts _base/utils/workdir-slug

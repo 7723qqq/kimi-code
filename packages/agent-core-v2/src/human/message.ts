@@ -344,6 +344,8 @@ export function toCorePart(part: ContentPart): CoreContentPart {
       return { type: 'audio_url', audioUrl: { ...part.audioUrl } };
     case 'video_url':
       return { type: 'video_url', videoUrl: { ...part.videoUrl } };
+    case 'document_url':
+      return { type: 'text', text: `[document] ${part.documentUrl.url}` };
   }
 }
 
@@ -390,6 +392,8 @@ export function fromCorePart(part: CoreStreamedMessagePart): StreamedMessagePart
       return { type: 'audio_url', audioUrl: { ...part.audioUrl } };
     case 'video_url':
       return { type: 'video_url', videoUrl: { ...part.videoUrl } };
+    case 'document_url':
+      return { type: 'document_url', documentUrl: { ...part.documentUrl } };
     case 'function':
     case 'tool_call_part':
       return { ...part };

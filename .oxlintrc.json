@@ -234,6 +234,73 @@
         // Dropping the `await` would let the assertion race the test.
         "typescript/await-thenable": "off"
       }
+    },
+    {
+      // Code introduced by upstream 2.7.0 is linted by upstream's policy, not by
+      // this fork's stricter category-based one. Upstream's own
+      // `.oxlintrc.json` relaxes these rules for the same paths, and its
+      // `.oxlintrc.ratchet.json` re-enables them with
+      // `scripts/checks/baselines/oxlint-ratchet.json` capping the counts. This
+      // block mirrors upstream's relaxation so upstream's code is not rewritten
+      // into fork style on every sync.
+      //
+      // `plugins` must list `jest` here: oxlint only applies a rule override
+      // for a plugin the overriding block itself enables.
+      "files": [
+        "apps/desktop/**/*",
+        "packages/app-*/**/*",
+        "packages/core/**/*",
+        "packages/testkit/**/*",
+        "tests/scenarios/**/*",
+        "scripts/checks/**",
+        "scripts/release.test.mjs",
+        "scripts/desktop-artifact-prefix.test.mjs",
+        "scripts/canary-linux.test.mjs"
+      ],
+      "plugins": [
+        "jest"
+      ],
+      "rules": {
+        "eslint/accessor-pairs": "off",
+        "eslint/eqeqeq": "off",
+        "eslint/no-setter-return": "off",
+        "eslint/no-unneeded-ternary": "off",
+        "eslint/no-unused-vars": "off",
+        "eslint/no-var": "off",
+        "eslint/prefer-spread": "off",
+        "import/default": "off",
+        "import/extensions": "off",
+        "import/namespace": "off",
+        "import/no-cycle": "off",
+        "import/no-duplicates": "off",
+        "import/no-empty-named-blocks": "off",
+        "promise/no-return-in-finally": "off",
+        "typescript/await-thenable": "off",
+        "typescript/no-base-to-string": "off",
+        "typescript/no-confusing-non-null-assertion": "off",
+        "typescript/no-extraneous-class": "off",
+        "typescript/no-floating-promises": "off",
+        "typescript/no-implied-eval": "off",
+        "typescript/no-misused-promises": "off",
+        "typescript/no-misused-spread": "off",
+        "typescript/no-this-alias": "off",
+        "typescript/only-throw-error": "off",
+        "typescript/return-await": "off",
+        "typescript/restrict-plus-operands": "off",
+        "typescript/restrict-template-expressions": "off",
+        "unicorn/no-new-array": "off",
+        "unicorn/no-this-assignment": "off",
+        "unicorn/no-useless-spread": "off",
+        "unicorn/require-module-specifiers": "off",
+        // Upstream does not enable these three; the fork's category-based
+        // config and its test-file override do.
+        "jest/valid-title": "off",
+        "jest/no-conditional-expect": "off",
+        "jest/no-standalone-expect": "off",
+        // The jest plugin reads upstream's vitest-style `base.extend(...)`
+        // fixture as an assertion-free test; upstream's vitest plugin does not.
+        "jest/expect-expect": "off"
+      }
     }
   ],
   "ignorePatterns": [

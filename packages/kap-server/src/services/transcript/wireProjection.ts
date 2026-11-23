@@ -260,7 +260,7 @@ function createActiveProjection(state: WireProjectionState): ActiveProjection {
   return {
     projector: createWireTranscriptProjector({
       agentId,
-      createContextReducer: createContextTranscriptReducer,
+      createContextReducer: createContextTranscriptReducer as never,
       mapFactRecord: (record) => projectQuestionInteractionRecord(record, sessionId),
       resolvePlanRevisionKey: (key) =>
         join(SESSIONS_ROOT, workspaceId, sessionId, AGENTS_DIR, agentId, key),

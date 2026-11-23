@@ -210,26 +210,38 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
 
   private async applyAddDir(input: WorkspaceAddDirInput): Promise<WorkspaceAdditionalDirsResult> {
     const persist = input.persist ?? true;
+    const onDisk = await this.localConfig.readAdditionalDirs(this.primary);
+    this.projectRoot = onDisk.projectRoot;
+    this.configPath = onDisk.configPath;
 
     if (persist) {
-      const persisted = await this.localConfig.appendAdditionalDir(this.primary, input.path);
-      this.projectRoot = persisted.projectRoot;
-      this.configPath = persisted.configPath;
-      const changed = this.setFileDirs(persisted.additionalDirs);
-      if (changed) {
-        this.onDidChangeEmitter.fire();
+      const resolved = await this.localConfig.resolveAdditionalDirs(this.primary, [
+        input.path,
+      ]);
+      const dir = resolved[0];
+      if (dir === undefined) {
+        throw new Error(`additional dir ${input.path} did not resolve`);
+      }
+      const existing = await this.workspaces.get(this.workspace.workspaceId);
+      const target = existing ?? (await this.workspaces.createOrTouch(this.workspace.cwd));
+      const dirKey = workspaceRootKey(dir);
+      const inSet =
+        workspaceRootKey(target.root) === dirKey ||
+        target.additionalDirs.some((kept) => workspaceRootKey(kept) === dirKey);
+      if (!inSet) {
+        await this.workspaces.update(target.id, {
+          additionalDirs: [...target.additionalDirs, dir],
+        });
+        await this.reloadWorkspace(true);
       }
       return {
-        projectRoot: persisted.projectRoot,
-        configPath: persisted.configPath,
+        projectRoot: onDisk.projectRoot,
+        configPath: onDisk.configPath,
         additionalDirs: this.additionalDirs,
         persisted: true,
       };
     }
 
-    const onDisk = await this.localConfig.readAdditionalDirs(this.primary);
-    this.projectRoot = onDisk.projectRoot;
-    this.configPath = onDisk.configPath;
     const resolved = await this.localConfig.resolveAdditionalDirs(this.primary, [input.path]);
     const changed = this.unionEphemeral(resolved);
     if (changed) {
@@ -252,11 +264,15 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
 
   private async reloadFromRegistry(): Promise<void> {
     const registered = await this.workspaces.list();
-    const currentId = this.workspace.workspaceId;
-    const current = registered.some((entry) => entry.id === currentId)
+    const current = this.workspace.meta.kind === 'managed'
       ? undefined
-      : await this.workspaces.get(currentId);
-    const entries = current === undefined ? registered : [current, ...registered];
+      : await this.workspaces.get(this.workspace.workspaceId);
+    const entries =
+      this.workspace.meta.kind === 'managed'
+        ? registered.filter((entry) => entry.id === this.workspace.workspaceId)
+        : current === undefined
+          ? registered
+          : [current, ...registered.filter((entry) => entry.id !== current.id)];
     const cwdKey = workspaceRootKey(this.workspace.cwd);
     const dirs: string[] = [];
     const primary: Record<string, string> = {};
@@ -353,6 +369,19 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
       () => undefined,
     );
     return run;
+  }
+
+  override dispose(): void {
+    super.dispose();
+    void this.drainPendingMutations();
+  }
+
+  private async drainPendingMutations(): Promise<void> {
+    let pending: Promise<void>;
+    do {
+      pending = this.mutationTail;
+      await pending;
+    } while (pending !== this.mutationTail);
   }
 }
 

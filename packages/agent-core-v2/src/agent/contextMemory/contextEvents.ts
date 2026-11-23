@@ -33,7 +33,7 @@ export class ContextAppendLoopEvent extends AgentEvent2<
   z.infer<typeof contextAppendLoopEventSchema>
 > {
   static override readonly type = 'context.append_loop_event';
-  static override readonly durable = false;
+  static override readonly durable = true;
   static override readonly schema = contextAppendLoopEventSchema;
 }
 export interface ContextAppendLoopEvent {

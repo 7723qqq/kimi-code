@@ -4,8 +4,8 @@ import { connectionReset, CRASH_STATUS, crashBody, type RequestHandler } from '#
 const encoder = new TextEncoder();
 
 export function createFetchTransport(handler: RequestHandler): typeof fetch {
-  return async (input, init) => {
-    const request = new Request(input, init);
+  return (async (input: string | Request | URL, init?: BunFetchRequestInit | RequestInit) => {
+    const request = new Request(input as Request, init as RequestInit);
     const body = await request.text();
     request.signal.throwIfAborted();
     const url = new URL(request.url);
@@ -16,7 +16,7 @@ export function createFetchTransport(handler: RequestHandler): typeof fetch {
         sink,
       ).catch((error: unknown) => sink.crash(error));
     });
-  };
+  }) as unknown as typeof fetch;
 }
 
 const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);

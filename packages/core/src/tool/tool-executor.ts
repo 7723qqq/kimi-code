@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
 
 import type { ContentPart } from '@moonshot-ai/core/llm/message';
-import { abortedToolOutput, isUserCancellation } from '#/utils/abort';
-import { clock } from '#/utils/clock';
-import { log, type LogContext } from '#/utils/log';
-import { now } from '#/utils/now';
-import { parseToolCallArguments } from '#/tool/args';
+import { abortedToolOutput, isUserCancellation } from '../utils/abort';
+import { clock } from '../utils/clock';
+import { log, type LogContext } from '../utils/log';
+import { now } from '../utils/now';
+import { parseToolCallArguments } from '../tool/args';
 
 import { memoryOutputStore } from './output-store';
 import { ToolTimeoutError } from './types';

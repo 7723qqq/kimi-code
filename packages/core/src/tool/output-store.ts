@@ -274,8 +274,24 @@ function restoreFile(path: string): RestoredOutput {
     const text = buffer.toString('utf8');
     return { totalBytes: size, chunks: [text] };
   } catch (error) {
-    if (isMissingFile(error)) return { totalBytes: 0, chunks: [] };
+    if (isMissingFile(error) && !hasNonDirectoryAncestor(path)) {
+      return { totalBytes: 0, chunks: [] };
+    }
     return { totalBytes: 0, chunks: [], failure: errorMessage(error) };
+  }
+}
+
+function hasNonDirectoryAncestor(path: string): boolean {
+  let current = dirname(path);
+  for (;;) {
+    try {
+      return !statSync(current).isDirectory();
+    } catch (error) {
+      if (!isMissingFile(error)) return false;
+      const parent = dirname(current);
+      if (parent === current) return false;
+      current = parent;
+    }
   }
 }
 

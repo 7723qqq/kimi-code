@@ -1,10 +1,5 @@
 {
   "extends": "../../tsconfig.json",
   "include": ["examples/**/*.ts", "../agent-core-v2/src"],
-  "exclude": ["../agent-core-v2/src/human/test"],
-  "compilerOptions": {
-    "paths": {
-      "#/*": ["../agent-core-v2/src/*.ts", "../agent-core-v2/src/human/*.ts"]
-    }
-  }
+  "exclude": ["../agent-core-v2/src/human/test"]
 }

@@ -225,7 +225,7 @@ async function executeAll(
   traceId?: string,
 ): Promise<ToolExecutionResult[]> {
   const results: ToolExecutionResult[] = [];
-  for await (const item of h.executor.execute(calls, { turnId, signal, trace: { traceId } })) {
+  for await (const item of h.executor.execute(calls, { turnId, signal, trace: { requestId: traceId } })) {
     results.push(item);
   }
   return results;

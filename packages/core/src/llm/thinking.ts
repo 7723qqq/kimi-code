@@ -6,6 +6,8 @@ import type {
   ThinkingRequestOptions,
 } from '@moonshot-ai/core/llm/request';
 
+export type { ThinkingEffort } from '@moonshot-ai/core/llm/request';
+
 export interface ThinkingDefaults {
   readonly enabled?: boolean;
   readonly effort?: string;

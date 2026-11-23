@@ -1,4 +1,4 @@
-import { Agent, EnvHttpProxyAgent, type Dispatcher } from 'undici';
+import { Agent, EnvHttpProxyAgent, type Dispatcher } from '#/utils/undici-npm';
 
 import { log } from '#/utils/log';
 

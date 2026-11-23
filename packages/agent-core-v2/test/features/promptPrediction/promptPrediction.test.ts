@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, jest } from 'bun:test';
 
 import { Emitter } from '#/_base/event';
 import type { ILogService } from '#/_base/log/log';
@@ -13,6 +13,7 @@ import { IAgentPlanService } from '#/features/plan/plan';
 import { SessionPromptPredictionService } from '#/features/promptPrediction/promptPredictionService';
 import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { advanceTimersByTimeAsync, waitForAssertion } from '#test/helpers/waitFor';
 import {
   ISessionActivityView,
   type SessionActivityChangedEvent,
@@ -52,7 +53,7 @@ describe('SessionPromptPredictionService', () => {
     let enabled = false;
     let lastEnded = { turnId: 0, reason: 'completed' as const };
     let contextSnapshot: readonly ContextMessage[] = [
-      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+      { role: 'user', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
     ];
     const originalContext = contextSnapshot;
     let nextResult = () => Promise.resolve(finish('inspect the failing test'));
@@ -119,8 +120,8 @@ describe('SessionPromptPredictionService', () => {
       onDidChange: activityEmitter.event,
     } as unknown as ISessionActivityView;
     const flags = { enabled: () => enabled } as unknown as IFlagService;
-    const log = { info: vi.fn() } as unknown as ILogService;
-    const telemetry = { track2: vi.fn() } as unknown as ITelemetryService;
+    const log = { info: mock() } as unknown as ILogService;
+    const telemetry = { track2: mock() } as unknown as ITelemetryService;
     const service = new SessionPromptPredictionService(lifecycle, activity, flags, log);
 
     await expect(service.predict({ predictionId: 'disabled', expectedTurnId: 0 })).resolves.toBeNull();
@@ -180,7 +181,7 @@ describe('SessionPromptPredictionService', () => {
     lastEnded = { turnId: 4, reason: 'completed' };
     nextResult = () => new Promise<PredictionOutcome>(() => {});
     const cancelled = service.predict({ predictionId: 'cancel-me', expectedTurnId: 4 });
-    await vi.waitFor(() => expect(requests).toHaveLength(5));
+    await waitForAssertion(() => expect(requests).toHaveLength(5));
     expect(service.cancel('other')).toBe(false);
     expect(service.cancel('cancel-me', 'escape')).toBe(true);
     expect(service.cancel('cancel-me', 'escape')).toBe(false);
@@ -201,7 +202,7 @@ describe('SessionPromptPredictionService', () => {
       resolveStale = resolve;
     });
     const stale = service.predict({ predictionId: 'stale', expectedTurnId: 5 });
-    await vi.waitFor(() => expect(requests).toHaveLength(6));
+    await waitForAssertion(() => expect(requests).toHaveLength(6));
     contextSnapshot = [];
     resolveStale(finish('must not leak'));
     await expect(stale).resolves.toBeNull();
@@ -210,7 +211,7 @@ describe('SessionPromptPredictionService', () => {
     contextSnapshot = originalContext;
     nextResult = () => new Promise<PredictionOutcome>(() => {});
     const activityCancelled = service.predict({ predictionId: 'activity-cancelled', expectedTurnId: 6 });
-    await vi.waitFor(() => expect(requests).toHaveLength(7));
+    await waitForAssertion(() => expect(requests).toHaveLength(7));
     activityEmitter.fire({
       state: {
         busy: true,
@@ -228,24 +229,28 @@ describe('SessionPromptPredictionService', () => {
     }));
 
     lastEnded = { turnId: 7, reason: 'completed' };
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     const timedOut = service.predict({ predictionId: 'timeout', expectedTurnId: 7 });
     try {
-      await vi.advanceTimersByTimeAsync(0);
+      await advanceTimersByTimeAsync((ms) => {
+        jest.advanceTimersByTime(ms);
+      }, 0);
       expect(requests).toHaveLength(8);
-      await vi.advanceTimersByTimeAsync(20_000);
+      await advanceTimersByTimeAsync((ms) => {
+        jest.advanceTimersByTime(ms);
+      }, 20_000);
       await expect(timedOut).resolves.toBeNull();
       expect(requests[7]?.signal?.aborted).toBe(true);
       expect(telemetry.track2).toHaveBeenCalledWith('prediction_generated', expect.objectContaining({
         status: 'timeout',
       }));
     } finally {
-      vi.useRealTimers();
+      jest.useRealTimers();
     }
 
     lastEnded = { turnId: 8, reason: 'completed' };
     const disposed = service.predict({ predictionId: 'dispose', expectedTurnId: 8 });
-    await vi.waitFor(() => expect(requests).toHaveLength(9));
+    await waitForAssertion(() => expect(requests).toHaveLength(9));
     service.dispose();
     await expect(disposed).resolves.toBeNull();
     expect(requests[8]?.signal?.aborted).toBe(true);

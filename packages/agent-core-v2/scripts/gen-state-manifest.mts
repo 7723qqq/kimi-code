@@ -253,7 +253,7 @@ function collectRegistrations(
       if (seenFile !== undefined) {
         if (seenFile === sf.getFilePath()) continue;
         throw new Error(
-          `[gen-state-manifest] state key '${def.keyName}' is registered twice in ${scope} scope.`,
+          `[gen-state-manifest] state key '${def.keyName}' is registered twice in ${scope} scope: ${seenFile} and ${sf.getFilePath()}.`,
         );
       }
       seen.set(dedupe, sf.getFilePath());

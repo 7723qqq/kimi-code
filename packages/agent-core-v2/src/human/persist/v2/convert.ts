@@ -1,5 +1,5 @@
 import type { AssistantMeta, HistoryMessage } from '#/agent/turn';
-import type { FinishReason } from '@moonshot-ai/core/llm/response';
+import type { FinishReason } from '#/llm/finish-reason';
 import type { ContentPart } from '#/llm/message';
 import { emptyUsage } from '#/llm/usage';
 

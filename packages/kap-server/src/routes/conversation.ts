@@ -18,12 +18,12 @@ interface ConversationRouteHost {
   ): unknown;
 }
 
-const agentParamsSchema = z.object({
+const agentParamsSchema = z.strictObject({
   session_id: z.string().min(1),
   agent_id: z.string().min(1).regex(/^[^/\\]+$/),
 });
 
-const turnsQuerySchema = z.object({
+const turnsQuerySchema = z.strictObject({
   before_ordinal: z.coerce.number().int().nonnegative().optional(),
   page_size: z.coerce.number().int().min(1).max(200).optional(),
 });

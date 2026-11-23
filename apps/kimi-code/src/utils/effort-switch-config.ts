@@ -118,7 +118,7 @@ export async function refreshEffortSwitchConfig(
   })();
   inFlight = {
     accessToken: options.accessToken,
-    fetchImpl: options.fetchImpl,
+    fetchImpl: options.fetchImpl as unknown as typeof fetch,
     path: options.path,
     region,
     request,

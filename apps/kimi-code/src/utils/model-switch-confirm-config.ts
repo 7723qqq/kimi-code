@@ -5,7 +5,7 @@ import { clientConfigs } from '#/utils/client-configs';
 
 const CONFIG_NAME = 'model_switch_confirm';
 
-export type ModelSwitchAction = 'compact' | 'continue' | 'cancel';
+export type ModelSwitchAction = 'compact' | 'continue' | 'cancel' | 'new';
 export type ModelSwitchSessionType = 'old' | 'new' | 'all';
 
 export interface ModelSwitchLocalizedString {
@@ -16,7 +16,7 @@ export interface ModelSwitchLocalizedString {
 export interface ModelSwitchRule {
   from: string | string[];
   to: string | string[];
-  session_type: ModelSwitchSessionType;
+  session_type?: ModelSwitchSessionType;
   hint?: ModelSwitchLocalizedString;
   warning?: ModelSwitchLocalizedString;
 }
@@ -41,7 +41,7 @@ const modelIdListSchema = z.union([z.string(), z.array(z.string()).min(1)]);
 const modelSwitchRuleSchema = z.object({
   from: modelIdListSchema,
   to: modelIdListSchema,
-  session_type: z.enum(['old', 'new', 'all']),
+  session_type: z.enum(['old', 'new', 'all']).optional(),
   hint: localizedStringSchema.optional(),
   warning: localizedStringSchema.optional(),
 });
@@ -97,7 +97,7 @@ export async function refreshModelSwitchConfirmConfig(
   })();
   inFlight = {
     accessToken: options.accessToken,
-    fetchImpl: options.fetchImpl,
+    fetchImpl: options.fetchImpl as unknown as typeof fetch,
     path: options.path,
     region,
     request,
@@ -129,14 +129,16 @@ export function matchModelSwitchRule(
   config: ModelSwitchConfirmConfig | undefined,
   fromModelId: string,
   toModelId: string,
-  sessionType: 'old' | 'new',
+  sessionType: 'old' | 'new' = 'old',
 ): ModelSwitchRule | undefined {
   if (config === undefined || !config.enable) return undefined;
   const hit = (ids: string | string[], id: string): boolean =>
     ids === '*' || (typeof ids === 'string' ? ids === id : ids.includes(id));
   return config.rules.find(
     (rule) =>
-      (rule.session_type === 'all' || rule.session_type === sessionType) &&
+      (rule.session_type === undefined ||
+        rule.session_type === 'all' ||
+        rule.session_type === sessionType) &&
       hit(rule.from, fromModelId) &&
       hit(rule.to, toModelId),
   );

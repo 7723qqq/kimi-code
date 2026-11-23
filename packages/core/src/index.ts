@@ -3,6 +3,7 @@ export * from './llm/capability';
 export * from './llm/catalog';
 export * from './llm/errors';
 export * from './llm/provider';
+export type { ProviderType } from './llm/builtin/provider';
 export * from './llm/tool';
 export * from './llm/inspection';
 export * from './llm/request-trace';

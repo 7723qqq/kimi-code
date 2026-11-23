@@ -93,7 +93,6 @@ describe('translateProviderError — classification', () => {
     expect(translated.details).toMatchObject({
       statusCode: 429,
       requestId: 'req-1',
-      requestId: 'trace-1',
     });
   });
 

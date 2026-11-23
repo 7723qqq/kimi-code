@@ -1,3 +1,6 @@
+import { createUserMessage } from '@moonshot-ai/core/llm/message';
+import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';
+import type { LlmRequester as CoreLlmRequester } from '@moonshot-ai/core/llm/requester';
 import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
 import type { LlmErrorMessage } from '#human/llm/errors';
 import type { LlmModel } from '@moonshot-ai/core/llm/model';
@@ -35,7 +38,6 @@ export interface CatalogModelOverrides {
 }
 
 export interface CatalogModelDefinition extends LlmModel {
-  // ---- from fork's LlmModel shape ----
   readonly id?: string;
   readonly displayName?: string;
   readonly maxOutputSize?: number;
@@ -241,10 +243,122 @@ function enqueuePing(
   return [...queue, request];
 }
 
+function isCoreRequester(value: unknown): value is CoreLlmRequester<'protocol'> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'with' in value &&
+    typeof (value as { with?: unknown }).with === 'function'
+  );
+}
+
+function coreModelSpecOf(model: CatalogModelDefinition): LlmModelSpec {
+  return {
+    provider: model.provider,
+    name: model.name ?? model.model,
+    capability: model.capability,
+    maxContextSize: model.maxContextSize,
+    maxInputSize: model.maxInputSize,
+    thinking: {
+      supportEfforts: model.supportEfforts,
+      defaultEffort: model.defaultEffort,
+      offEffort: model.offEffort,
+      alwaysThinking: model.alwaysThinking,
+      adaptiveThinking: model.adaptiveThinking,
+    },
+  };
+}
+
+function protocolOptionsOf(model: CatalogModelDefinition): Record<string, unknown> | undefined {
+  switch (model.protocol) {
+    case 'openai':
+      return { reasoningKey: model.reasoningKey };
+    case 'anthropic':
+      return { betaApi: model.betaApi };
+    case 'google-genai':
+      return { vertexai: model.vertexai };
+    default:
+      return undefined;
+  }
+}
+
+function baseCoreRequesterOf(
+  source: unknown,
+  model: CatalogModelDefinition,
+): CoreLlmRequester<'protocol'> | undefined {
+  if (source === undefined) return undefined;
+  if (typeof source === 'function') {
+    return (source as (
+      protocol?: ProtocolName,
+      model?: CatalogModelDefinition,
+    ) => CoreLlmRequester<'protocol'>)(model.protocol, model);
+  }
+  if (isCoreRequester(source)) return source;
+  if (typeof source === 'object' && source !== null) {
+    const map = source as Record<string, CoreLlmRequester<'protocol'>>;
+    return model.protocol !== undefined ? map[model.protocol] : Object.values(map)[0];
+  }
+  return undefined;
+}
+
+async function runCorePingProbe(
+  provider: Provider,
+  model: CatalogModelDefinition,
+  source: unknown,
+): Promise<string | undefined> {
+  try {
+    const base = baseCoreRequesterOf(source, model);
+    if (base === undefined) return `No requester configured for ${provider.id}/${model.id}`;
+    const endpoint = (
+      provider as unknown as {
+        endpoint?: { baseUrl?: string; headers?: Record<string, string> };
+      }
+    ).endpoint;
+    const requester = base.with({
+      protocol: { options: protocolOptionsOf(model) },
+      endpoint: {
+        ...endpoint,
+        baseUrl: model.baseUrl ?? endpoint?.baseUrl,
+        headers: model.defaultHeaders ?? endpoint?.headers,
+      },
+      model: { spec: coreModelSpecOf(model), maxOutputTokens: 512 },
+      profile: {
+        systemPrompt: 'You are a connectivity probe. Answer with the single word "pong".',
+        tools: [],
+      },
+      content: { messages: [createUserMessage('ping')] },
+      policy: { recoveries: [], retry: { maxAttemptsPerStep: 1 } },
+    } as never);
+    const outcome = await requester.generate(
+      {
+        endpoint: {
+          credentials:
+            model.apiKey === undefined ? undefined : { resolve: () => ({ apiKey: model.apiKey }) },
+        },
+      },
+      { signal: new AbortController().signal },
+    );
+    if (outcome.type === 'failed') return outcome.error.message;
+    if (outcome.type === 'aborted') {
+      return outcome.reason instanceof Error ? outcome.reason.message : 'The operation was aborted.';
+    }
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 async function runPingProbe(
   provider: Provider,
   model: CatalogModelDefinition,
 ): Promise<string | undefined> {
+  const handle = provider as unknown as { createRequester?: unknown; requester?: unknown };
+  if (typeof handle.createRequester !== 'function') {
+    if (handle.requester === undefined) {
+      return `No requester configured for ${provider.id}/${model.id}`;
+    }
+    return runCorePingProbe(provider, model, handle.requester);
+  }
   let requester: LlmRequester;
   try {
     requester = provider.createRequester(model.protocol);
@@ -756,14 +870,12 @@ function buildProviderCatalog(
   };
 }
 
-// ---- from upstream 2.7.0 ----
 export interface CatalogProviderHandle {
   readonly id: string;
   readonly requester?: unknown;
   readonly endpoint?: unknown;
   readonly listModels?: (signal: AbortSignal) => Promise<readonly unknown[]>;
   readonly media?: unknown;
-  // ---- from upstream 2.7.0 ----
   readonly protocols?: readonly string[];
   resolveModel?(id: string): unknown;
   createRequester?(...args: unknown[]): unknown;

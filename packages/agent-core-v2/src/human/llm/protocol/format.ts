@@ -1,5 +1,5 @@
 import type { LlmRemoteErrorMessage } from '#/llm/errors';
-import type { FinishInfo } from '@moonshot-ai/core/llm/response';
+import type { FinishInfo } from '#/llm/finish-reason';
 import type { Message, StreamedMessagePart, ToolDescription } from '#/llm/message';
 import type { LlmRequestConfig } from '#/llm/requester/requester';
 import type { TokenUsage } from '#/llm/usage';

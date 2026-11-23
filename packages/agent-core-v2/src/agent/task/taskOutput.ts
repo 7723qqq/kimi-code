@@ -65,8 +65,8 @@ export class AgentTaskOutputService implements IAgentTaskOutputService {
     this.persistence = new AgentTaskPersistence(
       join(session.sessionDir, 'agents', scopeContext.agentId),
       scopeContext.scope(),
-      byteStore,
       byteStore as unknown as IAtomicDocumentStore,
+      byteStore,
       fallbackRoot,
       () => environment === undefined ? undefined : environmentTempTarget(environment, 'task-output'),
     ) as never;

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import {
@@ -10,7 +10,7 @@ import { stubRgProbe } from '../../os/stubs';
 
 function probeWith(
   resolveExitCode: (args: readonly string[]) => number,
-): RgProbe & { exec: ReturnType<typeof vi.fn> } {
+): RgProbe & { exec: ReturnType<typeof mock> } {
   return stubRgProbe(resolveExitCode);
 }
 

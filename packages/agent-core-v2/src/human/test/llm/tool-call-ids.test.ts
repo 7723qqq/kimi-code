@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { openAIProtocol } from '@moonshot-ai/core/llm/builtin/protocol/openai/index';
 import {

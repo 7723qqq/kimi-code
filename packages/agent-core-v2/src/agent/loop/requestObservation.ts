@@ -15,7 +15,7 @@ import type { Message, ToolDescription as Tool } from '#human/llm/message';
 import type { LlmRequest, ThinkingEffort } from '@moonshot-ai/core/llm/request';
 import type { LlmRecoveryRecord } from '@moonshot-ai/core/llm/policy/recovery';
 import { llmErrorRequestId, type LlmOutcome, type LlmRunEvent, type LlmTiming } from '@moonshot-ai/core/llm/response';
-import { emptyUsage, grandTotal, inputTotal, type TokenUsage } from '#human/llm/usage';
+import { emptyUsage, grandTotal, inputTotal, usageFromCore, type TokenUsage } from '#human/llm/usage';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import {
   APIStatusError,
@@ -24,6 +24,11 @@ import {
   isLlmErrorMessage,
   isRetryableGenerateError,
 } from '#/llm-adapter/contract/errors';
+import { contextProjectorLastRepairSignatureKey } from '#/agent/contextProjector/contextProjectorService';
+import {
+  llmRequesterEmittedThinkingEffortWarningsKey,
+  llmRequesterLastConfigLogSignatureKey,
+} from '#/agent/llmRequester/llmRequesterService';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
@@ -31,7 +36,11 @@ import { ISessionRequestAttributionService } from '#/session/requestAttribution/
 import { defineState } from '#/state/state';
 import { summarizeProjectionRepairs, type ProjectionAnomaly } from './projection';
 import { hasStrictStructureRecovery } from './projectionPolicy';
-import { llmRequestTraceKey, LlmToolsSnapshot, llmToolsSnapshotPayload } from './llmRequestOps';
+import {
+  llmRequestTraceKey,
+  LlmToolsSnapshot,
+  llmToolsSnapshotPayload,
+} from '#/agent/loop/llmRequestOps';
 import {
   agentLLMRequestLogFields,
   type AgentLLMRequestLogFields,
@@ -79,21 +88,9 @@ interface RequestLogInput {
 
 type RequestProjection = 'strict' | 'media-degraded' | 'media-stripped' | 'strict-media-degraded' | 'strict-media-stripped';
 
-export const contextProjectorLastRepairSignatureKey = defineState<string | null>(
-  'contextProjector.lastRepairSignature',
-  () => null,
-);
-export const llmRequesterLastConfigLogSignatureKey = defineState<string | undefined>(
-  'llmRequester.lastConfigLogSignature',
-  () => undefined as string | undefined,
-);
 export const llmRequesterLastMeasuredRequestKey = defineState<MeasuredRequest | undefined>(
   'llmRequester.lastMeasuredRequest',
   () => undefined as MeasuredRequest | undefined,
-);
-export const llmRequesterEmittedThinkingEffortWarningsKey = defineState<Set<string>>(
-  'llmRequester.emittedThinkingEffortWarnings',
-  () => new Set(),
 );
 
 export class AgentLoopRequestObserver {
@@ -107,11 +104,8 @@ export class AgentLoopRequestObserver {
     @IAgentStateService private readonly states: IAgentStateService,
     @ISessionRequestAttributionService private readonly attribution: ISessionRequestAttributionService,
   ) {
-    if (!this.states.has(llmRequestTraceKey)) this.states.contributeState(llmRequestTraceKey);
-    this.states.contributeState(contextProjectorLastRepairSignatureKey);
-    this.states.contributeState(llmRequesterLastConfigLogSignatureKey);
+    this.states.get(llmRequestTraceKey);
     this.states.contributeState(llmRequesterLastMeasuredRequestKey);
-    this.states.contributeState(llmRequesterEmittedThinkingEffortWarningsKey);
   }
 
   start(
@@ -261,7 +255,8 @@ export class AgentLoopRequestObserver {
   ): void {
     const request = observation.requireContext();
     observation.setRequestId(outcome.requestId);
-    const { message, usage, timing } = outcome;
+    const { message, timing } = outcome;
+    const usage = usageFromCore(outcome.usage);
     if (request.promptCacheProbe === 'compaction') {
       this.telemetry.track2('prompt_cache_probe', {
         source: 'compaction',
@@ -472,6 +467,7 @@ export class AgentLoopRequestObserver {
     const prevRead = prev.usage.inputCacheRead;
     const currRead = curr.usage.inputCacheRead;
     const prevTotal = grandTotal(prev.usage);
+    const currTotal = grandTotal(curr.usage);
     if (prevRead === undefined || currRead === undefined || prevTotal === undefined) return;
     const readDrop = prevRead - currRead;
     const reusableDrop = prevTotal - currRead;
@@ -479,6 +475,12 @@ export class AgentLoopRequestObserver {
     const reuseBreak = currRead < prevTotal * CACHE_BREAK_DROP_RATIO && reusableDrop > CACHE_BREAK_MIN_DROP_TOKENS;
     if (!readBreak && !reuseBreak) return;
     const properties: CacheBreakDetectedEvent = {
+      cause:
+        prev.modelAlias !== curr.modelAlias
+          ? 'model_switch'
+          : prev.thinkingEffort !== curr.thinkingEffort
+            ? 'effort_switch'
+            : 'unexplained',
       request_kind: curr.requestKind,
       turn_id: curr.turnId,
       step_no: curr.step,
@@ -500,6 +502,7 @@ export class AgentLoopRequestObserver {
       prev_input_cache_creation: prev.usage.inputCacheCreation ?? 0,
       curr_input_cache_creation: curr.usage.inputCacheCreation ?? 0,
       prev_total_tokens: prevTotal,
+      curr_total_tokens: currTotal,
       cache_reuse_ratio: currRead / prevTotal,
       cache_read_drop_ratio: (prevRead === 0 ? undefined : readDrop / prevRead) as number,
       tools_match: prev.toolsHash === curr.toolsHash,
@@ -642,7 +645,9 @@ function apiRequestId(error: unknown): string | undefined {
   const fromDiagnostics = nonEmptyRequestId((errorDiagnostics(error) ?? errorDiagnostics(raw))?.['requestId']);
   if (fromDiagnostics !== undefined) return fromDiagnostics;
   if (raw instanceof APIStatusError) return nonEmptyRequestId(raw.requestId);
-  return isLlmErrorMessage(error) ? nonEmptyRequestId(llmErrorRequestId(error)) : undefined;
+  return isLlmErrorMessage(error as never)
+    ? nonEmptyRequestId(llmErrorRequestId(error as never))
+    : undefined;
 }
 
 function nonEmptyRequestId(value: unknown): string | undefined {

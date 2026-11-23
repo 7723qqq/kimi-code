@@ -1,3 +1,4 @@
+import { fromPersistentWireRecord } from '@moonshot-ai/agent-core-v2';
 import { createReadStream } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -10,7 +11,6 @@ import {
   type WireMigration,
 } from '@moonshot-ai/agent-core-v2/wire/migration/migration';
 import type { WireRecord } from '@moonshot-ai/agent-core-v2/wire/record';
-import { fromPersistentWireRecord } from '@moonshot-ai/agent-core-v2/wire/wireService';
 
 import type { AgentRecord, WireEntry } from './agent-record-types';
 

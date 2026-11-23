@@ -1,4 +1,4 @@
-import type { TokenUsage } from '#/usage';
+import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 
 /**
  * Raw Anthropic wire usage.

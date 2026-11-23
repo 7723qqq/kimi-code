@@ -201,8 +201,8 @@ function createHarness(options: HarnessOptions = {}): Harness {
       offer = undefined;
       harness.mount.observe({ kind: 'turn-started', origin: user ? USER_ORIGIN : SYSTEM_ORIGIN });
     },
-    turnEnded: (requestId) => {
-      harness.mount.observe({ kind: 'turn-ended', requestId });
+    turnEnded: (traceId) => {
+      harness.mount.observe({ kind: 'turn-ended', traceId });
       if (options.manualEvaluation === true) return;
       if (idleTimer !== undefined) scheduler.clearTimer(idleTimer);
       idleTimer = scheduler.setTimer(() => {

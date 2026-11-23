@@ -13,6 +13,7 @@ function startsNewTurn(message: ContextMessage): boolean {
     case 'cron_job':
     case 'cron_missed':
     case 'task':
+    case 'retry':
       return true;
     case 'system_trigger':
       return origin.name !== 'stop_hook';
@@ -50,7 +51,9 @@ export function notifyStreak(history: readonly ContextMessage[]): NotifyStreak {
     if (startsNewTurn(message)) break;
     if (isNudge(message)) nudges += 1;
     if (!isToolCallRound(message)) continue;
-    if (message.toolCalls.some((call) => call.name === NOTIFY_USER_TOOL_NAME)) break;
+    const calls =
+      (message as { readonly toolCalls?: readonly { readonly name: string }[] }).toolCalls ?? [];
+    if (calls.some((call) => call.name === NOTIFY_USER_TOOL_NAME)) break;
     rounds += 1;
   }
   return { rounds, nudges };

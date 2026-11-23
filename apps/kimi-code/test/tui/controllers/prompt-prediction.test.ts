@@ -1,4 +1,4 @@
-import { onTestFinished, describe, expect, it, vi } from 'vitest';
+import { onTestFinished, describe, expect, it, mock } from 'bun:test';
 import type { TUI } from '@moonshot-ai/pi-tui';
 import type { Session, TurnEndedEvent } from '@moonshot-ai/kimi-code-sdk';
 
@@ -6,6 +6,7 @@ import { CustomEditor } from '#/tui/components/editor/custom-editor';
 import { setExperimentalFeatures } from '#/tui/commands/experimental-flags';
 import { PromptPredictionController } from '#/tui/controllers/prompt-prediction';
 import type { TUIState } from '#/tui/tui-state';
+import { waitForAssertion } from '../../helpers/waitFor';
 
 function turnEnded(turnId: number): TurnEndedEvent {
   return { type: 'turn.ended', sessionId: 'session-1', agentId: 'main', turnId, reason: 'completed' } as TurnEndedEvent;
@@ -15,7 +16,7 @@ describe('PromptPredictionController', () => {
   it('accepts and submits ghost text while cancelling stale requests precisely', async () => {
     setExperimentalFeatures([{ id: 'prompt_prediction', enabled: true }]);
     onTestFinished(() => setExperimentalFeatures([]));
-    const editor = new CustomEditor({ requestRender: vi.fn(), terminal: { rows: 40, cols: 80 } } as unknown as TUI);
+    const editor = new CustomEditor({ requestRender: mock(), terminal: { rows: 40, cols: 80 } } as unknown as TUI);
     const state = {
       editor,
       startupState: 'ready',
@@ -32,15 +33,15 @@ describe('PromptPredictionController', () => {
       tasksBrowser: undefined,
       externalEditorRunning: false,
       livePane: { pendingApproval: null, pendingQuestion: null },
-      ui: { requestRender: vi.fn() },
+      ui: { requestRender: mock() },
     } as unknown as TUIState;
     let nextPrediction = () => Promise.resolve<string | null>(null);
     const session = {
       id: 'session-1',
-      predictNextPrompt: vi.fn(() => nextPrediction()),
-      cancelPromptPrediction: vi.fn(async () => true),
+      predictNextPrompt: mock(() => nextPrediction()),
+      cancelPromptPrediction: mock(async () => true),
     } as unknown as Session;
-    const track = vi.fn();
+    const track = mock();
     const host = { state, session, aborted: false, track };
     const controller = new PromptPredictionController(host);
     editor.onChange = (text) => controller.handleEditorChange(text);
@@ -48,7 +49,7 @@ describe('PromptPredictionController', () => {
 
     nextPrediction = () => Promise.resolve('请修复失败的测试\n并补充回归覆盖');
     controller.handleTurnEnded(turnEnded(7));
-    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBeDefined());
+    await waitForAssertion(() => expect(editor.getPromptPrediction()).toBeDefined());
     expect(session.predictNextPrompt).toHaveBeenCalledWith({
       predictionId: expect.any(String),
       expectedTurnId: 7,
@@ -67,8 +68,8 @@ describe('PromptPredictionController', () => {
     controller.handleTurnStarted();
     editor.setText('');
     controller.handleTurnEnded(turnEnded(8));
-    await vi.waitFor(() => expect(session.predictNextPrompt).toHaveBeenCalledTimes(2));
-    const cancelInput = (session.predictNextPrompt as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as {
+    await waitForAssertion(() => expect(session.predictNextPrompt).toHaveBeenCalledTimes(2));
+    const cancelInput = (session.predictNextPrompt as ReturnType<typeof mock>).mock.calls[1]?.[0] as {
       predictionId: string;
     };
     expect(controller.handlePreInput(String.fromCodePoint(0x1b))).toBe(true);
@@ -79,7 +80,7 @@ describe('PromptPredictionController', () => {
 
     nextPrediction = () => Promise.resolve('run the focused suite');
     controller.handleTurnEnded(turnEnded(9));
-    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBe('run the focused suite'));
+    await waitForAssertion(() => expect(editor.getPromptPrediction()).toBe('run the focused suite'));
     expect(controller.handlePreInput(`${String.fromCodePoint(0x1b)}[C`)).toBe(true);
     editor.handleInput(' now');
     editor.handleInput('\r');
@@ -89,7 +90,7 @@ describe('PromptPredictionController', () => {
     controller.handleTurnStarted();
     editor.setText('');
     controller.handleTurnEnded(turnEnded(10));
-    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBeDefined());
+    await waitForAssertion(() => expect(editor.getPromptPrediction()).toBeDefined());
     editor.handleInput('x');
     expect(editor.getPromptPrediction()).toBeUndefined();
     expect(track).toHaveBeenCalledWith('prediction_dismissed', expect.objectContaining({ reason: 'input' }));
@@ -97,7 +98,7 @@ describe('PromptPredictionController', () => {
     nextPrediction = () => Promise.resolve('do not show this in plan mode');
     editor.setText('');
     controller.handleTurnEnded(turnEnded(11));
-    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBeDefined());
+    await waitForAssertion(() => expect(editor.getPromptPrediction()).toBeDefined());
     state.appState.planMode = true;
     controller.handlePlanModeChanged(true);
     expect(editor.getPromptPrediction()).toBeUndefined();
@@ -106,7 +107,7 @@ describe('PromptPredictionController', () => {
     state.appState.planMode = false;
     nextPrediction = () => Promise.resolve('clear this accepted suggestion');
     controller.handleTurnEnded(turnEnded(12));
-    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBeDefined());
+    await waitForAssertion(() => expect(editor.getPromptPrediction()).toBeDefined());
     expect(controller.handlePreInput('\t')).toBe(true);
     editor.setText('');
     editor.handleInput('\r');
@@ -119,7 +120,7 @@ describe('PromptPredictionController', () => {
     nextPrediction = () => Promise.resolve('git push');
     editor.terminalFocused = false;
     controller.handleTurnEnded(turnEnded(13));
-    await vi.waitFor(() => expect(editor.getPromptPrediction()).toBeDefined());
+    await waitForAssertion(() => expect(editor.getPromptPrediction()).toBeDefined());
     expect(editor.render(80).join('\n')).toContain('git push');
     editor.terminalFocused = true;
     editor.handleInput('!');

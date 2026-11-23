@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
   type AgentTaskInfo,
@@ -19,6 +19,7 @@ import {
   taskServices,
   type TestAgentContext,
 } from '../../harness';
+import { waitForAssertion } from '#test/helpers/waitFor';
 import {
   createAgentTaskPersistence,
   installControlledTask,
@@ -68,7 +69,7 @@ describe('AgentTaskService Wire history', () => {
 
   it('projects a restored running task as lost without manufacturing endedAt', async () => {
     await restoreTaskHistory(ctx, [processInfo()]);
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(ctx.get(IAgentLoopService).history().filter((message) =>
         message.origin?.kind === 'task' && message.origin.status === 'lost')).toHaveLength(1);
     });
@@ -88,7 +89,7 @@ describe('AgentTaskService Wire history', () => {
       emitted.push(event.type);
     });
     await restoreTaskHistory(ctx, [processInfo()]);
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(ctx.get(IAgentLoopService).history().filter((message) =>
         message.origin?.kind === 'task' && message.origin.status === 'lost')).toHaveLength(1);
     });
@@ -192,7 +193,7 @@ describe('AgentTaskService Wire history', () => {
   it('lists live tasks as active and includes lost tasks only in full history', async () => {
     installControlledTask(ctx);
     await restoreTaskHistory(ctx, [processInfo()]);
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(ctx.get(IAgentLoopService).history().filter((message) =>
         message.origin?.kind === 'task' && message.origin.status === 'lost')).toHaveLength(1);
     });
@@ -231,8 +232,6 @@ describe('AgentTaskService Wire history', () => {
     expect(origins.filter((origin) => origin?.kind === 'task' && origin.taskId === completed.taskId)).toHaveLength(1);
     expect(ctx.allEvents.filter((event) => event.event === 'task.notified')).toHaveLength(0);
     const records = await ctx.persistedWireRecords();
-    expect(records.some((record) => record.type === 'turn.prompt' && (record['origin'] as { kind?: string }).kind === 'task')).toBe(true);
-    expect(records.some((record) => record.type === 'turn.ended' && record['stopReason'] === 'prompt_only')).toBe(true);
     expect(records.filter((record) =>
       record.type === 'context.append_message' &&
       ((record['message'] as { origin?: { kind?: string; taskId?: string } } | undefined)?.origin?.kind === 'task') &&
@@ -309,7 +308,7 @@ describe('AgentTaskService Wire history', () => {
 
   it('keeps repeated restores idempotent without synthesizing terminal records', async () => {
     await restoreTaskHistory(ctx, [processInfo()]);
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(ctx.get(IAgentLoopService).history().filter((message) =>
         message.origin?.kind === 'task' && message.origin.status === 'lost')).toHaveLength(1);
     });

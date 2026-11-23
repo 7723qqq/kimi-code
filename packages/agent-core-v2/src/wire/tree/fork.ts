@@ -1,3 +1,8 @@
+import {
+  isPromptOwnedInjection,
+  isUndoAnchor,
+  isValidUndoCount,
+} from '#/agent/contextMemory/conversationTime';
 import { cutTurnUndo } from '#/agent/undo/turnUndo';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { WireRecord } from '#/wire/record';
@@ -27,12 +32,95 @@ export function computeForkLine(
   pairedLegacyUndoLines: ReadonlySet<number>,
   turns: number,
 ): number {
+  if (!hasTurnRecords(chain)) {
+    return computeLegacyForkLine(chain, pairedLegacyUndoLines, turns);
+  }
   const result = cutTurnUndo(chain, pairedLegacyUndoLines, turns);
   if (result.cut !== undefined) return result.cut.line;
   if (result.stoppedAtCompaction) {
     throw new ForkLineError('compaction_boundary', result.anchors.length);
   }
   throw new ForkLineError('insufficient', result.anchors.length);
+}
+
+function hasTurnRecords(chain: readonly WireLine[]): boolean {
+  return chain.some(
+    ({ record }) => record.type === 'turn.prompt' || record.type === 'turn.steer',
+  );
+}
+
+const compactionSummaryMarker: ContextMessage = {
+  role: 'user',
+  content: [],
+  toolCalls: [],
+  origin: { kind: 'compaction_summary' },
+};
+
+interface NumberedMessage {
+  readonly message: ContextMessage;
+  readonly line: number;
+}
+
+function foldUnpairedUndo(messages: NumberedMessage[], count: number): void {
+  let removed = 0;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const { message } = messages[index]!;
+    if (message.origin?.kind === 'injection') continue;
+    if (message.origin?.kind === 'compaction_summary') return;
+    if (!isUndoAnchor(message)) continue;
+    removed++;
+    if (removed < count) continue;
+    let cutIndex = index;
+    while (cutIndex > 0 && isPromptOwnedInjection(messages[cutIndex - 1]!.message, message)) {
+      cutIndex--;
+    }
+    messages.splice(cutIndex);
+    return;
+  }
+}
+
+function computeLegacyForkLine(
+  chain: readonly WireLine[],
+  pairedLegacyUndoLines: ReadonlySet<number>,
+  turns: number,
+): number {
+  let clearFloor = 0;
+  for (const { record, line } of chain) {
+    if (record.type === 'context.clear') clearFloor = line;
+  }
+  const messages: NumberedMessage[] = [];
+  for (const { record, line } of chain) {
+    if (line <= clearFloor) continue;
+    if (record.type === 'context.append_message') {
+      const message = record['message'];
+      if (isContextMessage(message)) messages.push({ message, line });
+    } else if (record.type === 'context.apply_compaction') {
+      messages.push({ message: compactionSummaryMarker, line });
+    } else if (record.type === 'context.undo' && !pairedLegacyUndoLines.has(line)) {
+      const count = record['count'];
+      if (typeof count === 'number' && isValidUndoCount(count)) foldUnpairedUndo(messages, count);
+    }
+  }
+  let remaining = turns;
+  let cutIndex = -1;
+  for (let index = messages.length - 1; index >= 0 && remaining > 0; index--) {
+    const { message } = messages[index]!;
+    if (message.origin?.kind === 'injection') continue;
+    if (message.origin?.kind === 'compaction_summary') {
+      throw new ForkLineError('compaction_boundary', turns - remaining);
+    }
+    if (isUndoAnchor(message)) {
+      remaining--;
+      cutIndex = index;
+      while (cutIndex > 0 && isPromptOwnedInjection(messages[cutIndex - 1]!.message, message)) {
+        cutIndex--;
+      }
+    }
+  }
+  if (cutIndex < 0 || remaining > 0) {
+    throw new ForkLineError('insufficient', turns - remaining);
+  }
+  return messages[cutIndex]!.line - 1;
 }
 
 export function restorableChain(entries: readonly WireLine[], tree: WireTree): WireLine[] {

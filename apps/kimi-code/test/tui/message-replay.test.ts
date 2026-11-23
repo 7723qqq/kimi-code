@@ -101,7 +101,7 @@ function message(
       role,
       content: [...content],
       toolCalls: [...(extra.toolCalls ?? [])],
-      toolCallId: extra.toolCallId,
+      toolCallId: extra.toolCallId ?? '',
       origin: extra.origin as PromptOrigin | undefined,
       isError: extra.isError,
     },

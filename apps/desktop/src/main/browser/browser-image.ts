@@ -1,5 +1,5 @@
 import type { NativeImage } from 'electron';
-import { IMAGE_BYTE_BUDGET, resolveMaxImageEdgePx } from '@moonshot-ai/agent-core-v2/agent/media/image-compress';
+import {IMAGE_BYTE_BUDGET, resolveMaxImageEdgePx} from '@moonshot-ai/agent-core-v2';
 import { BrowserReadError } from './browser-read-cache';
 
 export function encodeBrowserImage(original: NativeImage): { data: Buffer; width: number; height: number } {

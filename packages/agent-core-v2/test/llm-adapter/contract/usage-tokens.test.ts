@@ -12,15 +12,16 @@ import {
 import { addUsage, emptyUsage, grandTotal, inputTotal } from '#human/llm/usage';
 
 describe('TokenUsage aggregation', () => {
-  it('emptyUsage leaves cache read unknown', () => {
+  it('emptyUsage is all zeros', () => {
     expect(emptyUsage()).toEqual({
       inputOther: 0,
       output: 0,
+      inputCacheRead: 0,
       inputCacheCreation: 0,
     });
   });
 
-  it('addUsage sums known counters and preserves unknown cache reads', () => {
+  it('addUsage sums every counter', () => {
     const a = { inputOther: 1, output: 2, inputCacheRead: 3, inputCacheCreation: 4 };
     const b = { inputOther: 10, output: 20, inputCacheRead: 30, inputCacheCreation: 40 };
     expect(addUsage(a, b)).toEqual({
@@ -29,20 +30,12 @@ describe('TokenUsage aggregation', () => {
       inputCacheRead: 33,
       inputCacheCreation: 44,
     });
-    expect(addUsage(a, { ...b, inputCacheRead: undefined })).toEqual({
-      inputOther: 11,
-      output: 22,
-      inputCacheRead: undefined,
-      inputCacheCreation: 44,
-    });
   });
 
-  it('inputTotal sums known input counters and preserves unknown totals', () => {
+  it('inputTotal sums all input counters, grandTotal adds output', () => {
     const usage = { inputOther: 5, output: 7, inputCacheRead: 11, inputCacheCreation: 13 };
     expect(inputTotal(usage)).toBe(29);
     expect(grandTotal(usage)).toBe(36);
-    expect(inputTotal({ ...usage, inputCacheRead: undefined })).toBeUndefined();
-    expect(grandTotal({ ...usage, inputCacheRead: undefined })).toBeUndefined();
   });
 });
 
@@ -77,6 +70,7 @@ describe('estimateTokensForMessage(s)', () => {
     const message: Message = {
       role: 'user',
       content: [{ type: 'text', text: 'hello world' }],
+      toolCalls: [],
     };
     const first = estimateTokensForMessage(message);
     message.content.push({ type: 'text', text: 'mutated after the fact' });

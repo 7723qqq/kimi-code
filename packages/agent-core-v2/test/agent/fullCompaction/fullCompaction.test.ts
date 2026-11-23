@@ -4248,7 +4248,7 @@ function textResult(text: string, requestId: string | null = null): LegacyGenera
     },
     finishReason: 'completed',
     rawFinishReason: 'stop',
-    traceId,
+    traceId: requestId ?? undefined,
   };
 }
 
@@ -4271,7 +4271,7 @@ function mockStreamedMessage(
     usage: null,
     finishReason: opts?.finishReason ?? null,
     rawFinishReason: opts?.rawFinishReason ?? null,
-    traceId,
+    requestId,
     async *[Symbol.asyncIterator](): AsyncIterator<StreamedMessagePart> {
       for (const part of parts) {
         yield part;

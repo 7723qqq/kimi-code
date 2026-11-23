@@ -56,7 +56,6 @@ export function registerSessionMediaRoutes(app: SessionMediaRouteHost, core: Sco
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
         [ErrorCode.FILE_NOT_FOUND]: {},
-        [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
       },
       description: 'Download session-canonical prompt media by file ID',
       tags: ['files'],

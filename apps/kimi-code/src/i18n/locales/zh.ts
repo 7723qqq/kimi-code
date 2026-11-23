@@ -401,6 +401,16 @@ export default {
     loading: '加载中…',
   },
   cli: {
+    ensureDaemon: {
+      commandDescription: '内部命令：复用或启动后台服务器，并把 stdio 桥接到它的 socket。',
+      probeDescription: '只报告宿主协议和版本。',
+      lockTimeout: '等待 {{path}} 超时',
+      versionMismatchBusy:
+        '版本 {{version}} 的 kimi 服务器仍在本机执行任务；请等它结束后重试',
+      previousServerStuck: '上一个 kimi 服务器未及时退出',
+      startTimeout: 'kimi 服务器未能启动；请查看 {{path}}',
+      spawnFailed: '无法启动 kimi 服务器；请查看 {{path}}',
+    },
     program: {
       description: '下一代智能体的起点。',
       helpOption: '显示帮助。',
@@ -1407,6 +1417,10 @@ export default {
           prompt_optimizer: {
             title: '提示词优化器',
             description: '让输入框通过当前模型重写草稿提示词，可从 TUI 快捷键和会话 API 触发。',
+          },
+          prompt_prediction: {
+            title: '提示词预测',
+            description: '在一轮对话结束后预测用户可能输入的下一句话，以幽灵文本显示在输入框中。',
           },
           subagent_backends: {
             title: '外部子代理后端',

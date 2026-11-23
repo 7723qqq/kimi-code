@@ -73,6 +73,9 @@ function convertContentPart(part: ContentPart): NativePart | null {
         audio_url: id === undefined ? { url } : { url, id },
       };
     }
+    case 'document_url': {
+      return { type: 'text', text: '(document omitted: not supported by this provider)' };
+    }
     case 'video_url': {
       const url = mediaUrlOf(part);
       const id = mediaFileIdOf(part);

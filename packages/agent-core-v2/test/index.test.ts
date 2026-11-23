@@ -83,6 +83,8 @@ const V2_ONLY_RECORD_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
+  'permission.rules.add',
+  'interruptionReminder.requested',
   'tower_mode.enter',
   'tower_mode.exit',
   'hello_world_mode.enter',

@@ -38,8 +38,8 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
   const cumulativeUsage: TokenUsage = {
     inputOther: sessionUsage.inputOther + turnUsage.inputOther,
     output: sessionUsage.output + turnUsage.output,
-    inputCacheRead: sessionUsage.inputCacheRead + turnUsage.inputCacheRead,
-    inputCacheCreation: sessionUsage.inputCacheCreation + turnUsage.inputCacheCreation,
+    inputCacheRead: (sessionUsage.inputCacheRead ?? 0) + (turnUsage.inputCacheRead ?? 0),
+    inputCacheCreation: (sessionUsage.inputCacheCreation ?? 0) + (turnUsage.inputCacheCreation ?? 0),
   };
   // Live context-window fill (latest step.end usage), distinct from the
   // cumulative session-scoped + turn-scoped spend the bar breaks down.

@@ -177,7 +177,12 @@ export interface SessionStats {
 }
 
 export function sumTokenUsage(total: TokenUsage): number {
-  return total.inputOther + total.output + total.inputCacheRead + total.inputCacheCreation;
+  return (
+    total.inputOther +
+    total.output +
+    (total.inputCacheRead ?? 0) +
+    (total.inputCacheCreation ?? 0)
+  );
 }
 
 export interface StepRetryState {

@@ -43,13 +43,16 @@ const SEEDED_MODEL_ID = 'klient-example-model';
 interface TokenUsage {
   inputOther: number;
   output: number;
-  inputCacheRead: number;
-  inputCacheCreation: number;
+  inputCacheRead?: number;
+  inputCacheCreation?: number;
+  raw?: Record<string, unknown>;
 }
 
 function usageTotal(usage: TokenUsage | undefined): number | undefined {
   if (usage === undefined) return undefined;
-  return usage.inputOther + usage.output + usage.inputCacheRead + usage.inputCacheCreation;
+  return (
+    usage.inputOther + usage.output + (usage.inputCacheRead ?? 0) + (usage.inputCacheCreation ?? 0)
+  );
 }
 
 const tick = (ms: number): Promise<void> =>
@@ -132,8 +135,8 @@ async function main(): Promise<void> {
     let lastKey = '';
     const snapshot = async (tag: string): Promise<void> => {
       const [ctx, usage] = await Promise.all([agent.getContext(), agent.getUsage()]);
-      const total = usageTotal(usage.total);
-      const turn = usageTotal(usage.currentTurn);
+      const total = usageTotal(usage.total as never);
+      const turn = usageTotal(usage.currentTurn as never);
       const key = `${String(ctx.history.length)}/${String(ctx.tokenCount)}/${String(total)}/${String(turn)}`;
       if (key === lastKey) return;
       lastKey = key;
@@ -168,7 +171,7 @@ async function main(): Promise<void> {
 
     const ctx = await agent.getContext();
     const usage = await agent.getUsage();
-    const total = usageTotal(usage.total);
+    const total = usageTotal(usage.total as never);
     console.log('---');
     console.log('[result]  outcome              ->', outcome);
     console.log('[result]  history messages     ->', ctx.history.length);

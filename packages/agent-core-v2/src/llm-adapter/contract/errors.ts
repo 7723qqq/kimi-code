@@ -658,7 +658,6 @@ export function llmMessageFromError(error: unknown): LlmRemoteErrorMessage | und
   return undefined;
 }
 
-// ---- from upstream 2.7.0 ----
 export function errorDiagnostics(error: unknown): LlmErrorDiagnostics | undefined {
   if (error instanceof ChatProviderError) return (error as { diagnostics?: LlmErrorDiagnostics }).diagnostics;
   if (error instanceof Error2) {

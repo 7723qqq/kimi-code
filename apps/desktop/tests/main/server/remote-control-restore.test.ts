@@ -39,7 +39,7 @@ describe('Remote Control startup restore', () => {
     const fetcher = vi.fn(async () => response(true, 200, { code: 0, data: { enabled: true } }));
     const finished = vi.fn();
 
-    await restoreRemoteControlOnStartup('http://127.0.0.1:58627', 'secret', fetcher, finished);
+    await restoreRemoteControlOnStartup('http://127.0.0.1:58627', 'secret', fetcher as unknown as typeof fetch, finished);
 
     expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:58627/api/v1/remote-control', {
       method: 'POST',
@@ -57,7 +57,7 @@ describe('Remote Control startup restore', () => {
     mocks.state = { restoreEnabled: true, previousEnabled: false };
     const fetcher = vi.fn();
 
-    await restoreRemoteControlOnStartup('http://127.0.0.1:58627', undefined, fetcher);
+    await restoreRemoteControlOnStartup('http://127.0.0.1:58627', undefined, fetcher as unknown as typeof fetch);
 
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -67,7 +67,7 @@ describe('Remote Control startup restore', () => {
     const fetcher = vi.fn(async () => response(false, 503, null));
 
     await expect(
-      restoreRemoteControlOnStartup('http://127.0.0.1:58627', undefined, fetcher),
+      restoreRemoteControlOnStartup('http://127.0.0.1:58627', undefined, fetcher as unknown as typeof fetch),
     ).resolves.toBeUndefined();
     expect(mocks.warn).toHaveBeenCalledWith(
       '[kimi-desktop] failed to restore Remote Control state: HTTP 503',
@@ -80,7 +80,7 @@ describe('Remote Control startup restore', () => {
       response(true, 200, { code: 40928, msg: 'Remote Control is already running' }),
     );
 
-    await restoreRemoteControlOnStartup('http://127.0.0.1:58627', undefined, fetcher);
+    await restoreRemoteControlOnStartup('http://127.0.0.1:58627', undefined, fetcher as unknown as typeof fetch);
 
     expect(mocks.warn).toHaveBeenCalledWith(
       '[kimi-desktop] failed to restore Remote Control state: Remote Control is already running',

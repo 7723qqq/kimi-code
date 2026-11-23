@@ -1,6 +1,7 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
+import { ContextUndone } from '#/agent/undo/undoService';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -80,6 +81,11 @@ export class AgentMicroCompactionService
         if (event.start > 0 && event.deleteCount > 0) {
           this.clampTo(event.start);
         }
+      }),
+    );
+    this._register(
+      this.eventBus.subscribe(ContextUndone, () => {
+        this.clampTo(this.context.get().length);
       }),
     );
   }

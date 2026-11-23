@@ -243,7 +243,7 @@ describe('subagent task reminders and fork request parity', () => {
     const agentLifecycle = ctx.get(IAgentLifecycleService);
     const parentInputTokens: number[] = [];
     ctx.get(ISessionUsageService).onDidRecord((e) => {
-      if (e.agent.agentId === 'parent') parentInputTokens.push(inputTotal(e.usage));
+      if (e.agent.agentId === 'parent') parentInputTokens.push(inputTotal(e.usage) ?? 0);
     });
     const parentContext = await agentLifecycle.create({ agentId: 'parent' });
     const parent = agentLifecycle.handleOf(parentContext.agentId)!;

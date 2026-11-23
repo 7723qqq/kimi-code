@@ -2,7 +2,6 @@ import type { Message, UserMessage } from '@moonshot-ai/core/llm/message';
 import type { IWireService } from '#/wire/wire';
 import { contextFromHistoryEntry } from '#/agent/loop/history';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
-import { AgentTaskService } from './taskService';
 import { TERMINAL_STATUSES } from './types';
 import { IAgentTaskOutputService } from './taskOutput';
 
@@ -15,7 +14,6 @@ export async function restoreTaskCompletions(options: {
   readonly isLive?: (taskId: string) => boolean;
 }): Promise<readonly UserMessage[]> {
   const { journal, restorable } = await options.wire.readRestoreChains();
-  // fork's AgentTaskService has no restore(); journal is replayed through the wire instead.
   void journal;
   const delivered = new Set<string>();
   const recordDelivery = (origin: PromptOrigin | undefined): void => {

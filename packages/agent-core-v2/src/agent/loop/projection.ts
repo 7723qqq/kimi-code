@@ -347,7 +347,7 @@ function projectedContent(source: ContextMessage, onAnomaly?: OnAnomaly): Conten
   const content =
     source.role === 'tool'
       ? renderToolResultForModel({
-          output: outputFromToolContent(source.content),
+          output: outputFromToolContent(source.content as never) as never,
           isError: source.isError,
           note: source.note,
           durationMs: source.durationMs,

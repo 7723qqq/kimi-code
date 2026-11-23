@@ -1,5 +1,5 @@
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
-import type { LlmLogger } from '#/log/log';
+import type { LogImpl as LlmLogger } from '#/utils/log';
 
 import type { OpenAIRawUsage } from './contract';
 
@@ -45,11 +45,14 @@ export function parseOpenAIUsage(
   const promptTokens = usage.prompt_tokens ?? 0;
   const split = readOpenAICacheFields(usage);
   if (split.kind === 'contradiction') {
-    log?.warn('openai usage cache fields disagree; falling back to the cached count', {
-      promptTokens,
-      promptCacheHitTokens: usage.prompt_cache_hit_tokens,
-      promptCacheMissTokens: split.reportedMiss,
-    });
+    log?.warn(
+      {
+        promptTokens,
+        promptCacheHitTokens: usage.prompt_cache_hit_tokens,
+        promptCacheMissTokens: split.reportedMiss,
+      },
+      'openai usage cache fields disagree; falling back to the cached count',
+    );
   }
   const miss = split.kind === 'split' ? split.miss : undefined;
   return {

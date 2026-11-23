@@ -160,7 +160,7 @@ export class SessionPromptPredictionService extends Disposable implements ISessi
         },
         { signal: active.deadline.signal },
       ), active.deadline.signal);
-      if (outcome.type === 'failed') throw errorFromLlmMessage(outcome.error, outcome.diagnostics);
+      if (outcome.type === 'failed') throw errorFromLlmMessage(outcome.error as never);
       if (outcome.type === 'aborted') {
         const message = outcome.reason instanceof Error ? outcome.reason.message : 'The operation was aborted.';
         throw new DOMException(message, 'AbortError');

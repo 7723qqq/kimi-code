@@ -39,7 +39,7 @@ describe('session token counting outlet', () => {
   });
 
   it('sums the prompt budget from the same three estimators', () => {
-    const size = outlet().requestSize({ systemPrompt: 'sys', messages, tools });
+    const size = outlet().requestSize({ systemPrompt: 'sys', messages: messages as never, tools });
     expect(size).toBe(
       estimateTokens('sys') + estimateTokensForTools(tools) + estimateTokensForMessages(messages),
     );

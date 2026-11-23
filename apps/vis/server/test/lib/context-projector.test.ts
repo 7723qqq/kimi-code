@@ -2244,7 +2244,7 @@ describe('context-projector', () => {
     // No tokensAfter on the record → the engine's fallback: an estimate over
     // the reconstructed shape (here just the summary bubble), NOT the stale
     // pre-compaction 7777.
-    const expected = estimateTokensForMessages([bubble.message]);
+    const expected = estimateTokensForMessages([bubble.message as never]);
     expect(proj.contextTokens).toBe(expected);
     expect(proj.contextTokens).not.toBe(7777);
     expect(bubble.compaction).toEqual({

@@ -1,5 +1,5 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTaskService } from '#/agent/task/task';
 import { ISessionEventBus } from '#/app/event/eventBus';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -23,7 +23,7 @@ export class TowerSendTool implements ITowerSendTool {
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @ISessionEventBus private readonly sessionBus: ISessionEventBus,
-    @IAgentToolExecutorService private readonly tasks: IAgentToolExecutorService,
+    @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
   ) {}
 
@@ -51,7 +51,7 @@ export class TowerSendTool implements ITowerSendTool {
           const delivery = deliverTowerMessage(
             {
               sessionBus: this.sessionBus,
-              toolExecutor: this.tasks,
+              tasks: this.tasks,
               agentLifecycle: this.agentLifecycle,
               state: resolved.state,
             },

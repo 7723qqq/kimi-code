@@ -13,7 +13,7 @@ import type {
 } from '#/agent/tokenCounting/tokenCounting';
 import { IConfigService } from '#/app/config/config';
 import { ISessionEventBus } from '#/app/event/eventBus';
-import type { Message } from '#/llm-adapter/contract/message';
+import { fromLlmMessage, type Message } from '#/llm-adapter/contract/message';
 import type { ImageTokenPricing } from '#/llm-adapter/contract/modelFamily';
 import {
   estimateTokens,
@@ -103,7 +103,7 @@ export class SessionTokenCountingService
     return (
       this.estimateText(request.systemPrompt) +
       this.estimateTools(request.tools) +
-      this.estimateMessages(request.messages, pricing)
+      this.estimateMessages(request.messages.map(fromLlmMessage), pricing)
     );
   }
 

@@ -1,4 +1,5 @@
-import type { Message, StreamedMessagePart, VideoURLPart } from './message';
+import type { FinishReason, Message, StreamedMessagePart, VideoURLPart } from './message';
+export type { FinishReason };
 import type { Tool } from './tool';
 import type { TokenUsage } from './usage';
 
@@ -74,13 +75,7 @@ export interface MaxCompletionTokensOptions {
  * - `'other'`: recognized non-null reason that does not fit the categories
  *   above.
  */
-export type FinishReason =
-  | 'completed'
-  | 'tool_calls'
-  | 'truncated'
-  | 'filtered'
-  | 'paused'
-  | 'other';
+
 
 /**
  * An async-iterable stream of message parts produced by a single LLM response.
@@ -134,6 +129,15 @@ export interface ProviderRequestAuth {
 }
 
 /** Sampling overrides for a single generation call. */
+export interface ProviderConfig {
+  type?: string;
+  model: string;
+  apiKey?: string;
+  baseUrl?: string;
+  auth?: ProviderRequestAuth;
+  [key: string]: unknown;
+}
+
 export interface SamplingOptions {
   readonly temperature?: number;
   readonly topP?: number;
