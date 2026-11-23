@@ -699,7 +699,11 @@ describe('prompt queue', () => {
         text: '<hook_result hook_event="UserPromptSubmit">\nfrom hook\n</hook_result>',
         meta: { contentType: 'text/xml', source: 'user prompt submit hook' },
       },
-      { type: 'text', text: '<skill>review</skill>' },
+      {
+        type: 'text',
+        text: '<skill>review</skill>',
+        meta: { source: 'skill activation', activationId: 'act-review' },
+      },
       { type: 'text', text: 'launching' },
     ]);
     expect(started).toEqual(['launching']);
@@ -712,7 +716,11 @@ describe('prompt queue', () => {
         text: '<hook_result hook_event="UserPromptSubmit">\nfrom hook\n</hook_result>',
         meta: { contentType: 'text/xml', source: 'user prompt submit hook' },
       },
-      { type: 'text', text: '<skill>review</skill>' },
+      {
+        type: 'text',
+        text: '<skill>review</skill>',
+        meta: { source: 'skill activation', activationId: 'act-review' },
+      },
       { type: 'text', text: 'launching' },
     ]);
   });

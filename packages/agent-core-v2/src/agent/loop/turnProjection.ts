@@ -310,6 +310,7 @@ export class AgentTurnProjection {
   }
 
   private async runStepStarting(turn: ActiveTurn, step: CoreStepState, event: StepStartingEvent) {
+    const stale = (): boolean => this.active !== turn || turn.current !== step;
     try {
       await this.options.hooks.onWillBeginStep.run({
         turnId: turn.id,
@@ -318,6 +319,7 @@ export class AgentTurnProjection {
         signal: step.signal,
       });
     } catch (error) {
+      if (stale()) return undefined;
       if (isAbortError(error) || step.signal.aborted) {
         turn.abortReason = turn.controller.signal.aborted ? turn.controller.signal.reason : error;
       } else {
@@ -325,6 +327,7 @@ export class AgentTurnProjection {
       }
       return { blocked: { by: 'step', reason: 'step_hook_failed', message: toErrorMessage(error) } };
     }
+    if (stale()) return undefined;
     if (step.signal.aborted) {
       turn.abortReason = step.signal.reason ?? abortError('Step aborted');
       return { blocked: { by: 'step', reason: 'aborted' } };

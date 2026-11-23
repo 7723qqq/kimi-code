@@ -125,6 +125,7 @@ class LoopMailbox {
   private normal: UserMessage[];
   private notifyEntries: UserMessage[];
   private reminders: RemindMessage[];
+  private steeredEntries: UserMessage[] = [];
 
   constructor(input: LoopInput['inbox'], private readonly emit: (event: LoopEmitted) => void) {
     this.normal = [...(input?.normal ?? [])];
@@ -183,11 +184,22 @@ class LoopMailbox {
       return ack;
     }
     this.normal = this.normal.filter((item) => !messages.includes(item));
-    if (merged === undefined) this.notifyEntries.push(...messages);
-    else this.notifyEntries.push(merged);
+    this.steeredEntries = merged === undefined ? [...messages] : [merged];
     const ack: LoopAck<'prompt.steered'> = { type: 'prompt.steered', promptIds: ids, messages };
     this.emit(ack);
     return ack;
+  }
+
+  takeSteered(): UserMessage[] {
+    const entries = this.steeredEntries;
+    this.steeredEntries = [];
+    return entries;
+  }
+
+  takeNotify(): UserMessage[] {
+    const entries = this.notifyEntries;
+    this.notifyEntries = [];
+    return entries;
   }
 
   cancel(promptId: string): LoopAck<'prompt.canceled'> {
@@ -606,6 +618,7 @@ class LoopActor implements Loop {
     if ((turn.phase !== 'stepStarting' && turn.phase !== 'requesting') || step.toolCallStreaming) return;
     step.steerRequested = true;
     step.scope.abort(STEERED);
+    if (turn.phase === 'stepStarting') this.finishSteeredStep(turn, step);
   }
 
   private handle(message: ActorMessage): void {
@@ -767,8 +780,11 @@ class LoopActor implements Loop {
     if (!this.open()) return undefined;
     const ack = this.mailbox.steer(promptIds, merged);
     if ((ack.messages?.length ?? 0) > 0) {
+      const interruptible = this.canInterruptSteer();
+      if (interruptible) this.adoptSteered();
+      else this.mailbox.queue(this.mailbox.takeSteered());
       this.releaseIntake();
-      if (this.turn?.phase === 'requesting') this.abortRequest();
+      if (interruptible) this.abortRequest();
     }
     this.kick();
     return ack;
@@ -783,8 +799,10 @@ class LoopActor implements Loop {
       this.check({ type: 'input.notify', message: normalized });
       if (!this.open()) return undefined;
       const ack = this.mailbox.notify(normalized);
+      const interruptible = this.canInterruptSteer();
+      if (interruptible) this.adoptNotify();
       this.releaseIntake();
-      this.abortRequest();
+      if (interruptible) this.abortRequest();
       this.kick();
       return ack;
     }
@@ -799,9 +817,36 @@ class LoopActor implements Loop {
     if (![...ids].every((id) => normal.has(id) || notify.has(id))) return;
     const pending = promptIds.filter((id) => normal.has(id));
     if (pending.length > 0) this.mailbox.steer(pending);
+    const interruptible = this.canInterruptSteer();
+    if (interruptible) this.adoptSteered();
+    else this.mailbox.queue(this.mailbox.takeSteered());
     this.releaseIntake();
-    this.abortRequest();
+    if (interruptible) this.abortRequest();
     this.kick();
+  }
+
+  private canInterruptSteer(): boolean {
+    const turn = this.turn;
+    if (turn === undefined) return false;
+    if (turn.phase !== 'stepStarting' && turn.phase !== 'requesting') return false;
+    return this.step?.toolCallStreaming !== true;
+  }
+
+  private adoptSteered(): void {
+    const steered = this.mailbox.takeSteered();
+    if (steered.length === 0) return;
+    if (this.turn === undefined) {
+      this.mailbox.queue(steered);
+      return;
+    }
+    this.turn.pending.push(...steered.map((message) => ({ kind: 'notify' as const, message })));
+  }
+
+  private adoptNotify(): void {
+    if (this.turn === undefined) return;
+    const pending = this.mailbox.takeNotify();
+    if (pending.length === 0) return;
+    this.turn.pending.push(...pending.map((message) => ({ kind: 'notify' as const, message })));
   }
 
   cancel(promptId: string): LoopAck<'prompt.canceled'> | undefined {
@@ -1325,14 +1370,9 @@ class LoopActor implements Loop {
 
   private finishSteeredStep(turn: LiveTurn, step: StepState): boolean {
     if (!step.steerRequested || turn.outcome?.type === 'aborted') return false;
-    step.outcome = { type: 'done', cause: STEERED };
-    if (turn.promptOnly !== true) {
-      this.record(this.endedStep(turn.id, turn.step, step.outcome, step.llm));
-    }
-    this.step = undefined;
-    turn.outcome = step.outcome;
-    turn.phase = 'finished';
-    this.post({ type: 'turn.finish', turn });
+    step.outcome = { type: 'continue', cause: STEERED };
+    turn.phase = 'ending';
+    this.post({ type: 'step.finish', turn, step });
     return true;
   }
 
@@ -1461,7 +1501,7 @@ class LoopActor implements Loop {
       });
     }
     step.partialMessage = undefined;
-    if (outcome.type !== 'done' && this.finishSteeredStep(turn, step)) return;
+    if (this.finishSteeredStep(turn, step)) return;
     if (toolCalls.length > 0) {
       turn.phase = 'batching';
       this.post({ type: 'batch.start', turn, step });
@@ -1921,6 +1961,7 @@ class LoopActor implements Loop {
   private afterStepFinished(turn: LiveTurn, _step: StepState): void {
     if (this.turn !== turn || this.step !== undefined) return;
     if (turn.outcome?.type === 'aborted' || turn.phase === 'finished') this.post({ type: 'turn.finish', turn });
+    else if (turn.pending.length > 0) this.post({ type: 'turn.append', turn });
     else this.post({ type: 'step.start', turn });
   }
 
@@ -1937,7 +1978,7 @@ class LoopActor implements Loop {
 
   private finalizeStep(turn: LiveTurn, step: StepState): void {
     const draft = step.outcome ?? { type: 'aborted' as const };
-    const outcome = draft.type === 'continue' && this.mailbox.hasNotify
+    const outcome = draft.type === 'continue' && this.mailbox.hasNotify && turn.pending.length === 0
       ? { type: 'done' as const, cause: { by: 'loop', reason: 'notify' } }
       : draft;
     step.outcome = outcome;
