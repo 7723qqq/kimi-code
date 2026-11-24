@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as posixPath from 'node:path/posix';
 import * as win32Path from 'node:path/win32';
 
@@ -234,7 +235,7 @@ export class AgentPlanService extends Service implements IAgentPlanService {
         id,
         version,
         key,
-        sha256: new Bun.CryptoHasher('sha256').update(bytes).digest('hex'),
+        sha256: createHash('sha256').update(bytes).digest('hex'),
         bytes: bytes.byteLength,
       }),
     );

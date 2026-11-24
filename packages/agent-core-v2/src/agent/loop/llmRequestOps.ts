@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 
 import { z } from 'zod';
@@ -21,7 +22,7 @@ export function llmToolsSnapshotPayload(tools: readonly ToolDescription[]): {
     .filter((tool) => tool.deferred !== true)
     .map(({ name, description, parameters }) => ({ name, description, parameters }));
   return {
-    hash: new Bun.CryptoHasher('sha256').update(JSON.stringify(visible)).digest('hex'),
+    hash: createHash('sha256').update(JSON.stringify(visible)).digest('hex'),
     tools: visible,
   };
 }

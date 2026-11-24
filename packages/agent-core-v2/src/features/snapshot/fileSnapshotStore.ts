@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rename, rm, stat, unlink, utimes, writeFile } from 'node:fs/promises';
 
@@ -23,7 +24,7 @@ const LOCK_HEARTBEAT_MS = 10_000;
 const localStoreLocks = new Map<string, Promise<void>>();
 
 function sha256Hex(value: Uint8Array | string): string {
-  return new Bun.CryptoHasher('sha256').update(value).digest('hex');
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function errorCode(error: unknown): string | undefined {

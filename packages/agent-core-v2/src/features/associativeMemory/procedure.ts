@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Atom, AssociativeMemoryParams, Edge, NoteRecord, Procedure } from './types';
 import { averageVector, topTerms } from './vector';
 
@@ -7,7 +8,7 @@ export interface ProcedureResult {
 }
 
 export function procedureId(signature: string): string {
-  return new Bun.CryptoHasher('sha256').update(signature).digest('hex').slice(0, 24);
+  return createHash('sha256').update(signature).digest('hex').slice(0, 24);
 }
 
 export function distillProcedures(

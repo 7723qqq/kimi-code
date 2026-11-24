@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { tokenize } from '@moonshot-ai/minidb';
 
 import type { Atom, AssociativeMemoryParams } from './types';
@@ -100,7 +101,7 @@ export function splitNote(text: string, maxChars: number): string[] {
 }
 
 export function atomId(scopeKey: string, noteId: string, ordinal: number): string {
-  return new Bun.CryptoHasher('sha256')
+  return createHash('sha256')
     .update(`${scopeKey}\u0000${noteId}\u0000${String(ordinal)}`)
     .digest('hex')
     .slice(0, 24);

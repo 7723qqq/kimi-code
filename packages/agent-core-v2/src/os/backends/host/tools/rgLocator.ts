@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import { chmod, copyFile, mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises';
@@ -442,7 +443,7 @@ export async function verifyArchiveChecksum(
   expectedSha256: string,
 ): Promise<void> {
   const archive = await Bun.file(archivePath).arrayBuffer();
-  const actualSha256 = new Bun.CryptoHasher('sha256').update(archive).digest('hex');
+  const actualSha256 = createHash('sha256').update(new Uint8Array(archive)).digest('hex');
   if (actualSha256 !== expectedSha256) {
     throw new Error2(
       ErrorCodes.OS_FS_UNAVAILABLE,

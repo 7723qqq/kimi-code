@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -94,7 +95,7 @@ export class PluginPackageCache {
 }
 
 function archiveSha256(buffer: Buffer): string {
-  return new Bun.CryptoHasher('sha256').update(buffer).digest('hex');
+  return createHash('sha256').update(buffer).digest('hex');
 }
 
 async function readVerifiedArchive(

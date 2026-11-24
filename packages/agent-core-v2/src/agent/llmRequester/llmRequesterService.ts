@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { LifecycleScope } from '#/app/scopes';
 import { isManagedKimiCodeBaseUrl } from '@moonshot-ai/kimi-code-oauth';
 import { IInstantiationService } from '#/_base/di/instantiation';
@@ -1249,7 +1250,7 @@ function projectionField(fields: AgentLLMRequestLogFields): LlmRequestProjection
 }
 
 function fingerprint(content: string): string {
-  return new Bun.CryptoHasher('sha256').update(content).digest('hex');
+  return createHash('sha256').update(content).digest('hex');
 }
 
 function apiStatusCode(error: unknown): number | undefined {

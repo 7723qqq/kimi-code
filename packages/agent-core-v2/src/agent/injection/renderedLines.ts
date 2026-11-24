@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto';
 const MAX_TRACKED_LINES = 1024;
 const MAX_TRACKED_SESSIONS = 32;
 const rendered = new Map<string, Set<string>>();
 
 export function lineFingerprint(line: string): string {
-  return new Bun.CryptoHasher('sha256')
+  return createHash('sha256')
     .update(line.trim().toLowerCase())
     .digest('hex')
     .slice(0, 16);

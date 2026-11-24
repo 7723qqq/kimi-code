@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { buildMediaPathTag, mediaKindOfPart } from '#/agent/media/mediaRef';
 import type { Message } from '#/llm-adapter/contract/message';
 import type { ContentPart } from '#human/llm/message';
@@ -53,7 +54,7 @@ function mediaStripKey(part: DegradableMediaPart): string {
   const cached = cache?.[part.type];
   if (cached !== undefined) return cached;
 
-  const key = new Bun.CryptoHasher('sha256')
+  const key = createHash('sha256')
     .update(part.type)
     .update('\0')
     .update(container.id ?? '')

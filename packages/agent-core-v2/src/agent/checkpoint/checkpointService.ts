@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { randomUUID } from 'node:crypto';
 
@@ -55,7 +56,7 @@ interface CheckpointGroup {
 }
 
 function sha256Bytes(bytes: Uint8Array): string {
-  return new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 export class AgentCheckpointService extends Disposable implements IAgentCheckpointService {

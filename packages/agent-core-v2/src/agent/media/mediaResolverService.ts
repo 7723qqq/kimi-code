@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { WarningIssued } from '#/agent/profile/profileOps';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -543,7 +544,7 @@ async function accountHashFor(model: Model): Promise<string> {
     }
   }
   if (identity === undefined) return 'no-key';
-  return new Bun.CryptoHasher('sha256').update(identity).digest('hex').slice(0, 16);
+  return createHash('sha256').update(identity).digest('hex').slice(0, 16);
 }
 
 function stableJwtSubject(token: string): string | undefined {
@@ -571,7 +572,7 @@ function inlineMediaBudgetEntry(
   const url = part.type === 'image_url' ? part.imageUrl.url : part.videoUrl.url;
   if (!isDataUrl(url)) return undefined;
   const kind = part.type === 'image_url' ? 'image' : 'video';
-  const hash = new Bun.CryptoHasher('sha256').update(kind).update('\0').update(url).digest('hex');
+  const hash = createHash('sha256').update(kind).update('\0').update(url).digest('hex');
   return { messageIndex, partIndex, key: `inline\0${hash}`, kind, bytes: url.length };
 }
 
@@ -612,7 +613,7 @@ function msFileIdFromUrl(url: string): string | undefined {
 }
 
 function blobKey(cacheKey: string): string {
-  return new Bun.CryptoHasher('sha256').update(cacheKey).digest('hex');
+  return createHash('sha256').update(cacheKey).digest('hex');
 }
 
 async function readStream(stream: NodeJS.ReadableStream, signal?: AbortSignal): Promise<Buffer> {

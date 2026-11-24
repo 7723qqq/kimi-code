@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 
 import { Service } from '#/_base/di/service';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
@@ -696,12 +697,12 @@ function maxVersion(checkpoints: readonly FileHistoryCheckpointRecord[], path: s
 }
 
 function blobKey(pathKey: string, version: number): string {
-  const hash = new Bun.CryptoHasher('sha256').update(pathKey, 'utf8').digest('hex');
+  const hash = createHash('sha256').update(pathKey, 'utf8').digest('hex');
   return `${FILE_HISTORY_BLOB_PREFIX}/${hash}@v${String(version)}`;
 }
 
 function sha256(bytes: Uint8Array): string {
-  return new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 function decodeText(bytes: Uint8Array): string | undefined {

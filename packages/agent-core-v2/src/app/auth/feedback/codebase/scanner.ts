@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { lstat, readdir } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
@@ -194,7 +195,7 @@ function throwIfAborted(signal?: AbortSignal): void {
 }
 
 function fingerprintFiles(files: readonly FeedbackCodebaseFile[]): string {
-  const hash = new Bun.CryptoHasher('sha256');
+  const hash = createHash('sha256');
   for (const file of files) {
     hash.update(file.path);
     hash.update('\0');

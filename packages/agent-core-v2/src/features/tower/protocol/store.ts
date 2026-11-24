@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import {
@@ -507,7 +508,7 @@ export class TowerStore {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       canonical = resolve(await realpath(this.repoRoot), relative(this.repoRoot, lockPath));
     }
-    const suffix = new Bun.CryptoHasher('sha256').update(canonical).digest('hex');
+    const suffix = createHash('sha256').update(canonical).digest('hex');
     return `refs/tower/state-lock-reaper-${suffix}`;
   }
 

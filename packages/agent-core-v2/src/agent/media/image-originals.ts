@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -70,7 +71,7 @@ export async function persistOriginalImage(
   const pathClass = options.path ?? hostPath;
   const maxTotalBytes = options.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES;
   try {
-    const hash = new Bun.CryptoHasher('sha256').update(bytes).digest('hex').slice(0, 32);
+    const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 32);
     const extension = MIME_EXTENSION[mimeType.trim().toLowerCase()] ?? 'img';
     const filePath = pathClass.join(dir, `${hash}.${extension}`);
     await fs.mkdir(dir, { recursive: true });

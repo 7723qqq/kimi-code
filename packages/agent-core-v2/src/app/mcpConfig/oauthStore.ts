@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
@@ -67,7 +68,7 @@ async function deriveKey(): Promise<Buffer> {
   }
   const machineId = await hostMachineId();
   const raw = `${hostname()}:${machineId ?? 'no-machine-id'}:${username}:kimi-code-mcp-oauth-v1`;
-  return new Bun.CryptoHasher('sha256').update(raw).digest();
+  return createHash('sha256').update(raw).digest();
 }
 
 interface EncryptedBlob {

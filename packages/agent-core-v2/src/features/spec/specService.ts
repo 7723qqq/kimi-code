@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 
 import { join } from 'pathe';
@@ -165,7 +166,7 @@ export class AgentSpecService extends Service implements IAgentSpecService {
         id,
         version,
         key,
-        sha256: new Bun.CryptoHasher('sha256').update(bytes).digest('hex'),
+        sha256: createHash('sha256').update(bytes).digest('hex'),
         bytes: bytes.byteLength,
       }),
     );

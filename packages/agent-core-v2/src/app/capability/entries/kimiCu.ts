@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { constants, createReadStream } from 'node:fs';
 import { access, mkdtemp, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -109,7 +110,7 @@ async function verifyDownloadedChecksum(
 }
 
 async function sha256File(filePath: string): Promise<string> {
-  const hash = new Bun.CryptoHasher('sha256');
+  const hash = createHash('sha256');
   for await (const chunk of createReadStream(filePath)) {
     hash.update(chunk);
   }

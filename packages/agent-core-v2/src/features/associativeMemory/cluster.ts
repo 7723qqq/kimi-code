@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Atom, AssociativeMemoryParams, Cooccurrence, Concept, Edge } from './types';
 import { compareByText } from './terms';
 import { averageVector, averageDense, cosine, topTerms } from './vector';
@@ -17,7 +18,7 @@ export function coocClusterThreshold(
 }
 
 export function conceptId(atomIds: readonly string[]): string {
-  return new Bun.CryptoHasher('sha256').update(atomIds.join('\u0001')).digest('hex').slice(0, 24);
+  return createHash('sha256').update(atomIds.join('\u0001')).digest('hex').slice(0, 24);
 }
 
 export function clusterIncremental(

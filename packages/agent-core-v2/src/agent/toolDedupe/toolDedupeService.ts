@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
@@ -97,14 +98,14 @@ function makeKey(toolName: string, args: unknown): string {
 }
 
 function argsHash(args: unknown): string {
-  return new Bun.CryptoHasher('sha256')
+  return createHash('sha256')
     .update(canonicalTelemetryArgs(args))
     .digest('hex')
     .slice(0, 8);
 }
 
 function callSignature(key: string): string {
-  return new Bun.CryptoHasher('sha256').update(key).digest('hex');
+  return createHash('sha256').update(key).digest('hex');
 }
 
 interface CheckedToolCall {

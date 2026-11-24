@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -11,7 +12,7 @@ export type IndexReadResult =
 
 export function cachePath(storeDir: string, repoRoot: string): string {
   const normalized = repoRoot.replaceAll('\\', '/');
-  const digest = new Bun.CryptoHasher('sha256').update(normalized).digest('hex').slice(0, 16);
+  const digest = createHash('sha256').update(normalized).digest('hex').slice(0, 16);
   return join(storeDir, 'git-memory', `${digest}.json`);
 }
 

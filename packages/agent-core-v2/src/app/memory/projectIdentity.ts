@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'pathe';
 import { join } from 'pathe';
@@ -19,7 +20,7 @@ interface GitLocation {
 }
 
 function digest(value: string): string {
-  return new Bun.CryptoHasher('sha256').update(value).digest('hex').slice(0, 12);
+  return createHash('sha256').update(value).digest('hex').slice(0, 12);
 }
 
 function isDirectory(path: string): boolean {

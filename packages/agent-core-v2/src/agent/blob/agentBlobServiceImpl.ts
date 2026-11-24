@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import type { ContentPart } from '#human/llm/message';
@@ -120,7 +121,7 @@ export class AgentBlobServiceImpl implements IAgentBlobService {
   }
 
   private async writeBlob(mimeType: string, base64Payload: string): Promise<string> {
-    const hash = new Bun.CryptoHasher('sha256').update(base64Payload, 'utf8').digest('hex');
+    const hash = createHash('sha256').update(base64Payload, 'utf8').digest('hex');
     const binary = Buffer.from(base64Payload, 'base64');
     await this.blobs.put(this.storageScope, hash, binary);
     this.cache.set(hash, binary);

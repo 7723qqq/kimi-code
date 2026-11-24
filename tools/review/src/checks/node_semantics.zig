@@ -17,7 +17,9 @@ const walk = @import("../walk.zig");
 /// this repository stands on — not the goal. Where Bun also exposes a native API
 /// with the same semantics, the native call is the one to write: it is the path
 /// Bun optimises, and the one that keeps working in a compiled single-file
-/// binary. That is `bun-native`, a recommendation (`warn`).
+/// binary. That is `bun-native`, a recommendation (`warn`). The pairing table
+/// below is the repository's judgement about which swaps are worth carrying;
+/// a call deliberately left unpaired stays as upstream wrote it.
 ///
 /// The inverse failure is a `node` process started *by name*. That escapes the
 /// layer entirely and runs whatever Node happens to be on `PATH` — the one
@@ -59,12 +61,6 @@ const PAIRINGS = [_]Pairing{
         .condition = "the call pins a UTF-8 encoding (without one Node returns bytes) and the file carries no UTF-8 BOM — Bun's text() strips a BOM, Node's readFile keeps it as U+FEFF",
     },
     .{
-        .node = "createHash",
-        .from = "node:crypto",
-        .bun = "Bun.CryptoHasher",
-        .condition = "the digest is read as hex, base64, or a Buffer",
-    },
-    .{
         .node = "fileURLToPath",
         .from = "node:url",
         .bun = "Bun.fileURLToPath(url)",
@@ -104,7 +100,13 @@ const PAIRINGS = [_]Pairing{
 ///     Windows a rooted path without a drive letter resolves differently:
 ///     Node resolves it against the current drive and Bun keeps it
 ///     drive-less.
+///   * `createHash` — `Bun.CryptoHasher` is measured 1.4x-3.1x faster from
+///     100 KB, but that is a hot-path optimisation, not a correctness win:
+///     `node:crypto` is Bun's own implementation, so an upstream `createHash`
+///     call stays as written instead of becoming fork-only churn. Use the
+///     native hasher where a measured hot path pays for the diff.
 const NOT_PAIRED = [_][]const u8{
+    "createHash",
     "existsSync",
     "createReadStream",
     "createWriteStream",

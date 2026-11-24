@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, rename, rm, stat, unlink, utimes, writeFile } from 'node:fs/promises';
 
@@ -29,7 +30,7 @@ interface OperationDocument {
 }
 
 function sha256(value: string): string {
-  return new Bun.CryptoHasher('sha256').update(value).digest('hex');
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function encoded(value: unknown): string {
