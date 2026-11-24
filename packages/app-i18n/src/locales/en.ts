@@ -39,6 +39,8 @@ import browser from './en/browser';
 import browserReference from './en/browserReference';
 import serverAuth from './en/serverAuth';
 import remoteControl from './en/remoteControl';
+import inspector from './en/inspector';
+import feedback from './en/feedback';
 
 export default {
   common,
@@ -82,4 +84,8 @@ export default {
   browserReference,
   serverAuth,
   remoteControl,
+  inspector,
+  feedback,
 };
+
+

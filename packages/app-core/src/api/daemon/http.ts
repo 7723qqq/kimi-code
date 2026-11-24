@@ -15,6 +15,8 @@ const BODY_PREVIEW_LIMIT = 500;
 const ERROR_ENVELOPE_MAX_BYTES = 64 * 1024;
 
 export const SERVER_AUTH_UNAUTHORIZED_CODE = 40101;
+export const KIMI_AUTH_REQUIRED_CODE = 40111;
+export const KIMI_AUTH_REJECTED_CODE = 40112;
 
 export interface DaemonHttpClientOptions {
   origin: string;
@@ -903,3 +905,4 @@ export class DaemonHttpClient {
     }
   }
 }
+
