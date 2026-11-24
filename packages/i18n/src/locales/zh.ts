@@ -28,6 +28,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     sessionInitFailed: '会话初始化失败',
     agentNotFound: '未找到 Agent',
     turnAgentBusy: 'Agent 正忙',
+    agentNotClosable: '该 Agent 无法关闭',
+    turnNotContinuable: '该轮次无法继续',
     goalAlreadyExists: '已存在活跃的目标',
     goalNotFound: '未找到目标',
     noCurrentGoal: '没有当前目标',
@@ -757,3 +759,4 @@ export const zh: DeepPartial<typeof import('./en').default> = {
 };
 
 export default zh;
+

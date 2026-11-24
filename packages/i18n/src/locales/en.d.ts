@@ -22,6 +22,8 @@ export declare const en: {
     readonly sessionInitFailed: 'Session init failed';
     readonly agentNotFound: 'Agent not found';
     readonly turnAgentBusy: 'Agent is busy';
+    readonly agentNotClosable: 'Agent cannot be closed';
+    readonly turnNotContinuable: 'Turn cannot be continued';
     readonly goalAlreadyExists: 'A goal is already active';
     readonly goalNotFound: 'No goal found';
     readonly noCurrentGoal: 'No current goal';
@@ -647,3 +649,4 @@ export declare const en: {
   };
 };
 export default en;
+

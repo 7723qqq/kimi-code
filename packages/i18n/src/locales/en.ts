@@ -25,6 +25,8 @@ export const en = {
     sessionInitFailed: 'Session init failed',
     agentNotFound: 'Agent not found',
     turnAgentBusy: 'Agent is busy',
+    agentNotClosable: 'Agent cannot be closed',
+    turnNotContinuable: 'Turn cannot be continued',
     goalAlreadyExists: 'A goal is already active',
     goalNotFound: 'No goal found',
     noCurrentGoal: 'No current goal',
@@ -828,3 +830,4 @@ export const en = {
 } as const;
 
 export default en;
+

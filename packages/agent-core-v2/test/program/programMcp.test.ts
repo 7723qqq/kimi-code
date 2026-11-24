@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { dirname, join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 
 import { Event } from '#/_base/event';
 import type { IEnvironmentService } from '#/app/environment/environment';
@@ -55,13 +55,13 @@ describe('ProgramMcp', () => {
     trusted = true;
     oauth = new McpOAuthService({ store: createMemoryMcpOAuthStore() });
     mcp = createMcp();
-    spawn = vi.spyOn(HostProcessService.prototype, 'spawn');
+    spawn = spyOn(HostProcessService.prototype, 'spawn');
   });
 
   afterEach(async () => {
     await mcp.dispose();
     await oauth.dispose();
-    vi.restoreAllMocks();
+    mock.restore();
     if (previousWatch === undefined) delete process.env['KIMI_CODE_WATCH'];
     else process.env['KIMI_CODE_WATCH'] = previousWatch;
     await Promise.all([homeDir, primary].map((dir) => rm(dir, { recursive: true, force: true })));
@@ -143,7 +143,7 @@ describe('ProgramMcp', () => {
 
   it('starts the servers for the first holder, shares them with the others, and stops them with the last', async () => {
     await writeServers({ server: stdioServer() });
-    const configClosed = vi.spyOn(WorkspaceMcpConfigService.prototype, 'dispose');
+    const configClosed = spyOn(WorkspaceMcpConfigService.prototype, 'dispose');
     expect(mcp.servers()).toEqual({});
 
     const first = await mcp.acquire();
@@ -262,3 +262,4 @@ describe('ProgramMcp', () => {
     expect(spawn).toHaveBeenCalledTimes(1);
   }, PROCESS_TIMEOUT_MS);
 });
+

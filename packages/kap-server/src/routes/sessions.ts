@@ -20,6 +20,7 @@ import {
   ISessionIndex,
   ISessionMetadata,
   ISessionLegacyService,
+  ISessionRunGate,
   ISessionPromptOptimizerService,
   ISessionTitleService,
   IEventService,
@@ -48,11 +49,10 @@ import {
   type SessionMeta,
   type SessionSummary,
   type SubagentModelPoolSnapshot,
+  wrapSystemReminder,
 } from '@moonshot-ai/agent-core-v2';
 import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
-import { ISessionRunGate } from '@moonshot-ai/agent-core-v2/session/sessionActivity/sessionRunGate';
 import { historyEntryFromContext } from '@moonshot-ai/agent-core-v2/agent/loop/history';
-import { wrapSystemReminder } from '@moonshot-ai/agent-core-v2/features/reminder/systemReminder';
 import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
@@ -1741,6 +1741,7 @@ function sendMappedError(
   if (sendEnvironmentError(reply, req.id, error)) return;
   sendSessionMappedError(reply, req, error);
 }
+
 
 
 

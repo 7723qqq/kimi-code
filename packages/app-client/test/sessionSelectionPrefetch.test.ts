@@ -144,7 +144,7 @@ describe('session selection transcript prefetch', () => {
     const trackMock = vi.fn();
     setProductTracker({ track: trackMock });
     vi.spyOn(performance, 'now').mockReturnValue(0);
-    vi.stubGlobal('requestAnimationFrame', (callback: () => void) => callback());
+    vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { callback(); });
     const selection = createSessionSelection({
       modelProvider: { skillsBySession: ref({}), loadSkillsForSession: vi.fn() } as never,
       appendSession: sessionsStore().appendSession,
@@ -170,3 +170,4 @@ describe('session selection transcript prefetch', () => {
   });
 
 });
+

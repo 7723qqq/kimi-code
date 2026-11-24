@@ -39,7 +39,7 @@ import {
 } from '@moonshot-ai/core/llm/message';
 import { BugIndicatingError, ErrorCodes, Error2, isError2 } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
-import { toCorePart } from '#human/message';
+import { toCorePart } from '#/llm-adapter/contract/message';
 import type { StreamedMessagePart as ForkStreamedPart } from '#human/llm/message';
 import type { StreamedMessagePart as CoreStreamedPart } from '@moonshot-ai/core/llm/message';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
@@ -1571,3 +1571,4 @@ function sameContextMessage(left: Message, right: { readonly role?: string; read
 function messageSignature(message: { readonly role?: string; readonly content?: unknown; readonly toolCalls?: unknown; readonly toolCallId?: string }): string {
   return JSON.stringify([message.role, message.content, message.toolCalls ?? [], message.toolCallId]);
 }
+

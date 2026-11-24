@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { TestInstantiationService } from '#/_base/di/test';
 
 import {
@@ -165,7 +165,7 @@ describe('loop journal restore', () => {
     expect(historical.at(-1)).toMatchObject({ turnId: 2 });
   });
 
-  it('round-trips public message media and rich metadata through persistent Wire encoding', () => {
+  it('round-trips public message media and rich metadata through persistent Wire encoding', async () => {
     const entry: UserMessage = {
       role: 'user',
       content: [
@@ -183,8 +183,8 @@ describe('loop journal restore', () => {
     const restored = fromPersistentWireRecord(persistent);
     expect(restored).toEqual(record);
 
-    const dehydrated = dehydrateLoopJournalRecord(record, async () => [{ type: 'text', text: 'offloaded' }]);
-    return expect(dehydrated).resolves.toMatchObject({
+    const dehydrated = await dehydrateLoopJournalRecord(record, async () => [{ type: 'text', text: 'offloaded' }]);
+    expect(dehydrated).toMatchObject({
       message: { content: [{ type: 'text', text: 'offloaded' }] },
     });
   });
@@ -401,3 +401,6 @@ describe('loop journal restore', () => {
     expect(Object.isFrozen(restored.input.messages![3]!.content)).toBe(true);
   });
 });
+
+
+

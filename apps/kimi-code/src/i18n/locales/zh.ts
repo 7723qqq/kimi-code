@@ -150,6 +150,8 @@ export default {
     sessionBusyAction: '请等待当前轮次或压缩结束后重试。',
     // agent.*
     agentNotFound: '未找到 Agent',
+    agentNotClosable: '该 Agent 无法关闭',
+    agentNotClosableAction: '只有侧边通道 Agent 可以关闭。',
     agentNotFoundAction: '请检查 Agent ID。',
     agentAlreadyRunning: 'Agent 已在运行',
     agentAlreadyRunningAction: '请等待 Agent 结束或先停止它。',
@@ -266,6 +268,8 @@ export default {
     terminalNotFoundAction: '请检查终端 ID 或新建终端。',
     // turn.*
     turnNotFound: '未找到该轮次',
+    turnNotContinuable: '该轮次无法继续',
+    turnNotContinuableAction: '只能在未完成或失败且未被拦截的轮次后继续。',
     turnNotFoundAction: '请检查轮次 ID 或重新加载会话。',
     // fs.*
     fsPathNotFound: '未找到路径',
@@ -3577,3 +3581,4 @@ export default {
     },
   },
 } as const satisfies LocaleMessages;
+

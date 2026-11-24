@@ -1,6 +1,6 @@
 import type { Terminal } from '@moonshot-ai/pi-tui';
 import type { BackgroundTaskInfo } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { TaskOutputViewer } from '@/tui/components/dialogs/task-output-viewer';
 import { darkColors } from '@/tui/theme/colors';
@@ -198,19 +198,19 @@ describe('TaskOutputViewer — scrolling', () => {
 
 describe('TaskOutputViewer — input', () => {
   it('Esc invokes onClose', () => {
-    const onClose = vi.fn();
+    const onClose = mock();
     makeViewer({ output: 'x', onClose }).handleInput('');
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('q invokes onClose', () => {
-    const onClose = vi.fn();
+    const onClose = mock();
     makeViewer({ output: 'x', onClose }).handleInput('q');
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('Kitty-encoded q invokes onClose', () => {
-    const onClose = vi.fn();
+    const onClose = mock();
     makeViewer({ output: 'x', onClose }).handleInput('\u001B[113u');
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -273,3 +273,4 @@ describe('TaskOutputViewer — live tail via setProps', () => {
     expect(after).toBe(before);
   });
 });
+

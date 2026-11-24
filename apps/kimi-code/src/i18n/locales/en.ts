@@ -160,6 +160,9 @@ export default {
     // agent.*
     agentNotFound: 'Agent not found',
     agentNotFoundAction: 'Check the agent id.',
+    // agent.not_closable
+    agentNotClosable: 'Agent cannot be closed',
+    agentNotClosableAction: 'Only side-channel agents can be closed.',
     agentAlreadyRunning: 'Agent is already running',
     agentAlreadyRunningAction: 'Wait for the agent to finish or stop it first.',
     agentNotASubagent: 'Agent is not a subagent',
@@ -277,6 +280,9 @@ export default {
     // turn.*
     turnNotFound: 'Turn not found',
     turnNotFoundAction: 'Check the turn id or reload the session.',
+    // turn.not_continuable
+    turnNotContinuable: 'Turn cannot be continued',
+    turnNotContinuableAction: 'Continue only after an interrupted or failed turn that is not blocked.',
     // fs.*
     fsPathNotFound: 'Path not found',
     fsPathNotFoundAction: 'Check the path and retry.',
@@ -3705,3 +3711,4 @@ export default {
     },
   },
 } as const;
+

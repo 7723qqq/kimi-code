@@ -25,9 +25,6 @@ apps/kimi-code/src/cli/v2/run-v2-print.ts  2  94f9740717b2
 apps/kimi-code/src/cli/v2/validate-config.ts  2  d1e50b5f0421
 apps/kimi-code/src/cli/version-info.ts  1  34a22c6892eb
 apps/kimi-code/src/constant/region-urls.ts  1  25cc97d7b167
-apps/kimi-code/src/feedback/codebase/scanner.ts  1  81f521d3370d
-apps/kimi-code/src/feedback/feedback-attachments.ts  2  835abd5ff01e
-apps/kimi-code/src/feedback/upload.ts  2  0d19912daebb
 apps/kimi-code/src/native/bun-assets.ts  1  2d46991e48a2
 apps/kimi-code/src/native/native-assets.ts  12  720eba71a5a3
 apps/kimi-code/src/native/search-worker.ts  1  8113d331bb2e
@@ -38,6 +35,7 @@ apps/kimi-code/src/tui/commands/plugins.ts  9  81007bf0a334
 apps/kimi-code/src/tui/components/dialogs/api-key-input-dialog.ts  1  6001981f8a69
 apps/kimi-code/src/tui/components/dialogs/platform-selector.ts  2  b8f0fee1cfd9
 apps/kimi-code/src/tui/components/dialogs/plugins-selector.ts  7  39ca43d65326
+apps/kimi-code/src/tui/components/dialogs/task-output-viewer.ts  2  01f67d9df515
 apps/kimi-code/src/tui/components/messages/tool-call.ts  6  f6434feaf85b
 apps/kimi-code/src/tui/components/messages/tool-renderers/chip.ts  1  aba3835c3afb
 apps/kimi-code/src/tui/components/messages/tool-renderers/types.ts  1  0b5f14947eb7
@@ -55,7 +53,6 @@ apps/kimi-code/src/tui/utils/image-placeholder.ts  1  28909da11603
 apps/kimi-code/src/tui/utils/input-latency.ts  2  d04f2ea61d60
 apps/kimi-code/src/tui/utils/tool-call-format.ts  1  bbd63c7ab007
 apps/kimi-code/src/utils/clipboard/clipboard-common.ts  1  b887b89a7467
-apps/kimi-code/src/utils/clipboard/clipboard-text.ts  3  6f2ad8ba2c2d
 apps/kimi-code/src/utils/open-url.ts  2  f0e7b0955901
 apps/kimi-code/src/utils/process/fd-detect.ts  4  27dc7213ea5c
 apps/kimi-code/src/utils/usage/debug-timing.ts  5  fddd0aaf9969

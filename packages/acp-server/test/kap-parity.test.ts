@@ -7,7 +7,7 @@ import { startServer, type RunningServer } from '@moonshot-ai/kap-server';
 import { createTestHome, writeKimiConfig, type TestHome } from '@moonshot-ai/testkit/fixtures';
 import { fakeModelConfig, held, say, write } from '@moonshot-ai/testkit/model';
 import { kapFixtures, kapTest, useNetworkGuard, type KapFixtures } from '@moonshot-ai/testkit/bun';
-import { expect } from 'vitest';
+import { expect } from 'bun:test';
 
 import { REJECT_OPTION_ID } from '../src/approval';
 import { createTestClient, type TestClient } from './_helpers/acpClient';
@@ -211,6 +211,7 @@ test('every advertised capability has a parity scenario or a reasoned exemption'
     await testHome.remove();
   }
 });
+
 
 
 

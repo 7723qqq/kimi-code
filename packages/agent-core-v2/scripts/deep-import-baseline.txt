@@ -354,3 +354,9 @@ packages/node-sdk/test/sdk-rpc-client-v2.test.ts features/tower/protocol/store
 packages/node-sdk/test/sdk-rpc-client-v2.test.ts mcpCore/oauth/service
 packages/node-sdk/test/sdk-rpc-client-v2.test.ts remote
 packages/remote-control/src/manager.ts human/xstate2
+packages/kap-server/src/routes/sessions.ts agent/loop/history
+packages/kap-server/src/services/conversation/conversationFold.ts agent/loop/turnOps
+packages/kap-server/src/services/feedback/feedbackService.ts app/auth/feedback/upload
+packages/kap-server/test/context.test.ts agent/loop/history
+packages/kap-server/test/context.test.ts llm-adapter/contract/tokens
+packages/migration-legacy/test/resume.integration.test.ts _base/utils/workdir-slug
