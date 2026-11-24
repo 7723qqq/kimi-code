@@ -1,0 +1,2435 @@
+{
+  "asyncapi": "3.1.0",
+  "channels": {
+    "kimiCodeWebSocket": {
+      "address": "/api/v1/ws",
+      "messages": {
+        "agent": {
+          "$ref": "#/components/messages/agent"
+        },
+        "goal": {
+          "$ref": "#/components/messages/goal"
+        },
+        "interaction": {
+          "$ref": "#/components/messages/interaction"
+        },
+        "ping": {
+          "$ref": "#/components/messages/ping"
+        },
+        "pong": {
+          "$ref": "#/components/messages/pong"
+        },
+        "response": {
+          "$ref": "#/components/messages/response"
+        },
+        "session_event": {
+          "$ref": "#/components/messages/session_event"
+        },
+        "subscribe": {
+          "$ref": "#/components/messages/subscribe"
+        },
+        "task": {
+          "$ref": "#/components/messages/task"
+        },
+        "task_background": {
+          "$ref": "#/components/messages/task_background"
+        },
+        "task_list": {
+          "$ref": "#/components/messages/task_list"
+        },
+        "task_output": {
+          "$ref": "#/components/messages/task_output"
+        },
+        "task_stop": {
+          "$ref": "#/components/messages/task_stop"
+        },
+        "task_unwatch": {
+          "$ref": "#/components/messages/task_unwatch"
+        },
+        "task_watch": {
+          "$ref": "#/components/messages/task_watch"
+        },
+        "todo": {
+          "$ref": "#/components/messages/todo"
+        },
+        "unsubscribe": {
+          "$ref": "#/components/messages/unsubscribe"
+        },
+        "usage": {
+          "$ref": "#/components/messages/usage"
+        }
+      },
+      "servers": [
+        {
+          "$ref": "#/servers/local"
+        }
+      ]
+    }
+  },
+  "components": {
+    "messages": {
+      "agent": {
+        "contentType": "application/json",
+        "name": "agent",
+        "payload": {
+          "properties": {
+            "agent_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "compacting": {
+              "type": "boolean"
+            },
+            "event_created_at": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "permission_mode": {
+              "enum": [
+                "manual",
+                "yolo",
+                "auto"
+              ],
+              "type": "string"
+            },
+            "plan_mode": {
+              "type": "boolean"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "idle",
+                "running"
+              ],
+              "type": "string"
+            },
+            "swarm_mode": {
+              "type": "boolean"
+            },
+            "thinking": {
+              "type": "string"
+            },
+            "tower_mode": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "agent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "compacting",
+            "plan_mode",
+            "swarm_mode",
+            "tower_mode",
+            "type",
+            "session_id",
+            "agent_id",
+            "event_created_at"
+          ],
+          "type": "object"
+        },
+        "summary": "Status, model and mode flags of a subscribed agent; sent when a connection starts receiving it and on every change.",
+        "title": "Agent"
+      },
+      "goal": {
+        "contentType": "application/json",
+        "name": "goal",
+        "payload": {
+          "properties": {
+            "agent_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "event_created_at": {
+              "type": "string"
+            },
+            "goal": {
+              "properties": {
+                "budget": {
+                  "properties": {
+                    "inputTokensUsed": {
+                      "type": "number"
+                    },
+                    "outputTokensUsed": {
+                      "type": "number"
+                    },
+                    "overBudget": {
+                      "type": "boolean"
+                    },
+                    "remainingTokens": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "remainingTurns": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "remainingWallClockMs": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "tokenBudget": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "tokenBudgetReached": {
+                      "type": "boolean"
+                    },
+                    "turnBudget": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "turnBudgetReached": {
+                      "type": "boolean"
+                    },
+                    "wallClockBudgetMs": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "wallClockBudgetReached": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "tokenBudget",
+                    "turnBudget",
+                    "wallClockBudgetMs",
+                    "remainingTokens",
+                    "remainingTurns",
+                    "remainingWallClockMs",
+                    "tokenBudgetReached",
+                    "turnBudgetReached",
+                    "wallClockBudgetReached",
+                    "overBudget",
+                    "inputTokensUsed",
+                    "outputTokensUsed"
+                  ],
+                  "type": "object"
+                },
+                "completion_criterion": {
+                  "type": "string"
+                },
+                "goal_id": {
+                  "type": "string"
+                },
+                "objective": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "active",
+                    "paused",
+                    "blocked",
+                    "complete",
+                    "budget_limited",
+                    "usage_limited"
+                  ],
+                  "type": "string"
+                },
+                "terminal_reason": {
+                  "type": "string"
+                },
+                "tokens_used": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "turns_used": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "wall_clock_ms": {
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "objective",
+                "status",
+                "turns_used",
+                "tokens_used",
+                "wall_clock_ms"
+              ],
+              "type": "object"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "const": "goal",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "session_id",
+            "agent_id",
+            "event_created_at"
+          ],
+          "type": "object"
+        },
+        "summary": "The main agent's goal state, or a frame without a goal when none is active; sent on every change.",
+        "title": "Goal"
+      },
+      "interaction": {
+        "contentType": "application/json",
+        "name": "interaction",
+        "payload": {
+          "oneOf": [
+            {
+              "properties": {
+                "agent_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "ended_at": {
+                  "type": "string"
+                },
+                "event_created_at": {
+                  "type": "string"
+                },
+                "interaction_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "approval",
+                  "type": "string"
+                },
+                "outcome": {
+                  "enum": [
+                    "approved",
+                    "rejected",
+                    "cancelled",
+                    "answered",
+                    "dismissed"
+                  ],
+                  "type": "string"
+                },
+                "request": {
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "expires_at": {
+                      "type": "string"
+                    },
+                    "tool_input_display": {},
+                    "tool_name": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "tool_name",
+                    "action",
+                    "expires_at"
+                  ],
+                  "type": "object"
+                },
+                "response": {
+                  "properties": {
+                    "decision": {
+                      "enum": [
+                        "approved",
+                        "rejected",
+                        "cancelled"
+                      ],
+                      "type": "string"
+                    },
+                    "feedback": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "enum": [
+                        "session"
+                      ],
+                      "type": "string"
+                    },
+                    "selected_label": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "decision"
+                  ],
+                  "type": "object"
+                },
+                "session_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "pending",
+                    "ended"
+                  ],
+                  "type": "string"
+                },
+                "tool_call_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": {
+                  "const": "interaction",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "session_id",
+                "agent_id",
+                "event_created_at",
+                "interaction_id",
+                "status",
+                "kind",
+                "request"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "agent_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "ended_at": {
+                  "type": "string"
+                },
+                "event_created_at": {
+                  "type": "string"
+                },
+                "interaction_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "question",
+                  "type": "string"
+                },
+                "outcome": {
+                  "enum": [
+                    "approved",
+                    "rejected",
+                    "cancelled",
+                    "answered",
+                    "dismissed"
+                  ],
+                  "type": "string"
+                },
+                "request": {
+                  "properties": {
+                    "questions": {
+                      "items": {
+                        "properties": {
+                          "allow_other": {
+                            "type": "boolean"
+                          },
+                          "body": {
+                            "type": "string"
+                          },
+                          "header": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "multi_select": {
+                            "type": "boolean"
+                          },
+                          "options": {
+                            "items": {
+                              "properties": {
+                                "description": {
+                                  "type": "string"
+                                },
+                                "id": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "label"
+                              ],
+                              "type": "object"
+                            },
+                            "maxItems": 4,
+                            "minItems": 2,
+                            "type": "array"
+                          },
+                          "other_description": {
+                            "type": "string"
+                          },
+                          "other_label": {
+                            "type": "string"
+                          },
+                          "question": {
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "question",
+                          "options"
+                        ],
+                        "type": "object"
+                      },
+                      "maxItems": 4,
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "questions"
+                  ],
+                  "type": "object"
+                },
+                "response": {
+                  "properties": {
+                    "answers": {
+                      "additionalProperties": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "const": true,
+                            "type": "boolean"
+                          }
+                        ]
+                      },
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "method": {
+                      "enum": [
+                        "enter",
+                        "space",
+                        "number_key",
+                        "click"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "answers"
+                  ],
+                  "type": "object"
+                },
+                "session_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "pending",
+                    "ended"
+                  ],
+                  "type": "string"
+                },
+                "tool_call_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": {
+                  "const": "interaction",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "session_id",
+                "agent_id",
+                "event_created_at",
+                "interaction_id",
+                "status",
+                "kind",
+                "request"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "summary": "Flat, unsequenced approval or question state for a subscribed session; pending interactions are re-sent after every accepted subscription.",
+        "title": "Interaction"
+      },
+      "ping": {
+        "contentType": "application/json",
+        "name": "ping",
+        "payload": {
+          "properties": {
+            "type": {
+              "const": "ping",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        "summary": "Heartbeat sent by the server every 10 seconds; clients answer with pong. The server closes a connection that sends nothing for 20 seconds, and a client that receives nothing for 25 seconds should reconnect.",
+        "title": "Ping"
+      },
+      "pong": {
+        "contentType": "application/json",
+        "name": "pong",
+        "payload": {
+          "properties": {
+            "type": {
+              "const": "pong",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        "summary": "Reply to a server ping.",
+        "title": "Pong"
+      },
+      "response": {
+        "contentType": "application/json",
+        "name": "response",
+        "payload": {
+          "properties": {
+            "code": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            "msg": {
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "task": {
+              "properties": {
+                "child_agent_id": {
+                  "type": "string"
+                },
+                "command": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "detached": {
+                  "type": "boolean"
+                },
+                "ended_at": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "shell",
+                    "subagent",
+                    "other"
+                  ],
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "enum": [
+                    "completed",
+                    "failed",
+                    "timed_out",
+                    "killed",
+                    "lost"
+                  ],
+                  "type": "string"
+                },
+                "parent_tool_call_id": {
+                  "type": "string"
+                },
+                "phase": {
+                  "enum": [
+                    "working",
+                    "suspended"
+                  ],
+                  "type": "string"
+                },
+                "result_summary": {
+                  "type": "string"
+                },
+                "started_at": {
+                  "type": "string"
+                },
+                "state_reason": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "running",
+                    "ended"
+                  ],
+                  "type": "string"
+                },
+                "swarm_index": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "task_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "thinking": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "task_id",
+                "kind",
+                "status",
+                "detached"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "response",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "request_id",
+            "code"
+          ],
+          "type": "object"
+        },
+        "summary": "Reply to one client command, matched by request_id; code 0 means success. Replies to task.watch, task.stop and task.background carry the task state. A command without a request_id closes the connection with code 1008.",
+        "title": "Response"
+      },
+      "session_event": {
+        "contentType": "application/json",
+        "name": "session_event",
+        "payload": {
+          "properties": {
+            "payload": {
+              "oneOf": [
+                {
+                  "properties": {
+                    "patch": {
+                      "additionalProperties": {},
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "session.meta.updated",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "session": {
+                      "properties": {
+                        "activity": {
+                          "enum": [
+                            "idle",
+                            "turn",
+                            "background"
+                          ],
+                          "type": "string"
+                        },
+                        "agent_config": {
+                          "properties": {
+                            "goal_control": {
+                              "enum": [
+                                "pause",
+                                "resume",
+                                "cancel"
+                              ],
+                              "type": "string"
+                            },
+                            "goal_objective": {
+                              "type": "string"
+                            },
+                            "hello_world_mode": {
+                              "type": "boolean"
+                            },
+                            "model": {
+                              "type": "string"
+                            },
+                            "permission_mode": {
+                              "enum": [
+                                "manual",
+                                "yolo",
+                                "auto"
+                              ],
+                              "type": "string"
+                            },
+                            "plan_mode": {
+                              "type": "boolean"
+                            },
+                            "swarm_mode": {
+                              "type": "boolean"
+                            },
+                            "thinking": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "tower_base": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "tower_mode": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "model"
+                          ],
+                          "type": "object"
+                        },
+                        "archived": {
+                          "type": "boolean"
+                        },
+                        "archived_at": {
+                          "type": "string"
+                        },
+                        "busy": {
+                          "type": "boolean"
+                        },
+                        "created_at": {
+                          "type": "string"
+                        },
+                        "current_prompt_id": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "cwd": {
+                          "type": "string"
+                        },
+                        "git": {
+                          "properties": {
+                            "branch": {
+                              "type": "string"
+                            },
+                            "pull_request": {
+                              "properties": {
+                                "number": {
+                                  "maximum": 9007199254740991,
+                                  "minimum": -9007199254740991,
+                                  "type": "integer"
+                                },
+                                "state": {
+                                  "enum": [
+                                    "open",
+                                    "closed",
+                                    "merged"
+                                  ],
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "number",
+                                "state",
+                                "url"
+                              ],
+                              "type": "object"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "host_id": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "last_prompt": {
+                          "type": "string"
+                        },
+                        "last_turn_outcome": {
+                          "enum": [
+                            "completed",
+                            "interrupted",
+                            "failed"
+                          ],
+                          "type": "string"
+                        },
+                        "last_turn_reason": {
+                          "enum": [
+                            "completed",
+                            "cancelled",
+                            "failed"
+                          ],
+                          "type": "string"
+                        },
+                        "main_turn_active": {
+                          "type": "boolean"
+                        },
+                        "message_count": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "metadata": {
+                          "additionalProperties": {},
+                          "properties": {
+                            "cwd": {
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "cwd"
+                          ],
+                          "type": "object"
+                        },
+                        "pending_interaction": {
+                          "enum": [
+                            "none",
+                            "approval",
+                            "question"
+                          ],
+                          "type": "string"
+                        },
+                        "permission_rules": {
+                          "items": {
+                            "properties": {
+                              "created_at": {
+                                "type": "string"
+                              },
+                              "created_by": {
+                                "enum": [
+                                  "user",
+                                  "agent"
+                                ],
+                                "type": "string"
+                              },
+                              "decision": {
+                                "const": "approved",
+                                "type": "string"
+                              },
+                              "id": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "matcher": {
+                                "properties": {
+                                  "kind": {
+                                    "enum": [
+                                      "command_prefix",
+                                      "path_glob",
+                                      "exact_input",
+                                      "always"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "value": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "kind"
+                                ],
+                                "type": "object"
+                              },
+                              "tool_name": {
+                                "minLength": 1,
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "tool_name",
+                              "decision",
+                              "created_at",
+                              "created_by"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "updated_at": {
+                          "type": "string"
+                        },
+                        "usage": {
+                          "properties": {
+                            "cache_creation_tokens": {
+                              "maximum": 9007199254740991,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "cache_read_tokens": {
+                              "maximum": 9007199254740991,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "context_limit": {
+                              "maximum": 9007199254740991,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "context_tokens": {
+                              "maximum": 9007199254740991,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "input_tokens": {
+                              "maximum": 9007199254740991,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "output_tokens": {
+                              "maximum": 9007199254740991,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "total_cost_usd": {
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "turn_count": {
+                              "maximum": 9007199254740991,
+                              "minimum": 0,
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "input_tokens",
+                            "output_tokens",
+                            "cache_read_tokens",
+                            "cache_creation_tokens",
+                            "context_tokens"
+                          ],
+                          "type": "object"
+                        },
+                        "workspace_id": {
+                          "pattern": "^wd_[a-z0-9._-]+_[0-9a-f]{12}$|^wm_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "workspace_id",
+                        "cwd",
+                        "title",
+                        "created_at",
+                        "updated_at",
+                        "busy",
+                        "metadata",
+                        "agent_config",
+                        "usage",
+                        "permission_rules",
+                        "message_count"
+                      ],
+                      "type": "object"
+                    },
+                    "type": {
+                      "const": "event.session.created",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "session"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "type": {
+                      "const": "event.session.archived",
+                      "type": "string"
+                    },
+                    "workspace_id": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "workspace_id"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "type": {
+                      "const": "event.session.restored",
+                      "type": "string"
+                    },
+                    "workspace_id": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "workspace_id"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "type": {
+                      "const": "event.session.deleted",
+                      "type": "string"
+                    },
+                    "workspace_id": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "workspace_id"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "type": {
+                      "const": "event.workspace.created",
+                      "type": "string"
+                    },
+                    "workspace": {
+                      "properties": {
+                        "additional_dirs": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "created_at": {
+                          "type": "string"
+                        },
+                        "host_id": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "pattern": "^wd_[a-z0-9._-]+_[0-9a-f]{12}$|^wm_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "managed",
+                            "implicit"
+                          ],
+                          "type": "string"
+                        },
+                        "last_opened_at": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "maxLength": 100,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "root": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "session_count": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "root",
+                        "name",
+                        "kind",
+                        "additional_dirs",
+                        "created_at",
+                        "last_opened_at",
+                        "session_count"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "workspace"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "type": {
+                      "const": "event.workspace.updated",
+                      "type": "string"
+                    },
+                    "workspace": {
+                      "properties": {
+                        "additional_dirs": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "created_at": {
+                          "type": "string"
+                        },
+                        "host_id": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "pattern": "^wd_[a-z0-9._-]+_[0-9a-f]{12}$|^wm_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "managed",
+                            "implicit"
+                          ],
+                          "type": "string"
+                        },
+                        "last_opened_at": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "maxLength": 100,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "root": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "session_count": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "root",
+                        "name",
+                        "kind",
+                        "additional_dirs",
+                        "created_at",
+                        "last_opened_at",
+                        "session_count"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "workspace"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "root": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "event.workspace.deleted",
+                      "type": "string"
+                    },
+                    "workspace_id": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "workspace_id",
+                    "root"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "busy": {
+                      "type": "boolean"
+                    },
+                    "last_turn_reason": {
+                      "enum": [
+                        "completed",
+                        "cancelled",
+                        "failed"
+                      ],
+                      "type": "string"
+                    },
+                    "main_turn_active": {
+                      "type": "boolean"
+                    },
+                    "pending_interaction": {
+                      "enum": [
+                        "none",
+                        "approval",
+                        "question"
+                      ],
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "event.session.work_changed",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "busy"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "changedFields": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "changed_fields": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "config": {
+                      "additionalProperties": {},
+                      "properties": {
+                        "attachment": {},
+                        "auto_session_title": {
+                          "type": "boolean"
+                        },
+                        "background": {},
+                        "default_model": {
+                          "type": "string"
+                        },
+                        "default_permission_mode": {
+                          "type": "string"
+                        },
+                        "default_plan_mode": {
+                          "type": "boolean"
+                        },
+                        "default_provider": {
+                          "type": "string"
+                        },
+                        "default_workspace": {},
+                        "disable_feedback_survey": {
+                          "type": "boolean"
+                        },
+                        "experimental": {
+                          "additionalProperties": {
+                            "type": "boolean"
+                          },
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        },
+                        "extra_skill_dirs": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "hooks": {
+                          "items": {},
+                          "type": "array"
+                        },
+                        "loop_control": {},
+                        "lsp": {},
+                        "merge_all_available_skills": {
+                          "type": "boolean"
+                        },
+                        "models": {
+                          "additionalProperties": {},
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        },
+                        "permission": {},
+                        "plan_mode": {
+                          "type": "boolean"
+                        },
+                        "prompt_optimizer": {
+                          "properties": {
+                            "effort": {
+                              "type": "string"
+                            },
+                            "timeout_ms": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "type": "integer"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "providers": {
+                          "additionalProperties": {
+                            "properties": {
+                              "api_key_env": {
+                                "type": "string"
+                              },
+                              "base_url": {
+                                "type": "string"
+                              },
+                              "default_model": {
+                                "type": "string"
+                              },
+                              "has_api_key": {
+                                "type": "boolean"
+                              },
+                              "type": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "has_api_key"
+                            ],
+                            "type": "object"
+                          },
+                          "default": {},
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        },
+                        "raw": {
+                          "additionalProperties": {},
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        },
+                        "sandbox": {},
+                        "secondary_model": {},
+                        "services": {},
+                        "spill": {},
+                        "subagent": {},
+                        "subagent_backend": {},
+                        "telemetry": {
+                          "type": "boolean"
+                        },
+                        "thinking": {},
+                        "yolo": {
+                          "type": "boolean"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "type": {
+                      "const": "event.config.changed",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "changedFields",
+                    "config"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "type": {
+                      "const": "event.config.warning",
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "items": {
+                        "properties": {
+                          "domain": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "message"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "warnings"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "changed": {
+                      "items": {
+                        "properties": {
+                          "added": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "provider_id": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "provider_name": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "removed": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "provider_id",
+                          "provider_name",
+                          "added",
+                          "removed"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "failed": {
+                      "items": {
+                        "properties": {
+                          "provider": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "reason": {
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "provider",
+                          "reason"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "retired_default": {
+                      "properties": {
+                        "from": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "from_display_name": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "to": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to",
+                        "from_display_name"
+                      ],
+                      "type": "object"
+                    },
+                    "type": {
+                      "const": "event.model_catalog.changed",
+                      "type": "string"
+                    },
+                    "unchanged": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "changed",
+                    "unchanged",
+                    "failed"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "type": {
+                      "const": "event.plugin.changed",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "capability_id": {
+                      "type": "string"
+                    },
+                    "install": {
+                      "properties": {
+                        "confirmationRequired": {
+                          "const": "stop-processes",
+                          "type": "string"
+                        },
+                        "error": {
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "percent": {
+                          "type": "number"
+                        },
+                        "running": {
+                          "type": "boolean"
+                        },
+                        "step": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "running"
+                      ],
+                      "type": "object"
+                    },
+                    "type": {
+                      "const": "event.capability.changed",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "capability_id",
+                    "install"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "timestamp": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "timestamp",
+            "payload"
+          ],
+          "type": "object"
+        },
+        "summary": "Session-scoped agent event envelope; frame type is the payload event type.",
+        "title": "Session Event"
+      },
+      "subscribe": {
+        "contentType": "application/json",
+        "name": "subscribe",
+        "payload": {
+          "properties": {
+            "agent_ids": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "request_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "transcript": {
+              "additionalProperties": {
+                "enum": [
+                  "off",
+                  "turn",
+                  "block",
+                  "delta"
+                ],
+                "type": "string"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "transcript_since": {
+              "additionalProperties": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": {
+              "const": "subscribe",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "request_id",
+            "session_id"
+          ],
+          "type": "object"
+        },
+        "summary": "Start receiving agents of one session (agent_ids defaults to the main agent). The response comes first; then every newly added agent gets a turns frame with its latest page, or turns.failed when its conversation cannot be loaded, then turn, item and notice frames. The optional transcript and transcript_since fields attach the per-agent transcript operation stream. When the session cannot be opened, the response carries the error code and nothing is subscribed.",
+        "title": "Subscribe"
+      },
+      "task": {
+        "contentType": "application/json",
+        "name": "task",
+        "payload": {
+          "properties": {
+            "agent_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "child_agent_id": {
+              "type": "string"
+            },
+            "command": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "detached": {
+              "type": "boolean"
+            },
+            "ended_at": {
+              "type": "string"
+            },
+            "error": {
+              "type": "string"
+            },
+            "event_created_at": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "shell",
+                "subagent",
+                "other"
+              ],
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "outcome": {
+              "enum": [
+                "completed",
+                "failed",
+                "timed_out",
+                "killed",
+                "lost"
+              ],
+              "type": "string"
+            },
+            "parent_tool_call_id": {
+              "type": "string"
+            },
+            "phase": {
+              "enum": [
+                "working",
+                "suspended"
+              ],
+              "type": "string"
+            },
+            "result_summary": {
+              "type": "string"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "started_at": {
+              "type": "string"
+            },
+            "state_reason": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "running",
+                "ended"
+              ],
+              "type": "string"
+            },
+            "swarm_index": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "task_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "thinking": {
+              "type": "string"
+            },
+            "type": {
+              "const": "task",
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id",
+            "kind",
+            "status",
+            "detached",
+            "type",
+            "session_id",
+            "agent_id",
+            "event_created_at"
+          ],
+          "type": "object"
+        },
+        "summary": "Full state of one task of a subscribed agent, sent on every change; the frame for an ended task is its last one.",
+        "title": "Task"
+      },
+      "task_background": {
+        "contentType": "application/json",
+        "name": "task.background",
+        "payload": {
+          "properties": {
+            "agent_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "request_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "task_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "const": "task.background",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "request_id",
+            "session_id",
+            "agent_id",
+            "task_id"
+          ],
+          "type": "object"
+        },
+        "summary": "Stop the tool call that started a task from waiting for it, so the task keeps running in the background; the response carries its state.",
+        "title": "Task Background"
+      },
+      "task_list": {
+        "contentType": "application/json",
+        "name": "task.list",
+        "payload": {
+          "properties": {
+            "agent_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "tasks": {
+              "items": {
+                "properties": {
+                  "child_agent_id": {
+                    "type": "string"
+                  },
+                  "command": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "detached": {
+                    "type": "boolean"
+                  },
+                  "ended_at": {
+                    "type": "string"
+                  },
+                  "error": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "shell",
+                      "subagent",
+                      "other"
+                    ],
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "enum": [
+                      "completed",
+                      "failed",
+                      "timed_out",
+                      "killed",
+                      "lost"
+                    ],
+                    "type": "string"
+                  },
+                  "parent_tool_call_id": {
+                    "type": "string"
+                  },
+                  "phase": {
+                    "enum": [
+                      "working",
+                      "suspended"
+                    ],
+                    "type": "string"
+                  },
+                  "result_summary": {
+                    "type": "string"
+                  },
+                  "started_at": {
+                    "type": "string"
+                  },
+                  "state_reason": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "running",
+                      "ended"
+                    ],
+                    "type": "string"
+                  },
+                  "swarm_index": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "task_id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "thinking": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "task_id",
+                  "kind",
+                  "status",
+                  "detached"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "task.list",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "session_id",
+            "agent_id",
+            "tasks"
+          ],
+          "type": "object"
+        },
+        "summary": "Every task an agent is running right now, sent when a connection starts receiving that agent; it replaces the client list.",
+        "title": "Task List"
+      },
+      "task_output": {
+        "contentType": "application/json",
+        "name": "task.output",
+        "payload": {
+          "properties": {
+            "agent_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "offset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "task_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "const": "task.output",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "session_id",
+            "agent_id",
+            "task_id",
+            "offset",
+            "text"
+          ],
+          "type": "object"
+        },
+        "summary": "Task output starting at a UTF-8 byte offset, sent only to connections watching the task.",
+        "title": "Task Output"
+      },
+      "task_stop": {
+        "contentType": "application/json",
+        "name": "task.stop",
+        "payload": {
+          "properties": {
+            "agent_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "request_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "task_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "const": "task.stop",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "request_id",
+            "session_id",
+            "agent_id",
+            "task_id"
+          ],
+          "type": "object"
+        },
+        "summary": "Stop one task; the response carries its state, and an ended task just replies with it.",
+        "title": "Task Stop"
+      },
+      "task_unwatch": {
+        "contentType": "application/json",
+        "name": "task.unwatch",
+        "payload": {
+          "properties": {
+            "agent_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "request_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "task_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "const": "task.unwatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "request_id",
+            "session_id",
+            "agent_id",
+            "task_id"
+          ],
+          "type": "object"
+        },
+        "summary": "Stop streaming one task's output to this connection.",
+        "title": "Task Unwatch"
+      },
+      "task_watch": {
+        "contentType": "application/json",
+        "name": "task.watch",
+        "payload": {
+          "properties": {
+            "agent_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "request_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "since_offset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "tail_bytes": {
+              "maximum": 1048576,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "task_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "const": "task.watch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "request_id",
+            "session_id",
+            "agent_id",
+            "task_id"
+          ],
+          "type": "object"
+        },
+        "summary": "Stream the output of one task owned by agent_id to this connection without a session subscription. The first chunk covers at most tail_bytes; since_offset resumes after output the client already has.",
+        "title": "Task Watch"
+      },
+      "todo": {
+        "contentType": "application/json",
+        "name": "todo",
+        "payload": {
+          "properties": {
+            "agent_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "event_created_at": {
+              "type": "string"
+            },
+            "items": {
+              "items": {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "pending",
+                      "in_progress",
+                      "done"
+                    ],
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "status"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "const": "todo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "session_id",
+            "agent_id",
+            "event_created_at",
+            "items"
+          ],
+          "type": "object"
+        },
+        "summary": "The agent todo list as items, sent on every change.",
+        "title": "Todo"
+      },
+      "unsubscribe": {
+        "contentType": "application/json",
+        "name": "unsubscribe",
+        "payload": {
+          "properties": {
+            "agent_ids": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "request_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "const": "unsubscribe",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "request_id",
+            "session_id"
+          ],
+          "type": "object"
+        },
+        "summary": "Stop receiving agents or transcript operations of one session; without agent_ids the whole session is dropped.",
+        "title": "Unsubscribe"
+      },
+      "usage": {
+        "contentType": "application/json",
+        "name": "usage",
+        "payload": {
+          "properties": {
+            "agent_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "context_tokens": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "event_created_at": {
+              "type": "string"
+            },
+            "max_context_tokens": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "session_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "const": "usage",
+              "type": "string"
+            }
+          },
+          "required": [
+            "context_tokens",
+            "type",
+            "session_id",
+            "agent_id",
+            "event_created_at"
+          ],
+          "type": "object"
+        },
+        "summary": "Context-window usage of a subscribed agent, throttled to one frame per interval.",
+        "title": "Usage"
+      }
+    }
+  },
+  "defaultContentType": "application/json",
+  "info": {
+    "description": "WebSocket protocol for Kimi Code daemon commands, their responses, heartbeat frames, and session event streaming.",
+    "title": "Kimi Code WebSocket API",
+    "version": "0.0.0-fixture"
+  },
+  "operations": {
+    "receiveClientMessages": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/kimiCodeWebSocket"
+      },
+      "messages": [
+        {
+          "$ref": "#/components/messages/subscribe"
+        },
+        {
+          "$ref": "#/components/messages/unsubscribe"
+        },
+        {
+          "$ref": "#/components/messages/task_watch"
+        },
+        {
+          "$ref": "#/components/messages/task_unwatch"
+        },
+        {
+          "$ref": "#/components/messages/task_stop"
+        },
+        {
+          "$ref": "#/components/messages/task_background"
+        },
+        {
+          "$ref": "#/components/messages/pong"
+        }
+      ]
+    },
+    "sendServerMessages": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/kimiCodeWebSocket"
+      },
+      "messages": [
+        {
+          "$ref": "#/components/messages/response"
+        },
+        {
+          "$ref": "#/components/messages/ping"
+        },
+        {
+          "$ref": "#/components/messages/session_event"
+        },
+        {
+          "$ref": "#/components/messages/interaction"
+        },
+        {
+          "$ref": "#/components/messages/task_list"
+        },
+        {
+          "$ref": "#/components/messages/task"
+        },
+        {
+          "$ref": "#/components/messages/task_output"
+        },
+        {
+          "$ref": "#/components/messages/agent"
+        },
+        {
+          "$ref": "#/components/messages/usage"
+        },
+        {
+          "$ref": "#/components/messages/goal"
+        },
+        {
+          "$ref": "#/components/messages/todo"
+        }
+      ]
+    }
+  },
+  "servers": {
+    "local": {
+      "description": "Kimi Code daemon WebSocket endpoint.",
+      "host": "127.0.0.1",
+      "pathname": "/api/v1/ws",
+      "protocol": "ws"
+    }
+  }
+}

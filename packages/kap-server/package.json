@@ -26,6 +26,7 @@
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun ../../scripts/run-package-tests.mjs --root=test --test-timeout=10000",
+    "schema:refresh": "bun scripts/refresh-schema.mjs",
     "test:bench": "bun test --isolate test/search/searchService.bench.ts",
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
   },

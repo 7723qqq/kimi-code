@@ -43,3 +43,6 @@ packages/klient/package.json:stress:kosong-config
 packages/minidb/package.json:bench:cluster
 packages/minidb/package.json:bench:open
 packages/agent-core-v2/package.json:gen:contract-types
+
+# Manual refresh of the reviewed KAP API contract goldens; invoked by test/apiSurface.contract.test.ts diagnostics.
+packages/kap-server/package.json:schema:refresh
