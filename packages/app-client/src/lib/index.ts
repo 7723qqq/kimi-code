@@ -22,3 +22,5 @@ export * from './commandPrompt';
 export * from './dockMetrics';
 export * from './dockPills';
 export * from './appViewportVars';
+export * from './sessionReferences';
+

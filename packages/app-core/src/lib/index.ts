@@ -13,6 +13,8 @@ export * from './faviconInk';
 export * from './fileTypeIcon';
 export * from './fileUrlPath';
 export * from './followScroll';
+export * from './transcriptScroll';
+export * from './transcriptStability';
 export * from './fontMetadata';
 export * from './bundledFonts';
 export * from './formatDuration';
@@ -87,3 +89,4 @@ export * from './upgrade';
 export * from './workspaceOrder';
 export * from './workspacePathInput';
 export * from './workspacePicker';
+
