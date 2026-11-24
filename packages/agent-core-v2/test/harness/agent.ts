@@ -241,6 +241,7 @@ import {
   type SessionCreatedEvent,
   type SessionWillCloseEvent,
 } from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { createOpenAIRequester } from '#/human/llm/requester/bases/openai/requester';
 import type { LlmRequester } from '#human/llm/requester/requester';
 import { type ThinkingEffort } from '#human/llm/thinking';
 import { type TokenUsage } from '#/agent/usage/usage';
@@ -472,6 +473,7 @@ export type TestAgentContext = AgentTestContext;
 
 export interface TestAgentOptions {
   readonly generate?: LlmRequester | undefined;
+  readonly model?: { readonly baseUrl: string; readonly apiKey?: string; readonly model?: string } | undefined;
   readonly telemetry?: ITelemetryService | undefined;
   readonly persistence?: WireRecordPersistence | undefined;
   readonly hookEngine?:
@@ -1128,6 +1130,7 @@ export class AgentTestContext {
   private readonly serviceOverrides: readonly TestAgentScopedServiceOverride[];
   private readonly options: TestAgentOptions;
   private readonly scriptedGenerate = createScriptedGenerate();
+  private readonly testkitModel: boolean;
   private readonly root: Scope;
   private readonly session: Scope;
   private readonly agent: Scope;
@@ -1142,14 +1145,43 @@ export class AgentTestContext {
   readonly emitter = new EventEmitter();
   readonly allEvents: EventSnapshotEntry[] = this.snapshots.entries;
   readonly rpc: PromiseAgentAPI;
-  readonly llmCalls = this.scriptedGenerate.calls;
-  readonly lastLlmInput = this.scriptedGenerate.lastInput;
-  readonly llmInputs = this.scriptedGenerate.inputs;
-  readonly mockNextResponse = this.scriptedGenerate.mockNextResponse;
-  readonly mockNextProviderResponse = this.scriptedGenerate.mockNextProviderResponse;
+
+  get llmCalls() {
+    this.assertNotTestkitModel();
+    return this.scriptedGenerate.calls;
+  }
+
+  get lastLlmInput() {
+    this.assertNotTestkitModel();
+    return this.scriptedGenerate.lastInput;
+  }
+
+  get llmInputs() {
+    this.assertNotTestkitModel();
+    return this.scriptedGenerate.inputs;
+  }
+
+  get mockNextResponse() {
+    this.assertNotTestkitModel();
+    return this.scriptedGenerate.mockNextResponse;
+  }
+
+  get mockNextProviderResponse() {
+    this.assertNotTestkitModel();
+    return this.scriptedGenerate.mockNextProviderResponse;
+  }
+
+  private assertNotTestkitModel(): void {
+    if (this.testkitModel) {
+      throw new Error(
+        'This API belongs to the built-in harness model, but this agent uses the testkit model',
+      );
+    }
+  }
 
   constructor(overrides: readonly TestAgentServiceOverride[] = [], options: TestAgentOptions = {}) {
     this.options = options;
+    this.testkitModel = options.model !== undefined;
     if (options.cwd !== undefined) this.cwd = options.cwd;
     this.serviceOverrides = flattenServiceOverrides(overrides);
     this.emitter.on('error', () => {});
@@ -1203,7 +1235,10 @@ export class AgentTestContext {
           reg.defineInstance(
             IProtocolAdapterRegistry,
             createGenerateBackedGateway(
-              guardPromptCachePrefix(options.generate ?? this.scriptedGenerate.requester),
+              guardPromptCachePrefix(
+                options.generate ??
+                  (this.testkitModel ? createOpenAIRequester() : this.scriptedGenerate.requester),
+              ),
             ),
           );
           reg.defineInstance(IModelOAuthTokens, {
@@ -1478,7 +1513,16 @@ export class AgentTestContext {
 
     this.rpc = this.createPromiseAgentApi();
 
-    if (options.autoConfigure !== false) {
+    if (this.testkitModel) {
+      this.configure({
+        provider: {
+          type: 'openai',
+          apiKey: options.model?.apiKey ?? 'test-key',
+          baseUrl: options.model!.baseUrl,
+          model: options.model?.model ?? 'testkit-model',
+        },
+      });
+    } else if (options.autoConfigure !== false) {
       this.configure();
     }
   }
