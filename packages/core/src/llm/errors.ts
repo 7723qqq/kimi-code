@@ -556,6 +556,7 @@ export function isToolExchangeAdjacencyError(error: unknown): boolean {
 const STRUCTURAL_REQUEST_MESSAGE_PATTERNS = [
   /text content blocks must be non-empty/,
   /text content blocks must contain non-whitespace/,
+  /text content is empty/,
   /first message must use the .*user.* role/,
   /roles must alternate/,
   /multiple .*(?:user|assistant).* roles in a row/,

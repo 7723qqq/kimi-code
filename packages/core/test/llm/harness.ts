@@ -1,10 +1,12 @@
 import { expect, it } from 'bun:test';
 
 import type { ResolvedEndpoint } from '#/llm/endpoint';
+import type { LlmPolicy } from '#/llm/policy/policy';
 import { createUserMessage, type Message, type StreamedMessagePart } from '@moonshot-ai/core/llm/message';
 import type { DecodeSink, LlmModule, Protocol } from '#/llm/protocol/protocol';
 import type {
   LlmEndpoint,
+  LlmRequest,
   LlmRequestModel,
   LlmRequestProfile,
 } from '@moonshot-ai/core/llm/request';
@@ -49,6 +51,46 @@ export function testModule<TOptions>(
     },
     options: input.options,
   };
+}
+
+export function openAIChunk(
+  delta: Record<string, unknown>,
+  options: {
+    id?: string;
+    finishReason?: string;
+    usage?: Record<string, unknown>;
+  } = {},
+): Record<string, unknown> {
+  return JSON.parse(JSON.stringify({
+    id: options.id,
+    object: 'chat.completion.chunk',
+    created: 0,
+    model: 'test-model',
+    choices: [{ index: 0, delta, finish_reason: options.finishReason ?? null }],
+    usage: options.usage,
+  })) as Record<string, unknown>;
+}
+
+export function openAICompletion(
+  message: Record<string, unknown>,
+  options: {
+    id?: string;
+    finishReason?: string;
+    usage?: Record<string, unknown>;
+  } = {},
+): Record<string, unknown> {
+  return JSON.parse(JSON.stringify({
+    id: options.id,
+    object: 'chat.completion',
+    created: 0,
+    model: 'test-model',
+    choices: [{
+      index: 0,
+      message: { role: 'assistant', ...message },
+      finish_reason: options.finishReason ?? null,
+    }],
+    usage: options.usage,
+  })) as Record<string, unknown>;
 }
 
 export interface EncodeFixture<TOptions> {
@@ -170,6 +212,12 @@ export async function runGenerate<TOptions, TRequest, TResponse, TChunk, TClient
     endpoint?: LlmEndpoint;
     stream?: boolean;
     signal?: AbortSignal;
+    maxAttemptsPerStep?: number;
+    infiniteRetry?: boolean;
+    recoveries?: NonNullable<LlmRequest['policy']>['recoveries'];
+    resolvers?: NonNullable<LlmRequest['policy']>['resolvers'];
+    policy?: LlmPolicy;
+    onEvent?: (event: LlmRunEvent) => void;
   },
 ): Promise<{ outcome: LlmOutcome; events: LlmRunEvent[] }> {
   const events: LlmRunEvent[] = [];
@@ -189,13 +237,28 @@ export async function runGenerate<TOptions, TRequest, TResponse, TChunk, TClient
         messages: input.module.content.messages,
         usedTokens: input.module.content.usedTokens,
       },
-      policy: { retry: { maxAttemptsPerStep: 1 } },
+      policy: input.policy ?? {
+        retry: {
+          maxAttemptsPerStep: input.maxAttemptsPerStep ?? 1,
+          infiniteRetry: input.infiniteRetry,
+        },
+        recoveries: input.recoveries,
+        resolvers: input.resolvers,
+      },
     },
     {
       signal: input.signal ?? new AbortController().signal,
-      onEvent: (event) => events.push(event),
+      onEvent: (event) => {
+        events.push(event);
+        input.onEvent?.(event);
+      },
     },
   );
+  const started = events.filter((event) => event.type === 'llm.started');
+  expect(started.length).toBeLessThanOrEqual(1);
+  expect(events.filter((event) => event.type === 'llm.ended')).toHaveLength(1);
+  if (started.length === 1) expect(events[0]?.type).toBe('llm.started');
+  expect(events.at(-1)?.type).toBe('llm.ended');
   return { outcome, events };
 }
 
@@ -209,7 +272,7 @@ export function failedOutcome(outcome: LlmOutcome): Extract<LlmOutcome, { type: 
   return outcome;
 }
 
-export async function* asyncChunks<T>(chunks: readonly T[]): AsyncGenerator<T> {
+export async function* asyncChunks<T>(chunks: Iterable<T>): AsyncGenerator<T> {
   yield* chunks;
 }
 
