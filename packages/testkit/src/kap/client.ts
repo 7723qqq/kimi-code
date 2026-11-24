@@ -79,7 +79,7 @@ export class KapClient {
 
   async createSession(options: CreateSessionOptions = {}): Promise<KapSession> {
     return this.rest.post<KapSession>('/api/v1/sessions', {
-      cwd: options.cwd ?? this.clientOptions.workspace,
+      metadata: { cwd: options.cwd ?? this.clientOptions.workspace },
       title: options.title,
       agent_config: options.agentConfig,
     });

@@ -1,8 +1,9 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Writable } from 'node:stream';
 
 import { TestkitError } from '#/errors';
@@ -76,7 +77,17 @@ export class TestProcess {
   private constructor(options: StartTestProcessOptions) {
     this.label = options.label;
     this.networkLog = join(options.logDir, `network-${randomUUID()}.log`);
-    const imports = [...(options.command.imports ?? []), NETWORK_GUARD_PRELOAD.href].flatMap((specifier) => ['--import', specifier]);
+    if (options.command.entry.endsWith('.ts')) {
+      const tsconfig = join(options.cwd, 'tsconfig.json');
+      if (!existsSync(tsconfig)) {
+        writeFileSync(
+          tsconfig,
+          `${JSON.stringify({ compilerOptions: { experimentalDecorators: true, useDefineForClassFields: true } }, null, 2)}\n`,
+        );
+      }
+    }
+    const preload = (specifier: string): string => (specifier.startsWith('file:') ? fileURLToPath(specifier) : specifier);
+    const imports = [...(options.command.imports ?? []), NETWORK_GUARD_PRELOAD.href].flatMap((specifier) => ['--import', preload(specifier)]);
     this.child = spawn(process.execPath, [...imports, options.command.entry, ...(options.args ?? [])], {
       cwd: options.cwd,
       detached: process.platform !== 'win32',
@@ -216,3 +227,4 @@ function appendTail(tail: string, text: string): string {
   const combined = tail + text;
   return combined.length > TAIL_CHARACTERS ? combined.slice(-TAIL_CHARACTERS) : combined;
 }
+
