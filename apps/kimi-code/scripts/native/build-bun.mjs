@@ -176,6 +176,7 @@ async function buildBunNative() {
   // External plugin code still needs its own package.json files for exports
   // and node_modules resolution; this does not load the user's CLI config.
   buildArgs.push('--compile-autoload-package-json');
+  buildArgs.push('--external', 'canvas');
   buildArgs.push('--outfile', outfile, join(stageRoot, 'bun-entry.ts'));
   await run(resolveBun(), buildArgs);
 
