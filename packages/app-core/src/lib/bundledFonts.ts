@@ -1,5 +1,7 @@
 export type BundledFontKind = 'sans' | 'mono';
 
+export const NOTO_SANS_SC_FAMILY = 'Noto Sans SC Variable';
+
 export const BUNDLED_FONTS = [
   {
     family: 'Schibsted Grotesk Variable',
@@ -9,7 +11,7 @@ export const BUNDLED_FONTS = [
     weight: [400, 900],
   },
   {
-    family: 'Noto Sans SC Variable',
+    family: NOTO_SANS_SC_FAMILY,
     label: 'Noto Sans SC',
     aliases: ['Noto Sans SC Variable', 'Noto Sans SC'],
     kind: 'sans',

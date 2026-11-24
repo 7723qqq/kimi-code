@@ -12,3 +12,8 @@
 # legacy wire events, and old sessions still carry tool calls under it, so the
 # approve list keeps it on purpose.
 SetTodoList
+
+# 2.7.0 upstream computer-use tool names that no local tool registers.
+list_apps
+js_reset
+js_add_node_module_dir

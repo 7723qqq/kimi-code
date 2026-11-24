@@ -1,7 +1,7 @@
-import { useI18n } from 'vue-i18n';
-import { fontFamilyKind, type FontTarget, type LocalFontsState } from '@moonshot-ai/app-core';
-import { fontMetadataText, getBundledFont } from '@moonshot-ai/app-core/lib';
 import { useFontMetadata } from '@moonshot-ai/app-client/composables';
+import { fontFamilyKind, type FontTarget, type LocalFontsState } from '@moonshot-ai/app-core';
+import { fontMetadataText, getBundledFont, NOTO_SANS_SC_FAMILY } from '@moonshot-ai/app-core/lib';
+import { useI18n } from 'vue-i18n';
 
 export const FONT_TITLE_KEYS: Record<FontTarget, string> = {
   ui: 'settings.uiFont',
@@ -25,8 +25,12 @@ export function useFontFamilyLabel(): (family: string) => string {
     if (kind === 'system-ui') return t('settings.fontSystemUi');
     if (kind === 'system-mono') return t('settings.fontSystemMono');
     const bundled = getBundledFont(family);
-    if (bundled?.family === 'Noto Sans SC Variable') return t('settings.fontNotoSansSc');
-    return bundled?.label || fontMetadataText(fontMetadata.value[family]?.metadata, locale.value, 'name') || family;
+    if (bundled?.family === NOTO_SANS_SC_FAMILY) return t('settings.fontNotoSansSc');
+    return (
+      bundled?.label ||
+      fontMetadataText(fontMetadata.value[family]?.metadata, locale.value, 'name') ||
+      family
+    );
   };
 }
 

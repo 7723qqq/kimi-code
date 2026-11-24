@@ -190,3 +190,17 @@ apps/vscode/webview-ui/src/components/ui/scroll-area.tsx
 apps/vscode/webview-ui/src/components/ui/select.tsx
 apps/vscode/webview-ui/src/components/ui/switch.tsx
 apps/vscode/webview-ui/src/components/ui/tabs.tsx
+
+# 2.7.0 upstream files intentionally not carried.
+# 2.7.0 per-package AGENTS.md files describe the upstream pnpm/Node workflow.
+apps/kimi-code/AGENTS.md
+# The fork keeps its docs guidance in DEVELOP.md and .agents/skills/translate-docs.
+docs/AGENTS.md
+# The fork keeps package guidance in DEVELOP.md and uses Bun, not pnpm/Vitest.
+packages/klient/AGENTS.md
+# The fork keeps package guidance in DEVELOP.md and uses Bun, not pnpm.
+packages/minidb/AGENTS.md
+# The fork keeps the pi-tui sync contract in packages/pi-tui/UPSTREAM.md.
+packages/pi-tui/AGENTS.md
+# Renamed to searchService.e2e.test.ts in this fork.
+packages/kap-server/test/search/searchService.test.ts

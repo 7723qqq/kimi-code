@@ -22,3 +22,6 @@
 flake.nix:launch
 start-desktop.bat:launch
 apps/vis/package.json:launch
+
+# 2.7.0 upstream desktop app: Electron build and e2e scripts genuinely run Node.
+apps/desktop/package.json:launch
