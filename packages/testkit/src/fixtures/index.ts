@@ -21,6 +21,16 @@ export {
   type NetworkGuardOptions,
 } from '#/fixtures/network';
 export { killProcessTree, readNetworkViolations, type NodeCommand, type ProcessExit } from '#/fixtures/process';
+export {
+  describeDifferences,
+  expectGolden,
+  expectTextGolden,
+  jsonDifferences,
+  REFRESH_ENV,
+  stableJson,
+  type GoldenOptions,
+  type JsonDifference,
+} from '#/fixtures/golden';
 export { repoPath } from '#/fixtures/repo';
 export { createNormalizer, normalize, type NormalizeOptions, type Normalizer } from '#/fixtures/normalize';
 export { TIMEOUTS } from '#/fixtures/timeouts';
