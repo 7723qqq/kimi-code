@@ -464,6 +464,8 @@ function originOf(origin: PromptOrigin | undefined): UserMessageOrigin {
   }
 }
 
+export const userMessageOriginOf = originOf;
+
 function mediaFields(
   part: MediaPart,
 ): { readonly url?: unknown; readonly name?: unknown } | undefined {

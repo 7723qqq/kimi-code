@@ -17,6 +17,7 @@ import { registerAuthRoute } from './auth';
 import { registerCapabilitiesRoutes } from './capabilities';
 import { registerClientConfigsRoutes } from './clientConfigs';
 import { registerConfigRoutes } from './config';
+import { registerContextRoutes } from './context';
 import { registerConnectionsRoutes } from './connections';
 import { registerCronRoutes } from './cron';
 import { registerFileHistoryRoutes } from './fileHistory';
@@ -230,6 +231,10 @@ export async function registerApiV1Routes(
       registerConversationRoutes(
         apiV1 as unknown as Parameters<typeof registerConversationRoutes>[0],
         opts.conversations,
+      );
+      registerContextRoutes(
+        apiV1 as unknown as Parameters<typeof registerContextRoutes>[0],
+        core,
       );
       if (opts.enableShutdown !== false) {
         registerShutdownRoutes(apiV1 as unknown as Parameters<typeof registerShutdownRoutes>[0], {

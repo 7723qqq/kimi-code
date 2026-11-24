@@ -100,6 +100,7 @@ import {
   type LoopNotify,
   type LoopNotifyMessage,
   type LoopNotifyHandle,
+  type LoopRequestContent,
   type LoopSnapshot,
   type LoopSubmitOptions,
   type LoopSubmitResult,
@@ -157,6 +158,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private taskReconciliation: Promise<void> | undefined;
   private loop: Loop | undefined;
   private initialized = false;
+  private pendingHistory: readonly Message[] | undefined;
+  private replacedHistory: readonly Message[] | undefined;
   private startPromise: Promise<void> | undefined;
   private closePromise: Promise<void> | undefined;
   private readonly batchStartingHooks = new Map<string, HookRegistration>();
@@ -420,8 +423,27 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   history(): readonly ContextMessage[] {
-    const source = this.loop?.state.messages ?? this.journal.snapshot().input.messages ?? [];
+    const source = this.rawHistory();
     return this.turns.history(source);
+  }
+
+  rawHistory(): readonly Message[] {
+    if (this.replacedHistory !== undefined) return this.replacedHistory;
+    if (this.pendingHistory !== undefined) return this.pendingHistory;
+    const source = this.loop?.state.messages ?? this.journal.snapshot().input.messages;
+    if (source !== undefined && source.length > 0) return source;
+    const context = this.instantiation.invokeFunction((accessor) =>
+      accessor.get(IAgentContextMemoryService),
+    ).get();
+    return context.length === 0 ? [] : historyFromContext(context);
+  }
+
+  previewRequestContent(): LoopRequestContent {
+    return {
+      systemPrompt: this.loop?.state.profile.systemPrompt || this.getSystemPrompt(),
+      tools: this.baselineTools(),
+      messages: this.rawHistory(),
+    };
   }
 
   historyRevision(): number {
@@ -462,7 +484,26 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   replaceHistory(messages: readonly Message[], reason?: string, onAccepted?: () => void): boolean {
     const previous = this.history();
-    const ack = this.loop?.setContext([...messages], reason);
+    this.replacedHistory = [...messages];
+    if (this.loop === undefined) {
+      this.pendingHistory = [...messages];
+      this.replacedHistory = [...messages];
+      this.createLoopFromSnapshot(
+        this.journal.snapshot(),
+        this.toolsForActiveProfile(),
+        [],
+        [...messages],
+      );
+      void this.dispatcher.dispatch(new ContextSpliced({
+        agentId: this.scopeContext.agentId,
+        start: 0,
+        deleteCount: previous.length,
+        messages: messages.map((message) => contextFromHistoryEntry(message)),
+      }));
+      onAccepted?.();
+      return this.loop!.setContext([...messages], reason)?.type === 'context.settled';
+    }
+    const ack = this.loop.setContext([...messages], reason);
     if (ack?.type !== 'context.settled') return false;
     onAccepted?.();
     if (reason !== 'compaction') {
@@ -485,6 +526,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     try {
       await this.wire.drainPersisted().catch(() => undefined);
       const snapshot = this.journal.snapshot();
+      const seed = seededMessages ?? this.replacedHistory ?? this.pendingHistory;
       this.profileAdapter.restore(snapshot);
       const tools = initialTools === undefined ? this.toolsForActiveProfile() : [...initialTools];
       const taskHistory = this.instantiation.invokeFunction((accessor) => accessor.get(IAgentTaskService));
@@ -493,7 +535,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         wire: this.wire,
         agentId: this.scopeContext.agentId,
         taskOutputs: this.taskOutputs,
-        messages: seededMessages ?? snapshot.input.messages ?? [],
+        messages: seed ?? snapshot.input.messages ?? [],
         pending: [
           ...(snapshot.input.inbox?.notify ?? []),
           ...(snapshot.input.inbox?.remind ?? []),
@@ -509,7 +551,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         snapshot,
         tools,
         completions,
-        seededMessages ?? historyFromContextPreservingToolNotes(foldSettle([...context.get()])),
+        seed ?? historyFromContextPreservingToolNotes(foldSettle([...context.get()])),
       );
       await this.taskReconciliation;
     } finally {
@@ -572,6 +614,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     });
     loop.setRequester(this.createLoopRequester(loop));
     this.loop = loop;
+    this.pendingHistory = undefined;
     loop.subscribe((event) => {
       if (event.type === 'tool.started' && event.taskId === undefined) {
         void this.dispatcher.dispatch(new ToolCallStarted({
@@ -1202,6 +1245,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   private async turnStarting(event: TurnStartingEvent, signal: AbortSignal) {
+    this.replacedHistory = undefined;
     this.llmRequester.prepareTurnConfig(event.turnId);
     const pending = this.prompts.prepareTurn(event);
     if (pending === undefined) return undefined;

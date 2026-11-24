@@ -1061,6 +1061,126 @@ GET /api/v1/sessions/{session_id}/children response 200<code=0>: object closed
 GET /api/v1/sessions/{session_id}/children response 200<code=40001>: shape d4845858
 GET /api/v1/sessions/{session_id}/children response 200<code=40401>: shape 2bda561c
 GET /api/v1/sessions/{session_id}/children: operation
+GET /api/v1/sessions/{session_id}/context/items param path:session_id: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items param query:agent_id: string minLength=1 pattern="^[^/\\\\]+$" optional
+GET /api/v1/sessions/{session_id}/context/items param query:limit: integer minimum=1 maximum=500 optional
+GET /api/v1/sessions/{session_id}/context/items param query:offset: integer minimum=0 maximum=9007199254740991 optional
+GET /api/v1/sessions/{session_id}/context/items param query:role: anyOf optional
+GET /api/v1/sessions/{session_id}/context/items param query:role<#0>: string
+GET /api/v1/sessions/{session_id}/context/items param query:role<#1>: array
+GET /api/v1/sessions/{session_id}/context/items param query:role<#1>[]: string
+GET /api/v1/sessions/{session_id}/context/items response 200: oneOf
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.code: enum 0
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.has_more: boolean
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.items: array
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.items[].has_media: boolean
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.items[].id: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.items[].name: string optional
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.items[].preview: string
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.items[].role: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.items[].segment: enum "reply"|"thinking"|"tool_call" optional
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.items[].sequence: integer maximum=9007199254740991 exclusiveMinimum=true optional
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.items[].tokens: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.items[]: object closed
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.agent_id: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.captured_at: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.groups: array
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.groups[].count: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.groups[].role: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.groups[].tokens: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.groups[]: object closed
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.model: string optional
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.session_id: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.tokens.max: integer minimum=0 maximum=9007199254740991 optional
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.tokens.used: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary.tokens: object closed
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.summary: object closed
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.tools: array
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.tools[].has_media: boolean
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.tools[].id: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.tools[].name: string optional
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.tools[].preview: string
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.tools[].role: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.tools[].segment: enum "reply"|"thinking"|"tool_call" optional
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.tools[].sequence: integer maximum=9007199254740991 exclusiveMinimum=true optional
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.tools[].tokens: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.tools[]: object closed
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data.total: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.data: object closed
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.details: any optional
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.msg: string
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>.request_id: string
+GET /api/v1/sessions/{session_id}/context/items response 200<code=0>: object closed
+GET /api/v1/sessions/{session_id}/context/items response 200<code=40001>: shape d4845858
+GET /api/v1/sessions/{session_id}/context/items response 200<code=40401>: shape 2bda561c
+GET /api/v1/sessions/{session_id}/context/items response 200<code=40931>: shape 212b52bd
+GET /api/v1/sessions/{session_id}/context/items response 200<code=40932>: shape e9b3b59d
+GET /api/v1/sessions/{session_id}/context/items response 200<code=40940>: shape b0ef3a47
+GET /api/v1/sessions/{session_id}/context/items/{item_id} param path:item_id: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items/{item_id} param path:session_id: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items/{item_id} param query:agent_id: string minLength=1 pattern="^[^/\\\\]+$" optional
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200: oneOf
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.code: enum 0
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.has_media: boolean
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.id: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.name: string optional
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.parts: array
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.parts[].data: any optional
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.parts[].kind: enum "definition"|"function"|"media"|"text"|"think"
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.parts[].name: string optional
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.parts[].text: string optional
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.parts[].tokens: integer minimum=0 maximum=9007199254740991 optional
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.parts[]: object closed
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.raw: any
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.role: string minLength=1
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.segment: enum "reply"|"thinking"|"tool_call" optional
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.sequence: integer maximum=9007199254740991 exclusiveMinimum=true optional
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data.tokens: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.data: object closed
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.details: any optional
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.msg: string
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>.request_id: string
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=0>: object closed
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=40001>: shape d4845858
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=40401>: shape 2bda561c
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=40403>.code: enum 40403
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=40403>.data: enum null nullable
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=40403>.details: any optional
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=40403>.msg: string
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=40403>.request_id: string
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=40403>: object closed
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=40931>: shape 212b52bd
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=40932>: shape e9b3b59d
+GET /api/v1/sessions/{session_id}/context/items/{item_id} response 200<code=40940>: shape b0ef3a47
+GET /api/v1/sessions/{session_id}/context/items/{item_id}: operation
+GET /api/v1/sessions/{session_id}/context/items: operation
+GET /api/v1/sessions/{session_id}/context/summary param path:session_id: string minLength=1
+GET /api/v1/sessions/{session_id}/context/summary param query:agent_id: string minLength=1 pattern="^[^/\\\\]+$" optional
+GET /api/v1/sessions/{session_id}/context/summary response 200: oneOf
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.code: enum 0
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.agent_id: string minLength=1
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.captured_at: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.groups: array
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.groups[].count: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.groups[].role: string minLength=1
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.groups[].tokens: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.groups[]: object closed
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.model: string optional
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.session_id: string minLength=1
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.tokens.max: integer minimum=0 maximum=9007199254740991 optional
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.tokens.used: integer minimum=0 maximum=9007199254740991
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data.tokens: object closed
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.data: object closed
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.details: any optional
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.msg: string
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>.request_id: string
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=0>: object closed
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=40001>: shape d4845858
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=40401>: shape 2bda561c
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=40931>: shape 212b52bd
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=40932>: shape e9b3b59d
+GET /api/v1/sessions/{session_id}/context/summary response 200<code=40940>: shape b0ef3a47
+GET /api/v1/sessions/{session_id}/context/summary: operation
 GET /api/v1/sessions/{session_id}/cron param path:session_id: string minLength=1
 GET /api/v1/sessions/{session_id}/cron response 200: oneOf
 GET /api/v1/sessions/{session_id}/cron response 200<code=0>.code: enum 0

@@ -121,6 +121,7 @@ export class Program {
   get fs(): IWorkspaceFsService { return this.requireGeneration().workdirs.root.fs; }
   get git(): IWorkspaceGitService { return this.requireGeneration().workdirs.root.git; }
   get instructions(): IWorkspaceInstructionsService { return this.requireGeneration().workdirs.root.instructions; }
+  get mcp(): ProgramMcp { return this.requireGeneration().mcp; }
   get trust(): IWorkspaceTrust { return this.requireGeneration().trust; }
   get trustDisclosure(): IWorkspaceTrustDisclosure { return this.requireGeneration().trustDisclosure; }
   get skills(): IWorkspaceSkillCatalog { return this.requireGeneration().workdirs.root.skills; }

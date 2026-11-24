@@ -541,9 +541,8 @@ describe('server-v2 /api/v1/workspaces', () => {
       try {
         lease = await manager.acquire({ workspaceId: id, root });
         const workspace = lease.instance;
-        await workspace.program.mcpConfig.ready;
-        expect(failed).toBe(true);
-        expect(workspace.program.mcpConfig.servers()).toEqual({});
+        await waitForAssertion(() => expect(failed).toBe(true));
+        expect(workspace.program.mcp.servers()).toEqual({});
         const recovered: boolean[] = [];
         workspace.program.trust.onDidChange((change) => recovered.push(change.trusted));
 
@@ -553,7 +552,7 @@ describe('server-v2 /api/v1/workspaces', () => {
         expect(workspace.program.trust.isTrusted()).toBe(true);
 
         await waitForAssertion(() => {
-          expect(workspace.program.mcpConfig.servers()).toHaveProperty('projectOnly');
+          expect(workspace.program.mcp.servers()).toHaveProperty('projectOnly');
         });
         expect(recovered).toEqual([true]);
       } finally {
@@ -596,16 +595,15 @@ describe('server-v2 /api/v1/workspaces', () => {
       try {
         lease = await manager.acquire({ workspaceId: id, root });
         const workspace = lease.instance;
-        await workspace.program.mcpConfig.ready;
-        expect(failed).toBe(true);
-        expect(workspace.program.mcpConfig.servers()).toEqual({});
+        await waitForAssertion(() => expect(failed).toBe(true));
+        expect(workspace.program.mcp.servers()).toEqual({});
 
         const revoked = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/untrust`);
         expect(revoked.body.code).toBe(0);
         expect(revoked.body.data.trusted).toBe(true);
 
         await waitForAssertion(() => {
-          expect(workspace.program.mcpConfig.servers()).toHaveProperty('projectOnly');
+          expect(workspace.program.mcp.servers()).toHaveProperty('projectOnly');
         });
       } finally {
         get.mockRestore();

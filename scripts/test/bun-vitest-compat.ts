@@ -1,9 +1,135 @@
 import { jest, mock, vi } from 'bun:test';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { JSDOM } from 'jsdom';
+import { compileScript, compileTemplate, parse, registerTS } from '@vue/compiler-sfc';
 
 type UnknownRecord = Record<string, unknown>;
+
+// Vue's compiler resolves a type imported from a package through the
+// TypeScript compiler API. This repository's TypeScript is the native 7.x
+// preview, which ships no JavaScript API, so the resolution is done here: the
+// package's own `types` entry is the file the compiler needs.
+function resolvePackageTypes(source: string, containingFile: string): string | undefined {
+  const separator = source.indexOf('/');
+  const packageName =
+    source.startsWith('@') && separator > 0
+      ? source.slice(0, separator)
+      : (source.split('/')[0] as string);
+  const subpath = source === packageName ? '.' : `.${source.slice(packageName.length)}`;
+  let directory = dirname(containingFile);
+  for (;;) {
+    const manifest = join(directory, 'node_modules', packageName, 'package.json');
+    if (existsSync(manifest)) {
+      const parsed = JSON.parse(readFileSync(manifest, 'utf-8')) as UnknownRecord;
+      const candidates: string[] = [];
+      const exportsField = parsed['exports'];
+      if (typeof exportsField === 'object' && exportsField !== null) {
+        const record = exportsField as UnknownRecord;
+        const entry = record[subpath] ?? record['.'];
+        if (typeof entry === 'string') candidates.push(entry);
+        else if (typeof entry === 'object' && entry !== null) {
+          const types = (entry as UnknownRecord)['types'];
+          if (typeof types === 'string') candidates.push(types);
+        }
+      }
+      for (const field of ['types', 'typings'] as const) {
+        const value = parsed[field];
+        if (typeof value === 'string') candidates.push(value);
+      }
+      for (const candidate of candidates) {
+        const file = join(dirname(manifest), candidate);
+        if (existsSync(file)) return file;
+      }
+      return undefined;
+    }
+    const parent = dirname(directory);
+    if (parent === directory) return undefined;
+    directory = parent;
+  }
+}
+
+registerTS(() =>
+  ({
+    versionMajorMinor: '5.9',
+    findConfigFile: () => undefined,
+    sys: { useCaseSensitiveFileNames: true },
+    resolveModuleName: (source: string, containingFile: string) => {
+      const resolved = resolvePackageTypes(source, containingFile);
+      return resolved === undefined ? {} : { resolvedModule: { resolvedFileName: resolved } };
+    },
+  }) as never,
+);
+
+// Bun has no loader for Vue single-file components: an import of a `.vue`
+// file resolves to the file path as a string, so a component renders as an
+// unknown element instead of a component. Upstream runs these suites under
+// Vitest, where @vitejs/plugin-vue compiles them. This plugin gives the Bun
+// test runtime the same treatment, so the component suites actually run.
+Bun.plugin({
+  name: 'vue-sfc',
+  setup(build) {
+    build.onLoad({ filter: /\.vue$/ }, async (args) => {
+      const source = await Bun.file(args.path).text();
+      const id = createHash('sha256').update(args.path).digest('hex').slice(0, 8);
+      const scopeId = `data-v-${id}`;
+      const { descriptor, errors } = parse(source, { filename: args.path });
+      if (errors.length > 0) {
+        throw new Error(
+          `Failed to parse ${args.path}: ${errors.map((error) => error.message).join('; ')}`,
+        );
+      }
+
+      const scoped = descriptor.styles.some((style) => style.scoped);
+      const parts: string[] = [];
+      let bindings: Record<string, string> | undefined;
+      if (descriptor.script !== null || descriptor.scriptSetup !== null) {
+        const script = compileScript(descriptor, {
+          id,
+          inlineTemplate: false,
+          genDefaultAs: '__sfc__',
+          fs: {
+            fileExists: (file) => existsSync(file),
+            readFile: (file) => {
+              try {
+                return readFileSync(file, 'utf-8');
+              } catch {
+                return undefined;
+              }
+            },
+          },
+        });
+        bindings = script.bindings;
+        parts.push(script.content);
+      } else {
+        parts.push('const __sfc__ = {};');
+      }
+      if (descriptor.template !== null) {
+        const template = compileTemplate({
+          source: descriptor.template.content,
+          filename: args.path,
+          id,
+          scoped,
+          slotted: descriptor.slotted,
+          compilerOptions: { bindingMetadata: bindings, scopeId: scoped ? scopeId : undefined },
+        });
+        if (template.errors.length > 0) {
+          throw new Error(
+            `Failed to compile the template of ${args.path}: ${template.errors
+              .map((error) => (error instanceof Error ? error.message : String(error)))
+              .join('; ')}`,
+          );
+        }
+        parts.push(template.code);
+        parts.push('__sfc__.render = render;');
+      }
+      if (scoped) parts.push(`__sfc__.__scopeId = ${JSON.stringify(scopeId)};`);
+      parts.push('export default __sfc__;');
+      return { contents: parts.join('\n'), loader: 'ts' };
+    });
+  },
+});
 
 const repoRoot = join(import.meta.dirname, '../..');
 const iconSpecifiers = new Set<string>();
@@ -184,6 +310,66 @@ function unstubAllEnvs(): void {
   }
   savedEnvs.clear();
 }
+
+// Bun's spyOn rejects accessor properties; Vitest spies on getters and
+// setters. A component's computed property is read through its accessor, so
+// the suites need the Vitest shape.
+function accessorDescriptor(target: object, property: string): PropertyDescriptor | undefined {
+  let current: object | null = target;
+  while (current !== null) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, property);
+    if (descriptor !== undefined) return descriptor;
+    current = Object.getPrototypeOf(current) as object | null;
+  }
+  return undefined;
+}
+
+function spyOnAccessor(target: object, property: string): unknown {
+  const descriptor = accessorDescriptor(target, property);
+  if (descriptor === undefined) {
+    throw new Error(`Cannot spy on property "${property}" because it is not defined`);
+  }
+  const originalGet = descriptor.get;
+  const originalSet = descriptor.set;
+  const calls: unknown[][] = [];
+  const spy = {
+    mock: { calls, results: [] as unknown[] },
+    mockClear: () => {
+      calls.length = 0;
+    },
+    mockReset: () => {
+      calls.length = 0;
+    },
+    mockRestore: () => {
+      Object.defineProperty(target, property, descriptor);
+    },
+  };
+  Object.defineProperty(target, property, {
+    configurable: true,
+    enumerable: descriptor.enumerable,
+    get(this: unknown) {
+      const value = originalGet?.call(this);
+      calls.push([]);
+      return value;
+    },
+    set(this: unknown, value: unknown) {
+      calls.push([value]);
+      originalSet?.call(this, value);
+    },
+  });
+  return spy;
+}
+
+const bunSpyOn = bunVi['spyOn'];
+bunVi['spyOn'] = (target: unknown, property: unknown, ...rest: unknown[]): unknown => {
+  if (typeof target === 'object' && target !== null && typeof property === 'string') {
+    const descriptor = accessorDescriptor(target, property);
+    if (descriptor !== undefined && (descriptor.get !== undefined || descriptor.set !== undefined)) {
+      return spyOnAccessor(target, property);
+    }
+  }
+  return (bunSpyOn as (...args: unknown[]) => unknown)(target, property, ...rest);
+};
 
 interface WaitOptions {
   readonly timeout?: number;
