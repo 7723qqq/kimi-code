@@ -296,7 +296,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
           input.explicitAgentProfiles,
           input.userAgentProfiles,
           input.pluginAgentProfiles,
-          input.mcp,
+          input.acquireMcp,
           this.models,
           this.modelProviders,
           this.environments,

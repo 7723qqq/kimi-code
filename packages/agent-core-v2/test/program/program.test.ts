@@ -115,8 +115,7 @@ function setup(readiness = new Map<string, Promise<void>>(), order: string[] = [
     return {
       id,
       workdirs: { root, reload: async () => {}, dispose: () => {} },
-      mcpConfig: { ...behavior, servers: () => ({}) },
-      mcp: behavior,
+      mcp: { ...behavior, servers: () => ({}) },
       trust: { ...behavior, isTrusted: () => false },
       userAgentProfiles: behavior,
       pluginAgentProfiles: behavior,
@@ -227,8 +226,7 @@ describe('Program', () => {
         } };
         instructions: { snapshot: { agentsMdPaths?: readonly string[] } };
       } };
-      mcpConfig: { servers(): Record<string, unknown> };
-      mcp: unknown;
+      mcp: { servers(): Record<string, unknown>; acquire(): Promise<{ service: unknown; dispose(): void }> };
     };
     const skill = { source: 'workspace' };
     generation.workdirs.root.skills.catalog.listSkills = () => [skill];
@@ -236,14 +234,15 @@ describe('Program', () => {
     generation.workdirs.root.skills.catalog.getSkippedByPolicy = () => [];
     generation.workdirs.root.skills.catalog.getSkillRoots = () => ['/workspace/.agents/skills'];
     generation.workdirs.root.instructions.snapshot = { agentsMdPaths: ['/workspace/AGENTS.md'] };
-    generation.mcpConfig.servers = () => ({ baseline: {} });
+    generation.mcp.servers = () => ({ baseline: {} });
+    const lease = { service: {} as never, dispose: () => {} };
+    generation.mcp.acquire = async () => lease;
     await program.ready;
     await Promise.resolve();
 
     expect(program.skills as unknown).toBe(generation.workdirs.root.skills);
     expect(program.instructions as unknown).toBe(generation.workdirs.root.instructions);
-    expect(program.mcpConfig as unknown).toBe(generation.mcpConfig);
-    expect(program.mcp as unknown).toBe(generation.mcp);
+    await expect(program.acquireMcp()).resolves.toBe(lease);
     expect(program.snapshot()).toMatchObject({
       workspaceId: 'workspace',
       binding: { environmentId: 'local' },
@@ -310,7 +309,7 @@ const execFileAsync = promisify(execFile);
 interface GenerationAccess {
   readonly fs: IWorkspaceFsService;
   readonly git: IWorkspaceGitService;
-  readonly mcpConfig: IWorkspaceMcpConfigService;
+  readonly mcp: { servers(): Readonly<Record<string, unknown>> };
   readonly instructions: IWorkspaceInstructionsService;
   readonly skills: IWorkspaceSkillCatalog;
   readonly dirs: IWorkspaceDirs;
@@ -549,9 +548,9 @@ async function localityFixture(options: { readonly remoteCwd?: string } = {}): P
 
   const local = (): GenerationAccess => {
     const generation = (program as unknown as {
-      generation: { workdirs: { root: GenerationAccess }; mcpConfig: IWorkspaceMcpConfigService; userAgentProfiles: IUserAgentProfileLoader };
+      generation: { workdirs: { root: GenerationAccess }; mcp: { servers(): Readonly<Record<string, unknown>> }; userAgentProfiles: IUserAgentProfileLoader };
     }).generation;
-    return { ...generation.workdirs.root, mcpConfig: generation.mcpConfig, userAgentProfiles: generation.userAgentProfiles };
+    return { ...generation.workdirs.root, mcp: generation.mcp, userAgentProfiles: generation.userAgentProfiles };
   };
   const workdirs: ProgramWorkdir[] = [];
   let controller: { dispose(): void } | undefined;
@@ -612,7 +611,6 @@ async function awaitLocality(generation: GenerationAccess): Promise<void> {
     generation.instructions.ready,
     generation.skills.ready,
     generation.dirs.ready,
-    generation.mcpConfig.ready,
     generation.agentProfiles.ready,
     generation.userAgentProfiles.ready,
   ]);
@@ -632,7 +630,7 @@ describe('Program local generation and remote workdirs', () => {
 
       expect(local.skills.catalog.listSkills().map((skill) => skill.name)).toEqual(['local-skill', 'user-skill']);
       expect(local.dirs.additionalDirs.map(slashedPath)).toEqual([slashedPath(join(fixture.localRoot, 'localextra'))]);
-      expect(Object.keys(local.mcpConfig.servers()).toSorted()).toEqual(['local-project-server', 'user-server']);
+      expect(Object.keys(local.mcp.servers()).toSorted()).toEqual(['local-project-server', 'user-server']);
       expect(fixture.profileRegistrations.filter((entry) => entry.sourceId === 'workspace')).toEqual([
         { sourceId: 'workspace', profiles: ['local-agent'] },
       ]);
