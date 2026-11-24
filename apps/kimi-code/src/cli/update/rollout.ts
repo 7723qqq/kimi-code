@@ -11,7 +11,6 @@ import { decideUpdate } from './select';
 import type { RolloutBatch, UpdateFeed, UpdateManifest, UpdatePlan } from './types';
 
 export const UNCOVERED_ROLLOUT_DELAY_SECONDS = 86_400;
-export const MAX_ROLLOUT_DELAY_SECONDS = UNCOVERED_ROLLOUT_DELAY_SECONDS;
 
 export function rolloutBucket(deviceId: string, version: string): number {
   const digest = new Bun.CryptoHasher('sha256').update(`${deviceId}:${version}`, 'utf-8').digest();
@@ -25,11 +24,11 @@ export function rolloutDelayForBucket(rollout: readonly RolloutBatch[], bucket: 
     cumulative += batch.percent;
     longest = Math.max(longest, batch.delaySeconds);
     if (bucket < cumulative) {
-      return Math.min(Math.max(batch.delaySeconds, 0), MAX_ROLLOUT_DELAY_SECONDS);
+      return Math.max(batch.delaySeconds, 0);
     }
   }
   if (rollout.length === 0) return 0;
-  return Math.min(Math.max(longest, UNCOVERED_ROLLOUT_DELAY_SECONDS), MAX_ROLLOUT_DELAY_SECONDS);
+  return Math.max(longest, UNCOVERED_ROLLOUT_DELAY_SECONDS);
 }
 
 export function rolloutDelaySeconds(manifest: UpdateManifest, deviceId: string): number {
