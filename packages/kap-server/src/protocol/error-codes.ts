@@ -76,6 +76,8 @@ export const ErrorCode = {
   FEEDBACK_REJECTED: 40936,
   WIRE_VERSION_TOO_LOW: 40940,
   TOWER_MODE_INVALID: 40935,
+  AGENT_NOT_CLOSABLE: 40949,
+  TURN_NOT_CONTINUABLE: 40950,
 
   APPROVAL_EXPIRED: 41001,
   QUESTION_EXPIRED: 41002,
@@ -97,3 +99,4 @@ export const ErrorCode = {
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
+

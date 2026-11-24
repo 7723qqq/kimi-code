@@ -1052,6 +1052,7 @@ function stubSessionMetadata(meta: SessionMeta): ISessionMetadata {
     setGeneratedTitleIfUncustomized: async () => false,
     setArchived: async () => {},
     registerAgent: async () => {},
+    unregisterAgent: async () => {},
   };
 }
 
@@ -1140,3 +1141,4 @@ function readZipEntry(path: string, target: string): Promise<Buffer> {
     });
   });
 }
+

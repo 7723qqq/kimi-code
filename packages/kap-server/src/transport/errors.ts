@@ -25,6 +25,8 @@ export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 const KIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
   [ErrorCodes.SESSION_NOT_FOUND]: ErrorCode.SESSION_NOT_FOUND,
   [ErrorCodes.AGENT_NOT_FOUND]: ErrorCode.AGENT_NOT_FOUND,
+  [ErrorCodes.AGENT_NOT_CLOSABLE]: ErrorCode.AGENT_NOT_CLOSABLE,
+  [ErrorCodes.TURN_NOT_CONTINUABLE]: ErrorCode.TURN_NOT_CONTINUABLE,
   [ErrorCodes.SESSION_UNDO_UNAVAILABLE]: ErrorCode.SESSION_UNDO_UNAVAILABLE,
   [ErrorCodes.REQUEST_INVALID]: ErrorCode.VALIDATION_FAILED,
   [ErrorCodes.CONFIG_INVALID]: ErrorCode.VALIDATION_FAILED,
@@ -163,3 +165,4 @@ export function assertSerializable(value: unknown): unknown {
   }
   return value;
 }
+

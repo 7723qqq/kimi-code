@@ -52,7 +52,9 @@ export interface ISessionMetadata {
   setGeneratedTitleIfUncustomized(title: string, opts?: { force?: boolean }): Promise<boolean>;
   setArchived(archived: boolean): Promise<void>;
   registerAgent(agentId: string, meta: AgentMeta): Promise<void>;
+  unregisterAgent(agentId: string): Promise<void>;
 }
 
 export const ISessionMetadata: ServiceIdentifier<ISessionMetadata> =
   createDecorator<ISessionMetadata>('sessionMetadata');
+

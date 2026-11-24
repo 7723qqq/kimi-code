@@ -6,6 +6,7 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
 import {
   BTW_AGENT_LABEL,
@@ -18,7 +19,10 @@ import {
 export class SessionBtwService extends Disposable implements ISessionBtwService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService) {
+  constructor(
+    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
+    @ISessionMetadata private readonly sessionMetadata: ISessionMetadata,
+  ) {
     super();
     this._register(
       this.agentLifecycle.onDidCreateScope(({ meta, handle }) => {
@@ -51,4 +55,40 @@ export class SessionBtwService extends Disposable implements ISessionBtwService 
       .notify(SIDE_QUESTION_SYSTEM_REMINDER, { variant: 'btw' });
     return childContext.agentId;
   }
+
+  async close(agentId: string): Promise<void> {
+    if (agentId === MAIN_AGENT_ID) {
+      throw new Error2(
+        ErrorCodes.AGENT_NOT_CLOSABLE,
+        `Agent "${agentId}" is not a side-channel agent and cannot be closed`,
+      );
+    }
+    const persisted = (await this.sessionMetadata.read()).agents?.[agentId];
+    const live = this.agentLifecycle.get(agentId);
+    const liveHandle = this.agentLifecycle.handleOf(agentId);
+    if (persisted === undefined && live === undefined) {
+      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `Agent "${agentId}" was not found`);
+    }
+    let liveMeta: { readonly labels?: Readonly<Record<string, string>> } | undefined;
+    if (liveHandle !== undefined) {
+      try {
+        liveMeta = liveHandle.accessor.get(IAgentScopeContext).meta;
+      } catch {
+        liveMeta = undefined;
+      }
+    }
+    const isBtw =
+      persisted?.labels?.[BTW_AGENT_LABEL] === 'true' ||
+      liveMeta?.labels?.[BTW_AGENT_LABEL] === 'true';
+    if (!isBtw) {
+      throw new Error2(
+        ErrorCodes.AGENT_NOT_CLOSABLE,
+        `Agent "${agentId}" is not a side-channel agent and cannot be closed`,
+      );
+    }
+    await this.sessionMetadata.unregisterAgent(agentId);
+    const target = this.agentLifecycle.get(agentId) ?? live;
+    if (target !== undefined) await this.agentLifecycle.remove(target);
+  }
 }
+

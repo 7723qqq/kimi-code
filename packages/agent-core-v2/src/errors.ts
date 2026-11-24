@@ -125,6 +125,7 @@ export type KimiErrorCode =
   | 'agent.max_tokens_exceeded'
   | 'agent.no_final_message'
   | 'agent.not_a_subagent'
+  | 'agent.not_closable'
   | 'agent.not_found'
   | 'agent.not_owned'
   | 'agent.subagent_depth_exceeded'
@@ -279,6 +280,8 @@ export type KimiErrorCode =
   | 'task.limit_exceeded'
   | 'task.task_id_empty'
   | 'turn.agent_busy'
+  | 'turn.not_continuable'
+  | 'turn.not_found'
   | 'usage.turn_id_conflict'
   | 'validation.failed'
   | 'web.fetch_failed'
@@ -311,3 +314,5 @@ export interface WarningEvent {
   readonly message: string;
   readonly code?: string;
 }
+
+

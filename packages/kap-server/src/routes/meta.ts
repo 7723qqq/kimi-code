@@ -33,11 +33,14 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
     capabilities: Object.freeze({
       websocket: true as const,
       file_upload: true as const,
+      feedback: true as const,
       fs_query: true as const,
       mcp: true as const,
       tasks: true as const,
       interactions_list: true as const,
       session_wait: true as const,
+      agent_close: true as const,
+      session_continue: true as const,
     }),
     server_id: opts.serverId,
     started_at: opts.startedAt,
@@ -66,3 +69,4 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
   );
   app.get(route.path, route.options, route.handler as Parameters<RouteHost['get']>[2]);
 }
+

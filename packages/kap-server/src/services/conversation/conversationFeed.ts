@@ -158,6 +158,14 @@ export class ConversationFeed implements IDisposable {
     return this.state.turns;
   }
 
+  hasTrailingRejectedPrompt(): boolean {
+    return this.state.trailingRejectedPrompt;
+  }
+
+  latestPromptId(): string | undefined {
+    return this.state.latestPromptId;
+  }
+
   feedbackTurn(turnId: string, replyId?: string): FeedbackTurnAttribution | undefined {
     const turn = this.state.turns.find((entry) => entry.turn_id === turnId);
     if (turn?.kind !== 'agent' || turn.status !== 'ended') return undefined;

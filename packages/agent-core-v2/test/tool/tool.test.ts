@@ -633,6 +633,7 @@ function sessionMetadataStub(agents: Readonly<Record<string, AgentMeta>>): ISess
     setGeneratedTitleIfUncustomized: async () => false,
     setArchived: async () => {},
     registerAgent: async () => {},
+    unregisterAgent: async () => {},
   };
 }
 
@@ -5488,3 +5489,4 @@ function hookPayloadAssertCommand(expected: {
   const encoded = Buffer.from(script, 'utf8').toString('base64');
   return `node -e "eval(Buffer.from('${encoded}','base64').toString('utf8'))"`;
 }
+

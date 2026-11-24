@@ -7,6 +7,7 @@ export const AgentLifecycleErrors = {
     AGENT_ALREADY_RUNNING: 'agent.already_running',
     AGENT_NOT_A_SUBAGENT: 'agent.not_a_subagent',
     AGENT_NOT_OWNED: 'agent.not_owned',
+    AGENT_NOT_CLOSABLE: 'agent.not_closable',
     AGENT_TYPE_NOT_ALLOWED: 'agent.type_not_allowed',
     AGENT_MAX_TOKENS_EXCEEDED: 'agent.max_tokens_exceeded',
     SUBAGENT_DEPTH_EXCEEDED: 'agent.subagent_depth_exceeded',
@@ -15,3 +16,4 @@ export const AgentLifecycleErrors = {
 } as const satisfies ErrorDomain;
 
 registerErrorDomain(AgentLifecycleErrors);
+

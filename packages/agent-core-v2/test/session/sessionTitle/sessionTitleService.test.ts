@@ -117,6 +117,8 @@ class FakeSessionMetadata implements ISessionMetadata {
     return this.update({ archived });
   }
 
+  async unregisterAgent(): Promise<void> {}
+
   registerAgent(): Promise<void> {
     return Promise.resolve();
   }
@@ -810,3 +812,4 @@ describe('SessionTitleService', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+

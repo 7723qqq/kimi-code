@@ -115,6 +115,9 @@ export interface ConversationState {
   implicitlyEnded: Record<string, true>;
   provisionalEnds: Record<string, TurnEnd>;
   recordsTurnEnds: boolean;
+  trailingRejectedPrompt: boolean;
+  awaitingContinuationTurnNumber?: number;
+  latestPromptId?: string;
   stepParts: Record<string, number>;
   compaction?: CompactionDetails;
 }
@@ -141,6 +144,7 @@ export function createConversationState(
     implicitlyEnded: {},
     provisionalEnds: {},
     recordsTurnEnds: false,
+    trailingRejectedPrompt: false,
     stepParts: {},
   };
 }
@@ -180,13 +184,21 @@ export function applyConversationRecord(state: ConversationState, record: WireRe
     state.inheriting = false;
   }
   switch (record.type) {
-    case 'turn.prompt':
+    case 'turn.prompt': {
+      if (typeof record['trigger'] === 'string') state.recordsTurnEnds = true;
+      state.trailingRejectedPrompt = false;
+      const promptId = stringField(record['promptId']);
+      const turnNumber = numberField(record['turnId']);
+      state.awaitingContinuationTurnNumber =
+        record['trigger'] === 'continue' && promptId === undefined ? (turnNumber ?? -1) : undefined;
+      if (promptId !== undefined) state.latestPromptId = promptId;
       state.pendingPrompt = {
-        turnNumber: numberField(record['turnId']),
-        promptId: stringField(record['promptId']),
+        turnNumber,
+        promptId,
         originKind: stringField((record['origin'] as { kind?: unknown } | undefined)?.kind),
       };
       return;
+    }
     case 'context.append_message':
       applyMessage(state, record['message'] as ContextMessage | undefined, time);
       return;
@@ -221,17 +233,21 @@ export function applyConversationRecord(state: ConversationState, record: WireRe
     case 'turn.ended':
       applyTurnEnded(state, record, time);
       return;
-    case 'prompt.completed': {
-      if (record['reason'] !== 'blocked') return;
-      const promptId = stringField(record['promptId']);
-      if (promptId === undefined) return;
-      const turn = state.turns.findLast(
-        (candidate) =>
-          candidate.items[0]?.type === 'user_message' && candidate.items[0].item_id === promptId,
-      );
-      if (turn !== undefined) endTurn(state, turn, { outcome: 'failed', reason: 'blocked' }, time);
+    case 'prompt.completed':
+      if (record['reason'] === 'blocked' || record['reason'] === 'failed') {
+        applyPromptRejected(
+          state,
+          stringField(record['promptId']),
+          record['reason'] === 'blocked',
+          time,
+        );
+      } else {
+        state.awaitingContinuationTurnNumber = undefined;
+      }
       return;
-    }
+    case 'prompt.aborted':
+      state.awaitingContinuationTurnNumber = undefined;
+      return;
     case 'interaction.request':
       applyInteractionRequest(state, record, time);
       return;
@@ -289,6 +305,8 @@ export function applyConversationRecord(state: ConversationState, record: WireRe
       Object.assign(state, createConversationState(state.agentId, undefined, state.debug));
       state.openTurnId = undefined;
       state.pendingPrompt = undefined;
+      state.latestPromptId = undefined;
+      state.awaitingContinuationTurnNumber = undefined;
       state.compaction = undefined;
       state.clock = time;
       return;
@@ -341,7 +359,10 @@ export function undoConversationTurns(state: ConversationState, count: number): 
   for (const id of Object.keys(state.stepParts)) if (!stepIds.has(id)) delete state.stepParts[id];
   if (state.openTurnId !== undefined && removed.has(state.openTurnId)) state.openTurnId = undefined;
   state.pendingPrompt = undefined;
+  state.latestPromptId = undefined;
   state.pendingSteers = 0;
+  state.trailingRejectedPrompt = false;
+  state.awaitingContinuationTurnNumber = undefined;
   return state;
 }
 
@@ -356,12 +377,18 @@ export function settleOrphanTurns(
   const orphaned = (turn: ConversationTurn): boolean =>
     turn.status === 'running' &&
     (turn.turn_number === undefined || turn.turn_number !== running.turnNumber);
-  if (!state.turns.some(orphaned)) return state;
+  const staleContinuation =
+    state.awaitingContinuationTurnNumber !== undefined &&
+    (running.turnNumber === undefined || state.awaitingContinuationTurnNumber !== running.turnNumber);
+  if (!state.turns.some(orphaned)) {
+    return staleContinuation ? { ...state, awaitingContinuationTurnNumber: undefined } : state;
+  }
   const next: ConversationState = {
     ...state,
     turns: [...state.turns],
     tools: { ...state.tools },
     provisionalEnds: { ...state.provisionalEnds },
+    awaitingContinuationTurnNumber: staleContinuation ? undefined : state.awaitingContinuationTurnNumber,
   };
   next.turns.forEach((turn, index) => {
     if (!orphaned(turn)) return;
@@ -705,6 +732,9 @@ function applyStepRetrying(state: ConversationState, record: WireRecord): void {
 
 function applyTurnEnded(state: ConversationState, record: WireRecord, time: number): void {
   state.recordsTurnEnds = true;
+  if (record['reason'] !== 'failed' && record['reason'] !== 'blocked') {
+    state.awaitingContinuationTurnNumber = undefined;
+  }
   const turnNumber = numberField(record['turnId']);
   if (turnNumber !== undefined && state.pendingPrompt?.turnNumber === turnNumber)
     state.pendingPrompt = undefined;
@@ -734,6 +764,35 @@ function feedbackReplyModel(value: unknown): TurnReplyModel | undefined {
   const model = stringField(value.model);
   const provider = stringField(value.provider);
   return model === undefined || provider === undefined ? undefined : { model, provider };
+}
+
+function applyPromptRejected(
+  state: ConversationState,
+  promptId: string | undefined,
+  blocked: boolean,
+  time: number,
+): void {
+  if (promptId === undefined) return;
+  for (let index = state.turns.length - 1; index >= 0; index--) {
+    const turn = state.turns[index]!;
+    const hasPrompt = turn.items.some(
+      (item) =>
+        (item.type === 'user_message' &&
+          (item.item_id === promptId || item.prompt_ids.includes(promptId))) ||
+        (item.type === 'notification' &&
+          (item.item_id === promptId || item.item_id.startsWith(`${promptId}:`))),
+    );
+    if (!hasPrompt) continue;
+    if (blocked && turn.items[0]?.type === 'user_message' && turn.items[0].item_id === promptId) {
+      endTurn(state, turn, { outcome: 'failed', reason: 'blocked' }, time);
+    }
+    return;
+  }
+  if (!blocked && state.awaitingContinuationTurnNumber !== undefined) {
+    state.awaitingContinuationTurnNumber = undefined;
+    return;
+  }
+  state.trailingRejectedPrompt = true;
 }
 
 function applyInteractionRequest(state: ConversationState, record: WireRecord, time: number): void {
@@ -961,6 +1020,7 @@ function appendCompaction(
 }
 
 function startTurn(state: ConversationState, time: number): ConversationTurn {
+  state.trailingRejectedPrompt = false;
   const previous = openTurn(state);
   if (previous !== undefined) {
     endTurn(state, previous, state.provisionalEnds[previous.turn_id] ?? COMPLETED, time);
@@ -1138,3 +1198,4 @@ function parseArguments(raw: string | null): unknown {
 function stringField(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
+

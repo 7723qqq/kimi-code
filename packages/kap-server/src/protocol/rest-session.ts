@@ -462,6 +462,11 @@ export const sessionCancelResponseSchema = z.object({
 });
 export type SessionCancelResponse = z.infer<typeof sessionCancelResponseSchema>;
 
+export const sessionContinueResponseSchema = z.object({
+  continued: z.literal(true),
+});
+export type SessionContinueResponse = z.infer<typeof sessionContinueResponseSchema>;
+
 export const DEFAULT_SESSION_WAIT_TIMEOUT_MS = 15_000;
 export const MAX_SESSION_WAIT_TIMEOUT_MS = 60_000;
 
@@ -497,3 +502,4 @@ function fitsUtf8ByteLimit(value: string, limit: number): boolean {
   }
   return true;
 }
+
