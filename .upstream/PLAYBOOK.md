@@ -39,12 +39,14 @@
 | 上游形态 | 本地形态 | 怎么验 |
 | --- | --- | --- |
 | `node:fs` / `node:path` / `node:crypto` 等内置 | **保留**，Bun 全兼容 | `bun run check:boundaries` |
-| 已有 Bun 等价 API 却仍用 `node:` | 改 `Bun.file()` / `Bun.write()` / `Bun.spawn()` 等 | `tools/review/bun-native-baseline.txt` 只能收窄不能扩大 |
+| 已有 Bun 等价 API，且该调用在实测热路径上（或门槛要求） | 改 `Bun.file()` / `Bun.spawn()` 等；否则保留上游的 `node:` 写法——`node:*` 是 Bun 自己的实现 | `tools/review/bun-native-baseline.txt` 只能收窄不能扩大 |
 | `child_process.spawn` | `Bun.spawn()` / `Bun.spawnSync()` | 同上 |
 | 按名字启动 `node` | 按名字启动 `bun`，或走 `process.execPath` | `tools/review/node-launch-baseline.txt` |
 | 缺 `node:` 端点，需要降级实现 | 用 `Bun.*` 等价物；确实没有的登记进 `tools/review/bun-gap-baseline.txt` | `tools/review` 的 `bun-gap` 检查 |
 | `process.env.NODE_ENV` 分支 | 保留，Bun 兼容 | — |
 | `import.meta.dirname` | 支持 | — |
+
+> `Bun.CryptoHasher` 只在 ≥100 KB 的实测热路径上替换 `createHash`（1.4x–3.1x）；`createHash` 默认保留，不算未完成的翻译。
 
 ## 构建与产物
 

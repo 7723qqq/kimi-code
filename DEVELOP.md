@@ -50,7 +50,7 @@ User-level global instructions (`~/.kimi-code/AGENTS.md`) and a local `SYSTEM.md
 
 | Layer | Technology |
 |-------|-----------|
-| Primary language | **TypeScript** 7.0.2 (strict mode) — root `devDependencies.typescript`; the `typescript-legacy` alias pins 6.0.2 for `scripts/check-no-comments.mjs`, which parses with the TS 6 compiler API |
+| Primary language | **TypeScript** 6.0.2 (strict mode) — the JavaScript-API compiler the desktop test preload loads via `createRequire`; the `typescript-legacy` alias pins the same version for `scripts/check-no-comments.mjs`, which parses with the TS 6 compiler API |
 | Module system | ESM (`"type": "module"` in every package) |
 | Dev runtime | **Bun** >= 1.4.4 — install, build, lint, typecheck, and the test suites (`bun run test`) all run through bun |
 | Published CLI runtime | **Bun** >= 1.4.4 (`engines` floor of the published package) |
@@ -332,11 +332,14 @@ the floor this repository stands on, not a target.
 
 Three rules follow, and `bun-native` / `node-launch` / `bun-gap` are their gates:
 
-1. **Where Bun also exposes a native API, write the native call.** The native path
-   is the one Bun optimises, and the one that keeps working in a compiled binary.
-   `Bun.file(path).text()` replaces `readFile(path, 'utf8')`; `Bun.CryptoHasher`
-   replaces `createHash`; `Bun.which` replaces a PATH walk. This is a
-   recommendation, so it reports as `warn` and carries a shrink-only ledger.
+1. **Where Bun also exposes a native API and the swap is worth carrying, write
+   the native call.** The native path is the one Bun optimises, and the one that
+   keeps working in a compiled binary. `Bun.file(path).text()` replaces
+   `readFile(path, 'utf8')`; `Bun.which` replaces a PATH walk. `Bun.CryptoHasher`
+   is a measured hot-path option (1.4x–3.1x over `createHash` from 100 KB), not a
+   required rewrite: `node:crypto` is Bun's own implementation, so an upstream
+   `createHash` call stays as written. This is a recommendation, so it reports
+   as `warn` and carries a shrink-only ledger.
 2. **Never start Node by name.** A `node foo.mjs` command, a `"node"` argv entry,
    or a `node` line in a launcher escapes the node layer and runs whatever Node
    happens to be on `PATH` — the runtime this repository does not install
@@ -546,8 +549,8 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 
 ### Test Framework
 
-- **`bun:test`** for every TypeScript/JavaScript suite in the workspace, run through each package's own `bun test`. Bun 1.4.4 is both the runtime and the runner; the repository no longer contains a vitest dependency or config.
-- **A package `test` script is a one-line delegation to `scripts/run-package-tests.mjs`.** Each package passes only `--root=<dir>` (default `test`, plus `src/human/test` for `agent-core-v2`) and, where it wants a different bound, `--test-timeout`. By default the wrapper runs `bun test --parallel=<n> --timeout <n> ./<root>...`: Bun spawns `min(n, files)` worker processes once and feeds them file paths, each worker reusing its process for its slice. The per-file path (one `bun test --isolate --timeout <n> ./<file>` spawn per file) is used only for `--shard`, `--timings`, `--file-timeout`, `--retry`, `--report-slowest` and `--per-file`, and as the fallback when a pooled run fails — it re-runs each failing file alone to separate contention from a real failure. `pi-tui` is the exception — no `bunfig.toml`, so it still calls `bun test --isolate --timeout 30000` directly.
+- **`bun:test`** for every TypeScript/JavaScript suite in the workspace except `apps/desktop`, whose main-process and composable suites are written for Vitest 4 (`apps/desktop/vitest.config.ts`) and run under Bun with `bun --bun vitest run --configLoader native`; the config disables `deps.interopDefault` under Bun because Bun's CJS module shape otherwise hides zod's named exports. Its Vue/web suites run under the Bun compatibility preload. Bun 1.4.4 is the runtime and runner for everything else.
+- **A package `test` script is a one-line delegation to `scripts/run-package-tests.mjs`.** Each package passes only `--root=<dir>` (default `test`, plus `src/human/test` for `agent-core-v2`) and, where it wants a different bound, `--test-timeout`. By default the wrapper runs `bun test --parallel=<n> --timeout <n> ./<root>...`: Bun spawns `min(n, files)` worker processes once and feeds them file paths, each worker reusing its process for its slice. The per-file path (one `bun test --isolate --timeout <n> ./<file>` spawn per file) is used only for `--shard`, `--timings`, `--file-timeout`, `--retry`, `--report-slowest` and `--per-file`, and as the fallback when a pooled run fails — it re-runs each failing file alone to separate contention from a real failure. `pi-tui` is the exception — no `bunfig.toml`, so it still calls `bun test --isolate --timeout 30000` directly. `apps/desktop` is the other exception: its `test` script runs `scripts/test.mjs`, which runs the Vitest main/composable suites and the Bun-preloaded Vue/web suites in one command.
 - **Isolation.** In the pooled default Bun's `--parallel` implies `--isolate`, so each test file still gets a fresh global and module registry; the worker process and its module cache are what is reused across files. In the per-file path every file gets its own process.
 - Each package's `bunfig.toml` still supplies `[test] preload`, which Bun honours for every file the wrapper spawns.
 - **`--timeout` is the only knob that reaches hooks.** Bun's `bunfig.toml` `[test] timeout` applies to test bodies only; a `beforeEach` that builds a real `git` fixture still dies at the built-in 5s. The wrapper therefore always passes a CLI `--timeout`, defaulting to 30s and lowered to 15s by `kap-server`, `node-sdk` and `product` via `--test-timeout`. On a Windows host the first external spawn in a process also costs a one-off ~3s, which lands inside whichever hook spawns first.
