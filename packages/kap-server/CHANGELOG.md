@@ -1,5 +1,26 @@
 # @moonshot-ai/kap-server
 
+## 0.3.3
+
+### Patch Changes
+
+- [#5212](https://github.com/MoonshotAI/kimi-code/pull/5212) [`2348f53`](https://github.com/MoonshotAI/kimi-code/commit/2348f531923616e250639bf66dcbf67c169ee4ab) Thanks [@kimi-agent-bot](https://github.com/kimi-agent-bot)! - Fix sessions that could not open after their model became unavailable.
+
+- [#5300](https://github.com/MoonshotAI/kimi-code/pull/5300) [`fce3af9`](https://github.com/MoonshotAI/kimi-code/commit/fce3af9e694a5a572699546ebe8e28ccf004ed88) Thanks [@Grapedge](https://github.com/Grapedge)! - Add routes for feedback, reply ratings, and opt-in uploads of media, session history, and desktop logs. Servers advertise support in `capabilities.feedback`.
+
+- Updated dependencies [[`f81c924`](https://github.com/MoonshotAI/kimi-code/commit/f81c924b1d70f963b0dc094bcb6859e446c37a49), [`fce3af9`](https://github.com/MoonshotAI/kimi-code/commit/fce3af9e694a5a572699546ebe8e28ccf004ed88), [`fce3af9`](https://github.com/MoonshotAI/kimi-code/commit/fce3af9e694a5a572699546ebe8e28ccf004ed88)]:
+  - @moonshot-ai/agent-core-v2@0.6.1
+  - @moonshot-ai/kimi-code-oauth@0.5.1
+
+## 0.3.2
+
+### Patch Changes
+
+- [#5176](https://github.com/MoonshotAI/kimi-code/pull/5176) [`07e6120`](https://github.com/MoonshotAI/kimi-code/commit/07e61204e5c08509b7957f0c473c981d0eb6865e) Thanks [@wbxl2000](https://github.com/wbxl2000)! - `POST /api/v1/sessions/{session_id}:wait` replies that a session is settled only after the records it wrote so far are on disk, so a server that crashes right after the reply restarts with the same turns.
+
+- Updated dependencies [[`7b20daf`](https://github.com/MoonshotAI/kimi-code/commit/7b20daf7ce8c734ad6150c5f56a9c107e0ecb44f), [`129b224`](https://github.com/MoonshotAI/kimi-code/commit/129b2247f53edd6172144e10d8c339156be96548)]:
+  - @moonshot-ai/core@0.1.1
+
 ## 0.3.1
 
 ### Patch Changes
@@ -53,7 +74,7 @@
 
 ### Patch Changes
 
-- [#2351](https://github.com/MoonshotAI/kimi-code/pull/2351) [`6be2697`](https://github.com/MoonshotAI/kimi-code/commit/6be26978b123bacf1c5ebce52bbeb6f7b7ff0629) Thanks [@7Sageer](https://github.com/7Sageer)! - Add `POST /api/v1/sessions/{session_id}/title/generate` with an optional `{ "force": true, "source": "user_prompts" | "first_turn" | "digest" }` body; unknown sessions return 40401 and unavailable generation (no managed login, no prompt yet, backend failure) returns the new 40923 SESSION_TITLE_UNAVAILABLE.
+- [#2351](https://github.com/MoonshotAI/kimi-code/pull/2351) [`6be2697`](https://github.com/MoonshotAI/kimi-code/commit/6be26978b123bacf1c5ebce52bbeb6f7b7ff0629) Thanks [@7Sageer](https://github.com/7Sageer)! - Add `POST /api/v1/sessions/{session_id}/title/generate` with an optional `{ "force": true, "source": "user_prompts" | "first_turn" | "digest" }` body; unknown sessions return 40401 and unavailable generation (flag off, no managed login, no prompt yet, backend failure) returns the new 40923 SESSION_TITLE_UNAVAILABLE.
 
 - Updated dependencies [[`6be2697`](https://github.com/MoonshotAI/kimi-code/commit/6be26978b123bacf1c5ebce52bbeb6f7b7ff0629), [`6be2697`](https://github.com/MoonshotAI/kimi-code/commit/6be26978b123bacf1c5ebce52bbeb6f7b7ff0629), [`4a93f70`](https://github.com/MoonshotAI/kimi-code/commit/4a93f70aa2cf5f70a88b4f8eeb2e409aab2c8f59), [`249d8fa`](https://github.com/MoonshotAI/kimi-code/commit/249d8faa3447427665185a900926d048213d2ac7)]:
   - @moonshot-ai/agent-core-v2@0.4.0
@@ -125,11 +146,11 @@
 
 - [#1441](https://github.com/MoonshotAI/kimi-code/pull/1441) [`ceb158d`](https://github.com/MoonshotAI/kimi-code/commit/ceb158dc54586f254819edbc83c27e21dca1ecf6) Thanks [@sailist](https://github.com/sailist)! - Reorganize the agent execution environment into separate filesystem, process and tool domains.
 
-- [#1636](https://github.com/MoonshotAI/kimi-code/pull/1636) [`8027fe2`](https://github.com/MoonshotAI/kimi-code/commit/8027fe291b03fbfce6dc60aa06f8699ad0976ec5) Thanks [@sailist](https://github.com/sailist)! - Make file tools able to reach skill directories outside the working directory in the v2 engine (experimental), and honor --skills-dir in v2 print mode and the server's skillDirs option.
+- [#1636](https://github.com/MoonshotAI/kimi-code/pull/1636) [`8027fe2`](https://github.com/MoonshotAI/kimi-code/commit/8027fe291b03fbfce6dc60aa06f8699ad0976ec5) Thanks [@sailist](https://github.com/sailist)! - Make file tools able to reach skill directories outside the working directory in the v2 engine (experimental), and honor --skillsDir in v2 print mode and the server's skillDirs option.
 
 - [#1601](https://github.com/MoonshotAI/kimi-code/pull/1601) [`dc309a7`](https://github.com/MoonshotAI/kimi-code/commit/dc309a7dfb38b6ef885b8ae80be51b49f8486207) Thanks [@kermanx](https://github.com/kermanx)! - Report the live (measured + estimated) context size in the v2 server's v1-compatible status stream instead of the measured-only count, which read 0 until the first model response of a session completed and could dip mid-turn while the context was being rewritten.
 
-- [#1617](https://github.com/MoonshotAI/kimi-code/pull/1617) [`4ec2e7f`](https://github.com/MoonshotAI/kimi-code/commit/4ec2e7fab14ab89cddf77821082c3ff4911f737b) Thanks [@sailist](https://github.com/sailist)! - Run the local server (`kimi web`, or `kimi rc` / `kimi remote` for remote control) on the agent-core-v2 engine by default — the `KIMI_CODE_EXPERIMENTAL_FLAG` opt-in is no longer needed, and the legacy v1 server package has been removed.
+- [#1617](https://github.com/MoonshotAI/kimi-code/pull/1617) [`4ec2e7f`](https://github.com/MoonshotAI/kimi-code/commit/4ec2e7fab14ab89cddf77821082c3ff4911f737b) Thanks [@sailist](https://github.com/sailist)! - Run the local server (`kimi server run` / `kimi web`) on the agent-core-v2 engine by default — the `KIMI_CODE_EXPERIMENTAL_FLAG` opt-in is no longer needed, and the legacy v1 server package has been removed.
 
 - [#1441](https://github.com/MoonshotAI/kimi-code/pull/1441) [`ceb158d`](https://github.com/MoonshotAI/kimi-code/commit/ceb158dc54586f254819edbc83c27e21dca1ecf6) Thanks [@sailist](https://github.com/sailist)! - Reroute the blob store backend from the host filesystem to the pluggable storage layer, so server-only deployments no longer require a local filesystem implementation.
 

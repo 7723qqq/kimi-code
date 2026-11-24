@@ -6,6 +6,55 @@ outline: 2
 
 This page documents the changes in each Kimi Code CLI release.
 
+## 2.7.3 (2026-11-24)
+
+### Bug Fixes
+
+- Fix sessions that could not open after their model became unavailable.
+
+## 2.7.2 (2026-11-20)
+
+### Bug Fixes
+
+- Web: Fix the draft thinking effort inherited from the global thinking setting reverting to the model default after sending.
+
+## 2.7.1 (2026-11-20)
+
+### Bug Fixes
+
+- Fix turn-specific fork failures after restoring sessions with in-turn steering.
+- Keep queued prompts pending until background notification turns finish.
+- Web: Fix draft thinking effort selections reverting to the model default after sending.
+- Web: Fix the input composer disappearing when accessed over insecure HTTP.
+
+## 2.7.0 (2026-11-19)
+
+### Features
+
+- Add a Follow-up behavior setting under `/settings`; choose Steer to make Enter steer your message into the running turn instead of queueing it.
+- View running foreground agents and their activity in `/tasks`.
+- Web: Show project and session titles in browser tab titles.
+- Support configuring SSH hosts for Kimi Code projects, with each host using its own Kimi login and optional copied custom model providers.
+- Allow resuming sessions that are open in another client.
+- Support Amazon Bedrock models. See the [Amazon Bedrock configuration guide](https://moonshotai.github.io/kimi-code/en/configuration/providers.html#bedrock).
+- Add experimental next-prompt predictions in the TUI after completed turns. Enable with `KIMI_CODE_EXPERIMENTAL_PROMPT_PREDICTION=1` and press Tab or Right Arrow to accept.
+
+### Bug Fixes
+
+- Fix subagents timing out immediately in `kimi -p` and when `[subagent] timeout_ms = 0` is set.
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+
+## 2.6.3 (2026-11-17)
+
+### Bug Fixes
+
+- Fix duplicate output and a lingering loading spinner after foreground shell commands.
+- Fix background notifications incorrectly stopping Tower tasks.
+- Fix external Stop hooks not running after each completed turn.
+- Prevent restored background task notifications from starting model requests when sessions are resumed or forked.
+- Fix Windows WebBridge updates failing while the daemon is running.
+- Fix several known issues.
+
 ## 2.6.2 (2026-11-14)
 
 ### Features
@@ -32,15 +81,15 @@ This page documents the changes in each Kimi Code CLI release.
 
 ## 2.6.0 (2026-11-12)
 
-We recommend switching to fullscreen mode via `/settings -> TUI mode -> Fullscreen` (it takes effect after a restart) for a better experience.
+We recommend switching to fullscreen mode via `/settings -> TUI mode -> Fullscreen` (takes effect after restarting) for a better experience.
 
 ### Features
 
-- Fold consecutive tool calls and thinking into summary lines in fullscreen mode and hide the Activated skill card for model-loaded skills; adjust folding in `/settings`, or set `tool_call_density = "ungrouped"` and `thinking = "ungrouped"` under `[transcript]` in `tui.toml` to keep the previous layout.
+- Fold consecutive tool calls and thinking into summary lines in fullscreen mode and hide Activated skill cards for model-loaded skills; adjust folding in `/settings`, or set `tool_call_density = "ungrouped"` and `thinking = "ungrouped"` under `[transcript]` in `tui.toml` to keep the previous layout.
 - Include hidden and `.gitignore`-ignored paths by default in `@` file path completion, ranking non-ignored files first at equal match quality.
-- Keep same-name workspace skills selectable in a dedicated TUI Skills group, with directory, global, and built-in labels distinguishing their sources.
+- Keep same-name workspace skills selectable in a dedicated TUI Skills group, with directory, global, or built-in labels distinguishing their sources.
 - Support copying selected text with `Ctrl-C` or `Cmd-C` in fullscreen mode, and add a Copy on select toggle in `/settings`.
-- Persist user and local-project permission rules (in `config.toml` and in `.kimi-code/local.toml` of a trusted workspace) and apply them when sessions start, with `deny` taking precedence over `ask` and `allow`.
+- Persist user and local-project permission rules (in `config.toml` and trusted `.kimi-code/local.toml`) and apply them when sessions start, with `deny` taking precedence over `ask` and `allow`.
 - Add artifact missions in Tower with key-deliverable review and human acceptance, and show mission kinds in status and mission views.
 
 ### Polish
@@ -52,7 +101,7 @@ We recommend switching to fullscreen mode via `/settings -> TUI mode -> Fullscre
 ### Bug Fixes
 
 - Apply `[[permission.rules]]` from `config.toml` when a session starts, including `deny`, `ask`, and `allow` rules in print mode.
-- Follow the current primary directory for default local workdirs after a primary swap while keeping tools, project configuration, and session indexes in sync; pass an explicit `environmentCwd` to retain the pinned-directory behavior.
+- Follow the current primary directory for default local workdirs after a primary swap while keeping tools, project configuration, and session indexes in sync; pass an explicit `environmentCwd` to retain pinned-directory behavior.
 - Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
 
 ## 2.5.3 (2026-11-10)
@@ -70,9 +119,9 @@ We recommend switching to fullscreen mode via `/settings -> TUI mode -> Fullscre
 
 ### Bug Fixes
 
-- Fix duplicate tool declaration errors in `select_tools` when MCP tool definitions change.
-- Web: fix steered messages being queued instead of delivered while a session is running.
-- Web: fix project creation when the Web UI is opened over HTTP.
+- Fix duplicate tool declaration errors in select_tools when MCP tool definitions change.
+- web: Fix steered messages being incorrectly queued while a session is running.
+- web: Fix project creation when accessing the Web UI over HTTP.
 
 ## 2.5.1 (2026-11-05)
 
@@ -80,12 +129,12 @@ We recommend switching to fullscreen mode via `/settings -> TUI mode -> Fullscre
 
 - Fix repeated HTTP 400 errors in sessions caused by empty system messages for dynamic tool schemas.
 - Fix missing image and video previews in live and reloaded tool results.
-- Fix sessions belonging to deleted workspaces still appearing in session lists.
-- Web: generate session titles automatically after the first turn of a new session.
-- Web: display local images whose paths contain spaces.
-- Web: stop the session info panel from floating over and covering chat messages in narrow layouts.
-- Web: hide stale empty implicit workspaces from the workspace list.
-- Web: stop tool call summaries from repeatedly expanding and collapsing while a response is in progress.
+- Hide sessions belonging to deleted workspaces from session lists.
+- web: Fix session titles not being generated automatically after the first turn of a new session.
+- web: Fix local images not displaying when their paths contain spaces.
+- web: Fix the session info panel automatically floating over and covering chat messages in narrow layouts.
+- web: Hide stale empty implicit workspaces from the workspace list.
+- web: Fix tool call summaries repeatedly expanding and collapsing while a response is in progress.
 
 ## 2.5.0 (2026-11-04)
 
@@ -110,37 +159,48 @@ We recommend switching to fullscreen mode via `/settings -> TUI mode -> Fullscre
 
 ### Polish
 
-- A single file read by the agent now returns at most 100,000 characters or about 25,000 tokens, whichever comes first, instead of up to 500,000; set `max_chars` under [`read`](../configuration/config-files.md#read) in config.toml to raise both limits again.
-- Make several refinements and internal improvements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+- A single file read by the agent now returns at most 100,000 characters or about 25,000 tokens, whichever comes first, instead of up to 500,000 characters; set `max_chars` under `[read]` in config.toml to raise both limits again.
+- Optimize built-in prompts.
+
+### Bug Fixes
+
+- web: Improved interactions and fixed known bugs.
 
 ## 2.4.0 (2026-10-28)
 
 ### Features
 
-- Allow expanding thinking during streaming with `Ctrl-O`.
-- Plan mode now starts only when you turn it on, and every plan waits for your review: the agent can no longer enter Plan mode by itself, Never Ask no longer approves plans automatically, and `kimi -p` skips `default_plan_mode` and cannot approve the plan of a session that is already in Plan mode.
 - Add `/import-sessions` and `kimi import-sessions` to import Claude Code and Codex sessions from the last 15 or 30 days. Run either one and choose a time range.
-- Reconnect workspace MCP servers automatically with backoff when the initial connection fails or the connection drops, so their tools come back on their own; tune the interval with `[mcp] reconnect_initial_delay_ms` and `reconnect_max_delay_ms`.
 - Add `/provider refresh [providerId]` to re-fetch provider model lists at runtime.
+- Expand streaming thinking with Ctrl-O.
 - Report main-session and subagent status to compatible terminals with OSC 7501, including pending interactions and retained results.
-- Replace the server's `event.approval.*` and `event.question.*` WebSocket events with a single flat `interaction` frame, and the per-kind approval and question endpoints with `POST /sessions/{id}/interactions/{id}`; the old events and endpoints are removed.
+- Support per-task model selection and the `max_running_tasks` limit in Tower, and raise its default agent concurrency limit from 16 to 256.
 
 ### Polish
 
+- Plan mode can now only be enabled by the user instead of being entered automatically by the agent; every plan requires user review, Never Ask no longer approves plans automatically, and `kimi -p` skips `default_plan_mode` and cannot approve a plan in a session already in Plan mode.
+- Web sessions now unload from memory after 30 minutes idle and resume transparently on next access.
+- Improve the layout and interaction experience of some Fullscreen components, including approval option display, mouse selection, and focus switching.
 - Move todo lists into expandable transcript cards and remove the old input-area panel and `Ctrl-T` shortcut.
-- Stop resending full-size images on every turn after the provider rejects them as too large or unsupported; later turns and compaction keep the reduced images until you switch models or the conversation history is rewritten.
-- Update cross-tool imports so standalone `.claude/AGENTS.md`, project `.codex/AGENTS.md`, `.codex/CLAUDE.md` and loose skill files are no longer imported; copy them manually if you need them.
+- Improve the built-in `/import-from-cc-codex` skill.
 
 ### Bug Fixes
 
-- Mark interrupted turns as interrupted instead of showing them as completed, so the conversation no longer freezes at an old point after restarting the app.
+- Reconnect workspace MCP servers automatically with backoff when the initial connection fails or the connection drops; tune the interval with `[mcp] reconnect_initial_delay_ms` and `reconnect_max_delay_ms`.
 - Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
 
 ## 2.3.3 (2026-10-26)
 
+### Polish
+
+- Show a high-usage warning when you turn on swarm mode with `/swarm`.
+- Update model switch confirmation prompts.
+- Merge the two repeated permission-mode notice lines in the swarm and goal start confirmation prompts into one sentence each.
+
 ### Bug Fixes
 
-- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+- Stop showing a failed swarm for `AgentSwarm` calls rejected before any subagent starts, such as while swarm mode is off; after such a rejection, the agent points you to `/swarm` if you asked for a swarm.
+- web: Improved interactions and fixed known bugs.
 
 ## 2.3.2 (2026-10-25)
 

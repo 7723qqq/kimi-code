@@ -1,5 +1,35 @@
 # kimi-code-app
 
+## 1.4.3
+
+### Patch Changes
+
+- [#5246](https://github.com/MoonshotAI/kimi-code/pull/5246) [`f81c924`](https://github.com/MoonshotAI/kimi-code/commit/f81c924b1d70f963b0dc094bcb6859e446c37a49) Thanks [@liruifengv](https://github.com/liruifengv)! - Show an authorization button in chat when an MCP connection needs browser sign-in.
+
+- [#5300](https://github.com/MoonshotAI/kimi-code/pull/5300) [`fce3af9`](https://github.com/MoonshotAI/kimi-code/commit/fce3af9e694a5a572699546ebe8e28ccf004ed88) Thanks [@Grapedge](https://github.com/Grapedge)! - Rate individual replies or send feedback from the account menu or with `/feedback`.
+
+- [#5212](https://github.com/MoonshotAI/kimi-code/pull/5212) [`2348f53`](https://github.com/MoonshotAI/kimi-code/commit/2348f531923616e250639bf66dcbf67c169ee4ab) Thanks [@kimi-agent-bot](https://github.com/kimi-agent-bot)! - Fix sessions that could not open after their model became unavailable.
+
+- [#5197](https://github.com/MoonshotAI/kimi-code/pull/5197) [`0438be4`](https://github.com/MoonshotAI/kimi-code/commit/0438be4cc0f1b9509f18747472041b2210162e98) Thanks [@liruifengv](https://github.com/liruifengv)! - Detect plugin MCP OAuth requirements automatically and show the correct authorization state in plugin details.
+
+## 1.4.2
+
+### Patch Changes
+
+- [#5191](https://github.com/MoonshotAI/kimi-code/pull/5191) [`7baee3c`](https://github.com/MoonshotAI/kimi-code/commit/7baee3cd9d74ac07efdf4a8587c19c1574fffbd2) Thanks [@chengluyu](https://github.com/chengluyu)! - Fix the draft thinking effort inherited from the global thinking setting reverting to the model default after sending.
+
+## 1.4.1
+
+### Patch Changes
+
+- [#5161](https://github.com/MoonshotAI/kimi-code/pull/5161) [`55c7c7b`](https://github.com/MoonshotAI/kimi-code/commit/55c7c7befda7d907ad1cee3650d407415f78652e) Thanks [@kimi-agent-bot](https://github.com/kimi-agent-bot)! - Preserve the first prompt through project creation and sign-in prompts.
+
+- [#5170](https://github.com/MoonshotAI/kimi-code/pull/5170) [`c2bec3f`](https://github.com/MoonshotAI/kimi-code/commit/c2bec3fb8e42aca9a7f7b3b80eff9dc1230d332c) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix draft thinking effort selections reverting to the model default after sending.
+
+- [#5165](https://github.com/MoonshotAI/kimi-code/pull/5165) [`170c729`](https://github.com/MoonshotAI/kimi-code/commit/170c729e5e83472eea276458cf7a6c65489b57a3) Thanks [@sailist](https://github.com/sailist)! - Fix turn-specific fork failures after restoring sessions with in-turn steering.
+
+- [#5174](https://github.com/MoonshotAI/kimi-code/pull/5174) [`3ad2547`](https://github.com/MoonshotAI/kimi-code/commit/3ad25477c23663822c3f0f0ecabe0db514ebcd1e) Thanks [@7Sageer](https://github.com/7Sageer)! - Merge "Select this folder" into the primary button in the folder picker.
+
 ## 1.4.0
 
 ### Minor Changes
