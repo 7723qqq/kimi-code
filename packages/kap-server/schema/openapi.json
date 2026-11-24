@@ -10440,6 +10440,10 @@
                           },
                           "type": "array"
                         },
+                        "home_dir": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
                         "kimi_agent_protocol_version": {
                           "minLength": 1,
                           "type": "string"
@@ -10480,6 +10484,7 @@
                         "capabilities",
                         "server_id",
                         "started_at",
+                        "home_dir",
                         "open_in_apps",
                         "dangerous_bypass_auth"
                       ],

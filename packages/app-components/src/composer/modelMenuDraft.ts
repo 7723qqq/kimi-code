@@ -10,8 +10,8 @@ interface ApplyModelMenuDraftOptions {
   readonly currentSessionId: string | null | undefined;
   readonly getCurrentModelId: () => string | undefined;
   readonly getCurrentSessionId: () => string | null | undefined;
-  readonly selectModel: (modelId: string) => Promise<void>;
-  readonly setThinking: (effort: ThinkingLevel) => Promise<void>;
+  readonly selectModel: (modelId: string) => void | Promise<void>;
+  readonly setThinking: (effort: ThinkingLevel) => void | Promise<void>;
 }
 
 export async function applyModelMenuDraft(

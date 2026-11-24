@@ -37,6 +37,8 @@ import type {
   AppProviderCopyResult,
   AppWorkspace,
   ApprovalResponse,
+  CreateFeedbackInput,
+  FeedbackAttachmentInput,
   DeleteProviderResult,
   FsBrowseResult,
   FsEntry,
@@ -59,9 +61,13 @@ import type {
   QuestionResponse,
   ReadRequestOptions,
   RemoteControlStatus,
+  SessionContextItemDetail,
+  SessionContextItemsResponse,
+  SessionContextSummary,
   TurnFileHistoryChange,
   TurnFileHistoryContent,
   AgentTurnsQuery,
+  UpdateFeedbackInput,
   UpdateProviderInput,
   UpdateProviderResult,
   SessionIdsPage,
@@ -82,6 +88,8 @@ const HOST_READ_MAX_BYTES = 10_485_760;
 const OAUTH_REGION_PROBE_TIMEOUT_MS = 5_000;
 
 const AGENT_TURNS_TIMEOUT_MS = 2 * 60_000;
+
+const FEEDBACK_UPLOAD_TIMEOUT_MS = Infinity;
 
 const VALIDATION_FAILED_CODE = 40001;
 import {
@@ -224,6 +232,7 @@ interface WireMeta {
   server_version: string;
   server_id: string;
   started_at: string;
+  home_dir?: string;
   capabilities: Record<string, boolean>;
   open_in_apps?: string[];
   dangerous_bypass_auth?: boolean;
@@ -357,6 +366,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
     serverVersion: string;
     serverId: string;
     startedAt: string;
+    homeDir: string;
     capabilities: Record<string, boolean>;
     openInApps: string[];
     dangerousBypassAuth: boolean;
@@ -370,6 +380,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       serverVersion: data.server_version,
       serverId: data.server_id,
       startedAt: data.started_at,
+      homeDir: data.home_dir ?? '',
       capabilities: data.capabilities,
       openInApps: Array.isArray(data.open_in_apps) ? data.open_in_apps : [],
       dangerousBypassAuth: data.dangerous_bypass_auth === true,
@@ -430,6 +441,8 @@ export class DaemonKimiWebApi implements KimiWebApi {
       workspace_id: input?.workspaceIds ?? input?.workspaceId,
       archived: input?.archived === undefined ? undefined : String(input.archived),
       has_prompt: input?.hasPrompt,
+      query: input?.query,
+      local_only: input?.localOnly,
       updated_after: input?.updatedAfter,
       updated_before: input?.updatedBefore,
       sort: input?.sort,
@@ -678,6 +691,32 @@ export class DaemonKimiWebApi implements KimiWebApi {
     return this.http.post<WireBatchSessionResponse>('/sessions:restore', { ids });
   }
 
+  async createFeedback(input: CreateFeedbackInput): Promise<{ feedback_id: number }> {
+    return this.http.post('/feedback', input, { sensitive: true });
+  }
+
+  async updateFeedback(feedbackId: number, input: UpdateFeedbackInput): Promise<{ feedback_id: number }> {
+    return this.http.patch(`/feedback/${feedbackId}`, input, { sensitive: true });
+  }
+
+  async uploadFeedbackAttachment(feedbackId: number, input: FeedbackAttachmentInput, signal?: AbortSignal): Promise<{ upload_id: number }> {
+    const form = new FormData();
+    form.append('file', input.file, input.fileName);
+    return this.http.postForm(`/feedback/${feedbackId}/attachments?kind=${input.kind}`, form, {
+      sensitive: true,
+      timeoutMs: FEEDBACK_UPLOAD_TIMEOUT_MS,
+      signal,
+    });
+  }
+
+  async uploadFeedbackSession(feedbackId: number, sessionId: string, signal?: AbortSignal, globalFeedback?: { hostId?: string }): Promise<{ upload_id: number }> {
+    return this.http.post(`/feedback/${feedbackId}/attachments/session`, { session_id: sessionId, host_id: globalFeedback?.hostId }, {
+      timeoutMs: FEEDBACK_UPLOAD_TIMEOUT_MS,
+      signal,
+      sensitive: true,
+    });
+  }
+
   async getAgentTurns(
     sessionId: string,
     agentId: string,
@@ -690,6 +729,46 @@ export class DaemonKimiWebApi implements KimiWebApi {
       { timeoutMs: AGENT_TURNS_TIMEOUT_MS, ...options },
     );
     return { turns: data.turns, has_more: data.has_more };
+  }
+
+  async getSessionContextSummary(
+    sessionId: string,
+    agentId?: string,
+    options?: ReadRequestOptions,
+  ): Promise<SessionContextSummary> {
+    return this.http.get<SessionContextSummary>(
+      `/sessions/${encodeURIComponent(sessionId)}/context/summary`,
+      { agent_id: agentId },
+      options,
+    );
+  }
+
+  async getSessionContextItems(
+    sessionId: string,
+    query?: { agentId?: string; role?: string; roles?: readonly string[]; offset?: number; limit?: number },
+    options?: ReadRequestOptions,
+  ): Promise<SessionContextItemsResponse> {
+    return this.http.get<SessionContextItemsResponse>(
+      `/sessions/${encodeURIComponent(sessionId)}/context/items`,
+      {
+        agent_id: query?.agentId,
+        role: query?.roles?.length ? query.roles : query?.role,
+        offset: query?.offset !== undefined ? String(query.offset) : undefined,
+        limit: query?.limit !== undefined ? String(query.limit) : undefined,
+      },
+      options,
+    );
+  }
+
+  async getSessionContextItem(
+    sessionId: string,
+    itemId: string,
+    agentId?: string,
+  ): Promise<SessionContextItemDetail> {
+    return this.http.get<SessionContextItemDetail>(
+      `/sessions/${encodeURIComponent(sessionId)}/context/items/${encodeURIComponent(itemId)}`,
+      { agent_id: agentId },
+    );
   }
 
   async exportSession(

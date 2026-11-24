@@ -34,7 +34,7 @@ const MenuItem = Type.Union([
 export const BrowserOverlayMenuRequestSchema = Type.Object({
   menuId: Id, anchor: BrowserBoundsSchema, placement: Type.Optional(Placement), initialFocus: Type.Optional(InitialFocus),
   offset: Type.Optional(Type.Number({ minimum: -16, maximum: 32 })), width: Type.Optional(Type.Number({ minimum: 180 })),
-  autoWidth: OptionalFlag, preserveFocus: OptionalFlag, items: Type.Array(MenuItem, { minItems: 1, maxItems: 2048 }),
+  autoWidth: OptionalFlag, preserveFocus: OptionalFlag, submitOnCtrlEnter: OptionalFlag, items: Type.Array(MenuItem, { minItems: 1, maxItems: 2048 }),
   footerStart: Type.Optional(Type.Integer({ minimum: 0 })), query: Type.Optional(Type.String({ maxLength: 1024 })),
 });
 const DialogCoordinate = Type.Number({ minimum: 0, maximum: 32768 });

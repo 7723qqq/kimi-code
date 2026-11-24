@@ -1203,11 +1203,13 @@ describe('DaemonKimiWebApi.suggestFiles abort signal', () => {
     const controller = new AbortController();
 
     const pending = api.suggestFiles('ws_1', { query: 'a' }, { signal: controller.signal });
-    const assertion = expect(pending).rejects.toSatisfy(
-      (err) => err instanceof DOMException && err.name === 'AbortError',
-    );
     controller.abort();
-    await assertion;
+    const error = await pending.then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(error).toBeInstanceOf(DOMException);
+    expect((error as DOMException).name).toBe('AbortError');
     expect(failures).toEqual([]);
   });
 
@@ -1234,11 +1236,13 @@ describe('DaemonKimiWebApi.suggestFiles abort signal', () => {
     });
 
     const pending = api.suggestFiles('ws_1', { query: 'a' }, { signal: controller.signal });
-    const assertion = expect(pending).rejects.toSatisfy(
-      (err) => err instanceof DOMException && err.name === 'AbortError',
-    );
     controller.abort();
-    await assertion;
+    const error = await pending.then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(error).toBeInstanceOf(DOMException);
+    expect((error as DOMException).name).toBe('AbortError');
     expect(failures).toEqual([]);
   });
 
@@ -1362,7 +1366,6 @@ describe('DaemonKimiWebApi background admission', () => {
     const controller = new AbortController();
     const defaultRequest = call(api);
     const cancelled = call(api, { signal: controller.signal });
-    const assertion = expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
     await flushRequests();
     expect(fetch).toHaveBeenCalledTimes(2);
 
@@ -1376,7 +1379,11 @@ describe('DaemonKimiWebApi background admission', () => {
     explicitSignal.abort();
     expect(vi.mocked(fetch).mock.calls[2]?.[1]?.signal?.aborted).toBe(true);
     controller.abort();
-    await assertion;
+    const error = await cancelled.then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(error).toMatchObject({ name: 'AbortError' });
     expect(fetch).toHaveBeenCalledTimes(3);
 
     firstResponse.resolve(envelope({ warnings: [] }));
@@ -1398,14 +1405,17 @@ describe('DaemonKimiWebApi background admission', () => {
     const second = api.getSessionWarnings('blocking-2');
     const controller = new AbortController();
     const background = call(api, { background: true, signal: controller.signal });
-    const assertion = expect(background).rejects.toMatchObject({ name: 'AbortError' });
     await flushRequests();
     expect(fetch).toHaveBeenCalledTimes(2);
     await call(api);
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(vi.mocked(fetch).mock.calls[2]?.[0]).toBe(url);
     controller.abort();
-    await assertion;
+    const error = await background.then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(error).toMatchObject({ name: 'AbortError' });
     firstResponse.resolve(envelope({ warnings: [] }));
     secondResponse.resolve(envelope({ warnings: [] }));
     await Promise.all([first, second]);
@@ -1457,12 +1467,15 @@ describe('DaemonKimiWebApi background admission', () => {
     const first = api.getSessionWarnings('blocking-1');
     const second = api.getSessionWarnings('blocking-2');
     const queued = api.getSessionWarnings('queued');
-    const assertion = expect(queued).rejects.toMatchObject({ name: 'AbortError' });
     await flushRequests();
     await otherApi.getSessionWarnings('other');
     expect(vi.mocked(fetch).mock.calls[2]?.[0]).toBe(`${origin}/api/v1/sessions/other/warnings`);
     api.dispose();
-    await assertion;
+    const error = await queued.then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(error).toMatchObject({ name: 'AbortError' });
     await expect(api.listSessions()).rejects.toMatchObject({ name: 'AbortError' });
     await expect(otherApi.getSessionWarnings('still-open')).resolves.toEqual([]);
     firstResponse.resolve(envelope({ warnings: [] }));

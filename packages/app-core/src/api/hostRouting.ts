@@ -40,6 +40,13 @@ const ROUTES = {
   deleteSession: 'session',
   archiveSessions: 'custom',
   restoreSessions: 'custom',
+  createFeedback: 'custom',
+  updateFeedback: 'custom',
+  uploadFeedbackAttachment: 'local',
+  uploadFeedbackSession: 'custom',
+  getSessionContextSummary: 'session',
+  getSessionContextItems: 'session',
+  getSessionContextItem: 'session',
   getAgentTurns: 'session',
   exportSession: 'session',
   submitPrompt: 'session',
@@ -553,6 +560,21 @@ export class HostRouter implements HostRoutingControls {
   protected async route_createSession(input: Parameters<KimiWebApi['createSession']>[0]): Promise<AppSession> {
     const hostId = input.workspaceId === undefined ? undefined : this.workspaceHost.get(input.workspaceId);
     return this.rememberSessions(hostId, [await this.deviceApi(hostId).createSession(input)])[0]!;
+  }
+
+  protected async route_createFeedback(input: Parameters<KimiWebApi['createFeedback']>[0]): ReturnType<KimiWebApi['createFeedback']> {
+    const api = input.kind === 'turn' ? this.deviceApi(await this.ownerOf(input.session_id)) : this.local;
+    return api.createFeedback(input);
+  }
+
+  protected async route_updateFeedback(...[feedbackId, input, sessionId]: Parameters<KimiWebApi['updateFeedback']>): ReturnType<KimiWebApi['updateFeedback']> {
+    const api = sessionId === undefined ? this.local : this.deviceApi(await this.ownerOf(sessionId));
+    return api.updateFeedback(feedbackId, input);
+  }
+
+  protected async route_uploadFeedbackSession(...[feedbackId, sessionId, signal, globalFeedback]: Parameters<KimiWebApi['uploadFeedbackSession']>): ReturnType<KimiWebApi['uploadFeedbackSession']> {
+    if (globalFeedback !== undefined) return this.local.uploadFeedbackSession(feedbackId, sessionId, signal, globalFeedback);
+    return this.deviceApi(await this.ownerOf(sessionId)).uploadFeedbackSession(feedbackId, sessionId, signal);
   }
 
   protected async route_uploadFile({ hostId, ...rest }: Parameters<KimiWebApi['uploadFile']>[0]): ReturnType<KimiWebApi['uploadFile']> {

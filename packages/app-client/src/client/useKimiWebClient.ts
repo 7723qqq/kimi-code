@@ -35,6 +35,7 @@ import { ackTowerPending, foldDaemonTowerMode } from '@moonshot-ai/app-core/lib'
 import {
   matchModelSwitchRule,
   resolveModelSwitchHint,
+  resolveModelSwitchWarning,
   upstreamModelIdFromConfigModels,
   type ModelSwitchAction,
   type ModelSwitchRule,
@@ -2163,26 +2164,31 @@ async function applySelectModel(modelId: string): Promise<void> {
 
 function matchedModelSwitchRuleForActiveSession(
   modelId: string,
-): { rule: ModelSwitchRule; fromDisplay: string; toDisplay: string } | undefined {
+): { rule: ModelSwitchRule; fromDisplay: string; toDisplay: string; sessionType: 'old' | 'new' } | undefined {
   const sid = rawState.activeSessionId;
-  if (sid === null || sid === undefined) return undefined;
-  const session = rawState.sessions.find((s) => s.id === sid);
-  if (session === undefined || session.lastPrompt === undefined) return undefined;
-  if (session.model === modelId) return undefined;
+  const session = sid === null || sid === undefined ? undefined : rawState.sessions.find((s) => s.id === sid);
+  if (sid !== null && sid !== undefined && session === undefined) return undefined;
   const store = modelsStore();
-  const fromEntry = store.activeModels.find((m) => m.id === session.model);
+  const fromModel = session === undefined ? store.resolveSendModel(undefined, { includeDraft: true }) : session.model;
+  if (fromModel === null || fromModel === modelId) return undefined;
+  const fromEntry = store.activeModels.find((m) => m.id === fromModel);
   const toEntry = store.activeModels.find((m) => m.id === modelId);
   if (fromEntry === undefined || toEntry === undefined) return undefined;
   const configModels = configStore().config?.models;
-  const fromUpstream = upstreamModelIdFromConfigModels(configModels, session.model);
+  const fromUpstream = upstreamModelIdFromConfigModels(configModels, fromModel);
   const toUpstream = upstreamModelIdFromConfigModels(configModels, modelId);
   if (fromUpstream === undefined || toUpstream === undefined) return undefined;
-  const rule = matchModelSwitchRule(modelSwitchConfirmStore().peek(), fromUpstream, toUpstream);
+  const hasConversationHistory =
+    session !== undefined &&
+    (session.lastPrompt !== undefined || session.messageCount > 0 || session.usage.turnCount > 0);
+  const sessionType = hasConversationHistory ? 'old' : 'new';
+  const rule = matchModelSwitchRule(modelSwitchConfirmStore().peek(), fromUpstream, toUpstream, sessionType);
   if (rule === undefined) return undefined;
   return {
     rule,
     fromDisplay: fromEntry.displayName ?? fromEntry.model,
     toDisplay: toEntry.displayName ?? toEntry.model,
+    sessionType,
   };
 }
 
@@ -2284,7 +2290,9 @@ async function selectModel(modelId: string): Promise<void> {
   const action = await modelSwitchConfirmStore().requestConfirm({
     fromModel: matched.fromDisplay,
     toModel: matched.toDisplay,
+    sessionType: matched.sessionType,
     hint: resolveModelSwitchHint(matched.rule, detectKimiLocale()),
+    warning: resolveModelSwitchWarning(matched.rule, detectKimiLocale()),
   });
   await runModelSwitchAction(action, modelId, triggerSid, generation);
 }

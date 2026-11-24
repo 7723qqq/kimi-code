@@ -7,7 +7,7 @@ import { modelSwitchConfirmStore } from '../src/stores/modelSwitchConfirm';
 
 const CLOUD_CONFIG = {
   enable: true,
-  rules: [{ from: 'kimi-k2.5', to: 'kimi-k2-turbo-preview', hint: { en: 'Cache lost.', zh: '缓存失效。' } }],
+  rules: [{ from: 'kimi-k2.5', to: 'kimi-k2-turbo-preview', session_type: 'all', hint: { en: 'Cache lost.', zh: '缓存失效。' } }],
 };
 
 function stubApi(impl: (name: string) => Promise<unknown>): ReturnType<typeof vi.fn> {
@@ -81,7 +81,7 @@ describe('refresh', () => {
 describe('requestConfirm / settle', () => {
   it('resolves with the settled action and clears pending', async () => {
     const store = modelSwitchConfirmStore();
-    const promise = store.requestConfirm({ fromModel: 'A', toModel: 'B', hint: 'hint' });
+    const promise = store.requestConfirm({ fromModel: 'A', toModel: 'B', sessionType: 'new', hint: 'hint' });
     expect(store.pending).toMatchObject({ fromModel: 'A', toModel: 'B', hint: 'hint' });
 
     store.settle('compact');
@@ -92,8 +92,8 @@ describe('requestConfirm / settle', () => {
 
   it('cancels a previous pending request when a new one arrives', async () => {
     const store = modelSwitchConfirmStore();
-    const first = store.requestConfirm({ fromModel: 'A', toModel: 'B' });
-    const second = store.requestConfirm({ fromModel: 'C', toModel: 'D' });
+    const first = store.requestConfirm({ fromModel: 'A', toModel: 'B', sessionType: 'old' });
+    const second = store.requestConfirm({ fromModel: 'C', toModel: 'D', sessionType: 'old' });
 
     await expect(first).resolves.toBe('cancel');
     expect(store.pending).toMatchObject({ fromModel: 'C', toModel: 'D' });

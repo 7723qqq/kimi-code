@@ -141,6 +141,8 @@ export interface ListSessionsInput extends PageRequest {
   updatedBefore?: string;
   archived?: boolean | 'all';
   hasPrompt?: boolean;
+  query?: string;
+  localOnly?: boolean;
   sort?: SessionsSort;
   include?: 'git';
   pageToken?: string;
@@ -1002,6 +1004,29 @@ export interface ReadRequestOptions {
   signal?: AbortSignal;
 }
 
+export type CreateFeedbackInput =
+  | {
+    kind: 'global';
+    source: 'sidebar' | 'command';
+    category: 'bug' | 'suggestion' | 'other';
+    content: string;
+    session_id?: string;
+    client?: 'desktop' | 'web';
+    upload_session?: boolean;
+    upload_logs?: boolean;
+  }
+  | { kind: 'turn'; session_id: string; turn_id: string; reply_id: string; rating: 'up' | 'down'; client?: 'desktop' | 'web' };
+
+export type UpdateFeedbackInput =
+  | { kind: 'details'; reasons: string[]; content?: string; upload_session?: boolean }
+  | { kind: 'cancel' };
+
+export interface FeedbackAttachmentInput {
+  kind: 'media' | 'diagnostics';
+  file: Blob;
+  fileName: string;
+}
+
 export interface RemoteControlStatus {
   enabled: boolean;
   state: 'off' | 'starting' | 'on' | 'stopping';
@@ -1021,7 +1046,7 @@ export interface RemoteControlStatus {
 export interface KimiWebApi {
   dispose(): void;
   getHealth(): Promise<{ status: 'ok'; uptimeSec: number }>;
-  getMeta(): Promise<{ protocolVersion: string; serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean>; openInApps: string[]; dangerousBypassAuth: boolean; experimentalFlags: Record<string, boolean>; backend: 'v1' | 'v2'; webTitle: string }>;
+  getMeta(): Promise<{ protocolVersion: string; serverVersion: string; serverId: string; startedAt: string; homeDir: string; capabilities: Record<string, boolean>; openInApps: string[]; dangerousBypassAuth: boolean; experimentalFlags: Record<string, boolean>; backend: 'v1' | 'v2'; webTitle: string }>;
   getRemoteControlStatus(): Promise<RemoteControlStatus>;
   setRemoteControlEnabled(enabled: boolean): Promise<RemoteControlStatus>;
   listRemoteControlDevices(): Promise<RcDeviceList>;
@@ -1036,6 +1061,10 @@ export interface KimiWebApi {
   updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; swarmMode?: boolean; towerMode?: boolean; towerBase?: string; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel' | 'edit'; thinking?: string }): Promise<AppSession>;
   evaluateSessionRating(sessionId: string, turnId: string): Promise<AppSessionRatingOffer | null>;
   reportSessionRating(sessionId: string, report: AppSessionRatingReport): Promise<void>;
+  createFeedback(input: CreateFeedbackInput): Promise<{ feedback_id: number }>;
+  updateFeedback(feedbackId: number, input: UpdateFeedbackInput, sessionId?: string): Promise<{ feedback_id: number }>;
+  uploadFeedbackAttachment(feedbackId: number, input: FeedbackAttachmentInput, signal?: AbortSignal): Promise<{ upload_id: number }>;
+  uploadFeedbackSession(feedbackId: number, sessionId: string, signal?: AbortSignal, globalFeedback?: { hostId?: string }): Promise<{ upload_id: number }>;
   getTurnFileChanges(
     sessionId: string,
     turnNumber: number,
@@ -1061,6 +1090,17 @@ export interface KimiWebApi {
     input?: AgentTurnsQuery,
     options?: ReadRequestOptions,
   ): Promise<ConversationTurnsPage>;
+  getSessionContextSummary(sessionId: string, agentId?: string, options?: ReadRequestOptions): Promise<SessionContextSummary>;
+  getSessionContextItems(
+    sessionId: string,
+    query?: { agentId?: string; role?: string; roles?: readonly string[]; offset?: number; limit?: number },
+    options?: ReadRequestOptions,
+  ): Promise<SessionContextItemsResponse>;
+  getSessionContextItem(
+    sessionId: string,
+    itemId: string,
+    agentId?: string,
+  ): Promise<SessionContextItemDetail>;
   exportSession(
     sessionId: string,
     webLog?: string,
@@ -1253,6 +1293,65 @@ export type ManagedUserInfoResult =
   | { kind: 'error'; message: string; status?: number };
 
 export const MANAGED_KIMI_CODE_PROVIDER_ID = 'managed:kimi-code';
+
+export interface SessionContextGroup {
+  role: string;
+  count: number;
+  tokens: number;
+}
+
+export interface SessionContextSummary {
+  session_id: string;
+  agent_id: string;
+  captured_at: number;
+  model?: string;
+  tokens: {
+    used: number;
+    max?: number;
+  };
+  groups: SessionContextGroup[];
+}
+
+export type SessionContextItemSegment = 'thinking' | 'reply' | 'tool_call';
+
+export interface SessionContextItemSummary {
+  id: string;
+  role: string;
+  segment?: SessionContextItemSegment;
+  name?: string;
+  sequence?: number;
+  preview: string;
+  tokens: number;
+  has_media: boolean;
+}
+
+export interface SessionContextItemsResponse {
+  summary: SessionContextSummary;
+  tools: SessionContextItemSummary[];
+  items: SessionContextItemSummary[];
+  total: number;
+  has_more: boolean;
+}
+
+export interface SessionContextItemPart {
+  kind: 'text' | 'think' | 'definition' | 'function' | 'media';
+  text?: string;
+  name?: string;
+  tokens?: number;
+  data?: unknown;
+}
+
+export interface SessionContextItemDetail {
+  id: string;
+  role: string;
+  segment?: SessionContextItemSegment;
+  name?: string;
+  sequence?: number;
+  tokens: number;
+  has_media: boolean;
+  parts: SessionContextItemPart[];
+  raw: unknown;
+}
 
 export interface AuthResult {
   modelsReady: boolean;

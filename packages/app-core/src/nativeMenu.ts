@@ -32,4 +32,5 @@ export type NativeMenuItem =
       disabled?: boolean;
       selected?: boolean;
       danger?: boolean;
+      keepOpen?: boolean;
     };

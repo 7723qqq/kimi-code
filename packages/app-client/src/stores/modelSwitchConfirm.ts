@@ -13,7 +13,9 @@ import { clientPinia } from './pinia';
 export interface ModelSwitchConfirmRequest {
   fromModel: string;
   toModel: string;
+  sessionType: 'old' | 'new';
   hint?: string;
+  warning?: string;
   resolve: (action: ModelSwitchAction) => void;
 }
 

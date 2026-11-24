@@ -105,6 +105,7 @@ export async function registerApiV1Routes(
         product: opts.hostIdentity.productName,
         serverId: ulid(),
         startedAt: new Date().toISOString(),
+        homeDir: opts.remoteControl.homeDir,
         dangerousBypassAuth: opts.dangerousBypassAuth === true,
         webTitle: opts.webTitle,
         getExperimentalFlags: async () => {

@@ -2541,7 +2541,9 @@ function openPr(url: string): void {
     <ModelSwitchConfirmDialog
       v-if="modelSwitchConfirmPending !== null"
       :open="true"
+      :session-type="modelSwitchConfirmPending.sessionType"
       :hint="modelSwitchConfirmPending.hint"
+      :warning="modelSwitchConfirmPending.warning"
       @select="modelSwitchConfirmStore().settle($event)"
     />
 

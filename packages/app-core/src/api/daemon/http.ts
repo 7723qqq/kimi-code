@@ -31,6 +31,14 @@ export type RestQuery = Record<string, RestQueryValue | readonly RestQueryValue[
 export interface DaemonRequestOptions extends ReadRequestOptions {
   allowCodes?: number[];
   timeoutMs?: number;
+  sensitive?: boolean;
+}
+
+interface FormPostOptions {
+  onUploadProgress?: (loaded: number, total: number) => void;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  sensitive?: boolean;
 }
 
 function appendQuery(params: URLSearchParams, query: RestQuery): void {
@@ -488,8 +496,8 @@ export class DaemonHttpClient {
     };
   }
 
-  async postForm<T>(path: string, formData: FormData, opts?: { onUploadProgress?: (loaded: number, total: number) => void; signal?: AbortSignal }): Promise<T> {
-    if (opts?.onUploadProgress !== undefined) return this.postFormXhr<T>(path, formData, opts.onUploadProgress, opts.signal);
+  async postForm<T>(path: string, formData: FormData, opts: FormPostOptions = {}): Promise<T> {
+    if (opts.onUploadProgress !== undefined) return this.postFormXhr<T>(path, formData, { ...opts, onUploadProgress: opts.onUploadProgress });
     const url = buildRestUrl(this.opts.origin, path);
     const requestId = createRequestId();
     const headers: Record<string, string> = {
@@ -497,9 +505,9 @@ export class DaemonHttpClient {
     };
     this.addClientHeaders(headers);
     const startedAt = Date.now();
-    this.tracer.restRequest?.({ method: 'POST', path, url, requestId, headers: traceRequestHeaders(headers), body: describeFormData(formData) });
-    const callerSignal = opts?.signal;
-    const timeout = timeoutSignal();
+    this.tracer.restRequest?.({ method: 'POST', path, url, requestId, headers: traceRequestHeaders(headers), body: opts.sensitive === true ? undefined : describeFormData(formData) });
+    const callerSignal = opts.signal;
+    const timeout = timeoutSignal(opts.timeoutMs);
     const signal = callerSignal === undefined
       ? timeout
       : timeout === undefined
@@ -592,19 +600,20 @@ export class DaemonHttpClient {
     return envelope.data as T;
   }
 
-  private postFormXhr<T>(path: string, formData: FormData, onUploadProgress: (loaded: number, total: number) => void, signal?: AbortSignal): Promise<T> {
+  private postFormXhr<T>(path: string, formData: FormData, opts: FormPostOptions & { onUploadProgress: (loaded: number, total: number) => void }): Promise<T> {
+    const { signal, onUploadProgress, timeoutMs = REQUEST_TIMEOUT_MS, sensitive } = opts;
     const url = buildRestUrl(this.opts.origin, path);
     const requestId = createRequestId();
     const headers: Record<string, string> = { 'X-Request-Id': requestId };
     this.addClientHeaders(headers);
     const startedAt = Date.now();
-    this.tracer.restRequest?.({ method: 'POST', path, url, requestId, headers: traceRequestHeaders(headers), body: describeFormData(formData) });
+    this.tracer.restRequest?.({ method: 'POST', path, url, requestId, headers: traceRequestHeaders(headers), body: sensitive === true ? undefined : describeFormData(formData) });
     return new Promise<T>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       const abort = (): void => xhr.abort();
       const cleanup = (): void => signal?.removeEventListener('abort', abort);
       xhr.open('POST', url);
-      xhr.timeout = REQUEST_TIMEOUT_MS;
+      xhr.timeout = timeoutMs;
       for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) onUploadProgress(event.loaded, event.total);
@@ -718,8 +727,8 @@ export class DaemonHttpClient {
     });
   }
 
-  async patch<T>(path: string, body: unknown): Promise<T> {
-    return this.request<T>('PATCH', path, body);
+  async patch<T>(path: string, body: unknown, opts?: DaemonRequestOptions): Promise<T> {
+    return this.request<T>('PATCH', path, body, undefined, opts);
   }
 
   async put<T>(path: string, body: unknown): Promise<T> {
@@ -767,7 +776,7 @@ export class DaemonHttpClient {
       }
 
       const startedAt = Date.now();
-      this.tracer.restRequest?.({ method, path, url, requestId, headers: traceRequestHeaders(headers), body, queueMs });
+      this.tracer.restRequest?.({ method, path, url, requestId, headers: traceRequestHeaders(headers), body: opts.sensitive === true ? undefined : body, queueMs });
 
       let response: Response;
       try {
