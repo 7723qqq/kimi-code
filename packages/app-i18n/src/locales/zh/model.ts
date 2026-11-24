@@ -21,6 +21,8 @@ export default {
   hintSelect: '选择',
   hintClose: '关闭',
   switchConfirmTitle: '确认切换模型？',
+  switchEffortConfirmTitle: '确认把思考强度由 {from} 切换到 {to}？',
+  switchConfirmConfirm: '确认切换',
   switchConfirmNew: '新建会话',
   switchConfirmNewDesc: '无额外消耗 · 新任务首选',
   switchConfirmCompact: '压缩后继续',
@@ -31,3 +33,4 @@ export default {
   switchConfirmCancelDesc: '保持当前模型不变',
   switchCompactAborted: '压缩未完成，模型未变更。',
 } as const;
+

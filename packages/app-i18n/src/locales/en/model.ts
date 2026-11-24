@@ -21,6 +21,8 @@ export default {
   hintSelect: 'Select',
   hintClose: 'Close',
   switchConfirmTitle: 'Confirm model switch?',
+  switchEffortConfirmTitle: 'Confirm effort switch from {from} to {to}?',
+  switchConfirmConfirm: 'Confirm switch',
   switchConfirmNew: 'Start a new session',
   switchConfirmNewDesc: 'No extra cost · best for a new task',
   switchConfirmCompact: 'Compact and continue',
@@ -31,3 +33,4 @@ export default {
   switchConfirmCancelDesc: 'Stay on the current model',
   switchCompactAborted: 'Compaction did not finish — model unchanged.',
 } as const;
+

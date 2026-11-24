@@ -36,8 +36,10 @@ export * from './useMcpAuthorization';
 export * from './usePanelTabDrag';
 export * from './usePointerDragSession';
 export * from './useWrapReorderDrag';
+export * from './useTranscriptScroll';
 export * from './usePanelScroll';
 export * from './usePanelSlide';
 export * from './useFontMetadata';
 export * from './useTerminalFonts';
+
 

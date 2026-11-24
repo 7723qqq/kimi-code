@@ -4,7 +4,7 @@ import { browserReferenceAnchor, useComposerBrowserReferenceHost } from '../comp
 import BrowserReferenceDetails from '../composer/BrowserReferenceDetails.vue';
 import { useBrowserReferenceDetails } from '../composer/browserReferenceDetails';
 import { composerSnapshotFromMetadata, rebindComposerSnapshotMedia } from '@moonshot-ai/app-client/lib';
-import { computed, inject, nextTick, onMounted, onUnmounted, provide, reactive, ref, watch } from 'vue';
+import { computed, inject, nextTick, onMounted, onUnmounted, provide, reactive, ref, watch, watchSyncEffect } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ChatTurn, ApprovalBlock, OpenMediaRequest, ToolMedia, QueuedPromptView, TurnAttachment, UIQuestion } from '@moonshot-ai/app-core/client/types';
 import type { AppSessionRatingResponse } from '@moonshot-ai/app-core/api';
@@ -26,6 +26,7 @@ import { createHistoryImageCache, HistoryImageCacheKey, Markdown, tableSelection
 import { FetchTurnFileChangesKey, LatestNotifyToolCallIdKey, NotifyUserEnabledKey, PinScrollKey, SelectionContextMenuKey, SessionRatingKey } from '@moonshot-ai/app-client/contracts';
 import { useKimiWebClient } from '@moonshot-ai/app-client/client';
 import { useTurnFileStats } from './useTurnFileStats';
+import { editedFileCount } from '../lib/fileStaleness';
 import type { TurnFileChange } from '@moonshot-ai/app-core/client/types';
 import ThinkingBlock from './ThinkingBlock.vue';
 import SessionRatingRow from './SessionRatingRow.vue';
@@ -266,13 +267,30 @@ function forkAssistantRun(turn: ChatTurn): void {
   emit('forkTurn', { turnIndex: turn.forkTurnIndex });
 }
 
+const liveTurnKeys = new Set<string>();
+function liveTurnKey(turnId: number): string {
+  return `${props.sessionId ?? ''}:${turnId}`;
+}
+watchSyncEffect(() => {
+  for (const group of assistantTurnGroups.value.values()) {
+    const turnId = group[0]!.daemonTurnId;
+    if (turnId !== undefined && !groupSettled(group)) liveTurnKeys.add(liveTurnKey(turnId));
+  }
+});
+
 const turnFileChangesById = computed(() => {
-  const map = new Map<string, { changes: TurnFileChange[]; daemonTurnId: number }>();
+  const map = new Map<string, { changes: TurnFileChange[]; daemonTurnId: number; expected?: number }>();
   if (props.inspector) return map;
   for (const group of assistantTurnGroups.value.values()) {
     const turnId = group[0]!.daemonTurnId;
     if (turnId === undefined || !groupSettled(group)) continue;
     const fetched = fetchedFileStats.value.get(turnId);
+    if (fetched === 'pending') {
+      if (!liveTurnKeys.has(liveTurnKey(turnId))) continue;
+      const expected = editedFileCount(group, props.cwd);
+      if (expected > 0) map.set(group[group.length - 1]!.id, { changes: [], daemonTurnId: turnId, expected });
+      continue;
+    }
     if (!Array.isArray(fetched) || fetched.length === 0) continue;
     map.set(group[group.length - 1]!.id, {
       changes: fetched.map((change) => ({
@@ -1494,6 +1512,7 @@ function streamingTailIndex(turn: ChatTurn): number | null {
           :changes="turnFileChangesById.get(turn.id)!.changes"
           :turn-id="turn.id"
           :daemon-turn-id="turnFileChangesById.get(turn.id)!.daemonTurnId"
+          :expected="turnFileChangesById.get(turn.id)!.expected"
           :session-id="turn.sessionId"
           :cwd="props.cwd"
           :interactive="turnFilesInteractive"

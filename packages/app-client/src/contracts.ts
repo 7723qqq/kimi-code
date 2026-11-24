@@ -57,6 +57,7 @@ export type TurnFileChangesResult = readonly TurnFileHistoryChange[] | undefined
 export interface FetchTurnFileChanges {
   (turnId: number): Promise<TurnFileChangesResult>;
   getSignal(): AbortSignal | undefined;
+  peek?(turnId: number): TurnFileChangesResult;
 }
 
 export const FetchTurnFileChangesKey: InjectionKey<FetchTurnFileChanges | undefined> =
@@ -150,3 +151,4 @@ export const InsertPathMentionKey: InjectionKey<((path: string, kind: 'file' | '
   Symbol('insertPathMention');
 
 export const OpenWithDefaultAppKey: InjectionKey<RevealInFolder | undefined> = Symbol('openWithDefaultApp');
+
