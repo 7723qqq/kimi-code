@@ -1089,6 +1089,19 @@ interface TurnEndedPayload {
   interruptReason?: 'user_cancelled' | 'aborted' | 'max_steps' | 'error' | 'filtered' | 'blocked';
   stopReason?: string;
   traceId?: string;
+  requestId?: string;
+  replyModel?: {
+    provider: string;
+    model: string;
+  };
+  modelSteps?: {
+    step: number;
+    role: 'step' | 'subagent';
+    model: string;
+    provider: string;
+    isKfc: boolean;
+    requestId?: string;
+  }[];
 }
 
 /**

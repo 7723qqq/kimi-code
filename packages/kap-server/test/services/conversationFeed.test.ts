@@ -484,4 +484,87 @@ describe('recorded conversation feed', () => {
       t.feed.dispose();
     }
   });
+
+  const reply = (text: string): ContextMessage => ({
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+  });
+
+  it('reuses the turn request ID only when its step produced the rated reply', async () => {
+    const t = await harness();
+    try {
+      await t.prompt();
+      await t.step('answer');
+      await t.loop({ type: 'content.part', turnId: '1', step: 1, stepUuid: 'answer', part: { type: 'text', text: 'First answer' }, block: 0 });
+      await t.loop({ type: 'step.end', uuid: 'answer', turnId: '1', step: 1, finishReason: 'stop' });
+      await t.dispatch(new TurnEnded({ agentId: 'main', turnId: 1, reason: 'completed', requestId: 'first-request' }));
+      const turn = t.feed.turns()[0]!;
+      const answer = turn.items.find((item) => item.type === 'assistant_message');
+      expect(answer).toBeDefined();
+      expect(t.feed.feedbackTurn(turn.turn_id, answer!.item_id)).toMatchObject({ requestId: 'first-request' });
+      expect(t.feed.feedbackTurn(turn.turn_id, 'missing')).toBeUndefined();
+
+      const failed = await harness();
+      try {
+        await failed.prompt();
+        await failed.step('explain');
+        await failed.loop({ type: 'content.part', turnId: '1', step: 1, stepUuid: 'explain', part: { type: 'text', text: 'I will read the file.' }, block: 0 });
+        await failed.loop({ type: 'step.end', uuid: 'explain', turnId: '1', step: 1, finishReason: 'stop' });
+        await failed.step('failed', 2);
+        await failed.loop({ type: 'step.end', uuid: 'failed', turnId: '1', step: 2, finishReason: 'error' });
+        await failed.dispatch(new TurnEnded({ agentId: 'main', turnId: 1, reason: 'failed', requestId: 'failed-request' }));
+        const failedTurn = failed.feed.turns()[0]!;
+        expect(failed.feed.feedbackTurn(failedTurn.turn_id)).toEqual({});
+      } finally {
+        failed.feed.dispose();
+      }
+    } finally {
+      t.feed.dispose();
+    }
+  });
+
+  it('drops reply attribution when the turn is undone', async () => {
+    const first = { step: 1, role: 'step' as const, provider: 'example', model: 'earlier', isKfc: false, requestId: 'first-request' };
+    const child = { ...first, role: 'subagent' as const, model: 'helper', requestId: 'child-request' };
+    const last = { ...first, step: 2, model: 'later', requestId: 'last-request' };
+    const t = await harness();
+    try {
+      await t.prompt();
+      await t.step('s1', 1);
+      await t.loop({ type: 'content.part', turnId: '1', step: 1, stepUuid: 's1', part: { type: 'text', text: 'First reply' }, block: 0 });
+      await t.loop({ type: 'step.end', uuid: 's1', turnId: '1', step: 1, finishReason: 'stop' });
+      await t.message({
+        role: 'user',
+        id: 'followup',
+        origin: { kind: 'user', inTurn: true },
+        content: [{ type: 'text', text: 'Follow-up question' }],
+        toolCalls: [],
+      });
+      await t.step('s2', 2);
+      await t.loop({ type: 'content.part', turnId: '1', step: 2, stepUuid: 's2', part: { type: 'text', text: 'Last reply' }, block: 0 });
+      await t.loop({ type: 'step.end', uuid: 's2', turnId: '1', step: 2, finishReason: 'stop' });
+      await t.dispatch(new TurnEnded({
+        agentId: 'main', turnId: 1, reason: 'completed',
+        requestId: last.requestId,
+        replyModel: { model: last.model, provider: last.provider },
+        modelSteps: [first, child, last],
+      }));
+      const turn = t.feed.turns()[0]!;
+      const firstReply = turn.items.find((item) => item.type === 'assistant_message' && item.text === 'First reply');
+      const lastReply = turn.items.find((item) => item.type === 'assistant_message' && item.text === 'Last reply');
+      expect(firstReply).toBeDefined();
+      expect(lastReply).toBeDefined();
+      expect(t.feed.feedbackTurn(turn.turn_id, lastReply!.item_id)).toMatchObject({ requestId: last.requestId });
+
+      await t.dispatch(new ContextUndo({ agentId: 'main', count: 1 }));
+
+      expect(t.feed.feedbackTurn(turn.turn_id, firstReply!.item_id)).toBeUndefined();
+      await t.dispatcher.restore();
+      expect(t.feed.feedbackTurn(turn.turn_id, firstReply!.item_id)).toBeUndefined();
+    } finally {
+      t.feed.dispose();
+    }
+  });
 });
+

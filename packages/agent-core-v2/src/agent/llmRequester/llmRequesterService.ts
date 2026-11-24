@@ -1,4 +1,5 @@
 import { LifecycleScope } from '#/app/scopes';
+import { isManagedKimiCodeBaseUrl } from '@moonshot-ai/kimi-code-oauth';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
@@ -308,6 +309,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       trace.set(traceId);
       if (overrides.source?.type === 'turn') {
         this.telemetry.setContext({ trace_id: traceId });
+        this.attribution?.noteActiveRequest(this.scopeContext.agentId, traceId, true, overrides.source);
       }
     };
     setTrace(undefined);
@@ -413,6 +415,13 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     onAttemptFailure: ((failure: AgentLLMRequestAttemptFailure) => void) | undefined,
   ): Promise<AgentLLMRequestFinish> {
     this.toolCallIdNormalizer.seedFrom(this.context.get());
+    if (this.attribution !== undefined && request.source?.type === 'turn' && request.source.step !== undefined) {
+      this.attribution.noteModel(this.scopeContext.agentId, request.source.turnId, request.source.step, {
+        model: request.model.name,
+        provider: request.model.protocol,
+        isKfc: isManagedKimiCodeBaseUrl(request.model.baseUrl),
+      });
+    }
     const cacheProbeBaseline = request.promptCacheProbe?.baseline;
     let cacheProbeReported = false;
     const compacted =
@@ -1282,3 +1291,5 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'llmRequester',
 );
+
+

@@ -160,12 +160,14 @@ export type {
 export { fetchChatTitle, kimiCodeToolsUrl } from './managed-tools';
 export type { FetchChatTitleError, FetchChatTitleOk, FetchChatTitleResult } from './managed-tools';
 
-export { fetchSubmitFeedback, kimiCodeFeedbackUrl } from './managed-feedback';
+export { fetchSubmitFeedback, fetchUpdateFeedback, kimiCodeFeedbackUrl } from './managed-feedback';
 export type {
+  FeedbackRequestOptions,
   FetchSubmitFeedbackError,
   FetchSubmitFeedbackOk,
   FetchSubmitFeedbackResult,
   SubmitFeedbackBody,
+  UpdateFeedbackBody,
 } from './managed-feedback';
 
 export {

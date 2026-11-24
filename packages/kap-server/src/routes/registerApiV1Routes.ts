@@ -23,6 +23,7 @@ import { registerCronRoutes } from './cron';
 import { registerFileHistoryRoutes } from './fileHistory';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
+import { registerFeedbackRoutes } from './feedback';
 import { registerGuiStoreRoutes } from './guiStore';
 import { registerInteractionsRoutes } from './interactions';
 import { registerMcpRoutes } from './mcp';
@@ -196,6 +197,15 @@ export async function registerApiV1Routes(
         core,
       );
       registerFilesRoutes(apiV1 as unknown as Parameters<typeof registerFilesRoutes>[0], core);
+      registerFeedbackRoutes(
+        apiV1 as unknown as Parameters<typeof registerFeedbackRoutes>[0],
+        core,
+        {
+          hostIdentity: opts.hostIdentity,
+          conversations: opts.conversations,
+          hostBridges: opts.hosts,
+        },
+      );
       registerSessionMediaRoutes(
         apiV1 as unknown as Parameters<typeof registerSessionMediaRoutes>[0],
         core,

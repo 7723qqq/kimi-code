@@ -84,6 +84,7 @@ import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionRequestAttributionService } from '#/session/requestAttribution/requestAttribution';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -191,6 +192,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @ILogService private readonly logger: ILogService,
     @IAgentTaskOutputService private readonly taskOutputs: IAgentTaskOutputService,
     @IAgentCacheBreakService private readonly cacheBreak: IAgentCacheBreakService,
+    @ISessionRequestAttributionService private readonly attribution: ISessionRequestAttributionService,
   ) {
     super();
     const space = this.scopeContext.agentContext.space;
@@ -231,6 +233,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       cacheBreak: this.cacheBreak,
       cancel: (turnId, reason) => this.cancelActiveTurn(turnId, reason),
       recordStreamPart: (turnId, step, block) => this.journal.recordStreamPart(turnId, step, block),
+      attribution: this.attribution,
     });
     this.profileAdapter = new AgentLoopProfileAdapter(
       profile,

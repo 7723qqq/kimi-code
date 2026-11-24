@@ -94,6 +94,20 @@ export interface TurnCancel {
   readonly reason?: 'user_cancelled' | 'aborted';
 }
 
+const turnModelSchema = z.object({ provider: z.string(), model: z.string() });
+export type TurnReplyModel = z.infer<typeof turnModelSchema>;
+
+export const turnModelStepSchema = z.object({
+  step: z.int(),
+  role: z.enum(['step', 'subagent']),
+  model: z.string(),
+  provider: z.string(),
+  isKfc: z.boolean(),
+  requestId: z.string().optional(),
+});
+export type TurnModelStep = z.infer<typeof turnModelStepSchema>;
+export type RequestModel = Pick<TurnModelStep, 'model' | 'provider' | 'isKfc'>;
+
 const turnEndedSchema = z.object({
   agentId: z.string(),
   turnId: z.number(),
@@ -105,6 +119,9 @@ const turnEndedSchema = z.object({
     .optional(),
   stopReason: z.string().optional(),
   traceId: z.string().optional(),
+  requestId: z.string().optional(),
+  replyModel: turnModelSchema.optional(),
+  modelSteps: z.array(turnModelStepSchema).optional(),
 });
 
 export interface TurnEndedPayload {
@@ -117,6 +134,8 @@ export interface TurnEndedPayload {
   readonly stopReason?: string;
   readonly traceId?: string;
   readonly requestId?: string;
+  readonly replyModel?: TurnReplyModel;
+  readonly modelSteps?: TurnModelStep[];
 }
 
 export class TurnEnded extends AgentEvent2<TurnEndedPayload> {
@@ -137,6 +156,9 @@ export class TurnEnded extends AgentEvent2<TurnEndedPayload> {
     if (this.interruptReason !== undefined) record['interruptReason'] = this.interruptReason;
     if (this.stopReason !== undefined) record['stopReason'] = this.stopReason;
     if (this.traceId !== undefined) record['traceId'] = this.traceId;
+    if (this.requestId !== undefined) record['requestId'] = this.requestId;
+    if (this.replyModel !== undefined) record['replyModel'] = this.replyModel;
+    if (this.modelSteps !== undefined) record['modelSteps'] = this.modelSteps;
     record['time'] = this.time;
     return record as SerializedEvent2;
   }
@@ -216,3 +238,5 @@ function advanceTurnClock(
     cancelledTurnIds: [...pendingCancellations].toSorted((a, b) => a - b),
   };
 }
+
+

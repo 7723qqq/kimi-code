@@ -355,6 +355,9 @@ export function traceIdFromHeadersRecord(headers: Record<string, string> | null)
   for (const [key, value] of Object.entries(headers)) {
     if (key.toLowerCase() === 'x-trace-id' && value.length > 0) return value;
   }
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === 'x-request-id' && value.length > 0) return value;
+  }
   return null;
 }
 

@@ -75,7 +75,7 @@ async function streamReply(step: ReplyStep, playback: Playback): Promise<void> {
   for (const segment of encoding.segments) byUnit[segment.unit]?.push(segment.data);
   const ensureHead = (): void => {
     if (sink.headSent) return;
-    sink.head(200, encoding.headers);
+    sink.head(200, replyHeaders(encoding.headers, step));
     request.transition('streaming');
   };
   for (let unit = 0; unit <= units; unit += 1) {
@@ -116,13 +116,20 @@ async function letPeerDrain(): Promise<void> {
   for (let turn = 0; turn < 2; turn += 1) await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+function replyHeaders(defaults: Readonly<Record<string, string>>, step: ReplyStep): Readonly<Record<string, string>> {
+  if (step.headers === undefined) return defaults;
+  const headers = new Headers(defaults);
+  for (const [name, value] of Object.entries(step.headers)) headers.set(name, value);
+  return Object.fromEntries(headers);
+}
+
 async function jsonReply(step: ReplyStep, playback: Playback): Promise<void> {
   const { sink, request } = playback;
   if (!(await holdAt(step, step.hold?.beforeUnit ?? 0, playback))) return;
   switch (step.ending.type) {
     case 'complete': {
       const response = playback.codec.encodeJson(step, playback.context);
-      sink.head(response.status, response.headers);
+      sink.head(response.status, replyHeaders(response.headers, step));
       sink.write(response.body);
       sink.end();
       request.transition('finished');
