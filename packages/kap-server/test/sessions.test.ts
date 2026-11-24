@@ -1818,11 +1818,11 @@ describe('server-v2 /api/v1/sessions', () => {
       const baselineCount = baseline.body.data.items.length;
 
       await writeFile(join(cwd, 'AGENTS.md'), 'new workspace rules');
-      const projectsPath = join(home as string, 'workspaces.json');
+      const projectsPath = join(home as string, 'projects.json');
       const projects = JSON.parse(await readFile(projectsPath, 'utf8')) as {
-        workspaces: Record<string, { root: string; additional_dirs?: string[] }>;
+        projects: Record<string, { root: string; additional_dirs?: string[] }>;
       };
-      const project = Object.values(projects.workspaces).find((entry) => entry.root === cwd);
+      const project = Object.values(projects.projects).find((entry) => entry.root === cwd);
       if (project === undefined) throw new Error('expected the session project');
       project.additional_dirs = [extra];
       await writeFile(projectsPath, JSON.stringify(projects), 'utf8');
@@ -1883,11 +1883,11 @@ describe('server-v2 /api/v1/sessions', () => {
         .get(IWorkspaceInstanceManager)
         .get(created.body.data.workspace_id);
       if (target === undefined) throw new Error('expected the session workspace');
-      const projectsPath = join(home as string, 'workspaces.json');
+      const projectsPath = join(home as string, 'projects.json');
       const projects = JSON.parse(await readFile(projectsPath, 'utf8')) as {
-        workspaces: Record<string, { root: string; additional_dirs?: string[] }>;
+        projects: Record<string, { root: string; additional_dirs?: string[] }>;
       };
-      const project = Object.values(projects.workspaces).find((entry) => entry.root === cwd);
+      const project = Object.values(projects.projects).find((entry) => entry.root === cwd);
       if (project === undefined) throw new Error('expected the session project');
       project.additional_dirs = [extra];
       await writeFile(projectsPath, JSON.stringify(projects), 'utf8');
@@ -3246,27 +3246,26 @@ describe('server-v2 /api/v1/sessions', () => {
     const lowerRoot = 'c:\\users\\foo\\proj';
     const typedId = encodeWorkDirKey(typedRoot);
     const lowerId = encodeWorkDirKey(lowerRoot);
-    await writeFile(
-      join(home as string, 'workspaces.json'),
-      JSON.stringify({
-        version: 1,
-        workspaces: {
-          [typedId]: {
-            root: typedRoot,
-            name: 'proj',
-            created_at: '2024-01-01T00:00:00.000Z',
-            last_opened_at: '2024-01-01T00:00:00.000Z',
-          },
-          [lowerId]: {
-            root: lowerRoot,
-            name: 'proj',
-            created_at: '2024-01-01T00:00:00.000Z',
-            last_opened_at: '2024-01-01T00:00:00.000Z',
-          },
+    await server!.core.accessor.get(IAtomicDocumentStore).set('', 'projects.json', {
+      schema_version: 2,
+      projects: {
+        [typedId]: {
+          root: typedRoot,
+          name: 'proj',
+          kind: 'implicit',
+          created_at: '2024-01-01T00:00:00.000Z',
+          last_opened_at: '2024-01-01T00:00:00.000Z',
         },
-      }),
-      'utf8',
-    );
+        [lowerId]: {
+          root: lowerRoot,
+          name: 'proj',
+          kind: 'implicit',
+          created_at: '2024-01-01T00:00:00.000Z',
+          last_opened_at: '2024-01-01T00:00:00.000Z',
+        },
+      },
+      deleted_project_ids: [],
+    });
     const seedBucket = async (wsId: string, sid: string, updatedAt: number): Promise<void> => {
       const dir = join(home as string, 'sessions', wsId, sid);
       await mkdir(dir, { recursive: true });
@@ -4026,3 +4025,4 @@ describe('server-v2 /api/v1/sessions:btw', () => {
     expect(new Set(turns.map((turn) => turn.turnId)).size).toBe(turns.length);
   });
 });
+

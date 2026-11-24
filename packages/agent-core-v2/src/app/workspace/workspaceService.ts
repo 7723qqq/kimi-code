@@ -1,13 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
 import { basename, isAbsolute } from 'pathe';
-
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { encodeWorkDirKey, isWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
 import { IEventService } from '#/app/event/event';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
-import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -20,13 +19,17 @@ import {
   type WorkspaceUpdate,
 } from './workspace';
 import {
+  WorkspaceCreated,
+  WorkspaceDeleted,
+  WorkspaceUpdated,
+} from './workspaceEvents';
+import {
   collectAliasIds,
   compactSessionIndexIfStale,
   dedupeByRoot,
+  isImplicitBucketSessionLine,
   readSessionIndexEntries,
-  readSessionIndexWorkDirs,
 } from './workspaceAlias';
-import { WorkspaceCreated, WorkspaceDeleted, WorkspaceUpdated } from './workspaceEvents';
 import { IWorkspacePersistence, type WorkspaceCatalog } from './workspacePersistence';
 
 export class WorkspaceService implements IWorkspaceService {
@@ -135,49 +138,107 @@ export class WorkspaceService implements IWorkspaceService {
         input.additionalDirs ?? [],
       );
       await this.ensureMerged();
-      const catalog = await this.loadCatalog();
-      const idempotencyKeys = { ...catalog.idempotencyKeys };
-      const mapped =
-        input.idempotencyKey === undefined ? undefined : idempotencyKeys[input.idempotencyKey];
-      const existing =
-        mapped === undefined ? undefined : catalog.workspaces.find((ws) => ws.id === mapped);
-      if (existing !== undefined) return existing;
-      const now = Date.now();
-      const ws: Workspace = {
-        id: `wm_${randomUUID()}`,
-        root: input.root,
-        name: input.name ?? basename(input.root),
-        kind: 'managed',
-        additionalDirs,
-        createdAt: now,
-        lastOpenedAt: now,
-      };
-      if (input.idempotencyKey !== undefined) idempotencyKeys[input.idempotencyKey] = ws.id;
-      await this.store.save({
-        workspaces: [...catalog.workspaces, ws],
-        deletedIds: catalog.deletedIds,
-        idempotencyKeys,
+      let ws!: Workspace;
+      let reused = false;
+      await this.store.update((catalog) => {
+        if (input.idempotencyKey !== undefined) {
+          const mapped = catalog.idempotencyKeys?.[input.idempotencyKey];
+          const existing =
+            mapped === undefined
+              ? undefined
+              : catalog.workspaces.find((entry) => entry.id === mapped);
+          if (existing !== undefined) {
+            ws = existing;
+            reused = true;
+            return catalog;
+          }
+        }
+        const now = Date.now();
+        ws = {
+          id: `wm_${randomUUID()}`,
+          root: input.root,
+          name: input.name ?? basename(input.root),
+          kind: 'managed',
+          additionalDirs,
+          createdAt: now,
+          lastOpenedAt: now,
+        };
+        const idempotencyKeys = { ...catalog.idempotencyKeys };
+        if (input.idempotencyKey !== undefined) idempotencyKeys[input.idempotencyKey] = ws.id;
+        return {
+          workspaces: [...catalog.workspaces, ws],
+          deletedIds: catalog.deletedIds,
+          idempotencyKeys,
+        };
       });
-      this.event.publish(new WorkspaceCreated({ payload: { workspace: ws } }));
+      if (!reused) this.event.publish(new WorkspaceCreated({ payload: { workspace: ws } }));
       return ws;
+    });
+  }
+
+  readProjectConfigDirs(root: string): Promise<readonly string[]> {
+    return this.runExclusive(async () => {
+      const fromProject = await this.readProjectDirs(root);
+      const rootKey = workspaceRootKey(root);
+      const result: string[] = [];
+      for (const dir of fromProject) {
+        const key = workspaceRootKey(dir);
+        if (key === rootKey) continue;
+        if (result.some((kept) => workspaceRootKey(kept) === key)) continue;
+        result.push(dir);
+      }
+      return result;
     });
   }
 
   touch(id: string): Promise<Workspace | undefined> {
     return this.runExclusive(async () => {
       await this.ensureMerged();
-      const catalog = await this.loadCatalog();
-      const existing = catalog.workspaces.find((ws) => ws.id === id);
-      if (existing === undefined) return undefined;
-      await this.requireDirectory(existing.root);
-      const touched: Workspace = { ...existing, lastOpenedAt: Date.now() };
-      await this.store.save({
-        workspaces: catalog.workspaces.map((ws) => (ws.id === id ? touched : ws)),
-        deletedIds: catalog.deletedIds,
-        idempotencyKeys: catalog.idempotencyKeys,
+      let touched: Workspace | undefined;
+      await this.store.update(async (catalog) => {
+        const existing = catalog.workspaces.find((ws) => ws.id === id);
+        if (existing === undefined) return catalog;
+        await this.requireDirectory(existing.root);
+        touched = { ...existing, lastOpenedAt: Date.now() };
+        return {
+          workspaces: catalog.workspaces.map((ws) => (ws.id === id ? touched! : ws)),
+          deletedIds: catalog.deletedIds,
+          idempotencyKeys: catalog.idempotencyKeys,
+        };
       });
-      this.event.publish(new WorkspaceUpdated({ payload: { workspace: touched } }));
+      if (touched !== undefined) {
+        this.event.publish(new WorkspaceUpdated({ payload: { workspace: touched } }));
+      }
       return touched;
+    });
+  }
+
+  update(id: string, patch: WorkspaceUpdate): Promise<Workspace | undefined> {
+    return this.runExclusive(async () => {
+      await this.ensureMerged();
+      let updated: Workspace | undefined;
+      await this.store.update(async (catalog) => {
+        const existing = catalog.workspaces.find((ws) => ws.id === id);
+        if (existing === undefined) return catalog;
+        const additionalDirs =
+          patch.additionalDirs === undefined
+            ? existing.additionalDirs
+            : await this.normalizeAdditionalDirs(existing.root, patch.additionalDirs);
+        updated = {
+          ...existing,
+          ...(patch.name !== undefined ? { name: patch.name } : {}),
+          additionalDirs,
+        };
+        return {
+          workspaces: catalog.workspaces.map((ws) => (ws.id === id ? updated! : ws)),
+          deletedIds: catalog.deletedIds,
+          idempotencyKeys: catalog.idempotencyKeys,
+        };
+      });
+      if (updated !== undefined) {
+        this.event.publish(new WorkspaceUpdated({ payload: { workspace: updated } }));
+      }
+      return updated;
     });
   }
 
@@ -189,9 +250,7 @@ export class WorkspaceService implements IWorkspaceService {
       await this.store.update(async (catalog) => {
         const existing = catalog.workspaces.find((ws) => ws.id === id);
         if (existing === undefined) return catalog;
-        const resolved = (
-          await this.localConfig.resolveAdditionalDirs(existing.root, [path])
-        )[0];
+        const resolved = (await this.localConfig.resolveAdditionalDirs(existing.root, [path]))[0];
         if (resolved === undefined) {
           throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `primary ${path} does not exist`);
         }
@@ -230,139 +289,74 @@ export class WorkspaceService implements IWorkspaceService {
     });
   }
 
-  readProjectConfigDirs(root: string): Promise<readonly string[]> {
-    return this.runExclusive(async () => {
-      const fromProject = await this.readProjectDirs(root);
-      const rootKey = workspaceRootKey(root);
-      const result: string[] = [];
-      for (const dir of fromProject) {
-        const key = workspaceRootKey(dir);
-        if (key === rootKey) continue;
-        if (result.some((kept) => workspaceRootKey(kept) === key)) continue;
-        result.push(dir);
-      }
-      return result;
-    });
-  }
-
-  private async requireDirectory(root: string): Promise<void> {
-    let stat;
-    try {
-      stat = await this.hostFs.stat(root);
-    } catch (error) {
-      const code = (unwrapErrorCause(error) as NodeJS.ErrnoException | undefined)?.code;
-      if (code === 'ENOENT' || code === 'ENOTDIR') {
-        throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${root} does not exist`);
-      }
-      throw error;
-    }
-    if (!stat.isDirectory) {
-      try {
-        stat = await this.hostFs.stat(await this.hostFs.realpath(root));
-      } catch {}
-    }
-    if (!stat.isDirectory) {
-      throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${root} is not a directory`);
-    }
-  }
-
-  private async normalizeAdditionalDirs(
-    root: string,
-    dirs: readonly string[],
-  ): Promise<readonly string[]> {
-    const rootKey = workspaceRootKey(root);
-    const resolved = await this.localConfig.resolveAdditionalDirs(root, dirs);
-    const kept: string[] = [];
-    for (const dir of resolved) {
-      if (workspaceRootKey(dir) === rootKey) {
-        throw new Error2(
-          ErrorCodes.CONFIG_INVALID,
-          `additional dir ${dir} duplicates the workspace root`,
-        );
-      }
-      if (kept.some((entry) => workspaceRootKey(entry) === workspaceRootKey(dir))) continue;
-      kept.push(dir);
-    }
-    return kept;
-  }
-
-  private async readProjectDirs(root: string): Promise<readonly string[]> {
-    const onDisk = await this.localConfig.readAdditionalDirs(root);
-    return onDisk.additionalDirs;
-  }
-
-
-  update(id: string, patch: WorkspaceUpdate): Promise<Workspace | undefined> {
-    return this.runExclusive(async () => {
-      await this.ensureMerged();
-      let updated: Workspace | undefined;
-      await this.store.update(async (catalog) => {
-        const existing = catalog.workspaces.find((ws) => ws.id === id);
-        if (existing === undefined) return catalog;
-        const additionalDirs =
-          patch.additionalDirs === undefined
-            ? existing.additionalDirs
-            : await this.normalizeAdditionalDirs(existing.root, patch.additionalDirs);
-        updated = {
-          ...existing,
-          ...(patch.name !== undefined ? { name: patch.name } : {}),
-          additionalDirs,
-        };
-        return {
-          workspaces: catalog.workspaces.map((ws) => (ws.id === id ? updated! : ws)),
-          deletedIds: catalog.deletedIds,
-          idempotencyKeys: catalog.idempotencyKeys,
-        };
-      });
-      if (updated !== undefined) {
-        this.event.publish(new WorkspaceUpdated({ payload: { workspace: updated } }));
-      }
-      return updated;
-    });
-  }
-
   delete(id: string): Promise<void> {
     return this.runExclusive(async () => {
       await this.ensureMerged();
-      const catalog = await this.loadCatalog();
-      let root = catalog.workspaces.find((ws) => ws.id === id)?.root;
-      if (root === undefined) {
-        root = (await readSessionIndexEntries(this.storage)).find(
-          (line) => encodeWorkDirKey(line.workDir) === id,
-        )?.workDir;
-      }
-      if (root === undefined) {
-        await this.store.save({
-          workspaces: catalog.workspaces.filter((ws) => ws.id !== id),
-          deletedIds: [...new Set([...catalog.deletedIds, id])],
-        });
-        return;
-      }
-      const rootKey = workspaceRootKey(root);
-      const aliasIds = collectAliasIds(
-        catalog.workspaces,
-        await readSessionIndexEntries(this.storage),
-        root,
-      );
-      await this.store.save({
-        workspaces: catalog.workspaces.filter((ws) => workspaceRootKey(ws.root) !== rootKey),
-        deletedIds: [...new Set([...catalog.deletedIds, ...aliasIds])],
+      let deletedRoot: string | undefined;
+      let deletedWorkspace: Workspace | undefined;
+      await this.store.update(async (catalog) => {
+        deletedWorkspace = catalog.workspaces.find((ws) => ws.id === id);
+        let root = deletedWorkspace?.root;
+        if (root === undefined) {
+          root = (await readSessionIndexEntries(this.storage)).find(
+            (line) => encodeWorkDirKey(line.workDir) === id,
+          )?.workDir;
+        }
+        if (root === undefined) {
+          return {
+            workspaces: catalog.workspaces.filter((ws) => ws.id !== id),
+            deletedIds: [...new Set([...catalog.deletedIds, id])],
+            idempotencyKeys: catalog.idempotencyKeys,
+          };
+        }
+        const aliasIds = isWorkDirKey(id)
+          ? collectAliasIds(catalog.workspaces, await readSessionIndexEntries(this.storage), root)
+          : [];
+        const removedIds = new Set([id, ...aliasIds]);
+        deletedRoot = root;
+        return {
+          workspaces: catalog.workspaces.filter((ws) => !removedIds.has(ws.id)),
+          deletedIds: [...new Set([...catalog.deletedIds, ...removedIds])],
+          idempotencyKeys: catalog.idempotencyKeys,
+        };
       });
-      this.event.publish(new WorkspaceDeleted({ payload: { workspaceId: id, root } }));
+      if (deletedRoot !== undefined) {
+        this.event.publish(new WorkspaceDeleted({ payload: { workspaceId: id, root: deletedRoot, workspace: deletedWorkspace } }));
+      }
     });
   }
 
   private async ensureMerged(): Promise<void> {
     if (this.merged) return;
     const loaded = await this.store.load();
-    if (loaded === undefined) {
-      const rebuilt = await this.rebuildFromSessionIndex();
-      await this.store.save({ workspaces: [...rebuilt.values()], deletedIds: [] });
+    if (loaded === undefined || loaded.workspaces.length === 0) {
+      await this.store.update(async (catalog) => {
+        const rebuilt = await this.rebuildFromSessionIndex();
+        const byId = new Map(catalog.workspaces.map((ws) => [ws.id, ws]));
+        const deletedIds = new Set(catalog.deletedIds);
+        for (const [id, workspace] of rebuilt) {
+          if (!byId.has(id) && !deletedIds.has(id)) byId.set(id, workspace);
+        }
+        return {
+          workspaces: [...byId.values()],
+          deletedIds: [...deletedIds],
+          idempotencyKeys: catalog.idempotencyKeys,
+        };
+      });
     } else {
       const byId = new Map(loaded.workspaces.map((ws) => [ws.id, ws]));
       const deletedIds = new Set(loaded.deletedIds);
       if (await this.mergeFromSessionIndex(byId, deletedIds)) {
-        await this.store.save({ workspaces: [...byId.values()], deletedIds: [...deletedIds] });
+        await this.store.update(async (catalog) => {
+          const latestById = new Map(catalog.workspaces.map((ws) => [ws.id, ws]));
+          const latestDeletedIds = new Set(catalog.deletedIds);
+          await this.mergeFromSessionIndex(latestById, latestDeletedIds);
+          return {
+            workspaces: [...latestById.values()],
+            deletedIds: [...latestDeletedIds],
+            idempotencyKeys: catalog.idempotencyKeys,
+          };
+        });
       }
     }
     this.merged = true;
@@ -403,13 +397,15 @@ export class WorkspaceService implements IWorkspaceService {
   ): Promise<boolean> {
     let changed = false;
     const now = Date.now();
-    for (const workDir of await readSessionIndexWorkDirs(this.storage)) {
-      const id = encodeWorkDirKey(workDir);
+    for (const entry of await readSessionIndexEntries(this.storage)) {
+      if (!isAbsolute(entry.workDir)) continue;
+      if (!isImplicitBucketSessionLine(entry)) continue;
+      const id = encodeWorkDirKey(entry.workDir);
       if (byId.has(id) || deletedIds.has(id)) continue;
       byId.set(id, {
         id,
-        root: workDir,
-        name: basename(workDir),
+        root: entry.workDir,
+        name: basename(entry.workDir),
         kind: 'implicit',
         additionalDirs: [],
         createdAt: now,
@@ -426,6 +422,7 @@ export class WorkspaceService implements IWorkspaceService {
     const seenRootKeys = new Set<string>();
     for (const entry of await readSessionIndexEntries(this.storage)) {
       if (!isAbsolute(entry.workDir)) continue;
+      if (!isImplicitBucketSessionLine(entry)) continue;
       const rootKey = workspaceRootKey(entry.workDir);
       if (seenRootKeys.has(rootKey)) continue;
       seenRootKeys.add(rootKey);
@@ -441,6 +438,53 @@ export class WorkspaceService implements IWorkspaceService {
       });
     }
     return result;
+  }
+
+  private async requireDirectory(root: string): Promise<void> {
+    let stat;
+    try {
+      stat = await this.hostFs.stat(root);
+    } catch (error) {
+      const code = (unwrapErrorCause(error) as NodeJS.ErrnoException | undefined)?.code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${root} does not exist`);
+      }
+      throw error;
+    }
+    if (!stat.isDirectory) {
+      try {
+        stat = await this.hostFs.stat(await this.hostFs.realpath(root));
+      } catch {
+      }
+    }
+    if (!stat.isDirectory) {
+      throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${root} is not a directory`);
+    }
+  }
+
+  private async normalizeAdditionalDirs(
+    root: string,
+    dirs: readonly string[],
+  ): Promise<readonly string[]> {
+    const resolved = await this.localConfig.resolveAdditionalDirs(root, dirs);
+    const rootKey = workspaceRootKey(root);
+    const result: string[] = [];
+    for (const dir of resolved) {
+      if (workspaceRootKey(dir) === rootKey) {
+        throw new Error2(
+          ErrorCodes.CONFIG_INVALID,
+          `additional dir ${dir} duplicates the workspace root`,
+        );
+      }
+      if (result.some((kept) => workspaceRootKey(kept) === workspaceRootKey(dir))) continue;
+      result.push(dir);
+    }
+    return result;
+  }
+
+  private async readProjectDirs(root: string): Promise<readonly string[]> {
+    const onDisk = await this.localConfig.readAdditionalDirs(root);
+    return onDisk.additionalDirs;
   }
 
   private runExclusive<T>(op: () => Promise<T>): Promise<T> {

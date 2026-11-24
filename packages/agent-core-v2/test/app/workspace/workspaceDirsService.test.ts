@@ -289,9 +289,8 @@ describe('WorkspaceDirsService primary lifecycle', () => {
     persistence = disposables.add(
       new FileWorkspacePersistence(
         new JsonAtomicDocumentStore(storage),
-        bootstrap,
         storage,
-        log,
+        bootstrap,
       ),
     );
     workspaces = new WorkspaceService(
@@ -482,3 +481,4 @@ describe('WorkspaceDirsService primary lifecycle', () => {
     expect(dirs.sessionInfo().primaryByWorkspace).toEqual({});
   });
 });
+

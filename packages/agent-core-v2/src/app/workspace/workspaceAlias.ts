@@ -1,5 +1,3 @@
-import { isAbsolute } from 'pathe';
-
 import { encodeWorkDirKey, isWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
 import type { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -156,7 +154,7 @@ export function collectAliasIds(
     ids.push(alias);
   };
   for (const ws of workspaces) {
-    if (workspaceRootKey(ws.root) === rootKey) add(ws.id);
+    if (isWorkDirKey(ws.id) && workspaceRootKey(ws.root) === rootKey) add(ws.id);
   }
   for (const line of sessionIndexEntries) {
     if (workspaceRootKey(line.workDir) === rootKey) add(encodeWorkDirKey(line.workDir));
@@ -186,6 +184,12 @@ export function dedupeByRoot(byId: ReadonlyMap<string, Workspace>): Workspace[] 
   return [...byRoot.values(), ...rest];
 }
 
+export function isImplicitBucketSessionLine(line: SessionIndexLine): boolean {
+  const segments = line.sessionDir.replaceAll('\\', '/').replace(/\/+$/, '').split('/');
+  const bucket = segments.at(-2) ?? '';
+  return !bucket.startsWith('wm_');
+}
+
 export async function readSessionIndexEntries(
   storage: IFileSystemStorageService,
 ): Promise<SessionIndexLine[]> {
@@ -200,17 +204,6 @@ export async function readSessionIndexEntries(
     entries.push(entry);
   }
   return entries;
-}
-
-export async function readSessionIndexWorkDirs(
-  storage: IFileSystemStorageService,
-): Promise<readonly string[]> {
-  const workDirs: string[] = [];
-  for (const entry of await readSessionIndexEntries(storage)) {
-    if (!isAbsolute(entry.workDir)) continue;
-    workDirs.push(entry.workDir);
-  }
-  return workDirs;
 }
 
 export function parseSessionIndexLine(line: string): SessionIndexLine | undefined {

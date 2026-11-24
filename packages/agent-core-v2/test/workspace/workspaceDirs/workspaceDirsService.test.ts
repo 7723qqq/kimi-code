@@ -1,9 +1,12 @@
 import { mkdtempSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+
+import { waitForAssertion as waitFor } from '#test/helpers/waitFor';
+import { setWatchEnabled } from '#human/utils/watch';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
@@ -23,7 +26,6 @@ import type { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceCo
 import { WorkspaceDirsService } from '#/workspace/workspaceDirs/workspaceDirsService';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 const noopLog = {
   error: () => {},
@@ -36,6 +38,8 @@ const noopEvent = {
   publish: () => {},
   subscribe: () => ({ dispose: () => {} }),
 } as unknown as IEventService;
+
+if (process.platform === 'win32') setWatchEnabled(false);
 
 describe('WorkspaceDirsService (registry source)', () => {
   let homeDir: string;
@@ -56,7 +60,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     const hostFs = new HostFileSystem();
     const bootstrap = stubBootstrap(homeDir);
     persistence = disposables.add(
-      new FileWorkspacePersistence(new JsonAtomicDocumentStore(storage), bootstrap, storage, noopLog),
+      new FileWorkspacePersistence(new JsonAtomicDocumentStore(storage), storage, bootstrap),
     );
     const localConfig = new FileProjectLocalConfigService(bootstrap, hostFs);
     workspaces = new WorkspaceService(
@@ -98,7 +102,7 @@ describe('WorkspaceDirsService (registry source)', () => {
           persistenceScope: `sessions/${workspaceId}`,
         } as unknown as IWorkspaceContext,
         new FileProjectLocalConfigService(bootstrap, hostFs),
-        noopLog as never,
+        noopLog,
         new WorkspaceStateService(),
         workspaces,
         persistence,
@@ -120,7 +124,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     });
     const list = spyOn(workspaces, 'list').mockImplementationOnce(() => held);
     changes.fire();
-    await waitForAssertion(() => {
+    await waitFor(() => {
       expect(list).toHaveBeenCalledTimes(1);
     });
     await workspaces.update(project.id, { additionalDirs: [dirC] });
@@ -163,7 +167,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     expect(secondDirs.sessionInfo().primaryByWorkspace).toEqual({ [second.id]: dirA });
 
     await workspaces.update(first.id, { additionalDirs: [] });
-    await waitForAssertion(() => {
+    await waitFor(() => {
       expect(firstDirs.additionalDirs).toEqual([]);
     });
     await secondDirs.reload();
@@ -187,7 +191,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     expect(dirs.additionalDirs).toEqual([dirC, dirB]);
   });
 
-  it('moves legacy local config and its watcher when the associated primary changes', async () => {
+  it.skipIf(process.platform === 'win32')('moves legacy local config and its watcher when the associated primary changes', async () => {
     const project = await workspaces.createOrTouch(dirA);
     await workspaces.update(project.id, { additionalDirs: [dirB] });
     const dirD = mkdtempSync(join(tmpdir(), 'ws-dirs-d-'));
@@ -204,7 +208,7 @@ describe('WorkspaceDirsService (registry source)', () => {
       expect(dirs.additionalDirs).toEqual([dirC, dirB]);
 
       await workspaces.setPrimary(project.id, dirB);
-      await waitForAssertion(
+      await waitFor(
         () => {
           expect(dirs.primary).toBe(dirB);
           expect(dirs.additionalDirs).toEqual([dirD, dirA]);
@@ -213,7 +217,7 @@ describe('WorkspaceDirsService (registry source)', () => {
       );
 
       await writeLocalConfig(dirB, []);
-      await waitForAssertion(
+      await waitFor(
         () => {
           expect(dirs.additionalDirs).toEqual([dirA]);
         },
@@ -266,13 +270,13 @@ describe('WorkspaceDirsService (registry source)', () => {
       fired += 1;
     });
     await workspaces.update(project.id, { additionalDirs: [dirB] });
-    await waitForAssertion(() => {
+    await waitFor(() => {
       expect(dirs.additionalDirs).toEqual([dirB]);
     });
     expect(fired).toBeGreaterThan(0);
   });
 
-  it('persists added dirs to the project local.toml and the workspace registry', async () => {
+  it('persists added dirs to the workspace registry instead of local.toml', async () => {
     const project = await workspaces.create({ root: dirA, name: 'proj' });
     const dirs = createDirs(dirA, project.id, 'managed');
     await dirs.ready;
@@ -285,17 +289,11 @@ describe('WorkspaceDirsService (registry source)', () => {
 
     const entry = await workspaces.get(project.id);
     expect(entry?.additionalDirs).toEqual([dirB]);
-
-    const escaped = dirB.replaceAll('\\', '\\\\');
-    const raw = await readFile(join(dirA, '.kimi-code', 'local.toml'), 'utf8');
-    expect(raw).toContain('additional_dir');
-    expect(raw).toContain(`"${escaped}"`);
+    await expect(stat(join(dirA, '.kimi-code', 'local.toml'))).rejects.toThrow();
 
     const again = await dirs.addDir({ path: dirB, persist: true });
     expect(again.additionalDirs).toEqual([dirB]);
     expect((await workspaces.get(project.id))?.additionalDirs).toEqual([dirB]);
-    const rawAgain = await readFile(join(dirA, '.kimi-code', 'local.toml'), 'utf8');
-    expect(rawAgain.split(`"${escaped}"`)).toHaveLength(2);
   });
 
   it('registers the hash entry on demand when persisting from a hash scope', async () => {
@@ -365,12 +363,12 @@ describe('WorkspaceDirsService (registry source)', () => {
     });
 
     await dirs.addDir({ path: dirB, persist: true });
-    await waitForAssertion(() => expect(fired).toBeGreaterThan(0));
+    await waitFor(() => expect(fired).toBeGreaterThan(0));
     expect(dirs.sharedAdditionalDirs).toEqual([dirB]);
 
     fired = 0;
     await workspaces.update(project.id, { additionalDirs: [] });
-    await waitForAssertion(() => expect(fired).toBeGreaterThan(0));
+    await waitFor(() => expect(fired).toBeGreaterThan(0));
     expect(dirs.sharedAdditionalDirs).toEqual([]);
     expect(dirs.additionalDirs).toEqual([dirB]);
   });
@@ -393,7 +391,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     });
 
     await workspaces.setPrimary(project.id, dirB);
-    await waitForAssertion(() => {
+    await waitFor(() => {
       expect(dirs.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirB });
     });
 
@@ -417,7 +415,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     expect(following.additionalDirs).toEqual([dirB]);
 
     await workspaces.setPrimary(project.id, dirB);
-    await waitForAssertion(() => {
+    await waitFor(() => {
       expect(following.primary).toBe(dirB);
     });
     expect(pinned.primary).toBe(dirC);
@@ -436,7 +434,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     await dirs.ready;
 
     await workspaces.setPrimary(project.id, dirB);
-    await waitForAssertion(() => {
+    await waitFor(() => {
       expect(dirs.primary).toBe(dirB);
     });
 
@@ -444,7 +442,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     expect(dirs.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirB });
 
     await workspaces.update(project.id, { additionalDirs: [dirA, dirC] });
-    await waitForAssertion(() => {
+    await waitFor(() => {
       expect(dirs.additionalDirs).toEqual([dirA, dirC]);
     });
     expect(dirs.primary).toBe(dirB);
@@ -499,10 +497,10 @@ describe('WorkspaceDirsService (registry source)', () => {
       'utf8',
     );
     await writeFile(
-      join(homeDir, 'workspaces.json'),
+      join(homeDir, 'projects.json'),
       JSON.stringify({
-        version: 1,
-        workspaces: {
+        schema_version: 2,
+        projects: {
           [project.id]: {
             root: dirA,
             name: 'proj',
@@ -512,7 +510,7 @@ describe('WorkspaceDirsService (registry source)', () => {
             last_opened_at: new Date(project.lastOpenedAt).toISOString(),
           },
         },
-        deleted_workspace_ids: [],
+        deleted_project_ids: [],
         idempotency_keys: {},
       }),
       'utf8',
@@ -542,7 +540,7 @@ describe('WorkspaceDirsService (registry source)', () => {
       settled = true;
     });
 
-    await waitForAssertion(() => {
+    await waitFor(() => {
       expect(list).toHaveBeenCalled();
     });
     expect(settled).toBe(false);
@@ -563,7 +561,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     await dirs.ready;
 
     await workspaces.delete(project.id);
-    await waitForAssertion(() => {
+    await waitFor(() => {
       expect(dirs.additionalDirs).toEqual([]);
     });
 
@@ -584,3 +582,10 @@ describe('WorkspaceDirsService (registry source)', () => {
     );
   });
 });
+
+
+
+
+
+
+

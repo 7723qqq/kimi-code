@@ -283,19 +283,21 @@ describe('server-v2 /api/v1/workspaces', () => {
     const typedId = encodeWorkDirKey(typedRoot);
     const lowerId = encodeWorkDirKey(lowerRoot);
     await writeFile(
-      join(home as string, 'workspaces.json'),
+      join(home as string, 'projects.json'),
       JSON.stringify({
-        version: 1,
-        workspaces: {
+        schema_version: 2,
+        projects: {
           [typedId]: {
             root: typedRoot,
             name: 'proj',
+            kind: 'implicit',
             created_at: '2024-01-01T00:00:00.000Z',
             last_opened_at: '2024-01-01T00:00:00.000Z',
           },
           [lowerId]: {
             root: lowerRoot,
             name: 'proj',
+            kind: 'implicit',
             created_at: '2024-01-01T00:00:00.000Z',
             last_opened_at: '2024-01-01T00:00:00.000Z',
           },
@@ -354,8 +356,12 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(entry?.additional_dirs.map((dir) => dir.split(sep).join('/'))).toContain(
       extra.split(sep).join('/'),
     );
-    const local = (await readFile(join(root, '.kimi-code', 'local.toml'), 'utf8')).replaceAll('\\\\', '\\');
-    expect(local.split(sep).join('/')).toContain(extra.split(sep).join('/'));
+    const projects = JSON.parse(await readFile(join(root, 'projects.json'), 'utf8')) as {
+      projects: Record<string, { additional_dirs?: string[] }>;
+    };
+    expect(
+      projects.projects[id]?.additional_dirs?.map((dir) => dir.split(sep).join('/')),
+    ).toContain(extra.split(sep).join('/'));
   });
 
   it('adds a relative directory without persisting when persist is false', async () => {
@@ -701,3 +707,5 @@ describe('server-v2 /api/v1/workspaces', () => {
     }
   });
 });
+
+
