@@ -707,6 +707,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         compactedCount: apply.compactedCount,
         droppedCount: apply.droppedCount,
       };
+      await this.dispatcher.flush();
       this.loopService.replaceHistory(
         historyFromContextPreservingToolNotes(apply.messages),
         'compaction',

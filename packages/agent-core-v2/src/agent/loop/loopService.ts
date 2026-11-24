@@ -459,7 +459,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     );
   }
 
-  replaceHistory(messages: readonly Message[], reason?: string, onAccepted?: () => void): boolean {    const previous = this.history();
+  replaceHistory(messages: readonly Message[], reason?: string, onAccepted?: () => void): boolean {
+    const previous = this.history();
     const ack = this.loop?.setContext([...messages], reason);
     if (ack?.type !== 'context.settled') return false;
     onAccepted?.();
@@ -500,7 +501,15 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       });
       const pendingWork = (snapshot.input.inbox?.normal?.length ?? 0) + (snapshot.input.inbox?.notify?.length ?? 0);
       if (lease === undefined && (completions.length > 0 || pendingWork > 0)) lease = this.runGate.acquire();
-      this.createLoopFromSnapshot(snapshot, tools, completions, seededMessages);
+      const context = this.instantiation.invokeFunction((accessor) =>
+        accessor.get(IAgentContextMemoryService),
+      );
+      this.createLoopFromSnapshot(
+        snapshot,
+        tools,
+        completions,
+        seededMessages ?? historyFromContextPreservingToolNotes(context.get()),
+      );
       await this.taskReconciliation;
     } finally {
       lease?.release();
@@ -1081,7 +1090,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this.sendNotification(
       admitted.entry,
       false,
-      note.turnScoped !== false && (note.bypassMaxSteps === true || note.message === undefined),
+      note.turnScoped !== false && note.bypassMaxSteps === true,
     );
     this.maybeSettle();
     const notifications = this.notifications;

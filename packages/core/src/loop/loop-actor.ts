@@ -202,6 +202,10 @@ class LoopMailbox {
     return entries;
   }
 
+  dropPendingNotify(): void {
+    this.notifyEntries = [];
+  }
+
   cancel(promptId: string): LoopAck<'prompt.canceled'> {
     const normal = this.normal.filter((message) => message.attributes?.promptId !== promptId);
     const notify = this.notifyEntries.filter((message) => message.attributes?.promptId !== promptId);
@@ -1984,7 +1988,12 @@ class LoopActor implements Loop {
     let outcome: StepOutcome = draft.type === 'continue' && this.mailbox.hasNotify && turn.pending.length === 0
       ? { type: 'done' as const, cause: { by: 'loop', reason: 'notify' } }
       : draft;
-    const continuation = turn.pending.some(
+    const stopsTurn = draft.type === 'done' && draft.cause?.reason === 'stop_turn';
+    if (stopsTurn) {
+      this.mailbox.dropPendingNotify();
+      turn.pending = turn.pending.filter((item) => item.kind !== 'notify');
+    }
+    const continuation = !stopsTurn && turn.pending.some(
       (item) =>
         (item.kind !== 'remind' && item.message.attributes?.bypassMaxSteps === true) ||
         (item.kind === 'notify' && item.message.content.length === 0),

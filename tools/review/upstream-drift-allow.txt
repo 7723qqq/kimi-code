@@ -204,3 +204,6 @@ packages/minidb/AGENTS.md
 packages/pi-tui/AGENTS.md
 # Renamed to searchService.e2e.test.ts in this fork.
 packages/kap-server/test/search/searchService.test.ts
+# Upstream's core-loop tool-adapter test; this fork covers the same cases in
+# packages/agent-core-v2/test/agent/loop/toolAdapter.test.ts.
+packages/agent-core-v2/test/agent/loop/machineTools.test.ts
