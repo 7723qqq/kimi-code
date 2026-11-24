@@ -164,10 +164,9 @@ export class TasksBrowserController extends TaskPanelController<TasksBrowserStat
     tasks: readonly BackgroundTaskInfo[],
     tab: TasksTab,
   ): readonly BackgroundTaskInfo[] {
-    const backgroundOnly = tasks.filter((t) => t.detached !== false);
-    if (tab === 'all') return backgroundOnly;
-    if (tab === 'running') return backgroundOnly.filter((t) => t.status === 'running');
-    return backgroundOnly.filter(
+    if (tab === 'all') return tasks;
+    if (tab === 'running') return tasks.filter((t) => t.status === 'running');
+    return tasks.filter(
       (t) =>
         t.status === 'completed' ||
         t.status === 'failed' ||
@@ -274,6 +273,9 @@ export class TasksBrowserController extends TaskPanelController<TasksBrowserStat
   private async handleStop(taskId: string): Promise<void> {
     const browser = this.host.state.tasksBrowser;
     if (browser === undefined) return;
+    // Foreground tasks belong to the main transcript's flow; stopping them
+    // from /tasks would race the foreground turn.
+    if (this.host.backgroundTasks.get(taskId)?.detached === false) return;
 
     const session = this.host.session;
     if (session === undefined) {

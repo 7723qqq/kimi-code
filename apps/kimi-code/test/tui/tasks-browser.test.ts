@@ -138,6 +138,24 @@ describe('TasksPanelComponent — tabs', () => {
     expect(out).toContain('test runner');
   });
 
+  it('lists foreground agent tasks alongside background ones', () => {
+    const out = render({
+      tasks: [
+        ...tasks,
+        task({
+          taskId: 'agent-cccccccc',
+          kind: 'agent',
+          agentId: 'agent-1',
+          detached: false,
+          status: 'running',
+          description: 'foreground explorer',
+        }),
+      ],
+      tab: 'all',
+    });
+    expect(out).toContain('foreground explorer');
+  });
+
   it('cycles the tab with Tab', () => {
     const onTabChange = mock();
     makePanel({ tasks, onTabChange }).handleInput('\t');

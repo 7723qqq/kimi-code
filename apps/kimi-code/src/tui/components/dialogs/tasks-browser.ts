@@ -349,18 +349,17 @@ export class TasksPanelComponent extends Container implements Focusable {
   // ── data ───────────────────────────────────────────────────────────
 
   private visibleTasks(): BackgroundTaskInfo[] {
-    // The /tasks panel is for background task management. Foreground tasks
-    // (detached === false) are shown in the main transcript instead, and only
-    // appear here after being detached via Ctrl+B. `detached !== false` keeps
-    // reconcile ghosts whose `detached` field may be undefined.
-    const backgroundOnly = this.props.tasks.filter((task) => task.detached !== false);
+    // Foreground tasks (detached === false) are listed alongside background
+    // ones so a running foreground agent can be inspected here; they leave
+    // the list again once the engine stops reporting them.
+    const tasks = [...this.props.tasks];
     switch (this.props.tab) {
       case 'all':
-        return backgroundOnly;
+        return tasks;
       case 'running':
-        return backgroundOnly.filter((task) => isActiveTaskStatus(task.status));
+        return tasks.filter((task) => isActiveTaskStatus(task.status));
       case 'finished':
-        return backgroundOnly.filter((task) => isTerminalTaskStatus(task.status));
+        return tasks.filter((task) => isTerminalTaskStatus(task.status));
     }
   }
 
