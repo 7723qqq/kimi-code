@@ -47,6 +47,7 @@ import {
   AssistantDelta,
   ThinkingDelta,
   ToolCallDelta,
+  isDisplayablePromptOrigin,
   turnPromptAttachments,
   turnPromptText,
   TurnStarted,
@@ -127,6 +128,7 @@ interface ActiveTurn {
   retry: { failedAttempt: number; nextAttempt: number; maxAttempts: number; delayMs: number; errorName?: string; statusCode?: number } | undefined;
   streamPartCount: number;
   streamToolIds: Map<number | string | undefined, string>;
+  streamToolNames: Map<number | string | undefined, string>;
   readyResolved: boolean;
   mode: 'agent' | 'plan' | 'spec' | undefined;
   providerType: string | undefined;
@@ -569,6 +571,7 @@ export class AgentTurnProjection {
         const turn = this.active;
         if (turn === undefined) return;
         const part = event.part;
+        const block = event.block ?? 0;
         const step = turn.current;
         if (event.block !== undefined && step !== undefined) this.options.recordStreamPart(turn.id, step.number, event.block);
         turn.streamPartCount += 1;
@@ -583,12 +586,14 @@ export class AgentTurnProjection {
           }
           case 'function':
             turn.streamToolIds.set(part._streamIndex, part.id);
+            turn.streamToolNames.set(part._streamIndex, part.name);
             void this.options.dispatcher.dispatch(new ToolCallDelta({
               agentId: this.options.scopeContext.agentId,
               turnId: turn.id,
               toolCallId: part.id,
               name: part.name,
               argumentsPart: part.arguments ?? undefined,
+              block,
             }));
             return;
           case 'tool_call_part': {
@@ -598,7 +603,9 @@ export class AgentTurnProjection {
               agentId: this.options.scopeContext.agentId,
               turnId: turn.id,
               toolCallId,
+              name: turn.streamToolNames.get(part.index),
               argumentsPart: part.argumentsPart ?? undefined,
+              block,
             }));
             return;
           }
@@ -797,6 +804,7 @@ export class AgentTurnProjection {
       retry: undefined,
       streamPartCount: 0,
       streamToolIds: new Map(),
+      streamToolNames: new Map(),
       readyResolved: false,
       mode: undefined,
       providerType: undefined,
@@ -819,9 +827,14 @@ export class AgentTurnProjection {
     active.started = this.options.dispatcher.dispatch(new TurnStarted({
       agentId: this.options.scopeContext.agentId,
       turnId,
-      promptId: prompt.promptId,
+      promptId: isDisplayablePromptOrigin(prompt.origin) ? prompt.promptId : undefined,
       origin: prompt.origin,
-      prompt: turnPromptText(prompt.message.content.filter((part) => !isUserPromptSubmitHookPart(part)), prompt.origin),
+      prompt: isDisplayablePromptOrigin(prompt.origin)
+        ? turnPromptText(
+            prompt.message.content.filter((part) => !isUserPromptSubmitHookPart(part)),
+            prompt.origin,
+          )
+        : undefined,
       promptAttachments: turnPromptAttachments(prompt.message.content, prompt.origin),
     }));
     turn.started = active.started ?? Promise.resolve();

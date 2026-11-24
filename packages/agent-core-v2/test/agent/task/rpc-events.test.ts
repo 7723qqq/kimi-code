@@ -355,10 +355,6 @@ function notificationMessageFor(ctx: TestAgentContext, taskId: string): TestCont
       return message as TestContextMessage;
     }
   }
-  for (const call of ctx.llmCalls.flatMap((entry) => entry.history)) {
-    const message = call as unknown as TestContextMessage;
-    if (message.origin?.kind === 'task' && message.origin.taskId === taskId) return message;
-  }
   throw new Error(`Expected an appended notification message for ${taskId}`);
 }
 

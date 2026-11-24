@@ -207,7 +207,8 @@ describe('Agent resume', () => {
             user: text "Run lookup"
             assistant: []  calls call_open:Lookup { "query": "moon" }
             tool[call_open]: text "<system>ERROR: Tool execution failed.</system>\\nTool execution was interrupted before its result was recorded. Do not assume the tool completed successfully."
-            user: text "Fresh prompt after resume""
+            user: text "Fresh prompt after resume"
+            user: text <date-reminder>"
       `);
       await ctx.expectResumeMatches();
     } finally {
@@ -324,7 +325,9 @@ describe('Agent resume', () => {
         tools: Bash
         messages:
           user: text "Historical compacted summary."
-          user: text "Fresh prompt after resume""
+          user: text "Fresh prompt after resume"
+          user: text <date-reminder>
+          user: text <plan-mode-reminder>"
     `);
   });
 
@@ -581,7 +584,8 @@ describe('Agent resume', () => {
           tool[call_resume_write]: text "wrote file"
           tool[call_resume_skill]: text "skill loaded"
           user: text "<system-reminder>\\nresume skill body\\n</system-reminder>"
-          user: text "Fresh prompt after deferred resume""
+          user: text "Fresh prompt after deferred resume"
+          user: text <date-reminder>"
     `);
     await ctx.expectResumeMatches();
   });

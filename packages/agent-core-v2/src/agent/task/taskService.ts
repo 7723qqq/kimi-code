@@ -1372,7 +1372,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   }
 
   private async restoreAgentTaskNotificationsNow(): Promise<void> {
-    for (const info of this.list(false)) {
+    for (const info of this.ghosts.values()) {
       if (!isAgentTaskTerminal(info.status)) continue;
       if (info.status === 'lost') continue;
       await this.restoreAgentTaskNotification(info);

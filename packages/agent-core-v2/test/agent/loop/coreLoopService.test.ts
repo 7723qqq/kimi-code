@@ -140,6 +140,16 @@ describe('core LoopService integration', () => {
         (entry.args as { update?: { text?: string } }).update?.text === 'live-output\n',
       );
       expect(progressEvent).toBeDefined();
+      const outputEvent = ctx.allEvents.find(
+        (entry) =>
+          entry.event === 'tool.updated' &&
+          (entry.args as { toolCallId?: string; output?: unknown }).toolCallId === 'call_lookup' &&
+          (entry.args as { output?: unknown }).output !== undefined,
+      );
+      const taskId = (outputEvent?.args as { taskId: string }).taskId;
+      const output = await ctx.get(IAgentTaskOutputService).readTaskOutputSnapshot(taskId, 100);
+      expect(output).toMatchObject({ outputSizeBytes: 12, preview: 'live-output\n' });
+      expect(output?.outputPath).toContain(`/agents/main/tasks/${taskId}/output.log`);
 
       const syntheticCall: ToolCall = {
         type: 'function',
@@ -329,7 +339,7 @@ describe('core LoopService integration', () => {
     });
     await expect(handle!.completion).resolves.toMatchObject({ state: 'completed' });
     await loop.settled();
-    expect(lifecycle).toContain('turn.ended');
+    expect(lifecycle).toEqual(['turn.ended', 'prompt.completed']);
     for (const subscription of subscriptions) subscription.dispose();
   });
 

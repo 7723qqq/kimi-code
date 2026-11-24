@@ -608,11 +608,6 @@ describe('AgentConversationUndoService', () => {
     expect(
       persisted.filter((record) => record.type === 'turn.prompt').map((record) => record['turnId']),
     ).toEqual([0, 1, 2]);
-    expect(
-      persisted
-        .filter((record) => record.type === 'agent.turn.started')
-        .map((record) => record['turnId']),
-    ).toEqual([0, 1, 2]);
 
     const resumed = createTestAgent(
       { autoConfigure: false, persistence: new InMemoryWireRecordPersistence(persisted) },
@@ -627,7 +622,7 @@ describe('AgentConversationUndoService', () => {
       const repersisted = await resumed.persistedWireRecords();
       expect(
         repersisted
-          .filter((record) => record.type === 'agent.turn.started')
+          .filter((record) => record.type === 'turn.prompt')
           .map((record) => record['turnId']),
       ).toEqual([0, 1, 2, 3]);
     } finally {

@@ -1991,13 +1991,18 @@ class LoopActor implements Loop {
     const stopsTurn = draft.type === 'done' && draft.cause?.reason === 'stop_turn';
     if (stopsTurn) {
       this.mailbox.dropPendingNotify();
-      turn.pending = turn.pending.filter((item) => item.kind !== 'notify');
+      turn.pending = turn.pending.filter(
+        (item) => item.kind !== 'notify' || item.message.attributes?.bypassMaxSteps === true,
+      );
     }
-    const continuation = !stopsTurn && turn.pending.some(
-      (item) =>
-        (item.kind !== 'remind' && item.message.attributes?.bypassMaxSteps === true) ||
-        (item.kind === 'notify' && item.message.content.length === 0),
-    );
+    const continuation =
+      turn.pending.some(
+        (item) => item.kind !== 'remind' && item.message.attributes?.bypassMaxSteps === true,
+      ) ||
+      (!stopsTurn &&
+        turn.pending.some(
+          (item) => item.kind === 'notify' && item.message.content.length === 0,
+        ));
     if (continuation) {
       turn.bypassMaxSteps = true;
       turn.bypassStep = turn.step + 1;

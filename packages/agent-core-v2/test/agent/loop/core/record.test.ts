@@ -100,7 +100,7 @@ describe('loop record', () => {
         });
       },
     );
-    const acting = requester([done('', [call('call-slow', 'slow'), call('call-bg', 'bg')])]);
+    const acting = requester([done('', [call('call-bg', 'bg'), call('call-slow', 'slow')])]);
     const working = createLoop({
       requester: acting,
       executor,

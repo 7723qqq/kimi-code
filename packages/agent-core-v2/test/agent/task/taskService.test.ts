@@ -1396,7 +1396,7 @@ describe('AgentTaskService', () => {
   });
 
   it('does not cap or drop a detached subagent result larger than the limit', async () => {
-    const { svc, persistedChars } = serviceWithAppendCounter();
+    const { svc } = serviceWithAppendCounter();
 
     const bigResult = 'y'.repeat(20 * MiB);
     const taskId = svc.registerTask(agentLikeTask(bigResult, 'big subagent result'), {
@@ -1405,9 +1405,12 @@ describe('AgentTaskService', () => {
     });
 
     const info = await waitForTerminal(svc, taskId);
+    const snapshot = await svc.getOutputSnapshot(taskId, 64);
 
     expect(info?.status).toBe('completed');
-    expect(persistedChars()).toBeGreaterThanOrEqual(bigResult.length);
+    expect(snapshot.outputSizeBytes).toBeGreaterThanOrEqual(bigResult.length);
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.preview).toHaveLength(64);
   });
 });
 

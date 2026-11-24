@@ -50,6 +50,7 @@ import { IAgentPermissionRulesService } from '#/agent/permissionRules/permission
 import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { IAgentTaskService } from '#/agent/task/task';
 
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { historyFromContextPreservingToolNotes } from '#/agent/loop/history';
 import { closeTrailingOpenToolExchange } from '#/agent/contextMemory/openToolExchange';
 import { IAgentEnvironmentBindingSeed, IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
@@ -401,7 +402,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       });
     }
     const source = sourceManaged.handle;
-    const sourceLoop = source.accessor.get(IAgentLoopService);
     const sourceData = source.accessor.get(IAgentProfileService).data();
     const override = opts?.binding;
     const sourceBinding = source.accessor.get(IAgentEnvironmentBindingService).current;
@@ -426,7 +426,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       if (override.thinking !== undefined) childProfile.setThinking(override.thinking);
     }
 
-    const sourceMessages = sourceLoop.history();
+    const sourceMessages = source.accessor.get(IAgentContextMemoryService).get();
     if (sourceMessages.length > 0) {
       await child.accessor
         .get(IAgentLoopService)

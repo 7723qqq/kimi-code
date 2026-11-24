@@ -43,6 +43,7 @@ import { toCorePart } from '#human/message';
 import type { StreamedMessagePart as ForkStreamedPart } from '#human/llm/message';
 import type { StreamedMessagePart as CoreStreamedPart } from '@moonshot-ai/core/llm/message';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
+import { foldSettle } from '#/agent/contextMemory/loopEventFold';
 import { newMessageId } from '#/agent/contextMemory/messageId';
 import { type ContextMessage, type PromptOrigin } from '#/agent/contextMemory/types';
 import { gateImageFormatParts } from '#/agent/media/image-compress';
@@ -508,7 +509,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         snapshot,
         tools,
         completions,
-        seededMessages ?? historyFromContextPreservingToolNotes(context.get()),
+        seededMessages ?? historyFromContextPreservingToolNotes(foldSettle([...context.get()])),
       );
       await this.taskReconciliation;
     } finally {

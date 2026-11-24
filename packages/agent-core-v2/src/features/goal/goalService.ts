@@ -715,7 +715,7 @@ function enqueueGoalOutcomeContinuation(
     .get(IConfigService)
     .get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
   if (!hasStepBudgetRemaining(maxSteps, ctx.step)) return;
-  context.runtime.get(IAgentLoopService).notify();
+  context.runtime.get(IAgentLoopService).notify({ bypassMaxSteps: true });
 }
 
 async function handleTurnEnded(

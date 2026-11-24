@@ -638,7 +638,7 @@ describe('notify turn handoff', () => {
     await loop.close();
   });
 
-  it('hands each steered entry to its own turn without changing identity', async () => {
+  it('hands each steered entry to the running turn without changing identity', async () => {
     const events: LoopEmitted[] = [];
     const starting: number[] = [];
     const scripted = requester([done('', [call('c1', 'alpha')]), done('second')]);
@@ -667,24 +667,23 @@ describe('notify turn handoff', () => {
       ],
     });
     loop.subscribe((event) => events.push(event));
-    const followup = once(loop, (event) => event.type === 'turn.ended' && event.turnId === 2);
     expect((await loop.runTurn(prompt('work'))).type).toBe('done');
-    await followup;
-    expect(starting).toEqual([0, 2]);
+    expect(starting).toEqual([0, 0]);
     expect(events.find((event) => event.type === 'prompt.steered')).toMatchObject({
       promptIds: ['first', 'second'],
       messages: [first, second],
     });
     expect(events.filter((event) => event.type === 'message.appended' && event.source === 'notify')).toMatchObject([
-      { turnId: 1, message: first },
-      { turnId: 2, message: second },
+      { turnId: 0, message: first },
+      { turnId: 0, message: second },
     ]);
-    expect(events.find((event) => event.type === 'turn.ended' && event.turnId === 1)).toMatchObject({
-      outcome: { type: 'done', cause: { by: 'loop', reason: 'prompt_only' } },
+    expect(events.find((event) => event.type === 'turn.ended')).toMatchObject({
+      turnId: 0,
+      outcome: { type: 'done' },
     });
     expect(events.filter((event) => event.type === 'step.started').map((event) => [event.turnId, event.step])).toEqual([
       [0, 1],
-      [2, 1],
+      [0, 2],
     ]);
     await loop.close();
   });

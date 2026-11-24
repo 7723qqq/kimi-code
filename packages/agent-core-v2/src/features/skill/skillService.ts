@@ -51,6 +51,11 @@ export class AgentSkillService implements IAgentSkillService {
   declare readonly _serviceBrand: undefined;
   private modelToolParent?: ModelToolSkillContext & { readonly turnId: number };
   private ambiguousModelToolTurnId?: number;
+  private modelToolContextCache?: {
+    readonly turnId: number;
+    readonly step: number | undefined;
+    readonly context: ModelToolSkillContext;
+  };
 
   constructor(
     @ISessionSkillCatalog private readonly catalog: ISessionSkillCatalog,
@@ -212,17 +217,27 @@ export class AgentSkillService implements IAgentSkillService {
 
   modelToolContext(): ModelToolSkillContext {
     const status = this.loop.snapshot();
-    if (
-      status.state !== 'running' ||
-      status.activeTurnId === undefined ||
-      this.modelToolParent?.turnId !== status.activeTurnId
-    ) {
+    if (status.state !== 'running' || status.activeTurnId === undefined) {
       return { queryDepth: 0 };
     }
-    return {
-      queryDepth: this.modelToolParent.queryDepth,
-      workspaceDir: this.modelToolParent.workspaceDir,
-    };
+    const step = status.turn?.step;
+    const cached = this.modelToolContextCache;
+    if (
+      cached !== undefined &&
+      cached.turnId === status.activeTurnId &&
+      cached.step === step
+    ) {
+      return cached.context;
+    }
+    const context =
+      this.modelToolParent?.turnId === status.activeTurnId
+        ? {
+            queryDepth: this.modelToolParent.queryDepth,
+            workspaceDir: this.modelToolParent.workspaceDir,
+          }
+        : { queryDepth: 0 };
+    this.modelToolContextCache = { turnId: status.activeTurnId, step, context };
+    return context;
   }
 
   private rememberModelToolParent(

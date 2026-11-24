@@ -5245,7 +5245,7 @@ describe('Agent tools', () => {
         [wire] llm.tools_snapshot          { "agentId": "main", "hash": "<tools-hash>", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "EnterSpecMode", "ExitPlanMode", "ExitSpecMode", "FetchURL", "GetGoal", "Glob", "Grep", "Knowledge", "Lookup", "Memory", "Read", "run_code", "session_query", "SetGoalBudget", "Skill", "SnapshotList", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "WebSearch", "Workflow", "Write" ], "time": "<time>" }
         [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 2, "turnStep": "0.1", "time": "<time>" }
         [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "I will look it up.", "block": 0 }
-        [emit] tool.call.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"moon\\"}" }
+        [emit] tool.call.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"moon\\"}", "block": 0 }
         [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 118, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 118, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 118, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 118, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
         [wire] token_counting.measured     { "agentId": "main", "length": 3, "tokens": 134, "time": "<time>" }
@@ -5485,5 +5485,6 @@ function hookPayloadAssertCommand(expected: {
   ]
     .filter((line) => line.length > 0)
     .join('');
-  return `node -e ${JSON.stringify(script)}`;
+  const encoded = Buffer.from(script, 'utf8').toString('base64');
+  return `node -e "eval(Buffer.from('${encoded}','base64').toString('utf8'))"`;
 }
