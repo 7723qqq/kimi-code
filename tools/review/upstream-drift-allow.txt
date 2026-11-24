@@ -202,6 +202,27 @@ packages/klient/AGENTS.md
 packages/minidb/AGENTS.md
 # The fork keeps the pi-tui sync contract in packages/pi-tui/UPSTREAM.md.
 packages/pi-tui/AGENTS.md
+# Moved to human/llm-kimi/media.ts in this fork.
+packages/agent-core-v2/src/llm-adapter/model/media.ts
+
+# Split into os/backends/host/ and workspaceFs/internal/ in this fork;
+# node-local keeps only what host does not replace (hostTerminalService and
+# hostProcessService are listed above).
+packages/agent-core-v2/src/os/backends/node-local/hostServices.ts
+packages/agent-core-v2/src/os/backends/node-local/tools/rgLocator.ts
+packages/agent-core-v2/src/os/backends/node-local/tools/runRg.ts
+
+# Validation lives in the executor itself in this fork; upstream's standalone
+# module has no callers here.
+packages/agent-core-v2/src/tool/executor/validate.ts
+
+# vitest -> bun:test (continued): these packages were translated like the rest.
+packages/core/vitest.config.ts
+packages/session-import/vitest.config.ts
+packages/testkit/vitest.config.ts
+packages/testkit/src/vitest/index.ts
+tests/scenarios/vitest.config.ts
+
 # Renamed to searchService.e2e.test.ts in this fork.
 packages/kap-server/test/search/searchService.test.ts
 # Upstream's core-loop tool-adapter test; this fork covers the same cases in
