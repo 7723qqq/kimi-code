@@ -775,7 +775,6 @@ describe('native browser IPC', () => {
       { app },
       { startServer },
       core,
-      { ISessionEventBus },
       { startDesktopBrowserMcp },
       { createDesktopBrowserAccess, registerDesktopBrowserMcp },
       automation,
@@ -789,7 +788,6 @@ describe('native browser IPC', () => {
       import('electron'),
       import('@moonshot-ai/kap-server'),
       import('@moonshot-ai/agent-core-v2'),
-      import('@moonshot-ai/agent-core-v2/app/event/eventBus'),
       import('../../../src/main/browser/browser-mcp'),
       import('../../../src/main/browser/browser-mcp-registration'),
       import('../../../src/main/browser/browser-automation'),
@@ -833,7 +831,7 @@ describe('native browser IPC', () => {
         homeDir: home,
         port: 0,
         logLevel: 'silent',
-        env: { ...process.env, KIMI_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL: 'false', KIMI_CODE_EXPERIMENTAL_SEARCH_WORKER: 'false' },
+        env: { ...process.env, KIMI_CODE_EXPERIMENTAL_TOOL_SELECT: '1', KIMI_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL: 'false', KIMI_CODE_EXPERIMENTAL_SEARCH_WORKER: 'false' },
       });
       registration = registerDesktopBrowserMcp(server.core, browser.config, access);
       const sessions = server.core.accessor.get(core.ISessionManager);
@@ -845,7 +843,7 @@ describe('native browser IPC', () => {
       main.accessor.get(core.IAgentPermissionModeService).setMode('yolo');
       const workerContext = await lifecycle.create({ agentId: 'worker' });
       const directContext = await lifecycle.create({ agentId: 'direct' });
-      session.accessor.get(ISessionEventBus).publish(new core.SubagentSpawned({
+      session.accessor.get(core.ISessionEventBus).publish(new core.SubagentSpawned({
         subagentId: 'worker', subagentName: 'coder', parentToolCallId: 'parent-call', description: 'Open site', runInBackground: true,
       }));
       type Agent = NonNullable<ReturnType<typeof lifecycle.handleOf>>;
@@ -1163,7 +1161,7 @@ describe('native browser IPC', () => {
     expect(mocks.openBrowserLocalFile).toHaveBeenLastCalledWith('browser-2', pathToFileURL(page).href);
   });
 
-  it('accepts upper-case extensions, spaces, percent signs and symlinked pages, and rejects broken links', async () => {
+  it.skipIf(process.platform === 'win32')('accepts upper-case extensions, spaces, percent signs and symlinked pages, and rejects broken links', async () => {
     const mainSender = {};
     mocks.getMainWindow.mockReturnValue({ isDestroyed: () => false, webContents: mainSender });
     const dir = mkdtempSync(join(tmpdir(), 'kimi-local-html-'));

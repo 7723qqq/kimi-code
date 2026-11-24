@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Script } from 'node:vm';
 import type { WebContents } from 'electron';
+import { SYMLINKS } from '../../support/symlink';
 import { browserAnnotationCrop } from '../../../src/shared/browser-annotation';
 import { browserAnnotationCommandScript, browserAnnotationContextTargetScript, browserAnnotationContextTrackingScript, browserAnnotationPickerScript, browserAnnotationScreenshotScript } from '../../../src/main/browser/browser-annotation-script';
 
@@ -330,9 +331,11 @@ describe('browser annotation captures', () => {
     await store.write('asset-a', Buffer.from('image bytes'));
     expect((await new BrowserAnnotationAssetStore(runtime.directory).read('asset-a')).data).toBe(Buffer.from('image bytes').toString('base64'));
     await expect(store.read('../outside')).rejects.toThrow('Invalid');
-    await writeFile(join(runtime.directory, 'outside.txt'), 'outside');
-    await symlink(join(runtime.directory, 'outside.txt'), join(runtime.directory, 'asset-link.png'));
-    await expect(store.read('asset-link')).rejects.toThrow('Invalid');
+    if (SYMLINKS) {
+      await writeFile(join(runtime.directory, 'outside.txt'), 'outside');
+      await symlink(join(runtime.directory, 'outside.txt'), join(runtime.directory, 'asset-link.png'));
+      await expect(store.read('asset-link')).rejects.toThrow('Invalid');
+    }
   });
 
   it('rolls back cancelled screenshots even after promotion', async () => {

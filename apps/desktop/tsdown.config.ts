@@ -18,7 +18,7 @@ const entries = {
 
 export default defineConfig(Object.entries(entries).map(([name, entry]): UserConfig => ({
   entry: { [name]: entry },
-  format: ['cjs'],
+  format: name === 'search-worker' ? ['esm'] : ['cjs'],
   platform: 'node',
   target: 'node20',
   outDir: 'out',

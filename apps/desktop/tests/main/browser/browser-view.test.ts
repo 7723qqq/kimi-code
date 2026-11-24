@@ -4676,9 +4676,21 @@ describe('browser-view local HTML files', () => {
     const state = await navigateBrowser(browserId, `${page}?tab=1#top`, { localFile: true });
     expect(state).toMatchObject({ url: `${page}?tab=1#top`, loading: false });
     expect(mocks.FakeWebContentsView.instances.at(-1)!.webContents.loadURL).toHaveBeenLastCalledWith(`${page}?tab=1#top`);
-    await navigateBrowser(browserId, '/Users/me/site/other page.png', { localFile: true });
-    expect(getBrowserState(browserId).url).toBe('file:///Users/me/site/other%20page.png');
-    await expect(navigateBrowser(browserId, `/Users/${'x'.repeat(5_000)}`, { localFile: true })).rejects.toThrow('too long');
+    const other =
+      process.platform === 'win32'
+        ? 'C:\\Users\\me\\site\\other page.png'
+        : '/Users/me/site/other page.png';
+    await navigateBrowser(browserId, other, { localFile: true });
+    expect(getBrowserState(browserId).url).toBe(
+      process.platform === 'win32'
+        ? 'file:///C:/Users/me/site/other%20page.png'
+        : 'file:///Users/me/site/other%20page.png',
+    );
+    const long =
+      process.platform === 'win32'
+        ? `C:\\Users\\${'x'.repeat(5_000)}`
+        : `/Users/${'x'.repeat(5_000)}`;
+    await expect(navigateBrowser(browserId, long, { localFile: true })).rejects.toThrow('too long');
   });
 
   it('marks a local file page as refused for agents until local files are allowed', async () => {

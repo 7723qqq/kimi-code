@@ -6,6 +6,9 @@ vi.mock('@moonshot-ai/app-markdown', () => ({
   Markdown: defineComponent({ render: () => h('div') }),
   HistoryImageCacheKey: Symbol('HistoryImageCache'),
   createHistoryImageCache: () => ({}),
+  selectEntireTable: () => false,
+  tableSelectionContextText: () => null,
+  tableSelectionText: () => null,
 }));
 
 let app: App | null = null;

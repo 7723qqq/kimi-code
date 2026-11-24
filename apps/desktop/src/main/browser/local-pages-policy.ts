@@ -1,5 +1,5 @@
 import { open } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { posix } from 'node:path';
 
 const SENTINEL = Buffer.from('dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX');
 const FUSE_WIRE_VERSION = 1;
@@ -12,7 +12,7 @@ export const FUSE_READ_TIMEOUT_MS = 10_000;
 
 export function electronFuseBinary(execPath: string, platform: NodeJS.Platform): string {
   if (platform !== 'darwin') return execPath;
-  return resolve(dirname(execPath), '..', 'Frameworks', 'Electron Framework.framework', 'Electron Framework');
+  return posix.resolve(posix.dirname(execPath), '..', 'Frameworks', 'Electron Framework.framework', 'Electron Framework');
 }
 
 export async function fileProtocolPrivilegesDisabled(binary: string, chunkSize = 1 << 20): Promise<boolean> {

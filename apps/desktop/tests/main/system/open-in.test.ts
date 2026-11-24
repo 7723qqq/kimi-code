@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { listAvailableOpenInApps, openInApp, OPEN_IN_APP_IDS } from '../../../src/main/system/open-in';
 import type { RegQuery } from '../../../src/main/system/win-registry';
+import { SYMLINKS } from '../../support/symlink';
 
 const HOME = '/Users/test';
 
@@ -236,7 +237,7 @@ describe('openInApp', () => {
     expect(run).toHaveBeenCalledWith('open', ['/work/definitely-missing-path']);
   });
 
-  it('treats a symlink to a directory as a directory (stat follows links)', async () => {
+  it.skipIf(!SYMLINKS)('treats a symlink to a directory as a directory (stat follows links)', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'open-in-'));
     try {
       mkdirSync(join(tmp, 'real-dir'));
@@ -949,10 +950,10 @@ describe('win32 custom install dir fallback', () => {
   });
 
   it('expands environment variables in registry values before checking existence', async () => {
-    const registryValue = '%custom_apps%/Microsoft VS Code/Code.exe';
+    const registryValue = join('%custom_apps%', 'Microsoft VS Code', 'Code.exe');
     const apps = await listAvailableOpenInApps({
       platform: 'win32',
-      env: { ...WIN_ENV, CUSTOM_APPS: '/T' },
+      env: { ...WIN_ENV, CUSTOM_APPS: join('/T') },
       exists: fakeExists([CUSTOM_VSCODE_EXE]),
       queryReg: fakeQueryReg({ [`${APP_PATHS_CODE_HKCU}::`]: registryValue }),
     });
@@ -961,7 +962,7 @@ describe('win32 custom install dir fallback', () => {
     const runDetached = vi.fn().mockResolvedValue({ error: null });
     await openInApp('vscode', '/work/dir', {
       platform: 'win32',
-      env: { ...WIN_ENV, CUSTOM_APPS: '/T' },
+      env: { ...WIN_ENV, CUSTOM_APPS: join('/T') },
       exists: fakeExists([CUSTOM_VSCODE_EXE]),
       queryReg: fakeQueryReg({ [`${APP_PATHS_CODE_HKCU}::`]: registryValue }),
       runDetached,

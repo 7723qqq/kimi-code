@@ -474,6 +474,7 @@ describe('screenshot tools', () => {
     expect(button.textContent).toBe(`${label}Enter`);
     vi.useFakeTimers();
     try {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
       button.focus();
       await vi.advanceTimersByTimeAsync(200);
       await flush();

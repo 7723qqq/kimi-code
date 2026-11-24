@@ -350,6 +350,7 @@ describe('swarm member list scroll affordances', () => {
       expect(err?.getAttribute('aria-label')).toBe('tools.swarm.phaseFailed');
 
       await nextTick();
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
       err!.focus();
       err!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
       await vi.advanceTimersByTimeAsync(200);

@@ -16,6 +16,8 @@ import {
   IAgentToolRegistryService,
   IAgentToolSelectService,
   ISessionManager,
+  ISessionEventBus,
+  TurnEnded,
   ISessionMcpHandle,
 } from '@moonshot-ai/agent-core-v2';
 import { startServer } from '@moonshot-ai/kap-server';
@@ -31,8 +33,6 @@ import {
 } from '../../../src/main/browser/browser-mcp-registration';
 import { runBrowserAutomation } from '../../../src/main/browser/browser-automation';
 import { DESKTOP_BROWSER_BLOCKED_GUIDANCE, DESKTOP_BROWSER_DISABLED_ERROR, startDesktopBrowserMcp, type DesktopBrowserAgentControl } from '../../../src/main/browser/browser-mcp';
-import { ISessionEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
-import { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import { browserControlOwnership } from '../../../src/main/browser/browser-control-ownership';
 
 vi.mock('../../../src/main/browser/browser-automation', () => ({
@@ -345,6 +345,7 @@ it('keeps the built-in browser for chats that already used it when agent control
     schemaLoop.remind(historyEntryFromContext({
       role: 'system',
       content: [],
+      toolCalls: [],
       tools: [{ name, description: 'Built-in browser', parameters: {} }],
       origin: { kind: 'injection', variant: 'dynamic_tool_schema' },
     }));
@@ -434,7 +435,7 @@ it('does not keep the built-in browser for chats whose only browser attempts wer
     const id = `call-${toolName}`;
     loop.remind(
       historyEntryFromContext({ role: 'assistant', content: [], toolCalls: [{ type: 'function', id, name: toolName, arguments: args }] }),
-      historyEntryFromContext({ role: 'tool', content: [{ type: 'text', text: output }], toolCallId: id, isError: true }),
+      historyEntryFromContext({ role: 'tool', content: [{ type: 'text', text: output }], toolCalls: [], toolCallId: id, isError: true }),
     );
     loop.flushReminders();
   };

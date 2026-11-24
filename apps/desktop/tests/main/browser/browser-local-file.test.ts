@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('node:fs/promises', () => ({ stat: vi.fn() }));
 
 import { stat } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { localFileAddressUrl, resolveLocalHtmlFileUrl } from '../../../src/main/browser/browser-local-file';
 
 beforeEach(() => {
@@ -32,8 +33,10 @@ describe('resolveLocalHtmlFileUrl', () => {
 
   it('accepts a regular HTML file and keeps the query and fragment', async () => {
     vi.mocked(stat).mockResolvedValue({ isFile: () => true } as never);
-    await expect(resolveLocalHtmlFileUrl('/work/site/index.html', '?tab=2#intro')).resolves.toBe('file:///work/site/index.html?tab=2#intro');
-    await expect(resolveLocalHtmlFileUrl('file:///work/site/index.html?tab=2#intro')).resolves.toBe('file:///work/site/index.html?tab=2#intro');
+    const file = process.platform === 'win32' ? 'C:\\work\\site\\index.html' : '/work/site/index.html';
+    const expected = `${pathToFileURL(file).href}?tab=2#intro`;
+    await expect(resolveLocalHtmlFileUrl(file, '?tab=2#intro')).resolves.toBe(expected);
+    await expect(resolveLocalHtmlFileUrl(expected)).resolves.toBe(expected);
   });
 });
 

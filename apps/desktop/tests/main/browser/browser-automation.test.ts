@@ -5,6 +5,7 @@ import * as receipts from '../../../src/main/browser/browser-receipts';
 import { browserControlOwnership, BrowserControlError } from '../../../src/main/browser/browser-control-ownership';
 import * as sites from '../../../src/main/browser/browser-sites';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cancelBrowserDialog, configureBrowserDialogs, hasBrowserDialogReminder, listBrowserDialogs, openBrowserDialog, pushAgentBrowserNotice, pushBrowserNotice, resetBrowserDialogsForTest, respondBrowserDialog, syncBrowserDialogControl } from '../../../src/main/browser/browser-dialogs';
@@ -362,9 +363,10 @@ describe('BrowserAutomationController', () => {
       const navigated = await runBrowserAutomation({ ...base, operation: 'tab.navigate', tabId, url: 'file:///Users/me/notes.html' });
       expect(navigated).toMatchObject({ ok: true, tab: { url: 'file:///Users/me/notes.html' } });
       expect(mocks.navigate).toHaveBeenLastCalledWith(created.tab!.browserId, 'file:///Users/me/notes.html', expect.objectContaining({ localFile: true }));
-      const read = await runBrowserAutomation({ ...base, operation: 'tab.navigate', tabId, url: '/Users/me/other.html' });
+      const other = process.platform === 'win32' ? 'C:\\Users\\me\\other.html' : '/Users/me/other.html';
+      const read = await runBrowserAutomation({ ...base, operation: 'tab.navigate', tabId, url: other });
       expect(read).toMatchObject({ ok: true });
-      expect(mocks.navigate).toHaveBeenLastCalledWith(created.tab!.browserId, '/Users/me/other.html', expect.objectContaining({ localFile: true }));
+      expect(mocks.navigate).toHaveBeenLastCalledWith(created.tab!.browserId, other, expect.objectContaining({ localFile: true }));
       const signal = new AbortController();
       let release: (allowed: boolean) => void = () => {};
       mocks.localFiles.allowed = new Promise<boolean>((resolve) => { release = resolve; });
@@ -1426,7 +1428,7 @@ describe('page dialogs', () => {
     const dialogId = openBrowserDialog({ browserId: tab.browserId, kind: 'file', origin: 'https://example.com', multiple: false, onAnswer })!;
     const result = await runBrowserAutomation({ ...base, operation: 'page.dialog.respond', tabId: tab.tabId, dialogId, accept: true, files: [join(root, 'workspace', 'cv.pdf')] }, undefined, 'session-1');
     expect(result).toMatchObject({ ok: true, dialog: { kind: 'file', outcome: 'accepted' } });
-    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({ accept: true, files: [join(root, 'workspace', 'cv.pdf')], by: 'agent' });
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({ accept: true, files: [await realpath(join(root, 'workspace', 'cv.pdf'))], by: 'agent' });
   });
 
   it('routes an upload from outside the workspace through the user and attaches it once allowed', async () => {
@@ -1439,14 +1441,14 @@ describe('page dialogs', () => {
     expect(result.error?.code).toBe('WAITING_FOR_USER');
     expect(onAnswer).not.toHaveBeenCalled();
     const approval = listBrowserDialogs(tab.browserId).find(dialog => dialog.kind === 'upload')!;
-    expect(approval).toMatchObject({ answerer: 'user', origin: 'https://example.com', files: [join(root, 'outside', 'id.png')] });
+    expect(approval).toMatchObject({ answerer: 'user', origin: 'https://example.com', files: [await realpath(join(root, 'outside', 'id.png'))] });
     const agentTry = await runBrowserAutomation({ ...base, operation: 'page.dialog.respond', tabId: tab.tabId, dialogId: approval.dialogId, accept: true }, undefined, 'session-1');
     expect(agentTry.error?.code).toBe('WAITING_FOR_USER');
     await respondBrowserDialog(approval.dialogId, { accept: true }, 'user');
-    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({ accept: true, files: [join(root, 'outside', 'id.png')], by: 'agent' });
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({ accept: true, files: [await realpath(join(root, 'outside', 'id.png'))], by: 'agent' });
   });
 
-  it('quotes upload paths with control characters in the approval error', async () => {
+  it.skipIf(process.platform === 'win32')('quotes upload paths with control characters in the approval error', async () => {
     const host = createHost();
     host.setSession(join(root, 'workspace'), 'yolo');
     const { tab } = await controlledTab(host);
@@ -1455,7 +1457,7 @@ describe('page dialogs', () => {
     const dialogId = openBrowserDialog({ browserId: tab.browserId, kind: 'file', origin: 'https://example.com', multiple: false, onAnswer: vi.fn() })!;
     const result = await runBrowserAutomation({ ...base, operation: 'page.dialog.respond', tabId: tab.tabId, dialogId, accept: true, files: [file] }, undefined, 'session-1');
     expect(result.error?.code).toBe('WAITING_FOR_USER');
-    expect(result.error?.message).toContain(`Uploading ${JSON.stringify(file)} to`);
+    expect(result.error?.message).toContain(`Uploading ${JSON.stringify(await realpath(file))} to`);
     expect(result.error?.message).not.toMatch(/[\n\u0007]/);
     const missing = await runBrowserAutomation({ ...base, operation: 'page.dialog.respond', tabId: tab.tabId, dialogId, accept: true, files: [join(root, 'outside', 'no\nsuch.png')] }, undefined, 'session-1');
     expect(missing.error?.message).not.toContain('\n');
@@ -1474,7 +1476,8 @@ describe('page dialogs', () => {
     expect(result.error?.message).toContain(', and 5 more) to https://example.com');
     expect(result.error?.message).not.toContain(files[3]!);
     expect(result.error?.message.length).toBeLessThan(1_000);
-    expect(listBrowserDialogs(tab.browserId).find(dialog => dialog.kind === 'upload')?.files).toEqual(files);
+    const expectedFiles = await Promise.all(files.map((file) => realpath(file)));
+    expect(listBrowserDialogs(tab.browserId).find(dialog => dialog.kind === 'upload')?.files).toEqual(expectedFiles);
   });
 
   it('closes the file chooser when the user denies an upload from outside the workspace', async () => {

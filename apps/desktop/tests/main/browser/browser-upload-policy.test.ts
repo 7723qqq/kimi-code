@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileUploadNeedsApproval } from '../../../src/main/browser/browser-upload-policy';
+import { SYMLINKS } from '../../support/symlink';
 
 let root: string;
 let workspace: string;
@@ -26,13 +28,13 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 describe('fileUploadNeedsApproval', () => {
   it('uploads workspace and Downloads files without a prompt', async () => {
     const context = { workspaceRoot: workspace, downloadsDirectory: downloads, permissionMode: 'manual' as const };
-    await expect(fileUploadNeedsApproval(join(workspace, 'nested', 'report.txt'), context)).resolves.toEqual({ ok: true, path: join(workspace, 'nested', 'report.txt'), needsApproval: false });
-    await expect(fileUploadNeedsApproval(join(downloads, 'invoice.pdf'), context)).resolves.toEqual({ ok: true, path: join(downloads, 'invoice.pdf'), needsApproval: false });
+    await expect(fileUploadNeedsApproval(join(workspace, 'nested', 'report.txt'), context)).resolves.toEqual({ ok: true, path: await realpath(join(workspace, 'nested', 'report.txt')), needsApproval: false });
+    await expect(fileUploadNeedsApproval(join(downloads, 'invoice.pdf'), context)).resolves.toEqual({ ok: true, path: await realpath(join(downloads, 'invoice.pdf')), needsApproval: false });
   });
 
   it.each(['manual', 'yolo', undefined] as const)('asks for other files in %s mode', async permissionMode => {
     const decision = await fileUploadNeedsApproval(join(outside, 'secret.txt'), { workspaceRoot: workspace, downloadsDirectory: downloads, permissionMode });
-    expect(decision).toEqual({ ok: true, path: join(outside, 'secret.txt'), needsApproval: true });
+    expect(decision).toEqual({ ok: true, path: await realpath(join(outside, 'secret.txt')), needsApproval: true });
   });
 
   it('does not ask when the session never asks for approval', async () => {
@@ -40,7 +42,7 @@ describe('fileUploadNeedsApproval', () => {
     expect(decision).toMatchObject({ ok: true, needsApproval: false });
   });
 
-  it('follows symlinks before deciding and catches escapes from the workspace', async () => {
+  it.skipIf(!SYMLINKS)('follows symlinks before deciding and catches escapes from the workspace', async () => {
     symlinkSync(join(outside, 'secret.txt'), join(workspace, 'link.txt'));
     const escape = await fileUploadNeedsApproval(join(workspace, 'link.txt'), { workspaceRoot: workspace, downloadsDirectory: downloads, permissionMode: 'manual' });
     expect(escape).toEqual({ ok: true, path: join(outside, 'secret.txt'), needsApproval: true });

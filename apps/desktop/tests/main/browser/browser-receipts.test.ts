@@ -128,8 +128,10 @@ describe('browser action receipts', () => {
     expect(images.encode).toHaveBeenCalledWith(72, { width: 720, height: 450 });
     expect(new Set(images.bitmaps[0]!.bgra.toString('hex').match(/.{8}/g))).toEqual(new Set(['00c800ff']));
     const file = join(env.root, 'browser-receipts', 'session_1', `${receiptId}.jpg`);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
-    expect((await stat(join(env.root, 'browser-receipts', 'session_1'))).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') {
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+      expect((await stat(join(env.root, 'browser-receipts', 'session_1'))).mode & 0o777).toBe(0o700);
+    }
   });
 
   it('keeps the element box only when it fits inside the crop', async () => {
@@ -353,7 +355,9 @@ describe('browser action receipts', () => {
     await copyBrowserReceipts('session_source', 'session_2');
     await copyBrowserReceipts('missing', 'session_3');
     expect(await readBrowserReceipt('session_2', receiptId!)).toEqual(await readBrowserReceipt('session_source', receiptId!));
-    expect((await stat(join(env.root, 'browser-receipts', 'session_2', `${receiptId}.jpg`))).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect((await stat(join(env.root, 'browser-receipts', 'session_2', `${receiptId}.jpg`))).mode & 0o777).toBe(0o600);
+    }
     await deleteBrowserReceipts('session_source');
     expect(await readBrowserReceipt('session_source', receiptId!)).toBeNull();
     expect(await readBrowserReceipt('session_2', receiptId!)).not.toBeNull();

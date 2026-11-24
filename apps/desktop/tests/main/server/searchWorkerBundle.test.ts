@@ -12,7 +12,7 @@ it('ships a runnable search worker that indexes and removes session documents', 
   try {
     const desktop = fileURLToPath(new URL('../../..', import.meta.url));
     await build({ cwd: desktop, config: join(desktop, 'tsdown.config.ts'), outDir: join(root, 'out'), logLevel: 'silent' });
-    worker = new Worker(join(root, 'out', 'search-worker.cjs'), {
+    worker = new Worker(join(root, 'out', 'search-worker.mjs'), {
       workerData: { dir: join(root, 'index'), bootSalt: 'bundle-test' },
     });
     const running = worker;

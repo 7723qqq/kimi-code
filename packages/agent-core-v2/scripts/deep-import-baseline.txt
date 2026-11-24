@@ -360,3 +360,5 @@ packages/kap-server/src/services/feedback/feedbackService.ts app/auth/feedback/u
 packages/kap-server/test/context.test.ts agent/loop/history
 packages/kap-server/test/context.test.ts llm-adapter/contract/tokens
 packages/migration-legacy/test/resume.integration.test.ts _base/utils/workdir-slug
+
+apps/desktop/tests/main/browser/browser-mcp-registration.test.ts agent/loop/history

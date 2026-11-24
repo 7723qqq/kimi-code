@@ -71,9 +71,9 @@ describe('installer channel isolation', () => {
     ['canary', 'true', 'false'],
     ['preview', 'false', 'true'],
   ])('only includes stable protocol hooks for %s', (channel, canary, preview) => {
+    const configPath = join(desktopRoot, 'electron-builder.config.cjs');
     const output = execFileSync(process.execPath, ['-e',
-      'const c=require(process.argv[1]); console.log(JSON.stringify({include:c.nsis.include,protocols:c.protocols}));',
-      join(desktopRoot, 'electron-builder.config.cjs'),
+      `const c=require(${JSON.stringify(configPath)}); console.log(JSON.stringify({include:c.nsis.include,protocols:c.protocols}));`,
     ], {
       env: { ...process.env, KIMI_DESKTOP_CANARY: canary, KIMI_DESKTOP_PREVIEW: preview },
       encoding: 'utf8', windowsHide: true,

@@ -41,7 +41,7 @@ export interface StartDesktopServerOptions {
 export async function startDesktopServer(
   opts: StartDesktopServerOptions,
 ): Promise<DesktopServerHandle> {
-  configureSearchWorkerRuntime(fileURLToPath(new URL('./search-worker.cjs', import.meta.url)));
+  configureSearchWorkerRuntime(fileURLToPath(new URL('./search-worker.mjs', import.meta.url)));
   installGlobalProxyDispatcher();
   const homeDir = resolveKimiHome();
   const host = resolveDesktopHostIdentity(homeDir);

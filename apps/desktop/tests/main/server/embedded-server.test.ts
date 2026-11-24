@@ -123,7 +123,7 @@ describe('startDesktopServer', () => {
     expect(installProxyMock).toHaveBeenCalledOnce();
     expect(startDesktopBrowserMcpMock).toHaveBeenCalledWith({ access: browserAccess, token: undefined });
     expect(startServerMock).toHaveBeenCalledOnce();
-    expect(configureSearchWorkerRuntimeMock).toHaveBeenCalledWith(fileURLToPath(new URL('../../../src/main/server/search-worker.cjs', import.meta.url)));
+    expect(configureSearchWorkerRuntimeMock).toHaveBeenCalledWith(fileURLToPath(new URL('../../../src/main/server/search-worker.mjs', import.meta.url)));
     const args = startServerMock.mock.calls[0]![0];
     expect(args.host).toBe('127.0.0.1');
     expect(args.port).toBe(0);

@@ -111,7 +111,7 @@
     "sherif": "1.11.1",
     "simple-git-hooks": "2.13.1",
     "tsdown": "0.23.1",
-    "typescript": "7.0.2",
+    "typescript": "6.0.2",
     "typescript-legacy": "npm:typescript@6.0.2",
     "vite": "^6.4.3"
   },

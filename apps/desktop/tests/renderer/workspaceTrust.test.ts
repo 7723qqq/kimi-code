@@ -96,13 +96,15 @@ describe('workspacesStore workspace trust', () => {
     expect(store.trustByWorkspaceId['ws/1']).toBeUndefined();
     expect(store.trustLoadingByWorkspaceId['ws/1']).toBe(false);
     expect(warningsStore().warnings).toHaveLength(1);
-    expect(warningsStore().warnings[0]).toMatchObject({
+    const readWarning = warningsStore().warnings[0]!;
+    expect(readWarning).toMatchObject({
       severity: 'error',
       title: 'workspace.trust.readFailedTitle',
       message: failure.message,
-      details: expect.arrayContaining([
-        { label: 'warnings.details.requestId', value: 'req-trust-read' },
-      ]),
+    });
+    expect(readWarning.details).toContainEqual({
+      label: 'warnings.details.requestId',
+      value: 'req-trust-read',
     });
 
     const nextFailure = Object.assign(new Error(failure.message), {
@@ -186,13 +188,15 @@ describe('workspacesStore workspace trust', () => {
     }
     expect(store.trustByWorkspaceId['ws/1']).toBeUndefined();
     expect(warningsStore().warnings).toHaveLength(1);
-    expect(warningsStore().warnings[0]).toMatchObject({
+    const writeWarning = warningsStore().warnings[0]!;
+    expect(writeWarning).toMatchObject({
       severity: 'error',
       title: 'workspace.trust.writeFailedTitle',
       message: failure.message,
-      details: expect.arrayContaining([
-        { label: 'warnings.details.requestId', value: 'req-trust-write' },
-      ]),
+    });
+    expect(writeWarning.details).toContainEqual({
+      label: 'warnings.details.requestId',
+      value: 'req-trust-write',
     });
   });
 

@@ -68,7 +68,7 @@ function blockedBrowserReason(context: ToolDidExecuteContext, allowed: boolean):
   if (output.startsWith(`Tool "${name}" is disabled by the active tool policy`)) {
     return `The tool policy of this agent does not allow \`${name}\`, so the built-in browser is unavailable here.`;
   }
-  if (context.outcome === 'vetoed' && output.startsWith(`Tool "${name}" was not run because the`)) return output;
+  if (output.startsWith(`Tool "${name}" was not run because the`)) return output;
   return undefined;
 }
 

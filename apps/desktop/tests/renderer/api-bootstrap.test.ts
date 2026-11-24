@@ -70,13 +70,12 @@ describe.each(bootstraps)('$name API bootstrap', ({ name, source }) => {
     const first = bootstrap.api.getSessionWarnings('first');
     const second = bootstrap.api.getSessionWarnings('second');
     const queued = bootstrap.api.getSessionWarnings('queued');
-    const assertion = expect(queued).rejects.toMatchObject({ name: 'AbortError' });
     await vi.waitFor(() => {
       expect(sessionFetches()).toBe(2);
     });
 
     bootstrap.disposeHandlers[0]!();
-    await assertion;
+    await expect(queued).rejects.toMatchObject({ name: 'AbortError' });
     await expect(bootstrap.api.getHealth()).rejects.toMatchObject({ name: 'AbortError' });
     for (const resolve of responses) resolve(envelope({ warnings: [] }));
     await expect(Promise.all([first, second])).resolves.toEqual([[], []]);

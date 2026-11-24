@@ -1,66 +1,12 @@
-import { jest, mock, vi } from 'bun:test';
+import { expect, jest, mock, vi } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import { JSDOM } from 'jsdom';
 import { compileScript, compileTemplate, parse, registerTS } from '@vue/compiler-sfc';
 
 type UnknownRecord = Record<string, unknown>;
-
-// Vue's compiler resolves a type imported from a package through the
-// TypeScript compiler API. This repository's TypeScript is the native 7.x
-// preview, which ships no JavaScript API, so the resolution is done here: the
-// package's own `types` entry is the file the compiler needs.
-function resolvePackageTypes(source: string, containingFile: string): string | undefined {
-  const separator = source.indexOf('/');
-  const packageName =
-    source.startsWith('@') && separator > 0
-      ? source.slice(0, separator)
-      : (source.split('/')[0] as string);
-  const subpath = source === packageName ? '.' : `.${source.slice(packageName.length)}`;
-  let directory = dirname(containingFile);
-  for (;;) {
-    const manifest = join(directory, 'node_modules', packageName, 'package.json');
-    if (existsSync(manifest)) {
-      const parsed = JSON.parse(readFileSync(manifest, 'utf-8')) as UnknownRecord;
-      const candidates: string[] = [];
-      const exportsField = parsed['exports'];
-      if (typeof exportsField === 'object' && exportsField !== null) {
-        const record = exportsField as UnknownRecord;
-        const entry = record[subpath] ?? record['.'];
-        if (typeof entry === 'string') candidates.push(entry);
-        else if (typeof entry === 'object' && entry !== null) {
-          const types = (entry as UnknownRecord)['types'];
-          if (typeof types === 'string') candidates.push(types);
-        }
-      }
-      for (const field of ['types', 'typings'] as const) {
-        const value = parsed[field];
-        if (typeof value === 'string') candidates.push(value);
-      }
-      for (const candidate of candidates) {
-        const file = join(dirname(manifest), candidate);
-        if (existsSync(file)) return file;
-      }
-      return undefined;
-    }
-    const parent = dirname(directory);
-    if (parent === directory) return undefined;
-    directory = parent;
-  }
-}
-
-registerTS(() =>
-  ({
-    versionMajorMinor: '5.9',
-    findConfigFile: () => undefined,
-    sys: { useCaseSensitiveFileNames: true },
-    resolveModuleName: (source: string, containingFile: string) => {
-      const resolved = resolvePackageTypes(source, containingFile);
-      return resolved === undefined ? {} : { resolvedModule: { resolvedFileName: resolved } };
-    },
-  }) as never,
-);
 
 // Bun has no loader for Vue single-file components: an import of a `.vue`
 // file resolves to the file path as a string, so a component renders as an
@@ -131,6 +77,8 @@ Bun.plugin({
   },
 });
 
+registerTS(() => createRequire(import.meta.url)('typescript') as never);
+
 const repoRoot = join(import.meta.dirname, '../..');
 const iconSpecifiers = new Set<string>();
 function collectIcons(directory: string): void {
@@ -197,6 +145,12 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   pretendToBeVisual: true,
 });
 const domWindow = dom.window as unknown as UnknownRecord;
+const WINDOW_BOUND_KEYS: ReadonlySet<string> = new Set([
+  'getComputedStyle',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'matchMedia',
+]);
 for (const key of [
   'window',
   'document',
@@ -207,6 +161,7 @@ for (const key of [
   'sessionStorage',
   'Event',
   'CustomEvent',
+  'EventTarget',
   'UIEvent',
   'MouseEvent',
   'PointerEvent',
@@ -220,12 +175,22 @@ for (const key of [
   'requestAnimationFrame',
   'cancelAnimationFrame',
   'matchMedia',
+  'innerWidth',
+  'innerHeight',
+  'outerWidth',
+  'outerHeight',
+  'scrollX',
+  'scrollY',
+  'devicePixelRatio',
 ] as const) {
   const value = domWindow[key];
   if (value === undefined) continue;
   try {
     Object.defineProperty(globalThis, key, {
-      value: typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(domWindow) : value,
+      value:
+        typeof value === 'function' && WINDOW_BOUND_KEYS.has(key)
+          ? (value as (...args: unknown[]) => unknown).bind(domWindow)
+          : value,
       configurable: true,
       writable: true,
     });
@@ -255,6 +220,13 @@ if ((globalThis as UnknownRecord)['matchMedia'] === undefined) {
       removeListener: () => {},
       dispatchEvent: () => false,
     }),
+    configurable: true,
+    writable: true,
+  });
+}
+if (domWindow['matchMedia'] === undefined) {
+  Object.defineProperty(domWindow, 'matchMedia', {
+    value: (globalThis as UnknownRecord)['matchMedia'],
     configurable: true,
     writable: true,
   });
@@ -360,6 +332,58 @@ function spyOnAccessor(target: object, property: string): unknown {
   return spy;
 }
 
+const manualSpies: { restore(): void }[] = [];
+
+function spyOnMethod(target: object, property: string): unknown {
+  const descriptor = accessorDescriptor(target, property);
+  const original = (target as Record<string, unknown>)[property] as (...args: unknown[]) => unknown;
+  let implementation: ((...args: unknown[]) => unknown) | undefined;
+  const calls: unknown[][] = [];
+  const results: { type: 'return' | 'throw'; value: unknown }[] = [];
+  const spy = function (this: unknown, ...args: unknown[]): unknown {
+    calls.push(args);
+    try {
+      const value = Reflect.apply(implementation ?? original, this, args);
+      results.push({ type: 'return', value });
+      return value;
+    } catch (error) {
+      results.push({ type: 'throw', value: error });
+      throw error;
+    }
+  } as unknown as Record<string, unknown> & ((...args: unknown[]) => unknown);
+  spy['mock'] = { calls, results };
+  spy['mockImplementation'] = (next: (...args: unknown[]) => unknown) => {
+    implementation = next;
+    return spy;
+  };
+  spy['mockReturnValue'] = (value: unknown) => {
+    implementation = () => value;
+    return spy;
+  };
+  spy['mockClear'] = () => {
+    calls.length = 0;
+    results.length = 0;
+  };
+  spy['mockReset'] = () => {
+    calls.length = 0;
+    results.length = 0;
+    implementation = undefined;
+  };
+  const restore = (): void => {
+    if (descriptor === undefined) delete (target as Record<string, unknown>)[property];
+    else Object.defineProperty(target, property, descriptor);
+  };
+  spy['mockRestore'] = restore;
+  manualSpies.push({ restore });
+  Object.defineProperty(target, property, {
+    value: spy,
+    configurable: true,
+    writable: true,
+    enumerable: descriptor?.enumerable ?? false,
+  });
+  return spy;
+}
+
 const bunSpyOn = bunVi['spyOn'];
 bunVi['spyOn'] = (target: unknown, property: unknown, ...rest: unknown[]): unknown => {
   if (typeof target === 'object' && target !== null && typeof property === 'string') {
@@ -367,8 +391,27 @@ bunVi['spyOn'] = (target: unknown, property: unknown, ...rest: unknown[]): unkno
     if (descriptor !== undefined && (descriptor.get !== undefined || descriptor.set !== undefined)) {
       return spyOnAccessor(target, property);
     }
+    const eventTarget = (globalThis as Record<string, unknown>)['EventTarget'];
+    if (
+      typeof eventTarget === 'function' &&
+      target instanceof eventTarget &&
+      typeof (target as Record<string, unknown>)[property] === 'function'
+    ) {
+      return spyOnMethod(target, property);
+    }
   }
   return (bunSpyOn as (...args: unknown[]) => unknown)(target, property, ...rest);
+};
+const bunMockModule = bunVi['mock'] as (id: string, factory?: (...args: unknown[]) => unknown) => unknown;
+bunVi['mock'] = (id: unknown, factory?: unknown): unknown => {
+  if (typeof factory !== 'function') return bunMockModule(id as string, factory as never);
+  const original = factory as (importOriginal: () => Promise<unknown>) => unknown;
+  return bunMockModule(id as string, async () => original(() => import(id as string)));
+};
+const bunRestoreAllMocks = bunVi['restoreAllMocks'];
+bunVi['restoreAllMocks'] = (): unknown => {
+  for (const spy of manualSpies.splice(0).reverse()) spy.restore();
+  return (bunRestoreAllMocks as () => unknown)();
 };
 
 interface WaitOptions {
@@ -376,17 +419,13 @@ interface WaitOptions {
   readonly interval?: number;
 }
 
-async function waitFor(
-  callback: () => unknown,
-  options?: WaitOptions,
-): Promise<void> {
+async function waitFor<T>(callback: () => T | Promise<T>, options?: WaitOptions): Promise<T> {
   const timeout = options?.timeout ?? 1000;
   const interval = options?.interval ?? 50;
   const started = Date.now();
   for (;;) {
     try {
-      await callback();
-      return;
+      return await callback();
     } catch (error) {
       if (Date.now() - started >= timeout) throw error;
       await new Promise((resolve) => setTimeout(resolve, interval));
@@ -435,4 +474,78 @@ Object.assign(bunVi, {
   runAllTimersAsync,
   waitFor,
   waitUntil,
+});
+
+function describeArgs(args: readonly unknown[]): string {
+  return args.map((arg) => Bun.inspect(arg, { colors: false, depth: 4 })).join(', ');
+}
+
+function callArguments(received: unknown): unknown[][] | undefined {
+  const mock = (received as { mock?: { calls?: unknown[][] } } | null)?.mock;
+  return Array.isArray(mock?.calls) ? mock.calls : undefined;
+}
+
+expect.extend({
+  toHaveBeenCalledExactlyOnceWith(received: unknown, ...expected: unknown[]) {
+    const calls = callArguments(received);
+    if (calls === undefined) {
+      return { pass: false, message: () => 'expected a mock or spy function' };
+    }
+    const wanted = describeArgs(expected);
+    if (calls.length !== 1) {
+      return {
+        pass: false,
+        message: () =>
+          `expected the mock to be called exactly once with ${wanted}, but it was called ${calls.length} time(s)`,
+      };
+    }
+    let matched = true;
+    try {
+      expect(received).toHaveBeenCalledWith(...expected);
+    } catch {
+      matched = false;
+    }
+    return {
+      pass: matched,
+      message: () =>
+        matched
+          ? `expected the mock not to have been called with ${wanted}`
+          : `expected the mock to be called with ${wanted}, but it was called with ${describeArgs(calls[0] ?? [])}`,
+    };
+  },
+  toHaveBeenCalledBefore(received: unknown, other: unknown) {
+    const calls = callArguments(received);
+    const otherCalls = callArguments(other);
+    if (calls === undefined || otherCalls === undefined) {
+      return { pass: false, message: () => 'expected two mock or spy functions' };
+    }
+    const own = (received as { mock?: { calls?: unknown[]; invocationCallOrder?: number[] } }).mock;
+    const rival = (other as { mock?: { calls?: unknown[]; invocationCallOrder?: number[] } }).mock;
+    const first = calls.length > 0;
+    const rivalFirst = otherCalls.length > 0;
+    if (!first || !rivalFirst) {
+      return {
+        pass: false,
+        message: () =>
+          `expected both mocks to have been called, but ${
+            first ? 'the second' : 'the first'
+          } was never called`,
+      };
+    }
+    const ownOrder = own?.invocationCallOrder?.[0];
+    const rivalOrder = rival?.invocationCallOrder?.[0];
+    if (ownOrder === undefined || rivalOrder === undefined) {
+      return {
+        pass: false,
+        message: () => 'expected both mocks to record an invocation call order',
+      };
+    }
+    return {
+      pass: ownOrder < rivalOrder,
+      message: () =>
+        ownOrder < rivalOrder
+          ? 'expected the mock not to have been called before the other mock'
+          : 'expected the mock to have been called before the other mock',
+    };
+  },
 });

@@ -23,7 +23,8 @@
     "apps/vscode/test/webview/setup.ts": "Real capability gap. Bun has no test environment option, so a webview suite that needs a document imports this module to build a jsdom window and tear it down per file. A bunfig preload cannot be used because the extension tests must not see a document.",
     "tools/bun-migrate/src/node-gaps.mjs": "Migrator data. The `Bun has no ...` strings are the gap catalogue's workaround text for Node APIs, not a hand-written stand-in for a runner API.",
     "tools/bun-migrate/src/layers/packages.mjs": "Migrator data. The note records a Node feature Bun lacks while describing a migration rule; no runner API is defined here.",
-    "tools/bun-migrate/test/node-surface.test.mjs": "The suite's title and comment state the catalogue invariant (`Node has ... Bun lacks`); no runner API stand-in is defined."
+    "tools/bun-migrate/test/node-surface.test.mjs": "The suite's title and comment state the catalogue invariant (`Node has ... Bun lacks`); no runner API stand-in is defined.",
+    "scripts/test/bun-vitest-compat.ts": "Compatibility preload for the desktop web/renderer suites. Bun has no test-environment option, so the preload installs a jsdom realm and compiles Vue SFCs; it also fills the vi helpers Bun 1.4.4 does not ship (stubGlobal/stubEnv/setSystemTime). Remove it together with the vitest-style desktop suites once they are ported to bun:test."
   },
   "node-test-import": {
     "scripts/canary-linux.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",

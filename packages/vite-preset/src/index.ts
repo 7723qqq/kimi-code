@@ -3,7 +3,7 @@ import vue from '@vitejs/plugin-vue';
 import Icons from 'unplugin-icons/vite';
 import { FileSystemIconLoader } from 'unplugin-icons/loaders';
 import { execFileSync } from 'node:child_process';
-
+import { existsSync, readFileSync } from 'node:fs';
 const RAW_ICON_PREFIX = '\0kimi-raw-icon:';
 
 function resolveCommitSha(): string {
@@ -69,7 +69,20 @@ export function kimiRendererViteConfig(opts: KimiRendererViteOptions): UserConfi
   return {
     root,
     plugins: [
-      vue(),
+      vue({
+        script: {
+          fs: {
+            fileExists: (file: string) => existsSync(file),
+            readFile: (file: string) => {
+              try {
+                return readFileSync(file, 'utf8');
+              } catch {
+                return undefined;
+              }
+            },
+          },
+        },
+      }),
       rawIconPlugin(icons),
       ...iconPlugins,
     ],
