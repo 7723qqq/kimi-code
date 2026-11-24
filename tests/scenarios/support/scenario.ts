@@ -1,6 +1,6 @@
 import { createServerLogger, startServer, type RunningServer } from '@moonshot-ai/kap-server';
 import type { KimiConfig } from '@moonshot-ai/testkit/fixtures';
-import type { FakeProviderType } from '@moonshot-ai/testkit/model';
+import type { FakeModelOptions, FakeProviderType } from '@moonshot-ai/testkit/model';
 import {
   kapFixtures,
   kapTest,
@@ -11,8 +11,10 @@ import {
 export type ScenarioFixtures = KapFixtures<RunningServer>;
 
 export interface ScenarioOptions {
+  readonly serverVersion?: string;
   readonly provider?: FakeProviderType;
   readonly config?: KimiConfig;
+  readonly modelOptions?: FakeModelOptions;
 }
 
 export function scenarioFixtures(
@@ -21,6 +23,8 @@ export function scenarioFixtures(
   return kapFixtures({
     startServer,
     createServerLogger,
+    modelOptions: options.modelOptions,
+    serverOptions: { serverVersion: options.serverVersion },
     provider: { type: options.provider },
     config: { defaultPermissionMode: 'yolo', ...options.config },
   });
@@ -32,4 +36,3 @@ export function scenarioTest(
 ): (name: string, fn: (fixtures: ScenarioFixtures) => void | Promise<void>) => void {
   return kapTest(scenarioFixtures(options), timeoutMs);
 }
-

@@ -766,6 +766,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             },
             control.signal,
           );
+          control.onEvent?.({ type: 'llm.sent' });
           options.onTrace?.(task.trace);
           try {
             const finish = await task.result;

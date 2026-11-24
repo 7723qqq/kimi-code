@@ -410,9 +410,11 @@ export class LoopJournal {
         const requesting = this.requestingStep;
         if (requesting === undefined) return;
         const key = stepKey(requesting.turnId, requesting.step);
-        if (this.steps.has(key)) return;
-        const step: StepJournal = { uuid: randomUUID(), streamedBlocks: new Map(), writtenBlocks: new Map(), started: false };
-        this.steps.set(key, step);
+        let step = this.steps.get(key);
+        if (step === undefined) {
+          step = { uuid: randomUUID(), streamedBlocks: new Map(), writtenBlocks: new Map(), started: false };
+          this.steps.set(key, step);
+        }
         this.ensureStepStarted(requesting.turnId, requesting.step, step);
         return;
       }
