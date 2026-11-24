@@ -4,7 +4,7 @@ import { browserReferenceAnchor, useComposerBrowserReferenceHost } from '../comp
 import BrowserReferenceDetails from '../composer/BrowserReferenceDetails.vue';
 import { useBrowserReferenceDetails } from '../composer/browserReferenceDetails';
 import { composerSnapshotFromMetadata, rebindComposerSnapshotMedia } from '@moonshot-ai/app-client/lib';
-import { computed, inject, nextTick, onMounted, onUnmounted, provide, reactive, ref, watch, watchSyncEffect } from 'vue';
+import { computed, inject, nextTick, onMounted, onUnmounted, provide, reactive, ref, watch, watchSyncEffect, type Component } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ChatTurn, ApprovalBlock, OpenMediaRequest, ToolMedia, QueuedPromptView, TurnAttachment, UIQuestion } from '@moonshot-ai/app-core/client/types';
 import type { AppSessionRatingResponse } from '@moonshot-ai/app-core/api';
@@ -13,9 +13,10 @@ import ToolCall from './ToolCall.vue';
 import { BrowserToolContextKey } from './tool-calls/browserToolContext';
 import { browserToolContexts } from './tool-calls/browserToolPresentation';
 import { CronToolContextKey, cronToolContexts } from './tool-calls/cronToolContext';
-import HistoryWindow from './HistoryWindow.vue';
+import BlockList from './BlockList.vue';
+import TranscriptList from './TranscriptList.vue';
 import { settledSteerTurnIdsFor, syncSettledSteerTurnIds } from './steerContinuationState';
-import { HistoryAllKey } from '@moonshot-ai/app-core/contracts';
+import { HistoryAllKey, TranscriptScrollKey } from '@moonshot-ai/app-core/contracts';
 import ActivityRun from './ActivityRun.vue';
 import TurnFold from './TurnFold.vue';
 import RequestDebugRow from './RequestDebugRow.vue';
@@ -1005,6 +1006,41 @@ function copyFinalSummary(onCopied?: (ok: boolean) => void): void {
 provide(HistoryAllKey, computed(() => props.renderAllHistory));
 if (props.windowHistory) provide(HistoryImageCacheKey, createHistoryImageCache());
 const historyState = props.historyState ?? new Map<string, unknown>();
+const transcriptHost = inject(TranscriptScrollKey, null);
+const transcriptList = props.windowHistory && transcriptHost !== null;
+const transcriptAuxRefs = new Map<string, (el: unknown) => void>();
+function transcriptAux(id: string): (el: unknown) => void {
+  let bind = transcriptAuxRefs.get(id);
+  if (!bind) {
+    bind = (el: unknown) => {
+      const node = el && typeof el === 'object' && '$el' in el ? el.$el : el;
+      transcriptHost?.observeAux('tail', node instanceof HTMLElement ? node : null, id);
+    };
+    transcriptAuxRefs.set(id, bind);
+  }
+  return bind;
+}
+if (transcriptList) watch(topSentinelRef, transcriptAux('sentinel'), { flush: 'sync' });
+function historyTurnKey(turn: ChatTurn): string {
+  return turn.id;
+}
+function historyTurnKind(turn: ChatTurn): string {
+  return turn.role;
+}
+function historyTurnEstimate(turn: ChatTurn): number {
+  return estimateTurnHeight(turn) + (turn.role === 'assistant' ? 10 : 16);
+}
+const historyList = computed<{ is: Component; key: string; props: Record<string, unknown> }>(() => transcriptList
+  ? {
+      is: TranscriptList,
+      key: `v2:${props.sessionId ?? 'empty'}`,
+      props: { scope: props.sessionId ?? 'empty', state: historyState, items: props.turns, itemKey: historyTurnKey, estimate: historyTurnEstimate, kind: historyTurnKind, renderAll: props.renderAllHistory },
+    }
+  : {
+      is: BlockList,
+      key: `blocks:${props.sessionId ?? 'empty'}`,
+      props: { items: props.turns, itemKey: historyTurnKey },
+    });
 const historyRef = ref<{ reveal: (key: string) => Promise<HTMLElement | null>; release: () => void } | null>(null);
 async function revealTurn(id: string): Promise<HTMLElement | null> {
   return await historyRef.value?.reveal(id) ?? null;
@@ -1317,8 +1353,9 @@ function streamingTailIndex(turn: ChatTurn): number | null {
       </span>
     </div>
 
-    <HistoryWindow ref="historyRef" :key="`${windowHistory}:${sessionId ?? 'empty'}`" :scope="sessionId ?? 'empty'" :state="historyState" :items="turns" :item-key="turn => turn.id" :enabled="windowHistory" :tail="4" :overscan="3" :estimate="estimateTurnHeight" :gap="(turn, index) => index === 0 && !hasMoreMessages && !loadingMore ? 0 : turn.role === 'assistant' ? 10 : 16">
-      <template #default="{ item: turn, index: ti }">
+    <component :is="historyList.is" ref="historyRef" :key="historyList.key" v-bind="historyList.props">
+      <template #default="{ item: turn, index: ti }: { item: ChatTurn; index: number }">
+      <div class="chat-row" :data-row-kind="turn.role" :data-row-key="windowHistory ? undefined : turn.id">
       <template v-if="turn.role === 'user'">
         <div class="u-turn">
           <div class="u-bub turn-anchor" :class="{ undoing: undoingTurnId === turn.id }" :data-turn-id="turn.id">
@@ -1467,6 +1504,7 @@ function streamingTailIndex(turn: ChatTurn): number | null {
       <div v-else class="a-msg turn-anchor" :data-turn-id="turn.id">
         <TurnFold
           v-if="!inspector && turnFolding && assistantFold(turn).folded.length > 0"
+          data-block-key="fold"
           :items="assistantFold(turn).folded"
           mobile
           :streaming-tail-index="streamingTailIndex(turn)"
@@ -1482,11 +1520,12 @@ function streamingTailIndex(turn: ChatTurn): number | null {
           @open-media="onOpenMedia"
           @detach="onDetach"
         />
-        <HistoryWindow :items="assistantVisibleBlocks(turn)" :item-key="renderBlockKey" :enabled="windowHistory" scope="visible-blocks"><template #default="{ item: blk, index: bi }">
-          <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" :started-at="blk.startedAt" :duration-ms="blk.durationMs" :instant-reveal="inspector" />
-          <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="isStreamingRenderBlock(turn, blk)" :state-key="renderBlockKey(blk, bi)" :open-file="panelApi?.openFile" :resolve-file-path="turnFilePathResolver(turn)" :resolve-image="turnImageResolver(turn)" /></div>
+        <BlockList :items="assistantVisibleBlocks(turn)" :item-key="renderBlockKey" :enabled="windowHistory" scope="visible-blocks"><template #default="{ item: blk, index: bi }">
+          <ThinkingBlock v-if="blk.kind === 'thinking'" :data-block-key="renderBlockKey(blk, bi)" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" :started-at="blk.startedAt" :duration-ms="blk.durationMs" :instant-reveal="inspector" />
+          <div v-else-if="blk.kind === 'text' && blk.text" class="msg" :data-block-key="renderBlockKey(blk, bi)"><Markdown :text="blk.text" :streaming="isStreamingRenderBlock(turn, blk)" :state-key="renderBlockKey(blk, bi)" :open-file="panelApi?.openFile" :resolve-file-path="turnFilePathResolver(turn)" :resolve-image="turnImageResolver(turn)" /></div>
           <ActivityRun
             v-else-if="blk.kind === 'activity-run'"
+            :data-block-key="renderBlockKey(blk, bi)"
             :items="blk.items"
             mobile
             :live="isLiveActivityRun(turn, blk)"
@@ -1497,10 +1536,10 @@ function streamingTailIndex(turn: ChatTurn): number | null {
             @open-media="onOpenMedia"
             @detach="onDetach"
           />
-          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :resolve-file-path="turnFilePathResolver(turn)" :resolve-image="turnImageResolver(turn)" @open-media="onOpenMedia" @detach="onDetach" />
-          <NotificationCard v-else-if="blk.kind === 'notification'" :items="blk.items" />
+          <ToolCall v-else-if="blk.kind === 'tool'" :data-block-key="renderBlockKey(blk, bi)" :tool="blk.tool" mobile :resolve-file-path="turnFilePathResolver(turn)" :resolve-image="turnImageResolver(turn)" @open-media="onOpenMedia" @detach="onDetach" />
+          <NotificationCard v-else-if="blk.kind === 'notification'" :data-block-key="renderBlockKey(blk, bi)" :items="blk.items" />
           <template v-if="blk.kind === 'thinking' || blk.kind === 'text' || blk.kind === 'tool'"><RequestDebugRow v-for="(debug, di) in blk.debug ?? []" :key="di" :debug="debug" /></template>
-        </template></HistoryWindow>
+        </template></BlockList>
         <BrowserSources
           v-if="!inspector && turn.id !== streamingTurnId && isAssistantRunEnd(ti)"
           :turns="stableAssistantRun(ti)"
@@ -1509,6 +1548,7 @@ function streamingTailIndex(turn: ChatTurn): number | null {
              sub-agent detail view stays a pure trajectory, no diff card. -->
         <TurnFilesSummary
           v-if="!inspector && turnFileChangesById.get(turn.id)"
+          data-block-key="files"
           :changes="turnFileChangesById.get(turn.id)!.changes"
           :turn-id="turn.id"
           :daemon-turn-id="turnFileChangesById.get(turn.id)!.daemonTurnId"
@@ -1517,7 +1557,7 @@ function streamingTailIndex(turn: ChatTurn): number | null {
           :cwd="props.cwd"
           :interactive="turnFilesInteractive"
         />
-        <div v-if="!inspector && turn.id !== streamingTurnId && isAssistantRunEnd(ti) && (props.turns[ti + 1]?.steered !== true || forkEntryAvailable(turn)) && (assistantRunHasOutput(ti) || forkEntryAvailable(turn)) && (assistantRunFinalText(ti).trim().length > 0 || turnTimeLabel(turn) || forkEntryAvailable(turn))" class="a-msg-ft">
+        <div v-if="!inspector && turn.id !== streamingTurnId && isAssistantRunEnd(ti) && (props.turns[ti + 1]?.steered !== true || forkEntryAvailable(turn)) && (assistantRunHasOutput(ti) || forkEntryAvailable(turn)) && (assistantRunFinalText(ti).trim().length > 0 || turnTimeLabel(turn) || forkEntryAvailable(turn))" class="a-msg-ft" data-block-key="footer">
           <div class="a-msg-meta">
             <Tooltip :text="t('filePreview.copy')">
             <button
@@ -1565,8 +1605,9 @@ function streamingTailIndex(turn: ChatTurn): number | null {
         <span class="cd-label" role="status">{{ t('conversation.turnInterrupted') }}</span>
         <span class="cd-line" aria-hidden="true" />
       </div>
+      </div>
       </template>
-    </HistoryWindow>
+    </component>
 
     <!-- Model-request failure (e.g. provider 429 after retry exhaustion): the
          turn died and nothing resumes it on its own — a persistent card, since
@@ -2707,3 +2748,5 @@ function streamingTailIndex(turn: ChatTurn): number | null {
 }
 
 </style>
+
+
