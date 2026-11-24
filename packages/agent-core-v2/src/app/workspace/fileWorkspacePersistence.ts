@@ -17,6 +17,7 @@ import { watchCandidates } from '#human/utils/watch';
 import type { Workspace } from './workspace';
 import {
   IWorkspacePersistence,
+  type PersistedProjectsFile,
   type PersistedWorkspaceEntry,
   type PersistedWorkspaceFile,
   type WorkspaceCatalog,
@@ -25,6 +26,7 @@ import {
 const WORKSPACE_CATALOG_VERSION = 1;
 const WORKSPACE_CATALOG_SCOPE = '';
 const WORKSPACE_CATALOG_KEY = 'workspaces.json';
+const LEGACY_PROJECTS_KEY = 'projects.json';
 const WORKSPACE_CATALOG_LOCK_KEY = 'workspace-catalog.lock';
 const WORKSPACE_CATALOG_LOCK_WAIT_MS = 2_000;
 const WORKSPACE_CATALOG_LOCK_RETRY_MS = 100;
@@ -50,14 +52,16 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
   ) {
     super();
     const catalogFile = join(this.bootstrap.homeDir, WORKSPACE_CATALOG_KEY);
+    const projectsFile = join(this.bootstrap.homeDir, LEGACY_PROJECTS_KEY);
     this.catalogLockPath = join(this.bootstrap.homeDir, 'locks', WORKSPACE_CATALOG_LOCK_KEY);
     this.catalogLock = new LockFile(this.catalogLockPath);
     this._register(toDisposable(() => this.catalogLock.releaseSync()));
-    const handle = watchCandidates(this.bootstrap.homeDir, [catalogFile]);
+    const handle = watchCandidates(this.bootstrap.homeDir, [catalogFile, projectsFile]);
     this._register(handle);
     this._register(
       handle.onDidChange((change) => {
-        if (normalize(change.path) !== normalize(catalogFile)) return;
+        const path = normalize(change.path);
+        if (path !== normalize(catalogFile) && path !== normalize(projectsFile)) return;
         this.catalogCache = undefined;
         this.watchDebounce.cancelAndSet(() => {
           this.changeEmitter.fire();
@@ -84,7 +88,7 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
       WORKSPACE_CATALOG_SCOPE,
       WORKSPACE_CATALOG_KEY,
     );
-    if (file === undefined) return undefined;
+    if (file === undefined) return this.readProjectsCatalog();
     if (
       typeof file !== 'object' ||
       file === null ||
@@ -93,9 +97,36 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
     ) {
       return undefined;
     }
+    return this.catalogOf(
+      Object.entries(file.workspaces),
+      (file as { deleted_workspace_ids?: unknown }).deleted_workspace_ids,
+      (file as { idempotency_keys?: unknown }).idempotency_keys,
+    );
+  }
+
+  private async readProjectsCatalog(): Promise<WorkspaceCatalog | undefined> {
+    const file = await this.docs.get<PersistedProjectsFile>(
+      WORKSPACE_CATALOG_SCOPE,
+      LEGACY_PROJECTS_KEY,
+    );
+    if (typeof file !== 'object' || file === null) return undefined;
+    const projects = (file as { projects?: unknown }).projects;
+    if (typeof projects !== 'object' || projects === null) return undefined;
+    return this.catalogOf(
+      Object.entries(projects as Record<string, unknown>),
+      (file as { deleted_project_ids?: unknown }).deleted_project_ids,
+      (file as { idempotency_keys?: unknown }).idempotency_keys,
+    );
+  }
+
+  private catalogOf(
+    entries: readonly (readonly [string, unknown])[],
+    deletedRaw: unknown,
+    keysRaw: unknown,
+  ): WorkspaceCatalog {
     const now = Date.now();
     const workspaces: Workspace[] = [];
-    for (const [id, raw] of Object.entries(file.workspaces)) {
+    for (const [id, raw] of entries) {
       const entry = sanitizeEntry(raw);
       if (entry === null) continue;
       workspaces.push({
@@ -108,15 +139,13 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
         lastOpenedAt: parseTime(entry.last_opened_at, now),
       });
     }
-    const rawDeleted = (file as { deleted_workspace_ids?: unknown }).deleted_workspace_ids;
-    const deletedIds = Array.isArray(rawDeleted)
-      ? rawDeleted.filter((id): id is string => typeof id === 'string')
+    const deletedIds = Array.isArray(deletedRaw)
+      ? deletedRaw.filter((id): id is string => typeof id === 'string')
       : [];
-    const rawKeys = (file as { idempotency_keys?: unknown }).idempotency_keys;
     const idempotencyKeys =
-      typeof rawKeys === 'object' && rawKeys !== null
+      typeof keysRaw === 'object' && keysRaw !== null
         ? Object.fromEntries(
-            Object.entries(rawKeys as Record<string, unknown>).filter(
+            Object.entries(keysRaw as Record<string, unknown>).filter(
               (entry): entry is [string, string] => typeof entry[1] === 'string',
             ),
           )
@@ -241,3 +270,4 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'workspace',
 );
+

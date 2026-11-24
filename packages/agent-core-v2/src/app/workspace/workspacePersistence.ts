@@ -19,6 +19,13 @@ export interface PersistedWorkspaceFile {
   readonly idempotency_keys?: Record<string, string>;
 }
 
+export interface PersistedProjectsFile {
+  readonly schema_version: number;
+  readonly projects: Record<string, PersistedWorkspaceEntry>;
+  readonly deleted_project_ids: string[];
+  readonly idempotency_keys?: Record<string, string>;
+}
+
 export interface WorkspaceCatalog {
   readonly workspaces: readonly Workspace[];
   readonly deletedIds: readonly string[];

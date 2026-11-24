@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, it } from 'bun:test';
 
+import { TestkitError } from '#/errors';
 import { createTestHome, type TestHome } from '#/fixtures/home';
 import { installNetworkGuard, type NetworkGuardOptions } from '#/fixtures/network';
 import {
@@ -173,25 +174,36 @@ export function kapFixtures<O extends KapLaunchOptions, S extends KapRunningServ
   };
 }
 
+export interface TestOptions {
+  readonly timeout?: number;
+}
+
 export function modelTest(
   definitions: ModelFixtureDefinitions,
-  timeoutMs = 10_000,
-): (name: string, fn: (fixtures: ModelFixtures) => void | Promise<void>) => void {
-  return (name, fn) => {
+  defaultTimeoutMs = 10_000,
+): (
+  name: string,
+  fnOrOptions: ((fixtures: ModelFixtures) => void | Promise<void>) | TestOptions,
+  fn?: (fixtures: ModelFixtures) => void | Promise<void>,
+) => void {
+  return (name, fnOrOptions, maybeFn) => {
+    const options = typeof fnOrOptions === 'function' ? undefined : fnOrOptions;
+    const body = typeof fnOrOptions === 'function' ? fnOrOptions : maybeFn;
+    if (body === undefined) throw new TestkitError(`Test ${JSON.stringify(name)} has no body`);
     it(
       name,
       async () => {
         const handle = createFixtureContext(name);
         try {
           await definitions.model(handle.context, async (model) => {
-            await fn({ model });
+            await body({ model });
           });
         } catch (error) {
           await handle.runFailureHooks(error);
           throw error;
         }
       },
-      timeoutMs,
+      options?.timeout ?? defaultTimeoutMs,
     );
   };
 }
