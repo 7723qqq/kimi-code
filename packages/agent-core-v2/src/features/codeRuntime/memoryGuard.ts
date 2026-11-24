@@ -1,5 +1,5 @@
-import { dlopen, FFIType } from 'bun:ffi';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 
 export class MemoryCapUnavailableError extends Error {
   constructor(message: string) {
@@ -36,9 +36,13 @@ export interface Win32Kernel32 {
 
 let kernel32Cache: Win32Kernel32 | null | undefined;
 
+type BunFfi = typeof import('bun:ffi');
+const requireBunFfi = createRequire(import.meta.url) as (id: 'bun:ffi') => BunFfi;
+
 function loadKernel32(): Win32Kernel32 | null {
   if (kernel32Cache !== undefined) return kernel32Cache;
   try {
+    const { dlopen, FFIType } = requireBunFfi('bun:ffi');
     const lib = dlopen('kernel32.dll', {
       CreateJobObjectW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr },
       SetInformationJobObject: { args: [FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.bool },

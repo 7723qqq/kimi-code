@@ -161,6 +161,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private initialized = false;
   private pendingHistory: readonly Message[] | undefined;
   private replacedHistory: readonly Message[] | undefined;
+  private ownSpliceEvent: ContextSpliced | undefined;
   private startPromise: Promise<void> | undefined;
   private closePromise: Promise<void> | undefined;
   private readonly batchStartingHooks = new Map<string, HookRegistration>();
@@ -245,7 +246,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       (value) => this.loop?.setSystemPrompt(value),
     );
     this._register(this.events.subscribe(ContextSpliced, (event) => {
-      if (event.agentId === this.scopeContext.agentId) this.adoptExternalContext();
+      if (event.agentId !== this.scopeContext.agentId) return;
+      if (event === this.ownSpliceEvent) return;
+      this.adoptExternalContext();
     }));
     this._register(this.toolExecutor.hooks.onDidExecuteTool.register('loop.tool-delivery', async (ctx, next) => {
       const delivery = ctx.result.delivery;
@@ -434,10 +437,20 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (this.replacedHistory !== undefined) return this.replacedHistory;
     if (this.pendingHistory !== undefined) return this.pendingHistory;
     const source = this.loop?.state.messages ?? this.journal.snapshot().input.messages;
-    if (source !== undefined && source.length > 0) return source;
+    if (source !== undefined && source.length > 0) {
+      return this.loop === undefined && this.pendingReminders.length > 0
+        ? [...source, ...this.pendingReminders]
+        : source;
+    }
     const context = this.instantiation.invokeFunction((accessor) =>
       accessor.get(IAgentContextMemoryService),
     ).get();
+    if (this.loop === undefined && this.pendingReminders.length > 0) {
+      return historyFromContext([
+        ...context,
+        ...this.pendingReminders.map((message) => contextFromHistoryEntry(message)),
+      ]);
+    }
     return context.length === 0 ? [] : historyFromContext(context);
   }
 
@@ -472,6 +485,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     }
     if (subsequence) {
       if (context.length !== messages.length) {
+        this.replacedHistory = undefined;
         loop.setContext(historyFromContextPreservingToolNotes(context), 'compaction');
       }
       return;
@@ -479,6 +493,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const known = new Set(messages.map(messageSignature));
     const missing = context.filter((message) => !known.has(messageSignature(message)));
     if (missing.length === 0) return;
+    this.replacedHistory = undefined;
     loop.setContext(
       [...messages, ...historyFromContextPreservingToolNotes(missing)],
       'compaction',
@@ -497,12 +512,16 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         [],
         [...messages],
       );
-      void this.dispatcher.dispatch(new ContextSpliced({
+      const splice = new ContextSpliced({
         agentId: this.scopeContext.agentId,
         start: 0,
         deleteCount: previous.length,
         messages: messages.map((message) => contextFromHistoryEntry(message)),
-      }));
+      });
+      this.ownSpliceEvent = splice;
+      void this.dispatcher.dispatch(splice).finally(() => {
+        if (this.ownSpliceEvent === splice) this.ownSpliceEvent = undefined;
+      });
       onAccepted?.();
       return this.loop!.setContext([...messages], reason)?.type === 'context.settled';
     }
@@ -510,12 +529,16 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (ack?.type !== 'context.settled') return false;
     onAccepted?.();
     if (reason !== 'compaction') {
-      void this.dispatcher.dispatch(new ContextSpliced({
+      const splice = new ContextSpliced({
         agentId: this.scopeContext.agentId,
         start: 0,
         deleteCount: previous.length,
         messages: this.history(),
-      }));
+      });
+      this.ownSpliceEvent = splice;
+      void this.dispatcher.dispatch(splice).finally(() => {
+        if (this.ownSpliceEvent === splice) this.ownSpliceEvent = undefined;
+      });
     }
     return true;
   }
@@ -950,6 +973,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   close(): Promise<void> {
     if (this.closePromise !== undefined) return this.closePromise;
+    this.persistPendingReminders();
     this.disposing = true;
     const reason = abortError('Agent loop disposed');
     this.prompts.close();
@@ -1196,6 +1220,20 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (loop === undefined) return;
     if (this.pendingReminders.length > 0) loop.remind(...this.pendingReminders.splice(0));
     loop.flushReminders();
+  }
+
+  private persistPendingReminders(): void {
+    if (this.loop !== undefined || this.pendingReminders.length === 0) return;
+    const turnId = this.journal.snapshot().input.nextTurnId ?? 0;
+    for (const message of this.pendingReminders.splice(0)) {
+      this.journal.append({
+        type: 'message.appended',
+        turnId,
+        step: 0,
+        source: 'remind',
+        message,
+      });
+    }
   }
 
   private sendNotification(entry: UserMessage, sendNow = false, turnScoped = false): void {

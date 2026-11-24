@@ -345,6 +345,7 @@ export class AgentReminderService extends AgentActorService<null> implements IAg
           await injectEntry(this.actor, entry, false, estimatedTokens);
         }
       }
+      await this.actor.get(IEventDispatcher).flush();
     } finally {
       quiescence.dispose();
     }
