@@ -245,3 +245,6 @@ startUnixRpcServer  packages/kap-server/src/transport/stdioRpc.ts
 refreshTerminalDimensions  packages/pi-tui/src/terminal.ts
 useNetworkGuard  packages/testkit/src/bun/index.ts
 kimiRendererViteConfig  packages/vite-preset/src/index.ts
+
+# Upstream journal.test.ts round-trips persisted wire records through this helper.
+toPersistentWireRecord  packages/agent-core-v2/src/wire/wireService.ts
