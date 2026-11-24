@@ -11,6 +11,7 @@ import type { LlmNotice, LlmNoticeSink } from '@moonshot-ai/core/llm/response';
 import { applyPatterns, type Pattern } from './pattern';
 import type { LlmModule } from './protocol';
 import { legalize, type LegalizeSpec } from './rules';
+import { log } from '#/utils/log';
 
 export type PassTrace = (pass: string, output: unknown) => void;
 
@@ -33,6 +34,11 @@ export interface PassRunner<TOptions> {
     pass: string,
     module: LlmModule<TOptions>,
     rewrite: (module: LlmModule<TOptions>, ctx: PassContext) => LlmRequestModel,
+  ) => LlmModule<TOptions>;
+  readonly module: (
+    pass: string,
+    module: LlmModule<TOptions>,
+    rewrite: (module: LlmModule<TOptions>, ctx: PassContext) => LlmModule<TOptions>,
   ) => LlmModule<TOptions>;
 }
 
@@ -123,6 +129,7 @@ export function runPipeline<TOptions, TMessage, TTool, TParams extends object, T
   hooks?: EncodeHooks,
 ): TRequest {
   const run = <T>(pass: string, output: T): T => {
+    log.debug({ pass }, 'llm encode stage');
     hooks?.trace?.(pass, output);
     return output;
   };
@@ -138,6 +145,7 @@ export function runPipeline<TOptions, TMessage, TTool, TParams extends object, T
       );
     },
     model: (pass, module, rewrite) => run(pass, { ...module, model: rewrite(module, contextOf(pass)) }),
+    module: (pass, module, rewrite) => run(pass, rewrite(module, contextOf(pass))),
   };
 
   const legal = legalize(input, pipeline, pipeline.cacheKey !== undefined, passes);
