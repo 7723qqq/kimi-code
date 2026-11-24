@@ -167,6 +167,12 @@ export class VirtualTerminal implements Terminal {
 	/**
 	 * Get the entire scroll buffer
 	 */
+	onReply(listener: (data: string) => void): () => void {
+		this.xterm.options.disableStdin = false;
+		const subscription = this.xterm.onData(listener);
+		return () => subscription.dispose();
+	}
+
 	getScrollBuffer(): string[] {
 		const lines: string[] = [];
 		const buffer = this.xterm.buffer.active;
