@@ -97,6 +97,7 @@
 | 上游 2.7 的 projection 会在 turn 结束时重建 context message 对象 | `historySafeToCompact` 的对象身份比较会把后台压缩误判为“前缀已变”而取消 | 改为按 role/content/toolCalls/tools/origin 的结构比较；后台 auto compaction 可跨 turn 完成并归属起始 turn |
 | 上游 2.7 的 token 测量把 resolved request 的 messages 当作 measured 长度；其中可能含被 shapeHistory 隐藏的注入 | `token_counting.measured.length` 多算隐藏消息，snapshot/telemetry 偏移 | 用 provider-visible 的 `input.messages`（shape 后）测量；未命中时保持原 anchor 语义 |
 | 2.7.0 loop 运行时已切换到上游 `loop/core`，machine loop 退役 | fork 的 in-turn steer、turnScoped notify、bypassMaxSteps、afterExecute、context memory 请求历史等契约必须继续由适配层提供 | 以 backup tag `wip-2.7-loop-runtime-adoption-6e7adb5932` 为准合入；`coreLoopService.test.ts` 与全量 agent-core-v2 套件全绿后才算完成；`test/lint/unreachable-modules.txt` 的 upstream-dead 条目随迁移清理 |
+| 上游 2.7 的 core loop 按模型顺序一次只启动一个 tool call；fork 旧 machine loop 并行启动 sibling | 依赖 sibling 并行/abort 的用例必须按顺序语义改写；`abortTool` 只影响当前运行中的 call | 接受上游顺序执行（2026-11-24）；`toolAdapter.test.ts` 的 sibling 用例改为顺序场景；并行需求另行设计 |
 
 ## 每条的落地顺序
 

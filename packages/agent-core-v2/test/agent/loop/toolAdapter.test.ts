@@ -336,7 +336,7 @@ describe('actor handler execution', () => {
     await loop.close();
   });
 
-  it('stops one call without aborting its sibling and contains unknown tools', async () => {
+  it('stops one call without failing the next call and contains unknown tools', async () => {
     const firstStarted = deferred<void>();
     const secondStarted = deferred<void>();
     const secondRelease = deferred<void>();
@@ -359,8 +359,9 @@ describe('actor handler execution', () => {
       executor,
     });
     const turn = loop.runTurn(prompt());
-    await Promise.all([firstStarted.promise, secondStarted.promise]);
+    await firstStarted.promise;
     loop.abortTool('a', 'stop');
+    await secondStarted.promise;
     secondRelease.resolve();
     expect((await turn).type).toBe('done');
     const entries = loop.state.messages.filter((entry): entry is ToolMessage => entry.role === 'tool');
