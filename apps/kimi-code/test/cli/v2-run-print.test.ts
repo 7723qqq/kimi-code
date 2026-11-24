@@ -433,10 +433,16 @@ describe('runV2Print', () => {
     const promptService = agentServices.get(IAgentLoopService) as {
       submit: ReturnType<typeof jest.fn>;
     };
-    expect(promptService.submit).toHaveBeenCalledWith({
-      message: { role: 'user', content: [{ type: 'text', text: 'say hello' }] },
-      meta: { origin: { kind: 'user' }, tracked: true },
-    });
+    expect(promptService.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'user',
+        content: [{ type: 'text', text: 'say hello' }],
+        attributes: expect.objectContaining({
+          origin: expect.objectContaining({ kind: 'user' }),
+          tracked: true,
+        }),
+      }),
+    );
     // Version banner is first, then the rendered assistant output.
     expect(stderr.write).toHaveBeenNthCalledWith(1, 'kimi version 1.2.3-test\n');
     expect(stdout.text()).toContain('hello world');
