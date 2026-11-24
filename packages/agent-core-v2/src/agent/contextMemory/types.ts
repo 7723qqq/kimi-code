@@ -60,6 +60,7 @@ export interface InjectionOrigin {
   readonly variant: string;
   readonly ownerPromptId?: string;
   readonly disclosure?: unknown;
+  readonly rearmOnCompaction?: true;
 }
 
 export interface ShellCommandOrigin {

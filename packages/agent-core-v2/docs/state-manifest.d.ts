@@ -1081,6 +1081,7 @@ export interface AgentStateSnapshot {
       readonly variant: string;
       readonly ownerPromptId?: string;
       readonly disclosure?: unknown;
+      readonly rearmOnCompaction?: true;
     } | /* ShellCommandOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'shell_command';
       readonly phase: 'input' | 'output';

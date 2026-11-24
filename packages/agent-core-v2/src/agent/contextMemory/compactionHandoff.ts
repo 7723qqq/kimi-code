@@ -113,11 +113,18 @@ export function buildContextCompactionShape(
       : [...selection.head, elisionMessage, ...selection.tail];
   const contextSummary = input.contextSummary ?? input.summary;
   const continuationMessage = createCompactionContinuationMessage();
-  const inFlightTurn = input.inFlightTurn ?? [];
+  const retainedInFlight = (message: ContextMessage): boolean =>
+    !(message.origin?.kind === 'injection' && message.origin.rearmOnCompaction === true);
+  const inFlightTurn = (input.inFlightTurn ?? []).filter(retainedInFlight);
   const inFlightMessages = new Set<ContextMessage>(inFlightTurn);
   const appendedInjections = history
     .slice(input.compactedCount)
-    .filter((message) => message.origin?.kind === 'injection' && !inFlightMessages.has(message));
+    .filter(
+      (message) =>
+        message.origin?.kind === 'injection' &&
+        retainedInFlight(message) &&
+        !inFlightMessages.has(message),
+    );
   const tokensAfter =
     input.tokensAfter ??
     (input.requestOverheadTokens ?? 0) +

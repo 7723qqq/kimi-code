@@ -47,9 +47,12 @@ export class GoalInjection extends Service {
       injector.register<GoalReminderDisclosure>('goal', (injection) => this.reminder(injection)),
     );
     this._register(
-      injector.register('goal_tail', ({ isNewTurn, estimatedTokens }) =>
-        isNewTurn ? this.tailContract(estimatedTokens) : undefined,
-      ),
+      injector.register('goal_tail', ({ isNewTurn, estimatedTokens }) => {
+        if (!isNewTurn) return undefined;
+        const content = this.tailContract(estimatedTokens);
+        if (content === undefined) return undefined;
+        return { content, rearmOnCompaction: true };
+      }),
     );
   }
 
@@ -66,6 +69,7 @@ export class GoalInjection extends Service {
     return {
       content: buildGoalReminder(goal, waitForEnabled, full),
       disclosure,
+      rearmOnCompaction: true,
     };
   }
 

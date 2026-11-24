@@ -27,6 +27,7 @@ export interface ContextInjectionResult<D = unknown> {
   readonly content: ContextInjectionContent;
   readonly disclosure?: D;
   readonly ownerPromptId?: string;
+  readonly rearmOnCompaction?: boolean;
 }
 
 export type ContextInjectionProvider<D = unknown> = (

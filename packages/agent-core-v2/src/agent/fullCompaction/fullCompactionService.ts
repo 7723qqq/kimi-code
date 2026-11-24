@@ -614,6 +614,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     data: Readonly<CompactionBeginData>,
   ): Promise<CompactionResult> {
     const startedAt = Date.now();
+    this.loopService.flushReminders();
     const originalHistory = [...this.context.get()];
     const applyDeps = {
       context: this.context,

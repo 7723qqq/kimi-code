@@ -136,6 +136,7 @@ function appendResult(
     kind: 'injection' as const,
     variant: entry.variant,
     disclosure: result.disclosure,
+    ...(result.rearmOnCompaction === true ? { rearmOnCompaction: true as const } : {}),
   };
   const resolved = result.content;
   const context = runtime.get(IAgentContextMemoryService);
