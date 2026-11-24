@@ -38,7 +38,8 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
   private readonly oauthService: McpOAuthService;
   private readonly workspaceId: string;
   private appliedPrimary?: string;
-  readonly ready: Promise<void>;
+  private startPromise: Promise<void> | undefined;
+  private disposed = false;
   private mutationTail: Promise<void> = Promise.resolve();
   private readonly resolveClientName = (): string | undefined => this.identity.current().slug;
   private readonly sessionLifecycle: LiveRef<ISessionManager>;
@@ -89,9 +90,17 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
     this._register({ dispose: this.oauthEventSubscription(this.manager) });
     this.attachSessionLifecycle();
     this._register(sessionLifecycle.onDidChange(() => this.attachSessionLifecycle()));
-    this.ready = this.initialize().catch((error: unknown) => {
+  }
+
+  get ready(): Promise<void> {
+    return this.ensureStarted();
+  }
+
+  private ensureStarted(): Promise<void> {
+    this.startPromise ??= this.initialize().catch((error: unknown) => {
       this.log.error('mcp initial load failed', { error });
     });
+    return this.startPromise;
   }
 
   override dispose(): void {
@@ -101,6 +110,7 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
   }
 
   disposeAsync(): Promise<void> {
+    this.disposed = true;
     this.shutdown ??= (async () => {
       let disposalError: unknown;
       try {
@@ -142,6 +152,7 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
   }
 
   connectionManager(): McpConnectionManager {
+    void this.ensureStarted();
     return this.manager;
   }
 
@@ -324,6 +335,7 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
 
   private async initialize(): Promise<void> {
     await Promise.all([this.mcpConfig.ready, this.identity.resolved()]);
+    if (this.disposed) return;
     this.appliedPrimary = this.dirs.primary;
     const servers = this.mcpConfig.servers();
     if (Object.keys(servers).length === 0) return;
