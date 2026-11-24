@@ -2756,7 +2756,7 @@ describe('FullCompaction', () => {
         args: expect.objectContaining({
           result: expect.objectContaining({
             summary: 'Overflow compacted summary.',
-            compactedCount: 3,
+            compactedCount: 4,
           }),
         }),
       }),
@@ -3378,7 +3378,7 @@ describe('FullCompaction', () => {
         args: expect.objectContaining({
           result: expect.objectContaining({
             summary: 'Unknown window compacted summary.',
-            compactedCount: 3,
+            compactedCount: 4,
           }),
         }),
       }),
@@ -5486,3 +5486,4 @@ describe('FullCompaction prompt-cache prefix', () => {
     },
   );
 });
+

@@ -10,7 +10,7 @@ import { HOST_API_LEVEL, startServer, type RunningServer } from '../src';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
-const HOST_CONTRACT = { apiLevel: 1, digest: '9fdda287d002948721f1fee15285b10ffa8e4cf0d7089d9f1ddada31b4f26519' };
+const HOST_CONTRACT = { apiLevel: 1, digest: '98f75ad0929e3d402a8d7a816d22497e4b91f2884f1e19e8da2560f44995d011' };
 
 const DEBUG_ROUTES = [
   'GET /api/v1/debug/channels',
@@ -148,3 +148,4 @@ function routesOf(openapi: ApiDocument): string[] {
     )
     .toSorted();
 }
+

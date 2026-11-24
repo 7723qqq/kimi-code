@@ -820,12 +820,22 @@ export class AcpSession {
       // — clients otherwise surface "Tool call not found" until the start
       // eventually lands.
       this.toolCallStreamArgs.set(key, { args: event.argumentsPart ?? '' });
+      this.trackStreamedBashCommand(key, event.argumentsPart ?? '');
       this.emit(toolCallLazyCreateToSessionUpdate(this.sessionId, mapped));
       return;
     }
     // Subsequent delta — the helper accumulates the fragment and emits an
     // update with the cumulative args text (REPLACE-content semantics).
     this.emit(toolCallDeltaToSessionUpdate(this.sessionId, mapped, acc));
+    this.trackStreamedBashCommand(key, acc.args);
+  }
+
+  private trackStreamedBashCommand(key: string, args: string): void {
+    if (this.bashCallsAwaitingTerminal.has(key)) return;
+    try {
+      const parsed = JSON.parse(args) as { readonly command?: unknown };
+      if (typeof parsed.command === 'string') this.bashCallsAwaitingTerminal.set(key, parsed.command);
+    } catch {}
   }
 
   private onToolProgress(event: AgentEventPayloads['tool.progress']): void {
@@ -1193,3 +1203,5 @@ function formatCompactionCompleted(result: {
     `- Tokens after: ${result.tokensAfter.toLocaleString('en-US')}`,
   ].join('\n');
 }
+
+

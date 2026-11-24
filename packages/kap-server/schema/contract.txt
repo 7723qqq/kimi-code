@@ -370,10 +370,13 @@ GET /api/v1/mcp/servers/{name}: operation
 GET /api/v1/mcp/servers: operation
 GET /api/v1/meta response 200.code: enum 0
 GET /api/v1/meta response 200.data.backend: enum "v1"|"v2" optional
+GET /api/v1/meta response 200.data.capabilities.agent_close: enum true
+GET /api/v1/meta response 200.data.capabilities.feedback: enum true optional
 GET /api/v1/meta response 200.data.capabilities.file_upload: enum true
 GET /api/v1/meta response 200.data.capabilities.fs_query: enum true
 GET /api/v1/meta response 200.data.capabilities.interactions_list: enum true
 GET /api/v1/meta response 200.data.capabilities.mcp: enum true
+GET /api/v1/meta response 200.data.capabilities.session_continue: enum true
 GET /api/v1/meta response 200.data.capabilities.session_wait: enum true
 GET /api/v1/meta response 200.data.capabilities.tasks: enum true
 GET /api/v1/meta response 200.data.capabilities.websocket: enum true
@@ -3078,6 +3081,28 @@ POST /api/v1/sessions response 200<code=40920>.msg: string
 POST /api/v1/sessions response 200<code=40920>.request_id: string
 POST /api/v1/sessions response 200<code=40920>: object closed
 POST /api/v1/sessions response 200<code=40926>: shape 6367494b
+POST /api/v1/sessions/{session_id}/agents/{tail} param path:session_id: string minLength=1
+POST /api/v1/sessions/{session_id}/agents/{tail} param path:tail: string minLength=1
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200: oneOf
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=0>.code: enum 0
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=0>.data.closed: enum true
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=0>.data: object closed
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=0>.details: any optional
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=0>.msg: string
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=0>.request_id: string
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=0>: object closed
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=40001>: shape d4845858
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=40401>: shape 2bda561c
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=40931>: shape 212b52bd
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=40932>: shape e9b3b59d
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=40940>: shape b0ef3a47
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=40949>.code: enum 40949
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=40949>.data: enum null nullable
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=40949>.details: any optional
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=40949>.msg: string
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=40949>.request_id: string
+POST /api/v1/sessions/{session_id}/agents/{tail} response 200<code=40949>: object closed
+POST /api/v1/sessions/{session_id}/agents/{tail}: operation
 POST /api/v1/sessions/{session_id}/children param path:session_id: string minLength=1
 POST /api/v1/sessions/{session_id}/children request.metadata: object optional
 POST /api/v1/sessions/{session_id}/children request.metadata{*}: any optional
@@ -3756,13 +3781,15 @@ POST /api/v1/sessions/{session_id}:cancel response 200: oneOf
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.code: enum 0
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data: anyOf
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#0>: shape 4a7a0e87
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>.pending_interactions: array
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>.pending_interactions[]: oneOf
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>.pending_interactions[]<#0>: shape fcc13a7e
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>.pending_interactions[]<#1>: shape 38d41acb
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>.session: shape 4a7a0e87
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>.timed_out: boolean
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>.taken_over: enum true
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>: object closed
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions: array
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions[]: oneOf
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions[]<#0>: shape fcc13a7e
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions[]<#1>: shape 38d41acb
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.session: shape 4a7a0e87
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.timed_out: boolean
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>: object closed
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#1>: object closed
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#2>.removed_turn_ids: array
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#2>.removed_turn_ids[]: string minLength=1
@@ -3771,15 +3798,15 @@ POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#3>.aborted:
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#3>: object closed
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#4>.cancelled: boolean
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#4>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#5>.agent_id: string minLength=1
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#5>.continued: enum true
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#5>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#6>.prompt: string
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#6>.agent_id: string minLength=1
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#6>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#7>.archived: enum true
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#7>.prompt: string
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#7>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#8>.deleted: enum true
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#8>.archived: enum true
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#8>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#9>.taken_over: enum true
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#9>.deleted: enum true
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#9>: object closed
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.details: any optional
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.msg: string
@@ -3846,6 +3873,12 @@ POST /api/v1/sessions/{session_id}:cancel response 200<code=40948>.details: any 
 POST /api/v1/sessions/{session_id}:cancel response 200<code=40948>.msg: string
 POST /api/v1/sessions/{session_id}:cancel response 200<code=40948>.request_id: string
 POST /api/v1/sessions/{session_id}:cancel response 200<code=40948>: object closed
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>.code: enum 40950
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>.data: enum null nullable
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>.details: any optional
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>.msg: string
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>.request_id: string
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>: object closed
 POST /api/v1/sessions/{session_id}:cancel: operation
 POST /api/v1/sessions/{session_id}:delete param path:session_id: string minLength=1
 POST /api/v1/sessions/{session_id}:delete request: shape 7c23f6b3
@@ -3910,13 +3943,15 @@ POST /api/v1/sessions/{session_id}:wait response 200: oneOf
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.code: enum 0
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data: anyOf
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#0>: shape 4a7a0e87
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>.pending_interactions: array
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>.pending_interactions[]: oneOf
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>.pending_interactions[]<#0>: shape fcc13a7e
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>.pending_interactions[]<#1>: shape 38d41acb
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>.session: shape 4a7a0e87
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>.timed_out: boolean
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>.taken_over: enum true
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>: object closed
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions: array
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions[]: oneOf
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions[]<#0>: shape fcc13a7e
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions[]<#1>: shape 38d41acb
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.session: shape 4a7a0e87
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.timed_out: boolean
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>: object closed
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#1>: object closed
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#2>.removed_turn_ids: array
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#2>.removed_turn_ids[]: string minLength=1
@@ -3925,15 +3960,15 @@ POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#3>.aborted: b
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#3>: object closed
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#4>.cancelled: boolean
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#4>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#5>.agent_id: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#5>.continued: enum true
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#5>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#6>.prompt: string
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#6>.agent_id: string minLength=1
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#6>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#7>.archived: enum true
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#7>.prompt: string
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#7>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#8>.deleted: enum true
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#8>.archived: enum true
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#8>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#9>.taken_over: enum true
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#9>.deleted: enum true
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#9>: object closed
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.details: any optional
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.msg: string
@@ -4000,6 +4035,12 @@ POST /api/v1/sessions/{session_id}:wait response 200<code=40948>.details: any op
 POST /api/v1/sessions/{session_id}:wait response 200<code=40948>.msg: string
 POST /api/v1/sessions/{session_id}:wait response 200<code=40948>.request_id: string
 POST /api/v1/sessions/{session_id}:wait response 200<code=40948>: object closed
+POST /api/v1/sessions/{session_id}:wait response 200<code=40950>.code: enum 40950
+POST /api/v1/sessions/{session_id}:wait response 200<code=40950>.data: enum null nullable
+POST /api/v1/sessions/{session_id}:wait response 200<code=40950>.details: any optional
+POST /api/v1/sessions/{session_id}:wait response 200<code=40950>.msg: string
+POST /api/v1/sessions/{session_id}:wait response 200<code=40950>.request_id: string
+POST /api/v1/sessions/{session_id}:wait response 200<code=40950>: object closed
 POST /api/v1/sessions/{session_id}:wait: operation
 POST /api/v1/sessions: operation
 POST /api/v1/sessions:archive request.ids: array minItems=1
