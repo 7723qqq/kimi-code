@@ -248,3 +248,10 @@ kimiRendererViteConfig  packages/vite-preset/src/index.ts
 
 # Upstream journal.test.ts round-trips persisted wire records through this helper.
 toPersistentWireRecord  packages/agent-core-v2/src/wire/wireService.ts
+
+# Upstream core LLM helpers kept as public surface after the 2.7 test port. The
+# fork's own paths classify errors in llm-adapter/contract/errors.ts and enforce
+# header timeouts through the model requester's stall timer, so only the ported
+# upstream tests call these two directly.
+llmErrorName  packages/core/src/llm/response.ts
+createLlmHeadersTimeoutFetch  packages/core/src/llm/transport/headers-timeout.ts

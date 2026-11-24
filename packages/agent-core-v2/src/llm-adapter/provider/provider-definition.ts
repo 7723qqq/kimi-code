@@ -1,5 +1,6 @@
 import { BugIndicatingError } from '#/_base/errors/errors';
 import { classifyKimiQuotaError } from '#human/llm-kimi/errors';
+import { resolveEndpointDeclaration } from '@moonshot-ai/core/llm/endpoint';
 import {
   kimiAnthropicTrait,
   kimiConnection,
@@ -154,21 +155,7 @@ export function explainProviderEndpoint(
 ): ExplainedProviderEndpoint {
   const definition = resolveProviderDefinition(providerType, providerId);
   if (definition === undefined) return {};
-  const endpoint =
-    normalizeEndpointDeclaration(definition.endpoint) ?? aggregateEndpoints(definition.endpoints);
-  if (endpoint === undefined) return {};
-  const apiKeyHit = firstEnvHit(endpoint.apiKeyEnv, env);
-  const baseUrlHit = firstEnvHit(endpoint.baseUrlEnv, env);
-  return {
-    ...(apiKeyHit !== undefined
-      ? { apiKey: apiKeyHit.value, apiKeyEnvName: apiKeyHit.name }
-      : undefined),
-    ...(baseUrlHit !== undefined
-      ? { baseUrl: baseUrlHit.value, baseUrlEnvName: baseUrlHit.name }
-      : endpoint.defaultBaseUrl !== undefined
-        ? { baseUrl: endpoint.defaultBaseUrl, baseUrlIsDefault: true }
-        : undefined),
-  };
+  return resolveEndpointDeclaration(definition.endpoint ?? definition.endpoints, env);
 }
 
 export function resolveProviderEndpoint(
@@ -181,49 +168,6 @@ export function resolveProviderEndpoint(
     ...(apiKey !== undefined ? { apiKey } : undefined),
     ...(baseUrl !== undefined ? { baseUrl } : undefined),
   };
-}
-
-interface AggregatedEndpointDeclaration {
-  readonly apiKeyEnv: readonly string[];
-  readonly baseUrlEnv: readonly string[];
-  readonly defaultBaseUrl?: string;
-}
-
-function normalizeEndpointDeclaration(
-  endpoint: ProtocolEndpoint | undefined,
-): AggregatedEndpointDeclaration | undefined {
-  if (endpoint === undefined) return undefined;
-  return {
-    apiKeyEnv: endpoint.apiKeyEnv === undefined ? [] : [endpoint.apiKeyEnv],
-    baseUrlEnv: endpoint.baseUrlEnv === undefined ? [] : [endpoint.baseUrlEnv],
-    defaultBaseUrl: endpoint.defaultBaseUrl,
-  };
-}
-
-function aggregateEndpoints(
-  endpoints: readonly ProtocolEndpoint[] | undefined,
-): AggregatedEndpointDeclaration | undefined {
-  if (endpoints === undefined || endpoints.length === 0) return undefined;
-  const apiKeyEnv: string[] = [];
-  const baseUrlEnv: string[] = [];
-  let defaultBaseUrl: string | undefined;
-  for (const endpoint of endpoints) {
-    if (endpoint.apiKeyEnv !== undefined) apiKeyEnv.push(endpoint.apiKeyEnv);
-    if (endpoint.baseUrlEnv !== undefined) baseUrlEnv.push(endpoint.baseUrlEnv);
-    if (endpoint.defaultBaseUrl !== undefined) defaultBaseUrl = endpoint.defaultBaseUrl;
-  }
-  return { apiKeyEnv, baseUrlEnv, defaultBaseUrl };
-}
-
-function firstEnvHit(
-  names: readonly string[],
-  env: Readonly<Record<string, string | undefined>>,
-): { readonly name: string; readonly value: string } | undefined {
-  for (const name of names) {
-    const value = env[name];
-    if (value !== undefined && value.length > 0) return { name, value };
-  }
-  return undefined;
 }
 
 registerProviderDefinition({
