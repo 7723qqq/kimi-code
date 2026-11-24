@@ -28,6 +28,8 @@ export function scenarioFixtures(
 
 export function scenarioTest(
   options: ScenarioOptions = {},
+  timeoutMs = 10_000,
 ): (name: string, fn: (fixtures: ScenarioFixtures) => void | Promise<void>) => void {
-  return kapTest(scenarioFixtures(options));
+  return kapTest(scenarioFixtures(options), timeoutMs);
 }
+
