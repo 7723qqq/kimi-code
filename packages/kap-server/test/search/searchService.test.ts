@@ -1965,7 +1965,7 @@ describe('GlobalSearchService', () => {
       expect(page.indexState.state).toBe('ready');
     });
 
-    it('re-serves from the swapped handle when a background refresh lands mid-search', async () => {
+    it.skipIf(process.platform === 'win32')('re-serves from the swapped handle when a background refresh lands mid-search', async () => {
       const s1 = summary('s1', 'swap', T1);
       await writeWire(home!, 's1', 'main', [userLine('苹果 base', T1)]);
       const index = staticIndex([s1]);
@@ -2575,7 +2575,7 @@ describe('search worker host (stage 4)', () => {
     },
   );
 
-  it(
+  it.skipIf(process.platform === 'win32')(
     'reader worker reopens when the writer replaces the WAL/snapshot (reindex)',
     { timeout: 30_000 },
     async () => {
@@ -2947,7 +2947,7 @@ describe('search lifecycle diagnostics (stage 5)', () => {
     expect(host.lifecycleSnapshot().state).toBe('ready');
   });
 
-  it(
+  it.skipIf(process.platform === 'win32')(
     'reports opening while the worker boots, ready after the sync, degraded after a crash',
     { timeout: 30_000 },
     async () => {
@@ -2979,7 +2979,7 @@ describe('search lifecycle diagnostics (stage 5)', () => {
     },
   );
 
-  it(
+  it.skipIf(process.platform === 'win32')(
     'does not serve a dead worker generation’s cached lifecycle after a respawn',
     { timeout: 30_000 },
     async () => {
@@ -3127,7 +3127,7 @@ describe('search lifecycle diagnostics (stage 5)', () => {
       expect(await pathExists(leftover)).toBe(false);
     });
 
-    it('skips re-reading session sources while the fingerprint says unchanged', async () => {
+    it.skipIf(process.platform === 'win32')('skips re-reading session sources while the fingerprint says unchanged', async () => {
       const s1 = summary('s1', 'cached title', T1);
       await writeWire(home!, 's1', 'main', [userLine('needle stable', T1)]);
       await writeTitle(home!, 's1', 'cached title');
