@@ -1585,7 +1585,7 @@ describe('server-v2 /api/v1/sessions', () => {
       });
 
       expect(resumed.body.code).toBe(0);
-      expect(goalContinuationStarts(rig.events)).toHaveLength(1);
+      await waitForAssertion(() => expect(goalContinuationStarts(rig.events)).toHaveLength(1));
     } finally {
       await rig.cancel();
     }
@@ -1599,7 +1599,7 @@ describe('server-v2 /api/v1/sessions', () => {
       });
 
       expect(resumed.body.code).toBe(0);
-      expect(goalContinuationStarts(rig.events)).toHaveLength(1);
+      await waitForAssertion(() => expect(goalContinuationStarts(rig.events)).toHaveLength(1));
     } finally {
       await rig.cancel();
     }

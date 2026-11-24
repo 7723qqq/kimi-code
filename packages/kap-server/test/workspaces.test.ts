@@ -354,7 +354,8 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(entry?.additional_dirs.map((dir) => dir.split(sep).join('/'))).toContain(
       extra.split(sep).join('/'),
     );
-    await expect(stat(join(root, '.kimi-code', 'local.toml'))).rejects.toThrow();
+    const local = (await readFile(join(root, '.kimi-code', 'local.toml'), 'utf8')).replaceAll('\\\\', '\\');
+    expect(local.split(sep).join('/')).toContain(extra.split(sep).join('/'));
   });
 
   it('adds a relative directory without persisting when persist is false', async () => {

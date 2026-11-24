@@ -223,7 +223,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       errorHandlers: this.errorHandlers,
       maxSteps: () => this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
       thinkingEffort: (turnId) =>
-        this.llmRequester.prepareTurnConfig(turnId)?.thinkingEffort ?? this.resolveModelContext().thinkingLevel,
+        this.llmRequester.prepareTurnConfig(turnId)?.thinkingEffort ?? this.getEffectiveThinkingLevel(),
       cache: () => this.llmRequester.lastTurnRequest()?.observation,
       cacheBreak: this.cacheBreak,
       cancel: (turnId, reason) => this.cancelActiveTurn(turnId, reason),

@@ -346,9 +346,9 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(steered.body.data.status).toBe('running');
     expect(submit).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: expect.objectContaining({
-          content: [{ type: 'text', text: 'direct steer message' }],
-        }),
+        role: 'user',
+        content: [{ type: 'text', text: 'direct steer message' }],
+        attributes: expect.objectContaining({ promptId: 'direct-steer-1' }),
       }),
       { steerIfActive: true },
     );
