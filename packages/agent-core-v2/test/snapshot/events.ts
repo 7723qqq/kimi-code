@@ -141,6 +141,17 @@ export function recordAgentEvents() {
       events: EventSnapshot;
       respond(result: T): void;
     }> {
+      const found = recordedRpc(event, cursor);
+      if (found >= 0) {
+        cursor = found + 1;
+        const entry = entries[found]!;
+        const events = snapshotFrom(found, found + 1);
+        return Promise.resolve({
+          event: entry,
+          events,
+          respond: (result: T) => entry.response?.resolve(result),
+        });
+      }
       return new Promise((resolve) => {
         takeWaiters.push({
           event,

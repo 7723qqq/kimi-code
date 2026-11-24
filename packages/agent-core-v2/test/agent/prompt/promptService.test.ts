@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type PromptHandle } from '#/agent/loop/loop';
+import { loopUserAttributes, loopUserEntry } from '#/agent/loop/userEntry';
 import { TurnStarted, TurnStepInterrupted } from '#/agent/loop/turnEvents';
 import { TurnEnded, TurnSteer } from '#/agent/loop/turnOps';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
@@ -83,10 +84,10 @@ async function enqueue(
   input: { id?: string; message: ContextMessage },
 ): Promise<PromptHandle> {
   const status = loop.snapshot();
-  const { id } = loop.submit({
+  const { id } = loop.submit(loopUserEntry({
     message: { role: 'user', content: [...input.message.content] },
     meta: { promptId: input.id, origin: input.message.origin, tracked: true },
-  });
+  }));
   const handle = loop.promptHandle(id)!;
   if (status.state === 'idle' && !status.paused && status.queue.length === 0) {
     await Promise.race([handle.launched, handle.completion]);
@@ -95,7 +96,7 @@ async function enqueue(
 }
 
 function pendingIds(loop: IAgentLoopService): readonly (string | undefined)[] {
-  return loop.snapshot().queue.map((item) => item.meta?.promptId);
+  return loop.snapshot().queue.map((item) => loopUserAttributes(item).promptId);
 }
 
 describe('prompt queue', () => {
@@ -516,10 +517,10 @@ describe('prompt queue', () => {
     setup({ generate });
     const turnStarts: TurnStarted[] = [];
     ctx.get(IEventBus).subscribe(TurnStarted, (event) => turnStarts.push(event));
-    loop.submit({
+    loop.submit(loopUserEntry({
       message: { role: 'user', content: message('continuation').content },
       meta: { origin: { kind: 'user' }, tracked: false },
-    });
+    }));
     await waitForAssertion(() => {
       expect(calls).toBe(1);
     });
@@ -623,10 +624,10 @@ describe('prompt queue', () => {
     ctx.mockNextResponse({ type: 'text', text: 'injected' });
 
     const { id } = loop.submit(
-      {
+      loopUserEntry({
         message: { role: 'user', content: message('system').content },
         meta: { origin: { kind: 'injection', variant: 'test' } as PromptOrigin },
-      },
+      }),
       { steerIfActive: true },
     );
     const turn = await loop.promptHandle(id)!.launched;
@@ -678,10 +679,10 @@ describe('prompt queue', () => {
     });
 
     const bundled = bundledMessage('review', 'launching');
-    const { id } = loop.submit({
+    const { id } = loop.submit(loopUserEntry({
       message: { role: 'user', content: bundled.content },
       meta: { tracked: true, origin: bundled.origin as PromptOrigin },
-    });
+    }));
     await entered;
     expect(pendingIds(loop)).toEqual([id]);
     expect(loop.snapshot().activePromptId).toBeUndefined();
@@ -698,7 +699,11 @@ describe('prompt queue', () => {
         text: '<hook_result hook_event="UserPromptSubmit">\nfrom hook\n</hook_result>',
         meta: { contentType: 'text/xml', source: 'user prompt submit hook' },
       },
-      { type: 'text', text: '<skill>review</skill>' },
+      {
+        type: 'text',
+        text: '<skill>review</skill>',
+        meta: { source: 'skill activation', activationId: 'act-review' },
+      },
       { type: 'text', text: 'launching' },
     ]);
     expect(started).toEqual(['launching']);
@@ -711,7 +716,11 @@ describe('prompt queue', () => {
         text: '<hook_result hook_event="UserPromptSubmit">\nfrom hook\n</hook_result>',
         meta: { contentType: 'text/xml', source: 'user prompt submit hook' },
       },
-      { type: 'text', text: '<skill>review</skill>' },
+      {
+        type: 'text',
+        text: '<skill>review</skill>',
+        meta: { source: 'skill activation', activationId: 'act-review' },
+      },
       { type: 'text', text: 'launching' },
     ]);
   });
@@ -1081,10 +1090,10 @@ describe('prompt queue', () => {
     const active = await enqueue(loop, { message: message('active') });
     await hold.started;
     const { id } = loop.submit(
-      {
+      loopUserEntry({
         message: { role: 'user', content: message('steer me').content },
         meta: { tracked: true },
-      },
+      }),
       { steerIfActive: true },
     );
     const handle = loop.promptHandle(id)!;
@@ -1107,22 +1116,21 @@ describe('prompt queue', () => {
 
     await enqueue(loop, { message: message('active') });
     await hold.started;
-    const { id } = loop.submit({
+    const { id } = loop.submit(loopUserEntry({
       message: { role: 'user', content: message('meta').content },
       meta: { promptId: 'meta-id', tracked: true },
-    });
+    }));
 
     expect(loop.snapshot().queue).toEqual([
       expect.objectContaining({
-        meta: expect.objectContaining({
+        attributes: expect.objectContaining({
           promptId: 'meta-id',
           origin: { kind: 'user' },
           tracked: true,
-          userMessageId: 'meta-id',
         }),
       }),
     ]);
-    expect(loop.snapshot().queue[0]?.meta?.createdAt).not.toBe('');
+    expect(loop.promptHandle(id)?.createdAt).not.toBe('');
 
     hold.release();
     await loop.settled();

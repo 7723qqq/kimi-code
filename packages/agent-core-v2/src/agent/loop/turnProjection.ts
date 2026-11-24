@@ -38,7 +38,9 @@ import type { ThinkingEffort } from '@moonshot-ai/core/llm/request';
 import { emptyUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';
 import { emptyUsage as emptyHumanUsage, usageFromCore } from '#human/llm/usage';
 import type { AssistantMessage, Message, UserMessage } from '@moonshot-ai/core/llm/message';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import type { CacheBreakObservation, CacheBreakObserveInput } from '#/agent/usage/cacheBreak';
+import type { CacheObservation } from '#/agent/usage/cacheObservation';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import { contextFromHistoryEntry, EMPTY_LOOP_PROMPT } from './history';
 import {
@@ -56,7 +58,7 @@ import {
   type TurnInterruptReason,
 } from './turnEvents';
 import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
-import { TurnEnded, TurnPrompt } from './turnOps';
+import { TurnEnded } from './turnOps';
 import { ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
 import type {
   AfterStepContext,
@@ -133,6 +135,8 @@ interface ActiveTurn {
 
 type MutableTurn = {
   -readonly [K in keyof Turn]: Turn[K];
+} & {
+  started: Promise<void>;
 };
 
 export interface TurnProjectionOptions {
@@ -147,6 +151,11 @@ export interface TurnProjectionOptions {
   readonly hooks: AgentLoopService['hooks'];
   readonly errorHandlers: readonly LoopErrorHandler[];
   readonly maxSteps: () => number | undefined;
+  readonly thinkingEffort: (turnId: number) => ThinkingEffort | undefined;
+  readonly cache: () => CacheObservation | undefined;
+  readonly cacheBreak: {
+    observe(input: CacheBreakObserveInput): CacheBreakObservation | undefined;
+  };
   readonly cancel: (turnId: number, reason: unknown) => boolean;
   readonly recordStreamPart: (turnId: number, step: number, block: number) => void;
 }
@@ -201,8 +210,8 @@ export class AgentTurnProjection {
     this.options.states.set(loopLastRequestIdKey, value);
   }
 
-  private turnRequestId(promptOnly: boolean, cancelled: boolean, completed: boolean): string | undefined {
-    if (promptOnly || cancelled) return undefined;
+  private turnRequestId(promptOnly: boolean, _cancelled: boolean, completed: boolean): string | undefined {
+    if (promptOnly) return undefined;
     return completed ? this.lastRequestId : this.activeRequestTrace?.requestId;
   }
 
@@ -271,7 +280,7 @@ export class AgentTurnProjection {
             activeToolCalls: (loop?.state.calls ?? []).map((call) => ({ toolCallId: call.toolCall.id, name: call.toolCall.name })),
             since: active.startedAt,
           },
-      activeTraceId: this.activeRequestTrace?.requestId,
+      activeRequestId: this.activeRequestTrace?.requestId,
     };
   }
 
@@ -301,6 +310,7 @@ export class AgentTurnProjection {
   }
 
   private async runStepStarting(turn: ActiveTurn, step: CoreStepState, event: StepStartingEvent) {
+    const stale = (): boolean => this.active !== turn || turn.current !== step;
     try {
       await this.options.hooks.onWillBeginStep.run({
         turnId: turn.id,
@@ -309,6 +319,7 @@ export class AgentTurnProjection {
         signal: step.signal,
       });
     } catch (error) {
+      if (stale()) return undefined;
       if (isAbortError(error) || step.signal.aborted) {
         turn.abortReason = turn.controller.signal.aborted ? turn.controller.signal.reason : error;
       } else {
@@ -316,6 +327,7 @@ export class AgentTurnProjection {
       }
       return { blocked: { by: 'step', reason: 'step_hook_failed', message: toErrorMessage(error) } };
     }
+    if (stale()) return undefined;
     if (step.signal.aborted) {
       turn.abortReason = step.signal.reason ?? abortError('Step aborted');
       return { blocked: { by: 'step', reason: 'aborted' } };
@@ -372,7 +384,9 @@ export class AgentTurnProjection {
       step: failure.number,
       stepId: failure.uuid,
       signal: turn.controller.signal,
-      error: failure.error,
+      error: isError2(failure.error) && failure.error.code === ErrorCodes.INTERNAL && failure.error.cause !== undefined
+        ? failure.error.cause
+        : failure.error,
       retry: () => {
         turn.retryRequested = true;
       },
@@ -422,7 +436,8 @@ export class AgentTurnProjection {
         const handler = event.taskId === undefined ? undefined : toolExecutor.handler(event.taskId);
         const snapshot = handler?.snapshot();
         const prepared = snapshot?.prepared;
-        const result = prepared?.kind === 'execute' || prepared?.kind === 'synthetic' ? prepared.result : undefined;
+        const preparedResult = prepared?.kind === 'execute' || prepared?.kind === 'synthetic' ? prepared.result : undefined;
+        const result = preparedResult ?? event.result;
         const stop = result as { stopTurn?: boolean; stopTurnReason?: string } | undefined;
         const toolMessage = event.outcome.message;
         return {
@@ -437,7 +452,10 @@ export class AgentTurnProjection {
             ) as never,
             isError: event.outcome.type === 'succeeded' ? result?.isError : true,
             note: result?.note,
-            durationMs: event.detached || snapshot === undefined ? undefined : legacyToolDurationMs(snapshot),
+            durationMs:
+              event.detached || snapshot === undefined || event.outcome.type === 'aborted'
+                ? undefined
+                : legacyToolDurationMs(snapshot),
             stopTurn: stop?.stopTurn,
             stopTurnReason: stop?.stopTurnReason,
           },
@@ -497,6 +515,8 @@ export class AgentTurnProjection {
         return;
       }
       case 'step.started': {
+        this.activeRequestTrace = undefined;
+        this.options.telemetry.setContext({ trace_id: undefined, request_id: undefined });
         if (this.active === undefined) {
           const trigger = this.turnTriggers.get(event.turnId) ?? 'continue';
           const pending = this.options.prompts.activatePending(event.turnId);
@@ -647,15 +667,14 @@ export class AgentTurnProjection {
       }
       case 'message.appended': {
         const history = loop.state.messages;
-        const appended = history.at(-1);
-        if (appended !== undefined) {
-          void this.options.dispatcher.dispatch(new ContextSpliced({
-            agentId: this.options.scopeContext.agentId,
-            start: history.length - 1,
-            deleteCount: 0,
-            messages: [contextFromHistoryEntry(appended)],
-          }));
-        }
+        const appended = event.message;
+        const inHistory = history.at(-1) === event.message;
+        void this.options.dispatcher.dispatch(new ContextSpliced({
+          agentId: this.options.scopeContext.agentId,
+          start: inHistory ? history.length - 1 : history.length,
+          deleteCount: 0,
+          messages: [contextFromHistoryEntry(appended)],
+        }));
         this.options.prompts.appended(event);
         if (this.active !== undefined) this.options.prompts.materialized(this.active.turn);
         if (event.source !== 'llm') return;
@@ -719,7 +738,15 @@ export class AgentTurnProjection {
       }
       case 'prompt.notified':
       case 'prompt.steered': {
-        if (this.options.prompts.projectSteered(event)) this.active?.steerController.abort(abortError('Steered by new input'));
+        if (this.options.prompts.projectSteered(event, this.active?.turn)) {
+          const turn = this.active;
+          const step = turn?.current;
+          if (turn !== undefined && step !== undefined && step.pendingToolIds.size === 0) {
+            this.emitStepInterrupted(turn.id, step.number, 'steered', undefined, step.uuid);
+            turn.current = undefined;
+          }
+          turn?.steerController.abort(abortError('Steered by new input'));
+        }
         return;
       }
       default:
@@ -784,7 +811,10 @@ export class AgentTurnProjection {
     active.providerType = provider_type;
     active.protocol = protocol;
     this.options.telemetry.setContext({ turn_id: turnId });
-    this.options.telemetry.setContext({ thinking_effort: this.thinkingEffort });
+    this.thinkingEffort = this.options.thinkingEffort(turnId) ?? this.thinkingEffort;
+    this.lastRequestId = undefined;
+    this.activeRequestTrace = undefined;
+    this.options.telemetry.setContext({ trace_id: undefined, thinking_effort: this.thinkingEffort });
     turn.state = 'running';
     active.started = this.options.dispatcher.dispatch(new TurnStarted({
       agentId: this.options.scopeContext.agentId,
@@ -794,7 +824,7 @@ export class AgentTurnProjection {
       prompt: turnPromptText(prompt.message.content.filter((part) => !isUserPromptSubmitHookPart(part)), prompt.origin),
       promptAttachments: turnPromptAttachments(prompt.message.content, prompt.origin),
     }));
-    turn.started = active.started;
+    turn.started = active.started ?? Promise.resolve();
     const started: TurnStartedTelemetryEvent = {
       turn_id: turnId,
       mode: active.mode ?? 'agent',
@@ -807,18 +837,9 @@ export class AgentTurnProjection {
     this.options.prompts.materialized(turn);
   }
 
-  private publishTurnPrompt(turnId: number, trigger: TurnTrigger, entry: UserMessage | undefined): void {
+  private publishTurnPrompt(turnId: number, _trigger: TurnTrigger, _entry: UserMessage | undefined): void {
     if (this.publishedPromptTurns.has(turnId)) return;
     this.publishedPromptTurns.add(turnId);
-    const origin = (entry?.attributes?.origin as PromptOrigin | undefined) ?? { kind: 'user' };
-    this.options.events.publish(new TurnPrompt({
-      agentId: this.options.scopeContext.agentId,
-      input: entry?.content ?? [],
-      origin,
-      promptId: entry?.attributes?.promptId,
-      turnId,
-      trigger: trigger === 'notify' || trigger === 'continue' ? trigger : 'normal',
-    }));
   }
 
   private endOrInterruptStep(turn: ActiveTurn, step: CoreStepState, finishReason: FinishReason): void {
@@ -830,12 +851,21 @@ export class AgentTurnProjection {
     const usage = step.usage ?? emptyUsage();
     turn.lastStopReason = finishReason;
     turn.current = step;
+    const cache = this.options.cache();
+    const cacheBreak = this.options.cacheBreak.observe({
+      usage: usageFromCore(usage) ?? emptyHumanUsage(),
+      cache,
+      turnId: turn.id,
+      step: step.number,
+    });
     void this.options.dispatcher.dispatch(new TurnStepCompleted({
       agentId: this.options.scopeContext.agentId,
       turnId: turn.id,
       step: step.number,
       stepId: step.uuid,
       usage: usageFromCore(usage),
+      ...(cache === undefined ? {} : { cache }),
+      cacheBreak,
       finishReason: normalized,
       llmFirstTokenLatencyMs: step.timing?.firstTokenLatencyMs,
       llmStreamDurationMs: step.timing?.streamDurationMs,
@@ -844,6 +874,9 @@ export class AgentTurnProjection {
       llmServerDecodeMs: step.timing?.serverDecodeMs,
       llmClientConsumeMs: step.timing?.clientConsumeMs,
       llmClientBlockedMs: step.timing?.clientBlockedMs,
+      llmFirstTokenOffsetMs: (step.timing as unknown as { llmFirstTokenOffsetMs?: number } | undefined)?.llmFirstTokenOffsetMs,
+      llmLastTokenOffsetMs: (step.timing as unknown as { llmLastTokenOffsetMs?: number } | undefined)?.llmLastTokenOffsetMs,
+      llmWindowOnFrameClock: (step.timing as unknown as { llmWindowOnFrameClock?: boolean } | undefined)?.llmWindowOnFrameClock,
       providerFinishReason: step.providerFinishReason,
       rawFinishReason: step.rawFinishReason,
     }));
@@ -870,19 +903,18 @@ export class AgentTurnProjection {
     }
     if (turn.maxStepsError !== undefined || (outcome.type !== 'failed' && outcome.cause?.reason === MAX_STEPS_REASON)) {
       const error = turn.maxStepsError ?? createMaxStepsExceededError(this.options.maxSteps() ?? 0);
-      this.failStep(turn.id, turn.interruptStep, error);
       await this.endTurn(turn, { type: 'failed', steps: turn.steps, error });
       return;
     }
     if (outcome.type === 'failed' || turn.failedStep !== undefined) {
       const error = turn.failedStep?.error ?? (outcome.type === 'failed' ? outcome.error : undefined) ?? new Error('Turn failed');
-      this.failStep(turn.id, turn.interruptStep, error);
+      this.failStep(turn.id, turn.interruptStep ?? turn.steps, error);
       await this.endTurn(turn, { type: 'failed', steps: turn.steps, error });
       return;
     }
     if (outcome.type === 'blocked') {
       const error = new Error2(ErrorCodes.INTERNAL, outcome.cause.message ?? outcome.cause.reason);
-      this.failStep(turn.id, turn.interruptStep, error);
+      this.failStep(turn.id, turn.interruptStep ?? turn.steps, error);
       await this.endTurn(turn, { type: 'failed', steps: turn.steps, error });
       return;
     }
@@ -898,7 +930,9 @@ export class AgentTurnProjection {
   private failStep(turnId: number, step: number | undefined, error: unknown): void {
     const reason: LoopInterruptReason = isMaxStepsExceededError(error) ? 'max_steps' : 'error';
     const interruptedError = isError2(error) && error.code === ErrorCodes.INTERNAL && error.cause !== undefined ? error.cause : error;
-    this.emitStepInterrupted(turnId, step, reason, toErrorMessage(interruptedError));
+    const message = (isError2(interruptedError) ? interruptedError.message : toErrorMessage(interruptedError))
+      .replace(/^\[internal\]\s*/, '');
+    this.emitStepInterrupted(turnId, step, reason, message);
   }
 
   private interruptRunForCancel(turn: ActiveTurn, reason: unknown): void {
@@ -962,7 +996,7 @@ export class AgentTurnProjection {
       enabled_plugins: this.options.plugins.enabledPluginIds()?.join(','),
     };
     this.options.telemetry.track2('turn_ended', ended);
-    this.options.telemetry.setContext({ turn_id: undefined, request_id: undefined, thinking_effort: undefined });
+    this.options.telemetry.setContext({ turn_id: undefined, request_id: undefined, thinking_effort: undefined, trace_id: undefined });
     this.activeRequestTrace = undefined;
     this.lastRequestId = undefined;
     await turnEnded;

@@ -104,6 +104,7 @@ interface SnapshotLabels {
   readonly uuidLabels: Map<string, string>;
   readonly msgLabels: Map<string, string>;
   readonly interactionLabels: Map<string, string>;
+  readonly taskLabels: Map<string, string>;
 }
 
 export function createEventSnapshotter() {
@@ -111,6 +112,7 @@ export function createEventSnapshotter() {
     uuidLabels: new Map<string, string>(),
     msgLabels: new Map<string, string>(),
     interactionLabels: new Map<string, string>(),
+    taskLabels: new Map<string, string>(),
   };
 
   return (events: readonly EventSnapshotEntry[]): EventSnapshot => eventSnapshot(events, labels);
@@ -365,6 +367,7 @@ function normalizeValue(value: unknown, labels: SnapshotLabels): unknown {
     }
     if (isUuid(value)) return labelFor(value, labels.uuidLabels, 'uuid');
     if (isMessageId(value)) return labelFor(value, labels.msgLabels, 'msg');
+    if (isTaskId(value)) return labelFor(value, labels.taskLabels, 'task');
     return normalizeWallTime(value);
   }
 
@@ -437,6 +440,10 @@ function interactionIdKind(value: string): string | undefined {
 
 function isMessageId(value: string): boolean {
   return /^msg_[0-9A-Z]{26}$/.test(value);
+}
+
+function isTaskId(value: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{8}$/.test(value);
 }
 
 function labelFor(value: string, labels: Map<string, string>, kind: string): string {

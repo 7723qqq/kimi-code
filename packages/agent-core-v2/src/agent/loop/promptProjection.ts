@@ -3,8 +3,11 @@ import { createControlledPromise } from '@antfu/utils';
 import type { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { stripBundledSkillBlocks } from '@moonshot-ai/core/llm/origin';
+import { mergeSteerMessages } from '#/human/agent/origin';
+import { markInTurnOrigin } from '#/agent/contextMemory/conversationTime';
 import type { Message, UserMessage } from '@moonshot-ai/core/llm/message';
 import { newMessageId } from '#/agent/contextMemory/messageId';
+import { TurnSteer } from './turnOps';
 import {
   PromptAborted,
   PromptCompleted,
@@ -55,6 +58,16 @@ const EMPTY_HANDLE_MESSAGE = { role: 'user', content: [] } as unknown as Context
 export class AgentPromptProjection {
   private readonly waiters = new Map<string, PromptWaiter>();
   private readonly steered = new Map<string, PromptProjection>();
+  private pendingSteer:
+    | {
+        readonly content: readonly unknown[];
+        readonly promptIds: readonly string[];
+        readonly messageId: string;
+        readonly origin: PromptOrigin;
+        readonly message: UserMessage;
+        readonly turnSteerSent?: boolean;
+      }
+    | undefined;
   private readonly terminalStates = new Map<string, PromptState>();
   private readonly pendingTurns = new Map<number, PendingTurn>();
   private readonly entriesByTurn = new Map<number, UserMessage>();
@@ -192,7 +205,9 @@ export class AgentPromptProjection {
       createdAt: projection.createdAt,
       steeredPromptIds: new Set(),
     };
-    this.active = prompt;
+    const isPrompt = projection.origin.kind === 'user'
+      || (entry.attributes as { readonly tracked?: boolean } | undefined)?.tracked === true;
+    if (isPrompt) this.active = prompt;
     if (waiter.submitted !== true) {
       this.publishSubmitted(prompt, 'running');
       waiter.submitted = true;
@@ -216,36 +231,127 @@ export class AgentPromptProjection {
   materialized(turn: Turn): void {
     const active = this.active;
     if (active === undefined) return;
+    let steeredMaterialized = false;
     for (const [id, turnId] of this.materializedTurnIds) {
       if (turnId !== turn.id) continue;
       active.steeredPromptIds.add(id);
+      if (this.pendingSteer?.promptIds.includes(id) === true) steeredMaterialized = true;
       const waiter = this.waiters.get(id);
       if (waiter !== undefined) this.launched(waiter, turn);
       this.materializedTurnIds.delete(id);
     }
+    if (steeredMaterialized && this.pendingSteer !== undefined) {
+      const pending = this.pendingSteer;
+      this.pendingSteer = undefined;
+      if (pending.turnSteerSent !== true) {
+        void this.dispatcher.dispatch(this.turnSteer(pending, turn.id));
+      }
+    }
   }
 
-  projectSteered(event: { readonly messages?: readonly UserMessage[]; readonly message?: UserMessage }): boolean {
+  private turnSteer(
+    pending: {
+      readonly content: readonly unknown[];
+      readonly promptIds: readonly string[];
+      readonly messageId: string;
+      readonly origin: PromptOrigin;
+    },
+    turnId: number | undefined,
+  ): TurnSteer {
+    return new TurnSteer({
+      agentId: this.agentId,
+      input: [...pending.content] as never,
+      origin: pending.origin,
+      messageId: pending.messageId,
+      promptIds: [...pending.promptIds],
+      turnId,
+    } as never);
+  }
+
+  projectSteered(
+    event: { readonly messages?: readonly UserMessage[]; readonly message?: UserMessage },
+    turn?: Turn,
+  ): boolean {
+    const entries = event.messages ?? (event.message === undefined ? [] : [event.message]);
+    if (entries.length === 0) return false;
+    const promptIds = entries
+      .map((entry) => entry.attributes?.promptId)
+      .filter((id): id is string => id !== undefined);
+    const resolveLaunched = (): void => {
+      if (turn === undefined) return;
+      for (const id of promptIds) {
+        const waiter = this.waiters.get(id);
+        if (waiter !== undefined) this.launched(waiter, turn);
+      }
+    };
+    if (this.pendingSteer !== undefined && samePromptIds(this.pendingSteer.promptIds, promptIds)) {
+      resolveLaunched();
+      return true;
+    }
+    const steered = this.steer(entries) !== undefined;
+    if (steered) resolveLaunched();
+    return steered;
+  }
+
+  steer(messages: readonly UserMessage[], turnId?: number): UserMessage | undefined {
     const active = this.active;
-    if (active === undefined) return false;
-    let accepted = false;
-    for (const entry of event.messages ?? (event.message === undefined ? [] : [event.message])) {
+    if (active === undefined) return undefined;
+    const accepted: Array<{ readonly id: string; readonly projection: PromptProjection }> = [];
+    for (const entry of messages) {
       const id = entry.attributes?.promptId;
       if (id === undefined) continue;
       this.ensure(entry, true);
       const projection = projectionFromEntry(entry);
       this.steered.set(id, projection);
-      accepted = true;
-      void this.dispatcher.dispatch(new PromptSteered({
-        agentId: this.agentId,
-        activePromptId: active.id,
-        promptIds: [id],
-        messageId: id,
-        content: stripBundledSkillBlocks(projection.message as never),
-        steeredAt: new Date().toISOString(),
-      } as never));
+      accepted.push({ id, projection });
     }
-    return accepted;
+    if (accepted.length === 0) return undefined;
+    const promptIds = accepted.map(({ id }) => id);
+    if (this.pendingSteer !== undefined && samePromptIds(this.pendingSteer.promptIds, promptIds)) {
+      if (turnId !== undefined && this.pendingSteer.turnSteerSent !== true) {
+        const pending = { ...this.pendingSteer, turnSteerSent: true };
+        this.pendingSteer = pending;
+        void this.dispatcher.dispatch(this.turnSteer(pending, turnId));
+      }
+      return this.pendingSteer.message;
+    }
+    const merged = mergeSteerMessages(
+      accepted.map(({ projection }) => ({
+        content: projection.message.content,
+        origin: projection.origin,
+      })),
+    );
+    const messageId = accepted.length === 1 ? accepted[0]!.id : newMessageId();
+    const origin = accepted.length === 1 ? accepted[0]!.projection.origin : merged.origin;
+    const message = {
+      role: 'user',
+      content: merged.content,
+      attributes: {
+        promptId: messageId,
+        origin: markInTurnOrigin(origin),
+      },
+    } as UserMessage;
+    const pending = {
+      content: merged.content,
+      promptIds,
+      messageId,
+      origin,
+      message,
+      turnSteerSent: turnId !== undefined,
+    };
+    this.pendingSteer = pending;
+    void this.dispatcher.dispatch(new PromptSteered({
+      agentId: this.agentId,
+      activePromptId: active.id,
+      promptIds,
+      messageId,
+      content: accepted.flatMap(({ projection }) =>
+        stripBundledSkillBlocks(projection.message as never) as never[],
+      ),
+      steeredAt: new Date().toISOString(),
+    } as never));
+    if (turnId !== undefined) void this.dispatcher.dispatch(this.turnSteer(pending, turnId));
+    return message;
   }
 
   appended(event: Extract<LoopEmitted, { type: 'message.appended' }>): void {
@@ -254,7 +360,13 @@ export class AgentPromptProjection {
     this.entriesByTurn.set(event.turnId, entry);
     this.ensure(entry, false);
     const id = entry.attributes?.promptId;
-    if (event.source === 'notify' && id !== undefined) this.materializedTurnIds.set(id, event.turnId);
+    if (event.source === 'notify' && id !== undefined) {
+      this.materializedTurnIds.set(id, event.turnId);
+      const pending = this.pendingSteer;
+      if (pending !== undefined && pending.messageId === id) {
+        for (const promptId of pending.promptIds) this.materializedTurnIds.set(promptId, event.turnId);
+      }
+    }
   }
 
   entryForTurn(turnId: number): UserMessage | undefined {
@@ -409,4 +521,8 @@ function projectionFromEntry(entry: UserMessage): ActivePrompt {
 
 export function promptHistoryEntry(event: { readonly message: Message }): UserMessage | undefined {
   return event.message.role === 'user' ? event.message : undefined;
+}
+
+function samePromptIds(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
 }

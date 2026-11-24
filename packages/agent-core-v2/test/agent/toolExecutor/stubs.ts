@@ -1,6 +1,8 @@
 import { AsyncEmitter, type IWaitUntilData } from '#/_base/event';
 import { BeforeToolExecuteEmitter } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import type { IAgentTaskOutputService } from '#/agent/task/taskOutput';
+import { memoryOutputStore } from '#/tool/executor';
 import type {
   BeforeExecuteDecision,
   ResolvedToolExecutionHookContext,
@@ -8,6 +10,18 @@ import type {
   WillExecuteToolEvent,
 } from '#/agent/toolExecutor/toolHooks';
 import { OrderedHookSlot } from '#/hooks';
+
+export function stubTaskOutputService(): IAgentTaskOutputService {
+  const store = memoryOutputStore();
+  return {
+    _serviceBrand: undefined,
+    open: (taskId: string) => store.open(taskId),
+    appendTaskOutput: async () => {},
+    readTaskOutputSnapshot: async () => undefined,
+    readTaskOutputTail: async () => undefined,
+    createCompletion: async () => ({ role: 'user', content: [], toolCalls: [] }) as never,
+  } as unknown as IAgentTaskOutputService;
+}
 
 export interface ToolExecutorEventStubs {
   readonly executor: IAgentToolExecutorService;

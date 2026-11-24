@@ -5,6 +5,8 @@ import { BugIndicatingError } from '#/errors';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { OutputBody } from '#/tool/executor/output-store';
+import type { ToolOutput } from '#/tool/executor/types';
 
 import { alignToCharacterStart } from './textAlign';
 import type { AgentTaskInfo, AgentTaskStatus } from './types';
@@ -74,7 +76,8 @@ export function isTaskOutputFilePath(path: string, agentDir: string, pathApi: Pi
 
 export class AgentTaskPersistence {
   private readonly mirrors = new WeakMap<IHostFileSystem, Map<string, { readonly scope: string; readonly size: number }>>();
-  private readonly outputSizes = new Map<string, number>();
+  private readonly bodies = new Map<string, StorageOutputBody>();
+  private readonly outputs = new Map<string, ToolOutput>();
   private readonly outputTails = new Map<string, Promise<unknown>>();
 
   constructor(
@@ -145,6 +148,22 @@ export class AgentTaskPersistence {
     return this.taskOutputFileAt(taskId, this.primaryRoot());
   }
 
+  open(taskId: string): ToolOutput {
+    const current = this.outputs.get(taskId);
+    if (current !== undefined && current.closed !== true) return current;
+    const body = this.bodies.get(taskId) ?? this.createOutputBody(taskId);
+    this.bodies.set(taskId, body);
+    const output = body.open();
+    this.outputs.set(taskId, output);
+    return output;
+  }
+
+  private createOutputBody(taskId: string): StorageOutputBody {
+    const scope = this.taskOutputScope(taskId);
+    const size = this.bytes.sizeSync(scope, OUTPUT_LOG_KEY) ?? 0;
+    return new StorageOutputBody(this.bytes, scope, OUTPUT_LOG_KEY, size);
+  }
+
   async writeTask(task: PersistedTask): Promise<void> {
     validateTaskId(task.taskId);
     await this.docs.set(this.tasksScope(), `${task.taskId}${JSON_SUFFIX}`, task);
@@ -167,15 +186,13 @@ export class AgentTaskPersistence {
   async appendTaskOutput(taskId: string, chunk: string): Promise<void> {
     if (chunk.length === 0) return;
     await this.serializeOutput(taskId, async () => {
-      const scope = this.taskOutputScope(taskId);
-      const previousSize =
-        this.outputSizes.get(taskId) ??
-        (await this.bytes.size(scope, OUTPUT_LOG_KEY)) ??
-        0;
-      const data = textEncoder.encode(chunk);
-      await this.bytes.append(scope, OUTPUT_LOG_KEY, data);
-      const size = previousSize + data.byteLength;
-      this.outputSizes.set(taskId, size);
+      const output = this.open(taskId);
+      const previousSize = output.preview(0).totalBytes;
+      if (output.append(chunk) === undefined) {
+        throw new Error(output.error() ?? `Unable to append task output: ${taskId}`);
+      }
+      await output.flush();
+      const size = previousSize + textEncoder.encode(chunk).byteLength;
       const target = this.spillTarget?.();
       if (target === undefined) return;
       const path = (target.path?.join ?? join)(target.dir, `${taskId}.log`);
@@ -190,8 +207,8 @@ export class AgentTaskPersistence {
         }
         return;
       }
-      const output = await this.readTaskOutputData(taskId);
-      if (output !== undefined) await this.mirrorOutput(taskId, output, target);
+      const persisted = await this.readTaskOutputData(taskId);
+      if (persisted !== undefined) await this.mirrorOutput(taskId, persisted, target);
     });
   }
 
@@ -483,6 +500,36 @@ function isReadablePersistedTask(obj: unknown): obj is DiskPersistedTask {
 
 function isLegacyPersistedTask(task: DiskPersistedTask): task is LegacyPersistedTask {
   return 'task_id' in task;
+}
+
+class StorageOutputBody extends OutputBody {
+  constructor(
+    private readonly bytes: IFileSystemStorageService,
+    private readonly scope: string,
+    private readonly key: string,
+    size: number,
+  ) {
+    super({ totalBytes: size, chunks: [] });
+  }
+
+  protected override async persist(text: string): Promise<void> {
+    await this.bytes.append(this.scope, this.key, textEncoder.encode(text));
+  }
+
+  protected override async readPersisted(
+    offset: number,
+    maxBytes: number,
+  ): Promise<string | undefined> {
+    const size = await this.bytes.size(this.scope, this.key);
+    if (size === undefined) return '';
+    const end = Math.min(size - 1, offset + maxBytes - 1);
+    if (offset > end) return '';
+    const parts: Uint8Array[] = [];
+    for await (const part of this.bytes.readStream(this.scope, this.key, { start: offset, end })) {
+      parts.push(part);
+    }
+    return textDecoder.decode(Buffer.concat(parts));
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

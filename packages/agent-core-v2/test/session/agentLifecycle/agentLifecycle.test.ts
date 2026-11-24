@@ -119,11 +119,7 @@ import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sess
 import { createWireMetadataRecord, type WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import type {
-  MachineEngine,
-  MachineEngineAttachBundle,
-} from '#/agent/loop/machine/engine';
+import { IAgentLoopService, type LoopRunResult } from '#/agent/loop/loop';
 import type { AgentEventStore } from '#human/agent/slices';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -181,63 +177,11 @@ const pluginServiceStub = {
   enabledHooks: async () => [],
 } as unknown as IPluginService;
 
-function stubAttachStore(): AgentEventStore {
-  return {
-    ref: { tree: 'test', branch: 'main' },
-    getState: () => ({
-      history: [],
-      queue: [],
-      notifications: [],
-      reminders: [],
-      turnIndex: { nextTurnId: 0 },
-    }),
-    subscribe: () => () => {},
-    dispatch: () => Promise.resolve({ kind: 'entry', seq: 0, ts: 0, type: 'noop', payload: null }),
-    registerSlice: () => Promise.resolve(() => {}),
-    reset: () => Promise.resolve(),
-    flush: () => Promise.resolve(),
-    close: () => Promise.resolve(),
-  } as unknown as AgentEventStore;
-}
 
-function stubAttachEngine(): MachineEngine {
-  return {
-    submit: () => {},
-    steer: () => {},
-    notify: () => {},
 
-    remind: () => {},
-    cancelQueueItem: () => {},
-    abort: () => {},
-    pause: () => {},
-    resume: () => {},
-    resetHistory: () => Promise.resolve(),
-    resetJournal: () => Promise.resolve(),
-    stop: () => {},
-    snapshot: () => ({
-      running: false,
-      aborting: false,
-      waitingForBackground: false,
-      paused: false,
-      queue: [],
-      queueLength: 0,
-      queueIds: [],
-      notificationCount: 0,
-      reminderCount: 0,
-      backgroundCount: 0,
-    }),
-    currentStep: () => 0,
-    lastFinish: () => undefined,
-    handleToolProgress: () => {},
-  };
-}
 
-function stubAttachBundle(): MachineEngineAttachBundle {
-  return {
-    store: stubAttachStore(),
-    request: { model: { provider: 'test', model: 'test' } },
-  } as unknown as MachineEngineAttachBundle;
-}
+
+
 
 function recordingAppendLog(initial: readonly WireRecord[] = []): {
   readonly appended: WireRecord[];
@@ -295,6 +239,7 @@ describe('AgentLifecycleService', () => {
   let loopPendingPromptIds: string[];
   let loopCancel: ReturnType<typeof jest.fn<IAgentLoopService['cancel']>>;
   let loopSettled: ReturnType<typeof jest.fn<IAgentLoopService['settled']>>;
+  let loopInitializeHistory: ReturnType<typeof jest.fn>;
   let beforeExecuteListeners: number;
   let didExecuteHookIds: string[];
 
@@ -464,6 +409,7 @@ describe('AgentLifecycleService', () => {
         throw new Error('Agent loop did not settle');
       }
     });
+    loopInitializeHistory = jest.fn(async () => {});
     ix.stub(IAgentLoopService, {
       _serviceBrand: undefined,
       hooks: {
@@ -477,7 +423,7 @@ describe('AgentLifecycleService', () => {
         activePromptId: undefined,
         queue: loopPendingPromptIds.map((promptId) => ({
           message: { role: 'user', content: [] },
-          meta: { promptId },
+          attributes: { promptId },
         })),
         notificationCount: 0,
         paused: false,
@@ -487,10 +433,17 @@ describe('AgentLifecycleService', () => {
       }),
       cancel: loopCancel,
       settled: loopSettled,
+      data: () => ({ profileName: 'default', modelAlias: 'mock-model', thinkingLevel: 'off' }),
+      baselineTools: () => [],
+      history: () => [],
+      initializeHistory: (messages: readonly ContextMessage[]) => loopInitializeHistory(messages),
+      setProfile: async () => {},
+      setModel: async () => {},
+      setThinking: () => {},
       tryAcquireQuiescence: jest.fn(() => ({ dispose: jest.fn() })),
+      start: jest.fn(async () => {}),
       close: jest.fn(async () => {}),
-      buildAttachBundle: () => stubAttachBundle(),
-      attachEngine: () => stubAttachEngine(),
+      resetLoop: async () => {},
     } as unknown as IAgentLoopService);
     ix.stub(ITelemetryService, {
       _serviceBrand: undefined,
@@ -679,7 +632,7 @@ describe('AgentLifecycleService', () => {
     agentScope!.anchorKernelEntry(() => {
       gateEntered();
       return new Promise<void>((resolve) => {
-        releaseDrain = resolve;
+        releaseDrain = () => resolve(undefined);
       });
     }, 'test-async-disposer');
     const unhandled: unknown[] = [];
@@ -868,8 +821,8 @@ describe('AgentLifecycleService', () => {
     });
     loopSettled.mockImplementationOnce(() => {
       markDrainStarted();
-      return new Promise<void>((resolve) => {
-        releaseDrain = resolve;
+      return new Promise<LoopRunResult | undefined>((resolve) => {
+        releaseDrain = () => resolve(undefined);
       });
     });
     const svc = ix.get(IAgentLifecycleService);
@@ -893,7 +846,7 @@ describe('AgentLifecycleService', () => {
     const main = await svc.create({ agentId: 'main' });
     const disposed: string[] = [];
     disposables.add(svc.onDidClose((agent) => disposed.push(agent.agentId)));
-    loopSettled.mockImplementation(() => new Promise<void>(() => {}));
+    loopSettled.mockImplementation(() => new Promise<LoopRunResult | undefined>(() => {}));
     const removal = svc.remove(main);
 
     await waitForAssertion(() => {
@@ -1685,15 +1638,17 @@ describe('AgentLifecycleService', () => {
 
     const child = await svc.fork(agentContextOf(sourceHandle), { agentId: 'forked' });
 
-    const seeded = svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).get();
+    const seeded = loopInitializeHistory.mock.calls[0]?.[0] as readonly ContextMessage[];
     expect(seeded).toHaveLength(3);
     expect(seeded[0]).toMatchObject({ role: 'user' });
-    expect(seeded[1]).toMatchObject({ role: 'assistant', partial: undefined });
+    expect(seeded[1]).toMatchObject({ role: 'assistant' });
+    expect(seeded[1]?.partial).toBeUndefined();
     expect(seeded[2]).toMatchObject({
       role: 'tool',
       toolCallId: 'call_agent',
       content: [{ type: 'text', text: INHERITED_IN_FLIGHT_TOOL_OUTPUT }],
     });
+    expect(svc.handleOf(child.agentId)).toBeDefined();
   });
 
   it('fork leaves the child context empty when the source history is empty', async () => {
@@ -1702,6 +1657,7 @@ describe('AgentLifecycleService', () => {
 
     const child = await svc.fork(agentContextOf(svc.handleOf(source.agentId)!), { agentId: 'forked' });
 
+    expect(loopInitializeHistory).not.toHaveBeenCalled();
     expect(
       svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).get(),
     ).toEqual([]);

@@ -3,7 +3,7 @@ import {
   APIEmptyResponseError,
   isRetryableGenerateError,
 } from '#/llm-adapter/contract/errors';
-import { createUserMessage, type Message } from '#/llm-adapter/contract/message';
+import { createUserMessage, type Message, type ToolDescription } from '#/llm-adapter/contract/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import { runWithCredentialRecovery } from '#/llm-adapter/model/credential-recovery';
 import type { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
@@ -36,6 +36,7 @@ export interface CompactionGenerationDeps {
   readonly compactionMaxOutputSize: number | undefined;
   readonly originTurnId: number | undefined;
   readonly tokenProfile: HistoryTokenProfile;
+  readonly tools?: readonly ToolDescription[];
   readonly getEffectiveMaxContextTokens: () => number;
   readonly llmRequester: IAgentLLMRequesterService;
   readonly preShrinkHistory: (
@@ -64,6 +65,7 @@ export async function generateCompactionSummary(
     compactionMaxOutputSize,
     originTurnId,
     tokenProfile,
+    tools,
     getEffectiveMaxContextTokens,
     llmRequester,
     preShrinkHistory,
@@ -98,6 +100,7 @@ export async function generateCompactionSummary(
         const request = llmRequester.start(
           {
             messages,
+            tools,
             maxOutputSize: compactionMaxOutputSize,
             usedContextTokens,
             promptCacheProbe: cacheProbePending ? 'compaction' : undefined,

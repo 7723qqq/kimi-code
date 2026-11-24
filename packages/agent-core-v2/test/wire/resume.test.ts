@@ -207,8 +207,7 @@ describe('Agent resume', () => {
             user: text "Run lookup"
             assistant: []  calls call_open:Lookup { "query": "moon" }
             tool[call_open]: text "<system>ERROR: Tool execution failed.</system>\\nTool execution was interrupted before its result was recorded. Do not assume the tool completed successfully."
-            user: text "Fresh prompt after resume"
-            user: text <date-reminder>"
+            user: text "Fresh prompt after resume""
       `);
       await ctx.expectResumeMatches();
     } finally {
@@ -285,7 +284,22 @@ describe('Agent resume', () => {
     await ctx.restorePersisted();
     const plan = await ctx.get(IAgentPlanService).status();
     expect(plan?.path).toContain('resume-plan');
-    expect(ctx.newEvents()).toMatchInlineSnapshot(`[]`);
+    expect(ctx.newEvents()).toMatchInlineSnapshot(`
+      [
+        {
+          "args": {
+            "agentId": "main",
+            "maxContextTokens": 1000000,
+            "model": "mock-model",
+            "thinkingEffort": "off",
+            "time": "<time>",
+          },
+          "event": "agent.status.updated",
+          "response": undefined,
+          "type": "[rpc]",
+        },
+      ]
+    `);
     expect(ctx.llmCalls).toHaveLength(0);
     expect(execWithEnv).not.toHaveBeenCalled();
     expect(persistence.appended).toEqual([]);
@@ -310,9 +324,7 @@ describe('Agent resume', () => {
         tools: Bash
         messages:
           user: text "Historical compacted summary."
-          user: text "Fresh prompt after resume"
-          user: text <date-reminder>
-          user: text <plan-mode-reminder>"
+          user: text "Fresh prompt after resume""
     `);
   });
 
@@ -569,8 +581,7 @@ describe('Agent resume', () => {
           tool[call_resume_write]: text "wrote file"
           tool[call_resume_skill]: text "skill loaded"
           user: text "<system-reminder>\\nresume skill body\\n</system-reminder>"
-          user: text "Fresh prompt after deferred resume"
-          user: text <date-reminder>"
+          user: text "Fresh prompt after deferred resume""
     `);
     await ctx.expectResumeMatches();
   });

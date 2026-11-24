@@ -18,7 +18,8 @@ export interface LoopTurn {
   readonly id: number;
   readonly trigger: TurnTrigger;
   readonly step: number;
-  readonly bypassMaxSteps?: boolean;
+  bypassMaxSteps?: boolean;
+  bypassStep?: number;
 }
 
 export interface LoopToolCall {
@@ -85,6 +86,9 @@ export interface StepState {
   readonly calls: StepCall[];
   readonly settled: Record<string, ToolMessage | null>;
   outcome?: StepOutcome;
+  stopTurn?: boolean;
+  skipBatch?: boolean;
+  nextCallIndex?: number;
 }
 
 export interface LiveTool {
@@ -95,6 +99,7 @@ export interface LiveTool {
   readonly handler: ToolExecutionHandler;
   detached: boolean;
   announced: boolean;
+  advanced?: boolean;
   responded: boolean;
   done: boolean;
   result?: ToolResult;
@@ -272,19 +277,20 @@ export function schedule(tx: StateTx): void {
       remind: promptOnly ? inbox.remind : [],
     },
   });
-  start(
-    tx,
-    createTurn(tx.root, {
-      id: tx.ctx.durable.nextTurnId,
-      trigger: kind,
-      step: 0,
-      pending: [
-        { kind, message: head },
-        ...(promptOnly ? [] : inbox.remind.map((message) => ({ kind: 'remind' as const, message }))),
-      ],
-      promptOnly: promptOnly ? true : undefined,
-    }),
-  );
+  const bypass = [head, ...notify].some((entry) => entry.attributes?.bypassMaxSteps === true);
+  const turn = createTurn(tx.root, {
+    id: tx.ctx.durable.nextTurnId,
+    trigger: kind,
+    step: 0,
+    pending: [
+      { kind, message: head },
+      ...(promptOnly ? [] : inbox.remind.map((message) => ({ kind: 'remind' as const, message }))),
+    ],
+    bypassMaxSteps: bypass,
+    promptOnly: promptOnly ? true : undefined,
+  });
+  if (bypass) turn.bypassStep = turn.step + 2;
+  start(tx, turn);
 }
 
 export function release(tx: StateTx): void {
@@ -390,7 +396,7 @@ export function initialState(input: LoopInput): AgentState {
 export function viewOf({ phase, held, inbox, durable, turn, tools }: AgentState): LoopState {
   const { profile, messages, nextTurnId, unfinished } = durable;
   const current =
-    turn ?? (unfinished === undefined ? undefined : { id: unfinished.turnId, trigger: unfinished.trigger, step: unfinished.step, bypassMaxSteps: false });
+    turn ?? (unfinished === undefined ? undefined : { id: unfinished.turnId, trigger: unfinished.trigger, step: unfinished.step, bypassMaxSteps: false, bypassStep: undefined });
   return {
     status: phase === 'running' ? 'running' : unfinished !== undefined ? 'interrupted' : 'idle',
     held,
@@ -399,13 +405,14 @@ export function viewOf({ phase, held, inbox, durable, turn, tools }: AgentState)
     profile,
     messages,
     nextTurnId,
-    ...(current === undefined ? {} : { turn: { id: current.id, trigger: current.trigger, step: current.step, bypassMaxSteps: current.bypassMaxSteps } }),
+    ...(current === undefined ? {} : { turn: { id: current.id, trigger: current.trigger, step: current.step, bypassMaxSteps: current.bypassMaxSteps, ...(current.bypassStep === undefined ? {} : { bypassStep: current.bypassStep }) } }),
     calls: Array.from(tools.values(), (slot) => ({ toolCall: slot.toolCall, turnId: slot.turnId, detached: slot.detached })),
     completionPending: Array.from(tools.values()).some((slot) => slot.completionPending === true),
   };
 }
 
 export function draftOutcome(step: StepState): StepOutcome {
+  if (step.stopTurn === true) return { type: 'done', cause: { by: 'loop', reason: 'stop_turn' } };
   if (step.outcome !== undefined) return step.outcome;
   const llm = step.llm;
   if (llm === undefined) return { type: 'failed' };

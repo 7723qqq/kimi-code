@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { contextMemoryKey } from '#/agent/contextMemory/contextOps';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import { renderToolResultForModel, shouldRenderWallTime } from '#/agent/contextMemory/toolResultRender';
 import type { ContextSize, TokenCountingStrategy } from '#/agent/tokenCounting/tokenCounting';
 import {
   anchorsEqual,
@@ -14,6 +15,11 @@ import {
   type TokenCountingState,
 } from '#/agent/tokenCounting/tokenCountingOps';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
+import type {
+  ContentPart as CoreContentPart,
+  Message as CoreMessage,
+  ToolMessage as CoreToolMessage,
+} from '@moonshot-ai/core/llm/message';
 import type { Message } from '#/llm-adapter/contract/message';
 import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import { AgentModel, defineAgentModel, type AgentModelContext } from '#/state/agentModel';
@@ -96,16 +102,21 @@ export class TokenCountingAgentModel extends AgentModel<TokenCountingState> {
 
   measured(
     input: readonly Message[],
-    _output: readonly Message[],
+    output: readonly Message[],
     usage: TokenUsage,
   ): Promise<void> {
     const context = this.context();
-    if (!matchesContext(input, context)) return Promise.resolve();
+    const tokens = tokenUsageTotal(usage);
+    if (!matchesContext(input as unknown as readonly CoreMessage[], context) || tokens === undefined) {
+      return Promise.resolve();
+    }
+    const exchangeEnd = input.length + output.length;
+    const length = context.length >= exchangeEnd ? context.length : exchangeEnd;
     return this.emit(
       new TokenCountingMeasured({
         agentId: this.agent.agentId,
-        length: context.length,
-        tokens: tokenUsageTotal(usage),
+        length,
+        tokens,
       }),
     );
   }
@@ -188,12 +199,171 @@ export const TokenCountingAgentModelDefinition = defineAgentModel({
   ],
 });
 
-function matchesContext(input: readonly Message[], context: readonly ContextMessage[]): boolean {
-  if (input.length !== context.length) return false;
+function matchesContext(input: readonly CoreMessage[], context: readonly ContextMessage[]): boolean {
+  if (input.length > context.length) return false;
+  const toolNames = new Map<string, string>();
   for (let index = 0; index < input.length; index += 1) {
-    if (input[index] !== context[index]) return false;
+    const left = input[index]!;
+    const right = context[index]!;
+    if (left.role !== right.role) return false;
+    if (right.role === 'assistant') {
+      for (const call of right.toolCalls) toolNames.set(call.id, call.name);
+    }
+    if (left.role === 'tool' && right.role === 'tool') {
+      if (!matchesToolMessage(
+        left as CoreToolMessage,
+        right as ContextMessage & { readonly role: 'tool' },
+        right.toolCallId === undefined ? undefined : toolNames.get(right.toolCallId),
+      )) {
+        return false;
+      }
+      continue;
+    }
+    if (!partsEqual(left.content, right.content)) return false;
+    const leftToolCalls = left.role === 'assistant' ? left.toolCalls : [];
+    const rightToolCalls = right.role === 'assistant' ? right.toolCalls : [];
+    if (JSON.stringify(leftToolCalls) !== JSON.stringify(rightToolCalls)) return false;
   }
   return true;
+}
+
+function matchesToolMessage(
+  left: CoreToolMessage,
+  right: ContextMessage & { readonly role: 'tool' },
+  toolName: string | undefined,
+): boolean {
+  if (left.toolCallId !== right.toolCallId) return false;
+  const rightIsError = right.isError === true;
+  const rightNote = nonEmptyText(right.note);
+  const rightDurationMs = right.durationMs;
+  const leftContext = left as unknown as ContextMessage;
+  const leftExplicitIsError = leftContext.isError ?? left.attributes?.isError;
+  if (leftExplicitIsError !== undefined && leftExplicitIsError !== rightIsError) {
+    return false;
+  }
+  const leftExplicitNote = nonEmptyText(leftContext.note ?? left.attributes?.note);
+  if (leftExplicitNote !== undefined && leftExplicitNote !== rightNote) {
+    return false;
+  }
+
+  const lastRightPart = right.content.at(-1);
+  const noteAlreadyInRight =
+    rightNote !== undefined &&
+    lastRightPart?.type === 'text' &&
+    (lastRightPart.text === rightNote || lastRightPart.text.endsWith(`\n${rightNote}`));
+  if (
+    (!rightIsError || leftExplicitIsError === true) &&
+    (rightNote === undefined || noteAlreadyInRight || leftExplicitNote === rightNote) &&
+    partsEqual(left.content, right.content)
+  ) {
+    return true;
+  }
+
+  const withAppendedNote =
+    rightNote !== undefined && !noteAlreadyInRight
+      ? [...right.content, { type: 'text' as const, text: rightNote }]
+      : undefined;
+  if (
+    withAppendedNote !== undefined &&
+    (!rightIsError || leftExplicitIsError === true) &&
+    partsEqual(left.content, withAppendedNote)
+  ) {
+    return true;
+  }
+
+  const output = outputFromToolContent(right.content);
+  const effectiveNote = noteAlreadyInRight ? undefined : rightNote;
+  if (
+    partsEqual(
+      left.content,
+      cleanToolContent(
+        renderToolResultForModel({
+          output,
+          isError: rightIsError,
+          note: effectiveNote,
+        }),
+      ),
+    )
+  ) {
+    return true;
+  }
+
+  const includeWallTime =
+    rightDurationMs !== undefined && (toolName === undefined || shouldRenderWallTime(toolName));
+  if (
+    includeWallTime &&
+    partsEqual(
+      left.content,
+      cleanToolContent(
+        renderToolResultForModel({
+          output,
+          isError: rightIsError,
+          note: effectiveNote,
+          durationMs: rightDurationMs,
+        }),
+      ),
+    )
+  ) {
+    return true;
+  }
+
+  if (withAppendedNote !== undefined) {
+    if (
+      partsEqual(
+        left.content,
+        cleanToolContent(
+          renderToolResultForModel({
+            output: withAppendedNote,
+            isError: rightIsError,
+          }),
+        ),
+      )
+    ) {
+      return true;
+    }
+    if (
+      includeWallTime &&
+      partsEqual(
+        left.content,
+        cleanToolContent(
+          renderToolResultForModel({
+            output: withAppendedNote,
+            isError: rightIsError,
+            durationMs: rightDurationMs,
+          }),
+        ),
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function partsEqual(left: readonly CoreContentPart[], right: readonly CoreContentPart[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function nonEmptyText(value: string | undefined): string | undefined {
+  return value !== undefined && value.length > 0 ? value : undefined;
+}
+
+function outputFromToolContent(content: readonly CoreContentPart[]): string | readonly CoreContentPart[] {
+  const only = content[0];
+  return content.length === 1 && only?.type === 'text' ? only.text : content;
+}
+
+function cleanToolContent(parts: readonly CoreContentPart[]): CoreContentPart[] {
+  const filtered = parts.filter(
+    (part) =>
+      !(
+        part.type === 'text' &&
+        part.meta?.['thought_signature_b64'] === undefined &&
+        part.text.trim().length === 0
+      ),
+  );
+  return filtered.length === 0 ? [...parts] : filtered;
 }
 
 function tokenUsageTotal(usage: TokenUsage): number {

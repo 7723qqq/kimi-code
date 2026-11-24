@@ -58,6 +58,7 @@ interface PendingTurn {
 interface StepJournal {
   readonly uuid: string;
   readonly streamedBlocks: Map<number, { startedAt: number; endedAt: number }>;
+  readonly writtenBlocks: Map<number, string>;
   started: boolean;
   assistant?: AssistantMessage;
 }
@@ -270,6 +271,7 @@ function normalizeFinishReason(reason: string): string {
 
 function stepFinishReason(outcome: StepOutcome, assistant: AssistantMessage | undefined): string {
   if (outcome.type === 'done' && outcome.cause?.reason === 'steered') return 'interrupted';
+  if (outcome.type === 'continue' && outcome.cause?.reason === 'steered') return 'interrupted';
   switch (outcome.type) {
     case 'failed':
     case 'blocked':
@@ -372,7 +374,7 @@ export class LoopJournal {
         this.writeTurnPrompt();
         this.steps.set(stepKey(event.turnId, event.step), {
           uuid: randomUUID(),
-          streamedBlocks: new Map(),
+          streamedBlocks: new Map(), writtenBlocks: new Map(),
           started: false,
         });
         this.requestingStep = { turnId: event.turnId, step: event.step };
@@ -398,8 +400,9 @@ export class LoopJournal {
             finishReason: 'error',
             usage: usageFromCore(step.assistant?.attributes?.usage),
             messageId: step.assistant?.attributes?.messageId,
+            llmFirstTokenLatencyMs: event.timing?.firstTokenLatencyMs,
+            llmStreamDurationMs: event.timing?.streamDurationMs,
           });
-          this.steps.delete(key);
         }
         return;
       }
@@ -408,7 +411,7 @@ export class LoopJournal {
         if (requesting === undefined) return;
         const key = stepKey(requesting.turnId, requesting.step);
         if (this.steps.has(key)) return;
-        const step: StepJournal = { uuid: randomUUID(), streamedBlocks: new Map(), started: false };
+        const step: StepJournal = { uuid: randomUUID(), streamedBlocks: new Map(), writtenBlocks: new Map(), started: false };
         this.steps.set(key, step);
         this.ensureStepStarted(requesting.turnId, requesting.step, step);
         return;
@@ -445,12 +448,12 @@ export class LoopJournal {
           type: 'tool.result',
           parentUuid: this.toolCallUuids.get(event.toolCallId) ?? randomUUID(),
           toolCallId: event.toolCallId,
-          result: Object.fromEntries(Object.entries(event.result ?? {
+          result: normalizeRecordedToolResult(event.result ?? {
             output: entry.content,
             isError: entry.attributes?.isError,
             note: entry.attributes?.note,
             durationMs: entry.attributes?.durationMs,
-          }).filter(([, value]) => value !== undefined)) as Extract<LoopRecordedEvent, { type: 'tool.result' }>['result'],
+          }) as Extract<LoopRecordedEvent, { type: 'tool.result' }>['result'],
         });
         return;
       }
@@ -535,6 +538,9 @@ export class LoopJournal {
       this.ensureStepStarted(event.turnId, event.step, step);
       step.assistant = assistant;
       for (const [block, part] of assistant.content.entries()) {
+        const signature = JSON.stringify(part);
+        if (step.writtenBlocks.get(block) === signature) continue;
+        step.writtenBlocks.set(block, signature);
         const streamed = step.streamedBlocks.get(block);
         this.writeLoopEvent({
           type: 'content.part',
@@ -671,12 +677,28 @@ export class LoopJournal {
       void this.dispatcher.dispatch(new ContextClear({ agentId: this.agentId }, timed.time));
       return;
     }
-    this.wire.append(timed, dehydrateLoopJournalRecord);
     if (timed.type === 'context.append_loop_event' && this.dispatcher !== undefined) {
       void this.dispatcher.dispatch(new ContextAppendLoopEvent({
         agentId: this.agentId,
         event: record['event'] as LoopRecordedEvent,
       }, timed.time));
+      return;
     }
+    this.wire.append(timed, dehydrateLoopJournalRecord);
   }
+}
+
+function normalizeRecordedToolResult(result: Record<string, unknown>): Record<string, unknown> {
+  const { durationMs, output, ...rest } = result;
+  const normalizedOutput =
+    Array.isArray(output) && output.every((part) => isObject(part) && part['type'] === 'text')
+      ? output.map((part) => (part as { readonly text?: string }).text ?? '').join('')
+      : output;
+  return Object.fromEntries(
+    Object.entries({
+      ...rest,
+      output: normalizedOutput,
+      ...(durationMs === undefined ? {} : { durationMs }),
+    }).filter(([, value]) => value !== undefined),
+  );
 }

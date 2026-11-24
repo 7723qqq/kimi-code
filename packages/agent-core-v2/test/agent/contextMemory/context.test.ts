@@ -340,7 +340,7 @@ describe('Agent context', () => {
     await ctx.untilTurnEnd();
     expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
       "system: <system-prompt>
-      tools: []
+      tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Knowledge, Memory, Read, run_code, session_query, SetGoalBudget, Skill, SnapshotList, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Workflow, Write
       messages:
         user: text "user before step 1"
         assistant: text "earlier assistant"
@@ -364,7 +364,7 @@ describe('Agent context', () => {
     await ctx.untilTurnEnd();
     expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
       "system: <system-prompt>
-      tools: []
+      tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Knowledge, Memory, Read, run_code, session_query, SetGoalBudget, Skill, SnapshotList, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Workflow, Write
       messages:
         user: text "<system-reminder>\\nRemember the host note.\\n</system-reminder>"
         user: text "Real user prompt""
@@ -446,9 +446,9 @@ describe('Agent context', () => {
     await ctx.untilTurnEnd();
     expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
       "system: <system-prompt>
-      tools: []
+      tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Knowledge, Memory, Read, run_code, session_query, SetGoalBudget, Skill, SnapshotList, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Workflow, Write
       messages:
-        user: text "fresh prompt""
+        user: text "stale user message\\n\\nfresh prompt""
     `);
   });
 

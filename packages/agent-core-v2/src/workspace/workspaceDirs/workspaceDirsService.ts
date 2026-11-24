@@ -215,8 +215,10 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     this.configPath = onDisk.configPath;
 
     if (persist) {
-      const resolved = await this.localConfig.resolveAdditionalDirs(this.primary, [input.path]);
-      const dir = resolved[0];
+      const appended = await this.localConfig.appendAdditionalDir(this.primary, input.path);
+      this.projectRoot = appended.projectRoot;
+      this.configPath = appended.configPath;
+      const dir = appended.additionalDirs.at(-1);
       if (dir === undefined) {
         throw new Error(`additional dir ${input.path} did not resolve`);
       }
@@ -230,11 +232,11 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
         await this.workspaces.update(target.id, {
           additionalDirs: [...target.additionalDirs, dir],
         });
-        await this.reloadWorkspace(true);
       }
+      await this.reloadWorkspace(true);
       return {
-        projectRoot: onDisk.projectRoot,
-        configPath: onDisk.configPath,
+        projectRoot: appended.projectRoot,
+        configPath: appended.configPath,
         additionalDirs: this.additionalDirs,
         persisted: true,
       };

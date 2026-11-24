@@ -297,9 +297,14 @@ function legacyResult(result: ExecutableToolResult, toolName: string): ToolRetur
       content,
       outcome: 'failed',
       reason: contentText(content) || `Tool "${toolName}" returned an error.`,
+      ...(result.stopTurn === true ? { stopTurn: true, stopTurnReason: result.stopTurnReason } : {}),
     };
   }
-  return { content, outcome: 'success' };
+  return {
+    content,
+    outcome: 'success',
+    ...(result.stopTurn === true ? { stopTurn: true, stopTurnReason: result.stopTurnReason } : {}),
+  };
 }
 
 export { legacyResult as toLegacyToolReturn };

@@ -19,6 +19,8 @@ import {
   type ToolExecutionResult,
 } from '#/agent/toolExecutor/toolExecutor';
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import { IAgentTaskOutputService } from '#/agent/task/taskOutput';
+import { stubTaskOutputService } from '../toolExecutor/stubs';
 import {
   type ToolDidExecuteContext,
   type ResolvedToolExecutionHookContext,
@@ -123,6 +125,7 @@ function createHarness(
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       if (events === undefined) {
         reg.define(IAgentToolExecutorService, AgentToolExecutorService);
+      reg.defineInstance(IAgentTaskOutputService, stubTaskOutputService());
       } else {
         reg.defineInstance(IAgentToolExecutorService, events.executor);
       }
@@ -1208,7 +1211,16 @@ describe('AgentToolDedupeService', () => {
       };
     }
 
-    function rejectedBashAgent(
+    async function launchedTurn(ctx: ReturnType<typeof createTestAgent>): Promise<Turn> {
+  const loop = ctx.get(IAgentLoopService);
+  const promptId = loop.snapshot().activePromptId;
+  if (promptId === undefined) throw new Error('no active prompt');
+  const turn = await loop.promptHandle(promptId)?.launched;
+  if (turn === undefined) throw new Error('no launched turn');
+  return turn;
+}
+
+function rejectedBashAgent(
       records: TelemetryRecord[],
       maxStepsPerTurn?: number,
     ): {
@@ -1254,8 +1266,7 @@ describe('AgentToolDedupeService', () => {
       ctx.mockNextResponse({ type: 'text', text: 'must never be generated' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Repeat the bad call' }] });
-      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active
-        ?.turn;
+      const turn = await launchedTurn(ctx);
       await ctx.untilTurnEnd();
 
       expect(exec).not.toHaveBeenCalled();
@@ -1295,8 +1306,7 @@ describe('AgentToolDedupeService', () => {
       ctx.mockNextResponse({ type: 'text', text: 'must never be generated' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Repeat the bad call' }] });
-      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active
-        ?.turn;
+      const turn = await launchedTurn(ctx);
       await ctx.untilTurnEnd();
 
       expect(exec).not.toHaveBeenCalled();
@@ -1326,8 +1336,7 @@ describe('AgentToolDedupeService', () => {
       ctx.mockNextResponse({ type: 'text', text: 'Handoff: still blocked on the same call.' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Repeat the bad call' }] });
-      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active
-        ?.turn;
+      const turn = await launchedTurn(ctx);
       await ctx.untilTurnEnd();
 
       expect(exec).not.toHaveBeenCalled();
@@ -1349,8 +1358,7 @@ describe('AgentToolDedupeService', () => {
       ctx.mockNextResponse({ type: 'text', text: 'must never be generated' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Repeat the bad call' }] });
-      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active
-        ?.turn;
+      const turn = await launchedTurn(ctx);
       await ctx.untilTurnEnd();
 
       expect(exec).not.toHaveBeenCalled();

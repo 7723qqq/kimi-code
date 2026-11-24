@@ -5,7 +5,7 @@ import { makeSessionContext } from '../../agent-core-v2/src/session/sessionConte
 import type { EnvironmentLease, IHostProcess, IHostProcessService } from '@moonshot-ai/agent-core-v2';
 
 import type { IAcpConnection, IAcpTerminalHandle } from '../src/acp-fs/acpConnection';
-import { AcpEnvironmentOverlay } from '../src/acp-terminal/acpTerminalRunner';
+import { AcpEnvironmentOverlay, type AcpTerminalTimers } from '../src/acp-terminal/acpTerminalRunner';
 
 function makeConnection(
   options: { terminalEnabled?: boolean; createTerminal?: () => IAcpTerminalHandle } = {},
@@ -52,6 +52,56 @@ const session = makeSessionContext({
 });
 
 const bashEnv = { NO_COLOR: '1', TERM: 'dumb' };
+
+interface FakeInterval {
+  due: number;
+  readonly intervalMs: number;
+  readonly callback: () => void;
+  cancelled: boolean;
+  unref(): void;
+}
+
+function createFakeTimers(): {
+  timers: AcpTerminalTimers;
+  advance(byMs: number): Promise<void>;
+} {
+  let nowMs = 0;
+  const intervals: FakeInterval[] = [];
+  return {
+    timers: {
+      setInterval: (callback, intervalMs) => {
+        const interval: FakeInterval = {
+          due: nowMs + intervalMs,
+          intervalMs,
+          callback,
+          cancelled: false,
+          unref: () => {},
+        };
+        intervals.push(interval);
+        return interval;
+      },
+      clearInterval: (handle) => {
+        (handle as FakeInterval).cancelled = true;
+      },
+    },
+    advance: async (byMs) => {
+      const limit = nowMs + byMs;
+      for (;;) {
+        let next: FakeInterval | undefined;
+        for (const interval of intervals) {
+          if (interval.cancelled || interval.due > limit) continue;
+          if (next === undefined || interval.due < next.due) next = interval;
+        }
+        if (next === undefined) break;
+        nowMs = next.due;
+        next.due += next.intervalMs;
+        next.callback();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      nowMs = limit;
+    },
+  };
+}
 
 describe('AcpEnvironmentOverlay', () => {
   it('routes local Bash-shaped spawns through the ACP terminal', async () => {
@@ -113,5 +163,52 @@ describe('AcpEnvironmentOverlay', () => {
     const decorated = new AcpEnvironmentOverlay(session, makeConnection()).decorate(original);
     expect(decorated).toBe(original);
     expect(decorated.environment.identity.environmentId).toBe('test-remote');
+  });
+});
+
+describe('AcpTerminalProcess truncated output', () => {
+  const FOUR_MIB = 4 * 1024 * 1024;
+  const NOTICE = '\n[terminal] output truncated at 4 MiB; earlier bytes are not recoverable\n';
+
+  function makeSequenceHandle(
+    frames: ReadonlyArray<{ output: string; truncated: boolean }>,
+  ): IAcpTerminalHandle {
+    let index = 0;
+    return {
+      id: 'term-rolling',
+      currentOutput: async () => frames[Math.min(index++, frames.length - 1)]!,
+      waitForExit: () => new Promise<never>(() => {}),
+      kill: async () => ({}),
+      release: async () => ({}),
+    };
+  }
+
+  it('marks a truncated window once and rebases the delta instead of re-emitting it', async () => {
+    const { timers, advance } = createFakeTimers();
+    const head = 'start-';
+    const tail = 'TAIL-after-truncation-31-bytes!';
+    const handle = makeSequenceHandle([
+      { output: head, truncated: false },
+      { output: 'a'.repeat(FOUR_MIB), truncated: true },
+      { output: 'b'.repeat(FOUR_MIB), truncated: false },
+      { output: `${'b'.repeat(FOUR_MIB)}${tail}`, truncated: false },
+    ]);
+    const connection = makeConnection({ terminalEnabled: true, createTerminal: () => handle });
+    const local = { _serviceBrand: undefined, spawn: async () => ({}) as IHostProcess };
+    const decorated = new AcpEnvironmentOverlay(session, connection, timers).decorate(
+      lease('local', local),
+    );
+    const proc = await decorated.environment.process!.spawn('/bin/bash', ['-c', 'echo hi'], {
+      env: bashEnv,
+    });
+    const chunks: Buffer[] = [];
+    proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+    for (let tick = 0; tick < 5; tick += 1) await advance(250);
+
+    const stdout = Buffer.concat(chunks).toString('utf8');
+    expect(stdout).not.toContain('a'.repeat(1024));
+    expect(stdout.split(NOTICE)).toHaveLength(2);
+    expect(stdout).toBe(`${head}${NOTICE}${tail}`);
   });
 });

@@ -25,7 +25,6 @@ import {
   AgentLLMRequesterService,
   KIMI_CODE_INFINITE_RETRY_ENV,
 } from '#/agent/llmRequester/llmRequesterService';
-import { createMachineRequester } from '#/agent/loop/machine/requester';
 import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
@@ -74,7 +73,7 @@ import type { LlmModel } from '#human/llm/model';
 import type { LlmRequester } from '#human/llm/requester/requester';
 import type { ThinkingEffort } from '#human/llm/thinking';
 import { emptyUsage, type TokenUsage } from '#human/llm/usage';
-import { createActor, emit, setup, SimulatedClock } from '#human/xstate2';
+import { emit, setup } from '#human/xstate2';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
@@ -90,36 +89,6 @@ const turnHarnessModel: LlmModel = {
   capability: UNKNOWN_CAPABILITY,
 };
 
-function createTurnHarness(requester: LlmRequester) {
-  return setup({
-    types: {
-      input: {} as TurnInput,
-      context: {} as { turnInput: TurnInput },
-      events: {} as TurnEvent,
-      emitted: {} as TurnLlmEvent,
-    },
-    actors: { turn: createTurnMachine(requester) },
-  }).createMachine({
-    id: 'turn-harness',
-    initial: 'running',
-    context: ({ input }) => ({ turnInput: input }),
-    states: {
-      running: {
-        invoke: {
-          src: 'turn',
-          input: ({ context }) => context.turnInput,
-          onDone: { target: 'completed' },
-        },
-        on: {
-          '*': {
-            actions: emit(({ event }) => event as TurnLlmEvent),
-          },
-        },
-      },
-      completed: { type: 'final' },
-    },
-  });
-}
 
 const capabilities: ModelCapability = {
   image_in: false,
@@ -2089,35 +2058,5 @@ describe('AgentLLMRequesterService attempt retry notification', () => {
 
     await expect(service.request({ onAttemptRetry })).rejects.toMatchObject({ statusCode: 400 });
     expect(onAttemptRetry).not.toHaveBeenCalled();
-  });
-});
-
-describe('turn machine stream state across service-internal retries', () => {
-  it('discards the interrupted attempt stream when the service retries below the turn', async () => {
-    const timers = createFakeHostTimers();
-    const { service } = createService(
-      createScriptedRequester([
-        { ids: ['call_a'], error: new APIConnectionError('terminated') },
-        { ids: ['call_b'] },
-      ]),
-      undefined,
-      { env: { [KIMI_CODE_INFINITE_RETRY_ENV]: '1' }, timers },
-    );
-    const machineRequester = createMachineRequester(service);
-    const doneEntries: AssistantEntry[] = [];
-    const actor = createActor(createTurnHarness(machineRequester.requester), {
-      input: { request: { model: turnHarnessModel }, history: [] },
-      clock: new SimulatedClock(),
-    });
-    actor.on('llm.done', (event) => doneEntries.push(event.entry));
-    actor.start();
-
-    await runAllHostTimers(timers);
-    for (let index = 0; index < 10; index += 1) {
-      await flushHostWork();
-    }
-
-    expect(doneEntries).toHaveLength(1);
-    expect(doneEntries[0]?.message.toolCalls.map((toolCall) => toolCall.id)).toEqual(['call_b']);
   });
 });

@@ -37,7 +37,7 @@ export function fileOutputStore(directory: string): ToolOutputStore {
   };
 }
 
-class OutputBody {
+export class OutputBody {
   protected totalBytes = 0;
   private retainedBytes = 0;
   private chunks: string[];

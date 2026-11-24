@@ -58,6 +58,8 @@ function deferred<T>(): Deferred<T> {
 interface CallControlHost<TContext> {
   readonly outputStore: ToolOutputStore;
   readonly hook: ToolExecutorPolicy<TContext, any>['hook'];
+  readonly preflight: ToolExecutorPolicy<TContext, any>['preflight'];
+  readonly wrapExecute: ToolExecutorPolicy<TContext, any>['wrapExecute'];
   resolveTool(name: string): AnyTool<TContext> | undefined;
   renderError(call: ToolCall, error: ToolError): ContentPart[];
   detachAck(snapshot: ToolExecutionSnapshot<any, any>, reason: unknown): ToolAcknowledgement;
@@ -96,6 +98,8 @@ export class ToolExecutor<TContext = unknown> {
     const host: CallControlHost<TContext> = {
       outputStore: this.outputStore,
       hook: this.policy.hook,
+      preflight: this.policy.preflight,
+      wrapExecute: this.policy.wrapExecute,
       resolveTool: (name) => this.tools.get(name),
       renderError: (toolCall, error) => this.renderError(toolCall, error),
       detachAck: (snapshot, reason) => this.detached(call, snapshot, reason),
@@ -317,6 +321,12 @@ class CallControl<TContext> {
 
   private async run(): Promise<ToolResult> {
     try {
+      const rejection = this.host.preflight?.(this.call, this.context);
+      if (rejection !== undefined) {
+        const parsed = parseToolCallArguments(this.call.arguments);
+        if (!parsed.parseFailed) this.setArgs(parsed.data);
+        throw new ToolStop(rejected('resolve', rejection, undefined, 'resolve'));
+      }
       const tool = this.host.resolveTool(this.call.name);
       this.enter('parse');
       const parsed = parseToolCallArguments(this.call.arguments);
@@ -372,8 +382,11 @@ class CallControl<TContext> {
         set: (fields) => this.set(fields),
       };
       let returned: ToolReturn;
+      const execute = async (): Promise<ToolReturn> => tool.execute!(toolContext);
       try {
-        returned = await tool.execute(toolContext);
+        returned = this.host.wrapExecute === undefined
+          ? await execute()
+          : await this.host.wrapExecute(this.decisionContext(), execute);
       } finally {
         this.settleExecution();
       }
@@ -681,7 +694,12 @@ class CallControl<TContext> {
       };
       return { toolCallId: this.call.id, content: value.content, outcome };
     }
-    if (cause !== undefined) return this.errorResult(cause, value.content);
+    if (cause !== undefined) {
+      const result = this.errorResult(cause, value.content);
+      return value.stopTurn === true
+        ? { ...result, stopTurn: true, stopTurnReason: value.stopTurnReason }
+        : result;
+    }
     if (value.outcome === 'failed') {
       const error: ToolError = {
         outcome: 'failed',
@@ -690,9 +708,19 @@ class CallControl<TContext> {
         reason: value.reason,
         data: value.data,
       };
-      return { toolCallId: this.call.id, content: value.content, outcome: { type: 'failed', error } };
+      return {
+        toolCallId: this.call.id,
+        content: value.content,
+        outcome: { type: 'failed', error },
+        ...(value.stopTurn === true ? { stopTurn: true, stopTurnReason: value.stopTurnReason } : {}),
+      };
     }
-    return { toolCallId: this.call.id, content: value.content, outcome: { type: 'success' } };
+    return {
+      toolCallId: this.call.id,
+      content: value.content,
+      outcome: { type: 'success' },
+      ...(value.stopTurn === true ? { stopTurn: true, stopTurnReason: value.stopTurnReason } : {}),
+    };
   }
 
   errorResult(error: ToolError, content: ContentPart[]): ToolResult {

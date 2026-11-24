@@ -63,19 +63,19 @@ describe('AgentTitlePromptSource', () => {
             activeTurnId: undefined,
             activePromptId: queue.active?.id,
             queue: queue.pending.map((item) => ({
-              message: { role: 'user' as const, content: [...item.message.content] },
-              meta: {
+              role: 'user' as const,
+              content: [...item.message.content],
+              attributes: {
                 promptId: item.id,
                 tracked: item.tracked,
-                createdAt: item.createdAt,
-                userMessageId: item.userMessageId,
-              },
+                origin: { kind: 'user' as const },
+              } as never,
             })),
             notificationCount: 0,
             paused: false,
             hasPendingRequests: queue.pending.length > 0,
             turn: undefined,
-            activeTraceId: undefined,
+            activeRequestId: undefined,
           }),
           promptHandle: (id: string) => (queue.active?.id === id ? queue.active : undefined),
         });

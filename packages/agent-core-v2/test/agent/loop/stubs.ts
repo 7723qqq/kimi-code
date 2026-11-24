@@ -1,4 +1,3 @@
-import { createUserEntry } from '#human/agent/turn';
 import type { UserMessage } from '#human/llm/message';
 import { toDisposable } from '#/_base/di/lifecycle';
 import { Event } from '#/_base/event';
@@ -6,21 +5,24 @@ import type {
   IAgentLoopService,
   LoopErrorHandler,
   LoopErrorHandlerRegistrationOptions,
+  LoopCancelTarget,
   LoopNotify,
   LoopNotifyHandle,
   LoopSubmitOptions,
+  LoopSubmitResult,
   PromptHandle,
   Turn,
   TurnResult,
 } from '#/agent/loop/loop';
 import type { UserEntry } from '#human/agent/turn';
+import { loopUserAttributes, loopUserEntry, type LoopUserEntry } from '#/agent/loop/userEntry';
 
 export function submitPromptTurn(
   loop: IAgentLoopService,
   input: UserEntry | UserMessage,
   options?: LoopSubmitOptions,
 ): { readonly turn: Turn } {
-  const entry = 'message' in input && 'meta' in input ? input : createUserEntry(input as UserMessage);
+  const entry = 'message' in input ? loopUserEntry(input as unknown as LoopUserEntry) : input;
   const { id } = loop.submit(entry, options);
   const handle = loop.promptHandle(id);
   if (handle === undefined) throw new Error(`missing prompt handle for ${id}`);
@@ -65,7 +67,6 @@ export function submitPromptTurn(
   };
 }
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
-import type { MachineEngine, MachineEngineAttachBundle } from '#/agent/loop/machine/engine';
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type {
   BeforeToolExecuteEvent,
@@ -76,7 +77,6 @@ import type {
 import { OrderedHookSlot } from '#/hooks';
 import { createHooks } from '#/hooks';
 import type { IWireService } from '#/wire/wire';
-import type { AgentEventStore } from '#human/agent/slices';
 
 import { stubAgentWire } from '../../wire/stubs';
 
@@ -144,61 +144,6 @@ function registry(): {
   };
   return { handlers, register };
 }
-function stubAttachStore(): AgentEventStore {
-  return {
-    ref: { tree: 'test', branch: 'main' },
-    getState: () => ({
-      history: [],
-      queue: [],
-      notifications: [],
-      reminders: [],
-      turnIndex: { nextTurnId: 0 },
-    }),
-    subscribe: () => () => {},
-    dispatch: () => Promise.resolve({ kind: 'entry', seq: 0, ts: 0, type: 'noop', payload: null }),
-    registerSlice: () => Promise.resolve(() => {}),
-    reset: () => Promise.resolve(),
-    flush: () => Promise.resolve(),
-    close: () => Promise.resolve(),
-  } as unknown as AgentEventStore;
-}
-function stubAttachBundle(): MachineEngineAttachBundle {
-  return {
-    store: stubAttachStore(),
-    request: { model: { provider: 'test', model: 'test' } },
-  } as unknown as MachineEngineAttachBundle;
-}
-function stubAttachEngine(): MachineEngine {
-  return {
-    submit: () => {},
-    steer: () => {},
-    notify: () => {},
-
-    remind: () => {},
-    cancelQueueItem: () => {},
-    abort: () => {},
-    pause: () => {},
-    resume: () => {},
-    resetHistory: () => Promise.resolve(),
-    resetJournal: () => Promise.resolve(),
-    stop: () => {},
-    snapshot: () => ({
-      running: false,
-      aborting: false,
-      waitingForBackground: false,
-      paused: false,
-      queue: [],
-      queueLength: 0,
-      queueIds: [],
-      notificationCount: 0,
-      reminderCount: 0,
-      backgroundCount: 0,
-    }),
-    currentStep: () => 0,
-    lastFinish: () => undefined,
-    handleToolProgress: () => {},
-  };
-}
 export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
   const hooks = createHooks([
     'onWillBeginStep',
@@ -229,7 +174,7 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
     return configured;
   };
   const hasPending = () => pending.length > 0;
-  const stub: StubLoop = {
+  const stub = {
     _serviceBrand: undefined,
     requester: {} as never,
     async start() {},
@@ -261,17 +206,19 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
     cancels,
     startTurn,
     queue: { hasPendingRequests: hasPending },
-    settleActive(result = { type: 'completed', steps: 0, truncated: false }) {
+    settleActive(result: TurnResult = { type: 'completed', steps: 0, truncated: false }) {
       releaseActiveResult?.(result);
     },
-    submit(input: UserEntry, options?: LoopSubmitOptions) {
+    submit: ((input: UserMessage, options?: LoopSubmitOptions) => {
       const turn = startTurn();
-      const id = input.meta?.promptId ?? 'p';
+      const attributes = loopUserAttributes(input);
+      const id = attributes.promptId ?? 'p';
       const message: ContextMessage = {
-        ...input.message,
+        ...input,
         toolCalls: [],
-        origin: input.meta?.origin as PromptOrigin | undefined,
-      };
+        id: attributes.promptId,
+        origin: attributes.origin as PromptOrigin | undefined,
+      } as unknown as ContextMessage;
       pending.push({ kind: 'prompt', message, onConsume: options?.onMaterialize });
       handles.set(id, {
         id,
@@ -283,9 +230,31 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
         completion: new Promise(() => {}),
       });
       return { id };
-    },
+    }) as IAgentLoopService['submit'],
     steer: async () => {},
-    notify(note: LoopNotify = {}): LoopNotifyHandle {
+    notify: ((note: LoopNotify | UserMessage = {}): LoopSubmitResult | LoopNotifyHandle => {
+      if ('role' in note) {
+        const turn = startTurn();
+        const attributes = loopUserAttributes(note);
+        const id = attributes.promptId ?? 'p';
+        const message: ContextMessage = {
+          ...note,
+          toolCalls: [],
+          id: attributes.promptId,
+          origin: attributes.origin as PromptOrigin | undefined,
+        } as unknown as ContextMessage;
+        pending.push({ kind: 'message', message });
+        handles.set(id, {
+          id,
+          userMessageId: id,
+          createdAt: '',
+          state: 'running',
+          message,
+          launched: Promise.resolve(turn),
+          completion: new Promise(() => {}),
+        });
+        return { id };
+      }
       const entry: PendingEntry = {
         kind:
           note.bypassMaxSteps === true
@@ -310,7 +279,7 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
           note.onDrop?.();
         },
       };
-    },
+    }) as IAgentLoopService['notify'],
     snapshot() {
       return {
         state: active !== undefined ? 'running' : 'idle',
@@ -321,11 +290,11 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
         paused: false,
         hasPendingRequests: hasPending(),
         turn: undefined,
-        activeTraceId: undefined,
+        activeRequestId: undefined,
       };
     },
-    promptHandle: (id) => handles.get(id),
-    cancel(target, reason) {
+    promptHandle: (id: string) => handles.get(id),
+    cancel(target: LoopCancelTarget | undefined, reason: unknown) {
       cancels.push({ turnId: target?.turnId, reason });
       if (target?.promptId !== undefined) return true;
       if (active === undefined || (target?.turnId !== undefined && active.id !== target.turnId))
@@ -335,12 +304,10 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
     },
     tryAcquireQuiescence: () => toDisposable(() => {}),
     tryAcquireHistorySnapshot: () => toDisposable(() => {}),
-    buildAttachBundle: () => stubAttachBundle(),
-    attachEngine: () => stubAttachEngine(),
-    resetMachineEngine: () => Promise.resolve(),
+    resetLoop: async () => {},
     registerLoopErrorHandler: errorHandlers.register,
-    settled: () => Promise.resolve(),
-    drainNextBatch(context) {
+    settled: () => Promise.resolve(undefined),
+    drainNextBatch(context: { append(...messages: ContextMessage[]): void }) {
       const batch = pending.splice(0);
       if (batch.length === 0) return undefined;
       for (const entry of batch) {
@@ -350,7 +317,7 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
       }
       return { driver: { kind: batch[0]!.kind } };
     },
-  };
+  } as unknown as StubLoop;
   return stub;
 }
 export async function runWillBeginStepHooks(

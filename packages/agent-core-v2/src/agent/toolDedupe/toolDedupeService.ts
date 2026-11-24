@@ -245,6 +245,7 @@ export class AgentToolDedupeService extends Service implements IAgentToolDedupeS
         this.handoffVetoedCallIds.add(ctx.toolCall.id);
         ctx.result = HANDOFF_VETO_RESULT;
         ctx.stopTurn = true;
+        ctx.stopTurnReason = REPEAT_BREAKER_STOP_REASON;
         await next();
         return;
       }
@@ -264,6 +265,7 @@ export class AgentToolDedupeService extends Service implements IAgentToolDedupeS
       );
       if (ctx.result.stopTurn === true) {
         ctx.stopTurn = true;
+        if (ctx.result.stopTurnReason !== undefined) ctx.stopTurnReason = ctx.result.stopTurnReason;
       }
       await next();
     });

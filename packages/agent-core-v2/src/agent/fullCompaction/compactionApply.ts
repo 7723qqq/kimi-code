@@ -43,6 +43,7 @@ export interface CompactionApplyResult {
   readonly tokensBefore: number;
   readonly tokensAfter: number;
   readonly droppedCount: number | undefined;
+  readonly messages: readonly ContextMessage[];
 }
 
 export async function applyCompactionRound(
@@ -83,6 +84,7 @@ export async function applyCompactionRound(
     tokensBefore: result.tokensBefore,
     tokensAfter: result.tokensAfter,
     droppedCount: result.droppedCount,
+    messages: result.messages ?? deps.context.get(),
   };
 }
 

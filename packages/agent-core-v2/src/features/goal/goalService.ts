@@ -24,6 +24,7 @@ import {
   type BeforeStepContext,
   type Turn,
 } from '#/agent/loop/loop';
+import { loopUserEntry } from '#/agent/loop/userEntry';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -842,10 +843,10 @@ function launchContinuationTurn(
     origin: GOAL_CONTINUATION_ORIGIN,
   };
   const loop = context.runtime.get(IAgentLoopService);
-  const { id } = loop.submit({
+  const { id } = loop.submit(loopUserEntry({
     message: { role: 'user', content: message.content },
     meta: { origin: message.origin },
-  });
+  }));
   const handle = loop.promptHandle(id)!;
   const pending: PendingContinuation = { promptId: id, goalId };
   context.effects.pendingContinuation = pending;

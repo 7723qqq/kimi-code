@@ -256,10 +256,10 @@ describe('runAgentTurn', () => {
     await runAgentTurn(handle, { kind: 'prompt', prompt: 'find it' }, { signal });
 
     const submitted = prompts[0] as {
-      meta: { origin: { kind: string; backgroundHelper?: string } };
+      attributes: { origin: { kind: string; backgroundHelper?: string } };
     };
-    expect(submitted.meta.origin.kind).toBe('system_trigger');
-    expect(submitted.meta.origin.backgroundHelper).toBeUndefined();
+    expect(submitted.attributes.origin.kind).toBe('system_trigger');
+    expect(submitted.attributes.origin.backgroundHelper).toBeUndefined();
   });
 
   it('carries the helper label on the turn origin when one is named', async () => {
@@ -274,9 +274,9 @@ describe('runAgentTurn', () => {
     );
 
     const submitted = prompts[0] as {
-      meta: { origin: { kind: string; name: string; backgroundHelper?: string } };
+      attributes: { origin: { kind: string; name: string; backgroundHelper?: string } };
     };
-    expect(submitted.meta.origin).toMatchObject({
+    expect(submitted.attributes.origin).toMatchObject({
       kind: 'system_trigger',
       name: 'subagent',
       backgroundHelper: 'prompt_optimizer',

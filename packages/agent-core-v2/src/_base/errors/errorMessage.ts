@@ -1,8 +1,11 @@
 import { isCodedError } from './serialize';
+import { CoreErrors } from './codes';
 
 export function toErrorMessage(error: unknown, verbose = false): string {
   if (isCodedError(error)) {
-    const base = `[${error.code}] ${error.message}`;
+    const base = error.code === CoreErrors.codes.INTERNAL
+      ? error.message
+      : `[${error.code}] ${error.message}`;
     return verbose && error.details ? `${base} ${JSON.stringify(error.details)}` : base;
   }
   if (error instanceof Error) {

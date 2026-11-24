@@ -122,6 +122,9 @@ export function legacyResultOf(context: LegacyAfterContext): ExecutableToolResul
       ? content.map((part) => part.type === 'text' ? part.text : '').join('')
       : content,
     isError: context.result.outcome.type === 'success' ? undefined : true,
+    ...(context.result.stopTurn === true
+      ? { stopTurn: true, stopTurnReason: context.result.stopTurnReason }
+      : {}),
   };
 }
 

@@ -593,6 +593,9 @@ function createFakeTaskService(
     onDidAppendOutput: () => ({ dispose: () => {} }),
     onDidChangeTask: () => ({ dispose: () => {} }),
     refresh(): void {},
+    async reconcile(): Promise<readonly never[]> {
+      return [];
+    },
     async readOutputTail(): Promise<{ readonly offset: number; readonly data: Uint8Array }> {
       return { offset: 0, data: new Uint8Array() };
     },

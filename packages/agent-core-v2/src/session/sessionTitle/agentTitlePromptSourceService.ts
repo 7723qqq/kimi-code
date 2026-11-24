@@ -3,6 +3,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { isUserPromptSubmitHookPart } from '#/agent/contextMemory/hookParts';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { loopUserAttributes } from '#/agent/loop/userEntry';
 import {
   promptMetadataTextFromContentParts,
   promptMetadataTextFromText,
@@ -93,12 +94,12 @@ export class AgentTitlePromptSourceService implements IAgentTitlePromptSource {
         : this.loop.promptHandle(snapshot.activePromptId);
     if (activeHandle !== undefined) all.push(activeHandle.message);
     for (const item of snapshot.queue) {
-      if (item.meta?.tracked !== true) continue;
+      if (loopUserAttributes(item).tracked !== true) continue;
       all.push({
         role: 'user',
-        content: [...item.message.content],
+        content: [...item.content],
         toolCalls: [],
-        origin: item.meta?.origin as PromptOrigin | undefined,
+        origin: loopUserAttributes(item).origin as PromptOrigin | undefined,
       });
     }
     return all;

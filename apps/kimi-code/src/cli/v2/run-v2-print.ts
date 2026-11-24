@@ -632,8 +632,9 @@ async function runNativeTurn(
   try {
     const loop = agent.accessor.get(IAgentLoopService);
     const { id } = loop.submit({
-      message: { role: 'user', content: [{ type: 'text', text: prompt }] },
-      meta: { origin: { kind: 'user' }, tracked: true },
+      role: 'user',
+      content: [{ type: 'text', text: prompt }],
+      attributes: { origin: { kind: 'user' }, tracked: true },
     });
     const handle = loop.promptHandle(id)!;
     const turn = await handle.launched;
@@ -1160,7 +1161,9 @@ async function quiesceSessionAgents(
   for (;;) {
     if (remainingMs() <= 0) return undefined;
     for (const loop of loops) {
-      for (const queueId of loop.snapshot().queue.map((item) => item.meta?.promptId)) {
+      for (const queueId of loop.snapshot().queue.map(
+        (item) => (item.attributes as { readonly promptId?: string } | undefined)?.promptId,
+      )) {
         if (queueId !== undefined) loop.cancel({ promptId: queueId });
       }
       loop.cancel();

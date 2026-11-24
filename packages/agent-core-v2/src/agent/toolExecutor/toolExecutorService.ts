@@ -1,115 +1,63 @@
-import type { IDisposable } from '#/_base/di/lifecycle';
-import type { AgentToolExecutor, AgentToolExecutionHandler, AgentToolHook } from './toolExecutor';
+import { Service } from '#/_base/di/service';
 import { toDisposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { AsyncEmitter, type Event } from '#/_base/event';
-import { ILogService } from '#/_base/log/log';
-import { BugIndicatingError } from '#/errors';
-import { isAbortError, isUserCancellation } from '#/_base/utils/abort';
-import { errorMessage } from '#/_base/utils/errorMessage';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentStateService } from '#/agent/state/agentState';
-import type {
-  BeforeToolExecuteEvent,
-  ResolvedToolExecutionHookContext,
-  ToolDidExecuteContext,
-  ToolExecutionOutcome,
-  WillExecuteToolEvent,
-} from '#/agent/toolExecutor/toolHooks';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import { LifecycleScope } from '#/app/scopes';
-import type { ToolCallEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { AsyncEmitter } from '#/_base/event';
 import { OrderedHookSlot } from '#/hooks';
+import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
-import {
-  type LegacyToolAgentContext,
-  type LegacyToolPreparation,
-  type ToolDecisionContext,
-} from '#/tool/executor';
-import {
-  compileToolArgsValidator,
-  validateToolArgs,
-  type JsonType,
-  type ToolArgsValidator,
-} from '#/tool/args-validator';
-import { PathSecurityError } from '#/tool/path-access';
+export { abortedToolOutput } from '#/_base/utils/abort';
+import { isAbortError } from '#/_base/utils/abort';
+import { toErrorMessage } from '#/_base/errors/errorMessage';
+import type { ToolCallEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentToolRegistryService, type ToolRegistryChange } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { IAgentTaskOutputService } from '#/agent/task/taskOutput';
+import { ToolAccesses, type ExecutableTool, type ToolSource } from '#/tool/toolContract';
+import type { ToolCall, ContentPart } from '@moonshot-ai/core/llm/message';
+import type { ToolResult as CoreToolResult, ToolReturn } from '@moonshot-ai/core/tool/types';
+import type { ToolResult } from '#/tool/toolContract';
+import { compileToolArgsValidator, validateToolArgs, type JsonType } from '#/tool/args-validator';
 import { parseToolCallArguments } from '#/tool/tool-args-parse';
+import { BeforeToolExecuteEmitter } from './beforeToolExecuteEvent';
 import {
-  ToolAccesses,
-  type ExecutableTool,
-  type ExecutableToolResult,
-  type RunnableToolExecution,
-  type ToolExecution,
-  type ToolResult,
-  type ToolResultSpill,
-  type ToolUpdate,
-} from '#/tool/toolContract';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ContentPart, ToolCall } from '#human/llm/message';
+  legacyDidExecuteContext,
+  legacyExecutionContext,
+  legacyRejectedResult,
+  legacyStartingDecision,
+  type LegacyDecisionContext,
+} from './legacyHooks';
+import type {
+  ResolvedToolExecutionHookContext,
+  ToolDidExecuteContext,
+  WillExecuteToolEvent,
+} from './toolHooks';
+import {
+  composeToolExecutorHooks,
+  LegacyExecutableToolAdapter,
+  legacyToolDurationMs,
+  memoryOutputStore,
+  ToolExecutor,
+  type ToolExecutionEvent,
+} from '#/tool/executor';
 
 import {
-  denyToolExecution,
-  BeforeToolExecuteEmitter,
-} from './beforeToolExecuteEvent';
-import {
   IAgentToolExecutorService,
+  type AgentToolExecutionHandler,
+  type AgentToolExecutor,
+  type AgentToolHook,
   type MissingToolDescriber,
-  type ToolCallGuard,
   type ToolCallDupType,
+  type ToolCallGuard,
   type ToolExecutionResult,
   type ToolExecutorExecuteOptions,
   type UnavailableToolDescriber,
 } from './toolExecutor';
-import { ToolCallStarted, ToolProgress, ToolResultEvent } from './toolExecutorEvents';
+import { ToolCallStarted, ToolProgress, ToolUpdated, ToolResultEvent } from './toolExecutorEvents';
 import { ToolScheduler } from './toolScheduler';
-
-const ABORT_GRACE_MS = 2_000;
-const TOOL_OUTPUT_EMPTY = 'Tool output is empty.';
-const TOOL_OUTPUT_NON_TEXT = 'Tool returned non-text content.';
-
-const validators = new WeakMap<
-  ExecutableTool,
-  { schema: Record<string, unknown>; validator: ToolArgsValidator }
->();
-
-export interface ToolExecutionTask {
-  readonly accesses: ToolAccesses;
-  readonly execute: (signal: AbortSignal) => Promise<ToolExecutionRunResult>;
-}
-
-export interface ToolExecutionRunResult {
-  readonly result: ToolResult;
-  readonly outcome: ToolExecutionOutcome;
-}
-
-interface TimedToolResult {
-  readonly index: number;
-  readonly result: ToolResult;
-  readonly outcome: ToolExecutionOutcome;
-  readonly durationMs: number;
-}
-
-type SettledTimedToolResult =
-  | { readonly status: 'fulfilled'; readonly value: TimedToolResult }
-  | { readonly status: 'rejected'; readonly index: number; readonly reason: unknown };
-
-type SettledToolExecutionResult =
-  | { readonly status: 'fulfilled'; readonly value: ToolExecutionResult }
-  | { readonly status: 'rejected'; readonly reason: unknown };
-
-type ToolExecutionResultPromise = Promise<SettledToolExecutionResult>;
-
-type ToolExecutionStreamEvent =
-  | { readonly type: 'timed'; readonly result: IteratorResult<TimedToolResult> }
-  | { readonly type: 'timedRejected'; readonly reason: unknown }
-  | {
-      readonly type: 'finalized';
-      readonly promise: ToolExecutionResultPromise;
-      readonly settled: SettledToolExecutionResult;
-    };
 
 export const toolExecutorToolCallDupTypesKey = defineState<Map<string, ToolCallDupType>>(
   'toolExecutor.toolCallDupTypes',
@@ -120,74 +68,196 @@ export const toolExecutorDupTypeTurnIdKey = defineState<number | undefined>(
   () => undefined as number | undefined,
 );
 
-export class AgentToolExecutorService implements IAgentToolExecutorService {
+interface AdapterEntry {
+  readonly tool: ExecutableTool;
+  readonly adapter: LegacyExecutableToolAdapter;
+}
+
+interface SchedulerBatch {
+  readonly scheduler: ToolScheduler<void>;
+  handlers: number;
+}
+
+export class AgentToolExecutorService extends Service implements IAgentToolExecutorService {
   declare readonly _serviceBrand: undefined;
+  readonly executor: AgentToolExecutor;
 
-  private readonly handlerMap = new Map<string, AgentToolExecutionHandler>();
-  private readonly callHandlers = new Map<string, AgentToolExecutionHandler>();
   private readonly toolHooks: AgentToolHook[] = [];
-  private readonly legacyStarting: Array<(event: BeforeToolExecuteEvent) => void | Promise<void>> = [];
-
-  get executor(): AgentToolExecutor {
-    return {
-      execute: async (call: any, _context: any) => {
-        const handler = this.handlerForCall(call.id);
-        return handler === undefined
-          ? { content: [{ type: 'text', text: `unknown tool: ${call.name}` }], isError: true }
-          : (handler as unknown as { handle(c: unknown, x: unknown): Promise<unknown> }).handle(call as never, _context as never);
-      },
-    } as unknown as AgentToolExecutor;
-  }
-
-  registerHook(hook: AgentToolHook): IDisposable {
-    this.toolHooks.push(hook);
-    return { dispose: () => { const i = this.toolHooks.indexOf(hook); if (i >= 0) this.toolHooks.splice(i, 1); } };
-  }
-
-  registerLegacyStarting(listener: (event: BeforeToolExecuteEvent) => void | Promise<void>): IDisposable {
-    this.legacyStarting.push(listener);
-    return { dispose: () => { const i = this.legacyStarting.indexOf(listener); if (i >= 0) this.legacyStarting.splice(i, 1); } };
-  }
-
-  handlers(): readonly AgentToolExecutionHandler[] {
-    return [...this.handlerMap.values()];
-  }
-
-  handler(taskId: string): AgentToolExecutionHandler | undefined {
-    return this.handlerMap.get(taskId);
-  }
-
-  handlerForCall(toolCallId: string): AgentToolExecutionHandler | undefined {
-    return this.callHandlers.get(toolCallId);
-  }
-
-  release(taskId: string): void {
-    this.handlerMap.delete(taskId);
-    for (const [id, h] of this.callHandlers) if (h === this.handlerMap.get(taskId)) this.callHandlers.delete(id);
-  }
-
-  private readonly beforeExecuteEmitter = new BeforeToolExecuteEmitter();
-  readonly onBeforeExecuteTool: Event<BeforeToolExecuteEvent> = this.beforeExecuteEmitter.event;
-  private readonly willExecuteEmitter = new AsyncEmitter<WillExecuteToolEvent>();
-  readonly onWillExecuteTool: Event<WillExecuteToolEvent> = this.willExecuteEmitter.event;
-
   readonly hooks = {
     onExecuteTool: new OrderedHookSlot<ResolvedToolExecutionHookContext>(),
     onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>(),
   };
-
-  private missingToolDescriber: MissingToolDescriber | undefined;
+  private readonly legacyStarting = new BeforeToolExecuteEmitter();
+  private readonly beforeExecuteEmitter = new BeforeToolExecuteEmitter();
+  readonly onBeforeExecuteTool = this.beforeExecuteEmitter.event;
+  private readonly willExecuteEmitter = new AsyncEmitter<WillExecuteToolEvent>();
+  readonly onWillExecuteTool = this.willExecuteEmitter.event;
+  private readonly toolCallGuards = new Set<ToolCallGuard>();
   private unavailableToolDescriber: UnavailableToolDescriber | undefined;
-  private toolCallGuard: ToolCallGuard | undefined;
+  private missingToolDescriber: MissingToolDescriber | undefined;
+  private readonly adapters = new Map<string, AdapterEntry>();
+  private readonly batches = new Map<string, SchedulerBatch>();
+  private readonly batchByTask = new Map<string, string>();
+  private readonly leases = new Map<string, () => void>();
+  private readonly liveHandlers = new Map<string, AgentToolExecutionHandler>();
+  private readonly taskIdsByCall = new Map<string, string[]>();
+  private readonly announced = new WeakSet<object>();
+  private readonly completed = new WeakSet<object>();
+  private readonly progressByHandler = new WeakMap<object, string>();
+  private readonly statusByHandler = new WeakMap<object, string>();
+  private readonly executedPrepared = new WeakSet<object>();
 
-  recordDupType(toolCallId: string, dupType: ToolCallDupType): void {
-    this.toolCallDupTypes.set(toolCallId, dupType);
+  constructor(
+    @IAgentToolRegistryService private readonly registry: IAgentToolRegistryService,
+    @IAgentToolResultTruncationService private readonly truncation: IAgentToolResultTruncationService,
+    @IEventDispatcher private readonly dispatcher: IEventDispatcher,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+    @IAgentTaskOutputService private readonly taskOutputs: IAgentTaskOutputService | undefined,
+    @IAgentStateService private readonly states: IAgentStateService,
+  ) {
+    super();
+    this.states.contributeState(toolExecutorToolCallDupTypesKey);
+    this.states.contributeState(toolExecutorDupTypeTurnIdKey);
+    const resetHook: AgentToolHook = {
+      starting: (context) => {
+        if (context.context.turnId !== this.dupTypeTurnId) {
+          this.dupTypeTurnId = context.context.turnId;
+          this.toolCallDupTypes.clear();
+        }
+      },
+    };
+    const legacyHook: AgentToolHook = {
+      starting: async (context) => {
+        const decision = await this.legacyStarting.fireBeforeExecute(legacyExecutionContext(context));
+        return legacyStartingDecision(context, decision);
+      },
+    };
+    const forkHook: AgentToolHook = {
+      starting: async (context) => {
+        if (context.prepared.kind !== 'execute') return;
+        const hookContext = legacyExecutionContext(context);
+        const decision = await this.beforeExecuteEmitter.fireBeforeExecute(hookContext);
+        const starting = legacyStartingDecision(context, decision);
+        if (starting !== undefined) return starting;
+        const source: ToolSource =
+          this.registry.list().find((info) => info.name === context.call.name)?.source ?? 'builtin';
+        for (const guard of this.toolCallGuards) {
+          const reason = guard({ name: context.call.name, source });
+          if (reason !== undefined) return { reject: reason };
+        }
+        return undefined;
+      },
+      beforeExecute: async (context) => {
+        if (context.prepared.kind !== 'execute') return;
+        const hookContext = legacyExecutionContext(context);
+        await this.willExecuteEmitter.fireAsync(
+          hookContext as unknown as WillExecuteToolEvent,
+          context.signal,
+        );
+      },
+      afterExecute: async (context) => {
+        const executed = this.executedPrepared.has(context.prepared);
+        const hookContext = executed
+          ? { ...legacyDidExecuteContext(context), outcome: 'executed' as const }
+          : legacyDidExecuteContext(context);
+        try {
+          await this.hooks.onDidExecuteTool.run(hookContext);
+        } catch (error) {
+          const text = `onDidExecuteTool hook failed for "${context.call.name}": ${toErrorMessage(error)}`;
+          if (context.prepared?.kind === 'execute' || context.prepared?.kind === 'synthetic') {
+            context.prepared.result = { output: text, isError: true };
+          }
+          return legacyRejectedResult(context, text);
+        }
+        if (context.prepared?.kind === 'execute') context.prepared.result = hookContext.result;
+        return coreResultFromLegacy(
+          hookContext.result,
+          context.call.id,
+          hookContext.stopTurn === true,
+          hookContext.stopTurnReason,
+        );
+      },
+    };
+    const internalHook: AgentToolHook = {
+      beforeExecute: async (context) => {
+        if (context.prepared.kind !== 'execute') return;
+        const { batch } = this.batch(context.context.turnId, context.context.step, context.taskId);
+        const release = await batch.scheduler.lease(
+          context.prepared.accesses ?? ToolAccesses.all(),
+          context.signal,
+        );
+        this.leases.set(context.taskId, release);
+        context.prepared.onExecuted = () => {
+          this.leases.get(context.taskId)?.();
+          this.leases.delete(context.taskId);
+        };
+      },
+      observe: (event) => this.observe(event),
+    };
+    const hooks = this.toolHooks;
+    this.executor = new ToolExecutor([], {
+      outputStore: this.taskOutputs ?? memoryOutputStore(),
+      preflight: (call) => this.preflightMessage(call),
+      wrapExecute: (context, next) => this.wrapExecute(context as never, next),
+      get hook() {
+        return composeToolExecutorHooks([resetHook, legacyHook, forkHook, ...hooks, internalHook]);
+      },
+    });
+    for (const reference of registry.listReferences()) {
+      const tool = registry.resolve(reference.name);
+      if (tool !== undefined) this.registerTool(tool);
+    }
+    this._register(this.legacyStarting);
+    this._register(registry.onDidChange((change) => this.registryChanged(change)));
+  }
+
+  private get toolCallDupTypes(): Map<string, ToolCallDupType> {
+    return this.states.get(toolExecutorToolCallDupTypesKey);
+  }
+
+  private preflightMessage(call: ToolCall): string | undefined {
+    const toolName = call.name;
+    const tool = this.registry.resolve(toolName);
+    if (tool === undefined) {
+      return this.missingToolDescriber?.(toolName) ?? `Tool "${toolName}" not found`;
+    }
+    const source = this.registry.list().find((info) => info.name === toolName)?.source ?? 'builtin';
+    for (const guard of this.toolCallGuards) {
+      const denied = guard({ name: toolName, source });
+      if (denied !== undefined) return denied;
+    }
+    const unavailable = this.unavailableToolDescriber?.(toolName);
+    if (unavailable !== undefined) return unavailable;
+    const validation = validateExecutableToolArgs(tool, parseToolCallArguments(call.arguments).data);
+    if (validation !== null) return `Invalid args for tool "${toolName}": ${validation}`;
+    return undefined;
+  }
+
+  private get dupTypeTurnId(): number | undefined {
+    return this.states.get(toolExecutorDupTypeTurnIdKey);
+  }
+
+  private set dupTypeTurnId(value: number | undefined) {
+    this.states.set(toolExecutorDupTypeTurnIdKey, value);
+  }
+
+  registerHook(hook: AgentToolHook) {
+    this.toolHooks.push(hook);
+    return toDisposable(() => {
+      const index = this.toolHooks.indexOf(hook);
+      if (index >= 0) this.toolHooks.splice(index, 1);
+    });
+  }
+
+  registerLegacyStarting(listener: Parameters<BeforeToolExecuteEmitter['event']>[0]) {
+    return this.legacyStarting.event(listener);
   }
 
   registerToolCallGuard(guard: ToolCallGuard) {
-    this.toolCallGuard = guard;
+    this.toolCallGuards.add(guard);
     return toDisposable(() => {
-      if (this.toolCallGuard === guard) this.toolCallGuard = undefined;
+      this.toolCallGuards.delete(guard);
     });
   }
 
@@ -205,755 +275,434 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     });
   }
 
-  constructor(
-    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
-    @IEventDispatcher private readonly dispatcher: IEventDispatcher,
-    @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentToolResultTruncationService
-    private readonly resultTruncation: IAgentToolResultTruncationService,
-    @IAgentStateService private readonly states: IAgentStateService,
-    @ILogService private readonly log?: ILogService,
-  ) {
-    this.states.contributeState(toolExecutorToolCallDupTypesKey);
-    this.states.contributeState(toolExecutorDupTypeTurnIdKey);
-  }
-
-  private get toolCallDupTypes(): Map<string, ToolCallDupType> {
-    return this.states.get(toolExecutorToolCallDupTypesKey);
-  }
-
-  private get dupTypeTurnId(): number | undefined {
-    return this.states.get(toolExecutorDupTypeTurnIdKey);
-  }
-
-  private set dupTypeTurnId(value: number | undefined) {
-    this.states.set(toolExecutorDupTypeTurnIdKey, value);
-  }
-
   async *execute(
     calls: ToolCall[],
     options: ToolExecutorExecuteOptions,
   ): AsyncIterable<ToolExecutionResult> {
-    if (calls.length === 0) return;
-    if (options.turnId !== this.dupTypeTurnId) {
-      this.dupTypeTurnId = options.turnId;
-      this.toolCallDupTypes.clear();
-    }
-
-    const preflighted = calls.map((call) =>
-      preflightToolCall(
-        this.toolRegistry,
-        call,
-        this.toolCallGuard,
-        this.unavailableToolDescriber,
-        this.missingToolDescriber,
-        this.log,
-      ),
-    );
-    const preparedTasks: Array<{
-      task: ToolExecutionTask;
-      call: PreflightedToolCall;
-      resolvedAccesses?: ToolAccesses;
-      stopBatchAfterThis?: boolean;
-    }> = [];
-
-    let stopBatch = false;
-    for (const call of preflighted) {
-      if (stopBatch) {
-        const skipped = this.prepareSkippedToolCall(call, options);
-        preparedTasks.push({ ...skipped, call });
+    const started: StartedToolCall[] = [];
+    let stopped = false;
+    for (const call of calls) {
+      if (stopped) {
+        yield skippedToolResult(call);
         continue;
       }
-
-      const prepared = await this.prepareToolCall(call, calls, options);
-      preparedTasks.push({
-        task: prepared.task,
-        call,
-        resolvedAccesses: prepared.resolvedAccesses,
-        stopBatchAfterThis: prepared.stopBatchAfterThis,
-      });
-      if (prepared.stopBatchAfterThis === true) {
-        stopBatch = true;
+      const startedAt = Date.now();
+      const handler = this.executor.execute(call, {
+        agent: this.scopeContext.agentContext,
+        signal: options.signal,
+        turnId: options.turnId,
+        trace: options.trace,
+        onToolCall: options.onToolCall,
+      } as never);
+      const entry: StartedToolCall = { call, handler, startedAt };
+      started.push(entry);
+      this.watchAbort(entry, options.signal);
+      const prepared = await this.awaitPrepared(handler);
+      const stopBatch = prepared?.kind === 'execute'
+        ? prepared.execution.stopBatchAfterThis === true
+        : prepared?.result?.stopTurn === true;
+      if (stopBatch) {
+        stopped = true;
       }
     }
-
-    const timedResults = this.executeBatch(
-      preparedTasks.map(({ task }) => task),
-      options.signal,
-    )[Symbol.asyncIterator]();
-    let nextTimed: Promise<IteratorResult<TimedToolResult>> | undefined = timedResults.next();
-    const finalizations = new Set<ToolExecutionResultPromise>();
-
-    try {
-      while (nextTimed !== undefined || finalizations.size > 0) {
-        const candidates: Array<Promise<ToolExecutionStreamEvent>> = [];
-        if (nextTimed !== undefined) {
-          candidates.push(
-            nextTimed.then(
-              (result): ToolExecutionStreamEvent => ({ type: 'timed', result }),
-              (error): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason: error }),
-            ),
-          );
-        }
-        for (const promise of finalizations) {
-          candidates.push(
-            promise.then((settled): ToolExecutionStreamEvent => ({
-              type: 'finalized',
-              promise,
-              settled,
-            })),
-          );
-        }
-
-        const event = await Promise.race(candidates);
-        if (event.type === 'timedRejected') {
-          throw event.reason;
-        }
-        if (event.type === 'timed') {
-          if (event.result.done === true) {
-            nextTimed = undefined;
-            continue;
-          }
-
-          const finalization = this.finalizeTimedResult(
-            preparedTasks[event.result.value.index]!,
-            event.result.value,
-            options,
-          ).then(
-            (value): SettledToolExecutionResult => ({ status: 'fulfilled', value }),
-            (error): SettledToolExecutionResult => ({ status: 'rejected', reason: error }),
-          );
-          finalizations.add(finalization);
-          nextTimed = timedResults.next();
-          continue;
-        }
-
-        finalizations.delete(event.promise);
-        if (event.settled.status === 'rejected') throw event.settled.reason;
-        yield event.settled.value;
+    const pending = new Set(started);
+    while (pending.size > 0) {
+      const settled = await Promise.race(
+        [...pending].map((entry): Promise<SettledToolCall> =>
+          Promise.resolve(entry.handler.then(
+            (response): SettledToolCall => ({
+              entry,
+              response: response as unknown as CoreToolResult,
+            }),
+            (error: unknown): SettledToolCall => ({ entry, error }),
+          )),
+        ),
+      );
+      pending.delete(settled.entry);
+      if ('error' in settled) {
+        yield failedToolResult(settled.entry, settled.error);
+        continue;
       }
-    } finally {
-      await timedResults.return?.();
-      await Promise.allSettled(finalizations);
+      yield this.executionResult(settled.entry, settled.response);
     }
   }
 
-  private async finalizeTimedResult(
-    prepared: {
-      readonly call: PreflightedToolCall;
-      readonly resolvedAccesses?: ToolAccesses;
-    },
-    timedResult: TimedToolResult,
-    options: ToolExecutorExecuteOptions,
-  ): Promise<ToolExecutionResult> {
-    const { call } = prepared;
-    const rawResult = timedResult.result;
-    const finalized = await this.finalizeToolResult(
-      call,
-      rawResult,
-      options,
-      timedResult.outcome,
-      prepared.resolvedAccesses,
+  private async awaitPrepared(
+    handler: StartedToolCall['handler'],
+  ): Promise<ReturnType<typeof handler.snapshot>['prepared']> {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const snapshot = handler.snapshot();
+      if (snapshot.prepared !== undefined || snapshot.status !== 'running') return snapshot.prepared;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    return handler.snapshot().prepared;
+  }
+
+  private watchAbort(entry: StartedToolCall, signal: AbortSignal): void {
+    const stop = (): void => {
+      void entry.handler.stop(signal.reason);
+    };
+    if (signal.aborted) {
+      stop();
+      return;
+    }
+    const listener = (): void => stop();
+    signal.addEventListener('abort', listener, { once: true });
+    void entry.handler.then(
+      () => signal.removeEventListener('abort', listener),
+      () => signal.removeEventListener('abort', listener),
     );
+  }
 
-    this.dispatchToolResult(call, finalized, options);
-    this.trackToolCall(call, finalized, timedResult.durationMs, options);
-
+  private executionResult(entry: StartedToolCall, response: CoreToolResult): ToolExecutionResult {
+    const prepared = entry.handler.snapshot().prepared;
+    const legacy = prepared?.kind === 'execute' || prepared?.kind === 'synthetic'
+      ? prepared.result
+      : undefined;
+    const content = response.content ?? [];
+    const output = typeof legacy?.output === 'string'
+      ? legacy.output
+      : Array.isArray(legacy?.output)
+        ? legacy.output
+        : content.every((part) => part.type === 'text')
+          ? content.map((part) => (part.type === 'text' ? part.text : '')).join('')
+          : content;
+    const stopTurnReason = response.stopTurnReason ?? legacy?.stopTurnReason;
+    const stopTurn = response.stopTurn === true || legacy?.stopTurn === true;
     return {
-      toolCallId: call.toolCall.id,
-      toolName: call.toolName,
-      result: finalized,
-      durationMs: timedResult.durationMs,
+      toolCallId: entry.call.id,
+      toolName: entry.call.name,
+      result: {
+        ...legacy,
+        output,
+        isError: response.outcome.type === 'success' ? legacy?.isError : true,
+        stopTurn,
+        stopTurnReason,
+        stopBatchAfterThis:
+          (prepared?.kind === 'execute'
+            ? prepared.execution.stopBatchAfterThis
+            : legacy?.stopBatchAfterThis) ?? (stopTurn ? true : undefined),
+      } as ToolResult,
+      durationMs: Date.now() - entry.startedAt,
     };
   }
 
-  private trackToolCall(
-    call: PreflightedToolCall,
-    result: ToolResult,
-    durationMs: number,
-    options: ToolExecutorExecuteOptions,
-  ): void {
-    const outcome = toolTelemetryOutcome(result);
-    const toolCallId = call.toolCall.id;
-    const dupType = this.toolCallDupTypes.get(toolCallId) ?? 'normal';
-    this.toolCallDupTypes.delete(toolCallId);
-    const properties: ToolCallEvent = {
-      turn_id: options.turnId,
-      tool_call_id: toolCallId,
-      tool_name: call.toolName,
-      outcome,
-      duration_ms: durationMs,
-      dup_type: dupType,
-      trace_id: options.trace?.requestId,
+  private async wrapExecute(
+    context: LegacyDecisionContext,
+    next: () => Promise<ToolReturn>,
+  ): Promise<ToolReturn> {
+    const hookContext = legacyExecutionContext(context);
+    let returned: ToolReturn | undefined;
+    let terminalError: unknown;
+    try {
+      await this.hooks.onExecuteTool.run(hookContext, async () => {
+        this.executedPrepared.add(context.prepared);
+        try {
+          returned = await next();
+        } catch (error) {
+          terminalError = error;
+          throw error;
+        }
+      });
+    } catch (error) {
+      if (terminalError !== undefined) {
+        throw terminalError instanceof Error ? terminalError : new Error(toErrorMessage(terminalError));
+      }
+      const aborted = isAbortError(error) || context.signal.aborted;
+      const text = aborted
+        ? `Tool "${hookContext.toolCall.name}" aborted during onExecuteTool hook.`
+        : `onExecuteTool hook failed for "${hookContext.toolCall.name}": ${toErrorMessage(error)}`;
+      return { content: [{ type: 'text', text }], outcome: 'failed', reason: text };
+    }
+    return returned ?? {
+      content: [{
+        type: 'text',
+        text: `Tool "${hookContext.toolCall.name}" returned no result.`,
+      }],
+      outcome: 'failed',
+      reason: `Tool "${hookContext.toolCall.name}" returned no result.`,
     };
-    if (result.isError === true) properties['error_type'] = toolTelemetryErrorType(outcome);
+  }
+
+  handlers(): readonly AgentToolExecutionHandler[] {
+    return [...this.liveHandlers.values()];
+  }
+
+  handler(taskId: string): AgentToolExecutionHandler | undefined {
+    return this.liveHandlers.get(taskId);
+  }
+
+  handlerForCall(toolCallId: string): AgentToolExecutionHandler | undefined {
+    const ids = this.taskIdsByCall.get(toolCallId);
+    const taskId = ids?.at(-1);
+    return taskId === undefined ? undefined : this.liveHandlers.get(taskId);
+  }
+
+  release(taskId: string): void {
+    const handler = this.liveHandlers.get(taskId);
+    if (handler === undefined) return;
+    this.liveHandlers.delete(taskId);
+    const callId = handler.snapshot().id;
+    const ids = this.taskIdsByCall.get(callId);
+    if (ids !== undefined) {
+      const remaining = ids.filter((id) => id !== taskId);
+      if (remaining.length === 0) this.taskIdsByCall.delete(callId);
+      else this.taskIdsByCall.set(callId, remaining);
+    }
+    this.leases.get(taskId)?.();
+    this.leases.delete(taskId);
+    const key = this.batchByTask.get(taskId);
+    this.batchByTask.delete(taskId);
+    if (key === undefined) return;
+    const batch = this.batches.get(key);
+    if (batch === undefined) return;
+    batch.handlers -= 1;
+    if (batch.handlers === 0) this.batches.delete(key);
+  }
+
+  private batch(turnId: number, step: number | undefined, taskId: string): { readonly key: string; readonly batch: SchedulerBatch } {
+    const key = `${turnId}:${step ?? taskId}`;
+    let batch = this.batches.get(key);
+    if (batch === undefined) {
+      batch = { scheduler: new ToolScheduler<void>(), handlers: 0 };
+      this.batches.set(key, batch);
+    }
+    return { key, batch };
+  }
+
+  recordDupType(toolCallId: string, dupType: ToolCallDupType): void {
+    this.toolCallDupTypes.set(toolCallId, dupType);
+  }
+
+  private registerTool(tool: ExecutableTool): void {
+    const adapter = new LegacyExecutableToolAdapter(
+      tool,
+      (input) => this.truncation.truncateForModel(input),
+    );
+    this.adapters.set(tool.name, { tool, adapter });
+    this.executor.addExecute(adapter);
+  }
+
+  private registryChanged(change: ToolRegistryChange): void {
+    const current = this.adapters.get(change.tool.name);
+    if (change.type === 'unregistered') {
+      if (current === undefined || current.tool !== change.tool) return;
+      this.executor.removeExecute(current.adapter);
+      this.adapters.delete(change.tool.name);
+      return;
+    }
+    this.registerTool(change.tool);
+  }
+
+  private observe(event: ToolExecutionEvent<any, any, any>): void {
+    const { handler } = event;
+    if (event.type === 'created') {
+      this.liveHandlers.set(handler.taskId, handler);
+      const ids = this.taskIdsByCall.get(event.call.id) ?? [];
+      ids.push(handler.taskId);
+      this.taskIdsByCall.set(event.call.id, ids);
+      const { key, batch } = this.batch(event.context.turnId, event.context.step, handler.taskId);
+      batch.handlers += 1;
+      this.batchByTask.set(handler.taskId, key);
+      void handler.wait().catch(() => this.release(handler.taskId));
+      return;
+    }
+    this.announce(event);
+    if (!this.announced.has(handler)) return;
+    const snapshot = handler.snapshot();
+    if (event.type === 'change' && snapshot.detached) {
+      this.leases.get(handler.taskId)?.();
+      this.leases.delete(handler.taskId);
+    }
+    void this.dispatcher.dispatch(new ToolUpdated({
+      agentId: this.scopeContext.agentId,
+      origin: event.context.origin,
+      turnId: event.context.turnId,
+      toolCallId: event.call.id,
+      taskId: handler.taskId,
+      status: snapshot.status,
+      detached: snapshot.detached,
+      fields: snapshot.fields,
+      output: event.type === 'output' ? { offset: event.offset, text: event.text } : undefined,
+    }));
+    if (event.type === 'change') {
+      const progress = snapshot.fields['progress'] as
+        | { readonly text?: string; readonly percent?: number; readonly replace?: boolean }
+        | undefined;
+      if (progress !== undefined) {
+        const signature = JSON.stringify(progress);
+        if (this.progressByHandler.get(handler) !== signature) {
+          this.progressByHandler.set(handler, signature);
+          void this.dispatcher.dispatch(new ToolProgress({
+            agentId: this.scopeContext.agentId,
+            turnId: event.context.turnId,
+            toolCallId: event.call.id,
+            update: {
+              kind: 'progress',
+              text: progress.text,
+              percent: progress.percent,
+              replace: progress.replace,
+            },
+          }));
+        }
+      }
+      const rawStatus = snapshot.fields['status'] as
+        | string
+        | { readonly text?: string; readonly statusReplace?: boolean }
+        | undefined;
+      const statusText = typeof rawStatus === 'string' ? rawStatus : rawStatus?.text;
+      const statusReplace = typeof rawStatus === 'string' ? undefined : rawStatus?.statusReplace;
+      if (statusText !== undefined) {
+        const signature = `${statusText}\u0000${String(statusReplace)}`;
+        if (this.statusByHandler.get(handler) !== signature) {
+          this.statusByHandler.set(handler, signature);
+          void this.dispatcher.dispatch(new ToolProgress({
+            agentId: this.scopeContext.agentId,
+            turnId: event.context.turnId,
+            toolCallId: event.call.id,
+            update: {
+              kind: 'status',
+              text: statusText,
+              replace: statusReplace,
+            },
+          }));
+        }
+      }
+    }
+    if (event.type === 'output') {
+      void this.dispatcher.dispatch(new ToolProgress({
+        agentId: this.scopeContext.agentId,
+        turnId: event.context.turnId,
+        toolCallId: event.call.id,
+        update: { kind: 'stdout', text: event.text },
+      }));
+      return;
+    }
+    const status = snapshot.status;
+    if (status !== 'success' && status !== 'failed' && status !== 'aborted') return;
+    if (this.completed.has(handler)) return;
+    this.completed.add(handler);
+    this.leases.get(handler.taskId)?.();
+    this.leases.delete(handler.taskId);
+    const result = this.resultOf(event);
+    const outcome = snapshot.error?.outcome ?? 'success';
+    void this.dispatcher.dispatch(new ToolResultEvent({
+      agentId: this.scopeContext.agentId,
+      origin: event.context.origin,
+      turnId: event.context.turnId,
+      toolCallId: event.call.id,
+      output: textToolOutput(result?.output ?? this.finalContent(event)),
+      isError: outcome === 'success' ? undefined : true,
+      synthetic: snapshot.prepared?.kind === 'synthetic' ? true : undefined,
+    }));
+    this.track(event, outcome);
+  }
+
+  private announce(event: ToolExecutionEvent<any, any, any>): void {
+    if (this.announced.has(event.handler)) return;
+    const snapshot = event.handler.snapshot();
+    const ready = snapshot.phase === 'execute' ||
+      snapshot.status === 'failed' ||
+      snapshot.status === 'aborted' ||
+      snapshot.status === 'success';
+    if (!ready) return;
+    this.announced.add(event.handler);
+    const prepared = snapshot.prepared;
+    void this.dispatcher.dispatch(new ToolCallStarted({
+      agentId: this.scopeContext.agentId,
+      origin: event.context.origin,
+      turnId: event.context.turnId,
+      toolCallId: event.call.id,
+      name: event.call.name,
+      args: snapshot.args,
+      description: prepared?.kind === 'execute' ? prepared.description : undefined,
+      display: prepared?.kind === 'execute' ? prepared.display : undefined,
+    }));
+  }
+
+  private resultOf(event: ToolExecutionEvent<any, any, any>) {
+    const prepared = event.handler.snapshot().prepared;
+    if (prepared?.kind === 'execute') return prepared.result;
+    return prepared?.kind === 'synthetic' ? prepared.result : undefined;
+  }
+
+  private finalContent(event: ToolExecutionEvent<any, any, any>) {
+    const snapshot = event.handler.snapshot();
+    return snapshot.error === undefined ? [] : [{ type: 'text' as const, text: snapshot.error.reason }];
+  }
+
+  private track(event: ToolExecutionEvent<any, any, any>, outcome: 'success' | 'failed' | 'aborted'): void {
+    const snapshot = event.handler.snapshot();
+    const properties: ToolCallEvent = {
+      turn_id: event.context.turnId,
+      tool_call_id: event.call.id,
+      tool_name: event.call.name,
+      outcome: outcome === 'success' ? 'success' : 'error',
+      duration_ms: legacyToolDurationMs(snapshot),
+      dup_type: this.toolCallDupTypes.get(event.call.id) ?? 'normal',
+      trace_id: event.context.trace?.requestId,
+      request_id: event.context.trace?.requestId,
+    };
+    this.toolCallDupTypes.delete(event.call.id);
+    if (outcome !== 'success') properties['error_type'] = 'error';
     this.telemetry.track2('tool_call', properties);
   }
-
-  private async prepareToolCall(
-    call: PreflightedToolCall,
-    allCalls: readonly ToolCall[],
-    options: ToolExecutorExecuteOptions,
-  ): Promise<{
-    task: ToolExecutionTask;
-    resolvedAccesses?: ToolAccesses;
-    stopBatchAfterThis?: boolean;
-  }> {
-    const settleError = (
-      args: unknown,
-      output: string,
-      outcome: Exclude<ToolExecutionOutcome, 'executed'>,
-      displayFields?: ToolCallDisplayFields,
-    ): { task: ToolExecutionTask } => {
-      this.dispatchToolCall(call, args, options, displayFields);
-      return {
-        task: makeResolvedTask(makeErrorToolResult(call, args, output), outcome),
-      };
-    };
-
-    const settleSynthetic = (
-      args: unknown,
-      result: ExecutableToolResult,
-      outcome: Exclude<ToolExecutionOutcome, 'executed'>,
-      displayFields?: ToolCallDisplayFields,
-    ): {
-      task: ToolExecutionTask;
-      stopBatchAfterThis?: boolean;
-    } => {
-      const toolResult = this.normalizeAndMergeResult(result, call.toolName, undefined);
-      this.dispatchToolCall(call, args, options, displayFields);
-      return {
-        task: makeResolvedTask(
-          {
-            toolCall: call.toolCall,
-            toolName: call.toolName,
-            args,
-            result: toolResult,
-            stopTurn: toolResult.stopTurn === true,
-          },
-          outcome,
-        ),
-        stopBatchAfterThis: toolResult.stopBatchAfterThis ?? toolResult.stopTurn,
-      };
-    };
-
-    if (call.kind === 'rejected') {
-      return settleError(call.args, call.output, 'preflight-rejected');
-    }
-
-    let execution: ToolExecution;
-    try {
-      execution = await call.tool.resolveExecution(call.args);
-    } catch (error) {
-      const output =
-        error instanceof PathSecurityError
-          ? error.message
-          : `Tool "${call.toolName}" failed to resolve execution: ${errorMessage(error)}`;
-      return settleError(call.args, output, 'resolution-failed');
-    }
-
-    const displayFields = toolCallDisplayFieldsFromExecution(execution);
-
-    if (options.signal.aborted) {
-      return settleError(
-        call.args,
-        abortedToolOutput(call.toolName, options.signal.reason),
-        'aborted',
-        displayFields,
-      );
-    }
-
-    if (execution.isError === true) {
-      return settleSynthetic(call.args, execution, 'synthetic', displayFields);
-    }
-
-    const beforeContext = buildBeforeExecuteContext(call, execution, allCalls, options);
-    const decision = await this.beforeExecuteEmitter.fireBeforeExecute(beforeContext);
-
-    if (decision?.veto !== undefined) {
-      return settleSynthetic(call.args, decision.veto, 'vetoed', displayFields);
-    }
-
-    const permitting = await this.runPermittingHooks(beforeContext, execution);
-
-    if (permitting?.veto !== undefined) {
-      return settleSynthetic(call.args, permitting.veto, 'vetoed', displayFields);
-    }
-
-    const executionMetadata = permitting?.executionMetadata ?? decision?.executionMetadata;
-
-    await this.willExecuteEmitter.fireAsync(
-      {
-        turnId: options.turnId,
-        toolCall: call.toolCall,
-        execution,
-        args: call.args,
-      },
-      options.signal,
-    );
-
-    this.dispatchToolCall(call, call.args, options, displayFields);
-
-    return {
-      task: {
-        accesses: execution.accesses ?? ToolAccesses.all(),
-        execute: async (taskSignal) =>
-          this.runSingleExecution(call, execution, executionMetadata, options, taskSignal),
-      },
-      resolvedAccesses: execution.accesses,
-      stopBatchAfterThis: execution.stopBatchAfterThis,
-    };
-  }
-
-  private async runPermittingHooks(
-    context: ResolvedToolExecutionHookContext,
-    execution: RunnableToolExecution,
-  ): Promise<{ readonly veto?: ExecutableToolResult; readonly executionMetadata?: unknown }> {
-    let executionMetadata: unknown;
-    for (const hook of this.toolHooks) {
-      if (hook.permitting === undefined) continue;
-      const hookContext: ToolDecisionContext<
-        unknown,
-        LegacyToolAgentContext,
-        LegacyToolPreparation
-      > = {
-        call: context.toolCall,
-        taskId: context.toolCall.id,
-        args: context.args,
-        signal: context.signal,
-        context: {
-          turnId: context.turnId,
-          trace: context.trace,
-          origin: 'loop',
-        },
-        prepared: {
-          kind: 'execute',
-          execution,
-          approvalRule: execution.approvalRule,
-        },
-      };
-      const decision = await hook.permitting(hookContext);
-      if (decision !== undefined && 'reject' in decision) {
-        return { veto: denyToolExecution(decision.reject) };
-      }
-      if (decision !== undefined && 'rewrite' in decision) {
-        throw new BugIndicatingError(
-          `Tool hook rewrote arguments for "${context.toolCall.name}" after preparation`,
-        );
-      }
-      if (hookContext.context.metadata !== undefined) {
-        executionMetadata = hookContext.context.metadata;
-      }
-    }
-    return executionMetadata === undefined ? {} : { executionMetadata };
-  }
-
-  private prepareSkippedToolCall(
-    call: PreflightedToolCall,
-    options: ToolExecutorExecuteOptions,
-  ): { task: ToolExecutionTask } {
-    const output = 'Tool skipped because a previous tool call stopped the turn.';
-    this.dispatchToolCall(call, call.args, options);
-    return {
-      task: makeResolvedTask(makeErrorToolResult(call, call.args, output), 'skipped'),
-    };
-  }
-
-  private async *executeBatch(
-    tasks: ToolExecutionTask[],
-    signal: AbortSignal,
-  ): AsyncIterable<TimedToolResult> {
-    const scheduler = new ToolScheduler<TimedToolResult>();
-    const allResults: Array<Promise<TimedToolResult>> = [];
-    const pendingResults = new Map<number, Promise<SettledTimedToolResult>>();
-
-    for (let index = 0; index < tasks.length; index += 1) {
-      const task = tasks[index]!;
-      const pendingResult = scheduler.add({
-        accesses: task.accesses,
-        start: async () => {
-          const startedAt = Date.now();
-          return {
-            result: task.execute(signal).then(({ result, outcome }) => ({
-              index,
-              result,
-              outcome,
-              durationMs: Math.max(0, Date.now() - startedAt),
-            })),
-          };
-        },
-      });
-      allResults.push(pendingResult);
-      pendingResults.set(
-        index,
-        pendingResult.then(
-          (value): SettledTimedToolResult => ({ status: 'fulfilled', value }),
-          (error): SettledTimedToolResult => ({ status: 'rejected', index, reason: error }),
-        ),
-      );
-    }
-
-    try {
-      while (pendingResults.size > 0) {
-        const settled = await Promise.race(pendingResults.values());
-        const index = settled.status === 'fulfilled' ? settled.value.index : settled.index;
-        pendingResults.delete(index);
-        if (settled.status === 'rejected') throw settled.reason;
-        yield settled.value;
-      }
-    } finally {
-      await Promise.allSettled(allResults);
-    }
-  }
-
-  private async runSingleExecution(
-    call: RunnableToolCall,
-    execution: RunnableToolExecution,
-    metadata: unknown,
-    options: ToolExecutorExecuteOptions,
-    signal: AbortSignal,
-  ): Promise<ToolExecutionRunResult> {
-    let executed = false;
-    let completed: ToolExecutionRunResult | undefined;
-    const context: ResolvedToolExecutionHookContext = {
-      turnId: options.turnId,
-      signal: options.signal,
-      trace: options.trace,
-      toolCall: call.toolCall,
-      toolCalls: [call.toolCall],
-      tool: call.tool,
-      args: call.args,
-      execution,
-    };
-    try {
-      await this.hooks.onExecuteTool.run(context, async () => {
-        executed = true;
-        completed = await this.runSingleExecutionInner(call, execution, metadata, options, signal);
-      });
-    } catch (error) {
-      const aborted = isAbortError(error) || signal.aborted;
-      const output = aborted
-        ? `Tool "${call.toolName}" aborted during onExecuteTool hook.`
-        : `onExecuteTool hook failed for "${call.toolName}": ${errorMessage(error)}`;
-      return {
-        result: { output, isError: true },
-        outcome: executed ? 'executed' : 'hook-failed',
-      };
-    }
-    if (completed === undefined) {
-      return {
-        result: {
-          output: `onExecuteTool hook failed for "${call.toolName}": the execution chain did not run the tool`,
-          isError: true,
-        },
-        outcome: 'hook-failed',
-      };
-    }
-    return completed;
-  }
-
-  private async runSingleExecutionInner(
-    call: RunnableToolCall,
-    execution: RunnableToolExecution,
-    metadata: unknown,
-    options: ToolExecutorExecuteOptions,
-    signal: AbortSignal,
-  ): Promise<ToolExecutionRunResult> {
-    if (signal.aborted) {
-      return {
-        result: makeErrorToolResult(
-          call,
-          call.args,
-          abortedToolOutput(call.toolName, signal.reason),
-        ).result,
-        outcome: 'aborted',
-      };
-    }
-
-    let rawResult: ExecutableToolResult;
-    try {
-      const executePromise = execution.execute({
-        turnId: options.turnId,
-        toolCallId: call.toolCall.id,
-        trace: options.trace,
-        metadata,
-        signal,
-        steerSignal: options.steerSignal,
-        onUpdate: (update) => {
-          if (signal.aborted) return;
-          this.dispatchToolProgress(call, update, options);
-        },
-      });
-      rawResult = await raceWithAbortGrace(executePromise, signal, call.toolName);
-    } catch (error) {
-      const aborted = isAbortError(error) || signal.aborted;
-      const output = aborted
-        ? abortedToolOutput(call.toolName, signal.reason)
-        : `Tool "${call.toolName}" failed: ${errorMessage(error)}`;
-      return {
-        result: makeErrorToolResult(call, call.args, output).result,
-        outcome: 'executed',
-      };
-    }
-
-    return {
-      result: this.normalizeAndMergeResult(rawResult, call.toolName, execution),
-      outcome: 'executed',
-    };
-  }
-
-  private normalizeAndMergeResult(
-    rawResult: unknown,
-    toolName: string,
-    execution: RunnableToolExecution | undefined,
-  ): ToolResult {
-    const coerced = coerceToolResult(rawResult, toolName);
-    const normalized = normalizeToolResult(coerced);
-    return {
-      ...normalized,
-      description: execution?.description ?? normalized.description,
-      display: execution?.display ?? normalized.display,
-      approvalRule: execution?.approvalRule,
-      stopBatchAfterThis: normalized.stopBatchAfterThis ?? execution?.stopBatchAfterThis,
-      delivery: coerced.delivery,
-    };
-  }
-
-  private dispatchToolCall(
-    call: PreflightedToolCall,
-    args: unknown,
-    options: ToolExecutorExecuteOptions,
-    displayFields?: ToolCallDisplayFields,
-  ): void {
-    void this.dispatcher.dispatch(
-      new ToolCallStarted({
-        agentId: this.scopeContext.agentId,
-        origin: options.origin,
-        turnId: options.turnId,
-        toolCallId: call.toolCall.id,
-        name: call.toolName,
-        args,
-        description: displayFields?.description,
-        display: displayFields?.display,
-      }),
-    );
-    options.onToolCall?.({
-      toolCallId: call.toolCall.id,
-      name: call.toolName,
-      args,
-      display: displayFields?.display,
-    });
-  }
-
-  private dispatchToolResult(
-    call: PreflightedToolCall,
-    result: ToolResult,
-    options: ToolExecutorExecuteOptions,
-  ): void {
-    void this.dispatcher.dispatch(
-      new ToolResultEvent({
-        agentId: this.scopeContext.agentId,
-        origin: options.origin,
-        turnId: options.turnId,
-        toolCallId: call.toolCall.id,
-        output: result.output,
-        isError: result.isError,
-      }),
-    );
-  }
-
-  private dispatchToolProgress(
-    call: RunnableToolCall,
-    update: ToolUpdate,
-    options: ToolExecutorExecuteOptions,
-  ): void {
-    void this.dispatcher.dispatch(
-      new ToolProgress({
-        agentId: this.scopeContext.agentId,
-        turnId: options.turnId,
-        toolCallId: call.toolCall.id,
-        update,
-      }),
-    );
-  }
-
-  private async finalizeToolResult(
-    call: PreflightedToolCall,
-    result: ToolResult,
-    options: ToolExecutorExecuteOptions,
-    outcome: ToolExecutionOutcome,
-    resolvedAccesses?: ToolAccesses,
-  ): Promise<ToolResult> {
-    const didCtx: ToolDidExecuteContext = {
-      turnId: options.turnId,
-      signal: options.signal,
-      trace: options.trace,
-      toolCall: call.toolCall,
-      toolCalls: [call.toolCall],
-      tool: call.kind === 'runnable' ? call.tool : undefined,
-      args: call.args,
-      outcome,
-      accesses: resolvedAccesses,
-      result: result as ExecutableToolResult,
-    };
-
-    try {
-      await this.hooks.onDidExecuteTool.run(didCtx);
-    } catch (error) {
-      const aborted = isAbortError(error) || options.signal.aborted;
-      const output = aborted
-        ? `Tool "${call.toolName}" aborted during onDidExecuteTool hook.`
-        : `onDidExecuteTool hook failed for "${call.toolName}": ${errorMessage(error)}`;
-      return {
-        output,
-        isError: true,
-        description: result.description,
-        display: result.display,
-        approvalRule: result.approvalRule,
-      };
-    }
-
-    const coercedResult = coerceToolResult(didCtx.result, call.toolName);
-    const effectiveResult = normalizeToolResult(coercedResult);
-    const finalResult: ToolResult = {
-      ...effectiveResult,
-      description: result.description,
-      display: result.display,
-      approvalRule: result.approvalRule,
-      stopTurn:
-        result.stopTurn === true || didCtx.stopTurn === true || effectiveResult.stopTurn === true,
-      stopBatchAfterThis: result.stopBatchAfterThis,
-      delivery: coercedResult.delivery,
-    };
-    return this.resultTruncation.truncateForModel({
-      toolName: call.toolName,
-      toolCallId: call.toolCall.id,
-      result: finalResult,
-    });
-  }
 }
 
-interface RunnableToolCall {
-  readonly kind: 'runnable';
-  readonly toolCall: ToolCall;
-  readonly toolName: string;
-  readonly tool: ExecutableTool;
-  readonly args: unknown;
+function textToolOutput(output: unknown): unknown {
+  if (!Array.isArray(output)) return output;
+  const parts = output as readonly { readonly type?: string; readonly text?: string }[];
+  return parts.every((part) => part.type === 'text')
+    ? parts.map((part) => part.text ?? '').join('')
+    : output;
 }
 
-interface RejectedToolCall {
-  readonly kind: 'rejected';
-  readonly toolCall: ToolCall;
-  readonly toolName: string;
-  readonly args: unknown;
-  readonly output: string;
+interface StartedToolCall {
+  readonly call: ToolCall;
+  readonly handler: ReturnType<AgentToolExecutor['execute']>;
+  readonly startedAt: number;
 }
 
-type PreflightedToolCall = RunnableToolCall | RejectedToolCall;
+type SettledToolCall =
+  | { readonly entry: StartedToolCall; readonly response: CoreToolResult }
+  | { readonly entry: StartedToolCall; readonly error: unknown };
 
-interface PreparedToolResult {
-  readonly toolCall: ToolCall;
-  readonly toolName: string;
-  readonly args: unknown;
-  readonly result: ToolResult;
-  readonly stopTurn?: boolean;
-}
+const toolArgsValidators = new WeakMap<
+  object,
+  { readonly schema: Record<string, unknown>; readonly validator: ReturnType<typeof compileToolArgsValidator> }
+>();
 
-type ToolCallDisplayFields = {
-  description?: string | undefined;
-  display?: ToolInputDisplay | undefined;
-};
-
-function buildBeforeExecuteContext(
-  call: RunnableToolCall,
-  execution: RunnableToolExecution,
-  allCalls: readonly ToolCall[],
-  options: ToolExecutorExecuteOptions,
-): ResolvedToolExecutionHookContext {
+function skippedToolResult(call: ToolCall): ToolExecutionResult {
   return {
-    turnId: options.turnId,
-    signal: options.signal,
-    trace: options.trace,
-    toolCall: call.toolCall,
-    toolCalls: allCalls,
-    tool: call.tool,
-    args: call.args,
-    execution,
+    toolCallId: call.id,
+    toolName: call.name,
+    result: {
+      output: 'Tool skipped because a previous tool call stopped the turn.',
+      isError: true,
+      stopTurn: false,
+    },
+    durationMs: 0,
   };
 }
 
-function preflightToolCall(
-  toolRegistry: IAgentToolRegistryService,
-  toolCall: ToolCall,
-  guard: ToolCallGuard | undefined,
-  describeUnavailableTool: UnavailableToolDescriber | undefined,
-  describeMissingTool: MissingToolDescriber | undefined,
-  log?: ILogService,
-): PreflightedToolCall {
-  const toolName = toolCall.name;
-  const parsedArgs = parseToolCallArguments(toolCall.arguments);
-  if (parsedArgs.parseFailed) {
-    log?.debug('tool args JSON parse failed', {
-      toolName,
-      toolCallId: toolCall.id,
-      rawLength: typeof toolCall.arguments === 'string' ? toolCall.arguments.length : 0,
-      error: parsedArgs.error,
-    });
-  }
-  const tool = toolRegistry.resolve(toolName);
-  if (tool === undefined) {
-    return {
-      kind: 'rejected',
-      toolCall,
-      toolName,
-      args: parsedArgs.data,
-      output: describeMissingTool?.(toolName) ?? `Tool "${toolName}" not found`,
-    };
-  }
-  const source = toolRegistry.list().find((entry) => entry.name === toolName)?.source ?? 'builtin';
-  const denied = guard?.({ name: toolName, source });
-  if (denied !== undefined) {
-    return {
-      kind: 'rejected',
-      toolCall,
-      toolName,
-      args: parsedArgs.data,
-      output: denied,
-    };
-  }
-  const unavailable = describeUnavailableTool?.(toolName);
-  if (unavailable !== undefined) {
-    return {
-      kind: 'rejected',
-      toolCall,
-      toolName,
-      args: parsedArgs.data,
-      output: unavailable,
-    };
-  }
-  const validationError = validateExecutableToolArgs(tool, parsedArgs.data);
-  if (validationError !== null) {
-    return {
-      kind: 'rejected',
-      toolCall,
-      toolName,
-      args: parsedArgs.data,
-      output: `Invalid args for tool "${toolName}": ${validationError}`,
-    };
-  }
-  return { kind: 'runnable', toolCall, toolName, tool, args: parsedArgs.data };
+function failedToolResult(entry: StartedToolCall, error: unknown): ToolExecutionResult {
+  return {
+    toolCallId: entry.call.id,
+    toolName: entry.call.name,
+    result: { output: toErrorMessage(error), isError: true, stopTurn: false },
+    durationMs: Date.now() - entry.startedAt,
+  };
 }
 
 function validateExecutableToolArgs(tool: ExecutableTool, args: unknown): string | null {
   const schema = tool.parameters;
-  let cached = validators.get(tool);
+  let cached = toolArgsValidators.get(tool);
   if (cached === undefined || cached.schema !== schema) {
     try {
       cached = { schema, validator: compileToolArgsValidator(schema) };
-      validators.set(tool, cached);
+      toolArgsValidators.set(tool, cached);
     } catch (error) {
-      return error instanceof Error ? error.message : String(error);
+      return toErrorMessage(error);
     }
   }
   const properties = schema['properties'];
@@ -964,179 +713,42 @@ function validateExecutableToolArgs(tool: ExecutableTool, args: unknown): string
   return validateToolArgs(cached.validator, args as JsonType, validParameterNames);
 }
 
-function toolCallDisplayFieldsFromExecution(
-  execution: ToolExecution,
-): ToolCallDisplayFields | undefined {
-  if (execution.isError === true) return undefined;
-  const description = execution.description;
-  const display = execution.display;
+function coreResultFromLegacy(
+  result: ToolResult,
+  toolCallId: string,
+  stopTurn: boolean,
+  stopTurnReason: string | undefined,
+): CoreToolResult {
+  const output = result.output;
+  const content: ContentPart[] = typeof output === 'string'
+    ? [{ type: 'text', text: output }]
+    : [...output];
+  const text = typeof output === 'string'
+    ? output
+    : output
+      .filter((part) => part.type === 'text')
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('');
+  const outcome: CoreToolResult['outcome'] = result.isError === true
+    ? {
+        type: 'failed',
+        error: {
+          outcome: 'failed',
+          type: 'unknown',
+          phase: 'after-execute',
+          reason: text,
+        },
+      }
+    : { type: 'success' };
+  const finalStopTurn = stopTurn || result.stopTurn === true;
+  const finalStopReason = stopTurnReason ?? result.stopTurnReason;
   return {
-    description: description !== undefined && description.length > 0 ? description : undefined,
-    display,
+    toolCallId,
+    content,
+    outcome,
+    stopTurn: finalStopTurn,
+    ...(finalStopReason === undefined ? {} : { stopTurnReason: finalStopReason }),
   };
-}
-
-function makeResolvedTask(
-  result: PreparedToolResult,
-  outcome: ToolExecutionOutcome,
-): ToolExecutionTask {
-  return {
-    accesses: ToolAccesses.none(),
-    execute: async () => ({ result: result.result, outcome }),
-  };
-}
-
-function makeErrorToolResult(
-  call: PreflightedToolCall,
-  args: unknown,
-  output: string,
-): PreparedToolResult {
-  return {
-    toolCall: call.toolCall,
-    toolName: call.toolName,
-    args,
-    result: { output, isError: true },
-  };
-}
-
-function coerceToolResult(value: unknown, toolName: string): ExecutableToolResult {
-  if (value === null || value === undefined) {
-    return { output: `Tool "${toolName}" returned no result.`, isError: true };
-  }
-  if (typeof value !== 'object') {
-    return {
-      output: `Tool "${toolName}" returned a ${typeof value} instead of a tool result.`,
-      isError: true,
-    };
-  }
-  const candidate = value as { output?: unknown };
-  if (typeof candidate.output !== 'string' && !Array.isArray(candidate.output)) {
-    return {
-      output: `Tool "${toolName}" returned a result with a missing or malformed "output" field.`,
-      isError: true,
-    };
-  }
-  return value as ExecutableToolResult;
-}
-
-function normalizeToolResult(result: ExecutableToolResult): ToolResult {
-  let output: ToolResult['output'];
-  if (typeof result.output === 'string') {
-    output = result.output.length > 0 ? result.output : TOOL_OUTPUT_EMPTY;
-  } else if (result.output.length === 0) {
-    output = TOOL_OUTPUT_EMPTY;
-  } else {
-    const hasMediaBlock = result.output.some(isMediaContentPart);
-    if (hasMediaBlock) {
-      const hasNonEmptyText = result.output.some(
-        (part) => part.type === 'text' && part.text.length > 0,
-      );
-      output = hasNonEmptyText
-        ? result.output
-        : [{ type: 'text', text: TOOL_OUTPUT_NON_TEXT }, ...result.output];
-    } else {
-      const textJoined = result.output
-        .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
-        .map((part) => part.text)
-        .join('');
-      output = textJoined.length > 0 ? textJoined : TOOL_OUTPUT_EMPTY;
-    }
-  }
-  const base: {
-    output: ToolResult['output'];
-    stopTurn?: boolean;
-    stopTurnReason?: string;
-    truncated?: true;
-    note?: string;
-    spill?: ToolResultSpill;
-    spillExempt?: true;
-  } = {
-    output,
-    stopTurn: result.stopTurn,
-    spill: result.spill,
-    spillExempt: result.spillExempt,
-  };
-  if (result.stopTurnReason !== undefined) base.stopTurnReason = result.stopTurnReason;
-  if (result.truncated === true) base.truncated = true;
-  if (typeof result.note === 'string' && result.note.length > 0) base.note = result.note;
-  if (result.isError === true) {
-    return {
-      ...base,
-      isError: true,
-    };
-  }
-  return base;
-}
-
-function toolTelemetryOutcome(result: ToolResult): 'success' | 'error' | 'cancelled' {
-  if (result.isError !== true) return 'success';
-  const text = toolOutputText(result.output).toLowerCase();
-  return text.includes('aborted') ||
-    text.includes('cancelled') ||
-    text.includes('manually interrupted')
-    ? 'cancelled'
-    : 'error';
-}
-
-function toolTelemetryErrorType(outcome: 'success' | 'error' | 'cancelled'): 'cancelled' | 'error' {
-  if (outcome === 'cancelled') return 'cancelled';
-  return 'error';
-}
-
-function toolOutputText(output: ToolResult['output']): string {
-  if (typeof output === 'string') return output;
-  return output
-    .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
-    .map((part) => part.text)
-    .join('');
-}
-
-function isMediaContentPart(part: ContentPart): boolean {
-  return part.type === 'image_url' || part.type === 'audio_url' || part.type === 'video_url';
-}
-
-export function abortedToolOutput(toolName: string, reason: unknown): string {
-  if (isUserCancellation(reason)) {
-    return `The user manually interrupted "${toolName}" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction.`;
-  }
-  return `Tool "${toolName}" was aborted`;
-}
-
-async function raceWithAbortGrace<Result>(
-  executePromise: Promise<Result>,
-  signal: AbortSignal,
-  toolName: string,
-): Promise<Result> {
-  let graceTimer: ReturnType<typeof setTimeout> | undefined;
-  let onAbort: (() => void) | undefined;
-
-  const graceSentinel: Promise<Result> = new Promise((resolve) => {
-    const armTimer = (): void => {
-      graceTimer = setTimeout(() => {
-        resolve({
-          output: abortedToolOutput(toolName, signal.reason),
-          isError: true,
-        } as unknown as Result);
-      }, ABORT_GRACE_MS);
-    };
-    if (signal.aborted) {
-      armTimer();
-    } else {
-      onAbort = armTimer;
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
-  });
-
-  try {
-    return await Promise.race([executePromise, graceSentinel]);
-  } finally {
-    if (graceTimer !== undefined) clearTimeout(graceTimer);
-    if (onAbort !== undefined) {
-      try {
-        signal.removeEventListener('abort', onAbort);
-      } catch {}
-    }
-  }
 }
 
 registerScopedService(

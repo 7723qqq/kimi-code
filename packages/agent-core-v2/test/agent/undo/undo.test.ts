@@ -907,16 +907,14 @@ describe('AgentConversationUndoService', () => {
         activePromptId: undefined,
         queue: [
           {
-            message: {
-              role: 'user',
-              content: [
-                userPromptSubmitHookPart(
-                  '<hook_result hook_event="UserPromptSubmit">\nhook note\n</hook_result>',
-                ),
-                { type: 'text', text: 'queued prompt' },
-              ],
-            },
-            meta: {
+            role: 'user',
+            content: [
+              userPromptSubmitHookPart(
+                '<hook_result hook_event="UserPromptSubmit">\nhook note\n</hook_result>',
+              ),
+              { type: 'text', text: 'queued prompt' },
+            ],
+            attributes: {
               promptId: 'queued',
               origin: {
                 kind: 'user',
@@ -924,16 +922,14 @@ describe('AgentConversationUndoService', () => {
                   displayText === undefined ? undefined : [{ display_text: displayText }],
               } as PromptOrigin,
               tracked: true,
-              createdAt: new Date(0).toISOString(),
-              userMessageId: 'queued',
-            },
+            } as never,
           },
         ],
         notificationCount: 0,
         paused: false,
         hasPendingRequests: true,
         turn: undefined,
-        activeTraceId: undefined,
+        activeRequestId: undefined,
       });
 
       try {

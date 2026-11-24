@@ -135,7 +135,9 @@ function pairBlocks(
   };
 
   for (const [index, message] of history.entries()) {
-    if (message.partial === true) continue;
+    if (message.partial === true) {
+      if (message.role !== 'assistant' || message.toolCalls.length > 0 || message.content.length === 0) continue;
+    }
     if (message.role === 'tool' && !layout.sizing) {
       if (message.toolCallId === undefined) continue;
       const open = openCalls.get(message.toolCallId);

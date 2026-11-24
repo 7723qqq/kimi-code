@@ -4,6 +4,7 @@ import { type IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { ToolsResetActiveTools, ToolsSetActiveTools } from '#/agent/profile/profileOps';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { isToolActive } from '#/agent/toolPolicy/evaluate';
 import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
@@ -34,6 +35,16 @@ export class AgentToolActivationService extends Service implements IAgentToolAct
     super();
     this._register(
       eventBus.subscribe(AgentStatusUpdated, () => {
+        void this.activate();
+      }),
+    );
+    this._register(
+      eventBus.subscribe(ToolsSetActiveTools, () => {
+        void this.activate();
+      }),
+    );
+    this._register(
+      eventBus.subscribe(ToolsResetActiveTools, () => {
         void this.activate();
       }),
     );

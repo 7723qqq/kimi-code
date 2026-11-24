@@ -158,6 +158,7 @@ export interface ToolCallEvent {
   dup_type: 'normal' | 'same_step' | 'cross_step';
   error_type?: 'cancelled' | 'error';
   trace_id?: string;
+  request_id?: string;
 }
 
 export interface ApiErrorEvent {

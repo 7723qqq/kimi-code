@@ -1,3 +1,4 @@
+import { loopUserAttributes, loopUserEntry } from '#/agent/loop/userEntry';
 import { expect, mock } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { isAbsolute, relative, resolve } from 'node:path';
@@ -1557,9 +1558,10 @@ export class AgentTestContext {
 
   private persistedRestored: Promise<void> | undefined;
 
-  async restorePersisted(): Promise<void> {
+  async restorePersisted(startLoop = true): Promise<void> {
     this.persistedRestored ??= this.dispatcher.restore();
     await this.persistedRestored;
+    if (startLoop) await this.get(IAgentLoopService).start();
   }
 
   private async restoreRecordsOnly(records: readonly WireRecord[]): Promise<void> {
@@ -2053,7 +2055,7 @@ export class AgentTestContext {
     );
 
     try {
-      await resumed.restorePersisted();
+      await resumed.restorePersisted(false);
       await resumed.waitForSessionMetadata();
       for (let i = 0; i < 5; i += 1) {
         await this.drainWirePersistence();
@@ -2902,10 +2904,10 @@ async function submitPromptFacade(
     );
   }
   const status = loop.snapshot();
-  const { id } = loop.submit({
+  const { id } = loop.submit(loopUserEntry({
     message: { role: 'user', content: [...payload.input] },
     meta: { promptId: payload.promptId, origin: { kind: 'user' }, tracked: true },
-  });
+  }));
   if (status.state === 'running' || status.paused || status.queue.length > 0) return undefined;
   const turn = await loop.promptHandle(id)?.launched;
   if (turn === undefined) return undefined;
@@ -2920,7 +2922,8 @@ function submitSteerPromptFacade(ctx: TestAgentContext, payload: SteerPayload): 
 function drainPrompts(loop: IAgentLoopService): void {
   const snapshot = loop.snapshot();
   for (const item of snapshot.queue) {
-    if (item.meta?.promptId !== undefined) loop.cancel({ promptId: item.meta.promptId });
+    const promptId = loopUserAttributes(item).promptId;
+    if (promptId !== undefined) loop.cancel({ promptId });
   }
   if (snapshot.activePromptId !== undefined) {
     loop.cancel({ promptId: snapshot.activePromptId });

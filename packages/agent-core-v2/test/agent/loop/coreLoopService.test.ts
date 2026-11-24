@@ -1,3 +1,4 @@
+import { loopUserEntry } from '#/agent/loop/userEntry';
 import { createControlledPromise } from '@antfu/utils';
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
@@ -360,22 +361,22 @@ describe('core LoopService integration', () => {
       await next();
     });
 
-    const blocked = loop.submit({
+    const blocked = loop.submit(loopUserEntry({
       message: { role: 'user', content: [{ type: 'text', text: 'block' }] },
       meta: { tracked: true, promptId: 'blocked' },
-    });
+    }));
     await expect(loop.promptHandle(blocked.id)!.completion).resolves.toMatchObject({ state: 'blocked' });
-    const failed = loop.submit({
+    const failed = loop.submit(loopUserEntry({
       message: { role: 'user', content: [{ type: 'text', text: 'fail' }] },
       meta: { tracked: true, promptId: 'failed' },
-    });
+    }));
     await expect(loop.promptHandle(failed.id)!.completion).resolves.toMatchObject({ state: 'failed' });
 
     ctx.mockNextResponse({ type: 'text', text: 'allowed' });
-    const allowed = loop.submit({
+    const allowed = loop.submit(loopUserEntry({
       message: { role: 'user', content: [{ type: 'text', text: 'allowed' }] },
       meta: { tracked: true, promptId: 'allowed' },
-    });
+    }));
     const allowedCompletion = await loop.promptHandle(allowed.id)!.completion;
     expect(allowedCompletion).toMatchObject({ state: 'completed' });
     expect(ctx.llmCalls).toHaveLength(1);
@@ -446,15 +447,15 @@ describe('core LoopService integration', () => {
         await next();
       });
     });
-    const first = loop.submit({
+    const first = loop.submit(loopUserEntry({
       message: { role: 'user', content: [{ type: 'text', text: 'first' }] },
       meta: { tracked: true, promptId: 'first' },
-    });
+    }));
     await started;
-    const second = loop.submit({
+    const second = loop.submit(loopUserEntry({
       message: { role: 'user', content: [{ type: 'text', text: 'second' }] },
       meta: { tracked: true, promptId: 'second' },
-    });
+    }));
     const firstCompletion = loop.promptHandle(first.id)!.completion;
     const secondCompletion = loop.promptHandle(second.id)!.completion;
     await loop.steer([second.id]);
@@ -575,14 +576,14 @@ describe('core LoopService integration', () => {
         }
         await next();
       });
-      const first = loop.submit({
+      const first = loop.submit(loopUserEntry({
         message: { role: 'user', content: [{ type: 'text', text: 'first' }] },
         meta: { tracked: true, promptId: 'first' },
-      });
-      const second = loop.submit({
+      }));
+      const second = loop.submit(loopUserEntry({
         message: { role: 'user', content: [{ type: 'text', text: 'second' }] },
         meta: { tracked: true, promptId: 'second' },
-      });
+      }));
       const firstCompletion = loop.promptHandle(first.id)!.completion;
       const secondCompletion = loop.promptHandle(second.id)!.completion;
       await started;
@@ -620,7 +621,7 @@ describe('core LoopService integration', () => {
 
       expect(second).toBe(first);
       await Promise.all([first, second]);
-      expect(() => loop.submit({ message: { role: 'user', content: [] }, meta: { tracked: true } })).toThrow();
+      expect(() => loop.submit(loopUserEntry({ message: { role: 'user', content: [] }, meta: { tracked: true } }))).toThrow();
     } finally {
       await subject.dispose();
     }
@@ -632,10 +633,10 @@ describe('core LoopService integration', () => {
     try {
       const loop = subject.get(IAgentLoopService);
       const lease = loop.tryAcquireQuiescence();
-      const parked = loop.submit({
+      const parked = loop.submit(loopUserEntry({
         message: { role: 'user', content: [{ type: 'text', text: 'parked' }] },
         meta: { tracked: true, promptId: 'parked' },
-      });
+      }));
       const completion = loop.promptHandle(parked.id)!.completion;
 
       await loop.close();
@@ -725,10 +726,10 @@ describe('core LoopService integration', () => {
         );
         subject.mockNextResponse({ type: 'text', text: 'detached' });
         subject.mockNextResponse({ type: 'text', text: 'async finished' });
-        const submitted = loop.submit({
+        const submitted = loop.submit(loopUserEntry({
           message: { role: 'user', content: [{ type: 'text', text: 'start work' }] },
           meta: { tracked: true, promptId: 'work' },
-        });
+        }));
         await subject.untilApproval(true);
         await detached;
         const toolExecutor = subject.get(IAgentToolExecutorService);

@@ -1,6 +1,9 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import type { ToolCallDeltaPayload } from '#/agent/loop/turnEvents';
-import type { McpServerStatusEventPayload, ToolListUpdatedPayload } from '#/agent/mcp/mcpEvents';
+import type {
+  McpServerStatusEventPayload,
+  ToolListUpdatedPayload,
+} from '#/agent/mcp/mcpEvents';
 import type {
   ShellCompletedPayload,
   ShellOutputPayload,
@@ -95,18 +98,19 @@ export interface McpServerStatusEvent extends Omit<McpServerStatusEventPayload, 
   readonly type: 'mcp.server.status';
 }
 
-export class ToolProgress extends AgentEvent2<ToolProgressPayload> {
-  static override readonly type = 'tool.progress';
-  static override readonly observable = true;
-}
-export interface ToolProgress extends ToolProgressPayload {}
-
 export interface ToolProgressPayload {
   readonly agentId: string;
   readonly turnId: number;
   readonly toolCallId: string;
   readonly update: ToolUpdate;
 }
+
+export class ToolProgress extends AgentEvent2<ToolProgressPayload> {
+  static override readonly type = 'tool.progress';
+  static override readonly observable = true;
+}
+
+export interface ToolProgress extends ToolProgressPayload {}
 
 export interface ToolProgressEvent extends Omit<ToolProgressPayload, 'agentId'> {
   readonly type: 'tool.progress';

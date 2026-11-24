@@ -117,6 +117,13 @@ resetRendered  packages/agent-core-v2/src/agent/injection/renderedLines.ts
 splitNote  packages/agent-core-v2/src/features/associativeMemory/encode.ts
 resetGitHubResponseCacheForTest  packages/agent-core-v2/src/agent/tools/github/github-request.ts
 
+# 2.7.0 loop runtime adoption: the machine-loop cluster is recorded as fork-dead
+# in packages/agent-core-v2/test/lint/unreachable-modules.txt; these exports are
+# kept until the cluster is removed.
+createSessionMachine  packages/agent-core-v2/src/human/session/machine.ts
+setRootActorErrorReporter  packages/agent-core-v2/src/human/xstate2.ts
+humanEventType  packages/agent-core-v2/src/wire/human.ts
+
 # 2.7.0 upstream desktop/web port: test-only exports in files added by the merge.
 remoteControlEnabled  apps/desktop/src/main/app/quit-confirm.ts
 setWindowsLidActionAcOriginal  apps/desktop/src/main/app/ui-state.ts

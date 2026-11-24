@@ -849,7 +849,7 @@
 | --- | --- | --- | --- |
 | `workspace_id` | path | string | **必填。** 工作区 id |
 | `path` | body | string | **必填。** 要添加的目录 |
-| `persist` | body | boolean | 缺省 `true`：将目录写入工作区 registry，后续会话会自动复用；为 `false` 时仅加入内存中的临时集合（同一工作区所有会话共享），不写盘 |
+| `persist` | body | boolean | 缺省 `true`：将目录写入工作区 registry，后续会话会自动复用，并同步写入 `<项目根>/.kimi-code/local.toml` 的 `workspace.additional_dir`；为 `false` 时仅加入内存中的临时集合（同一工作区所有会话共享），不写盘 |
 
 成功时 `data` 为 `{ project_root, config_path, additional_dirs, persisted }`，其中 `additional_dirs` 是全部附加目录（含既有目录），`persisted` 表示本次是否写盘。
 

@@ -1,6 +1,7 @@
 import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { loopUserEntry } from '#/agent/loop/userEntry';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { Error2, ErrorCodes } from '#/errors';
@@ -43,10 +44,10 @@ export class RestGateway implements IRestGateway {
     input: string,
   ): Promise<{ readonly turn_id: number } | undefined> {
     const loop = this.agent(sessionId, agentId).accessor.get(IAgentLoopService);
-    const { id } = loop.submit({
+    const { id } = loop.submit(loopUserEntry({
       message: { role: 'user', content: [{ type: 'text', text: input }] },
       meta: { origin: { kind: 'user' }, tracked: true },
-    });
+    }));
     const turn = await loop.promptHandle(id)?.launched;
     if (turn === undefined) return undefined;
     await turn.ready.catch(() => undefined);
@@ -60,10 +61,10 @@ export class RestGateway implements IRestGateway {
   ): Promise<{ readonly turn_id: number } | undefined> {
     const service = this.agent(sessionId, agentId).accessor.get(IAgentLoopService);
     const { id } = service.submit(
-      {
+      loopUserEntry({
         message: { role: 'user', content: [{ type: 'text', text: content }] },
         meta: { origin: { kind: 'user' }, tracked: true },
-      },
+      }),
       { steerIfActive: true },
     );
     const turn = await service.promptHandle(id)?.launched;

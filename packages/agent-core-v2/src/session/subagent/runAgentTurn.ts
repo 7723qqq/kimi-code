@@ -11,6 +11,7 @@ import {
   type TurnResult,
 } from '#/agent/loop/loop';
 import { AssistantDelta, TurnStepRetrying, TurnStepStarted } from '#/agent/loop/turnEvents';
+import { loopUserEntry } from '#/agent/loop/userEntry';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { IEventBus } from '#/app/event/eventBus';
 import { Error2, ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
@@ -57,14 +58,14 @@ export async function runAgentTurn(
   const loop = target.accessor.get(IAgentLoopService);
   const { id } =
     request.kind === 'prompt'
-      ? loop.submit({
+      ? loop.submit(loopUserEntry({
           message: { role: 'user', content: [{ type: 'text', text: request.prompt }] },
           meta: { origin: originForRequest(request), tracked: true },
-        })
-      : loop.submit({
+        }))
+      : loop.submit(loopUserEntry({
           message: { role: 'user', content: [] },
           meta: { origin: { kind: 'retry' } },
-        });
+        }));
   const output = collectRunOutput(target.accessor.get(IEventBus));
   const turn = await loop.promptHandle(id)?.launched;
   if (turn === undefined) {

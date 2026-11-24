@@ -1059,6 +1059,7 @@ interface ScriptedResponse {
   readonly rawFinishReason?: string | null | undefined;
   readonly traceId?: string | null | undefined;
   readonly error?: Error | undefined;
+  readonly httpError?: MockProviderHttpError | undefined;
 }
 
 export function createScriptedGenerate() {
@@ -1072,21 +1073,23 @@ export function createScriptedGenerate() {
 
   function mockNextProviderResponse(input: {
     readonly parts?: readonly StreamedMessagePart[] | undefined;
-    readonly usage?: Partial<LegacyTokenUsage> | undefined;
+    readonly usage?: Partial<LegacyTokenUsage> | null | undefined;
     readonly messageId?: string | undefined;
     readonly finishReason?: FinishReason | null | undefined;
     readonly rawFinishReason?: string | null | undefined;
     readonly traceId?: string | null | undefined;
-    readonly error?: Error | undefined;
+    readonly error?: unknown;
+    readonly httpError?: MockProviderHttpError | undefined;
   }) {
     responses.push({
       ...(input.parts !== undefined ? { parts: structuredClone(input.parts) } : {}),
-      ...(input.usage !== undefined ? { usage: structuredClone(input.usage) } : {}),
+      ...(input.usage !== undefined && input.usage !== null ? { usage: structuredClone(input.usage) } : {}),
       ...(input.messageId !== undefined ? { messageId: input.messageId } : {}),
       ...(input.finishReason !== undefined ? { finishReason: input.finishReason } : {}),
       ...(input.rawFinishReason !== undefined ? { rawFinishReason: input.rawFinishReason } : {}),
       ...(input.traceId !== undefined ? { traceId: input.traceId } : {}),
-      ...(input.error !== undefined ? { error: input.error } : {}),
+      ...(input.error !== undefined ? { error: input.error as Error } : {}),
+      ...(input.httpError !== undefined ? { httpError: input.httpError } : {}),
     });
   }
 
@@ -1138,9 +1141,12 @@ export function createScriptedGenerate() {
     if (response.messageId !== undefined) {
       emit?.({ type: 'llm.streaming.message_id', messageId: response.messageId });
     }
+    if (response.httpError !== undefined) {
+      throw translateProviderError(new Error(response.httpError.message));
+    }
     if (response.error !== undefined) {
       if (isAbortError(response.error)) throw response.error;
-      throw translateProviderError(response.error);
+      throw response.error instanceof Error ? response.error : translateProviderError(response.error);
     }
 
     const inferredFinishReason: FinishReason = toolCalls.length > 0 ? 'tool_calls' : 'completed';

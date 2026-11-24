@@ -12,6 +12,7 @@ import { ContextAppendMessage } from '#/agent/contextMemory/contextEvents';
 import type { CronJobOrigin, CronMissedOrigin } from '#/agent/contextMemory/types';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type Turn } from '#/agent/loop/loop';
+import { loopUserEntry } from '#/agent/loop/userEntry';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IConfigService } from '#/app/config/config';
 import { registerEvent2Class } from '#/app/event/event2';
@@ -205,13 +206,13 @@ function deliverFire(
   const buffered = runtime.get(IAgentLoopService).snapshot().state === 'running';
   try {
     runtime.get(IAgentLoopService).submit(
-      {
+      loopUserEntry({
         message: {
           role: 'user',
           content: [{ type: 'text', text: renderCronFireXml(origin, task.prompt) }],
         },
         meta: { origin },
-      },
+      }),
       { steerIfActive: true },
     );
   } catch (error) {
@@ -616,10 +617,10 @@ export class AgentCronService
     if (tasks.length === 0) return undefined;
     const origin: CronMissedOrigin = { kind: 'cron_missed', count: tasks.length };
     this.actor.get(IAgentLoopService).submit(
-      {
+      loopUserEntry({
         message: { role: 'user', content: [...renderMissedNotification(tasks)] },
         meta: { origin },
-      },
+      }),
       { steerIfActive: true },
     );
     telemetryOf(this.actor).track2(CRON_MISSED, { count: tasks.length });
