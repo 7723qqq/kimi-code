@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { createControlledPromise } from '@antfu/utils';
+import { mediaPlaceholderText } from '@moonshot-ai/core/llm/message';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
@@ -269,6 +270,25 @@ async function runAllHostTimers(timers: FakeHostTimers): Promise<void> {
   throw new Error('runAllHostTimers exceeded 10000 timer steps');
 }
 
+function resolveOmittedMedia(messages: readonly Message[]): Message[] {
+  return messages.map((message) => {
+    let changed = false;
+    const content = message.content.flatMap((part) => {
+      if (
+        (part.type === 'image_url' || part.type === 'audio_url' || part.type === 'video_url') &&
+        part.omitted !== undefined
+      ) {
+        changed = true;
+        const kind =
+          part.type === 'image_url' ? 'image' : part.type === 'audio_url' ? 'audio' : 'video';
+        return [{ type: 'text' as const, text: mediaPlaceholderText(kind, part.omitted) }];
+      }
+      return [part];
+    });
+    return changed ? { ...message, content } : message;
+  });
+}
+
 function createService(
   requester: ModelRequester,
   projector:
@@ -367,7 +387,7 @@ function createService(
   ix.stub(
     IAgentMediaResolverService,
     options.mediaResolver ?? {
-      resolve: async (messages) => messages,
+      resolve: async (messages) => resolveOmittedMedia(messages),
     },
   );
   if (projector === undefined) {
@@ -861,6 +881,7 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
     const { service } = createService(
       createRequester(calls, BODY_TOO_LARGE_413, [], capturedInputs),
       undefined,
+      { mediaResolver: { resolve: async (messages) => messages } },
     );
 
     await service.request({

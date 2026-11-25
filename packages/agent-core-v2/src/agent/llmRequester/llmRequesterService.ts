@@ -1221,7 +1221,10 @@ function mediaPartCount(messages: readonly Message[]): number {
       count +
       message.content.filter(
         (part) =>
-          part.type === 'image_url' || part.type === 'audio_url' || part.type === 'video_url',
+          (part.type === 'image_url' ||
+            part.type === 'audio_url' ||
+            part.type === 'video_url') &&
+          part.omitted === undefined,
       ).length,
     0,
   );
