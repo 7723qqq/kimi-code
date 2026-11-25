@@ -189,7 +189,7 @@ kimi
 | `KIMI_CODE_IDENTITY_SLUG` | 协议标识（`User-Agent` 产品名、MCP 客户端名），优先级高于 `[identity] slug`；未设置时由名称派生 | 任意非空字符串；会转小写并将连续非字母数字字符折叠为 `-` |
 | `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` | 是否向模型提供介绍 Kimi Code 自身的内置 Skills，优先级高于 `config.toml` 的 `builtin_product_skills` | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_REPEAT_BREAKER` | 同一工具调用连续重复多次时，是否注入提醒并最终强制停止该轮。未设置时保持开启 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off`；其他值忽略 |
-| `KIMI_CODE_SESSION_LOCK` | 本进程是否使用跨进程会话锁，防止两个 Kimi Code 进程同时写同一会话。未设置时保持开启；关闭后回到加锁前的行为，多个进程同时写入时会话历史可能交错 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off`；其他值忽略 |
+| `KIMI_CODE_SESSION_LOCK` | 本进程是否使用跨进程会话锁，防止两个 Kimi Code 进程同时写同一会话。未设置时保持开启；锁记录的 hostname 与当前环境不一致时会自动回收该锁。跨机器或容器共享同一会话目录时，应保证只有一个实例写入，或关闭此开关；关闭后回到加锁前的行为，多个进程同时写入时会话历史可能交错 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off`；其他值忽略 |
 | `KIMI_CODE_TEST_SCOPE_GUARD` | 从仓库根跑全量测试时，是否注入一条“先跑覆盖本次改动的测试”的提醒。默认启用；设为假值后不再注入 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_PERMISSION_MODE_REMINDER` | 是否向模型上下文注入自动权限模式提醒；设为 `0` 后不再注入 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_GUARDIAN` | 启用 guardian 安全审查：由独立模型在审批前审查工具执行。默认关闭，不设置时行为不变 | `1` 开启 |
