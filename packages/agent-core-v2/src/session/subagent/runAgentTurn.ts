@@ -1,6 +1,5 @@
 import type { IDisposable } from '#/_base/di/lifecycle';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { codePointBoundaryStart } from '#/_base/text/code-points';
 import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -80,14 +79,9 @@ export async function runAgentTurn(
     void turn.ready.then(() => options.onReady?.()).catch(() => {});
   }
 
-  const completion = (async () => {
-    try {
-      return await awaitRun(target, turn, options);
-    } finally {
-      output.dispose();
-      await stopSubagentTasks(target);
-    }
-  })();
+  const completion = awaitRun(target, turn, options).finally(() => {
+    output.dispose();
+  });
   return { agentId: target.id, turn, completion, partialOutput: () => output.text() };
 }
 
@@ -96,13 +90,42 @@ async function awaitRun(
   turn: Turn,
   options: RunAgentTurnOptions,
 ): Promise<AgentRunCompletion> {
+  const loop = target.accessor.get(IAgentLoopService);
+  return awaitRunCompletion(target, loop, turn.result, options);
+}
+
+async function awaitRunCompletion(
+  target: IAgentScopeHandle,
+  loop: IAgentLoopService,
+  initialResult: Promise<TurnResult | undefined>,
+  options: RunAgentTurnOptions,
+): Promise<AgentRunCompletion> {
   const controller = new AbortController();
   const unlink = linkAbortSignal(options.signal, controller);
-  const cancelTurn = (reason: unknown): void => {
-    turn.cancel(reason);
+  let abortCleanup: Promise<void> | undefined;
+  const onAbort = (): void => {
+    const reason = controller.signal.reason ?? userCancellationReason();
+    loop.cancel(undefined, reason);
+    abortCleanup ??= stopChildTasks(target, loop, reason);
   };
+  controller.signal.addEventListener('abort', onAbort, { once: true });
   try {
-    const result = classifyTurnResult(await awaitTurn(turn, controller, cancelTurn));
+    if (controller.signal.aborted) onAbort();
+    const first = await initialResult;
+    if (first === undefined) {
+      throw new Error2(ErrorCodes.INTERNAL, 'Agent turn could not be started');
+    }
+    if (controller.signal.aborted) await abortCleanup;
+    let lastResult = await awaitQuiescent(target, loop);
+    if (controller.signal.aborted) {
+      const reason = controller.signal.reason ?? userCancellationReason();
+      await abortCleanup;
+      await stopChildTasks(target, loop, reason);
+      lastResult = await awaitQuiescent(target, loop);
+      controller.signal.throwIfAborted();
+    }
+    const initial = classifyTurnResult(first);
+    const result = classifyTurnResult(lastResult ?? initial);
     const summary = latestAssistantText(target.accessor.get(IAgentContextMemoryService).get());
     const stopReason = result.stopReason;
     if (summary.trim().length === 0) {
@@ -115,32 +138,36 @@ async function awaitRun(
     const usage = target.accessor.get(ISessionUsageService)?.status(agentContextOf(target)).total;
     return { summary, usage, stopReason };
   } finally {
+    controller.signal.removeEventListener('abort', onAbort);
     unlink();
-    if (controller.signal.aborted) {
-      cancelTurn(controller.signal.reason);
-    }
+    if (controller.signal.aborted) onAbort();
   }
 }
 
-async function awaitTurn(
-  turn: Turn,
-  controller: AbortController,
-  cancelTurn: (reason: unknown) => void,
-): Promise<TurnResult> {
-  const cancelOnAbort = (): void => {
-    cancelTurn(controller.signal.reason);
-  };
-  controller.signal.addEventListener('abort', cancelOnAbort, { once: true });
-  try {
-    if (controller.signal.aborted) {
-      cancelOnAbort();
-    }
-    const result = await turn.result;
-    controller.signal.throwIfAborted();
-    return result;
-  } finally {
-    controller.signal.removeEventListener('abort', cancelOnAbort);
+async function awaitQuiescent(
+  target: IAgentScopeHandle,
+  loop: IAgentLoopService,
+): Promise<TurnResult | undefined> {
+  const tasks = target.accessor.get(IAgentTaskService);
+  for (;;) {
+    const result = await loop.settled();
+    const active = tasks.list(true);
+    if (active.length === 0) return result;
+    await Promise.all(active.map((task) => tasks.wait(task.taskId)));
   }
+}
+
+async function stopChildTasks(
+  target: IAgentScopeHandle,
+  loop: IAgentLoopService,
+  reason: unknown,
+): Promise<void> {
+  const tasks = target.accessor.get(IAgentTaskService);
+  const active = tasks.list(true);
+  if (active.length === 0) return;
+  loop.suppressTaskNotifications(active.map((task) => task.taskId));
+  const message = toRunError(reason).message;
+  await Promise.all(active.map((task) => tasks.stop(task.taskId, message)));
 }
 
 function classifyTurnResult(result: TurnResult): CompletedTurnResult {
@@ -164,14 +191,6 @@ function classifyTurnResult(result: TurnResult): CompletedTurnResult {
     }
     case 'cancelled':
       throw toRunError(result.reason ?? userCancellationReason());
-  }
-}
-
-async function stopSubagentTasks(target: IAgentScopeHandle): Promise<void> {
-  try {
-    await target.accessor.get(IAgentTaskService).stopAll('Subagent run ended');
-  } catch (error) {
-    onUnexpectedError(error);
   }
 }
 

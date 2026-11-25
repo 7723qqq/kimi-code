@@ -4,4 +4,4 @@
 "kimi-code-app": patch
 ---
 
-Stop a subagent's own running tasks when its run settles. Backgrounded Bash commands and other child processes started by a subagent no longer outlive the subagent when it completes, fails, or is stopped.
+Wait for a subagent's own background tasks and loop unwinding before its run settles, and stop them when the parent cancels. A subagent's Bash/background work no longer outlives the turn or the TUI's stopped state.
