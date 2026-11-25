@@ -151,7 +151,7 @@ import { fsSuggestRequestSchema, type IWorkspaceFsService } from '@moonshot-ai/a
 import { ILogService } from '@moonshot-ai/agent-core-v2';
 import { IAppendLogStore } from '@moonshot-ai/agent-core-v2/persistence/interface/appendLogStore';
 import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
-import { bootstrap, DEFAULT_AGENT_PROFILE_NAME, drainLogCloses, drainQueryStoreDisposals, drainSessionIndexMirror, ensureKimiHome, ensureMainAgent, getOrRestoreAgent, reloadOnStale, agentContextOf, IAgentChangeNotifierService, IAgentContextMemoryService, IAgentConversationUndoService, IAgentCronService, IAgentFullCompactionService, IAgentGoalService, IAgentPluginService, IAgentLifecycleService, IAgentEnvironmentBindingService, IAgentEnvironmentService, IAgentLoopService, IAgentPermissionModeService, IAgentPermissionRulesService, IAgentPluginCommandService, IAgentProfileService, IAgentReminderService, IAgentSkillService, IAgentSwarmService, IAgentHelloWorldService, IAgentTaskService, ISessionTokenCountingService, IAgentToolPolicyService, IAgentToolRegistryService, type HostUiCapability, type PluginNodeRunner, IAgentTowerService, IBootstrapService, IConfigService, IEventService, IFeedbackService, IFlagService, IHostEnvironment, IHostFileSystem, IMcpManagementService, IMcpOAuthService, IModelService, IProviderService, ISessionBtwService, ISessionContext, ISessionWorkdir, ISessionExportService, ISessionIndex, ISessionIndexMirror, ISessionInitService, ISessionManager, ISessionMcpHandle, ISessionMetadata, ISessionAgentProfileCatalog, ISessionSkillCatalog, IAgentTodoService, ISessionWorkspaceContext, ITelemetryService, IWorkspaceAliases, ISessionActivityView, IWorkspaceInstanceManager, IEnvironmentService, IEnvironmentDeclarationService, closeSessionById, followSessionLifecycles, getLiveSessionById, isError2, programForSession, environmentEntryInfo, snapshotAgentEnvironmentBinding, resumeSessionById, sessionDirOf, workspacePersistenceScope, logSeed, MAIN_AGENT_ID, prepareSystemPromptContext, PRINT_MAX_TURNS_DEFAULT, PRINT_WAIT_CEILING_S_DEFAULT, ProfileError, ProfileErrors, Error2, resolveAgentTaskConfig, resolveConfigPath, resolveSubagentModelPool, resolveKimiHome, resolveLoggingConfig, resolvePrintBackgroundMode, summarizeSkill, towerEnterFailureMessage, type IAgentScopeHandle, type IDisposable, type ISessionScopeHandle, type McpManagedServer, Scope, type ServicesAccessor, WorkspaceInstance, type SubagentModelPoolSnapshot, type SessionSummary as CoreSessionSummary, type ScopeSeed, IAgentModeMutexService, IAgentSpecService, ISessionPromptOptimizerService, SPEC_REQUIRED_FILES } from '@moonshot-ai/agent-core-v2';
+import { bootstrap, DEFAULT_AGENT_PROFILE_NAME, drainLogCloses, drainQueryStoreDisposals, drainSessionIndexMirror, ensureKimiHome, ensureMainAgent, getOrRestoreAgent, reloadOnStale, agentContextOf, IAgentChangeNotifierService, IAgentContextMemoryService, IAgentConversationUndoService, IAgentCronService, IAgentFullCompactionService, IAgentGoalService, IAgentPluginService, IAgentLifecycleService, IAgentEnvironmentBindingService, IAgentEnvironmentService, IAgentLoopService, IAgentPermissionModeService, IAgentPermissionRulesService, IAgentPluginCommandService, IAgentProfileService, IAgentSkillService, IAgentSwarmService, IAgentHelloWorldService, IAgentTaskService, ISessionTokenCountingService, IAgentToolPolicyService, IAgentToolRegistryService, type HostUiCapability, type PluginNodeRunner, IAgentTowerService, IBootstrapService, IConfigService, IEventService, IFeedbackService, IFlagService, IHostEnvironment, IHostFileSystem, IMcpManagementService, IMcpOAuthService, IModelService, IProviderService, ISessionBtwService, ISessionContext, ISessionWorkdir, ISessionExportService, ISessionIndex, ISessionIndexMirror, ISessionInitService, ISessionManager, ISessionMcpHandle, ISessionMetadata, ISessionAgentProfileCatalog, ISessionSkillCatalog, IAgentTodoService, ISessionWorkspaceContext, ITelemetryService, IWorkspaceAliases, ISessionActivityView, IWorkspaceInstanceManager, IEnvironmentService, IEnvironmentDeclarationService, closeSessionById, followSessionLifecycles, getLiveSessionById, isError2, programForSession, environmentEntryInfo, snapshotAgentEnvironmentBinding, resumeSessionById, sessionDirOf, workspacePersistenceScope, logSeed, MAIN_AGENT_ID, prepareSystemPromptContext, PRINT_MAX_TURNS_DEFAULT, PRINT_WAIT_CEILING_S_DEFAULT, ProfileError, ProfileErrors, Error2, resolveAgentTaskConfig, resolveConfigPath, resolveSubagentModelPool, resolveKimiHome, resolveLoggingConfig, resolvePrintBackgroundMode, summarizeSkill, towerEnterFailureMessage, type IAgentScopeHandle, type IDisposable, type ISessionScopeHandle, type McpManagedServer, Scope, type ServicesAccessor, WorkspaceInstance, type SubagentModelPoolSnapshot, type SessionSummary as CoreSessionSummary, type ScopeSeed, IAgentModeMutexService, IAgentSpecService, ISessionPromptOptimizerService, SPEC_REQUIRED_FILES } from '@moonshot-ai/agent-core-v2';
 import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 import type { FeedbackSubmitInput } from '@moonshot-ai/agent-core-v2/app/auth/feedback';
 import {
@@ -2647,8 +2647,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   /**
    * Through the agent scope (`IAgentSwarmService.enter` / `.exit`) — no
    * klient facade exists. The v2 service is the port of v1's `SwarmMode`:
-   * enter is idempotent and injects the byte-identical enter reminder for
-   * non-`tool` triggers, exit pops that reminder when it is the last message
+   * enter is idempotent and schedules the byte-identical enter reminder for
+   * non-`tool` triggers on the next step, exit pops that reminder when it is the last message
    * (appending the exit reminder otherwise), and `task` / `tool` triggers
    * auto-exit on turn end. The base class's private enter/exit pair is
    * replaced wholesale; `swarm()` below recomposes it over this override.
@@ -2663,7 +2663,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     } else {
       swarm.exit();
     }
-    await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('swarm_mode');
   }
 
   /**
@@ -2687,19 +2686,16 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     } else {
       helloWorld.exit();
     }
-    await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('hello_world_mode');
   }
 
   override async setHelloWorldStage(input: SetSessionHelloWorldStageRpcInput): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
     agent.accessor.get(IAgentHelloWorldService).advance(input.stage);
-    await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('hello_world_mode');
   }
 
   override async waiveHelloWorldRunItem(input: WaiveHelloWorldRunItemRpcInput): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
     agent.accessor.get(IAgentHelloWorldService).waive(input.item);
-    await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('hello_world_mode');
   }
 
   /** v1's `swarm()` composition: enter with the one-shot `task` trigger, then prompt. */
@@ -2730,7 +2726,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     } else {
       await tower.exit();
     }
-    await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('tower_mode');
   }
 
   /** Reads the shared tower status summary; the main agent's tower service is authoritative. */

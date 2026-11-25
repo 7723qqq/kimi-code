@@ -162,39 +162,21 @@ describe('AgentReminderService', () => {
     expect(context.get()).toHaveLength(1);
   });
 
-  it('reconciles only providers registered under the requested name while idle', async () => {
-    const seen: string[] = [];
-    reminder.register('target', () => {
-      seen.push('target');
-      return 'target reminder';
-    });
-    reminder.register('other', () => {
-      seen.push('other');
-      return 'other reminder';
-    });
-
-    await reminder.reconcileWhenIdle('target');
-
-    expect(seen).toEqual(['target']);
-    expect(context.get()).toHaveLength(1);
-    expect(context.get()[0]?.origin).toEqual({ kind: 'injection', variant: 'target' });
-  });
-
-  it('leaves reconciliation to the next step head when quiescence cannot be acquired', async () => {
+  it('defers registered providers to the next step', async () => {
     let calls = 0;
     reminder.register('target', () => {
       calls++;
       return 'target reminder';
     });
-    loop.settled = async () => {
-      throw new Error('idle reconciliation must not wait for an active turn');
-    };
-    loop.tryAcquireQuiescence = () => undefined;
-
-    await reminder.reconcileWhenIdle('target');
 
     expect(calls).toBe(0);
     expect(context.get()).toHaveLength(0);
+
+    await runInjectionStep();
+
+    expect(calls).toBe(1);
+    expect(context.get()).toHaveLength(1);
+    expect(context.get()[0]?.origin).toEqual({ kind: 'injection', variant: 'target' });
   });
 
   it('exposes all live injection positions alongside the newest one', async () => {

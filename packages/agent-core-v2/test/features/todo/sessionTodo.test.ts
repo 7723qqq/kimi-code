@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { KeyedResourceLeasePool } from '#/_base/lifecycle/keyedResource';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import { IEventBus } from '#/app/event/eventBus';
@@ -35,6 +36,17 @@ function reminderCount(memory: IAgentContextMemoryService): number {
         message.origin?.kind === 'injection' &&
         message.origin.variant === TODO_LIST_REMINDER_VARIANT,
     ).length;
+}
+
+
+async function runReminderStep(loop: IAgentLoopService): Promise<void> {
+  await loop.hooks.onWillBeginStep.run({
+    turnId: 0,
+    step: 0,
+    firstStepOfTurn: false,
+    signal: new AbortController().signal,
+  });
+  loop.flushReminders();
 }
 
 function appendAssistantTurns(memory: IAgentContextMemoryService, count: number): void {
@@ -288,29 +300,28 @@ describe('AgentTodoService', () => {
   it('reminds the main agent only while its list has open items', async () => {
     const lifecycle = ctx.get(IAgentLifecycleService);
     const todo = ctx.get(IAgentTodoService);
-    const reminder = ctx.get(IAgentReminderService);
 
     appendAssistantTurns(ctx.context, 5);
-    await reminder.reconcileWhenIdle(TODO_LIST_REMINDER_VARIANT);
+    await runReminderStep(ctx.get(IAgentLoopService));
     expect(reminderCount(ctx.context)).toBe(0);
 
     await todo.replace([todoItem('T1', 'track me', 'pending')]);
     appendAssistantTurns(ctx.context, 10);
-    await reminder.reconcileWhenIdle(TODO_LIST_REMINDER_VARIANT);
+    await runReminderStep(ctx.get(IAgentLoopService));
     expect(reminderCount(ctx.context)).toBe(1);
 
     await todo.replace([todoItem('T1', 'track me', 'done')]);
     appendAssistantTurns(ctx.context, 5);
-    await reminder.reconcileWhenIdle(TODO_LIST_REMINDER_VARIANT);
+    await runReminderStep(ctx.get(IAgentLoopService));
     expect(reminderCount(ctx.context)).toBe(1);
 
     const sub = await lifecycle.create({ agentId: 'agent-1' });
     const subTodo = lifecycle.handleOf(sub.agentId)!.accessor.get(IAgentTodoService);
-    const subReminder = lifecycle.handleOf(sub.agentId)!.accessor.get(IAgentReminderService);
+    const subLoop = lifecycle.handleOf(sub.agentId)!.accessor.get(IAgentLoopService);
     const subMemory = lifecycle.handleOf(sub.agentId)!.accessor.get(IAgentContextMemoryService);
     await subTodo.replace([todoItem('T1', 'sub task', 'pending')]);
     appendAssistantTurns(subMemory, 5);
-    await subReminder.reconcileWhenIdle(TODO_LIST_REMINDER_VARIANT);
+    await runReminderStep(subLoop);
     expect(reminderCount(subMemory)).toBe(0);
     await lifecycle.remove(sub);
   });
@@ -329,7 +340,7 @@ describe('AgentTodoService', () => {
         todoItem('T2', 'update callers', 'in_progress'),
       ]);
       appendAssistantTurns(tracked.context, 10);
-      await tracked.get(IAgentReminderService).reconcileWhenIdle(TODO_LIST_REMINDER_VARIANT);
+      await runReminderStep(tracked.get(IAgentLoopService));
       bus.publish(new TurnEnded({ agentId: 'main', turnId: 1, reason: 'completed' }));
       bus.publish(new TurnStarted({ agentId: 'main', turnId: 2, origin: { kind: 'user' } }));
       bus.publish(new TurnEnded({ agentId: 'main', turnId: 2, reason: 'cancelled' }));

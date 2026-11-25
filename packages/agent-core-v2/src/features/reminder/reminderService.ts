@@ -286,7 +286,6 @@ export interface IAgentReminderService {
     provider: ContextInjectionProvider<D>,
   ): ReminderRegistration;
   notify(content: string, notification: ReminderNotification): void;
-  reconcileWhenIdle(variant: string): Promise<void>;
 }
 
 export const IAgentReminderService = createDecorator<IAgentReminderService>('agentReminderService');
@@ -330,25 +329,6 @@ export class AgentReminderService extends AgentActorService<null> implements IAg
 
   notify(content: string, notification: ReminderNotification): void {
     appendReminder(this.actor, content, notification);
-  }
-
-  async reconcileWhenIdle(variant: string): Promise<void> {
-    const loop = this.actor.get(IAgentLoopService);
-    const quiescence = loop.tryAcquireQuiescence();
-    if (quiescence === undefined) return;
-    try {
-      const estimatedTokens = estimateTokensForMessages(
-        this.actor.get(IAgentContextMemoryService).get(),
-      );
-      for (const entry of actorContext(this.actor).entries) {
-        if (entry.variant === variant) {
-          await injectEntry(this.actor, entry, false, estimatedTokens);
-        }
-      }
-      await this.actor.get(IEventDispatcher).flush();
-    } finally {
-      quiescence.dispose();
-    }
   }
 }
 

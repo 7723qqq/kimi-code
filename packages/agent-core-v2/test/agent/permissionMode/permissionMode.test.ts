@@ -52,7 +52,6 @@ const injectorStub: IAgentReminderService = {
     };
   },
   notify: () => {},
-  reconcileWhenIdle: async () => {},
 } as unknown as IAgentReminderService;
 
 let disposables: DisposableStore;
@@ -228,7 +227,6 @@ describe('AgentPermissionModeService (wire-backed)', () => {
         return { dispose: () => {} };
       },
       notify: () => {},
-      reconcileWhenIdle: async () => {},
     } as unknown as IAgentReminderService;
     disposables.add(new PermissionModeInjection(svc, reminder, states));
     if (restoredProvider === undefined) throw new Error('expected restored provider');
