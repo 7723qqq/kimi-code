@@ -151,7 +151,7 @@ import { fsSuggestRequestSchema, type IWorkspaceFsService } from '@moonshot-ai/a
 import { ILogService } from '@moonshot-ai/agent-core-v2';
 import { IAppendLogStore } from '@moonshot-ai/agent-core-v2/persistence/interface/appendLogStore';
 import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
-import { bootstrap, DEFAULT_AGENT_PROFILE_NAME, drainLogCloses, drainQueryStoreDisposals, drainSessionIndexMirror, ensureKimiHome, ensureMainAgent, getOrRestoreAgent, reloadOnStale, agentContextOf, IAgentChangeNotifierService, IAgentContextMemoryService, IAgentConversationUndoService, IAgentCronService, IAgentFullCompactionService, IAgentGoalService, IAgentPluginService, IAgentLifecycleService, IAgentEnvironmentBindingService, IAgentEnvironmentService, IAgentLoopService, IAgentPermissionModeService, IAgentPermissionRulesService, IAgentPluginCommandService, IAgentProfileService, IAgentSkillService, IAgentSwarmService, IAgentHelloWorldService, IAgentTaskService, ISessionTokenCountingService, IAgentToolPolicyService, IAgentToolRegistryService, type HostUiCapability, type PluginNodeRunner, IAgentTowerService, IBootstrapService, IConfigService, IEventService, IFeedbackService, IFlagService, IHostEnvironment, IHostFileSystem, IMcpManagementService, IMcpOAuthService, IModelService, IProviderService, ISessionBtwService, ISessionContext, ISessionWorkdir, ISessionExportService, ISessionIndex, ISessionIndexMirror, ISessionInitService, ISessionManager, ISessionMcpHandle, ISessionMetadata, ISessionAgentProfileCatalog, ISessionSkillCatalog, IAgentTodoService, ISessionWorkspaceContext, ITelemetryService, IWorkspaceAliases, ISessionActivityView, IWorkspaceInstanceManager, IEnvironmentService, IEnvironmentDeclarationService, closeSessionById, followSessionLifecycles, getLiveSessionById, isError2, programForSession, environmentEntryInfo, snapshotAgentEnvironmentBinding, resumeSessionById, sessionDirOf, workspacePersistenceScope, logSeed, MAIN_AGENT_ID, prepareSystemPromptContext, PRINT_MAX_TURNS_DEFAULT, PRINT_WAIT_CEILING_S_DEFAULT, ProfileError, ProfileErrors, Error2, resolveAgentTaskConfig, resolveConfigPath, resolveSubagentModelPool, resolveKimiHome, resolveLoggingConfig, resolvePrintBackgroundMode, summarizeSkill, towerEnterFailureMessage, type IAgentScopeHandle, type IDisposable, type ISessionScopeHandle, type McpManagedServer, Scope, type ServicesAccessor, WorkspaceInstance, type SubagentModelPoolSnapshot, type SessionSummary as CoreSessionSummary, type ScopeSeed, IAgentModeMutexService, IAgentSpecService, ISessionPromptOptimizerService, SPEC_REQUIRED_FILES } from '@moonshot-ai/agent-core-v2';
+import { bootstrap, DEFAULT_AGENT_PROFILE_NAME, drainLogCloses, drainQueryStoreDisposals, drainSessionIndexMirror, ensureKimiHome, ensureMainAgent, getOrRestoreAgent, reloadOnStale, agentContextOf, IAgentChangeNotifierService, IAgentContextMemoryService, IAgentConversationUndoService, IAgentCronService, IAgentFullCompactionService, IAgentGoalService, IAgentPluginService, IAgentLifecycleService, IAgentEnvironmentBindingService, IAgentEnvironmentService, IAgentLoopService, IAgentPermissionModeService, IAgentPermissionRulesService, IAgentPluginCommandService, IAgentProfileService, IAgentSkillService, IAgentSwarmService, IAgentHelloWorldService, IAgentTaskService, ISessionTokenCountingService, IAgentToolPolicyService, IAgentToolRegistryService, type HostUiCapability, type PluginNodeRunner, IAgentTowerService, IBootstrapService, IConfigService, IEventService, IFeedbackService, IFlagService, IHostEnvironment, IHostFileSystem, IMcpManagementService, IMcpOAuthService, IModelService, IProviderService, ISessionBtwService, ISessionContext, ISessionWorkdir, ISessionExportService, ISessionIndex, ISessionIndexMirror, ISessionInitService, ISessionManager, ISessionMcpHandle, ISessionMetadata, ISessionSkillCatalog, IAgentTodoService, ISessionWorkspaceContext, ITelemetryService, IWorkspaceAliases, ISessionActivityView, IWorkspaceInstanceManager, IEnvironmentService, IEnvironmentDeclarationService, closeSessionById, followSessionLifecycles, getLiveSessionById, isError2, programForSession, environmentEntryInfo, snapshotAgentEnvironmentBinding, resumeSessionById, sessionDirOf, workspacePersistenceScope, logSeed, MAIN_AGENT_ID, prepareSystemPromptContext, PRINT_MAX_TURNS_DEFAULT, PRINT_WAIT_CEILING_S_DEFAULT, ProfileError, ProfileErrors, Error2, resolveAgentTaskConfig, resolveConfigPath, resolveKimiHome, resolveLoggingConfig, resolvePrintBackgroundMode, summarizeSkill, towerEnterFailureMessage, type IAgentScopeHandle, type IDisposable, type ISessionScopeHandle, type McpManagedServer, Scope, type ServicesAccessor, WorkspaceInstance, type SessionSummary as CoreSessionSummary, type ScopeSeed, IAgentModeMutexService, IAgentSpecService, ISessionPromptOptimizerService, SPEC_REQUIRED_FILES } from '@moonshot-ai/agent-core-v2';
 import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 import type { FeedbackSubmitInput } from '@moonshot-ai/agent-core-v2/app/auth/feedback';
 import {
@@ -1796,43 +1796,21 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       } else if (indexEntry === undefined) {
         throw SDKRpcClientV2.sessionNotFound(sessionId);
       }
-      const workspaceId =
-        live?.accessor.get(ISessionContext).workspaceId ?? indexEntry?.workspaceId;
-      let previousSubagentNames: readonly string[] | undefined;
-      let previousModelPool: SubagentModelPoolSnapshot | null | undefined;
-      let staleNotifier: IAgentChangeNotifierService | undefined;
-      if (live !== undefined) {
-        const main = live.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
-        if (main !== undefined) {
-          previousSubagentNames = main.accessor
-            .get(ISessionAgentProfileCatalog)
-            .list()
-            .map((profile) => profile.name);
-          const pool = resolveSubagentModelPool(main.accessor.get(IConfigService));
-          previousModelPool =
-            pool === undefined
-              ? null
-              : { defaultModel: pool.defaultModel, models: { ...pool.models } };
-          staleNotifier = main.accessor.get(IAgentChangeNotifierService);
-          staleNotifier.mute();
-        }
-      }
       await this.configReady;
+      const reloadGuard = live
+        ?.accessor.get(IAgentLifecycleService)
+        .handleOf(MAIN_AGENT_ID)
+        ?.accessor.get(IAgentChangeNotifierService)
+        .prepareForReload();
       try {
         await this.klient.global.config.reload();
         await this.klient.global.plugins.reload();
-        await this.reloadWorkspaceCatalogs(workspaceId);
+        await this.reloadWorkspaceCatalogs(
+          live?.accessor.get(ISessionContext).workspaceId ?? indexEntry?.workspaceId,
+        );
         await this.refreshPluginSessionStarts(sessionId);
       } catch (error) {
-        if (staleNotifier !== undefined) {
-          staleNotifier.unmute();
-          await Promise.all([
-            staleNotifier.notifyAgentsMdChanges(),
-            staleNotifier.notifySkillChanges(),
-            staleNotifier.notifySubagentChanges({}),
-            staleNotifier.notifyWorkspaceDirsChanges(),
-          ]).catch(() => undefined);
-        }
+        await reloadGuard?.restoreAfterFailure();
         throw error;
       }
       if (live !== undefined) {
@@ -1842,13 +1820,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       if (handle === undefined) throw SDKRpcClientV2.sessionNotFound(sessionId);
       const main = handle.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
       await main?.accessor.get(IAgentPluginService).refreshSessionStart();
-      if (main !== undefined) {
-        const notifier = main.accessor.get(IAgentChangeNotifierService);
-        await notifier.notifyAgentsMdChanges();
-        await notifier.notifySkillChanges();
-        await notifier.notifySubagentChanges({ previousSubagentNames, previousModelPool });
-        await notifier.notifyWorkspaceDirsChanges();
-      }
+      await main
+        ?.accessor.get(IAgentChangeNotifierService)
+        .notifyAllChanges({ previousSubagentNames: reloadGuard?.previousSubagentNames });
       this.wireSession(handle);
       return this.resumedSessionSummary(handle);
     });

@@ -257,12 +257,13 @@ describe('TowerSpawnTool', () => {
     ).rejects.toThrow();
   }
 
-  it('updates the advertised model schema and descriptions with the current pool config', () => {
+  it('keeps model in the schema and omits Available models from the description across pool configs', () => {
     const tool = ix.get(ITowerSpawnTool);
     const properties = () =>
       tool.parameters['properties'] as Record<string, { type?: string; enum?: unknown }>;
 
-    expect(properties()).not.toHaveProperty('model');
+    expect(properties()['model']?.type).toBe('string');
+    expect(properties()['model']?.enum).toBeUndefined();
     expect(tool.description).not.toContain('Available models');
 
     secondaryModel = {
@@ -272,17 +273,15 @@ describe('TowerSpawnTool', () => {
 
     expect(properties()['model']?.type).toBe('string');
     expect(properties()['model']?.enum).toBeUndefined();
-    expect(tool.description).toContain('Available models (pass via model):');
-    expect(tool.description).toContain('- cheap/fast [default]: fast and cheap');
-    expect(tool.description).toContain('- smart/slow: careful and thorough');
-    expect(tool.description).not.toContain('- primary');
+    expect(tool.description).not.toContain('Available models');
 
     secondaryModel = undefined;
-    expect(properties()).not.toHaveProperty('model');
+    expect(properties()['model']?.type).toBe('string');
     expect(tool.description).not.toContain('Available models');
 
     secondaryModel = { model: 'cheap/fast' };
-    expect(properties()).not.toHaveProperty('model');
+    expect(properties()['model']?.type).toBe('string');
+    expect(properties()['model']?.enum).toBeUndefined();
     expect(tool.description).not.toContain('Available models');
   });
 
@@ -683,13 +682,18 @@ describe('TowerSpawnTool', () => {
     await expectNoWorkerSpawnSideEffects();
   });
 
-  it('rejects an explicit model without a secondary pool before any spawn side effect', async () => {
-    const result = await execute({ ...WORKER_ARGS, model: 'cheap/fast' });
+  it.each(['cheap/fast', 'kimi-code'])(
+    'rejects explicit model %s without a secondary pool before any spawn side effect',
+    async (model) => {
+      const result = await execute({ ...WORKER_ARGS, model });
 
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain('no [secondary_model] pool is configured');
-    await expectNoWorkerSpawnSideEffects();
-  });
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain(
+        `Invalid model "${model}": no [secondary_model] pool is configured`,
+      );
+      await expectNoWorkerSpawnSideEffects();
+    },
+  );
 
   it('rejects an alias outside the pool before any spawn side effect', async () => {
     secondaryModel = {

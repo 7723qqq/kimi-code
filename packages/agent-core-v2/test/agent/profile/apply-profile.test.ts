@@ -176,6 +176,11 @@ describe('AgentProfileService.applyProfile', () => {
         notifySkillChanges: async () => {},
         notifySubagentChanges: async () => {},
         notifyWorkspaceDirsChanges: async () => {},
+        notifyAllChanges: async () => {},
+        prepareForReload: () => ({
+          previousSubagentNames: [],
+          restoreAfterFailure: async () => {},
+        }),
         seedBeliefs,
         mute: () => {},
         unmute: () => {},

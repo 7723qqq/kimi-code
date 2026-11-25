@@ -1502,6 +1502,11 @@ describe('change-notifier belief seeding', () => {
         notifySkillChanges: async () => {},
         notifySubagentChanges: async () => {},
         notifyWorkspaceDirsChanges: async () => {},
+        notifyAllChanges: async () => {},
+        prepareForReload: () => ({
+          previousSubagentNames: [],
+          restoreAfterFailure: async () => {},
+        }),
         seedBeliefs,
         mute: () => {},
         unmute: () => {},

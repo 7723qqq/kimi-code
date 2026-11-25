@@ -4,14 +4,8 @@ import { Error2, ErrorCodes } from '#/errors';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { resolveSwarmTimeoutMs } from '#/features/swarm/configSection';
 import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
-import {
-  buildSubagentModelSummary,
-  exposesSubagentModelChoice,
-  stripSubagentModelParameter,
-} from '#/session/subagent/configSection';
-import {
-  type SubagentSpawnPlan,
-} from '#/session/subagent/spawn';
+
+import { type SubagentSpawnPlan } from '#/session/subagent/spawn';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import {
@@ -29,6 +23,7 @@ import {
   IAgentSwarmTool,
   MAX_AGENT_SWARM_SUBAGENTS,
   PROMPT_TEMPLATE_PLACEHOLDER,
+  SWARM_RESUME_ONLY_WITH_MODEL_UNAVAILABLE,
   type AgentSwarmToolInput,
 } from './agent-swarm';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
@@ -42,7 +37,6 @@ const SWARM_MODE_OFF_RESULT: ExecutableToolErrorResult = {
 };
 
 const AGENT_SWARM_PARAMETERS = toInputJsonSchema(AgentSwarmToolInputSchema);
-const AGENT_SWARM_PARAMETERS_NO_MODEL = stripSubagentModelParameter(AGENT_SWARM_PARAMETERS);
 
 interface AgentSwarmSpawnSpec {
   readonly kind: 'spawn';
@@ -78,9 +72,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
   readonly repoMutation = RepoMutations.none;
 
   get parameters(): Record<string, unknown> {
-    return exposesSubagentModelChoice(this.config)
-      ? AGENT_SWARM_PARAMETERS
-      : AGENT_SWARM_PARAMETERS_NO_MODEL;
+    return AGENT_SWARM_PARAMETERS;
   }
 
   private readonly callerAgentId: string;
@@ -96,10 +88,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
   }
 
   get description(): string {
-    const modelLines = buildSubagentModelSummary(this.config);
-    return modelLines === undefined
-      ? AGENT_SWARM_DESCRIPTION
-      : `${AGENT_SWARM_DESCRIPTION}\n\n${modelLines}`;
+    return AGENT_SWARM_DESCRIPTION;
   }
 
   resolveExecution(args: AgentSwarmToolInput): ToolExecution {
@@ -141,6 +130,9 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     signal: AbortSignal,
     toolCallId: string,
   ): Promise<string> {
+    if ((args.items?.length ?? 0) === 0 && args.model !== undefined) {
+      throw new Error2(ErrorCodes.VALIDATION_FAILED, SWARM_RESUME_ONLY_WITH_MODEL_UNAVAILABLE);
+    }
     let plan: SubagentSpawnPlan | undefined;
     if ((args.items?.length ?? 0) > 0) {
       plan = await this.subagents.planSpawn({

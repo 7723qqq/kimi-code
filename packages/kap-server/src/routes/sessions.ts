@@ -13,7 +13,6 @@ import {
   IBootstrapService,
   IConfigService,
   IPluginService,
-  ISessionAgentProfileCatalog,
   ISessionActivityView,
   ISessionBtwService,
   ISessionContext,
@@ -35,7 +34,6 @@ import {
   getLiveSessionById,
   interactions,
   programForSession,
-  resolveSubagentModelPool,
   reloadOnStale,
   resumeSessionById,
   setSessionArchived,
@@ -50,7 +48,6 @@ import {
   type Scope,
   type SessionMeta,
   type SessionSummary,
-  type SubagentModelPoolSnapshot,
   wrapSystemReminder,
 } from '@moonshot-ai/agent-core-v2';
 import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
@@ -1596,37 +1593,17 @@ async function reloadSessionAction(ctx: SessionActionCtx): Promise<void> {
     throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
   }
   const workspaceId = live?.accessor.get(ISessionContext).workspaceId ?? indexEntry?.workspaceId;
-  let previousSubagentNames: readonly string[] | undefined;
-  let previousModelPool: SubagentModelPoolSnapshot | null | undefined;
-  let staleNotifier: IAgentChangeNotifierService | undefined;
-  if (live !== undefined) {
-    const main = live.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
-    if (main !== undefined) {
-      previousSubagentNames = main.accessor
-        .get(ISessionAgentProfileCatalog)
-        .list()
-        .map((profile) => profile.name);
-      const pool = resolveSubagentModelPool(main.accessor.get(IConfigService));
-      previousModelPool =
-        pool === undefined ? null : { defaultModel: pool.defaultModel, models: { ...pool.models } };
-      staleNotifier = main.accessor.get(IAgentChangeNotifierService);
-      staleNotifier.mute();
-    }
-  }
+  const reloadGuard = live
+    ?.accessor.get(IAgentLifecycleService)
+    .handleOf(MAIN_AGENT_ID)
+    ?.accessor.get(IAgentChangeNotifierService)
+    .prepareForReload();
   try {
     await core.accessor.get(IConfigService).reload();
     await core.accessor.get(IPluginService).reloadPlugins();
     await refreshWorkspaceCatalogs(core, workspaceId, id);
   } catch (error) {
-    if (staleNotifier !== undefined) {
-      staleNotifier.unmute();
-      await Promise.all([
-        staleNotifier.notifyAgentsMdChanges(),
-        staleNotifier.notifySkillChanges(),
-        staleNotifier.notifySubagentChanges({}),
-        staleNotifier.notifyWorkspaceDirsChanges(),
-      ]).catch(() => undefined);
-    }
+    await reloadGuard?.restoreAfterFailure();
     throw error;
   }
   if (live !== undefined) {
@@ -1639,11 +1616,10 @@ async function reloadSessionAction(ctx: SessionActionCtx): Promise<void> {
   const main = handle.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
   await main?.accessor.get(IAgentPluginService).refreshSessionStart();
   if (main !== undefined) {
-    const notifier = main.accessor.get(IAgentChangeNotifierService);
-    await notifier.notifyAgentsMdChanges();
-    await notifier.notifySkillChanges();
-    await notifier.notifySubagentChanges({ previousSubagentNames, previousModelPool });
-    await notifier.notifyWorkspaceDirsChanges();
+    await main
+      .accessor.get(IAgentChangeNotifierService)
+      .notifyAllChanges({ previousSubagentNames: reloadGuard?.previousSubagentNames });
+    main.accessor.get(IAgentLoopService).flushReminders();
   }
   const session = await toLiveWireSession(core, handle);
   requestLog(req)?.info({ session_id: id, action: 'reload' }, 'session action completed');

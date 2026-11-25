@@ -30,12 +30,9 @@ import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/
 import { subagentLabels } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import {
-  buildSubagentModelDescriptions,
-  exposesSubagentModelChoice,
   resolveSubagentBinding,
   resolveSubagentThinking,
   resolveSubagentTimeoutMs,
-  stripSubagentModelParameter,
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
@@ -66,7 +63,6 @@ function resolveSpawnBinding(
 }
 
 const TOWER_SPAWN_PARAMETERS = toInputJsonSchema(TowerSpawnToolInputSchema);
-const TOWER_SPAWN_PARAMETERS_NO_MODEL = stripSubagentModelParameter(TOWER_SPAWN_PARAMETERS);
 const REVIEW_REQUEST_SCAN_LIMIT = 50;
 const REVIEW_HISTORY_ROUNDS = 5;
 const REVIEW_EXCERPT_MAX_CHARS = 8000;
@@ -97,14 +93,11 @@ export class TowerSpawnTool implements ITowerSpawnTool {
   readonly sideEffect = ToolSideEffects.read;
 
   get description(): string {
-    const modelLines = buildSubagentModelDescriptions(this.config);
-    return modelLines === undefined ? DESCRIPTION : `${DESCRIPTION}\n\n${modelLines}`;
+    return DESCRIPTION;
   }
 
   get parameters(): Record<string, unknown> {
-    return exposesSubagentModelChoice(this.config)
-      ? TOWER_SPAWN_PARAMETERS
-      : TOWER_SPAWN_PARAMETERS_NO_MODEL;
+    return TOWER_SPAWN_PARAMETERS;
   }
 
   private readonly callerAgentId: string;

@@ -609,6 +609,8 @@ export * from '#/session/subagent/mirrorAgentRun';
 export * from '#/session/subagent/subagentScopeCache';
 import '#/session/subagent/subagentScopeCacheService';
 export * from '#/session/subagent/configSection';
+export * from '#/agent/subagentModelsReminder/subagentModelsReminder';
+import '#/agent/subagentModelsReminder/subagentModelsReminderService';
 export * from '#/session/subagent/backend/subagentBackend';
 import '#/session/subagent/backend/flag';
 export * from '#/session/subagent/backend/configSection';

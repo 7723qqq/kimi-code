@@ -28,6 +28,7 @@ import {
   ToolAccesses,
   isMcpToolName,
   type ExecutableToolContext,
+  type ExecutableToolErrorResult,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
@@ -64,12 +65,9 @@ import { emitAgentRunSpawned, mirrorAgentRun, SubagentStarted } from '#/session/
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import {
-  buildSubagentModelDescriptions,
-  exposesSubagentModelChoice,
   formatSubagentTimeoutDescription,
   resolveSubagentModelPool,
   resolveSubagentTimeoutMs,
-  stripSubagentModelParameter,
   type SubagentModelSource,
 } from '#/session/subagent/configSection';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
@@ -81,6 +79,7 @@ import {
   BACKGROUND_AGENT_UNAVAILABLE,
   DEFAULT_PROFILE_NAME,
   ISubagentTool,
+  RESUME_WITH_MODEL_UNAVAILABLE,
   RESUME_WITH_TYPE_UNAVAILABLE,
   RESUMED_LABEL,
   SUBAGENT_STOPPED_MESSAGE,
@@ -102,7 +101,6 @@ import { buildSubagentBackendDescriptions } from '#/session/subagent/backend/con
 import { BACKENDS_EXPERIMENTAL_UNAVAILABLE } from '#/session/subagent/backend/configSection';
 
 const SUBAGENT_TOOL_PARAMETERS = toInputJsonSchema(SubagentToolInputSchema);
-const SUBAGENT_TOOL_PARAMETERS_NO_MODEL = stripSubagentModelParameter(SUBAGENT_TOOL_PARAMETERS);
 const MCP_GLOB_MAGIC = /[*?[\]{}!@+()]/;
 
 function isToolNamePattern(name: string): boolean {
@@ -116,13 +114,9 @@ export class SubagentTool implements ISubagentTool {
   readonly repoMutation = RepoMutations.none;
 
   get parameters(): Record<string, unknown> {
-    let parameters = exposesSubagentModelChoice(this.config)
+    return exposesSubagentBackends(this.flags)
       ? SUBAGENT_TOOL_PARAMETERS
-      : SUBAGENT_TOOL_PARAMETERS_NO_MODEL;
-    if (!exposesSubagentBackends(this.flags)) {
-      parameters = stripSubagentBackendParameter(parameters);
-    }
-    return parameters;
+      : stripSubagentBackendParameter(SUBAGENT_TOOL_PARAMETERS);
   }
 
   private readonly callerAgentId: string;
@@ -185,10 +179,6 @@ export class SubagentTool implements ISubagentTool {
     );
     if (typeLines) {
       description += `\n\nAvailable agent types (pass via subagent_type):\n${typeLines}`;
-    }
-    const modelLines = buildSubagentModelDescriptions(this.config);
-    if (modelLines !== undefined) {
-      description += `\n\n${modelLines}`;
     }
     if (exposesSubagentBackends(this.flags)) {
       description += `\n\n${buildSubagentBackendDescriptions(this.backends.list())}`;
@@ -261,17 +251,29 @@ export class SubagentTool implements ISubagentTool {
     return false;
   }
 
-  async resolveExecution(args: SubagentToolInput): Promise<ToolExecution> {
+  private parseSubagentInput(
+    args: SubagentToolInput,
+  ):
+    | ExecutableToolErrorResult
+    | {
+        readonly requestedProfileName: string | undefined;
+        readonly resumeAgentId: string | undefined;
+      } {
     const requestedProfileName = args.subagent_type?.length ? args.subagent_type : undefined;
-    const resumeAgentId = args.resume?.trim();
-
-    if (
-      resumeAgentId !== undefined &&
-      resumeAgentId.length > 0 &&
-      requestedProfileName !== undefined
-    ) {
+    const resumeAgentId = args.resume?.trim() || undefined;
+    if (resumeAgentId !== undefined && requestedProfileName !== undefined) {
       return { output: RESUME_WITH_TYPE_UNAVAILABLE, isError: true };
     }
+    if (resumeAgentId !== undefined && args.model !== undefined) {
+      return { output: RESUME_WITH_MODEL_UNAVAILABLE, isError: true };
+    }
+    return { requestedProfileName, resumeAgentId };
+  }
+
+  async resolveExecution(args: SubagentToolInput): Promise<ToolExecution> {
+    const parsed = this.parseSubagentInput(args);
+    if ('isError' in parsed) return parsed;
+    const { requestedProfileName, resumeAgentId } = parsed;
 
     const backendCheck = this.checkBackendArgs(args);
     if (backendCheck.error !== undefined) {
@@ -280,7 +282,7 @@ export class SubagentTool implements ISubagentTool {
 
     const profileNameForDisplay =
       backendCheck.name ??
-      (resumeAgentId !== undefined && resumeAgentId.length > 0
+      (resumeAgentId !== undefined
         ? ((await this.resumeProfileName(resumeAgentId)) ?? RESUMED_LABEL)
         : (requestedProfileName ?? DEFAULT_PROFILE_NAME));
     const prefix = args.run_in_background === true ? 'Launching background' : 'Launching';
@@ -514,13 +516,9 @@ export class SubagentTool implements ISubagentTool {
     try {
       signal.throwIfAborted();
       const runInBackground = args.run_in_background === true;
-      const requestedProfileName = args.subagent_type?.length ? args.subagent_type : undefined;
-      const resumeAgentId = args.resume?.trim();
-      const isResume = resumeAgentId !== undefined && resumeAgentId.length > 0;
-
-      if (isResume && requestedProfileName !== undefined) {
-        return { output: RESUME_WITH_TYPE_UNAVAILABLE, isError: true };
-      }
+      const parsed = this.parseSubagentInput(args);
+      if ('isError' in parsed) return parsed;
+      const { requestedProfileName, resumeAgentId } = parsed;
 
       const backendCheck = this.checkBackendArgs(args);
       if (backendCheck.error !== undefined) {
@@ -552,9 +550,9 @@ export class SubagentTool implements ISubagentTool {
         this.log.warn('subagent launch failed', {
           toolCallId,
           runInBackground,
-          operation: isResume ? 'resume' : 'spawn',
+          operation: resumeAgentId !== undefined ? 'resume' : 'spawn',
           subagentType: requestedProfileName ?? DEFAULT_PROFILE_NAME,
-          resumeAgentId: isResume ? resumeAgentId : undefined,
+          resumeAgentId,
           error,
         });
         throw error;

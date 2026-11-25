@@ -2011,7 +2011,7 @@ describe('server-v2 /api/v1/sessions', () => {
     }
   });
 
-  it('delivers a single subagents reminder when profiles and the model pool change together', async () => {
+  it('delivers a subagents reminder when profiles change on reload', async () => {
     await server?.close();
     server = undefined;
     const configToml = [
@@ -2058,12 +2058,6 @@ describe('server-v2 /api/v1/sessions', () => {
         '---\nname: deploy\ndescription: Deploys things.\n---\nYou deploy things.\n',
         'utf-8',
       );
-      await writeFile(
-        join(home as string, 'config.toml'),
-        `${configToml}[secondary_model.models]\n"stub" = "fast stub"\n`,
-        'utf-8',
-      );
-
       const reloaded = await postJson<SessionWire>(`/api/v1/sessions/${id}:reload`);
       expect(reloaded.body.code).toBe(0);
 
@@ -2077,8 +2071,8 @@ describe('server-v2 /api/v1/sessions', () => {
       ).filter((item) => item.metadata?.origin?.variant === 'subagents_change');
       expect(subagentReminders).toHaveLength(1);
       const text = JSON.stringify(subagentReminders[0]);
+      expect(text).toContain('The available subagent profiles changed:');
       expect(text).toContain('Profiles added: deploy');
-      expect(text).toContain('Models added: stub');
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(join(home as string, 'agents'), { recursive: true, force: true });
