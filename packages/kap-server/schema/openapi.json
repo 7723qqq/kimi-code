@@ -5913,6 +5913,20 @@
         ]
       }
     },
+    "/api/v1/kap.md": {
+      "get": {
+        "description": "Get the built-in Kimi Agent Protocol (KAP) Markdown specification matching this server version",
+        "operationId": "getKapSpec",
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        },
+        "tags": [
+          "meta"
+        ]
+      }
+    },
     "/api/v1/mcp/auth-statuses": {
       "get": {
         "description": "Per-server OAuth state over the registry catalog. Omitted `verify` preserves implicit OAuth detection; `verify=false` is fully offline; `verify=true` verifies every candidate. Probes may refresh or invalidate credentials.",

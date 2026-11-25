@@ -150,6 +150,10 @@ exports[`API surface snapshot matches the documented v1 route table and meta end
     ],
     [
       "GET",
+      "/api/v1/kap.md",
+    ],
+    [
+      "GET",
       "/api/v1/mcp/auth-statuses",
     ],
     [

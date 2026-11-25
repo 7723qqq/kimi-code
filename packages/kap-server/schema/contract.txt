@@ -337,6 +337,8 @@ GET /api/v1/hosts:ssh-hosts response 200.msg: string
 GET /api/v1/hosts:ssh-hosts response 200.request_id: string
 GET /api/v1/hosts:ssh-hosts response 200: object closed
 GET /api/v1/hosts:ssh-hosts: operation
+GET /api/v1/kap.md response 200: any
+GET /api/v1/kap.md: operation
 GET /api/v1/mcp/auth-statuses param query:cwd: string minLength=1 optional
 GET /api/v1/mcp/auth-statuses param query:verify: enum "false"|"true" optional
 GET /api/v1/mcp/auth-statuses response 200: oneOf
