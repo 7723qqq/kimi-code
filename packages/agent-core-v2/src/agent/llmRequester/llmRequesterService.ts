@@ -57,6 +57,7 @@ import {
 } from '#/llm-adapter/model/model-requester';
 import type { ModelOverrides } from '#/llm-adapter/model/model.types';
 import { IModelService } from '#/llm-adapter/model/model';
+import { streamWithCredentialRecovery } from '#/llm-adapter/model/credential-recovery';
 import { completionBudgetParams, resolveCompletionBudget } from '#/llm-adapter/model/completion-budget';
 import { resolveThinkingKeep, type ThinkingConfig } from '#/llm-adapter/model/thinking';
 import { MODEL_OVERRIDES_SECTION, THINKING_SECTION } from '#/app/kosongConfig/configSection';
@@ -535,11 +536,15 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       };
 
       try {
-        for await (const event of request.requester.request(input, signal, {
-          ...request.params,
-          onTraceId: setTraceId,
-          ...(onAttemptFailure === undefined ? {} : { onAttemptFailure }),
-        })) {
+        for await (const event of streamWithCredentialRecovery(
+          request.model.credentialProvider,
+          () => request.requester.request(input, signal, {
+            ...request.params,
+            onTraceId: setTraceId,
+            ...(onAttemptFailure === undefined ? {} : { onAttemptFailure }),
+          }),
+          signal,
+        )) {
           switch (event.type) {
             case 'part':
               await onPart(this.normalizeStreamPart(toolCallIds, event.part));

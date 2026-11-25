@@ -522,6 +522,27 @@ describe('AgentLLMRequesterService strict resend', () => {
   });
 });
 
+describe('AgentLLMRequesterService credential recovery', () => {
+  it('refreshes a recoverable credential and retries a 401 once', async () => {
+    const calls = { value: 0 };
+    const requester = createRequester(calls, new APIStatusError(401, 'unauthorized', false));
+    const invalidate = mock(() => {});
+    Object.defineProperty(requester.model, 'credentialProvider', {
+      value: {
+        canRecover: (error: unknown) => error instanceof APIStatusError && error.statusCode === 401,
+        invalidate,
+      },
+    });
+    const { service } = createService(requester, undefined);
+
+    const result = await service.request();
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(calls.value).toBe(2);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('AgentLLMRequesterService infinite retry', () => {
   it('retries every request error while KIMI_CODE_INFINITE_RETRY is set', async () => {
     const timers = createFakeHostTimers();
