@@ -49,6 +49,7 @@ import {
   IAtomicDocumentStore,
   IConfigService,
   ISessionContext,
+  ISessionBtwService,
   IAgentTowerService,
   IHostEnvironment,
   IHostRequestHeaders,
@@ -1088,6 +1089,32 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       });
       expect(begin).toHaveBeenCalledTimes(1);
       expect(handler).toHaveBeenCalledTimes(2);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('reloads a stale session before starting btw', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
+    tempDirs.push(homeDir, workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_btw_stale', workDir });
+      await client.getSessionWarnings({ sessionId: 'ses_btw_stale' });
+      const handler = jest.fn(async (_summary: unknown) => {});
+      client.setStaleReloadHandler('ses_btw_stale', handler);
+      const btw = getLiveSessionById(client.engineAccessor, 'ses_btw_stale')!
+        .accessor.get(ISessionBtwService);
+      jest
+        .spyOn(btw, 'start')
+        .mockRejectedValueOnce(new Error2('session.stale', 'modified by another client'));
+
+      const agentId = await client.startBtw({ sessionId: 'ses_btw_stale' });
+
+      expect(agentId).toMatch(/^agent-\d+$/);
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0]?.[0]).toMatchObject({ id: 'ses_btw_stale' });
     } finally {
       await client.close();
     }
