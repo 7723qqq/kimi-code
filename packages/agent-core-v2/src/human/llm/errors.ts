@@ -176,6 +176,8 @@ const STRUCTURAL_REQUEST_MESSAGE_PATTERNS = [
   /roles must alternate/,
   /multiple .*(?:user|assistant).* roles in a row/,
   /tool_use[\s\S]*ids must be unique/,
+  /duplicate tool call id/,
+  /duplicate tool_call_id/,
   /message at position \d+ with role ['"`]?[a-z]+['"`]? must not be empty/,
 ] as const;
 

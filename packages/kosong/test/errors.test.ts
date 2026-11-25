@@ -498,6 +498,18 @@ describe('isRecoverableRequestStructureError', () => {
     ).toBe(true);
   });
 
+  it('matches the OpenAI-compatible duplicate tool call id rejection', () => {
+    expect(
+      isRecoverableRequestStructureError(
+        new APIStatusError(
+          400,
+          'messages[463].tool_calls: duplicate tool call ID chatcmpl-tool-b5007f6754a42301',
+          false,
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it('matches empty / whitespace-only text content rejections', () => {
     expect(
       isRecoverableRequestStructureError(

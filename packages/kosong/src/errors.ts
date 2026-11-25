@@ -564,6 +564,8 @@ const STRUCTURAL_REQUEST_MESSAGE_PATTERNS = [
   // when a provider reused a call id (e.g. per-response counter ids) earlier
   // in the session; the strict resend dedupes the ids.
   /tool_use[\s\S]*ids must be unique/,
+  /duplicate tool call id/,
+  /duplicate tool_call_id/,
   // Moonshot / Kimi rejects a message whose serialized form carries nothing —
   // no content, no tool_calls, an empty reasoning_content: "the message at
   // position N with role 'assistant' must not be empty". Seen when a filtered

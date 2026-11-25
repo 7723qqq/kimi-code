@@ -482,6 +482,28 @@ describe('AgentLLMRequesterService strict resend', () => {
     expect(projection.calls).toEqual(['normal', 'strict']);
   });
 
+  it('resends once with strict projection after a duplicate tool call id rejection', async () => {
+    const calls = { value: 0 };
+    const projection = recordProjectionCalls();
+    const { service } = createService(
+      createRequester(
+        calls,
+        new APIStatusError(
+          400,
+          'messages[463].tool_calls: duplicate tool call ID chatcmpl-tool-b5007f6754a42301',
+          false,
+        ),
+      ),
+      projection.projector,
+    );
+
+    const result = await service.request();
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(calls.value).toBe(2);
+    expect(projection.calls).toEqual(['normal', 'strict']);
+  });
+
   it('does not resend for non-recoverable errors', async () => {
     const requester = createRequester({ value: 0 });
     Object.defineProperty(requester, 'request', {

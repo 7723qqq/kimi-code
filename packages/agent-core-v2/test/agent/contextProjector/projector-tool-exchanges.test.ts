@@ -372,6 +372,22 @@ describe('projector tool-exchange normalization', () => {
     expect(projected.filter((message) => message.role === 'tool')).toHaveLength(1);
   });
 
+  it('strict mode dedupes duplicate tool call ids inside one assistant message', () => {
+    const projected = projectStrict([
+      user('go'),
+      assistant('two calls', ['dup', 'dup']),
+      toolResult('dup', 'one'),
+    ]);
+
+    expect(
+      projected.map((message) =>
+        message.role === 'tool' ? `tool:${message.toolCallId}` : message.role,
+      ),
+    ).toEqual(['user', 'assistant', 'tool:dup']);
+    expect(projected[1]?.toolCalls.map((call) => call.id)).toEqual(['dup']);
+    expect(projected.filter((message) => message.role === 'tool')).toHaveLength(1);
+  });
+
   it("strict mode reattaches a later duplicate's result when the first call has none", () => {
     const projected = projectStrict([
       user('go'),
