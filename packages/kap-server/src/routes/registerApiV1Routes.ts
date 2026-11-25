@@ -45,6 +45,7 @@ import { registerSessionMediaRoutes } from './sessionMedia';
 import { registerSessionRatingRoutes } from './sessionRating';
 import { registerSessionsRoutes } from './sessions';
 import { registerSessionListAndBatchRoutes } from './sessionList';
+import { registerImportProvidersRoute } from '../services/hosts/hostProviders';
 import { registerShutdownRoutes } from './shutdown';
 import { registerSkillsRoutes } from './skills';
 import { registerToolsRoutes } from './tools';
@@ -76,6 +77,7 @@ export interface RegisterApiV1RoutesOptions {
   readonly enableShutdown?: boolean;
   readonly guiStore: IGuiStoreService;
   readonly onShutdown: () => void;
+  readonly drainIdleSessions: () => Promise<boolean>;
   readonly connectionRegistry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
   readonly conversations: ConversationService;
@@ -84,6 +86,7 @@ export interface RegisterApiV1RoutesOptions {
   readonly sessionRating: SessionRatingHost;
   readonly remoteControl: RemoteControlRouteOptions;
   readonly dangerousBypassAuth?: boolean;
+  readonly managedHost?: boolean;
   readonly webTitle?: string;
 }
 
@@ -153,6 +156,12 @@ export async function registerApiV1Routes(
         hostSources(opts.hosts),
       );
       registerEnvironmentRoutes(apiV1 as unknown as Parameters<typeof registerEnvironmentRoutes>[0], core);
+      if (opts.managedHost === true) {
+        registerImportProvidersRoute(
+          apiV1 as unknown as Parameters<typeof registerImportProvidersRoute>[0],
+          core,
+        );
+      }
       registerSessionRatingRoutes(
         apiV1 as unknown as Parameters<typeof registerSessionRatingRoutes>[0],
         opts.sessionRating,
@@ -251,6 +260,7 @@ export async function registerApiV1Routes(
       if (opts.enableShutdown !== false) {
         registerShutdownRoutes(apiV1 as unknown as Parameters<typeof registerShutdownRoutes>[0], {
           onShutdown: opts.onShutdown,
+          drainIdleSessions: opts.drainIdleSessions,
         });
       }
     },

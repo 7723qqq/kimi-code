@@ -951,6 +951,7 @@
                           "additionalProperties": {},
                           "properties": {
                             "cwd": {
+                              "deprecated": true,
                               "minLength": 1,
                               "type": "string"
                             }
@@ -1694,6 +1695,68 @@
                     "type",
                     "capability_id",
                     "install"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "hosts": {
+                      "items": {
+                        "properties": {
+                          "connect_error": {
+                            "type": "string"
+                          },
+                          "connect_failure": {
+                            "type": "string"
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "host": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "identity_file": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "remote_bin": {
+                            "type": "string"
+                          },
+                          "remote_version": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": [
+                              "pending",
+                              "connecting",
+                              "ready",
+                              "disconnected"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "host",
+                          "status"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "type": {
+                      "const": "event.host.changed",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "hosts"
                   ],
                   "type": "object"
                 }

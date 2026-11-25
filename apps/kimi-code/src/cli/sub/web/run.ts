@@ -209,6 +209,8 @@ export function buildWebCommand(
     )
     .option('--debug-endpoints', t('cli.optionDescriptions.serverRunOptionDebugEndpoints'), false)
     .option('--web-title <title>', t('cli.optionDescriptions.serverRunOptionWebTitle'));
+  withServerOptions.addOption(new Option('--socket <path>').hideHelp());
+  withServerOptions.addOption(new Option('--managed-by <owner>').hideHelp());
   if (!forceRemoteControl) {
     withServerOptions.addOption(
       new Option(
@@ -327,6 +329,7 @@ export async function handleWebCommand(
   let remoteControl: RemoteControlHandle | undefined;
   await run(runOptions, {
     onReady: async (origin, controls) => {
+      if (parsed.socketPath !== undefined) return;
       if (jsonMode) {
         deps.stdout.write(formatJsonBootLine(origin, ephemeralToken ?? ''));
         return;
@@ -550,6 +553,8 @@ async function runServerInProcess(
     skipInstanceRegistry: options.skipInstanceRegistry,
     disableAuth: options.dangerousBypassAuth,
     webTitle: options.webTitle,
+    socketPath: options.socketPath,
+    managedBy: options.managedBy,
     // Attach the engine's cloud telemetry appender (still gated by the config
     // `telemetry` toggle). Complements the CLI-side provider registered by
     // `initializeServerTelemetry` above, which only covers host-level events.
@@ -558,7 +563,8 @@ async function runServerInProcess(
   });
   logger.info('serving the REST/WS API and the bundled web UI');
   running = {
-    address: `http://${v2.host}:${v2.port}`,
+    address:
+      options.socketPath === undefined ? `http://${v2.host}:${v2.port}` : `unix:${options.socketPath}`,
     logger,
     close: () => v2.close(),
   };

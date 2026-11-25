@@ -2,7 +2,7 @@ import type { UsageStatus } from '@moonshot-ai/agent-core-v2';
 import type { PermissionMode } from '@moonshot-ai/agent-core-v2/contract';
 import type { z } from 'zod';
 
-import type { agentEventSchema } from '../../../protocol/events-zod';
+import type { agentEventSchema, HostSnapshot } from '../../../protocol/events-zod';
 import type { MessageContent } from '../../../protocol/message';
 import type { ConfigResponse } from '../../../protocol/rest-config';
 import type { Session, SessionPendingInteraction } from '../../../protocol/session';
@@ -155,6 +155,11 @@ export interface CapabilityChangedEvent {
   };
 }
 
+export interface HostChangedEvent {
+  readonly type: 'event.host.changed';
+  readonly hosts: readonly HostSnapshot[];
+}
+
 export interface PromptSubmittedEvent {
   readonly type: 'prompt.submitted';
   readonly promptId: string;
@@ -238,6 +243,7 @@ export type AgentEvent =
   | ModelCatalogChangedEvent
   | PluginChangedEvent
   | CapabilityChangedEvent
+  | HostChangedEvent
   | PromptSubmittedEvent
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent;

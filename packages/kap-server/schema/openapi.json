@@ -5407,6 +5407,262 @@
         ]
       }
     },
+    "/api/v1/hosts/{id}/proxy": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "head": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/hosts/{id}/proxy/{*}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "*",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "*",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "head": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "*",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "*",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "*",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "*",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/api/v1/hosts:connect": {
       "post": {
         "description": "Connect a configured host now; failures are reported in the returned status",
@@ -16768,6 +17024,7 @@
                                             "additionalProperties": {},
                                             "properties": {
                                               "cwd": {
+                                                "deprecated": true,
                                                 "minLength": 1,
                                                 "type": "string"
                                               }
@@ -17142,6 +17399,7 @@
                                                   "additionalProperties": {},
                                                   "properties": {
                                                     "cwd": {
+                                                      "deprecated": true,
                                                       "minLength": 1,
                                                       "type": "string"
                                                     }
@@ -17582,6 +17840,7 @@
                     "additionalProperties": {},
                     "properties": {
                       "cwd": {
+                        "deprecated": true,
                         "minLength": 1,
                         "type": "string"
                       }
@@ -17780,6 +18039,7 @@
                               "additionalProperties": {},
                               "properties": {
                                 "cwd": {
+                                  "deprecated": true,
                                   "minLength": 1,
                                   "type": "string"
                                 }
@@ -18597,6 +18857,7 @@
                               "additionalProperties": {},
                               "properties": {
                                 "cwd": {
+                                  "deprecated": true,
                                   "minLength": 1,
                                   "type": "string"
                                 }
@@ -21243,6 +21504,7 @@
                                     "additionalProperties": {},
                                     "properties": {
                                       "cwd": {
+                                        "deprecated": true,
                                         "minLength": 1,
                                         "type": "string"
                                       }
@@ -21728,6 +21990,7 @@
                               "additionalProperties": {},
                               "properties": {
                                 "cwd": {
+                                  "deprecated": true,
                                   "minLength": 1,
                                   "type": "string"
                                 }
@@ -28430,6 +28693,7 @@
                               "additionalProperties": {},
                               "properties": {
                                 "cwd": {
+                                  "deprecated": true,
                                   "minLength": 1,
                                   "type": "string"
                                 }
@@ -28769,6 +29033,7 @@
                     "additionalProperties": {},
                     "properties": {
                       "cwd": {
+                        "deprecated": true,
                         "minLength": 1,
                         "type": "string"
                       }
@@ -29018,6 +29283,7 @@
                               "additionalProperties": {},
                               "properties": {
                                 "cwd": {
+                                  "deprecated": true,
                                   "minLength": 1,
                                   "type": "string"
                                 }
@@ -42130,6 +42396,7 @@
                                   "additionalProperties": {},
                                   "properties": {
                                     "cwd": {
+                                      "deprecated": true,
                                       "minLength": 1,
                                       "type": "string"
                                     }
@@ -42755,6 +43022,7 @@
                                       "additionalProperties": {},
                                       "properties": {
                                         "cwd": {
+                                          "deprecated": true,
                                           "minLength": 1,
                                           "type": "string"
                                         }
@@ -43904,6 +44172,7 @@
                           "additionalProperties": {},
                           "properties": {
                             "cwd": {
+                              "deprecated": true,
                               "minLength": 1,
                               "type": "string"
                             }
@@ -44479,6 +44748,7 @@
                                   "additionalProperties": {},
                                   "properties": {
                                     "cwd": {
+                                      "deprecated": true,
                                       "minLength": 1,
                                       "type": "string"
                                     }
@@ -45104,6 +45374,7 @@
                                       "additionalProperties": {},
                                       "properties": {
                                         "cwd": {
+                                          "deprecated": true,
                                           "minLength": 1,
                                           "type": "string"
                                         }
@@ -46224,7 +46495,21 @@
     },
     "/api/v1/shutdown": {
       "post": {
-        "description": "Gracefully shut down the server",
+        "description": "Gracefully shut down the server; with if_idle=true, only when it has no live work (ok: false otherwise)",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "if_idle",
+            "required": false,
+            "schema": {
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -46242,9 +46527,6 @@
                       "additionalProperties": false,
                       "properties": {
                         "ok": {
-                          "enum": [
-                            true
-                          ],
                           "type": "boolean"
                         }
                       },

@@ -46,6 +46,7 @@ import {
   replaceProviderResponseSchema,
   type ProviderCollectionActionBody,
 } from '../protocol/rest-modelCatalog';
+import { enqueueProviderWrite } from '../services/providerWrites';
 import { type ActionTable, runAction } from './action-dispatch';
 import { parseActionSuffix } from './action-suffix';
 
@@ -129,17 +130,6 @@ async function loadDiscovery(core: Scope): Promise<IProviderDiscoveryService> {
 async function loadOAuth(core: Scope): Promise<IOAuthService> {
   await core.accessor.get(IConfigService).ready;
   return core.accessor.get(IOAuthService);
-}
-
-let providerWriteChain: Promise<unknown> = Promise.resolve();
-
-function enqueueProviderWrite<T>(task: () => Promise<T>): Promise<T> {
-  const run = providerWriteChain.then(task, task);
-  providerWriteChain = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
 }
 
 async function seedDefaultModelWhenUnset(config: IConfigService, alias: string): Promise<void> {

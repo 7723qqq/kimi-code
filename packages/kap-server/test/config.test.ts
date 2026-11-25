@@ -5,8 +5,10 @@ import { join } from 'node:path';
 
 import {
   ConfigChanged,
+  ConfigRegistry,
   Error2,
   ErrorCodes,
+  IConfigRegistry,
   IConfigService,
   IEventService,
   type ConfigSectionChangedEvent,
@@ -96,6 +98,16 @@ describe('server-v2 /api/v1/config', () => {
     const cfg = await getConfig();
     expect(cfg.default_permission_mode).toBe('auto');
     expect(cfg.yolo).toBe(false);
+  });
+
+  it('serializes the hosts section with its TOML field names', async () => {
+    await boot(
+      '[hosts.dev]\nhost = "devbox"\nidentity_file = "/tmp/key"\nremote_bin = "/opt/kimi"\n',
+    );
+    const cfg = (await getConfig()) as ConfigResponse & { hosts?: unknown };
+    expect(cfg.hosts).toEqual({
+      dev: { host: 'devbox', identity_file: '/tmp/key', remote_bin: '/opt/kimi' },
+    });
   });
 
   it('POST { yolo: true } sets default_permission_mode = yolo and echoes yolo = true', async () => {
@@ -483,6 +495,7 @@ describe('configChangedPublisher', () => {
               getAll: () => backing,
             };
           }
+          if (token === IConfigRegistry) return new ConfigRegistry();
           return {
             publish: (event: Event2<unknown>) => published.push(event as ConfigChanged),
           };
@@ -647,6 +660,7 @@ describe('POST /config persistence failure reporting (a18/F2)', () => {
       accessor: {
         get: (token: unknown): unknown => {
           if (token === IConfigService) return configService;
+          if (token === IConfigRegistry) return new ConfigRegistry();
           throw new Error(`unexpected service request: ${String(token)}`);
         },
       },

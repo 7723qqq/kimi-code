@@ -70,12 +70,17 @@ import { startConfigChangedPublisher } from './services/config/configChangedPubl
 import { ConversationService } from './services/conversation/conversationService';
 import { GuiStoreService } from './services/guiStore/guiStoreService';
 import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
+import { DEFAULT_MANAGED_IDLE_EXIT_MS, ManagedIdleExit } from './services/managedIdleExit';
 import {
   createServerLogger,
   type ServerLogger,
   type ServerLogLevel,
 } from './services/pinoLoggerService';
-import { SessionIdleReaper, resolveSessionIdleReclaimMs } from './services/sessionIdleReaper';
+import {
+  SessionIdleReaper,
+  closeIdleSessions,
+  resolveSessionIdleReclaimMs,
+} from './services/sessionIdleReaper';
 import { createServerSessionRating } from './services/sessionRating';
 import {
   initializeServerTelemetry,
@@ -84,9 +89,15 @@ import {
 } from './services/telemetry';
 import { TranscriptService } from './services/transcript/transcriptService';
 import { extractWsBearerToken } from './transport/ws/bearerProtocol';
-import { HostBridgeManager } from './services/hosts/hostBridgeManager';
+import { HostBridgeManager, hostSnapshots } from './services/hosts/hostBridgeManager';
+import {
+  matchHostProxyPath,
+  proxyHostWebSocket,
+  registerHostProxyRoutes,
+} from './services/hosts/hostProxy';
 import { ConnectionRegistry, type IConnectionRegistry } from './transport/ws/connectionRegistry';
 import { registerWsDebug, WS_DEBUG_PATH } from './transport/ws/debug/registerWsDebug';
+import { startUnixRpcServer } from './transport/stdioRpc';
 import type { ConfigWarningItem } from './transport/ws/v1/events';
 import { registerWsV1, WS_PATH as WS_PATH_V1 } from './transport/ws/v1/registerWsV1';
 import { SessionEventBroadcaster } from './transport/ws/v1/sessionEventBroadcaster';
@@ -128,6 +139,7 @@ export interface ServerStartOptions {
   readonly webAssetsDir?: string;
   readonly serverVersion?: string;
   readonly telemetry?: boolean;
+  readonly managedIdleExitMs?: number;
 }
 
 export interface RunningServer {
@@ -150,9 +162,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const homeDir = resolveKimiHome(opts.homeDir);
   const serverVersion = opts.serverVersion ?? getServerVersion();
   const idleReclaimMs = resolveSessionIdleReclaimMs(opts.env ?? process.env);
-  const registry = createInstanceRegistry({
-    instancesDir: opts.instancesDir ?? join(homeDir, 'server', 'instances'),
-  });
+  const disableAuth = opts.disableAuth === true || opts.socketPath !== undefined;
   const exposureClass = classify(host, { bindClass: opts.bindClass });
   if (exposureClass !== 'loopback' && opts.insecureNoTls !== true) {
     throw new Error(
@@ -191,16 +201,20 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   }
   const validateCredential = createCredentialValidator(authTokenService, opts.rpcToken);
   const registration: InstanceRegistration =
-    opts.skipInstanceRegistry === true
-      ? { serverId: 'skipped', update: async () => {}, release: async () => {} }
-      : await registry.register({
-          pid: process.pid,
-          host,
-          port,
-          startedAt: Date.now(),
-          serverVersion,
-          product: opts.hostIdentity.productName,
-        });
+    opts.socketPath !== undefined
+      ? { serverId: 'socket', update: async () => {}, release: async () => {} }
+      : opts.skipInstanceRegistry === true
+        ? { serverId: 'skipped', update: async () => {}, release: async () => {} }
+        : await createInstanceRegistry({
+            instancesDir: opts.instancesDir ?? join(homeDir, 'server', 'instances'),
+          }).register({
+            pid: process.pid,
+            host,
+            port,
+            startedAt: Date.now(),
+            serverVersion,
+            product: opts.hostIdentity.productName,
+          });
   const logging = resolveLoggingConfig({ homeDir, env: process.env });
   let boundPort = port;
   const localOriginHost = host.includes(':') ? `[${host}]` : host;
@@ -341,12 +355,12 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const allowedOrigins = opts.corsOrigins ?? parseCorsOrigins();
   app.addHook('onRequest', hostCheck.onRequest);
   app.addHook('onRequest', createOriginHook({ allowedOrigins }));
-  if (opts.disableAuth !== true) {
+  if (!disableAuth) {
     app.addHook(
       'onRequest',
       createAuthHook(authTokenService, { limiter: authFailureLimiter, validateCredential }),
     );
-  } else {
+  } else if (opts.disableAuth === true) {
     logger.warn(
       { host, exposureClass },
       'DANGEROUS: bearer-token auth is DISABLED (--dangerous-bypass-auth) — every REST and WebSocket route accepts unauthenticated requests',
@@ -357,7 +371,9 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   }
 
   let remoteEnvironmentProvider: { dispose(): Promise<void> } | undefined;
+  let rpcServer: { close(): Promise<void> } | undefined;
   const close = async (): Promise<void> => {
+    await rpcServer?.close();
     if (wssDebug !== undefined) {
       for (const client of wssDebug.clients) client.terminate();
     }
@@ -370,6 +386,12 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     capabilityInstallSubscription.dispose();
     authFailureLimiter?.dispose();
     modelCatalogRefreshScheduler.dispose();
+    if (hostNotifyTimer !== undefined) {
+      clearTimeout(hostNotifyTimer);
+      hostNotifyTimer = undefined;
+    }
+    await managedIdleExit?.close();
+    hostBridges.close();
     await sessionIdleReaper.close();
     try {
       await shutdownServerTelemetry(telemetry);
@@ -386,7 +408,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       const appendLogStore = core.accessor.get(IAppendLogStore);
       legacyAcpBindingSubscription?.dispose();
       await remoteEnvironmentProvider?.dispose();
-      hostBridges.close();
       core.dispose();
       await core.instantiation.disposeAsync();
       await appendLogStore.drainRetirements();
@@ -406,7 +427,27 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   };
 
   const connectionRegistry = new ConnectionRegistry();
-  const hostBridges = new HostBridgeManager(core);
+  let notifyHosts = (): void => {};
+  let hostNotifyTimer: ReturnType<typeof setTimeout> | undefined;
+  const hostBridges = new HostBridgeManager(core, () => notifyHosts());
+  const requestClose = (): void => {
+    void close().catch((error: unknown) => logger.error({ err: error }, 'server close failed'));
+  };
+  const sessionManager = core.accessor.get(ISessionManager);
+  const drainIdleSessions = async (): Promise<boolean> => {
+    if (connectionRegistry.size() > 0) return false;
+    await closeIdleSessions(sessionManager, 0);
+    return connectionRegistry.size() === 0 && sessionManager.list().length === 0;
+  };
+  const managedIdleExit =
+    opts.managedBy === undefined
+      ? undefined
+      : new ManagedIdleExit(
+          sessionManager,
+          connectionRegistry,
+          opts.managedIdleExitMs ?? DEFAULT_MANAGED_IDLE_EXIT_MS,
+          requestClose,
+        );
   const transcriptService = new TranscriptService({ homeDir, core, logger });
   const conversations = new ConversationService(core);
   const sessionRating = createServerSessionRating(core, { debugEndpoints, logger });
@@ -416,6 +457,14 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     transcriptService,
     conversations,
   });
+  notifyHosts = () => {
+    if (hostNotifyTimer !== undefined) clearTimeout(hostNotifyTimer);
+    hostNotifyTimer = setTimeout(() => {
+      hostNotifyTimer = undefined;
+      broadcaster.publishHostChanged(hostSnapshots(hostBridges));
+    }, 10);
+    hostNotifyTimer.unref?.();
+  };
 
   const configService = core.accessor.get(IConfigService);
   const publishConfigWarnings = (diagnostics: readonly ConfigDiagnostic[]): void => {
@@ -509,15 +558,16 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       devices: remoteControlDevices,
       homeDir,
       staticEnableError:
-        exposureClass !== 'loopback'
-          ? 'Remote Control requires a loopback host.'
-          : opts.disableAuth === true
-            ? 'Remote Control cannot be combined with --dangerous-bypass-auth.'
-            : undefined,
+        opts.socketPath !== undefined
+          ? 'Remote Control requires a TCP listener.'
+          : exposureClass !== 'loopback'
+            ? 'Remote Control requires a loopback host.'
+            : opts.disableAuth === true
+              ? 'Remote Control cannot be combined with --dangerous-bypass-auth.'
+              : undefined,
     },
-    onShutdown: () => {
-      void close().catch((error: unknown) => logger.error({ err: error }, 'server close failed'));
-    },
+    onShutdown: requestClose,
+    drainIdleSessions,
     connectionRegistry,
     broadcaster,
     conversations,
@@ -525,6 +575,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     hosts: hostBridges,
     sessionRating,
     dangerousBypassAuth: opts.disableAuth === true,
+    managedHost: opts.managedBy === 'ensure-daemon',
     webTitle: opts.webTitle,
     });
   } catch (error) {
@@ -550,7 +601,8 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     const isV1 = url === WS_PATH_V1 || url.startsWith(`${WS_PATH_V1}?`);
     const isDebug = url === WS_DEBUG_PATH || url.startsWith(`${WS_DEBUG_PATH}?`);
     const wss = isV1 ? wssV1 : isDebug ? wssDebug : undefined;
-    if (wss === undefined) {
+    const hostProxyTarget = matchHostProxyPath(url);
+    if (wss === undefined && hostProxyTarget === undefined) {
       socket.destroy();
       return;
     }
@@ -615,6 +667,11 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     }
 
     (socket as Socket).setNoDelay(true);
+    if (wss === undefined) {
+      await proxyHostWebSocket(hostBridges, hostProxyTarget!, req, socket, head);
+      return;
+    }
+    if (isV1) hostBridges.activate();
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   };
   app.server.on('upgrade', (req, socket, head) => {
@@ -629,6 +686,8 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     wssDebug?.close();
     await broadcaster.close();
   });
+
+  registerHostProxyRoutes(app, hostBridges);
 
   app.get('/asyncapi.json', async (_req, reply) => {
     return reply
@@ -645,22 +704,27 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     if (opts.webAssetsDir !== undefined) {
       registerWebAssetRoutes(app, opts.webAssetsDir);
     }
-    await listenWithPortRetry({
-      listen: (h, p) => app.listen({ host: h, port: p }),
-      host,
-      port,
-      logger,
-    });
+    if (opts.socketPath !== undefined) {
+      await app.ready();
+      rpcServer = await startUnixRpcServer(opts.socketPath, { app, wssV1, wssDebug });
+      boundPort = 0;
+    } else {
+      await listenWithPortRetry({
+        listen: (h, p) => app.listen({ host: h, port: p }),
+        host,
+        port,
+        logger,
+      });
+      const address = app.server.address();
+      boundPort = typeof address === 'object' && address !== null ? address.port : port;
+      await registration.update({ port: boundPort });
+    }
   } catch (error) {
     try {
       await close();
     } catch {}
     throw error;
   }
-
-  const address = app.server.address();
-  boundPort = typeof address === 'object' && address !== null ? address.port : port;
-  await registration.update({ port: boundPort });
 
   void modelCatalogRefreshScheduler.start().catch((error) => {
     logger.warn(
@@ -669,6 +733,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     );
   });
   sessionIdleReaper.start();
+  managedIdleExit?.start();
 
   process.on('unhandledRejection', onUnhandledRejection);
   process.on('uncaughtException', onUncaughtException);

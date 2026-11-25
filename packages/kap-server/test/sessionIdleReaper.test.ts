@@ -3,6 +3,7 @@ import { describe, expect, it, jest } from 'bun:test';
 import type { ISessionManager, ISessionScopeHandle } from '@moonshot-ai/agent-core-v2';
 
 import type { ServerLogger } from '../src/services/pinoLoggerService';
+import { ManagedIdleExit } from '../src/services/managedIdleExit';
 import {
   DEFAULT_SESSION_IDLE_RECLAIM_MS,
   SESSION_IDLE_RECLAIM_ENV,
@@ -49,6 +50,24 @@ describe('SessionIdleReaper', () => {
     }
   });
 
+  it('stops visiting sessions after close', async () => {
+    const sessions = fakeSessions(['s1', 's2']);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    sessions.impl = async () => {
+      await gate;
+      return true;
+    };
+    const reaper = new SessionIdleReaper(sessions.manager, fakeLogger(), 1000);
+    const first = reaper.sweep();
+    const closing = reaper.close();
+    release();
+    await Promise.all([first, closing]);
+    expect(sessions.calls).toEqual(['s1']);
+  });
+
   it('does not re-enter a running sweep, and close waits for it', async () => {
     jest.useFakeTimers();
     try {
@@ -82,5 +101,72 @@ describe('SessionIdleReaper', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('ManagedIdleExit', () => {
+  function setup(
+    state: { sessions: number; connections: number },
+    closeIfIdle: (id: string) => Promise<boolean> = async () => false,
+  ) {
+    let now = 0;
+    const onIdle = jest.fn();
+    const exit = new ManagedIdleExit(
+      {
+        list: () =>
+          Array.from(
+            { length: state.sessions },
+            (_, index) => ({ id: `s${index}` }) as ISessionScopeHandle,
+          ),
+        closeIfIdle,
+      },
+      { size: () => state.connections },
+      1000,
+      onIdle,
+      () => now,
+    );
+    return { exit, onIdle, advance: (ms: number) => (now += ms) };
+  }
+
+  it('fires once after the idle window with no sessions and no connections', async () => {
+    const { exit, onIdle, advance } = setup({ sessions: 0, connections: 0 });
+    advance(999);
+    await exit.sweep();
+    expect(onIdle).not.toHaveBeenCalled();
+    advance(1);
+    await exit.sweep();
+    await exit.sweep();
+    expect(onIdle).toHaveBeenCalledTimes(1);
+  });
+
+  it('restarts the idle window while a session or connection is live', async () => {
+    const state = { sessions: 1, connections: 0 };
+    const { exit, onIdle, advance } = setup(state);
+    advance(5000);
+    await exit.sweep();
+    state.sessions = 0;
+    state.connections = 1;
+    advance(5000);
+    await exit.sweep();
+    state.connections = 0;
+    advance(999);
+    await exit.sweep();
+    expect(onIdle).not.toHaveBeenCalled();
+    advance(1);
+    await exit.sweep();
+    expect(onIdle).toHaveBeenCalledTimes(1);
+  });
+
+  it('unloads idle sessions before measuring the idle window', async () => {
+    const state = { sessions: 1, connections: 0 };
+    const { exit, onIdle, advance } = setup(state, async () => {
+      state.sessions = 0;
+      return true;
+    });
+    await exit.sweep();
+    expect(onIdle).not.toHaveBeenCalled();
+    advance(1000);
+    await exit.sweep();
+    expect(onIdle).toHaveBeenCalledTimes(1);
   });
 });

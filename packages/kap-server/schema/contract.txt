@@ -12,6 +12,13 @@ DELETE /api/v1/files/{file_id} response 200: object closed
 DELETE /api/v1/files/{file_id}: operation
 DELETE /api/v1/hosts/{id} param path:id: string
 DELETE /api/v1/hosts/{id} response 200: shape 9526339b
+DELETE /api/v1/hosts/{id}/proxy param path:id: string
+DELETE /api/v1/hosts/{id}/proxy response 200: any
+DELETE /api/v1/hosts/{id}/proxy/{*} param path:*: string
+DELETE /api/v1/hosts/{id}/proxy/{*} param path:id: string
+DELETE /api/v1/hosts/{id}/proxy/{*} response 200: any
+DELETE /api/v1/hosts/{id}/proxy/{*}: operation
+DELETE /api/v1/hosts/{id}/proxy: operation
 DELETE /api/v1/hosts/{id}: operation
 DELETE /api/v1/mcp/servers/{name} param path:name: string minLength=1
 DELETE /api/v1/mcp/servers/{name} param query:cwd: string minLength=1 optional
@@ -321,6 +328,13 @@ GET /api/v1/hosts response 200.details: any optional
 GET /api/v1/hosts response 200.msg: string
 GET /api/v1/hosts response 200.request_id: string
 GET /api/v1/hosts response 200: object closed
+GET /api/v1/hosts/{id}/proxy param path:id: string
+GET /api/v1/hosts/{id}/proxy response 200: any
+GET /api/v1/hosts/{id}/proxy/{*} param path:*: string
+GET /api/v1/hosts/{id}/proxy/{*} param path:id: string
+GET /api/v1/hosts/{id}/proxy/{*} response 200: any
+GET /api/v1/hosts/{id}/proxy/{*}: operation
+GET /api/v1/hosts/{id}/proxy: operation
 GET /api/v1/hosts: operation
 GET /api/v1/hosts:ssh-hosts response 200.code: enum 0
 GET /api/v1/hosts:ssh-hosts response 200.data.config_path: string
@@ -770,7 +784,7 @@ GET /api/v1/sessions response 200<code=0>.data: anyOf
 GET /api/v1/sessions response 200<code=0>.data<#0>.has_more: boolean
 GET /api/v1/sessions response 200<code=0>.data<#0>.items: array
 GET /api/v1/sessions response 200<code=0>.data<#0>.items[]: anyOf
-GET /api/v1/sessions response 200<code=0>.data<#0>.items[]<#0>: shape bcc4062c
+GET /api/v1/sessions response 200<code=0>.data<#0>.items[]<#0>: shape 1b05d0ee
 GET /api/v1/sessions response 200<code=0>.data<#0>.items[]<#1>.archived: boolean
 GET /api/v1/sessions response 200<code=0>.data<#0>.items[]<#1>.host_id: string optional
 GET /api/v1/sessions response 200<code=0>.data<#0>.items[]<#1>.id: string minLength=1
@@ -784,7 +798,7 @@ GET /api/v1/sessions response 200<code=0>.data<#1>.groups: array
 GET /api/v1/sessions response 200<code=0>.data<#1>.groups[].host_id: string optional
 GET /api/v1/sessions response 200<code=0>.data<#1>.groups[].sessions: array
 GET /api/v1/sessions response 200<code=0>.data<#1>.groups[].sessions[]: anyOf
-GET /api/v1/sessions response 200<code=0>.data<#1>.groups[].sessions[]<#0>: shape bcc4062c
+GET /api/v1/sessions response 200<code=0>.data<#1>.groups[].sessions[]<#0>: shape 1b05d0ee
 GET /api/v1/sessions response 200<code=0>.data<#1>.groups[].sessions[]<#1>.archived: boolean
 GET /api/v1/sessions response 200<code=0>.data<#1>.groups[].sessions[]<#1>.host_id: string optional
 GET /api/v1/sessions response 200<code=0>.data<#1>.groups[].sessions[]<#1>.id: string minLength=1
@@ -818,7 +832,7 @@ GET /api/v1/sessions response 200<code=50005>: object closed
 GET /api/v1/sessions/{session_id} param path:session_id: string minLength=1
 GET /api/v1/sessions/{session_id} param query:hosts: enum "include" optional
 GET /api/v1/sessions/{session_id} response 200: oneOf
-GET /api/v1/sessions/{session_id} response 200<code=0>: shape 42fad5b3
+GET /api/v1/sessions/{session_id} response 200<code=0>: shape 2bf03d48
 GET /api/v1/sessions/{session_id} response 200<code=40001>: shape d4845858
 GET /api/v1/sessions/{session_id} response 200<code=40401>: shape 2bda561c
 GET /api/v1/sessions/{session_id} response 200<code=40940>: shape b0ef3a47
@@ -1058,7 +1072,7 @@ GET /api/v1/sessions/{session_id}/children response 200: oneOf
 GET /api/v1/sessions/{session_id}/children response 200<code=0>.code: enum 0
 GET /api/v1/sessions/{session_id}/children response 200<code=0>.data.has_more: boolean
 GET /api/v1/sessions/{session_id}/children response 200<code=0>.data.items: array
-GET /api/v1/sessions/{session_id}/children response 200<code=0>.data.items[]: shape bcc4062c
+GET /api/v1/sessions/{session_id}/children response 200<code=0>.data.items[]: shape 1b05d0ee
 GET /api/v1/sessions/{session_id}/children response 200<code=0>.data: object closed
 GET /api/v1/sessions/{session_id}/children response 200<code=0>.details: any optional
 GET /api/v1/sessions/{session_id}/children response 200<code=0>.msg: string
@@ -1469,7 +1483,7 @@ GET /api/v1/sessions/{session_id}/messages/{message_id}: operation
 GET /api/v1/sessions/{session_id}/messages: operation
 GET /api/v1/sessions/{session_id}/profile param path:session_id: string minLength=1
 GET /api/v1/sessions/{session_id}/profile response 200: oneOf
-GET /api/v1/sessions/{session_id}/profile response 200<code=0>: shape 42fad5b3
+GET /api/v1/sessions/{session_id}/profile response 200<code=0>: shape 2bf03d48
 GET /api/v1/sessions/{session_id}/profile response 200<code=40001>: shape d4845858
 GET /api/v1/sessions/{session_id}/profile response 200<code=40401>: shape 2bda561c
 GET /api/v1/sessions/{session_id}/profile: operation
@@ -1981,6 +1995,13 @@ GET /asyncapi.json response 200: any
 GET /asyncapi.json: operation
 GET /openapi.json response 200: any
 GET /openapi.json: operation
+HEAD /api/v1/hosts/{id}/proxy param path:id: string
+HEAD /api/v1/hosts/{id}/proxy response 200: any
+HEAD /api/v1/hosts/{id}/proxy/{*} param path:*: string
+HEAD /api/v1/hosts/{id}/proxy/{*} param path:id: string
+HEAD /api/v1/hosts/{id}/proxy/{*} response 200: any
+HEAD /api/v1/hosts/{id}/proxy/{*}: operation
+HEAD /api/v1/hosts/{id}/proxy: operation
 PATCH /api/v1/feedback/{feedback_id} param path:feedback_id: integer maximum=9007199254740991 exclusiveMinimum=0
 PATCH /api/v1/feedback/{feedback_id} request: oneOf
 PATCH /api/v1/feedback/{feedback_id} request<#0>.content: string minLength=1 maxLength=2000 optional
@@ -2005,6 +2026,13 @@ PATCH /api/v1/feedback/{feedback_id} response 200<code=40112>: shape fa735462
 PATCH /api/v1/feedback/{feedback_id} response 200<code=40936>: shape 9bd41b04
 PATCH /api/v1/feedback/{feedback_id} response 200<code=50001>: shape c8fef53e
 PATCH /api/v1/feedback/{feedback_id}: operation
+PATCH /api/v1/hosts/{id}/proxy param path:id: string
+PATCH /api/v1/hosts/{id}/proxy response 200: any
+PATCH /api/v1/hosts/{id}/proxy/{*} param path:*: string
+PATCH /api/v1/hosts/{id}/proxy/{*} param path:id: string
+PATCH /api/v1/hosts/{id}/proxy/{*} response 200: any
+PATCH /api/v1/hosts/{id}/proxy/{*}: operation
+PATCH /api/v1/hosts/{id}/proxy: operation
 PATCH /api/v1/remote-control/devices/{id} param path:id: string minLength=1
 PATCH /api/v1/remote-control/devices/{id} request.alias: string minLength=1 maxLength=50
 PATCH /api/v1/remote-control/devices/{id} request: object closed
@@ -2393,6 +2421,13 @@ POST /api/v1/gui/store/setItem response 200: oneOf
 POST /api/v1/gui/store/setItem response 200<code=0>: shape bd9a967a
 POST /api/v1/gui/store/setItem response 200<code=40001>: shape a642160a
 POST /api/v1/gui/store/setItem: operation
+POST /api/v1/hosts/{id}/proxy param path:id: string
+POST /api/v1/hosts/{id}/proxy response 200: any
+POST /api/v1/hosts/{id}/proxy/{*} param path:*: string
+POST /api/v1/hosts/{id}/proxy/{*} param path:id: string
+POST /api/v1/hosts/{id}/proxy/{*} response 200: any
+POST /api/v1/hosts/{id}/proxy/{*}: operation
+POST /api/v1/hosts/{id}/proxy: operation
 POST /api/v1/hosts:connect request.id: string
 POST /api/v1/hosts:connect request: object closed
 POST /api/v1/hosts:connect response 200: oneOf
@@ -3057,7 +3092,7 @@ POST /api/v1/sessions request.workspace_id: string pattern="^wd_[a-z0-9._-]+_[0-
 POST /api/v1/sessions request.workspace_root: string minLength=1 optional
 POST /api/v1/sessions request: object closed
 POST /api/v1/sessions response 200: oneOf
-POST /api/v1/sessions response 200<code=0>: shape 42fad5b3
+POST /api/v1/sessions response 200<code=0>: shape 2bf03d48
 POST /api/v1/sessions response 200<code=40001>: shape d4845858
 POST /api/v1/sessions response 200<code=40113>: shape ffc7e294
 POST /api/v1/sessions response 200<code=40409>: shape 197643f0
@@ -3114,7 +3149,7 @@ POST /api/v1/sessions/{session_id}/children request.metadata{*}: any optional
 POST /api/v1/sessions/{session_id}/children request.title: string minLength=1 optional
 POST /api/v1/sessions/{session_id}/children request: object closed
 POST /api/v1/sessions/{session_id}/children response 200: oneOf
-POST /api/v1/sessions/{session_id}/children response 200<code=0>: shape 42fad5b3
+POST /api/v1/sessions/{session_id}/children response 200<code=0>: shape 2bf03d48
 POST /api/v1/sessions/{session_id}/children response 200<code=40001>: shape d4845858
 POST /api/v1/sessions/{session_id}/children response 200<code=40401>: shape 2bda561c
 POST /api/v1/sessions/{session_id}/children response 200<code=40901>: shape e90ff74c
@@ -3251,7 +3286,7 @@ POST /api/v1/sessions/{session_id}/profile request.permission_rules[]: object
 POST /api/v1/sessions/{session_id}/profile request.title: string minLength=1 optional
 POST /api/v1/sessions/{session_id}/profile request: object closed
 POST /api/v1/sessions/{session_id}/profile response 200: oneOf
-POST /api/v1/sessions/{session_id}/profile response 200<code=0>: shape 42fad5b3
+POST /api/v1/sessions/{session_id}/profile response 200<code=0>: shape 2bf03d48
 POST /api/v1/sessions/{session_id}/profile response 200<code=40001>: shape d4845858
 POST /api/v1/sessions/{session_id}/profile response 200<code=40113>: shape ffc7e294
 POST /api/v1/sessions/{session_id}/profile response 200<code=40401>: shape 2bda561c
@@ -3785,14 +3820,14 @@ POST /api/v1/sessions/{session_id}:cancel request: shape 7c23f6b3
 POST /api/v1/sessions/{session_id}:cancel response 200: oneOf
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.code: enum 0
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data: anyOf
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#0>: shape bcc4062c
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#0>: shape 1b05d0ee
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>.taken_over: enum true
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>: object closed
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions: array
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions[]: oneOf
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions[]<#0>: shape fcc13a7e
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions[]<#1>: shape 38d41acb
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.session: shape bcc4062c
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.session: shape 1b05d0ee
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.timed_out: boolean
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>: object closed
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#1>: object closed
@@ -3950,14 +3985,14 @@ POST /api/v1/sessions/{session_id}:wait request: shape 7c23f6b3
 POST /api/v1/sessions/{session_id}:wait response 200: oneOf
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.code: enum 0
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data: anyOf
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#0>: shape bcc4062c
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#0>: shape 1b05d0ee
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>.taken_over: enum true
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>: object closed
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions: array
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions[]: oneOf
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions[]<#0>: shape fcc13a7e
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions[]<#1>: shape 38d41acb
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.session: shape bcc4062c
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.session: shape 1b05d0ee
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.timed_out: boolean
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>: object closed
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#1>: object closed
@@ -4093,7 +4128,14 @@ POST /api/v1/sessions:restore response 200<code=0>.request_id: string
 POST /api/v1/sessions:restore response 200<code=0>: object closed
 POST /api/v1/sessions:restore response 200<code=40001>: shape d4845858
 POST /api/v1/sessions:restore: operation
-POST /api/v1/shutdown response 200: shape 9526339b
+POST /api/v1/shutdown param query:if_idle: enum "false"|"true" optional
+POST /api/v1/shutdown response 200.code: enum 0
+POST /api/v1/shutdown response 200.data.ok: boolean
+POST /api/v1/shutdown response 200.data: object closed
+POST /api/v1/shutdown response 200.details: any optional
+POST /api/v1/shutdown response 200.msg: string
+POST /api/v1/shutdown response 200.request_id: string
+POST /api/v1/shutdown response 200: object closed
 POST /api/v1/shutdown: operation
 POST /api/v1/workspace/fs:list request.allow_external_symlinks: boolean optional
 POST /api/v1/workspace/fs:list request.allow_ignored_globs: array optional
@@ -4248,6 +4290,13 @@ PUT /api/v1/hosts/{id} request: object closed
 PUT /api/v1/hosts/{id} response 200: oneOf
 PUT /api/v1/hosts/{id} response 200<code=0>: shape 9526339b
 PUT /api/v1/hosts/{id} response 200<code=40001>: shape a642160a
+PUT /api/v1/hosts/{id}/proxy param path:id: string
+PUT /api/v1/hosts/{id}/proxy response 200: any
+PUT /api/v1/hosts/{id}/proxy/{*} param path:*: string
+PUT /api/v1/hosts/{id}/proxy/{*} param path:id: string
+PUT /api/v1/hosts/{id}/proxy/{*} response 200: any
+PUT /api/v1/hosts/{id}/proxy/{*}: operation
+PUT /api/v1/hosts/{id}/proxy: operation
 PUT /api/v1/hosts/{id}: operation
 PUT /api/v1/mcp/servers/{name} param path:name: string minLength=1
 PUT /api/v1/mcp/servers/{name} param query:cwd: string minLength=1 optional
@@ -4592,6 +4641,20 @@ ws server message session_event.payload<event.config.warning>.warnings[].domain:
 ws server message session_event.payload<event.config.warning>.warnings[].message: string
 ws server message session_event.payload<event.config.warning>.warnings[]: object
 ws server message session_event.payload<event.config.warning>: object
+ws server message session_event.payload<event.host.changed>.hosts: array
+ws server message session_event.payload<event.host.changed>.hosts[].connect_error: string optional
+ws server message session_event.payload<event.host.changed>.hosts[].connect_failure: string optional
+ws server message session_event.payload<event.host.changed>.hosts[].enabled: boolean optional
+ws server message session_event.payload<event.host.changed>.hosts[].host: string
+ws server message session_event.payload<event.host.changed>.hosts[].id: string
+ws server message session_event.payload<event.host.changed>.hosts[].identity_file: string optional
+ws server message session_event.payload<event.host.changed>.hosts[].name: string optional
+ws server message session_event.payload<event.host.changed>.hosts[].remote_bin: string optional
+ws server message session_event.payload<event.host.changed>.hosts[].remote_version: string optional
+ws server message session_event.payload<event.host.changed>.hosts[].status: enum "connecting"|"disconnected"|"pending"|"ready"
+ws server message session_event.payload<event.host.changed>.hosts[]: object
+ws server message session_event.payload<event.host.changed>.type: const "event.host.changed"
+ws server message session_event.payload<event.host.changed>: object
 ws server message session_event.payload<event.model_catalog.changed>.changed: array
 ws server message session_event.payload<event.model_catalog.changed>.changed[].added: integer minimum=0 maximum=9007199254740991
 ws server message session_event.payload<event.model_catalog.changed>.changed[].provider_id: string minLength=1
@@ -4871,6 +4934,37 @@ shape 197643f0.data: enum null nullable
 shape 197643f0.details: any optional
 shape 197643f0.msg: string
 shape 197643f0.request_id: string
+shape 1b05d0ee.activity: enum "background"|"idle"|"turn" optional
+shape 1b05d0ee.agent_config: shape fe7aee9c
+shape 1b05d0ee.archived: boolean optional
+shape 1b05d0ee.archived_at: any optional
+shape 1b05d0ee.busy: boolean
+shape 1b05d0ee.created_at: any
+shape 1b05d0ee.current_prompt_id: string minLength=1 optional
+shape 1b05d0ee.cwd: string
+shape 1b05d0ee.environment_cwd: string optional
+shape 1b05d0ee.environment_id: string optional
+shape 1b05d0ee.git.branch: string optional
+shape 1b05d0ee.git.pull_request: shape 1b0e86ef optional
+shape 1b05d0ee.git: object closed optional
+shape 1b05d0ee.host_id: string optional
+shape 1b05d0ee.id: string minLength=1
+shape 1b05d0ee.last_prompt: string optional
+shape 1b05d0ee.last_turn_outcome: enum "completed"|"failed"|"interrupted" optional
+shape 1b05d0ee.last_turn_reason: enum "cancelled"|"completed"|"failed" optional
+shape 1b05d0ee.main_turn_active: boolean optional
+shape 1b05d0ee.message_count: integer minimum=0 maximum=9007199254740991
+shape 1b05d0ee.metadata.cwd: string minLength=1
+shape 1b05d0ee.metadata: object
+shape 1b05d0ee.metadata{*}: any optional
+shape 1b05d0ee.pending_interaction: enum "approval"|"none"|"question" optional
+shape 1b05d0ee.permission_rules: array
+shape 1b05d0ee.permission_rules[]: shape 22fd3987
+shape 1b05d0ee.title: string
+shape 1b05d0ee.updated_at: any
+shape 1b05d0ee.usage: shape 888796cb
+shape 1b05d0ee.workspace_id: string pattern="^wd_[a-z0-9._-]+_[0-9a-f]{12}$|^wm_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+shape 1b05d0ee.workspace_root: string optional
 shape 1b0e86ef.number: integer minimum=-9007199254740991 maximum=9007199254740991
 shape 1b0e86ef.state: enum "closed"|"merged"|"open"
 shape 1b0e86ef.url: string
@@ -4918,6 +5012,11 @@ shape 2bda561c.data: enum null nullable
 shape 2bda561c.details: any optional
 shape 2bda561c.msg: string
 shape 2bda561c.request_id: string
+shape 2bf03d48.code: enum 0
+shape 2bf03d48.data: shape 1b05d0ee
+shape 2bf03d48.details: any optional
+shape 2bf03d48.msg: string
+shape 2bf03d48.request_id: string
 shape 350d689d.args: array optional
 shape 350d689d.args[]: string
 shape 350d689d.command: string minLength=1
@@ -4977,11 +5076,6 @@ shape 42acff5a.startupTimeoutMs: integer minimum=1 maximum=2147483647 optional
 shape 42acff5a.toolTimeoutMs: integer minimum=1 maximum=2147483647 optional
 shape 42acff5a.transport: enum "http"
 shape 42acff5a.url: string format uri
-shape 42fad5b3.code: enum 0
-shape 42fad5b3.data: shape bcc4062c
-shape 42fad5b3.details: any optional
-shape 42fad5b3.msg: string
-shape 42fad5b3.request_id: string
 shape 4360428a.at: string optional
 shape 4360428a.kind: enum "marker"
 shape 4360428a.marker: string
@@ -5286,37 +5380,6 @@ shape b7b0ee06.data: enum null nullable
 shape b7b0ee06.details: any optional
 shape b7b0ee06.msg: string
 shape b7b0ee06.request_id: string
-shape bcc4062c.activity: enum "background"|"idle"|"turn" optional
-shape bcc4062c.agent_config: shape fe7aee9c
-shape bcc4062c.archived: boolean optional
-shape bcc4062c.archived_at: any optional
-shape bcc4062c.busy: boolean
-shape bcc4062c.created_at: any
-shape bcc4062c.current_prompt_id: string minLength=1 optional
-shape bcc4062c.cwd: string
-shape bcc4062c.environment_cwd: string optional
-shape bcc4062c.environment_id: string optional
-shape bcc4062c.git.branch: string optional
-shape bcc4062c.git.pull_request: shape 1b0e86ef optional
-shape bcc4062c.git: object closed optional
-shape bcc4062c.host_id: string optional
-shape bcc4062c.id: string minLength=1
-shape bcc4062c.last_prompt: string optional
-shape bcc4062c.last_turn_outcome: enum "completed"|"failed"|"interrupted" optional
-shape bcc4062c.last_turn_reason: enum "cancelled"|"completed"|"failed" optional
-shape bcc4062c.main_turn_active: boolean optional
-shape bcc4062c.message_count: integer minimum=0 maximum=9007199254740991
-shape bcc4062c.metadata.cwd: string minLength=1
-shape bcc4062c.metadata: object
-shape bcc4062c.metadata{*}: any optional
-shape bcc4062c.pending_interaction: enum "approval"|"none"|"question" optional
-shape bcc4062c.permission_rules: array
-shape bcc4062c.permission_rules[]: shape 22fd3987
-shape bcc4062c.title: string
-shape bcc4062c.updated_at: any
-shape bcc4062c.usage: shape 888796cb
-shape bcc4062c.workspace_id: string pattern="^wd_[a-z0-9._-]+_[0-9a-f]{12}$|^wm_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-shape bcc4062c.workspace_root: string optional
 shape bd9a967a.code: enum 0
 shape bd9a967a.data: enum null nullable
 shape bd9a967a.details: any optional

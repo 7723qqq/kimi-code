@@ -1,5 +1,6 @@
 import {
   ConfigChanged,
+  IConfigRegistry,
   IConfigService,
   IEventService,
   type Scope,
@@ -19,6 +20,7 @@ export function startConfigChangedPublisher(
   clock: Clock = SYSTEM_CLOCK,
 ): ConfigChangedPublisher {
   const config = core.accessor.get(IConfigService);
+  const registry = core.accessor.get(IConfigRegistry);
   const events = core.accessor.get(IEventService);
   let closed = false;
   let timer: TimerHandle | undefined;
@@ -31,7 +33,7 @@ export function startConfigChangedPublisher(
     pending.clear();
     events.publish(
       new ConfigChanged({
-        payload: { changedFields, config: toConfigResponse(config.getAll()) },
+        payload: { changedFields, config: toConfigResponse(config.getAll(), registry) },
       }),
     );
   };

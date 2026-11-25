@@ -2545,9 +2545,6 @@ export default {
         '--remote-control cannot be combined with --dangerous-bypass-auth.',
       rcRequiresLoopbackHost: '--remote-control requires a loopback host.',
       jsonOptionConflict: '--json cannot be combined with {{option}}.',
-      // sub/web/deprecated-server.ts
-      deprecatedServerNotice:
-        '`kimi server` has been deprecated and no longer works.\nUse `kimi web` instead — it runs the local server in the foreground and opens the web UI (`--no-open` to skip).\nTo stop a server started by a version before 0.28.0, use `{{stopCmd}}`.\nThis notice will be removed in the next major version of Kimi Code.\n',
       // sub/web/legacy-kill.ts
       deprecatedKillNotice:
         '`{{stopCmd}}` is deprecated: it only stops servers started by a version before 0.28.0. Servers started by `kimi web` run in the foreground — stop them with Ctrl+C.\n',

@@ -2440,9 +2440,6 @@ export default {
       rcCannotCombineWithBypassAuth: '--remote-control 不能与 --dangerous-bypass-auth 同时使用。',
       rcRequiresLoopbackHost: '--remote-control 需要回环主机。',
       jsonOptionConflict: '--json 不能与 {{option}} 同时使用。',
-      // sub/web/deprecated-server.ts
-      deprecatedServerNotice:
-        '`kimi server` 已弃用，不再可用。\n请改用 `kimi web` — 它会在前台运行本地服务器并打开 Web UI（加 `--no-open` 可跳过）。\n如需停止 0.28.0 之前版本启动的服务器，请使用 `{{stopCmd}}`。\n本提示将在 Kimi Code 的下一个主版本中移除。\n',
       // sub/web/legacy-kill.ts
       deprecatedKillNotice:
         '`{{stopCmd}}` 已弃用：它只能停止 0.28.0 之前版本启动的服务器。由 `kimi web` 启动的服务器在前台运行 — 请用 Ctrl+C 停止。\n',

@@ -72,6 +72,7 @@ import { mapError } from '../../errors';
 import { ensureMainAgent } from '../../mainAgent';
 import type {
   ConfigWarningItem,
+  HostChangedEvent,
   ModelCatalogRefreshChange,
   ModelCatalogRefreshFailure,
   ModelCatalogRetiredDefault,
@@ -230,6 +231,17 @@ export class SessionEventBroadcaster {
 
   removeGlobalTarget(target: BroadcastTarget): void {
     this.globalTargets.delete(target);
+  }
+
+  publishHostChanged(hosts: HostChangedEvent['hosts']): void {
+    void this.dispatchGlobal({
+      type: 'event.host.changed',
+      hosts,
+      agentId: 'main',
+      sessionId: GLOBAL_SESSION_ID,
+    } as Event).catch((error: unknown) =>
+      this.logDispatchError(GLOBAL_SESSION_ID, 'event.host.changed', error),
+    );
   }
 
   async subscribe(
@@ -1452,6 +1464,7 @@ function isGlobalEvent(type: string): boolean {
     type.startsWith('event.model_catalog.') ||
     type.startsWith('event.plugin.') ||
     type.startsWith('event.capability.') ||
+    type.startsWith('event.host.') ||
     type.startsWith('event.di.')
   );
 }

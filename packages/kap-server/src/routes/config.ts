@@ -1,4 +1,11 @@
-import { ErrorCodes, IConfigService, isError2, type Scope } from '@moonshot-ai/agent-core-v2';
+import {
+  ErrorCodes,
+  IConfigRegistry,
+  IConfigService,
+  isError2,
+  type Scope,
+} from '@moonshot-ai/agent-core-v2';
+import { applySectionToToml } from '@moonshot-ai/agent-core-v2/app/config/toml';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
@@ -26,6 +33,7 @@ interface ConfigRouteHost {
 }
 
 export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
+  const registry = core.accessor.get(IConfigRegistry);
   const getRoute = defineRoute(
     {
       method: 'GET',
@@ -37,7 +45,7 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
     async (req, reply) => {
       const config = core.accessor.get(IConfigService);
       await config.ready;
-      reply.send(okEnvelope(toConfigResponse(config.getAll()), req.id));
+      reply.send(okEnvelope(toConfigResponse(config.getAll(), registry), req.id));
     },
   );
   app.get(
@@ -83,7 +91,7 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
           }
           applied.push(domain);
         }
-        const response = toConfigResponse(config.getAll());
+        const response = toConfigResponse(config.getAll(), registry);
         const changedFields = Object.keys(req.body as Record<string, unknown>);
         requestLog(req)?.info({ changedFields }, 'config updated');
         reply.send(okEnvelope(response, req.id));
@@ -112,9 +120,18 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
   );
 }
 
-export function toConfigResponse(resolved: Record<string, unknown>): ConfigResponse {
+export function toConfigResponse(
+  resolved: Record<string, unknown>,
+  registry: IConfigRegistry,
+): ConfigResponse {
   const wire: Record<string, unknown> = {};
   for (const [domain, value] of Object.entries(resolved)) {
+    let output = value;
+    if (domain === 'hosts') {
+      const section: Record<string, unknown> = {};
+      applySectionToToml(section, domain, value, registry);
+      output = section['hosts'];
+    }
     wire[camelToSnake(domain)] =
       domain === 'providers'
         ? toProviderResponses(value)
@@ -122,7 +139,7 @@ export function toConfigResponse(resolved: Record<string, unknown>): ConfigRespo
           ? toModelResponses(value)
           : domain === 'services'
             ? toServiceResponses(value)
-            : value;
+            : output;
   }
   const defaultPermissionMode = resolved['defaultPermissionMode'];
   if (typeof defaultPermissionMode === 'string') {

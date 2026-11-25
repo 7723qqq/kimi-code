@@ -9,15 +9,23 @@
 
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import * as childProcessModule from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 
+import { HOST_API_LEVEL, HOST_PROTOCOL_VERSION } from '@moonshot-ai/kap-server';
 import { resetCapabilitiesCache } from '@moonshot-ai/pi-tui';
 import chalk, { Chalk } from 'chalk';
 import { Command } from 'commander';
 
 import { registerWebCommand } from '#/cli/sub/web';
+import {
+  daemonSocketPath,
+  ensureDaemon,
+  type DaemonConnection,
+  type EnsureDaemonDeps,
+} from '#/cli/sub/web/ensure-daemon';
 import { type LegacyKillDeps } from '#/cli/sub/web/legacy-kill';
 import {
   type RemoteControlCloseReason,
@@ -129,6 +137,65 @@ describe('kimi web', () => {
     expect(longs).toContain('--open');
     expect(longs).toContain('--no-open');
     expect(longs).toContain('--json');
+  });
+
+  it('exposes the hidden socket options on both foreground commands', () => {
+    const program = makeProgram();
+    for (const name of ['web', 'server']) {
+      const command = program.commands.find((c) => c.name() === name);
+      expect(command).toBeDefined();
+      const longs = command!.options.map((option) => option.long).filter(Boolean);
+      expect(longs).toContain('--socket');
+      expect(longs).toContain('--managed-by');
+    }
+  });
+
+  it('runs `kimi server` with `open: false` by default and `kimi web` with `open: true`', async () => {
+    const program = makeProgram();
+    const server = program.commands.find((c) => c.name() === 'server');
+    const web = program.commands.find((c) => c.name() === 'web');
+    expect(server).toBeDefined();
+    expect(web).toBeDefined();
+    expect(server?.commands.map((c) => c.name()).toSorted()).toEqual([
+      'ensure-daemon',
+      'kill',
+      'rotate-token',
+    ]);
+    let parsedOpts: Record<string, unknown> | undefined;
+    server!.action((opts: Record<string, unknown>) => {
+      parsedOpts = opts;
+    });
+    web!.action((opts: Record<string, unknown>) => {
+      parsedOpts = opts;
+    });
+    await program.parseAsync(['node', 'kimi', 'server', '--port', '59000']);
+    expect(parsedOpts).toMatchObject({ port: '59000', open: false });
+
+    await program.parseAsync(['node', 'kimi', 'server', '--open']);
+    expect(parsedOpts).toMatchObject({ open: true });
+
+    await program.parseAsync(['node', 'kimi', 'web', '--port', '59001']);
+    expect(parsedOpts).toMatchObject({ port: '59001', open: true });
+  });
+
+  it('reports the host protocol from `kimi server ensure-daemon --probe` without starting a server', async () => {
+    const write = spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      await makeProgram().parseAsync(['node', 'kimi', 'server', 'ensure-daemon', '--probe']);
+      const line = String(write.mock.calls.at(-1)?.[0]);
+      expect(line.startsWith('__KIMI_ENSURE_DAEMON__')).toBe(true);
+      const payload = JSON.parse(line.slice('__KIMI_ENSURE_DAEMON__'.length)) as Record<
+        string,
+        unknown
+      >;
+      expect(payload).toEqual({
+        protocol: HOST_PROTOCOL_VERSION,
+        api_level: HOST_API_LEVEL,
+        version: expect.any(String),
+      });
+    } finally {
+      write.mockRestore();
+    }
   });
 });
 
@@ -1030,6 +1097,187 @@ describe('`kimi server kill` (deprecated, legacy servers only)', () => {
     await handleLegacyKillCommand(deps);
 
     expect(seenToken).toBeUndefined();
+  });
+});
+
+describe('`kimi server ensure-daemon`', () => {
+  let homeDir: string;
+
+  beforeEach(() => {
+    homeDir = mkdtempSync(join(tmpdir(), 'kimi-ensure-daemon-'));
+  });
+
+  afterEach(() => {
+    rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  function connection(overrides: Partial<DaemonConnection> = {}): DaemonConnection {
+    return {
+      stream: new PassThrough(),
+      version: '1.0.0',
+      stopIfIdle: async () => true,
+      close: () => {},
+      ...overrides,
+    };
+  }
+
+  function makeDeps(overrides: Partial<EnsureDaemonDeps> = {}): EnsureDaemonDeps {
+    return {
+      homeDir,
+      version: '1.0.0',
+      connectSocket: async () => connection(),
+      spawnServer: mock(),
+      wait: async () => {},
+      ...overrides,
+    };
+  }
+
+  it('reuses a live daemon socket of the same version without spawning', async () => {
+    const conn = connection();
+    const deps = makeDeps({ connectSocket: async () => conn });
+
+    await expect(ensureDaemon(deps)).resolves.toEqual({
+      version: '1.0.0',
+      stream: conn.stream,
+    });
+    expect(deps.spawnServer).not.toHaveBeenCalled();
+  });
+
+  it('spawns a new server when the socket is absent and waits until it connects', async () => {
+    let attempts = 0;
+    const spawned = connection();
+    const deps = makeDeps({
+      connectSocket: async () => {
+        attempts += 1;
+        return attempts >= 4 ? spawned : undefined;
+      },
+    });
+
+    await expect(ensureDaemon(deps)).resolves.toEqual({
+      version: '1.0.0',
+      stream: spawned.stream,
+    });
+    expect(deps.spawnServer).toHaveBeenCalledWith(
+      daemonSocketPath(homeDir),
+      join(homeDir, 'server', 'ensure-daemon.log'),
+      join(homeDir, 'server', 'forwarded-ssh-agent.sock'),
+    );
+  });
+
+  it('replaces an idle daemon of another version after its socket closes', async () => {
+    let state: 'old' | 'draining' | 'closed' | 'new' = 'old';
+    const stopIfIdle = mock(async () => {
+      state = 'draining';
+      return true;
+    });
+    const spawned = connection();
+    const deps = makeDeps({
+      connectSocket: async () => {
+        if (state === 'old') return connection({ version: '0.9.0', stopIfIdle });
+        if (state === 'draining') {
+          state = 'closed';
+          return connection({ version: '0.9.0' });
+        }
+        if (state === 'closed') return undefined;
+        return spawned;
+      },
+      spawnServer: mock(() => {
+        state = 'new';
+      }),
+    });
+
+    await expect(ensureDaemon(deps)).resolves.toMatchObject({ version: '1.0.0' });
+    expect(stopIfIdle).toHaveBeenCalledTimes(1);
+    expect(deps.spawnServer).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses to replace a daemon of another version that still has live work', async () => {
+    const deps = makeDeps({
+      connectSocket: async () =>
+        connection({ version: '0.9.0', stopIfIdle: async () => false }),
+    });
+
+    await expect(ensureDaemon(deps)).rejects.toMatchObject({ code: 'version_mismatch_busy' });
+    expect(deps.spawnServer).not.toHaveBeenCalled();
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'atomically updates the forwarded agent socket symlink when SSH_AUTH_SOCK is present',
+    async () => {
+      const agentSocket = join(homeDir, 'server', 'forwarded-ssh-agent.sock');
+      await ensureDaemon(makeDeps({ sshAuthSock: '/tmp/ssh-1/agent.100' }));
+      expect(lstatSync(agentSocket).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(agentSocket)).toBe('/tmp/ssh-1/agent.100');
+
+      await ensureDaemon(makeDeps({ sshAuthSock: '/tmp/ssh-2/agent.200' }));
+      expect(readlinkSync(agentSocket)).toBe('/tmp/ssh-2/agent.200');
+
+      await ensureDaemon(makeDeps({ sshAuthSock: undefined }));
+      expect(readlinkSync(agentSocket)).toBe('/tmp/ssh-2/agent.200');
+    },
+  );
+
+  it('releases the lock after a failure and clears dead or corrupted lock files', async () => {
+    const lockPath = join(homeDir, 'server', 'ensure-daemon.lock');
+    await expect(
+      ensureDaemon(
+        makeDeps({
+          connectSocket: async () =>
+            connection({ version: '0.9.0', stopIfIdle: async () => false }),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'version_mismatch_busy' });
+    expect(existsSync(lockPath)).toBe(false);
+
+    writeFileSync(lockPath, '999999999');
+    await expect(ensureDaemon(makeDeps())).resolves.toMatchObject({ version: '1.0.0' });
+    expect(existsSync(lockPath)).toBe(false);
+
+    writeFileSync(lockPath, '');
+    await expect(ensureDaemon(makeDeps())).resolves.toMatchObject({ version: '1.0.0' });
+    expect(existsSync(lockPath)).toBe(false);
+  });
+});
+
+describe('socket-mode foreground options', () => {
+  it('forwards --socket and --managed-by and skips the banner and the browser', async () => {
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    const { runner, calls } = makeRunner('unix:/tmp/kimi.sock');
+    const openUrl = mock();
+    const io = makeIo();
+
+    await handleWebCommand(
+      { socket: '/tmp/kimi.sock', managedBy: 'ensure-daemon', open: true },
+      {
+        startServerForeground: runner,
+        openUrl,
+        stdout: io.stdout,
+        stderr: io.stderr,
+        resolveToken: () => 'tok-xyz',
+      },
+    );
+
+    expect(calls.options).toMatchObject({
+      socketPath: '/tmp/kimi.sock',
+      managedBy: 'ensure-daemon',
+    });
+    expect(openUrl).not.toHaveBeenCalled();
+    expect(io.readStdout()).toBe('');
+  });
+
+  it('rejects --json together with --socket', async () => {
+    const { handleWebCommand } = await import('#/cli/sub/web/run');
+    await expect(
+      handleWebCommand(
+        { socket: '/tmp/kimi.sock', json: true },
+        {
+          startServerForeground: makeRunner().runner,
+          openUrl: mock(),
+          stdout: makeIo().stdout,
+          stderr: makeIo().stderr,
+        },
+      ),
+    ).rejects.toThrow(/--socket/);
   });
 });
 
