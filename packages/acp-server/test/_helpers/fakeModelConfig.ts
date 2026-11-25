@@ -14,6 +14,8 @@ export interface FakeModelConfigOptions {
   readonly altDefaultEffort?: string;
   readonly baseUrl?: string;
   readonly maxContextSize?: number;
+  readonly defaultPlanMode?: boolean;
+  readonly defaultPermissionMode?: 'manual' | 'yolo';
 }
 
 const configToml = (options?: FakeModelConfigOptions): string => {
@@ -34,7 +36,7 @@ const configToml = (options?: FakeModelConfigOptions): string => {
   const baseUrl = options?.baseUrl ?? 'http://localhost';
   const maxContextSize = options?.maxContextSize ?? 8192;
   return `defaultModel = "${FAKE_MODEL_ID}"
-
+${options?.defaultPlanMode === true ? 'default_plan_mode = true\n' : ''}${options?.defaultPermissionMode === undefined ? '' : `default_permission_mode = "${options.defaultPermissionMode}"\n`}
 [models.${FAKE_MODEL_ID}]
 name = "fake-model"
 protocol = "openai"

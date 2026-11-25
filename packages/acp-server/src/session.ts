@@ -209,6 +209,8 @@ export class AcpSession {
    * detection and `availableCommands()`. Seeded in `init()` and refreshed on
    * the klient `skills.changed` event.
    */
+  private readMode: (() => AcpModeId | undefined) | undefined;
+  private modeChangesInFlight = 0;
   private skills: readonly SkillSummary[] = [];
   /** The in-flight prompt's driver, if any. */
   private driver: TurnDriver | undefined;
@@ -293,9 +295,17 @@ export class AcpSession {
    * Subscribe the agent event stream and seed the config state. Must be
    * awaited before the first `prompt` so no early turn events are missed.
    */
-  async init(): Promise<void> {
+  async init(readMode?: () => AcpModeId | undefined): Promise<void> {
+    this.readMode = readMode;
+    this.currentModeId = readMode?.() ?? DEFAULT_MODE_ID;
     const events = this.agent.events;
     this.subscriptions.push(
+      events.on('agent.status.updated', (event) => {
+        if (this.modeChangesInFlight > 0) return;
+        if (typeof event['planMode'] !== 'boolean' && typeof event['permission'] !== 'string') return;
+        const mode = this.readMode?.();
+        if (mode !== undefined && mode !== this.currentModeId) void this.publishMode(mode);
+      }),
       events.on('assistant.delta', (event) => {
         this.dispatchTurnEvent(event.turnId, () => {
           this.onAssistantDelta(event);
@@ -1156,16 +1166,30 @@ export class AcpSession {
   /** Switch the ACP mode (plan mode + permission mode). */
   async setMode(id: AcpModeId): Promise<void> {
     const { plan, permission } = acpModeToToggles(id);
-    if (plan) {
-      await this.agent.enterPlan();
-    } else {
-      // KLIENT-GAP(plan): `exitPlan` (`planService.exit()`) is not on the
-      // klient surface; `cancelPlan` (`planModeCancel`) has the identical
-      // state effect (see `features/plan/planOps.ts`) — only the persisted op
-      // name differs.
-      await this.agent.cancelPlan();
+    let requestedMode: AcpModeId | undefined;
+    this.modeChangesInFlight += 1;
+    try {
+      if (plan) {
+        await this.agent.enterPlan();
+      } else {
+        // KLIENT-GAP(plan): `exitPlan` (`planService.exit()`) is not on the
+        // klient surface; `cancelPlan` (`planModeCancel`) has the identical
+        // state effect (see `features/plan/planOps.ts`) — only the persisted op
+        // name differs.
+        await this.agent.cancelPlan();
+      }
+      await this.agent.setPermission(permission);
+      requestedMode = id;
+    } finally {
+      this.modeChangesInFlight -= 1;
+      const mode = this.readMode?.() ?? requestedMode;
+      if (mode !== undefined && (requestedMode !== undefined || mode !== this.currentModeId)) {
+        await this.publishMode(mode);
+      }
     }
-    await this.agent.setPermission(permission);
+  }
+
+  private async publishMode(id: AcpModeId): Promise<void> {
     this.currentModeId = id;
     // Both notifications fire: `current_mode_update` serves clients reading
     // the first-class `modes` state, `config_option_update` serves clients

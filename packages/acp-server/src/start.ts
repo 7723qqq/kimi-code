@@ -21,10 +21,15 @@ import {
   drainSessionIndexMirror,
   drainSessionMetadataWrites,
   getLiveSessionById,
+  IAgentLifecycleService,
+  IAgentPermissionModeService,
+  IAgentStateService,
   IAppendLogStore,
   ISessionContext,
   ISessionIndexMirror,
   logSeed,
+  MAIN_AGENT_ID,
+  planKey,
   resolveConfigPath,
   resolveKimiHome,
   resolveLoggingConfig,
@@ -42,9 +47,10 @@ import { acpClientFromContext } from './acp-client';
 // connection.
 import { IAcpConnection } from './acp-fs';
 import './acp-terminal';
+import { DEFAULT_MODE_ID } from './modes';
 import { AcpServer, type AcpServerOptions, createAcpAgentApp } from './server';
 
-export interface RunAcpServerOptions extends AcpServerOptions {
+export interface RunAcpServerOptions extends Omit<AcpServerOptions, 'resolveSessionMode'> {
   readonly homeDir?: string;
   readonly configPath?: string;
   readonly input?: NodeJS.ReadableStream;
@@ -143,6 +149,15 @@ export async function runAcpServerWithStream(
     terminalAuthEnv: opts.terminalAuthEnv,
     terminalAuthLegacyCommand: opts.terminalAuthLegacyCommand,
     slashCommands: opts.slashCommands,
+    resolveSessionMode: (sessionId) => {
+      const session = getLiveSessionById(core.accessor, sessionId);
+      const main = session?.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
+      if (main === undefined) return undefined;
+      const states = main.accessor.get(IAgentStateService);
+      if (states.has(planKey) && states.get(planKey).active) return 'plan';
+      const permission = main.accessor.get(IAgentPermissionModeService).mode;
+      return permission === 'manual' ? DEFAULT_MODE_ID : permission;
+    },
     // Prompt-image compression persists originals into the session's own
     // media-originals dir (same resolution as kap-server's prompt route):
     // live session scope → `ISessionContext.sessionDir`. A session that is
