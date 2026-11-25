@@ -134,6 +134,7 @@ curl -sf "${ORIGIN}/api/v1/sessions/${SID}/agents/main/turns?page_size=5" \
 | `POST /api/v1/sessions/{session_id}:archive` / `:restore` / `:delete` / `:reload` / `:takeover` | `baseline` | Single-session lifecycle actions (plus batch `POST /api/v1/sessions:archive` & `:restore` by `ids`) |
 | `POST /api/v1/sessions/{session_id}/profile` & `/title/generate` | `baseline` | Update `title`, `metadata`, or `agent_config`, or generate a session title |
 | `GET /api/v1/sessions/{session_id}/agents/{agent_id}/turns` | `baseline` | Read turns (`before_ordinal?`, `page_size` <= 200; flushes live streaming items on read) |
+| `POST /api/v1/sessions/{session_id}/agents/{agent_id}:close` | `agent_close` | Close a side-channel (`btw`) agent and unregister it; the main agent cannot be closed |
 | `GET` / `POST /api/v1/sessions/{session_id}/prompts` | `baseline` | Read active/queued prompts or submit a prompt (`prompt_id`, `content`, setting overrides, `skills?`) |
 | `POST /api/v1/sessions/{session_id}/steer` & `/prompts:steer` & `/prompts/{prompt_id}:abort` | `baseline` | Steer mid-turn, promote queued prompts to steers, or abort a prompt |
 | `GET /api/v1/sessions/{session_id}/interactions` | `interactions_list` | List pending `approval` and `question` interactions (`{ items }`) |

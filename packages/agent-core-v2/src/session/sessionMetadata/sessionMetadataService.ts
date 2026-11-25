@@ -3,6 +3,7 @@ import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { LifecycleScope } from '#/app/scopes';
+import { Error2, ErrorCodes } from '#/errors';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
 import { LOCAL_ENVIRONMENT_ID, type EnvironmentBinding } from '#/environment/environment';
 import { buildSessionSummary } from '#/app/sessionIndex/sessionIndexSource';
@@ -199,8 +200,13 @@ export class SessionMetadata extends Service implements ISessionMetadata {
   async unregisterAgent(agentId: string): Promise<void> {
     return this.enqueueUpdate(async () => {
       await this.ready;
+      if (this.disposed) {
+        throw new Error2(ErrorCodes.SESSION_STALE, `session ${this.ctx.sessionId} metadata is disposed`);
+      }
       if (this.data.agents?.[agentId] === undefined) return;
-      if (!(await this.prepareWrite())) return;
+      if (!(await this.prepareWrite())) {
+        throw new Error2(ErrorCodes.SESSION_STALE, `session ${this.ctx.sessionId} metadata is disposed`);
+      }
       if (this.data.agents?.[agentId] === undefined) return;
       const { [agentId]: _removed, ...rest } = this.data.agents;
       await this.applyUpdate(
