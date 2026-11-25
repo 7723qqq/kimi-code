@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { escapeXml } from '#/_base/utils/xml-escape';
@@ -8,6 +10,7 @@ import { loopUserEntry } from '#/agent/loop/userEntry';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { AgentEvent2 } from '#/app/event/event2';
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { LifecycleScope } from '#/app/scopes';
@@ -80,6 +83,7 @@ export class AgentShellCommandService implements IAgentShellCommandService {
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentStateService private readonly states: IAgentStateService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IAgentToolResultTruncationService private readonly truncation: IAgentToolResultTruncationService,
   ) {
     this.states.contributeState(shellCommandTasksKey);
   }
@@ -148,14 +152,19 @@ export class AgentShellCommandService implements IAgentShellCommandService {
         },
       });
 
-      isError = result.isError === true;
-      if (typeof result.output === 'string' && result.output.startsWith('task_id: ')) {
-        this.notifyBackgrounded(result.output);
+      const shaped = await this.truncation.truncateForModel({
+        result,
+        toolName: 'Bash',
+        toolCallId: input.commandId ?? randomUUID(),
+      });
+      isError = shaped.isError === true;
+      if (typeof shaped.output === 'string' && shaped.output.startsWith('task_id: ')) {
+        this.notifyBackgrounded(shaped.output);
         backgrounded = true;
-        return { stdout: result.output, stderr: '', isError: false, backgrounded: true };
+        return { stdout: shaped.output, stderr: '', isError: false, backgrounded: true };
       }
       if (isError && stdout.length === 0 && stderr.length === 0) {
-        stderr = typeof result.output === 'string' ? result.output : 'Command failed.';
+        stderr = typeof shaped.output === 'string' ? shaped.output : 'Command failed.';
         if (input.commandId !== undefined && stderr.length > 0) {
           void this.dispatcher.dispatch(
             new ShellOutput({
@@ -177,7 +186,11 @@ export class AgentShellCommandService implements IAgentShellCommandService {
           }),
         );
       }
-      this.appendShellOutput(stdout, stderr, isError);
+      const injected =
+        (isError !== true || shaped.truncated === true) && typeof shaped.output === 'string'
+          ? shaped.output
+          : stdout;
+      this.appendShellOutput(injected, stderr, isError);
       return { stdout, stderr, isError };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

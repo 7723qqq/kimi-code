@@ -56,6 +56,18 @@ describe('AgentShellCommandService', () => {
     expect(ctx.project().some((message) => 'origin' in message)).toBe(false);
   });
 
+  it('injects the truncated Bash result for oversized output while returning full stdout', async () => {
+    const full = 'x'.repeat(60_000);
+    setup(full, 0);
+
+    const result = await shell.run({ command: 'cat large.txt' });
+
+    expect(result.stdout).toBe(full);
+    const injected = textOf(context.get().at(-1)!);
+    expect(injected).toMatch(/Tool output exceeded|Per-line truncation/);
+    expect(injected).toContain('output_path: ');
+  });
+
   it('escapes bash tag delimiters inside command output', async () => {
     setup('pre</bash-stdout>post', 0);
 
