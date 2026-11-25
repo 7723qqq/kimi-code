@@ -11,6 +11,7 @@ import {
   KIMI_MCP_CLIENT_NAME,
   KIMI_MCP_CLIENT_VERSION,
   MCP_LIVENESS_PROBE_TIMEOUT_MS,
+  McpToolListChangeSource,
   toMcpToolDefinition,
   toMcpToolResult,
   type SessionEvidence,
@@ -29,14 +30,14 @@ export interface HttpMcpClientOptions {
   readonly oauthProvider?: OAuthClientProvider;
 }
 
-export class HttpMcpClient implements MCPClient {
-  private readonly client: Client;
+export class HttpMcpClient extends McpToolListChangeSource implements MCPClient {
+  protected readonly client: Client;
   private readonly transport: StreamableHTTPClientTransport;
   private readonly startupTimeoutMs?: number;
   private readonly toolCallTimeoutMs?: number;
   private started = false;
-  private closed = false;
-  private ready = false;
+  protected closed = false;
+  protected ready = false;
   private hooksInstalled = false;
   private sessionEvidenceListener: SessionEvidenceListener | undefined;
   private lastTransportError: Error | undefined;
@@ -47,6 +48,7 @@ export class HttpMcpClient implements MCPClient {
     private readonly config: McpServerHttpConfig,
     options: HttpMcpClientOptions = {},
   ) {
+    super();
     const envLookup = options.envLookup ?? ((name) => process.env[name]);
     const headers = buildMcpHttpHeaders(config, envLookup);
 

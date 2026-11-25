@@ -156,6 +156,13 @@ type McpEntryEvent =
       readonly client?: RuntimeMcpClient;
     }
   | {
+      readonly type: 'toolsChanged';
+      readonly client: RuntimeMcpClient;
+      readonly tools: readonly Tool[];
+      readonly rawTools: readonly MCPToolDefinition[];
+      readonly enabledNames: ReadonlySet<string>;
+    }
+  | {
       readonly type: 'probeSucceeded';
       readonly attemptId: number;
       readonly client: RuntimeMcpClient;
@@ -509,7 +516,8 @@ export class McpConnectionManager implements McpConnectionView {
     if (plan === undefined) return;
     const automaticRetry = entry.state === 'connecting' && entry.failureStreak > 0;
     const before = toPublicEntry(entry);
-    const fromFamily = entry.state === 'connected' || entry.state === 'probing';
+    const previousState = entry.state;
+    const fromFamily = previousState === 'connected' || previousState === 'probing';
     const toFamily = plan.target === 'connected' || plan.target === 'probing';
     if (!(fromFamily && toFamily)) entry.attemptId += 1;
     if (fromFamily && !toFamily) {
@@ -533,6 +541,9 @@ export class McpConnectionManager implements McpConnectionView {
       entry.enabledNames = undefined;
       entry.connectedAt = undefined;
     }
+    if (plan.tools !== undefined) entry.tools = plan.tools;
+    if (plan.rawTools !== undefined) entry.rawTools = plan.rawTools;
+    if (plan.enabledNames !== undefined) entry.enabledNames = plan.enabledNames;
     entry.error = undefined;
     entry.nextRetryAt = undefined;
     if (plan.target !== 'connecting') entry.attemptPromise = undefined;
@@ -549,9 +560,6 @@ export class McpConnectionManager implements McpConnectionView {
       }
       case 'connected': {
         if (plan.client !== undefined) {
-          entry.tools = plan.tools;
-          entry.rawTools = plan.rawTools;
-          entry.enabledNames = plan.enabledNames;
           entry.connectedAt = this.oauthService?.now() ?? Date.now();
           entry.failureStreak = 0;
           this.attachSessionEvidence(entry, plan.client, entry.attemptId);
@@ -560,7 +568,7 @@ export class McpConnectionManager implements McpConnectionView {
       }
       case 'probing': {
         const client = entry.client;
-        if (client !== undefined) {
+        if (client !== undefined && previousState !== 'probing') {
           const attemptId = entry.attemptId;
           const reason = plan.weakReason ?? {};
           void this.enqueueOperation(entry.name, () =>
@@ -641,6 +649,16 @@ export class McpConnectionManager implements McpConnectionView {
         if (target === 'needsAuth') return { target, error: needsAuthHint(entry.name) };
         return { target, error: formatStartupError(event.error, event.client) };
       }
+      case 'toolsChanged':
+        if (from !== 'connected' && from !== 'probing') return undefined;
+        if (entry.client !== event.client) return undefined;
+        return {
+          target: from,
+          tools: event.tools,
+          rawTools: event.rawTools,
+          enabledNames: event.enabledNames,
+          forceEmit: true,
+        };
       case 'probeSucceeded':
         if (from !== 'probing') return undefined;
         if (!this.isCurrent(entry, event.attemptId)) return undefined;
@@ -728,6 +746,7 @@ export class McpConnectionManager implements McpConnectionView {
         return;
       }
       entry.attemptClient = startupClient;
+      this.attachToolsChanged(entry, startupClient);
       const discovered = await withTimeout(
         this.connectAndDiscoverTools(startupClient, entry.config),
         timeoutMs,
@@ -761,6 +780,47 @@ export class McpConnectionManager implements McpConnectionView {
       if (entry.client !== client) return;
       this.transition(entry, { type: 'sessionEvidence', evidence });
     });
+  }
+
+  private attachToolsChanged(entry: InternalEntry, client: RuntimeMcpClient): void {
+    const refresh = { scheduled: false, dirty: false };
+    const requestRefresh = (): void => {
+      if (this.entries.get(entry.name) !== entry) return;
+      if (entry.client !== client && entry.attemptClient !== client) return;
+      if (refresh.scheduled) {
+        refresh.dirty = true;
+        return;
+      }
+      refresh.scheduled = true;
+      void this.enqueueOperation(entry.name, async () => {
+        try {
+          if (this.entries.get(entry.name) !== entry) return;
+          if (entry.client !== client) return;
+          const discovered = await this.discoverTools(client, entry.config);
+          if (this.entries.get(entry.name) !== entry) return;
+          if (entry.client !== client) return;
+          this.transition(entry, {
+            type: 'toolsChanged',
+            client,
+            tools: discovered.tools,
+            rawTools: discovered.rawTools,
+            enabledNames: computeEnabledNames(entry.config, discovered.tools),
+          });
+        } catch (error) {
+          this.log.warn('mcp tool refresh failed', {
+            server: entry.name,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        } finally {
+          refresh.scheduled = false;
+          if (refresh.dirty) {
+            refresh.dirty = false;
+            requestRefresh();
+          }
+        }
+      });
+    };
+    client.onToolsChanged(requestRefresh);
   }
 
   private async runProbe(
@@ -894,6 +954,13 @@ export class McpConnectionManager implements McpConnectionView {
     config: McpServerConfig,
   ): Promise<{ tools: Tool[]; rawTools: MCPToolDefinition[] }> {
     await client.connect();
+    return this.discoverTools(client, config);
+  }
+
+  private async discoverTools(
+    client: RuntimeMcpClient,
+    config: McpServerConfig,
+  ): Promise<{ tools: Tool[]; rawTools: MCPToolDefinition[] }> {
     let mcpTools: MCPToolDefinition[];
     try {
       mcpTools = await client.listTools();

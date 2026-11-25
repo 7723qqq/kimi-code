@@ -16,6 +16,7 @@ import {
   KIMI_MCP_CLIENT_VERSION,
   MCP_LIVENESS_PROBE_TIMEOUT_MS,
   McpClassifiedStartupError,
+  McpToolListChangeSource,
   toMcpToolDefinition,
   toMcpToolResult,
   type SessionEvidence,
@@ -40,15 +41,15 @@ const STDIO_DRAIN_GRACE_MS = 100;
 const STDIO_EOF_GRACE_MS = 200;
 const STDIO_TERMINATION_GRACE_MS = 5_000;
 
-export class StdioMcpClient implements MCPClient {
-  private readonly client: Client;
+export class StdioMcpClient extends McpToolListChangeSource implements MCPClient {
+  protected readonly client: Client;
   private readonly transport: EnvironmentStdioTransport;
   private readonly startupTimeoutMs?: number;
   private readonly toolCallTimeoutMs?: number;
   private readonly stderrBuffer = new BoundedTail(STDERR_BUFFER_CAPACITY);
   private started = false;
-  private closed = false;
-  private ready = false;
+  protected closed = false;
+  protected ready = false;
   private hooksInstalled = false;
   private sessionEvidenceListener: SessionEvidenceListener | undefined;
   private lastTransportError: Error | undefined;
@@ -57,6 +58,7 @@ export class StdioMcpClient implements MCPClient {
   static readonly stderrBufferCapacity = STDERR_BUFFER_CAPACITY;
 
   constructor(config: McpServerStdioConfig, options: StdioMcpClientOptions) {
+    super();
     this.transport = new EnvironmentStdioTransport(config, options, this.stderrBuffer);
     this.client = new Client({
       name: options.clientName ?? KIMI_MCP_CLIENT_NAME,
