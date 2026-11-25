@@ -390,6 +390,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       await remoteEnvironmentProvider.dispose();
       hostBridges.close();
       core.dispose();
+      await core.instantiation.disposeAsync();
       await appendLogStore.drainRetirements();
       await drainSessionIndexMirror();
       await drainGlobalSearchDisposals();
