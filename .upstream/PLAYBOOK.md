@@ -101,6 +101,8 @@
 | 2.7.0 loop 运行时已切换到上游 `loop/core`，machine loop 退役 | fork 的 in-turn steer、turnScoped notify、bypassMaxSteps、afterExecute、context memory 请求历史等契约必须继续由适配层提供 | 以 backup tag `wip-2.7-loop-runtime-adoption-6e7adb5932` 为准合入；`coreLoopService.test.ts` 与全量 agent-core-v2 套件全绿后才算完成；`test/lint/unreachable-modules.txt` 的 upstream-dead 条目随迁移清理 |
 | 上游 2.7 的 core loop 按模型顺序一次只启动一个 tool call；fork 旧 machine loop 并行启动 sibling | 依赖 sibling 并行/abort 的用例必须按顺序语义改写；`abortTool` 只影响当前运行中的 call | 接受上游顺序执行（2026-11-24）；`toolAdapter.test.ts` 的 sibling 用例与 `core/record.test.ts` 的 detached 用例改为顺序启动；并行需求另行设计 |
 
+| 上游 #4965 删除 KAP 的预测提示、会话子代理、goal 编辑与 session abort 等“废弃”接口，并把 prompts abort 收窄为 abort-only；fork 的 klient/SDK 与桌面/TUI 仍在调用这些接口 | 照搬删除会让 `predictNextPrompt`、goal 编辑、子代理列表与会话 abort 立即失效；fork 的 `cancel` 动作已用自有 `cancelSessionRequestSchema` 提供等价能力 | 有意偏离：保留这些 KAP 接口与 schema，abort→cancel 以 fork 的 `cancel` 动作为准；本行随台账 #4965 记为 not-applicable，删除需先移除对应客户端能力 |
+
 ## 每条的落地顺序
 
 1. `git show <sha>` 读上游改动
