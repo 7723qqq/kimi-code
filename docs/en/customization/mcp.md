@@ -95,8 +95,9 @@ By default, every tool of a server goes straight into the model's top-level tool
 
 Loading tools on demand is experimental and takes effect only when both prerequisites are met:
 
-- The `tool-select` experimental flag is on. It is enabled by default; set `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT=0` (or write `tool-select = false` under `[experimental]` in `config.toml`) to turn it off.
-- The current model declares the `dynamically_loaded_tools` capability: official models declare it automatically; for other models, add it to `capabilities` in `config.toml` — see [Configuration files](../configuration/config-files.md#models).
+When a deferred tool is replaced by a newer schema with the same name, one announcement marks the old version as removed and the new version as added. The model must call `select_tools` again to load the current schema before calling that tool; calls made before this reload are rejected with guidance to reselect it. Kimi Chat Completions sends the old declaration, an unload message, and the new declaration in order so the backend does not receive an unresolved duplicate declaration. Same-name updates to inline tools remain pinned to the original schema for the current session and do not enter this reload flow.
+
+Loading tools on demand takes effect when the current model declares the `dynamically_loaded_tools` capability: official models declare it automatically; for other models, add it to `capabilities` in `config.toml` — see [Configuration files](../configuration/config-files.md#models).
 
 With both prerequisites met, set `deferred: true` on the server entry in `mcp.json`:
 

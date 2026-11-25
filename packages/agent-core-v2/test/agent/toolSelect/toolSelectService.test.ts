@@ -641,6 +641,15 @@ async function execute(
   return results;
 }
 
+
+function announcementContentText(
+  announcement: { readonly content: readonly { readonly type: string; readonly text?: string }[] } | undefined,
+): string {
+  return (announcement?.content ?? [])
+    .map((part) => (part.type === 'text' ? (part.text ?? '') : ''))
+    .join('');
+}
+
 describe('AgentToolSelectService gate', () => {
   it('opens only when dynamically_loaded_tools capability, tool_use capability and flag are all on', () => {
     flagEnabled = true;
@@ -920,7 +929,7 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
     expect(byName.has(MCP_BETA)).toBe(false);
 
     await h.sut.prepareForRequest();
-    const announcement = h.sut.loadableToolsAnnouncement()?.content;
+    const announcement = announcementContentText(h.sut.loadableToolsAnnouncement());
     expect(announcement).toContain(MCP_BETA);
     expect(announcement).not.toContain(MCP_ALPHA);
   });
@@ -1039,8 +1048,8 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
           toLoad: [],
         });
         const announcement = current.sut.loadableToolsAnnouncement(firstAnnouncement?.disclosure);
-        expect(announcement?.content).toContain('LateTool');
-        expect(announcement?.content).not.toContain(name);
+        expect(announcementContentText(announcement)).toContain('LateTool');
+        expect(announcementContentText(announcement)).not.toContain(name);
         const legacy = current.sut.loadableToolsAnnouncement()?.disclosure;
         expect(legacy?.kind).toBe('delta');
         if (legacy?.kind !== 'delta') throw new Error('expected a legacy loading correction');
@@ -1081,7 +1090,27 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
     registration.dispose();
     await h.sut.prepareForRequest();
     const next = h.sut.loadableToolsAnnouncement(initial?.disclosure);
-    expect(next?.content).toContain(`<tools_removed>\n${USER_INLINE}\n</tools_removed>`);
+    expect(announcementContentText(next)).toContain(`<tools_removed>\n${USER_INLINE}\n</tools_removed>`);
+  });
+
+  it('tags a delta announcement with a tool_lifecycle part for the provider unload', async () => {
+    const h = createHarness();
+    const registration = registerMcp(h, new StubMcpTool(MCP_ALPHA));
+    await h.sut.prepareForRequest();
+    const initial = h.sut.loadableToolsAnnouncement();
+    registration.dispose();
+    await h.sut.prepareForRequest();
+    const next = h.sut.loadableToolsAnnouncement(initial?.disclosure);
+    expect(next?.disclosure?.kind).toBe('delta');
+    const lifecycle = (next?.content ?? []).find(
+      (part) =>
+        part.type === 'text' &&
+        (part as { readonly meta?: { readonly kind?: string } }).meta?.kind === 'tool_lifecycle',
+    ) as { readonly meta?: { readonly kind?: string; readonly removed?: readonly string[] } } | undefined;
+    expect(lifecycle?.meta).toMatchObject({
+      kind: 'tool_lifecycle',
+      removed: expect.arrayContaining([MCP_ALPHA]),
+    });
   });
 
   it('keeps historical deferred MCP schemas pinned after same-name updates', async () => {
@@ -2145,7 +2174,7 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     h.contextMemory.entries.push(userMessage('query the analytics database for revenue'));
 
     await h.sut.prepareForRequest();
-    const text = h.sut.loadableToolsAnnouncement()?.content;
+    const text = announcementContentText(h.sut.loadableToolsAnnouncement());
     expect(text).toContain('<tools_relevant>');
     expect(text).toContain('mcp__db__query');
     expect(text).toContain('Call select_tools with exact names');

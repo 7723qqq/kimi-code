@@ -95,8 +95,9 @@ Plugins 也可以在 manifest 中声明 MCP servers。Plugin 声明的 servers �
 
 按需加载是实验功能，同时满足两个前提才会生效：
 
-- `tool-select` 实验标志处于开启状态。该标志默认开启，如需关闭可设置 `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT=0`，或在 `config.toml` 的 `[experimental]` 下写 `tool-select = false`。
-- 当前模型声明了 `dynamically_loaded_tools` 能力：官方模型自动声明；其他模型可在 `config.toml` 的 `capabilities` 中追加，见 [配置文件](../configuration/config-files.md#models)。
+如果同名 deferred 工具的 schema 发生更新，会话会在同一条公告中声明移除旧版本并加入新版本。模型必须再次调用 `select_tools` 加载当前 schema，然后才能调用该工具；重新加载前的调用会被拒绝，并提示重新选择。对于 Kimi Chat Completions，供应商会按旧声明、卸载消息、新声明的顺序发送请求，避免后端因无法解析的同名重复声明而拒绝请求。同名 inline 工具的更新仍在当前会话中固定使用原 schema，不进入上述重新加载流程。
+
+按需加载在当前模型声明 `dynamically_loaded_tools` 能力时生效：官方模型自动声明；其他模型可在 `config.toml` 的 `capabilities` 中追加，见 [配置文件](../configuration/config-files.md#models)。
 
 满足前提后，在 `mcp.json` 的 server 条目里设 `deferred: true`：
 

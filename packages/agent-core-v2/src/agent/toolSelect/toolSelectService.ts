@@ -21,7 +21,7 @@ import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
-import type { ToolDescription as Tool } from '#human/llm/message';
+import type { ContentPart, ToolDescription as Tool } from '#human/llm/message';
 
 import {
   collectLoadedDynamicTools,
@@ -325,7 +325,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
           this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(info.name, info.source),
       );
       return {
-        content: renderSnapshotAnnouncement(tools),
+        content: [{ type: 'text' as const, text: renderSnapshotAnnouncement(tools) }],
         disclosure: { kind: 'snapshot', revision, tools },
       };
     }
@@ -342,11 +342,17 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       );
       if (added.length === 0 && removed.length === 0) continue;
       return {
-        content: renderDeltaAnnouncement(
-          added,
-          removed,
-          state.current.some((tool) => this.isDynamicallyLoadable(tool)),
-        ),
+        content: [
+          {
+            type: 'text' as const,
+            text: renderDeltaAnnouncement(
+              added,
+              removed,
+              state.current.some((tool) => this.isDynamicallyLoadable(tool)),
+            ),
+          },
+          toolLifecyclePart(added, removed),
+        ],
         disclosure: {
           kind: 'delta',
           revision: index + 1,
@@ -387,7 +393,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       matched: query.trim().length > 0 && ranked.some((hit) => hit.score > 0),
     });
     return {
-      content: announcement,
+      content: [{ type: 'text' as const, text: announcement }],
       disclosure: { kind: 'snapshot', revision, tools: entries },
     };
   }
@@ -416,7 +422,10 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       });
     if (added.length > 0 || removed.length > 0) {
       return {
-        content: renderDeltaAnnouncement(added, removed, loadable.length > 0),
+        content: [
+          { type: 'text' as const, text: renderDeltaAnnouncement(added, removed, loadable.length > 0) },
+          toolLifecyclePart(added, removed),
+        ],
         disclosure: { kind: 'delta', revision, added, removed },
       };
     }
@@ -428,7 +437,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       return undefined;
     }
     return {
-      content: renderSnapshotAnnouncement([]),
+      content: [{ type: 'text' as const, text: renderSnapshotAnnouncement([]) }],
       disclosure: { kind: 'snapshot', revision, tools: [] },
     };
   }
@@ -911,6 +920,21 @@ function normalizeTool(info: ToolInfo, origin: ToolSelectTool['origin']): ToolSe
 function renderSnapshotAnnouncement(tools: readonly ToolSelectTool[]): string {
   const names = tools.map((tool) => tool.name).toSorted((a, b) => a.localeCompare(b));
   return renderLoadableToolsAnnouncement(names, [], names.length > 0);
+}
+
+function toolLifecyclePart(
+  added: readonly ToolSelectTool[],
+  removed: readonly ToolSelectTool[],
+): ContentPart {
+  return {
+    type: 'text',
+    text: '',
+    meta: {
+      kind: 'tool_lifecycle',
+      added: added.map((tool) => tool.name),
+      removed: removed.map((tool) => tool.name),
+    },
+  };
 }
 
 function renderDeltaAnnouncement(
