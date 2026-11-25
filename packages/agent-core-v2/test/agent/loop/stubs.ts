@@ -178,6 +178,8 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
     _serviceBrand: undefined,
     requester: {} as never,
     async start() {},
+    started: false,
+    hasPersistedState: false,
     baselineTools: () => [],
     update() {},
     history: () => [],

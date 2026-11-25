@@ -206,7 +206,7 @@ describe('context routes on restored sessions and dynamic tools', () => {
       thinkingLevel: 'high',
       systemPrompt: 'You are Kimi Code.',
     });
-    loop.replaceHistory(
+    await loop.initializeHistory(
       [
         { role: 'user', content: [{ type: 'text', text: 'summarize the repository layout' }] },
         {
@@ -215,7 +215,6 @@ describe('context routes on restored sessions and dynamic tools', () => {
           toolCalls: [],
         },
       ],
-      'fork',
     );
     await main.accessor.get(IEventDispatcher).flush();
     return main;
@@ -267,12 +266,11 @@ describe('context routes on restored sessions and dynamic tools', () => {
       toolCalls: [],
       origin: { kind: 'injection', variant: DYNAMIC_TOOL_SCHEMA_VARIANT },
     };
-    loop.replaceHistory(
+    await loop.initializeHistory(
       [
         { role: 'user', content: [{ type: 'text', text: 'hello' }] },
         historyEntryFromContext(dynamicSchema),
       ],
-      'fork',
     );
     await main.accessor.get(IEventDispatcher).flush();
     await main.accessor.get(IWireService).flush();
@@ -351,7 +349,7 @@ describe('context routes on restored sessions and dynamic tools', () => {
       Object.fromEntries(Array.from({ length: 80 }, (_, index) => [`key${index}`, index])),
     );
     const imageData = `data:image/png;base64,${'A'.repeat(800)}`;
-    main.accessor.get(IAgentLoopService).replaceHistory(
+    await main.accessor.get(IAgentLoopService).initializeHistory(
       [
         {
           role: 'user',
@@ -361,7 +359,6 @@ describe('context routes on restored sessions and dynamic tools', () => {
           ],
         },
       ],
-      'fork',
     );
     await main.accessor.get(IEventDispatcher).flush();
     await main.accessor.get(IWireService).flush();
@@ -388,7 +385,7 @@ describe('context routes on restored sessions and dynamic tools', () => {
       thinkingLevel: 'high',
       systemPrompt: 'You are a subagent.',
     });
-    loop.replaceHistory([{ role: 'user', content: [{ type: 'text', text: 'inspect me' }] }], 'fork');
+    await loop.initializeHistory([{ role: 'user', content: [{ type: 'text', text: 'inspect me' }] }]);
     await sub.accessor.get(IEventDispatcher).flush();
     await sub.accessor.get(IWireService).flush();
 
@@ -418,7 +415,7 @@ describe('context routes on restored sessions and dynamic tools', () => {
       systemPrompt: 'You are Kimi Code.',
     });
     const call = (id: string, name: string): ToolCall => ({ type: 'function', id, name, arguments: '{}' });
-    loop.replaceHistory(
+    await loop.initializeHistory(
       [
         { role: 'user', content: [{ type: 'text', text: 'run it' }] },
         { role: 'assistant', content: [], toolCalls: [call('call_1', 'Bash')] },
@@ -439,7 +436,6 @@ describe('context routes on restored sessions and dynamic tools', () => {
         { role: 'assistant', content: [], toolCalls: [call('call_3', 'Bash')] },
         { role: 'user', content: [{ type: 'text', text: 'continue' }] },
       ],
-      'fork',
     );
     await main.accessor.get(IEventDispatcher).flush();
 

@@ -240,6 +240,8 @@ describe('AgentLifecycleService', () => {
   let loopCancel: ReturnType<typeof jest.fn<IAgentLoopService['cancel']>>;
   let loopSettled: ReturnType<typeof jest.fn<IAgentLoopService['settled']>>;
   let loopInitializeHistory: ReturnType<typeof jest.fn>;
+  let loopStart: ReturnType<typeof jest.fn>;
+  let loopHasPersistedState: boolean;
   let beforeExecuteListeners: number;
   let didExecuteHookIds: string[];
 
@@ -410,6 +412,8 @@ describe('AgentLifecycleService', () => {
       }
     });
     loopInitializeHistory = jest.fn(async () => {});
+    loopStart = jest.fn(async () => {});
+    loopHasPersistedState = false;
     ix.stub(IAgentLoopService, {
       _serviceBrand: undefined,
       hooks: {
@@ -441,7 +445,9 @@ describe('AgentLifecycleService', () => {
       setModel: async () => {},
       setThinking: () => {},
       tryAcquireQuiescence: jest.fn(() => ({ dispose: jest.fn() })),
-      start: jest.fn(async () => {}),
+      start: loopStart,
+      started: false,
+      get hasPersistedState() { return loopHasPersistedState; },
       close: jest.fn(async () => {}),
       resetLoop: async () => {},
     } as unknown as IAgentLoopService);
@@ -597,10 +603,31 @@ describe('AgentLifecycleService', () => {
     expect(main.agentId).toBe('main');
     expect(svc.get('main')).toBe(main);
     expect(svc.handleOf('main')).toBeDefined();
+    expect(loopStart).not.toHaveBeenCalled();
     expect(svc.list()).toEqual([main]);
     await svc.remove(main);
     expect(svc.get('main')).toBeUndefined();
     expect(svc.handleOf('main')).toBeUndefined();
+  });
+
+  it('starts the loop at create only for persisted state, an initial profile, or initial tools', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    await svc.create({ agentId: 'fresh' });
+    expect(loopStart).not.toHaveBeenCalled();
+
+    loopStart.mockClear();
+    loopHasPersistedState = true;
+    await svc.create({ agentId: 'restored' });
+    expect(loopStart).toHaveBeenCalledOnce();
+
+    loopStart.mockClear();
+    loopHasPersistedState = false;
+    await svc.create({ agentId: 'with-profile', initialProfile: { thinkingLevel: 'off', systemPrompt: '' } });
+    expect(loopStart).toHaveBeenCalledOnce();
+
+    loopStart.mockClear();
+    await svc.create({ agentId: 'with-tools', initialTools: [] });
+    expect(loopStart).toHaveBeenCalledOnce();
   });
 
   it('remove flushes the agent wire journal before disposal', async () => {

@@ -342,12 +342,14 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       }
       attachInteractionAgent(agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));
       stage = 'bootstrap';
+      const shouldStartImmediately =
+        loop.hasPersistedState || opts.initialProfile !== undefined || opts.initialTools !== undefined;
       const initialProfile = await this.bindBootstrap(handle, opts);
       if (initialProfile !== undefined) await loop.setProfile(initialProfile);
       stage = 'toolActivation';
       await handle.accessor.get(IAgentToolActivationService).activate();
       stage = 'start';
-      if (opts.initialTools !== undefined) await loop.start(opts.initialTools);
+      if (shouldStartImmediately) await loop.start(opts.initialTools);
       return agent;
     } catch (error) {
       this.telemetry.track2('agent_create_failed', {
@@ -413,6 +415,8 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       });
     }
     const source = sourceManaged.handle;
+    const sourceLoop = source.accessor.get(IAgentLoopService);
+    await sourceLoop.start();
     const sourceData = source.accessor.get(IAgentProfileService).data();
     const override = opts?.binding;
     const sourceBinding = source.accessor.get(IAgentEnvironmentBindingService).current;

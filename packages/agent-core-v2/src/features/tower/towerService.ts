@@ -1,5 +1,6 @@
 import { isAbsolute, join, resolve } from 'node:path';
 
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService, type ISessionScopeHandle } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
@@ -19,6 +20,7 @@ import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { IAgentToolRegistryService, type ToolRegistration } from '#/agent/toolRegistry/toolRegistry';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IBashParserService } from '#/app/bashParser/bashParser';
 import { IConfigService } from '#/app/config/config';
@@ -71,11 +73,14 @@ import {
   type TowerEnterResult,
   type TowerExitReason,
 } from './tower';
-import { isTowerFeatureAssembled } from './towerFeature';
+import { isTowerFeatureAssembled, TOWER_TOOL_CONTRIBUTIONS } from './towerFeature';
 import { TowerInboxSent, TowerModeEnter, TowerModeExit, towerKey, towerOwnerKey } from './towerOps';
 
 export const TOWER_MODE_TOOLS: readonly string[] = ['TowerInit', ...TOWER_TOOL_NAMES];
 const TOWER_FLAG_VETO_TOOLS: ReadonlySet<string> = new Set([...TOWER_MODE_TOOLS, 'TowerComplete']);
+const TOWER_MODE_TOOL_CONTRIBUTIONS = TOWER_TOOL_CONTRIBUTIONS.filter((tool) =>
+  TOWER_MODE_TOOLS.includes(tool.name),
+);
 
 export const TOWER_INBOX_WAKE_VARIANT = 'tower_inbox';
 
@@ -125,6 +130,8 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     @ISessionEventBus sessionBus: ISessionEventBus,
     @IBashParserService private readonly bashParser: IBashParserService,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext | undefined,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
+    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
   ) {
     super();
     this.agentState.contributeState(towerKey);
@@ -151,20 +158,12 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
         }),
       );
     }
+    this._register(new TowerModeInjection(reminder, this, context, this.flags));
     this._register(
-      eventBus.subscribe(AgentStatusUpdated, () => {
-        if (this.agentCtx.agentId !== 'main') return;
-        if (!this.isActive) return;
-        const active = this.profile.getActiveToolNames();
-        if (active === undefined) return;
-        if (TOWER_MODE_TOOLS.every((name) => active.includes(name))) return;
-        for (const name of TOWER_MODE_TOOLS) this.profile.addActiveTool(name);
-        void this.dispatcher.dispatch(
-          new AgentStatusUpdated({ agentId: this.agentCtx.agentId, towerMode: true }),
-        );
+      toDisposable(() => {
+        this.unregisterTowerTools();
       }),
     );
-    this._register(new TowerModeInjection(reminder, this, context, this.flags));
     this._register(
       eventBus.subscribe(TaskTerminatedNotice, (event) => {
         if (this.agentCtx.agentId !== 'main') return;
@@ -459,7 +458,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
       return { entered: true };
     }
     await this.adoptTowerRoster();
-    for (const name of TOWER_MODE_TOOLS) this.profile.addActiveTool(name);
+    this.registerTowerTools();
     this.lastPublished = true;
     this.dispatchEnter();
     return { entered: true };
@@ -525,6 +524,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     if (!this.agentState.get(towerKey)) return;
     this.lastPublished = false;
     this.dropInboxWake();
+    this.unregisterTowerTools();
     void this.dispatcher.dispatch(new TowerModeExit({ agentId: this.agentCtx.agentId }));
     this.telemetry.track2('tower_mode_exit', { reason });
     await this.releaseTowerOwnership();
@@ -922,11 +922,31 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     if (!this.flags.enabled(TOWER_FLAG_ID)) return;
     if (!this.isActive) return;
     if (this.agentCtx.agentId !== 'main') return;
-    for (const name of TOWER_MODE_TOOLS) this.profile.addActiveTool(name);
+    this.registerTowerTools();
     this.lastPublished = true;
     void this.dispatcher.dispatch(
       new AgentStatusUpdated({ agentId: this.agentCtx.agentId, towerMode: true }),
     );
+  }
+
+  private readonly towerToolRegistrations = new Map<string, ToolRegistration>();
+
+  private registerTowerTools(): void {
+    if (this.agentCtx.agentId !== 'main') return;
+    this.instantiation.invokeFunction((accessor) => {
+      for (const tool of TOWER_MODE_TOOL_CONTRIBUTIONS) {
+        if (this.towerToolRegistrations.has(tool.name)) continue;
+        const registration = this.toolRegistry.register(accessor.get(tool.id), {
+          disclosure: 'deferred',
+        });
+        this.towerToolRegistrations.set(tool.name, registration);
+      }
+    });
+  }
+
+  private unregisterTowerTools(): void {
+    for (const registration of this.towerToolRegistrations.values()) registration.dispose();
+    this.towerToolRegistrations.clear();
   }
 
   private lastPublished: boolean | undefined;

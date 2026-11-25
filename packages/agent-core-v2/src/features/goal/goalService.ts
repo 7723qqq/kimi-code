@@ -415,6 +415,7 @@ async function resumeGoal(
   if (budgetBlocked !== null) return budgetBlocked;
   if (canLaunchContinuation(context)) {
     try {
+      await context.runtime.get(IAgentLoopService).start();
       launchContinuationTurn(context, state.goalId);
     } catch (error) {
       await settleGoalAfterContinuationFailure(context, error, state.goalId);

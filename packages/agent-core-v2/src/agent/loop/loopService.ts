@@ -205,6 +205,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this.requester = {
       coreRequester: (options) => this.coreRequester(options),
       prepareOperation: async (options, signal) => {
+        await this.start();
         signal.throwIfAborted();
         return this.coreRequester({
           ...options,
@@ -315,6 +316,24 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private set disposing(value: boolean) {
     this.states.set(loopDisposingKey, value);
+  }
+
+  get started(): boolean {
+    return this.loop !== undefined || this.startPromise !== undefined;
+  }
+
+  get hasPersistedState(): boolean {
+    const snapshot = this.journal.snapshot();
+    const inbox = snapshot.input.inbox;
+    return (
+      snapshot.profileBound ||
+      (snapshot.input.messages?.length ?? 0) > 0 ||
+      (inbox?.normal?.length ?? 0) > 0 ||
+      (inbox?.notify?.length ?? 0) > 0 ||
+      (inbox?.remind?.length ?? 0) > 0 ||
+      (snapshot.input.nextTurnId ?? 0) > 0 ||
+      snapshot.input.unfinished !== undefined
+    );
   }
 
   async start(tools?: readonly Tool[]): Promise<void> {
@@ -973,7 +992,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const loop = this.loop;
     if (loop === undefined) {
       this.initialized = false;
-      await this.initializeLoop(seededMessages);
+      this.startPromise ??= this.initializeLoop(seededMessages).finally(() => {
+        this.startPromise = undefined;
+      });
+      await this.startPromise;
       return;
     }
     if (loop.state.turn !== undefined || loop.state.resetting) {
@@ -1139,6 +1161,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private admit(input: UserMessage): { readonly id: string; readonly entry: UserMessage } {
     if (this.disposing) throw abortError('Agent loop disposed');
+    if (this.dispatcher.restorePhase === 'ready') {
+      void this.start().catch(() => this.close().catch(() => undefined));
+    }
     this.runGate.begin();
     const snapshot = this.snapshot();
     return this.prompts.admit(input, snapshot.state === 'running' || snapshot.paused || snapshot.queue.length > 0);

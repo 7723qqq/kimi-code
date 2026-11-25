@@ -243,6 +243,8 @@ class FakeLoopService {
 
   get requester(): never { return undefined as never; }
   async start(_t?: readonly unknown[]): Promise<void> {}
+  readonly started = false;
+  readonly hasPersistedState = false;
   baselineTools(): never[] { return []; }
   update(_c: unknown): void {}
   history(): readonly never[] { return []; }

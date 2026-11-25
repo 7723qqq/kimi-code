@@ -32,6 +32,9 @@ import type {
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import type { AnyAgentTool } from '#/agent/toolRegistry/toolContribution';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IBashParserService } from '#/app/bashParser/bashParser';
 import { BashParserService } from '#/app/bashParser/bashParserService';
@@ -54,7 +57,10 @@ import {
   towerEnterFailureMessage,
   type TowerEnterFailure,
 } from '#/features/tower/tower';
-import { _setTowerFeatureAssembledForTests } from '#/features/tower/towerFeature';
+import {
+  _setTowerFeatureAssembledForTests,
+  TOWER_TOOL_CONTRIBUTIONS,
+} from '#/features/tower/towerFeature';
 import { towerKey, TowerInboxSent, type TowerInboxSentPayload } from '#/features/tower/towerOps';
 import {
   AgentTowerService,
@@ -121,6 +127,37 @@ function stubMainAgentScope(ix: TestInstantiationService): void {
   if (typeof bus.activateAgent === 'function') bus.activateAgent(agentScope.agentContext);
 }
 
+function stubTowerTool(name: string): AnyAgentTool {
+  return {
+    _serviceBrand: undefined,
+    name,
+    description: `${name} desc`,
+    parameters: { type: 'object', properties: {} },
+    resolveExecution: () => ({
+      description: name,
+      approvalRule: name,
+      execute: async () => ({ output: '' }),
+    }),
+  };
+}
+
+function registerTowerToolServices(target: TestInstantiationService): void {
+  for (const tool of TOWER_TOOL_CONTRIBUTIONS) {
+    target.set(tool.id, stubTowerTool(tool.name));
+  }
+  target.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
+}
+
+function registeredTowerToolNames(target: TestInstantiationService): string[] {
+  return target
+    .get(IAgentToolRegistryService)
+    .list()
+    .map((tool) => tool.name)
+    .filter((name) => TOWER_MODE_TOOLS.includes(name));
+}
+
+const SORTED_TOWER_MODE_TOOLS: readonly string[] = [...TOWER_MODE_TOOLS].toSorted();
+
 function publishAsMain(
   ix: TestInstantiationService,
   event: Parameters<IEventBus['publish']>[0],
@@ -170,9 +207,6 @@ describe('AgentTowerService', () => {
   let formatDenyMessage: Mock<(message: string) => string>;
   let telemetryTrack2: Mock<(event: string, properties?: unknown) => void>;
   let towerFlagOn: boolean;
-  let addedTools: string[];
-  let removedTools: string[];
-  let activeTools: string[] | undefined;
   let policyInactiveTools: string[];
   let liveSessions: Map<
     string,
@@ -253,25 +287,14 @@ describe('AgentTowerService', () => {
         return { dispose: () => {} };
       },
     } as unknown as IFeatureManager);
-    addedTools = [];
-    removedTools = [];
-    activeTools = undefined;
     policyInactiveTools = [];
     ix.stub(IAgentToolPolicyService, {
       isToolActive: (name: string) => !policyInactiveTools.includes(name),
     } as unknown as IAgentToolPolicyService);
     ix.stub(IAgentProfileService, {
       data: () => ({ profileName: undefined }),
-      getActiveToolNames: () => activeTools,
-      addActiveTool: (name: string) => {
-        addedTools.push(name);
-        activeTools = [...(activeTools ?? []), name];
-      },
-      removeActiveTool: (name: string) => {
-        removedTools.push(name);
-        activeTools = activeTools?.filter((candidate) => candidate !== name);
-      },
     } as unknown as IAgentProfileService);
+    registerTowerToolServices(ix);
     ix.stub(IAgentReminderService, createReminderStub());
     ix.stub(ILogService, stubLog());
     ix.stub(IAgentContextMemoryService, {
@@ -465,7 +488,7 @@ describe('AgentTowerService', () => {
       await expect(tower.enter('no..dots')).rejects.toThrow('git checkout -b no..dots failed');
 
       expect(tower.isActive).toBe(false);
-      expect(addedTools).toEqual([]);
+      expect(registeredTowerToolNames(ix)).toEqual([]);
       expect(await new TowerStore(repo).isInitialized()).toBe(false);
     } finally {
       await rm(repo, { recursive: true, force: true });
@@ -1350,7 +1373,7 @@ describe('AgentTowerService', () => {
       });
 
       expect(tower.isActive).toBe(false);
-      expect(addedTools).toEqual([]);
+      expect(registeredTowerToolNames(ix)).toEqual([]);
     } finally {
       _setTowerFeatureAssembledForTests(true);
     }
@@ -1456,7 +1479,7 @@ describe('AgentTowerService', () => {
       });
 
       expect(tower.isActive).toBe(false);
-      expect(addedTools).toEqual([]);
+      expect(registeredTowerToolNames(ix)).toEqual([]);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -1487,7 +1510,7 @@ describe('AgentTowerService', () => {
       });
 
       expect(tower.isActive).toBe(false);
-      expect(addedTools).toEqual([]);
+      expect(registeredTowerToolNames(ix)).toEqual([]);
       const state = await store.load();
       expect(state.base).toBe('main');
       expect(state.sessionId).toBe('session-original');
@@ -1544,7 +1567,7 @@ describe('AgentTowerService', () => {
       });
 
       expect(tower.isActive).toBe(false);
-      expect(addedTools).toEqual([]);
+      expect(registeredTowerToolNames(ix)).toEqual([]);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -1574,7 +1597,7 @@ describe('AgentTowerService', () => {
       });
 
       expect(tower.isActive).toBe(false);
-      expect(addedTools).toEqual([]);
+      expect(registeredTowerToolNames(ix)).toEqual([]);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -1641,7 +1664,7 @@ describe('AgentTowerService', () => {
         );
       }
       expect(tower.isActive).toBe(false);
-      expect(addedTools).toEqual([]);
+      expect(registeredTowerToolNames(ix)).toEqual([]);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -1677,7 +1700,7 @@ describe('AgentTowerService', () => {
         );
       }
       expect(tower.isActive).toBe(false);
-      expect(addedTools).toEqual([]);
+      expect(registeredTowerToolNames(ix)).toEqual([]);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -1702,7 +1725,7 @@ describe('AgentTowerService', () => {
       await tower.enter();
 
       expect(tower.isActive).toBe(true);
-      expect(addedTools).toEqual([...TOWER_MODE_TOOLS]);
+      expect(registeredTowerToolNames(ix)).toEqual([...SORTED_TOWER_MODE_TOOLS]);
       expect(ownerExit).toHaveBeenCalledTimes(1);
     } finally {
       await rm(repo, { recursive: true, force: true });
@@ -1781,7 +1804,7 @@ describe('AgentTowerService', () => {
       await tower.enter();
 
       expect(tower.isActive).toBe(true);
-      expect(addedTools).toEqual([...TOWER_MODE_TOOLS]);
+      expect(registeredTowerToolNames(ix)).toEqual([...SORTED_TOWER_MODE_TOOLS]);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -1806,7 +1829,7 @@ describe('AgentTowerService', () => {
 
       await expect(tower.enter()).rejects.toThrow(/failed to adopt the tower workspace roster/);
       expect(tower.isActive).toBe(false);
-      expect(addedTools).toEqual([]);
+      expect(registeredTowerToolNames(ix)).toEqual([]);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -1832,7 +1855,7 @@ describe('AgentTowerService', () => {
 
       await expect(tower.enter()).rejects.toThrow(/failed to adopt the tower workspace roster/);
       expect(tower.isActive).toBe(false);
-      expect(addedTools).toEqual([]);
+      expect(registeredTowerToolNames(ix)).toEqual([]);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -1980,15 +2003,30 @@ describe('AgentTowerService', () => {
     expect(tower.isActive).toBe(false);
   });
 
-  it('enter activates the tower tool set on the main agent; exit keeps it', async () => {
+  it('enter registers the tower tool set as deferred on the main agent; exit unregisters it', async () => {
     const tower = ix.get(IAgentTowerService);
+    const registry = ix.get(IAgentToolRegistryService);
 
     await tower.enter();
-    expect(addedTools).toEqual([...TOWER_MODE_TOOLS]);
-    expect(removedTools).toEqual([]);
+    expect(registry.list().map((tool) => tool.name)).toEqual([...SORTED_TOWER_MODE_TOOLS]);
+    expect(registry.list().every((tool) => tool.source === 'builtin' && tool.disclosure === 'deferred')).toBe(true);
 
     await tower.exit();
-    expect(removedTools).toEqual([]);
+    expect(registry.list()).toEqual([]);
+
+    await tower.enter();
+    expect(registry.list().map((tool) => tool.name)).toEqual([...SORTED_TOWER_MODE_TOOLS]);
+  });
+
+  it('repeated enter keeps exactly one deferred registration per tower tool', async () => {
+    const tower = ix.get(IAgentTowerService);
+    const registry = ix.get(IAgentToolRegistryService);
+
+    await tower.enter();
+    await tower.enter();
+
+    expect(registry.list().map((tool) => tool.name)).toEqual([...SORTED_TOWER_MODE_TOOLS]);
+    expect(registry.list().every((tool) => tool.disclosure === 'deferred')).toBe(true);
   });
 
   it('enter reports not-main-agent and is inert on a non-main agent', async () => {
@@ -2005,13 +2043,13 @@ describe('AgentTowerService', () => {
     await expect(tower.enter()).resolves.toEqual({ entered: false, reason: 'not-main-agent' });
 
     expect(tower.isActive).toBe(false);
-    expect(addedTools).toEqual([]);
+    expect(registeredTowerToolNames(ix)).toEqual([]);
 
     await tower.exit();
-    expect(removedTools).toEqual([]);
+    expect(registeredTowerToolNames(ix)).toEqual([]);
   });
 
-  it('restore re-applies the tower tool set and re-emits the status while active', async () => {
+  it('restore registers the tower tool set even with the loop already started and re-emits the status', async () => {
     const tower = ix.get(IAgentTowerService);
     await tower.enter();
 
@@ -2044,14 +2082,15 @@ describe('AgentTowerService', () => {
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
-    const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
       data: () => ({ profileName: undefined }),
-      addActiveTool: (name: string) => {
-        restoredAdded.push(name);
-      },
-      removeActiveTool: () => {},
     } as unknown as IAgentProfileService);
+    ix2.stub(IAgentLoopService, {
+      ...stubLoopWithHooks(),
+      get: () => [],
+      started: true,
+    } as unknown as IAgentLoopService);
+    registerTowerToolServices(ix2);
     registerTestAgentWire(ix2, testWireScope('wire', 'tower-restore'), {
       log: ix2.get(IAppendLogStore),
       eventBus: ix2.get(IEventBus),
@@ -2076,7 +2115,7 @@ describe('AgentTowerService', () => {
       records,
     );
 
-    expect(restoredAdded).toEqual([...TOWER_MODE_TOOLS]);
+    expect(registeredTowerToolNames(ix2)).toEqual([...SORTED_TOWER_MODE_TOOLS]);
     expect(events).toContainEqual({ type: 'agent.status.updated', towerMode: true });
   });
 
@@ -2094,26 +2133,15 @@ describe('AgentTowerService', () => {
     expect(tower.isActive).toBe(false);
   });
 
-  it('reapplies the tower tool set when a profile change wipes the allow-list', async () => {
+  it('keeps the tower tool registrations across profile status updates', async () => {
     const tower = ix.get(IAgentTowerService);
     await tower.enter();
-    expect(addedTools).toEqual([...TOWER_MODE_TOOLS]);
+    expect(registeredTowerToolNames(ix)).toEqual([...SORTED_TOWER_MODE_TOOLS]);
 
-    addedTools.length = 0;
-    activeTools = ['Bash'];
-    const events: { readonly towerMode?: boolean }[] = [];
-    disposables.add(
-      ix.get(IEventBus).subscribe((e) => {
-        if (e.type === 'agent.status.updated') {
-          events.push({ towerMode: (e as AgentStatusUpdated).towerMode });
-        }
-      }),
-    );
     publishAsMain(ix, new AgentStatusUpdated({ agentId: 'main' }));
 
-    expect(addedTools).toEqual([...TOWER_MODE_TOOLS]);
-    expect(activeTools).toEqual(['Bash', ...TOWER_MODE_TOOLS]);
-    expect(events).toContainEqual({ towerMode: true });
+    expect(registeredTowerToolNames(ix)).toEqual([...SORTED_TOWER_MODE_TOOLS]);
+    expect(tower.isActive).toBe(true);
   });
 
   it('restore keeps the feature inert while the tower flag is off', async () => {
@@ -2146,14 +2174,10 @@ describe('AgentTowerService', () => {
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
-    const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
       data: () => ({ profileName: undefined }),
-      addActiveTool: (name: string) => {
-        restoredAdded.push(name);
-      },
-      removeActiveTool: () => {},
     } as unknown as IAgentProfileService);
+    registerTowerToolServices(ix2);
     registerTestAgentWire(ix2, testWireScope('wire', 'tower-restore-flag-off'), {
       log: ix2.get(IAppendLogStore),
       eventBus: ix2.get(IEventBus),
@@ -2179,7 +2203,7 @@ describe('AgentTowerService', () => {
     );
 
     expect(restored.isActive).toBe(false);
-    expect(restoredAdded).toEqual([]);
+    expect(registeredTowerToolNames(ix2)).toEqual([]);
     expect(events).toEqual([{ type: 'agent.status.updated', towerMode: false }]);
   });
 
@@ -2213,14 +2237,10 @@ describe('AgentTowerService', () => {
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
-    const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
       data: () => ({ profileName: undefined }),
-      addActiveTool: (name: string) => {
-        restoredAdded.push(name);
-      },
-      removeActiveTool: () => {},
     } as unknown as IAgentProfileService);
+    registerTowerToolServices(ix2);
     registerTestAgentWire(ix2, testWireScope('wire', 'tower-restore-non-main'), {
       log: ix2.get(IAppendLogStore),
       eventBus: ix2.get(IEventBus),
@@ -2245,7 +2265,7 @@ describe('AgentTowerService', () => {
     );
 
     expect(restored.isActive).toBe(false);
-    expect(restoredAdded).toEqual([]);
+    expect(registeredTowerToolNames(ix2)).toEqual([]);
     expect(events).toEqual([]);
   });
 
@@ -2293,14 +2313,10 @@ describe('AgentTowerService', () => {
       ix2.stub(IAgentContextMemoryService, {
         get: () => [],
       } as unknown as IAgentContextMemoryService);
-      const restoredAdded: string[] = [];
       ix2.stub(IAgentProfileService, {
         data: () => ({ profileName: undefined }),
-        addActiveTool: (name: string) => {
-          restoredAdded.push(name);
-        },
-        removeActiveTool: () => {},
       } as unknown as IAgentProfileService);
+      registerTowerToolServices(ix2);
       registerTestAgentWire(ix2, testWireScope('wire', 'tower-fork-restore'), {
         log: ix2.get(IAppendLogStore),
         eventBus: ix2.get(IEventBus),
@@ -2339,7 +2355,7 @@ describe('AgentTowerService', () => {
         );
 
         expect(restored.isActive).toBe(false);
-        expect(restoredAdded).toEqual([]);
+        expect(registeredTowerToolNames(ix2)).toEqual([]);
         expect(events).toContainEqual({ type: 'agent.status.updated', towerMode: false });
         await waitForAssertion(() => expect(releaseSpy).toHaveBeenCalledWith('session-fork'));
         await releaseSettled;
@@ -2404,14 +2420,10 @@ describe('AgentTowerService', () => {
       ix2.stub(IAgentContextMemoryService, {
         get: () => [],
       } as unknown as IAgentContextMemoryService);
-      const restoredAdded: string[] = [];
       ix2.stub(IAgentProfileService, {
         data: () => ({ profileName: undefined }),
-        addActiveTool: (name: string) => {
-          restoredAdded.push(name);
-        },
-        removeActiveTool: () => {},
       } as unknown as IAgentProfileService);
+      registerTowerToolServices(ix2);
       registerTestAgentWire(ix2, testWireScope('wire', 'tower-fork-stale-restore'), {
         log: ix2.get(IAppendLogStore),
         eventBus: ix2.get(IEventBus),
@@ -2437,7 +2449,7 @@ describe('AgentTowerService', () => {
       );
 
       expect(restored.isActive).toBe(true);
-      expect(restoredAdded).toEqual([...TOWER_MODE_TOOLS]);
+      expect(registeredTowerToolNames(ix2)).toEqual([...SORTED_TOWER_MODE_TOOLS]);
       expect(events).not.toContainEqual({ type: 'agent.status.updated', towerMode: false });
       const state = await new TowerStore(repo).load();
       expect(state.sessionId).toBe('session-fork');
@@ -2499,14 +2511,10 @@ describe('AgentTowerService', () => {
       ix2.stub(IAgentContextMemoryService, {
         get: () => [],
       } as unknown as IAgentContextMemoryService);
-      const restoredAdded: string[] = [];
       ix2.stub(IAgentProfileService, {
         data: () => ({ profileName: undefined }),
-        addActiveTool: (name: string) => {
-          restoredAdded.push(name);
-        },
-        removeActiveTool: () => {},
       } as unknown as IAgentProfileService);
+      registerTowerToolServices(ix2);
       registerTestAgentWire(ix2, testWireScope('wire', 'tower-fork-adopt-fail-restore'), {
         log: ix2.get(IAppendLogStore),
         eventBus: ix2.get(IEventBus),
@@ -2536,7 +2544,7 @@ describe('AgentTowerService', () => {
         );
 
         expect(restored.isActive).toBe(false);
-        expect(restoredAdded).toEqual([]);
+        expect(registeredTowerToolNames(ix2)).toEqual([]);
         expect(events).toContainEqual({ type: 'agent.status.updated', towerMode: false });
         const state = await new TowerStore(repo).load();
         expect(state.sessionId).toBe('session-original');
@@ -2592,14 +2600,10 @@ describe('AgentTowerService', () => {
       ix2.stub(IAgentContextMemoryService, {
         get: () => [],
       } as unknown as IAgentContextMemoryService);
-      const restoredAdded: string[] = [];
       ix2.stub(IAgentProfileService, {
         data: () => ({ profileName: undefined }),
-        addActiveTool: (name: string) => {
-          restoredAdded.push(name);
-        },
-        removeActiveTool: () => {},
       } as unknown as IAgentProfileService);
+      registerTowerToolServices(ix2);
       registerTestAgentWire(ix2, testWireScope('wire', 'tower-fork-flag-off-restore'), {
         log: ix2.get(IAppendLogStore),
         eventBus: ix2.get(IEventBus),
@@ -2625,7 +2629,7 @@ describe('AgentTowerService', () => {
       );
 
       expect(restored.isActive).toBe(false);
-      expect(restoredAdded).toEqual([]);
+      expect(registeredTowerToolNames(ix2)).toEqual([]);
       expect(events).toContainEqual({ type: 'agent.status.updated', towerMode: false });
       expect(ix2.get(IAgentStateService).get(towerKey)).toBe(false);
     } finally {
@@ -2673,14 +2677,10 @@ describe('AgentTowerService', () => {
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
-    const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
       data: () => ({ profileName: undefined }),
-      addActiveTool: (name: string) => {
-        restoredAdded.push(name);
-      },
-      removeActiveTool: () => {},
     } as unknown as IAgentProfileService);
+    registerTowerToolServices(ix2);
     registerTestAgentWire(ix2, testWireScope('wire', 'tower-fork-noinit'), {
       log: ix2.get(IAppendLogStore),
       eventBus: ix2.get(IEventBus),
@@ -2706,7 +2706,7 @@ describe('AgentTowerService', () => {
     );
 
     expect(restored.isActive).toBe(false);
-    expect(restoredAdded).toEqual([]);
+    expect(registeredTowerToolNames(ix2)).toEqual([]);
     expect(events).toContainEqual({ type: 'agent.status.updated', towerMode: false });
   });
 
@@ -2747,14 +2747,10 @@ describe('AgentTowerService', () => {
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
-    const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
       data: () => ({ profileName: undefined }),
-      addActiveTool: (name: string) => {
-        restoredAdded.push(name);
-      },
-      removeActiveTool: () => {},
     } as unknown as IAgentProfileService);
+    registerTowerToolServices(ix2);
     registerTestAgentWire(ix2, testWireScope('wire', 'tower-resume-noinit'), {
       log: ix2.get(IAppendLogStore),
       eventBus: ix2.get(IEventBus),
@@ -2780,7 +2776,7 @@ describe('AgentTowerService', () => {
     );
 
     expect(restored.isActive).toBe(true);
-    expect(restoredAdded).toEqual([...TOWER_MODE_TOOLS]);
+    expect(registeredTowerToolNames(ix2)).toEqual([...SORTED_TOWER_MODE_TOOLS]);
     expect(events).not.toContainEqual({ type: 'agent.status.updated', towerMode: false });
   });
 
@@ -2802,14 +2798,10 @@ describe('AgentTowerService', () => {
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
-    const restoredAdded: string[] = [];
     ix2.stub(IAgentProfileService, {
       data: () => ({ profileName: undefined }),
-      addActiveTool: (name: string) => {
-        restoredAdded.push(name);
-      },
-      removeActiveTool: () => {},
     } as unknown as IAgentProfileService);
+    registerTowerToolServices(ix2);
     registerTestAgentWire(ix2, testWireScope('wire', 'tower-restore-idle'), {
       log: ix2.get(IAppendLogStore),
       eventBus: ix2.get(IEventBus),
@@ -2826,7 +2818,7 @@ describe('AgentTowerService', () => {
       [],
     );
 
-    expect(restoredAdded).toEqual([]);
+    expect(registeredTowerToolNames(ix2)).toEqual([]);
   });
 
   describe('tower-worker write guard', () => {
@@ -4448,6 +4440,7 @@ describe('TowerModeInjection', () => {
     );
     context = ctx.get(IAgentContextMemoryService);
     tower = ctx.get(IAgentTowerService);
+    await tower.enter();
     await ctx.restorePersisted();
   });
 
@@ -4461,7 +4454,7 @@ describe('TowerModeInjection', () => {
   });
 
   it('injects the full reminder when tower mode turns on', async () => {
-    await tower.enter();
+    expect(tower.isActive).toBe(true);
 
     await injectDynamic(ctx);
     const text = lastTowerReminder(context);
@@ -4489,8 +4482,6 @@ describe('TowerModeInjection', () => {
   });
 
   it('injects the exit reminder when tower mode turns off after being active', async () => {
-    await tower.enter();
-
     await injectDynamic(ctx);
     await tower.exit();
     await injectDynamic(ctx);
@@ -4500,8 +4491,6 @@ describe('TowerModeInjection', () => {
   });
 
   it('emits the exit reminder once when the tower flag is turned off with an active reminder in context', async () => {
-    await tower.enter();
-
     await injectDynamic(ctx);
     expect(towerReminderMessages(context)).toHaveLength(1);
 
@@ -4520,6 +4509,7 @@ describe('TowerModeInjection', () => {
   });
 
   it('does not inject anything when tower mode is inactive from the start', async () => {
+    await tower.exit();
     await injectDynamic(ctx);
 
     expect(towerReminderMessages(context)).toHaveLength(0);
