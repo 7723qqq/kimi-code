@@ -3,7 +3,9 @@ import {
   createAssistantMessage,
   createMessageAccumulator,
   isVacuousContentPart,
+  scanToolDeclarations,
   type AssistantMessage,
+  type ToolDescription,
 } from '@moonshot-ai/core/llm/message';
 import { isAbortError, toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import { parseRetryAfterMs } from '#/llm/protocol/kit/http';
@@ -114,6 +116,12 @@ export async function settleLlmRequest(
   let requestId: string | undefined;
   let timing: LlmTiming | undefined;
   let failure: { error: LlmErrorMessage; rawError?: unknown } | undefined;
+  let visibleTools: ReadonlyMap<string, ToolDescription> | undefined;
+  const visibleToolMap = (): ReadonlyMap<string, ToolDescription> =>
+    (visibleTools ??= scanToolDeclarations(
+      request.profile?.tools ?? [],
+      request.content.messages,
+    ).visible);
 
   const handle = (event: LlmAttemptEvent): void => {
     switch (event.type) {
@@ -142,7 +150,7 @@ export async function settleLlmRequest(
       case 'attempt.tool_call_end': {
         const toolCall = inner.toolCallEnd(event.index);
         if (toolCall !== undefined) {
-          const invalid = invalidToolArgumentsError(toolCall, request.profile?.tools ?? []);
+          const invalid = invalidToolArgumentsError(toolCall, visibleToolMap());
           if (invalid === null) {
             onEvent?.({ type: 'llm.streaming.tool_call_end', index: event.index, toolCall });
           }
@@ -269,7 +277,7 @@ export async function settleLlmRequest(
 
   const message = finishMessage();
   for (const toolCall of message.toolCalls) {
-    const invalid = invalidToolArgumentsError(toolCall, request.profile?.tools ?? []);
+    const invalid = invalidToolArgumentsError(toolCall, visibleToolMap());
     if (invalid !== null) return failed({ error: invalid }, message);
   }
   const empty = emptyResponseError(message, request.model.spec, finish ?? NO_FINISH);

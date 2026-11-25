@@ -1,8 +1,13 @@
 import { estimateUsedContextTokens } from '#/llm/context-usage';
-import { createSystemMessage, type SystemMessage, type ToolDescription } from '@moonshot-ai/core/llm/message';
-import { isAbortError, toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
-import type { LlmRequest } from '@moonshot-ai/core/llm/request';
-import type { LlmOutcome, LlmRunEvent, LlmRunStarted } from '@moonshot-ai/core/llm/response';
+import {
+  createSystemMessage,
+  TOOL_ARGUMENT_CORRECTION_ORIGIN,
+  type SystemMessage,
+  type ToolDescription,
+} from '@moonshot-ai/core/llm/message';
+import { isAbortError, toLlmErrorMessage } from '#/llm/protocol/errors';
+import type { LlmRequest } from '#/llm/request';
+import type { LlmOutcome, LlmRunEvent, LlmRunStarted } from '#/llm/response';
 import { sha256Hex } from '#/utils/hash';
 import { log } from '#/utils/log';
 
@@ -249,7 +254,9 @@ async function runAttempts(
       return result;
     }
     if (result.error.kind === 'invalid_tool_arguments') {
-      toolArgumentCorrectionMessage = createSystemMessage(result.error.message);
+      toolArgumentCorrectionMessage = createSystemMessage(result.error.message, {
+        origin: { kind: TOOL_ARGUMENT_CORRECTION_ORIGIN },
+      });
     } else if (result.message !== undefined) {
       toolArgumentCorrectionMessage = undefined;
     }
