@@ -332,6 +332,26 @@ describe('startSessionAndActivateSkill', () => {
     await vi.waitFor(() => expect(rawState.pendingThinkingBySession['session-1']).toBeUndefined());
   });
 
+  it('keeps the config-derived draft thinking level when the created session reports no model yet', async () => {
+    const { rawState, api, modelProvider, persistSessionProfile, ws } = createWorkspaceState();
+    modeStore().draftThinkingExplicit = false;
+    modelsStore().setDefaultModel('kimi-k3');
+    api.createSession.mockResolvedValue({ ...createdSession('session-1'), model: '' });
+
+    const started = await ws.startSessionAndSendPrompt(
+      'workspace',
+      ws.createPromptEnvelope({ text: 'hello' }),
+    );
+
+    expect(started).toEqual({ sessionId: 'session-1', promptRejected: false });
+    expect(api.createSession.mock.calls[0]?.[0]).toMatchObject({ model: 'kimi-k3' });
+    expect(rawState.sessions.find((s) => s.id === 'session-1')?.model).toBe('kimi-k3');
+    expect(modelProvider.setSessionModel).not.toHaveBeenCalled();
+    expect(persistSessionProfile.mock.calls.map(([patch]) => patch.thinking)).toEqual(
+      persistSessionProfile.mock.calls.map(() => undefined),
+    );
+  });
+
   it('arms a draft plan intent for the activation to cash', async () => {
     const { rawState, modelProvider, ws } = createWorkspaceState();
     modeStore().draftModes.planMode = true;
