@@ -27,6 +27,7 @@ export type LlmErrorKind =
   | 'request_too_large'
   | 'request_structure'
   | 'image_format'
+  | 'invalid_tool_arguments'
   | 'empty_response'
   | 'provider'
   | 'unknown';
@@ -175,7 +176,7 @@ export type LlmSentEvent = { readonly type: 'llm.sent' };
 export type LlmRetrying =
   | {
       readonly type: 'llm.retrying';
-      readonly reason: 'backoff';
+      readonly reason: 'backoff' | 'invalid_tool_arguments';
       readonly error: LlmErrorMessage;
       readonly message?: AssistantMessage | null;
       readonly usage?: TokenUsage;

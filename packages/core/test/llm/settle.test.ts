@@ -90,6 +90,42 @@ function accumulatedMessage(parts: readonly StreamedMessagePart[]): AssistantMes
 }
 
 describe('LLM request settlement', () => {
+  it('rejects a tool call with invalid arguments and asks for a corrected call', async () => {
+    const tool: ToolCall = {
+      type: 'function',
+      id: 'call_bad',
+      name: 'weather',
+      arguments: '{"city":42}',
+      _streamIndex: 0,
+    };
+    const protocol = fakeProtocol({
+      chunks: [{ tool }, { finish: { finishReason: 'tool_calls', rawFinishReason: 'stop' } }],
+    });
+    const streamed = await runGenerate(protocol, {
+      module: testModule({
+        profile: {
+          tools: [
+            {
+              name: 'weather',
+              description: 'weather',
+              parameters: {
+                type: 'object',
+                properties: { city: { type: 'string' } },
+                required: ['city'],
+              },
+            },
+          ],
+        },
+      }),
+    });
+    const failed = failedOutcome(streamed.outcome);
+    expect(failed.error.kind).toBe('invalid_tool_arguments');
+    expect(failed.message).toBeUndefined();
+    expect(streamed.events.map((event) => event.type)).not.toContain(
+      'llm.streaming.tool_call_end',
+    );
+  });
+
   it('emits ordered facts and gives streaming and replay the same final Message semantics', async () => {
     const finish = { finishReason: 'tool_calls', rawFinishReason: 'stop' } as const;
     const tool: ToolCall = {

@@ -39,6 +39,7 @@ export type LlmErrorKind =
   | 'request_too_large'
   | 'request_structure'
   | 'image_format'
+  | 'invalid_tool_arguments'
   | 'empty_response'
   | 'provider'
   | 'unknown';

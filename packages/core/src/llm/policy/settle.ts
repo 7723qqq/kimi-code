@@ -9,6 +9,7 @@ import { isAbortError, toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/
 import { parseRetryAfterMs } from '#/llm/protocol/kit/http';
 import { withoutUndefinedStatusCode } from '#/llm/protocol/rules/status';
 import { createToolCallIdNormalizer } from '#/llm/protocol/rules/tool-call-ids';
+import { invalidToolArgumentsError } from '#/llm/tool-arguments';
 import type { LlmModelSpec, LlmRequest } from '@moonshot-ai/core/llm/request';
 import {
   llmStatusErrorMessage,
@@ -141,7 +142,10 @@ export async function settleLlmRequest(
       case 'attempt.tool_call_end': {
         const toolCall = inner.toolCallEnd(event.index);
         if (toolCall !== undefined) {
-          onEvent?.({ type: 'llm.streaming.tool_call_end', index: event.index, toolCall });
+          const invalid = invalidToolArgumentsError(toolCall, request.profile?.tools ?? []);
+          if (invalid === null) {
+            onEvent?.({ type: 'llm.streaming.tool_call_end', index: event.index, toolCall });
+          }
         }
         return;
       }
@@ -218,7 +222,10 @@ export async function settleLlmRequest(
     return {
       type: 'failed',
       ...failure,
-      message: usable === null ? undefined : assistantMessage(usable, 'salvaged'),
+      message:
+        failure.error.kind === 'invalid_tool_arguments' || usable === null
+          ? undefined
+          : assistantMessage(usable, 'salvaged'),
       ...extras(),
       diagnostics: request.protocol.base.diagnoseError?.({
         error: failure.error,
@@ -261,6 +268,10 @@ export async function settleLlmRequest(
   }
 
   const message = finishMessage();
+  for (const toolCall of message.toolCalls) {
+    const invalid = invalidToolArgumentsError(toolCall, request.profile?.tools ?? []);
+    if (invalid !== null) return failed({ error: invalid }, message);
+  }
   const empty = emptyResponseError(message, request.model.spec, finish ?? NO_FINISH);
   if (empty !== null) {
     return failed({ error: empty }, message);

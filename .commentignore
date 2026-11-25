@@ -19,3 +19,10 @@ packages/klient/test/facade.test.ts
 
 # Core tool tests document their issue/PR provenance at the user's request.
 packages/core/test/tool/*.test.ts
+
+# User-requested issue/PR provenance in LLM behavior tests.
+packages/core/test/llm/lifecycle/
+packages/core/test/llm/delta/
+
+# User-requested inline comments in LLM retry policy.
+packages/core/src/llm/policy/policy.ts

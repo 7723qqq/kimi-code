@@ -559,6 +559,7 @@ export function errorFromLlmMessage(error: LlmErrorMessage): Error {
         undefined,
         false,
       );
+    case 'invalid_tool_arguments':
     case 'provider':
       return new ChatProviderError(
         error.message,

@@ -1,5 +1,5 @@
 import { estimateUsedContextTokens } from '#/llm/context-usage';
-import type { ToolDescription } from '@moonshot-ai/core/llm/message';
+import { createSystemMessage, type SystemMessage, type ToolDescription } from '@moonshot-ai/core/llm/message';
 import { isAbortError, toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import type { LlmRequest } from '@moonshot-ai/core/llm/request';
 import type { LlmOutcome, LlmRunEvent, LlmRunStarted } from '@moonshot-ai/core/llm/response';
@@ -192,8 +192,18 @@ async function runAttempts(
     pendingNotices.length = 0;
   };
 
+  let toolArgumentCorrectionMessage: SystemMessage | undefined;
   while (!signal.aborted) {
-    const recoveredRequest = ledger.apply(request);
+    const requestForAttempt = toolArgumentCorrectionMessage === undefined
+      ? request
+      : {
+          ...request,
+          content: {
+            ...request.content,
+            messages: [...request.content.messages, toolArgumentCorrectionMessage],
+          },
+        };
+    const recoveredRequest = ledger.apply(requestForAttempt);
     let resolvedRequest = recoveredRequest;
     let recoveryRequest = recoveredRequest;
     try {
@@ -238,6 +248,11 @@ async function runAttempts(
     if (result.type === 'done' || result.type === 'aborted') {
       return result;
     }
+    if (result.error.kind === 'invalid_tool_arguments') {
+      toolArgumentCorrectionMessage = createSystemMessage(result.error.message);
+    } else if (result.message !== undefined) {
+      toolArgumentCorrectionMessage = undefined;
+    }
 
     const proposal = proposeFirst(listOf(policy.recoveries), {
       error: result.error,
@@ -270,10 +285,13 @@ async function runAttempts(
     }
 
     if (shouldRetry(policy.retry, attempt, result.error, listOf(policy.retryables))) {
-      const delayMs = readRetryAfterMs(result.error) ?? retryBackoffDelay(attempt - 1);
+      const invalidToolArguments = result.error.kind === 'invalid_tool_arguments';
+      const delayMs = invalidToolArguments && policy.retry?.infiniteRetry !== true
+        ? 0
+        : (readRetryAfterMs(result.error) ?? retryBackoffDelay(attempt - 1));
       const retrying: LlmRunEvent = {
         type: 'llm.retrying',
-        reason: 'backoff',
+        reason: invalidToolArguments ? 'invalid_tool_arguments' : 'backoff',
         failedAttempt: attempt,
         nextAttempt: attempt + 1,
         maxAttempts,
