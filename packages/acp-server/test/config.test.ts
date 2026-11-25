@@ -89,6 +89,28 @@ describe('acp-server config surface', () => {
     expect(modes?.availableModes.map((m) => m.id)).toEqual(['default', 'plan', 'auto', 'yolo']);
   }, 30_000);
 
+  it('describes the approval policies in both ACP mode pickers', async () => {
+    await boot();
+    const { modes, configOptions } = await newSession();
+    const auto =
+      'Run unattended, including sensitive operations, while honoring explicit deny rules.';
+    const yolo =
+      'Approve routine operations automatically. Sensitive actions can still require confirmation.';
+
+    expect(modes?.availableModes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'auto', description: auto }),
+        expect.objectContaining({ id: 'yolo', description: yolo }),
+      ]),
+    );
+    expect(configOptions.find((option) => option.id === 'mode')?.options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: 'auto', description: auto }),
+        expect.objectContaining({ value: 'yolo', description: yolo }),
+      ]),
+    );
+  }, 30_000);
+
   it('session/set_mode pushes current_mode_update alongside config_option_update', async () => {
     await boot();
     const { sessionId } = await newSession();
