@@ -69,8 +69,8 @@ describe('LLM delta finish boundaries', () => {
         attributes: { source: 'salvaged' },
       },
     });
-    expect(result.events.some((event) => event.type === 'llm.timing')).toBe(true);
-    expect(result.events.some((event) => event.type === 'llm.streaming.finish')).toBe(false);
+    expect(result.events.some((event) => event.type === 'llm.delta.timing')).toBe(true);
+    expect(result.events.some((event) => event.type === 'llm.delta.finish')).toBe(false);
     expect(result.events.at(-1)).toMatchObject({ type: 'llm.ended', outcome: { type: 'failed' } });
   });
 });

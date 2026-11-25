@@ -221,9 +221,9 @@ describe('non-streaming protocol replay', () => {
         stream: true,
       });
       const semantic = (events: typeof nonStream.events) => events
-        .filter((event) => event.type.startsWith('llm.streaming.') || event.type === 'llm.ended')
+        .filter((event) => event.type.startsWith('llm.delta.') || event.type === 'llm.ended')
         .map((event) => {
-          if (event.type === 'llm.timing') {
+          if (event.type === 'llm.delta.timing') {
             return {
               ...event,
               firstTokenLatencyMs: undefined,
@@ -243,8 +243,8 @@ describe('non-streaming protocol replay', () => {
       expect(calls).toEqual(['send', 'sendStream']);
       expect(nonStream.outcome.type).toBe('done');
       expect(semantic(nonStream.events)).toEqual(semantic(streamed.events));
-      expect(semantic(nonStream.events).map((event) => event.type)).toContain('llm.streaming.part');
-      expect(semantic(nonStream.events).map((event) => event.type)).toContain('llm.streaming.finish');
+      expect(semantic(nonStream.events).map((event) => event.type)).toContain('llm.delta.part');
+      expect(semantic(nonStream.events).map((event) => event.type)).toContain('llm.delta.finish');
       expect(semantic(nonStream.events).at(-1)?.type).toBe('llm.ended');
     }
   });

@@ -1,5 +1,6 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import type { CacheObservation } from '#/agent/usage/cacheObservation';
+import type { LlmRequestPayload } from '#/agent/loop/llmRequestOps';
 import type { FinishReason } from '#human/llm/finish-reason';
 import type { LlmCredentialProvider } from '#human/llm/requester/requester';
 import type { ThinkingEffort } from '#human/llm/thinking';
@@ -48,6 +49,7 @@ export interface AgentLLMRequestOverrides {
   usedContextTokens?: number;
   promptCacheProbe?: 'compaction';
   onAttemptRetry?: () => void;
+  onRequest?: (payload: LlmRequestPayload) => void;
 }
 
 export interface AgentLLMRequestAttemptFailure {

@@ -87,16 +87,16 @@ describe('LLM run boundaries', () => {
     });
     expect(streamed.events.map((event) => event.type)).toEqual([
       'llm.started',
-      'llm.sent',
-      'llm.streaming.headers',
-      'llm.streaming.request_id',
-      'llm.streaming.message_id',
-      'llm.streaming.part',
-      'llm.streaming.part',
-      'llm.streaming.usage',
-      'llm.streaming.tool_call_end',
-      'llm.streaming.finish',
-      'llm.timing',
+      'llm.requested',
+      'llm.delta.response_header',
+      'llm.delta.request_id',
+      'llm.delta.message_id',
+      'llm.delta.part',
+      'llm.delta.part',
+      'llm.delta.usage',
+      'llm.delta.tool_call_end',
+      'llm.delta.finish',
+      'llm.delta.timing',
       'llm.ended',
     ]);
     expect(streamed.events[0]).toMatchObject({
@@ -195,7 +195,7 @@ describe('LLM run boundaries', () => {
 
     expect(result.outcome).toMatchObject({ type: 'aborted', message: null });
     expect(sends).toBe(0);
-    expect(result.events.map((event) => event.type)).toEqual(['llm.ended']);
+    expect(result.events.map((event) => event.type)).toEqual(['llm.started', 'llm.ended']);
   });
 
   it('as a user, I want cancellation during resolution to prevent any provider request', async () => {
@@ -300,10 +300,10 @@ describe('LLM run boundaries', () => {
     expect(result.outcome.type).toBe('done');
     expect(result.events.slice(0, 3).map((event) => event.type)).toEqual([
       'llm.started',
+      'llm.requested',
       'llm.notice',
-      'llm.sent',
     ]);
-    expect(result.events[1]).toMatchObject({
+    expect(result.events[2]).toMatchObject({
       type: 'llm.notice',
       notice: {
         source: 'legalize-model',

@@ -40,10 +40,10 @@ describe('LLM streamed tool-call boundaries', () => {
     });
 
     expect(doneOutcome(result.outcome).message.toolCalls.map((call) => call.id)).toEqual(['call_1', 'call_2']);
-    expect(result.events.filter((event) => event.type === 'llm.streaming.tool_call_end').map((event) => event.toolCall.id)).toEqual([
+    expect(result.events.filter((event) => event.type === 'llm.delta.tool_call_end').map((event) => event.toolCall.id)).toEqual([
       'call_1',
       'call_2',
     ]);
-    expect(result.events.filter((event) => event.type === 'llm.streaming.tool_call_end').map((event) => event.index)).toEqual([0, 1]);
+    expect(result.events.filter((event) => event.type === 'llm.delta.tool_call_end').map((event) => event.index)).toEqual([0, 1]);
   });
 });

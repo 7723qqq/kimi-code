@@ -27,7 +27,7 @@ describe('LLM streamed message parts', () => {
       { type: 'think', think: 'reasoning', reasoningKey: 'reasoning_content' },
       { type: 'text', text: 'answer complete' },
     ]);
-    expect(result.events.filter((event) => event.type === 'llm.streaming.part').map((event) => event.part.type)).toEqual([
+    expect(result.events.filter((event) => event.type === 'llm.delta.part').map((event) => event.part.type)).toEqual([
       'think',
       'text',
       'text',

@@ -15,6 +15,7 @@ import {
   type LoopRequester,
 } from './requesterContract';
 import { IAgentLLMRequesterService, type AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
+import type { LlmRequestPayload } from '#/agent/loop/llmRequestOps';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { ToolCallStarted, ToolResultEvent } from '#/agent/toolExecutor/toolExecutorEvents';
@@ -676,10 +677,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       }
       const enriched = this.turns.enrich(event, this.toolExecutor);
       this.notifications.project(event);
-      if (event.type === 'llm.retrying') this.journal.append(enriched);
+      if (event.type === 'llm.retry') this.journal.append(enriched);
       this.turns.project(enriched, loop);
       this.projectTaskEvent(enriched);
-      if (event.type !== 'llm.retrying') this.journal.append(enriched);
+      if (event.type !== 'llm.retry') this.journal.append(enriched);
       if ((event.type === 'tool.async_ended' || (event.type === 'tool.ended' && !event.detached)) && event.taskId !== undefined) {
         this.toolExecutor.release(event.taskId);
       }
@@ -766,6 +767,27 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         );
         let accumulator = createMessageAccumulator();
         const requestMessages = rest.content?.messages ?? [];
+        let started = false;
+        const emitRequest = (payload: LlmRequestPayload, attempt: number): void => {
+          if (!started) {
+            started = true;
+            control.onEvent?.({
+              type: 'llm.started',
+              provider: payload.provider,
+              model: payload.model,
+              thinkingEffort: payload.thinkingEffort,
+              thinkingKeep: payload.thinkingKeep,
+              temperature: payload.temperature,
+              topP: payload.topP,
+              maxOutputTokens: payload.maxTokens,
+              systemPromptHash: payload.systemPromptHash,
+              toolsHash: payload.toolsHash,
+              messageCount: payload.messageCount,
+            });
+          }
+          const { agentId: _agentId, ...summary } = payload;
+          control.onEvent?.({ ...summary, type: 'llm.requested', attempt: String(attempt) });
+        };
         await this.toolSelect.prepareForRequest(control.signal);
         const requestTools = this.toolSelect.requestTools(
           rest.profile?.tools as unknown as readonly Tool[] | undefined,
@@ -774,6 +796,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           requestMessages as never,
         );
         for (let attempt = 1; ; attempt += 1) {
+          const attemptNumber = attempt;
           const task = this.llmRequester.start(
             {
               messages: requestMessages.map((message) =>
@@ -784,19 +807,19 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
               source: source as unknown as AgentLLMRequestSource,
               maxOutputSize: options.maxOutputSize,
               promptCacheProbe: options.promptCacheProbe,
+              onRequest: (payload) => emitRequest(payload, attemptNumber),
             },
             (part) => {
               const corePart = toCoreStreamPart(part);
               const { block } = accumulator.push(corePart);
               control.onEvent?.({
-                type: 'llm.streaming.part',
+                type: 'llm.delta.part',
                 part: corePart,
                 block,
               });
             },
             control.signal,
           );
-          control.onEvent?.({ type: 'llm.sent' });
           options.onTrace?.(task.trace);
           try {
             const finish = await task.result;
@@ -805,10 +828,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
               rawFinishReason: finish.rawFinishReason ?? null,
             };
             const usage = finish.usage as unknown as TokenUsage;
-            control.onEvent?.({ type: 'llm.streaming.usage', usage });
-            control.onEvent?.({ type: 'llm.streaming.finish', finish: finishInfo });
+            control.onEvent?.({ type: 'llm.delta.usage', usage });
+            control.onEvent?.({ type: 'llm.delta.finish', finish: finishInfo });
             if (finish.providerMessageId !== undefined) {
-              control.onEvent?.({ type: 'llm.streaming.message_id', messageId: finish.providerMessageId });
+              control.onEvent?.({ type: 'llm.delta.message_id', messageId: finish.providerMessageId });
             }
             const base = historyEntryFromContext(finish.message as unknown as ContextMessage);
             const message = {
@@ -877,7 +900,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             }
             const delayMs = readRetryAfterMs(error) ?? retryBackoffDelay(attempt - 1);
             control.onEvent?.({
-              type: 'llm.retrying',
+              type: 'llm.retry',
               reason: 'backoff',
               error: llmError,
               message: (partial ?? undefined) as never,

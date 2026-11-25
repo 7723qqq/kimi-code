@@ -254,11 +254,16 @@ export async function runGenerate<TOptions, TRequest, TResponse, TChunk, TClient
       },
     },
   );
-  const started = events.filter((event) => event.type === 'llm.started');
-  expect(started.length).toBeLessThanOrEqual(1);
+  expect(events.filter((event) => event.type === 'llm.started')).toHaveLength(1);
   expect(events.filter((event) => event.type === 'llm.ended')).toHaveLength(1);
-  if (started.length === 1) expect(events[0]?.type).toBe('llm.started');
+  expect(events[0]?.type).toBe('llm.started');
   expect(events.at(-1)?.type).toBe('llm.ended');
+  const firstRequested = events.findIndex((event) => event.type === 'llm.requested');
+  const deltas = events.filter((entry) => entry.type.startsWith('llm.delta.'));
+  const deltaOrderValid = firstRequested < 0
+    ? deltas.length === 0
+    : deltas.every((event) => events.indexOf(event) > firstRequested);
+  expect(deltaOrderValid).toBe(true);
   return { outcome, events };
 }
 

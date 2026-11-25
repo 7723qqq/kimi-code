@@ -127,6 +127,7 @@ interface ResolvedLLMRequest {
     | undefined;
   readonly source: AgentLLMRequestSource | undefined;
   readonly logFields: AgentLLMRequestLogFields;
+  readonly onRequest?: (payload: LlmRequestPayload) => void;
 }
 
 interface LLMRequestLogInput {
@@ -523,6 +524,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       };
       this.logRequest(logInput);
       const recorded = this.recordRequest(logInput);
+      request.onRequest?.(recorded);
       const startedAt = Date.now();
 
       let message: Message | undefined;
@@ -962,6 +964,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       promptCacheProbe,
       source: overrides.source,
       logFields: logFieldsForSource(overrides.source),
+      onRequest: overrides.onRequest,
     };
   }
 

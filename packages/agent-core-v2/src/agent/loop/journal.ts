@@ -386,7 +386,7 @@ export class LoopJournal {
         if (step !== undefined) this.ensureStepStarted(requesting.turnId, requesting.step, step);
         return;
       }
-      case 'llm.retrying': {
+      case 'llm.retry': {
         const requesting = this.requestingStep;
         if (requesting === undefined) return;
         const key = stepKey(requesting.turnId, requesting.step);
@@ -406,7 +406,7 @@ export class LoopJournal {
         }
         return;
       }
-      case 'llm.sent': {
+      case 'llm.requested': {
         const requesting = this.requestingStep;
         if (requesting === undefined) return;
         const key = stepKey(requesting.turnId, requesting.step);

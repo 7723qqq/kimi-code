@@ -514,7 +514,7 @@ describe('tool call id policies', () => {
       module: moduleWith({ messages: toolHistory }),
     });
     const parts: StreamedMessagePart[] = events.flatMap((event) =>
-      event.type === 'llm.streaming.part' ? [event.part] : []);
+      event.type === 'llm.delta.part' ? [event.part] : []);
 
     const bodyMessages = records(body?.['messages']);
     expect(records(bodyMessages[1]?.['tool_calls'])[0]?.['id']).toBe('call_abc');
@@ -548,7 +548,7 @@ describe('tool call id policies', () => {
       module: moduleWith({ messages: toolHistory }),
     });
     const parts: StreamedMessagePart[] = events.flatMap((event) =>
-      event.type === 'llm.streaming.part' ? [event.part] : []);
+      event.type === 'llm.delta.part' ? [event.part] : []);
 
     const blocks = records(body?.['messages']).flatMap((message) => records(message['content']));
     expect(blocks.find((block) => block['type'] === 'tool_use')?.['id']).toBe('call_abc');

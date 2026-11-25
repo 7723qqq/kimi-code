@@ -87,7 +87,7 @@ describe('LLM retry boundaries', () => {
 
     expect(doneOutcome(result.outcome).message.content).toEqual([{ type: 'text', text: 'ok' }]);
     expect(sends).toBe(2);
-    const retry = result.events.findIndex((event) => event.type === 'llm.retrying');
+    const retry = result.events.findIndex((event) => event.type === 'llm.retry');
     expect(retry).toBeGreaterThanOrEqual(0);
     expect(result.events[retry]).toMatchObject({
       reason: 'backoff',
@@ -95,8 +95,8 @@ describe('LLM retry boundaries', () => {
       nextAttempt: 2,
       delayMs: 1,
     });
-    expect(result.events.slice(0, retry).some((event) => event.type === 'llm.streaming.finish')).toBe(false);
-    expect(result.events.some((event) => event.type === 'llm.streaming.part')).toBe(true);
+    expect(result.events.slice(0, retry).some((event) => event.type === 'llm.delta.finish')).toBe(false);
+    expect(result.events.some((event) => event.type === 'llm.delta.part')).toBe(true);
   });
 
   it('as a user, I want recovery to rewrite the next real request and start a fresh delta segment', async () => {
@@ -144,14 +144,14 @@ describe('LLM retry boundaries', () => {
     expect(doneOutcome(result.outcome).message.content).toEqual([{ type: 'text', text: 'ok' }]);
     expect(sends).toBe(2);
     expect(modules[1]?.model.cacheKey).toBe('recovered');
-    const retry = result.events.findIndex((event) => event.type === 'llm.retrying');
+    const retry = result.events.findIndex((event) => event.type === 'llm.retry');
     expect(result.events[retry]).toMatchObject({
       reason: 'recovery',
       strategy: 'test-recovery',
       action: 'rewrite',
       message: { content: [{ type: 'text', text: 'partial' }] },
     });
-    expect(result.events.slice(0, retry).some((event) => event.type === 'llm.streaming.finish')).toBe(false);
+    expect(result.events.slice(0, retry).some((event) => event.type === 'llm.delta.finish')).toBe(false);
   });
 
   it('as a user, I want aborting backoff to prevent another provider request', async () => {
@@ -171,7 +171,7 @@ describe('LLM retry boundaries', () => {
       signal: controller.signal,
       policy: { retry: { maxAttemptsPerStep: 2 } },
       onEvent: (event) => {
-        if (event.type === 'llm.retrying') controller.abort('stop backoff');
+        if (event.type === 'llm.retry') controller.abort('stop backoff');
       },
     });
 
@@ -179,8 +179,8 @@ describe('LLM retry boundaries', () => {
     expect(sends).toBe(1);
     expect(result.events.map((event) => event.type)).toEqual([
       'llm.started',
-      'llm.sent',
-      'llm.retrying',
+      'llm.requested',
+      'llm.retry',
       'llm.ended',
     ]);
   });
@@ -212,11 +212,11 @@ describe('LLM retry boundaries', () => {
 
     expect(doneOutcome(result.outcome).message.content).toEqual([{ type: 'text', text: 'ok' }]);
     expect(sends).toBe(2);
-    const retry = result.events.findIndex((event) => event.type === 'llm.retrying');
+    const retry = result.events.findIndex((event) => event.type === 'llm.retry');
     expect(result.events[retry]).toMatchObject({ reason: 'backoff' });
-    expect(result.events.slice(0, retry).some((event) => event.type === 'llm.streaming.finish')).toBe(false);
+    expect(result.events.slice(0, retry).some((event) => event.type === 'llm.delta.finish')).toBe(false);
     expect(result.events.some(
-      (event) => event.type === 'llm.streaming.part' &&
+      (event) => event.type === 'llm.delta.part' &&
         event.part.type === 'text' &&
         event.part.text === 'partial',
     )).toBe(true);
@@ -256,7 +256,7 @@ describe('LLM retry boundaries', () => {
     });
 
     expect(doneOutcome(result.outcome).message.content).toEqual([{ type: 'text', text: 'recovered' }]);
-    expect(result.events.find((event) => event.type === 'llm.retrying')).toMatchObject({
+    expect(result.events.find((event) => event.type === 'llm.retry')).toMatchObject({
       reason: 'recovery',
       strategy: 'media-degrade',
       action: 'stripped',
@@ -296,7 +296,7 @@ describe('LLM retry boundaries', () => {
     });
 
     expect(doneOutcome(result.outcome).message.content).toEqual([{ type: 'text', text: 'recovered' }]);
-    expect(result.events.find((event) => event.type === 'llm.retrying')).toMatchObject({
+    expect(result.events.find((event) => event.type === 'llm.retry')).toMatchObject({
       reason: 'recovery',
       strategy: 'media-degrade',
       action: 'degraded',

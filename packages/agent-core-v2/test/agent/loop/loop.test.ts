@@ -372,6 +372,31 @@ describe('Agent loop', () => {
     expect(ctx.llmCalls).toHaveLength(3);
   });
 
+  it('resets streamed output for backoff retries', async () => {
+    const local = createTestAgent({
+      initialConfig: { providers: {}, loopControl: { maxAttemptsPerStep: 2 } },
+    });
+    try {
+      local.mockNextProviderResponse({
+        parts: [{ type: 'text', text: 'partial before retry' }],
+        error: new APIProviderRateLimitError('retry', null, 1),
+      });
+      local.mockNextResponse({ type: 'text', text: 'completed after retry' });
+      await local.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+      await local.untilTurnEnd();
+
+      expect(local.llmCalls).toHaveLength(2);
+      expect(local.allEvents).toContainEqual(
+        expect.objectContaining({
+          event: 'turn.step.stream_reset',
+          args: expect.objectContaining({ turnId: 0, step: 1 }),
+        }),
+      );
+    } finally {
+      await local.dispose();
+    }
+  });
+
   it('reports an untyped LLM error message without an internal-code prefix', async () => {
     profile.update({ activeToolNames: [] });
 

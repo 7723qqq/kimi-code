@@ -169,7 +169,7 @@ describe('LLM final outcomes', () => {
       module: testModule(),
       signal: controller.signal,
       onEvent: (event) => {
-        if (event.type === 'llm.streaming.part') controller.abort();
+        if (event.type === 'llm.delta.part') controller.abort();
       },
     });
     expect(aborted.outcome).toMatchObject({
@@ -248,6 +248,6 @@ describe('LLM final outcomes', () => {
       error: { kind: 'syntax', code: 'thinking_config' },
     });
     expect(sends).toBe(0);
-    expect(result.events.map((event) => event.type)).toEqual(['llm.started', 'llm.ended']);
+    expect(result.events.map((event) => event.type)).toEqual(['llm.started', 'llm.requested', 'llm.ended']);
   });
 });

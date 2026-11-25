@@ -160,7 +160,7 @@ describe('LLM request settlement', () => {
     expect(failed.error.kind).toBe('invalid_tool_arguments');
     expect(failed.message).toBeUndefined();
     expect(streamed.events.map((event) => event.type)).not.toContain(
-      'llm.streaming.tool_call_end',
+      'llm.delta.tool_call_end',
     );
   });
 
@@ -210,16 +210,16 @@ describe('LLM request settlement', () => {
     });
     expect(streamed.events.map((event) => event.type)).toEqual([
       'llm.started',
-      'llm.sent',
-      'llm.streaming.headers',
-      'llm.streaming.request_id',
-      'llm.streaming.message_id',
-      'llm.streaming.part',
-      'llm.streaming.part',
-      'llm.streaming.tool_call_end',
-      'llm.streaming.usage',
-      'llm.streaming.finish',
-      'llm.timing',
+      'llm.requested',
+      'llm.delta.response_header',
+      'llm.delta.request_id',
+      'llm.delta.message_id',
+      'llm.delta.part',
+      'llm.delta.part',
+      'llm.delta.tool_call_end',
+      'llm.delta.usage',
+      'llm.delta.finish',
+      'llm.delta.timing',
       'llm.ended',
     ]);
     expect(streamed.events.at(-1)).toMatchObject({ type: 'llm.ended', outcome: done });

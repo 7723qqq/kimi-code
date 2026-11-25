@@ -92,7 +92,7 @@ describe('LLM retry policy', () => {
 
     expect(failedOutcome(outcome).error.message).toBe('still unavailable');
     expect(attempts.count).toBe(2);
-    expect(events.filter((event) => event.type === 'llm.retrying')).toHaveLength(1);
+    expect(events.filter((event) => event.type === 'llm.retry')).toHaveLength(1);
   });
 
   it('does not retry non-retryable errors', async () => {
@@ -104,7 +104,7 @@ describe('LLM retry policy', () => {
 
     expect(outcome.type).toBe('failed');
     expect(attempts.count).toBe(1);
-    expect(events.some((event) => event.type === 'llm.retrying')).toBe(false);
+    expect(events.some((event) => event.type === 'llm.retry')).toBe(false);
   });
 
   it('retries a non-retryable error when infiniteRetry is on', async () => {
@@ -147,7 +147,7 @@ describe('LLM retry policy', () => {
 
     expect(outcome.type).toBe('done');
     expect(events).toContainEqual(expect.objectContaining({
-      type: 'llm.retrying',
+      type: 'llm.retry',
       reason: 'backoff',
       delayMs: 50,
     }));
@@ -162,9 +162,9 @@ describe('LLM retry policy', () => {
     const { outcome, events } = await pending;
 
     expect(outcome.type).toBe('done');
-    const retrying = events.find((event) => event.type === 'llm.retrying');
+    const retrying = events.find((event) => event.type === 'llm.retry');
     expect(retrying).toMatchObject({ reason: 'backoff' });
-    if (retrying?.type !== 'llm.retrying' || retrying.reason !== 'backoff') throw new Error('missing backoff');
+    if (retrying?.type !== 'llm.retry' || retrying.reason !== 'backoff') throw new Error('missing backoff');
     expect(retrying.delayMs).toBeGreaterThanOrEqual(500);
     expect(retrying.delayMs).toBeLessThanOrEqual(625);
   });
@@ -189,7 +189,7 @@ describe('LLM retry policy', () => {
     });
 
     expect(outcome.type).toBe('failed');
-    expect(events.some((event) => event.type === 'llm.retrying')).toBe(false);
+    expect(events.some((event) => event.type === 'llm.retry')).toBe(false);
   });
 
   it('does not retry without failure', async () => {
@@ -202,7 +202,7 @@ describe('LLM retry policy', () => {
 
     expect(outcome.type).toBe('done');
     expect(sendStream).toHaveBeenCalledTimes(1);
-    expect(events.some((event) => event.type === 'llm.retrying')).toBe(false);
+    expect(events.some((event) => event.type === 'llm.retry')).toBe(false);
   });
 });
 
@@ -232,8 +232,8 @@ describe('LLM media recovery', () => {
 
     expect(outcome.type).toBe('failed');
     expect(attempts).toBe(3);
-    expect(events.filter((event) => event.type === 'llm.retrying').map((event) =>
-      event.type === 'llm.retrying' && event.reason === 'recovery' ? event.action : event.type)).toEqual([
+    expect(events.filter((event) => event.type === 'llm.retry').map((event) =>
+      event.type === 'llm.retry' && event.reason === 'recovery' ? event.action : event.type)).toEqual([
         'degraded',
         'stripped',
       ]);
@@ -260,7 +260,7 @@ describe('LLM media recovery', () => {
 
     expect(outcome.type).toBe('failed');
     expect(sendStream).toHaveBeenCalledTimes(1);
-    expect(events.some((event) => event.type === 'llm.retrying')).toBe(false);
+    expect(events.some((event) => event.type === 'llm.retry')).toBe(false);
   });
 });
 
@@ -299,7 +299,7 @@ describe('LLM credential recovery', () => {
     expect(attempts).toBe(3);
     expect(provider.invalidate).toHaveBeenCalledTimes(1);
     expect(events).toContainEqual(expect.objectContaining({
-      type: 'llm.retrying',
+      type: 'llm.retry',
       reason: 'recovery',
       strategy: 'credentials',
     }));
@@ -360,7 +360,7 @@ describe('LLM streamed blocks', () => {
     const { events } = await runGenerate(protocol, { module: testModule() });
     const parts: StreamedMessagePart[] = [];
     const blocks = events.flatMap((event) => {
-      if (event.type !== 'llm.streaming.part') return [];
+      if (event.type !== 'llm.delta.part') return [];
       parts.push(event.part);
       return [event.block];
     });

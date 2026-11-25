@@ -32,24 +32,24 @@ describe('LLM response metadata', () => {
 
     expect(result.events.map((event) => event.type)).toEqual([
       'llm.started',
-      'llm.sent',
-      'llm.streaming.headers',
-      'llm.streaming.request_id',
-      'llm.streaming.message_id',
-      'llm.streaming.part',
-      'llm.streaming.usage',
-      'llm.streaming.finish',
-      'llm.timing',
+      'llm.requested',
+      'llm.delta.response_header',
+      'llm.delta.request_id',
+      'llm.delta.message_id',
+      'llm.delta.part',
+      'llm.delta.usage',
+      'llm.delta.finish',
+      'llm.delta.timing',
       'llm.ended',
     ]);
     expect(result.events[2]).toMatchObject({
-      type: 'llm.streaming.headers',
+      type: 'llm.delta.response_header',
       headers: { 'x-request-id': 'req-success' },
     });
-    expect(result.events[3]).toMatchObject({ type: 'llm.streaming.request_id', requestId: 'req-success' });
-    expect(result.events[4]).toMatchObject({ type: 'llm.streaming.message_id', messageId: 'msg-1' });
+    expect(result.events[3]).toMatchObject({ type: 'llm.delta.request_id', requestId: 'req-success' });
+    expect(result.events[4]).toMatchObject({ type: 'llm.delta.message_id', messageId: 'msg-1' });
     expect(result.events[6]).toMatchObject({
-      type: 'llm.streaming.usage',
+      type: 'llm.delta.usage',
       usage: {
         inputOther: 8,
         output: 2,
@@ -58,9 +58,9 @@ describe('LLM response metadata', () => {
         raw: usage,
       },
     });
-    expect(result.events[7]).toMatchObject({ type: 'llm.streaming.finish', finish });
+    expect(result.events[7]).toMatchObject({ type: 'llm.delta.finish', finish });
     expect(result.events[8]).toMatchObject({
-      type: 'llm.timing',
+      type: 'llm.delta.timing',
       firstTokenLatencyMs: expect.any(Number),
       streamDurationMs: expect.any(Number),
     });
