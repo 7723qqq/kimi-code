@@ -1201,13 +1201,15 @@ export class MessageDispatchController {
     if (currentTurnId !== undefined && prepared === undefined) {
       this.staging.bindToTurn(stagingLease, currentTurnId);
     }
+    const steerPromptId = randomUUID();
     const dispatch = (items: readonly SteerInputItem[]) => {
       const payload = combineSteerInput(items);
-      return this.trackSteerSubmission(steeredEntries, payload, () =>
+      return this.trackSteerSubmission(steeredEntries, payload, steerPromptId, () =>
         prepared === undefined
-          ? session.steer(payload)
+          ? session.steer(payload, { promptId: steerPromptId })
           : session.promptWithSkills(payload, prepared.skills, {
               steerIfActive: true,
+              promptId: steerPromptId,
             }),
       );
     };
@@ -1255,9 +1257,10 @@ export class MessageDispatchController {
   trackSteerSubmission(
     entries: readonly TranscriptEntry[],
     payload: string | readonly { readonly type: string; readonly text?: string }[],
+    promptId: string | undefined,
     submit: () => Promise<PromptSubmissionResult>,
   ): Promise<void> {
-    this.notePendingSteer(entries, payload);
+    this.notePendingSteer(entries, payload, promptId);
     if (!this.turnCanAcceptSteer()) this.setSteerEntriesPending(entries, false);
     return submit().then((result) => {
       this.applySteerSubmission(entries, result);
@@ -1331,6 +1334,7 @@ export class MessageDispatchController {
   private notePendingSteer(
     entries: readonly TranscriptEntry[],
     payload: string | readonly { readonly type: string; readonly text?: string }[],
+    promptId?: string,
   ): void {
     const payloadText = steerPayloadText(payload);
     const displayText = entries.map((entry) => entry.content).join('\n\n');
@@ -1338,6 +1342,7 @@ export class MessageDispatchController {
       entries,
       text: payloadText.length > 0 ? payloadText : displayText,
       mediaOnly: payloadText.length === 0,
+      ...(promptId === undefined ? {} : { promptId }),
     });
   }
 

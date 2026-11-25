@@ -288,6 +288,11 @@ export interface KimiTUIStartupInput {
 }
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
+type QueuedSteerRequest = {
+  readonly promptId: string;
+  readonly messages: readonly QueuedMessage[];
+  admitted: boolean;
+};
 type LoadingTipKind = 'moon' | 'braille';
 
 function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
@@ -431,6 +436,7 @@ export class KimiTUI {
   /** Staged prompt media lifecycle (daemon uploads + cache copies) — see StagingLeaseTracker. */
   private readonly staging: StagingLeaseTracker;
   private readonly steeringQueuedMessages = new Set<QueuedMessage>();
+  private readonly queuedSteerRequests = new Map<string, QueuedSteerRequest>();
   private readonly autoTitleAttempts = new Map<string, { attempts: number; done: boolean }>();
   private readonly approvalController = new ApprovalController();
   private readonly questionController = new QuestionController();
@@ -2590,7 +2596,15 @@ export class KimiTUI {
       const request = this.messageDispatch.trackPendingEntries(
         [entry],
         this.dispatchPreparedInput(session, sdkInput, (parts) =>
-          this.messageDispatch.trackSteerSubmission([entry], parts, () => session.steer(parts)),
+          this.messageDispatch.trackSteerSubmission(
+            [entry],
+            parts,
+            randomUUID(),
+            () => {
+              const goalPromptId = randomUUID();
+              return session.steer(parts, { promptId: goalPromptId });
+            },
+          ),
         ),
       );
       this.staging.trackDispatch(stagingLease, request, (error) => {
@@ -2895,6 +2909,12 @@ export class KimiTUI {
         }
       }
       for (const message of group) this.steeringQueuedMessages.add(message);
+      const queuedRequest: QueuedSteerRequest = {
+        promptId: randomUUID(),
+        messages: group,
+        admitted: false,
+      };
+      this.queuedSteerRequests.set(queuedRequest.promptId, queuedRequest);
       this.updateQueueDisplay();
       const items = group.map((message) => {
         const item = toSteerInputItem(message);
@@ -2913,6 +2933,7 @@ export class KimiTUI {
         items,
         (outcome) => {
           const steered = outcome === 'steered';
+          this.queuedSteerRequests.delete(queuedRequest.promptId);
           for (const message of group) this.steeringQueuedMessages.delete(message);
           if (this.session !== session) return;
           if (steered || manual) {
@@ -2921,7 +2942,7 @@ export class KimiTUI {
               (message) => !done.has(message),
             );
           }
-          if (!steered) {
+          if (!steered && !queuedRequest.admitted) {
             this.staging.releaseQueued(
               group.filter((message) => !this.state.queuedMessages.includes(message)),
             );
@@ -2931,9 +2952,21 @@ export class KimiTUI {
           else this.drainQueueIfIdle();
         },
         manual,
+        false,
+        queuedRequest,
       );
     };
     sendNext();
+  }
+
+  acknowledgePromptQueued(promptId: string): void {
+    const request = this.queuedSteerRequests.get(promptId);
+    if (request === undefined || request.admitted) return;
+    request.admitted = true;
+    const admitted = new Set<QueuedMessage>(request.messages);
+    this.state.queuedMessages = this.state.queuedMessages.filter((message) => !admitted.has(message));
+    this.updateQueueDisplay();
+    this.state.ui.requestRender();
   }
 
   canManuallySteer(): boolean {
@@ -2969,6 +3002,7 @@ export class KimiTUI {
     onSettled?: (outcome: SteerOutcome) => void,
     manual = false,
     occupiedRetry = false,
+    queuedRequest?: QueuedSteerRequest,
   ): void {
     if (this.deferUserMessages || this.state.appState.isCompacting) {
       if (onSettled !== undefined) {
@@ -3052,14 +3086,20 @@ export class KimiTUI {
     // retires its media at session close instead.
     if (currentTurnId !== undefined && prepared === undefined)
       this.staging.bindToTurn(stagingLease, currentTurnId);
+    const steerPromptId = queuedRequest?.promptId ?? randomUUID();
     const dispatch = (items: readonly SteerInputItem[]) => {
       const payload = combineSteerInput(items);
-      return this.messageDispatch.trackSteerSubmission(steeredEntries, payload, () =>
-        prepared === undefined
-          ? session.steer(payload)
-          : session.promptWithSkills(payload, prepared.skills, {
-              steerIfActive: true,
-            }),
+      return this.messageDispatch.trackSteerSubmission(
+        steeredEntries,
+        payload,
+        steerPromptId,
+        () =>
+          prepared === undefined
+            ? session.steer(payload, { promptId: steerPromptId })
+            : session.promptWithSkills(payload, prepared.skills, {
+                steerIfActive: true,
+                promptId: steerPromptId,
+              }),
       );
     };
     const request = this.messageDispatch.trackPendingEntries(

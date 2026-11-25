@@ -4761,7 +4761,7 @@ command = "vim"
             text: expect.stringContaining('kimi-file://f_original'),
           }),
         ]),
-        ...(goalActive ? [] : [expect.anything()]),
+        expect.anything(),
       );
     },
   );
@@ -5117,7 +5117,7 @@ command = "vim"
             expect(session.promptWithSkills).toHaveBeenCalledWith(
               '/skill:review    explain this',
               [{ name: 'review', args: 'explain this' }],
-              { steerIfActive: true },
+              { steerIfActive: true, promptId: expect.any(String) },
             );
         }
       }
@@ -5719,7 +5719,7 @@ command = "vim"
       expect(session.promptWithSkills).toHaveBeenCalledWith(
         '/skill:review src/app.ts',
         [{ name: 'review', args: 'src/app.ts' }],
-        { steerIfActive: true },
+        { steerIfActive: true, promptId: expect.any(String) },
       );
     });
     expect(session.activateSkill).not.toHaveBeenCalled();
@@ -5761,7 +5761,7 @@ command = "vim"
       expect(session.promptWithSkills).toHaveBeenCalledWith(
         '/skill:review',
         [expect.objectContaining({ name: 'review', path })],
-        { steerIfActive: true },
+        { steerIfActive: true, promptId: expect.any(String) },
       );
     });
     const entry = driver.state.transcriptEntries.find(
@@ -6262,7 +6262,7 @@ command = "vim"
     expect(driver.state.livePane.mode).toBe('idle');
     expect(driver.state.queuedMessages).toEqual([]);
     expect(session.steer).toHaveBeenCalledTimes(2);
-    expect(session.steer).toHaveBeenLastCalledWith('later');
+    expect(session.steer).toHaveBeenLastCalledWith('later', { promptId: expect.any(String) });
     expect(session.promptWithSkills).not.toHaveBeenCalled();
     expect(session.prompt).not.toHaveBeenCalled();
   });
@@ -6316,7 +6316,7 @@ command = "vim"
         }),
       );
       expect(session.steer).toHaveBeenCalledTimes(2);
-      expect(session.steer).toHaveBeenLastCalledWith('later');
+      expect(session.steer).toHaveBeenLastCalledWith('later', { promptId: expect.any(String) });
       expect(session.promptWithSkills).toHaveBeenCalledTimes(1);
       expect(session.prompt).not.toHaveBeenCalled();
     },
@@ -6338,7 +6338,7 @@ command = "vim"
     await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('Input unavailable');
     });
-    expect(session.steer).toHaveBeenCalledWith('keep this input');
+    expect(session.steer).toHaveBeenCalledWith('keep this input', { promptId: expect.any(String) });
     expect(driver.state.queuedMessages).toEqual([]);
     expect(driver.state.transcriptEntries).toContainEqual(
       expect.objectContaining({
@@ -7327,8 +7327,43 @@ command = "vim"
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(session.steer).toHaveBeenCalledTimes(1);
-    expect(session.steer).toHaveBeenCalledWith('msg1');
+    expect(session.steer).toHaveBeenCalledWith('msg1', { promptId: expect.any(String) });
     expect(driver.state.queuedMessages.map((m) => m.text)).toEqual(['/compact foo', 'msg2']);
+  });
+
+  it('dequeues the steered messages once the engine reports prompt.queued', async () => {
+    const { driver, session } = await makeDriver();
+    (session.steer as unknown as {
+      mockImplementation(fn: () => Promise<never>): void;
+    }).mockImplementation(() => new Promise(() => {}));
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.streamingUI.setTurnId('1');
+    driver.handleUserInput('msg1');
+    driver.handleUserInput('msg2');
+
+    driver.state.editor.onCtrlS?.();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(session.steer).toHaveBeenCalledTimes(1);
+    const promptId = (session.steer as unknown as {
+      mock: { calls: Array<[unknown, { promptId?: string } | undefined]> };
+    }).mock.calls[0]?.[1]?.promptId;
+    expect(promptId).toEqual(expect.any(String));
+    expect(driver.state.queuedMessages.map((m) => m.text)).toEqual(['msg1', 'msg2']);
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'prompt.queued',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        promptId,
+        content: [{ type: 'text', text: 'msg1' }],
+        queueLength: 2,
+      } as Event,
+      (item) => driver.sendQueuedMessage(session, item),
+    );
+
+    expect(driver.state.queuedMessages).toEqual([]);
   });
 
   it('steers nothing on Ctrl-S when only /compact items are queued', async () => {
@@ -7357,7 +7392,7 @@ command = "vim"
     startWaitFor(driver);
 
     expect(session.steer).toHaveBeenCalledTimes(1);
-    expect(session.steer).toHaveBeenCalledWith('msg1');
+    expect(session.steer).toHaveBeenCalledWith('msg1', { promptId: expect.any(String) });
     await waitForAssertion(() => {
       expect(driver.state.queuedMessages.map((m) => m.text)).toEqual(['/compact foo', 'msg2']);
     });
@@ -7514,7 +7549,7 @@ command = "vim"
     driver.handleUserInput('hello mid-goal');
 
     await waitForAssertion(() => {
-      expect(session.steer).toHaveBeenCalledWith('hello mid-goal');
+      expect(session.steer).toHaveBeenCalledWith('hello mid-goal', { promptId: expect.any(String) });
     });
     expect(session.prompt).not.toHaveBeenCalled();
     expect(driver.state.transcriptEntries).toEqual([
@@ -7532,7 +7567,7 @@ command = "vim"
 
     driver.handleUserInput('second objective');
 
-    expect(session.steer).toHaveBeenCalledWith('second objective');
+    expect(session.steer).toHaveBeenCalledWith('second objective', { promptId: expect.any(String) });
     expect(session.prompt).not.toHaveBeenCalled();
     await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([]);
@@ -7596,7 +7631,7 @@ command = "vim"
 
     driver.handleUserInput('stop waiting and check this');
 
-    expect(session.steer).toHaveBeenCalledWith('stop waiting and check this');
+    expect(session.steer).toHaveBeenCalledWith('stop waiting and check this', { promptId: expect.any(String) });
     expect(session.prompt).not.toHaveBeenCalled();
     await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([]);
@@ -7613,7 +7648,7 @@ command = "vim"
     startWaitFor(driver);
 
     expect(session.steer).toHaveBeenCalledTimes(1);
-    expect(session.steer).toHaveBeenCalledWith('first note\n\nsecond note');
+    expect(session.steer).toHaveBeenCalledWith('first note\n\nsecond note', { promptId: expect.any(String) });
     await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([]);
     });
@@ -7740,7 +7775,7 @@ command = "vim"
     await waitForAssertion(() => {
       expect(steer.session.steer).toHaveBeenCalledTimes(2);
     });
-    expect(steer.session.steer).toHaveBeenNthCalledWith(2, 'second');
+    expect(steer.session.steer).toHaveBeenNthCalledWith(2, 'second', { promptId: expect.any(String) });
     expect(driver.state.queuedMessages).toEqual([{ text: 'second', agentId: 'main' }]);
   });
 
@@ -8167,7 +8202,7 @@ command = "vim"
     driver.state.appState.isCompacting = false;
     driver.handleUserInput('objective two');
 
-    expect(session.steer).toHaveBeenCalledWith('objective one\n\nobjective two');
+    expect(session.steer).toHaveBeenCalledWith('objective one\n\nobjective two', { promptId: expect.any(String) });
     expect(session.prompt).not.toHaveBeenCalled();
     await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([]);
@@ -8230,7 +8265,7 @@ command = "vim"
     );
 
     await waitForAssertion(() => {
-      expect(session.steer).toHaveBeenCalledWith('mid-goal note');
+      expect(session.steer).toHaveBeenCalledWith('mid-goal note', { promptId: expect.any(String) });
     });
     expect(session.prompt).not.toHaveBeenCalled();
     expect(driver.state.queuedMessages).toEqual([]);
@@ -8712,7 +8747,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.state.editor.onCtrlS?.();
 
-    expect(session.steer).toHaveBeenCalledWith('focus on tests');
+    expect(session.steer).toHaveBeenCalledWith('focus on tests', { promptId: expect.any(String) });
     await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([{ text: 'ls', agentId: 'main', mode: 'bash' }]);
     });
@@ -8796,7 +8831,7 @@ capabilities = ["image_in", "video_in"]
       expect(session.steer).toHaveBeenCalledWith([
         { type: 'text', text: 'check ' },
         { type: 'image_url', imageUrl: { url: 'data:image/png;base64,qrs=' } },
-      ]);
+      ], { promptId: expect.any(String) });
     });
   });
 
@@ -8825,7 +8860,7 @@ capabilities = ["image_in", "video_in"]
     expect(session.steer).toHaveBeenCalledWith([
       { type: 'text', text: 'look ' },
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,qrs=' } },
-    ]);
+    ], { promptId: expect.any(String) });
     await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([]);
     });
@@ -8989,7 +9024,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.state.editor.onCtrlS?.();
 
-    expect(session.steer).toHaveBeenCalledWith([imagePart(first.bytes), imagePart(second.bytes)]);
+    expect(session.steer).toHaveBeenCalledWith([imagePart(first.bytes), imagePart(second.bytes)], { promptId: expect.any(String) });
   });
 
   it('steers a media item followed by plain text with a blank-line separator', async () => {
@@ -9019,7 +9054,7 @@ capabilities = ["image_in", "video_in"]
       { type: 'text', text: 'look ' },
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,qrs=' } },
       { type: 'text', text: '\n\nfocus on tests' },
-    ]);
+    ], { promptId: expect.any(String) });
   });
 
   it('steers plain text followed by a media item with a blank-line separator', async () => {
@@ -9045,7 +9080,7 @@ capabilities = ["image_in", "video_in"]
     expect(session.steer).toHaveBeenCalledWith([
       { type: 'text', text: 'hello\n\n' },
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,qrs=' } },
-    ]);
+    ], { promptId: expect.any(String) });
   });
 
   it('reports failed skill media argument materialization without requeuing', async () => {
@@ -16063,7 +16098,7 @@ describe('KimiTUI follow-up delivery', () => {
     driver.handleUserInput('look at the failing test first', 'steer-draft');
 
     expect(session.steer).toHaveBeenCalledTimes(1);
-    expect(session.steer).toHaveBeenCalledWith('look at the failing test first');
+    expect(session.steer).toHaveBeenCalledWith('look at the failing test first', { promptId: expect.any(String) });
     await waitForAssertion(() => {
       expect(userEntries(driver)).toEqual([
         expect.objectContaining({ content: 'look at the failing test first' }),
@@ -16085,7 +16120,7 @@ describe('KimiTUI follow-up delivery', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(steer.session.steer).toHaveBeenCalledTimes(1);
-    expect(steer.session.steer).toHaveBeenCalledWith('draft objective');
+    expect(steer.session.steer).toHaveBeenCalledWith('draft objective', { promptId: expect.any(String) });
     expect(driver.state.queuedMessages).toEqual([{ text: 'queued objective', agentId: 'main' }]);
   });
 
@@ -16101,7 +16136,7 @@ describe('KimiTUI follow-up delivery', () => {
     expect(session.steer).toHaveBeenCalledWith([
       { type: 'text', text: 'check ' },
       { type: 'image_url', imageUrl: { url: 'kimi-file://file-draft' } },
-    ]);
+    ], { promptId: expect.any(String) });
     expect(harness.deleteFile).not.toHaveBeenCalled();
     driver.sessionEventHandler.handleEvent(
       { type: 'turn.ended', agentId: 'main', turnId: 7, reason: 'completed' } as Event,
@@ -16212,7 +16247,7 @@ describe('KimiTUI follow-up delivery', () => {
         press(driver, 'next step', key);
 
         expect(session.steer).toHaveBeenCalledTimes(1);
-        expect(session.steer).toHaveBeenCalledWith('next step');
+        expect(session.steer).toHaveBeenCalledWith('next step', { promptId: expect.any(String) });
         await Promise.resolve();
         expect(driver.state.queuedMessages).toEqual([{ text: 'queued note', agentId: 'main' }]);
       },
@@ -16268,7 +16303,7 @@ describe('KimiTUI follow-up delivery', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(steer.session.steer).toHaveBeenCalledTimes(1);
-      expect(steer.session.steer).toHaveBeenCalledWith('draft objective');
+      expect(steer.session.steer).toHaveBeenCalledWith('draft objective', { promptId: expect.any(String) });
       expect(driver.state.queuedMessages.map((message) => message.text)).toEqual([
         'after this turn',
       ]);
@@ -16283,7 +16318,7 @@ describe('KimiTUI follow-up delivery', () => {
       driver.state.editor.handleInput('\u0013');
 
       expect(session.steer).toHaveBeenCalledTimes(1);
-      expect(session.steer).toHaveBeenCalledWith('after this turn');
+      expect(session.steer).toHaveBeenCalledWith('after this turn', { promptId: expect.any(String) });
     });
 
     it.each([undefined, 'queue'] as const)(
@@ -16298,7 +16333,7 @@ describe('KimiTUI follow-up delivery', () => {
         press(driver, 'next objective', '\r');
 
         expect(session.steer).toHaveBeenCalledTimes(1);
-        expect(session.steer).toHaveBeenCalledWith('queued objective\n\nnext objective');
+        expect(session.steer).toHaveBeenCalledWith('queued objective\n\nnext objective', { promptId: expect.any(String) });
         await waitForAssertion(() => {
           expect(driver.state.queuedMessages).toEqual([]);
         });
@@ -16369,7 +16404,7 @@ describe('KimiTUI follow-up delivery', () => {
       driver.handleUserInput('second', 'steer-draft');
 
       expect(steer.session.steer).toHaveBeenCalledTimes(1);
-      expect(steer.session.steer).toHaveBeenCalledWith('first');
+      expect(steer.session.steer).toHaveBeenCalledWith('first', { promptId: expect.any(String) });
       expect(driver.state.queuedMessages).toEqual([{ text: 'second', agentId: 'main' }]);
       steer.resolve();
       await waitForAssertion(() => {
