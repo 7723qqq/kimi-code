@@ -9,6 +9,7 @@ import { createControlledPromise } from '@antfu/utils';
 import type { IInstantiationService } from '#/_base/di/instantiation';
 import { toDisposable } from '#/_base/di/lifecycle';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
+import { drainSessionMetadataWrites } from '#/session/sessionMetadata/sessionMetadataService';
 import { Emitter, Event, type IWaitUntil } from '#/_base/event';
 import type { Promisable, PromisifyMethods } from '#/_base/utils/types';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
@@ -2168,6 +2169,12 @@ export class AgentTestContext {
     }
     await this.closeWire();
     this.root.dispose();
+    await Promise.all([
+      this.agent.instantiation.disposeAsync(),
+      this.session.instantiation.disposeAsync(),
+      this.root.instantiation.disposeAsync(),
+    ]);
+    await drainSessionMetadataWrites();
   }
 
   async dispose(): Promise<void> {
