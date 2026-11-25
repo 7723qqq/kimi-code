@@ -56,6 +56,19 @@ const done = (text: string, toolCalls: ToolCall[] = []): MockProviderResponse =>
 const call = (id: string, name: string): ToolCall => ({ type: 'function', id, name, arguments: '{}' });
 
 describe('loop record', () => {
+  it('reports the loop end when the turn settles without follow-up work', async () => {
+    const loop = createLoop({
+      requester: requester([done('hi')]),
+      executor: successfulExecutor([], ''),
+    });
+    const ends: LoopEmitted[] = [];
+    loop.subscribe((event) => {
+      if (event.type === 'turn.ended') ends.push(event);
+    });
+    expect((await loop.runTurn(prompt('hello'))).type).toBe('done');
+    expect(ends.at(-1)).toMatchObject({ loopEnd: { outcome: 'idle' } });
+  });
+
   it('folds durable loop events back into the loop history and recovers interrupted turns', async () => {
     const scripted = requester([done('hi')]);
     const loop = createLoop({

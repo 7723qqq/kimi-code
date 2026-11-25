@@ -580,13 +580,26 @@ class LoopActor implements Loop {
     return false;
   }
 
+  private get hasActiveBackgroundTasks(): boolean {
+    for (const slot of this.tools.values()) {
+      if (slot.detached && !slot.done) return true;
+    }
+    return false;
+  }
+
+  private settleLoopEnd(held: boolean): { readonly outcome: 'drained' | 'idle' } | undefined {
+    if (!this.open() || this.hasPendingCompletions) return undefined;
+    if (!held && this.mailbox.hasTrigger) return undefined;
+    return { outcome: this.hasActiveBackgroundTasks ? 'drained' : 'idle' };
+  }
+
   private canSchedule(): boolean {
     return !this.resetting && this.phase === 'idle' && !this.held && !this.hasPendingCompletions && this.mailbox.hasTrigger;
   }
 
   private schedule(): boolean {
     if (!this.canSchedule()) return false;
-    this.closeUnfinished();
+    this.closeUnfinished(this.mailbox.hasTrigger);
     const next = this.mailbox.take();
     if (next === undefined) return false;
     const bypass = next.pending.some((item) => item.kind !== 'remind' && item.message.attributes?.bypassMaxSteps === true);
@@ -1041,7 +1054,7 @@ class LoopActor implements Loop {
         return Promise.reject(new Error('runTurn is only accepted while idle'));
       }
       const completion = turnCompletion();
-      this.closeUnfinished();
+      this.closeUnfinished(true);
       const turn = createTurn(this.root, {
         id: this.durable.nextTurnId,
         trigger: 'normal',
@@ -1175,7 +1188,7 @@ class LoopActor implements Loop {
 
   private requestAbort(turn: LiveTurn | undefined, reason: unknown, continueAfterAbort: boolean): void {
     if (turn === undefined) {
-      if (this.phase === 'idle') this.closeUnfinished();
+      if (this.phase === 'idle') this.closeUnfinished(this.settleLoopEnd(this.held) === undefined);
       return;
     }
     if (!this.isCurrent(turn)) return;
@@ -2034,7 +2047,12 @@ class LoopActor implements Loop {
     turn.outcome = outcome;
     turn.phase = 'finished';
     if (outcome.type === 'aborted') this.appendPendingReminders(turn);
-    this.record({ type: 'turn.ended', turnId: turn.id, outcome, requestId: this.requestId });
+    const loopEnd = this.settleLoopEnd(this.held);
+    this.record(
+      loopEnd === undefined
+        ? { type: 'turn.ended', turnId: turn.id, outcome, requestId: this.requestId }
+        : { type: 'turn.ended', turnId: turn.id, outcome, requestId: this.requestId, loopEnd },
+    );
     this.completionHandoff = false;
     this.completionContinuation = undefined;
     this.turn = undefined;
@@ -2072,12 +2090,20 @@ class LoopActor implements Loop {
     if (unfinished.stepUnfinished) this.record({ type: 'step.ended', turnId, step, outcome });
   }
 
-  private closeUnfinished(): void {
+  private closeUnfinished(followedByWork: boolean): void {
     const unfinished = this.durable.unfinished;
     if (unfinished === undefined) return;
     const outcome = { type: 'aborted' as const, reason: CRASHED };
     this.settleUnfinished(outcome);
-    this.record({ type: 'turn.ended', turnId: unfinished.turnId, outcome });
+    const loopEnd = followedByWork
+      ? undefined
+      : { outcome: this.hasActiveBackgroundTasks ? ('drained' as const) : ('idle' as const) };
+    this.record({
+      type: 'turn.ended',
+      turnId: unfinished.turnId,
+      outcome,
+      ...(loopEnd === undefined ? {} : { loopEnd }),
+    });
   }
 
   private continueTurn(force: boolean): void {
@@ -2095,8 +2121,9 @@ class LoopActor implements Loop {
       }));
       return;
     }
-    this.closeUnfinished();
-    if (!this.mailbox.hasTrigger && (force || canContinue(this.durable.messages))) {
+    const continues = force || canContinue(this.durable.messages);
+    this.closeUnfinished(this.mailbox.hasTrigger || continues);
+    if (!this.mailbox.hasTrigger && continues) {
       this.activate(createTurn(this.root, {
         id: this.durable.nextTurnId,
         trigger: 'continue',
