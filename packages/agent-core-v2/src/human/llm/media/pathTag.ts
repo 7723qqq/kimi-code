@@ -10,6 +10,11 @@ export interface MediaPathTag {
   readonly text: string;
 }
 
+export interface MediaLabel {
+  readonly name?: string;
+  readonly path?: string;
+}
+
 export function escapeMediaAttribute(value: string): string {
   return value
     .replaceAll('&', '&amp;')
@@ -26,8 +31,19 @@ export function unescapeMediaAttribute(value: string): string {
     .replaceAll('&amp;', '&');
 }
 
+export function buildMediaOpenTag(kind: MediaPathTagKind, label: MediaLabel): string {
+  const nameAttr = label.name === undefined ? '' : ` name="${escapeMediaAttribute(label.name)}"`;
+  const pathAttr = label.path === undefined ? '' : ` path="${escapeMediaAttribute(label.path)}"`;
+  return `<${kind}${nameAttr}${pathAttr}>`;
+}
+
+export function buildMediaTag(kind: MediaPathTagKind, label: MediaLabel): string | undefined {
+  if (label.name === undefined && label.path === undefined) return undefined;
+  return `${buildMediaOpenTag(kind, label)}</${kind}>`;
+}
+
 export function buildMediaPathTag(kind: MediaPathTagKind, path: string): string {
-  return `<${kind} path="${escapeMediaAttribute(path)}"></${kind}>`;
+  return `${buildMediaOpenTag(kind, { path })}</${kind}>`;
 }
 
 export function matchMediaPathTags(text: string): MediaPathTag[] {

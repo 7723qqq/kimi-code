@@ -34,6 +34,14 @@ export interface ImageDimensions {
   readonly height: number;
 }
 
+export type MediaPlaceholderReason =
+  | 'degraded'
+  | 'stripped'
+  | 'budget'
+  | 'unsupported'
+  | 'protocol_unsupported'
+  | 'unavailable';
+
 export interface ImageURLPart {
   type: 'image_url';
   imageUrl: {
@@ -43,16 +51,19 @@ export interface ImageURLPart {
     dimensions?: ImageDimensions;
     detail?: string;
   };
+  omitted?: MediaPlaceholderReason;
 }
 
 export interface AudioURLPart {
   type: 'audio_url';
   audioUrl: { url: string; id?: string };
+  omitted?: MediaPlaceholderReason;
 }
 
 export interface VideoURLPart {
   type: 'video_url';
   videoUrl: { url: string; id?: string; name?: string };
+  omitted?: MediaPlaceholderReason;
 }
 
 export interface DocumentURLPart {

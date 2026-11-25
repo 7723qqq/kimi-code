@@ -1,29 +1,16 @@
 import { createHash } from 'node:crypto';
-import { buildMediaPathTag, mediaKindOfPart } from '#/agent/media/mediaRef';
 import type { Message } from '#/llm-adapter/contract/message';
-import type { ContentPart } from '#human/llm/message';
+import {
+  mediaOmissionOf,
+  omitMediaPart,
+  type ContentPart,
+  type MediaPart as CoreMediaPart,
+  type MediaPlaceholderReason,
+} from '@moonshot-ai/core/llm/message';
 
 import type { MediaStripSnapshot } from './contextProjector';
 
-const MEDIA_DEGRADED_PLACEHOLDERS = {
-  image_url:
-    '[image omitted: dropped to fit the provider request size limit; re-read the file to view it]',
-  audio_url:
-    '[audio omitted: dropped to fit the provider request size limit; re-read the file to hear it]',
-  video_url:
-    '[video omitted: dropped to fit the provider request size limit; re-read the file to view it]',
-} as const;
-
-export const MEDIA_STRIPPED_PLACEHOLDERS = {
-  image_url:
-    '[image omitted for provider compatibility; re-read the file to view it or get conversion guidance]',
-  audio_url: '[audio omitted for provider compatibility; re-read the file to hear it]',
-  video_url: '[video omitted for provider compatibility; re-read the file to view it]',
-} as const;
-
-type MediaPlaceholderSet = typeof MEDIA_DEGRADED_PLACEHOLDERS | typeof MEDIA_STRIPPED_PLACEHOLDERS;
-
-type DegradableMediaPart = Extract<ContentPart, { readonly type: keyof MediaPlaceholderSet }>;
+type MediaPart = Extract<ContentPart, { readonly type: 'image_url' | 'audio_url' | 'video_url' }>;
 
 interface MediaContainer {
   readonly url: string;
@@ -34,21 +21,28 @@ interface MediaStripSnapshotData {
   readonly keys: ReadonlySet<string>;
 }
 
-type MediaContainerKeyCache = Partial<Record<DegradableMediaPart['type'], string>>;
+type MediaContainerKeyCache = Partial<Record<MediaPart['type'], string>>;
 
 const MEDIA_CONTAINER_KEY_CACHE = new WeakMap<MediaContainer, MediaContainerKeyCache>();
 
-function isDegradableMediaPart(part: ContentPart): part is DegradableMediaPart {
-  return part.type in MEDIA_DEGRADED_PLACEHOLDERS;
+function isDegradableMediaPart(part: ContentPart): part is MediaPart {
+  return (
+    (part.type === 'image_url' || part.type === 'audio_url' || part.type === 'video_url') &&
+    mediaOmissionOf(part as CoreMediaPart) === undefined
+  );
 }
 
-function mediaContainer(part: DegradableMediaPart): MediaContainer {
+function markOmitted(part: MediaPart, reason: MediaPlaceholderReason): ContentPart {
+  return omitMediaPart(part as CoreMediaPart, reason) as ContentPart;
+}
+
+function mediaContainer(part: MediaPart): MediaContainer {
   if (part.type === 'image_url') return part.imageUrl;
   if (part.type === 'audio_url') return part.audioUrl;
   return part.videoUrl;
 }
 
-function mediaStripKey(part: DegradableMediaPart): string {
+function mediaStripKey(part: MediaPart): string {
   const container = mediaContainer(part);
   let cache = MEDIA_CONTAINER_KEY_CACHE.get(container);
   const cached = cache?.[part.type];
@@ -73,17 +67,6 @@ function mediaStripSnapshotKeys(snapshot: MediaStripSnapshot): ReadonlySet<strin
   return (snapshot as unknown as MediaStripSnapshotData).keys;
 }
 
-function mediaPathTag(
-  part: DegradableMediaPart,
-  mediaPaths: ReadonlyMap<string, string> | undefined,
-): ContentPart | undefined {
-  const path = mediaPaths?.get(mediaContainer(part).url);
-  if (path === undefined) return undefined;
-  const kind = mediaKindOfPart(part);
-  if (kind === undefined) return undefined;
-  return { type: 'text', text: buildMediaPathTag(kind, path) };
-}
-
 export function captureMediaStripSnapshot(messages: readonly Message[]): MediaStripSnapshot {
   const keys = new Set<string>();
   for (const message of messages) {
@@ -97,7 +80,6 @@ export function captureMediaStripSnapshot(messages: readonly Message[]): MediaSt
 export function stripMediaPartsBySnapshot(
   messages: readonly Message[],
   snapshot: MediaStripSnapshot,
-  mediaPaths?: ReadonlyMap<string, string>,
 ): readonly Message[] {
   const keys = mediaStripSnapshotKeys(snapshot);
   let changed = false;
@@ -107,12 +89,7 @@ export function stripMediaPartsBySnapshot(
       if (!isDegradableMediaPart(part) || !keys.has(mediaStripKey(part))) return part;
       changed = true;
       messageChanged = true;
-      return (
-        mediaPathTag(part, mediaPaths) ?? {
-          type: 'text',
-          text: MEDIA_STRIPPED_PLACEHOLDERS[part.type],
-        }
-      );
+      return markOmitted(part, 'stripped');
     });
     return messageChanged ? { ...message, content } : message;
   });
@@ -129,8 +106,6 @@ export function countMediaParts(messages: readonly Message[]): number {
 export function degradeLeadingMediaParts(
   messages: readonly Message[],
   count: number,
-  placeholders: MediaPlaceholderSet = MEDIA_DEGRADED_PLACEHOLDERS,
-  mediaPaths?: ReadonlyMap<string, string>,
 ): readonly Message[] {
   let toDegrade = count;
   if (toDegrade <= 0) return messages;
@@ -140,7 +115,7 @@ export function degradeLeadingMediaParts(
     const content = message.content.map((part): ContentPart => {
       if (toDegrade === 0 || !isDegradableMediaPart(part)) return part;
       toDegrade -= 1;
-      return mediaPathTag(part, mediaPaths) ?? { type: 'text', text: placeholders[part.type] };
+      return markOmitted(part, 'degraded');
     });
     return { ...message, content };
   });

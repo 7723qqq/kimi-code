@@ -1341,11 +1341,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     return { ...snapshot, activePromptId: this.prompts.activePrompt()?.id };
   }
 
-  private async materializeDaemonRefs(message: { readonly content: readonly ContentPart[] }): Promise<void> {
+  private async materializeDaemonRefs(
+    message: { readonly content: readonly ContentPart[] },
+    signal?: AbortSignal,
+  ): Promise<void> {
     if (!message.content.some((part) => daemonFileRefFromPart(part) !== undefined)) return;
     const files = this.instantiation.invokeFunction((accessor) => accessor.get(IFileService));
     const mediaStore = this.instantiation.invokeFunction((accessor) => accessor.get(ISessionMediaStore));
-    await materializePromptDaemonRefs(message.content, { files, mediaStore });
+    await materializePromptDaemonRefs(message.content, { files, mediaStore, signal });
   }
 
   private async turnStarting(event: TurnStartingEvent, signal: AbortSignal) {
@@ -1364,7 +1367,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     try {
       await this.hooks.onBeforeSubmitPrompt.run(ctx);
       if (ctx.block) return { type: 'blocked' as const, cause: { by: 'prompt', reason: 'blocked' } };
-      await this.materializeDaemonRefs(promptMessage);
+      await this.materializeDaemonRefs(promptMessage, signal);
       pending.message = {
         ...pending.entry,
         content: [
@@ -1379,13 +1382,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     }
   }
 
-  private messageAppending(event: MessageAppendingEvent, _signal: AbortSignal) {
+  private async messageAppending(event: MessageAppendingEvent, signal: AbortSignal) {
     if (event.item.kind === 'normal') {
       const pending = this.prompts.pending(event.turnId);
       if (pending !== undefined) return { message: { ...event.item.message, content: pending.message.content } };
       return undefined;
     }
     if (event.item.kind === 'notify') {
+      await this.materializeDaemonRefs(event.item.message, signal);
       return {
         message: {
           ...event.item.message,

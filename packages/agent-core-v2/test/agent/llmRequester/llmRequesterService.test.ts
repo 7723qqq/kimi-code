@@ -368,7 +368,6 @@ function createService(
     IAgentMediaResolverService,
     options.mediaResolver ?? {
       resolve: async (messages) => messages,
-      displayPaths: async () => new Map(),
     },
   );
   if (projector === undefined) {
@@ -830,7 +829,7 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
     expect(projection.calls).toEqual(['normal', 'degraded']);
   });
 
-  it('attaches display paths to degraded older media', async () => {
+  it('marks degraded older media instead of replacing their references', async () => {
     const calls = { value: 0 };
     const capturedInputs: ModelRequestInput[] = [];
     const imageMessage = (url: string): Message => ({
@@ -841,12 +840,6 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
     const { service } = createService(
       createRequester(calls, BODY_TOO_LARGE_413, [], capturedInputs),
       undefined,
-      {
-        mediaResolver: {
-          resolve: async (messages) => messages,
-          displayPaths: async () => new Map([['kimi-file://f_old', '/session/media/f_old.png']]),
-        },
-      },
     );
 
     await service.request({
@@ -860,10 +853,11 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
 
     expect(calls.value).toBe(2);
     const parts = capturedInputs[1]!.messages.flatMap((message) => message.content);
-    const urls = parts.filter((part) => part.type === 'image_url').map((part) => part.imageUrl.url);
-    expect(urls).toEqual(['kimi-file://f_keep1', 'kimi-file://f_keep2']);
-    const texts = parts.filter((part) => part.type === 'text').map((part) => part.text);
-    expect(texts).toContain('<image path="/session/media/f_old.png"></image>');
+    expect(parts).toEqual([
+      { type: 'image_url', imageUrl: { url: 'kimi-file://f_old' }, omitted: 'degraded' },
+      { type: 'image_url', imageUrl: { url: 'kimi-file://f_keep1' } },
+      { type: 'image_url', imageUrl: { url: 'kimi-file://f_keep2' } },
+    ]);
   });
 
   it('falls back to media-stripped when the media-degraded request still receives 413', async () => {

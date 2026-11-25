@@ -454,7 +454,6 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     };
     let previousMediaCount: number | undefined;
     let previousMediaPolicy: ProjectionPolicy['media'];
-    let mediaPaths: ReadonlyMap<string, string> | undefined;
     const run = async (
       policy: ProjectionPolicy | undefined,
     ): Promise<AgentLLMRequestFinish | ProactiveMediaEscalation> => {
@@ -462,10 +461,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       const projection = projectionNameOf(policy);
       const fields =
         projection === undefined ? request.logFields : { ...request.logFields, projection };
-      if (policy?.media !== undefined) {
-        mediaPaths ??= await this.mediaResolver.displayPaths(shaped);
-      }
-      const projected = this.projector.project(shaped, policy, mediaPaths);
+      const projected = this.projector.project(shaped, policy);
       const currentMediaCount = mediaPartCount(projected);
       const mediaPolicyChanged =
         previousMediaCount !== undefined && previousMediaPolicy !== policy?.media;

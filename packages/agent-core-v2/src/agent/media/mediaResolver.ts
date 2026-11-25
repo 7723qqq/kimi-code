@@ -10,7 +10,6 @@ export interface IAgentMediaResolverService {
     requester: ModelRequester,
     signal?: AbortSignal,
   ): Promise<readonly Message[]>;
-  displayPaths(messages: readonly Message[]): Promise<ReadonlyMap<string, string>>;
 }
 
 export const IAgentMediaResolverService = createDecorator<IAgentMediaResolverService>(

@@ -1,13 +1,27 @@
 import { once } from 'node:events';
+import { readFile } from 'node:fs/promises';
 
 import { describe, expect } from 'bun:test';
 import { poll } from '@moonshot-ai/testkit/bun';
-import { deferred } from '@moonshot-ai/testkit/fixtures';
+import { deferred, solidPng } from '@moonshot-ai/testkit/fixtures';
 import { agent, bash, held, httpError, say, think } from '@moonshot-ai/testkit/model';
 
 import { scenarioTest } from './support/scenario';
 
 const test = scenarioTest();
+const visionTest = scenarioTest({
+  provider: 'openai',
+  config: {
+    models: {
+      testkit: {
+        provider: 'testkit',
+        model: 'testkit-model',
+        maxContextSize: 262_144,
+        capabilities: ['thinking', 'image_in'],
+      },
+    },
+  },
+});
 
 describe('conversation over KAP', () => {
   test('streams a reply live and persists the same turns', async ({ kap, model }) => {
@@ -238,4 +252,104 @@ describe('conversation over KAP', () => {
     const toolResult = model.requests('main')[1]?.view.messages.find((message) => message.role === 'tool');
     expect(toolResult?.text).toContain('subagent findings');
   });
+
+  visionTest('labels pasted and steered images with their session paths without persisting the labels in KAP user messages', async ({ kap, model }) => {
+    const png1 = solidPng(1, 1, [0x22, 0x66, 0xcc, 0xff]);
+    const png2 = solidPng(1, 1, [0xcc, 0x55, 0x22, 0xff]);
+    const entered = deferred<AbortSignal>();
+    let firstPath = '';
+    let secondPath = '';
+
+    model.script(
+      (request, { signal }) => {
+        firstPath = labelPathOf(request.texts('user').join('\n'), 'paste-1.png') ?? firstPath;
+        entered.resolve(signal);
+        return held('before-steer-image', say(['inspecting', 'discarded']), 1);
+      },
+      (request) => {
+        const text = request.texts('user').join('\n');
+        firstPath = labelPathOf(text, 'paste-1.png') ?? firstPath;
+        secondPath = labelPathOf(text, 'steer-2.png') ?? secondPath;
+        return say('copied both images');
+      },
+    );
+
+    const socket = await kap.connect();
+    const session = await kap.createSession();
+    await socket.subscribe(session.id);
+
+    const uploaded1 = await uploadImageFile(kap.origin, kap.token, png1, 'paste-1.png');
+    await kap.prompt(session.id, [
+      { type: 'text', text: 'copy pasted image' },
+      {
+        type: 'image',
+        source: { kind: 'session_media', file_id: uploaded1.id },
+        name: 'paste-1.png',
+      },
+    ]);
+    await model.hold('before-steer-image').reached();
+    await socket.waitFor(
+      (frame) => frame.type === 'item.started' && itemTypeOf(frame) === 'assistant_message',
+    );
+    expect(firstPath).not.toBe('');
+    expect(model.request(0).rawBody).toContain('image_url');
+
+    const aborted = once(await entered.promise, 'abort');
+    const uploaded2 = await uploadImageFile(kap.origin, kap.token, png2, 'steer-2.png');
+    await kap.steer(session.id, [
+      { type: 'text', text: 'also copy steered image' },
+      {
+        type: 'image',
+        source: { kind: 'session_media', file_id: uploaded2.id },
+        name: 'steer-2.png',
+      },
+    ]);
+    await aborted;
+    await kap.waitIdle(session.id);
+
+    expect(secondPath).not.toBe('');
+    expect(model.request(1).rawBody.match(/"type"\s*:\s*"image_url"/g)).toHaveLength(2);
+    expect((await readFile(firstPath)).equals(png1)).toBe(true);
+    expect((await readFile(secondPath)).equals(png2)).toBe(true);
+
+    const turns = await kap.turns(session.id);
+    const userItems = turns.flatMap((turn) => turn.items.filter((item) => item.type === 'user_message'));
+    expect(JSON.stringify(userItems)).not.toContain(firstPath);
+    expect(JSON.stringify(userItems)).not.toContain(secondPath);
+    const wsUserItems = socket.frames.filter((frame) => itemTypeOf(frame) === 'user_message');
+    expect(JSON.stringify(wsUserItems)).not.toContain(firstPath);
+    expect(JSON.stringify(wsUserItems)).not.toContain(secondPath);
+  });
 });
+
+function labelPathOf(text: string, name: string): string | undefined {
+  return new RegExp(`<image name="${name}" path="([^"]+)">`).exec(text)?.[1];
+}
+
+function itemTypeOf(frame: Record<string, unknown>): string | undefined {
+  const item = frame['item'];
+  if (typeof item !== 'object' || item === null) return undefined;
+  const type = (item as { readonly type?: unknown }).type;
+  return typeof type === 'string' ? type : undefined;
+}
+
+async function uploadImageFile(
+  origin: string,
+  token: string,
+  bytes: Buffer,
+  name: string,
+): Promise<{ readonly id: string }> {
+  const form = new FormData();
+  form.append('file', new Blob([new Uint8Array(bytes)], { type: 'image/png' }), name);
+  const res = await fetch(`${origin}/api/v1/files`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const body = (await res.json()) as {
+    readonly code: number;
+    readonly data: { readonly id: string };
+  };
+  expect(body.code).toBe(0);
+  return body.data;
+}

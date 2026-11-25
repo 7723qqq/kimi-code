@@ -149,11 +149,20 @@ export function daemonFileRefFromPart(
   return undefined;
 }
 
+export function mediaNameOf(part: ContentPart): string | undefined {
+  if (part.type === 'image_url') return part.imageUrl.name;
+  if (part.type === 'video_url') return part.videoUrl.name;
+  return undefined;
+}
+
 export {
+  buildMediaOpenTag,
   buildMediaPathTag,
+  buildMediaTag,
   escapeMediaAttribute,
   matchMediaPathTags,
   matchSingleMediaPathTag,
   unescapeMediaAttribute,
+  type MediaLabel,
   type MediaPathTag,
 } from '#human/llm/media/pathTag';

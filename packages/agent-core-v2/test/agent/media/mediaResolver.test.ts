@@ -12,14 +12,17 @@ import {
   _clearScopedRegistryForTests,
   registerScopedService,
 } from '#/_base/di/scope';
+import { Event } from '#/_base/event';
 import { createScopedTestHost, createServices, stubPair } from '#/_base/di/test';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
+import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { buildKimiFileUrl } from '#/agent/media/kimiFileUrl';
 import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
 import { AgentMediaResolverService } from '#/agent/media/mediaResolverService';
 import { mcpResultToExecutableOutput } from '#/agent/mcp/output';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import type { Event2 } from '#/app/event/event2';
@@ -144,6 +147,21 @@ const stubDispatcher = {
 
 const stubScopeContext = makeAgentScopeContext({ agentId: 'main', agentScope: '' });
 
+function stubEnvironmentBinding(
+  environmentId = LOCAL_ENVIRONMENT_ID,
+): IAgentEnvironmentBindingService {
+  return {
+    _serviceBrand: undefined,
+    current: { environmentId },
+    onDidChange: Event.None as IAgentEnvironmentBindingService['onDidChange'],
+    bind: () => {
+      throw new Error('unused');
+    },
+  };
+}
+
+const localEnvironment = stubEnvironmentBinding();
+
 function stubMediaStore(sessionDir = '/nonexistent-session'): ISessionMediaStore {
   return {
     _serviceBrand: undefined,
@@ -243,6 +261,7 @@ function resolver(
   sessionDir?: string,
   mediaStore: ISessionMediaStore = stubMediaStore(sessionDir),
   events: Event2[] = [],
+  environmentId = LOCAL_ENVIRONMENT_ID,
 ): IAgentMediaResolverService {
   const ix = createServices(disposables, {
     base: [registerStateServices],
@@ -261,6 +280,7 @@ function resolver(
         IAgentScopeContext,
         makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
       );
+      reg.defineInstance(IAgentEnvironmentBindingService, stubEnvironmentBinding(environmentId));
       reg.define(IAgentMediaResolverService, AgentMediaResolverService);
     },
   });
@@ -295,7 +315,11 @@ describe('AgentMediaResolverService video strategy', () => {
     const message = videoMessage(buildKimiFileUrl(FILE_ID));
 
     const capable = await res.resolve([message], requester({ uploadVideo: upload }));
-    expect(firstPart(capable)).toEqual(msPart('prov-1'));
+    expect(capable[0]!.content).toEqual([
+      { type: 'text', text: `<video path="${canonical}">` },
+      msPart('prov-1'),
+      { type: 'text', text: '</video>' },
+    ]);
 
     const incapable = await res.resolve(
       [message],
@@ -322,6 +346,7 @@ describe('AgentMediaResolverService video strategy', () => {
       stubMediaStore(),
       stubDispatcher,
       stubScopeContext,
+      localEnvironment,
     ).resolve([message], requester({ uploadVideo: upload1 }));
 
     const upload2 = mock(async (): Promise<VideoURLPart> => msPart('prov-2'));
@@ -333,6 +358,7 @@ describe('AgentMediaResolverService video strategy', () => {
       stubMediaStore(),
       stubDispatcher,
       stubScopeContext,
+      localEnvironment,
     ).resolve([message], requester({ uploadVideo: upload2 }));
 
     expect(firstPart(out)).toEqual(msPart('prov-1'));
@@ -464,7 +490,11 @@ describe('AgentMediaResolverService video strategy', () => {
     });
 
     const retried = await res.resolve([message], req);
-    expect(firstPart(retried)).toEqual(msPart('prov-1'));
+    expect(retried[0]!.content).toEqual([
+      { type: 'text', text: `<video path="${canonical}">` },
+      msPart('prov-1'),
+      { type: 'text', text: '</video>' },
+    ]);
     expect(upload).toHaveBeenCalledTimes(2);
   });
 
@@ -657,6 +687,7 @@ describe('AgentMediaResolverService image strategy', () => {
       stubMediaStore(),
       stubDispatcher,
       stubScopeContext,
+      localEnvironment,
     );
 
     await expect(
@@ -716,10 +747,14 @@ describe('AgentMediaResolverService image strategy', () => {
       requester({ providerType: 'anthropic', protocol: 'anthropic' }),
     );
 
-    expect(firstPart(kimi)).toEqual({
-      type: 'image_url',
-      imageUrl: { url: `data:image/bmp;base64,${BMP_BYTES.toString('base64')}` },
-    });
+    expect(kimi[0]!.content).toEqual([
+      { type: 'text', text: `<image path="${canonical}">` },
+      {
+        type: 'image_url',
+        imageUrl: { url: `data:image/bmp;base64,${BMP_BYTES.toString('base64')}` },
+      },
+      { type: 'text', text: '</image>' },
+    ]);
     expect(firstPart(other)).toEqual({ type: 'text', text: `<image path="${canonical}"></image>` });
   });
 
@@ -733,13 +768,23 @@ describe('AgentMediaResolverService image strategy', () => {
       imageUrl: { url: `data:image/bmp;base64,${BMP_BYTES.toString('base64')}` },
     };
 
-    expect(firstPart(await res.resolve([message], requester({})))).toEqual(inline);
+    const firstInline = await res.resolve([message], requester({}));
+    expect(firstInline[0]!.content).toEqual([
+      { type: 'text', text: `<image path="${canonical}">` },
+      inline,
+      { type: 'text', text: '</image>' },
+    ]);
     const other = requester({ providerType: 'anthropic', protocol: 'anthropic' });
     expect(firstPart(await res.resolve([message], other))).toEqual({
       type: 'text',
       text: `<image path="${canonical}"></image>`,
     });
-    expect(firstPart(await res.resolve([message], requester({})))).toEqual(inline);
+    const secondInline = await res.resolve([message], requester({}));
+    expect(secondInline[0]!.content).toEqual([
+      { type: 'text', text: `<image path="${canonical}">` },
+      inline,
+      { type: 'text', text: '</image>' },
+    ]);
   });
 
   it.each([
@@ -774,6 +819,7 @@ describe('AgentMediaResolverService image strategy', () => {
       stubMediaStore(),
       stubDispatcher,
       stubScopeContext,
+      localEnvironment,
     );
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
     const expected: ImageURLPart = { type: 'image_url', imageUrl: { url: PNG_DATA_URL } };
@@ -802,6 +848,7 @@ describe('AgentMediaResolverService image strategy', () => {
       stubMediaStore(),
       stubDispatcher,
       stubScopeContext,
+      localEnvironment,
     );
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
 
@@ -826,6 +873,7 @@ describe('AgentMediaResolverService image strategy', () => {
       stubMediaStore(),
       stubDispatcher,
       stubScopeContext,
+      localEnvironment,
     );
     const req = requester({});
 
@@ -870,6 +918,7 @@ describe('AgentMediaResolverService image strategy', () => {
         stubMediaStore(sessionDir),
         stubDispatcher,
         stubScopeContext,
+        localEnvironment,
       );
       const message = imageMessage(buildKimiFileUrl(FILE_ID));
 
@@ -881,7 +930,11 @@ describe('AgentMediaResolverService image strategy', () => {
         type: 'text',
         text: `<image path="${canonical}"></image>`,
       });
-      expect(firstPart(out)).toEqual({ type: 'image_url', imageUrl: { url: PNG_DATA_URL } });
+      expect(out[0]!.content).toEqual([
+        { type: 'text', text: `<image path="${canonical}">` },
+        { type: 'image_url', imageUrl: { url: PNG_DATA_URL } },
+        { type: 'text', text: '</image>' },
+      ]);
       expect(counting.gets).toBe(reads);
     },
   );
@@ -963,6 +1016,7 @@ describe('AgentMediaResolverService image upload', () => {
       stubMediaStore(),
       stubDispatcher,
       stubScopeContext,
+      localEnvironment,
     ).resolve([message], requester({ uploadImage: upload1 }));
 
     const upload2 = mock(async (): Promise<ImageURLPart> => msImagePart('img-2'));
@@ -974,6 +1028,7 @@ describe('AgentMediaResolverService image upload', () => {
       stubMediaStore(),
       stubDispatcher,
       stubScopeContext,
+      localEnvironment,
     ).resolve([message], requester({ uploadImage: upload2 }));
 
     expect(firstPart(out)).toEqual(msImagePart('img-1'));
@@ -1425,6 +1480,7 @@ describe('AgentMediaResolverService scoped registration', () => {
         dispatch: async () => {},
       } as unknown as IEventDispatcher),
       stubPair(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' })),
+      stubPair(IAgentEnvironmentBindingService, localEnvironment),
     ]);
   }
 
@@ -1438,30 +1494,287 @@ describe('AgentMediaResolverService scoped registration', () => {
   });
 });
 
-describe('AgentMediaResolverService displayPaths', () => {
-  it('maps daemon file ref urls to their display paths', async () => {
-    await plantCanonical('f_img', '.png', PNG_BYTES);
-    const service = resolver(new Map(), sessionDir);
+describe('AgentMediaResolverService media labels', () => {
+  function resolveMedia(
+    service: IAgentMediaResolverService,
+    messages: readonly Message[],
+    request: ModelRequester,
+  ): Promise<readonly Message[]> {
+    return service.resolve(messages, request);
+  }
 
-    const paths = await service.displayPaths([
-      imageMessage(buildKimiFileUrl('f_img')),
-      imageMessage('data:image/png;base64,AAAA'),
-      { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
+  function namedImage(fileId: string, name: string): ContentPart {
+    return { type: 'image_url', imageUrl: { url: buildKimiFileUrl(fileId), name } };
+  }
+
+  it('labels each user image with its name and session path while leaving tool results untouched', async () => {
+    const p1 = await plantCanonical('f1', '.png', PNG_BYTES);
+    const p2 = await plantCanonical('f2', '.png', PNG_BYTES);
+    const pTool = await plantCanonical('f_tool', '.png', PNG_BYTES);
+    const files = new Map([
+      ['f1', { name: 'a.png', bytes: PNG_BYTES }],
+      ['f2', { name: 'b.png', bytes: PNG_BYTES }],
+      ['f_tool', { name: 'tool.png', bytes: PNG_BYTES }],
     ]);
+    const userMsg: Message = {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'compare these' },
+        namedImage('f1', 'a.png'),
+        namedImage('f2', 'b.png'),
+      ],
+      toolCalls: [],
+    };
+    const toolMsg: Message = {
+      role: 'tool',
+      toolCallId: 'call_1',
+      content: [
+        { type: 'text', text: `<image path="${pTool}"></image>` },
+        { type: 'image_url', imageUrl: { url: buildKimiFileUrl('f_tool'), name: 'tool.png' } },
+      ],
+      toolCalls: [],
+    };
 
-    expect(paths.get(buildKimiFileUrl('f_img'))).toBe(join(sessionDir, 'media', 'f_img.png'));
-    expect(paths.size).toBe(1);
+    const out = await resolveMedia(resolver(files, sessionDir), [userMsg, toolMsg], requester({}));
+
+    expect(out[0]!.content).toEqual([
+      { type: 'text', text: 'compare these' },
+      { type: 'text', text: `<image name="a.png" path="${p1}">` },
+      { type: 'image_url', imageUrl: { url: PNG_DATA_URL } },
+      { type: 'text', text: '</image>' },
+      { type: 'text', text: `<image name="b.png" path="${p2}">` },
+      { type: 'image_url', imageUrl: { url: PNG_DATA_URL } },
+      { type: 'text', text: '</image>' },
+    ]);
+    expect(out[1]!.content).toEqual([
+      { type: 'text', text: `<image path="${pTool}"></image>` },
+      { type: 'image_url', imageUrl: { url: PNG_DATA_URL } },
+    ]);
   });
 
-  it('omits refs without a display path and dedupes repeated urls', async () => {
-    const service = resolver(new Map(), sessionDir);
+  it('labels a user video with its name and session path', async () => {
+    const canonical = await plantCanonical(FILE_ID, '.mp4', VIDEO_BYTES);
+    const message: Message = {
+      role: 'user',
+      content: [
+        { type: 'video_url', videoUrl: { url: buildKimiFileUrl(FILE_ID), name: 'clip.mp4' } },
+      ],
+      toolCalls: [],
+    };
 
-    const paths = await service.displayPaths([
-      imageMessage(buildKimiFileUrl('f_missing')),
-      imageMessage(buildKimiFileUrl('f_missing')),
-      videoMessage(buildKimiFileUrl('f_missing')),
+    const out = await resolveMedia(
+      resolver(new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]), sessionDir),
+      [message],
+      requester({ uploadVideo: mock(async (): Promise<VideoURLPart> => msPart('prov-1')) }),
+    );
+
+    expect(out[0]!.content).toEqual([
+      { type: 'text', text: `<video name="clip.mp4" path="${canonical}">` },
+      msPart('prov-1'),
+      { type: 'text', text: '</video>' },
+    ]);
+  });
+
+  it('uses the persisted file name when the part carries none', async () => {
+    await plantCanonical(FILE_ID, '.png', PNG_BYTES);
+    const base = stubMediaStore(sessionDir);
+    const store: ISessionMediaStore = {
+      ...base,
+      open: async () => ({
+        name: 'pasted.png',
+        mediaType: 'image/png',
+        size: PNG_BYTES.length,
+        stream: () => Readable.from([PNG_BYTES]),
+      }),
+    };
+
+    const out = await resolveMedia(
+      resolver(new Map([[FILE_ID, { name: 'pasted.png', bytes: PNG_BYTES }]]), sessionDir, store),
+      [imageMessage(buildKimiFileUrl(FILE_ID))],
+      requester({}),
+    );
+
+    expect(out[0]!.content[0]).toEqual({ type: 'text', text: '<image name="pasted.png">' });
+  });
+
+  it('hides the session path outside a local environment', async () => {
+    await plantCanonical(FILE_ID, '.png', PNG_BYTES);
+    const base = stubMediaStore(sessionDir);
+    const open = mock(base.open);
+    const store: ISessionMediaStore = { ...base, open };
+    const message: Message = {
+      role: 'user',
+      content: [namedImage(FILE_ID, 'a.png')],
+      toolCalls: [],
+    };
+
+    const out = await resolveMedia(
+      resolver(
+        new Map([[FILE_ID, { name: 'a.png', bytes: PNG_BYTES }]]),
+        sessionDir,
+        store,
+        [],
+        'ssh-host',
+      ),
+      [message],
+      requester({}),
+    );
+
+    expect(out[0]!.content).toEqual([
+      { type: 'text', text: '<image name="a.png">' },
+      { type: 'image_url', imageUrl: { url: PNG_DATA_URL } },
+      { type: 'text', text: '</image>' },
+    ]);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('renders an omitted media part with its label instead of reloading the file', async () => {
+    const canonical = await plantCanonical(FILE_ID, '.png', PNG_BYTES);
+    const message: Message = {
+      role: 'user',
+      content: [
+        {
+          type: 'image_url',
+          imageUrl: { url: buildKimiFileUrl(FILE_ID), name: 'a.png' },
+          omitted: 'degraded',
+        },
+      ],
+      toolCalls: [],
+    };
+
+    const out = await resolveMedia(
+      resolver(new Map([[FILE_ID, { name: 'a.png', bytes: PNG_BYTES }]]), sessionDir),
+      [message],
+      requester({}),
+    );
+
+    expect(out[0]!.content).toEqual([
+      { type: 'text', text: `<image name="a.png" path="${canonical}"></image>` },
+    ]);
+  });
+
+  it('keeps the placeholder sentence and the label when no saved path is shown', async () => {
+    await plantCanonical(FILE_ID, '.png', PNG_BYTES);
+    const message: Message = {
+      role: 'user',
+      content: [
+        {
+          type: 'image_url',
+          imageUrl: { url: buildKimiFileUrl(FILE_ID), name: 'a.png' },
+          omitted: 'stripped',
+        },
+      ],
+      toolCalls: [],
+    };
+
+    const out = await resolveMedia(
+      resolver(
+        new Map([[FILE_ID, { name: 'a.png', bytes: PNG_BYTES }]]),
+        sessionDir,
+        stubMediaStore(sessionDir),
+        [],
+        'ssh-host',
+      ),
+      [message],
+      requester({}),
+    );
+
+    expect(out[0]!.content).toEqual([
+      {
+        type: 'text',
+        text:
+          '[image omitted for provider compatibility; re-read the file to view it or get conversion guidance]\n' +
+          '<image name="a.png"></image>',
+      },
+    ]);
+  });
+
+  it('does not repeat a legacy standalone path tag immediately preceding the media part', async () => {
+    const canonical = await plantCanonical(FILE_ID, '.png', PNG_BYTES);
+    const legacyTag: ContentPart = { type: 'text', text: `<image path="${canonical}"></image>` };
+    const message: Message = {
+      role: 'user',
+      content: [legacyTag, namedImage(FILE_ID, 'a.png')],
+      toolCalls: [],
+    };
+
+    const out = await resolveMedia(
+      resolver(new Map([[FILE_ID, { name: 'a.png', bytes: PNG_BYTES }]]), sessionDir),
+      [message],
+      requester({}),
+    );
+
+    expect(out[0]!.content).toEqual([
+      legacyTag,
+      { type: 'image_url', imageUrl: { url: PNG_DATA_URL } },
+    ]);
+  });
+
+  it('names the path tag when the model cannot accept the media', async () => {
+    const imagePath = await plantCanonical('f_img', '.png', PNG_BYTES);
+    const videoPath = await plantCanonical('f_vid', '.mp4', VIDEO_BYTES);
+    const message: Message = {
+      role: 'user',
+      content: [
+        namedImage('f_img', 'shot.png'),
+        { type: 'video_url', videoUrl: { url: buildKimiFileUrl('f_vid'), name: 'clip.mp4' } },
+        namedImage('f_missing', 'gone.png'),
+      ],
+      toolCalls: [],
+    };
+
+    const out = await resolveMedia(
+      resolver(
+        new Map([
+          ['f_img', { name: 'shot.png', bytes: PNG_BYTES }],
+          ['f_vid', { name: 'clip.mp4', bytes: VIDEO_BYTES }],
+        ]),
+        sessionDir,
+      ),
+      [message],
+      requester({ imageIn: false, videoIn: false }),
+    );
+
+    expect(out[0]!.content).toEqual([
+      { type: 'text', text: `<image name="shot.png" path="${imagePath}"></image>` },
+      { type: 'text', text: `<video name="clip.mp4" path="${videoPath}"></video>` },
+      {
+        type: 'text',
+        text: `[image omitted: the uploaded file is no longer available]
+<image name="gone.png"></image>`,
+      },
+    ]);
+  });
+
+  it('reports a budget omission rather than a missing file when a remote session hides saved paths', async () => {
+    const older = Buffer.concat([PNG_BYTES, Buffer.alloc(14 * 1024 * 1024)]);
+    const newer = Buffer.concat([PNG_BYTES, Buffer.alloc(2 * 1024 * 1024)]);
+    await plantCanonical('f_old', '.png', older);
+    await plantCanonical('f_new', '.png', newer);
+    const files = new Map([
+      ['f_old', { name: 'old.png', bytes: older }],
+      ['f_new', { name: 'new.png', bytes: newer }],
     ]);
 
-    expect(paths.size).toBe(0);
+    const out = await resolveMedia(
+      resolver(files, sessionDir, stubMediaStore(sessionDir), [], 'ssh-host'),
+      [
+        {
+          role: 'user',
+          content: [namedImage('f_old', 'old.png'), namedImage('f_new', 'new.png')],
+          toolCalls: [],
+        },
+      ],
+      requester({}),
+    );
+
+    expect(out[0]!.content.slice(0, 2)).toEqual([
+      {
+        type: 'text',
+        text: '[image omitted: dropped to fit the request media budget]\n<image name="old.png"></image>',
+      },
+      { type: 'text', text: '<image name="new.png">' },
+    ]);
+    expect(out[0]!.content[2]!.type).toBe('image_url');
   });
 });

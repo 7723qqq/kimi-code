@@ -684,15 +684,20 @@ describe('projector tool-exchange normalization', () => {
       };
     }
 
-    function projectDegraded(
-      history: readonly ContextMessage[],
-      mediaPaths?: ReadonlyMap<string, string>,
-    ): readonly Message[] {
-      return projector.project(
-        history,
-        { media: { degradeCount: projector.captureMediaDegradeCount(history) } },
-        mediaPaths,
-      );
+    function projectDegraded(history: readonly ContextMessage[]): readonly Message[] {
+      return projector.project(history, {
+        media: { degradeCount: projector.captureMediaDegradeCount(history) },
+      });
+    }
+
+    function mediaParts(projected: readonly Message[]) {
+      return projected
+        .flatMap((message) => message.content)
+        .flatMap((part) =>
+          part.type === 'image_url'
+            ? [{ url: part.imageUrl.url, omitted: part.omitted }]
+            : [],
+        );
     }
 
     it('keeps media degraded by an earlier snapshot unchanged when newer media are appended', () => {
@@ -708,18 +713,15 @@ describe('projector tool-exchange normalization', () => {
         { media: { degradeCount } },
       );
 
-      const urls = projected
-        .flatMap((message) => message.content)
-        .filter((part) => part.type === 'image_url')
-        .map((part) => part.imageUrl.url);
-      expect(urls).toEqual([
-        'data:image/png;base64,MID',
-        'data:image/png;base64,NEW',
-        'data:image/png;base64,FRESH',
+      expect(mediaParts(projected)).toEqual([
+        { url: 'data:image/png;base64,OLD', omitted: 'degraded' },
+        { url: 'data:image/png;base64,MID', omitted: undefined },
+        { url: 'data:image/png;base64,NEW', omitted: undefined },
+        { url: 'data:image/png;base64,FRESH', omitted: undefined },
       ]);
     });
 
-    it('keeps the two most recent media parts and replaces older ones with markers', () => {
+    it('marks the two oldest media parts as degraded and keeps the two most recent', () => {
       const projected = projectDegraded(
         [
           imageMessage('data:image/png;base64,OLD1'),
@@ -730,18 +732,13 @@ describe('projector tool-exchange normalization', () => {
         ],
       );
 
-      const urls = projected
-        .flatMap((message) => message.content)
-        .filter((part) => part.type === 'image_url')
-        .map((part) => part.imageUrl.url);
-      expect(urls).toEqual(['data:image/png;base64,KEEP1', 'data:image/png;base64,KEEP2']);
-      const markers = projected
-        .flatMap((message) => message.content)
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text);
-      expect(
-        markers.filter((text) => text.includes('dropped to fit the provider request size limit')),
-      ).toHaveLength(2);
+      expect(mediaParts(projected)).toEqual([
+        { url: 'data:image/png;base64,OLD1', omitted: 'degraded' },
+        { url: 'data:image/png;base64,OLD2', omitted: 'degraded' },
+        { url: 'data:image/png;base64,KEEP1', omitted: undefined },
+        { url: 'data:image/png;base64,KEEP2', omitted: undefined },
+      ]);
+      expect(projected.flatMap((message) => message.content).every((part) => part.type !== 'text' || part.text === 'middle')).toBe(true);
     });
 
     it('returns the projected messages untouched when media fits within keep-recent', () => {
@@ -752,52 +749,44 @@ describe('projector tool-exchange normalization', () => {
       expect(allParts.some((part) => part.type === 'image_url')).toBe(true);
     });
 
-    it('replaces older media with path tags when display paths are provided', () => {
-      const projected = projectDegraded(
-        [
-          imageMessage('kimi-file://f_old1'),
-          imageMessage('kimi-file://f_old2'),
-          imageMessage('kimi-file://f_keep1'),
-          imageMessage('kimi-file://f_keep2'),
-        ],
-        new Map([
-          ['kimi-file://f_old1', '/session/media/f_old1.png'],
-          ['kimi-file://f_old2', '/session/media/f_old2.png'],
-        ]),
-      );
+    it('keeps the original reference so the resolver can still read the file', () => {
+      const projected = projectDegraded([
+        imageMessage('kimi-file://f_old1'),
+        imageMessage('kimi-file://f_old2'),
+        imageMessage('kimi-file://f_keep1'),
+        imageMessage('kimi-file://f_keep2'),
+      ]);
 
-      const parts = projected.flatMap((message) => message.content);
-      const urls = parts
-        .filter((part) => part.type === 'image_url')
-        .map((part) => part.imageUrl.url);
-      expect(urls).toEqual(['kimi-file://f_keep1', 'kimi-file://f_keep2']);
-      const texts = parts.filter((part) => part.type === 'text').map((part) => part.text);
-      expect(texts).toContain('<image path="/session/media/f_old1.png"></image>');
-      expect(texts).toContain('<image path="/session/media/f_old2.png"></image>');
-      expect(
-        texts.some((text) => text.includes('dropped to fit the provider request size limit')),
-      ).toBe(false);
+      expect(mediaParts(projected)).toEqual([
+        { url: 'kimi-file://f_old1', omitted: 'degraded' },
+        { url: 'kimi-file://f_old2', omitted: 'degraded' },
+        { url: 'kimi-file://f_keep1', omitted: undefined },
+        { url: 'kimi-file://f_keep2', omitted: undefined },
+      ]);
     });
 
-    it('falls back to the sentence marker for media without a display path', () => {
-      const projected = projectDegraded(
-        [
-          imageMessage('kimi-file://f_old1'),
-          imageMessage('kimi-file://f_old2'),
-          imageMessage('kimi-file://f_keep1'),
-          imageMessage('kimi-file://f_keep2'),
+    it('counts only media that is not already marked as omitted', () => {
+      const marked: ContextMessage = {
+        role: 'user',
+        content: [
+          { type: 'image_url', imageUrl: { url: 'data:image/png;base64,OLD' }, omitted: 'degraded' },
         ],
-        new Map([['kimi-file://f_old1', '/session/media/f_old1.png']]),
-      );
+        toolCalls: [],
+        origin: { kind: 'user' },
+      };
 
-      const texts = projected
-        .flatMap((message) => message.content)
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text);
-      expect(texts).toContain('<image path="/session/media/f_old1.png"></image>');
+      expect(projector.captureMediaDegradeCount([marked])).toBe(0);
       expect(
-        texts.filter((text) => text.includes('dropped to fit the provider request size limit')),
-      ).toHaveLength(1);
+        projector.captureMediaDegradeCount([marked, imageMessage('data:image/png;base64,NEW')]),
+      ).toBe(0);
+      expect(
+        projector.captureMediaDegradeCount([
+          marked,
+          imageMessage('data:image/png;base64,NEW1'),
+          imageMessage('data:image/png;base64,NEW2'),
+          imageMessage('data:image/png;base64,NEW3'),
+        ]),
+      ).toBe(1);
     });
   });
 
@@ -818,7 +807,7 @@ describe('projector tool-exchange normalization', () => {
       return projector.project(history, { media: { strip: snapshot } });
     }
 
-    it('replaces every media part with a text marker, keeping the surrounding text', () => {
+    it('marks every media part as stripped and keeps the surrounding text', () => {
       const projected = projectStripped([
         user('look at these'),
         imageMessage('data:image/png;base64,AAAA'),
@@ -841,13 +830,20 @@ describe('projector tool-exchange normalization', () => {
       ]);
 
       const allParts = projected.flatMap((message) => message.content);
-      expect(allParts.some((part) => part.type === 'image_url')).toBe(false);
-      expect(allParts.some((part) => part.type === 'video_url')).toBe(false);
+      const media = allParts.flatMap((part) =>
+        part.type === 'image_url' || part.type === 'video_url'
+          ? [{ type: part.type, omitted: part.omitted }]
+          : [],
+      );
+      expect(media).toEqual([
+        { type: 'image_url', omitted: 'stripped' },
+        { type: 'image_url', omitted: 'stripped' },
+        { type: 'video_url', omitted: 'stripped' },
+      ]);
       const texts = allParts.filter((part) => part.type === 'text').map((part) => part.text);
       expect(texts).toContain('look at these');
       expect(texts).toContain('<image path="/tmp/shot.png">');
-      expect(texts.some((text) => text.includes('omitted for provider compatibility'))).toBe(true);
-      expect(texts.some((text) => text.includes('get conversion guidance'))).toBe(true);
+      expect(texts).toContain('</image>');
     });
 
     it('returns the projected messages untouched when there is no media', () => {
@@ -855,22 +851,19 @@ describe('projector tool-exchange normalization', () => {
       expect(projected).toEqual(project([user('just text')]));
     });
 
-    it('replaces stripped media with path tags when display paths are provided', () => {
+    it('keeps the original reference so the resolver can still label the file', () => {
       const history = [imageMessage('kimi-file://f_old', 'old-id')];
       const snapshot = projector.captureMediaStripSnapshot(history);
 
-      const projected = projector.project(
-        history,
-        { media: { strip: snapshot } },
-        new Map([['kimi-file://f_old', '/session/media/f_old.png']]),
-      );
+      const projected = projector.project(history, { media: { strip: snapshot } });
 
-      const texts = projected
-        .flatMap((message) => message.content)
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text);
-      expect(texts).toContain('<image path="/session/media/f_old.png"></image>');
-      expect(texts.some((text) => text.includes('omitted for provider compatibility'))).toBe(false);
+      expect(projected.flatMap((message) => message.content)).toEqual([
+        {
+          type: 'image_url',
+          imageUrl: { url: 'kimi-file://f_old', id: 'old-id' },
+          omitted: 'stripped',
+        },
+      ]);
     });
 
     it('preserves media introduced after the rejected-media snapshot', () => {
@@ -882,11 +875,17 @@ describe('projector tool-exchange normalization', () => {
         snapshot,
       );
 
-      const urls = projected
-        .flatMap((message) => message.content)
-        .filter((part) => part.type === 'image_url')
-        .map((part) => part.imageUrl.url);
-      expect(urls).toEqual(['data:image/png;base64,NEW']);
+      const media = projected.flatMap((message) =>
+        message.content.flatMap((part) =>
+          part.type === 'image_url'
+            ? [{ url: part.imageUrl.url, omitted: part.omitted }]
+            : [],
+        ),
+      );
+      expect(media).toEqual([
+        { url: 'data:image/png;base64,OLD', omitted: 'stripped' },
+        { url: 'data:image/png;base64,NEW', omitted: undefined },
+      ]);
     });
 
     it('does not snapshot media dropped by the normal provider projection', () => {
@@ -902,7 +901,9 @@ describe('projector tool-exchange normalization', () => {
       const projected = projectStripped([imageMessage(url, 'orphan-id')], snapshot);
 
       expect(
-        projected.flatMap((message) => message.content).some((part) => part.type === 'image_url'),
+        projected
+          .flatMap((message) => message.content)
+          .some((part) => part.type === 'image_url' && part.omitted === undefined),
       ).toBe(true);
     });
 
@@ -916,9 +917,13 @@ describe('projector tool-exchange normalization', () => {
         snapshot,
       );
 
-      expect(
-        projected.flatMap((message) => message.content).some((part) => part.type === 'image_url'),
-      ).toBe(false);
+      expect(projected.flatMap((message) => message.content)).toEqual([
+        {
+          type: 'image_url',
+          imageUrl: { url: 'data:image/png;base64,SAME', id: 'same-id' },
+          omitted: 'stripped',
+        },
+      ]);
     });
 
     it('preserves a matching URL when its provider-visible id is different', () => {

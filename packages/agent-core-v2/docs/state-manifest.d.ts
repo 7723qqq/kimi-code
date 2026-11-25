@@ -991,12 +991,14 @@ export interface AgentStateSnapshot {
         };
         detail?: string;
       };
+      omitted?: 'degraded' | 'stripped' | 'budget' | 'unsupported' | 'protocol_unsupported' | 'unavailable';
     } | /* AudioURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
       type: 'audio_url';
       audioUrl: {
         url: string;
         id?: string;
       };
+      omitted?: 'degraded' | 'stripped' | 'budget' | 'unsupported' | 'protocol_unsupported' | 'unavailable';
     } | /* VideoURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
       type: 'video_url';
       videoUrl: {
@@ -1004,6 +1006,7 @@ export interface AgentStateSnapshot {
         id?: string;
         name?: string;
       };
+      omitted?: 'degraded' | 'stripped' | 'budget' | 'unsupported' | 'protocol_unsupported' | 'unavailable';
     } | /* DocumentURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
       type: 'document_url';
       documentUrl: {
@@ -1446,12 +1449,14 @@ export interface AgentStateSnapshot {
       };
       detail?: string;
     };
+    omitted?: 'degraded' | 'stripped' | 'budget' | 'unsupported' | 'protocol_unsupported' | 'unavailable';
   } | /* AudioURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
     type: 'audio_url';
     audioUrl: {
       url: string;
       id?: string;
     };
+    omitted?: 'degraded' | 'stripped' | 'budget' | 'unsupported' | 'protocol_unsupported' | 'unavailable';
   } | /* VideoURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
     type: 'video_url';
     videoUrl: {
@@ -1459,6 +1464,7 @@ export interface AgentStateSnapshot {
       id?: string;
       name?: string;
     };
+    omitted?: 'degraded' | 'stripped' | 'budget' | 'unsupported' | 'protocol_unsupported' | 'unavailable';
   } | /* DocumentURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
     type: 'document_url';
     documentUrl: {
