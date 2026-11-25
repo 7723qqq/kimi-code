@@ -3147,14 +3147,6 @@ describe('AgentTowerService', () => {
                 }
               : undefined,
         } as unknown as IAgentLifecycleService,
-        {
-          _serviceBrand: undefined,
-          mode: 'manual',
-        } as unknown as IAgentPermissionModeService,
-        {
-          _serviceBrand: undefined,
-          args: { requestHeaders: {}, nonInteractive: false },
-        } as unknown as IBootstrapService,
       );
 
       const result = await executeTool(tool, {

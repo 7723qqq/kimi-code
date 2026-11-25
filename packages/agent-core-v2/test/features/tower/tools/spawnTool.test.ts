@@ -640,7 +640,7 @@ describe('TowerSpawnTool', () => {
     expect(activityLog).toMatch(/spawn .*model=kimi-code/);
   });
 
-  it('binds reviewers to the configured pool default', async () => {
+  it('binds reviewers to the tower model', async () => {
     secondaryModel = {
       defaultModel: 'cheap/fast',
       models: { 'cheap/fast': 'fast and cheap', 'smart/slow': 'careful and thorough' },
@@ -653,9 +653,9 @@ describe('TowerSpawnTool', () => {
     });
 
     expect(result.isError).toBeUndefined();
-    expect(result.output).toContain('model: cheap/fast');
+    expect(result.output).toContain('model: kimi-code');
     expect(createAgent).toHaveBeenCalledWith({
-      binding: { profile: 'tower-worker', model: 'cheap/fast', thinking: undefined },
+      binding: expect.objectContaining({ profile: 'tower-worker', model: 'kimi-code' }),
       labels: { parentAgentId: 'main' },
     });
   });

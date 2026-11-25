@@ -54,6 +54,17 @@ import DESCRIPTION from './spawn.md?raw';
 
 type SubagentBinding = ReturnType<typeof resolveSubagentBinding>;
 
+function resolveSpawnBinding(
+  config: IConfigService,
+  args: TowerSpawnToolInput,
+  own: { modelAlias: string; thinkingLevel: string },
+): SubagentBinding {
+  if (args.kind === 'reviewer' && args.model === undefined) {
+    return { model: own.modelAlias, thinking: own.thinkingLevel, modelSource: 'inherited' };
+  }
+  return resolveSubagentBinding(config, own, args.model);
+}
+
 const TOWER_SPAWN_PARAMETERS = toInputJsonSchema(TowerSpawnToolInputSchema);
 const TOWER_SPAWN_PARAMETERS_NO_MODEL = stripSubagentModelParameter(TOWER_SPAWN_PARAMETERS);
 const REVIEW_REQUEST_SCAN_LIMIT = 50;
@@ -213,10 +224,10 @@ export class TowerSpawnTool implements ITowerSpawnTool {
         binding =
           own.modelAlias === undefined
             ? undefined
-            : resolveSubagentBinding(
+            : resolveSpawnBinding(
                 this.config,
+                args,
                 { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-                args.model,
               );
       } catch (error) {
         return {
