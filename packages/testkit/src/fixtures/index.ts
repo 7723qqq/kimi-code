@@ -20,7 +20,14 @@ export {
   type NetworkGuard,
   type NetworkGuardOptions,
 } from '#/fixtures/network';
-export { killProcessTree, readNetworkViolations, type NodeCommand, type ProcessExit } from '#/fixtures/process';
+export {
+  killProcessTree,
+  readNetworkViolations,
+  TestProcess,
+  type NodeCommand,
+  type ProcessExit,
+  type StartTestProcessOptions,
+} from '#/fixtures/process';
 export {
   describeDifferences,
   expectGolden,
