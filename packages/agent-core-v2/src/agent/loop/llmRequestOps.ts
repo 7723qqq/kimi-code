@@ -18,12 +18,11 @@ export function llmToolsSnapshotPayload(tools: readonly ToolDescription[]): {
   readonly hash: string;
   readonly tools: readonly LlmRequestToolSchema[];
 } {
-  const visible = tools
-    .filter((tool) => tool.deferred !== true)
+  const entries = tools
     .map(({ name, description, parameters }) => ({ name, description, parameters }));
   return {
-    hash: createHash('sha256').update(JSON.stringify(visible)).digest('hex'),
-    tools: visible,
+    hash: createHash('sha256').update(JSON.stringify(entries)).digest('hex'),
+    tools: entries,
   };
 }
 

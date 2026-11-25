@@ -84,7 +84,6 @@ import {
   SECONDARY_MODEL_SECTION,
   SUBAGENT_SECTION,
 } from '#/session/subagent/configSection';
-import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { runAgentTurn } from '#/session/subagent/runAgentTurn';
 import {
@@ -771,12 +770,12 @@ describe('Agent tool description', () => {
   }
 
   it.each([
-    { enabled: false, primary: true, secondary: true, expected: false },
-    { enabled: true, primary: false, secondary: false, expected: false },
-    { enabled: true, primary: true, secondary: false, expected: false },
-    { enabled: true, primary: false, secondary: true, expected: true },
-  ])('describes select_tools for eligible subagent models: $enabled/$primary/$secondary', ({
-    enabled, primary, secondary, expected,
+    { primary: true, secondary: true, expected: true },
+    { primary: false, secondary: false, expected: false },
+    { primary: true, secondary: false, expected: false },
+    { primary: false, secondary: true, expected: true },
+  ])('describes select_tools for eligible subagent models: $primary/$secondary', ({
+    primary, secondary, expected,
   }) => {
     ctx = createTestAgent(
       {
@@ -792,10 +791,6 @@ describe('Agent tool description', () => {
           },
         },
       },
-      appService(
-        IFlagService,
-        stubFlag((id) => (id === TOOL_SELECT_FLAG_ID ? enabled : true)),
-      ),
       sessionService(ISessionAgentProfileCatalog, discoveredCatalog()),
     );
     ctx.configure({

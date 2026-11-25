@@ -42,7 +42,6 @@ import {
   LOADABLE_TOOLS_VARIANT,
   RETRIEVED_TOOLS_VARIANT,
 } from '#/agent/toolSelect/dynamicTools';
-import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
 import { IAgentToolSelectService, SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import {
   ToolSelectInitialized,
@@ -56,7 +55,6 @@ import { AgentToolSelectSchemasService } from '#/agent/toolSelect/toolSelectSche
 import { AgentToolSelectService } from '#/agent/toolSelect/toolSelectService';
 import { Event2, type Event2Class } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
-import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { OrderedHookSlot } from '#/hooks';
@@ -99,7 +97,6 @@ const REQUIRED_PAYLOAD_PARAMETERS = {
 
 let disposables: DisposableStore;
 let capabilities: ModelCapability;
-let flagEnabled: boolean;
 let activeToolNames: ReadonlySet<string> | undefined;
 let disclosureToolActive: boolean;
 let deniedToolNames: ReadonlySet<string>;
@@ -108,7 +105,6 @@ let telemetryRecords: TelemetryRecord[];
 beforeEach(() => {
   disposables = new DisposableStore();
   capabilities = makeCapabilities({ tool_use: true, dynamically_loaded_tools: true });
-  flagEnabled = false;
   activeToolNames = undefined;
   disclosureToolActive = true;
   deniedToolNames = new Set();
@@ -433,9 +429,6 @@ function registerSharedServices(
       ]),
     isToolActiveForDisclosure: () => disclosureToolActive,
   });
-  reg.definePartialInstance(IFlagService, {
-    enabled: (id: string) => (id === TOOL_SELECT_FLAG_ID ? flagEnabled : false),
-  });
   reg.defineInstance(IWireService, stubWire());
   reg.defineInstance(IEventDispatcher, {
     _serviceBrand: undefined,
@@ -651,38 +644,32 @@ function announcementContentText(
 }
 
 describe('AgentToolSelectService gate', () => {
-  it('opens only when dynamically_loaded_tools capability, tool_use capability and flag are all on', () => {
-    flagEnabled = true;
+  it('opens when dynamically_loaded_tools and tool_use capabilities are both on', () => {
     const { sut } = createHarness();
     expect(sut.enabled()).toBe(true);
   });
 
   it('stays closed without the dynamically_loaded_tools capability', () => {
-    flagEnabled = true;
     capabilities = makeCapabilities({ tool_use: true, dynamically_loaded_tools: false });
     const { sut } = createHarness();
     expect(sut.enabled()).toBe(false);
   });
 
   it('stays closed without tool_use capability', () => {
-    flagEnabled = true;
     capabilities = makeCapabilities({ tool_use: false, dynamically_loaded_tools: true });
-    const { sut } = createHarness();
-    expect(sut.enabled()).toBe(false);
-  });
-
-  it('stays closed without the flag', () => {
-    flagEnabled = false;
     const { sut } = createHarness();
     expect(sut.enabled()).toBe(false);
   });
 });
 
 describe('AgentToolSelectService S0 baseline (gate closed)', () => {
+  beforeEach(() => {
+    capabilities = makeCapabilities({ tool_use: true, dynamically_loaded_tools: false });
+  });
+
   it.each([false, true])(
     'uses updated initial schemas without dynamic loading (restored: %s)',
     async (restoring) => {
-      flagEnabled = true;
       const h = createHarness();
       const old = new StubMcpTool('SchemaTool');
       const registration = h.registry.register(old, { source: 'builtin' });
@@ -836,7 +823,6 @@ describe('AgentToolSelectService S0 baseline (gate closed)', () => {
   });
 
   it('keeps runtime reminders and hides select_tools exchanges when disclosure closes', async () => {
-    flagEnabled = true;
     const h = createHarness();
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
     h.contextMemory.landAnnouncement('<tools_added>\nt\n</tools_added>');
@@ -897,10 +883,6 @@ describe('AgentToolSelectService S0 baseline (gate closed)', () => {
 });
 
 describe('AgentToolSelectService view shaping (gate open)', () => {
-  beforeEach(() => {
-    flagEnabled = true;
-  });
-
   it('hides unloaded MCP tools, marks loaded MCP tools deferred, keeps builtins and select_tools', () => {
     const h = createHarness();
     registerBuiltin(h, new EchoTool());
@@ -1332,10 +1314,6 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
 });
 
 describe('AgentToolSelectService.load', () => {
-  beforeEach(() => {
-    flagEnabled = true;
-  });
-
   it('searches loadable tools by capability without loading them', async () => {
     const h = createHarness();
     for (let index = 0; index < 19; index += 1) {
@@ -1860,10 +1838,6 @@ describe('AgentToolSelectService.load', () => {
 });
 
 describe('AgentToolSelectService consecutive failures', () => {
-  beforeEach(() => {
-    flagEnabled = true;
-  });
-
   it('counts failed calls across different names and turns, not names within a batch', () => {
     const h = createHarness();
     expect(h.sut.load(['Automation', 'automations', 'AutomationList']).consecutiveFailures).toBe(1);
@@ -2006,10 +1980,6 @@ describe('AgentToolSelectService consecutive failures', () => {
 });
 
 describe('AgentToolSelectService executor interception', () => {
-  beforeEach(() => {
-    flagEnabled = true;
-  });
-
   it('the executor settles the intercepted call without running the tool', async () => {
     const h = createExecutorHarness();
     const alpha = new StubMcpTool(MCP_ALPHA);
@@ -2097,10 +2067,6 @@ describe('AgentToolSelectService executor interception', () => {
 });
 
 describe('AgentToolSelectService missing tool wording', () => {
-  beforeEach(() => {
-    flagEnabled = true;
-  });
-
   it('tells a loaded-but-disconnected MCP tool apart from an unknown name', async () => {
     const h = createExecutorHarness();
     h.contextMemory.entries.push(schemaMessage(MCP_GONE));
@@ -2136,10 +2102,6 @@ describe('AgentToolSelectService missing tool wording', () => {
 });
 
 describe('AgentToolSelectService loadable-tools announcements', () => {
-  beforeEach(() => {
-    flagEnabled = true;
-  });
-
   it('tells the model not to select tools without an added announcement', () => {
     const h = createHarness();
     const tool = h.ix.createInstance(SelectToolsTool);
@@ -2308,12 +2270,12 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     );
   });
 
-  it('announces an empty set when dynamic loading is unsupported', async () => {
+  it('produces delta announcements independently of model capabilities for resolver filtering', async () => {
     capabilities = makeCapabilities({ tool_use: true });
     const h = createHarness();
-    expect(await announce(h)).toContain(
-      'No tools are currently available for dynamic loading in this session.',
-    );
+    await announce(h);
+    registerMcp(h, new StubMcpTool(MCP_ALPHA));
+    expect(await announce(h, 2)).toContain(`<tools_added>\n${MCP_ALPHA}\n</tools_added>`);
   });
 
   it('announces the full loadable set on first run, then stays silent while unchanged', async () => {
@@ -2417,12 +2379,5 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     const first = await announce(h);
     expect(first).toContain(`<tools_added>\n${MCP_BETA}\n</tools_added>`);
     expect(first).not.toContain(MCP_ALPHA);
-  });
-
-  it('stays silent while the gate is closed', async () => {
-    flagEnabled = false;
-    const h = createHarness();
-    registerMcp(h, new StubMcpTool(MCP_ALPHA));
-    expect(await announce(h)).toBeUndefined();
   });
 });

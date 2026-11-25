@@ -91,15 +91,13 @@ Plugins 也可以在 manifest 中声明 MCP servers。Plugin 声明的 servers �
 
 ## 按需加载工具
 
-默认情况下，server 的所有工具都会直接进入模型的顶层工具列表；接入的 server 较多、或单个 server 暴露的工具较多时，这些工具定义会持续占用上下文。把 server 标记为 deferred 后，它的工具不再进入顶层工具列表：模型先看到一份可加载工具清单，需要时通过内置的 `select_tools` 工具加载完整定义，加载后同一轮即可调用。动态工具加载可用时，启用工具数达到 24 个的 server 会自动 deferred；设 `deferred: false` 可让其工具保持 inline。阈值默认 24，可通过 `config.toml` 的 `[mcp] auto_defer_tool_threshold` 或 `KIMI_MCP_AUTO_DEFER_TOOL_THRESHOLD` 调整，设为 `0` 可关闭自动 deferred。
-
-按需加载是实验功能，同时满足两个前提才会生效：
+默认情况下，server 的所有工具都会直接进入模型的顶层工具列表；接入的 server 较多、或单个 server 暴露的工具较多时，这些工具定义会持续占用上下文。把 server 标记为 deferred 可以控制工具 schema 的披露方式。支持动态加载时，ToolSelect Resolver 会从解析后的顶层工具列表中移除 deferred 项，将 baseline 中的 deferred 名称转换为初始 reminder，后续新增和移除则通过 delta 公告。内置的 `select_tools` 再把选中的 schema 加载到 system message。不支持动态加载的模型会移除该元数据，并将初始 deferred 工具按普通声明发送。最终编码器自身不会仅凭这个标记删除工具；重复声明优先保留顶层列表。动态工具加载可用时，启用工具数达到 24 个的 server 会自动 deferred；设 `deferred: false` 可让其工具保持 inline。阈值默认 24，可通过 `config.toml` 的 `[mcp] auto_defer_tool_threshold` 或 `KIMI_MCP_AUTO_DEFER_TOOL_THRESHOLD` 调整，设为 `0` 可关闭自动 deferred。
 
 如果同名 deferred 工具的 schema 发生更新，会话会在同一条公告中声明移除旧版本并加入新版本。模型必须再次调用 `select_tools` 加载当前 schema，然后才能调用该工具；重新加载前的调用会被拒绝，并提示重新选择。对于 Kimi Chat Completions，供应商会按旧声明、卸载消息、新声明的顺序发送请求，避免后端因无法解析的同名重复声明而拒绝请求。同名 inline 工具的更新仍在当前会话中固定使用原 schema，不进入上述重新加载流程。
 
 按需加载在当前模型声明 `dynamically_loaded_tools` 能力时生效：官方模型自动声明；其他模型可在 `config.toml` 的 `capabilities` 中追加，见 [配置文件](../configuration/config-files.md#models)。
 
-满足前提后，在 `mcp.json` 的 server 条目里设 `deferred: true`：
+在支持动态加载的模型上，在 `mcp.json` 的 server 条目里设 `deferred: true`：
 
 ```json
 {
@@ -112,7 +110,7 @@ Plugins 也可以在 manifest 中声明 MCP servers。Plugin 声明的 servers �
 }
 ```
 
-未设置 `deferred` 的 server 取全局默认值（未改动时为 `false`），但动态工具加载可用时，启用工具数达到 24 个的 server 会自动 deferred；前提不满足时该字段被忽略，行为相同。需要 OAuth 授权的 server 在完成授权前暴露的认证工具也遵循这个字段。
+未设置 `deferred` 的 server 取全局默认值（未改动时为 `false`），但动态工具加载可用时，启用工具数达到 24 个的 server 会自动 deferred；模型不支持动态加载时，该字段被忽略，行为相同。需要 OAuth 授权的 server 在完成授权前暴露的认证工具也遵循这个字段。
 
 当 deferred 工具目录中至少有 20 个可加载工具时，模型收到的是当前请求最相关的最多十个工具的排序短名单，而不是完整清单。它可以调用 `select_tools` 并传入 `query` 按能力搜索其余工具；搜索结果只是候选，仍须按精确名称加载后才能调用。短名单每个轮次重新计算，旧短名单会从请求历史中移除。
 

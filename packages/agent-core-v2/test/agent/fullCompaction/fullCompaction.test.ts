@@ -14,7 +14,6 @@ import { renderCompactionInstruction } from '#/agent/fullCompaction/compactionIn
 import { SNIPPED_TOOL_RESULT_MARKER } from '#/agent/fullCompaction/compactionUtils';
 import { DefaultCompactionStrategy } from '#/agent/fullCompaction/strategy';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
 import { MASTER_ENV } from '#/app/flag/flagService';
@@ -5396,13 +5395,12 @@ describe('FullCompaction prompt-cache prefix', () => {
     loadSchema: boolean,
     media: (typeof MEDIA_SCENARIOS)[number],
   ): Promise<TestAgentContext> {
-    setEnv(TOOL_SELECT_FLAG_ENV, toolSelect ? '1' : '0');
     const ctx = testAgent({
       initialConfig: { providers: {}, loopControl: { reservedContextSize: 0 } },
     });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
-      modelCapabilities: { ...CATALOGUED_MODEL_CAPABILITIES, dynamically_loaded_tools: true },
+      modelCapabilities: { ...CATALOGUED_MODEL_CAPABILITIES, dynamically_loaded_tools: toolSelect },
     });
     await ctx.restorePersisted();
     await ctx.rpc.setPermission({ mode: 'yolo' });

@@ -10,7 +10,6 @@ import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { LOADABLE_TOOLS_VARIANT } from '#/agent/toolSelect/dynamicTools';
-import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { toolSelectKey } from '#/agent/toolSelect/toolSelectOps';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
@@ -99,7 +98,6 @@ describe('progressive tool disclosure end-to-end', () => {
   let onMcpWait: () => void;
 
   beforeEach(async () => {
-    setEnv(TOOL_SELECT_FLAG_ENV, '1');
     mcpReady = Promise.resolve();
     onMcpWait = () => {};
     ctx = createTestAgent(

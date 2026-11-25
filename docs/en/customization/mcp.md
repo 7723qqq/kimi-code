@@ -91,15 +91,13 @@ stdio entries in a project-level `.mcp.json` or `.kimi-code/mcp.json` execute lo
 
 ## Loading tools on demand
 
-By default, every tool of a server goes straight into the model's top-level tool list; with many connected servers — or a single server that exposes many tools — those definitions occupy context for the whole session. Marking a server as deferred keeps its tools out of the top-level list: the model first sees a manifest of loadable tools, loads full definitions on demand through the built-in `select_tools` tool, and can call them in the same turn once loaded. When dynamic loading is available, a server with 24 or more enabled tools is deferred automatically; set `deferred: false` to keep its tools inline. The threshold defaults to 24; change it with `[mcp] auto_defer_tool_threshold` in `config.toml` or `KIMI_MCP_AUTO_DEFER_TOOL_THRESHOLD`, and set `0` to disable auto-defer.
-
-Loading tools on demand is experimental and takes effect only when both prerequisites are met:
+By default, every tool of a server goes straight into the model's top-level tool list; with many connected servers — or a single server that exposes many tools — those definitions occupy context for the whole session. Marking a server as deferred controls how its schemas are disclosed. With dynamic loading, the ToolSelect resolver removes deferred entries from the resolved top-level tool list and turns the baseline deferred names into an initial reminder; later additions and removals are announced as deltas. The built-in `select_tools` tool loads selected schemas into system messages. Models without dynamic loading remove the metadata and send the initial deferred tools as ordinary declarations. The final encoder does not independently drop tools solely because of this flag; duplicate declarations prefer the top-level list. When dynamic loading is available, a server with 24 or more enabled tools is deferred automatically; set `deferred: false` to keep its tools inline. The threshold defaults to 24; change it with `[mcp] auto_defer_tool_threshold` in `config.toml` or `KIMI_MCP_AUTO_DEFER_TOOL_THRESHOLD`, and set `0` to disable auto-defer.
 
 When a deferred tool is replaced by a newer schema with the same name, one announcement marks the old version as removed and the new version as added. The model must call `select_tools` again to load the current schema before calling that tool; calls made before this reload are rejected with guidance to reselect it. Kimi Chat Completions sends the old declaration, an unload message, and the new declaration in order so the backend does not receive an unresolved duplicate declaration. Same-name updates to inline tools remain pinned to the original schema for the current session and do not enter this reload flow.
 
 Loading tools on demand takes effect when the current model declares the `dynamically_loaded_tools` capability: official models declare it automatically; for other models, add it to `capabilities` in `config.toml` — see [Configuration files](../configuration/config-files.md#models).
 
-With both prerequisites met, set `deferred: true` on the server entry in `mcp.json`:
+On a model that supports dynamic loading, set `deferred: true` on the server entry in `mcp.json`:
 
 ```json
 {
@@ -112,7 +110,7 @@ With both prerequisites met, set `deferred: true` on the server entry in `mcp.js
 }
 ```
 
-Servers without `deferred` take the global default (`false` unless changed), except that a server with 24 or more enabled tools is deferred automatically while dynamic loading is available; when a prerequisite is missing, the field is ignored with the same result. The authentication tool exposed by an OAuth server before authorization completes follows the same field.
+Servers without `deferred` take the global default (`false` unless changed), except that a server with 24 or more enabled tools is deferred automatically while dynamic loading is available; the field is ignored when the model does not support dynamic loading. The authentication tool exposed by an OAuth server before authorization completes follows the same field.
 
 When a deferred catalog contains at least 20 loadable tools, the model receives a ranked shortlist of up to ten relevant tools for the current request instead of the full manifest. It can call `select_tools` with a `query` to search the remaining tools by capability; search results are candidates only, and exact names must be loaded before use. The shortlist is recomputed for each turn, and older shortlists are dropped from the request history.
 

@@ -246,7 +246,7 @@ Spec 模式要求三份文档，任何一份缺失或为空时 `ExitSpecMode` �
 
 ## 动态工具加载
 
-开启 `tool_select` 实验开关后，被标记为 `deferred: true` 的 MCP 服务器工具不会进入顶层工具列表，而是按需加载。本工具只在该模式下存在，详见 [MCP — 按需加载工具](../customization/mcp.md#按需加载工具)。
+当前模型声明 `dynamically_loaded_tools` 能力时，被标记为 `deferred: true` 的 MCP 服务器工具不会进入顶层工具列表，而是按需加载。本工具只在该模式下存在，详见 [MCP — 按需加载工具](../customization/mcp.md#按需加载工具)。
 
 | 工具 | 默认审批 | 说明 |
 | --- | --- | --- |

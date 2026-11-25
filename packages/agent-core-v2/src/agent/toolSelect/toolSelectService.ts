@@ -12,7 +12,6 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IEventBus } from '#/app/event/eventBus';
-import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
@@ -37,7 +36,6 @@ import {
   stripDynamicToolContext,
   stripStaleRetrievedToolsAnnouncements,
 } from './dynamicTools';
-import { TOOL_SELECT_FLAG_ID } from './flag';
 import { rankToolsByQuery, type ToolSearchHit } from './toolRetriever';
 import {
   IAgentToolSelectService,
@@ -83,7 +81,6 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
-    @IFlagService private readonly flags: IFlagService,
     @IEventBus eventBus: IEventBus,
     @IAgentStateService private readonly states: IAgentStateService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -128,16 +125,8 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     }
   }
 
-  featureEnabled(): boolean {
-    return this.flags.enabled(TOOL_SELECT_FLAG_ID);
-  }
-
   enabled(capabilities: ToolSelectCapabilities = this.profile.getModelCapabilities()): boolean {
-    return (
-      capabilities.dynamically_loaded_tools === true &&
-      capabilities.tool_use === true &&
-      this.featureEnabled()
-    );
+    return capabilities.dynamically_loaded_tools === true && capabilities.tool_use === true;
   }
 
   async prepareForRequest(signal?: AbortSignal): Promise<void> {
@@ -158,22 +147,28 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   requestTools(
     base: readonly Tool[] | undefined,
     disclosure = this.enabled(),
-    dynamic = false,
-    messages: readonly ContextMessage[] = this.context.get(),
   ): readonly Tool[] {
-    if (!dynamic) return base ?? this.defaultToolsForDisclosure(disclosure);
-    if (disclosure) return base ?? [];
-    const loaded = collectLoadedDynamicTools(messages, this.toolRegistry.list());
-    const tools = (base ?? [])
-      .filter((tool) => tool.name !== SELECT_TOOLS_TOOL_NAME)
-      .map((tool) => (tool.deferred === true ? { ...tool, deferred: undefined } : tool));
-    const names = new Set(tools.map((tool) => tool.name));
-    for (const tool of loaded.values()) {
-      if (names.has(tool.name)) continue;
-      tools.push({ ...tool, deferred: undefined });
-      names.add(tool.name);
+    const tools = base ?? [];
+    let shaped: Tool[] | undefined;
+    for (let index = 0; index < tools.length; index += 1) {
+      const tool = tools[index]!;
+      const drop = disclosure
+        ? tool.deferred === true
+        : tool.name === SELECT_TOOLS_TOOL_NAME;
+      if (drop) {
+        if (shaped === undefined) shaped = tools.slice(0, index);
+        continue;
+      }
+      if (!disclosure && tool.deferred === true) {
+        if (shaped === undefined) shaped = tools.slice(0, index);
+        const { deferred: _deferred, ...description } = tool;
+        void _deferred;
+        shaped.push(description);
+        continue;
+      }
+      shaped?.push(tool);
     }
-    return tools.toSorted((left, right) => left.name.localeCompare(right.name));
+    return shaped ?? tools;
   }
 
   shapeTools(
@@ -307,7 +302,21 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   loadableToolsAnnouncement(
     lastDisclosure?: ToolSelectAnnouncementDisclosure,
   ): ToolSelectAnnouncement | undefined {
-    if (!this.featureEnabled()) return undefined;
+    const announcement = this.buildLoadableToolsAnnouncement(lastDisclosure);
+    if (announcement === undefined) return undefined;
+    if (
+      !this.enabled() &&
+      announcement.disclosure.kind === 'snapshot' &&
+      announcement.disclosure.tools.length > 0
+    ) {
+      return undefined;
+    }
+    return announcement;
+  }
+
+  private buildLoadableToolsAnnouncement(
+    lastDisclosure?: ToolSelectAnnouncementDisclosure,
+  ): ToolSelectAnnouncement | undefined {
     const state = this.modelState();
     if (state.initial === undefined) return undefined;
     this.resetFailuresIfToolsChanged(state.current);
@@ -316,9 +325,10 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     if (loadableEntries.length >= RETRIEVAL_MIN_TOOLS) {
       return this.retrievalAnnouncement(loadableEntries, revision);
     }
+    const excludeBaseline = !this.enabled();
     const lastRevision = lastDisclosure?.revision;
     if (lastRevision === undefined || lastRevision > revision) {
-      const legacy = this.legacyAnnouncement(revision);
+      const legacy = this.legacyAnnouncement(revision, excludeBaseline);
       if (legacy !== undefined) return legacy;
       const tools = state.current.filter(
         (info) =>
@@ -361,7 +371,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
         },
       };
     }
-    return this.legacyAnnouncement(revision);
+    return this.legacyAnnouncement(revision, excludeBaseline);
   }
 
   private retrievalAnnouncement(
@@ -398,16 +408,19 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     };
   }
 
-  private legacyAnnouncement(revision: number): ToolSelectAnnouncement | undefined {
+  private legacyAnnouncement(revision: number, excludeBaseline = false): ToolSelectAnnouncement | undefined {
     const state = this.modelState();
     const history = this.context.get();
     const announced = foldAnnouncedToolNames(history);
+    const baselineNames = new Set(
+      (excludeBaseline ? this.initialSelectTools() : []).map((tool) => tool.name),
+    );
     const loadable = state.current.filter(
       (info) =>
         this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(info.name, info.source),
     );
     const loadableNames = new Set(loadable.map((tool) => tool.name));
-    const added = loadable.filter((tool) => !announced.has(tool.name));
+    const added = loadable.filter((tool) => !announced.has(tool.name) && !baselineNames.has(tool.name));
     const known = [
       ...state.current,
       ...(state.initial ?? []),

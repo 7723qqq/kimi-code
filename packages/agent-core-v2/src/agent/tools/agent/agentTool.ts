@@ -23,7 +23,6 @@ import {
   resolveActiveToolNames,
 } from '#/agent/toolPolicy/evaluate';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
 import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import {
   ToolAccesses,
@@ -241,7 +240,6 @@ export class SubagentTool implements ISubagentTool {
       }
     }
     if (
-      !this.flags.enabled(TOOL_SELECT_FLAG_ID) ||
       !this.anySubagentModelSupports(
         (capabilities) => capabilities.dynamically_loaded_tools === true && capabilities.tool_use,
       )

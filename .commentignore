@@ -26,3 +26,6 @@ packages/core/test/llm/delta/
 
 # User-requested inline comments in LLM retry policy.
 packages/core/src/llm/policy/policy.ts
+
+# User-requested request event timing documentation.
+packages/core/src/llm/response.ts

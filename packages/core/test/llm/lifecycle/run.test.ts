@@ -395,12 +395,25 @@ describe('LLM run boundaries', () => {
       [{ name: 'weather', kept: 'profile.tools[1]', dropped: 4 }, expect.any(String)],
       [{ name: 'local', kept: 'messages[1].tools[1]', dropped: 1 }, expect.any(String)],
     ]);
+    expect(debugLogs).toContainEqual([{ pass: 'with-capabilities' }, 'llm encode stage']);
     expect(debugLogs).toContainEqual([{ pass: 'legalize-tools' }, 'llm encode stage']);
     expect(requests[0]?.params).toMatchObject({
       tools: [{
         type: 'function',
         function: { name: 'weather', description: 'new top', parameters: { type: 'object' } },
       }],
+      messages: [
+        { role: 'system', content: 'older' },
+        {
+          role: 'system',
+          tools: [{
+            type: 'function',
+            function: { name: 'local', description: 'new local', parameters: { type: 'object' } },
+          }],
+        },
+        { role: 'system', content: '' },
+        { role: 'user', content: 'hi' },
+      ],
     });
   });
 });

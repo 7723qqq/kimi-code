@@ -7,7 +7,6 @@ import {
   type AgentLLMRequestFinish,
 } from '#/agent/llmRequester/llmRequester';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
 import {
   APIConnectionError,
   APIRequestTooLargeError,
@@ -82,7 +81,6 @@ describe('LLMRequester service migration coverage', () => {
     ];
 
     beforeEach(() => {
-      setEnv(TOOL_SELECT_FLAG_ENV, '1');
       ctx = createTestAgent();
       llmRequester = ctx.get(IAgentLLMRequesterService);
     });

@@ -744,7 +744,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         return { type: 'turn', turnId: turn.id, step: turn.step };
       },
       runtime,
-      dynamicTools: true,
       onSnapshot: () => {
         const turn = loop.state.turn;
         const prepared = turn === undefined ? undefined : this.llmRequester.prepareTurnConfig(turn.id);
@@ -790,10 +789,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         };
         await this.toolSelect.prepareForRequest(control.signal);
         const requestTools = this.toolSelect.requestTools(
-          rest.profile?.tools as unknown as readonly Tool[] | undefined,
+          (rest.profile?.tools as unknown as readonly Tool[] | undefined) ?? this.baselineTools(),
           this.toolSelect.enabled(),
-          options.dynamicTools === true,
-          requestMessages as never,
         );
         for (let attempt = 1; ; attempt += 1) {
           const attemptNumber = attempt;

@@ -9,8 +9,9 @@ import type {
 import type { LlmNotice, LlmNoticeSink } from '@moonshot-ai/core/llm/response';
 
 import { applyPatterns, type Pattern } from './pattern';
-import type { LlmModule } from './protocol';
+import type { LlmModule, Protocol } from './protocol';
 import { legalize, type LegalizeSpec } from './rules';
+import { withProtocolCapabilities } from './rules/model';
 import { log } from '#/utils/log';
 
 export type PassTrace = (pass: string, output: unknown) => void;
@@ -110,7 +111,7 @@ function convert<TOptions, TMessage, TTool, TParams extends object>(
   return {
     system: module.profile.systemPrompt,
     messages: module.content.messages.flatMap((message) => pipeline.message(lowerableMessage(message), module)),
-    tools: (module.profile.tools ?? []).filter((tool) => tool.deferred !== true).map(pipeline.tool),
+    tools: (module.profile.tools ?? []).map(pipeline.tool),
     params,
   };
 }
@@ -124,7 +125,7 @@ function mergeTurns<TMessage, TTool, TParams>(
 }
 
 export function runPipeline<TOptions, TMessage, TTool, TParams extends object, TRequest>(
-  pipeline: PipelineSpec<TOptions, TMessage, TTool, TParams, TRequest>,
+  pipeline: PipelineSpec<TOptions, TMessage, TTool, TParams, TRequest> & Pick<Protocol, 'capability'>,
   input: LlmModule<TOptions>,
   hooks?: EncodeHooks,
 ): TRequest {
@@ -148,7 +149,14 @@ export function runPipeline<TOptions, TMessage, TTool, TParams extends object, T
     module: (pass, module, rewrite) => run(pass, rewrite(module, contextOf(pass))),
   };
 
-  const legal = legalize(input, pipeline, pipeline.cacheKey !== undefined, passes);
+  const capable = run('with-capabilities', {
+    ...input,
+    model: {
+      ...input.model,
+      spec: withProtocolCapabilities(input.model.spec, pipeline),
+    },
+  });
+  const legal = legalize(capable, pipeline, pipeline.cacheKey !== undefined, passes);
   const converted = run('convert', convert(legal, pipeline));
   const merged = run('merge-turns', mergeTurns(converted, pipeline.mergeTurns));
   const annotated = run('annotate-cache', pipeline.annotate?.(merged) ?? merged);

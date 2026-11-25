@@ -53,8 +53,6 @@ export interface LoadToolsResult {
 export interface IAgentToolSelectService {
   readonly _serviceBrand: undefined;
 
-  featureEnabled(): boolean;
-
   enabled(capabilities?: ToolSelectCapabilities): boolean;
 
   prepareForRequest(signal?: AbortSignal): Promise<void>;
@@ -80,7 +78,8 @@ export interface IAgentToolSelectService {
     lastDisclosure?: ToolSelectAnnouncementDisclosure,
   ): ToolSelectAnnouncement | undefined;
   initialTools(): readonly Tool[];
-  requestTools(..._args: unknown[]): readonly Tool[];
+
+  requestTools(base: readonly Tool[] | undefined, disclosure?: boolean): readonly Tool[];
 }
 
 export const IAgentToolSelectService: ServiceIdentifier<IAgentToolSelectService> =

@@ -35,7 +35,7 @@ describe('/api/v1/meta experimental_flags', () => {
 
   beforeEach(() => {
     setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    setEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT', undefined);
+    setEnv('KIMI_CODE_EXPERIMENTAL_NOTIFY_USER', undefined);
   });
 
   afterEach(async () => {
@@ -68,51 +68,51 @@ describe('/api/v1/meta experimental_flags', () => {
     return body.data.experimental_flags as Record<string, boolean>;
   }
 
-  it('reports registered flags at their defaults', async () => {
+  it('reports registered flags as off by default', async () => {
     const base = await boot();
     const flags = await getMetaFlags(base);
-    expect(flags['tool_select']).toBe(true);
+    expect(flags['notify_user']).toBe(false);
   });
 
-  it('reports a config-disabled flag from the very first response', async () => {
-    const base = await boot('[experimental]\ntool-select = false\n');
+  it('reports a config-enabled flag from the very first response', async () => {
+    const base = await boot('[experimental]\nnotify_user = true\n');
     const flags = await getMetaFlags(base);
-    expect(flags['tool_select']).toBe(false);
+    expect(flags['notify_user']).toBe(true);
   });
 
   it('reflects a flag enabled via its KIMI_CODE_EXPERIMENTAL_* env var', async () => {
-    setEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT', '1');
+    setEnv('KIMI_CODE_EXPERIMENTAL_NOTIFY_USER', '1');
     const base = await boot();
     const flags = await getMetaFlags(base);
-    expect(flags['tool_select']).toBe(true);
+    expect(flags['notify_user']).toBe(true);
   });
 
   it('flips live when the [experimental] config section is written via POST /config', async () => {
     const base = await boot();
-    expect((await getMetaFlags(base))['tool_select']).toBe(true);
+    expect((await getMetaFlags(base))['notify_user']).toBe(false);
 
     const res = await authedFetch(server as RunningServer, base, '/api/v1/config', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ experimental: { 'tool-select': false } }),
+      body: JSON.stringify({ experimental: { notify_user: true } }),
     });
     expect(res.status).toBe(200);
 
-    expect((await getMetaFlags(base))['tool_select']).toBe(false);
+    expect((await getMetaFlags(base))['notify_user']).toBe(true);
   });
 
   it('keeps an env-forced flag on when the config section disables it', async () => {
-    setEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT', '1');
+    setEnv('KIMI_CODE_EXPERIMENTAL_NOTIFY_USER', '1');
     const base = await boot();
 
     const res = await authedFetch(server as RunningServer, base, '/api/v1/config', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ experimental: { 'tool-select': false } }),
+      body: JSON.stringify({ experimental: { notify_user: false } }),
     });
     expect(res.status).toBe(200);
 
-    expect((await getMetaFlags(base))['tool_select']).toBe(true);
+    expect((await getMetaFlags(base))['notify_user']).toBe(true);
   });
 });
 

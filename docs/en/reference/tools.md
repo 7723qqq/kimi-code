@@ -246,7 +246,7 @@ To prevent all users from firing at the same time on the hour, the scheduler app
 
 ## Dynamic Tool Loading
 
-With the `tool_select` experimental flag on, tools of MCP servers marked `deferred: true` stay out of the top-level tool list and are loaded on demand instead. This tool exists only in that mode; see [MCP — Loading tools on demand](../customization/mcp.md#loading-tools-on-demand).
+When the current model declares the `dynamically_loaded_tools` capability, tools of MCP servers marked `deferred: true` stay out of the top-level tool list and are loaded on demand instead. This tool exists only in that mode; see [MCP — Loading tools on demand](../customization/mcp.md#loading-tools-on-demand).
 
 | Tool | Default Approval | Description |
 | --- | --- | --- |

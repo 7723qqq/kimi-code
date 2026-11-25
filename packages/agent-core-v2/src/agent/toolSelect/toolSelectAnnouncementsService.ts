@@ -20,7 +20,6 @@ export class AgentToolSelectAnnouncementsService
     super();
     this._register(
       reminder.register(LOADABLE_TOOLS_VARIANT, async ({ lastDisclosure, signal }) => {
-        if (!toolSelect.featureEnabled()) return undefined;
         await toolSelect.prepareForRequest(signal);
         return toolSelect.loadableToolsAnnouncement(
           isToolSelectAnnouncementDisclosure(lastDisclosure) ? lastDisclosure : undefined,
