@@ -207,9 +207,6 @@ describe('backendIncompatibility', () => {
     expect(backendIncompatibility({ backend: 'codex', model: 'provider/fast' })).toContain(
       'Cannot use backend with model',
     );
-    expect(backendIncompatibility({ backend: 'codex', fork: true })).toContain(
-      'Cannot use backend with fork',
-    );
   });
 
   it('rejects run_in_background with a backend', () => {

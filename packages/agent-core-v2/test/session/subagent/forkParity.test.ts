@@ -10,13 +10,11 @@ import type { IDisposable } from '#/_base/di/lifecycle';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { Event } from '#/_base/event';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { INHERITED_IN_FLIGHT_TOOL_OUTPUT } from '#/agent/contextMemory/openToolExchange';
 import { historyFromContextPreservingToolNotes } from '#/agent/loop/history';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentEnvironmentBindingSeed } from '#/agent/environmentBinding/environmentBinding';
 import { IAgentTaskService } from '#/agent/task/task';
 import { SUBAGENT_BACKGROUND_TASK_NOTICE } from '#/agent/task/taskService';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
@@ -24,9 +22,6 @@ import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
-import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
-import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
 import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
 import { IFlagService } from '#/app/flag/flag';
 import { ISessionBtwService } from '#/features/btw/btw';
@@ -51,11 +46,7 @@ import type {
   EnvironmentLease,
 } from '#/environment/environment';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionUsageService } from '#/session/usage/sessionUsage';
-import { inputTotal } from '#/human/llm/usage';
-import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
-import { FORK_CONTEXT_NOTICE } from '#/session/subagent/spawn';
-import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import type { WireRecord } from '#/wire/record';
 import { IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 
@@ -63,7 +54,6 @@ import { stubFlag } from '../../app/flag/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import {
   appService,
-  agentServices,
   createScriptedGenerate,
   llmGenerateServices,
   sessionServices,
@@ -161,8 +151,6 @@ class ToolContributions {
   constructor(@AgentToolContribution readonly view: CollectionView<AgentToolContribution>) {}
 }
 
-const SENT_ONLY_WITH_DYNAMIC_TOOL_LOADING: ReadonlySet<string> = new Set([SELECT_TOOLS_TOOL_NAME]);
-
 const MAIN_AGENT_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'Knowledge',
   'Memory',
@@ -170,8 +158,6 @@ const MAIN_AGENT_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'session_query',
 ]);
 
-const PARENT_SYSTEM_PROMPT = 'You are the parity probe parent.';
-const ACTIVE_TOOL_NAMES = ['Agent', 'Bash', 'Read'];
 const CHILD_FINAL_TEXT = 'The inherited task is done.';
 
 function taskReminders(history: readonly Pick<ContextMessage, 'content'>[]): string[] {
@@ -215,7 +201,7 @@ async function streamTextUntilAborted(
   });
 }
 
-describe('subagent task reminders and fork request parity', () => {
+describe('subagent task reminders and btw request parity', () => {
   let ctx: TestAgentContext;
   let store: ScopedAppendLogStore;
 
@@ -223,128 +209,7 @@ describe('subagent task reminders and fork request parity', () => {
     await ctx.dispose();
   });
 
-  it('keeps system prompt, tools and history prefix identical to the parent first request', async () => {
-    store = new ScopedAppendLogStore();
-    const telemetry: TelemetryRecord[] = [];
-    ctx = testAgent(
-      appService(IAppendLogStore, store),
-      appService(
-        IFlagService,
-        stubFlag((id) => id === SUBAGENT_FORK_FLAG_ID),
-      ),
-      telemetryServices(recordingTelemetry(telemetry)),
-      sessionServices((reg) => {
-        reg.defineDescriptor(IEnvironmentService, new SyncDescriptor(TestEnvironmentResolver));
-        reg.definePartialInstance(IWorkspaceInstanceManager, {
-          onDidChange: Event.None as Event<WorkspaceInstanceChange>,
-          get: () => undefined,
-        });
-      }),
-    );
-
-    const agentLifecycle = ctx.get(IAgentLifecycleService);
-    const parentInputTokens: number[] = [];
-    ctx.get(ISessionUsageService).onDidRecord((e) => {
-      if (e.agent.agentId === 'parent') parentInputTokens.push(inputTotal(e.usage) ?? 0);
-    });
-    const parentContext = await agentLifecycle.create({ agentId: 'parent' });
-    const parent = agentLifecycle.handleOf(parentContext.agentId)!;
-    const profile = parent.accessor.get(IAgentProfileService);
-    profile.update({
-      modelAlias: 'mock-model',
-      systemPrompt: PARENT_SYSTEM_PROMPT,
-      thinkingLevel: 'off',
-    });
-    profile.update({ activeToolNames: [...ACTIVE_TOOL_NAMES] });
-    parent.accessor.get(IAgentPermissionModeService).setMode('yolo');
-
-    ctx.mockNextResponse({
-      type: 'function',
-      id: 'call_fork',
-      name: 'Agent',
-      arguments: JSON.stringify({
-        description: 'fork parity child',
-        prompt: 'finish the inherited task',
-        fork: true,
-      }),
-    });
-    ctx.mockNextResponse({ type: 'text', text: CHILD_FINAL_TEXT });
-    ctx.mockNextResponse({ type: 'text', text: 'parent final answer' });
-
-    const loop = parent.accessor.get(IAgentLoopService);
-    const { id } = loop.submit(loopUserEntry({
-      message: { role: 'user', content: [{ type: 'text', text: 'start the parity probe' }] },
-      meta: { origin: { kind: 'user' }, tracked: true },
-    }));
-    const completion = await loop.promptHandle(id)!.completion;
-    expect(completion.state).toBe('completed');
-
-    expect(ctx.llmCalls).toHaveLength(3);
-    const parentReq = ctx.llmCalls[0]!;
-    const childReq = ctx.llmCalls[1]!;
-    const parentFollowup = ctx.llmCalls[2]!;
-
-    expect(childReq.systemPrompt).toBe(PARENT_SYSTEM_PROMPT);
-    expect(childReq.systemPrompt).toBe(parentReq.systemPrompt);
-
-    expect(parentReq.tools.map((tool) => tool.name)).toEqual([...ACTIVE_TOOL_NAMES].toSorted());
-    expect(childReq.tools).toEqual(
-      parentReq.tools.filter((tool) => !MAIN_AGENT_ONLY_TOOLS.has(tool.name)),
-    );
-
-    const prefix = childReq.history.slice(0, parentReq.history.length);
-    expect(prefix).toEqual(parentReq.history);
-
-    const tail = childReq.history.slice(parentReq.history.length);
-    expect(tail.map((message) => message.role)).toEqual(['assistant', 'tool', 'user', 'user']);
-    expect(tail[0]?.toolCalls.map((call) => call.name)).toEqual(['Agent']);
-    expect(tail[0]?.partial).toBeUndefined();
-    expect(tail[1]?.toolCallId).toBe('call_fork');
-    expect(tail[1]?.content).toEqual([{ type: 'text', text: INHERITED_IN_FLIGHT_TOOL_OUTPUT }]);
-    const notice = tail[2]?.content[0];
-    expect(notice?.type).toBe('text');
-    expect(notice?.type === 'text' && notice.text).toBe(wrapSystemReminder(FORK_CONTEXT_NOTICE));
-    const prompt = tail[3]?.content[0];
-    expect(prompt?.type).toBe('text');
-    expect(prompt?.type === 'text' && prompt.text).toBe('finish the inherited task');
-
-    expect(parentFollowup.history.slice(0, parentReq.history.length)).toEqual(parentReq.history);
-    expect(parentFollowup.history[parentReq.history.length]).toEqual(tail[0]);
-
-    const childId = agentLifecycle
-      .list()
-      .map((agent) => agent.agentId)
-      .find((id) => id !== 'parent' && id !== 'main');
-    expect(childId).toBeDefined();
-    const scopeOf = (agentId: string) => `sessions/test-workspace/test-session/agents/${agentId}`;
-    const firstLlmRequest = (agentId: string): WireRecord | undefined =>
-      store
-        .recordsFor(scopeOf(agentId), AGENT_WIRE_RECORD_KEY)
-        .find((record) => record.type === 'llm.request');
-    const parentWire = firstLlmRequest('parent');
-    const childWire = firstLlmRequest(childId!);
-    expect(parentWire).toBeDefined();
-    expect(childWire).toBeDefined();
-    expect(childWire).toMatchObject({
-      model: parentWire?.['model'],
-      modelAlias: parentWire?.['modelAlias'],
-      thinkingEffort: parentWire?.['thinkingEffort'],
-      systemPromptHash: parentWire?.['systemPromptHash'],
-      toolsHash: parentWire?.['toolsHash'],
-    });
-
-    const probes = telemetry.filter((record) => record.event === 'prompt_cache_probe');
-    expect(probes).toHaveLength(1);
-    expect(probes[0]?.properties).toMatchObject({
-      agent_id: childId,
-      tools_match: true,
-      system_prompt_match: true,
-      parent_input_tokens: parentInputTokens[0],
-    });
-    expect(probes[0]?.properties?.['parent_request_gap_ms']).toBeGreaterThanOrEqual(0);
-  });
-
-  function createMainForkCtx(
+  function createSubagentTestCtx(
     flags: IFlagService = stubFlag(true),
     telemetry: TelemetryRecord[] = [],
     requester?: LlmRequester,
@@ -394,39 +259,6 @@ describe('subagent task reminders and fork request parity', () => {
     expect((await loop.promptHandle(id)!.completion).state).toBe('completed');
   }
 
-  async function runMainAgentFork(options?: {
-    readonly disallowedTools?: readonly string[];
-  }): Promise<void> {
-    const profile = ctx.get(IAgentProfileService);
-    await profile.bind({ profile: 'agent', model: 'mock-model' });
-    profile.update({ activeToolNames: contributedToolNames() });
-    if (options?.disallowedTools !== undefined) {
-      profile.update({ disallowedTools: [...options.disallowedTools] });
-    }
-    ctx.get(IAgentPermissionModeService).setMode('yolo');
-
-    ctx.mockNextResponse({
-      type: 'function',
-      id: 'call_fork',
-      name: 'Agent',
-      arguments: JSON.stringify({
-        description: 'main fork parity child',
-        prompt: 'finish the inherited task',
-        fork: true,
-      }),
-    });
-    ctx.mockNextResponse({ type: 'text', text: CHILD_FINAL_TEXT });
-    ctx.mockNextResponse({ type: 'text', text: 'parent final answer' });
-
-    const loop = ctx.get(IAgentLoopService);
-    const { id } = loop.submit(loopUserEntry({
-      message: { role: 'user', content: [{ type: 'text', text: 'start the main fork probe' }] },
-      meta: { origin: { kind: 'user' }, tracked: true },
-    }));
-    const completion = await loop.promptHandle(id)!.completion;
-    expect(completion.state).toBe('completed');
-  }
-
   function contributedToolNames(): string[] {
     const instantiation = ctx.get(IInstantiationService);
     const contributions = instantiation.createInstance<ToolContributions>(
@@ -439,86 +271,10 @@ describe('subagent task reminders and fork request parity', () => {
     );
   }
 
-  function expectMainForkParity(): void {
-    expect(ctx.llmCalls).toHaveLength(3);
-    const parentReq = ctx.llmCalls[0]!;
-    const childReq = ctx.llmCalls[1]!;
-
-    expect(taskReminders(parentReq.history)).toHaveLength(0);
-    expect(childReq.systemPrompt).toBe(parentReq.systemPrompt);
-    expect(parentReq.tools.map((tool) => tool.name).toSorted()).toEqual(
-      contributedToolNames()
-        .filter((name) => !SENT_ONLY_WITH_DYNAMIC_TOOL_LOADING.has(name))
-        .toSorted(),
-    );
-    expect(childReq.tools).toEqual(
-      parentReq.tools.filter((tool) => !MAIN_AGENT_ONLY_TOOLS.has(tool.name)),
-    );
-
-    const prefix = childReq.history.slice(0, parentReq.history.length);
-    expect(prefix).toEqual(parentReq.history);
-
-    const tailText = childReq.history
-      .slice(parentReq.history.length)
-      .flatMap((message) => message.content)
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n');
-    expect(tailText).toContain(SUBAGENT_BACKGROUND_TASK_NOTICE);
-  }
-
-  it('keeps first-request parity when the main agent forks', async () => {
-    createMainForkCtx();
-    await runMainAgentFork();
-    expectMainForkParity();
-  });
-
-  it('keeps first-request parity when discovered profiles exist', async () => {
-    createMainForkCtx();
-    ctx.get(IAgentProfileRegistry).register({
-      sourceId: 'workspace',
-      priority: 30,
-      contribution: {
-        profiles: [
-          normalizeAgentProfile({
-            name: 'code-reviewer',
-            description: 'Reviews code changes for regressions.',
-            tools: ['Read', 'Grep', 'Glob'],
-            systemPrompt: () => 'You are a code reviewer.',
-          }),
-        ],
-      },
-    });
-    await runMainAgentFork();
-
-    const parentReq = ctx.llmCalls[0]!;
-    const agentTool = parentReq.tools.find((tool) => tool.name === 'Agent');
-    expect(agentTool?.description).toContain('code-reviewer');
-    expectMainForkParity();
-  });
-
-  it('omits the background-task reminder when WaitFor is vetoed', async () => {
-    createMainForkCtx();
-    await runMainAgentFork({ disallowedTools: ['WaitFor'] });
-
-    expect(ctx.llmCalls).toHaveLength(3);
-    const parentReq = ctx.llmCalls[0]!;
-    const childReq = ctx.llmCalls[1]!;
-    expect(childReq.tools).toEqual(
-      parentReq.tools.filter((tool) => !MAIN_AGENT_ONLY_TOOLS.has(tool.name)),
-    );
-
-    const tailText = childReq.history
-      .slice(parentReq.history.length)
-      .flatMap((message) => message.content)
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n');
-    expect(tailText).not.toContain(SUBAGENT_BACKGROUND_TASK_NOTICE);
-  });
-
   it.each(['coder', TOWER_WORKER_PROFILE])(
     'keeps guidance across steps and turns for a directly created %s',
     async (profile) => {
-      createMainForkCtx();
+      createSubagentTestCtx();
       const child = await createDirectChild(profile);
       child.accessor.get(IAgentPermissionModeService).setMode('yolo');
       ctx.mockNextResponse({
@@ -545,7 +301,7 @@ describe('subagent task reminders and fork request parity', () => {
   it.each([false, true])(
     'restores a child with a persisted reminder=%s without losing or duplicating guidance',
     async (hasReminder) => {
-      createMainForkCtx();
+      createSubagentTestCtx();
       const original = await createDirectChild();
       original.accessor.get(IAgentContextMemoryService).append({
         role: 'user',
@@ -580,7 +336,7 @@ describe('subagent task reminders and fork request parity', () => {
   it.each([false, true])(
     're-injects after compaction, including inside the next step hook chain=%s',
     async (insideStep) => {
-      createMainForkCtx();
+      createSubagentTestCtx();
       const child = await createDirectChild();
       const context = child.accessor.get(IAgentContextMemoryService);
       await runPrompt(child);
@@ -622,7 +378,7 @@ describe('subagent task reminders and fork request parity', () => {
     'omits guidance when the registered WaitFor tool is disabled by %s',
     async (restriction) => {
       let waitForEnabled = true;
-      createMainForkCtx(stubFlag((id) => id !== WAIT_FOR_FLAG_ID || waitForEnabled));
+      createSubagentTestCtx(stubFlag((id) => id !== WAIT_FOR_FLAG_ID || waitForEnabled));
       const child = await createDirectChild();
       expect(child.accessor.get(IAgentToolRegistryService).resolve('WaitFor')).toBeDefined();
       if (restriction === 'flag') {
@@ -641,7 +397,7 @@ describe('subagent task reminders and fork request parity', () => {
 
   it('waits for WaitFor activation instead of deciding availability when the agent is created', async () => {
     let waitForEnabled = false;
-    createMainForkCtx(stubFlag((id) => id !== WAIT_FOR_FLAG_ID || waitForEnabled));
+    createSubagentTestCtx(stubFlag((id) => id !== WAIT_FOR_FLAG_ID || waitForEnabled));
     const child = await createDirectChild();
     waitForEnabled = true;
     expect(child.accessor.get(IAgentToolRegistryService).resolve('WaitFor')).toBeUndefined();
@@ -655,7 +411,7 @@ describe('subagent task reminders and fork request parity', () => {
   });
 
   it('does not depend on unrelated tool descriptions when checking WaitFor availability', async () => {
-    createMainForkCtx();
+    createSubagentTestCtx();
     const child = await createDirectChild();
     const list = spyOn(child.accessor.get(IAgentToolRegistryService), 'list').mockImplementation(() => {
       throw new Error('unexpected unrelated tool description evaluation');
@@ -684,7 +440,7 @@ describe('subagent task reminders and fork request parity', () => {
   });
 
   it('keeps btw system, tools and inherited history identical to main', async () => {
-    createMainForkCtx();
+    createSubagentTestCtx();
     await ctx.get(IAgentProfileService).bind({ profile: 'agent', model: 'mock-model' });
     ctx.get(IAgentProfileService).update({
       activeToolNames: contributedToolNames().filter((name) => !MAIN_AGENT_ONLY_TOOLS.has(name)),
@@ -708,7 +464,7 @@ describe('subagent task reminders and fork request parity', () => {
   });
 
   it('carries the post-change tool baseline into a btw fork', async () => {
-    createMainForkCtx();
+    createSubagentTestCtx();
     await ctx.get(IAgentProfileService).bind({ profile: 'agent', model: 'mock-model' });
     ctx.get(IAgentProfileService).update({
       activeToolNames: contributedToolNames().filter((name) => !MAIN_AGENT_ONLY_TOOLS.has(name)),
@@ -737,7 +493,7 @@ describe('subagent task reminders and fork request parity', () => {
 
   it('drops the parent comparison from the btw cache probe once main compacts', async () => {
     const telemetry: TelemetryRecord[] = [];
-    createMainForkCtx(stubFlag(true), telemetry);
+    createSubagentTestCtx(stubFlag(true), telemetry);
     await ctx.get(IAgentProfileService).bind({ profile: 'agent', model: 'mock-model' });
     ctx.get(IAgentProfileService).update({
       activeToolNames: contributedToolNames().filter((name) => !MAIN_AGENT_ONLY_TOOLS.has(name)),
@@ -777,7 +533,7 @@ describe('subagent task reminders and fork request parity', () => {
     const childScript = createScriptedGenerate();
     const childStreaming = createControlledPromise<void>();
     let childRequests = 0;
-    createMainForkCtx(stubFlag(true), [], {
+    createSubagentTestCtx(stubFlag(true), [], {
       async generate(config, content, control) {
         if (requestTexts(content, 'user').some((text) => text.includes(STOPPED_CHILD_PROMPT))) {
           childRequests += 1;
@@ -864,7 +620,7 @@ describe('subagent task reminders and fork request parity', () => {
     const parentScript = createScriptedGenerate();
     const childStreaming = createControlledPromise<void>();
     let childRequests = 0;
-    createMainForkCtx(stubFlag(true), [], {
+    createSubagentTestCtx(stubFlag(true), [], {
       async generate(config, content, control) {
         if (requestTexts(content, 'user').some((text) => text.includes(STOPPED_CHILD_PROMPT))) {
           childRequests += 1;

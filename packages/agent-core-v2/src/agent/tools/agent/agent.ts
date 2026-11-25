@@ -18,10 +18,9 @@ export const SubagentToolInputSchema = z.preprocess(
       typeof normalized['resume'] === 'string' && normalized['resume'].trim().length > 0;
     const hasSubagentType =
       typeof normalized['subagent_type'] === 'string' && normalized['subagent_type'].length > 0;
-    const hasFork = normalized['fork'] === true;
     const hasBackend =
       typeof normalized['backend'] === 'string' && normalized['backend'].trim().length > 0;
-    if (!hasSubagentType && !hasResumeId && !hasFork && !hasBackend) {
+    if (!hasSubagentType && !hasResumeId && !hasBackend) {
       normalized['subagent_type'] = DEFAULT_PROFILE_NAME;
     } else if (!hasSubagentType) {
       delete normalized['subagent_type'];
@@ -49,12 +48,6 @@ export const SubagentToolInputSchema = z.preprocess(
       .describe(
         'If true, return immediately without waiting for completion. Prefer false unless the task can run independently and there is a clear benefit to not waiting.',
       ),
-    fork: z
-      .boolean()
-      .optional()
-      .describe(
-        'Start with a snapshot of your completed conversation history, inheriting your current agent type, model, and tool set.',
-      ),
     model: z
       .string()
       .optional()
@@ -65,7 +58,7 @@ export const SubagentToolInputSchema = z.preprocess(
       .string()
       .optional()
       .describe(
-        'Run the task on an external agent CLI backend (see "Available backends" in this tool description) instead of an in-process subagent. Cannot be combined with subagent_type, resume, fork, model, or run_in_background.',
+        'Run the task on an external agent CLI backend (see "Available backends" in this tool description) instead of an in-process subagent. Cannot be combined with subagent_type, resume, model, or run_in_background.',
       ),
   }),
 );

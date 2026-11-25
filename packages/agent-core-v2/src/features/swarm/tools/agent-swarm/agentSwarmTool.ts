@@ -1,7 +1,5 @@
-import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
 import { Error2, ErrorCodes } from '#/errors';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { resolveSwarmTimeoutMs } from '#/features/swarm/configSection';
@@ -9,14 +7,9 @@ import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/se
 import {
   buildSubagentModelSummary,
   exposesSubagentModelChoice,
-  stripSubagentForkParameter,
   stripSubagentModelParameter,
 } from '#/session/subagent/configSection';
-import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import {
-  FORK_EXPERIMENTAL_UNAVAILABLE,
-  FORK_WITH_RESUME_UNAVAILABLE,
-  forkIncompatibility,
   type SubagentSpawnPlan,
 } from '#/session/subagent/spawn';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
@@ -38,7 +31,6 @@ import {
   PROMPT_TEMPLATE_PLACEHOLDER,
   type AgentSwarmToolInput,
 } from './agent-swarm';
-import AGENT_SWARM_FORK_DESCRIPTION from './agent-swarm-fork.md?raw';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
@@ -86,12 +78,9 @@ export class AgentSwarmTool implements IAgentSwarmTool {
   readonly repoMutation = RepoMutations.none;
 
   get parameters(): Record<string, unknown> {
-    const parameters = exposesSubagentModelChoice(this.config)
+    return exposesSubagentModelChoice(this.config)
       ? AGENT_SWARM_PARAMETERS
       : AGENT_SWARM_PARAMETERS_NO_MODEL;
-    return this.flags.enabled(SUBAGENT_FORK_FLAG_ID)
-      ? parameters
-      : stripSubagentForkParameter(parameters);
   }
 
   private readonly callerAgentId: string;
@@ -101,20 +90,16 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     @IAgentScopeContext scopeContext: IAgentScopeContext,
     @IAgentSwarmService private readonly swarmMode: IAgentSwarmService,
     @IConfigService private readonly config: IConfigService,
-    @IFlagService private readonly flags: IFlagService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
-    @IAgentProfileService private readonly profile: IAgentProfileService,
   ) {
     this.callerAgentId = scopeContext.agentId;
   }
 
   get description(): string {
-    let description = AGENT_SWARM_DESCRIPTION;
-    if (this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
-      description += `\n\n${AGENT_SWARM_FORK_DESCRIPTION}`;
-    }
     const modelLines = buildSubagentModelSummary(this.config);
-    return modelLines === undefined ? description : `${description}\n\n${modelLines}`;
+    return modelLines === undefined
+      ? AGENT_SWARM_DESCRIPTION
+      : `${AGENT_SWARM_DESCRIPTION}\n\n${modelLines}`;
   }
 
   resolveExecution(args: AgentSwarmToolInput): ToolExecution {
@@ -156,29 +141,12 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     signal: AbortSignal,
     toolCallId: string,
   ): Promise<string> {
-    const fork = args.fork === true;
-    if (fork && !this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
-      throw new Error2(ErrorCodes.VALIDATION_FAILED, FORK_EXPERIMENTAL_UNAVAILABLE);
-    }
-    if (fork && Object.keys(args.resume_agent_ids ?? {}).length > 0) {
-      throw new Error2(ErrorCodes.VALIDATION_FAILED, FORK_WITH_RESUME_UNAVAILABLE);
-    }
     let plan: SubagentSpawnPlan | undefined;
     if ((args.items?.length ?? 0) > 0) {
-      if (fork) {
-        const incompatible = forkIncompatibility(
-          { subagent_type: args.subagent_type, model: args.model },
-          this.profile.data(),
-        );
-        if (incompatible !== undefined) {
-          throw new Error2(ErrorCodes.VALIDATION_FAILED, incompatible);
-        }
-      }
       plan = await this.subagents.planSpawn({
         callerAgentId: this.callerAgentId,
         profileName: args.subagent_type,
         model: args.model,
-        fork,
       });
     }
     const profileName = plan?.profileName ?? DEFAULT_SUBAGENT_TYPE;

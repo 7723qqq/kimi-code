@@ -194,7 +194,6 @@ kimi
 | `KIMI_CODE_PERMISSION_MODE_REMINDER` | 是否向模型上下文注入自动权限模式提醒；设为 `0` 后不再注入 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_GUARDIAN` | 启用 guardian 安全审查：由独立模型在审批前审查工具执行。默认关闭，不设置时行为不变 | `1` 开启 |
 | `KIMI_CODE_TUI_FULL_SCREEN` | 启用实验性的 fullscreen 界面：可滚动 transcript、鼠标选择、可点击链接、Ctrl-Shift-F 搜索 | `1` 开启；其他值保持常规内联界面 |
-| `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | 在 `Agent`/`AgentSwarm` 上启用实验性 `fork` 参数：以调用方对话历史快照而非空上下文启动 subagent。仅本进程生效；持久配置等价于 `[experimental] subagent_fork = true` | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | 启用实验性按需加载工具：标记 `deferred: true` 的 MCP server 工具不进入顶层工具列表，由模型经 `select_tools` 按需加载。仅本进程生效；持久配置等价于 `[experimental] tool_select = true`；还需模型声明 `dynamically_loaded_tools` 能力，详见 [MCP](../customization/mcp.md#按需加载工具) | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_GIT_MEMORY` | 启用实验性 Git Memory，将本地 git 历史提炼为结构化事实并注入 Agent 上下文。本变量按进程生效，不跨窗口；在全局 `config.toml` 中设置 `[experimental] git_memory = true` 可持久化并跨窗口使用；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也可启用。仅在 git 仓库目录内可用，不可用时给出一次性警告 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_ASSOCIATIVE_MEMORY` | 启用实验性关联记忆：你写入的内容会被编码为原子单元，系统学习它们之间的关联，并在每轮把相关记忆注入上下文。仅对当前进程生效；持久配置等价于在全局 `config.toml` 中设置 `[experimental] associative_memory = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也能启用它。通过 `MemoryGraph` 工具读写 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |

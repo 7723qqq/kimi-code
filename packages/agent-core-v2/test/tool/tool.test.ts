@@ -85,15 +85,8 @@ import {
   SUBAGENT_SECTION,
 } from '#/session/subagent/configSection';
 import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
-import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { runAgentTurn } from '#/session/subagent/runAgentTurn';
-import {
-  FORK_EXPERIMENTAL_UNAVAILABLE,
-  FORK_WITH_MODEL_UNAVAILABLE,
-  FORK_WITH_RESUME_UNAVAILABLE,
-  FORK_WITH_TYPE_UNAVAILABLE,
-} from '#/session/subagent/spawn';
 import {
   type AgentRunCompletion,
   type AgentRunHandle,
@@ -209,13 +202,6 @@ async function advanceHostTime(timers: FakeHostTimers, byMs: number): Promise<vo
   await flushHostWork();
   timers.advance(byMs);
   await flushHostWork();
-}
-
-function forkFlags(enabled = true): TestAgentServiceOverride {
-  return appService(
-    IFlagService,
-    stubFlag((id) => enabled && id === SUBAGENT_FORK_FLAG_ID),
-  );
 }
 
 function agentSchemaProperties<T = unknown>(): Record<string, T> {
@@ -748,21 +734,8 @@ describe('SubagentToolInputSchema', () => {
     ).toBeUndefined();
   });
 
-  it('exposes the fork parameter in the JSON schema', () => {
-    const properties = agentSchemaProperties<{ type?: string }>();
-
-    expect(properties).toHaveProperty('fork');
-    expect(properties['fork']?.type).toBe('boolean');
-  });
-
-  it('does not default subagent_type when forking', () => {
-    expect(
-      SubagentToolInputSchema.parse({
-        prompt: 'Continue',
-        description: 'Continue work',
-        fork: true,
-      }).subagent_type,
-    ).toBeUndefined();
+  it('does not expose the removed fork parameter in the JSON schema', () => {
+    expect(agentSchemaProperties()).not.toHaveProperty('fork');
   });
 
   it('exposes the backend parameter in the JSON schema', () => {
@@ -798,13 +771,12 @@ describe('Agent tool description', () => {
   }
 
   it.each([
-    { enabled: false, primary: true, secondary: true, fork: false, expected: false },
-    { enabled: true, primary: false, secondary: false, fork: false, expected: false },
-    { enabled: true, primary: true, secondary: false, fork: false, expected: false },
-    { enabled: true, primary: true, secondary: false, fork: true, expected: false },
-    { enabled: true, primary: false, secondary: true, fork: false, expected: true },
-  ])('describes select_tools for eligible subagent models: $enabled/$primary/$secondary/$fork', ({
-    enabled, primary, secondary, fork, expected,
+    { enabled: false, primary: true, secondary: true, expected: false },
+    { enabled: true, primary: false, secondary: false, expected: false },
+    { enabled: true, primary: true, secondary: false, expected: false },
+    { enabled: true, primary: false, secondary: true, expected: true },
+  ])('describes select_tools for eligible subagent models: $enabled/$primary/$secondary', ({
+    enabled, primary, secondary, expected,
   }) => {
     ctx = createTestAgent(
       {
@@ -822,9 +794,7 @@ describe('Agent tool description', () => {
       },
       appService(
         IFlagService,
-        stubFlag((id) =>
-          id === TOOL_SELECT_FLAG_ID ? enabled : id === SUBAGENT_FORK_FLAG_ID ? fork : true,
-        ),
+        stubFlag((id) => (id === TOOL_SELECT_FLAG_ID ? enabled : true)),
       ),
       sessionService(ISessionAgentProfileCatalog, discoveredCatalog()),
     );
@@ -843,8 +813,8 @@ describe('Agent tool description', () => {
     expect(tools!.split(', ').includes('select_tools')).toBe(expected);
   });
 
-  it.each([false, true])('renders caller model tools without a pool when fork=%s', async (fork) => {
-    ctx = createTestAgent(forkFlags(fork));
+  it('renders caller model tools without a pool', async () => {
+    ctx = createTestAgent();
     ctx.configure({
       modelCapabilities: {
         image_in: true,
@@ -897,7 +867,7 @@ describe('Agent tool description', () => {
     expect(names).toContain('Workflow');
   });
 
-  it.each([false, true])('omits caller-only ReadMediaFile from subagent types when fork=%s', async (fork) => {
+  it('omits caller-only ReadMediaFile from subagent types', async () => {
     ctx = createTestAgent({
       initialConfig: {
         secondaryModel: { defaultModel: 'provider/text' },
@@ -909,7 +879,7 @@ describe('Agent tool description', () => {
           },
         },
       },
-    }, forkFlags(fork));
+    });
     ctx.configure({
       modelCapabilities: {
         image_in: true,
@@ -989,31 +959,6 @@ describe('Agent tool description', () => {
 
     expect(description).toContain('- globber: Globber');
     expect(description).toContain('mcp__server__@(read|write)');
-  });
-
-  it('omits the fork parameter and guidance while the subagent_fork flag is off', () => {
-    ctx = createTestAgent(forkFlags(false));
-
-    const tool = ctx.toolsData().find((entry) => entry.name === 'Agent');
-    expect(tool).toBeDefined();
-    expect(tool!.description).not.toContain('Context forking');
-    const properties = (tool!.parameters as { properties?: Record<string, unknown> } | undefined)
-      ?.properties;
-    expect(properties).toBeDefined();
-    expect(properties).not.toHaveProperty('fork');
-  });
-
-  it('exposes the fork parameter and guidance when the subagent_fork flag is on', () => {
-    ctx = createTestAgent(forkFlags());
-
-    const tool = ctx.toolsData().find((entry) => entry.name === 'Agent');
-    expect(tool).toBeDefined();
-    expect(tool!.description).toContain('inheriting your current agent type, model, and tool set.');
-    const properties = (tool!.parameters as { properties?: Record<string, unknown> } | undefined)
-      ?.properties;
-    expect(properties?.['fork']).toMatchObject({
-      description: 'Start with a snapshot of your completed conversation history, inheriting your current agent type, model, and tool set.',
-    });
   });
 
   it('does not offer the default agent type to the builtin default caller', () => {
@@ -2103,23 +2048,6 @@ describe('Agent tool execution contract', () => {
     expect(execution.description).toBe('Launching subagent agent: Continue work');
   });
 
-  it('labels fork launches with the caller profile for display and approval rules', async () => {
-    const lifecycle = createAgentLifecycleStub();
-    const context = createAgentToolContext(lifecycle, forkFlags());
-    context.get(IAgentProfileService).update({ profileName: 'orchestrator' });
-
-    const execution = await agentTool(context).resolveExecution({
-      prompt: 'Continue',
-      description: 'Continue work',
-      fork: true,
-    });
-
-    if (execution.isError === true) throw new Error('expected runnable execution');
-    expect(execution.description).toBe('Launching orchestrator agent: Continue work');
-    expect(execution.matchesRule?.('orchestrator')).toBe(true);
-    expect(execution.matchesRule?.('coder')).toBe(false);
-  });
-
   it('returns an error when resuming with a subagent type', async () => {
     const lifecycle = createAgentLifecycleStub();
     const context = createAgentToolContext(lifecycle);
@@ -2137,187 +2065,6 @@ describe('Agent tool execution contract', () => {
       output: 'Cannot set subagent_type when resuming an existing agent. Resume by agent id only.',
     });
     expect(lifecycle.run).not.toHaveBeenCalled();
-  });
-
-  it('rejects fork combined with resume', async () => {
-    const lifecycle = createAgentLifecycleStub();
-    const context = createAgentToolContext(lifecycle, forkFlags());
-    lifecycle.addHandle('agent-existing', 'explore');
-
-    const result = await executeAgentTool(context, {
-      prompt: 'Continue',
-      description: 'Continue work',
-      resume: 'agent-existing',
-      fork: true,
-    });
-
-    expect(result).toMatchObject({ isError: true, output: FORK_WITH_RESUME_UNAVAILABLE });
-    expect(lifecycle.create).not.toHaveBeenCalled();
-    expect(lifecycle.run).not.toHaveBeenCalled();
-  });
-
-  it('rejects fork with a different subagent type', async () => {
-    const lifecycle = createAgentLifecycleStub();
-    const context = createAgentToolContext(lifecycle, forkFlags());
-    context.get(IAgentProfileService).update({ profileName: 'coder' });
-
-    const result = await executeAgentTool(context, {
-      prompt: 'Investigate',
-      description: 'Find cause',
-      subagent_type: 'explore',
-      fork: true,
-    });
-
-    expect(result).toMatchObject({ isError: true, output: FORK_WITH_TYPE_UNAVAILABLE });
-    expect(lifecycle.create).not.toHaveBeenCalled();
-    expect(lifecycle.run).not.toHaveBeenCalled();
-  });
-
-  it('rejects fork with a model override', async () => {
-    const lifecycle = createAgentLifecycleStub();
-    const context = createAgentToolContext(lifecycle, forkFlags());
-
-    const result = await executeAgentTool(context, {
-      prompt: 'Investigate',
-      description: 'Find cause',
-      model: 'provider/smart',
-      fork: true,
-    });
-
-    expect(result).toMatchObject({ isError: true, output: FORK_WITH_MODEL_UNAVAILABLE });
-    expect(lifecycle.create).not.toHaveBeenCalled();
-    expect(lifecycle.run).not.toHaveBeenCalled();
-  });
-
-  it('accepts fork with its own model alias but rejects the removed primary choice', async () => {
-    const lifecycle = createAgentLifecycleStub({
-      createAgentIds: ['agent-child'],
-      runCompletion: async () => ({ summary: 'child result' }),
-    });
-    const context = createAgentToolContext(lifecycle, forkFlags());
-
-    const rejected = await executeAgentTool(context, {
-      prompt: 'Continue the analysis',
-      description: 'Fork context',
-      model: 'primary',
-      fork: true,
-    });
-    expect(rejected).toMatchObject({ isError: true, output: FORK_WITH_MODEL_UNAVAILABLE });
-    expect(lifecycle.fork).not.toHaveBeenCalled();
-
-    const result = await executeAgentTool(context, {
-      prompt: 'Continue the analysis',
-      description: 'Fork context',
-      model: 'mock-model',
-      fork: true,
-    });
-
-    expect(result.isError).not.toBe(true);
-    expect(result.output).toContain('child result');
-    expect(lifecycle.fork).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'main' }), {
-      labels: expect.objectContaining({ parentAgentId: 'main' }),
-    });
-  });
-
-  it('launches a fork through the agent lifecycle with subagent labels', async () => {
-    const lifecycle = createAgentLifecycleStub({
-      createAgentIds: ['agent-child'],
-      runCompletion: async () => ({ summary: 'child result' }),
-    });
-    const context = createAgentToolContext(lifecycle, forkFlags());
-    context.get(IAgentProfileService).update({ profileName: 'coder' });
-
-    const result = await executeAgentTool(context, {
-      prompt: 'Continue the analysis',
-      description: 'Fork context',
-      fork: true,
-    });
-
-    expect(result.output).toContain('child result');
-    expect(lifecycle.create).not.toHaveBeenCalled();
-    expect(lifecycle.fork).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'main' }), {
-      labels: expect.objectContaining({ parentAgentId: 'main' }),
-    });
-    expect(lifecycle.run).toHaveBeenCalledTimes(1);
-    const [runAgent, runRequest] = lifecycle.run.mock.calls[0]!;
-    expect(runAgent).toMatchObject({ agentId: 'agent-child' });
-    const runPrompt = runRequest.kind === 'prompt' ? runRequest.prompt : '';
-    expect(runPrompt).toBe('Continue the analysis');
-  });
-
-  it('forks without requiring the caller profile in the catalog', async () => {
-    const lifecycle = createAgentLifecycleStub({
-      createAgentIds: ['agent-child'],
-      runCompletion: async () => ({ summary: 'child result' }),
-    });
-    const context = createAgentToolContext(lifecycle, forkFlags());
-    context.get(IAgentProfileService).update({ profileName: 'withdrawn-profile' });
-
-    const result = await executeAgentTool(context, {
-      prompt: 'Continue the analysis',
-      description: 'Fork context',
-      fork: true,
-    });
-
-    expect(result.isError).not.toBe(true);
-    expect(result.output).toContain('child result');
-    expect(lifecycle.create).not.toHaveBeenCalled();
-    expect(lifecycle.fork).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'main' }), {
-      labels: expect.objectContaining({ parentAgentId: 'main' }),
-    });
-  });
-
-  it('rejects fork while the subagent_fork experimental flag is off', async () => {
-    const lifecycle = createAgentLifecycleStub();
-    const context = createAgentToolContext(lifecycle, forkFlags(false));
-
-    const result = await executeAgentTool(context, {
-      prompt: 'Continue the analysis',
-      description: 'Fork context',
-      fork: true,
-    });
-
-    expect(result).toMatchObject({ isError: true, output: FORK_EXPERIMENTAL_UNAVAILABLE });
-    expect(lifecycle.create).not.toHaveBeenCalled();
-    expect(lifecycle.fork).not.toHaveBeenCalled();
-    expect(lifecycle.run).not.toHaveBeenCalled();
-  });
-
-  it('marks fork consistently in every subagent_created telemetry emission', async () => {
-    const lifecycle = createAgentLifecycleStub({
-      createAgentIds: ['agent-child'],
-      runCompletion: async () => ({ summary: 'child result' }),
-    });
-    const telemetryRecords: { event: string; properties: unknown }[] = [];
-    const context = createAgentToolContext(lifecycle, forkFlags());
-    lifecycle.addHandle(
-      'main',
-      'agent',
-      new Map<unknown, unknown>([
-        [
-          ITelemetryService,
-          {
-            ...noopTelemetryService,
-            track2: (event: string, properties: unknown) => {
-              telemetryRecords.push({ event, properties });
-            },
-          },
-        ],
-      ]),
-    );
-
-    const result = await executeAgentTool(context, {
-      prompt: 'Continue the analysis',
-      description: 'Fork context',
-      fork: true,
-    });
-
-    expect(result.isError).not.toBe(true);
-    const created = telemetryRecords.filter((record) => record.event === 'subagent_created');
-    expect(created.length).toBeGreaterThan(0);
-    for (const record of created) {
-      expect(record.properties).toMatchObject({ fork: true, model_source: 'inherited' });
-    }
   });
 
   it('spawns a foreground subagent and returns its summary', async () => {
@@ -2696,7 +2443,6 @@ describe('Agent tool execution contract', () => {
       properties: {
         subagent_name: 'explore',
         run_in_background: false,
-        fork: false,
         agent_id: 'agent-child',
         model: 'provider/secondary',
         model_source: 'secondary_pool',
@@ -3872,26 +3618,6 @@ describe('Agent tool external backends', () => {
     expect(result.output).toContain(message);
   });
 
-  it('rejects fork combined with backend', async () => {
-    const context = createBackendContext(
-      new FakeBackend({ output: 'ok', stopReason: 'completed' }),
-      appService(
-        IFlagService,
-        stubFlag((id) => id === SUBAGENT_BACKENDS_FLAG_ID || id === SUBAGENT_FORK_FLAG_ID),
-      ),
-    );
-
-    const result = await executeAgentTool(context, {
-      prompt: 'Investigate',
-      description: 'Find cause',
-      backend: 'codex',
-      fork: true,
-    });
-
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain('Cannot use backend with fork');
-  });
-
   it('rejects an unknown backend name with the available list', async () => {
     const context = createBackendContext(
       new FakeBackend({ output: 'ok', stopReason: 'completed' }),
@@ -4074,12 +3800,13 @@ describe('AgentSwarmToolInputSchema', () => {
     ).toBe(true);
   });
 
-  it('references the models section and omits background and timeout parameters', () => {
+  it('references the models section and omits removed parameters', () => {
     const properties = agentSwarmSchemaProperties<{ description?: string }>();
 
     expect(properties['model']?.description).toContain('Available models');
     expect(properties).not.toHaveProperty('run_in_background');
     expect(properties).not.toHaveProperty('timeout');
+    expect(properties).not.toHaveProperty('fork');
   });
 });
 
@@ -4100,18 +3827,6 @@ describe('AgentSwarm tool description', () => {
     ctx = createTestAgent();
 
     expect(agentSwarmDescription()).toContain('{{item}}');
-  });
-
-  it('describes fork as inheriting the current type, model, and tools', () => {
-    ctx = createTestAgent(forkFlags());
-
-    expect(agentSwarmDescription()).toContain(
-      'inheriting your current agent type, model, and tool set.',
-    );
-    const properties = agentSwarmParameters()['properties'] as Record<string, unknown>;
-    expect(properties['fork']).toMatchObject({
-      description: 'Start every item-spawned subagent with a snapshot of your completed conversation history, inheriting your current agent type, model, and tool set.',
-    });
   });
 
   it('omits the models section when no [secondary_model.models] pool is configured', () => {
@@ -4245,7 +3960,6 @@ describe('AgentSwarm tool execution contract', () => {
             model: 'mock-model',
             modelSource: 'inherited',
             thinking: 'off',
-            fork: false,
           },
         },
         {
@@ -4265,7 +3979,6 @@ describe('AgentSwarm tool execution contract', () => {
             model: 'mock-model',
             modelSource: 'inherited',
             thinking: 'off',
-            fork: false,
           },
         },
       ],
@@ -4331,8 +4044,7 @@ describe('AgentSwarm tool execution contract', () => {
               model: 'provider/fast',
               modelSource: 'secondary_pool',
               thinking: undefined,
-              fork: false,
-            },
+              },
           }),
           expect.objectContaining({
             kind: 'spawn',
@@ -4341,8 +4053,7 @@ describe('AgentSwarm tool execution contract', () => {
               model: 'provider/fast',
               modelSource: 'secondary_pool',
               thinking: undefined,
-              fork: false,
-            },
+              },
           }),
         ],
       }),
@@ -4511,7 +4222,6 @@ describe('AgentSwarm tool execution contract', () => {
             model: 'mock-model',
             modelSource: 'inherited',
             thinking: 'off',
-            fork: false,
           },
         },
       ],

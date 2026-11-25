@@ -1434,11 +1434,6 @@ export default {
             description:
               '为 Agent 工具启用 claude-code / codex / acp 后端，改为启动外部 agent CLI 而非进程内子代理。',
           },
-          subagent_fork: {
-            title: '子代理上下文分叉',
-            description:
-              '让 Agent 和 AgentSwarm 工具通过 fork 参数，以调用方对话历史的快照来启动子代理。',
-          },
           tool_select: {
             title: '工具选择（渐进式工具披露）',
             description:

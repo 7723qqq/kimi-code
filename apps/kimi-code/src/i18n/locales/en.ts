@@ -1472,11 +1472,6 @@ export default {
             description:
               'Enables the claude-code / codex / acp backends for the Agent tool, which spawn external agent CLIs instead of in-process subagents.',
           },
-          subagent_fork: {
-            title: 'Fork context for subagents',
-            description:
-              "Let the Agent and AgentSwarm tools start a subagent with a snapshot of the calling agent's conversation history via the fork parameter.",
-          },
           tool_select: {
             title: 'Tool select (progressive tool disclosure)',
             description:
