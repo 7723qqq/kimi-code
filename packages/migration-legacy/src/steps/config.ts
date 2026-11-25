@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { getContributedFlags } from '@moonshot-ai/agent-core-v2';
 import { getConfigSectionContributions } from '@moonshot-ai/agent-core-v2/app/config/configSectionContributions';
 import { camelToSnake } from '@moonshot-ai/agent-core-v2/app/config/toml';
 import {
@@ -18,7 +17,6 @@ import '@moonshot-ai/agent-core-v2/agent/task/configSection';
 import '@moonshot-ai/agent-core-v2/agent/permissionMode/configSection';
 import '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
 import '@moonshot-ai/agent-core-v2/app/auth/configSection';
-import '@moonshot-ai/agent-core-v2/app/flag/flag';
 import '@moonshot-ai/agent-core-v2/features/skill/catalog/configSection';
 import '@moonshot-ai/agent-core-v2/persistence/configSection';
 
@@ -31,9 +29,6 @@ const TUI_TOP_LEVEL_KEYS = new Set(['theme', 'default_editor']);
 const TOP_LEVEL_KEYS_TO_DROP = new Set(['plan_mode', 'yolo']);
 const LOOP_CONTROL_FIELDS_TO_KEEP = new Set(['reserved_context_size']);
 const BACKGROUND_FIELDS_TO_KEEP = new Set(['max_running_tasks', 'keep_alive_on_exit']);
-const REGISTERED_EXPERIMENTAL_FLAGS: ReadonlySet<string> = new Set(
-  getContributedFlags().map((definition) => definition.id),
-);
 
 const TUI_THEMES: ReadonlySet<string> = new Set(['dark', 'light', 'auto']);
 
@@ -108,15 +103,6 @@ function filterFields(
   fieldsToKeep: ReadonlySet<string>,
 ): Record<string, unknown> | undefined {
   const keptEntries = Object.entries(value).filter(([field]) => fieldsToKeep.has(field));
-  return keptEntries.length > 0 ? Object.fromEntries(keptEntries) : undefined;
-}
-
-function filterRegisteredExperimentalFlags(
-  value: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-  const keptEntries = Object.entries(value).filter(
-    ([field, flag]) => REGISTERED_EXPERIMENTAL_FLAGS.has(field) && typeof flag === 'boolean',
-  );
   return keptEntries.length > 0 ? Object.fromEntries(keptEntries) : undefined;
 }
 
@@ -341,6 +327,10 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     if (k === 'providers' || k === 'models' || k === 'hooks') continue;
     if (TUI_TOP_LEVEL_KEYS.has(k)) continue;
     if (TOP_LEVEL_KEYS_TO_DROP.has(k)) continue;
+    if (k === 'experimental') {
+      if (!isRecord(v)) droppedKeys.push(k);
+      continue;
+    }
     if (k === 'default_yolo') {
       if (v === true) migratedTop['default_permission_mode'] = 'yolo';
       continue;
@@ -368,13 +358,6 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
       const filteredBackground = filterFields(v, BACKGROUND_FIELDS_TO_KEEP);
       if (filteredBackground !== undefined) {
         migratedTop[k] = filteredBackground;
-      }
-      continue;
-    }
-    if (k === 'experimental' && isRecord(v)) {
-      const filteredExperimental = filterRegisteredExperimentalFlags(v);
-      if (filteredExperimental !== undefined) {
-        migratedTop[k] = filteredExperimental;
       }
       continue;
     }

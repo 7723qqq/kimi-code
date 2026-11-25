@@ -499,63 +499,44 @@ base_url = "https://target.example/v1"
     expect(r.siblingContents.hooks).toBe(2);
   });
 
-  it('preserves runtime-registered source experimental flags and drops graduated flags', async () => {
-    const { getContributedFlags } = await import('@moonshot-ai/agent-core-v2');
-    const registeredFlags = getContributedFlags()
-      .map((definition) => definition.id)
-      .sort();
-    expect(registeredFlags).toEqual(expect.arrayContaining(['micro_compaction', 'wait_for']));
+  it('preserves existing target [experimental] settings when merging legacy config', async () => {
     await writeFile(
       join(src, 'config.toml'),
-      [
-        '[experimental]',
-        ...registeredFlags.map((flag) => `${flag} = false`),
-        'auto_session_title = true',
-        'unknown_flag = true',
-        '',
-      ].join('\n'),
+      'merge_all_available_skills = true\n' +
+        '[experimental]\n' +
+        'micro_compaction = false\n' +
+        'tower = false\n',
+    );
+    await writeFile(
+      join(tgt, 'config.toml'),
+      '[experimental]\n' +
+        'tower = true\n',
     );
 
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
 
     expect(r.migrated).toBe(true);
+    expect(r.configConflicts).toEqual([]);
     const cfg = await readFile(join(tgt, 'config.toml'), 'utf-8');
-    const migratedFlags = registeredFlags.filter((flag) => cfg.includes(`${flag} = false`));
-    expect(migratedFlags).toEqual(registeredFlags);
-    expect(cfg).not.toContain('auto_session_title');
-    expect(cfg).not.toContain('unknown_flag');
+    expect(cfg).toContain('merge_all_available_skills = true');
+    expect(cfg).toContain('[experimental]');
+    expect(cfg).toContain('tower = true');
+    expect(cfg).not.toContain('micro_compaction');
   });
 
-  it('merges experimental flags per key and keeps only target conflict values', async () => {
+  it('records malformed non-table experimental values in droppedKeys', async () => {
     await writeFile(
       join(src, 'config.toml'),
-      [
-        '[experimental]',
-        'associative_memory = false',
-        'git_memory = true',
-        'lsp = true',
-        'tower = true',
-        'micro_compaction = "not-a-boolean"',
-        'unknown_flag = true',
-        '',
-      ].join('\n'),
-    );
-    await writeFile(
-      join(tgt, 'config.toml'),
-      '[experimental]\nassociative_memory = true\ntower = true\n',
+      'merge_all_available_skills = true\n' +
+        'experimental = true\n',
     );
 
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
 
+    expect(r.migrated).toBe(true);
+    expect(r.droppedKeys).toEqual(['experimental']);
     const cfg = await readFile(join(tgt, 'config.toml'), 'utf-8');
-    expect(cfg).toContain('associative_memory = true');
-    expect(cfg).not.toContain('associative_memory = false');
-    expect(cfg).toContain('git_memory = true');
-    expect(cfg).toContain('lsp = true');
-    expect(cfg).toContain('tower = true');
-    expect(cfg).not.toContain('not-a-boolean');
-    expect(cfg).not.toContain('unknown_flag');
-    expect(r.configConflicts).toEqual(['experimental.associative_memory']);
+    expect(cfg).not.toContain('experimental');
   });
 
   it('drops legacy migration fields but keeps supported loop and background fields', async () => {
@@ -566,6 +547,8 @@ base_url = "https://target.example/v1"
         'yolo = true\n' +
         '[experimental]\n' +
         'auto_session_title = true\n' +
+        'tower = true\n' +
+        'wait_for = false\n' +
         'unknown_flag = true\n' +
         '[loop_control]\n' +
         'max_steps_per_turn = 1000\n' +
@@ -585,10 +568,13 @@ base_url = "https://target.example/v1"
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
 
     expect(r.migrated).toBe(true);
+    expect(r.droppedKeys).toEqual([]);
     const cfg = await readFile(join(tgt, 'config.toml'), 'utf-8');
     // An experimental section with only graduated and unknown flags is dropped.
     expect(cfg).not.toContain('[experimental]');
     expect(cfg).not.toContain('auto_session_title');
+    expect(cfg).not.toContain('tower');
+    expect(cfg).not.toContain('wait_for');
     expect(cfg).not.toContain('unknown_flag');
     expect(cfg).toContain('[loop_control]');
     expect(cfg).not.toContain('max_retries_per_step');
