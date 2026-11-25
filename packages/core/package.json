@@ -2,7 +2,7 @@
   "name": "@moonshot-ai/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Loop, llm, and tool runtime without DI or adapters.",
+  "description": "Loop, llm, tool, and store runtime without DI.",
   "license": "MIT",
   "author": "Moonshot AI",
   "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/core#readme",
@@ -48,6 +48,7 @@
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "openai": "^6.34.0",
+    "pathe": "catalog:",
     "radashi": "^12.9.1",
     "undici": "^8.5.0"
   },

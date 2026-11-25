@@ -495,6 +495,7 @@
         "ajv": "^8.18.0",
         "ajv-formats": "^3.0.1",
         "openai": "^6.34.0",
+        "pathe": "catalog:",
         "radashi": "^12.9.1",
         "undici": "^8.5.0",
       },

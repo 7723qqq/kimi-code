@@ -46,7 +46,6 @@
     "packages/agent-core-v2/src/_base/log/fileLog.ts": 4,
     "packages/agent-core-v2/src/app/telemetry/consoleAppender.ts": 1,
     "packages/agent-core-v2/src/human/utils/watch.ts": 1,
-    "packages/agent-core-v2/src/persistence/backends/node-fs/appendLogStore.ts": 2,
     "packages/app-core/src/lib/log.ts": 3,
     "packages/minidb/src/server.ts": 1,
     "packages/oauth/src/custom-registry.ts": 1,
@@ -233,7 +232,6 @@
     "packages/agent-core-v2/src/agent/actorService/agentActorService.ts": 1,
     "packages/agent-core-v2/src/agent/profile/profileService.ts": 2,
     "packages/agent-core-v2/src/features/tower/protocol/store.ts": 1,
-    "packages/agent-core-v2/src/persistence/backends/node-fs/appendLogStore.ts": 1,
     "packages/agent-core-v2/test/agent/environmentBinding/environmentBindingService.test.ts": 1,
     "packages/agent-core-v2/test/agent/fullCompaction/fullCompaction.test.ts": 2,
     "packages/agent-core-v2/test/agent/mcp/output.test.ts": 1,
@@ -728,7 +726,6 @@
     "packages/agent-core-v2/src/llm-adapter/model/model-auth.ts": 1,
     "packages/agent-core-v2/src/mcpCore/client-stdio.ts": 1,
     "packages/agent-core-v2/src/persistence/backends/minidb/miniDbQueryStore.ts": 1,
-    "packages/agent-core-v2/src/persistence/backends/node-fs/appendLogStore.ts": 3,
     "packages/agent-core-v2/src/persistence/backends/node-fs/atomicDocumentStore.ts": 1,
     "packages/agent-core-v2/src/persistence/interface/appendLogStore.ts": 2,
     "packages/agent-core-v2/src/persistence/interface/atomicDocumentStore.ts": 1,
@@ -956,7 +953,6 @@
     "packages/agent-core-v2/src/agent/toolExecutor/toolScheduler.ts": 4,
     "packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts": 1,
     "packages/agent-core-v2/src/app/plugin/archive.ts": 2,
-    "packages/agent-core-v2/src/persistence/backends/node-fs/appendLogStore.ts": 1,
     "packages/agent-core-v2/src/state/eventDispatcherService.ts": 1,
     "packages/agent-core-v2/test/agent/loop/core/wait.test.ts": 1,
     "packages/agent-core-v2/test/agent/loop/loop.test.ts": 6,
@@ -1087,7 +1083,6 @@
     "packages/agent-core-v2/src/features/swarm/session/agentRunBatch.ts": 1,
     "packages/agent-core-v2/src/features/tower/protocol/store.ts": 1,
     "packages/agent-core-v2/src/os/backends/remote/remoteProcess.ts": 1,
-    "packages/agent-core-v2/src/persistence/backends/node-fs/appendLogStore.ts": 1,
     "packages/agent-core-v2/src/program/program.ts": 1,
     "packages/agent-core-v2/src/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoaderService.ts": 1,
     "packages/agent-core-v2/src/workspace/workspaceAgentProfileLoader/extraAgentProfileLoaderService.ts": 2,
@@ -1403,7 +1398,6 @@
   "vitest/valid-title": {
     "packages/agent-core-v2/test/agent/media/file-type.test.ts": 1,
     "packages/agent-core-v2/test/agent/tools/os/rgUnavailableGuidance.test.ts": 1,
-    "packages/agent-core-v2/test/persistence/interface/storage.test.ts": 1,
     "packages/app-client/test/composerSubmit.test.ts": 1,
     "packages/tree-sitter-bash/test/differential.test.ts": 2
   }
