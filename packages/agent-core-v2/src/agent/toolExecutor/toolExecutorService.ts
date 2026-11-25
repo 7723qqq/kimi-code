@@ -551,7 +551,10 @@ export class AgentToolExecutorService extends Service implements IAgentToolExecu
         | { readonly text?: string; readonly statusReplace?: boolean }
         | undefined;
       const statusText = typeof rawStatus === 'string' ? rawStatus : rawStatus?.text;
-      const statusReplace = typeof rawStatus === 'string' ? undefined : rawStatus?.statusReplace;
+      const statusReplace =
+        typeof rawStatus === 'string'
+          ? (snapshot.fields['statusReplace'] as boolean | undefined)
+          : rawStatus?.statusReplace;
       if (statusText !== undefined) {
         const signature = `${statusText}\u0000${String(statusReplace)}`;
         if (this.statusByHandler.get(handler) !== signature) {

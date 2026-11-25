@@ -742,6 +742,48 @@ describe('AgentToolExecutorService', () => {
     ]);
   });
 
+  it('carries the replace flag from a legacy status update into tool.progress', async () => {
+    const tool = new TestTool('status-progress', {
+      execute: async (ctx) => {
+        ctx.onUpdate?.({
+          kind: 'status',
+          text: 'Waiting 1s / 1m 30s · 1 background task still running',
+          replace: true,
+        });
+        ctx.onUpdate?.({
+          kind: 'status',
+          text: 'Waiting 2s / 1m 30s · 1 background task still running',
+          replace: true,
+        });
+        return { output: 'done' };
+      },
+    });
+    registry.register(tool);
+
+    await execute([toolCall('call_status_progress', 'status-progress', {})]);
+
+    expect(protocolEvents.filter((event) => event.type === 'tool.progress')).toEqual([
+      expect.objectContaining({
+        type: 'tool.progress',
+        toolCallId: 'call_status_progress',
+        update: {
+          kind: 'status',
+          text: 'Waiting 1s / 1m 30s · 1 background task still running',
+          replace: true,
+        },
+      }),
+      expect.objectContaining({
+        type: 'tool.progress',
+        toolCallId: 'call_status_progress',
+        update: {
+          kind: 'status',
+          text: 'Waiting 2s / 1m 30s · 1 background task still running',
+          replace: true,
+        },
+      }),
+    ]);
+  });
+
   it('does not start a queued conflicting tool after abort', async () => {
     const controller = new AbortController();
     const first = new ControlledTool('first', ToolAccesses.writeFile('/repo/a.ts'));
