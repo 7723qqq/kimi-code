@@ -153,15 +153,15 @@ describe('experimental feature command handlers', () => {
     const host = makeHost();
     host.harness.getExperimentalFeatures.mockResolvedValue([
       feature({ id: 'wait_for', enabled: true }),
-      feature({ id: 'tool_select', enabled: true }),
+      feature({ id: 'prompt_prediction', enabled: true }),
       feature({ id: 'tower', enabled: false }),
     ]);
 
-    await applyExperimentalFeatureChanges(host, [{ id: 'tool_select', enabled: true }]);
+    await applyExperimentalFeatureChanges(host, [{ id: 'prompt_prediction', enabled: true }]);
 
     expect(host.track).toHaveBeenCalledWith('experimental_features_apply', {
       changed: 1,
-      flags: 'tool_select,wait_for',
+      flags: 'prompt_prediction,wait_for',
     });
   });
 
