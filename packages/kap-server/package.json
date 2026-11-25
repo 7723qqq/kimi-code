@@ -34,6 +34,7 @@
     "@fastify/multipart": "^10.0.0",
     "@fastify/swagger": "^9.7.0",
     "@moonshot-ai/agent-core-v2": "workspace:^",
+    "@moonshot-ai/core": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-code-product": "workspace:^",
     "@moonshot-ai/kimi-i18n": "workspace:^",
@@ -43,6 +44,7 @@
     "@moonshot-ai/transcript": "workspace:^",
     "fastify": "^5.1.0",
     "pino": "^9.5.0",
+    "proper-lockfile": "^4.1.2",
     "semver": "^7.7.4",
     "smol-toml": "catalog:",
     "ulid": "catalog:",
@@ -51,6 +53,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/proper-lockfile": "^4.1.4",
     "@types/semver": "^7.7.0",
     "@types/ws": "^8.18.0"
   }

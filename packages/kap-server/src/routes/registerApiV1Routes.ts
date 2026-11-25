@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 import { IConfigService, ITelemetryService, type Scope } from '@moonshot-ai/agent-core-v2';
 import { FiberState } from '@moonshot-ai/agent-core-v2/_base/di/fiber';
 import { IFeatureManager } from '@moonshot-ai/agent-core-v2/app/feature/featureManager';
@@ -108,7 +110,7 @@ export async function registerApiV1Routes(
         product: opts.hostIdentity.productName,
         serverId: ulid(),
         startedAt: new Date().toISOString(),
-        homeDir: opts.remoteControl.homeDir,
+        homeDir: resolve(opts.remoteControl.homeDir),
         dangerousBypassAuth: opts.dangerousBypassAuth === true,
         webTitle: opts.webTitle,
         getExperimentalFlags: async () => {

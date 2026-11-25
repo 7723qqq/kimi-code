@@ -694,6 +694,10 @@ exports[`API surface snapshot matches the documented v1 route table and meta end
     ],
     [
       "PUT",
+      "/api/v1/fs:content",
+    ],
+    [
+      "PUT",
       "/api/v1/hosts/{id}",
     ],
     [

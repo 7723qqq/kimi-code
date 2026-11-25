@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { jsonSchema, openApiDocumentJsonSchema } from './schema';
 import { validateBody, validateParams, validateQuery } from './validate';
 
-export type UnknownKeysMode = 'strip' | 'strict' | 'catchall' | 'unknown';
+export type UnknownKeysMode = 'strip' | 'strict' | 'catchall' | 'unknown' | 'none';
 
 function unwrapZod(schema: z.ZodTypeAny): z.ZodTypeAny {
   let current = schema;
@@ -52,7 +52,7 @@ export function unknownKeysModeOf(schema: z.ZodTypeAny): UnknownKeysMode {
     if (modes.size === 1) return [...modes][0]!;
     return 'unknown';
   }
-  return 'unknown';
+  return 'none';
 }
 
 export function assertStrictRequestSchema(
@@ -61,7 +61,7 @@ export function assertStrictRequestSchema(
   schema: z.ZodTypeAny,
 ): void {
   const mode = unknownKeysModeOf(schema);
-  if (mode === 'strict') return;
+  if (mode === 'strict' || mode === 'none') return;
   throw new Error(
     `route ${path}: ${kind} schema is "${mode}" — a request-boundary schema must reject ` +
       `unrecognized keys (use .strict() / z.strictObject, or strict-ify every union member)`,
@@ -131,6 +131,10 @@ function buildUnifiedResponseSchema(
   }
 
   return { oneOf: variants };
+}
+
+export function httpErrorSchema(code: number): Record<string, unknown> {
+  return openApiDocumentJsonSchema(buildErrorEnvelopeSchema(code), 'output');
 }
 
 type InferZod<T extends z.ZodTypeAny | undefined> = T extends z.ZodTypeAny ? z.infer<T> : unknown;

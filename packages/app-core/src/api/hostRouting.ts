@@ -137,6 +137,8 @@ const ROUTES = {
   getSessionMediaBlob: 'session',
   readHostFileContent: 'local',
   downloadHostFile: 'local',
+  readHostTextFile: 'local',
+  writeHostTextFile: 'local',
   getConfig: 'local',
   setConfig: 'local',
   getAuth: 'local',
