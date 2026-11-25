@@ -62,7 +62,7 @@ export interface AgentFacade {
    * `queued` when the submission queued behind a running turn.
    */
   promptWithSkills(input: PromptWithSkillsInput): Promise<PromptWithSkillsResult>;
-  steer(input: { input: readonly ContentPart[] }): Promise<SteerResult>;
+  steer(input: { input: readonly ContentPart[]; promptId?: string }): Promise<SteerResult>;
   /**
    * Activate a skill as a user-slash activation: the engine renders the skill
    * prompt and drives it as a normal turn (same settlement/event flow as

@@ -212,6 +212,7 @@ export interface PromptPayload {
 
 export interface SteerPayload {
   readonly input: readonly ContentPart[];
+  readonly promptId?: string;
 }
 
 export interface PromptLaunchResult {

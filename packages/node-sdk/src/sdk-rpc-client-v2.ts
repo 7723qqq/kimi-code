@@ -2480,7 +2480,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override steer(input: SessionPromptRpcInput): Promise<PromptSubmissionResult> {
     return this.withStaleReload(input.sessionId, async () => {
       const agent = await this.agentFacade(input.sessionId);
-      const result = await agent.steer({ input: input.input });
+      const result = await agent.steer({
+        input: input.input,
+        ...(input.promptId === undefined ? {} : { promptId: input.promptId }),
+      });
       return promptSubmissionResult(result);
     });
   }

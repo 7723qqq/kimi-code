@@ -15,7 +15,7 @@ import type {
 } from '#/agent/loop/turnEvents';
 import type { TurnEndedEvent } from '#/agent/loop/turnOps';
 import type { PluginCommandActivatedEvent } from '#/agent/pluginCommand/pluginCommand';
-import type { PromptAbortedEvent, PromptCompletedEvent, PromptSteeredEvent, PromptSubmittedEvent } from '#/agent/prompt/promptEvents';
+import type { PromptAbortedEvent, PromptCompletedEvent, PromptQueuedEvent, PromptSteeredEvent, PromptSubmittedEvent } from '#/agent/prompt/promptEvents';
 import type { EnvironmentStatusChangedEvent } from '#/agent/environmentBinding/environmentEvents';
 import type {
   BackgroundTaskOutputEvent,
@@ -120,6 +120,7 @@ export type AgentEvent =
   | PromptSubmittedEvent
   | PromptCompletedEvent
   | PromptAbortedEvent
-  | PromptSteeredEvent;
+  | PromptSteeredEvent
+  | PromptQueuedEvent;
 
 export type Event = AgentEvent & { agentId: string; sessionId: string };

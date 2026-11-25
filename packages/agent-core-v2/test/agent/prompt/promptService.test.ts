@@ -183,7 +183,17 @@ describe('prompt queue', () => {
     await enqueue(loop, { id: 'waiting', message: message('waiting') });
     expect(queued).toEqual([{ promptId: 'waiting', queueLength: 1 }]);
 
+    const pending = loop.notifyClient({
+      role: 'user',
+      content: [{ type: 'text', text: 'steer' }],
+      attributes: { promptId: 'client-steer', origin: { kind: 'user' } },
+    });
+    await waitForAssertion(() => {
+      expect(queued.map((event) => event.promptId)).toContain('client-steer');
+    });
+
     hold.release();
+    await expect(pending).resolves.toMatchObject({ prompt_id: 'client-steer' });
     await loop.settled();
   });
 

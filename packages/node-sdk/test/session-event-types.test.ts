@@ -152,6 +152,7 @@ describe('Event public types', () => {
         case 'prompt.completed':
         case 'prompt.aborted':
         case 'prompt.steered':
+        case 'prompt.queued':
         case 'todo.updated':
           return;
         default:
