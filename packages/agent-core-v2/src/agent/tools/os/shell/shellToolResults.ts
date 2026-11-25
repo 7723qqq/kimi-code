@@ -1,4 +1,5 @@
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import { sliceOnCodePointBoundary } from '#/_base/text/code-points';
 import { userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentTaskService } from '#/agent/task/task';
 import type { IHostProcess } from '#/os/interface/hostProcess';
@@ -184,7 +185,18 @@ export class ShellToolResults {
       'human_shell_hint: The task is visible in the background-task panel.';
 
     const foregroundResult = builder.ok('');
-    const foregroundOutput = foregroundResult.output.length > 0 ? foregroundResult.output : '';
+    const retainedOutput = foregroundResult.output.length > 0 ? foregroundResult.output : '';
+    const foregroundOutput = sliceOnCodePointBoundary(retainedOutput, DEFAULT_TOOL_RESULT_MAX_CHARS);
+    let truncationNotice = '';
+    if (foregroundOutput.length < retainedOutput.length) {
+      const fullOutputHint = this.allowBackground()
+        ? `use TaskOutput(task_id="${taskId}") to read the full output, including output produced after this message`
+        : 'you will be automatically notified when it completes';
+      truncationNotice =
+        `\n[foreground output truncated: ${String(builder.totalChars)} characters were produced ` +
+        `before this task moved to the background; only the first ${String(foregroundOutput.length)} are shown. ` +
+        `The task is still running and its output keeps growing — ${fullOutputHint}.]`;
+    }
     const result: ExecutableToolResult & {
       readonly brief: string;
     } = {
@@ -192,7 +204,7 @@ export class ShellToolResults {
       output:
         foregroundOutput.length === 0
           ? metadata
-          : `${metadata}\n\nforeground_output:\n${foregroundOutput}`,
+          : `${metadata}\n\nforeground_output:\n${foregroundOutput}${truncationNotice}`,
       brief: labels.brief,
     };
     return result;
