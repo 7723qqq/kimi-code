@@ -86,7 +86,21 @@ export class TestProcess {
         );
       }
     }
-    const preload = (specifier: string): string => (specifier.startsWith('file:') ? fileURLToPath(specifier) : specifier);
+    const preload = (specifier: string): string => {
+      if (specifier.startsWith('file:')) return fileURLToPath(specifier);
+      if (specifier.startsWith('data:')) {
+        const comma = specifier.indexOf(',');
+        const metadata = specifier.slice('data:'.length, comma);
+        const payload = specifier.slice(comma + 1);
+        const source = metadata.includes(';base64')
+          ? Buffer.from(payload, 'base64').toString('utf8')
+          : decodeURIComponent(payload);
+        const file = join(options.logDir, `preload-${randomUUID()}.mjs`);
+        writeFileSync(file, source);
+        return file;
+      }
+      return specifier;
+    };
     const imports = [...(options.command.imports ?? []), NETWORK_GUARD_PRELOAD.href].flatMap((specifier) => ['--import', preload(specifier)]);
     this.child = spawn(process.execPath, [...imports, options.command.entry, ...(options.args ?? [])], {
       cwd: options.cwd,
