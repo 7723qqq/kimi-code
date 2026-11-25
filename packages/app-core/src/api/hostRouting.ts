@@ -59,6 +59,7 @@ const ROUTES = {
   generateSessionTitle: 'session',
   forkSession: 'session',
   startBtw: 'session',
+  closeAgent: 'session',
   respondApproval: 'session',
   respondQuestion: 'session',
   dismissQuestion: 'session',

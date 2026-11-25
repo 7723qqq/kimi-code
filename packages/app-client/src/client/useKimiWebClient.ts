@@ -1340,6 +1340,7 @@ function createOnConnectionChangeHandler(): KimiEventHandlers['onConnectionChang
       }
       warningsStore().dismissWsError();
       void configStore().refreshServerMeta();
+      sideChat.flushPendingCloses();
       if (connectionStore().connectionGeneration > 1) {
         void workspacesStore().loadWorkspaces();
         void reconcileSessionWorkAfterReconnect();
@@ -1384,6 +1385,7 @@ export function connectEventsIfNeeded(): void {
       onAgentState: (sessionId, agentId, state) => {
         if (state.status === 'ended') {
           agentStatesStore().forgetAgent(sessionId, agentId);
+          sideChat.handleAgentEnded(sessionId, agentId);
           return;
         }
         agentStatesStore().setState(sessionId, agentId, state);
@@ -3445,6 +3447,8 @@ export function useKimiWebClient() {
     sideChatTurnErrorOf: sideChat.sideChatTurnErrorOf,
     openSideChatOn: sideChat.openSideChatOn,
     sendSideChatPromptOn: sideChat.sendSideChatPromptOn,
+    cancelSideChat: sideChat.cancelSideChat,
+    cancelSideChatOn: sideChat.cancelSideChatOn,
     saveSideChatDraft: sideChat.saveSideChatDraft,
     sideChatDraft: sideChat.sideChatDraft,
     clearSideChatDraftIfUnchanged: sideChat.clearSideChatDraftIfUnchanged,
