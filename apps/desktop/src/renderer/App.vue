@@ -1162,6 +1162,7 @@ provide(panelApiKey, {
     closeDockWorkPanel();
     panel.openCompactionPanel(target);
   },
+  isCompactionOpen: (turnId) => panel.isCompactionPanelOpen(turnId),
   openDiff: () => {
     closeDockWorkPanel();
     panel.openDiffDetail();
@@ -1863,9 +1864,7 @@ async function handleCommand(payload: { cmd: string; attachments: PromptAttachme
       client.notify({ severity: 'warning', title: t('commands.compact.requiresSession') });
       return;
     }
-    if (result === 'queued') {
-      client.notify({ severity: 'info', title: t('commands.compactQueue.queued') });
-    } else if (result === 'duplicate' || result === 'compacting') {
+    if (result === 'duplicate' || result === 'compacting') {
       conversationPaneRef.value?.loadComposerForEdit(restoreText ?? cmd, toEditableAttachments(attachments), restoreEntries, snapshot);
       client.notify({
         severity: 'warning',

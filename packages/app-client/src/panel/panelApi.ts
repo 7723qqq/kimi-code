@@ -14,6 +14,7 @@ export interface PanelApi {
     change: TurnFileChange;
   }) => void;
   openCompaction?: (target: { turnId: string }) => void;
+  isCompactionOpen?: (turnId: string) => boolean;
   openDiff: () => void;
   openBtw: () => void;
   openTerm: () => void;

@@ -183,6 +183,7 @@ html[data-color-scheme="dark"] {
   --color-done: #8250df;
   --color-done-soft: #f3e8ff;
   --color-done-bd: #e0ccff;
+  --color-context-compaction: #b3407a;
   --color-info: #1783ff;
   /* Terminal ANSI hues the status ramp doesn't carry (desktop xterm). */
   --color-term-magenta: #8250df;
@@ -772,6 +773,7 @@ html[data-color-scheme="dark"] {
   --color-done: #a371f7;
   --color-done-soft: rgba(163, 113, 247, 0.14);
   --color-done-bd: rgba(163, 113, 247, 0.28);
+  --color-context-compaction: #e07ab0;
   --color-info: #1a88ff;
   /* Terminal ANSI hues the status ramp doesn't carry (desktop xterm). */
   --color-term-magenta: #d2a8ff;
@@ -862,6 +864,7 @@ html[data-color-scheme="dark"] {
     --color-done: #a371f7;
     --color-done-soft: rgba(163, 113, 247, 0.14);
     --color-done-bd: rgba(163, 113, 247, 0.28);
+    --color-context-compaction: #e07ab0;
     --color-term-magenta: #d2a8ff;
     --color-term-cyan: #76e3ea;
     --color-term-black: #484f58;

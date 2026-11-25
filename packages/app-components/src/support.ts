@@ -11,6 +11,7 @@ export * from './lib/toolMeta';
 export * from './lib/activitySummary';
 export { useDialogFocus } from './composables/useDialogFocus';
 export { default as ContextComposition } from './composer/ContextComposition.vue';
+export { resolveCompactPhase, type CompactPhase } from './composer/compactPhase';
 export { default as WorkspaceIcon } from './WorkspaceIcon.vue';
 export { default as HostNotice } from './HostNotice.vue';
 

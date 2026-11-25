@@ -31,6 +31,8 @@ export const usePromptStore = defineStore('kimi.prompt', () => {
   const autoCompactedAtBySession = new Map<string, number>();
   const steerInFlightCounts = new Map<string, number>();
   const startingFirstPromptWorkspaces = reactive(new Set<string>());
+  const compactStartingSessions = reactive(new Set<string>());
+  const compactStartingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let queueEntryCounter = 0;
 
   const isStartingFirstPrompt = computed(() => startingFirstPromptWorkspaces.size > 0);
@@ -146,10 +148,12 @@ export const usePromptStore = defineStore('kimi.prompt', () => {
   }
 
   function noteCompactionStarted(sid: string): void {
+    settleCompactStart(sid);
     unsettledCompactionSessions.add(sid);
   }
 
   function noteCompactionSettled(sid: string): void {
+    settleCompactStart(sid);
     unsettledCompactionSessions.delete(sid);
   }
 
@@ -231,6 +235,40 @@ export const usePromptStore = defineStore('kimi.prompt', () => {
     startingFirstPromptWorkspaces.delete(workspaceId);
   }
 
+  function cancelCompactStartTimer(sid: string): void {
+    const existing = compactStartingTimers.get(sid);
+    if (existing !== undefined) {
+      clearTimeout(existing);
+      compactStartingTimers.delete(sid);
+    }
+  }
+
+  function beginCompactStart(sid: string): void {
+    cancelCompactStartTimer(sid);
+    compactStartingSessions.add(sid);
+  }
+
+  function holdCompactStartGrace(sid: string): void {
+    if (!compactStartingSessions.has(sid)) return;
+    cancelCompactStartTimer(sid);
+    compactStartingTimers.set(
+      sid,
+      setTimeout(() => {
+        compactStartingTimers.delete(sid);
+        compactStartingSessions.delete(sid);
+      }, 500),
+    );
+  }
+
+  function settleCompactStart(sid: string): void {
+    cancelCompactStartTimer(sid);
+    compactStartingSessions.delete(sid);
+  }
+
+  function isCompactStarting(sid: string): boolean {
+    return compactStartingSessions.has(sid);
+  }
+
   function setDraftEntry(entry: 'newChat' | 'workspace'): void {
     draftEntry.value = entry;
     draftEntryNonce.value += 1;
@@ -243,6 +281,7 @@ export const usePromptStore = defineStore('kimi.prompt', () => {
     autoCompactedAtBySession.delete(sid);
     steerInFlightCounts.delete(sid);
     steerChainBySession.delete(sid);
+    settleCompactStart(sid);
   }
 
   function forgetLocalTurnState(sid: string): void {
@@ -301,6 +340,10 @@ export const usePromptStore = defineStore('kimi.prompt', () => {
     clearOptimisticMessages,
     tryBeginStartingFirstPrompt,
     endStartingFirstPrompt,
+    beginCompactStart,
+    holdCompactStartGrace,
+    settleCompactStart,
+    isCompactStarting,
     setDraftEntry,
     forgetPromptState,
     forgetLocalTurnState,

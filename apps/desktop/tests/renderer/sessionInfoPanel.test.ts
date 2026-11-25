@@ -8,6 +8,7 @@ import type { SessionFolderInfoRow } from '@moonshot-ai/app-client/stores';
 
 import SessionInfoFolder from '../../src/renderer/components/chat/SessionInfoFolder.vue';
 import SessionInfoPanel from '../../src/renderer/components/chat/SessionInfoPanel.vue';
+import { ActivityNotice } from '@moonshot-ai/app-components';
 import sessionInfoFolderSource from '../../src/renderer/components/chat/SessionInfoFolder.vue?raw';
 import sessionInfoPanelSource from '../../src/renderer/components/chat/SessionInfoPanel.vue?raw';
 import sessionInfoTabsSource from '../../src/renderer/components/chat/SessionInfoTabs.vue?raw';
@@ -329,6 +330,7 @@ describe('SessionInfoPanel', () => {
   it('wires the overflow action to the right panel', () => {
     expect(conversationPaneSource).toContain('@show-tabs="emit(\'showTabs\')"');
     expect(appSource).toContain('@show-tabs="panel.showPanel"');
+    expect(appSource).not.toContain('commands.compactQueue.queued');
   });
 
   it('uses the sidebar width for the floating panel', () => {
@@ -423,6 +425,27 @@ describe('SessionInfoPanel', () => {
     expect(primaryStyle).not.toContain('margin-left: auto');
   });
 
+});
+
+describe('ActivityNotice compaction timer', () => {
+  it('displays elapsed duration once a second passes', async () => {
+    vi.useFakeTimers();
+    try {
+      mount(ActivityNotice, {});
+      await nextTick();
+      expect(host!.querySelector('.activity-notice')).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await nextTick();
+      expect(host!.querySelector('.activity-notice')?.textContent).toBe('1秒');
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await nextTick();
+      expect(host!.querySelector('.activity-notice')?.textContent).toBe('3秒');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('Wide table session info layout', () => {
