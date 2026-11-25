@@ -57,7 +57,10 @@ export type SessionGit = z.infer<typeof sessionGitSchema>;
 export const sessionSchema = z.object({
   id: z.string().min(1),
   workspace_id: workspaceIdSchema,
-  cwd: z.string(),
+  workspace_root: z.string().optional(),
+  cwd: z.string().meta({ deprecated: true }),
+  environment_id: z.string().optional(),
+  environment_cwd: z.string().optional(),
   host_id: z.string().optional(),
   title: z.string(),
   created_at: isoDateTimeSchema,
@@ -94,6 +97,7 @@ export const sessionCreateSchema = z
       .extend({ profile: z.string().min(1).optional() })
       .optional(),
     workspace_id: workspaceIdSchema.optional(),
+    workspace_root: z.string().min(1).optional(),
     environment_id: z.string().min(1).optional(),
     environment_cwd: z.string().min(1).optional(),
   })

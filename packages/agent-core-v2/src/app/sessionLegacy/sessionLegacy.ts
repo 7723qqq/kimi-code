@@ -1,19 +1,6 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { GoalSnapshot } from '#/features/goal/types';
 
-export interface SessionWireFields {
-  readonly id: string;
-  readonly workspaceId: string;
-  readonly root: string;
-  readonly title?: string;
-  readonly lastPrompt?: string;
-  readonly createdAt: number;
-  readonly updatedAt: number;
-  readonly archived: boolean;
-  readonly archivedAt?: number;
-  readonly custom?: Record<string, unknown>;
-}
-
 export interface ISessionLegacyService {
   readonly _serviceBrand: undefined;
 

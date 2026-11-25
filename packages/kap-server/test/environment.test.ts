@@ -26,6 +26,7 @@ interface Envelope<T> {
 interface EnvironmentBindingWire {
   workspace_id: string;
   environment_id: string;
+  environment_cwd?: string;
   cwd?: string;
 }
 
@@ -43,6 +44,9 @@ interface EnvironmentsWire {
 interface SessionWire {
   id: string;
   workspace_id: string;
+  workspace_root?: string;
+  environment_id: string;
+  environment_cwd?: string;
 }
 
 function resolveExecServerFixture(): string {
@@ -117,6 +121,7 @@ describe('server-v2 /api/v1 environment routes', () => {
       const binding = await call<EnvironmentBindingWire>('GET', `/api/v1/sessions/${id}/environment`);
       expect(binding.body.code).toBe(0);
       expect(binding.body.data.environment_id).toBe('local');
+      expect(binding.body.data.environment_cwd).toBeUndefined();
       expect(binding.body.data.cwd).toBeUndefined();
 
       const summary = await server!.core.accessor.get(ISessionIndex).get(id);
@@ -145,11 +150,16 @@ describe('server-v2 /api/v1 environment routes', () => {
         environment_id: 'loop',
       });
       expect(created.body.code).toBe(0);
+      expect(created.body.data).toMatchObject({
+        workspace_root: home,
+        environment_id: 'loop',
+        environment_cwd: home,
+      });
       const id = created.body.data.id;
 
       const binding = await call<EnvironmentBindingWire>('GET', `/api/v1/sessions/${id}/environment`);
       expect(binding.body.code).toBe(0);
-      expect(binding.body.data).toMatchObject({ environment_id: 'loop', cwd: home });
+      expect(binding.body.data).toMatchObject({ environment_id: 'loop', environment_cwd: home, cwd: home });
 
       const withCwd = await call<SessionWire>('POST', '/api/v1/sessions', {
         metadata: { cwd: home as string },
@@ -161,7 +171,7 @@ describe('server-v2 /api/v1 environment routes', () => {
         'GET',
         `/api/v1/sessions/${withCwd.body.data.id}/environment`,
       );
-      expect(withCwdBinding.body.data).toMatchObject({ environment_id: 'loop', cwd: home });
+      expect(withCwdBinding.body.data).toMatchObject({ environment_id: 'loop', environment_cwd: home, cwd: home });
     }, 90_000);
 
     it('rejects session creation with an undeclared environment or a lone environment_cwd', async () => {

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, jest, spyOn } from 'bun:test';
 import { randomBytes } from 'node:crypto';
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
@@ -30,6 +30,8 @@ import {
   IEventBus,
   IEventDispatcher,
   IEventService,
+  HostFileSystem,
+  HostProcessService,
   IModelCatalog,
   IModelService,
   ISessionActivityView,
@@ -64,6 +66,7 @@ import { TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import { mcpResultToExecutableOutput } from '@moonshot-ai/agent-core-v2/agent/mcp/output';
 import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
+import { kapFixtures, kapTest } from '@moonshot-ai/testkit/bun';
 import type { AgentTranscriptSnapshot } from '@moonshot-ai/transcript';
 
 import type { ConversationTurnsPage } from '../src/protocol/conversation';
@@ -96,6 +99,10 @@ interface GoalWire {
 interface SessionWire {
   id: string;
   workspace_id: string;
+  workspace_root?: string;
+  cwd: string;
+  environment_id: string;
+  environment_cwd?: string;
   title: string;
   created_at: string;
   updated_at: string;
@@ -492,6 +499,10 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(typeof body.data.workspace_id).toBe('string');
     expect(body.data.title).toBe('hello');
     expect(body.data.metadata.cwd).toBe(cwd);
+    expect(body.data.cwd).toBe(cwd);
+    expect(body.data.workspace_root).toBe(cwd);
+    expect(body.data.environment_id).toBe('local');
+    expect(body.data).not.toHaveProperty('environment_cwd');
     expect(body.data.busy).toBe(false);
     expect(body.data.main_turn_active).toBe(false);
     expect(body.data.pending_interaction).toBe('none');
@@ -501,10 +512,92 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(Number.isNaN(Date.parse(body.data.created_at))).toBe(false);
   });
 
-  it('rejects create without cwd or workspace_id (40001)', async () => {
-    const { body } = await postJson<null>('/api/v1/sessions', { title: 'no cwd' });
+  it('creates a session from workspace_root', async () => {
+    const cwd = home as string;
+    const legacy = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const { body } = await postJson<SessionWire>('/api/v1/sessions', { workspace_root: cwd });
+    expect(body.code).toBe(0);
+    expect(body.data).toMatchObject({
+      workspace_id: legacy.body.data.workspace_id,
+      workspace_root: cwd,
+      cwd,
+      environment_id: 'local',
+    });
+    expect(body.data).not.toHaveProperty('environment_cwd');
+  });
+
+  it('rejects create when metadata.cwd disagrees with workspace_root (40001)', async () => {
+    const { body } = await postJson<null>('/api/v1/sessions', {
+      workspace_root: '/projects/a',
+      metadata: { cwd: '/projects/b' },
+    });
     expect(body.code).toBe(40001);
-    expect(body.details?.[0]?.path).toBe('metadata.cwd');
+    expect(body.details?.[0]).toEqual({
+      path: 'metadata.cwd',
+      message: 'metadata.cwd (/projects/b) must equal workspace_root (/projects/a)',
+    });
+  });
+
+  it('reports the environment_cwd of a local session in the create response', async () => {
+    const cwd = home as string;
+    const nested = join(cwd, 'nested');
+    await mkdir(nested, { recursive: true });
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd },
+      environment_id: 'local',
+      environment_cwd: nested,
+    });
+    expect(created.body.code).toBe(0);
+
+    const got = await getJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}`);
+    expect(got.body.data.cwd).toBe(nested);
+    expect(created.body.data.cwd).toBe(nested);
+  });
+
+  it('reports the requested cwd of a remote session in the create response', async () => {
+    const cwd = home as string;
+    const remote = await realpath(await mkdtemp(join(tmpdir(), 'kimi-server-v2-sessions-remote-')));
+    const environment = Object.assign(
+      new FakeEnvironment(
+        { environmentId: 'remote-create', generation: 'remote-create-generation' },
+        { capabilities: ['fs', 'process'] },
+      ),
+      { fs: new HostFileSystem(), process: new HostProcessService() },
+    );
+    const registration = (server as RunningServer).core.accessor.get(IEnvironmentService).register(environment);
+    try {
+      const local = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+      const created = await postJson<SessionWire>('/api/v1/sessions', {
+        metadata: { cwd: `${cwd}/` },
+        environment_id: 'remote-create',
+        environment_cwd: remote,
+      });
+      expect(created.body.code).toBe(0);
+      expect(created.body.data.workspace_id).toBe(local.body.data.workspace_id);
+
+      const got = await getJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}`);
+      expect(created.body.data.cwd).toBe(got.body.data.cwd);
+      const location = {
+        workspace_root: cwd,
+        cwd: `${cwd}/`,
+        environment_id: 'remote-create',
+        environment_cwd: remote,
+      };
+      expect(created.body.data).toMatchObject(location);
+      expect(got.body.data).toMatchObject(location);
+    } finally {
+      await registration.remove();
+      await rm(remote, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects create without workspace_root or workspace_id (40001)', async () => {
+    const { body } = await postJson<null>('/api/v1/sessions', { title: 'no root' });
+    expect(body.code).toBe(40001);
+    expect(body.details?.[0]).toEqual({
+      path: 'workspace_root',
+      message: 'either workspace_id or workspace_root is required',
+    });
   });
 
   it('rejects create with unknown workspace_id (40410)', async () => {
@@ -4026,3 +4119,38 @@ describe('server-v2 /api/v1/sessions:btw', () => {
   });
 });
 
+kapTest(
+  kapFixtures({ startServer, env: { KIMI_CODE_WATCH: '0' } }),
+  30_000,
+)('reports the project root and where the agent works on every view of a session', async ({ kap }) => {
+  const root = kap.home.workspace;
+  const packageDir = join(root, 'packages', 'app');
+  await mkdir(packageDir, { recursive: true });
+  const socket = await kap.connect();
+  const created = await kap.rest.post<SessionWire>('/api/v1/sessions', {
+    workspace_root: root,
+    environment_id: 'local',
+    environment_cwd: packageDir,
+  });
+  const location = { workspace_root: root, cwd: packageDir, environment_id: 'local', environment_cwd: packageDir };
+
+  expect(created).toMatchObject(location);
+  expect(await kap.rest.get<SessionWire>(`/api/v1/sessions/${created.id}`)).toMatchObject(location);
+  const page = await kap.rest.get<PageWire>('/api/v1/sessions');
+  expect(page.items.find((item) => item.id === created.id)).toMatchObject(location);
+  expect((await kap.wait(created.id, 0)).session).toMatchObject(location);
+  const profile = await kap.rest.post<SessionWire>(`/api/v1/sessions/${created.id}/profile`, { title: 'renamed' });
+  expect(profile).toMatchObject(location);
+  const forked = await kap.rest.post<SessionWire>(`/api/v1/sessions/${created.id}:fork`, {});
+  expect(forked).toMatchObject({ workspace_root: root, environment_id: 'local', environment_cwd: packageDir });
+  await kap.rest.post(`/api/v1/sessions/${created.id}:archive`, {});
+  expect(await kap.rest.post<SessionWire>(`/api/v1/sessions/${created.id}:restore`, {})).toMatchObject(location);
+  expect(await kap.rest.post<SessionWire>(`/api/v1/sessions/${created.id}:reload`, {})).toMatchObject(location);
+
+  const createdFrame = await socket.waitFor(
+    (frame) =>
+      frame.type === 'event.session.created' &&
+      (frame['payload'] as { session?: SessionWire } | undefined)?.session?.id === created.id,
+  );
+  expect((createdFrame['payload'] as { session: SessionWire }).session).toMatchObject(location);
+});
