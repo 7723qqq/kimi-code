@@ -85,6 +85,7 @@ import {
 } from './commands';
 import * as slashCommands from './commands/dispatch';
 import { applyTranscriptPresentation } from './commands/config';
+import { promptSshPassword } from './commands/prompts';
 import { resolveUserInput, skillVariantPathsForInput } from './commands/resolve';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
@@ -562,6 +563,8 @@ export class KimiTUI {
         model: startupInput.cliOptions.model,
         agentProfile: startupInput.agentProfile,
         agentFiles: startupInput.cliOptions.agentFiles,
+        environment: startupInput.cliOptions.environment,
+        environmentCwd: startupInput.cliOptions.environmentCwd,
         startupNotice: startupInput.startupNotice,
       },
     };
@@ -3431,7 +3434,34 @@ export class KimiTUI {
     this.setAppState(patch);
   }
 
-  private async createSessionFromCurrentState(bindStartupAgent = false): Promise<Session> {
+  private async environmentForNewSession(): Promise<
+    { readonly environmentId: string; readonly environmentCwd?: string } | undefined
+  > {
+    const session = this.session;
+    if (session !== undefined) {
+      const binding = await session.getEnvironment();
+      if (binding.environmentId !== 'local' && binding.cwd === undefined) {
+        throw new Error(
+          `Cannot start a new session on ${binding.environmentId}: the current binding has no working directory`,
+        );
+      }
+      return {
+        environmentId: binding.environmentId,
+        environmentCwd: binding.cwd,
+      };
+    }
+    const startupEnvironment = this.options.startup.environment;
+    if (startupEnvironment === undefined) return undefined;
+    return {
+      environmentId: startupEnvironment,
+      environmentCwd: this.options.startup.environmentCwd,
+    };
+  }
+
+  private async createSessionFromCurrentState(
+    bindStartupAgent = false,
+    inherited?: { readonly environmentId: string; readonly environmentCwd?: string },
+  ): Promise<Session> {
     // Background warm-up of the cache-hint config on every new session.
     this.cacheHint.refreshConfigInBackground();
     const model = this.state.appState.model.trim();
@@ -3474,6 +3504,13 @@ export class KimiTUI {
       if (this.state.appState.agentFiles !== undefined) {
         options.agentFiles = [...this.state.appState.agentFiles];
       }
+      if (this.options.startup.environment !== undefined) {
+        options.environmentId = this.options.startup.environment;
+        options.environmentCwd = this.options.startup.environmentCwd;
+      }
+    } else if (inherited !== undefined) {
+      options.environmentId = inherited.environmentId;
+      options.environmentCwd = inherited.environmentCwd;
     }
     return this.harness.createSession(options);
   }
@@ -4010,7 +4047,10 @@ export class KimiTUI {
     void this.showSessionWarnings(session);
   }
 
-  async createNewSession(): Promise<void> {
+  async createNewSession(inherited?: {
+    readonly environmentId: string;
+    readonly environmentCwd?: string;
+  }): Promise<void> {
     if (this.state.appState.isReplaying) {
       this.showError(t('tui.statusMessages.cannotStartNewWhileReplaying'));
       return;
@@ -4020,17 +4060,21 @@ export class KimiTUI {
     // createSession, and idle checks (the model-migration prompt) treat the
     // switch as busy until it has fully settled.
     if (this.newSessionPromise !== null) return this.newSessionPromise;
-    this.newSessionPromise = this.assembleNewSession().finally(() => {
+    this.newSessionPromise = this.assembleNewSession(inherited).finally(() => {
       this.newSessionPromise = null;
       this.modelMigration.retry();
     });
     return this.newSessionPromise;
   }
 
-  private async assembleNewSession(): Promise<void> {
+  private async assembleNewSession(inherited?: {
+    readonly environmentId: string;
+    readonly environmentCwd?: string;
+  }): Promise<void> {
     let session: Session;
     try {
-      session = await this.createSessionFromCurrentState();
+      const environment = inherited ?? (await this.environmentForNewSession());
+      session = await this.createSessionFromCurrentState(false, environment);
     } catch (error) {
       const msg = formatErrorMessage(error);
       this.showError(t('tui.statusMessages.failedToStartNewSession', { message: msg }));
@@ -5011,6 +5055,14 @@ export class KimiTUI {
     this.dialogController.mountEditorReplacement(panel, onDisplaced);
   }
 
+  beginAuthBlock(): () => void {
+    return this.programStatus.beginAuthBlock();
+  }
+
+  promptSshPassword(environmentId: string): Promise<string | undefined> {
+    return promptSshPassword(this, environmentId);
+  }
+
   restoreEditor(): void {
     this.dialogController.restoreEditor();
     this.modelMigration.retry();
@@ -5188,6 +5240,26 @@ export class KimiTUI {
   }
 
   private async deleteCurrentSessionFromPicker(session: SessionRow): Promise<void> {
+    let inherited: { readonly environmentId: string; readonly environmentCwd?: string } | undefined;
+    let inheritError: unknown;
+    try {
+      inherited = await this.environmentForNewSession();
+    } catch (error) {
+      inheritError = error;
+    }
+    const startReplacement = async (): Promise<void> => {
+      this.setAppState({ sessionId: '' });
+      this.clearTranscriptAndRedraw();
+      if (inheritError !== undefined) {
+        this.showError(
+          t('tui.statusMessages.failedToStartNewSession', {
+            message: formatErrorMessage(inheritError),
+          }),
+        );
+        return;
+      }
+      await this.createNewSession(inherited);
+    };
     // The picker stays mounted (locking input) until the replacement session
     // is ready — restoring the editor mid-flight would let a prompt race the swap.
     try {
@@ -5214,9 +5286,7 @@ export class KimiTUI {
       } catch {
         // Reattach failed and the session is already unloaded: detach before
         // the fallback create so a failed create leaves no ghost UI behind.
-        this.setAppState({ sessionId: '' });
-        this.clearTranscriptAndRedraw();
-        await this.createNewSession();
+        await startReplacement();
       }
       this.showError(message);
       this.hideSessionPicker();
@@ -5224,9 +5294,7 @@ export class KimiTUI {
     }
     // The session is gone whether or not replacement creation succeeds: detach
     // first so a failed create leaves no ghost (stale id + transcript) behind.
-    this.setAppState({ sessionId: '' });
-    this.clearTranscriptAndRedraw();
-    await this.createNewSession();
+    await startReplacement();
     this.hideSessionPicker();
   }
 

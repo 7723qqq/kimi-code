@@ -44,6 +44,21 @@ describe('ApiKeyInputDialogComponent', () => {
     expect(collected).toEqual(['Xabc']);
   });
 
+  it('preserves password whitespace when trimming is disabled', () => {
+    let submitted: string | undefined;
+    const dialog = new ApiKeyInputDialogComponent(
+      'dev-box',
+      ['Password'],
+      (result) => {
+        if (result.kind === 'ok') submitted = result.value;
+      },
+      { trimValue: false },
+    );
+    dialog.handleInput(' secret ');
+    dialog.handleInput('\r');
+    expect(submitted).toBe(' secret ');
+  });
+
   it('only takes the keyboard on a click while unfocused', () => {
     const dialog = new ApiKeyInputDialogComponent('Kimi Code', ['Paste below.'], () => {});
     const row = inputRow(dialog);

@@ -53,6 +53,7 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
   private readonly subtitleLines: readonly string[];
   private readonly mask: boolean;
   private readonly emptyHint: string;
+  private readonly trimValue: boolean;
   private done = false;
   private emptyHinted = false;
   /** Where the last render put the input line, in the dialog's own frame. */
@@ -63,7 +64,7 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
     platformName: string,
     subtitleLines: readonly string[],
     onDone: (result: ApiKeyInputResult) => void,
-    options?: { title?: string; mask?: boolean; emptyHint?: string },
+    options?: { title?: string; mask?: boolean; emptyHint?: string; trimValue?: boolean },
   ) {
     super();
     this.onDone = onDone;
@@ -71,6 +72,7 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
     this.subtitleLines = subtitleLines;
     this.mask = options?.mask ?? true;
     this.emptyHint = options?.emptyHint ?? t('tui.dialogs.apiKeyInput.emptyHint');
+    this.trimValue = options?.trimValue ?? true;
     this.input.onSubmit = (value) => {
       this.submit(value);
     };
@@ -166,7 +168,7 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
       return;
     }
     this.done = true;
-    this.onDone({ kind: 'ok', value: trimmed });
+    this.onDone({ kind: 'ok', value: this.trimValue ? trimmed : value });
   }
 
   private cancel(): void {

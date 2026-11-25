@@ -265,8 +265,8 @@ export function createGitStatusCache(
   }
 
   async function runRefresh(force: boolean): Promise<void> {
-    if (disposed || git === undefined) return;
-    if (repoDetected && !isRepo) return;
+    if (disposed || (git === undefined && options.source === undefined)) return;
+    if (options.source === undefined && repoDetected && !isRepo) return;
     if (inFlight) {
       if (force) pendingForce = true;
       return;

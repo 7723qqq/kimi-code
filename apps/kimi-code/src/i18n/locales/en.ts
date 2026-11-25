@@ -1037,6 +1037,7 @@ export default {
         page: 'Page {{page}}/{{pageCount}}',
         previewLabel: 'Preview',
         scrollHint: ' · shift+↑/↓ scroll',
+        pageHint: ' · ←→ page',
       },
       compaction: {
         compacting: 'Compacting context…',
@@ -2384,6 +2385,9 @@ export default {
         'The catalog declares no endpoint for this provider — enter its base URL.',
       promptBaseUrlTitle: 'Enter base URL for {{provider}}',
       promptBaseUrlEmpty: 'Base URL cannot be empty.',
+      sshPasswordTitle: 'Enter SSH password for {{environment}}',
+      sshPasswordSubtitle: 'The password is used only in this process and is never saved.',
+      sshPasswordEmpty: 'SSH password cannot be empty.',
       feedbackLogsOnly: 'Logs',
       feedbackLogsOnlyDesc: 'Send this message, your feedback, and recent logs.',
       feedbackLogsAndCodebase: 'Logs and codebase',

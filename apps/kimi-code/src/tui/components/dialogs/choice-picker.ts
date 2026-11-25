@@ -258,6 +258,8 @@ export interface ChoicePreview {
 export interface PreviewChoicePickerOptions extends ChoicePickerOptions {
   readonly preview: ChoicePreview;
   readonly layout?: DockLayout;
+  readonly previewLabel?: string;
+  readonly onPreviewScroll?: (direction: -1 | 1) => void;
 }
 
 const PREVIEW_LABEL = ` ${t('tui.dialogs.choicePicker.previewLabel')}`;
@@ -279,6 +281,17 @@ export class PreviewChoicePickerComponent extends DockSection implements Focusab
   }
 
   handleInput(data: string): void {
+    const scrollPreview = this.opts.onPreviewScroll;
+    if (scrollPreview !== undefined) {
+      if (matchesKey(data, Key.pageUp) || matchesKey(data, Key.left)) {
+        scrollPreview(-1);
+        return;
+      }
+      if (matchesKey(data, Key.pageDown) || matchesKey(data, Key.right)) {
+        scrollPreview(1);
+        return;
+      }
+    }
     if (this.layout !== undefined && (matchesKey(data, 'shift+up') || matchesKey(data, 'shift+down'))) {
       this.scrollBody(matchesKey(data, 'shift+up') ? -1 : 1);
       return;
@@ -299,17 +312,22 @@ export class PreviewChoicePickerComponent extends DockSection implements Focusab
 
   protected renderPart(part: DockPart, width: number): string[] {
     switch (part) {
-      case 'head':
+      case 'head': {
+        const hint =
+          (this.bodyOverflows(width) ? t('tui.dialogs.choicePicker.scrollHint') : '') +
+          (this.opts.onPreviewScroll === undefined
+            ? ''
+            : t('tui.dialogs.choicePicker.pageHint'));
         return [
-          ...this.picker.renderHead(
-            width,
-            this.bodyOverflows(width) ? t('tui.dialogs.choicePicker.scrollHint') : '',
-          ),
+          ...this.picker.renderHead(width, hint),
           ...this.finishLines(
-            [PREVIEW_LABEL, ''].map((line) => currentTheme.fg('textMuted', line)),
+            [this.opts.previewLabel ?? PREVIEW_LABEL, ''].map((line) =>
+              currentTheme.fg('textMuted', line),
+            ),
             width,
           ),
         ];
+      }
       case 'body':
         return this.finishLines(this.previewLines(width), width);
       case 'foot':

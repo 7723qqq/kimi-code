@@ -1006,6 +1006,7 @@ export default {
         page: '第 {{page}}/{{pageCount}} 页',
         previewLabel: '预览',
         scrollHint: ' · shift+↑/↓ 滚动',
+        pageHint: ' · ←→ 翻页',
       },
       compaction: {
         compacting: '正在压缩上下文…',
@@ -2289,6 +2290,9 @@ export default {
       promptBaseUrlMissingEndpoint: '目录未为此供应商声明端点 — 请输入其 Base URL。',
       promptBaseUrlTitle: '输入 {{provider}} 的 Base URL',
       promptBaseUrlEmpty: 'Base URL 不能为空。',
+      sshPasswordTitle: '输入 {{environment}} 的 SSH 密码',
+      sshPasswordSubtitle: '密码仅在本进程中使用，不会被保存。',
+      sshPasswordEmpty: 'SSH 密码不能为空。',
       feedbackLogsOnly: '日志',
       feedbackLogsOnlyDesc: '发送此消息、反馈以及最近的日志。',
       feedbackLogsAndCodebase: '日志和源代码',

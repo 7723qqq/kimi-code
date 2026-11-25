@@ -27,6 +27,7 @@ import { resolveAgentProfileSelection } from './agent-selection';
 import { createTelemetryHarness } from './harness';
 import type { CLIOptions } from './options';
 import { initializeCliTelemetry } from './telemetry';
+import { detectNativeInstall } from './update/source';
 
 /** The `node:child_process` surface the shell startup touches `stty` through. */
 export interface RunShellChildProcess {
@@ -67,6 +68,7 @@ export async function runShell(
   // The agent-core-v2 route is the only engine (same engine as `kimi -p`):
   // the harness is the SDK's v2-backed client, so the whole TUI runs on the
   // agent-core-v2 engine.
+  let tui!: KimiTUI;
   const { harness, telemetryBootstrap } = createTelemetryHarness({
     version,
     skillDirs: opts.skillsDirs,
@@ -82,6 +84,12 @@ export async function runShell(
         outcome: 'error',
         reason: outcome.reason,
       });
+    },
+    sshPassword: {
+      prompt: (environmentId) => tui.promptSshPassword(environmentId),
+      askpassCommand: detectNativeInstall().native
+        ? [process.execPath]
+        : [process.execPath, ...process.execArgv, process.argv[1]!],
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
   });
@@ -150,7 +158,7 @@ export async function runShell(
     ),
     animationFrameRateResolution.warning,
   );
-  const tui = new KimiTUI(harness, {
+  tui = new KimiTUI(harness, {
     cliOptions: opts,
     agentProfile,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,

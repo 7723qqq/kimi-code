@@ -285,6 +285,49 @@ describe('git status cache', () => {
     expect(mocks.watchers[0]?.close).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps refreshing a sourced status after the first load', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-04-24T00:00:00Z'));
+    installGit({ gitDir: 'C:/repo/.git', ghError: new Error('no pull request') });
+    const status = jest
+      .fn()
+      .mockResolvedValueOnce({
+        branch: 'main',
+        dirty: false,
+        ahead: 0,
+        behind: 0,
+        additions: 0,
+        deletions: 0,
+      })
+      .mockResolvedValueOnce({
+        branch: 'topic',
+        dirty: false,
+        ahead: 0,
+        behind: 0,
+        additions: 0,
+        deletions: 0,
+      });
+    const cache = cacheFor('/tmp/repo', {
+      source: {
+        status,
+        pullRequest: async () => null,
+        localWorkDir: '/tmp/repo',
+      },
+    });
+
+    cache.getStatus();
+    await drain();
+    expect(status).toHaveBeenCalledTimes(1);
+    expect(cache.getStatus()?.branch).toBe('main');
+
+    jest.setSystemTime(new Date('2026-04-24T00:00:31Z'));
+    cache.getStatus();
+    await drain();
+    expect(status).toHaveBeenCalledTimes(2);
+    expect(cache.getStatus()?.branch).toBe('topic');
+    cache.dispose();
+  });
+
   it('returns null when the working directory is not a git repo and does not probe again', async () => {
     installGit({ gitDir: null });
     const cache = cacheFor('/tmp/not-a-repo');

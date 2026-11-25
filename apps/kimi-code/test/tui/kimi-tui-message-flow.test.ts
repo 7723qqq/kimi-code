@@ -248,6 +248,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
       contextUsage: 0,
     })),
     getGoal: mock(async () => ({ goal: null })),
+    getEnvironment: mock(async () => ({ environmentId: 'local', cwd: '/tmp/proj-a' })),
     setApprovalHandler: mock(),
     setQuestionHandler: mock(),
     setModel: mock(async (alias: string) => {
@@ -785,6 +786,32 @@ describe('KimiTUI message flow', () => {
       planMode: undefined,
     });
     expect(driver.getCurrentSessionId()).toBe('ses-lazy');
+  });
+
+  it('binds the startup environment to the first session', async () => {
+    const session = makeSession({ id: 'ses-remote' });
+    const startupInput: KimiTUIStartupInput = {
+      ...makeStartupInput(),
+      cliOptions: {
+        ...makeStartupInput().cliOptions,
+        model: 'k2',
+        environment: 'dev-box',
+        environmentCwd: '/srv/app',
+      },
+    };
+    const { driver, harness } = await makeDriver(session, {}, startupInput);
+
+    driver.handleUserInput('hello');
+
+    await waitForAssertion(() => {
+      expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+    });
+    expect(harness.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environmentId: 'dev-box',
+        environmentCwd: '/srv/app',
+      }),
+    );
   });
 
   it('lazily creates the session for session-requiring slash commands (v2 engine)', async () => {

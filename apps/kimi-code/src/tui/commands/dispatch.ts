@@ -143,6 +143,7 @@ export interface SlashCommandHost {
   mountTranscriptComponent(entry: TranscriptEntry, component: Component): void;
   track(event: string, props?: Record<string, unknown>): void;
   mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void;
+  beginAuthBlock(): () => void;
   restoreEditor(): void;
   restoreInputText(text: string, inlineSkillActivations?: readonly InlineSkillActivation[]): void;
   refreshSlashCommandAutocomplete(): void;

@@ -142,6 +142,31 @@ export function promptApiKey(
   });
 }
 
+export function promptSshPassword(
+  host: SlashCommandHost,
+  environmentId: string,
+): Promise<string | undefined> {
+  const releaseAuthBlock = host.beginAuthBlock();
+  return new Promise<string | undefined>((resolve) => {
+    const dialog = new ApiKeyInputDialogComponent(
+      environmentId,
+      [t('tui.statusMessages.sshPasswordSubtitle')],
+      (result: ApiKeyInputResult) => {
+        host.restoreEditor();
+        resolve(result.kind === 'ok' ? result.value : undefined);
+      },
+      {
+        title: t('tui.statusMessages.sshPasswordTitle', { environment: environmentId }),
+        emptyHint: t('tui.statusMessages.sshPasswordEmpty'),
+        trimValue: false,
+      },
+    );
+    host.mountEditorReplacement(dialog, () => {
+      resolve(undefined);
+    });
+  }).finally(releaseAuthBlock);
+}
+
 /**
  * Asks for the provider endpoint the catalog did not declare (or declared
  * only as an env placeholder) — required for catalog imports whose protocol

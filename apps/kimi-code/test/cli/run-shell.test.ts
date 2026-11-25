@@ -52,6 +52,7 @@ const mocks = (() => {
     tuiGetStartupMcpMs: jest.fn(async () => 0),
     tuiGetCurrentSessionId: jest.fn(() => ''),
     tuiHasSessionContent: jest.fn(() => false),
+    tuiPromptSshPassword: jest.fn(async () => 'secret'),
     createKimiDeviceId: jest.fn<CreateKimiDeviceId>(() => 'device-1'),
     initializeTelemetry: jest.fn(),
     setCrashPhase: jest.fn(),
@@ -146,6 +147,7 @@ jest.mock('../../src/tui/index', () => ({
     getStartupMcpMs = mocks.tuiGetStartupMcpMs;
     getCurrentSessionId = mocks.tuiGetCurrentSessionId;
     hasSessionContent = mocks.tuiHasSessionContent;
+    promptSshPassword = mocks.tuiPromptSshPassword;
   },
 }));
 
@@ -250,6 +252,25 @@ describe('runShell', () => {
     stubTuiStartup();
     await runShell(minimalCliOptions, '1.2.3-test');
     expect(mocks.kimiHarnessConstructor).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes SSH password requests to the TUI after startup', async () => {
+    stubTuiStartup();
+    await runShell(minimalCliOptions, '1.2.3-test');
+    const options = mocks.kimiHarnessConstructor.mock.calls[0]![0] as {
+      sshPassword: {
+        prompt: (environmentId: string) => Promise<string | undefined>;
+        askpassCommand: readonly string[];
+      };
+    };
+    await expect(options.sshPassword.prompt('dev-box')).resolves.toBe('secret');
+    expect(mocks.tuiPromptSshPassword).toHaveBeenCalledTimes(1);
+    expect(mocks.tuiPromptSshPassword).toHaveBeenCalledWith('dev-box');
+    expect(options.sshPassword.askpassCommand).toEqual([
+      process.execPath,
+      ...process.execArgv,
+      process.argv[1]!,
+    ]);
   });
 
   it('constructs KimiHarness and KimiTUI with startup input', async () => {

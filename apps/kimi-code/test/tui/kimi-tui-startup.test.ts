@@ -170,6 +170,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     setPermission: mock(async () => {}),
     setPlanMode: mock(async () => {}),
     getGoal: mock(async () => ({ goal: null })),
+    getEnvironment: mock(async () => ({ environmentId: 'local', cwd: '/tmp/proj-a' })),
     onEvent: mock(() => () => {}),
     getResumeState: mock(() => null),
     listSkills: mock(async () => []),
