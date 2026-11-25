@@ -3,6 +3,7 @@
     "apps/vscode/test/extension-host/index.cjs": "Runs inside a real VS Code Extension Host as extensionTestsPath, not under bun test; bun:test is not resolvable in that process, so expect cannot replace Node assert there. The bun-side coverage of the same smoke is apps/vscode/test/extension-host-smoke.test.ts, which is Bun-native.",
     "packages/pi-tui/test/fixtures/clipboard-reader.cjs": "Standalone .cjs fixture executed as a child process by its test, not by bun test: it has no bun:test module to import, so node:assert is the only assertion available in that process.",
     "packages/pi-tui/test/fixtures/clipboard-worker-test.cjs": "Standalone .cjs fixture executed as a child process by its test, not by bun test: it has no bun:test module to import, so node:assert is the only assertion available in that process.",
+    "scripts/checks/cli-dependencies.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",
     "tools/bun-migrate/src/enumerate-errors.mjs": "The migrator enumerates Node error shapes; the require('node:assert') call is probe data executed by the tool, not a Bun test assertion."
   },
   "fake-timer-date": {
@@ -32,6 +33,7 @@
     "scripts/canary-release.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",
     "scripts/canary-version.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",
     "scripts/check-comments.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",
+    "scripts/checks/cli-dependencies.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",
     "scripts/checks/guards.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",
     "scripts/checks/instructions.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",
     "scripts/checks/ratchet.test.mjs": "Upstream 2.7.0 file kept verbatim so upstream syncs stay clean. The fork's Bun-only runner does not execute node:test files; the fork's own script suites live in scripts/test/ and run on bun:test.",

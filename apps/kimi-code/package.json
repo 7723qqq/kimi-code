@@ -80,12 +80,6 @@
     "postinstall": "bun scripts/postinstall.mjs",
     "test:bench": "bun test/tui/render-memo.bench.ts && bun test/tui/tui-frame.bench.ts"
   },
-  "dependencies": {
-    "chokidar": "^4.0.3",
-    "jimp": "catalog:",
-    "qrcode": "^1.5.4",
-    "ws": "catalog:"
-  },
   "devDependencies": {
     "@moonshot-ai/acp-server": "workspace:^",
     "@moonshot-ai/agent-core-v2": "workspace:^",
@@ -108,12 +102,16 @@
     "@types/ws": "^8.18.0",
     "@types/yazl": "^2.4.6",
     "chalk": "^5.4.1",
+    "chokidar": "^4.0.3",
     "cli-highlight": "^2.1.11",
     "commander": "^13.1.0",
+    "jimp": "catalog:",
     "lovely-mermaid": "0.3.3",
     "pathe": "catalog:",
+    "qrcode": "^1.5.4",
     "semver": "^7.7.4",
     "smol-toml": "catalog:",
+    "ws": "catalog:",
     "yazl": "catalog:",
     "zod": "catalog:"
   },

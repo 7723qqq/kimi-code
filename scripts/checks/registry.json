@@ -1,6 +1,11 @@
 {
   "invocations": [
     {
+      "run": "bun scripts/checks/cli-dependencies.mjs",
+      "in": "package.json#scripts.lint",
+      "why": "The npm CLI bundles its required packages; declaring dependencies would make users install them separately."
+    },
+    {
       "run": "node scripts/check-comments.mjs",
       "in": "package.json#scripts.lint",
       "why": "AGENTS.md forbids comments in JS/TS code, and this check is what enforces it."
@@ -74,7 +79,11 @@
   ],
   "forbidden": [
     {
-      "flags": ["--fix", "--fix-suggestions", "--fix-dangerously"],
+      "flags": [
+        "--fix",
+        "--fix-suggestions",
+        "--fix-dangerously"
+      ],
       "in": "package.json#lint-staged",
       "why": "lint-staged commits whatever its commands change. Some oxlint fixes change behavior (for example `unicorn/no-unnecessary-await` removes an `await`, which changes when the code after it runs), so the hook would rewrite code without telling anyone."
     }

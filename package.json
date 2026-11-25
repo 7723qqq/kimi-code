@@ -46,7 +46,7 @@
     "e2e:desktop": "bun --filter kimi-code-app run e2e",
     "e2e:desktop:headless": "bun --filter kimi-code-app run e2e:headless",
     "typecheck": "bun run --workspaces --if-present typecheck",
-    "lint": "oxlint --type-aware",
+    "lint": "bun scripts/checks/cli-dependencies.mjs && oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix",
     "check:lint": "bun run lint && bun run sherif && bun run check:deep-imports && bun run check:boundaries && bun run check:no-comments && bun run check:git-memory && bun run scan:residue && bun run check:locale-keys && bun run check:locale-placeholders && bun run check:t-coverage && bun run check:status-surface-i18n && bun run check:no-hardcoded-prose && bun run check:strict-request-bodies && bun run check:catalog-versions && bun run check:service-naming",
     "lint:pkg": "(cd apps/kimi-code && publint) && (cd apps/kimi-code && npm_config_cache=${TMPDIR:-/tmp}/kimi-code-npm-cache attw --pack . --profile node16)",
