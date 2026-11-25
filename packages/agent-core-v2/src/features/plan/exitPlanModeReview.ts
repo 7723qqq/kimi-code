@@ -37,28 +37,21 @@ export class ExitPlanModeReview {
           has_options: display.options !== undefined,
         },
         resolveApproval: (result) => this.approvalResult(result),
-        resolveNonInteractive: () => ({
-          kind: 'deny',
-          message: PLAN_REVIEW_NON_INTERACTIVE_MESSAGE,
-        }),
+        resolveNonInteractive: () => ({ kind: 'deny', message: PLAN_REVIEW_NON_INTERACTIVE_MESSAGE }),
       },
       'exit-plan-mode-review-ask',
     );
   }
 
-  private approvalResult(
-    result: ApprovalResponse,
-  ): PermissionPolicyResolution | undefined {
+  private approvalResult(result: ApprovalResponse): PermissionPolicyResolution | undefined {
     if (result.decision !== 'approved') {
       return this.rejectedApprovalResult(result);
     }
 
-    const decision = reviewDecisionFromLabel(result.selectedLabel);
-
     if (result.selectedLabel !== undefined && result.selectedLabel.length > 0) {
       this.trackPlanTelemetry('plan_resolved', {
         outcome: 'approved',
-        chosen_option: decision ?? result.selectedLabel,
+        chosen_option: result.selectedLabel,
       });
     } else {
       this.trackPlanTelemetry('plan_resolved', { outcome: 'approved' });

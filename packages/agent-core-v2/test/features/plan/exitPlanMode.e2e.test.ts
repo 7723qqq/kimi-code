@@ -16,10 +16,9 @@ import type {
 } from '#/agent/permissionPolicy/types';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { AgentPlanService } from '#/features/plan/planService';
-import { IAgentTodoService } from '#/features/todo/todoService';
-import type { TodoItem } from '#/features/todo/todoItem';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentTodoService } from '#/features/todo/todoService';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
@@ -173,20 +172,12 @@ describe('ExitPlanMode approval branches end to end', () => {
         reg.defineInstance(IAgentContextMemoryService, {
           _serviceBrand: undefined,
           get: () => [],
-          prefixRevision: () => 0,
-          append: () => {},
-          appendLoopEvent: () => {},
-          publishTrailingRemoval: () => false,
-          clear: () => {},
-          applyCompaction: () => ({ applied: false }),
-          history: () => [],
+          append: async () => {},
         } as unknown as IAgentContextMemoryService);
         reg.defineInstance(IAgentTodoService, {
           _serviceBrand: undefined,
-          onDidChange: () => ({ dispose: () => {} }),
-          get: () => [] as readonly TodoItem[],
-          replace: async (_todos: readonly TodoItem[]) => {},
-          clear: async () => {},
+          get: () => [],
+          replace: async () => {},
         } as unknown as IAgentTodoService);
         reg.define(IAgentPlanService, AgentPlanService);
       },
@@ -290,5 +281,3 @@ describe('ExitPlanMode approval branches end to end', () => {
     writeFileSync(join(tmpdir(), 'exit-plan-mode-e2e-summary.txt'), summary.join('\n'));
   });
 });
-
-

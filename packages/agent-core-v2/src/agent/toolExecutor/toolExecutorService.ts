@@ -201,7 +201,7 @@ export class AgentToolExecutorService extends Service implements IAgentToolExecu
       preflight: (call) => this.preflightMessage(call),
       wrapExecute: (context, next) => this.wrapExecute(context as never, next),
       get hook() {
-        return composeToolExecutorHooks([resetHook, legacyHook, forkHook, ...hooks, internalHook]);
+        return composeToolExecutorHooks([resetHook, legacyHook, ...hooks, forkHook, internalHook]);
       },
     });
     for (const reference of registry.listReferences()) {
