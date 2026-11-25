@@ -30,6 +30,7 @@ import {
   isDynamicToolSchemaMessage,
   isLoadableToolsAnnouncement,
   isRetrievedToolsAnnouncement,
+  LOADABLE_TOOLS_VARIANT,
   NO_LOADABLE_TOOLS_MESSAGE,
   renderLoadableToolsAnnouncement,
   renderRetrievedToolsAnnouncement,
@@ -186,9 +187,33 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     messages: readonly ContextMessage[],
     disclosure = this.enabled(),
     tools = this.defaultTools(disclosure),
+    deferred?: readonly Tool[],
   ): readonly ContextMessage[] {
     if (!disclosure) return stripDynamicToolContext(messages);
-    return stripStaleRetrievedToolsAnnouncements(this.shapeActiveHistory(messages, tools));
+    const shaped = stripStaleRetrievedToolsAnnouncements(this.shapeActiveHistory(messages, tools));
+    if (deferred === undefined) return shaped;
+    const candidates = deferred.length > 0 ? deferred : this.loadableEntries();
+    const deferredNames = new Set(candidates.map((tool) => tool.name));
+    const initialTools = this.initialSelectTools().filter((info) => deferredNames.has(info.name));
+    const withoutSnapshot = shaped.filter((message) => {
+      if (!isLoadableToolsAnnouncement(message)) return true;
+      if (message.origin?.kind !== 'injection') return true;
+      return (message.origin.disclosure as ToolSelectAnnouncementDisclosure | undefined)?.kind !== 'snapshot';
+    });
+    if (initialTools.length === 0) return withoutSnapshot;
+    return [
+      {
+        role: 'user',
+        content: [{ type: 'text' as const, text: wrapSystemReminder(renderSnapshotAnnouncement(initialTools)) }],
+        toolCalls: [],
+        origin: {
+          kind: 'injection',
+          variant: LOADABLE_TOOLS_VARIANT,
+          disclosure: { kind: 'snapshot', revision: 0, tools: initialTools },
+        },
+      },
+      ...withoutSnapshot,
+    ];
   }
 
   load(names: readonly string[]): LoadToolsResult {

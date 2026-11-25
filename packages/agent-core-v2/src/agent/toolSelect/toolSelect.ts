@@ -67,6 +67,7 @@ export interface IAgentToolSelectService {
     messages: readonly ContextMessage[],
     disclosure?: boolean,
     tools?: readonly Tool[],
+    deferred?: readonly Tool[],
   ): readonly ContextMessage[];
 
   load(names: readonly string[]): LoadToolsResult;
