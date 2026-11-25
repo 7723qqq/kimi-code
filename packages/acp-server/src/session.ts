@@ -62,6 +62,7 @@ import { buildSessionConfigOptions } from './config-options';
 import { acpBlocksToContentParts, compressPromptImageParts } from './convert';
 import {
   acpToolCallId,
+  answerForTurnEnd,
   assistantDeltaToSessionUpdate,
   availableCommandsUpdateNotification,
   configOptionUpdateNotification,
@@ -76,7 +77,7 @@ import {
   toolCallStartToSessionUpdate,
   toolProgressToSessionUpdate,
   toolResultToSessionUpdate,
-  turnEndReasonToStopReason,
+  type TurnEndError,
   usageUpdateNotification,
   isAuthError,
   stringifyArgs,
@@ -958,15 +959,24 @@ export class AcpSession {
   private onTurnEnded(event: AgentEventPayloads['turn.ended']): void {
     const driver = this.driverFor(event.turnId);
     if (driver === undefined) return;
-    const error = event.error as { readonly code: string; readonly message?: string } | undefined;
+    const error = event.error as TurnEndError | undefined;
+    const answer =
+      event.reason === 'failed' && driver.cancelRequested === true
+        ? { stopReason: 'cancelled' as const }
+        : answerForTurnEnd(event.reason, error);
+    if ('error' in answer) {
+      log.warn('acp: turn failed', {
+        sessionId: this.sessionId,
+        code: error?.code,
+        error: error?.message,
+      });
+    }
     this.settleDriver(driver, () => {
-      // Auth failures must surface as a JSON-RPC `auth_required` error
-      // so the client triggers its re-auth flow, not a silent `end_turn`.
-      if (event.reason === 'failed' && isAuthError(error)) {
-        driver.reject(RequestError.authRequired(undefined, error?.message));
+      if ('error' in answer) {
+        driver.reject(answer.error);
         return;
       }
-      driver.resolve({ stopReason: turnEndReasonToStopReason(event.reason, error) });
+      driver.resolve({ stopReason: answer.stopReason });
     });
     void this.emitUsageUpdate();
   }
@@ -1034,16 +1044,9 @@ export class AcpSession {
     }
     const driver = this.driver;
     if (driver === undefined || driver.settled) return;
+    driver.cancelRequested = true;
     const turnId = driver.turnId;
     if (turnId === undefined) {
-      // The launch round-trip has not returned the turn id yet. The engine's
-      // cancel payload makes turnId optional — an empty call cancels whatever
-      // turn is active (the same contract kap-server's cancel route relies
-      // on) — and concurrent prompts are rejected, so the active turn can only
-      // be this driver's. Flag the driver too: when the id lands, the launch
-      // handler re-issues a precisely-addressed cancel, and a no-launch
-      // outcome settles `cancelled` instead of `end_turn`.
-      driver.cancelRequested = true;
       void this.agent.cancel().catch((error) => {
         log.warn('acp: cancel (unaddressed) failed', {
           sessionId: this.sessionId,
