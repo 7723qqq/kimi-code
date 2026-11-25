@@ -5,13 +5,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createDecorator, IOAuthToolkit, ISessionManager, ISessionMcpHandle, IWorkspaceInstanceManager, SyncDescriptor } from '@moonshot-ai/agent-core-v2';
+import { createFakeModel, say, type FakeModel } from '@moonshot-ai/testkit/model';
 import type { SessionSummary } from '@moonshot-ai/klient';
 
 import { filterSessionSummariesByCwd } from '../src/server';
 import { createTestClient, type TestClient } from './_helpers/acpClient';
 import { writeFakeModelConfig } from './_helpers/fakeModelConfig';
-import { createScriptedProvider } from './_helpers/scriptedProvider';
-import { waitUntil } from './_helpers/waitUntil';
+
 
 /** Real stdio MCP fixture server from the agent-core-v2 test suite. */
 const STDIO_MCP_FIXTURE = fileURLToPath(
@@ -98,11 +98,21 @@ async function pollFor(
 describe('acp-server session lifecycle', () => {
   let homeDir: string | undefined;
   let client: TestClient | undefined;
+  let model: FakeModel | undefined;
 
   afterEach(async () => {
     if (client !== undefined) {
       await client.close();
       client = undefined;
+    }
+    if (model !== undefined) {
+      const current = model;
+      model = undefined;
+      try {
+        current.verify();
+      } finally {
+        await current.close();
+      }
     }
     await removeTempHome(homeDir);
     homeDir = undefined;
@@ -231,14 +241,15 @@ describe('acp-server session lifecycle', () => {
 
   it('session/fork creates an independently promptable session carrying the source history', async () => {
     homeDir = await mkdtemp(join(tmpdir(), 'acp-fork-'));
-    await writeFakeModelConfig(homeDir);
-    const scripted = createScriptedProvider();
-    client = await createTestClient({ homeDir, extraSeeds: [scripted.seed] });
+    model = createFakeModel();
+    await model.listen();
+    await writeFakeModelConfig(homeDir, { baseUrl: model.origin, maxContextSize: 262144 });
+    client = await createTestClient({ homeDir });
     const c = client;
     await c.send('initialize', { protocolVersion: 1, clientCapabilities: {} });
 
     // One real turn on the source session so the fork has history to carry.
-    scripted.mockNextText('first turn reply');
+    model.script(say('first turn reply'));
     const created = (await c.send('session/new', { cwd: homeDir, mcpServers: [] })) as {
       sessionId: string;
     };
@@ -269,7 +280,7 @@ describe('acp-server session lifecycle', () => {
     expect(ids).toContain(forked.sessionId);
 
     // The fork is wired for prompts like a session/new session.
-    scripted.mockNextText('fork reply');
+    model.script(say('fork reply'));
     const forkTurn = (await c.send('session/prompt', {
       sessionId: forked.sessionId,
       prompt: [{ type: 'text', text: 'hello from the fork' }],
@@ -485,14 +496,14 @@ describe('acp-server session lifecycle', () => {
     'session/fork creates an independently promptable session carrying the source history',
     async () => {
       homeDir = await mkdtemp(join(tmpdir(), 'acp-fork-'));
-      await writeFakeModelConfig(homeDir);
-      const scripted = createScriptedProvider();
-      client = await createTestClient({ homeDir, extraSeeds: [scripted.seed] });
+      model = createFakeModel();
+      await model.listen();
+      await writeFakeModelConfig(homeDir, { baseUrl: model.origin, maxContextSize: 262144 });
+      client = await createTestClient({ homeDir });
       const c = client;
       await c.send('initialize', { protocolVersion: 1, clientCapabilities: {} });
 
-      // One real turn on the source session so the fork has history to carry.
-      scripted.mockNextText('first turn reply');
+      model.script(say('first turn reply'));
       const created = (await c.send('session/new', { cwd: homeDir, mcpServers: [] })) as {
         sessionId: string;
       };
@@ -522,8 +533,7 @@ describe('acp-server session lifecycle', () => {
       expect(ids).toContain(created.sessionId);
       expect(ids).toContain(forked.sessionId);
 
-      // The fork is wired for prompts like a session/new session.
-      scripted.mockNextText('fork reply');
+      model.script(say('fork reply'));
       const forkTurn = (await c.send('session/prompt', {
         sessionId: forked.sessionId,
         prompt: [{ type: 'text', text: 'hello from the fork' }],
