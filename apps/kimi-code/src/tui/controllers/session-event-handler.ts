@@ -178,6 +178,8 @@ export interface SessionEventHost {
   completedCompactionSerial: number;
   handleTurnStarted?(event: TurnStartedEvent): void;
   handleTurnEnded?(event: TurnEndedEvent): void;
+  handlePromptPredictionTurnEnded?(event: TurnEndedEvent): void;
+  handlePromptPredictionIdle?(): void;
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserController;
 }
@@ -559,6 +561,7 @@ export class SessionEventHandler {
     }
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeTurn(sendQueued);
+    this.host.handlePromptPredictionTurnEnded?.(event);
     this.host.recordSessionActivity();
     this.renderPendingModelBlockedFallback();
     this.currentTurnHasAssistantText = false;
@@ -580,6 +583,9 @@ export class SessionEventHandler {
     }
     this.pluginMcpToolsUsedInTurn.clear();
     this.scheduleQueuedGoalPromotion();
+    if (this.host.state.appState.streamingPhase === 'idle') {
+      this.host.handlePromptPredictionIdle?.();
+    }
   }
 
   private handlePromptCompleted(event: Extract<Event, { type: 'prompt.completed' }>): void {
@@ -1509,6 +1515,9 @@ export class SessionEventHandler {
       }
     } else {
       this.host.setAppState({ isCompacting: false });
+    }
+    if (this.host.state.appState.streamingPhase === 'idle' && !this.host.state.queuedMessageDispatchPending) {
+      this.host.handlePromptPredictionIdle?.();
     }
   }
 

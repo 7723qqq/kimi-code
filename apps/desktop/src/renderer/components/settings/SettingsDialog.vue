@@ -87,6 +87,12 @@ async function onNotifyUserChange(on: boolean): Promise<void> {
   await configStore().setNotifyUserEnabled(on);
 }
 
+const promptPredictionEnabled = computed(() => configStore().experimentalFlags['prompt_prediction'] === true);
+
+async function onPromptPredictionChange(on: boolean): Promise<void> {
+  await configStore().setPromptPredictionEnabled(on);
+}
+
 function onColorScheme(scheme: ColorScheme): void {
   emit('setColorScheme', scheme);
 }
@@ -1449,6 +1455,17 @@ function archiveTime(iso: string): string {
                 :model-value="notifyUserEnabled"
                 :label="t('settings.lab.notifyUser')"
                 @update:model-value="onNotifyUserChange"
+              />
+            </div>
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.lab.promptPrediction') }}
+                <span class="hint">{{ t('settings.lab.promptPredictionHint') }}</span>
+              </span>
+              <Switch
+                :model-value="promptPredictionEnabled"
+                :label="t('settings.lab.promptPrediction')"
+                @update:model-value="onPromptPredictionChange"
               />
             </div>
             </div>

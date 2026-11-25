@@ -1,14 +1,17 @@
 import { describe, expect, it, mock, spyOn } from 'bun:test';
 
-import type {
-  AutocompleteItem,
-  AutocompleteProvider,
-  AutocompleteSuggestions,
-  TUI,
+import {
+  CURSOR_MARKER,
+  visibleWidth,
+  type AutocompleteItem,
+  type AutocompleteProvider,
+  type AutocompleteSuggestions,
+  type TUI,
 } from '@moonshot-ai/pi-tui';
 
 import { CustomEditor } from '#/tui/components/editor/custom-editor';
 import { FileMentionProvider } from '#/tui/components/editor/file-mention-provider';
+import { currentTheme } from '#/tui/theme';
 
 function makeEditor(): CustomEditor {
   const tui = {
@@ -326,6 +329,24 @@ describe('CustomEditor Tab key handling', () => {
 
     expect(provider.getSuggestions).not.toHaveBeenCalled();
     expect(editor.isShowingAutocomplete()).toBe(false);
+
+
+    const prediction = '请继续修复这个很长的 English prompt prediction，不要截断原文\n第二行也要保留';
+    editor.focused = true;
+    editor.setPromptPrediction(prediction);
+    editor.setPromptPredictionPlaceholder(() => prediction);
+    const rendered = editor.render(24);
+    const output = rendered.join('\n');
+    const muted = currentTheme.fg('textDim', 'x').split('x')[0]!;
+    expect(rendered.every((line) => visibleWidth(line) <= 24)).toBe(true);
+    expect(output).toContain('…');
+    expect(output).toContain(muted);
+    expect(output).toContain(CURSOR_MARKER);
+    expect(output.indexOf(CURSOR_MARKER)).toBeLessThan(output.indexOf('请继续'));
+    expect(output).toContain('第二行也要保留');
+    expect(editor.acceptPromptPrediction()).toBe(true);
+    expect(editor.getText()).toBe(prediction);
+    expect(editor.getPromptPrediction()).toBeUndefined();
   });
 });
 

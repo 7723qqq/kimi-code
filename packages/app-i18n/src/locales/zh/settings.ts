@@ -82,6 +82,8 @@ export default {
     sidebarTabsHint: '侧边栏显示「进行中 / 已完成 / 项目」三个标签页',
     notifyUser: '进展更新',
     notifyUserHint: '让 agent 在对话中发布进展更新，仅对之后新建的会话生效',
+    promptPrediction: '提示词预测',
+    promptPredictionHint: '回合完成后预测你接下来可能输入的内容，显示在输入框占位提示中，按 Tab 或右方向键填入',
   },
   plugins: {
     localOnlyHint: '插件和 MCP 服务器仅对本机项目生效，SSH 主机上的项目使用各主机自己的配置',

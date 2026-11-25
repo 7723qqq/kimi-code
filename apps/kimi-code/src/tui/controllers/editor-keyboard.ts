@@ -54,10 +54,12 @@ import {
 import type { BtwPanelController } from './btw-panel';
 import type { ModelMigrationController } from './model-migration';
 import type { PromptOptimizerController } from './prompt-optimizer';
+import type { PromptPredictionController } from './prompt-prediction';
 import type { SurveyController } from './survey-controller';
 
 export interface EditorKeyboardHost {
   state: TUIState;
+  readonly promptPredictionController?: PromptPredictionController;
   session: Session | undefined;
   cancelInFlight: (() => void) | undefined;
   /**
@@ -152,6 +154,7 @@ export class EditorKeyboardController {
 
     editor.onSubmit = (text: string) => {
       if (host.surveyController.handleSubmit(text)) return;
+      host.promptPredictionController?.handleSubmit(text);
       const behavior = resolveFollowUpBehavior(host.state.appState.followUpBehavior);
       host.handleUserInput(text, FOLLOW_UP_KEYMAP[behavior][editor.submitKey]);
     };
@@ -162,13 +165,20 @@ export class EditorKeyboardController {
     editor.onPreInput = (data: string) => {
       if (this.disposed) return true;
       if (matchesKey(data, Key.escape)) this.clearPendingExit();
-      const consumed = host.surveyController.handlePreInput(data);
-      if (consumed) this.clearPendingUndoEsc();
-      return consumed;
+      if (host.surveyController.handlePreInput(data)) {
+        this.clearPendingUndoEsc();
+        return true;
+      }
+      if (host.promptPredictionController?.handlePreInput(data) === true) {
+        this.clearPendingUndoEsc();
+        return true;
+      }
+      return false;
     };
 
     editor.onChange = (text: string) => {
       if (this.pendingExit) this.clearPendingExit();
+      host.promptPredictionController?.handleEditorChange(text);
       host.surveyController.handleEditorChange(text);
       if (text === '') queueMicrotask(() => host.retainSkillVariantSelection?.(editor.getText()));
       else host.retainSkillVariantSelection?.(text);

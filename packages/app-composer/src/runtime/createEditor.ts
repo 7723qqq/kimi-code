@@ -207,6 +207,7 @@ export function createComposerEditor(host: HTMLElement, options: ComposerEditorO
   }) : composerSnapshotDocument(initialSnapshot);
   let workModePillElement: HTMLElement | null = null;
   let placeholderText = '';
+  let placeholderAllowWhitespace = false;
   let placeholderElement: HTMLElement | null = null;
   let composerChromeFrame = 0;
   let observedWorkModePill: Element | null = null;
@@ -237,7 +238,8 @@ export function createComposerEditor(host: HTMLElement, options: ComposerEditorO
       : false;
     const commandHint = commandMatch?.item.argHint && !commandHasArgument ? placeholderText : '';
     const commandPlaceholderVisible = element !== null && commandHint !== '';
-    const emptyPlaceholderVisible = element !== null && placeholderText !== '' && isEmptyComposerDoc(view.state.doc);
+    const emptyDocument = isEmptyComposerDoc(view.state.doc) || (placeholderAllowWhitespace && docText(view.state.doc).trim().length === 0);
+    const emptyPlaceholderVisible = element !== null && placeholderText !== '' && emptyDocument;
     const placeholderVisible = commandPlaceholderVisible || emptyPlaceholderVisible;
     const pill = workModePillElement;
     if (!pill && !placeholderVisible) {
@@ -302,7 +304,6 @@ export function createComposerEditor(host: HTMLElement, options: ComposerEditorO
     const placeholderLayout = placeholderVisible
       ? composerPlaceholderLayout(placeholderAnchor, frame, scroll, clientWidth)
       : undefined;
-
     if (element) {
       element.hidden = !placeholderVisible;
       if (!placeholderVisible) {
@@ -656,8 +657,9 @@ export function createComposerEditor(host: HTMLElement, options: ComposerEditorO
       scheduleComposerChromeUpdate();
     },
 
-    setPlaceholder(text: string): void {
+    setPlaceholder(text: string, opts?: { allowWhitespace?: boolean }): void {
       placeholderText = text;
+      placeholderAllowWhitespace = opts?.allowWhitespace === true;
       if (placeholderElement) setComposerPlaceholderOverlayText(placeholderElement, text);
       scheduleComposerChromeUpdate();
     },

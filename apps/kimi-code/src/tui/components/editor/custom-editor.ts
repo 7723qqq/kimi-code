@@ -8,6 +8,8 @@ import {
   matchesKey,
   Key,
   SelectList,
+  truncateToWidth,
+  visibleWidth,
   type SelectItem,
   type TUI,
 } from '@moonshot-ai/pi-tui';
@@ -195,9 +197,14 @@ export class CustomEditor extends Editor {
   public onStatusSurfaceKey?: (key: StatusSurfaceKey) => boolean;
 
   private promptPrediction: string | undefined;
+  private promptPredictionPlaceholder: (() => string | undefined) | undefined;
 
   setPromptPrediction(text: string | undefined): void {
     this.promptPrediction = text;
+  }
+
+  setPromptPredictionPlaceholder(provider: (() => string | undefined) | undefined): void {
+    this.promptPredictionPlaceholder = provider;
   }
 
   getPromptPrediction(): string | undefined {
@@ -206,9 +213,9 @@ export class CustomEditor extends Editor {
 
   acceptPromptPrediction(): boolean {
     const prediction = this.promptPrediction;
-    if (prediction === undefined) return false;
+    if (prediction === undefined || this.getText().trim().length > 0) return false;
     this.promptPrediction = undefined;
-    this.setText(`${this.getText()}${prediction}`);
+    this.setText(prediction);
     return true;
   }
   /**
@@ -389,8 +396,9 @@ export class CustomEditor extends Editor {
 
 
   private renderPromptPrediction(lines: string[], width: number): void {
-    const prediction = this.promptPrediction;
-    if (prediction === undefined || this.inputMode === 'bash') return;
+    const prediction = this.promptPredictionPlaceholder?.();
+    if (prediction === undefined || this.inputMode !== 'prompt') return;
+    if (this.getText().trim().length > 0 || this.hasAutocompleteActivity()) return;
     if (lines.length < 3) return;
     const firstContentIdx = 1;
     const lastContentIdx = lines.length - 2;
@@ -409,10 +417,12 @@ export class CustomEditor extends Editor {
     lines[targetIdx] = injectGhostSegment(target, first, this.getText().length, width);
     if (segments.length < 2) return;
     const prefix = ' '.repeat(EDITOR_LEFT_PADDING);
-    const visibleWidth = stripSgr(lines[targetIdx] ?? '').length;
+    const contentWidth = Math.max(1, width - EDITOR_LEFT_PADDING * 2);
     for (let index = 1; index < segments.length; index++) {
       const segment = segments[index] ?? '';
-      const padded = segment.length >= visibleWidth ? segment : segment + ' '.repeat(visibleWidth - segment.length);
+      const trimmed = truncateToWidth(segment, contentWidth, '…');
+      const missing = width - EDITOR_LEFT_PADDING - visibleWidth(trimmed);
+      const padded = missing > 0 ? trimmed + ' '.repeat(missing) : trimmed;
       lines.splice(targetIdx + index, 0, prefix + padded);
     }
   }
@@ -1029,14 +1039,14 @@ function injectGhostSegment(
   const cursorPresent = cursorIdx !== -1;
   const contentWidth = Math.max(1, width - EDITOR_LEFT_PADDING * 2);
   const available = contentWidth - realTextLength - (cursorPresent ? 1 : 0);
-  const trimmed = truncateHint(ghost, available);
+  const trimmed = truncateToWidth(ghost, available, '…');
   if (trimmed.length === 0) return line;
   const colored = currentTheme.fg('textDim', trimmed);
   const insertAt = cursorPresent
     ? cursorIdx + CURSOR_BLOCK.length
     : mapVisibleIdxToRaw(line, EDITOR_LEFT_PADDING + realTextLength);
-  const trailing = line.length - insertAt;
-  return line.slice(0, insertAt) + colored + ' '.repeat(Math.max(0, trailing - trimmed.length));
+  const trailing = visibleWidth(line.slice(insertAt));
+  return line.slice(0, insertAt) + colored + ' '.repeat(Math.max(0, trailing - visibleWidth(trimmed)));
 }
 
 function truncateHint(hint: string, maxLen: number): string {

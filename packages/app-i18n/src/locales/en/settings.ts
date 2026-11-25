@@ -82,6 +82,8 @@ export default {
     sidebarTabsHint: 'The sidebar shows Open / Done / Projects tabs',
     notifyUser: 'Progress updates',
     notifyUserHint: 'Let the agent post progress updates in the conversation. Only applies to sessions created afterwards.',
+    promptPrediction: 'Prompt prediction',
+    promptPredictionHint: 'After a turn completes, predict what you might type next and show it as the composer placeholder. Press Tab or Right Arrow to insert it.',
   },
   plugins: {
     localOnlyHint: 'Plugins and MCP servers apply to projects on this machine only. Projects on SSH hosts use what is set up on each host',

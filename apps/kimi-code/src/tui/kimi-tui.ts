@@ -151,6 +151,7 @@ import { type ActiveExclusiveMode, type ReviewCycleMode } from './controllers/ed
 import { EditorKeyboardController } from './controllers/editor-keyboard';
 import { MessageDispatchController } from './controllers/message-dispatch';
 import { ModelMigrationController } from './controllers/model-migration';
+import { PromptPredictionController } from './controllers/prompt-prediction';
 import { ProgramStatusController } from './controllers/program-status';
 import { PromptOptimizerController } from './controllers/prompt-optimizer';
 import { PromptOptimizerActivityController } from './controllers/prompt-optimizer-activity';
@@ -501,6 +502,7 @@ export class KimiTUI {
   readonly surveyController: SurveyController;
   readonly editorKeyboard: EditorKeyboardController;
   readonly modelMigration: ModelMigrationController;
+  readonly promptPredictionController: PromptPredictionController;
   private editorReplacementOnDisplaced: (() => void) | undefined;
 
   /** Timer that auto-clears the one-shot "moved to background" footer hint. */
@@ -662,6 +664,7 @@ export class KimiTUI {
       ...startupInput.surveyDeps,
     });
     this.modelMigration = new ModelMigrationController(this);
+    this.promptPredictionController = new PromptPredictionController(this);
     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);
     this.editorKeyboard.install();
     this.buildLayout();
@@ -1353,6 +1356,7 @@ export class KimiTUI {
     this.streamingUI.disposeActiveCompactionBlock();
     this.streamingUI.resetToolUi();
     this.disposeTranscriptChildren();
+    this.promptPredictionController.dispose();
     this.editorKeyboard.dispose();
     this.surveyController.dispose();
     this.surveySettingSubscription?.();
@@ -2430,6 +2434,7 @@ export class KimiTUI {
   }
 
   handleTurnStarted(event: TurnStartedEvent & { agentId: string; sessionId: string }): void {
+    this.promptPredictionController.handleTurnStarted();
     this.staging.handleTurnStarted(event);
     this.surveyController.notifyTurnStarted(event.origin);
     this.programStatus.beginTurn(event.origin);
@@ -2441,6 +2446,14 @@ export class KimiTUI {
     this.programStatus.finishTurn(event);
     this.state.footer.refreshGitStatus();
     if (event.reason === 'completed') void this.maybeAutoGenerateSessionTitle();
+  }
+
+  handlePromptPredictionTurnEnded(event: TurnEndedEvent): void {
+    this.promptPredictionController.handleTurnEnded(event);
+  }
+
+  handlePromptPredictionIdle(): void {
+    this.promptPredictionController.handleLoopIdle();
   }
 
   private async maybeAutoGenerateSessionTitle(): Promise<void> {
@@ -3827,6 +3840,7 @@ export class KimiTUI {
     this.aborted = false;
     this.cacheHint.resetRuntime();
     this.resetTokenSpeed();
+    this.promptPredictionController.reset();
     this.surveyController.reset();
     this.streamingUI.discardPending();
     this.messageDispatch.resetSteerDeliveries();
