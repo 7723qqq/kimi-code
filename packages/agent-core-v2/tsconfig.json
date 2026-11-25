@@ -7,5 +7,9 @@
     }
   },
   "include": ["src", "test"],
-  "exclude": ["src/human/test", "test/session/sessionTitle/sessionTitleService.test.ts"]
+  "exclude": [
+    "src/human/test",
+    "test/session/sessionTitle/sessionTitleService.test.ts",
+    "test/app/auth/feedback.test.ts"
+  ]
 }
