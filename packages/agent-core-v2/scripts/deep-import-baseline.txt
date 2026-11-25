@@ -331,6 +331,8 @@ packages/node-sdk/src/index.ts human/agent/origin
 packages/node-sdk/src/index.ts session/subagent/configSection
 packages/node-sdk/src/proxy.ts _base/utils/proxy
 packages/node-sdk/src/runtime.ts _base/utils/proxyEnv
+packages/remote-control/src/remote-control.ts _base/utils/proxy
+packages/remote-control/src/remote-control.ts _base/utils/proxyEnv
 packages/node-sdk/src/runtime.ts app/bootstrap/home
 packages/node-sdk/src/runtime.ts app/plugin/nodeFallback
 packages/node-sdk/src/sdk-rpc-client-v2.ts _base/utils/workdir-slug
