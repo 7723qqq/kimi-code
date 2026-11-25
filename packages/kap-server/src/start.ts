@@ -59,7 +59,7 @@ import { createAsyncApiDocument } from './protocol/asyncapi';
 import { resolveRequestId } from './request-id';
 import { registerRequestLogging } from './requestLogging';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
-import { registerWebAssetRoutes } from './routes/webAssets';
+import { assertWebAssets, registerWebAssetRoutes } from './routes/webAssets';
 import { drainGlobalSearchDisposals } from './search/searchService';
 import { classify } from './security/bindClassify';
 import { createAuthTokenService, type IAuthTokenService } from './services/auth/authTokenService';
@@ -153,23 +153,14 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const registry = createInstanceRegistry({
     instancesDir: opts.instancesDir ?? join(homeDir, 'server', 'instances'),
   });
-  const registration: InstanceRegistration =
-    opts.skipInstanceRegistry === true
-      ? { serverId: 'skipped', update: async () => {}, release: async () => {} }
-      : await registry.register({
-          pid: process.pid,
-          host,
-          port,
-          startedAt: Date.now(),
-          serverVersion,
-          product: opts.hostIdentity.productName,
-        });
   const exposureClass = classify(host, { bindClass: opts.bindClass });
   if (exposureClass !== 'loopback' && opts.insecureNoTls !== true) {
-    await registration.release();
     throw new Error(
       `Refusing to bind ${host} (${exposureClass}) without TLS; terminate TLS at a reverse proxy or pass --insecure-no-tls.`,
     );
+  }
+  if (opts.webAssetsDir !== undefined) {
+    await assertWebAssets(opts.webAssetsDir);
   }
   const enableShutdown = exposureClass === 'loopback' || opts.allowRemoteShutdown === true;
   const debugEndpoints = exposureClass === 'loopback' && opts.debugEndpoints === true;
@@ -199,6 +190,17 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     authTokenService = createAuthTokenService({ tokenStore, passwordHash });
   }
   const validateCredential = createCredentialValidator(authTokenService, opts.rpcToken);
+  const registration: InstanceRegistration =
+    opts.skipInstanceRegistry === true
+      ? { serverId: 'skipped', update: async () => {}, release: async () => {} }
+      : await registry.register({
+          pid: process.pid,
+          host,
+          port,
+          startedAt: Date.now(),
+          serverVersion,
+          product: opts.hostIdentity.productName,
+        });
   const logging = resolveLoggingConfig({ homeDir, env: process.env });
   let boundPort = port;
   const localOriginHost = host.includes(':') ? `[${host}]` : host;
@@ -226,11 +228,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     [...logSeed(logging), ...(opts.seeds ?? [])],
   );
   const environments = core.accessor.get(IEnvironmentService);
-  const remoteEnvironmentProvider = await environments.addProvider(
-    new RemoteEnvironmentProviderFactory({
-      clientVersion: serverVersion,
-    }),
-  );
   const legacyAcpBindingSubscription = core.accessor
     .get(ISessionManager)
     .onDidCreateSession?.((event) => {
@@ -359,6 +356,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     app.addHook('onSend', createSecurityHeadersHook({ tls: false }));
   }
 
+  let remoteEnvironmentProvider: { dispose(): Promise<void> } | undefined;
   const close = async (): Promise<void> => {
     if (wssDebug !== undefined) {
       for (const client of wssDebug.clients) client.terminate();
@@ -387,7 +385,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       await core.accessor.get(IMcpOAuthService).shutdown();
       const appendLogStore = core.accessor.get(IAppendLogStore);
       legacyAcpBindingSubscription?.dispose();
-      await remoteEnvironmentProvider.dispose();
+      await remoteEnvironmentProvider?.dispose();
       hostBridges.close();
       core.dispose();
       await core.instantiation.disposeAsync();
@@ -491,9 +489,16 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     });
   }
 
-  await registerOpenApi();
+  try {
+    remoteEnvironmentProvider = await environments.addProvider(
+      new RemoteEnvironmentProviderFactory({
+        clientVersion: serverVersion,
+      }),
+    );
 
-  await registerApiV1Routes(app, core, {
+    await registerOpenApi();
+
+    await registerApiV1Routes(app, core, {
     serverVersion,
     hostIdentity: opts.hostIdentity,
     debugEndpoints,
@@ -521,7 +526,13 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     sessionRating,
     dangerousBypassAuth: opts.disableAuth === true,
     webTitle: opts.webTitle,
-  });
+    });
+  } catch (error) {
+    await registration.release();
+    core.dispose();
+    await core.instantiation.disposeAsync();
+    throw error;
+  }
 
   const wssV1 = registerWsV1(core, {
     registry: connectionRegistry,
@@ -632,7 +643,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
 
   try {
     if (opts.webAssetsDir !== undefined) {
-      await registerWebAssetRoutes(app, opts.webAssetsDir);
+      registerWebAssetRoutes(app, opts.webAssetsDir);
     }
     await listenWithPortRetry({
       listen: (h, p) => app.listen({ host: h, port: p }),
