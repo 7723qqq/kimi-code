@@ -9,7 +9,7 @@ export {
   type ProviderConfig,
   type TomlValue,
 } from '#/fixtures/config';
-export { isolateProcessEnv, TEST_ENV_DEFAULTS, testEnv, type TestEnvOptions } from '#/fixtures/env';
+export { isolateProcessEnv, TEST_ENV_DEFAULTS, testEnv, UNIT_TEST_SWITCHES, type TestEnvOptions } from '#/fixtures/env';
 export { createTestHome, osHomeEnv, removeDirectory, type TestHome } from '#/fixtures/home';
 export { BROKEN_DATA_URLS, dataUrl, mp4Header, ONE_PIXEL_PNG_BASE64, solidPng } from '#/fixtures/media';
 export {
