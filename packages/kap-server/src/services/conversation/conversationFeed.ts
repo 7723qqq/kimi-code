@@ -569,25 +569,25 @@ export class ConversationFeed implements IDisposable {
       });
       return;
     }
+    const updateFields =
+      update.kind === 'status'
+        ? { status: update.text, statusReplace: update.replace }
+        : update.kind === 'progress'
+          ? {
+              progress: {
+                text: update.text,
+                percent: update.percent,
+                replace: update.replace,
+              },
+            }
+          : {};
     const next: LiveToolFields =
       update.kind === 'stdout' || update.kind === 'stderr'
         ? { ...fields, output: update.text ?? '' }
         : {
             ...fields,
             progress: nextProgress(fields.progress, update),
-            fields:
-              update.kind === 'status'
-                ? { ...fields.fields, status: update.text, statusReplace: update.replace }
-                : update.kind === 'progress'
-                  ? {
-                      ...fields.fields,
-                      progress: {
-                        text: update.text,
-                        percent: update.percent,
-                        replace: update.replace,
-                      },
-                    }
-                  : fields.fields,
+            fields: { ...fields.fields, ...update.fields, ...updateFields },
           };
     const before = this.withLiveFields(target.item);
     this.tools.set(toolCallId, { turnId: target.turn.turn_id, fields: next });

@@ -12,6 +12,7 @@ import CronTool from './CronTool.vue';
 import GlobTool from './GlobTool.vue';
 import GoalTool from './GoalTool.vue';
 import GrepTool from './GrepTool.vue';
+import McpAuthorizationTool from './McpAuthorizationTool.vue';
 import MediaTool from './MediaTool.vue';
 import NotifyUserTool from './NotifyUserTool.vue';
 import PlanTool from './PlanTool.vue';
@@ -27,6 +28,7 @@ import SelectToolsTool from './SelectToolsTool.vue';
 type ToolRenderer = Component;
 
 export function resolveToolRenderer(tool: ToolCall, options?: { notifyUserEnabled?: boolean }): ToolRenderer {
+  if (tool.mcpAuth) return McpAuthorizationTool as ToolRenderer;
   if (isBrowserTool(tool)) return BrowserTool;
   if (tool.media && tool.status === 'ok') return MediaTool;
   switch (normalizeToolName(tool.name)) {

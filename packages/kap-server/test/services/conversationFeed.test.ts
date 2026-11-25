@@ -252,6 +252,49 @@ describe('recorded conversation feed', () => {
     }
   });
 
+  it('merges tool update fields into the running item and drops them after completion', async () => {
+    const t = await harness();
+    try {
+      await t.prompt();
+      await t.step();
+      await t.call('c1', 'mcp__example__authenticate');
+      const request = {
+        waitId: 'wait-1',
+        serverName: 'example',
+        authorizationUrl: 'https://auth.example.test/authorize?state=test',
+        expiresAt: Date.now() + 60_000,
+      };
+      const fields = { 'mcp.oauth.authorization_url': request };
+      await t.dispatch(
+        new ToolProgress({
+          agentId: 'main',
+          turnId: 1,
+          toolCallId: 'c1',
+          update: { kind: 'custom', fields },
+        }),
+      );
+      const live = (await t.feed.page(undefined, 10)).turns[0]!.items.find(
+        (item) => item.item_id === 'c1',
+      );
+      expect(live).toMatchObject({ fields });
+      expect(t.events).toContainEqual(
+        expect.objectContaining({
+          type: 'item.updated',
+          item_id: 'c1',
+          set: expect.objectContaining({ fields }),
+        }),
+      );
+      await t.result('c1', 'Connected');
+      const ended = (await t.feed.page(undefined, 10)).turns[0]!.items.find(
+        (item) => item.item_id === 'c1',
+      );
+      expect(ended).toMatchObject({ status: 'ended' });
+      expect(JSON.stringify(ended)).not.toContain(request.authorizationUrl);
+    } finally {
+      t.feed.dispose();
+    }
+  });
+
   it('preserves completed and failed tools while marking only stopped work interrupted', async () => {
     const t = await harness();
     try {

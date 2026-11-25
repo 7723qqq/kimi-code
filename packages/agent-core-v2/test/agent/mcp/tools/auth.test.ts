@@ -68,13 +68,18 @@ describe('createMcpAuthTool', () => {
     expect(reconnectCalls).toBe(1);
     expect(updates.some((u) => u.text?.includes('https://example.com/authorize'))).toBe(true);
     const authUpdate = updates.find(
-      (u) => u.kind === 'custom' && u.customKind === MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
+      (u) => u.kind === 'custom' && u.fields?.[MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE] !== undefined,
     );
-    expect(authUpdate?.customData).toMatchObject({
+    const authorization = authUpdate?.fields?.[MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE] as {
+      serverName?: string;
+      authorizationUrl?: string;
+      expiresAt?: number;
+    };
+    expect(authorization).toMatchObject({
       serverName: 'notion',
       authorizationUrl: 'https://example.com/authorize?state=abc',
     });
-    const { expiresAt } = authUpdate?.customData as { expiresAt?: number };
+    const { expiresAt } = authorization;
     expect(expiresAt).toBeGreaterThan(Date.now());
     expect(expiresAt).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);
   });
@@ -109,7 +114,7 @@ describe('createMcpAuthTool', () => {
     expect(final.output).toMatch(/DCR unsupported/);
   });
 
-  it('returns isError and surfaces the URL when complete rejects', async () => {
+  it('returns the error without saving the authorization URL when complete rejects', async () => {
     const oauthService = fakeOAuthService(async () => ({
       waitId: 'wait-1',
       authorizationUrl: new URL('https://example.com/authorize?state=abc'),
@@ -125,8 +130,35 @@ describe('createMcpAuthTool', () => {
     const final = await result;
     expect(final.isError).toBe(true);
     expect(final.output).toMatch(/timed out/);
-    expect(final.output).toMatch(/https:\/\/example\.com\/authorize/);
+    expect(final.output).not.toContain('https://example.com/authorize');
   });
+
+  it.each(['new grant', 'existing grant'] as const)(
+    'reports cancellation during reconnect (%s)',
+    async (grant) => {
+      const controller = new AbortController();
+      const oauthService = fakeOAuthService(async () => {
+        if (grant === 'existing grant') throw new AlreadyAuthorizedError('notion');
+        return {
+          waitId: 'wait-1',
+          authorizationUrl: new URL('https://example.com/authorize'),
+          complete: async () => undefined,
+          cancel: async () => undefined,
+        };
+      });
+      const { result } = runTool({
+        oauthService,
+        signal: controller.signal,
+        reconnect: async (signal) => {
+          controller.abort();
+          signal?.throwIfAborted();
+        },
+      });
+      const final = await result;
+      expect(final.isError).toBe(true);
+      expect(final.note).toBe('mcp.oauth.cancelled');
+    },
+  );
 
   it('returns isError when reconnect after success fails', async () => {
     const oauthService = fakeOAuthService(async () => ({
@@ -144,6 +176,7 @@ describe('createMcpAuthTool', () => {
     const final = await result;
     expect(final.isError).toBe(true);
     expect(final.output).toMatch(/reconnect failed/);
+    expect(final.note).toBe('mcp.oauth.reconnect_failed');
   });
 
   it('aborts before authorization when signal is already aborted', async () => {

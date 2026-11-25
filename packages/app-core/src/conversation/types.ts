@@ -162,6 +162,7 @@ export interface ToolCallItem extends ConversationItemBase {
   readonly input?: unknown;
   readonly input_text?: string;
   readonly display?: unknown;
+  readonly fields?: Readonly<Record<string, unknown>>;
   readonly output?: string;
   readonly media?: readonly ConversationMedia[];
   readonly error?: string;
