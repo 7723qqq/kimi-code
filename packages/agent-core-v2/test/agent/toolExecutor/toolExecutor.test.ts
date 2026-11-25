@@ -647,6 +647,74 @@ describe('AgentToolExecutorService', () => {
     await execution;
 
     expect(yielded).toEqual(['fast', 'slow']);
+
+    const detachedRelease = deferred();
+    const detachedStarted = deferred();
+    const detachedFinalizerStarted = deferred();
+    const detachedFinalizerRelease = deferred();
+    const conflictingStarted = deferred();
+    const nextBatchStarted = deferred();
+    const accesses = ToolAccesses.writeFile('/repo/shared.ts');
+    const detachedTool = new TestTool('detached', {
+      accesses,
+      execute: async () => {
+        detachedStarted.resolve();
+        await detachedRelease.promise;
+        return { output: 'detached done' };
+      },
+    });
+    const conflictingTool = new TestTool('conflicting', {
+      accesses,
+      execute: async () => {
+        conflictingStarted.resolve();
+        return { output: 'conflicting done' };
+      },
+    });
+    const nextBatchTool = new TestTool('next-batch', {
+      accesses,
+      execute: async () => {
+        nextBatchStarted.resolve();
+        return { output: 'next batch done' };
+      },
+    });
+    registry.register(detachedTool);
+    registry.register(conflictingTool);
+    registry.register(nextBatchTool);
+
+    truncateForModel = async (input) => {
+      if (input.toolCallId === 'call_detached') {
+        detachedFinalizerStarted.resolve();
+        await detachedFinalizerRelease.promise;
+      }
+      return input.result;
+    };
+    const detached = executor.executor.execute(
+      toolCall('call_detached', 'detached', {}),
+      executorContext(1, 0),
+    );
+    const conflicting = executor.executor.execute(
+      toolCall('call_conflicting', 'conflicting', {}),
+      executorContext(1, 0),
+    );
+    const nextBatch = executor.executor.execute(
+      toolCall('call_next_batch', 'next-batch', {}),
+      executorContext(1, 1),
+    );
+    await detachedStarted.promise;
+    expect(detached.detach('background')).toBeDefined();
+    await Promise.all([conflictingStarted.promise, nextBatchStarted.promise]);
+    expect(conflictingTool.calls).toHaveLength(1);
+    expect(nextBatchTool.calls).toHaveLength(1);
+    expect(detached.snapshot().status).toBe('running');
+
+    detachedRelease.resolve();
+    await detachedFinalizerStarted.promise;
+    detachedFinalizerRelease.resolve();
+    await detached.wait();
+    await Promise.all([conflicting.wait(), nextBatch.wait()]);
+    executor.release(detached.taskId);
+    executor.release(conflicting.taskId);
+    executor.release(nextBatch.taskId);
   });
 
   it('writes resolveExecution description and display onto tool.call.started events', async () => {
@@ -2018,6 +2086,15 @@ async function execute(
     events.push({ type: 'tool.result', toolCallId: item.toolCallId, result: item.result });
   }
   return results;
+}
+
+function executorContext(turnId: number, step: number): never {
+  return {
+    agent: ix.get(IAgentScopeContext).agentContext,
+    signal: new AbortController().signal,
+    turnId,
+    step,
+  } as never;
 }
 
 function toolCall(id: string, name: string, args: unknown): ToolCall {

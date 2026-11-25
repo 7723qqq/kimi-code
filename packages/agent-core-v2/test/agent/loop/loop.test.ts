@@ -432,6 +432,7 @@ describe('Agent loop', () => {
     });
     ctx.mockNextProviderResponse({
       parts: [{ type: 'text', text: 'final attempt partial' }],
+      usage: { inputOther: 11, output: 5 },
       error: new Error('stream broke mid-flight'),
     });
 
@@ -453,7 +454,11 @@ describe('Agent loop', () => {
         event.type === 'step.end',
     );
     expect(stepEnds).toHaveLength(2);
-    expect(stepEnds[0]).toMatchObject({ step: 1, finishReason: 'error' });
+    expect(stepEnds[0]).toMatchObject({
+      step: 1,
+      finishReason: 'error',
+      usage: { inputOther: 7, output: 3, inputCacheCreation: 0 },
+    });
     expect(stepEnds[1]).toMatchObject({ step: 1, finishReason: 'error' });
 
     const assistantTexts = ctx
@@ -463,6 +468,33 @@ describe('Agent loop', () => {
         message.content.map((part) => (part.type === 'text' ? part.text : '')).join(''),
       );
     expect(assistantTexts).toEqual(['first attempt partialfinal attempt partial']);
+
+    const local = createTestAgent({
+      initialConfig: { providers: {}, loopControl: { maxAttemptsPerStep: 2 } },
+    });
+    try {
+      local.mockNextProviderResponse({
+        parts: [{ type: 'text', text: 'cancel partial' }],
+        error: new APIProviderRateLimitError('retry', null, 60_000),
+      });
+      const { turn } = submitTurn(local.get(IAgentLoopService), 'Cancel during backoff');
+      await local.once('turn.step.retrying');
+      expect(local.get(IAgentLoopService).snapshot().turn?.retry).toMatchObject({ nextAttempt: 2 });
+      turn.cancel(new Error('stop during backoff'));
+      await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
+      const partials = local
+        .contextData()
+        .history.filter(
+          (message) =>
+            message.role === 'assistant' &&
+            message.content.some(
+              (part) => part.type === 'text' && part.text.includes('cancel partial'),
+            ),
+        );
+      expect(partials).toHaveLength(1);
+    } finally {
+      await local.dispose();
+    }
   });
 
   it('does not run loop error handlers for aborted turns', async () => {

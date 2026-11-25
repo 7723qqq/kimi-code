@@ -8,7 +8,11 @@ import { join } from 'pathe';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { type AgentTaskInfo, IAgentTaskService } from '#/agent/task/task';
+import {
+  type AgentTaskInfo,
+  IAgentTaskService,
+  type RegisterAgentTaskOptions,
+} from '#/agent/task/task';
 import {
   NO_PARTIAL_OUTPUT,
   PARTIAL_OUTPUT_NOTICE,
@@ -26,6 +30,7 @@ import type { IExternalHooksRunnerService } from '#/features/externalHooks/app/e
 import type { IHostProcess } from '#/os/interface/hostProcess';
 import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import type { WireRecord } from '#/wire/record';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
@@ -56,6 +61,49 @@ function immediateProcess(exitCode: number, stdoutText = ''): IHostProcess {
     wait: mock().mockResolvedValue(exitCode) as IHostProcess['wait'],
     kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
     dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
+  };
+}
+
+function controllableProcess(): {
+  proc: IHostProcess;
+  write: (text: string) => void;
+  finish: (exitCode: number) => void;
+} {
+  const stdout = new Readable({ read() {} });
+  let resolveWait!: (code: number) => void;
+  const waitPromise = new Promise<number>((resolve) => {
+    resolveWait = resolve;
+  });
+  let currentExitCode: number | null = null;
+  const proc: IHostProcess = {
+    _serviceBrand: undefined,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
+    stdout,
+    stderr: Readable.from([]),
+    pid: 62000,
+    get exitCode(): number | null {
+      return currentExitCode;
+    },
+    wait: () => waitPromise,
+    kill: mock(async () => {
+      if (currentExitCode !== null) return;
+      currentExitCode = 143;
+      stdout.push(null);
+      resolveWait(143);
+    }) as unknown as IHostProcess['kill'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
+  };
+  return {
+    proc,
+    write: (text) => {
+      stdout.push(text);
+    },
+    finish: (exitCode) => {
+      if (currentExitCode !== null) return;
+      currentExitCode = exitCode;
+      stdout.push(null);
+      resolveWait(exitCode);
+    },
   };
 }
 
@@ -376,8 +424,25 @@ function registerProcess(
   proc: IHostProcess,
   command: string,
   description: string,
+  options: RegisterAgentTaskOptions = {},
+  parentToolCallId?: string,
 ): string {
-  return manager.registerTask(new ProcessTask(proc, command, description));
+  return manager.registerTask(
+    new ProcessTask(proc, command, description, undefined, undefined, parentToolCallId),
+    options,
+  );
+}
+
+async function taskRecordsOf(
+  ctx: TestAgentContext,
+  taskId: string,
+  type: 'task.started' | 'task.terminated',
+): Promise<WireRecord[]> {
+  return (await ctx.persistedWireRecords()).filter(
+    (record) =>
+      record.type === type &&
+      (record['info'] as AgentTaskInfo | undefined)?.taskId === taskId,
+  );
 }
 
 const STOPPED_AGENT_FINDING = '已定位 src/parser.ts:42 的循环条件，尚未执行验证。';
@@ -458,6 +523,134 @@ describe('AgentTaskService — event emission', () => {
         provider_type: 'kimi',
       },
     });
+  });
+
+  it('emits process task changes and persists only detached tasks', async () => {
+    const { ctx, manager } = createAgentTaskService();
+    const changes: AgentTaskInfo[] = [];
+    manager.onDidChangeTask((info) => changes.push(info));
+    const sh = controllableProcess();
+    const taskId = registerProcess(
+      manager,
+      sh.proc,
+      'echo',
+      'process',
+      { detached: false },
+      'call_bash',
+    );
+    const recordsOf = (type: 'task.started' | 'task.terminated'): Promise<WireRecord[]> =>
+      taskRecordsOf(ctx, taskId, type);
+
+    await waitForAssertion(() => {
+      expect(changes).toHaveLength(1);
+    });
+    expect(changes[0]).toMatchObject({
+      taskId,
+      status: 'running',
+      detached: false,
+      parentToolCallId: 'call_bash',
+    });
+    expect(await recordsOf('task.started')).toEqual([]);
+    expect(await recordsOf('task.terminated')).toEqual([]);
+
+    sh.write('output only\n');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(changes).toHaveLength(1);
+
+    expect(manager.detach(taskId)?.detached).toBe(true);
+    await waitForAssertion(() => {
+      expect(changes).toHaveLength(2);
+    });
+    expect(changes[1]).toMatchObject({ status: 'running', detached: true });
+    expect(await recordsOf('task.started')).toHaveLength(1);
+
+    sh.finish(0);
+    await manager.wait(taskId);
+    await waitForAssertion(() => {
+      expect(changes.at(-1)).toMatchObject({ status: 'completed', detached: true });
+    });
+    const delivered = changes.length;
+    await drainNotifications(ctx);
+    expect(changes).toHaveLength(delivered);
+    expect(await recordsOf('task.terminated')).toHaveLength(1);
+
+    const background = createAgentTaskService();
+    const backgroundChanges: AgentTaskInfo[] = [];
+    background.manager.onDidChangeTask((info) => backgroundChanges.push(info));
+    const backgroundSh = controllableProcess();
+    const backgroundId = registerProcess(
+      background.manager,
+      backgroundSh.proc,
+      'echo',
+      'background',
+    );
+    await waitForAssertion(() => {
+      expect(backgroundChanges).toHaveLength(1);
+    });
+    expect(backgroundChanges[0]).toMatchObject({ status: 'running', detached: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(backgroundChanges).toHaveLength(1);
+    expect(await taskRecordsOf(background.ctx, backgroundId, 'task.started')).toHaveLength(1);
+    backgroundSh.finish(0);
+    await background.manager.wait(backgroundId);
+    await drainNotifications(background.ctx);
+  });
+
+  it('emits agent task changes and persists only detached tasks', async () => {
+    const { ctx, manager } = createAgentTaskService();
+    const changes: AgentTaskInfo[] = [];
+    manager.onDidChangeTask((info) => changes.push(info));
+    let resolveCompletion!: (value: { result: string }) => void;
+    const completion = new Promise<{ result: string }>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const taskId = manager.registerTask(agentTask(completion, 'agent work'), { detached: false });
+    const recordsOf = (type: 'task.started' | 'task.terminated'): Promise<WireRecord[]> =>
+      taskRecordsOf(ctx, taskId, type);
+
+    await waitForAssertion(() => {
+      expect(changes).toHaveLength(1);
+    });
+    expect(changes[0]).toMatchObject({ taskId, status: 'running', detached: false });
+    expect(await recordsOf('task.started')).toEqual([]);
+    expect(await recordsOf('task.terminated')).toEqual([]);
+
+    expect(manager.detach(taskId)?.detached).toBe(true);
+    await waitForAssertion(() => {
+      expect(changes).toHaveLength(2);
+    });
+    expect(changes[1]).toMatchObject({ status: 'running', detached: true });
+    expect(await recordsOf('task.started')).toHaveLength(1);
+
+    resolveCompletion({ result: 'done' });
+    await manager.wait(taskId);
+    await waitForAssertion(() => {
+      expect(changes.at(-1)).toMatchObject({ status: 'completed', detached: true });
+    });
+    const delivered = changes.length;
+    await drainNotifications(ctx);
+    expect(changes).toHaveLength(delivered);
+    expect(await recordsOf('task.terminated')).toHaveLength(1);
+
+    const background = createAgentTaskService();
+    const backgroundChanges: AgentTaskInfo[] = [];
+    background.manager.onDidChangeTask((info) => backgroundChanges.push(info));
+    let resolveBackground!: (value: { result: string }) => void;
+    const backgroundCompletion = new Promise<{ result: string }>((resolve) => {
+      resolveBackground = resolve;
+    });
+    const backgroundTaskId = background.manager.registerTask(
+      agentTask(backgroundCompletion, 'background agent'),
+    );
+    await waitForAssertion(() => {
+      expect(backgroundChanges).toHaveLength(1);
+    });
+    expect(backgroundChanges[0]).toMatchObject({ status: 'running', detached: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(backgroundChanges).toHaveLength(1);
+    resolveBackground({ result: 'background done' });
+    await background.manager.wait(backgroundTaskId);
+    await drainNotifications(background.ctx);
   });
 
   it('emits task.terminated and telemetry on natural exit', async () => {

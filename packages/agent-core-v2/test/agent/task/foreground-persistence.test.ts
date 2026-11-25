@@ -7,7 +7,7 @@ import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentTaskService } from '#/agent/task/task';
+import { type AgentTaskInfo, IAgentTaskService } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import type { IHostProcess } from '#/os/interface/hostProcess';
@@ -134,9 +134,14 @@ describe('AgentTaskService — foreground persistence', () => {
     join(sessionDir, TASK_TEST_AGENT_SCOPE, 'tasks', `${taskId}.json`);
 
   it('writes nothing to disk for a foreground task that does not spill or detach', async () => {
+    const changes: AgentTaskInfo[] = [];
+    background.onDidChangeTask((info) => changes.push(info));
     const taskId = registerForeground(background, immediateProcess(0, 'hello\n'), 'echo', 'demo');
 
     await background.wait(taskId);
+    await waitForAssertion(() => {
+      expect(changes.at(-1)).toMatchObject({ taskId, status: 'completed', detached: false });
+    });
 
     expect(existsSync(taskJsonPath(taskId))).toBe(false);
     expect(existsSync(persistence.taskOutputFile(taskId))).toBe(false);

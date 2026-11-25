@@ -108,6 +108,46 @@ describe('official conversation record contract', () => {
     expect(undoConversationTurns(state, 1).turns).toEqual([]);
   });
 
+  it('clears the recorded retry state when the next attempt starts', () => {
+    const state = fold(records());
+    applyConversationRecord(
+      state,
+      record(
+        'turn.step.retrying',
+        {
+          turnId: 7,
+          step: 1,
+          stepId: 's1',
+          failedAttempt: 1,
+          nextAttempt: 2,
+          maxAttempts: 3,
+          delayMs: 500,
+          errorName: 'APIStatusError',
+          errorMessage: 'rate limited',
+          statusCode: 429,
+        },
+        2700,
+      ),
+    );
+
+    expect(state.turns[0]?.retry).toEqual({
+      attempt: 1,
+      next_attempt: 2,
+      max_attempts: 3,
+      delay_ms: 500,
+      error: { name: 'APIStatusError', message: 'rate limited', status_code: 429 },
+    });
+    expect(state.turns[0]?.items.some((item) => item.item_id === 's1:0')).toBe(false);
+
+    applyConversationRecord(
+      state,
+      record('turn.step.started', { turnId: 7, step: 1, stepId: 's1' }, 2800),
+    );
+
+    expect(state.turns[0]?.retry).toBeUndefined();
+    expect(state.turns[0]?.status).toBe('running');
+  });
+
   it('ignores malformed task records without changing the tool', () => {
     const state = fold(records());
     const before = structuredClone(state);
