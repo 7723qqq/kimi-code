@@ -10,6 +10,12 @@ export interface IAgentMediaResolverService {
     requester: ModelRequester,
     signal?: AbortSignal,
   ): Promise<readonly Message[]>;
+
+  recoverFailedUploads(
+    messages: readonly Message[],
+    requester: ModelRequester,
+    signal?: AbortSignal,
+  ): Promise<boolean>;
 }
 
 export const IAgentMediaResolverService = createDecorator<IAgentMediaResolverService>(

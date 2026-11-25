@@ -455,6 +455,8 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     };
     let previousMediaCount: number | undefined;
     let previousMediaPolicy: ProjectionPolicy['media'];
+    let resolvedMessages: readonly Message[] | undefined;
+    let checkedUploads = false;
     const run = async (
       policy: ProjectionPolicy | undefined,
     ): Promise<AgentLLMRequestFinish | ProactiveMediaEscalation> => {
@@ -475,6 +477,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         tools,
         messages: await this.mediaResolver.resolve(projected, request.requester, signal),
       };
+      resolvedMessages = input.messages;
       const estimatedBytes = estimateLlmRequestBytes(input.messages);
       if (sizeProbe !== undefined) sizeProbe.bytes = estimatedBytes;
       const escalation = this.proactiveMediaEviction(
@@ -680,6 +683,23 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         }
         return outcome;
       } catch (error) {
+        if (
+          !checkedUploads &&
+          resolvedMessages !== undefined &&
+          isUploadedMediaRequestError(unwrapErrorCause(error))
+        ) {
+          checkedUploads = true;
+          if (
+            await this.mediaResolver.recoverFailedUploads(resolvedMessages, request.requester, signal)
+          ) {
+            this.log.warn(
+              'provider rejected an uploaded media reference; resending with the local original inlined',
+              { model: request.model.name, ...request.logFields },
+            );
+            onAttemptRetry?.();
+            continue;
+          }
+        }
         const media = policy?.media;
         const canStripMedia =
           !mediaStrippedThisRequest &&
@@ -1258,6 +1278,15 @@ function projectionField(fields: AgentLLMRequestLogFields): LlmRequestProjection
 
 function fingerprint(content: string): string {
   return createHash('sha256').update(content).digest('hex');
+}
+
+const UPLOADED_MEDIA_BLOB_ERROR_RE =
+  /failed to validate image_url content:\s*blob ID \S+ does not exist\b/i;
+
+function isUploadedMediaRequestError(error: unknown): boolean {
+  if (!(error instanceof APIStatusError) || error.statusCode !== 400) return false;
+  if (UPLOADED_MEDIA_BLOB_ERROR_RE.test(error.message)) return true;
+  return error.message.trim() === 'Invalid request Error';
 }
 
 function apiStatusCode(error: unknown): number | undefined {

@@ -28,8 +28,14 @@ export type MediaImageUploader = (
   options: MediaVideoUploadOptions,
 ) => Promise<ImageURLPart>;
 
+export type MediaUploadStatusChecker = (
+  id: string,
+  options: MediaVideoUploadOptions,
+) => Promise<boolean>;
+
 export interface ProviderMediaContribution {
   readonly inlineVideo?: boolean;
   readonly uploadVideo?: MediaVideoUploader;
   readonly uploadImage?: MediaImageUploader;
+  readonly checkUploadFailed?: MediaUploadStatusChecker;
 }

@@ -13,6 +13,7 @@ import {
   kimiOpenAITrait,
 } from '#/llm-kimi/trait';
 import { isUnknownCapability, UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
+import { MediaUploadFailedError } from '@moonshot-ai/core/llm/request';
 import type { FinishInfo } from '@moonshot-ai/core/llm/response';
 import { createMemoryMediaUploadCache } from '#/llm/media/cache';
 import { createMediaRefResolver } from '#/llm/media/resolver';
@@ -512,6 +513,53 @@ describe('media', () => {
         type: 'image_url',
         imageUrl: { url: 'ms://img-ready', id: 'img-ready' },
       });
+    });
+
+    it('reports definitive upload failures as MediaUploadFailedError and keeps intermediate states ordinary', async () => {
+      const definitive = [
+        Response.json({ id: 'img-1', status: 'error', status_details: 'Invalid image format' }),
+        Response.json({ id: 'img-2', extract_status: 'error', extract_error: 'decode failed' }),
+      ];
+      for (const response of definitive) {
+        const error = await filesWith([response])
+          .uploadImage({ data: new Uint8Array([1]), mimeType: 'image/png' })
+          .catch((caught: unknown) => caught);
+        expect(error).toBeInstanceOf(MediaUploadFailedError);
+      }
+      const pending = await filesWith([Response.json({ id: 'img-3', extract_status: 'processing' })])
+        .uploadImage({ data: new Uint8Array([1]), mimeType: 'image/png' })
+        .catch((caught: unknown) => caught);
+      expect(pending).toBeInstanceOf(Error);
+      expect(pending).not.toBeInstanceOf(MediaUploadFailedError);
+    });
+
+    it('queries file status through the upload endpoint and credentials', async () => {
+      const seen: string[] = [];
+      const files = new KimiFiles({
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.test/v1',
+        fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = new Request(input as unknown as Request, init);
+          if (request.url === 'data:,') return new Response();
+          const { pathname } = new URL(request.url);
+          seen.push(`${request.method} ${pathname} ${request.headers.get('authorization') ?? ''}`);
+          const id = pathname.slice('/v1/files/'.length);
+          if (id === 'bad-status') return Response.json({ id, status: 'error' });
+          if (id === 'bad-extract') {
+            return Response.json({ id, status: 'ready', extract_status: 'error' });
+          }
+          return Response.json({ id, status: 'ready' });
+        }) as unknown as KimiFilesFetch,
+      });
+
+      await expect(files.hasFailed('bad-status')).resolves.toBe(true);
+      await expect(files.hasFailed('bad-extract')).resolves.toBe(true);
+      await expect(files.hasFailed('ok')).resolves.toBe(false);
+      expect(seen).toEqual([
+        'GET /v1/files/bad-status Bearer sk-test',
+        'GET /v1/files/bad-extract Bearer sk-test',
+        'GET /v1/files/ok Bearer sk-test',
+      ]);
     });
   });
 

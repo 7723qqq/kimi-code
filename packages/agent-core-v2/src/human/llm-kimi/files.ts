@@ -6,6 +6,7 @@ import OpenAIClient from 'openai';
 import type { ImageUploadInput, VideoUploadInput } from '#/llm/media/upload';
 import type { ImageURLPart, VideoURLPart } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
+import { MediaUploadFailedError } from '@moonshot-ai/core/llm/request';
 
 import { KIMI_DEFAULT_BASE_URL } from './trait';
 
@@ -67,7 +68,16 @@ function formatUploadStatusError(
     value === 'error'
       ? `Kimi file upload failed for file "${id}" (${field}=${rendered})`
       : `Kimi file upload for file "${id}" is not ready (${field}=${rendered})`;
-  return new Error(detail === undefined ? summary : `${summary}: ${detail}`);
+  const message = detail === undefined ? summary : `${summary}: ${detail}`;
+  return value === 'error' ? new MediaUploadFailedError(message) : new Error(message);
+}
+
+function failedFileStatus(file: unknown): 'extract_status' | 'status' | undefined {
+  if (typeof file !== 'object' || file === null) return undefined;
+  const record = file as Record<string, unknown>;
+  if (record['extract_status'] === 'error') return 'extract_status';
+  if (record['status'] === 'error') return 'status';
+  return undefined;
 }
 
 function parseUploadedKimiFile(uploaded: unknown): { id: string } {
@@ -77,6 +87,15 @@ function parseUploadedKimiFile(uploaded: unknown): { id: string } {
   const record = uploaded as Record<string, unknown>;
   const rawId = record['id'];
   const id = typeof rawId === 'string' && rawId.trim().length > 0 ? rawId : undefined;
+  const failedStatus = failedFileStatus(record);
+  if (failedStatus !== undefined) {
+    throw formatUploadStatusError(
+      id ?? '(unknown)',
+      failedStatus,
+      'error',
+      readUploadFailureDetail(record),
+    );
+  }
   if (id === undefined) {
     throw new Error('Kimi file upload returned an empty file id');
   }
@@ -143,6 +162,15 @@ export class KimiFiles {
         id: uploaded.id,
       },
     };
+  }
+
+  async hasFailed(id: string, options?: KimiUploadOptions): Promise<boolean> {
+    const client = this._createClient();
+    const file = (await client.files.retrieve(
+      id,
+      options?.signal ? { signal: options.signal } : undefined,
+    )) as unknown;
+    return failedFileStatus(file) !== undefined;
   }
 
   private async _upload(

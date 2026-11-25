@@ -52,6 +52,8 @@ function kimiMediaContribution(mediaFetch?: KimiFilesFetch): ProviderMediaContri
       kimiFiles(model, mediaFetch).uploadVideo(video, { signal }),
     uploadImage: (image, { model, signal }) =>
       kimiFiles(model, mediaFetch).uploadImage(image, { signal }),
+    checkUploadFailed: (id, { model, signal }) =>
+      kimiFiles(model, mediaFetch).hasFailed(id, { signal }),
   };
 }
 

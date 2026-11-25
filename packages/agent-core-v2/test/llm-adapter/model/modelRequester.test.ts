@@ -536,6 +536,34 @@ describe('ModelRequesterImpl request execution', () => {
     expect(seen).toEqual(['sk-1']);
   });
 
+  it('checkUploadFailed resolves the credential and delegates to the provider checker', async () => {
+    const requester = new FakeLlmRequester();
+    const impl = new ModelRequesterImpl(
+      modelWith(createStaticCredentialProvider('sk-1')),
+      gatewayReturning(requester),
+    );
+    await expect(impl.checkUploadFailed('file-1')).resolves.toBe(false);
+
+    const seen: Array<{ id: string; apiKey: string | undefined }> = [];
+    const media: ProviderMediaContribution = {
+      checkUploadFailed: (id, options) => {
+        seen.push({ id, apiKey: options.model.apiKey });
+        return Promise.resolve(id === 'failed-file');
+      },
+    };
+    const withMedia = new ModelRequesterImpl(
+      modelWith(createStaticCredentialProvider('sk-1')),
+      gatewayReturning(requester, media),
+    );
+
+    await expect(withMedia.checkUploadFailed('failed-file')).resolves.toBe(true);
+    await expect(withMedia.checkUploadFailed('ok-file')).resolves.toBe(false);
+    expect(seen).toEqual([
+      { id: 'failed-file', apiKey: 'sk-1' },
+      { id: 'ok-file', apiKey: 'sk-1' },
+    ]);
+  });
+
   it('reports the event-loop-busy overlap of the decode window as clientBlockedMs', async () => {
     const requester = new FakeLlmRequester();
     requester.handler = (_i, emit) => {

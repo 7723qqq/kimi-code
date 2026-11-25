@@ -39,6 +39,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { createStaticCredentialProvider } from '#human/credentials/credentials';
 import type { ContentPart, ImageURLPart, VideoURLPart } from '#/llm-adapter/contract/message';
 import type { LlmCredentialProvider } from '#human/llm/requester/requester';
+import { MediaUploadFailedError } from '@moonshot-ai/core/llm/request';
 
 import { registerStateServices } from '../../state/stubs';
 
@@ -202,6 +203,7 @@ function requester(opts: {
   headers?: Record<string, string>;
   uploadVideo?: ModelRequester['uploadVideo'];
   uploadImage?: ModelRequester['uploadImage'];
+  checkUploadFailed?: ModelRequester['checkUploadFailed'];
   credentialProvider?: LlmCredentialProvider;
 }): ModelRequester {
   return {
@@ -227,6 +229,7 @@ function requester(opts: {
     },
     uploadVideo: opts.uploadVideo,
     uploadImage: opts.uploadImage,
+    checkUploadFailed: opts.checkUploadFailed,
   };
 }
 
@@ -1197,6 +1200,181 @@ describe('AgentMediaResolverService image upload', () => {
 
     expect(firstPart(first)).toEqual({ type: 'image_url', imageUrl: { url: PNG_DATA_URL } });
     expect(firstPart(second)).toEqual({ type: 'image_url', imageUrl: { url: PNG_DATA_URL } });
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AgentMediaResolverService upload recovery', () => {
+  function recoveryResolver(
+    files: Map<string, { name: string; bytes: Buffer }>,
+    blobs: IBlobStore = blobStore(),
+  ): () => AgentMediaResolverService {
+    return () =>
+      new AgentMediaResolverService(
+        fileService(files),
+        blobs,
+        telemetry,
+        new AgentStateService(),
+        stubMediaStore(),
+        stubDispatcher,
+        stubScopeContext,
+        localEnvironment,
+      );
+  }
+
+  it('replaces only confirmed failed image uploads and skips re-uploading them', async () => {
+    const ids = ['ready', 'status-error', 'extract-error'];
+    const files = new Map(ids.map((id) => [id, { name: `${id}.png`, bytes: PNG_BYTES }]));
+    const newResolver = recoveryResolver(files);
+    const service = newResolver();
+    const messages = [
+      ...ids.map((id) => imageMessage(buildKimiFileUrl(id))),
+      imageMessage('ms://no-local-origin'),
+    ];
+    const uploads: string[] = [];
+    const upload = mock(async (input: { filename?: string }): Promise<ImageURLPart> => {
+      const id = (input.filename ?? '').replace(/\.png$/, '');
+      uploads.push(id);
+      return msImagePart(id);
+    });
+    const checks: string[] = [];
+    const checkUploadFailed = async (id: string): Promise<boolean> => {
+      checks.push(id);
+      return id !== 'ready';
+    };
+    const req = requester({ uploadImage: upload, checkUploadFailed });
+
+    const resolved = await service.resolve(messages, req);
+    expect(resolved.map((message) => message.content[0])).toEqual([
+      msImagePart('ready'),
+      msImagePart('status-error'),
+      msImagePart('extract-error'),
+      { type: 'image_url', imageUrl: { url: 'ms://no-local-origin' } },
+    ]);
+    expect(uploads).toEqual(ids);
+
+    expect(await service.recoverFailedUploads(resolved, req)).toBe(true);
+    expect(checks.toSorted()).toEqual([...ids].toSorted());
+
+    const resent = await service.resolve(messages, req);
+    expect(firstPart(resent)).toEqual(msImagePart('ready'));
+    for (const index of [1, 2]) {
+      expect(resent[index]!.content[0]).toEqual({
+        type: 'image_url',
+        imageUrl: { url: PNG_DATA_URL },
+      });
+    }
+    expect(resent[3]!.content[0]).toEqual({
+      type: 'image_url',
+      imageUrl: { url: 'ms://no-local-origin' },
+    });
+    expect(uploads).toEqual(ids);
+
+    const uploadAgain = mock(async (): Promise<ImageURLPart> => msImagePart('unexpected'));
+    const persisted = await newResolver().resolve(
+      messages,
+      requester({ uploadImage: uploadAgain, checkUploadFailed }),
+    );
+    expect(firstPart(persisted)).toEqual(msImagePart('ready'));
+    expect(persisted[1]!.content[0]).toEqual({ type: 'image_url', imageUrl: { url: PNG_DATA_URL } });
+    expect(persisted[2]!.content[0]).toEqual({ type: 'image_url', imageUrl: { url: PNG_DATA_URL } });
+    expect(uploadAgain).not.toHaveBeenCalled();
+
+    const uploadOtherAccount = mock(
+      async (input: { filename?: string }): Promise<ImageURLPart> =>
+        msImagePart((input.filename ?? '').replace(/\.png$/, '')),
+    );
+    await newResolver().resolve(
+      messages,
+      requester({
+        uploadImage: uploadOtherAccount,
+        checkUploadFailed,
+        credentialProvider: createStaticCredentialProvider('ANOTHER_API_KEY'),
+      }),
+    );
+    expect(uploadOtherAccount).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps the upload cache when file checks are inconclusive', async () => {
+    const ids = ['pending', 'unauthorized', 'connection-failed'];
+    const files = new Map(ids.map((id) => [id, { name: `${id}.png`, bytes: PNG_BYTES }]));
+    const service = recoveryResolver(files)();
+    const messages = ids.map((id) => imageMessage(buildKimiFileUrl(id)));
+    const upload = mock(
+      async (input: { filename?: string }): Promise<ImageURLPart> =>
+        msImagePart((input.filename ?? '').replace(/\.png$/, '')),
+    );
+    const checks: string[] = [];
+    const checkUploadFailed = async (id: string): Promise<boolean> => {
+      checks.push(id);
+      if (id === 'unauthorized') throw Object.assign(new Error('unauthorized'), { status: 401 });
+      if (id === 'connection-failed') throw new TypeError('Network error');
+      return false;
+    };
+    const req = requester({ uploadImage: upload, checkUploadFailed });
+
+    const resolved = await service.resolve(messages, req);
+    expect(await service.recoverFailedUploads(resolved, req)).toBe(false);
+    expect(checks.toSorted()).toEqual([...ids].toSorted());
+
+    const again = await service.resolve(messages, req);
+    expect(again.map((message) => message.content[0])).toEqual(ids.map((id) => msImagePart(id)));
+    expect(upload).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not upload an image again after its upload response reports a definitive failure', async () => {
+    const files = new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]);
+    const newResolver = recoveryResolver(files);
+    const service = newResolver();
+    const upload = mock(async (): Promise<ImageURLPart> => {
+      throw new MediaUploadFailedError('Kimi file upload failed');
+    });
+    const req = requester({ uploadImage: upload });
+    const messages = [imageMessage(buildKimiFileUrl(FILE_ID))];
+
+    const first = await service.resolve(messages, req);
+    expect(firstPart(first)).toEqual({ type: 'image_url', imageUrl: { url: PNG_DATA_URL } });
+    await service.resolve(messages, req);
+    const persisted = await newResolver().resolve(messages, req);
+    expect(firstPart(persisted)).toEqual({ type: 'image_url', imageUrl: { url: PNG_DATA_URL } });
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers a failed uploaded video reference through the same mechanism', async () => {
+    const files = new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]);
+    const newResolver = recoveryResolver(files);
+    const service = newResolver();
+    const messages = [videoMessage(buildKimiFileUrl(FILE_ID))];
+    const upload = mock(async (): Promise<VideoURLPart> => msPart('video-1'));
+    const checks: string[] = [];
+    const checkUploadFailed = async (id: string): Promise<boolean> => {
+      checks.push(id);
+      return true;
+    };
+    const req = requester({ protocol: 'anthropic', uploadVideo: upload, checkUploadFailed });
+    const inlineVideo: VideoURLPart = {
+      type: 'video_url',
+      videoUrl: { url: `data:video/mp4;base64,${VIDEO_BYTES.toString('base64')}` },
+    };
+
+    const resolved = await service.resolve(messages, req);
+    expect(firstPart(resolved)).toEqual(msPart('video-1'));
+    expect(await service.recoverFailedUploads(resolved, req)).toBe(true);
+    expect(checks).toEqual(['video-1']);
+
+    const resent = await service.resolve(messages, req);
+    expect(firstPart(resent)).toEqual(inlineVideo);
+    expect(upload).toHaveBeenCalledTimes(1);
+
+    const persisted = await newResolver().resolve(
+      messages,
+      requester({
+        protocol: 'anthropic',
+        uploadVideo: mock(async (): Promise<VideoURLPart> => msPart('video-2')),
+        checkUploadFailed,
+      }),
+    );
+    expect(firstPart(persisted)).toEqual(inlineVideo);
     expect(upload).toHaveBeenCalledTimes(1);
   });
 });

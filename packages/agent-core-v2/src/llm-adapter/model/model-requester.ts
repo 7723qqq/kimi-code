@@ -91,6 +91,11 @@ export interface ModelRequester {
     input: ImageUploadInput,
     options?: { readonly signal?: AbortSignal },
   ): Promise<ImageURLPart>;
+
+  checkUploadFailed?(
+    id: string,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<boolean>;
 }
 
 export function effectiveMaxCompletionTokens(params?: ModelRequestParams): number | undefined {

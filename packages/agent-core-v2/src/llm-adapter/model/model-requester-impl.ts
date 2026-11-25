@@ -238,6 +238,18 @@ export class ModelRequesterImpl implements ModelRequester {
     return uploader(input, { model, signal: options?.signal });
   }
 
+  async checkUploadFailed(
+    id: string,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<boolean> {
+    const resolved = this.resolve();
+    const checker = resolved.media?.checkUploadFailed;
+    if (checker === undefined) return false;
+    const credential = await this.model.credentialProvider?.resolve();
+    const model = applyCredential(resolved.model, credential);
+    return checker(id, { model, signal: options?.signal });
+  }
+
   private async runRequest(
     input: ModelRequestInput,
     signal: AbortSignal | undefined,

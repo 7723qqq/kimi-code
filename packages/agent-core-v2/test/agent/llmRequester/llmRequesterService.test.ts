@@ -388,6 +388,7 @@ function createService(
     IAgentMediaResolverService,
     options.mediaResolver ?? {
       resolve: async (messages) => resolveOmittedMedia(messages),
+      recoverFailedUploads: async () => false,
     },
   );
   if (projector === undefined) {
@@ -1696,6 +1697,95 @@ describe('AgentLLMRequesterService media resolver wiring', () => {
 
     expect(resolve).toHaveBeenCalledTimes(1);
     expect(resolve.mock.calls[0]?.[1]).toBe(requester);
+  });
+});
+
+describe('AgentLLMRequesterService uploaded media recovery', () => {
+  const BLOB_400 = new APIStatusError(
+    400,
+    'Invalid request: failed to validate image_url content: blob ID file_abc does not exist',
+    false,
+  );
+
+  it('checks failed uploads and resends after the explicit blob rejection', async () => {
+    const calls = { value: 0 };
+    const requester = createRequester(calls, BLOB_400);
+    const resolvedMessages: Message[] = [
+      {
+        role: 'user',
+        content: [{ type: 'image_url', imageUrl: { url: 'ms://file_abc', id: 'file_abc' } }],
+        toolCalls: [],
+      },
+    ];
+    const resolve = mock(async (_messages: readonly Message[]) => resolvedMessages);
+    const recoverFailedUploads = mock(
+      async (_messages: readonly Message[], _requester: ModelRequester, _signal?: AbortSignal) =>
+        true,
+    );
+    const { service } = createService(requester, undefined, {
+      mediaResolver: { resolve, recoverFailedUploads },
+    });
+    const signal = new AbortController().signal;
+
+    const result = await service.request({}, undefined, signal);
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(calls.value).toBe(2);
+    expect(recoverFailedUploads).toHaveBeenCalledTimes(1);
+    expect(recoverFailedUploads.mock.calls[0]?.[0]).toBe(resolvedMessages);
+    expect(recoverFailedUploads.mock.calls[0]?.[1]).toBe(requester);
+    expect(recoverFailedUploads.mock.calls[0]?.[2]).toBe(signal);
+  });
+
+  it('treats the generic invalid-request 400 as an upload rejection', async () => {
+    const calls = { value: 0 };
+    const recoverFailedUploads = mock(
+      async (_messages: readonly Message[], _requester: ModelRequester, _signal?: AbortSignal) =>
+        true,
+    );
+    const { service } = createService(
+      createRequester(calls, new APIStatusError(400, 'Invalid request Error', false)),
+      undefined,
+      { mediaResolver: { resolve: async (messages) => messages, recoverFailedUploads } },
+    );
+
+    const result = await service.request();
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(calls.value).toBe(2);
+    expect(recoverFailedUploads).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an unrelated 400 untouched', async () => {
+    const calls = { value: 0 };
+    const recoverFailedUploads = mock(
+      async (_messages: readonly Message[], _requester: ModelRequester, _signal?: AbortSignal) =>
+        true,
+    );
+    const { service } = createService(
+      createRequester(calls, new APIStatusError(400, 'messages: bad parameter', false)),
+      undefined,
+      { mediaResolver: { resolve: async (messages) => messages, recoverFailedUploads } },
+    );
+
+    await expect(service.request()).rejects.toMatchObject({ statusCode: 400 });
+    expect(calls.value).toBe(1);
+    expect(recoverFailedUploads).not.toHaveBeenCalled();
+  });
+
+  it('keeps the original failure when no upload is confirmed failed', async () => {
+    const calls = { value: 0 };
+    const recoverFailedUploads = mock(
+      async (_messages: readonly Message[], _requester: ModelRequester, _signal?: AbortSignal) =>
+        false,
+    );
+    const { service } = createService(createRequester(calls, BLOB_400), undefined, {
+      mediaResolver: { resolve: async (messages) => messages, recoverFailedUploads },
+    });
+
+    await expect(service.request()).rejects.toMatchObject({ statusCode: 400 });
+    expect(calls.value).toBe(1);
+    expect(recoverFailedUploads).toHaveBeenCalledTimes(1);
   });
 });
 
